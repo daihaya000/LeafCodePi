@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronRight, Loader2, Menu, Plus, Settings, Trash2 } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
+import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
 import { cx, timeAgo, ThemeToggle } from "@/components/ui";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
@@ -242,6 +243,11 @@ export function Sidebar({
       </div>
 
       <div className="shrink-0 border-t border-border p-2 pb-[env(safe-area-inset-bottom)]">
+        {!collapsed && (
+          <div className="mb-2">
+            <SystemMonitorWidget />
+          </div>
+        )}
         {!collapsed && (
           <div className="mb-2 px-1">
             <AddProjectButton onAdded={() => void refresh()} className="w-full" />

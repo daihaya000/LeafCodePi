@@ -184,6 +184,13 @@ effort オプションがないモデルでは「思考なし」固定表示も�
 
 Composer のモデルドロップダウン各行にプロバイダアイコンと、画像入力対応モデルの Image アイコンを表示。
 
+## 2026-08-21: システムモニター（sysmon）
+
+本家 LeafCode の sysmon を移植。サイドバー下部に CPU / RAM / GPU・VRAM を表示。
+
+- `GET /api/sysmon/usage`（nvidia-smi + Windows AMD カウンター）
+- 5 秒ポーリング、折りたたみ・1/2 列・項目の表示切替を localStorage に保存
+
 ## 2026-08-21: llama-server モデル表示名
 
 表示名を `llama-server (Qwen…)` から GGUF 名のみ（例: `Qwen3.8-27B-Uncensored-GGUF`）に変更。
