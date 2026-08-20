@@ -10,7 +10,7 @@ import { PartView } from "@/components/task/PartView";
 import { Button } from "@/components/ui";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
-import type { ModelOption, TaskDetail, UiMessage } from "@/lib/types";
+import type { ModelOption, TaskDetail, TaskSummary, UiMessage } from "@/lib/types";
 
 export function TaskView({ taskId }: { taskId: string }) {
   const [task, setTask] = useState<TaskDetail | null>(null);
@@ -43,12 +43,15 @@ export function TaskView({ taskId }: { taskId: string }) {
       };
       const snapshotTask = payload.task;
       if (snapshotTask) {
-        setTask((current) => ({
-          ...(current ?? snapshotTask),
-          ...snapshotTask,
-          messages: payload.messages ?? snapshotTask.messages,
-          isStreaming: payload.isStreaming ?? snapshotTask.isStreaming,
-        }));
+        setTask((current) => {
+          const base = current ?? snapshotTask;
+          return {
+            ...base,
+            ...snapshotTask,
+            messages: payload.messages ?? base.messages ?? [],
+            isStreaming: payload.isStreaming ?? snapshotTask.isStreaming ?? base.isStreaming,
+          };
+        });
       }
       if (payload.messages) setMessages(payload.messages);
       if (payload.error) setError(payload.error);
@@ -195,7 +198,19 @@ export function TaskView({ taskId }: { taskId: string }) {
               options={models}
               disabled={working}
               onChange={(value) => {
-                void sendJson(`/api/tasks/${taskId}/model`, { model: value });
+                void (async () => {
+                  try {
+                    setError(null);
+                    const result = await sendJson<{ task: TaskSummary }>(
+                      `/api/tasks/${taskId}/model`,
+                      { model: value },
+                    );
+                    setTask((current) => (current ? { ...current, ...result.task } : current));
+                    notifyTasksChanged();
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "モデルの切替に失敗しました");
+                  }
+                })();
               }}
               className="max-w-[12rem]"
             />

@@ -83,3 +83,15 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 - API: `GET/PATCH /api/provider-models`, `PATCH .../order`, `PATCH .../[key]`
 - `/api/models` とヘルスの modelCount は有効なものだけ
 - デフォルトモデル / 価格 / アイコン / Auto は未移植
+
+## 2026-08-21: タスク画面のモデル切替が効かない不具合
+
+### 原因
+
+`TaskView` が `POST /api/tasks/:id/model` の結果をローカル state に反映していなかった。ドロップダウンは `task.providerID::modelID` の制御コンポーネントのため、選択直後に旧値へ戻って見えた。加えて SSE マージが `messages: undefined` で上書きしうる形だった。
+
+### 修正
+
+- レスポンスの `task` で state を更新
+- `setTaskModel` 後に SSE snapshot を送る
+- snapshot マージで既存 messages を保持

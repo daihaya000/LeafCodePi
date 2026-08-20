@@ -593,13 +593,23 @@ export async function abortTask(id: string): Promise<TaskSummary> {
 
 export async function setTaskModel(id: string, modelValueRaw: string): Promise<TaskSummary> {
   const live = await ensureLive(id);
+  const parsed = parseModelValue(modelValueRaw);
   const model = await resolveModel(modelValueRaw);
-  if (!model) throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+  if (!model || !parsed) throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
   await live.session.setModel(model);
-  const ids = modelId(model);
-  const task = patchTask(id, ids);
+  const ids = modelId(live.session.model ?? model);
+  const task = patchTask(id, {
+    providerID: ids.providerID ?? parsed.providerID,
+    modelID: ids.modelID ?? parsed.modelID,
+  });
   if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  return toSummary(task);
+  const summary = toSummary(task);
+  emit(id, {
+    type: "snapshot",
+    task: summary,
+    isStreaming: live.session.isStreaming,
+  });
+  return summary;
 }
 
 export function archiveTask(id: string): TaskSummary {
