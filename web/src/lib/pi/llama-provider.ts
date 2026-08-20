@@ -4,10 +4,11 @@ import { readSettingValue } from "@/lib/host-control";
 import {
   LLAMA_SERVER_SETTINGS_KEY,
   parseLlamaServerSettings,
+  type LlamaServerSettings,
 } from "@/lib/llama-server-settings";
 
-const LLAMA_SERVER_PROVIDER_ID = "llama-server";
-const DEFAULT_BASE = "http://127.0.0.1:8081";
+export const LLAMA_SERVER_PROVIDER_ID = "llama-server";
+export const DEFAULT_LLAMA_SERVER_BASE = "http://127.0.0.1:8081";
 
 type RuntimeLike = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -15,9 +16,109 @@ type RuntimeLike = {
   registerProvider: (id: string, config: Record<string, unknown>) => void;
 };
 
+type OpenAiModelRow = {
+  id: string;
+  name: string;
+  reasoning: boolean;
+  input: ("text" | "image")[];
+  contextWindow: number;
+  maxTokens: number;
+  cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  compat: {
+    supportsDeveloperRole: boolean;
+    supportsReasoningEffort: boolean;
+    supportsStore: boolean;
+  };
+};
+
 function modelIdFromFile(modelFile: string): string {
   const base = basename(modelFile.replace(/\\/g, "/"));
-  return base.toLowerCase().endsWith(".gguf") ? base.slice(0, -5) : base || "local";
+  return base.toLowerCase().endsWith(".gguf") ? base.slice(0, -5) : base;
+}
+
+function displayName(id: string): string {
+  const short = basename(id.replace(/\\/g, "/"));
+  return short.toLowerCase().endsWith(".gguf") ? short.slice(0, -5) : short || id;
+}
+
+/**
+ * Ask the running llama-server what model id(s) it accepts.
+ * Single-model mode returns the GGUF path (or --alias); inventing "local" causes 400.
+ */
+export async function fetchLlamaServerModelIds(
+  baseUrl = DEFAULT_LLAMA_SERVER_BASE,
+): Promise<string[]> {
+  const root = baseUrl.replace(/\/$/, "").replace(/\/v1$/i, "");
+  for (const path of ["/v1/models", "/models"]) {
+    try {
+      const res = await fetch(`${root}${path}`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!res.ok) continue;
+      const body = (await res.json()) as { data?: unknown };
+      if (!Array.isArray(body.data)) continue;
+      const ids = body.data
+        .map((row) => {
+          if (!row || typeof row !== "object") return null;
+          const id = (row as { id?: unknown }).id;
+          return typeof id === "string" && id.trim() ? id.trim() : null;
+        })
+        .filter((id): id is string => Boolean(id));
+      if (ids.length > 0) return ids;
+    } catch {
+      /* try next path / fall through */
+    }
+  }
+  return [];
+}
+
+function buildModelRows(ids: string[], contextWindow: number): OpenAiModelRow[] {
+  return ids.map((id) => ({
+    id,
+    name: `llama-server (${displayName(id)})`,
+    reasoning: false,
+    input: ["text"],
+    contextWindow,
+    maxTokens: Math.min(contextWindow, 32_768),
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    compat: {
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: false,
+      supportsStore: false,
+    },
+  }));
+}
+
+async function resolveModelRows(settings: LlamaServerSettings): Promise<OpenAiModelRow[]> {
+  const contextWindow = settings.contextLength;
+  const live = await fetchLlamaServerModelIds(DEFAULT_LLAMA_SERVER_BASE);
+  if (live.length > 0) return buildModelRows(live, contextWindow);
+  // Fallback guesses rarely match the server id (often a full path). Prefer empty
+  // until /v1/models responds so the UI does not offer a 400-causing stub like "local".
+  if (settings.modelFile.trim()) {
+    return buildModelRows([modelIdFromFile(settings.modelFile)], contextWindow);
+  }
+  return [];
+}
+
+function providerConfig(models: OpenAiModelRow[]) {
+  return {
+    name: "llama-server",
+    baseUrl: `${DEFAULT_LLAMA_SERVER_BASE}/v1`,
+    api: "openai-completions" as const,
+    apiKey: "local",
+    compat: {
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: false,
+      supportsStore: false,
+    },
+    models,
+    refreshModels: async () => {
+      const latest = parseLlamaServerSettings(readSettingValue(LLAMA_SERVER_SETTINGS_KEY));
+      return resolveModelRows(latest);
+    },
+  };
 }
 
 async function loadCreateLlamaProvider(): Promise<(() => { provider: unknown }) | null> {
@@ -42,13 +143,20 @@ async function loadCreateLlamaProvider(): Promise<(() => { provider: unknown }) 
   return null;
 }
 
+/** Re-read /v1/models and update the registered openai-compatible provider. */
+export async function syncLlamaServerProvider(runtime: RuntimeLike): Promise<void> {
+  const settings = parseLlamaServerSettings(readSettingValue(LLAMA_SERVER_SETTINGS_KEY));
+  const models = await resolveModelRows(settings);
+  runtime.registerProvider(LLAMA_SERVER_PROVIDER_ID, providerConfig(models));
+}
+
 /**
- * Register Pi's built-in llama.cpp (router) + a LeafCode-style single-model
- * openai-compatible `llama-server` provider from persisted settings.
+ * Register Pi's built-in llama.cpp (router) + OpenAI-compatible `llama-server`
+ * whose model ids come from the live `/v1/models` catalog.
  */
 export async function registerLlamaProviders(runtime: RuntimeLike): Promise<void> {
   if (!process.env.LLAMA_BASE_URL?.trim()) {
-    process.env.LLAMA_BASE_URL = DEFAULT_BASE;
+    process.env.LLAMA_BASE_URL = DEFAULT_LLAMA_SERVER_BASE;
   }
 
   const createLlama = await loadCreateLlamaProvider();
@@ -60,36 +168,5 @@ export async function registerLlamaProviders(runtime: RuntimeLike): Promise<void
     }
   }
 
-  const settings = parseLlamaServerSettings(readSettingValue(LLAMA_SERVER_SETTINGS_KEY));
-  const modelId = settings.modelFile ? modelIdFromFile(settings.modelFile) : "local";
-  const contextWindow = settings.contextLength;
-  runtime.registerProvider(LLAMA_SERVER_PROVIDER_ID, {
-    name: "llama-server",
-    baseUrl: `${DEFAULT_BASE}/v1`,
-    api: "openai-completions",
-    apiKey: "local",
-    compat: {
-      supportsDeveloperRole: false,
-      supportsReasoningEffort: false,
-      supportsStore: false,
-    },
-    models: [
-      {
-        id: modelId,
-        name: settings.modelFile ? `llama-server (${modelId})` : "llama-server (local)",
-        reasoning: false,
-        input: ["text"],
-        contextWindow,
-        maxTokens: Math.min(contextWindow, 32_768),
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        compat: {
-          supportsDeveloperRole: false,
-          supportsReasoningEffort: false,
-          supportsStore: false,
-        },
-      },
-    ],
-  });
+  await syncLlamaServerProvider(runtime);
 }
-
-export { LLAMA_SERVER_PROVIDER_ID };

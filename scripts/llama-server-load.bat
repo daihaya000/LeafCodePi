@@ -62,8 +62,10 @@ if not exist "%MODEL_PATH%" (
   echo [FAIL]   %MODEL_PATH%
   exit /b 2
 )
-echo [llama-server] Starting single-model ^(context %CONTEXT_LENGTH%, parallel %PARALLEL%^)...
-start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 -ub %UBATCH% --jinja --chat-template-kwargs "{\"reasoning_effort\":\"%REASONING_EFFORT%\"}" >> "%LLAMA_SERVER_LOG%" 2>&1"
+rem Stable OpenAI model id (basename without .gguf) so clients need not send the full path.
+for %%F in ("%MODEL_FILE%") do set "MODEL_ALIAS=%%~nF"
+echo [llama-server] Starting single-model ^(alias %MODEL_ALIAS%, context %CONTEXT_LENGTH%, parallel %PARALLEL%^)...
+start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 -ub %UBATCH% --jinja --chat-template-kwargs "{\"reasoning_effort\":\"%REASONING_EFFORT%\"}" >> "%LLAMA_SERVER_LOG%" 2>&1"
 goto :wait_health
 
 :router_mode

@@ -122,6 +122,10 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 - `registerProvider("llama-server")` — OpenAI 互換・単体モデル（設定の GGUF 名）
 - 設定: `%APPDATA%\leafcode-pi\settings\llama-server-config.json`
 
+### モデル ID
+
+スタブ `local` は使わない。`GET http://127.0.0.1:8081/v1/models` の id を `listModels` 時に同期する。単体起動 bat は `--alias <gguf名>` を付与。
+
 ### 注意
 
 クライアントの `LlamaServerSettings` は `node:fs` 付きの `host-control` を import しない（`loopback.ts` に分離）。Webpack の UnhandledSchemeError 防止。

@@ -31,7 +31,7 @@ import {
   setProviderModelDisabled,
   setProviderModelOrder,
 } from "@/lib/provider-model-state";
-import { registerLlamaProviders } from "@/lib/pi/llama-provider";
+import { registerLlamaProviders, syncLlamaServerProvider } from "@/lib/pi/llama-provider";
 import type {
   HealthDto,
   ModelOption,
@@ -327,6 +327,8 @@ export async function listModels(): Promise<ModelOption[]> {
   await ensureRuntime();
   const runtime = state().modelRuntime;
   if (!runtime) return [];
+  // Pick up the real GGUF id from a running llama-server (avoids stub "local").
+  await syncLlamaServerProvider(runtime).catch(() => {});
   const catalog = buildProviderModelsCatalog(runtime);
   const enabled = new Set(
     enabledModelOptionsFromCatalog(catalog).map((option) => option.value),
