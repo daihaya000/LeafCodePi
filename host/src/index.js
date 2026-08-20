@@ -1,12 +1,16 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import SysTrayImport from "systray2";
-import { bindHost, dataDir, DEFAULT_WEBUI_PORT, isHeadless, readPort, shouldOpenBrowser, webUiUrl } from "./config.js";
+import { bindHost, dataDir, DEFAULT_HOST_CONTROL_PORT, DEFAULT_LLAMA_SERVER_PORT, DEFAULT_WEBUI_PORT, isHeadless, readPort, shouldOpenBrowser, webUiUrl } from "./config.js";
 import { isThisModuleEntrypoint } from "./entry.js";
+import { createLlamaControlServer, closeControlServer, listenControlServer } from "./llama-control-server.js";
+import { createLlamaServerService } from "./llama-server-service.js";
 import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { createLogFileWriter, formatLogLine } from "./log-file.js";
+import { getListeningPids } from "./port-scanner.js";
+import { stopProcessTreeGracefully } from "./process-stop.js";
 import { withLocalLeafcodeTempEnv } from "./tray-temp.js";
 import {
   formatWebStatus,
@@ -41,8 +45,22 @@ const HOST_VERSION = (() => {
 const WEBUI_HOST = bindHost();
 const WEBUI_PORT = readPort(process.env.LEAFCODE_PI_PORT, DEFAULT_WEBUI_PORT);
 const WEBUI_URL = webUiUrl(WEBUI_HOST, WEBUI_PORT);
+const CONTROL_PORT = readPort(process.env.LEAFCODE_PI_HOST_CONTROL_PORT, DEFAULT_HOST_CONTROL_PORT);
+const LLAMA_SERVER_PORT = readPort(process.env.LEAFCODE_PI_LLAMA_PORT, DEFAULT_LLAMA_SERVER_PORT);
+const CONTROL_FILE = join(DATA_DIR, "host-control.json");
 const MAX_WEB_RESTARTS = 3;
 const MAX_TRAY_RESTARTS = 3;
+
+const llamaServerService = createLlamaServerService({
+  batPath: join(REPO_ROOT, "scripts", "llama-server-load.bat"),
+  port: LLAMA_SERVER_PORT,
+  getListeningPids,
+  stopProcessTreeGracefully,
+  trayScript: join(__dirname, "llama-server-tray.mjs"),
+});
+
+/** @type {import("node:http").Server | null} */
+let controlServer = null;
 
 const iconData = JSON.parse(readFileSync(join(__dirname, "icon.json"), "utf8"));
 const TRAY_ICON = iconData.base64;
@@ -432,10 +450,46 @@ function acquireLock() {
   }
 }
 
+async function startControlServer() {
+  if (controlServer) return;
+  const server = createLlamaControlServer({
+    controlPort: CONTROL_PORT,
+    onLlamaServerStatus: () => llamaServerService.status(),
+    onLlamaServerStart: (config) => llamaServerService.start(config),
+    onLlamaServerStop: () => llamaServerService.stop(),
+  });
+  try {
+    await listenControlServer(server, CONTROL_PORT);
+  } catch (err) {
+    throw new Error(
+      `Host control port ${CONTROL_PORT} is unavailable: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  controlServer = server;
+  mkdirSync(DATA_DIR, { recursive: true });
+  writeFileSync(
+    CONTROL_FILE,
+    `${JSON.stringify({ url: `http://127.0.0.1:${CONTROL_PORT}`, port: CONTROL_PORT }, null, 2)}\n`,
+    "utf8",
+  );
+  log(`Host control listening on http://127.0.0.1:${CONTROL_PORT}`);
+}
+
 async function quit() {
   if (quitting) return;
   quitting = true;
   log("Quitting...");
+  try {
+    await closeControlServer(controlServer);
+    controlServer = null;
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (existsSync(CONTROL_FILE)) unlinkSync(CONTROL_FILE);
+  } catch {
+    /* ignore */
+  }
   try {
     await stopWeb();
   } catch {
@@ -491,6 +545,12 @@ async function main() {
     removeLock(LOCK_FILE);
     error(err instanceof Error ? err.message : String(err));
     process.exit(1);
+  }
+
+  try {
+    await startControlServer();
+  } catch (err) {
+    error(err instanceof Error ? err.message : String(err));
   }
 
   const headless = isHeadless();

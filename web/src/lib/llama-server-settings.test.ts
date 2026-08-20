@@ -1,0 +1,127 @@
+import { describe, expect, it } from "vitest";
+import {
+  DEFAULT_LLAMA_SERVER_SETTINGS,
+  isLlamaServerSettings,
+  isSafeLlamaModelFile,
+  isSafeLlamaPathValue,
+  LLAMA_SERVER_EFFORTS,
+  parseLlamaServerSettings,
+  resolveLlamaServerBin,
+  serializeLlamaServerSettings,
+} from "@/lib/llama-server-settings";
+
+describe("llama-server-settings", () => {
+  it("exposes low/medium/xhigh as the only valid efforts", () => {
+    expect(LLAMA_SERVER_EFFORTS).toEqual(["low", "medium", "xhigh"]);
+  });
+
+  it("accepts a well-formed settings object", () => {
+    const valid = { effort: "medium", contextLength: 131072, parallel: 4 };
+    expect(isLlamaServerSettings(valid)).toBe(true);
+  });
+
+  it("rejects an effort outside the allowlist", () => {
+    expect(
+      isLlamaServerSettings({ effort: "high", contextLength: 131072, parallel: 1 }),
+    ).toBe(false);
+  });
+
+  it("rejects a non-integer contextLength", () => {
+    expect(
+      isLlamaServerSettings({ effort: "low", contextLength: 1.5, parallel: 1 }),
+    ).toBe(false);
+  });
+
+  it("rejects a parallel below 1 or above 16", () => {
+    expect(
+      isLlamaServerSettings({ effort: "low", contextLength: 4096, parallel: 0 }),
+    ).toBe(false);
+    expect(
+      isLlamaServerSettings({ effort: "low", contextLength: 4096, parallel: 17 }),
+    ).toBe(false);
+  });
+
+  it("returns defaults when the stored value is null", () => {
+    expect(parseLlamaServerSettings(null)).toEqual(DEFAULT_LLAMA_SERVER_SETTINGS);
+  });
+
+  it("returns defaults when the stored value is invalid JSON", () => {
+    expect(parseLlamaServerSettings("{bad")).toEqual(DEFAULT_LLAMA_SERVER_SETTINGS);
+  });
+
+  it("round-trips through serialize and parse", () => {
+    const settings = {
+      effort: "xhigh" as const,
+      contextLength: 262144,
+      parallel: 2,
+      llamaCppPath: "C:\\tools\\llama.cpp",
+      modelDir: "D:\\models\\llm",
+      modelFile: "repoA\\model-Q4_K_S.gguf",
+      llamaServerHost: "0.0.0.0" as const,
+    };
+    const raw = serializeLlamaServerSettings(settings);
+    expect(parseLlamaServerSettings(raw)).toEqual(settings);
+  });
+
+  it("fills path defaults for a config saved before the path fields existed", () => {
+    const legacy = JSON.stringify({ effort: "medium", contextLength: 131072, parallel: 2 });
+    expect(isLlamaServerSettings(JSON.parse(legacy))).toBe(true);
+    expect(parseLlamaServerSettings(legacy)).toEqual({
+      effort: "medium",
+      contextLength: 131072,
+      parallel: 2,
+      llamaCppPath: "",
+      modelDir: "",
+      modelFile: "",
+      llamaServerHost: "127.0.0.1",
+    });
+  });
+
+  it("rejects a path value cmd.exe could reinterpret", () => {
+    for (const bad of ['C:\\a" & calc & "', "C:\\a%PATH%", "C:\\a!b!", "C:\\a\r\nb", "C:\\a^b"]) {
+      expect(isSafeLlamaPathValue(bad)).toBe(false);
+    }
+    expect(isSafeLlamaPathValue("C:\\Users\\me\\models\\llm")).toBe(true);
+    expect(isSafeLlamaPathValue("")).toBe(true);
+    expect(isSafeLlamaPathValue(`C:\\${"a".repeat(400)}`)).toBe(false);
+  });
+
+  it("keeps modelFile relative, traversal-free and .gguf", () => {
+    expect(isSafeLlamaModelFile("repoA\\model.gguf")).toBe(true);
+    expect(isSafeLlamaModelFile("model.GGUF")).toBe(true);
+    expect(isSafeLlamaModelFile("")).toBe(true);
+    expect(isSafeLlamaModelFile("D:\\abs\\model.gguf")).toBe(false);
+    expect(isSafeLlamaModelFile("\\model.gguf")).toBe(false);
+    expect(isSafeLlamaModelFile("..\\..\\model.gguf")).toBe(false);
+    expect(isSafeLlamaModelFile("repoA\\model.bin")).toBe(false);
+  });
+
+  it("rejects a settings object carrying an unsafe path", () => {
+    const base = { effort: "low", contextLength: 4096, parallel: 1 };
+    expect(isLlamaServerSettings({ ...base, modelDir: 'C:\\a" & calc' })).toBe(false);
+    expect(isLlamaServerSettings({ ...base, modelFile: "..\\evil.gguf" })).toBe(false);
+    expect(isLlamaServerSettings({ ...base, llamaCppPath: "C:\\tools\\llama.cpp" })).toBe(true);
+  });
+
+  it("accepts only the known bind addresses", () => {
+    const base = { effort: "low", contextLength: 4096, parallel: 1 };
+    expect(isLlamaServerSettings({ ...base, llamaServerHost: "127.0.0.1" })).toBe(true);
+    expect(isLlamaServerSettings({ ...base, llamaServerHost: "0.0.0.0" })).toBe(true);
+    expect(isLlamaServerSettings({ ...base, llamaServerHost: "192.168.1.5" })).toBe(false);
+    expect(isLlamaServerSettings({ ...base, llamaServerHost: "evil;calc" })).toBe(false);
+    expect(isLlamaServerSettings({ ...base })).toBe(true);
+  });
+
+  it("appends llama-server.exe only when the install path is a folder", () => {
+    expect(resolveLlamaServerBin("C:\\tools\\llama.cpp")).toBe(
+      "C:\\tools\\llama.cpp\\llama-server.exe",
+    );
+    expect(resolveLlamaServerBin("C:\\tools\\llama.cpp\\")).toBe(
+      "C:\\tools\\llama.cpp\\llama-server.exe",
+    );
+    expect(resolveLlamaServerBin("C:\\tools\\llama.cpp\\llama-server.exe")).toBe(
+      "C:\\tools\\llama.cpp\\llama-server.exe",
+    );
+    expect(resolveLlamaServerBin("  ")).toBe("");
+  });
+});

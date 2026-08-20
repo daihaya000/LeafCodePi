@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { ProviderAuthPanel } from "@/components/settings/ProviderAuthPanel";
 import { ProviderModelsPanel } from "@/components/settings/ProviderModelsPanel";
+import { LlamaServerSettings } from "@/components/settings/LlamaServerSettings";
 import { Badge, Button, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import type { HealthDto, ModelOption, ProviderAuthDto } from "@/lib/types";
@@ -89,6 +90,8 @@ export function SettingsView() {
                 <ProviderAuthPanel providers={providers} onChanged={reload} />
               </div>
 
+              <LlamaServerSettings />
+
               <div className="rounded-2xl border border-border bg-surface p-4">
                 <h2 className="mb-2 text-sm font-semibold">利用可能なモデル（有効のみ）</h2>
                 <ul className="max-h-80 space-y-1 overflow-y-auto">
@@ -114,7 +117,8 @@ export function SettingsView() {
             <section className="rounded-2xl border border-border bg-surface p-4 text-sm text-muted">
               <p>テーマはサイドバー右下のアイコンから切り替えます（ライト / ダーク / システム）。</p>
               <p className="mt-2">
-                モデルの有効・無効と並び替えは「モデル」タブです。Claude Pro/Max と ChatGPT Plus/Pro のログインは「エンジン」タブです。
+                モデルの有効・無効と並び替えは「モデル」タブです。Claude Pro/Max・ChatGPT Plus/Pro・llama.cpp
+                のログインは「エンジン」タブです。ローカル LLM は同タブの llama-server から起動できます。
               </p>
               <Button className="mt-4" onClick={() => window.location.reload()}>
                 再読み込み

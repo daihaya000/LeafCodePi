@@ -105,3 +105,19 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 - 未検出時は `127.0.0.1` にフォールバック（ログで案内）
 - ブラウザ / ヘルス URL は `publicHost`（`0.0.0.0` は使わない）
 - ローカルのみ: `LEAFCODE_PI_HOST=127.0.0.1` / 全 IF: `0.0.0.0`
+
+## 2026-08-21: llama.cpp (llama-server) 対応
+
+本家 LeafCode の起動制御を移植し、Pi の推論プロバイダーも配線した。
+
+### ホスト
+
+- `scripts/llama-server-load.bat` — ポート **8080**。`MODEL_FILE` あり → `-m` 単体、空 → `--models-dir` ルーター
+- `host/src/llama-server-service.js` + トレイ + 制御プレーン **:18775**（`host-control.json`）
+- WebUI「エンジン」タブに起動・停止・パス設定
+
+### Pi 側
+
+- `registerNativeProvider(createLlamaProvider())` — ID `llama.cpp`（ルーター）
+- `registerProvider("llama-server")` — OpenAI 互換・単体モデル（設定の GGUF 名）
+- 設定: `%APPDATA%\leafcode-pi\settings\llama-server-config.json`

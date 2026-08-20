@@ -7,9 +7,18 @@
 - サイドバー: プロジェクト / タスク一覧、折りたたみ、テーマ切替
 - ホーム: プロジェクト選択 + composer + モデル / 思考レベル
 - タスク: タイムライン（テキスト・思考・ツールカード）+ SSE ストリーミング + 停止
-- 設定: Pi のヘルス、**Claude Pro/Max / ChatGPT Plus/Pro のサブスクログイン**、プロバイダー認証、利用可能モデル
+- 設定: Pi のヘルス、**Claude Pro/Max / ChatGPT Plus/Pro のサブスクログイン**、**llama-server 起動**、プロバイダー認証、利用可能モデル
 - プロジェクト追加: パス入力 / フォルダ一覧 / Windows ネイティブ参照
 - モデルタブ: 認証済みプロバイダー / モデルの有効・無効とドラッグ並び替え
+
+## ローカル LLM（llama.cpp / llama-server）
+
+`start.bat` 起動後、設定 → エンジン → 「ローカル LLM (llama-server)」から起動・停止できます。
+
+- ポート **8080**（Pi 既定）。LeafCode の llama-server（8081）とは別。
+- `MODEL_FILE` 未指定 → ルーター（`--models-dir`）。Pi の `llama.cpp` ログイン向け。
+- `MODEL_FILE` 指定 → 単体 GGUF（`-m`）。プロバイダー ID `llama-server`。
+- バイナリ既定: `C:\tools\llama.cpp\llama-server.exe`
 
 ## サブスクリプション認証
 
@@ -92,6 +101,9 @@ npm run dev
 | `LEAFCODE_PI_DATA_DIR` | ストアと host.lock / host.log の保存先（未設定時は `%APPDATA%\leafcode-pi`） |
 | `LEAFCODE_PI_PORT` | WebUI ポート（既定 **3010**。LeafCode の 3000 と衝突しない） |
 | `LEAFCODE_PI_HOST` | WebUI 待ち受け。既定 `tailscale`（Tailscale IPv4。未検出時は 127.0.0.1）。`0.0.0.0` / 明示 IP も可 |
+| `LEAFCODE_PI_HOST_CONTROL_PORT` | ホスト制御（llama-server 起動など）。既定 **18775**（LeafCode の 18765 と別） |
+| `LEAFCODE_PI_LLAMA_PORT` | llama-server ポート。既定 **8080**（Pi の `LLAMA_BASE_URL` と一致） |
+| `LLAMA_BASE_URL` / `LLAMA_API_KEY` | Pi の llama.cpp プロバイダー用（未設定時は `http://127.0.0.1:8080`） |
 | `LEAFCODE_PI_MODE` | `prod`（既定・start.bat）または `dev` |
 | `LEAFCODE_PI_HEADLESS` | `1` でトレイなし |
 | `LEAFCODE_PI_NO_BROWSER` | `1` で起動時にブラウザを開かない |

@@ -35,7 +35,7 @@ export async function getJson<T>(path: string, params?: Record<string, string | 
 export async function sendJson<T>(
   path: string,
   body: unknown,
-  method: "POST" | "PATCH" | "DELETE" = "POST",
+  method: "POST" | "PATCH" | "PUT" | "DELETE" = "POST",
 ): Promise<T> {
   const res = await fetch(apiUrl(path), {
     method,

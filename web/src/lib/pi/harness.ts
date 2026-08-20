@@ -31,6 +31,7 @@ import {
   setProviderModelDisabled,
   setProviderModelOrder,
 } from "@/lib/provider-model-state";
+import { registerLlamaProviders } from "@/lib/pi/llama-provider";
 import type {
   HealthDto,
   ModelOption,
@@ -124,6 +125,7 @@ async function ensureRuntime(): Promise<void> {
           allowModelNetwork: true,
           modelRefreshTimeoutMs: 8_000,
         });
+        await registerLlamaProviders(current.modelRuntime);
         current.initError = null;
       } catch (error) {
         current.initError = error instanceof Error ? error.message : String(error);
