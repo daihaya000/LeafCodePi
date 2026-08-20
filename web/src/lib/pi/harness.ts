@@ -37,6 +37,7 @@ import { registerCursorProvider } from "@/lib/pi/cursor-provider";
 import { registerCommandCodeProvider } from "@/lib/pi/commandcode-provider";
 import { registerOllamaCloudProvider, syncOllamaCloudProvider } from "@/lib/pi/ollama-cloud-provider";
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
+import { filterSkillsByState } from "@/lib/skills";
 import {
   clampThinkingLevelForModel,
   isThinkingLevel,
@@ -466,14 +467,28 @@ async function createSession(options: {
 }): Promise<AgentSession> {
   const pi = await loadPi();
   await ensureRuntime();
+  const agentDir = pi.getAgentDir();
   const sessionManager = options.sessionFile
     ? pi.SessionManager.open(options.sessionFile)
     : pi.SessionManager.create(options.cwd);
+  // Filter disabled skills via state file (skills-state.json), not folder moves.
+  // skillsOverride re-reads state on every resourceLoader.reload() / session.reload().
+  const resourceLoader = new pi.DefaultResourceLoader({
+    cwd: options.cwd,
+    agentDir,
+    skillsOverride: (base) => ({
+      skills: filterSkillsByState(base.skills),
+      diagnostics: base.diagnostics,
+    }),
+  });
+  await resourceLoader.reload();
   const result = await pi.createAgentSession({
     cwd: options.cwd,
+    agentDir,
     model: options.model,
     thinkingLevel: options.thinkingLevel,
     sessionManager,
+    resourceLoader,
     modelRuntime: state().modelRuntime ?? undefined,
     tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
   });

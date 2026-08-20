@@ -327,6 +327,15 @@ CodexBarWin の cookie スクレイパーを LeafCodePi に移植。**実行時�
 - タスクタイムラインのアシスタント行に `N tok` と `X tok/s` を表示（ホバーで decode / e2e の別）
 - Pi セッションに `custom` エントリ `leafcode-pi.throughput` として永続化（再起動・再オープン後も復元）。LLM コンテキストには乗らない
 
+## 2026-08-21: Skills 設定（ON/OFF）
+
+設定 → 一般からグローバルスキルを有効／無効にできる（フォルダ移動なし）。
+
+- 発見: Pi の `loadSkillsFromDir` で `~/.pi/agent/skills` を走査
+- 無効化: `%APPDATA%/leafcode-pi/skills-state.json`（`disabled: { name: true }`）。モデル無効化と同じパターン
+- 実行時: `createSession` が `DefaultResourceLoader.skillsOverride` で無効名を除外。`session.reload()` 時も状態を再読込
+- `GET /api/skills` / `PATCH /api/skills/:name`（`{ enabled }`）→ 切替後 `reloadLiveSessionsContext()`
+
 ## 2026-08-21: Command Code プロバイダ（Go プラン対応）
 
 `pi-commandcode-provider`（[patlux/pi-commandcode-provider](https://github.com/patlux/pi-commandcode-provider)）を Cursor と同様に BFF へ配線。
