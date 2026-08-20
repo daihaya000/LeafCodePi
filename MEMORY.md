@@ -244,8 +244,10 @@ Pi `session.compact()` / 自動圧縮設定に対応。
 ### 実装
 
 - `web/src/lib/codexbar/` — types / export / cache(~5分) / orchestrator / providers
-- `GET /api/codexbar/usage` — ネイティブ並列取得（`?refresh=1` でキャッシュ無視）
-- ウィジェットは既存のまま。ポーリング ~60 秒
+- `GET /api/codexbar/usage` — ネイティブ並列取得（`?refresh=1` で集約キャッシュ無視。429 バックオフは維持）
+- ウィジェット ポーリング ~5 分（CodexBarWin 既定と同じ）。タブ復帰は 4 分未満なら再取得しない
+- プロバイダ別キャッシュ + Claude 429 は 15 分バックオフ（直近成功値を stale 表示）
+- 同時リクエストは in-flight 共有（Strict Mode 二重起動対策）
 - CodexBarWin は **不要**（起動必須ではない）
 
 ### v1 対応プロバイダー

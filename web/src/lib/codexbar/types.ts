@@ -49,8 +49,19 @@ export interface IUsageProvider {
 }
 
 export class ProviderError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
+  /** e.g. `rate_limit` — orchestrator backs off without re-hitting the API. */
+  readonly code: string | null;
+
+  constructor(
+    message: string,
+    options?: { cause?: unknown; code?: string | null },
+  ) {
     super(message, options);
     this.name = "ProviderError";
+    this.code = options?.code ?? null;
+  }
+
+  get isRateLimit(): boolean {
+    return this.code === "rate_limit";
   }
 }

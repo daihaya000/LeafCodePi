@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { dirname } from "node:path";
 import { clearCachedUsage } from "@/lib/codexbar/cache";
+import { clearProviderCache } from "@/lib/codexbar/provider-cache";
 import { codexBarConfigPath } from "@/lib/codexbar/codexbar-config";
 import {
   catalog,
@@ -153,6 +154,7 @@ export async function PUT(request: Request) {
     const updated = { ...current.config, enabledProviders: enabled };
     await writeConfig(updated);
     clearCachedUsage();
+    clearProviderCache();
     const text = `${JSON.stringify(updated, null, 2)}\n`;
     return json({ providers: catalog(enabled), version: versionOf(text) });
   } catch (error) {

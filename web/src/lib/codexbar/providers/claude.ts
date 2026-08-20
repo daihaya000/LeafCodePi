@@ -337,6 +337,7 @@ async function fetchFromApi(
   if (status === 429) {
     throw new ProviderError(
       "Claude の usage API がレート制限中です。数分後に再試行してください。",
+      { code: "rate_limit" },
     );
   }
   if (!ok) throw new ProviderError(`Claude API エラー ${status}。`);

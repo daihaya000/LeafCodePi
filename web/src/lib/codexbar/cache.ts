@@ -30,6 +30,11 @@ export function clearCachedUsage(): void {
   entry = null;
 }
 
+/** Soft clear: keep entry but mark expired so next non-force read refetches. */
+export function invalidateCachedUsage(): void {
+  if (entry) entry = { ...entry, storedAt: 0 };
+}
+
 export function cacheTtlMs(): number {
   return TTL_MS;
 }
