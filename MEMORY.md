@@ -339,6 +339,16 @@ CodexBarWin の cookie スクレイパーを LeafCodePi に移植。**実行時�
 
 LeafCodePi の harness は現状、製品名を system prompt に埋め込んでいない。グローバル `AGENTS.md` が無い状態でもモデルが UI／製品名から「LeafCodePi」と名乗ることはある。
 
+## 2026-08-21: UI 応答性・パフォーマンス
+
+ストリーミング中の固さを軽減:
+
+- harness: `message_update` の SSE スナップショットを 100ms に間引き（他イベントは即時）
+- TaskView: メッセージ参照を `stabilizeUiMessages` で再利用 + `PartView`/`MarkdownBody` を memo。SSE 更新は `startTransition`。サイドバー通知は status/title 変化時のみ（`notifyTasksChanged` も 400ms debounce）
+- Sidebar: desktop/mobile の二重 body をやめ md 判定で単一マウント（CodexBar/sysmon の二重ポーリング解消）。タスク一覧ポーリングは idle 12s / working 4s
+- ProviderModels: トグルを楽観更新（全画面 loading に戻さない）
+- `optimizePackageImports: ["lucide-react"]`、sysmon ポーリング 8s
+
 ## 2026-08-21: Skills 設定（ON/OFF）
 
 設定 → 一般からグローバルスキルを有効／無効にできる（フォルダ移動なし）。

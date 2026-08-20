@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronRight, Loader2, Menu, Plus, Settings, Trash2 } from "lucide-react";
@@ -19,6 +19,8 @@ const DEFAULT_WIDTH = 240;
 const COLLAPSED_WIDTH = 80;
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 480;
+const POLL_IDLE_MS = 12_000;
+const POLL_WORKING_MS = 4_000;
 
 const PROJECT_ICON_TONES = [
   "border-danger/30 bg-danger-bg text-danger",
@@ -39,6 +41,20 @@ function projectIconTone(projectId: string): string {
   return PROJECT_ICON_TONES[hash % PROJECT_ICON_TONES.length]!;
 }
 
+function subscribeMdUp(onChange: () => void) {
+  const mq = window.matchMedia("(min-width: 768px)");
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+}
+
+function useIsMdUp(): boolean {
+  return useSyncExternalStore(
+    subscribeMdUp,
+    () => window.matchMedia("(min-width: 768px)").matches,
+    () => true,
+  );
+}
+
 export function Sidebar({
   mobileOpen,
   onClose,
@@ -48,6 +64,7 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const mdUp = useIsMdUp();
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [health, setHealth] = useState<HealthDto | null>(null);
@@ -66,6 +83,11 @@ export function Sidebar({
     if (healthRes.status === "fulfilled") setHealth(healthRes.value);
   }, []);
 
+  const hasWorking = useMemo(
+    () => tasks.some((task) => task.status === "working"),
+    [tasks],
+  );
+
   useEffect(() => {
     try {
       const storedWidth = Number(localStorage.getItem(WIDTH_KEY));
@@ -79,12 +101,18 @@ export function Sidebar({
     void refresh();
     const onChange = () => void refresh();
     window.addEventListener("webui:tasks-changed", onChange);
-    const timer = setInterval(() => void refresh(), 4000);
     return () => {
       window.removeEventListener("webui:tasks-changed", onChange);
-      clearInterval(timer);
     };
   }, [refresh]);
+
+  useEffect(() => {
+    const intervalMs = hasWorking ? POLL_WORKING_MS : POLL_IDLE_MS;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, intervalMs);
+    return () => clearInterval(timer);
+  }, [refresh, hasWorking]);
 
   const activeTaskId = pathname.startsWith("/task/") ? pathname.slice("/task/".length) : null;
   const tasksByProject = useMemo(() => {
@@ -335,7 +363,7 @@ export function Sidebar({
 
   return (
     <>
-      {mobileOpen && (
+      {mobileOpen && !mdUp && (
         <button
           type="button"
           aria-label="メニューを閉じる"
@@ -346,14 +374,12 @@ export function Sidebar({
       <aside
         className={cx(
           "z-50 flex h-full shrink-0 flex-col border-r border-border bg-surface",
-          "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:w-[min(20rem,85vw)] max-md:transition-transform",
-          mobileOpen ? "max-md:translate-x-0" : "max-md:-translate-x-full",
           "relative hidden md:flex",
         )}
         style={{ width: collapsed ? COLLAPSED_WIDTH : width }}
       >
-        {collapsed ? collapsedRail : body}
-        {!collapsed && (
+        {mdUp ? (collapsed ? collapsedRail : body) : null}
+        {mdUp && !collapsed && (
           <div
             role="separator"
             aria-orientation="vertical"
@@ -376,14 +402,11 @@ export function Sidebar({
           />
         )}
       </aside>
-      <aside
-        className={cx(
-          "fixed inset-y-0 left-0 z-50 w-[min(20rem,85vw)] border-r border-border bg-surface md:hidden",
-          mobileOpen ? "translate-x-0" : "-translate-x-full",
-        )}
-      >
-        {body}
-      </aside>
+      {!mdUp && mobileOpen && (
+        <aside className="fixed inset-y-0 left-0 z-50 w-[min(20rem,85vw)] border-r border-border bg-surface md:hidden">
+          {body}
+        </aside>
+      )}
     </>
   );
 }

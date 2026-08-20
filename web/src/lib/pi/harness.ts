@@ -78,6 +78,10 @@ export type PromptImage = {
   data: string;
 };
 
+/** High-frequency stream events — coalesce snapshot SSE instead of emitting every token. */
+const THROTTLED_SNAPSHOT_EVENTS = new Set(["message_update"]);
+const SNAPSHOT_THROTTLE_MS = 100;
+
 type LiveRuntime = {
   taskId: string;
   session: AgentSession;
@@ -87,6 +91,9 @@ type LiveRuntime = {
   throughputByStartedAt: Map<number, ThroughputTiming>;
   /** startedAtMs values already written to the Pi session file. */
   persistedThroughputKeys: Set<number>;
+  /** Coalesce message_update snapshots onto the event loop. */
+  snapshotTimer: ReturnType<typeof setTimeout> | null;
+  pendingSnapshotEventType: string | null;
 };
 
 type HarnessState = {
@@ -376,6 +383,46 @@ function emit(taskId: string, payload: { type: string; [key: string]: unknown })
   state().events.emit("*", { taskId, ...payload });
 }
 
+function emitTaskSnapshot(
+  live: LiveRuntime,
+  eventType: string,
+  extra?: Record<string, unknown>,
+): void {
+  const task = getTask(live.taskId);
+  if (!task) return;
+  emit(live.taskId, {
+    type: "snapshot",
+    task: toSummary(task),
+    ...sessionSnapshotFields(live.session, live.throughputByStartedAt),
+    eventType,
+    ...extra,
+  });
+}
+
+function scheduleTaskSnapshot(
+  live: LiveRuntime,
+  eventType: string,
+  extra?: Record<string, unknown>,
+): void {
+  if (!THROTTLED_SNAPSHOT_EVENTS.has(eventType)) {
+    if (live.snapshotTimer) {
+      clearTimeout(live.snapshotTimer);
+      live.snapshotTimer = null;
+      live.pendingSnapshotEventType = null;
+    }
+    emitTaskSnapshot(live, eventType, extra);
+    return;
+  }
+  live.pendingSnapshotEventType = eventType;
+  if (live.snapshotTimer) return;
+  live.snapshotTimer = setTimeout(() => {
+    live.snapshotTimer = null;
+    const pendingType = live.pendingSnapshotEventType ?? eventType;
+    live.pendingSnapshotEventType = null;
+    emitTaskSnapshot(live, pendingType);
+  }, SNAPSHOT_THROTTLE_MS);
+}
+
 function mapCompactionError(error: unknown): Error {
   const message = error instanceof Error ? error.message : String(error);
   if (/Nothing to compact/i.test(message)) {
@@ -405,6 +452,10 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
     ? null
     : loadThroughputFromSession(session);
 
+  if (existing?.snapshotTimer) {
+    clearTimeout(existing.snapshotTimer);
+  }
+
   const live: LiveRuntime = {
     taskId,
     session,
@@ -413,6 +464,8 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
     throughputByStartedAt: existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
     persistedThroughputKeys:
       existing?.persistedThroughputKeys ?? loaded?.persistedKeys ?? new Set(),
+    snapshotTimer: null,
+    pendingSnapshotEventType: null,
   };
 
   const unsubscribe = session.subscribe((event) => {
@@ -443,18 +496,22 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
         sessionFile: session.sessionFile,
       });
     }
-    emit(taskId, {
-      type: "snapshot",
-      task: toSummary(getTask(taskId) ?? task),
-      ...sessionSnapshotFields(session, live.throughputByStartedAt),
-      eventType: event.type,
-      ...(event.type === "compaction_end" && event.errorMessage
+    scheduleTaskSnapshot(
+      live,
+      event.type,
+      event.type === "compaction_end" && event.errorMessage
         ? { error: event.errorMessage }
-        : {}),
-    });
+        : undefined,
+    );
   });
 
-  live.unsubscribe = unsubscribe;
+  live.unsubscribe = () => {
+    if (live.snapshotTimer) {
+      clearTimeout(live.snapshotTimer);
+      live.snapshotTimer = null;
+    }
+    unsubscribe();
+  };
   current.live.set(taskId, live);
   return live;
 }

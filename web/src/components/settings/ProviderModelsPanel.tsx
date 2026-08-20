@@ -210,9 +210,11 @@ export function ProviderModelsPanel() {
     };
   }, []);
 
-  const load = useCallback(async () => {
-    setStatus("loading");
-    setError(null);
+  const load = useCallback(async (opts?: { quiet?: boolean }) => {
+    if (!opts?.quiet) {
+      setStatus("loading");
+      setError(null);
+    }
     try {
       const data = await getJson<{ providers: ProviderModelsRow[] }>("/api/provider-models");
       if (!mountedRef.current) return;
@@ -233,13 +235,33 @@ export function ProviderModelsPanel() {
     async (key: string, enabled: boolean) => {
       setBusyId(key);
       setActionError(null);
+      setProviders((prev) =>
+        prev.map((provider) => {
+          if (provider.id === key) {
+            return {
+              ...provider,
+              enabled,
+              models: provider.models.map((model) => ({ ...model, enabled })),
+            };
+          }
+          if (!key.startsWith(`${provider.id}::`)) return provider;
+          const modelId = key.slice(provider.id.length + 2);
+          return {
+            ...provider,
+            models: provider.models.map((model) =>
+              model.id === modelId ? { ...model, enabled } : model,
+            ),
+          };
+        }),
+      );
       try {
         await sendJson(`/api/provider-models/${encodeURIComponent(key)}`, { enabled }, "PATCH");
         if (!mountedRef.current) return;
-        await load();
+        await load({ quiet: true });
       } catch (err) {
         if (mountedRef.current) {
           setActionError(err instanceof ApiError ? err.message : String(err));
+          await load({ quiet: true });
         }
       } finally {
         if (mountedRef.current) setBusyId(null);

@@ -4,6 +4,9 @@ import { join } from "node:path";
 const nextConfig: NextConfig = {
   distDir: ".next",
   outputFileTracingRoot: join(__dirname),
+  experimental: {
+    optimizePackageImports: ["lucide-react"],
+  },
   serverExternalPackages: [
     "@earendil-works/pi-coding-agent",
     "@earendil-works/pi-ai",

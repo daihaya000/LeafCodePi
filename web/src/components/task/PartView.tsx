@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChevronRight } from "lucide-react";
@@ -10,13 +10,13 @@ import { formatTokens } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
 import type { UiMessage, UiPart } from "@/lib/types";
 
-function MarkdownBody({ text }: { text: string }) {
+const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
   return (
     <div className="md text-sm">
       <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
     </div>
   );
-}
+});
 
 function ToolCard({ part }: { part: Extract<UiPart, { type: "tool" }> }) {
   const [open, setOpen] = useState(part.state.status !== "completed");
@@ -75,7 +75,7 @@ function CompactionNotice({ message }: { message: UiMessage }) {
   );
 }
 
-export function PartView({ message }: { message: UiMessage }) {
+export const PartView = memo(function PartView({ message }: { message: UiMessage }) {
   if (message.role === "compaction") {
     return <CompactionNotice message={message} />;
   }
@@ -153,4 +153,4 @@ export function PartView({ message }: { message: UiMessage }) {
       </div>
     </article>
   );
-}
+}, (prev, next) => prev.message === next.message);

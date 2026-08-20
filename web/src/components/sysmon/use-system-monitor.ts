@@ -5,7 +5,7 @@ import { getJson } from "@/lib/client";
 import type { SystemUsage } from "@/lib/sysmon";
 
 /** Poll while the tab is visible. */
-const POLL_MS = 5_000;
+const POLL_MS = 8_000;
 
 export function useSystemMonitor() {
   const [usage, setUsage] = useState<SystemUsage | null>(null);

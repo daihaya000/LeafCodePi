@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Shrink, Square } from "lucide-react";
 import { Composer, type ComposerAttachment } from "@/components/Composer";
 import { ModelSelect } from "@/components/ModelSelect";
@@ -13,6 +13,7 @@ import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { isNearBottom, nextStickState } from "@/lib/scroll-stick";
+import { stabilizeUiMessages } from "@/lib/stabilize-messages";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import type { ModelOption, TaskDetail, TaskSummary, ThinkingLevel, UiMessage } from "@/lib/types";
 
@@ -70,16 +71,27 @@ export function TaskView({ taskId }: { taskId: string }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const lastScrollTopRef = useRef(0);
+  const scrollRafRef = useRef<number | null>(null);
+  const sidebarNotifyKeyRef = useRef("");
 
   const applyDetail = useCallback((detail: TaskDetail) => {
     setTask(detail);
-    setMessages(detail.messages);
+    setMessages((prev) => stabilizeUiMessages(prev, detail.messages));
     setContextUsage(detail.contextUsage);
     setIsCompacting(Boolean(detail.isCompacting));
   }, []);
 
+  const notifySidebarIfNeeded = useCallback((snapshotTask?: TaskSummary | TaskDetail | null) => {
+    if (!snapshotTask) return;
+    const key = `${snapshotTask.id}|${snapshotTask.status}|${snapshotTask.title}`;
+    if (key === sidebarNotifyKeyRef.current) return;
+    sidebarNotifyKeyRef.current = key;
+    notifyTasksChanged();
+  }, []);
+
   useEffect(() => {
     let closed = false;
+    sidebarNotifyKeyRef.current = "";
     const source = new EventSource(`/api/tasks/${taskId}/events`);
     source.addEventListener("snapshot", (event) => {
       if (closed) return;
@@ -92,24 +104,28 @@ export function TaskView({ taskId }: { taskId: string }) {
         error?: string;
       };
       const snapshotTask = payload.task;
-      if (snapshotTask) {
-        setTask((current) => {
-          const base = current ?? snapshotTask;
-          return {
-            ...base,
-            ...snapshotTask,
-            messages: payload.messages ?? base.messages ?? [],
-            isStreaming: payload.isStreaming ?? snapshotTask.isStreaming ?? base.isStreaming,
-            isCompacting: payload.isCompacting ?? snapshotTask.isCompacting ?? base.isCompacting,
-            contextUsage: payload.contextUsage ?? snapshotTask.contextUsage ?? base.contextUsage,
-          };
-        });
-      }
-      if (payload.messages) setMessages(payload.messages);
-      if ("contextUsage" in payload) setContextUsage(payload.contextUsage);
-      if ("isCompacting" in payload) setIsCompacting(Boolean(payload.isCompacting));
+      startTransition(() => {
+        if (snapshotTask) {
+          setTask((current) => {
+            const base = current ?? snapshotTask;
+            return {
+              ...base,
+              ...snapshotTask,
+              messages: payload.messages ?? base.messages ?? [],
+              isStreaming: payload.isStreaming ?? snapshotTask.isStreaming ?? base.isStreaming,
+              isCompacting: payload.isCompacting ?? snapshotTask.isCompacting ?? base.isCompacting,
+              contextUsage: payload.contextUsage ?? snapshotTask.contextUsage ?? base.contextUsage,
+            };
+          });
+        }
+        if (payload.messages) {
+          setMessages((prev) => stabilizeUiMessages(prev, payload.messages!));
+        }
+        if ("contextUsage" in payload) setContextUsage(payload.contextUsage);
+        if ("isCompacting" in payload) setIsCompacting(Boolean(payload.isCompacting));
+      });
       if (payload.error) setError(payload.error);
-      notifyTasksChanged();
+      notifySidebarIfNeeded(snapshotTask);
     });
     source.addEventListener("error", () => {
       if (!closed) setError((current) => current ?? "イベント接続に失敗しました");
@@ -123,12 +139,27 @@ export function TaskView({ taskId }: { taskId: string }) {
     return () => {
       closed = true;
       source.close();
+      if (scrollRafRef.current != null) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
     };
-  }, [taskId, applyDetail]);
+  }, [taskId, applyDetail, notifySidebarIfNeeded]);
 
   const scrollToBottom = useCallback((el: HTMLElement) => {
     el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
   }, []);
+
+  const scheduleScrollToBottom = useCallback(() => {
+    if (!stickRef.current) return;
+    if (scrollRafRef.current != null) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      const el = scrollRef.current;
+      if (!el || !stickRef.current) return;
+      scrollToBottom(el);
+    });
+  }, [scrollToBottom]);
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -144,16 +175,10 @@ export function TaskView({ taskId }: { taskId: string }) {
     lastScrollTopRef.current = 0;
   }, [taskId]);
 
-  // Pin to latest while stick mode is on. Depend on `messages` (not just length)
-  // so streaming text/tool updates keep the viewport following.
   useEffect(() => {
-    if (!stickRef.current) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    scrollToBottom(el);
-  }, [messages, task?.isStreaming, isCompacting, scrollToBottom]);
+    scheduleScrollToBottom();
+  }, [messages, task?.isStreaming, isCompacting, scheduleScrollToBottom]);
 
-  // Re-pin when Markdown / images / tool cards change height asynchronously.
   useEffect(() => {
     const scroller = scrollRef.current;
     const content = contentRef.current;
@@ -162,7 +187,7 @@ export function TaskView({ taskId }: { taskId: string }) {
     const pinned = () => {
       if (!stickRef.current) return;
       if (isNearBottom(scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight)) return;
-      scrollToBottom(scroller);
+      scheduleScrollToBottom();
     };
     if (typeof ResizeObserver !== "undefined") {
       const observer = new ResizeObserver(pinned);
@@ -172,7 +197,7 @@ export function TaskView({ taskId }: { taskId: string }) {
     }
     const id = window.setInterval(pinned, 200);
     return () => window.clearInterval(id);
-  }, [scrollToBottom, taskId]);
+  }, [scheduleScrollToBottom, taskId]);
 
   function addImageFiles(files: FileList) {
     Array.from(files).forEach((file) => {
