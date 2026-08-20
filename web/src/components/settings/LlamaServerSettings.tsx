@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Badge, Button } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
-import { isLoopbackHost } from "@/lib/host-control";
+import { isLoopbackHost } from "@/lib/loopback";
 import {
   DEFAULT_LLAMA_SERVER_SETTINGS,
   LLAMA_SERVER_EFFORTS,
