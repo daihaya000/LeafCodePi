@@ -139,6 +139,10 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 - Cursor IDE / CLI ログイン済みならトークン自動検出の場合あり
 - 非公式拡張。Node 22.19+ 推奨
 
+## 2026-08-21: プロバイダアイコン
+
+本家 LeafCode の `web/public/icons/*` を移植。`providerIconSrc()` + `ProviderIcon` をモデル選択・設定・タイムラインに表示。
+
 ### 注意
 
 クライアントの `LlamaServerSettings` は `node:fs` 付きの `host-control` を import しない（`loopback.ts` に分離）。Webpack の UnhandledSchemeError 防止。

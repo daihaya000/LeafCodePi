@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { GripVertical } from "lucide-react";
 import { Badge, Button, cx } from "@/components/ui";
+import { ProviderIcon } from "@/components/ProviderIcon";
 import { ApiError, getJson, sendJson } from "@/lib/client";
 import type { ProviderModelsRow } from "@/lib/provider-models";
 
@@ -121,6 +122,7 @@ function ProviderRow({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
+            <ProviderIcon providerID={provider.id} size={16} />
             <p className="min-w-0 truncate text-sm font-medium">{provider.name}</p>
             <span className="font-mono text-xs text-muted">{provider.id}</span>
             <Badge tone={provider.enabled ? "success" : "neutral"}>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Cpu } from "lucide-react";
+import { ProviderIcon } from "@/components/ProviderIcon";
 import { GhostSelect } from "@/components/ui";
 import type { ModelOption } from "@/lib/types";
 
@@ -32,7 +32,7 @@ export function ModelSelect({
       value={value}
       disabled={disabled || options.length === 0}
       aria-label="モデル"
-      icon={<Cpu className="h-3.5 w-3.5" />}
+      icon={<ProviderIcon providerID={selected?.providerID} />}
       valueLabel={selected?.label ?? (options.length === 0 ? "モデルなし" : "モデル")}
       onChange={onChange}
       className={className}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Badge, Button, cx } from "@/components/ui";
+import { ProviderIcon } from "@/components/ProviderIcon";
 import { ApiError, apiUrl, sendJson } from "@/lib/client";
 import type { LoginNotifyDto, LoginPromptDto, LoginSessionEvent } from "@/lib/pi/auth-login";
 import type { ProviderAuthDto } from "@/lib/types";
@@ -383,6 +384,7 @@ function ProviderRow({
     >
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
+          <ProviderIcon providerID={provider.id} size={16} />
           <span className="text-sm font-medium">{provider.name}</span>
           <span className="font-mono text-xs text-muted">{provider.id}</span>
           <Badge tone={badge.tone}>{badge.label}</Badge>

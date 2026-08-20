@@ -5,6 +5,7 @@ import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { ProviderAuthPanel } from "@/components/settings/ProviderAuthPanel";
 import { ProviderModelsPanel } from "@/components/settings/ProviderModelsPanel";
 import { LlamaServerSettings } from "@/components/settings/LlamaServerSettings";
+import { ProviderIcon } from "@/components/ProviderIcon";
 import { Badge, Button, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import type { HealthDto, ModelOption, ProviderAuthDto } from "@/lib/types";
@@ -97,9 +98,10 @@ export function SettingsView() {
                 <ul className="max-h-80 space-y-1 overflow-y-auto">
                   {models.length === 0 && <li className="text-sm text-muted">認証済みモデルがありません</li>}
                   {models.map((model) => (
-                    <li key={model.value} className="rounded-lg px-2 py-1.5 text-sm">
+                    <li key={model.value} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm">
+                      <ProviderIcon providerID={model.providerID} size={16} />
                       <span className="font-medium">{model.label}</span>
-                      <span className="ml-2 font-mono text-xs text-muted">{model.value}</span>
+                      <span className="ml-auto font-mono text-xs text-muted">{model.value}</span>
                     </li>
                   ))}
                 </ul>

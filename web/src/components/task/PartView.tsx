@@ -4,6 +4,7 @@ import { useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChevronRight } from "lucide-react";
+import { ProviderIcon } from "@/components/ProviderIcon";
 import { cx, formatMessageTime } from "@/components/ui";
 import type { UiMessage, UiPart } from "@/lib/types";
 
@@ -55,7 +56,14 @@ export function PartView({ message }: { message: UiMessage }) {
   return (
     <article className={cx("flex flex-col gap-2", isUser ? "items-end" : "items-start")}>
       <div className="flex items-center gap-2 text-[11px] text-muted">
-        <span className="font-medium text-text">{isUser ? "あなた" : "Pi"}</span>
+        {isUser ? (
+          <span className="font-medium text-text">あなた</span>
+        ) : (
+          <>
+            <ProviderIcon providerID={message.provider} size={14} />
+            <span className="font-medium text-text">Pi</span>
+          </>
+        )}
         {message.provider && message.model && (
           <span className="font-mono">
             {message.provider}/{message.model}
