@@ -281,9 +281,8 @@ Pi `session.compact()` / 自動圧縮設定に対応。
 ### 実装
 
 - `provider-catalog.ts` — 9 プロバイダー catalog、既定 `["codex","claude","cursor"]`、version = sha256(設定テキスト)
-- `GET/PUT /api/codexbar/providers` — 安全な catalog のみ返却（API キー非漏洩）。ファイル無し GET は defaults + version(`"{}"`)。PUT 成功時 `clearCachedUsage()`
-- `orchestrator` — `resolveEnabledProviderIds()` に含まれるプロバイダーだけ native fetch。スナップショットフォールバックも同集合でフィルタ
-- UI: SlidersHorizontal →「更新するプロバイダー」トグルパネル（アドオン dismiss ボタンは無し）
+- `GET/PUT /api/codexbar/providers` — 安全な catalog のみ返却（API キー非漏洩）。ファイル無し GET は defaults + version(`"{}"`)。PUT 成功時 `clearCachedUsage()` + `clearProviderCache()`
+- `orchestrator` — `resolveEnabledProviderIds()` に含まれるプロバイダーだけ native fetch。スナップショットフォールバックも同集合でフィルタ。in-flight 共有 + プロバイダ別 429 バックオフ- UI: SlidersHorizontal →「更新するプロバイダー」トグルパネル（アドオン dismiss ボタンは無し）
 
 ### 検証
 
