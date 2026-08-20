@@ -1,5 +1,7 @@
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { streamSimple } from "@earendil-works/pi-ai/compat";
+import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { readSettingValue } from "@/lib/host-control";
 import {
   LLAMA_SERVER_SETTINGS_KEY,
@@ -9,6 +11,22 @@ import {
 
 export const LLAMA_SERVER_PROVIDER_ID = "llama-server";
 export const DEFAULT_LLAMA_SERVER_BASE = "http://127.0.0.1:8081";
+
+/** Graded efforts accepted by Qwen3 GGUF chat templates on llama-server. */
+export const LLAMA_QWEN_GRADED_EFFORTS = ["low", "medium", "xhigh"] as const;
+export type LlamaQwenGradedEffort = (typeof LLAMA_QWEN_GRADED_EFFORTS)[number];
+
+/**
+ * Pi thinking levels → llama-server values for Qwen3-class GGUFs.
+ * `off` maps to top-level `reasoning_effort: "none"` (not chat_template_kwargs).
+ */
+export const LLAMA_QWEN_THINKING_LEVEL_MAP = {
+  off: "none",
+  minimal: null,
+  high: null,
+  max: null,
+  xhigh: "xhigh",
+} as const;
 
 type RuntimeLike = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -20,6 +38,7 @@ type OpenAiModelRow = {
   id: string;
   name: string;
   reasoning: boolean;
+  thinkingLevelMap?: Record<string, string | null>;
   input: ("text" | "image")[];
   contextWindow: number;
   maxTokens: number;
@@ -31,6 +50,10 @@ type OpenAiModelRow = {
   };
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function modelIdFromFile(modelFile: string): string {
   const base = basename(modelFile.replace(/\\/g, "/"));
   return base.toLowerCase().endsWith(".gguf") ? base.slice(0, -5) : base;
@@ -39,6 +62,85 @@ function modelIdFromFile(modelFile: string): string {
 function displayName(id: string): string {
   const short = basename(id.replace(/\\/g, "/"));
   return short.toLowerCase().endsWith(".gguf") ? short.slice(0, -5) : short || id;
+}
+
+/**
+ * Qwen3 GGUFs (e.g. Qwen3.8-27B-Uncensored-GGUF) expose graded reasoning_effort
+ * via the chat template. Older Qwen / non-Qwen GGUFs stay non-reasoning in UI.
+ */
+export function isLlamaQwenReasoningModel(id: string): boolean {
+  const lower = id.toLowerCase().replace(/\\/g, "/");
+  const base = basename(lower).replace(/\.gguf$/i, "");
+  return /qwen3/.test(base) || /qwen[_.-]?3/.test(base);
+}
+
+export function isLlamaQwenGradedEffort(value: unknown): value is LlamaQwenGradedEffort {
+  return (
+    typeof value === "string" &&
+    (LLAMA_QWEN_GRADED_EFFORTS as readonly string[]).includes(value)
+  );
+}
+
+function applyNoThinkPrefix(messages: unknown): unknown {
+  if (!Array.isArray(messages)) return messages;
+  const next = [...messages];
+  for (let index = next.length - 1; index >= 0; index -= 1) {
+    const message = next[index];
+    if (!isRecord(message) || message.role !== "user") continue;
+    if (typeof message.content === "string") {
+      if (!message.content.startsWith("/no_think")) {
+        next[index] = { ...message, content: `/no_think\n${message.content}` };
+      }
+      break;
+    }
+    if (Array.isArray(message.content)) {
+      const parts = message.content.map((part) => {
+        if (!isRecord(part) || part.type !== "text" || typeof part.text !== "string") return part;
+        if (part.text.startsWith("/no_think")) return part;
+        return { ...part, text: `/no_think\n${part.text}` };
+      });
+      next[index] = { ...message, content: parts };
+      break;
+    }
+  }
+  return next;
+}
+
+/**
+ * llama-server + Qwen3 template quirk (same as LeafCode):
+ * - graded efforts must live in `chat_template_kwargs.reasoning_effort`
+ * - `none` must be top-level `reasoning_effort` (kwargs reject it with HTTP 500)
+ * - `/no_think` helps Qwen3 actually skip reasoning when off
+ */
+export function rewriteLlamaServerEffortPayload(
+  payload: unknown,
+  model: { id?: string; reasoning?: boolean },
+): unknown {
+  if (!model.reasoning || !isRecord(payload)) return payload;
+  const body: Record<string, unknown> = { ...payload };
+  const effort =
+    typeof body.reasoning_effort === "string"
+      ? body.reasoning_effort
+      : isRecord(body.chat_template_kwargs) &&
+          typeof body.chat_template_kwargs.reasoning_effort === "string"
+        ? body.chat_template_kwargs.reasoning_effort
+        : undefined;
+
+  if (isLlamaQwenGradedEffort(effort)) {
+    const prev = isRecord(body.chat_template_kwargs) ? body.chat_template_kwargs : {};
+    body.chat_template_kwargs = { ...prev, reasoning_effort: effort };
+    delete body.reasoning_effort;
+    return body;
+  }
+
+  if (isRecord(body.chat_template_kwargs)) {
+    const { reasoning_effort: _removed, ...rest } = body.chat_template_kwargs;
+    if (Object.keys(rest).length > 0) body.chat_template_kwargs = rest;
+    else delete body.chat_template_kwargs;
+  }
+  body.reasoning_effort = "none";
+  body.messages = applyNoThinkPrefix(body.messages);
+  return body;
 }
 
 /**
@@ -84,20 +186,24 @@ export async function fetchLlamaServerModelIds(
 }
 
 function buildModelRows(ids: string[], contextWindow: number): OpenAiModelRow[] {
-  return ids.map((id) => ({
-    id,
-    name: displayName(id),
-    reasoning: false,
-    input: ["text"],
-    contextWindow,
-    maxTokens: Math.min(contextWindow, 32_768),
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    compat: {
-      supportsDeveloperRole: false,
-      supportsReasoningEffort: false,
-      supportsStore: false,
-    },
-  }));
+  return ids.map((id) => {
+    const reasoning = isLlamaQwenReasoningModel(id);
+    return {
+      id,
+      name: displayName(id),
+      reasoning,
+      ...(reasoning ? { thinkingLevelMap: { ...LLAMA_QWEN_THINKING_LEVEL_MAP } } : {}),
+      input: ["text"] as ("text" | "image")[],
+      contextWindow,
+      maxTokens: Math.min(contextWindow, 32_768),
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      compat: {
+        supportsDeveloperRole: false,
+        supportsReasoningEffort: reasoning,
+        supportsStore: false,
+      },
+    };
+  });
 }
 
 async function resolveModelRows(settings: LlamaServerSettings): Promise<OpenAiModelRow[]> {
@@ -112,6 +218,25 @@ async function resolveModelRows(settings: LlamaServerSettings): Promise<OpenAiMo
   return [];
 }
 
+function llamaStreamSimple(
+  model: Model<Api>,
+  context: Context,
+  options?: SimpleStreamOptions,
+) {
+  const previous = options?.onPayload;
+  return streamSimple(model, context, {
+    ...options,
+    onPayload: async (payload, current) => {
+      let next: unknown = rewriteLlamaServerEffortPayload(payload, current);
+      if (previous) {
+        const replaced = await previous(next, current);
+        if (replaced !== undefined) next = replaced;
+      }
+      return next;
+    },
+  });
+}
+
 function providerConfig(models: OpenAiModelRow[]) {
   return {
     name: "llama-server",
@@ -124,6 +249,7 @@ function providerConfig(models: OpenAiModelRow[]) {
       supportsStore: false,
     },
     models,
+    streamSimple: llamaStreamSimple,
     refreshModels: async () => {
       const latest = parseLlamaServerSettings(readSettingValue(LLAMA_SERVER_SETTINGS_KEY));
       return resolveModelRows(latest);

@@ -1,5 +1,12 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { fetchLlamaServerModelIds } from "@/lib/pi/llama-provider";
+import {
+  fetchLlamaServerModelIds,
+  isLlamaQwenReasoningModel,
+  rewriteLlamaServerEffortPayload,
+} from "@/lib/pi/llama-provider";
+import { thinkingLevelsForModel } from "@/lib/thinking-levels";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import { LLAMA_QWEN_THINKING_LEVEL_MAP } from "@/lib/pi/llama-provider";
 
 describe("fetchLlamaServerModelIds", () => {
   afterEach(() => {
@@ -35,5 +42,80 @@ describe("fetchLlamaServerModelIds", () => {
       }),
     );
     await expect(fetchLlamaServerModelIds()).resolves.toEqual([]);
+  });
+});
+
+describe("isLlamaQwenReasoningModel", () => {
+  it("detects Qwen3.8 GGUF aliases", () => {
+    expect(isLlamaQwenReasoningModel("Qwen3.8-27B-Uncensored-GGUF")).toBe(true);
+    expect(isLlamaQwenReasoningModel("Qwen3.8-27B-Uncensored-GGUF.gguf")).toBe(true);
+    expect(isLlamaQwenReasoningModel("C:\\models\\Qwen3-32B-Q4_K_M.gguf")).toBe(true);
+  });
+
+  it("rejects non-Qwen3 ids", () => {
+    expect(isLlamaQwenReasoningModel("llama-3.1-8b")).toBe(false);
+    expect(isLlamaQwenReasoningModel("qwen2.5-7b")).toBe(false);
+  });
+});
+
+describe("rewriteLlamaServerEffortPayload", () => {
+  it("moves graded effort into chat_template_kwargs", () => {
+    expect(
+      rewriteLlamaServerEffortPayload(
+        {
+          model: "Qwen3.8-27B-Uncensored-GGUF",
+          reasoning_effort: "medium",
+          messages: [{ role: "user", content: "hi" }],
+        },
+        { id: "Qwen3.8-27B-Uncensored-GGUF", reasoning: true },
+      ),
+    ).toEqual({
+      model: "Qwen3.8-27B-Uncensored-GGUF",
+      messages: [{ role: "user", content: "hi" }],
+      chat_template_kwargs: { reasoning_effort: "medium" },
+    });
+  });
+
+  it("forces top-level none and /no_think when effort is off", () => {
+    expect(
+      rewriteLlamaServerEffortPayload(
+        {
+          model: "Qwen3.8-27B-Uncensored-GGUF",
+          reasoning_effort: "none",
+          chat_template_kwargs: { reasoning_effort: "xhigh", other: 1 },
+          messages: [{ role: "user", content: "hi" }],
+        },
+        { id: "Qwen3.8-27B-Uncensored-GGUF", reasoning: true },
+      ),
+    ).toEqual({
+      model: "Qwen3.8-27B-Uncensored-GGUF",
+      reasoning_effort: "none",
+      chat_template_kwargs: { other: 1 },
+      messages: [{ role: "user", content: "/no_think\nhi" }],
+    });
+  });
+
+  it("leaves non-reasoning models unchanged", () => {
+    const payload = { reasoning_effort: "medium", messages: [] };
+    expect(rewriteLlamaServerEffortPayload(payload, { reasoning: false })).toBe(payload);
+  });
+});
+
+describe("Qwen llama thinking levels", () => {
+  it("exposes off/low/medium/xhigh for Qwen3 models", () => {
+    const model = {
+      id: "Qwen3.8-27B-Uncensored-GGUF",
+      name: "Qwen3.8-27B-Uncensored-GGUF",
+      api: "openai-completions",
+      provider: "llama-server",
+      baseUrl: "http://127.0.0.1:8081/v1",
+      reasoning: true,
+      thinkingLevelMap: { ...LLAMA_QWEN_THINKING_LEVEL_MAP },
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 32768,
+      maxTokens: 8192,
+    } as Model<Api>;
+    expect(thinkingLevelsForModel(model)).toEqual(["off", "low", "medium", "xhigh"]);
   });
 });
