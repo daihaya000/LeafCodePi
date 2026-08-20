@@ -164,3 +164,11 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 
 表示名を `llama-server (Qwen…)` から GGUF 名のみ（例: `Qwen3.8-27B-Uncensored-GGUF`）に変更。
 
+## 2026-08-21: グローバル AGENTS.md（カスタム指示）
+
+設定 → 一般に `~/.pi/agent/AGENTS.md` の編集 UI を追加（プロジェクト単位は未対応）。
+
+- `GET/PATCH /api/agents-md`
+- 2MB 上限、シンボリックリンク拒否
+- 反映は新規タスク作成時（既存セッションは再作成が必要）
+
