@@ -327,7 +327,18 @@ CodexBarWin の cookie スクレイパーを LeafCodePi に移植。**実行時�
 - タスクタイムラインのアシスタント行に `N tok` と `X tok/s` を表示（ホバーで decode / e2e の別）
 - Pi セッションに `custom` エントリ `leafcode-pi.throughput` として永続化（再起動・再オープン後も復元）。LLM コンテキストには乗らない
 
-## 2026-08-21: Skills 設定（ON/OFF）
+## 2026-08-21: エージェントのベースプロンプト所在
+
+「自己紹介で LeafCodePi と名乗る」は **LeafCodePi 側の専用プロンプトではない**。
+
+| 層 | 場所 | 役割 |
+|---|---|---|
+| ベース（固定） | Pi パッケージ `buildSystemPrompt`（`pi-coding-agent` の `core/system-prompt.js`） | 「You are an expert coding assistant operating inside pi…」＋ツール一覧 |
+| カスタム指示 | `~/.pi/agent/AGENTS.md`（設定 → 一般）＋ cwd 側の `AGENTS.md` 等 | `<project_context>` として追記。ベースの「あなたは誰」を置き換えない |
+| スキル | `~/.pi/agent/skills` 等 → `formatSkillsForPrompt` | 利用可能スキル一覧を追記 |
+
+LeafCodePi の harness は現状、製品名を system prompt に埋め込んでいない。グローバル `AGENTS.md` が無い状態でもモデルが UI／製品名から「LeafCodePi」と名乗ることはある。
+
 
 設定 → 一般からグローバルスキルを有効／無効にできる（フォルダ移動なし）。
 
