@@ -36,13 +36,39 @@ export async function sendJson<T>(
   path: string,
   body: unknown,
   method: "POST" | "PATCH" | "PUT" | "DELETE" = "POST",
+  options?: { timeoutMs?: number; signal?: AbortSignal },
 ): Promise<T> {
-  const res = await fetch(apiUrl(path), {
-    method,
-    headers: { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!res.ok) throw new ApiError(await parseError(res), res.status);
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  const timeoutMs = options?.timeoutMs;
+  const external = options?.signal;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let signal = external;
+
+  if (timeoutMs && timeoutMs > 0) {
+    const controller = new AbortController();
+    timeout = setTimeout(() => controller.abort(), timeoutMs);
+    if (external) {
+      if (external.aborted) controller.abort();
+      else external.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+    signal = controller.signal;
+  }
+
+  try {
+    const res = await fetch(apiUrl(path), {
+      method,
+      headers: { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
+    });
+    if (!res.ok) throw new ApiError(await parseError(res), res.status);
+    if (res.status === 204) return undefined as T;
+    return (await res.json()) as T;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new ApiError("リクエストがタイムアウトまたはキャンセルされました", 408);
+    }
+    throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }

@@ -42,4 +42,28 @@ describe("projectPiMessages", () => {
     expect(tool?.type === "tool" && tool.state.status).toBe("completed");
     expect(tool?.type === "tool" && tool.state.output).toBe("package.json");
   });
+
+  it("projects compaction summaries", () => {
+    const messages = projectPiMessages([
+      {
+        role: "compactionSummary",
+        id: "c1",
+        timestamp: 10,
+        summary: "以前の会話の要約",
+        tokensBefore: 42_000,
+      },
+      { role: "user", content: "続き", timestamp: 11, id: "u2" },
+    ]);
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toMatchObject({
+      role: "compaction",
+      tokensBefore: 42_000,
+    });
+    expect(messages[0]?.parts[0]).toEqual({
+      id: "c1-text",
+      type: "text",
+      text: "以前の会話の要約",
+    });
+    expect(messages[1]?.role).toBe("user");
+  });
 });

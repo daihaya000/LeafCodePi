@@ -197,3 +197,12 @@ Pi の `getSupportedThinkingLevels` / `setThinkingLevel` に合わせ、モデ�
 - `POST /api/tasks/:id/thinking` でライブセッションへ即時反映
 - タスク作成・モデル切替時に clamp
 
+## 2026-08-21: コンテキスト圧縮
+
+Pi `session.compact()` / 自動圧縮設定に対応。
+
+- タスクヘッダー「圧縮」→ `POST /api/tasks/:id/compact`（最大 240s、キャンセルは `/compact/abort`）
+- SSE に `isCompacting`、要約は `compactionSummary` → UI の圧縮カード
+- 設定 → 一般で自動圧縮 ON/OFF（`~/.pi/agent/settings.json` の `compaction.enabled`、ライブセッションへ即反映）
+- 閾値は Pi 既定（reserveTokens / keepRecentTokens）
+

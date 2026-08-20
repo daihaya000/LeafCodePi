@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { ChevronRight } from "lucide-react";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { cx, formatMessageTime } from "@/components/ui";
+import { formatTokens } from "@/lib/context-usage";
 import type { UiMessage, UiPart } from "@/lib/types";
 
 function MarkdownBody({ text }: { text: string }) {
@@ -51,7 +52,33 @@ function ToolCard({ part }: { part: Extract<UiPart, { type: "tool" }> }) {
   );
 }
 
+function CompactionNotice({ message }: { message: UiMessage }) {
+  const summary = message.parts.find((part) => part.type === "text");
+  const before =
+    typeof message.tokensBefore === "number" ? formatTokens(message.tokensBefore) : null;
+  return (
+    <article className="mx-auto w-full max-w-3xl">
+      <details className="rounded-xl border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
+        <summary className="cursor-pointer select-none font-medium text-text">
+          コンテキストを圧縮しました
+          {before ? `（圧縮前 ${before}）` : ""}
+          <span className="ml-2 font-normal text-faint">{formatMessageTime(message.createdAt)}</span>
+        </summary>
+        {summary && summary.type === "text" && (
+          <div className="mt-2 border-t border-border pt-2">
+            <MarkdownBody text={summary.text} />
+          </div>
+        )}
+      </details>
+    </article>
+  );
+}
+
 export function PartView({ message }: { message: UiMessage }) {
+  if (message.role === "compaction") {
+    return <CompactionNotice message={message} />;
+  }
+
   const isUser = message.role === "user";
   return (
     <article className={cx("flex flex-col gap-2", isUser ? "items-end" : "items-start")}>

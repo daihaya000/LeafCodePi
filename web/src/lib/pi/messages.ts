@@ -156,6 +156,22 @@ export function projectPiMessages(raw: unknown[]): UiMessage[] {
           },
         ],
       });
+      return;
+    }
+
+    if (role === "compactionSummary") {
+      const summary = asString(item.summary);
+      const tokensBefore =
+        typeof item.tokensBefore === "number" && Number.isFinite(item.tokensBefore)
+          ? item.tokensBefore
+          : undefined;
+      messages.push({
+        id,
+        role: "compaction",
+        createdAt,
+        tokensBefore,
+        parts: summary ? [{ id: `${id}-text`, type: "text", text: summary }] : [],
+      });
     }
   });
   return messages;

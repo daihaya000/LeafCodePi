@@ -7,6 +7,7 @@ import { ProviderModelsPanel } from "@/components/settings/ProviderModelsPanel";
 import { LlamaServerSettings } from "@/components/settings/LlamaServerSettings";
 import { HostRestartPanel } from "@/components/settings/HostRestartPanel";
 import { AgentsMdSettings } from "@/components/settings/AgentsMdSettings";
+import { CompactionSettings } from "@/components/settings/CompactionSettings";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { Badge, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
@@ -124,6 +125,7 @@ export function SettingsView() {
           {tab === "general" && (
             <section className="space-y-4">
               <AgentsMdSettings />
+              <CompactionSettings />
               <div className="rounded-2xl border border-border bg-surface p-4 text-sm text-muted">
                 <p>テーマはサイドバー右下のアイコンから切り替えます（ライト / ダーク / システム）。</p>
                 <p className="mt-2">

@@ -59,12 +59,14 @@ export type UiPart =
 
 export type UiMessage = {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "compaction";
   createdAt: number;
   parts: UiPart[];
   model?: string;
   provider?: string;
   error?: string;
+  /** Tokens estimated before this compaction (compaction role only). */
+  tokensBefore?: number;
 };
 
 export type ModelOption = {
@@ -103,9 +105,17 @@ export type ProviderAuthDto = {
 export type TaskDetail = TaskSummary & {
   messages: UiMessage[];
   isStreaming: boolean;
+  /** True while manual or auto context compaction is running. */
+  isCompacting?: boolean;
   contextUsage?: {
     tokens: number | null;
     contextWindow: number;
     percent: number | null;
   };
+};
+
+export type CompactionSettingsDto = {
+  enabled: boolean;
+  reserveTokens: number;
+  keepRecentTokens: number;
 };

@@ -25,6 +25,7 @@ export async function GET(
           task: detail,
           messages: detail.messages,
           isStreaming: detail.isStreaming,
+          isCompacting: detail.isCompacting,
           contextUsage: detail.contextUsage,
         });
       } catch (error) {

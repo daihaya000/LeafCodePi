@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, Shrink, Square } from "lucide-react";
 import { Composer, type ComposerAttachment } from "@/components/Composer";
 import { ModelSelect } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
@@ -14,6 +14,9 @@ import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import type { ModelOption, TaskDetail, TaskSummary, ThinkingLevel, UiMessage } from "@/lib/types";
+
+/** Compaction LLM calls routinely exceed the default fetch budget. */
+const COMPACT_TIMEOUT_MS = 240_000;
 
 function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
   const pct = usage.percent;
@@ -53,6 +56,8 @@ export function TaskView({ taskId }: { taskId: string }) {
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [contextUsage, setContextUsage] = useState<ContextUsageDto | undefined>();
+  const [isCompacting, setIsCompacting] = useState(false);
+  const [compactingLocal, setCompactingLocal] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -66,6 +71,7 @@ export function TaskView({ taskId }: { taskId: string }) {
     setTask(detail);
     setMessages(detail.messages);
     setContextUsage(detail.contextUsage);
+    setIsCompacting(Boolean(detail.isCompacting));
   }, []);
 
   useEffect(() => {
@@ -77,6 +83,7 @@ export function TaskView({ taskId }: { taskId: string }) {
         task?: TaskDetail;
         messages?: UiMessage[];
         isStreaming?: boolean;
+        isCompacting?: boolean;
         contextUsage?: ContextUsageDto;
         error?: string;
       };
@@ -89,12 +96,14 @@ export function TaskView({ taskId }: { taskId: string }) {
             ...snapshotTask,
             messages: payload.messages ?? base.messages ?? [],
             isStreaming: payload.isStreaming ?? snapshotTask.isStreaming ?? base.isStreaming,
+            isCompacting: payload.isCompacting ?? snapshotTask.isCompacting ?? base.isCompacting,
             contextUsage: payload.contextUsage ?? snapshotTask.contextUsage ?? base.contextUsage,
           };
         });
       }
       if (payload.messages) setMessages(payload.messages);
       if ("contextUsage" in payload) setContextUsage(payload.contextUsage);
+      if ("isCompacting" in payload) setIsCompacting(Boolean(payload.isCompacting));
       if (payload.error) setError(payload.error);
       notifyTasksChanged();
     });
@@ -115,7 +124,7 @@ export function TaskView({ taskId }: { taskId: string }) {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, task?.isStreaming]);
+  }, [messages.length, task?.isStreaming, isCompacting]);
 
   function addImageFiles(files: FileList) {
     Array.from(files).forEach((file) => {
@@ -129,8 +138,10 @@ export function TaskView({ taskId }: { taskId: string }) {
     });
   }
 
+  const compacting = isCompacting || compactingLocal;
+
   async function submit() {
-    if ((!prompt.trim() && attachments.length === 0) || submitting) return;
+    if ((!prompt.trim() && attachments.length === 0) || submitting || compacting) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -149,6 +160,39 @@ export function TaskView({ taskId }: { taskId: string }) {
       setError(err instanceof Error ? err.message : "送信に失敗しました");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function compact() {
+    if (compacting) return;
+    setCompactingLocal(true);
+    setIsCompacting(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ task: TaskDetail }>(
+        `/api/tasks/${taskId}/compact`,
+        {},
+        "POST",
+        { timeoutMs: COMPACT_TIMEOUT_MS },
+      );
+      applyDetail(result.task);
+      notifyTasksChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "コンテキスト圧縮に失敗しました");
+    } finally {
+      setCompactingLocal(false);
+    }
+  }
+
+  async function abortCompact() {
+    try {
+      const result = await sendJson<{ task: TaskDetail }>(
+        `/api/tasks/${taskId}/compact/abort`,
+        {},
+      );
+      applyDetail(result.task);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "圧縮のキャンセルに失敗しました");
     }
   }
 
@@ -175,6 +219,18 @@ export function TaskView({ taskId }: { taskId: string }) {
           <p className="truncate text-[11px] text-muted">{task?.directory}</p>
         </div>
         {contextUsage && <ContextUsageMeter usage={contextUsage} />}
+        <Button
+          variant="secondary"
+          size="sm"
+          title="コンテキスト圧縮"
+          aria-label="コンテキスト圧縮"
+          busy={compacting}
+          disabled={!task || working || compacting}
+          onClick={() => void compact()}
+        >
+          {!compacting && <Shrink className="h-3.5 w-3.5" />}
+          圧縮
+        </Button>
         {task && <StatusBadge status={working ? "working" : task.status} />}
         {working && (
           <Button
@@ -199,6 +255,16 @@ export function TaskView({ taskId }: { taskId: string }) {
         </div>
       </div>
       <div className="shrink-0 border-t border-border bg-surface px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        {compacting && (
+          <div className="mx-auto mb-2 flex max-w-3xl items-center gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
+            <span className="min-w-0 flex-1">
+              コンテキストを圧縮しています… 完了まで数分かかることがあります
+            </span>
+            <Button variant="secondary" size="sm" onClick={() => void abortCompact()}>
+              キャンセル
+            </Button>
+          </div>
+        )}
         {error && (
           <p role="alert" className="mx-auto mb-2 max-w-3xl rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger">
             {error}
@@ -235,8 +301,13 @@ export function TaskView({ taskId }: { taskId: string }) {
                 void submit();
               }
             },
-            placeholder: working ? "実行中です。送信するとフォローアップになります…" : "続きを指示…（Ctrl+Enter）",
+            placeholder: compacting
+              ? "圧縮中です…"
+              : working
+                ? "実行中です。送信するとフォローアップになります…"
+                : "続きを指示…（Ctrl+Enter）",
             className: "w-full resize-none bg-transparent py-1.5 text-base outline-none placeholder:text-faint",
+            disabled: compacting,
           }}
           attachmentControl={{
             inputRef: fileInputRef,
@@ -249,7 +320,7 @@ export function TaskView({ taskId }: { taskId: string }) {
               <ModelSelect
                 value={modelValue}
                 options={models}
-                disabled={working}
+                disabled={working || compacting}
                 onChange={(value) => {
                   void (async () => {
                     try {
@@ -270,7 +341,7 @@ export function TaskView({ taskId }: { taskId: string }) {
               <ThinkingSelect
                 levels={thinkingLevels}
                 value={thinkingValue}
-                disabled={working}
+                disabled={working || compacting}
                 onChange={(value) => {
                   void (async () => {
                     try {
@@ -295,7 +366,7 @@ export function TaskView({ taskId }: { taskId: string }) {
               type="submit"
               aria-label="送信"
               busy={submitting}
-              disabled={!prompt.trim() && attachments.length === 0}
+              disabled={compacting || (!prompt.trim() && attachments.length === 0)}
             >
               {!submitting && <ArrowUp className="h-4.5 w-4.5" />}
             </Button>

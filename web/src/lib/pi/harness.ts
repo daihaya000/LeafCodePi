@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dataDir, isAbsolutePath } from "@/lib/paths";
@@ -41,6 +42,7 @@ import {
   thinkingLevelsForModel,
 } from "@/lib/thinking-levels";
 import type {
+  CompactionSettingsDto,
   HealthDto,
   ModelOption,
   ProjectDto,
@@ -185,9 +187,43 @@ function sessionContextUsage(session: AgentSession): ContextUsageDto | undefined
   }
 }
 
+function sessionSnapshotFields(session: AgentSession): {
+  messages: UiMessage[];
+  isStreaming: boolean;
+  isCompacting: boolean;
+  contextUsage: ContextUsageDto | undefined;
+} {
+  return {
+    messages: snapshotMessages(session),
+    isStreaming: session.isStreaming,
+    isCompacting: session.isCompacting,
+    contextUsage: sessionContextUsage(session),
+  };
+}
+
 function emit(taskId: string, payload: { type: string; [key: string]: unknown }): void {
   state().events.emit(taskId, payload);
   state().events.emit("*", { taskId, ...payload });
+}
+
+function mapCompactionError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/Nothing to compact/i.test(message)) {
+    return Object.assign(new Error("圧縮するほど履歴がありません"), { status: 400 });
+  }
+  if (/Already compacted/i.test(message)) {
+    return Object.assign(new Error("すでに圧縮済みです"), { status: 400 });
+  }
+  if (/Compaction cancelled/i.test(message) || (error instanceof Error && error.name === "AbortError")) {
+    return Object.assign(new Error("圧縮をキャンセルしました"), { status: 400 });
+  }
+  return error instanceof Error ? error : new Error(message);
+}
+
+function openSettingsManager() {
+  const pi = state().pi;
+  if (!pi) throw Object.assign(new Error("Pi ランタイムが初期化されていません"), { status: 503 });
+  return pi.SettingsManager.create(homedir(), pi.getAgentDir());
 }
 
 function attachSession(taskId: string, session: AgentSession): LiveRuntime {
@@ -206,6 +242,14 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
       const error = session.agent.state.errorMessage ?? null;
       setTaskStatus(taskId, error ? "error" : "idle", error);
     }
+    if (
+      event.type === "compaction_end" &&
+      !event.aborted &&
+      event.errorMessage &&
+      event.reason !== "manual"
+    ) {
+      setTaskStatus(taskId, "error", event.errorMessage);
+    }
     if (ids.providerID || ids.modelID) {
       patchTask(taskId, {
         providerID: ids.providerID,
@@ -217,10 +261,11 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
     emit(taskId, {
       type: "snapshot",
       task: toSummary(getTask(taskId) ?? task),
-      messages: snapshotMessages(session),
-      isStreaming: session.isStreaming,
-      contextUsage: sessionContextUsage(session),
+      ...sessionSnapshotFields(session),
       eventType: event.type,
+      ...(event.type === "compaction_end" && event.errorMessage
+        ? { error: event.errorMessage }
+        : {}),
     });
   });
 
@@ -525,16 +570,25 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
   if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   let messages: UiMessage[] = [];
   let isStreaming = false;
+  let isCompacting = false;
   let contextUsage: ContextUsageDto | undefined;
   try {
     const live = await ensureLive(id);
-    messages = snapshotMessages(live.session);
-    isStreaming = live.session.isStreaming;
-    contextUsage = sessionContextUsage(live.session);
+    const fields = sessionSnapshotFields(live.session);
+    messages = fields.messages;
+    isStreaming = fields.isStreaming;
+    isCompacting = fields.isCompacting;
+    contextUsage = fields.contextUsage;
   } catch {
     messages = [];
   }
-  return { ...toSummary(getTask(id) ?? task), messages, isStreaming, contextUsage };
+  return {
+    ...toSummary(getTask(id) ?? task),
+    messages,
+    isStreaming,
+    isCompacting,
+    contextUsage,
+  };
 }
 
 export async function createTask(input: {
@@ -604,9 +658,8 @@ function queuePrompt(live: LiveRuntime, prompt: string, images?: PromptImage[]):
       emit(live.taskId, {
         type: "snapshot",
         task: toSummary(getTask(live.taskId)!),
-        messages: snapshotMessages(live.session),
+        ...sessionSnapshotFields(live.session),
         isStreaming: false,
-        contextUsage: sessionContextUsage(live.session),
         eventType: "error",
         error: message,
       });
@@ -651,8 +704,7 @@ export async function setTaskModel(id: string, modelValueRaw: string): Promise<T
   emit(id, {
     type: "snapshot",
     task: summary,
-    isStreaming: live.session.isStreaming,
-    contextUsage: sessionContextUsage(live.session),
+    ...sessionSnapshotFields(live.session),
   });
   return summary;
 }
@@ -675,10 +727,49 @@ export async function setTaskThinkingLevel(
   emit(id, {
     type: "snapshot",
     task: summary,
-    isStreaming: live.session.isStreaming,
-    contextUsage: sessionContextUsage(live.session),
+    ...sessionSnapshotFields(live.session),
   });
   return summary;
+}
+
+export async function compactTask(
+  id: string,
+  customInstructions?: string,
+): Promise<TaskDetail> {
+  const live = await ensureLive(id);
+  if (live.session.isCompacting) {
+    throw Object.assign(new Error("コンテキスト圧縮は既に実行中です"), { status: 409 });
+  }
+  const instructions = customInstructions?.trim();
+  try {
+    await live.session.compact(instructions || undefined);
+  } catch (error) {
+    throw mapCompactionError(error);
+  }
+  return getTaskDetail(id);
+}
+
+export async function abortTaskCompaction(id: string): Promise<TaskDetail> {
+  const live = state().live.get(id);
+  if (!live) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  live.session.abortCompaction();
+  return getTaskDetail(id);
+}
+
+export async function getCompactionSettings(): Promise<CompactionSettingsDto> {
+  await ensureRuntime();
+  return openSettingsManager().getCompactionSettings();
+}
+
+export async function setCompactionEnabled(enabled: boolean): Promise<CompactionSettingsDto> {
+  await ensureRuntime();
+  const settings = openSettingsManager();
+  settings.setCompactionEnabled(enabled);
+  await settings.flush();
+  for (const live of state().live.values()) {
+    live.session.setAutoCompactionEnabled(enabled);
+  }
+  return settings.getCompactionSettings();
 }
 
 export function archiveTask(id: string): TaskSummary {
