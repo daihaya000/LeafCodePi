@@ -164,6 +164,10 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 
 モデルタブ見出しを「プロバイダー」「モデル」に統一。
 
+## 2026-08-21: llama-server 設定のデザイン統一
+
+エンジンタブのローカル LLM セクションを他カード（`rounded-2xl` / `bg-surface` / `h2`）と同じ文脈に揃える。
+
 ## 2026-08-21: llama-server モデル表示名
 
 表示名を `llama-server (Qwen…)` から GGUF 名のみ（例: `Qwen3.8-27B-Uncensored-GGUF`）に変更。

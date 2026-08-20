@@ -242,13 +242,12 @@ export function LlamaServerSettings() {
   const running = status?.running === true;
 
   return (
-    <div className="space-y-3 rounded-lg border border-border bg-bg/40 p-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="text-xs font-semibold text-muted">ローカル LLM (llama-server)</h3>
-          <p className="mt-1 text-xs text-faint">
-            llama-server-load.bat 経由でローカルモデルを起動・停止します。
-            起動時にモデルがロードされ、停止時にアンロードされます。
+    <div className="rounded-2xl border border-border bg-surface p-4">
+      <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold">ローカル LLM (llama-server)</h2>
+          <p className="mt-1 text-xs text-muted">
+            llama-server-load.bat 経由でローカルモデルを起動・停止します。起動時にモデルがロードされ、停止時にアンロードされます。
           </p>
         </div>
         <Badge tone={running ? "success" : status ? "danger" : "neutral"}>
@@ -257,23 +256,15 @@ export function LlamaServerSettings() {
       </div>
 
       {status && (
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-faint sm:grid-cols-3">
-          <div>
-            <dt className="inline font-medium text-muted">health: </dt>
-            <dd className="inline">{status.health ?? "—"}</dd>
-          </div>
-          <div>
-            <dt className="inline font-medium text-muted">PID: </dt>
-            <dd className="inline">{status.pid ?? "—"}</dd>
-          </div>
-          <div>
-            <dt className="inline font-medium text-muted">listeners: </dt>
-            <dd className="inline">
-              {status.listeningPids.length > 0
-                ? status.listeningPids.join(", ")
-                : "—"}
-            </dd>
-          </div>
+        <dl className="mb-3 grid grid-cols-[6rem_1fr] gap-y-2 text-sm sm:grid-cols-[8rem_1fr]">
+          <dt className="text-muted">health</dt>
+          <dd className="font-mono text-xs">{status.health ?? "—"}</dd>
+          <dt className="text-muted">PID</dt>
+          <dd className="font-mono text-xs">{status.pid ?? "—"}</dd>
+          <dt className="text-muted">listeners</dt>
+          <dd className="font-mono text-xs">
+            {status.listeningPids.length > 0 ? status.listeningPids.join(", ") : "—"}
+          </dd>
         </dl>
       )}
 
@@ -318,13 +309,13 @@ export function LlamaServerSettings() {
         </Button>
       </div>
 
-      <div className="border-t border-border pt-3">
-        <h4 className="mb-2 text-xs font-semibold text-muted">起動設定</h4>
+      <div className="mt-4 border-t border-border pt-4">
+        <h3 className="mb-2 text-sm font-semibold">起動設定</h3>
         <div className="mb-3 grid gap-3">
           {/* Hints sit outside the <label> as aria-describedby so the
               accessible name stays the field title alone. */}
           <div>
-            <label htmlFor="llama-cpp-path" className="mb-1 block text-xs text-faint">
+            <label htmlFor="llama-cpp-path" className="mb-1 block text-sm text-muted">
               llama.cpp インストール先
             </label>
             <input
@@ -336,7 +327,7 @@ export function LlamaServerSettings() {
               value={config.llamaCppPath}
               disabled={actionBusy !== null}
               onChange={(e) => setConfig((c) => ({ ...c, llamaCppPath: e.target.value }))}
-              className="h-9 w-full rounded-lg border border-border bg-bg px-2 text-sm outline-none focus:border-border-strong disabled:opacity-40"
+              className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             />
             <span id="llama-cpp-path-hint" className="mt-1 block text-[11px] text-faint">
               フォルダ指定で llama-server.exe を補完します。空欄なら bat の既定値。
@@ -344,7 +335,7 @@ export function LlamaServerSettings() {
           </div>
 
           <div>
-            <label htmlFor="llama-model-dir" className="mb-1 block text-xs text-faint">
+            <label htmlFor="llama-model-dir" className="mb-1 block text-sm text-muted">
               モデル保存先
             </label>
             <div className="flex gap-2">
@@ -358,7 +349,7 @@ export function LlamaServerSettings() {
                 disabled={actionBusy !== null}
                 onChange={(e) => setConfig((c) => ({ ...c, modelDir: e.target.value }))}
                 onBlur={() => void loadModels(config.modelDir)}
-                className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-bg px-2 text-sm outline-none focus:border-border-strong disabled:opacity-40"
+                className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
               />
               <Button
                 type="button"
@@ -377,7 +368,7 @@ export function LlamaServerSettings() {
           </div>
 
           <div>
-            <label htmlFor="llama-model-file" className="mb-1 block text-xs text-faint">
+            <label htmlFor="llama-model-file" className="mb-1 block text-sm text-muted">
               起動するモデル
             </label>
             <select
@@ -385,7 +376,7 @@ export function LlamaServerSettings() {
               value={config.modelFile}
               disabled={actionBusy !== null}
               onChange={(e) => setConfig((c) => ({ ...c, modelFile: e.target.value }))}
-              className="h-9 w-full rounded-lg border border-border bg-bg px-2 text-sm outline-none focus:border-border-strong disabled:opacity-40"
+              className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             >
               <option value="">
                 {defaultModel ? `既定: ${defaultModel}` : "既定 (bat の設定)"}
@@ -408,43 +399,41 @@ export function LlamaServerSettings() {
             )}
           </div>
 
-          <div className="rounded-lg border border-border bg-bg px-3 py-2">
-            <label className="flex items-start gap-3">
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label="リモートアクセスを許可（LAN・Tailscale）"
-                checked={config.llamaServerHost === "0.0.0.0"}
-                disabled={actionBusy !== null}
-                onChange={(e) =>
-                  setConfig((c) => ({
-                    ...c,
-                    llamaServerHost: e.target.checked ? "0.0.0.0" : "127.0.0.1",
-                  }))
-                }
-                className="mt-0.5 h-4 w-4 shrink-0 accent-accent"
-              />
-              <span className="text-xs text-muted">
-                リモートアクセスを許可（LAN・Tailscale）
-                <span className="mt-1 block text-faint">
-                  llama-server を 0.0.0.0 にバインドし、他の端末から WebUI
-                  （http://&lt;ホストのIP&gt;:8081）を開けるようにします。オフの場合は
-                  このPCのみ（127.0.0.1）。反映にはサーバーの再起動が必要です。
-                </span>
+          <label className="flex items-start gap-3 text-sm">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-label="リモートアクセスを許可（LAN・Tailscale）"
+              checked={config.llamaServerHost === "0.0.0.0"}
+              disabled={actionBusy !== null}
+              onChange={(e) =>
+                setConfig((c) => ({
+                  ...c,
+                  llamaServerHost: e.target.checked ? "0.0.0.0" : "127.0.0.1",
+                }))
+              }
+              className="mt-0.5 h-4 w-4 shrink-0 accent-accent"
+            />
+            <span>
+              リモートアクセスを許可（LAN・Tailscale）
+              <span className="mt-1 block text-[11px] text-faint">
+                llama-server を 0.0.0.0 にバインドし、他の端末から WebUI
+                （http://&lt;ホストのIP&gt;:8081）を開けるようにします。オフの場合は
+                このPCのみ（127.0.0.1）。反映にはサーバーの再起動が必要です。
               </span>
-            </label>
-          </div>
+            </span>
+          </label>
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="block">
-            <span className="mb-1 block text-xs text-faint">reasoning_effort</span>
+            <span className="mb-1 block text-sm text-muted">reasoning_effort</span>
             <select
               value={config.effort}
               disabled={actionBusy !== null}
               onChange={(e) =>
                 setConfig((c) => ({ ...c, effort: e.target.value as LlamaServerEffort }))
               }
-              className="h-9 w-full rounded-lg border border-border bg-bg px-2 text-sm outline-none focus:border-border-strong disabled:opacity-40"
+              className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             >
               {LLAMA_SERVER_EFFORTS.map((effort) => (
                 <option key={effort} value={effort}>
@@ -454,7 +443,7 @@ export function LlamaServerSettings() {
             </select>
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs text-faint">context_length</span>
+            <span className="mb-1 block text-sm text-muted">context_length</span>
             <input
               type="number"
               min={4096}
@@ -468,11 +457,11 @@ export function LlamaServerSettings() {
                   contextLength: Number(e.target.value) || c.contextLength,
                 }))
               }
-              className="h-9 w-full rounded-lg border border-border bg-bg px-2 text-sm outline-none focus:border-border-strong disabled:opacity-40"
+              className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs text-faint">parallel (slots)</span>
+            <span className="mb-1 block text-sm text-muted">parallel (slots)</span>
             <input
               type="number"
               min={1}
@@ -485,22 +474,30 @@ export function LlamaServerSettings() {
                   parallel: Number(e.target.value) || c.parallel,
                 }))
               }
-              className="h-9 w-full rounded-lg border border-border bg-bg px-2 text-sm outline-none focus:border-border-strong disabled:opacity-40"
+              className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             />
           </label>
         </div>
-        <p className="mt-2 text-xs text-faint">
+        <p className="mt-2 text-[11px] text-faint">
           変更は自動で保存され、次回起動時に反映されます
         </p>
       </div>
 
       {message && (
-        <p className="text-xs text-success" role="status" aria-live="polite">
+        <p
+          className="mt-3 rounded-lg border border-success/30 bg-success-bg px-3 py-2 text-xs text-success"
+          role="status"
+          aria-live="polite"
+        >
           {message}
         </p>
       )}
       {error && (
-        <p className="text-xs text-danger" role="alert" aria-live="assertive">
+        <p
+          className="mt-3 rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-xs text-danger"
+          role="alert"
+          aria-live="assertive"
+        >
           {error}
         </p>
       )}
