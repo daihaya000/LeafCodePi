@@ -6,24 +6,25 @@ describe("fetchLlamaServerModelIds", () => {
     vi.unstubAllGlobals();
   });
 
-  it("reads ids from /v1/models", async () => {
+  it("reads ids from /models and prefers loaded", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
-        expect(url).toContain("/v1/models");
+        expect(url).toContain("/models");
         return new Response(
           JSON.stringify({
             object: "list",
-            data: [{ id: "C:\\\\models\\\\Qwen.gguf", object: "model" }],
+            data: [
+              { id: "unloaded-one", status: { value: "unloaded" } },
+              { id: "ready-one", status: { value: "loaded" } },
+            ],
           }),
           { status: 200 },
         );
       }),
     );
-    await expect(fetchLlamaServerModelIds("http://127.0.0.1:8081")).resolves.toEqual([
-      "C:\\\\models\\\\Qwen.gguf",
-    ]);
+    await expect(fetchLlamaServerModelIds("http://127.0.0.1:8081")).resolves.toEqual(["ready-one"]);
   });
 
   it("returns empty when the server is down", async () => {

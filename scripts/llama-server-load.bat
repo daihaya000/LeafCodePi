@@ -6,8 +6,8 @@ rem Override via env (host passes these from Settings > Engine > llama-server):
 rem   LLAMA_SERVER_BIN, MODEL_DIR, MODEL_FILE, LLAMA_SERVER_HOST,
 rem   CONTEXT_LENGTH, PARALLEL, REASONING_EFFORT, LLAMA_SERVER_LOG
 rem
-rem If MODEL_FILE is empty: router mode (--models-dir) for Pi's llama.cpp provider.
-rem If MODEL_FILE is set: single-model mode (-m) for llama-server openai-compatible.
+rem If MODEL_FILE is empty: router mode (--models-dir), then load a model.
+rem If MODEL_FILE is set: single-model mode (-m).
 rem Default port 8081 (shared with LeafCode llama-server).
 setlocal enabledelayedexpansion
 cd /d "%~dp0.."
@@ -21,6 +21,7 @@ if not defined CONTEXT_LENGTH set "CONTEXT_LENGTH=32768"
 if not defined PARALLEL set "PARALLEL=1"
 if not defined UBATCH set "UBATCH=512"
 if not defined LLAMA_SERVER_BIN set "LLAMA_SERVER_BIN=C:\tools\llama.cpp\llama-server.exe"
+set "MODEL_ALIAS="
 
 if /i "%~1"=="/dry-run" (
   echo [DRY-RUN] binary=%LLAMA_SERVER_BIN%
@@ -75,7 +76,9 @@ if not exist "%MODEL_DIR%" (
   exit /b 2
 )
 echo [llama-server] Starting router mode ^(models-dir, context %CONTEXT_LENGTH%^)...
-start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --no-models-autoload --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 -ub %UBATCH% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+rem Do not pass --no-models-autoload: we want a model available for chat after start.
+rem ensure-loaded.mjs still POST /models/load if the catalog stays unloaded.
+start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 -ub %UBATCH% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
 goto :wait_health
 
 :wait_health
@@ -94,6 +97,14 @@ if not defined READY (
 )
 
 :ready
+echo [llama-server] Ensuring a model is loaded...
+if not defined MODEL_ALIAS if defined MODEL_FILE if not "%MODEL_FILE%"=="" (
+  for %%F in ("%MODEL_FILE%") do set "MODEL_ALIAS=%%~nF"
+)
+call node "%~dp0llama-server-ensure-loaded.mjs" %SERVER_PORT% "%MODEL_ALIAS%"
+if errorlevel 1 (
+  echo [WARN] Model auto-load reported an error; check %LLAMA_SERVER_LOG%
+)
 echo [OK] llama-server is ready at http://127.0.0.1:%SERVER_PORT%/v1
 endlocal
 exit /b 0

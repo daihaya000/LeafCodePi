@@ -43,13 +43,13 @@ function displayName(id: string): string {
 
 /**
  * Ask the running llama-server what model id(s) it accepts.
- * Single-model mode returns the GGUF path (or --alias); inventing "local" causes 400.
+ * Prefers loaded router models; falls back to the full catalog.
  */
 export async function fetchLlamaServerModelIds(
   baseUrl = DEFAULT_LLAMA_SERVER_BASE,
 ): Promise<string[]> {
   const root = baseUrl.replace(/\/$/, "").replace(/\/v1$/i, "");
-  for (const path of ["/v1/models", "/models"]) {
+  for (const path of ["/models", "/v1/models"]) {
     try {
       const res = await fetch(`${root}${path}`, {
         cache: "no-store",
@@ -58,14 +58,24 @@ export async function fetchLlamaServerModelIds(
       if (!res.ok) continue;
       const body = (await res.json()) as { data?: unknown };
       if (!Array.isArray(body.data)) continue;
-      const ids = body.data
+      const rows = body.data
         .map((row) => {
           if (!row || typeof row !== "object") return null;
           const id = (row as { id?: unknown }).id;
-          return typeof id === "string" && id.trim() ? id.trim() : null;
+          if (typeof id !== "string" || !id.trim()) return null;
+          const status =
+            (row as { status?: { value?: unknown } }).status &&
+            typeof (row as { status?: unknown }).status === "object"
+              ? String((row as { status: { value?: unknown } }).status.value ?? "")
+              : "";
+          return { id: id.trim(), status };
         })
-        .filter((id): id is string => Boolean(id));
-      if (ids.length > 0) return ids;
+        .filter((row): row is { id: string; status: string } => Boolean(row));
+      if (rows.length === 0) continue;
+      const loaded = rows.filter((r) => r.status === "loaded").map((r) => r.id);
+      if (loaded.length > 0) return loaded;
+      // Unloaded-only catalog: still return ids so sync can run after ensure-loaded.
+      return rows.map((r) => r.id);
     } catch {
       /* try next path / fall through */
     }

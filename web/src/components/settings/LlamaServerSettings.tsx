@@ -183,7 +183,29 @@ export function LlamaServerSettings() {
       await refreshStatus();
       if (!mountedRef.current) return;
       if (becameHealthy) {
-        setMessage("llama-server を起動しました");
+        try {
+          const preferred =
+            config.modelFile.trim()
+              ? config.modelFile.replace(/\\/g, "/").split("/").pop()?.replace(/\.gguf$/i, "")
+              : undefined;
+          const loaded = await sendJson<{ ok?: boolean; modelId?: string; error?: string }>(
+            "/api/llama-server/ensure-loaded",
+            { preferredId: preferred },
+          );
+          if (loaded.ok) {
+            setMessage(
+              loaded.modelId
+                ? `llama-server を起動し、モデルをロードしました（${loaded.modelId}）`
+                : "llama-server を起動しました",
+            );
+          } else {
+            setMessage("llama-server は起動しましたが、モデルの自動ロードに失敗しました");
+            setError(loaded.error ?? "ensure-loaded failed");
+          }
+        } catch (err) {
+          setMessage("llama-server は起動しましたが、モデルの自動ロードに失敗しました");
+          setError(err instanceof Error ? err.message : "ensure-loaded failed");
+        }
       } else {
         setError("llama-server の起動確認がタイムアウトしました。ステータスを確認してください。");
       }
