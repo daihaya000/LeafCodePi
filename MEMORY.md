@@ -52,6 +52,16 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 
 ### 残存（意図的に未実装）
 
-- worktree / 一時コピー、権限カード、差分ペイン、ゴールループ、Caddy、ログイン、ネイティブ exe ランチャー
+- worktree / 一時コピー、権限カード、差分ペイン、ゴールループ、Caddy、ネイティブ exe ランチャー
 - Pi の bash は Windows で Git Bash などが必要
 - トレイアイコン画像は LeafCode と同じ葉。ツールチップは LeafCodePi Host
+
+## 2026-08-20: OpenAI / Anthropic サブスクログイン
+
+設定画面から Pi の OAuth を起動できるようにした。
+
+- Anthropic → Claude Pro/Max（`oauth`）
+- OpenAI Codex → ChatGPT Plus/Pro（`openai-codex` / `oauth`）
+- BFF: `POST /api/providers/:id/login` + SSE events + answer/cancel、`POST .../logout`
+- 認証情報は `~/.pi/agent/auth.json` に保存（OpenCode の auth とは別）
+- 検証: `vitest` 7 passed、`tsc --noEmit` 成功

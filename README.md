@@ -7,12 +7,23 @@
 - サイドバー: プロジェクト / タスク一覧、折りたたみ、テーマ切替
 - ホーム: プロジェクト選択 + composer + モデル / 思考レベル
 - タスク: タイムライン（テキスト・思考・ツールカード）+ SSE ストリーミング + 停止
-- 設定: Pi のヘルス、プロバイダー認証、利用可能モデル
+- 設定: Pi のヘルス、**Claude Pro/Max / ChatGPT Plus/Pro のサブスクログイン**、プロバイダー認証、利用可能モデル
 - プロジェクト追加: パス入力 / フォルダ一覧 / Windows ネイティブ参照
+
+## サブスクリプション認証
+
+設定 → エンジン → 「サブスクでログイン」からブラウザ OAuth できます。
+
+| プロバイダー | 対象サブスク | Pi 上の ID |
+| --- | --- | --- |
+| Anthropic | Claude Pro / Max | `anthropic`（oauth） |
+| OpenAI Codex | ChatGPT Plus / Pro | `openai-codex` |
+
+トークンは `%USERPROFILE%\.pi\agent\auth.json` に保存されます。コールバックは本機の `127.0.0.1:53692`（Anthropic）と `localhost:1455`（OpenAI Codex）を使います。通常の API キー（`ANTHROPIC_API_KEY` など）も併用できます。
 
 ## まだないもの
 
-OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペイン、ゴールループ、Caddy、ログインは未実装です。エージェントはプロジェクトフォルダ上で Pi の標準ツール（read / write / edit / bash / grep / find / ls）を直接実行します。
+OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペイン、ゴールループ、Caddy は未実装です。エージェントはプロジェクトフォルダ上で Pi の標準ツール（read / write / edit / bash / grep / find / ls）を直接実行します。
 
 ## 動作条件
 
@@ -20,7 +31,7 @@ OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペ
 | --- | --- |
 | OS | Windows 10/11 x64（macOS / Linux でも WebUI 自体は動きます） |
 | Node.js | 20 以上 |
-| Pi 認証 | `ANTHROPIC_API_KEY` などの環境変数、または `~/.pi/agent/auth.json`（`pi /login`） |
+| Pi 認証 | 設定画面のサブスクログイン（Claude Pro/Max / ChatGPT Plus/Pro）、環境変数、または `~/.pi/agent/auth.json` |
 | bash（Windows） | Git Bash など。Pi がツール実行に使います |
 
 ## 起動

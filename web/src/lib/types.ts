@@ -89,6 +89,12 @@ export type ProviderAuthDto = {
   id: string;
   name: string;
   authenticated: boolean;
+  methods?: ("api_key" | "oauth")[];
+  authSource?: string;
+  authLabel?: string;
+  subscription?: boolean;
+  oauthAvailable?: boolean;
+  highlighted?: boolean;
   error?: string;
 };
 

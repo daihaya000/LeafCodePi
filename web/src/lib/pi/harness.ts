@@ -14,6 +14,13 @@ import {
   setTaskStatus,
   upsertProject,
 } from "@/lib/store";
+import {
+  ProviderLoginSession,
+  SUBSCRIPTION_PROVIDER_IDS,
+  providerAuthMethods,
+  type AuthTypeDto,
+  type LoginSessionEvent,
+} from "@/lib/pi/auth-login";
 import { projectPiMessages, titleFromPrompt } from "@/lib/pi/messages";
 import type {
   HealthDto,
@@ -51,6 +58,7 @@ type HarnessState = {
   initPromise: Promise<void> | null;
   live: Map<string, LiveRuntime>;
   events: EventEmitter;
+  loginSession: ProviderLoginSession | null;
 };
 
 const GLOBAL_KEY = "__leafcodePiHarness" as const;
@@ -65,6 +73,7 @@ function state(): HarnessState {
       initPromise: null,
       live: new Map(),
       events: new EventEmitter(),
+      loginSession: null,
     };
     globalRef[GLOBAL_KEY].events.setMaxListeners(100);
   }
@@ -325,14 +334,96 @@ export async function listProviderAuth(): Promise<ProviderAuthDto[]> {
   await ensureRuntime();
   const runtime = state().modelRuntime;
   if (!runtime) return [];
-  return runtime.getProviders().map((provider) => {
+  const providers = runtime.getProviders().map((provider) => {
     const status = runtime.getProviderAuthStatus(provider.id);
+    const methods = providerAuthMethods(provider);
     return {
       id: provider.id,
       name: provider.name,
       authenticated: status.configured,
-    };
+      methods,
+      authSource: status.source,
+      authLabel: status.label,
+      subscription: runtime.isUsingSubscription(provider.id),
+      oauthAvailable: methods.includes("oauth"),
+      highlighted: SUBSCRIPTION_PROVIDER_IDS.has(provider.id),
+    } satisfies ProviderAuthDto;
   });
+  providers.sort((a, b) => {
+    const score = (p: ProviderAuthDto) =>
+      (p.highlighted ? 4 : 0) + (p.oauthAvailable ? 2 : 0) + (p.authenticated ? 1 : 0);
+    return score(b) - score(a) || a.name.localeCompare(b.name, "en");
+  });
+  return providers;
+}
+
+export async function startProviderLogin(
+  providerId: string,
+  authType: AuthTypeDto,
+): Promise<{ sessionId: string }> {
+  await ensureRuntime();
+  const current = state();
+  const runtime = current.modelRuntime;
+  if (!runtime) throw Object.assign(new Error("Pi runtime が初期化されていません"), { status: 503 });
+  const provider = runtime.getProvider(providerId);
+  if (!provider) throw Object.assign(new Error(`不明なプロバイダー: ${providerId}`), { status: 404 });
+  const methods = providerAuthMethods(provider);
+  if (!methods.includes(authType)) {
+    throw Object.assign(
+      new Error(`${provider.name} は ${authType === "oauth" ? "サブスクログイン" : "API キー"} に対応していません`),
+      { status: 400 },
+    );
+  }
+  if (current.loginSession) {
+    current.loginSession.cancel();
+    current.loginSession = null;
+  }
+  const session = new ProviderLoginSession(providerId, authType);
+  current.loginSession = session;
+  // Let the SSE client attach before the OAuth flow emits prompts.
+  queueMicrotask(() => {
+    void session.run(runtime).finally(() => {
+      // Keep the finished session briefly so a late EventSource can replay history.
+      setTimeout(() => {
+        if (current.loginSession === session) current.loginSession = null;
+      }, 15_000);
+    });
+  });
+  return { sessionId: session.id };
+}
+
+export function answerProviderLogin(promptId: string, value: string): void {
+  const session = state().loginSession;
+  if (!session) throw Object.assign(new Error("ログインセッションがありません"), { status: 409 });
+  session.answer(promptId, value);
+}
+
+export function cancelProviderLogin(): void {
+  const current = state();
+  current.loginSession?.cancel();
+  current.loginSession = null;
+}
+
+export function subscribeProviderLogin(listener: (event: LoginSessionEvent) => void): () => void {
+  const session = state().loginSession;
+  if (!session) throw Object.assign(new Error("ログインセッションがありません"), { status: 409 });
+  return session.subscribe(listener);
+}
+
+export function getActiveProviderLogin(): { sessionId: string; providerId: string; authType: AuthTypeDto } | null {
+  const session = state().loginSession;
+  if (!session) return null;
+  return { sessionId: session.id, providerId: session.providerId, authType: session.authType };
+}
+
+export async function logoutProvider(providerId: string): Promise<void> {
+  await ensureRuntime();
+  const runtime = state().modelRuntime;
+  if (!runtime) throw Object.assign(new Error("Pi runtime が初期化されていません"), { status: 503 });
+  if (!runtime.getProvider(providerId)) {
+    throw Object.assign(new Error(`不明なプロバイダー: ${providerId}`), { status: 404 });
+  }
+  await runtime.logout(providerId);
 }
 
 export function getProjects(): ProjectDto[] {

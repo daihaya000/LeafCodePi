@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
+import { ProviderAuthPanel } from "@/components/settings/ProviderAuthPanel";
 import { Badge, Button, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import type { HealthDto, ModelOption, ProviderAuthDto } from "@/lib/types";
@@ -15,7 +16,7 @@ export function SettingsView() {
   const [providers, setProviders] = useState<ProviderAuthDto[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     void Promise.allSettled([
       getJson<HealthDto>("/api/health"),
       getJson<{ models: ModelOption[] }>("/api/models"),
@@ -27,6 +28,10 @@ export function SettingsView() {
       if (providerRes.status === "fulfilled") setProviders(providerRes.value.providers);
     });
   }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
   return (
     <div className="flex h-full flex-col">
@@ -79,25 +84,7 @@ export function SettingsView() {
               </div>
 
               <div className="rounded-2xl border border-border bg-surface p-4">
-                <h2 className="mb-2 text-sm font-semibold">プロバイダー認証</h2>
-                <p className="mb-3 text-xs text-muted">
-                  Pi は環境変数（ANTHROPIC_API_KEY など）または ~/.pi/agent/auth.json を使います。CLI の{" "}
-                  <code className="rounded bg-surface-2 px-1">pi /login</code> でも登録できます。
-                </p>
-                <ul className="space-y-1">
-                  {providers.length === 0 && <li className="text-sm text-muted">プロバイダー情報を取得できませんでした</li>}
-                  {providers.map((provider) => (
-                    <li key={provider.id} className="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm">
-                      <span>
-                        {provider.name}{" "}
-                        <span className="font-mono text-xs text-muted">{provider.id}</span>
-                      </span>
-                      <Badge tone={provider.authenticated ? "success" : "neutral"}>
-                        {provider.authenticated ? "認証済" : "未設定"}
-                      </Badge>
-                    </li>
-                  ))}
-                </ul>
+                <ProviderAuthPanel providers={providers} onChanged={reload} />
               </div>
 
               <div className="rounded-2xl border border-border bg-surface p-4">
@@ -119,7 +106,8 @@ export function SettingsView() {
             <section className="rounded-2xl border border-border bg-surface p-4 text-sm text-muted">
               <p>テーマはサイドバー右下のアイコンから切り替えます（ライト / ダーク / システム）。</p>
               <p className="mt-2">
-                この MVP は OpenCode ホスト・worktree 分離・権限カード・差分ペインをまだ持ちません。Pi セッションで read / write / edit / bash を直接実行します。
+                Claude Pro/Max と ChatGPT Plus/Pro は設定の「サブスクでログイン」からブラウザ認証できます。OpenCode
+                ホストは使いません。
               </p>
               <Button className="mt-4" onClick={() => window.location.reload()}>
                 再読み込み
