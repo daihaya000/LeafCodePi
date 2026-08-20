@@ -99,12 +99,18 @@ call :fail 3 "Node.js is not available in this command prompt." error-3
 exit /b 3
 
 :install_web
-if exist "%~dp0..\\web\\node_modules\\next" exit /b 0
-echo [LeafCodePi] Installing web dependencies...
-call npm --prefix "%~dp0..\\web" install
-if errorlevel 1 (
-  call :fail 5 "web dependencies could not be installed." error-5
-  exit /b 5
+if not exist "%~dp0..\\web\\node_modules\\next" (
+  echo [LeafCodePi] Installing web dependencies...
+  call npm --prefix "%~dp0..\\web" install
+  if errorlevel 1 (
+    call :fail 5 "web dependencies could not be installed." error-5
+    exit /b 5
+  )
+)
+if exist "%~dp0..\\web\\.next\\BUILD_ID" (
+  echo [LeafCodePi] Existing build found; host will rebuild if sources are newer.
+) else (
+  echo [LeafCodePi] No production build yet; host will run next build on start.
 )
 exit /b 0
 

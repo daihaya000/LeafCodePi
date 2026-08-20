@@ -7,7 +7,7 @@ import { isThisModuleEntrypoint } from "./entry.js";
 import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { formatLogLine } from "./log-file.js";
 import { localLeafcodePiTempDir } from "./tray-temp.js";
-import { formatWebStatus, getPostBuildLaunchPlan, getWebLaunchPlan } from "./web-plan.js";
+import { formatWebStatus, getPostBuildLaunchPlan, getWebLaunchPlan, isWebBuildStale } from "./web-plan.js";
 
 test("readPort falls back on invalid values", () => {
   assert.equal(readPort("3000", 1), 3000);
@@ -39,10 +39,75 @@ test("getWebLaunchPlan prefers existing production build", () => {
   assert.deepEqual(getWebLaunchPlan(undefined, false), { needsBuild: false, useProd: false });
 });
 
-test("getPostBuildLaunchPlan serves a successful build", () => {
-  assert.deepEqual(getPostBuildLaunchPlan("prod", true), { needsBuild: false, useProd: true });
-  assert.deepEqual(getPostBuildLaunchPlan("dev", true), { needsBuild: false, useProd: false });
+test("getWebLaunchPlan rebuilds when BUILD_ID exists but sources are newer", () => {
+  assert.deepEqual(getWebLaunchPlan("prod", true, true), { needsBuild: true, useProd: true });
+  assert.deepEqual(getWebLaunchPlan("prod", true, false), { needsBuild: false, useProd: true });
+  assert.deepEqual(getWebLaunchPlan(undefined, true, true), { needsBuild: true, useProd: true });
+  assert.deepEqual(getWebLaunchPlan("dev", true, true), { needsBuild: false, useProd: false });
 });
+
+test("getPostBuildLaunchPlan serves a successful build", () => {
+  assert.deepEqual(getPostBuildLaunchPlan("prod", true), {
+    needsBuild: false,
+    useProd: true,
+    staleAfterBuild: false,
+  });
+  assert.deepEqual(getPostBuildLaunchPlan("dev", true), {
+    needsBuild: false,
+    useProd: false,
+    staleAfterBuild: false,
+  });
+});
+
+test("getPostBuildLaunchPlan never re-requests a build after a fresh build", () => {
+  assert.deepEqual(getPostBuildLaunchPlan("prod", true, true), {
+    needsBuild: false,
+    useProd: true,
+    staleAfterBuild: true,
+  });
+});
+
+test("isWebBuildStale is true when a watched source is newer than BUILD_ID", () => {
+  const buildMs = 1_000;
+  const newer = 2_000;
+  const files = new Map([
+    ["web/.next/BUILD_ID", { mtimeMs: buildMs, isFile: () => true, isDirectory: () => false }],
+    ["web/src/app/page.tsx", { mtimeMs: newer, isFile: () => true, isDirectory: () => false }],
+    ["web/src", { mtimeMs: newer, isFile: () => false, isDirectory: () => true }],
+    ["web/src/app", { mtimeMs: newer, isFile: () => false, isDirectory: () => true }],
+  ]);
+  const children = new Map([
+    ["web/src", ["app"]],
+    ["web/src/app", ["page.tsx"]],
+  ]);
+  const fsApi = {
+    existsSync: (path) => files.has(normalize(path)),
+    statSync: (path) => files.get(normalize(path)),
+    readdirSync: (path) => children.get(normalize(path)) ?? [],
+  };
+  assert.equal(isWebBuildStale("web", "web/.next", fsApi), true);
+});
+
+test("isWebBuildStale is false when sources are older than BUILD_ID", () => {
+  const buildMs = 2_000;
+  const older = 1_000;
+  const files = new Map([
+    ["web/.next/BUILD_ID", { mtimeMs: buildMs, isFile: () => true, isDirectory: () => false }],
+    ["web/package.json", { mtimeMs: older, isFile: () => true, isDirectory: () => false }],
+    ["web/src", { mtimeMs: older, isFile: () => false, isDirectory: () => true }],
+  ]);
+  const children = new Map([["web/src", []]]);
+  const fsApi = {
+    existsSync: (path) => files.has(normalize(path)),
+    statSync: (path) => files.get(normalize(path)),
+    readdirSync: (path) => children.get(normalize(path)) ?? [],
+  };
+  assert.equal(isWebBuildStale("web", "web/.next", fsApi), false);
+});
+
+function normalize(path) {
+  return String(path).replace(/\\/g, "/");
+}
 
 test("formatWebStatus labels", () => {
   assert.equal(formatWebStatus({ building: true, running: false, httpUp: false }), "LeafCodePi: building...");

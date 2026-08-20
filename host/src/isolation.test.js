@@ -40,3 +40,12 @@ test("desktop shortcut name is LeafCodePi.lnk", () => {
   assert.doesNotMatch(ps1, /LeafCode\.lnk/);
   assert.match(ps1, /leafcode-pi/);
 });
+
+test("host rebuilds stale production builds like LeafCode", () => {
+  const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
+  assert.match(index, /isWebBuildStale/);
+  assert.match(index, /rebuildReason === "stale"/);
+  assert.match(index, /continuing with the existing production build/);
+  const bat = readFileSync(join(repoRoot, "scripts", "start-webui.bat"), "utf8");
+  assert.match(bat, /host will rebuild if sources are newer/);
+});

@@ -26,7 +26,8 @@ OpenCode 版 LeafCode（`C:\Users\Daichi\OneDrive\AI\OpenCode\LeafCode`）の UI
 
 - bat は ASCII / CRLF / BOM なし。日本語は `scripts/setup-messages/*.txt`（UTF-8 CRLF）を `chcp 65001` 後に `type`。
 - 既定: `LEAFCODE_PI_HOST=127.0.0.1`、`LEAFCODE_PI_PORT=3010`、`LEAFCODE_PI_MODE=prod`。
-- `.next/BUILD_ID` が無ければ `next build`。失敗時は `next dev` にフォールバック。
+- `.next/BUILD_ID` が無ければ `next build`。ソース（`web/src` など）が BUILD_ID より新しければ stale として再ビルド（本家 LeafCode と同じ）。
+- stale 再ビルド失敗時は既存の production build を継続。完全欠落時のみ `next dev` にフォールバック。
 - トレイ: Open browser / 稼働状況 / Restart WebUI / Quit。OneDrive 上の TEMP 回避のため起動時だけ `%LOCALAPPDATA%\leafcode-pi\tmp`。
 - 二重起動は `%APPDATA%\leafcode-pi\host.lock`。死んだ PID なら stale として削除。
 - `node src\index.js` の相対 argv は `host/src/entry.js` の `resolve()` で判定。
@@ -65,3 +66,11 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 - BFF: `POST /api/providers/:id/login` + SSE events + answer/cancel、`POST .../logout`
 - 認証情報は `~/.pi/agent/auth.json` に保存（OpenCode の auth とは別）
 - 検証: `vitest` 7 passed、`tsc --noEmit` 成功
+
+## 2026-08-20: start.bat で stale production を再ビルド
+
+本家 LeafCode と同様、`start.bat` → host 起動時に `isWebBuildStale(web, web/.next)` を見てソースが新しければ `next build` する。
+
+- `getWebLaunchPlan(mode, hasBuild, buildStale)`
+- stale 再ビルド失敗時は既存 BUILD_ID を継続
+- bat は「Existing build found; host will rebuild if sources are newer.」を表示

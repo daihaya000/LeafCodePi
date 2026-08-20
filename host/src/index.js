@@ -12,6 +12,7 @@ import {
   formatWebStatus,
   getPostBuildLaunchPlan,
   getWebLaunchPlan,
+  isWebBuildStale,
   procRunning,
 } from "./web-plan.js";
 
@@ -87,6 +88,10 @@ function nextBin() {
 
 function hasProductionBuild() {
   return existsSync(join(WEB_DIR, ".next", "BUILD_ID"));
+}
+
+function webDistDir() {
+  return join(WEB_DIR, ".next");
 }
 
 function npmCmd() {
@@ -168,15 +173,21 @@ function installWebIfNeeded() {
   }
 }
 
-function buildWeb() {
+function buildWeb(reason = "missing") {
   return new Promise((resolve, reject) => {
-    log("Building LeafCodePi production bundle...");
+    const reasonText =
+      reason === "stale"
+        ? "Production LeafCodePi build is stale (sources newer than BUILD_ID); rebuilding before start…"
+        : "Production LeafCodePi build is missing; rebuilding before start…";
+    log(reasonText);
     const child = runNodeScript([nextBin(), "build"], { cwd: WEB_DIR });
     webBuildProc = child;
+    void refreshStatusMenu();
     pipeChild("build", child);
     child.on("error", reject);
     child.on("close", (code) => {
       webBuildProc = null;
+      void refreshStatusMenu();
       if (code === 0) resolve();
       else reject(new Error(`next build exited ${code}`));
     });
@@ -186,19 +197,38 @@ function buildWeb() {
 async function spawnWeb() {
   installWebIfNeeded();
   let hasBuild = hasProductionBuild();
-  let plan = getWebLaunchPlan(process.env.LEAFCODE_PI_MODE, hasBuild);
+  const buildStale = hasBuild && isWebBuildStale(WEB_DIR, webDistDir());
+  let plan = getWebLaunchPlan(process.env.LEAFCODE_PI_MODE, hasBuild, buildStale);
   if (plan.needsBuild) {
+    const rebuildReason = hasBuild && buildStale ? "stale" : "missing";
     try {
-      await buildWeb();
+      await buildWeb(rebuildReason);
     } catch (err) {
-      error(`Production build failed; falling back to next dev (${err instanceof Error ? err.message : String(err)})`);
-      process.env.LEAFCODE_PI_MODE = "dev";
+      hasBuild = hasProductionBuild();
+      if (rebuildReason === "stale" && hasBuild) {
+        error(
+          `Stale rebuild failed; continuing with the existing production build (${err instanceof Error ? err.message : String(err)})`,
+        );
+      } else {
+        error(
+          `Production build failed; falling back to next dev (${err instanceof Error ? err.message : String(err)})`,
+        );
+        process.env.LEAFCODE_PI_MODE = "dev";
+      }
     }
     hasBuild = hasProductionBuild();
-    plan = getPostBuildLaunchPlan(process.env.LEAFCODE_PI_MODE, hasBuild);
+    const stillStale = hasBuild && isWebBuildStale(WEB_DIR, webDistDir());
+    plan = getPostBuildLaunchPlan(process.env.LEAFCODE_PI_MODE, hasBuild, stillStale);
+    if (plan.staleAfterBuild) {
+      log("Sources changed during the build; serving this build and rebuilding again on the next restart");
+    }
   }
 
-  const useProd = plan.useProd && existsSync(nextBin());
+  if (plan.needsBuild && process.env.LEAFCODE_PI_MODE === "prod") {
+    throw new Error("LeafCodePi production build is unavailable");
+  }
+
+  const useProd = plan.useProd && existsSync(nextBin()) && hasProductionBuild();
   const args = useProd
     ? [nextBin(), "start", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)]
     : [nextBin(), "dev", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)];

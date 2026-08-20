@@ -36,7 +36,7 @@ OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペ
 
 ## 起動
 
-リポジトリ直下の `start.bat` をダブルクリックします。初回は Node.js / 依存関係 / production build を確認し、トレイに常駐します。準備ができたら `http://127.0.0.1:3010` を開きます。
+リポジトリ直下の `start.bat` をダブルクリックします。初回は Node.js / 依存関係 / production build を確認し、トレイに常駐します。ソースが `web/.next/BUILD_ID` より新しければ、本家 LeafCode と同じく起動時に `next build` し直します。準備できたら `http://127.0.0.1:3010` を開きます。
 
 トレイメニュー:
 
