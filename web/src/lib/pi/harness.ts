@@ -34,6 +34,7 @@ import {
 } from "@/lib/provider-model-state";
 import { registerLlamaProviders, syncLlamaServerProvider } from "@/lib/pi/llama-provider";
 import { registerCursorProvider } from "@/lib/pi/cursor-provider";
+import { registerCommandCodeProvider } from "@/lib/pi/commandcode-provider";
 import { registerOllamaCloudProvider, syncOllamaCloudProvider } from "@/lib/pi/ollama-cloud-provider";
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
 import {
@@ -153,6 +154,7 @@ async function ensureRuntime(): Promise<void> {
         });
         await registerLlamaProviders(current.modelRuntime);
         await registerCursorProvider(current.modelRuntime);
+        await registerCommandCodeProvider(current.modelRuntime);
         await registerOllamaCloudProvider(current.modelRuntime);
         current.initError = null;
       } catch (error) {

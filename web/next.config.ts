@@ -10,6 +10,8 @@ const nextConfig: NextConfig = {
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-tui",
     "@silvia-odwyer/photon-node",
+    "pi-commandcode-provider",
+    "jiti",
   ],
 };
 

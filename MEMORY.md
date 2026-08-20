@@ -323,3 +323,14 @@ CodexBarWin の cookie スクレイパーを LeafCodePi に移植。**実行時�
 - タスクタイムラインのアシスタント行に `N tok` と `X tok/s` を表示（ホバーで decode / e2e の別）
 - Pi セッションに `custom` エントリ `leafcode-pi.throughput` として永続化（再起動・再オープン後も復元）。LLM コンテキストには乗らない
 
+## 2026-08-21: Command Code プロバイダ（Go プラン対応）
+
+`pi-commandcode-provider`（[patlux/pi-commandcode-provider](https://github.com/patlux/pi-commandcode-provider)）を Cursor と同様に BFF へ配線。
+
+- 依存: `pi-commandcode-provider@0.5.1`（TypeScript 拡張を jiti でロード）
+- `registerCommandCodeProvider()` → ModelRuntime に `commandcode` を登録
+- トランスポート（拡張内）: まず公式 Provider API。`403 upgrade_required`（Go プラン）のときだけ `/alpha/generate` にフォールバック
+- 認証: 設定のログイン（OAuth / API キー）、`COMMANDCODE_API_KEY`、`COMMAND_CODE_API_KEY`（互換コピー）、`~/.commandcode/auth.json`
+- 設定の推奨枠にハイライト（`HIGHLIGHTED_API_PROVIDER_IDS`）
+- 非公式拡張。Command Code の利用規約・プラン条件が適用される
+

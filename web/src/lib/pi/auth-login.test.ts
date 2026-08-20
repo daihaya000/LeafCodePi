@@ -20,8 +20,9 @@ describe("subscription provider ids", () => {
     assert.equal(SUBSCRIPTION_PROVIDER_IDS.has("openai"), false);
   });
 
-  it("highlights Ollama Cloud with subscriptions", () => {
+  it("highlights Ollama Cloud and Command Code with subscriptions", () => {
     assert.ok(isHighlightedProvider("ollama-cloud"));
+    assert.ok(isHighlightedProvider("commandcode"));
     assert.ok(isHighlightedProvider("anthropic"));
     assert.equal(isHighlightedProvider("openai"), false);
   });
