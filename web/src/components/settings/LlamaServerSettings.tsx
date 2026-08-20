@@ -27,7 +27,7 @@ type LlamaServerStatus = {
 const POLL_INTERVAL_MS = 3000;
 const START_HEALTH_BUDGET_MS = 120_000;
 const START_POLL_INTERVAL_MS = 1000;
-const LLAMA_SERVER_UI_PORT = 8080;
+const LLAMA_SERVER_UI_PORT = 8081;
 
 async function fetchStatus(): Promise<LlamaServerStatus | null> {
   try {
@@ -406,7 +406,7 @@ export function LlamaServerSettings() {
                 リモートアクセスを許可（LAN・Tailscale）
                 <span className="mt-1 block text-faint">
                   llama-server を 0.0.0.0 にバインドし、他の端末から WebUI
-                  （http://&lt;ホストのIP&gt;:8080）を開けるようにします。オフの場合は
+                  （http://&lt;ホストのIP&gt;:8081）を開けるようにします。オフの場合は
                   このPCのみ（127.0.0.1）。反映にはサーバーの再起動が必要です。
                 </span>
               </span>

@@ -102,8 +102,8 @@ npm run dev
 | `LEAFCODE_PI_PORT` | WebUI ポート（既定 **3010**。LeafCode の 3000 と衝突しない） |
 | `LEAFCODE_PI_HOST` | WebUI 待ち受け。既定 `tailscale`（Tailscale IPv4。未検出時は 127.0.0.1）。`0.0.0.0` / 明示 IP も可 |
 | `LEAFCODE_PI_HOST_CONTROL_PORT` | ホスト制御（llama-server 起動など）。既定 **18775**（LeafCode の 18765 と別） |
-| `LEAFCODE_PI_LLAMA_PORT` | llama-server ポート。既定 **8080**（Pi の `LLAMA_BASE_URL` と一致） |
-| `LLAMA_BASE_URL` / `LLAMA_API_KEY` | Pi の llama.cpp プロバイダー用（未設定時は `http://127.0.0.1:8080`） |
+| `LEAFCODE_PI_LLAMA_PORT` | llama-server ポート。既定 **8081** |
+| `LLAMA_BASE_URL` / `LLAMA_API_KEY` | Pi の llama.cpp プロバイダー用（未設定時は `http://127.0.0.1:8081`） |
 | `LEAFCODE_PI_MODE` | `prod`（既定・start.bat）または `dev` |
 | `LEAFCODE_PI_HEADLESS` | `1` でトレイなし |
 | `LEAFCODE_PI_NO_BROWSER` | `1` で起動時にブラウザを開かない |
