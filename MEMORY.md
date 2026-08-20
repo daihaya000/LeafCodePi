@@ -112,7 +112,7 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 
 ### ホスト
 
-- `scripts/llama-server-load.bat` — ポート **8080**。`MODEL_FILE` あり → `-m` 単体、空 → `--models-dir` ルーター
+- `scripts/llama-server-load.bat` — ポート **8081**（LeafCode と共有）。`MODEL_FILE` あり → `-m` 単体、空 → `--models-dir` ルーター
 - `host/src/llama-server-service.js` + トレイ + 制御プレーン **:18775**（`host-control.json`）
 - WebUI「エンジン」タブに起動・停止・パス設定
 

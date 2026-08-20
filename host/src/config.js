@@ -5,8 +5,8 @@ import { join } from "node:path";
 /** Dedicated port so LeafCode (default 3000) can run at the same time. */
 export const DEFAULT_WEBUI_PORT = 3010;
 
-/** Pi llama.cpp default; LeafCode's llama-server often uses 8081. */
-export const DEFAULT_LLAMA_SERVER_PORT = 8080;
+/** Same port as LeafCode's llama-server so both UIs can share one process. */
+export const DEFAULT_LLAMA_SERVER_PORT = 8081;
 
 /** Localhost control plane for WebUI → host llama-server actions. */
 export const DEFAULT_HOST_CONTROL_PORT = 18775;

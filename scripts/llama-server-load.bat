@@ -8,11 +8,11 @@ rem   CONTEXT_LENGTH, PARALLEL, REASONING_EFFORT, LLAMA_SERVER_LOG
 rem
 rem If MODEL_FILE is empty: router mode (--models-dir) for Pi's llama.cpp provider.
 rem If MODEL_FILE is set: single-model mode (-m) for llama-server openai-compatible.
-rem Default port 8080 matches Pi's LLAMA_BASE_URL.
+rem Default port 8081 (shared with LeafCode llama-server).
 setlocal enabledelayedexpansion
 cd /d "%~dp0.."
 
-set "SERVER_PORT=8080"
+set "SERVER_PORT=8081"
 if not defined LLAMA_SERVER_HOST set "LLAMA_SERVER_HOST=127.0.0.1"
 if not defined MODEL_DIR set "MODEL_DIR=C:\Users\Daichi\models\llm"
 if not defined MODEL_FILE set "MODEL_FILE="

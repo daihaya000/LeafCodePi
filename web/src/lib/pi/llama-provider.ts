@@ -7,7 +7,7 @@ import {
 } from "@/lib/llama-server-settings";
 
 const LLAMA_SERVER_PROVIDER_ID = "llama-server";
-const DEFAULT_BASE = "http://127.0.0.1:8080";
+const DEFAULT_BASE = "http://127.0.0.1:8081";
 
 type RuntimeLike = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

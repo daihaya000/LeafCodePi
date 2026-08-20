@@ -38,7 +38,7 @@ if (typeof SysTray !== 'function') {
   );
 }
 
-const PORT = Number(process.argv[2] ?? 8080);
+const PORT = Number(process.argv[2] ?? 8081);
 const UI_URL = `http://127.0.0.1:${PORT}/`;
 
 // Dedicated llama.cpp tray icon. Kept separate from host/src/icon.json

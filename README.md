@@ -15,7 +15,7 @@
 
 `start.bat` 起動後、設定 → エンジン → 「ローカル LLM (llama-server)」から起動・停止できます。
 
-- ポート **8080**（Pi 既定）。LeafCode の llama-server（8081）とは別。
+- ポート **8081**（LeafCode の llama-server と同じ。片方を起動すれば共有可）。
 - `MODEL_FILE` 未指定 → ルーター（`--models-dir`）。Pi の `llama.cpp` ログイン向け。
 - `MODEL_FILE` 指定 → 単体 GGUF（`-m`）。プロバイダー ID `llama-server`。
 - バイナリ既定: `C:\tools\llama.cpp\llama-server.exe`
