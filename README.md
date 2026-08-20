@@ -7,9 +7,9 @@
 - サイドバー: プロジェクト / タスク一覧、折りたたみ、テーマ切替
 - ホーム: プロジェクト選択 + composer + モデル / 思考レベル
 - タスク: タイムライン（テキスト・思考・ツールカード）+ SSE ストリーミング + 停止
-- 設定: Pi のヘルス、**llama-server 起動**、再起動。**一般タブでグローバル AGENTS.md**。モデルタブで **Claude Pro/Max / ChatGPT Plus/Pro / Cursor のサブスクログイン**、有効・無効・並び替え、有効モデル一覧
+- 設定: Pi のヘルス、**llama-server 起動**、再起動。**一般タブでグローバル AGENTS.md**。モデルタブで **Claude / ChatGPT / Cursor サブスク**、**Ollama Cloud**、有効・無効・並び替え、有効モデル一覧
 - プロジェクト追加: パス入力 / フォルダ一覧 / Windows ネイティブ参照
-- モデルタブ: サブスクログイン、認証済みプロバイダー / モデルの有効・無効とドラッグ並び替え、有効モデル一覧
+- モデルタブ: サブスクログイン、Ollama Cloud API キー、認証済みプロバイダー / モデルの有効・無効とドラッグ並び替え、有効モデル一覧
 
 ## カスタム指示（AGENTS.md）
 
@@ -24,6 +24,14 @@
 - `MODEL_FILE` 指定 → 単体 GGUF（`-m`）。プロバイダー ID `llama-server`。
 - バイナリ既定: `C:\tools\llama.cpp\llama-server.exe`
 
+## Ollama Cloud
+
+設定 → モデル → Ollama Cloud で API キーを登録するか、環境変数 `OLLAMA_API_KEY` を設定します（[キー発行](https://ollama.com/settings/keys)）。
+
+- エンドポイント: `https://ollama.com/v1`（OpenAI 互換）
+- プロバイダー ID: `ollama-cloud`
+- モデル一覧はログイン後に `/v1/models` から取得
+
 ## サブスクリプション認証
 
 設定 → モデル → 「サブスクでログイン」からブラウザ OAuth できます。
@@ -33,6 +41,7 @@
 | Anthropic | Claude Pro / Max | `anthropic`（oauth） |
 | OpenAI Codex | ChatGPT Plus / Pro | `openai-codex` |
 | Cursor | Cursor サブスク | `cursor`（`@rahularya01/pi-cursor`） |
+| Ollama Cloud | API キー | `ollama-cloud` |
 
 Cursor は非公式拡張です。本機の Cursor IDE / CLI のトークンを使うか、設定画面から「サブスクでログイン」します。Node.js **22.19+** を推奨します。
 

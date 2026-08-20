@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { SUBSCRIPTION_PROVIDER_IDS, providerAuthMethods } from "@/lib/pi/auth-login";
+import { SUBSCRIPTION_PROVIDER_IDS, isHighlightedProvider, providerAuthMethods } from "@/lib/pi/auth-login";
 
 describe("providerAuthMethods", () => {
   it("lists api_key and oauth when both exist", () => {
@@ -18,5 +18,11 @@ describe("subscription provider ids", () => {
     assert.ok(SUBSCRIPTION_PROVIDER_IDS.has("openai-codex"));
     assert.ok(SUBSCRIPTION_PROVIDER_IDS.has("cursor"));
     assert.equal(SUBSCRIPTION_PROVIDER_IDS.has("openai"), false);
+  });
+
+  it("highlights Ollama Cloud with subscriptions", () => {
+    assert.ok(isHighlightedProvider("ollama-cloud"));
+    assert.ok(isHighlightedProvider("anthropic"));
+    assert.equal(isHighlightedProvider("openai"), false);
   });
 });

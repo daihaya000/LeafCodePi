@@ -172,3 +172,11 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 - 2MB 上限、シンボリックリンク拒否
 - 保存後 `reloadLiveSessionsContext()` で開いている AgentSession に Pi `/reload` 相当を実行（即時反映）
 
+## 2026-08-21: Ollama Cloud プロバイダ
+
+`https://ollama.com/v1`（OpenAI 互換）をプロバイダー ID `ollama-cloud` として登録。
+
+- API キー: 設定画面ログイン、または `OLLAMA_API_KEY`
+- モデル一覧は認証後に `/v1/models` から取得
+- 設定の推奨枠にハイライト表示
+

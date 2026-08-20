@@ -16,7 +16,7 @@ import {
 } from "@/lib/store";
 import {
   ProviderLoginSession,
-  SUBSCRIPTION_PROVIDER_IDS,
+  isHighlightedProvider,
   providerAuthMethods,
   type AuthTypeDto,
   type LoginSessionEvent,
@@ -33,6 +33,7 @@ import {
 } from "@/lib/provider-model-state";
 import { registerLlamaProviders, syncLlamaServerProvider } from "@/lib/pi/llama-provider";
 import { registerCursorProvider } from "@/lib/pi/cursor-provider";
+import { registerOllamaCloudProvider, syncOllamaCloudProvider } from "@/lib/pi/ollama-cloud-provider";
 import type {
   HealthDto,
   ModelOption,
@@ -128,6 +129,7 @@ async function ensureRuntime(): Promise<void> {
         });
         await registerLlamaProviders(current.modelRuntime);
         await registerCursorProvider(current.modelRuntime);
+        await registerOllamaCloudProvider(current.modelRuntime);
         current.initError = null;
       } catch (error) {
         current.initError = error instanceof Error ? error.message : String(error);
@@ -331,6 +333,7 @@ export async function listModels(): Promise<ModelOption[]> {
   if (!runtime) return [];
   // Pick up the real GGUF id from a running llama-server (avoids stub "local").
   await syncLlamaServerProvider(runtime).catch(() => {});
+  await syncOllamaCloudProvider(runtime).catch(() => {});
   const catalog = buildProviderModelsCatalog(runtime);
   const enabled = new Set(
     enabledModelOptionsFromCatalog(catalog).map((option) => option.value),
@@ -392,7 +395,7 @@ export async function listProviderAuth(): Promise<ProviderAuthDto[]> {
       authLabel: status.label,
       subscription: runtime.isUsingSubscription(provider.id),
       oauthAvailable: methods.includes("oauth"),
-      highlighted: SUBSCRIPTION_PROVIDER_IDS.has(provider.id),
+      highlighted: isHighlightedProvider(provider.id),
     } satisfies ProviderAuthDto;
   });
   providers.sort((a, b) => {

@@ -192,6 +192,13 @@ function serializePrompt(prompt: {
 /** Providers that expose Claude / ChatGPT / Cursor subscription OAuth. */
 export const SUBSCRIPTION_PROVIDER_IDS = new Set(["anthropic", "openai-codex", "cursor"]);
 
+/** Cloud API providers surfaced near subscription logins in settings. */
+export const HIGHLIGHTED_API_PROVIDER_IDS = new Set(["ollama-cloud"]);
+
+export function isHighlightedProvider(providerId: string): boolean {
+  return SUBSCRIPTION_PROVIDER_IDS.has(providerId) || HIGHLIGHTED_API_PROVIDER_IDS.has(providerId);
+}
+
 export function providerAuthMethods(provider: {
   auth: { apiKey?: unknown; oauth?: unknown };
 }): AuthTypeDto[] {

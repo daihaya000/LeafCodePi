@@ -227,11 +227,11 @@ export function ProviderAuthPanel({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="mb-2 text-sm font-semibold">サブスクリプション（推奨）</h2>
+        <h2 className="mb-2 text-sm font-semibold">サブスクリプション / クラウド（推奨）</h2>
         <p className="mb-3 text-xs text-muted">
-          Claude Pro/Max（Anthropic）、ChatGPT Plus/Pro（OpenAI Codex）、Cursor
-          サブスクのブラウザログインに対応しています。API キーなしで使えます。Cursor
-          は本機の Cursor IDE / CLI にログイン済みなら自動検出されることもあります。
+          Claude Pro/Max（Anthropic）、ChatGPT Plus/Pro（OpenAI Codex）、Cursor のブラウザログイン、および Ollama
+          Cloud（API キー）に対応しています。Ollama Cloud は環境変数{" "}
+          <span className="font-mono">OLLAMA_API_KEY</span> でも設定できます。
         </p>
         <ul className="space-y-2">
           {highlighted.length === 0 && (
