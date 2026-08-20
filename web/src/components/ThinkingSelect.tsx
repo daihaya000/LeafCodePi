@@ -22,7 +22,7 @@ export function ThinkingSelect({
   className?: string;
 }) {
   const options = levels.length > 0 ? levels : (["off"] as ThinkingLevel[]);
-  // No graded effort → hide entirely (no static「思考なし」placeholder).
+  // No graded effort → hide entirely (lone `off` is not shown as a static label).
   if (options.length <= 1 && (options[0] ?? "off") === "off") {
     return null;
   }

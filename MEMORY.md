@@ -178,7 +178,11 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 
 ## 2026-08-21: effort 非対応モデルは ThinkingSelect 非表示
 
-effort オプションがないモデルでは「思考なし」固定表示も含めドロップダウンを出さない。
+effort オプションがないモデルではドロップダウンを出さない（単独の off ラベルも出さない）。
+
+## 2026-08-21: effort の off ラベルを「デフォルト」に
+
+ThinkingSelect に段階 effort があるとき、`off` の表示を「思考なし」→「デフォルト」に変更。基準（追加思考なし）の相対表現として適切。
 
 ## 2026-08-21: モデル選択にプロバイダ／画像アイコン
 
@@ -224,7 +228,7 @@ Composer のモデルドロップダウン各行にプロバイダアイコン�
 Pi の `getSupportedThinkingLevels` / `setThinkingLevel` に合わせ、モデルが受け付けるレベルだけを UI に出す。
 
 - `ModelOption.thinkingLevels` を `/api/models` に付与
-- ホーム / タスクの `ThinkingSelect`（非対応モデルは「思考なし」固定）
+- ホーム / タスクの `ThinkingSelect`（非対応モデルはセレクト非表示、`off` 表示は「デフォルト」）
 - `POST /api/tasks/:id/thinking` でライブセッションへ即時反映
 - タスク作成・モデル切替時に clamp
 
@@ -333,4 +337,10 @@ CodexBarWin の cookie スクレイパーを LeafCodePi に移植。**実行時�
 - 認証: 設定のログイン（OAuth / API キー）、`COMMANDCODE_API_KEY`、`COMMAND_CODE_API_KEY`（互換コピー）、`~/.commandcode/auth.json`
 - 設定の推奨枠にハイライト（`HIGHLIGHTED_API_PROVIDER_IDS`）
 - 非公式拡張。Command Code の利用規約・プラン条件が適用される
+
+### 表示されないとき
+
+- プロセス内シングルトンが古い初期化のままだと登録漏れになるため、`ensureRuntime` は起動後も未登録なら `registerCommandCodeProvider` を再試行する
+- パッケージ解決は `process.cwd()/node_modules/...` フォールバック付き（Next の chunk 上の `createRequire` 対策）
+- WebUI / host を再起動すると確実に反映される
 

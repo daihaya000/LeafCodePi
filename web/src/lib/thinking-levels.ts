@@ -17,7 +17,9 @@ export const ALL_THINKING_LEVELS: readonly ThinkingLevel[] = [
 ] as const;
 
 export const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
-  off: "思考なし",
+  // Shown only when graded effort options exist (ThinkingSelect hides lone `off`).
+  // "デフォルト" = baseline / no extra effort, relative to low–max — clearer than「思考なし」.
+  off: "デフォルト",
   minimal: "最小",
   low: "低",
   medium: "中",

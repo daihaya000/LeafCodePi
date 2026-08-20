@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
+  THINKING_LEVEL_LABELS,
   clampThinkingLevelForModel,
   isThinkingLevel,
+  thinkingLevelLabel,
   thinkingLevelsForModel,
 } from "./thinking-levels";
 
@@ -50,5 +52,10 @@ describe("thinking-levels", () => {
     expect(clampThinkingLevelForModel(model, "high")).toBe("medium");
     expect(isThinkingLevel("low")).toBe(true);
     expect(isThinkingLevel("turbo")).toBe(false);
+  });
+
+  it("labels off as デフォルト when shown among effort options", () => {
+    expect(THINKING_LEVEL_LABELS.off).toBe("デフォルト");
+    expect(thinkingLevelLabel("off")).toBe("デフォルト");
   });
 });
