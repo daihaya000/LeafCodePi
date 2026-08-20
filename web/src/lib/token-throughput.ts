@@ -31,6 +31,58 @@ export type ThroughputSnapshot = {
   decodePhase: boolean;
 };
 
+/** Stored in Pi session via SessionManager.appendCustomEntry. */
+export const THROUGHPUT_CUSTOM_TYPE = "leafcode-pi.throughput";
+
+export type PersistedThroughput = {
+  startedAtMs: number;
+  firstTokenAtMs: number | null;
+  lastTokenAtMs: number | null;
+  outputTokens: number | null;
+};
+
+function finiteOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** Serialize a finalized timing for session persistence. */
+export function toPersistedThroughput(timing: ThroughputTiming): PersistedThroughput | null {
+  if (!Number.isFinite(timing.startedAtMs)) return null;
+  const snap = snapshotThroughput(timing, timing.lastTokenAtMs ?? Date.now());
+  if (!snap || snap.tokensPerSecond === null) return null;
+  return {
+    startedAtMs: timing.startedAtMs,
+    firstTokenAtMs: finiteOrNull(timing.firstTokenAtMs),
+    lastTokenAtMs: finiteOrNull(timing.lastTokenAtMs),
+    outputTokens:
+      typeof timing.outputTokens === "number" && Number.isFinite(timing.outputTokens)
+        ? Math.round(timing.outputTokens)
+        : snap.outputTokens,
+  };
+}
+
+export function timingFromPersisted(data: unknown): ThroughputTiming | null {
+  if (!data || typeof data !== "object") return null;
+  const row = data as Record<string, unknown>;
+  const startedAtMs = finiteOrNull(row.startedAtMs);
+  if (startedAtMs === null) return null;
+  const outputTokens = finiteOrNull(row.outputTokens);
+  return {
+    startedAtMs,
+    firstTokenAtMs: finiteOrNull(row.firstTokenAtMs),
+    lastTokenAtMs: finiteOrNull(row.lastTokenAtMs),
+    outputTokens: outputTokens !== null && outputTokens >= 0 ? Math.round(outputTokens) : null,
+    charCount: 0,
+  };
+}
+
+export function isThroughputCustomEntry(entry: {
+  type?: unknown;
+  customType?: unknown;
+}): boolean {
+  return entry.type === "custom" && entry.customType === THROUGHPUT_CUSTOM_TYPE;
+}
+
 const CONTENT_DELTA_TYPES = new Set([
   "text_delta",
   "thinking_delta",

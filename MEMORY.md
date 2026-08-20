@@ -279,5 +279,5 @@ Pi `session.compact()` / 自動圧縮設定に対応。
 - harness が `message_start` / `message_update`(text|thinking|toolcall delta) / `message_end` で first・last を記録
 - usage.output が来るまでストリーム文字数 / 4 で暫定トークン数
 - タスクタイムラインのアシスタント行に `N tok` と `X tok/s` を表示（ホバーで decode / e2e の別）
-- ライブセッション中のみ tok/s が付く（ディスク再読込分は usage.output のみ）
+- Pi セッションに `custom` エントリ `leafcode-pi.throughput` として永続化（再起動・再オープン後も復元）。LLM コンテキストには乗らない
 

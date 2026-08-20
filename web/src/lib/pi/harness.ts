@@ -42,11 +42,15 @@ import {
   thinkingLevelsForModel,
 } from "@/lib/thinking-levels";
 import {
+  THROUGHPUT_CUSTOM_TYPE,
   createThroughputTiming,
   isContentDeltaType,
+  isThroughputCustomEntry,
   noteContentDelta,
   noteReportedOutputTokens,
   snapshotThroughput,
+  timingFromPersisted,
+  toPersistedThroughput,
   type ThroughputTiming,
 } from "@/lib/token-throughput";
 import type {
@@ -79,6 +83,8 @@ type LiveRuntime = {
   promptChain: Promise<void>;
   /** Assistant throughput samples keyed by message.timestamp (ms). */
   throughputByStartedAt: Map<number, ThroughputTiming>;
+  /** startedAtMs values already written to the Pi session file. */
+  persistedThroughputKeys: Set<number>;
 };
 
 type HarnessState = {
@@ -214,6 +220,48 @@ function snapshotMessages(
   return throughputByStartedAt ? applyThroughput(projected, throughputByStartedAt) : projected;
 }
 
+function loadThroughputFromSession(session: AgentSession): {
+  timings: Map<number, ThroughputTiming>;
+  persistedKeys: Set<number>;
+} {
+  const timings = new Map<number, ThroughputTiming>();
+  const persistedKeys = new Set<number>();
+  try {
+    const entries = session.sessionManager.getEntries();
+    for (const entry of entries) {
+      if (!isThroughputCustomEntry(entry)) continue;
+      const timing = timingFromPersisted((entry as { data?: unknown }).data);
+      if (!timing) continue;
+      timings.set(timing.startedAtMs, timing);
+      persistedKeys.add(timing.startedAtMs);
+    }
+  } catch {
+    /* session may not expose entries yet */
+  }
+  return { timings, persistedKeys };
+}
+
+function persistThroughputSample(live: LiveRuntime, timing: ThroughputTiming): void {
+  if (live.persistedThroughputKeys.has(timing.startedAtMs)) return;
+  const payload = toPersistedThroughput(timing);
+  if (!payload) return;
+  // Defer until after Pi appends the assistant message on message_end.
+  queueMicrotask(() => {
+    if (live.persistedThroughputKeys.has(timing.startedAtMs)) return;
+    try {
+      live.session.sessionManager.appendCustomEntry(THROUGHPUT_CUSTOM_TYPE, payload);
+      live.persistedThroughputKeys.add(timing.startedAtMs);
+      live.throughputByStartedAt.set(timing.startedAtMs, {
+        ...timing,
+        outputTokens: payload.outputTokens,
+        charCount: 0,
+      });
+    } catch {
+      /* persistence is best-effort; in-memory sample still works for this process */
+    }
+  });
+}
+
 function assistantUsageOutput(message: unknown): number | null {
   if (!message || typeof message !== "object") return null;
   const usage = (message as { usage?: { output?: unknown } }).usage;
@@ -233,7 +281,9 @@ function trackThroughputEvent(
       typeof (message as { timestamp?: unknown }).timestamp === "number"
         ? (message as { timestamp: number }).timestamp
         : Date.now();
-    live.throughputByStartedAt.set(startedAt, createThroughputTiming(startedAt));
+    if (!live.throughputByStartedAt.has(startedAt)) {
+      live.throughputByStartedAt.set(startedAt, createThroughputTiming(startedAt));
+    }
     return;
   }
 
@@ -283,6 +333,7 @@ function trackThroughputEvent(
       timing = { ...timing, lastTokenAtMs: Date.now() };
     }
     live.throughputByStartedAt.set(startedAt, timing);
+    persistThroughputSample(live, timing);
   }
 }
 
@@ -341,12 +392,18 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
   const existing = current.live.get(taskId);
   existing?.unsubscribe();
 
+  const loaded = existing
+    ? null
+    : loadThroughputFromSession(session);
+
   const live: LiveRuntime = {
     taskId,
     session,
     unsubscribe: () => undefined,
     promptChain: Promise.resolve(),
-    throughputByStartedAt: existing?.throughputByStartedAt ?? new Map(),
+    throughputByStartedAt: existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
+    persistedThroughputKeys:
+      existing?.persistedThroughputKeys ?? loaded?.persistedKeys ?? new Set(),
   };
 
   const unsubscribe = session.subscribe((event) => {

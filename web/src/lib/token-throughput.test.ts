@@ -8,6 +8,8 @@ import {
   noteContentDelta,
   noteReportedOutputTokens,
   snapshotThroughput,
+  timingFromPersisted,
+  toPersistedThroughput,
 } from "./token-throughput";
 
 describe("decodeTokensPerSecond", () => {
@@ -76,5 +78,29 @@ describe("formatTokensPerSecond", () => {
     expect(formatTokensPerSecond(4.2)).toBe("4.2 tok/s");
     expect(formatTokensPerSecond(42.4)).toBe("42 tok/s");
     expect(formatTokensPerSecond(1_250)).toBe("1.3k tok/s");
+  });
+});
+
+describe("persistence", () => {
+  it("round-trips finalized timings", () => {
+    let timing = createThroughputTiming(1_000);
+    timing = noteContentDelta(timing, "abcd", 1_200);
+    timing = noteContentDelta(timing, "efgh", 2_200);
+    timing = noteReportedOutputTokens(timing, 101);
+    const persisted = toPersistedThroughput(timing);
+    expect(persisted).toEqual({
+      startedAtMs: 1_000,
+      firstTokenAtMs: 1_200,
+      lastTokenAtMs: 2_200,
+      outputTokens: 101,
+    });
+    const restored = timingFromPersisted(persisted);
+    expect(restored).toMatchObject(persisted!);
+    expect(snapshotThroughput(restored!)?.tokensPerSecond).toBe(100);
+  });
+
+  it("skips incomplete timings", () => {
+    expect(toPersistedThroughput(createThroughputTiming(1))).toBeNull();
+    expect(timingFromPersisted({ startedAtMs: "x" })).toBeNull();
   });
 });
