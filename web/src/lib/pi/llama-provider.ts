@@ -86,7 +86,7 @@ export async function fetchLlamaServerModelIds(
 function buildModelRows(ids: string[], contextWindow: number): OpenAiModelRow[] {
   return ids.map((id) => ({
     id,
-    name: `llama-server (${displayName(id)})`,
+    name: displayName(id),
     reasoning: false,
     input: ["text"],
     contextWindow,

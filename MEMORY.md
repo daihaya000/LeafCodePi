@@ -160,3 +160,7 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 
 設定の「サブスクリプション（推奨）」と「利用可能なモデル（有効のみ）」をエンジンからモデルタブへ移動。エンジンはヘルス / llama-server / 再起動のみ。
 
+## 2026-08-21: llama-server モデル表示名
+
+表示名を `llama-server (Qwen…)` から GGUF 名のみ（例: `Qwen3.8-27B-Uncensored-GGUF`）に変更。
+
