@@ -1,5 +1,6 @@
-// Generate every LeafCodePi branded icon from icons/LeafCodePi.svg:
+// Generate LeafCodePi branded icons from icons/LeafCodePi.svg:
 // tray ICO (host/src/icon.json), PWA PNGs, favicon.ico, and web/public/icon.svg.
+// Does NOT touch host/src/llama-server-icon.json (llama-server tray stays distinct).
 // Usage: node scripts/gen-icons.mjs
 import { copyFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
