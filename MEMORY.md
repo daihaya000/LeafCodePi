@@ -364,3 +364,23 @@ LeafCodePi の harness は現状、製品名を system prompt に埋め込んで
 - パッケージ解決は `process.cwd()/node_modules/...` フォールバック付き（Next の chunk 上の `createRequire` 対策）
 - WebUI / host を再起動すると確実に反映される
 
+## 2026-08-21: メッセージタイムラインが最新へ追従しない
+
+### 原因
+
+`TaskView` の自動スクロールが `messages.length`（と isStreaming / isCompacting）にしか依存していなかった。ストリーミング中は同一メッセージの parts が伸びるだけで件数は変わらないため、本文更新のたびに追従しなかった。
+
+### 修正
+
+本家 LeafCode と同じ stick-to-bottom:
+
+- スクロールコンテナへ `scrollTo({ top: scrollHeight })`
+- 依存を `messages` 全体に変更（ストリーム更新でも発火）
+- 明示的な上方向スクロールでのみ unstick（内容成長では維持）
+- `ResizeObserver` で Markdown / ツールカード等の非同期高さ変化にも追従
+
+### 検証
+
+- `npx vitest run src/lib/scroll-stick.test.ts` — 6 passed
+- `npx tsc --noEmit`
+

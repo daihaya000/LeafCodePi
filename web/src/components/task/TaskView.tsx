@@ -12,6 +12,7 @@ import { Button, cx } from "@/components/ui";
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
+import { isNearBottom, nextStickState } from "@/lib/scroll-stick";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import type { ModelOption, TaskDetail, TaskSummary, ThinkingLevel, UiMessage } from "@/lib/types";
 
@@ -65,7 +66,10 @@ export function TaskView({ taskId }: { taskId: string }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const stickRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
 
   const applyDetail = useCallback((detail: TaskDetail) => {
     setTask(detail);
@@ -122,9 +126,53 @@ export function TaskView({ taskId }: { taskId: string }) {
     };
   }, [taskId, applyDetail]);
 
+  const scrollToBottom = useCallback((el: HTMLElement) => {
+    el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+  }, []);
+
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const atBottom = isNearBottom(el.scrollTop, el.clientHeight, el.scrollHeight);
+    const prevTop = lastScrollTopRef.current;
+    lastScrollTopRef.current = el.scrollTop;
+    stickRef.current = nextStickState(stickRef.current, el.scrollTop, prevTop, atBottom);
+  }, []);
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, task?.isStreaming, isCompacting]);
+    stickRef.current = true;
+    lastScrollTopRef.current = 0;
+  }, [taskId]);
+
+  // Pin to latest while stick mode is on. Depend on `messages` (not just length)
+  // so streaming text/tool updates keep the viewport following.
+  useEffect(() => {
+    if (!stickRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    scrollToBottom(el);
+  }, [messages, task?.isStreaming, isCompacting, scrollToBottom]);
+
+  // Re-pin when Markdown / images / tool cards change height asynchronously.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    const content = contentRef.current;
+    if (!scroller || !content) return;
+    lastScrollTopRef.current = scroller.scrollTop;
+    const pinned = () => {
+      if (!stickRef.current) return;
+      if (isNearBottom(scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight)) return;
+      scrollToBottom(scroller);
+    };
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(pinned);
+      observer.observe(content);
+      pinned();
+      return () => observer.disconnect();
+    }
+    const id = window.setInterval(pinned, 200);
+    return () => window.clearInterval(id);
+  }, [scrollToBottom, taskId]);
 
   function addImageFiles(files: FileList) {
     Array.from(files).forEach((file) => {
@@ -243,15 +291,18 @@ export function TaskView({ taskId }: { taskId: string }) {
           </Button>
         )}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <div className="mx-auto flex max-w-3xl flex-col gap-6">
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+      >
+        <div ref={contentRef} className="mx-auto flex max-w-3xl flex-col gap-6">
           {messages.map((message) => (
             <PartView key={message.id} message={message} />
           ))}
           {messages.length === 0 && (
             <p className="py-12 text-center text-sm text-muted">メッセージはまだありません</p>
           )}
-          <div ref={bottomRef} />
         </div>
       </div>
       <div className="shrink-0 border-t border-border bg-surface px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
