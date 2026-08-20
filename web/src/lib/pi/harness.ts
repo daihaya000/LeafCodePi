@@ -630,6 +630,32 @@ export function archiveTask(id: string): TaskSummary {
   return task;
 }
 
+/**
+ * Reload AGENTS.md / skills / extensions into every in-memory AgentSession
+ * (Pi's `/reload`). Next prompt uses the updated system prompt.
+ */
+export async function reloadLiveSessionsContext(): Promise<{
+  reloaded: number;
+  failed: number;
+  errors: string[];
+}> {
+  const lives = [...state().live.values()];
+  let reloaded = 0;
+  let failed = 0;
+  const errors: string[] = [];
+  for (const live of lives) {
+    try {
+      await live.session.reload();
+      reloaded += 1;
+    } catch (error) {
+      failed += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`${live.taskId}: ${message}`);
+    }
+  }
+  return { reloaded, failed, errors };
+}
+
 export function subscribeTask(
   id: string,
   listener: (payload: Record<string, unknown>) => void,

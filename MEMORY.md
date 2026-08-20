@@ -170,5 +170,5 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 
 - `GET/PATCH /api/agents-md`
 - 2MB 上限、シンボリックリンク拒否
-- 反映は新規タスク作成時（既存セッションは再作成が必要）
+- 保存後 `reloadLiveSessionsContext()` で開いている AgentSession に Pi `/reload` 相当を実行（即時反映）
 

@@ -13,7 +13,7 @@
 
 ## カスタム指示（AGENTS.md）
 
-設定 → 一般 → 「カスタム指示（AGENTS.md）」から `~/.pi/agent/AGENTS.md` を編集できます（全プロジェクト共通）。反映は新規タスクからです。プロジェクト単位の AGENTS.md 編集は未対応です。
+設定 → 一般 → 「カスタム指示（AGENTS.md）」から `~/.pi/agent/AGENTS.md` を編集できます（全プロジェクト共通）。保存時に開いているセッションへ即時反映します。プロジェクト単位の AGENTS.md 編集は未対応です。
 
 ## ローカル LLM（llama.cpp / llama-server）
 

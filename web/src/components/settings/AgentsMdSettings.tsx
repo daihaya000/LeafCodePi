@@ -5,6 +5,10 @@ import { Badge, Button } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 
 type AgentsMd = { path: string; exists: boolean; content: string };
+type SaveResult = AgentsMd & {
+  ok: boolean;
+  reload?: { reloaded: number; failed: number; errors: string[] };
+};
 type LoadState = "loading" | "ready" | "error";
 
 export function AgentsMdSettings() {
@@ -45,10 +49,20 @@ export function AgentsMdSettings() {
     setError(null);
     setMessage(null);
     try {
-      const saved = await sendJson<AgentsMd & { ok: boolean }>("/api/agents-md", { content }, "PATCH");
+      const saved = await sendJson<SaveResult>("/api/agents-md", { content }, "PATCH");
       if (!mountedRef.current) return;
       setMeta({ path: saved.path, exists: saved.exists, content: saved.content });
-      setMessage("グローバル AGENTS.md を保存しました。新規タスクから反映されます。");
+      const reload = saved.reload;
+      if (reload && reload.failed > 0) {
+        setMessage(
+          `保存しました。${reload.reloaded} 件のセッションに反映、${reload.failed} 件は失敗しました。`,
+        );
+        if (reload.errors[0]) setError(reload.errors[0]);
+      } else if (reload && reload.reloaded > 0) {
+        setMessage(`保存し、開いている ${reload.reloaded} 件のセッションへ即時反映しました。`);
+      } else {
+        setMessage("保存しました。次に開くセッションから有効です。");
+      }
     } catch (err) {
       if (mountedRef.current) {
         setError(err instanceof Error ? err.message : "AGENTS.mdの保存に失敗しました");
@@ -65,7 +79,7 @@ export function AgentsMdSettings() {
           <h2 className="text-sm font-semibold">カスタム指示（AGENTS.md）</h2>
           <p className="mt-1 text-xs text-muted">
             全プロジェクト共通の指示です。Pi は <span className="font-mono">~/.pi/agent/AGENTS.md</span>{" "}
-            を読み込みます。既存タスクには反映されず、新規タスク作成時から有効になります。
+            を読み込みます。保存すると開いているセッションにも即時反映され（進行中の応答の次のターンから）。
           </p>
         </div>
         {meta && (
