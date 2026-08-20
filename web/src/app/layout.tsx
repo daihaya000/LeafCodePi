@@ -17,8 +17,8 @@ export const metadata: Metadata = {
   title: "LeafCodePi",
   description: "Pi Coding Agent 用の LeafCode フロントエンド",
   icons: {
-    icon: "/icon.svg",
-    apple: "/icon.svg",
+    icon: [{ url: "/favicon.ico" }, { url: "/icon.svg", type: "image/svg+xml" }],
+    apple: "/apple-touch-icon.png",
   },
 };
 

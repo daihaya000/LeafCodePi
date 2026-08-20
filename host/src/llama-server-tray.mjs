@@ -41,9 +41,8 @@ if (typeof SysTray !== 'function') {
 const PORT = Number(process.argv[2] ?? 8081);
 const UI_URL = `http://127.0.0.1:${PORT}/`;
 
-// Dedicated llama.cpp tray icon. Kept separate from host/src/icon.json
-// (the LeafCodePi leaf) so the two trays are visually distinct.
-const iconData = JSON.parse(readFileSync(join(__dirname, 'llama-server-icon.json'), 'utf8'));
+// Brand icon (same as LeafCodePi host tray).
+const iconData = JSON.parse(readFileSync(join(__dirname, 'icon.json'), 'utf8'));
 const ICON = iconData.base64;
 
 /** Kill every live PID listening on :PORT (the llama-server process). */

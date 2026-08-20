@@ -7,6 +7,7 @@
     "build": "npm --prefix web run build",
     "start": "npm --prefix web run start -- --hostname 127.0.0.1 --port 3010",
     "host": "npm --prefix host start",
+    "icons": "node scripts/gen-icons.mjs",
     "test": "npm --prefix web test && npm --prefix host test",
     "typecheck": "npm --prefix web run typecheck"
   },

@@ -125,3 +125,11 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 ### 注意
 
 クライアントの `LlamaServerSettings` は `node:fs` 付きの `host-control` を import しない（`loopback.ts` に分離）。Webpack の UnhandledSchemeError 防止。
+
+## 2026-08-21: アイコンを LeafCodePi.svg に統一
+
+ソース: `icons/LeafCodePi.svg`。`npm run icons`（`scripts/gen-icons.mjs`）で生成。
+
+- トレイ: `host/src/icon.json`（LeafCodePi / llama-server 両方）
+- Web: `web/public/icon.svg`、`icon-192.png`、`icon-512.png`、`apple-touch-icon.png`、`web/src/app/favicon.ico`
+- ショートカット: `create-shortcut.ps1` が `icon.json` → `%APPDATA%\leafcode-pi\app.ico`

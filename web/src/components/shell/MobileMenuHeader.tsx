@@ -21,6 +21,7 @@ export function MobileMenuHeader() {
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-2 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:hidden">
       <MobileMenuButton />
+      <img src="/icon.svg" alt="" className="h-5 w-5 rounded-[4px]" />
       <span className="text-sm font-semibold">LeafCodePi</span>
     </div>
   );
