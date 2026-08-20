@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  agentsSkillsDir,
   filterSkillsByState,
   listSkills,
   readSkillsState,
@@ -32,58 +33,87 @@ describe("filterSkillsByState", () => {
 describe("listSkills / setSkillEnabled", () => {
   let agentDir = "";
   let data = "";
+  let agentsHome = "";
   let prevData: string | undefined;
 
   afterEach(() => {
     if (prevData === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
     else process.env.LEAFCODE_PI_DATA_DIR = prevData;
     prevData = undefined;
-    if (agentDir) rmSync(agentDir, { recursive: true, force: true });
-    if (data) rmSync(data, { recursive: true, force: true });
+    for (const dir of [agentDir, data, agentsHome]) {
+      if (dir) rmSync(dir, { recursive: true, force: true });
+    }
     agentDir = "";
     data = "";
+    agentsHome = "";
   });
 
-  function fixture() {
+  function writeSkill(root: string, name: string, description: string) {
+    mkdirSync(join(root, name), { recursive: true });
+    writeFileSync(
+      join(root, name, "SKILL.md"),
+      `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`,
+      "utf8",
+    );
+  }
+
+  function fixture(opts?: { withAgents?: boolean }) {
     agentDir = mkdtempSync(join(tmpdir(), "leafcode-pi-skills-agent-"));
     data = mkdtempSync(join(tmpdir(), "leafcode-pi-skills-data-"));
     prevData = process.env.LEAFCODE_PI_DATA_DIR;
     process.env.LEAFCODE_PI_DATA_DIR = data;
-    const dir = skillsDir(agentDir);
-    for (const name of ["alpha", "beta"] as const) {
-      mkdirSync(join(dir, name), { recursive: true });
-      writeFileSync(
-        join(dir, name, "SKILL.md"),
-        `---\nname: ${name}\ndescription: ${name} skill\n---\n\n# ${name}\n`,
-        "utf8",
-      );
+    writeSkill(skillsDir(agentDir), "alpha", "alpha from pi");
+    writeSkill(skillsDir(agentDir), "beta", "beta from pi");
+    let agentsDir: string | undefined;
+    if (opts?.withAgents) {
+      agentsHome = mkdtempSync(join(tmpdir(), "leafcode-pi-agents-home-"));
+      agentsDir = agentsSkillsDir(agentsHome);
+      writeSkill(agentsDir, "insane-search", "from agents");
+      writeSkill(agentsDir, "alpha", "agents duplicate");
     }
     writeSkillsState({ disabled: {} });
-    return agentDir;
+    return { agentDir, agentsDir };
   }
 
   it("lists discovered skills as enabled by default", () => {
-    const agent = fixture();
-    const listed = listSkills(agent);
+    const { agentDir: agent } = fixture();
+    // Isolate from the real ~/.agents/skills on this machine.
+    const listed = listSkills(agent, {
+      agentsSkillsDir: join(tmpdir(), `leafcode-pi-no-agents-${process.pid}`),
+    });
     expect(listed.skills.map((s) => s.name)).toEqual(["alpha", "beta"]);
     expect(listed.skills.every((s) => s.enabled)).toBe(true);
+    expect(listed.skills.every((s) => s.source === "pi")).toBe(true);
     expect(listed.skillsDir).toBe(skillsDir(agent));
   });
 
-  it("toggles via skills-state.json without moving folders", () => {
-    const agent = fixture();
-    let listed = setSkillEnabled("alpha", false, agent);
-    expect(listed.skills.find((s) => s.name === "alpha")?.enabled).toBe(false);
-    expect(listed.skills.find((s) => s.name === "beta")?.enabled).toBe(true);
-    expect(readSkillsState().disabled).toEqual({ alpha: true });
+  it("includes ~/.agents/skills and prefers pi on name collision", () => {
+    const { agentDir: agent, agentsDir } = fixture({ withAgents: true });
+    const listed = listSkills(agent, { agentsSkillsDir: agentsDir });
+    expect(listed.skills.map((s) => s.name)).toEqual(["alpha", "beta", "insane-search"]);
+    expect(listed.skills.find((s) => s.name === "alpha")?.source).toBe("pi");
+    expect(listed.skills.find((s) => s.name === "insane-search")?.source).toBe("agents");
+    expect(listed.agentsSkillsDir).toBe(agentsDir);
+  });
 
-    listed = setSkillEnabled("alpha", true, agent);
-    expect(listed.skills.find((s) => s.name === "alpha")?.enabled).toBe(true);
+  it("toggles agents skills via skills-state.json", () => {
+    const { agentDir: agent, agentsDir } = fixture({ withAgents: true });
+    const opts = { agentsSkillsDir: agentsDir };
+    let listed = setSkillEnabled("insane-search", false, agent, opts);
+    expect(listed.skills.find((s) => s.name === "insane-search")?.enabled).toBe(false);
+    expect(readSkillsState().disabled).toEqual({ "insane-search": true });
+
+    listed = setSkillEnabled("insane-search", true, agent, opts);
+    expect(listed.skills.find((s) => s.name === "insane-search")?.enabled).toBe(true);
     expect(readSkillsState().disabled).toEqual({});
   });
 
   it("rejects unknown skill names", () => {
-    const agent = fixture();
-    expect(() => setSkillEnabled("missing", false, agent)).toThrow(SkillsError);
+    const { agentDir: agent } = fixture();
+    expect(() =>
+      setSkillEnabled("missing", false, agent, {
+        agentsSkillsDir: join(tmpdir(), `leafcode-pi-no-agents-${process.pid}`),
+      }),
+    ).toThrow(SkillsError);
   });
 });

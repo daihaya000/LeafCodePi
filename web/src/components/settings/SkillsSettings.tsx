@@ -9,11 +9,14 @@ type SkillDto = {
   name: string;
   description?: string;
   enabled: boolean;
+  source: "pi" | "agents";
+  filePath?: string;
 };
 
 type SkillsResponse = {
   skills: SkillDto[];
   skillsDir: string;
+  agentsSkillsDir: string;
 };
 
 function SkillSwitch({
@@ -53,6 +56,7 @@ function SkillSwitch({
 export function SkillsSettings() {
   const [skills, setSkills] = useState<SkillDto[]>([]);
   const [skillsPath, setSkillsPath] = useState<string>("");
+  const [agentsPath, setAgentsPath] = useState<string>("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -63,6 +67,7 @@ export function SkillsSettings() {
       .then((result) => {
         setSkills(result.skills);
         setSkillsPath(result.skillsDir);
+        setAgentsPath(result.agentsSkillsDir);
         setError(null);
       })
       .catch((err) => {
@@ -103,20 +108,24 @@ export function SkillsSettings() {
         </Button>
       </div>
       <p className="text-xs text-muted">
-        Pi のグローバルスキル（
-        <span className="font-mono">~/.pi/agent/skills</span>
+        Pi が読むグローバルスキル（
+        <span className="font-mono">~/.pi/agent/skills</span> と{" "}
+        <span className="font-mono">~/.agents/skills</span>
         ）を有効／無効にします。無効化は状態ファイルに記録し、開いているセッションへ即時反映します。
       </p>
-      {skillsPath && (
-        <p className="mt-1 break-all font-mono text-[11px] text-faint">{skillsPath}</p>
+      {(skillsPath || agentsPath) && (
+        <div className="mt-1 space-y-0.5 font-mono text-[11px] text-faint">
+          {skillsPath && <p className="break-all">{skillsPath}</p>}
+          {agentsPath && <p className="break-all">{agentsPath}</p>}
+        </div>
       )}
       {loading && skills.length === 0 ? (
         <p className="mt-3 text-sm text-muted">読み込み中…</p>
       ) : skills.length === 0 ? (
         <p className="mt-3 text-sm text-muted">
           スキルがありません。{" "}
-          <span className="font-mono">~/.pi/agent/skills/&lt;name&gt;/SKILL.md</span>{" "}
-          を追加してください。
+          <span className="font-mono">~/.agents/skills/&lt;name&gt;/SKILL.md</span>{" "}
+          などを追加してください。
         </p>
       ) : (
         <ul className="mt-3 max-h-80 space-y-2 overflow-y-auto">
@@ -134,6 +143,7 @@ export function SkillsSettings() {
                   <Badge tone={skill.enabled ? "success" : "neutral"}>
                     {skill.enabled ? "有効" : "無効"}
                   </Badge>
+                  <Badge tone="neutral">{skill.source === "agents" ? ".agents" : ".pi/agent"}</Badge>
                 </div>
                 {skill.description && (
                   <p className="mt-0.5 text-xs break-words text-faint">{skill.description}</p>

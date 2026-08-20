@@ -335,16 +335,18 @@ CodexBarWin の cookie スクレイパーを LeafCodePi に移植。**実行時�
 |---|---|---|
 | ベース（固定） | Pi パッケージ `buildSystemPrompt`（`pi-coding-agent` の `core/system-prompt.js`） | 「You are an expert coding assistant operating inside pi…」＋ツール一覧 |
 | カスタム指示 | `~/.pi/agent/AGENTS.md`（設定 → 一般）＋ cwd 側の `AGENTS.md` 等 | `<project_context>` として追記。ベースの「あなたは誰」を置き換えない |
-| スキル | `~/.pi/agent/skills` 等 → `formatSkillsForPrompt` | 利用可能スキル一覧を追記 |
+| スキル | `~/.pi/agent/skills`・`~/.agents/skills` → `formatSkillsForPrompt` | 利用可能スキル一覧を追記 |
 
 LeafCodePi の harness は現状、製品名を system prompt に埋め込んでいない。グローバル `AGENTS.md` が無い状態でもモデルが UI／製品名から「LeafCodePi」と名乗ることはある。
 
+## 2026-08-21: Skills 設定（ON/OFF）
 
 設定 → 一般からグローバルスキルを有効／無効にできる（フォルダ移動なし）。
 
-- 発見: Pi の `loadSkillsFromDir` で `~/.pi/agent/skills` を走査
+- 発見: `~/.pi/agent/skills` **と** `~/.agents/skills`（Pi が両方読む。後者に bug-hunt 等が入っていることが多い）
 - 無効化: `%APPDATA%/leafcode-pi/skills-state.json`（`disabled: { name: true }`）。モデル無効化と同じパターン
 - 実行時: `createSession` が `DefaultResourceLoader.skillsOverride` で無効名を除外。`session.reload()` 時も状態を再読込
+- プロジェクト cwd の `.agents/skills` / `.pi/skills` は設定 UI 対象外（セッション cwd 依存）
 - `GET /api/skills` / `PATCH /api/skills/:name`（`{ enabled }`）→ 切替後 `reloadLiveSessionsContext()`
 
 ## 2026-08-21: Command Code プロバイダ（Go プラン対応）
