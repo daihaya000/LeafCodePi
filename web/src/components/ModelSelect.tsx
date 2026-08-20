@@ -1,8 +1,23 @@
 "use client";
 
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
+import { Check, ChevronDown, ImageIcon } from "lucide-react";
 import { ProviderIcon } from "@/components/ProviderIcon";
-import { GhostSelect } from "@/components/ui";
+import { cx } from "@/components/ui";
 import type { ModelOption } from "@/lib/types";
+
+export function modelSupportsImage(option: ModelOption | undefined): boolean {
+  return Boolean(option?.input?.includes("image"));
+}
 
 export function ModelSelect({
   value,
@@ -19,34 +34,201 @@ export function ModelSelect({
   className?: string;
   title?: string;
 }) {
+  const [open, setOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{
+    top: number;
+    left: number;
+    minWidth: number;
+  } | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listboxId = useId();
+
   const selected = options.find((option) => option.value === value);
-  const grouped = new Map<string, ModelOption[]>();
-  for (const option of options) {
-    const list = grouped.get(option.providerID) ?? [];
-    list.push(option);
-    grouped.set(option.providerID, list);
-  }
+  const selectedSupportsImage = modelSupportsImage(selected);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, ModelOption[]>();
+    for (const option of options) {
+      const list = map.get(option.providerID) ?? [];
+      list.push(option);
+      map.set(option.providerID, list);
+    }
+    return [...map.entries()];
+  }, [options]);
+
+  const chooseOption = useCallback(
+    (option: ModelOption) => {
+      onChange(option.value);
+      setOpen(false);
+      triggerRef.current?.focus();
+    },
+    [onChange],
+  );
+
+  const updateMenuPosition = useCallback(() => {
+    const root = rootRef.current;
+    if (!root || typeof window === "undefined") return;
+    const rect = root.getBoundingClientRect();
+    const menuRect = menuRef.current?.getBoundingClientRect();
+    const viewportPadding = 16;
+    const gap = 4;
+    const maxMenuWidth = window.innerWidth - viewportPadding * 2;
+    const menuWidth = Math.min(
+      Math.max(menuRect?.width || Math.max(rect.width, 224), rect.width),
+      maxMenuWidth,
+    );
+    const menuHeight = Math.min(
+      menuRect?.height || 320,
+      window.innerHeight - viewportPadding * 2,
+    );
+    const topAbove = rect.top - menuHeight - gap;
+    const topBelow = rect.bottom + gap;
+    const top =
+      topAbove >= viewportPadding
+        ? topAbove
+        : Math.min(topBelow, window.innerHeight - viewportPadding - menuHeight);
+    setMenuPosition({
+      top: Math.max(viewportPadding, top),
+      left: Math.max(
+        viewportPadding,
+        Math.min(
+          rect.right - menuWidth,
+          window.innerWidth - viewportPadding - menuWidth,
+        ),
+      ),
+      minWidth: Math.min(rect.width, maxMenuWidth),
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updateMenuPosition();
+  }, [open, grouped, updateMenuPosition]);
+
+  useEffect(() => {
+    if (!open) return;
+    updateMenuPosition();
+
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
+        setOpen(false);
+      }
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [open, updateMenuPosition]);
+
+  const isDisabled = disabled || options.length === 0;
+
+  const menu = open && !isDisabled && (
+    <div
+      ref={menuRef}
+      className="fixed z-50 w-max max-w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-border bg-surface text-xs shadow-xl"
+      style={{
+        top: menuPosition?.top ?? 0,
+        left: menuPosition?.left ?? 0,
+        minWidth: menuPosition?.minWidth,
+        visibility: menuPosition ? undefined : "hidden",
+      }}
+    >
+      <div
+        id={listboxId}
+        role="listbox"
+        aria-label="モデル"
+        className="max-h-80 overflow-y-auto p-1"
+      >
+        {grouped.map(([provider, models]) => (
+          <div key={provider}>
+            <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] font-semibold text-faint">
+              <ProviderIcon providerID={provider} size={12} />
+              <span className="min-w-0 truncate">{provider}</span>
+            </div>
+            {models.map((option) => {
+              const image = modelSupportsImage(option);
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="option"
+                  aria-selected={option.value === value}
+                  title={option.label}
+                  onClick={() => chooseOption(option)}
+                  className={cx(
+                    "flex w-full appearance-none items-center gap-2 rounded-lg border-0 bg-transparent px-2 py-1.5 text-left text-muted hover:bg-surface-2 hover:text-text focus:bg-surface-2 focus:text-text focus:outline-none",
+                    option.value === value && "bg-surface-2 text-text",
+                  )}
+                >
+                  <ProviderIcon providerID={option.providerID} size={14} />
+                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                  {image && (
+                    <ImageIcon
+                      aria-label="画像入力対応"
+                      title="画像入力対応"
+                      className="h-3.5 w-3.5 shrink-0 text-primary"
+                    />
+                  )}
+                  {option.value === value && (
+                    <Check aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
-    <GhostSelect
-      value={value}
-      disabled={disabled || options.length === 0}
-      aria-label="モデル"
-      icon={<ProviderIcon providerID={selected?.providerID} />}
-      valueLabel={selected?.label ?? (options.length === 0 ? "モデルなし" : "モデル")}
-      onChange={onChange}
-      className={className}
-      title={title ?? selected?.label ?? "モデル"}
-    >
-      {[...grouped.entries()].map(([provider, models]) => (
-        <optgroup key={provider} label={provider}>
-          {models.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </GhostSelect>
+    <div ref={rootRef} className={cx("relative inline-flex min-w-0", className)}>
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={isDisabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? listboxId : undefined}
+        aria-label="モデル"
+        title={title ?? selected?.label ?? "モデル"}
+        onClick={() => setOpen((current) => !current)}
+        className={cx(
+          "group inline-flex h-full w-full min-w-0 items-center gap-1.5 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs font-medium text-muted shadow-sm transition-colors hover:bg-surface-2 hover:text-text",
+          isDisabled && "cursor-not-allowed opacity-40",
+        )}
+      >
+        <ProviderIcon providerID={selected?.providerID} size={14} />
+        <span className="min-w-0 flex-1 truncate text-left">
+          {selected?.label ?? (options.length === 0 ? "モデルなし" : "モデル")}
+        </span>
+        {selectedSupportsImage && (
+          <ImageIcon
+            aria-label="画像入力対応"
+            title="画像入力対応"
+            className="h-3.5 w-3.5 shrink-0 text-primary"
+          />
+        )}
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden="true" />
+      </button>
+      {menu && createPortal(menu, document.body)}
+    </div>
   );
 }
