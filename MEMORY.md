@@ -258,8 +258,9 @@ Pi `session.compact()` / 自動圧縮設定に対応。
 | openrouter | `OPENROUTER_API_KEY` |
 | synthetic | `SYNTHETIC_API_KEY` |
 | commandcode | `COMMAND_CODE_API_KEY` または `~/.commandcode/auth.json` |
-
-未移植（v1 SKIP）: opencode-go / ollama / qwen-cloud（Cookie スクレイパー系）
+| opencode-go | OpenCodeTray DPAPI / Netscape / Chrome·Edge Cookies + `openCodeGoWorkspaceId` |
+| ollama | Netscape cookie（`ollama.com/settings` スクレイプ） |
+| qwen-cloud | Netscape / Chrome·Edge Cookies 優先、なければ API キー |
 
 ### フォールバック（任意・最終手段）
 
@@ -271,6 +272,29 @@ Pi `session.compact()` / 自動圧縮設定に対応。
 - `npx tsc --noEmit`
 - ブラウザでサイドバー CodexBar ウィジェット、または `GET /api/codexbar/usage`
 
+## 2026-08-21: Cookie 系プロバイダー（Ollama / OpenCode Go / Qwen Cloud）
+
+CodexBarWin の cookie スクレイパーを LeafCodePi に移植。**実行時に CodexBarWin は不要**（TRUE native fetch）。
+
+### 共有
+
+- `netscape-cookies.ts` — Netscape 形式（`#HttpOnly_` 対応）、ドメインフィルタ、Cookie ヘッダ
+- `chromium-cookies.ts` — Chrome/Edge Cookies DB（DPAPI マスターキー + AES-GCM、node:sqlite）
+- `browser-cookies.ts` — OpenCodeTray DPAPI / Netscape / Chromium を統合
+- `codexbar-config.ts` — `%APPDATA%\\CodexBar\\config.json` の読み書き（未知フィールド保持）
+
+### 認証パス
+
+| プロバイダー | 主パス | 代替 |
+| --- | --- | --- |
+| ollama | `%APPDATA%\\CodexBar\\ollama_cookies.txt`（または AgentUsageChecker 系） | — |
+| opencode-go | OpenCodeTray DPAPI → Netscape → Chrome/Edge Cookies | workspace ID 自動検出 → config 保存 |
+| qwen-cloud | Netscape → Chrome/Edge Cookies（`login_qwencloud_ticket` 等） | API キー（`qwenCloudApiKey` / `ALIBABA_QWEN_API_KEY` / `DASHSCOPE_API_KEY`） |
+
+### 残ギャップ
+
+- OpenCode Go の usage ページ token 集計（TokenSummary）は未移植（RateWindow のみ）
+- Chromium App-Bound Encryption（一部企業ポリシー）は未対応
 ## 2026-08-21: アシスタント応答の tok/s 表示
 
 業界標準の decode throughput で計測（本家 LeafCode の実装は参照しない）。
