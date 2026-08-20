@@ -41,6 +41,14 @@ import {
   isThinkingLevel,
   thinkingLevelsForModel,
 } from "@/lib/thinking-levels";
+import {
+  createThroughputTiming,
+  isContentDeltaType,
+  noteContentDelta,
+  noteReportedOutputTokens,
+  snapshotThroughput,
+  type ThroughputTiming,
+} from "@/lib/token-throughput";
 import type {
   CompactionSettingsDto,
   HealthDto,
@@ -69,6 +77,8 @@ type LiveRuntime = {
   session: AgentSession;
   unsubscribe: () => void;
   promptChain: Promise<void>;
+  /** Assistant throughput samples keyed by message.timestamp (ms). */
+  throughputByStartedAt: Map<number, ThroughputTiming>;
 };
 
 type HarnessState = {
@@ -170,13 +180,110 @@ function modelId(model: Model | undefined): { providerID?: string; modelID?: str
   };
 }
 
-function snapshotMessages(session: AgentSession): UiMessage[] {
+function applyThroughput(
+  messages: UiMessage[],
+  throughputByStartedAt: Map<number, ThroughputTiming>,
+): UiMessage[] {
+  if (throughputByStartedAt.size === 0) return messages;
+  const nowMs = Date.now();
+  return messages.map((message) => {
+    if (message.role !== "assistant") return message;
+    const timing = throughputByStartedAt.get(message.createdAt);
+    if (!timing) return message;
+    const snap = snapshotThroughput(timing, nowMs);
+    if (!snap || snap.tokensPerSecond === null) return message;
+    return {
+      ...message,
+      outputTokens: snap.outputTokens,
+      tokensPerSecond: snap.tokensPerSecond,
+      tokensPerSecondDecode: snap.decodePhase,
+    };
+  });
+}
+
+function snapshotMessages(
+  session: AgentSession,
+  throughputByStartedAt?: Map<number, ThroughputTiming>,
+): UiMessage[] {
   const stored: unknown[] = Array.isArray(session.messages) ? [...session.messages] : [];
   const streaming = session.agent.state.streamingMessage;
   if (streaming && stored[stored.length - 1] !== streaming) {
     stored.push(streaming);
   }
-  return projectPiMessages(stored);
+  const projected = projectPiMessages(stored);
+  return throughputByStartedAt ? applyThroughput(projected, throughputByStartedAt) : projected;
+}
+
+function assistantUsageOutput(message: unknown): number | null {
+  if (!message || typeof message !== "object") return null;
+  const usage = (message as { usage?: { output?: unknown } }).usage;
+  if (!usage || typeof usage.output !== "number" || !Number.isFinite(usage.output)) return null;
+  return Math.max(0, Math.round(usage.output));
+}
+
+function trackThroughputEvent(
+  live: LiveRuntime,
+  event: { type: string; [key: string]: unknown },
+): void {
+  if (event.type === "message_start") {
+    const message = event.message;
+    if (!message || typeof message !== "object") return;
+    if ((message as { role?: unknown }).role !== "assistant") return;
+    const startedAt =
+      typeof (message as { timestamp?: unknown }).timestamp === "number"
+        ? (message as { timestamp: number }).timestamp
+        : Date.now();
+    live.throughputByStartedAt.set(startedAt, createThroughputTiming(startedAt));
+    return;
+  }
+
+  if (event.type === "message_update") {
+    const message = event.message;
+    if (!message || typeof message !== "object") return;
+    if ((message as { role?: unknown }).role !== "assistant") return;
+    const startedAt =
+      typeof (message as { timestamp?: unknown }).timestamp === "number"
+        ? (message as { timestamp: number }).timestamp
+        : null;
+    if (startedAt === null) return;
+    let timing = live.throughputByStartedAt.get(startedAt);
+    if (!timing) {
+      timing = createThroughputTiming(startedAt);
+      live.throughputByStartedAt.set(startedAt, timing);
+    }
+    const assistantEvent = event.assistantMessageEvent;
+    if (
+      assistantEvent &&
+      typeof assistantEvent === "object" &&
+      isContentDeltaType((assistantEvent as { type?: unknown }).type)
+    ) {
+      const delta = (assistantEvent as { delta?: unknown }).delta;
+      timing = noteContentDelta(
+        timing,
+        typeof delta === "string" ? delta : undefined,
+      );
+    }
+    timing = noteReportedOutputTokens(timing, assistantUsageOutput(message));
+    live.throughputByStartedAt.set(startedAt, timing);
+    return;
+  }
+
+  if (event.type === "message_end") {
+    const message = event.message;
+    if (!message || typeof message !== "object") return;
+    if ((message as { role?: unknown }).role !== "assistant") return;
+    const startedAt =
+      typeof (message as { timestamp?: unknown }).timestamp === "number"
+        ? (message as { timestamp: number }).timestamp
+        : null;
+    if (startedAt === null) return;
+    let timing = live.throughputByStartedAt.get(startedAt) ?? createThroughputTiming(startedAt);
+    timing = noteReportedOutputTokens(timing, assistantUsageOutput(message));
+    if (timing.lastTokenAtMs === null) {
+      timing = { ...timing, lastTokenAtMs: Date.now() };
+    }
+    live.throughputByStartedAt.set(startedAt, timing);
+  }
 }
 
 function sessionContextUsage(session: AgentSession): ContextUsageDto | undefined {
@@ -187,14 +294,17 @@ function sessionContextUsage(session: AgentSession): ContextUsageDto | undefined
   }
 }
 
-function sessionSnapshotFields(session: AgentSession): {
+function sessionSnapshotFields(
+  session: AgentSession,
+  throughputByStartedAt?: Map<number, ThroughputTiming>,
+): {
   messages: UiMessage[];
   isStreaming: boolean;
   isCompacting: boolean;
   contextUsage: ContextUsageDto | undefined;
 } {
   return {
-    messages: snapshotMessages(session),
+    messages: snapshotMessages(session, throughputByStartedAt),
     isStreaming: session.isStreaming,
     isCompacting: session.isCompacting,
     contextUsage: sessionContextUsage(session),
@@ -231,9 +341,18 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
   const existing = current.live.get(taskId);
   existing?.unsubscribe();
 
+  const live: LiveRuntime = {
+    taskId,
+    session,
+    unsubscribe: () => undefined,
+    promptChain: Promise.resolve(),
+    throughputByStartedAt: existing?.throughputByStartedAt ?? new Map(),
+  };
+
   const unsubscribe = session.subscribe((event) => {
     const task = getTask(taskId);
     if (!task) return;
+    trackThroughputEvent(live, event as { type: string; [key: string]: unknown });
     const ids = modelId(session.model);
     if (event.type === "agent_start") {
       setTaskStatus(taskId, "working");
@@ -261,7 +380,7 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
     emit(taskId, {
       type: "snapshot",
       task: toSummary(getTask(taskId) ?? task),
-      ...sessionSnapshotFields(session),
+      ...sessionSnapshotFields(session, live.throughputByStartedAt),
       eventType: event.type,
       ...(event.type === "compaction_end" && event.errorMessage
         ? { error: event.errorMessage }
@@ -269,12 +388,7 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
     });
   });
 
-  const live: LiveRuntime = {
-    taskId,
-    session,
-    unsubscribe,
-    promptChain: Promise.resolve(),
-  };
+  live.unsubscribe = unsubscribe;
   current.live.set(taskId, live);
   return live;
 }
@@ -574,7 +688,7 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
   let contextUsage: ContextUsageDto | undefined;
   try {
     const live = await ensureLive(id);
-    const fields = sessionSnapshotFields(live.session);
+    const fields = sessionSnapshotFields(live.session, live.throughputByStartedAt);
     messages = fields.messages;
     isStreaming = fields.isStreaming;
     isCompacting = fields.isCompacting;
@@ -658,7 +772,7 @@ function queuePrompt(live: LiveRuntime, prompt: string, images?: PromptImage[]):
       emit(live.taskId, {
         type: "snapshot",
         task: toSummary(getTask(live.taskId)!),
-        ...sessionSnapshotFields(live.session),
+        ...sessionSnapshotFields(live.session, live.throughputByStartedAt),
         isStreaming: false,
         eventType: "error",
         error: message,
@@ -704,7 +818,7 @@ export async function setTaskModel(id: string, modelValueRaw: string): Promise<T
   emit(id, {
     type: "snapshot",
     task: summary,
-    ...sessionSnapshotFields(live.session),
+    ...sessionSnapshotFields(live.session, live.throughputByStartedAt),
   });
   return summary;
 }
@@ -727,7 +841,7 @@ export async function setTaskThinkingLevel(
   emit(id, {
     type: "snapshot",
     task: summary,
-    ...sessionSnapshotFields(live.session),
+    ...sessionSnapshotFields(live.session, live.throughputByStartedAt),
   });
   return summary;
 }

@@ -66,4 +66,22 @@ describe("projectPiMessages", () => {
     });
     expect(messages[1]?.role).toBe("user");
   });
+
+  it("projects assistant usage.output", () => {
+    const messages = projectPiMessages([
+      {
+        role: "assistant",
+        id: "a2",
+        timestamp: 3,
+        model: "local",
+        provider: "llama-server",
+        content: [{ type: "text", text: "ok" }],
+        usage: { output: 42, input: 10, totalTokens: 52 },
+      },
+    ]);
+    expect(messages[0]).toMatchObject({
+      role: "assistant",
+      outputTokens: 42,
+    });
+  });
 });

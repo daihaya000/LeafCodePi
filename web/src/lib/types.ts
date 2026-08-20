@@ -67,6 +67,12 @@ export type UiMessage = {
   error?: string;
   /** Tokens estimated before this compaction (compaction role only). */
   tokensBefore?: number;
+  /** Assistant output tokens used for tok/s (provider usage or live estimate). */
+  outputTokens?: number;
+  /** Generation throughput in tokens/sec for this assistant turn. */
+  tokensPerSecond?: number;
+  /** True when tokensPerSecond is decode-phase (excludes TTFT). */
+  tokensPerSecondDecode?: boolean;
 };
 
 export type ModelOption = {

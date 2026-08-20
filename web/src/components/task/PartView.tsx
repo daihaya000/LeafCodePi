@@ -7,6 +7,7 @@ import { ChevronRight } from "lucide-react";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { cx, formatMessageTime } from "@/components/ui";
 import { formatTokens } from "@/lib/context-usage";
+import { formatTokensPerSecond } from "@/lib/token-throughput";
 import type { UiMessage, UiPart } from "@/lib/types";
 
 function MarkdownBody({ text }: { text: string }) {
@@ -80,9 +81,24 @@ export function PartView({ message }: { message: UiMessage }) {
   }
 
   const isUser = message.role === "user";
+  const outputLabel =
+    !isUser && typeof message.outputTokens === "number" && message.outputTokens > 0
+      ? `${formatTokens(message.outputTokens)} tok`
+      : null;
+  const rateLabel =
+    !isUser && typeof message.tokensPerSecond === "number"
+      ? formatTokensPerSecond(message.tokensPerSecond)
+      : null;
+  const rateTitle =
+    rateLabel && message.tokensPerSecondDecode
+      ? "decode tok/s（最初のトークン以降、TTFT 除外）"
+      : rateLabel
+        ? "end-to-end tok/s（TTFT 含む）"
+        : undefined;
+
   return (
     <article className={cx("flex flex-col gap-2", isUser ? "items-end" : "items-start")}>
-      <div className="flex items-center gap-2 text-[11px] text-muted">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-muted">
         {isUser ? (
           <span className="font-medium text-text">あなた</span>
         ) : (
@@ -97,6 +113,12 @@ export function PartView({ message }: { message: UiMessage }) {
           </span>
         )}
         <span>{formatMessageTime(message.createdAt)}</span>
+        {outputLabel && <span className="font-mono tabular-nums">{outputLabel}</span>}
+        {rateLabel && (
+          <span className="font-mono tabular-nums" title={rateTitle}>
+            {rateLabel}
+          </span>
+        )}
       </div>
       <div className={cx("w-full max-w-3xl space-y-2", isUser && "rounded-2xl border border-border bg-surface px-4 py-3")}>
         {message.parts.map((part) => {

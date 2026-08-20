@@ -117,6 +117,13 @@ export function projectPiMessages(raw: unknown[]): UiMessage[] {
           });
         }
       });
+      const usageOutput =
+        isRecord(item.usage) &&
+        typeof item.usage.output === "number" &&
+        Number.isFinite(item.usage.output) &&
+        item.usage.output > 0
+          ? Math.round(item.usage.output)
+          : undefined;
       messages.push({
         id,
         role: "assistant",
@@ -125,6 +132,7 @@ export function projectPiMessages(raw: unknown[]): UiMessage[] {
         model: asString(item.model) || undefined,
         provider: asString(item.provider) || undefined,
         error: asString(item.errorMessage) || undefined,
+        ...(usageOutput !== undefined ? { outputTokens: usageOutput } : {}),
       });
       return;
     }

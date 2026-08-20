@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getJson } from "@/lib/client";
 import type { CodexBarUsage } from "@/lib/codexbar";
 
-/** Poll while the tab is visible. */
-const POLL_MS = 30_000;
+/** Poll while the tab is visible (~60s; server caches ~5min). */
+const POLL_MS = 60_000;
 
 export function useCodexUsage() {
   const [usage, setUsage] = useState<CodexBarUsage | null>(null);

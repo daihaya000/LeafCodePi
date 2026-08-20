@@ -237,11 +237,47 @@ Pi `session.compact()` / 自動圧縮設定に対応。
 - 設定 → 一般で自動圧縮 ON/OFF（`~/.pi/agent/settings.json` の `compaction.enabled`、ライブセッションへ即反映）
 - 閾値は Pi 既定（reserveTokens / keepRecentTokens）
 
-## 2026-08-21: CodexBar 利用状況表示（ネイティブ）
+## 2026-08-21: CodexBar 利用状況表示（ネイティブ API 取得）
 
-本家 LeafCode の CodexBar アドオンを sysmon と同様に組み込み。サイドバー下部（sysmon の上）に表示。
+**訂正:** 当初は `%APPDATA%\CodexBar\usage-snapshot.json` を読むだけの実装だったが、これは「ネイティブ」ではない。正しくは LeafCodePi の Node BFF が各プロバイダー API をローカル認証情報で叩き、`codexbar.usage-snapshot/v1` 形で返す。
 
-- `GET /api/codexbar/usage` — `%APPDATA%\CodexBar\usage-snapshot.json` を読み取り（`LEAFCODE_CODEXBAR_SNAPSHOT` で上書き可）
-- 30 秒ポーリング、折りたたみ・1/2 列・プロバイダー行の展開状態を localStorage に保存
-- トークン集計・プロバイダー有効/無効 UI は v1 未移植（CodexBar 側のスナップショットをそのまま表示）
+### 実装
+
+- `web/src/lib/codexbar/` — types / export / cache(~5分) / orchestrator / providers
+- `GET /api/codexbar/usage` — ネイティブ並列取得（`?refresh=1` でキャッシュ無視）
+- ウィジェットは既存のまま。ポーリング ~60 秒
+- CodexBarWin は **不要**（起動必須ではない）
+
+### v1 対応プロバイダー
+
+| ID | 認証 |
+| --- | --- |
+| codex | `~/.codex/auth.json`（CODEX_HOME）+ OAuth refresh |
+| claude | `~/.claude/.credentials.json` + OAuth refresh |
+| cursor | Cursor `auth.json` / `state.vscdb`（node:sqlite） |
+| openrouter | `OPENROUTER_API_KEY` |
+| synthetic | `SYNTHETIC_API_KEY` |
+| commandcode | `COMMAND_CODE_API_KEY` または `~/.commandcode/auth.json` |
+
+未移植（v1 SKIP）: opencode-go / ollama / qwen-cloud（Cookie スクレイパー系）
+
+### フォールバック（任意・最終手段）
+
+全プロバイダー未設定、または設定済みがすべて失敗したときだけ、既存の `usage-snapshot.json` を読む（パスは `LEAFCODE_CODEXBAR_SNAPSHOT` で上書き可）。デバッグ専用に `LEAFCODE_CODEXBAR_FORCE_SNAPSHOT=1` でファイルのみ。
+
+### 検証
+
+- `npx vitest run`（export / provider parser）
+- `npx tsc --noEmit`
+- ブラウザでサイドバー CodexBar ウィジェット、または `GET /api/codexbar/usage`
+
+## 2026-08-21: アシスタント応答の tok/s 表示
+
+業界標準の decode throughput で計測（本家 LeafCode の実装は参照しない）。
+
+- 定義: `(outputTokens − 1) / (T_last − T_first)`（TTFT / prefill 除外）。first が取れない場合のみ end-to-end `N / wall` にフォールバック
+- harness が `message_start` / `message_update`(text|thinking|toolcall delta) / `message_end` で first・last を記録
+- usage.output が来るまでストリーム文字数 / 4 で暫定トークン数
+- タスクタイムラインのアシスタント行に `N tok` と `X tok/s` を表示（ホバーで decode / e2e の別）
+- ライブセッション中のみ tok/s が付く（ディスク再読込分は usage.output のみ）
 
