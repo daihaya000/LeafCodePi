@@ -147,10 +147,12 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 
 クライアントの `LlamaServerSettings` は `node:fs` 付きの `host-control` を import しない（`loopback.ts` に分離）。Webpack の UnhandledSchemeError 防止。
 
-## 2026-08-21: アイコンを LeafCodePi.svg に統一
+## 2026-08-21: 設定に再起動ボタン
 
-ソース: `icons/LeafCodePi.svg`。`npm run icons`（`scripts/gen-icons.mjs`）で生成。
+設定 → エンジンに「再起動」セクションを追加。トレイの Restart WebUI と同じ経路。
 
-- トレイ: `host/src/icon.json`（LeafCodePi 本体）。llama-server トレイは従来どおり `llama-server-icon.json`
-- Web: `web/public/icon.svg`、`icon-192.png`、`icon-512.png`、`apple-touch-icon.png`、`web/src/app/favicon.ico`
-- ショートカット: `create-shortcut.ps1` が `icon.json` → `%APPDATA%\leafcode-pi\app.ico`
+- ホスト制御: `POST /restart/webui`・`POST /restart/host`（:18775、202 後に実行）
+- BFF: `POST /api/host/restart`（`target: webui | host`）
+- UI: `HostRestartPanel`（確認ダイアログ → ヘルス待ち）
+- ホスト全体再起動は lock 解放待ち bat を WMI で起動してから `quit()`
+

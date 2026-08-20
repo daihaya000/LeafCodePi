@@ -10,6 +10,13 @@ export function hostLlamaServerPath(action: HostLlamaServerAction): string {
   return `/llama-server/${action}`;
 }
 
+export type HostRestartTarget = "webui" | "host";
+
+export function hostRestartPath(target: HostRestartTarget): string {
+  if (target === "host") return "/restart/host";
+  return "/restart/webui";
+}
+
 export function isLoopbackControlUrl(url: string): boolean {
   try {
     const parsed = new URL(url);

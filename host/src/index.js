@@ -1,5 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import SysTrayImport from "systray2";
@@ -305,7 +307,7 @@ async function restartWeb() {
     return;
   }
   restarting = true;
-  log("Restarting LeafCodePi...");
+  log("Restarting LeafCodePi WebUI...");
   try {
     await stopWeb();
     await sleep(400);
@@ -313,6 +315,57 @@ async function restartWeb() {
   } finally {
     restarting = false;
     await refreshStatusMenu();
+  }
+}
+
+/**
+ * Spawn a replacement host outside any Kill-On-Job-Close job, wait for our
+ * lock to clear, then quit so the new host can take over.
+ */
+async function restartHost() {
+  log("Host restart requested; spawning replacement…");
+  const name = `leafcode-pi-restart-${randomBytes(6).toString("hex")}.bat`;
+  const launcherPath = join(tmpdir(), name);
+  const startBat = join(REPO_ROOT, "scripts", "start-webui.bat");
+  const lines = [
+    "@echo off",
+    "setlocal",
+    `set "LOCK=${LOCK_FILE}"`,
+    ":wait",
+    'if not exist "%LOCK%" goto :launch',
+    "ping -n 2 127.0.0.1 >nul",
+    "goto :wait",
+    ":launch",
+    `start "LeafCodePi" /min cmd.exe /c ""${startBat}" >nul 2>&1"`,
+    "endlocal",
+    'del "%~f0" >nul 2>&1',
+  ];
+  writeFileSync(launcherPath, `${lines.join("\r\n")}\r\n`, "utf8");
+  const ps =
+    `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create ` +
+    `-Arguments @{ CommandLine = 'cmd.exe /c call "${launcherPath}"' }; ` +
+    `if ($r.ReturnValue -ne 0) { exit 1 }; Write-Output $r.ProcessId`;
+  const encoded = Buffer.from(ps, "utf16le").toString("base64");
+  try {
+    const out = spawnSync("powershell.exe", ["-NoProfile", "-EncodedCommand", encoded], {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 15_000,
+    });
+    const pid = Number(String(out.stdout ?? "").trim());
+    if (out.status !== 0 || !Number.isInteger(pid) || pid <= 0) {
+      throw new Error(`WMI launch failed: ${String(out.stderr ?? "").trim() || "no pid"}`);
+    }
+    log(`Replacement host launcher spawned (WMI PID ${pid})`);
+    await quit();
+  } catch (err) {
+    error(`Host restart failed: ${err instanceof Error ? err.message : String(err)}`);
+    try {
+      unlinkSync(launcherPath);
+    } catch {
+      /* ignore */
+    }
+    throw err;
   }
 }
 
@@ -457,6 +510,8 @@ async function startControlServer() {
     onLlamaServerStatus: () => llamaServerService.status(),
     onLlamaServerStart: (config) => llamaServerService.start(config),
     onLlamaServerStop: () => llamaServerService.stop(),
+    onRestartWebui: () => restartWeb(),
+    onRestartHost: () => restartHost(),
   });
   try {
     await listenControlServer(server, CONTROL_PORT);

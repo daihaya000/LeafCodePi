@@ -1,5 +1,5 @@
 /**
- * Minimal localhost control plane for llama-server start/stop/status.
+ * Minimal localhost control plane for llama-server and WebUI/host restart.
  * Bound to 127.0.0.1 only; Host header must be loopback (DNS-rebinding guard).
  */
 import http from "node:http";
@@ -43,6 +43,8 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onLlamaServerStatus: () => Promise<object> | object,
  *   onLlamaServerStart: (config: object) => Promise<{ ok: boolean }>,
  *   onLlamaServerStop: () => Promise<unknown> | unknown,
+ *   onRestartWebui?: () => Promise<unknown> | unknown,
+ *   onRestartHost?: () => Promise<unknown> | unknown,
  * }} handlers
  */
 export function createLlamaControlServer(handlers) {
@@ -62,6 +64,9 @@ export function createLlamaControlServer(handlers) {
         pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
       } catch {
         pathname = "/";
+      }
+      if (pathname.length > 1 && pathname.endsWith("/")) {
+        pathname = pathname.slice(0, -1);
       }
 
       if (method === "GET" && pathname === "/llama-server/status") {
@@ -126,6 +131,38 @@ export function createLlamaControlServer(handlers) {
         setImmediate(() => {
           Promise.resolve()
             .then(() => handlers.onLlamaServerStop())
+            .catch(() => {});
+        });
+        return;
+      }
+
+      if (method === "POST" && pathname === "/restart/webui") {
+        if (typeof handlers.onRestartWebui !== "function") {
+          res.writeHead(501, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "webui restart is not supported by this host" }));
+          return;
+        }
+        res.writeHead(202, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: true, target: "webui", accepted: true }));
+        setImmediate(() => {
+          Promise.resolve()
+            .then(() => handlers.onRestartWebui())
+            .catch(() => {});
+        });
+        return;
+      }
+
+      if (method === "POST" && pathname === "/restart/host") {
+        if (typeof handlers.onRestartHost !== "function") {
+          res.writeHead(501, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "host restart is not supported by this host" }));
+          return;
+        }
+        res.writeHead(202, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: true, target: "host", accepted: true }));
+        setImmediate(() => {
+          Promise.resolve()
+            .then(() => handlers.onRestartHost())
             .catch(() => {});
         });
         return;
