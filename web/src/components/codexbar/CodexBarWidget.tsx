@@ -409,8 +409,11 @@ export function CodexBarWidget({
 }: {
   initialCollapsed?: boolean;
 } = {}) {
-  const { usage, loadError, refreshing, refresh, now } = useCodexUsage();
   const [collapsed, setCollapsed] = useState(initialCollapsed);
+  const { usage, loadError, refreshing, refresh, now } = useCodexUsage({
+    // Collapsed chip keeps last snapshot; avoid provider API churn while chatting.
+    enabled: !collapsed,
+  });
   const [twoColumn, setTwoColumn] = useState(true);
   const [providerCollapsed, setProviderCollapsed] = useState<Record<string, boolean>>({});
   const {

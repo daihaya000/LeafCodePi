@@ -12,7 +12,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { cx } from "@/components/ui";
-import { useSystemMonitor } from "@/components/sysmon/use-system-monitor";
+import { useSystemMonitor, SYSMON_POLL_ACTIVE_MS, SYSMON_POLL_COLLAPSED_MS } from "@/components/sysmon/use-system-monitor";
 import {
   clampPercent,
   formatBytes,
@@ -257,11 +257,14 @@ export function SystemMonitorWidget({
 }: {
   initialCollapsed?: boolean;
 } = {}) {
-  const { usage, loadError, refreshing, refresh } = useSystemMonitor();
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [twoColumn, setTwoColumn] = useState(true);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const { usage, loadError, refreshing, refresh } = useSystemMonitor({
+    enabled: true,
+    intervalMs: collapsed ? SYSMON_POLL_COLLAPSED_MS : SYSMON_POLL_ACTIVE_MS,
+  });
 
   useEffect(() => {
     if (!initialCollapsed) setCollapsed(loadCollapsed());

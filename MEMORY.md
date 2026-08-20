@@ -193,7 +193,9 @@ Composer のモデルドロップダウン各行にプロバイダアイコン�
 本家 LeafCode の sysmon を移植。サイドバー下部に CPU / RAM / GPU・VRAM を表示。
 
 - `GET /api/sysmon/usage`（nvidia-smi + Windows AMD カウンター）
-- 5 秒ポーリング、折りたたみ・1/2 列・項目の表示切替を localStorage に保存
+- **サーバ側** `collectSystemUsageCached`（既定 TTL 3s + in-flight 合流）。子プロセス連打で BFF を食い潰さない
+- クライアント: 展開時 15s / 折りたたみ時 60s。バックグラウンド更新は `quiet`（`setRefreshing` しない）
+- 折りたたみ・1/2 列・項目の表示切替を localStorage に保存
 
 ## 2026-08-21: llama-server モデル表示名
 
@@ -347,7 +349,8 @@ LeafCodePi の harness は現状、製品名を system prompt に埋め込んで
 - TaskView: メッセージ参照を `stabilizeUiMessages` で再利用 + `PartView`/`MarkdownBody` を memo。SSE 更新は `startTransition`。サイドバー通知は status/title 変化時のみ（`notifyTasksChanged` も 400ms debounce）
 - Sidebar: desktop/mobile の二重 body をやめ md 判定で単一マウント（CodexBar/sysmon の二重ポーリング解消）。タスク一覧ポーリングは idle 12s / working 4s
 - ProviderModels: トグルを楽観更新（全画面 loading に戻さない）
-- `optimizePackageImports: ["lucide-react"]`、sysmon ポーリング 8s
+- `optimizePackageImports: ["lucide-react"]`
+- **sysmon / CodexBar**: 上記ウィジェット自体が BFF ボトルネックになり得る → サーバキャッシュ・quiet poll・折りたたみ時の間隔抑制（sysmon 節 / CodexBar 節も参照）
 
 ## 2026-08-21: Skills 設定（ON/OFF）
 

@@ -411,3 +411,48 @@ export async function collectSystemUsage(): Promise<SystemUsage> {
     gpus,
   };
 }
+
+/**
+ * Short TTL + single-flight around collectSystemUsage.
+ * nvidia-smi / PowerShell WMI are expensive; without this, an 8–15s client poll
+ * still re-spawns children on every request and contends with the chat BFF.
+ */
+const USAGE_CACHE_DEFAULT_MS = 3_000;
+
+function usageCacheTtlMs(): number {
+  const raw = Number(process.env.LEAFCODE_SYSMON_USAGE_CACHE_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : USAGE_CACHE_DEFAULT_MS;
+}
+
+let usageCache: {
+  value: SystemUsage;
+  at: number;
+} | null = null;
+let usageInflight: Promise<SystemUsage> | null = null;
+
+/** Test helper — drop the aggregate usage cache. */
+export function resetSystemUsageCacheForTests(): void {
+  usageCache = null;
+  usageInflight = null;
+}
+
+export async function collectSystemUsageCached(): Promise<SystemUsage> {
+  const ttl = usageCacheTtlMs();
+  const now = Date.now();
+  if (ttl > 0 && usageCache && now - usageCache.at < ttl) {
+    return usageCache.value;
+  }
+  if (usageInflight) return usageInflight;
+
+  usageInflight = collectSystemUsage()
+    .then((value) => {
+      usageCache = { value, at: Date.now() };
+      usageInflight = null;
+      return value;
+    })
+    .catch((error) => {
+      usageInflight = null;
+      throw error;
+    });
+  return usageInflight;
+}
