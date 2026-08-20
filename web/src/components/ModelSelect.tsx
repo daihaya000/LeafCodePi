@@ -180,11 +180,12 @@ export function ModelSelect({
                   <ProviderIcon providerID={option.providerID} size={14} />
                   <span className="min-w-0 flex-1 truncate">{option.label}</span>
                   {image && (
-                    <ImageIcon
-                      aria-label="画像入力対応"
-                      title="画像入力対応"
-                      className="h-3.5 w-3.5 shrink-0 text-primary"
-                    />
+                    <span title="画像入力対応" className="inline-flex shrink-0">
+                      <ImageIcon
+                        aria-label="画像入力対応"
+                        className="h-3.5 w-3.5 text-primary"
+                      />
+                    </span>
                   )}
                   {option.value === value && (
                     <Check aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-primary" />
@@ -220,11 +221,12 @@ export function ModelSelect({
           {selected?.label ?? (options.length === 0 ? "モデルなし" : "モデル")}
         </span>
         {selectedSupportsImage && (
-          <ImageIcon
-            aria-label="画像入力対応"
-            title="画像入力対応"
-            className="h-3.5 w-3.5 shrink-0 text-primary"
-          />
+          <span title="画像入力対応" className="inline-flex shrink-0">
+            <ImageIcon
+              aria-label="画像入力対応"
+              className="h-3.5 w-3.5 text-primary"
+            />
+          </span>
         )}
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden="true" />
       </button>
