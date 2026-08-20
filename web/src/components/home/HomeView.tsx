@@ -1,0 +1,281 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowUp, Brain, FolderGit2, GitBranch } from "lucide-react";
+import { AddProjectButton } from "@/components/AddProjectButton";
+import { Composer, type ComposerAttachment } from "@/components/Composer";
+import { ModelSelect } from "@/components/ModelSelect";
+import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
+import { Button, GhostSelect } from "@/components/ui";
+import { notifyTasksChanged } from "@/lib/events";
+import { getJson, sendJson } from "@/lib/client";
+import type { HealthDto, ModelOption, ProjectDto, TaskSummary, ThinkingLevel } from "@/lib/types";
+
+const MODEL_KEY = "leafcodepi.defaultModel";
+const THINKING_KEY = "leafcodepi.thinkingLevel";
+
+const THINKING_LEVELS: { value: ThinkingLevel; label: string }[] = [
+  { value: "off", label: "思考なし" },
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+];
+
+export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
+  const router = useRouter();
+  const [projects, setProjects] = useState<ProjectDto[]>([]);
+  const [projectId, setProjectId] = useState(initialProjectId ?? "");
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [model, setModel] = useState("");
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("off");
+  const [prompt, setPrompt] = useState("");
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [health, setHealth] = useState<HealthDto | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const composingRef = useRef(false);
+
+  const selectedProject = projects.find((project) => project.id === projectId);
+
+  const refresh = useCallback(async () => {
+    const [projectRes, modelRes, healthRes] = await Promise.allSettled([
+      getJson<{ projects: ProjectDto[] }>("/api/projects"),
+      getJson<{ models: ModelOption[] }>("/api/models"),
+      getJson<HealthDto>("/api/health"),
+    ]);
+    if (projectRes.status === "fulfilled") {
+      setProjects(projectRes.value.projects);
+      setProjectId((current) => {
+        if (current && projectRes.value.projects.some((project) => project.id === current)) return current;
+        return projectRes.value.projects[0]?.id ?? "";
+      });
+    }
+    if (modelRes.status === "fulfilled") {
+      setModels(modelRes.value.models);
+      setModel((current) => {
+        if (current && modelRes.value.models.some((option) => option.value === current)) return current;
+        const stored = localStorage.getItem(MODEL_KEY) ?? "";
+        if (stored && modelRes.value.models.some((option) => option.value === stored)) return stored;
+        return modelRes.value.models[0]?.value ?? "";
+      });
+    }
+    if (healthRes.status === "fulfilled") setHealth(healthRes.value);
+    setLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    const storedThinking = localStorage.getItem(THINKING_KEY);
+    if (THINKING_LEVELS.some((item) => item.value === storedThinking)) {
+      setThinkingLevel(storedThinking as ThinkingLevel);
+    }
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (health?.engineOk !== false) return;
+    const timer = setInterval(() => void refresh(), 3000);
+    return () => clearInterval(timer);
+  }, [health?.engineOk, refresh]);
+
+  function addImageFiles(files: FileList) {
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith("image/")) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const uri = String(reader.result ?? "");
+        setAttachments((current) => [...current, { uri, mime: file.type, name: file.name }]);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function submit() {
+    if (!prompt.trim() || !projectId || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const images = attachments
+        .map((attachment) => {
+          const comma = attachment.uri.indexOf(",");
+          if (comma < 0) return null;
+          return { mimeType: attachment.mime, data: attachment.uri.slice(comma + 1) };
+        })
+        .filter((item): item is { mimeType: string; data: string } => item !== null);
+      const result = await sendJson<{ task: TaskSummary }>("/api/tasks", {
+        projectId,
+        prompt,
+        model,
+        thinkingLevel,
+        images,
+      });
+      localStorage.setItem(MODEL_KEY, model);
+      localStorage.setItem(THINKING_KEY, thinkingLevel);
+      notifyTasksChanged();
+      router.push(`/task/${result.task.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "タスクを開始できません");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <MobileMenuHeader />
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-clip">
+        <main className="mx-auto flex min-h-full max-w-5xl flex-col justify-center px-4 py-12 pb-[max(6rem,env(safe-area-inset-bottom))]">
+          <section>
+            <h1 className="mb-6 flex items-center justify-center gap-2 text-center text-2xl font-semibold tracking-tight sm:text-3xl">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/icon.svg" alt="" width={28} height={28} className="h-7 w-7 shrink-0 rounded-[6px] object-contain sm:h-8 sm:w-8" />
+              <span>LeafCodePi</span>
+            </h1>
+            <div className="mx-auto mb-3 flex max-w-5xl items-center justify-start gap-2 overflow-x-auto px-1 py-1">
+              <GhostSelect
+                value={projectId}
+                disabled={submitting}
+                aria-label="プロジェクト"
+                icon={<FolderGit2 className="h-3.5 w-3.5" />}
+                valueLabel={selectedProject ? selectedProject.name : "プロジェクトなし"}
+                onChange={setProjectId}
+                className="max-w-[12rem] shrink-0 sm:max-w-56"
+                title={selectedProject?.name ?? "プロジェクトなし"}
+                action={
+                  <AddProjectButton
+                    label="プロジェクトを追加"
+                    buttonVariant="ghost"
+                    buttonSize="sm"
+                    className="w-full"
+                    onAdded={(project) => {
+                      void refresh().then(() => setProjectId(project.id));
+                    }}
+                  />
+                }
+              >
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </GhostSelect>
+              <GhostSelect
+                value="current_folder"
+                disabled
+                aria-label="作業場所"
+                icon={<GitBranch className="h-3.5 w-3.5" />}
+                valueLabel="そのまま"
+                onChange={() => {}}
+                className="max-w-[10rem] shrink-0 sm:max-w-40"
+                title="MVP はプロジェクトフォルダを直接使います"
+              >
+                <option value="current_folder">そのまま</option>
+              </GhostSelect>
+            </div>
+            <Composer
+              form={{
+                ariaLabel: "タスク作成",
+                onSubmit: (event) => {
+                  event.preventDefault();
+                  void submit();
+                },
+              }}
+              className="relative mx-auto max-w-5xl rounded-2xl border border-border bg-bg px-3 py-2 shadow-sm focus-within:border-border-strong focus-within:ring-2 focus-within:ring-primary/20"
+              attachments={attachments}
+              onRemoveAttachment={(index) =>
+                setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))
+              }
+              attachmentRemovalDisabled={submitting}
+              textarea={{
+                ref: textareaRef,
+                value: prompt,
+                rows: 2,
+                style: { fontSize: "16px" },
+                ariaLabel: "タスクの説明",
+                busy: submitting,
+                readOnly: submitting,
+                onChange: (event) => setPrompt(event.target.value),
+                onCompositionStart: () => {
+                  composingRef.current = true;
+                },
+                onCompositionEnd: () => {
+                  composingRef.current = false;
+                },
+                onKeyDown: (event) => {
+                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !composingRef.current) {
+                    event.preventDefault();
+                    void submit();
+                  }
+                },
+                placeholder: "タスクを説明してください…（Ctrl+Enter で開始）",
+                className: "w-full resize-none bg-transparent py-1.5 text-base outline-none placeholder:text-faint",
+              }}
+              attachmentControl={{
+                inputRef: fileInputRef,
+                inputDisabled: submitting,
+                buttonDisabled: submitting,
+                buttonTitle: "画像を添付",
+                onFilesSelected: addImageFiles,
+                onTrigger: () => fileInputRef.current?.click(),
+              }}
+              toolbar={
+                <>
+                  <ModelSelect
+                    value={model}
+                    disabled={submitting}
+                    options={models}
+                    onChange={(value) => {
+                      setModel(value);
+                      localStorage.setItem(MODEL_KEY, value);
+                    }}
+                    className="max-w-[11rem] shrink-0 sm:max-w-48"
+                  />
+                  <GhostSelect
+                    value={thinkingLevel}
+                    disabled={submitting}
+                    aria-label="思考レベル"
+                    icon={<Brain className="h-3.5 w-3.5" />}
+                    valueLabel={THINKING_LEVELS.find((item) => item.value === thinkingLevel)?.label ?? "思考"}
+                    onChange={(value) => setThinkingLevel(value as ThinkingLevel)}
+                    className="max-w-[8rem] shrink-0"
+                  >
+                    {THINKING_LEVELS.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </GhostSelect>
+                </>
+              }
+              action={
+                <Button
+                  variant="primary"
+                  size="icon"
+                  type="submit"
+                  aria-label="タスク開始"
+                  className="shrink-0"
+                  busy={submitting}
+                  disabled={!prompt.trim() || !projectId || submitting || health?.engineOk === false}
+                >
+                  {!submitting && <ArrowUp className="h-4.5 w-4.5" />}
+                </Button>
+              }
+            />
+            {loaded && health && !health.engineOk && (
+              <p className="mx-auto mt-3 max-w-2xl rounded-lg border border-warning/30 bg-warning-bg px-3 py-2 text-sm text-warning">
+                Pi に利用可能なモデルがありません。設定で API キー（ANTHROPIC_API_KEY など）または ~/.pi/agent/auth.json を確認してください。
+              </p>
+            )}
+            {error && (
+              <p role="alert" className="mx-auto mt-3 max-w-2xl break-all rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger">
+                {error}
+              </p>
+            )}
+          </section>
+        </main>
+      </div>
+    </div>
+  );
+}

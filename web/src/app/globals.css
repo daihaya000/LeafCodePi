@@ -1,0 +1,254 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-2: #f0f0f1;
+  --surface-3: #e8e8ea;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --text: #18181b;
+  --muted: #71717a;
+  --faint: #a1a1aa;
+  --primary: #18181b;
+  --primary-fg: #fafafa;
+  --accent: #2563eb;
+  --success: #16a34a;
+  --success-bg: #f0fdf4;
+  --warning: #d97706;
+  --warning-bg: #fffbeb;
+  --danger: #dc2626;
+  --danger-bg: #fef2f2;
+  --working: #2563eb;
+  --working-bg: #eff6ff;
+  --diff-add-bg: #ecfdf3;
+  --diff-add-text: #067647;
+  --diff-del-bg: #fef3f2;
+  --diff-del-text: #b42318;
+  --diff-hunk-bg: #f0f4f8;
+}
+
+.oyster {
+  --bg: #fdfbf7;
+  --surface: #fbf8f2;
+  --surface-2: #f5f1ea;
+  --surface-3: #f0ebe1;
+  --border: #e4ddd0;
+  --border-strong: #d0c8b8;
+  --text: #1e1b16;
+  --muted: #6f685c;
+  --faint: #9b9283;
+  --primary: #1e1b16;
+  --primary-fg: #fdfbf7;
+  --accent: #2563eb;
+  --success: #16a34a;
+  --success-bg: #e9f3e6;
+  --warning: #d97706;
+  --warning-bg: #f8efdc;
+  --danger: #dc2626;
+  --danger-bg: #faeae9;
+  --working: #2563eb;
+  --working-bg: #eaeffb;
+}
+
+.dark {
+  --bg: #111113;
+  --surface: #19191d;
+  --surface-2: #202024;
+  --surface-3: #28282d;
+  --border: #2a2a30;
+  --border-strong: #3f3f46;
+  --text: #f4f4f5;
+  --muted: #a1a1aa;
+  --faint: #71717a;
+  --primary: #fafafa;
+  --primary-fg: #18181b;
+  --accent: #60a5fa;
+  --success: #4ade80;
+  --success-bg: #12261a;
+  --warning: #fbbf24;
+  --warning-bg: #2a2113;
+  --danger: #f87171;
+  --danger-bg: #2c1618;
+  --working: #60a5fa;
+  --working-bg: #16202f;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-working: var(--working);
+  --color-working-bg: var(--working-bg);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+input,
+textarea,
+select {
+  font-size: 16px;
+}
+
+@layer utilities {
+  :where(button, a, input, textarea, select, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+.md {
+  line-height: 1.7;
+  word-break: break-word;
+}
+.md > *:first-child {
+  margin-top: 0;
+}
+.md > *:last-child {
+  margin-bottom: 0;
+}
+.md p {
+  margin: 0.5em 0;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-weight: 600;
+  margin: 1em 0 0.4em;
+  line-height: 1.3;
+}
+.md h1 {
+  font-size: 1.25em;
+}
+.md h2 {
+  font-size: 1.15em;
+}
+.md h3 {
+  font-size: 1.05em;
+}
+.md ul,
+.md ol {
+  margin: 0.5em 0;
+  padding-left: 1.4em;
+}
+.md ul {
+  list-style: disc;
+}
+.md ol {
+  list-style: decimal;
+}
+.md li {
+  margin: 0.15em 0;
+}
+.md a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.85em;
+  background: var(--surface-3);
+  border-radius: 4px;
+  padding: 0.12em 0.35em;
+  overflow-wrap: anywhere;
+}
+.md pre {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75em 1em;
+  margin: 0.6em 0;
+  overflow-x: auto;
+}
+.md pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  overflow-wrap: normal;
+}
+.md blockquote {
+  border-left: 3px solid var(--border-strong);
+  padding-left: 0.9em;
+  margin: 0.6em 0;
+  color: var(--muted);
+}
+.md table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 0.9em;
+}
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 0.3em 0.7em;
+}
+.md th {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+.md hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1em 0;
+}
+
+html,
+body {
+  overflow-x: clip;
+}
+
+.pb-safe {
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.status-pulse {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}

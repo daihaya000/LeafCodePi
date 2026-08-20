@@ -1,0 +1,15 @@
+{
+  "name": "leafcode-pi",
+  "private": true,
+  "description": "Pi Coding Agent をバックエンドにした LeafCode 互換フロントエンド",
+  "scripts": {
+    "dev": "npm --prefix web run dev -- --hostname 127.0.0.1 --port 3000",
+    "build": "npm --prefix web run build",
+    "start": "npm --prefix web run start -- --hostname 127.0.0.1 --port 3000",
+    "test": "npm --prefix web test",
+    "typecheck": "npm --prefix web run typecheck"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
