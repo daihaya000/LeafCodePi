@@ -141,10 +141,16 @@ async function loadPi(): Promise<PiModule> {
   return current.pi;
 }
 
+async function ensureOptionalProviders(runtime: ModelRuntime): Promise<void> {
+  // Idempotent: skip when already registered. Safe after HMR / late wiring.
+  await registerCursorProvider(runtime);
+  await registerCommandCodeProvider(runtime);
+  await registerOllamaCloudProvider(runtime);
+}
+
 async function ensureRuntime(): Promise<void> {
   const current = state();
-  if (current.modelRuntime) return;
-  if (!current.initPromise) {
+  if (!current.modelRuntime && !current.initPromise) {
     current.initPromise = (async () => {
       try {
         const pi = await loadPi();
@@ -153,9 +159,6 @@ async function ensureRuntime(): Promise<void> {
           modelRefreshTimeoutMs: 8_000,
         });
         await registerLlamaProviders(current.modelRuntime);
-        await registerCursorProvider(current.modelRuntime);
-        await registerCommandCodeProvider(current.modelRuntime);
-        await registerOllamaCloudProvider(current.modelRuntime);
         current.initError = null;
       } catch (error) {
         current.initError = error instanceof Error ? error.message : String(error);
@@ -163,7 +166,10 @@ async function ensureRuntime(): Promise<void> {
       }
     })();
   }
-  await current.initPromise;
+  if (current.initPromise) await current.initPromise;
+  if (current.modelRuntime) {
+    await ensureOptionalProviders(current.modelRuntime);
+  }
 }
 
 function modelValue(providerID: string, modelID: string): string {

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,14 +13,25 @@ type ExtensionApiStub = {
   registerCommand: (...args: unknown[]) => void;
 };
 
-function resolveExtensionEntry(): string | null {
+/** Resolve pi-commandcode-provider entry (Next bundled chunks break createRequire alone). */
+export function resolveCommandCodeExtensionEntry(
+  cwd = process.cwd(),
+): string | null {
+  const candidates = [
+    join(cwd, "node_modules", "pi-commandcode-provider", "index.ts"),
+    join(cwd, "..", "node_modules", "pi-commandcode-provider", "index.ts"),
+  ];
   try {
     const require = createRequire(import.meta.url);
     const pkgJson = require.resolve("pi-commandcode-provider/package.json");
-    return join(dirname(pkgJson), "index.ts");
+    candidates.unshift(join(dirname(pkgJson), "index.ts"));
   } catch {
-    return null;
+    /* fall through to cwd candidates */
   }
+  for (const file of candidates) {
+    if (existsSync(file)) return file;
+  }
+  return null;
 }
 
 /**
@@ -46,7 +58,7 @@ export async function registerCommandCodeProvider(runtime: ModelRuntime): Promis
 
   syncCommandCodeApiKeyEnv();
 
-  const entry = resolveExtensionEntry();
+  const entry = resolveCommandCodeExtensionEntry();
   if (!entry) {
     console.warn("[LeafCodePi] pi-commandcode-provider is not installed");
     return;
@@ -66,7 +78,10 @@ export async function registerCommandCodeProvider(runtime: ModelRuntime): Promis
     );
     return;
   }
-  if (!factory) return;
+  if (!factory) {
+    console.warn("[LeafCodePi] pi-commandcode-provider has no default factory export");
+    return;
+  }
 
   const api: ExtensionApiStub = {
     registerProvider(nameOrProvider, config) {
@@ -90,6 +105,13 @@ export async function registerCommandCodeProvider(runtime: ModelRuntime): Promis
     console.warn(
       "[LeafCodePi] commandcode provider registration failed:",
       error instanceof Error ? error.message : error,
+    );
+    return;
+  }
+
+  if (!runtime.getProvider(COMMANDCODE_PROVIDER_ID)) {
+    console.warn(
+      "[LeafCodePi] commandcode provider factory finished but provider is still missing",
     );
   }
 }

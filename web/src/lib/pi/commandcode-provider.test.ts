@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "vitest";
-import { syncCommandCodeApiKeyEnv } from "./commandcode-provider";
+import {
+  resolveCommandCodeExtensionEntry,
+  syncCommandCodeApiKeyEnv,
+} from "./commandcode-provider";
 
 describe("syncCommandCodeApiKeyEnv", () => {
   const prevPrimary = process.env.COMMANDCODE_API_KEY;
@@ -25,5 +28,13 @@ describe("syncCommandCodeApiKeyEnv", () => {
     process.env.COMMAND_CODE_API_KEY = "user_alt";
     syncCommandCodeApiKeyEnv();
     assert.equal(process.env.COMMANDCODE_API_KEY, "user_primary");
+  });
+});
+
+describe("resolveCommandCodeExtensionEntry", () => {
+  it("finds the installed package index.ts from cwd", () => {
+    const entry = resolveCommandCodeExtensionEntry();
+    assert.ok(entry);
+    assert.match(entry.replace(/\\/g, "/"), /pi-commandcode-provider\/index\.ts$/);
   });
 });
