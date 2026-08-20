@@ -227,7 +227,7 @@ export function ProviderAuthPanel({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="mb-2 text-sm font-semibold">サブスクリプション / クラウド（推奨）</h2>
+        <h2 className="mb-2 text-sm font-semibold">プロバイダー</h2>
         <p className="mb-3 text-xs text-muted">
           Claude Pro/Max（Anthropic）、ChatGPT Plus/Pro（OpenAI Codex）、Cursor のブラウザログイン、および Ollama
           Cloud（API キー）に対応しています。Ollama Cloud は環境変数{" "}

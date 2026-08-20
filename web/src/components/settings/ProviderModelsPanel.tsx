@@ -325,7 +325,7 @@ export function ProviderModelsPanel() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="mb-2 text-sm font-semibold">プロバイダー / モデル一覧</h2>
+        <h2 className="mb-2 text-sm font-semibold">モデル</h2>
         <p className="mb-3 text-xs text-muted">
           認証済みプロバイダーの表示と並び替えです。無効にしたモデルはホームとタスクの選択から外れます。
           {orderSaving ? " 並び順を保存中…" : ""}
