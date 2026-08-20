@@ -1,26 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUp, Brain, FolderGit2, GitBranch } from "lucide-react";
+import { ArrowUp, FolderGit2, GitBranch } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { Composer, type ComposerAttachment } from "@/components/Composer";
 import { ModelSelect } from "@/components/ModelSelect";
+import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { Button, GhostSelect } from "@/components/ui";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
+import { isThinkingLevel } from "@/lib/thinking-levels";
 import type { HealthDto, ModelOption, ProjectDto, TaskSummary, ThinkingLevel } from "@/lib/types";
 
 const MODEL_KEY = "leafcodepi.defaultModel";
 const THINKING_KEY = "leafcodepi.thinkingLevel";
-
-const THINKING_LEVELS: { value: ThinkingLevel; label: string }[] = [
-  { value: "off", label: "思考なし" },
-  { value: "low", label: "低" },
-  { value: "medium", label: "中" },
-  { value: "high", label: "高" },
-];
 
 export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const router = useRouter();
@@ -40,6 +35,11 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const composingRef = useRef(false);
 
   const selectedProject = projects.find((project) => project.id === projectId);
+  const selectedModel = models.find((option) => option.value === model);
+  const thinkingLevels = useMemo(
+    () => selectedModel?.thinkingLevels ?? (["off"] as ThinkingLevel[]),
+    [selectedModel],
+  );
 
   const refresh = useCallback(async () => {
     const [projectRes, modelRes, healthRes] = await Promise.allSettled([
@@ -69,11 +69,14 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
 
   useEffect(() => {
     const storedThinking = localStorage.getItem(THINKING_KEY);
-    if (THINKING_LEVELS.some((item) => item.value === storedThinking)) {
-      setThinkingLevel(storedThinking as ThinkingLevel);
-    }
+    if (isThinkingLevel(storedThinking)) setThinkingLevel(storedThinking);
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (thinkingLevels.includes(thinkingLevel)) return;
+    setThinkingLevel(thinkingLevels[thinkingLevels.length - 1] ?? "off");
+  }, [thinkingLevels, thinkingLevel]);
 
   useEffect(() => {
     if (health?.engineOk !== false) return;
@@ -232,21 +235,15 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                     }}
                     className="max-w-[11rem] shrink-0 sm:max-w-48"
                   />
-                  <GhostSelect
+                  <ThinkingSelect
+                    levels={thinkingLevels}
                     value={thinkingLevel}
                     disabled={submitting}
-                    aria-label="思考レベル"
-                    icon={<Brain className="h-3.5 w-3.5" />}
-                    valueLabel={THINKING_LEVELS.find((item) => item.value === thinkingLevel)?.label ?? "思考"}
-                    onChange={(value) => setThinkingLevel(value as ThinkingLevel)}
-                    className="max-w-[8rem] shrink-0"
-                  >
-                    {THINKING_LEVELS.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </GhostSelect>
+                    onChange={(value) => {
+                      setThinkingLevel(value);
+                      localStorage.setItem(THINKING_KEY, value);
+                    }}
+                  />
                 </>
               }
               action={

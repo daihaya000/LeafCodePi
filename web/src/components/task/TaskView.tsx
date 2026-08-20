@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Square } from "lucide-react";
 import { Composer, type ComposerAttachment } from "@/components/Composer";
 import { ModelSelect } from "@/components/ModelSelect";
+import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { PartView } from "@/components/task/PartView";
@@ -11,7 +12,8 @@ import { Button, cx } from "@/components/ui";
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
-import type { ModelOption, TaskDetail, TaskSummary, UiMessage } from "@/lib/types";
+import { isThinkingLevel } from "@/lib/thinking-levels";
+import type { ModelOption, TaskDetail, TaskSummary, ThinkingLevel, UiMessage } from "@/lib/types";
 
 function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
   const pct = usage.percent;
@@ -152,6 +154,16 @@ export function TaskView({ taskId }: { taskId: string }) {
 
   const modelValue =
     task?.providerID && task.modelID ? `${task.providerID}::${task.modelID}` : models[0]?.value ?? "";
+  const selectedModel = models.find((option) => option.value === modelValue);
+  const thinkingLevels = useMemo(
+    () => selectedModel?.thinkingLevels ?? (["off"] as ThinkingLevel[]),
+    [selectedModel],
+  );
+  const thinkingValue: ThinkingLevel = isThinkingLevel(task?.thinkingLevel)
+    ? task.thinkingLevel
+    : thinkingLevels.includes("off")
+      ? "off"
+      : (thinkingLevels[0] ?? "off");
   const working = task?.status === "working" || task?.isStreaming;
 
   return (
@@ -233,27 +245,48 @@ export function TaskView({ taskId }: { taskId: string }) {
             onTrigger: () => fileInputRef.current?.click(),
           }}
           toolbar={
-            <ModelSelect
-              value={modelValue}
-              options={models}
-              disabled={working}
-              onChange={(value) => {
-                void (async () => {
-                  try {
-                    setError(null);
-                    const result = await sendJson<{ task: TaskSummary }>(
-                      `/api/tasks/${taskId}/model`,
-                      { model: value },
-                    );
-                    setTask((current) => (current ? { ...current, ...result.task } : current));
-                    notifyTasksChanged();
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : "モデルの切替に失敗しました");
-                  }
-                })();
-              }}
-              className="max-w-[12rem]"
-            />
+            <>
+              <ModelSelect
+                value={modelValue}
+                options={models}
+                disabled={working}
+                onChange={(value) => {
+                  void (async () => {
+                    try {
+                      setError(null);
+                      const result = await sendJson<{ task: TaskSummary }>(
+                        `/api/tasks/${taskId}/model`,
+                        { model: value },
+                      );
+                      setTask((current) => (current ? { ...current, ...result.task } : current));
+                      notifyTasksChanged();
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "モデルの切替に失敗しました");
+                    }
+                  })();
+                }}
+                className="max-w-[12rem]"
+              />
+              <ThinkingSelect
+                levels={thinkingLevels}
+                value={thinkingValue}
+                disabled={working}
+                onChange={(value) => {
+                  void (async () => {
+                    try {
+                      setError(null);
+                      const result = await sendJson<{ task: TaskSummary }>(
+                        `/api/tasks/${taskId}/thinking`,
+                        { thinkingLevel: value },
+                      );
+                      setTask((current) => (current ? { ...current, ...result.task } : current));
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "思考レベルの切替に失敗しました");
+                    }
+                  })();
+                }}
+              />
+            </>
           }
           action={
             <Button

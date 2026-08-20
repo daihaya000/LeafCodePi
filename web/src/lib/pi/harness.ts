@@ -35,6 +35,11 @@ import { registerLlamaProviders, syncLlamaServerProvider } from "@/lib/pi/llama-
 import { registerCursorProvider } from "@/lib/pi/cursor-provider";
 import { registerOllamaCloudProvider, syncOllamaCloudProvider } from "@/lib/pi/ollama-cloud-provider";
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
+import {
+  clampThinkingLevelForModel,
+  isThinkingLevel,
+  thinkingLevelsForModel,
+} from "@/lib/thinking-levels";
 import type {
   HealthDto,
   ModelOption,
@@ -265,6 +270,10 @@ function toSummary(task: TaskSummary): TaskSummary {
   const live = state().live.get(task.id);
   if (!live) return task;
   const ids = modelId(live.session.model);
+  const thinking =
+    typeof live.session.thinkingLevel === "string" && isThinkingLevel(live.session.thinkingLevel)
+      ? live.session.thinkingLevel
+      : task.thinkingLevel;
   return {
     ...task,
     status: live.session.isStreaming ? "working" : task.status,
@@ -272,6 +281,7 @@ function toSummary(task: TaskSummary): TaskSummary {
     sessionFile: live.session.sessionFile ?? task.sessionFile,
     providerID: ids.providerID ?? task.providerID,
     modelID: ids.modelID ?? task.modelID,
+    thinkingLevel: thinking,
   };
 }
 
@@ -361,6 +371,8 @@ export async function listModels(): Promise<ModelOption[]> {
       providerID,
       modelID,
       input: [...model.input],
+      reasoning: Boolean(model.reasoning),
+      thinkingLevels: thinkingLevelsForModel(model),
     });
   }
   // Preserve settings order from the catalog.
@@ -544,15 +556,21 @@ export async function createTask(input: {
     modelID: parsed?.modelID,
   });
   const model = await resolveModel(input.model);
+  const requestedThinking = isThinkingLevel(input.thinkingLevel) ? input.thinkingLevel : "off";
+  const thinkingLevel = model
+    ? clampThinkingLevelForModel(model, requestedThinking)
+    : requestedThinking;
   const session = await createSession({
     cwd: project.rootPath,
     model,
-    thinkingLevel: input.thinkingLevel,
+    thinkingLevel,
   });
   patchTask(task.id, {
     sessionId: session.sessionId,
     sessionFile: session.sessionFile,
     status: "working",
+    thinkingLevel:
+      isThinkingLevel(session.thinkingLevel) ? session.thinkingLevel : thinkingLevel,
     ...modelId(session.model),
   });
   const live = attachSession(task.id, session);
@@ -620,10 +638,38 @@ export async function setTaskModel(id: string, modelValueRaw: string): Promise<T
   if (!model || !parsed) throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
   await live.session.setModel(model);
   const ids = modelId(live.session.model ?? model);
+  const thinkingLevel = isThinkingLevel(live.session.thinkingLevel)
+    ? live.session.thinkingLevel
+    : clampThinkingLevelForModel(model, getTask(id)?.thinkingLevel);
   const task = patchTask(id, {
     providerID: ids.providerID ?? parsed.providerID,
     modelID: ids.modelID ?? parsed.modelID,
+    thinkingLevel,
   });
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const summary = toSummary(task);
+  emit(id, {
+    type: "snapshot",
+    task: summary,
+    isStreaming: live.session.isStreaming,
+    contextUsage: sessionContextUsage(live.session),
+  });
+  return summary;
+}
+
+export async function setTaskThinkingLevel(
+  id: string,
+  levelRaw: string,
+): Promise<TaskSummary> {
+  if (!isThinkingLevel(levelRaw)) {
+    throw Object.assign(new Error("thinkingLevel が不正です"), { status: 400 });
+  }
+  const live = await ensureLive(id);
+  live.session.setThinkingLevel(levelRaw);
+  const thinkingLevel = isThinkingLevel(live.session.thinkingLevel)
+    ? live.session.thinkingLevel
+    : levelRaw;
+  const task = patchTask(id, { thinkingLevel });
   if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   const summary = toSummary(task);
   emit(id, {

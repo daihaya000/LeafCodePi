@@ -73,6 +73,8 @@ export type ModelOption = {
   providerID: string;
   modelID: string;
   input?: string[];
+  reasoning?: boolean;
+  thinkingLevels?: ThinkingLevel[];
 };
 
 export type HealthDto = {

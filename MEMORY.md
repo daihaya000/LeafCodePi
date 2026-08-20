@@ -188,3 +188,12 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 - 使用率 70% で warning、90% で danger 色
 - 圧縮直後など tokens 不明時は `?` 表示
 
+## 2026-08-21: モデル別 effort（思考レベル）切替
+
+Pi の `getSupportedThinkingLevels` / `setThinkingLevel` に合わせ、モデルが受け付けるレベルだけを UI に出す。
+
+- `ModelOption.thinkingLevels` を `/api/models` に付与
+- ホーム / タスクの `ThinkingSelect`（非対応モデルは「思考なし」固定）
+- `POST /api/tasks/:id/thinking` でライブセッションへ即時反映
+- タスク作成・モデル切替時に clamp
+
