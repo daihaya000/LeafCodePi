@@ -176,6 +176,10 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 - リクエスト書換: 段階 effort → `chat_template_kwargs.reasoning_effort`、off → トップレベル `none` + `/no_think`
 - （GGUF テンプレは kwargs に `none` を入れると 500 になる）
 
+## 2026-08-21: effort 非対応モデルは ThinkingSelect 非表示
+
+effort オプションがないモデルでは「思考なし」固定表示も含めドロップダウンを出さない。
+
 ## 2026-08-21: llama-server モデル表示名
 
 表示名を `llama-server (Qwen…)` から GGUF 名のみ（例: `Qwen3.8-27B-Uncensored-GGUF`）に変更。
