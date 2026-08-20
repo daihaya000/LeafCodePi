@@ -158,9 +158,8 @@ export function ModelSelect({
       >
         {grouped.map(([provider, models]) => (
           <div key={provider}>
-            <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] font-semibold text-faint">
-              <ProviderIcon providerID={provider} size={12} />
-              <span className="min-w-0 truncate">{provider}</span>
+            <div className="px-2 py-1 text-[11px] font-semibold text-faint">
+              {provider}
             </div>
             {models.map((option) => {
               const image = modelSupportsImage(option);
