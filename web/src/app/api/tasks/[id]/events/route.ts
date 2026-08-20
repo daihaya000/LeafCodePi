@@ -25,6 +25,7 @@ export async function GET(
           task: detail,
           messages: detail.messages,
           isStreaming: detail.isStreaming,
+          contextUsage: detail.contextUsage,
         });
       } catch (error) {
         send("error", { error: error instanceof Error ? error.message : String(error) });

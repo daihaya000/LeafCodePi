@@ -7,15 +7,50 @@ import { ModelSelect } from "@/components/ModelSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { PartView } from "@/components/task/PartView";
-import { Button } from "@/components/ui";
+import { Button, cx } from "@/components/ui";
+import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import type { ModelOption, TaskDetail, TaskSummary, UiMessage } from "@/lib/types";
+
+function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
+  const pct = usage.percent;
+  const usedLabel = usage.tokens === null ? "?" : formatTokens(usage.tokens);
+  const limitLabel = formatTokens(usage.contextWindow);
+  const pctLabel = pct === null ? "?" : `${pct}%`;
+  const barWidth = pct === null ? 0 : pct;
+  return (
+    <span
+      className="flex min-w-0 shrink-0 items-center gap-1.5 text-[11px] text-muted"
+      title={`コンテキスト使用量: ${usedLabel} / ${limitLabel} トークン（${pctLabel}）`}
+    >
+      <span className="h-1.5 w-10 shrink-0 overflow-hidden rounded-full bg-surface-2">
+        <span
+          className={cx(
+            "block h-full rounded-full transition-[width]",
+            pct === null
+              ? "bg-faint"
+              : pct >= 90
+                ? "bg-danger"
+                : pct >= 70
+                  ? "bg-warning"
+                  : "bg-accent",
+          )}
+          style={{ width: `${barWidth}%` }}
+        />
+      </span>
+      <span className="font-mono tabular-nums">
+        {usedLabel}/{limitLabel} ({pctLabel})
+      </span>
+    </span>
+  );
+}
 
 export function TaskView({ taskId }: { taskId: string }) {
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
+  const [contextUsage, setContextUsage] = useState<ContextUsageDto | undefined>();
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -28,6 +63,7 @@ export function TaskView({ taskId }: { taskId: string }) {
   const applyDetail = useCallback((detail: TaskDetail) => {
     setTask(detail);
     setMessages(detail.messages);
+    setContextUsage(detail.contextUsage);
   }, []);
 
   useEffect(() => {
@@ -39,6 +75,7 @@ export function TaskView({ taskId }: { taskId: string }) {
         task?: TaskDetail;
         messages?: UiMessage[];
         isStreaming?: boolean;
+        contextUsage?: ContextUsageDto;
         error?: string;
       };
       const snapshotTask = payload.task;
@@ -50,10 +87,12 @@ export function TaskView({ taskId }: { taskId: string }) {
             ...snapshotTask,
             messages: payload.messages ?? base.messages ?? [],
             isStreaming: payload.isStreaming ?? snapshotTask.isStreaming ?? base.isStreaming,
+            contextUsage: payload.contextUsage ?? snapshotTask.contextUsage ?? base.contextUsage,
           };
         });
       }
       if (payload.messages) setMessages(payload.messages);
+      if ("contextUsage" in payload) setContextUsage(payload.contextUsage);
       if (payload.error) setError(payload.error);
       notifyTasksChanged();
     });
@@ -123,6 +162,7 @@ export function TaskView({ taskId }: { taskId: string }) {
           <h1 className="truncate text-sm font-semibold">{task?.title ?? "読み込み中…"}</h1>
           <p className="truncate text-[11px] text-muted">{task?.directory}</p>
         </div>
+        {contextUsage && <ContextUsageMeter usage={contextUsage} />}
         {task && <StatusBadge status={working ? "working" : task.status} />}
         {working && (
           <Button

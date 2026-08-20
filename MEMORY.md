@@ -180,3 +180,11 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 - モデル一覧は認証後に `/v1/models` から取得
 - 設定の推奨枠にハイライト表示
 
+## 2026-08-21: コンテキスト使用量表示
+
+タスク画面ヘッダーに Pi `session.getContextUsage()` のバーを表示。
+
+- `TaskDetail.contextUsage` + SSE snapshot で即時更新
+- 使用率 70% で warning、90% で danger 色
+- 圧縮直後など tokens 不明時は `?` 表示
+

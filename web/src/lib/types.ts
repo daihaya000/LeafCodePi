@@ -101,4 +101,9 @@ export type ProviderAuthDto = {
 export type TaskDetail = TaskSummary & {
   messages: UiMessage[];
   isStreaming: boolean;
+  contextUsage?: {
+    tokens: number | null;
+    contextWindow: number;
+    percent: number | null;
+  };
 };

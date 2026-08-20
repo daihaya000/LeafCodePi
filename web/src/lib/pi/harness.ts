@@ -34,6 +34,7 @@ import {
 import { registerLlamaProviders, syncLlamaServerProvider } from "@/lib/pi/llama-provider";
 import { registerCursorProvider } from "@/lib/pi/cursor-provider";
 import { registerOllamaCloudProvider, syncOllamaCloudProvider } from "@/lib/pi/ollama-cloud-provider";
+import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
 import type {
   HealthDto,
   ModelOption,
@@ -171,6 +172,14 @@ function snapshotMessages(session: AgentSession): UiMessage[] {
   return projectPiMessages(stored);
 }
 
+function sessionContextUsage(session: AgentSession): ContextUsageDto | undefined {
+  try {
+    return toContextUsageDto(session.getContextUsage());
+  } catch {
+    return undefined;
+  }
+}
+
 function emit(taskId: string, payload: { type: string; [key: string]: unknown }): void {
   state().events.emit(taskId, payload);
   state().events.emit("*", { taskId, ...payload });
@@ -205,6 +214,7 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
       task: toSummary(getTask(taskId) ?? task),
       messages: snapshotMessages(session),
       isStreaming: session.isStreaming,
+      contextUsage: sessionContextUsage(session),
       eventType: event.type,
     });
   });
@@ -503,14 +513,16 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
   if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   let messages: UiMessage[] = [];
   let isStreaming = false;
+  let contextUsage: ContextUsageDto | undefined;
   try {
     const live = await ensureLive(id);
     messages = snapshotMessages(live.session);
     isStreaming = live.session.isStreaming;
+    contextUsage = sessionContextUsage(live.session);
   } catch {
     messages = [];
   }
-  return { ...toSummary(getTask(id) ?? task), messages, isStreaming };
+  return { ...toSummary(getTask(id) ?? task), messages, isStreaming, contextUsage };
 }
 
 export async function createTask(input: {
@@ -576,6 +588,7 @@ function queuePrompt(live: LiveRuntime, prompt: string, images?: PromptImage[]):
         task: toSummary(getTask(live.taskId)!),
         messages: snapshotMessages(live.session),
         isStreaming: false,
+        contextUsage: sessionContextUsage(live.session),
         eventType: "error",
         error: message,
       });
@@ -617,6 +630,7 @@ export async function setTaskModel(id: string, modelValueRaw: string): Promise<T
     type: "snapshot",
     task: summary,
     isStreaming: live.session.isStreaming,
+    contextUsage: sessionContextUsage(live.session),
   });
   return summary;
 }
