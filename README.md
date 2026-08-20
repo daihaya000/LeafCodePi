@@ -12,7 +12,7 @@
 
 ## まだないもの
 
-OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペイン、ゴールループ、ホストトレイ、Caddy、ログインは未実装です。エージェントはプロジェクトフォルダ上で Pi の標準ツール（read / write / edit / bash / grep / find / ls）を直接実行します。
+OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペイン、ゴールループ、Caddy、ログインは未実装です。エージェントはプロジェクトフォルダ上で Pi の標準ツール（read / write / edit / bash / grep / find / ls）を直接実行します。
 
 ## 動作条件
 
@@ -25,19 +25,51 @@ OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペ
 
 ## 起動
 
+リポジトリ直下の `start.bat` をダブルクリックします。初回は Node.js / 依存関係 / production build を確認し、トレイに常駐します。準備ができたら `http://127.0.0.1:3010` を開きます。
+
+トレイメニュー:
+
+- Open browser
+- 稼働状況
+- Restart WebUI
+- Quit
+
 ```bat
-cd LeafCodePi
+start.bat
+```
+
+開発時だけトレイなしで動かす場合:
+
+```bat
 npm --prefix web install
 npm run dev
 ```
 
-ブラウザで `http://127.0.0.1:3000` を開きます。
+デスクトップショートカットは `scripts\create-shortcut.bat` です（`LeafCodePi.lnk`。LeafCode の `LeafCode.lnk` とは別ファイルです）。
 
 プロジェクトデータは `%APPDATA%\leafcode-pi\store.json` に保存します。Pi セッション本体は `~/.pi/agent/sessions/` です。
+ホストログと `host.lock` は `%APPDATA%\leafcode-pi\` です。トレイ用 TEMP は `%LOCALAPPDATA%\leafcode-pi\tmp` です。
+
+## LeafCode との同時起動
+
+同じ Windows 上で [LeafCode](https://github.com/daihaya000/LeafCode) と並べて動かせます。既定値は重なりません。
+
+| | LeafCode | LeafCodePi |
+| --- | --- | --- |
+| WebUI | `http://127.0.0.1:3000` | `http://127.0.0.1:3010` |
+| 環境変数 | `LEAFCODE_*` | `LEAFCODE_PI_*` |
+| データ | `%APPDATA%\leafcode` | `%APPDATA%\leafcode-pi` |
+| トレイ TEMP | `%LOCALAPPDATA%\leafcode\tmp` | `%LOCALAPPDATA%\leafcode-pi\tmp` |
+| ショートカット | `LeafCode.lnk` | `LeafCodePi.lnk` |
+| コンソール title | LeafCode | LeafCodePi |
+
+`LEAFCODE_PORT` を LeafCodePi に渡しても読みません。ポートを変えるときは `LEAFCODE_PI_PORT` を使います。
 
 ## 構成
 
 - `web/` — Next.js UI と BFF
+- `host/` — Windows トレイ常駐。Next.js の起動・監視・再起動
+- `start.bat` — 導入とホスト起動
 - `web/src/lib/pi/harness.ts` — Pi `createAgentSession` のプロセス内シングルトン
 - `web/src/lib/store.ts` — プロジェクト / タスクの JSON ストア
 
@@ -45,5 +77,11 @@ npm run dev
 
 | 変数 | 内容 |
 | --- | --- |
-| `LEAFCODE_PI_DATA_DIR` | ストアの保存先（未設定時は `%APPDATA%\leafcode-pi`） |
+| `LEAFCODE_PI_DATA_DIR` | ストアと host.lock / host.log の保存先（未設定時は `%APPDATA%\leafcode-pi`） |
+| `LEAFCODE_PI_PORT` | WebUI ポート（既定 **3010**。LeafCode の 3000 と衝突しない） |
+| `LEAFCODE_PI_HOST` | WebUI 待ち受け（既定 127.0.0.1） |
+| `LEAFCODE_PI_MODE` | `prod`（既定・start.bat）または `dev` |
+| `LEAFCODE_PI_HEADLESS` | `1` でトレイなし |
+| `LEAFCODE_PI_NO_BROWSER` | `1` で起動時にブラウザを開かない |
+| `LEAFCODE_PI_NONINTERACTIVE` | `1` で失敗時の pause を省略 |
 | `ANTHROPIC_API_KEY` など | Pi が読むプロバイダーキー |

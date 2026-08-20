@@ -1,0 +1,2 @@
+[LeafCodePi] Node.jsを導入できませんでした。
+[LeafCodePi] 復旧案内: https://nodejs.org から LTS を手動導入してください。

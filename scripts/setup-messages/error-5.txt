@@ -1,0 +1,2 @@
+[LeafCodePi] web の依存関係を導入できませんでした。
+[LeafCodePi] 復旧案内: ネットワークを確認し、npm --prefix web install を実行してください。

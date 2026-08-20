@@ -1,0 +1,491 @@
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import SysTrayImport from "systray2";
+import { bindHost, dataDir, DEFAULT_WEBUI_PORT, isHeadless, readPort, shouldOpenBrowser } from "./config.js";
+import { isThisModuleEntrypoint } from "./entry.js";
+import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
+import { createLogFileWriter, formatLogLine } from "./log-file.js";
+import { withLocalLeafcodeTempEnv } from "./tray-temp.js";
+import {
+  formatWebStatus,
+  getPostBuildLaunchPlan,
+  getWebLaunchPlan,
+  procRunning,
+} from "./web-plan.js";
+
+const SysTray =
+  SysTrayImport?.default?.default || SysTrayImport?.default || SysTrayImport;
+if (typeof SysTray !== "function") {
+  throw new Error(
+    `systray2 import failed (got ${typeof SysTrayImport}). Reinstall host deps: cd host && npm install`,
+  );
+}
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const HOST_DIR = join(__dirname, "..");
+const REPO_ROOT = join(HOST_DIR, "..");
+const WEB_DIR = join(REPO_ROOT, "web");
+const DATA_DIR = dataDir();
+const LOCK_FILE = join(DATA_DIR, "host.lock");
+const HOST_VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(join(HOST_DIR, "package.json"), "utf8")).version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+})();
+
+const WEBUI_HOST = bindHost();
+const WEBUI_PORT = readPort(process.env.LEAFCODE_PI_PORT, DEFAULT_WEBUI_PORT);
+const WEBUI_URL = `http://${WEBUI_HOST}:${WEBUI_PORT}`;
+const MAX_WEB_RESTARTS = 3;
+const MAX_TRAY_RESTARTS = 3;
+
+const iconData = JSON.parse(readFileSync(join(__dirname, "icon.json"), "utf8"));
+const TRAY_ICON = iconData.base64;
+
+const logWriter = createLogFileWriter(DATA_DIR);
+
+/** @type {import("node:child_process").ChildProcess | null} */
+let webProc = null;
+let webBuildProc = null;
+/** @type {import("systray2").default | null} */
+let systray = null;
+let quitting = false;
+let webRestarts = 0;
+let trayRestarts = 0;
+let restarting = false;
+const expectedWebExitPids = new Set();
+
+const statusWebItem = {
+  title: "LeafCodePi: ...",
+  tooltip: WEBUI_URL,
+  enabled: false,
+};
+
+function log(text) {
+  const line = formatLogLine({ ts: Date.now(), source: "host", level: "log", text });
+  console.log(`[LeafCodePi] ${text}`);
+  logWriter.write({ ts: Date.now(), source: "host", level: "log", text });
+  return line;
+}
+
+function error(text) {
+  console.error(`[LeafCodePi] ERROR ${text}`);
+  logWriter.write({ ts: Date.now(), source: "host", level: "error", text });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function nextBin() {
+  return join(WEB_DIR, "node_modules", "next", "dist", "bin", "next");
+}
+
+function hasProductionBuild() {
+  return existsSync(join(WEB_DIR, ".next", "BUILD_ID"));
+}
+
+function npmCmd() {
+  return process.platform === "win32" ? "npm.cmd" : "npm";
+}
+
+function killTree(pid) {
+  if (!Number.isFinite(pid) || pid <= 0) return;
+  spawnSync("taskkill", ["/T", "/F", "/PID", String(pid)], {
+    windowsHide: true,
+    stdio: "ignore",
+  });
+}
+
+function openBrowser(url) {
+  spawn("cmd.exe", ["/c", "start", "", url], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+  }).unref();
+}
+
+async function isHttpUp(url) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(1500) });
+    return res.status < 500;
+  } catch {
+    return false;
+  }
+}
+
+async function waitUntilReady(url, label, seconds = 90, proc) {
+  const iterations = Math.max(1, Math.ceil((seconds * 1000) / 250));
+  for (let i = 0; i < iterations; i += 1) {
+    if (await isHttpUp(url)) {
+      log(`${label} is ready`);
+      return true;
+    }
+    if (proc && !procRunning(proc())) {
+      error(`${label} exited before becoming ready (${url})`);
+      return false;
+    }
+    await sleep(250);
+  }
+  error(`${label} did not become ready in time (${url})`);
+  return false;
+}
+
+function pipeChild(label, child) {
+  child.stdout?.on("data", (chunk) => {
+    process.stdout.write(`[${label}] ${chunk}`);
+    logWriter.write({ ts: Date.now(), source: label, level: "log", text: String(chunk) });
+  });
+  child.stderr?.on("data", (chunk) => {
+    process.stderr.write(`[${label}] ${chunk}`);
+    logWriter.write({ ts: Date.now(), source: label, level: "error", text: String(chunk) });
+  });
+}
+
+function runNodeScript(args, options) {
+  return spawn(process.execPath, args, {
+    windowsHide: true,
+    stdio: "pipe",
+    ...options,
+  });
+}
+
+function installWebIfNeeded() {
+  if (existsSync(join(WEB_DIR, "node_modules", "next"))) return;
+  log("Installing web dependencies...");
+  const result = spawnSync(npmCmd(), ["install"], {
+    cwd: WEB_DIR,
+    shell: true,
+    windowsHide: true,
+    stdio: "inherit",
+  });
+  if (result.status !== 0) {
+    throw new Error(`npm install (web) exited ${result.status}`);
+  }
+}
+
+function buildWeb() {
+  return new Promise((resolve, reject) => {
+    log("Building LeafCodePi production bundle...");
+    const child = runNodeScript([nextBin(), "build"], { cwd: WEB_DIR });
+    webBuildProc = child;
+    pipeChild("build", child);
+    child.on("error", reject);
+    child.on("close", (code) => {
+      webBuildProc = null;
+      if (code === 0) resolve();
+      else reject(new Error(`next build exited ${code}`));
+    });
+  });
+}
+
+async function spawnWeb() {
+  installWebIfNeeded();
+  let hasBuild = hasProductionBuild();
+  let plan = getWebLaunchPlan(process.env.LEAFCODE_PI_MODE, hasBuild);
+  if (plan.needsBuild) {
+    try {
+      await buildWeb();
+    } catch (err) {
+      error(`Production build failed; falling back to next dev (${err instanceof Error ? err.message : String(err)})`);
+      process.env.LEAFCODE_PI_MODE = "dev";
+    }
+    hasBuild = hasProductionBuild();
+    plan = getPostBuildLaunchPlan(process.env.LEAFCODE_PI_MODE, hasBuild);
+  }
+
+  const useProd = plan.useProd && existsSync(nextBin());
+  const args = useProd
+    ? [nextBin(), "start", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)]
+    : [nextBin(), "dev", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)];
+  log(`Starting LeafCodePi (${useProd ? "production" : "dev"}) on ${WEBUI_URL}`);
+  const child = runNodeScript(args, {
+    cwd: WEB_DIR,
+    env: {
+      ...process.env,
+      PORT: String(WEBUI_PORT),
+      LEAFCODE_PI_HOST: WEBUI_HOST,
+      LEAFCODE_PI_PORT: String(WEBUI_PORT),
+    },
+  });
+  webProc = child;
+  pipeChild("webui", child);
+  child.on("error", (err) => error(`WebUI spawn error: ${err.message}`));
+  child.on("close", (code, signal) => {
+    const expected = child.pid ? expectedWebExitPids.delete(child.pid) : false;
+    const wasCurrent = webProc === child;
+    if (!quitting) log(`WebUI exited (code=${code}, signal=${signal ?? "none"})`);
+    if (wasCurrent) webProc = null;
+    void refreshStatusMenu();
+    if (!quitting && !expected && wasCurrent) scheduleWebRestart();
+  });
+}
+
+function scheduleWebRestart() {
+  if (quitting) return;
+  if (webRestarts >= MAX_WEB_RESTARTS) {
+    error(`WebUI restart budget exhausted (${MAX_WEB_RESTARTS})`);
+    return;
+  }
+  webRestarts += 1;
+  const delay = Math.min(1000 * webRestarts, 5000);
+  log(`Restarting WebUI in ${delay}ms (attempt ${webRestarts}/${MAX_WEB_RESTARTS})...`);
+  setTimeout(() => {
+    spawnWeb().catch((err) => error(err instanceof Error ? err.message : String(err)));
+  }, delay);
+}
+
+async function stopWeb() {
+  const child = webProc;
+  if (!child?.pid) return;
+  expectedWebExitPids.add(child.pid);
+  killTree(child.pid);
+  webProc = null;
+  for (let i = 0; i < 20; i += 1) {
+    if (!pidAlive(child.pid)) break;
+    await sleep(100);
+  }
+}
+
+async function restartWeb() {
+  if (restarting) {
+    log("Service restart is already in progress");
+    return;
+  }
+  restarting = true;
+  log("Restarting LeafCodePi...");
+  try {
+    await stopWeb();
+    await sleep(400);
+    await spawnWeb();
+  } finally {
+    restarting = false;
+    await refreshStatusMenu();
+  }
+}
+
+async function refreshStatusMenu() {
+  const httpUp = await isHttpUp(`${WEBUI_URL}/api/health`);
+  statusWebItem.title = formatWebStatus({
+    building: procRunning(webBuildProc),
+    running: procRunning(webProc),
+    httpUp,
+  });
+  if (systray != null && procRunning(systray.process)) {
+    systray.sendAction({ type: "update-item", item: statusWebItem });
+  }
+}
+
+function buildTrayMenu() {
+  return {
+    icon: TRAY_ICON,
+    title: "LeafCodePi",
+    tooltip: "LeafCodePi Host",
+    items: [
+      {
+        title: "Open browser",
+        tooltip: `Open ${WEBUI_URL}`,
+        checked: false,
+        enabled: true,
+        click: () => openBrowser(WEBUI_URL),
+      },
+      statusWebItem,
+      {
+        title: "Restart WebUI",
+        tooltip: "Restart Next.js",
+        checked: false,
+        enabled: true,
+        click: () => {
+          void restartWeb();
+        },
+      },
+      {
+        title: "Quit",
+        tooltip: "Stop LeafCodePi",
+        checked: false,
+        enabled: true,
+        click: () => {
+          void quit();
+        },
+      },
+    ],
+  };
+}
+
+function wireTrayLifecycle() {
+  if (!systray) return;
+  systray.process?.on("exit", () => {
+    if (quitting) return;
+    error("Tray helper exited");
+    systray = null;
+    scheduleTrayRestart();
+  });
+}
+
+function scheduleTrayRestart() {
+  if (quitting) return;
+  if (trayRestarts >= MAX_TRAY_RESTARTS) {
+    error(`Tray restart limit reached (${MAX_TRAY_RESTARTS}); continuing without a tray icon`);
+    return;
+  }
+  trayRestarts += 1;
+  const delay = Math.min(1000 * trayRestarts, 5000);
+  log(`Recreating tray in ${delay}ms (attempt ${trayRestarts}/${MAX_TRAY_RESTARTS})...`);
+  setTimeout(() => {
+    startTray()
+      .then(() => refreshStatusMenu())
+      .catch((err) => {
+        error(`Tray recreate failed: ${err instanceof Error ? err.message : String(err)}`);
+        scheduleTrayRestart();
+      });
+  }, delay);
+}
+
+async function startTray() {
+  return withLocalLeafcodeTempEnv(async () => {
+    let lastErr;
+    for (const copyDir of [true, false]) {
+      try {
+        systray = new SysTray({
+          menu: buildTrayMenu(),
+          debug: false,
+          copyDir,
+        });
+        systray.onClick((action) => {
+          if (action.item?.click) action.item.click();
+        });
+        await systray.ready();
+        log(`Tray host ready (copyDir=${copyDir})`);
+        wireTrayLifecycle();
+        return;
+      } catch (err) {
+        lastErr = err;
+        error(`Tray start failed (copyDir=${copyDir}): ${err instanceof Error ? err.message : String(err)}`);
+        try {
+          await systray?.kill(false);
+        } catch {
+          /* best effort */
+        }
+        systray = null;
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+  });
+}
+
+function acquireLock() {
+  mkdirSync(DATA_DIR, { recursive: true });
+  const existing = readLock(LOCK_FILE);
+  if (existing && pidAlive(existing.pid)) {
+    log(`Already running (PID ${existing.pid})`);
+    if (shouldOpenBrowser()) openBrowser(WEBUI_URL);
+    process.exit(0);
+  }
+  if (existing) {
+    log(`Removing stale lock for PID ${existing.pid}`);
+    removeLock(LOCK_FILE);
+  }
+  try {
+    writeLock(LOCK_FILE);
+  } catch {
+    const raced = readLock(LOCK_FILE);
+    if (raced && pidAlive(raced.pid)) {
+      log(`Already running (PID ${raced.pid})`);
+      if (shouldOpenBrowser()) openBrowser(WEBUI_URL);
+      process.exit(0);
+    }
+    throw new Error("Could not claim host.lock");
+  }
+}
+
+async function quit() {
+  if (quitting) return;
+  quitting = true;
+  log("Quitting...");
+  try {
+    await stopWeb();
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (systray) {
+      await Promise.race([
+        systray.kill(false).catch(() => {}),
+        sleep(2000),
+      ]);
+    }
+  } catch {
+    /* ignore */
+  }
+  removeLock(LOCK_FILE);
+  process.exit(0);
+}
+
+function onHostExit() {
+  if (quitting) return;
+  if (webProc?.pid) killTree(webProc.pid);
+  removeLock(LOCK_FILE);
+}
+
+async function main() {
+  if (process.platform !== "win32") {
+    error("This host is intended for Windows.");
+    process.exit(1);
+  }
+
+  acquireLock();
+  log(`LeafCodePi host ${HOST_VERSION} pid=${process.pid}`);
+
+  process.on("SIGINT", () => {
+    void quit();
+  });
+  process.on("SIGTERM", () => {
+    void quit();
+  });
+  process.on("SIGBREAK", () => {
+    void quit();
+  });
+  process.on("exit", onHostExit);
+
+  try {
+    await spawnWeb();
+  } catch (err) {
+    removeLock(LOCK_FILE);
+    error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
+  const headless = isHeadless();
+  if (!headless) {
+    try {
+      await startTray();
+    } catch (err) {
+      await stopWeb();
+      removeLock(LOCK_FILE);
+      error(`Tray failed to start: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  } else {
+    log("Headless mode (no tray). Ctrl+C to quit.");
+  }
+
+  setInterval(() => {
+    refreshStatusMenu().catch(() => {});
+  }, 5000).unref?.();
+  await refreshStatusMenu();
+
+  const ready = await waitUntilReady(`${WEBUI_URL}/api/health`, "LeafCodePi", 120, () => webProc);
+  if (ready && shouldOpenBrowser()) openBrowser(WEBUI_URL);
+}
+
+if (isThisModuleEntrypoint(import.meta.url, process.argv[1])) {
+  main().catch((err) => {
+    removeLock(LOCK_FILE);
+    error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}

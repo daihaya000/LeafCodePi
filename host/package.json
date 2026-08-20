@@ -1,0 +1,14 @@
+{
+  "name": "leafcode-pi-host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Windows system tray host for LeafCodePi",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "systray2": "^2.1.4"
+  }
+}

@@ -1,0 +1,2 @@
+[LeafCodePi] このコマンドプロンプトで Node.js が使えません。
+[LeafCodePi] 復旧案内: 新しいコマンドプロンプトを開いて start.bat を再実行してください。
