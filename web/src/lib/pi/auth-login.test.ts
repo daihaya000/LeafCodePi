@@ -16,6 +16,7 @@ describe("subscription provider ids", () => {
   it("covers Anthropic and OpenAI Codex", () => {
     assert.ok(SUBSCRIPTION_PROVIDER_IDS.has("anthropic"));
     assert.ok(SUBSCRIPTION_PROVIDER_IDS.has("openai-codex"));
+    assert.ok(SUBSCRIPTION_PROVIDER_IDS.has("cursor"));
     assert.equal(SUBSCRIPTION_PROVIDER_IDS.has("openai"), false);
   });
 });

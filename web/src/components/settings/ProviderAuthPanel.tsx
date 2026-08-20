@@ -29,7 +29,12 @@ function authBadge(provider: ProviderAuthDto) {
 
 function sourceHint(provider: ProviderAuthDto): string | null {
   if (!provider.authenticated) return null;
-  if (provider.subscription) return "Claude Pro/Max または ChatGPT サブスク";
+  if (provider.subscription) {
+    if (provider.id === "cursor") return "Cursor サブスク";
+    if (provider.id === "openai-codex") return "ChatGPT Plus/Pro サブスク";
+    if (provider.id === "anthropic") return "Claude Pro/Max サブスク";
+    return "サブスクリプション";
+  }
   if (provider.authSource === "environment") {
     return provider.authLabel ? `環境変数 ${provider.authLabel}` : "環境変数";
   }
@@ -223,8 +228,9 @@ export function ProviderAuthPanel({
       <div>
         <h2 className="mb-2 text-sm font-semibold">サブスクリプション（推奨）</h2>
         <p className="mb-3 text-xs text-muted">
-          Anthropic は Claude Pro/Max、OpenAI Codex は ChatGPT Plus/Pro のブラウザログインに対応しています。API
-          キーなしで使えます。
+          Claude Pro/Max（Anthropic）、ChatGPT Plus/Pro（OpenAI Codex）、Cursor
+          サブスクのブラウザログインに対応しています。API キーなしで使えます。Cursor
+          は本機の Cursor IDE / CLI にログイン済みなら自動検出されることもあります。
         </p>
         <ul className="space-y-2">
           {highlighted.length === 0 && (

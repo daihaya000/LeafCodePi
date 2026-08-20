@@ -130,6 +130,15 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 
 ルーター起動でモデルが `unloaded` のまま残らないよう、`--no-models-autoload` を外し、bat / UI 起動後に `scripts/llama-server-ensure-loaded.mjs` と `POST /api/llama-server/ensure-loaded` で `/models/load` する。
 
+## 2026-08-21: Cursor サブスク対応
+
+`@rahularya01/pi-cursor` を Web 依存に追加し、`ModelRuntime` 起動時に拡張をロードしてプロバイダー ID `cursor` を登録。
+
+- 設定 → エンジン → サブスク一覧にハイライト表示（`SUBSCRIPTION_PROVIDER_IDS`）
+- OAuth: 既存の `/api/providers/:id/login` フロー（ブラウザ PKCE）
+- Cursor IDE / CLI ログイン済みならトークン自動検出の場合あり
+- 非公式拡張。Node 22.19+ 推奨
+
 ### 注意
 
 クライアントの `LlamaServerSettings` は `node:fs` 付きの `host-control` を import しない（`loopback.ts` に分離）。Webpack の UnhandledSchemeError 防止。

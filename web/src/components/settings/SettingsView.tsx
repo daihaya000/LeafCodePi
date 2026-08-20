@@ -117,7 +117,7 @@ export function SettingsView() {
             <section className="rounded-2xl border border-border bg-surface p-4 text-sm text-muted">
               <p>テーマはサイドバー右下のアイコンから切り替えます（ライト / ダーク / システム）。</p>
               <p className="mt-2">
-                モデルの有効・無効と並び替えは「モデル」タブです。Claude Pro/Max・ChatGPT Plus/Pro・llama.cpp
+                モデルの有効・無効と並び替えは「モデル」タブです。Claude Pro/Max・ChatGPT Plus/Pro・Cursor・llama.cpp
                 のログインは「エンジン」タブです。ローカル LLM は同タブの llama-server から起動できます。
               </p>
               <Button className="mt-4" onClick={() => window.location.reload()}>

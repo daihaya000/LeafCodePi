@@ -32,6 +32,7 @@ import {
   setProviderModelOrder,
 } from "@/lib/provider-model-state";
 import { registerLlamaProviders, syncLlamaServerProvider } from "@/lib/pi/llama-provider";
+import { registerCursorProvider } from "@/lib/pi/cursor-provider";
 import type {
   HealthDto,
   ModelOption,
@@ -126,6 +127,7 @@ async function ensureRuntime(): Promise<void> {
           modelRefreshTimeoutMs: 8_000,
         });
         await registerLlamaProviders(current.modelRuntime);
+        await registerCursorProvider(current.modelRuntime);
         current.initError = null;
       } catch (error) {
         current.initError = error instanceof Error ? error.message : String(error);

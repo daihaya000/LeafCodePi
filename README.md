@@ -28,6 +28,9 @@
 | --- | --- | --- |
 | Anthropic | Claude Pro / Max | `anthropic`（oauth） |
 | OpenAI Codex | ChatGPT Plus / Pro | `openai-codex` |
+| Cursor | Cursor サブスク | `cursor`（`@rahularya01/pi-cursor`） |
+
+Cursor は非公式拡張です。本機の Cursor IDE / CLI のトークンを使うか、設定画面から「サブスクでログイン」します。Node.js **22.19+** を推奨します。
 
 トークンは `%USERPROFILE%\.pi\agent\auth.json` に保存されます。コールバックは本機の `127.0.0.1:53692`（Anthropic）と `localhost:1455`（OpenAI Codex）を使います。通常の API キー（`ANTHROPIC_API_KEY` など）も併用できます。
 

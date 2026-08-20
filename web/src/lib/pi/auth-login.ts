@@ -189,8 +189,8 @@ function serializePrompt(prompt: {
   return { type: "text", message: prompt.message, placeholder: prompt.placeholder };
 }
 
-/** Providers that expose Claude / ChatGPT subscription OAuth. */
-export const SUBSCRIPTION_PROVIDER_IDS = new Set(["anthropic", "openai-codex"]);
+/** Providers that expose Claude / ChatGPT / Cursor subscription OAuth. */
+export const SUBSCRIPTION_PROVIDER_IDS = new Set(["anthropic", "openai-codex", "cursor"]);
 
 export function providerAuthMethods(provider: {
   auth: { apiKey?: unknown; oauth?: unknown };
