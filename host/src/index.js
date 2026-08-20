@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import SysTrayImport from "systray2";
-import { bindHost, dataDir, DEFAULT_WEBUI_PORT, isHeadless, readPort, shouldOpenBrowser } from "./config.js";
+import { bindHost, dataDir, DEFAULT_WEBUI_PORT, isHeadless, readPort, shouldOpenBrowser, webUiUrl } from "./config.js";
 import { isThisModuleEntrypoint } from "./entry.js";
 import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { createLogFileWriter, formatLogLine } from "./log-file.js";
@@ -40,7 +40,7 @@ const HOST_VERSION = (() => {
 
 const WEBUI_HOST = bindHost();
 const WEBUI_PORT = readPort(process.env.LEAFCODE_PI_PORT, DEFAULT_WEBUI_PORT);
-const WEBUI_URL = `http://${WEBUI_HOST}:${WEBUI_PORT}`;
+const WEBUI_URL = webUiUrl(WEBUI_HOST, WEBUI_PORT);
 const MAX_WEB_RESTARTS = 3;
 const MAX_TRAY_RESTARTS = 3;
 
@@ -469,6 +469,10 @@ async function main() {
 
   acquireLock();
   log(`LeafCodePi host ${HOST_VERSION} pid=${process.pid}`);
+  log(`Binding WebUI on ${WEBUI_HOST}:${WEBUI_PORT} (open ${WEBUI_URL})`);
+  if (WEBUI_HOST === "127.0.0.1" && (!process.env.LEAFCODE_PI_HOST || process.env.LEAFCODE_PI_HOST.trim().toLowerCase() === "tailscale")) {
+    log("Tailscale IPv4 was not found; bound to 127.0.0.1. Connect Tailscale or set LEAFCODE_PI_HOST=0.0.0.0");
+  }
 
   process.on("SIGINT", () => {
     void quit();

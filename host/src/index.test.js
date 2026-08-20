@@ -2,7 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { join, relative } from "node:path";
-import { bindHost, isHeadless, readPort, shouldOpenBrowser } from "./config.js";
+import {
+  bindHost,
+  findTailscaleIPv4,
+  isHeadless,
+  isTailscaleCgnatIPv4,
+  publicHost,
+  readPort,
+  shouldOpenBrowser,
+  webUiUrl,
+} from "./config.js";
 import { isThisModuleEntrypoint } from "./entry.js";
 import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { formatLogLine } from "./log-file.js";
@@ -27,9 +36,37 @@ test("shouldOpenBrowser defaults on", () => {
   assert.equal(shouldOpenBrowser({ LEAFCODE_PI_NO_BROWSER: "1" }), false);
 });
 
-test("bindHost defaults to loopback", () => {
-  assert.equal(bindHost({}), "127.0.0.1");
+test("bindHost resolves tailscale or falls back to loopback", () => {
+  assert.equal(bindHost({}, { findTailscale: () => null }), "127.0.0.1");
+  assert.equal(bindHost({ LEAFCODE_PI_HOST: "tailscale" }, { findTailscale: () => "100.64.1.2" }), "100.64.1.2");
   assert.equal(bindHost({ LEAFCODE_PI_HOST: "0.0.0.0" }), "0.0.0.0");
+  assert.equal(bindHost({ LEAFCODE_PI_HOST: "192.168.1.10" }), "192.168.1.10");
+});
+
+test("isTailscaleCgnatIPv4 and findTailscaleIPv4", () => {
+  assert.equal(isTailscaleCgnatIPv4("100.64.0.1"), true);
+  assert.equal(isTailscaleCgnatIPv4("100.127.255.255"), true);
+  assert.equal(isTailscaleCgnatIPv4("100.63.0.1"), false);
+  assert.equal(isTailscaleCgnatIPv4("10.0.0.1"), false);
+  assert.equal(
+    findTailscaleIPv4({
+      Ethernet: [{ address: "192.168.1.2", family: "IPv4", internal: false }],
+      Tailscale: [{ address: "100.100.50.1", family: "IPv4", internal: false }],
+    }),
+    "100.100.50.1",
+  );
+  assert.equal(
+    findTailscaleIPv4({
+      "Ethernet 2": [{ address: "100.64.9.9", family: 4, internal: false }],
+    }),
+    "100.64.9.9",
+  );
+});
+
+test("publicHost never exposes 0.0.0.0", () => {
+  assert.equal(publicHost("0.0.0.0", { findTailscale: () => null }), "127.0.0.1");
+  assert.equal(publicHost("0.0.0.0", { findTailscale: () => "100.64.1.2" }), "100.64.1.2");
+  assert.equal(webUiUrl("100.64.1.2", 3010), "http://100.64.1.2:3010");
 });
 
 test("getWebLaunchPlan prefers existing production build", () => {

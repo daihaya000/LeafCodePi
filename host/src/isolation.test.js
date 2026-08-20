@@ -28,6 +28,7 @@ test("tray TEMP is leafcode-pi\\tmp, not leafcode\\tmp", () => {
 test("launcher bats use LEAFCODE_PI_* and port 3010", () => {
   const bat = readFileSync(join(repoRoot, "scripts", "start-webui.bat"), "utf8");
   assert.match(bat, /LEAFCODE_PI_PORT=3010/);
+  assert.match(bat, /LEAFCODE_PI_HOST=tailscale/);
   assert.match(bat, /title LeafCodePi/);
   assert.doesNotMatch(bat, /LEAFCODE_PORT=/);
   assert.doesNotMatch(bat, /LEAFCODE_DATA_DIR=/);

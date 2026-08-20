@@ -25,7 +25,8 @@ OpenCode 版 LeafCode（`C:\Users\Daichi\OneDrive\AI\OpenCode\LeafCode`）の UI
 ### 起動
 
 - bat は ASCII / CRLF / BOM なし。日本語は `scripts/setup-messages/*.txt`（UTF-8 CRLF）を `chcp 65001` 後に `type`。
-- 既定: `LEAFCODE_PI_HOST=127.0.0.1`、`LEAFCODE_PI_PORT=3010`、`LEAFCODE_PI_MODE=prod`。
+- 既定: `LEAFCODE_PI_HOST=tailscale`、`LEAFCODE_PI_PORT=3010`、`LEAFCODE_PI_MODE=prod`。
+- `tailscale` は NIC 名 Tailscale または CGNAT `100.64.0.0/10` の IPv4 にバインド。未検出時は `127.0.0.1`。ブラウザ/ヘルスは `0.0.0.0` を使わず `publicHost` 経由。
 - `.next/BUILD_ID` が無ければ `next build`。ソース（`web/src` など）が BUILD_ID より新しければ stale として再ビルド（本家 LeafCode と同じ）。
 - stale 再ビルド失敗時は既存の production build を継続。完全欠落時のみ `next dev` にフォールバック。
 - トレイ: Open browser / 稼働状況 / Restart WebUI / Quit。OneDrive 上の TEMP 回避のため起動時だけ `%LOCALAPPDATA%\leafcode-pi\tmp`。
@@ -95,3 +96,12 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 - レスポンスの `task` で state を更新
 - `setTaskModel` 後に SSE snapshot を送る
 - snapshot マージで既存 messages を保持
+
+## 2026-08-21: Tailscale にバインド
+
+`start.bat` 既定の `LEAFCODE_PI_HOST` を `tailscale` にした。
+
+- `findTailscaleIPv4()`: NIC 名に Tailscale、なければ `100.64.0.0/10`
+- 未検出時は `127.0.0.1` にフォールバック（ログで案内）
+- ブラウザ / ヘルス URL は `publicHost`（`0.0.0.0` は使わない）
+- ローカルのみ: `LEAFCODE_PI_HOST=127.0.0.1` / 全 IF: `0.0.0.0`

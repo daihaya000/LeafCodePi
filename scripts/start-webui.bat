@@ -25,7 +25,7 @@ goto :start_host
 
 :start_host
 title LeafCodePi
-if not defined LEAFCODE_PI_HOST set "LEAFCODE_PI_HOST=127.0.0.1"
+if not defined LEAFCODE_PI_HOST set "LEAFCODE_PI_HOST=tailscale"
 if not defined LEAFCODE_PI_PORT set "LEAFCODE_PI_PORT=3010"
 if not defined LEAFCODE_PI_MODE set "LEAFCODE_PI_MODE=prod"
 cd /d "%~dp0..\host"
