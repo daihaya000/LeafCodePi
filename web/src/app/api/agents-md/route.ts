@@ -4,6 +4,7 @@ import {
   readGlobalAgentsMd,
   writeGlobalAgentsMd,
 } from "@/lib/agents-md";
+import { reloadLiveSessionsContext } from "@/lib/pi/harness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +37,8 @@ export async function PATCH(req: Request) {
 
   try {
     const saved = writeGlobalAgentsMd(content);
-    return NextResponse.json({ ok: true, ...saved });
+    const reload = await reloadLiveSessionsContext();
+    return NextResponse.json({ ok: true, ...saved, reload });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "AGENTS.mdの保存に失敗しました" },
