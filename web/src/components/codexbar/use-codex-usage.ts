@@ -14,10 +14,13 @@ export function useCodexUsage() {
   const [now, setNow] = useState(() => Date.now());
   const mounted = useRef(true);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force?: boolean) => {
     setRefreshing(true);
     try {
-      const data = await getJson<CodexBarUsage>("/api/codexbar/usage");
+      const data = await getJson<CodexBarUsage>(
+        "/api/codexbar/usage",
+        force ? { refresh: "1" } : undefined,
+      );
       if (!mounted.current) return;
       setUsage(data);
       setLoadError(null);

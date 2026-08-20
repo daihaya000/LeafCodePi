@@ -25,6 +25,7 @@ import {
   buildUsageFromEntries,
   type ExportEntry,
 } from "@/lib/codexbar/export";
+import { resolveEnabledProviderIds } from "@/lib/codexbar/provider-catalog";
 import { NATIVE_PROVIDERS } from "@/lib/codexbar/providers";
 import { ProviderError, type ProviderFetchResult } from "@/lib/codexbar/types";
 
@@ -42,7 +43,20 @@ function snapshotFilePath(): string {
   return path.join(appData, "CodexBar", "usage-snapshot.json");
 }
 
-async function readSnapshotFileFallback(): Promise<CodexBarUsage | null> {
+function filterUsageToEnabled(
+  usage: CodexBarUsage,
+  enabledIds: ReadonlySet<string>,
+): CodexBarUsage {
+  const providers = usage.providers.filter((p) => enabledIds.has(p.id));
+  if (providers.length === 0) {
+    return emptyUsage("有効なプロバイダーの利用状況がありません");
+  }
+  return { ...usage, providers, available: true };
+}
+
+async function readSnapshotFileFallback(
+  enabledIds: ReadonlySet<string>,
+): Promise<CodexBarUsage | null> {
   const file = snapshotFilePath();
   try {
     let text = await fs.readFile(file, "utf8");
@@ -50,7 +64,7 @@ async function readSnapshotFileFallback(): Promise<CodexBarUsage | null> {
     const json: unknown = JSON.parse(text);
     const usage = parseCodexBarSnapshot(json);
     if (!usage.available) return null;
-    return usage;
+    return filterUsageToEnabled(usage, enabledIds);
   } catch {
     return null;
   }
@@ -138,9 +152,10 @@ export async function fetchNativeUsage(
   options: FetchUsageOptions = {},
 ): Promise<CodexBarUsage> {
   const { forceRefresh = false, signal } = options;
+  const enabledIds = new Set<string>(resolveEnabledProviderIds());
 
   if (process.env.LEAFCODE_CODEXBAR_FORCE_SNAPSHOT === "1") {
-    const file = await readSnapshotFileFallback();
+    const file = await readSnapshotFileFallback(enabledIds);
     return (
       file ??
       emptyUsage(
@@ -156,8 +171,9 @@ export async function fetchNativeUsage(
     clearCachedUsage();
   }
 
+  const providers = NATIVE_PROVIDERS.filter((p) => enabledIds.has(p.id));
   const results = await Promise.all(
-    NATIVE_PROVIDERS.map((p) => fetchOne(p, signal)),
+    providers.map((p) => fetchOne(p, signal)),
   );
   const { usage, anyConfigured, anySuccess } = assembleFromResults(results);
 
@@ -169,7 +185,7 @@ export async function fetchNativeUsage(
 
   // LAST RESORT ONLY: CodexBarWin (or other exporter) left a snapshot on disk.
   // Do not use this as the primary path when native credentials exist and work.
-  const fallback = await readSnapshotFileFallback();
+  const fallback = await readSnapshotFileFallback(enabledIds);
   if (fallback) {
     setCachedUsage(fallback);
     return fallback;

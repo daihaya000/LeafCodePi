@@ -272,6 +272,23 @@ Pi `session.compact()` / 自動圧縮設定に対応。
 - `npx tsc --noEmit`
 - ブラウザでサイドバー CodexBar ウィジェット、または `GET /api/codexbar/usage`
 
+## 2026-08-21: CodexBar enabledProviders（更新するプロバイダー）
+
+本家 LeafCode アドオンと同じく、`%APPDATA%\CodexBar\config.json` の `enabledProviders` でネイティブ取得・表示するプロバイダーを選択できる。
+
+### 実装
+
+- `provider-catalog.ts` — 9 プロバイダー catalog、既定 `["codex","claude","cursor"]`、version = sha256(設定テキスト)
+- `GET/PUT /api/codexbar/providers` — 安全な catalog のみ返却（API キー非漏洩）。ファイル無し GET は defaults + version(`"{}"`)。PUT 成功時 `clearCachedUsage()`
+- `orchestrator` — `resolveEnabledProviderIds()` に含まれるプロバイダーだけ native fetch。スナップショットフォールバックも同集合でフィルタ
+- UI: SlidersHorizontal →「更新するプロバイダー」トグルパネル（アドオン dismiss ボタンは無し）
+
+### 検証
+
+- `npx vitest run src/lib/codexbar/ src/app/api/codexbar/`
+- `npx tsc --noEmit`
+- ウィジェット設定でトグル後、usage が `?refresh=1` で再取得されること
+
 ## 2026-08-21: Cookie 系プロバイダー（Ollama / OpenCode Go / Qwen Cloud）
 
 CodexBarWin の cookie スクレイパーを LeafCodePi に移植。**実行時に CodexBarWin は不要**（TRUE native fetch）。

@@ -10,9 +10,14 @@ import {
   LayoutGrid,
   LayoutList,
   RefreshCw,
+  SlidersHorizontal,
 } from "lucide-react";
 import { cx, timeAgo } from "@/components/ui";
 import { useCodexUsage } from "@/components/codexbar/use-codex-usage";
+import {
+  useCodexProviders,
+  type ConfigProvider,
+} from "@/components/codexbar/use-codex-providers";
 import {
   clampPercent,
   formatMonthlyTotal,
@@ -152,6 +157,71 @@ function ProviderIcon({ p, tone }: { p: CodexBarProvider; tone: UsageTone }) {
     );
   }
   return <Activity className={cx("h-4 w-4 shrink-0", textClass[tone])} />;
+}
+
+function SettingsProviderIcon({ id }: { id: string }) {
+  const [broken, setBroken] = useState(false);
+  const src = providerIconSrc(id);
+  if (src && !broken) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt=""
+        width={16}
+        height={16}
+        className="h-4 w-4 shrink-0 rounded-[3px] object-contain"
+        onError={() => setBroken(true)}
+      />
+    );
+  }
+  return <Activity className="h-4 w-4 shrink-0 text-muted" />;
+}
+
+function ProviderSettingsRow({
+  provider,
+  saving,
+  isLastEnabled,
+  onToggle,
+}: {
+  provider: ConfigProvider;
+  saving: boolean;
+  isLastEnabled: boolean;
+  onToggle: () => void;
+}) {
+  const disabled =
+    saving || !provider.configurable || (provider.enabled && isLastEnabled);
+  return (
+    <li className="flex items-center gap-2 border-b border-border py-2 last:border-b-0">
+      <SettingsProviderIcon id={provider.id} />
+      <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
+        {provider.name}
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={provider.enabled}
+        aria-label={`${provider.name} を CodexBar で更新`}
+        disabled={disabled}
+        onClick={onToggle}
+        className={cx(
+          "inline-flex h-6 min-w-11 shrink-0 items-center rounded-full p-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+          provider.enabled ? "bg-success" : "bg-surface-3",
+        )}
+      >
+        <span
+          className={cx(
+            "h-5 w-5 rounded-full bg-surface shadow-sm transition-transform",
+            provider.enabled && "translate-x-5",
+          )}
+        />
+        <span className="sr-only">CodexBarで更新</span>
+      </button>
+      <span className="w-12 shrink-0 text-right text-[10px] text-faint">
+        {saving ? "保存中…" : provider.enabled ? "オン" : "オフ"}
+      </span>
+    </li>
+  );
 }
 
 function UsageBar({ tone, percent }: { tone: UsageTone; percent: number | null }) {
@@ -343,6 +413,17 @@ export function CodexBarWidget({
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [twoColumn, setTwoColumn] = useState(true);
   const [providerCollapsed, setProviderCollapsed] = useState<Record<string, boolean>>({});
+  const {
+    settingsOpen,
+    providerSettings,
+    settingsLoading,
+    settingsError,
+    settingsStatus,
+    savingProviderId,
+    toggleProviderSettings,
+    toggleProviderEnabled,
+    loadProviderSettings,
+  } = useCodexProviders({ refresh });
 
   useEffect(() => {
     if (!usage || usage.providers.length === 0) return;
@@ -441,6 +522,20 @@ export function CodexBarWidget({
         </button>
         <button
           type="button"
+          onClick={toggleProviderSettings}
+          aria-expanded={settingsOpen}
+          aria-controls="codexbar-provider-settings"
+          aria-label="更新するプロバイダー"
+          title="更新するプロバイダー"
+          className={cx(
+            "h-6 w-6 rounded-md p-1 hover:bg-surface-2 hover:text-text",
+            settingsOpen ? "bg-surface-2 text-text" : "text-faint",
+          )}
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
           onClick={toggleTwoColumn}
           aria-pressed={twoColumn}
           aria-label={twoColumn ? "1列表示にする" : "2列表示にする"}
@@ -466,6 +561,61 @@ export function CodexBarWidget({
           <ChevronUp className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      {settingsOpen && (
+        <section
+          id="codexbar-provider-settings"
+          aria-label="更新するプロバイダー"
+          aria-busy={settingsLoading || savingProviderId !== null}
+          className="shrink-0 border-b border-border px-3 py-2"
+        >
+          <p className="mb-1 min-w-0 text-[10px] font-medium text-muted">
+            更新するプロバイダー
+          </p>
+          <div role="status" aria-live="polite" className="sr-only">
+            {settingsLoading
+              ? "読み込み中…"
+              : savingProviderId !== null
+                ? "保存中…"
+                : settingsStatus}
+          </div>
+          {settingsLoading && (
+            <p className="text-[11px] text-muted">読み込み中…</p>
+          )}
+          {settingsError && (
+            <div
+              role="alert"
+              className="flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-danger"
+            >
+              <span className="min-w-0 flex-1">{settingsError}</span>
+              <button
+                type="button"
+                onClick={() => void loadProviderSettings()}
+                className="h-6 shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium hover:bg-danger-bg"
+              >
+                再試行
+              </button>
+            </div>
+          )}
+          {providerSettings && (
+            <ul>
+              {providerSettings.providers.map((provider) => (
+                <ProviderSettingsRow
+                  key={provider.id}
+                  provider={provider}
+                  saving={savingProviderId === provider.id}
+                  isLastEnabled={
+                    provider.enabled &&
+                    providerSettings.providers.filter((item) => item.enabled)
+                      .length === 1
+                  }
+                  onToggle={() => void toggleProviderEnabled(provider)}
+                />
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       <div className="min-h-0 px-3 py-2.5">
         {usage?.available && overall !== null && (
