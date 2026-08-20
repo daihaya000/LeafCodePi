@@ -237,3 +237,11 @@ Pi `session.compact()` / 自動圧縮設定に対応。
 - 設定 → 一般で自動圧縮 ON/OFF（`~/.pi/agent/settings.json` の `compaction.enabled`、ライブセッションへ即反映）
 - 閾値は Pi 既定（reserveTokens / keepRecentTokens）
 
+## 2026-08-21: CodexBar 利用状況表示（ネイティブ）
+
+本家 LeafCode の CodexBar アドオンを sysmon と同様に組み込み。サイドバー下部（sysmon の上）に表示。
+
+- `GET /api/codexbar/usage` — `%APPDATA%\CodexBar\usage-snapshot.json` を読み取り（`LEAFCODE_CODEXBAR_SNAPSHOT` で上書き可）
+- 30 秒ポーリング、折りたたみ・1/2 列・プロバイダー行の展開状態を localStorage に保存
+- トークン集計・プロバイダー有効/無効 UI は v1 未移植（CodexBar 側のスナップショットをそのまま表示）
+
