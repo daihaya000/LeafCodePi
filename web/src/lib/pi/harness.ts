@@ -22,6 +22,15 @@ import {
   type LoginSessionEvent,
 } from "@/lib/pi/auth-login";
 import { projectPiMessages, titleFromPrompt } from "@/lib/pi/messages";
+import {
+  buildProviderModelsCatalog,
+  enabledModelOptionsFromCatalog,
+  type ProviderModelsRow,
+} from "@/lib/provider-models";
+import {
+  setProviderModelDisabled,
+  setProviderModelOrder,
+} from "@/lib/provider-model-state";
 import type {
   HealthDto,
   ModelOption,
@@ -300,7 +309,7 @@ export async function getHealth(): Promise<HealthDto> {
     /* initError is set */
   }
   const current = state();
-  const models = current.modelRuntime ? await current.modelRuntime.getAvailable() : [];
+  const models = current.modelRuntime ? await listModels().catch(() => []) : [];
   return {
     ok: !current.initError,
     engine: "pi",
@@ -316,18 +325,49 @@ export async function listModels(): Promise<ModelOption[]> {
   await ensureRuntime();
   const runtime = state().modelRuntime;
   if (!runtime) return [];
+  const catalog = buildProviderModelsCatalog(runtime);
+  const enabled = new Set(
+    enabledModelOptionsFromCatalog(catalog).map((option) => option.value),
+  );
   const available = await runtime.getAvailable();
-  return available.map((model) => {
+  const options: ModelOption[] = [];
+  for (const model of available) {
     const providerID = String(model.provider);
     const modelID = model.id;
-    return {
-      value: modelValue(providerID, modelID),
+    const value = modelValue(providerID, modelID);
+    if (!enabled.has(value)) continue;
+    options.push({
+      value,
       label: model.name || modelID,
       providerID,
       modelID,
       input: [...model.input],
-    };
-  });
+    });
+  }
+  // Preserve settings order from the catalog.
+  const order = enabledModelOptionsFromCatalog(catalog).map((option) => option.value);
+  const rank = new Map(order.map((value, index) => [value, index]));
+  options.sort((a, b) => (rank.get(a.value) ?? 1e9) - (rank.get(b.value) ?? 1e9));
+  return options;
+}
+
+export async function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> {
+  await ensureRuntime();
+  const runtime = state().modelRuntime;
+  if (!runtime) return [];
+  return buildProviderModelsCatalog(runtime);
+}
+
+export async function setProviderOrModelEnabled(key: string, enabled: boolean): Promise<void> {
+  if (!key.trim()) throw Object.assign(new Error("key が必要です"), { status: 400 });
+  await setProviderModelDisabled(key, !enabled);
+}
+
+export async function saveProviderModelsOrder(input: {
+  providerOrder?: string[];
+  modelOrder?: Record<string, string[]>;
+}): Promise<void> {
+  await setProviderModelOrder(input);
 }
 
 export async function listProviderAuth(): Promise<ProviderAuthDto[]> {

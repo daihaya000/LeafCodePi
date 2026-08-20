@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { ProviderAuthPanel } from "@/components/settings/ProviderAuthPanel";
+import { ProviderModelsPanel } from "@/components/settings/ProviderModelsPanel";
 import { Badge, Button, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import type { HealthDto, ModelOption, ProviderAuthDto } from "@/lib/types";
 
-type Tab = "engine" | "general";
+type Tab = "engine" | "models" | "general";
 
 export function SettingsView() {
   const [tab, setTab] = useState<Tab>("engine");
@@ -43,6 +44,7 @@ export function SettingsView() {
             {(
               [
                 ["engine", "エンジン"],
+                ["models", "モデル"],
                 ["general", "一般"],
               ] as const
             ).map(([id, label]) => (
@@ -76,7 +78,7 @@ export function SettingsView() {
                   <dd className="font-mono">{health?.version ?? "—"}</dd>
                   <dt className="text-muted">データ</dt>
                   <dd className="break-all font-mono text-xs">{health?.dataDir ?? "—"}</dd>
-                  <dt className="text-muted">モデル数</dt>
+                  <dt className="text-muted">有効モデル数</dt>
                   <dd>{health?.modelCount ?? 0}</dd>
                 </dl>
                 {health?.error && <p className="mt-3 text-sm text-danger">{health.error}</p>}
@@ -88,7 +90,7 @@ export function SettingsView() {
               </div>
 
               <div className="rounded-2xl border border-border bg-surface p-4">
-                <h2 className="mb-2 text-sm font-semibold">利用可能なモデル</h2>
+                <h2 className="mb-2 text-sm font-semibold">利用可能なモデル（有効のみ）</h2>
                 <ul className="max-h-80 space-y-1 overflow-y-auto">
                   {models.length === 0 && <li className="text-sm text-muted">認証済みモデルがありません</li>}
                   {models.map((model) => (
@@ -102,12 +104,17 @@ export function SettingsView() {
             </section>
           )}
 
+          {tab === "models" && (
+            <section className="rounded-2xl border border-border bg-surface p-4">
+              <ProviderModelsPanel />
+            </section>
+          )}
+
           {tab === "general" && (
             <section className="rounded-2xl border border-border bg-surface p-4 text-sm text-muted">
               <p>テーマはサイドバー右下のアイコンから切り替えます（ライト / ダーク / システム）。</p>
               <p className="mt-2">
-                Claude Pro/Max と ChatGPT Plus/Pro は設定の「サブスクでログイン」からブラウザ認証できます。OpenCode
-                ホストは使いません。
+                モデルの有効・無効と並び替えは「モデル」タブです。Claude Pro/Max と ChatGPT Plus/Pro のログインは「エンジン」タブです。
               </p>
               <Button className="mt-4" onClick={() => window.location.reload()}>
                 再読み込み

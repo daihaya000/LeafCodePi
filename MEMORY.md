@@ -74,3 +74,12 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 - `getWebLaunchPlan(mode, hasBuild, buildStale)`
 - stale 再ビルド失敗時は既存 BUILD_ID を継続
 - bat は「Existing build found; host will rebuild if sources are newer.」を表示
+
+## 2026-08-21: 設定「モデル」タブ（有効・無効・並び替え）
+
+本家 LeafCode のモデルタブから、プロバイダー/モデル一覧だけを移植。
+
+- 状態: `%APPDATA%\leafcode-pi\provider-model-state.json`（disabled / providerOrder / modelOrder）
+- API: `GET/PATCH /api/provider-models`, `PATCH .../order`, `PATCH .../[key]`
+- `/api/models` とヘルスの modelCount は有効なものだけ
+- デフォルトモデル / 価格 / アイコン / Auto は未移植
