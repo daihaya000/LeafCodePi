@@ -134,7 +134,7 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 
 `@rahularya01/pi-cursor` を Web 依存に追加し、`ModelRuntime` 起動時に拡張をロードしてプロバイダー ID `cursor` を登録。
 
-- 設定 → エンジン → サブスク一覧にハイライト表示（`SUBSCRIPTION_PROVIDER_IDS`）
+- 設定 → モデル → サブスク一覧にハイライト表示（`SUBSCRIPTION_PROVIDER_IDS`）
 - OAuth: 既存の `/api/providers/:id/login` フロー（ブラウザ PKCE）
 - Cursor IDE / CLI ログイン済みならトークン自動検出の場合あり
 - 非公式拡張。Node 22.19+ 推奨
@@ -155,4 +155,8 @@ LeafCode 側の制御ポート 18765 / broker 18766 / OpenCode 4096 は使わな
 - BFF: `POST /api/host/restart`（`target: webui | host`）
 - UI: `HostRestartPanel`（確認ダイアログ → ヘルス待ち）
 - ホスト全体再起動は lock 解放待ち bat を WMI で起動してから `quit()`
+
+## 2026-08-21: サブスクと有効モデル一覧をモデルタブへ
+
+設定の「サブスクリプション（推奨）」と「利用可能なモデル（有効のみ）」をエンジンからモデルタブへ移動。エンジンはヘルス / llama-server / 再起動のみ。
 

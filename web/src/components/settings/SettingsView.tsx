@@ -88,13 +88,21 @@ export function SettingsView() {
                 {error && <p className="mt-3 text-sm text-danger">{error}</p>}
               </div>
 
+              <LlamaServerSettings />
+
+              <HostRestartPanel onRestarted={reload} />
+            </section>
+          )}
+
+          {tab === "models" && (
+            <section className="space-y-4">
               <div className="rounded-2xl border border-border bg-surface p-4">
                 <ProviderAuthPanel providers={providers} onChanged={reload} />
               </div>
 
-              <LlamaServerSettings />
-
-              <HostRestartPanel onRestarted={reload} />
+              <div className="rounded-2xl border border-border bg-surface p-4">
+                <ProviderModelsPanel />
+              </div>
 
               <div className="rounded-2xl border border-border bg-surface p-4">
                 <h2 className="mb-2 text-sm font-semibold">利用可能なモデル（有効のみ）</h2>
@@ -112,21 +120,12 @@ export function SettingsView() {
             </section>
           )}
 
-          {tab === "models" && (
-            <section className="rounded-2xl border border-border bg-surface p-4">
-              <ProviderModelsPanel />
-            </section>
-          )}
-
           {tab === "general" && (
             <section className="rounded-2xl border border-border bg-surface p-4 text-sm text-muted">
               <p>テーマはサイドバー右下のアイコンから切り替えます（ライト / ダーク / システム）。</p>
               <p className="mt-2">
-                モデルの有効・無効と並び替えは「モデル」タブです。Claude Pro/Max・ChatGPT Plus/Pro・Cursor・llama.cpp
-                のログインは「エンジン」タブです。ローカル LLM は同タブの llama-server から起動できます。
-              </p>
-              <p className="mt-2">
-                WebUI / トレイホストの再起動は「エンジン」タブの再起動セクション、または通知領域のトレイメニューから行えます。
+                サブスクログイン・モデルの有効／無効・並び替え・有効モデル一覧は「モデル」タブです。ローカル LLM（llama-server）の起動と
+                WebUI／トレイホストの再起動は「エンジン」タブです。
               </p>
             </section>
           )}
