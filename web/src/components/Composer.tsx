@@ -115,30 +115,43 @@ export function Composer({
         onCompositionEnd={textarea.onCompositionEnd}
         onKeyDown={textarea.onKeyDown}
       />
-      <div className="mt-1 flex items-end gap-2">
-        <input
-          ref={attachmentControl.inputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          disabled={attachmentControl.inputDisabled}
-          onChange={(event) => {
-            if (event.target.files) attachmentControl.onFilesSelected(event.target.files);
-            event.target.value = "";
-          }}
-        />
-        <button
-          type="button"
-          disabled={attachmentControl.buttonDisabled}
-          title={attachmentControl.buttonTitle}
-          aria-label={attachmentControl.buttonTitle}
-          onClick={attachmentControl.onTrigger}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-bg text-muted transition-colors hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <Paperclip className="h-4 w-4" />
-        </button>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">{toolbar}</div>
+      <div className="flex items-center gap-2 pt-1">
+        <div className="relative min-w-0 flex-1 overflow-x-auto">
+          <div
+            role="group"
+            aria-label="タスク設定"
+            tabIndex={0}
+            className="flex min-w-max items-center gap-2 overflow-x-auto rounded-md [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          >
+            <input
+              ref={attachmentControl.inputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              disabled={attachmentControl.inputDisabled}
+              onChange={(event) => {
+                if (event.target.files) attachmentControl.onFilesSelected(event.target.files);
+                event.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              disabled={attachmentControl.buttonDisabled}
+              title={attachmentControl.buttonTitle}
+              aria-label={attachmentControl.buttonTitle}
+              onClick={attachmentControl.onTrigger}
+              className="flex h-8 shrink-0 items-center justify-center rounded-lg border border-border bg-bg px-2 text-muted transition-colors hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Paperclip className="h-3.5 w-3.5" />
+            </button>
+            {toolbar}
+          </div>
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 right-0 w-6 rounded-r-md bg-gradient-to-l from-bg to-transparent sm:hidden"
+          />
+        </div>
         {action}
       </div>
     </>

@@ -8,7 +8,7 @@ import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { AgentSelect } from "@/components/AgentSelect";
 import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
 import { StatusBadge } from "@/components/StatusBadge";
-import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
+import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
 import { PartView } from "@/components/task/PartView";
 import { Button, cx } from "@/components/ui";
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
@@ -350,50 +350,69 @@ export function TaskView({ taskId }: { taskId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <MobileMenuHeader />
-      <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b border-border bg-surface px-3 py-2 md:flex-nowrap md:px-4 md:gap-3">
-        <div className="min-w-0 flex-1 basis-full md:basis-auto">
+      <header className="flex min-h-14 shrink-0 items-center gap-2 border-b border-border bg-surface px-3 pt-[env(safe-area-inset-top)] md:px-4 md:gap-3">
+        <MobileMenuButton />
+        <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">{task?.title ?? "読み込み中…"}</h1>
           <p className="truncate text-[11px] text-muted">{task?.directory}</p>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden sm:hidden">
+            {task && <StatusBadge status={working ? "working" : task.status} />}
+            {contextUsage && <ContextUsageMeter usage={contextUsage} />}
+          </div>
         </div>
-        <span
-          className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] text-muted"
-          title={`合計 ${formatTokens(stats.totalTokens)} tok（出力のみ）・平均 ${stats.avgRate ? formatTokensPerSecond(stats.avgRate) : "—"}・生成時間 ${formatDuration(stats.durationMs)}`}
-        >
-          <span className="tabular-nums">
-            {stats.totalTokens > 0 ? `${formatTokens(stats.totalTokens)} tok` : "—"}
-          </span>
-          <span className="text-faint">/</span>
-          <span className="tabular-nums">
-            {stats.avgRate ? formatTokensPerSecond(stats.avgRate) : "—"}
-          </span>
-          <span className="text-faint">/</span>
-          <span className="tabular-nums">{formatDuration(stats.durationMs)}</span>
-        </span>
-        {contextUsage && <ContextUsageMeter usage={contextUsage} />}
-        <Button
-          variant="secondary"
-          size="sm"
-          title="コンテキスト圧縮"
-          aria-label="コンテキスト圧縮"
-          busy={compacting}
-          disabled={!task || working || compacting}
-          onClick={() => void compact()}
-        >
-          {!compacting && <Shrink className="h-3.5 w-3.5" />}
-          <span className="hidden sm:inline">圧縮</span>
-        </Button>
-        {task && <StatusBadge status={working ? "working" : task.status} />}
-        {working && (
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={() => void sendJson(`/api/tasks/${taskId}/abort`, {})}
+        <div className="relative flex min-w-0 shrink-0 items-center gap-1">
+          <div
+            role="group"
+            aria-label="タスク操作"
+            tabIndex={0}
+            className="flex max-w-[52vw] items-center gap-1 overflow-x-auto rounded-md [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:max-w-none sm:overflow-visible"
           >
-            <Square className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">停止</span>
-          </Button>
-        )}
+            <span
+              className="hidden shrink-0 items-center gap-1.5 font-mono text-[11px] text-muted sm:flex"
+              title={`合計 ${formatTokens(stats.totalTokens)} tok（出力のみ）・平均 ${stats.avgRate ? formatTokensPerSecond(stats.avgRate) : "—"}・生成時間 ${formatDuration(stats.durationMs)}`}
+            >
+              <span className="tabular-nums">
+                {stats.totalTokens > 0 ? `${formatTokens(stats.totalTokens)} tok` : "—"}
+              </span>
+              <span className="text-faint">/</span>
+              <span className="tabular-nums">
+                {stats.avgRate ? formatTokensPerSecond(stats.avgRate) : "—"}
+              </span>
+              <span className="text-faint">/</span>
+              <span className="tabular-nums">{formatDuration(stats.durationMs)}</span>
+            </span>
+            {contextUsage && (
+              <span className="hidden shrink-0 sm:flex">
+                <ContextUsageMeter usage={contextUsage} />
+              </span>
+            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              title="コンテキスト圧縮"
+              aria-label="コンテキスト圧縮"
+              busy={compacting}
+              disabled={!task || working || compacting}
+              onClick={() => void compact()}
+            >
+              {!compacting && <Shrink className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline">圧縮</span>
+            </Button>
+            <span className="hidden shrink-0 sm:inline-flex">
+              {task && <StatusBadge status={working ? "working" : task.status} />}
+            </span>
+            {working && (
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => void sendJson(`/api/tasks/${taskId}/abort`, {})}
+              >
+                <Square className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">停止</span>
+              </Button>
+            )}
+          </div>
+        </div>
       </header>
       <div
         ref={scrollRef}
