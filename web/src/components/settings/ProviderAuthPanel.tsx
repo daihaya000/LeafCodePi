@@ -244,7 +244,7 @@ export function ProviderAuthPanel({
               key={provider.id}
               provider={provider}
               disabled={Boolean(login)}
-              onOAuth={() => void beginLogin(provider, "oauth")}
+              onOAuth={provider.oauthAvailable ? () => void beginLogin(provider, "oauth") : undefined}
               onApiKey={
                 provider.methods?.includes("api_key") ? () => void beginLogin(provider, "api_key") : undefined
               }
@@ -396,7 +396,7 @@ function ProviderRow({
       <div className="flex flex-wrap gap-1">
         {onOAuth && (
           <Button size="sm" disabled={disabled} onClick={onOAuth}>
-            サブスクでログイン
+            ログイン
           </Button>
         )}
         {onApiKey && (
