@@ -510,7 +510,7 @@ export function Sidebar({
                         router.push(`/?projectId=${encodeURIComponent(project.id)}`);
                         onClose();
                       }}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:text-text"
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted hover:text-text md:h-8 md:w-8"
                     >
                       <Plus className="h-3.5 w-3.5" />
                     </button>
@@ -520,7 +520,7 @@ export function Sidebar({
                       title="プロジェクトをアーカイブ"
                       disabled={actionBusyKey !== null}
                       onClick={() => void archiveProjectAction(project)}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-danger-bg hover:text-danger"
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted hover:bg-danger-bg hover:text-danger md:h-8 md:w-8"
                     >
                       <Archive className="h-3.5 w-3.5" />
                     </button>
@@ -560,7 +560,7 @@ export function Sidebar({
                               type="button"
                               aria-label={`「${task.title}」をアーカイブ`}
                               title="タスクをアーカイブ"
-                              className="hidden h-7 w-7 items-center justify-center text-muted group-hover:inline-flex hover:text-text"
+                              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text md:h-6 md:w-6"
                               onClick={() =>
                                 void runAction(`archive:${task.id}`, () =>
                                   sendJson(`/api/tasks/${task.id}`, undefined, "DELETE"),
@@ -626,7 +626,7 @@ export function Sidebar({
                         title="このプロジェクトのアーカイブを一括削除"
                         disabled={actionBusyKey !== null}
                         onClick={() => void destroyArchivedGroup(group)}
-                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-danger-bg hover:text-danger disabled:opacity-50"
+                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-faint hover:bg-danger-bg hover:text-danger disabled:opacity-50 md:h-6 md:w-6"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
@@ -653,7 +653,7 @@ export function Sidebar({
                               title="タスクを復元"
                               disabled={actionBusyKey !== null}
                               onClick={() => void restoreArchivedTask(task)}
-                              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-surface-2 hover:text-text disabled:opacity-50"
+                              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-faint hover:bg-surface-2 hover:text-text disabled:opacity-50 md:h-6 md:w-6"
                             >
                               <ArchiveRestore className="h-3 w-3" />
                             </button>
@@ -663,7 +663,7 @@ export function Sidebar({
                               title="タスクを完全に削除"
                               disabled={actionBusyKey !== null}
                               onClick={() => void destroyArchivedTask(task)}
-                              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-danger-bg hover:text-danger disabled:opacity-50"
+                              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-faint hover:bg-danger-bg hover:text-danger disabled:opacity-50 md:h-6 md:w-6"
                             >
                               <Trash2 className="h-3 w-3" />
                             </button>
@@ -699,7 +699,7 @@ export function Sidebar({
                         title="プロジェクトを復元"
                         disabled={actionBusyKey !== null}
                         onClick={() => void restoreProjectAction(project)}
-                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-surface-2 hover:text-text disabled:opacity-50"
+                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-faint hover:bg-surface-2 hover:text-text disabled:opacity-50 md:h-6 md:w-6"
                       >
                         <ArchiveRestore className="h-3 w-3" />
                       </button>
@@ -709,7 +709,7 @@ export function Sidebar({
                         title="プロジェクトを完全に削除"
                         disabled={actionBusyKey !== null}
                         onClick={() => void destroyProjectAction(project)}
-                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-danger-bg hover:text-danger disabled:opacity-50"
+                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-faint hover:bg-danger-bg hover:text-danger disabled:opacity-50 md:h-6 md:w-6"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
