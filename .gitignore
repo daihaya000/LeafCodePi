@@ -16,6 +16,15 @@ web/coverage/
 web/tsconfig.tsbuildinfo
 .leafcode-pi/
 
+# Native launcher: the entry-point exe itself (LeafCodePi.exe) is tracked
+# at the repo root; scripts/build-launcher.bat regenerates it from
+# scripts/launcher/Launcher.cs. Only the build artifacts are ignored.
+LeafCodePi.exe.old
+scripts/launcher/*.exe
+scripts/launcher/*.ico
+scripts/launcher/*.obj
+scripts/launcher/*.pdb
+
 # ローカル専用メモ（共有しない）
 /MEMORY.md
 /LESSONS.md

@@ -26,17 +26,29 @@ $iconJson = Get-Content -LiteralPath $iconJsonPath -Raw -Encoding UTF8 | Convert
 $iconBytes = [Convert]::FromBase64String($iconJson.base64)
 [System.IO.File]::WriteAllBytes($iconPath, $iconBytes)
 
-$batPath = Join-Path $repoRoot "start.bat"
-if (-not (Test-Path -LiteralPath $batPath)) {
-    throw "Launcher not found: $batPath"
+$exePath = Join-Path $repoRoot "LeafCodePi.exe"
+
+if (-not (Test-Path -LiteralPath $exePath)) {
+    # The exe is committed to git, so a missing copy means it was deleted
+    # locally: rebuild it (quietly) before failing the shortcut creation.
+    & cmd.exe /d /c "call `"$repoRoot\scripts\build-launcher.bat`" /quiet" | Out-Null
 }
+if (-not (Test-Path -LiteralPath $exePath)) {
+    throw "Launcher not found: $exePath (run scripts\build-launcher.bat to build it)"
+}
+
+$targetPath = $exePath
+# The exe already carries the icon as an embedded Win32 resource (see
+# scripts\build-launcher.bat's /win32icon), so point the shortcut at it
+# directly rather than the standalone .ico copy above.
+$shortcutIconLocation = "$exePath,0"
 
 $shortcutPath = Join-Path $DesktopDir "LeafCodePi.lnk"
 $wsh = New-Object -ComObject WScript.Shell
 $shortcut = $wsh.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $batPath
+$shortcut.TargetPath = $targetPath
 $shortcut.WorkingDirectory = $repoRoot
-$shortcut.WindowStyle = 7
-$shortcut.IconLocation = "$iconPath,0"
+$shortcut.WindowStyle = 1
+$shortcut.IconLocation = $shortcutIconLocation
 $shortcut.Description = "LeafCodePi"
 $shortcut.Save()
