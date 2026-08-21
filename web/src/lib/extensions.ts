@@ -3,9 +3,11 @@
  * Disabled extensions are filtered out of AgentSession through
  * DefaultResourceLoader.extensionsOverride.
  *
- * Discovery mirrors Pi's global extension root: ~/.pi/agent/extensions
- * (Pi's loader.js: direct *.ts/*.js files, subdirs with index.ts/index.js,
- * and subdirs with a package.json "pi.extensions" manifest).
+ * Discovery mirrors Pi's global extension roots:
+ * - ~/.pi/agent/extensions (direct *.ts/*.js files, subdirs with index.ts/index.js,
+ *   and subdirs with a package.json "pi.extensions" manifest)
+ * - ~/.pi/agent/git/<host>/<owner>/<repo> for entries declared by installed
+ *   packages (settings.json "packages"), such as ponytail.
  */
 
 import {
@@ -130,7 +132,69 @@ export function basenameKey(entryPath: string): string {
   return base.replace(/\.(ts|js|mjs|cjs)$/i, "");
 }
 
+type PiSettings = {
+  packages?: string[];
+};
+
+export function readPiSettings(agentDir = resolvePiAgentDir()): PiSettings {
+  try {
+    const parsed = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8")) as Partial<PiSettings>;
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.packages)) {
+      return { packages: parsed.packages.filter((value): value is string => typeof value === "string") };
+    }
+  } catch {
+    /* ignore */
+  }
+  return { packages: [] };
+}
+
+/**
+ * Resolve an installed package source to its clone directory under ~/.pi/agent/git.
+ * Supports `git:github.com/owner/repo` and `https://github.com/owner/repo`.
+ */
+export function resolvePackageDir(source: string, agentDir = resolvePiAgentDir()): string | null {
+  const trimmed = source.trim();
+
+  if (trimmed.startsWith("git:")) {
+    const rest = trimmed.slice("git:".length);
+    const withoutScheme = rest.replace(/^https?:\/\//, "");
+    const normalized = withoutScheme.replace(/^git@github\.com:/, "github.com/");
+    return join(agentDir, "git", normalized);
+  }
+
+  if (/^https?:\/\/github\.com\//.test(trimmed)) {
+    try {
+      const url = new URL(trimmed);
+      const pathname = url.pathname.replace(/^\//, "").replace(/\.git$/, "");
+      return join(agentDir, "git", url.hostname, pathname);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
 type DiscoveredEntry = { name: string; filePath: string; description?: string };
+
+function discoverPackageExtensions(agentDir: string): DiscoveredEntry[] {
+  const settings = readPiSettings(agentDir);
+  const entries: DiscoveredEntry[] = [];
+  for (const source of settings.packages ?? []) {
+    const pkgDir = resolvePackageDir(source, agentDir);
+    if (!pkgDir || !existsSync(pkgDir)) continue;
+    const manifestExtensions = readPiManifestExtensions(pkgDir);
+    if (manifestExtensions.length === 0) continue;
+    const packageName = basename(pkgDir);
+    for (const rel of manifestExtensions) {
+      const resolved = join(pkgDir, rel);
+      if (existsSync(resolved)) {
+        entries.push({ name: packageName, filePath: resolved });
+      }
+    }
+  }
+  return entries;
+}
 
 function readPiManifestExtensions(dir: string): string[] {
   try {
@@ -221,6 +285,10 @@ export function listExtensions(
   for (const entry of discoverExtensionsInDir(dir)) {
     if (!byName.has(entry.name)) byName.set(entry.name, entry);
   }
+  for (const entry of discoverPackageExtensions(agentDir)) {
+    byName.set(entry.name, entry); // installed packages override local same-name entries
+  }
+
   const extensions = [...byName.values()]
     .map(
       (entry): ExtensionDto => ({

@@ -10,6 +10,8 @@ import {
   isExtensionDisabled,
   listExtensions,
   readExtensionsState,
+  readPiSettings,
+  resolvePackageDir,
   setExtensionEnabled,
   writeExtensionsState,
 } from "./extensions";
@@ -68,19 +70,20 @@ describe("listExtensions / setExtensionEnabled", () => {
     writeFileSync(join(root, name, "index.js"), "export default () => {};\n", "utf8");
   }
 
-  function fixture() {
+  function fixture(opts?: { withPonytail?: boolean }) {
     agentDir = mkdtempSync(join(tmpdir(), "leafcode-pi-ext-agent-"));
     data = mkdtempSync(join(tmpdir(), "leafcode-pi-ext-data-"));
     prevData = process.env.LEAFCODE_PI_DATA_DIR;
     process.env.LEAFCODE_PI_DATA_DIR = data;
-    writeExtension(join(agentDir, "extensions"), "ponytail");
+    mkdirSync(join(agentDir, "extensions"), { recursive: true });
+    if (opts?.withPonytail) writeExtension(join(agentDir, "extensions"), "ponytail");
     writeFileSync(join(agentDir, "extensions", "one.js"), "export default () => {};\n", "utf8");
     writeExtensionsState({ disabled: {} });
     return { agentDir };
   }
 
   it("lists discovered extensions as enabled by default", () => {
-    const { agentDir: agent } = fixture();
+    const { agentDir: agent } = fixture({ withPonytail: true });
     const listed = listExtensions(agent);
     expectNames(listed.extensions, ["one", "ponytail"]);
     assert.equal(listed.extensions.every((e) => e.enabled), true);
@@ -88,7 +91,7 @@ describe("listExtensions / setExtensionEnabled", () => {
   });
 
   it("toggles extensions via extensions-state.json", () => {
-    const { agentDir: agent } = fixture();
+    const { agentDir: agent } = fixture({ withPonytail: true });
     let listed = setExtensionEnabled("ponytail", false, agent);
     assert.equal(listed.extensions.find((e) => e.name === "ponytail")?.enabled, false);
     assert.deepEqual(readExtensionsState().disabled, { ponytail: true });
@@ -102,6 +105,64 @@ describe("listExtensions / setExtensionEnabled", () => {
   it("rejects unknown extension names", () => {
     const { agentDir: agent } = fixture();
     assert.throws(() => setExtensionEnabled("missing", false, agent), /見つかりません/);
+  });
+
+  it("discovers extensions from installed packages (settings.json packages)", () => {
+    const { agentDir: agent } = fixture();
+    // Simulate a `pi install`-style package clone with a pi.extensions manifest.
+    const pkgDir = join(agent, "git", "github.com", "DietrichGebert", "ponytail");
+    mkdirSync(join(pkgDir, "pi-extension"), { recursive: true });
+    writeFileSync(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ pi: { extensions: ["./pi-extension/index.js"] } }),
+      "utf8",
+    );
+    writeFileSync(join(pkgDir, "pi-extension", "index.js"), "export default () => {};\n", "utf8");
+    mkdirSync(join(agent, "git", "github.com", "DietrichGebert"), { recursive: true });
+    writeFileSync(
+      join(agent, "settings.json"),
+      JSON.stringify({ packages: ["git:github.com/DietrichGebert/ponytail"] }),
+      "utf8",
+    );
+
+    const listed = listExtensions(agent);
+    assert.equal(listed.extensions.find((e) => e.name === "ponytail")?.filePath, join(pkgDir, "pi-extension", "index.js"));
+    expectNames(listed.extensions, ["one", "ponytail"]);
+  });
+});
+
+describe("resolvePackageDir", () => {
+  it("resolves git:github.com/owner/repo to ~/.pi/agent/git/...", () => {
+    assert.equal(
+      resolvePackageDir("git:github.com/DietrichGebert/ponytail", "C:\\pi\\agent"),
+      "C:\\pi\\agent\\git\\github.com\\DietrichGebert\\ponytail",
+    );
+  });
+
+  it("resolves https://github.com/owner/repo", () => {
+    assert.equal(
+      resolvePackageDir("https://github.com/DietrichGebert/ponytail", "C:\\pi\\agent"),
+      "C:\\pi\\agent\\git\\github.com\\DietrichGebert\\ponytail",
+    );
+  });
+
+  it("returns null for unsupported sources", () => {
+    assert.equal(resolvePackageDir("npm:@foo/bar", "C:\\pi\\agent"), null);
+  });
+});
+
+describe("readPiSettings", () => {
+  let agentDir = "";
+
+  afterEach(() => {
+    if (agentDir) rmSync(agentDir, { recursive: true, force: true });
+    agentDir = "";
+  });
+
+  it("reads packages from settings.json", () => {
+    agentDir = mkdtempSync(join(tmpdir(), "leafcode-pi-ext-settings-"));
+    writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: ["git:github.com/a/b"] }), "utf8");
+    assert.deepEqual(readPiSettings(agentDir), { packages: ["git:github.com/a/b"] });
   });
 });
 
