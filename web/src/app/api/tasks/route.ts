@@ -38,9 +38,40 @@ export async function POST(req: NextRequest) {
       images?: { mimeType: string; data: string }[];
       agent?: string;
       subagentPermission?: "allow" | "deny";
+      goalLoop?: {
+        enabled?: unknown;
+        acceptance?: unknown;
+        maxTurns?: unknown;
+        forceFullRun?: unknown;
+      };
     } | null;
     if (!body?.projectId || !body.prompt?.trim()) {
       return NextResponse.json({ error: "projectId と prompt が必要です" }, { status: 400 });
+    }
+    if (body.goalLoop?.enabled === true && body.images?.length) {
+      return NextResponse.json({ error: "Goal loop の開始では画像添付は使えません" }, { status: 400 });
+    }
+    let goalLoop:
+      | { acceptance: string[]; maxTurns: number; forceFullRun: boolean }
+      | undefined;
+    if (body.goalLoop?.enabled === true) {
+      const raw = body.goalLoop.acceptance;
+      const values = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split("\n") : [];
+      if (
+        values.length > 10 ||
+        values.some((item) => typeof item !== "string" || item.trim().length > 2_000)
+      ) {
+        return NextResponse.json({ error: "acceptance が不正です" }, { status: 400 });
+      }
+      const number = Number(body.goalLoop.maxTurns ?? 10);
+      goalLoop = {
+        acceptance: values
+          .filter((item): item is string => typeof item === "string")
+          .map((item) => item.trim())
+          .filter(Boolean),
+        maxTurns: Number.isFinite(number) ? Math.min(100, Math.max(1, Math.trunc(number))) : 10,
+        forceFullRun: body.goalLoop.forceFullRun === true,
+      };
     }
     const task = await createTask({
       projectId: body.projectId,
@@ -50,6 +81,7 @@ export async function POST(req: NextRequest) {
       images: body.images,
       agent: body.agent,
       subagentPermission: body.subagentPermission,
+      goalLoop,
     });
     return NextResponse.json({ task });
   } catch (error) {

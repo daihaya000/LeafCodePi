@@ -1,0 +1,92 @@
+import { NextRequest, NextResponse } from "next/server";
+import { goalLoopCommand, goalLoopState, jsonError } from "@/lib/pi/harness";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+type Params = { params: Promise<{ id: string }> };
+
+type Body = {
+  action?: "start" | "pause" | "resume" | "stop";
+  goal?: string;
+  acceptance?: unknown;
+  maxTurns?: unknown;
+  forceFullRun?: unknown;
+};
+
+function acceptance(value: unknown): string[] | null {
+  if (value === undefined || value === null || value === "") return [];
+  const values = Array.isArray(value) ? value : typeof value === "string" ? value.split("\n") : null;
+  if (!values || values.length > 10) return null;
+  const result: string[] = [];
+  for (const item of values) {
+    if (typeof item !== "string") return null;
+    const text = item.trim();
+    if (!text) continue;
+    if (text.length > 2_000) return null;
+    result.push(text);
+  }
+  return result;
+}
+
+function maxTurns(value: unknown): number {
+  const number = Number(value ?? 10);
+  return Number.isFinite(number) ? Math.min(100, Math.max(1, Math.trunc(number))) : 10;
+}
+
+export async function GET(_req: NextRequest, { params }: Params) {
+  try {
+    const { id } = await params;
+    const loop = await goalLoopState(id);
+    return NextResponse.json({ loop });
+  } catch (error) {
+    const { error: message, status } = jsonError(error);
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+export async function POST(req: NextRequest, { params }: Params) {
+  try {
+    const { id } = await params;
+    const body = (await req.json().catch(() => null)) as Body | null;
+    const action = body?.action;
+    if (action !== "start") {
+      return NextResponse.json({ error: "POST の action は start です" }, { status: 400 });
+    }
+    const goal = typeof body?.goal === "string" ? body.goal.trim() : "";
+    const criteria = acceptance(body?.acceptance);
+    if (!goal || goal.length > 4_000 || !criteria) {
+      return NextResponse.json({ error: "goal または acceptance が不正です" }, { status: 400 });
+    }
+    const loop = await goalLoopCommand(id, {
+      action: "start",
+      goal,
+      acceptance: criteria,
+      maxTurns: maxTurns(body?.maxTurns),
+      forceFullRun: body?.forceFullRun === true,
+    });
+    return NextResponse.json({ loop });
+  } catch (error) {
+    const { error: message, status } = jsonError(error);
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+export async function PATCH(req: NextRequest, { params }: Params) {
+  try {
+    const { id } = await params;
+    const body = (await req.json().catch(() => null)) as Body | null;
+    const action = body?.action;
+    if (action !== "pause" && action !== "resume" && action !== "stop") {
+      return NextResponse.json({ error: "action は pause/resume/stop のいずれかです" }, { status: 400 });
+    }
+    const loop = await goalLoopCommand(id, {
+      action,
+      maxTurns: action === "resume" && body?.maxTurns !== undefined ? maxTurns(body.maxTurns) : undefined,
+    });
+    return NextResponse.json({ loop });
+  } catch (error) {
+    const { error: message, status } = jsonError(error);
+    return NextResponse.json({ error: message }, { status });
+  }
+}

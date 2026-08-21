@@ -816,7 +816,13 @@ export function Sidebar({
         <div className="mb-2 px-1">
           <AddProjectButton onAdded={() => void refresh()} className="w-full" />
         </div>
-        <div className="flex items-center justify-between gap-1">
+        <div className="mt-2">
+          <CodexBarWidget />
+        </div>
+        <div className="mt-2">
+          <SystemMonitorWidget />
+        </div>
+        <div className="mt-2 flex items-center justify-between gap-1">
           <p className="px-2 text-[11px] text-muted">
             {health?.engineOk ? `Pi ${health.version ?? ""} · モデル ${health.modelCount}` : "Pi 未接続"}
           </p>
@@ -831,12 +837,6 @@ export function Sidebar({
               <Settings className="h-4 w-4" />
             </Link>
           </div>
-        </div>
-        <div className="mt-2">
-          <CodexBarWidget />
-        </div>
-        <div className="mt-2">
-          <SystemMonitorWidget />
         </div>
       </div>
     </div>

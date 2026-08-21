@@ -38,6 +38,8 @@ import { registerLlamaProviders, syncLlamaServerProvider } from "@/lib/pi/llama-
 import { registerCursorProvider } from "@/lib/pi/cursor-provider";
 import { registerCommandCodeProvider } from "@/lib/pi/commandcode-provider";
 import { registerOllamaCloudProvider, syncOllamaCloudProvider } from "@/lib/pi/ollama-cloud-provider";
+import { readGoalLoopState } from "@/lib/pi/goal-loop-state";
+import { todosFromPiMessages } from "@/lib/pi/todowrite-state";
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
 import { filterSkillsByState } from "@/lib/skills";
 import { filterExtensionsByState } from "@/lib/extensions";
@@ -60,12 +62,14 @@ import {
 } from "@/lib/token-throughput";
 import type {
   CompactionSettingsDto,
+  GoalLoopDto,
   HealthDto,
   ModelOption,
   ProjectDto,
   ProviderAuthDto,
   TaskDetail,
   TaskSummary,
+  TodoDto,
   ThinkingLevel,
   UiMessage,
 } from "@/lib/types";
@@ -435,12 +439,16 @@ function sessionSnapshotFields(
   isStreaming: boolean;
   isCompacting: boolean;
   contextUsage: ContextUsageDto | undefined;
+  goalLoop: GoalLoopDto | null;
+  todos: TodoDto[];
 } {
   return {
     messages: snapshotMessages(session, throughputByStartedAt, toolStartedAt, toolEndedAt),
     isStreaming: session.isStreaming,
     isCompacting: session.isCompacting,
     contextUsage: sessionContextUsage(session),
+    goalLoop: readGoalLoopState(session.sessionManager.getCwd(), session.sessionId),
+    todos: todosFromPiMessages(session.messages),
   };
 }
 
@@ -623,8 +631,8 @@ async function createSession(options: {
   // just prompt guidance).
   const tools =
     options.subagentPermission === "allow"
-      ? ["read", "write", "edit", "bash", "grep", "find", "ls", "subagent"]
-      : ["read", "write", "edit", "bash", "grep", "find", "ls"];
+      ? ["read", "write", "edit", "bash", "grep", "find", "ls", "subagent", "todowrite"]
+      : ["read", "write", "edit", "bash", "grep", "find", "ls", "todowrite"];
   const result = await pi.createAgentSession({
     cwd: options.cwd,
     agentDir,
@@ -954,6 +962,8 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
   let isStreaming = false;
   let isCompacting = false;
   let contextUsage: ContextUsageDto | undefined;
+  let goalLoop: GoalLoopDto | null = null;
+  let todos: TodoDto[] = [];
   try {
     const live = await ensureLive(id);
     const fields = sessionSnapshotFields(
@@ -966,6 +976,8 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
     isStreaming = fields.isStreaming;
     isCompacting = fields.isCompacting;
     contextUsage = fields.contextUsage;
+    goalLoop = fields.goalLoop;
+    todos = fields.todos;
   } catch {
     messages = [];
   }
@@ -975,7 +987,42 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
     isStreaming,
     isCompacting,
     contextUsage,
+    goalLoop,
+    todos,
   };
+}
+
+export async function goalLoopState(taskId: string): Promise<GoalLoopDto | null> {
+  const live = await ensureLive(taskId);
+  return readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId);
+}
+
+export async function goalLoopCommand(
+  taskId: string,
+  input:
+    | { action: "start"; goal: string; acceptance?: string[]; maxTurns?: number; forceFullRun?: boolean }
+    | { action: "pause" | "resume" | "stop"; maxTurns?: number },
+): Promise<GoalLoopDto | null> {
+  const live = await ensureLive(taskId);
+  let command: string;
+  if (input.action === "start") {
+    const payload = Buffer.from(
+      JSON.stringify({
+        goal: input.goal,
+        acceptance: input.acceptance ?? [],
+        maxTurns: input.maxTurns,
+        forceFullRun: input.forceFullRun === true,
+      }),
+      "utf8",
+    ).toString("base64url");
+    command = `/goal-start ${payload}`;
+  } else if (input.action === "resume" && input.maxTurns) {
+    command = `/goal-resume --turns ${Math.trunc(input.maxTurns)}`;
+  } else {
+    command = `/goal-${input.action}`;
+  }
+  await live.session.prompt(command);
+  return readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId);
 }
 
 export async function createTask(input: {
@@ -986,6 +1033,11 @@ export async function createTask(input: {
   images?: PromptImage[];
   agent?: string;
   subagentPermission?: "allow" | "deny";
+  goalLoop?: {
+    acceptance?: string[];
+    maxTurns?: number;
+    forceFullRun?: boolean;
+  };
 }): Promise<TaskSummary> {
   const project = getProject(input.projectId);
   if (!project) throw Object.assign(new Error("プロジェクトが見つかりません"), { status: 404 });
@@ -1019,14 +1071,24 @@ export async function createTask(input: {
     ...modelId(session.model),
   });
   const live = attachSession(task.id, session);
-  queuePrompt(
-    live,
-    decoratePrompt(input.prompt, {
-      agent: input.agent,
-      subagentPermission: input.subagentPermission,
-    }),
-    input.images,
-  );
+  if (input.goalLoop) {
+    await goalLoopCommand(task.id, {
+      action: "start",
+      goal: input.prompt,
+      acceptance: input.goalLoop.acceptance,
+      maxTurns: input.goalLoop.maxTurns,
+      forceFullRun: input.goalLoop.forceFullRun,
+    });
+  } else {
+    queuePrompt(
+      live,
+      decoratePrompt(input.prompt, {
+        agent: input.agent,
+        subagentPermission: input.subagentPermission,
+      }),
+      input.images,
+    );
+  }
   return toSummary(getTask(task.id) ?? task);
 }
 

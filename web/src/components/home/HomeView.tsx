@@ -6,6 +6,7 @@ import { ArrowUp, FolderGit2, GitBranch } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { AgentSelect } from "@/components/AgentSelect";
 import { Composer, type ComposerAttachment } from "@/components/Composer";
+import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { ModelSelect } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
@@ -32,6 +33,10 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const [model, setModel] = useState("");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("off");
   const [prompt, setPrompt] = useState("");
+  const [goalLoopEnabled, setGoalLoopEnabled] = useState(false);
+  const [goalLoopAcceptance, setGoalLoopAcceptance] = useState("");
+  const [goalLoopMaxTurns, setGoalLoopMaxTurns] = useState(10);
+  const [goalLoopForceFullRun, setGoalLoopForceFullRun] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [health, setHealth] = useState<HealthDto | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -122,6 +127,9 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
     setSubmitting(true);
     setError(null);
     try {
+      if (goalLoopEnabled && attachments.length > 0) {
+        throw new Error("Goal loop の開始では画像添付は使えません");
+      }
       const images = attachments
         .map((attachment) => {
           const comma = attachment.uri.indexOf(",");
@@ -137,6 +145,16 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
         images,
         ...(agent ? { agent } : {}),
         subagentPermission,
+        ...(goalLoopEnabled
+          ? {
+              goalLoop: {
+                enabled: true,
+                acceptance: goalLoopAcceptance,
+                maxTurns: goalLoopMaxTurns,
+                forceFullRun: goalLoopForceFullRun,
+              },
+            }
+          : {}),
       });
       localStorage.setItem(MODEL_KEY, model);
       localStorage.setItem(THINKING_KEY, thinkingLevel);
@@ -200,6 +218,19 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                 <option value="current_folder">そのまま</option>
               </GhostSelect>
             </div>
+            {goalLoopEnabled && (
+              <div className="mx-auto max-w-5xl">
+                <GoalLoopOptions
+                  acceptance={goalLoopAcceptance}
+                  maxTurns={goalLoopMaxTurns}
+                  forceFullRun={goalLoopForceFullRun}
+                  disabled={submitting}
+                  onAcceptanceChange={setGoalLoopAcceptance}
+                  onMaxTurnsChange={setGoalLoopMaxTurns}
+                  onForceFullRunChange={setGoalLoopForceFullRun}
+                />
+              </div>
+            )}
             <Composer
               form={{
                 ariaLabel: "タスク作成",
@@ -240,14 +271,19 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
               }}
               attachmentControl={{
                 inputRef: fileInputRef,
-                inputDisabled: submitting,
-                buttonDisabled: submitting,
+                inputDisabled: submitting || goalLoopEnabled,
+                buttonDisabled: submitting || goalLoopEnabled,
                 buttonTitle: "画像を添付",
                 onFilesSelected: addImageFiles,
                 onTrigger: () => fileInputRef.current?.click(),
               }}
               toolbar={
                 <>
+                  <GoalLoopToggle
+                    enabled={goalLoopEnabled}
+                    disabled={submitting}
+                    onToggle={() => setGoalLoopEnabled((value) => !value)}
+                  />
                   <ModelSelect
                     value={model}
                     disabled={submitting}

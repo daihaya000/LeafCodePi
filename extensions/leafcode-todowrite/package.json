@@ -1,0 +1,17 @@
+{
+  "name": "leafcode-todowrite",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenCode todowrite-compatible Todo tool for Pi",
+  "pi": {
+    "extensions": ["index.ts"]
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.84.2",
+    "typebox": "^1.3.7"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

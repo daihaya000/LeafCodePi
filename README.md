@@ -47,9 +47,31 @@ Cursor は非公式拡張です。本機の Cursor IDE / CLI のトークンを�
 
 トークンは `%USERPROFILE%\.pi\agent\auth.json` に保存されます。コールバックは本機の `127.0.0.1:53692`（Anthropic）と `localhost:1455`（OpenAI Codex）を使います。通常の API キー（`ANTHROPIC_API_KEY` など）も併用できます。
 
+## Goal Loop
+
+`extensions/leafcode-goal-loop` に LeafCode 互換の Pi 拡張を同梱しています。登録すると Home / Task の Composer に「ループ」「承認条件」「最大ターン」「完走モード」が表示されます。
+
+```bash
+pi install ./extensions/leafcode-goal-loop
+```
+
+通常モードは完了宣言を検証ターンで確認し、完走モードは完了宣言を無視して指定ターン数まで実行します。状態は各プロジェクトの `.pi/goals-loop/` に保存されます。
+
+## ToDo (`todowrite`)
+
+`extensions/leafcode-todowrite` は OpenCode の `todowrite` と
+`C:\Users\Daichi\.agents\skills\todowrite-discipline` の形式に合わせた Pi 拡張です。
+`pending` / `in_progress` / `completed` / `cancelled`、`high` / `medium` / `low` を扱い、
+`in_progress` は同時に1件だけ許可します。Pi セッションの tool result に状態を保存し、
+Task 画面には本家 LeafCode と同様の折りたたみ式 ToDo 進捗とプログレスバーを表示します。
+
+```bash
+pi install ./extensions/leafcode-todowrite
+```
+
 ## まだないもの
 
-OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペイン、ゴールループ、Caddy は未実装です。エージェントはプロジェクトフォルダ上で Pi の標準ツール（read / write / edit / bash / grep / find / ls）を直接実行します。
+OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペイン、Caddy は未実装です。エージェントはプロジェクトフォルダ上で Pi の標準ツール（read / write / edit / bash / grep / find / ls）を直接実行します。
 
 ## 動作条件
 

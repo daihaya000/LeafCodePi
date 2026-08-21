@@ -27,6 +27,8 @@ export async function GET(
           isStreaming: detail.isStreaming,
           isCompacting: detail.isCompacting,
           contextUsage: detail.contextUsage,
+          goalLoop: detail.goalLoop,
+          todos: detail.todos,
         });
       } catch (error) {
         send("error", { error: error instanceof Error ? error.message : String(error) });

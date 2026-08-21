@@ -3,6 +3,9 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Shrink, Square } from "lucide-react";
 import { Composer, type ComposerAttachment } from "@/components/Composer";
+import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
+import { GoalLoopPanel } from "@/components/GoalLoopPanel";
+import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
 import { ModelSelect } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { AgentSelect } from "@/components/AgentSelect";
@@ -23,7 +26,15 @@ import {
   writeSubagentPermission,
   type SubagentPermission,
 } from "@/lib/subagent-permission";
-import type { ModelOption, TaskDetail, TaskSummary, ThinkingLevel, UiMessage } from "@/lib/types";
+import type {
+  GoalLoopDto,
+  ModelOption,
+  TaskDetail,
+  TaskSummary,
+  TodoDto,
+  ThinkingLevel,
+  UiMessage,
+} from "@/lib/types";
 
 /** Compaction LLM calls routinely exceed the default fetch budget. */
 const COMPACT_TIMEOUT_MS = 240_000;
@@ -69,6 +80,10 @@ export function TaskView({ taskId }: { taskId: string }) {
   const [isCompacting, setIsCompacting] = useState(false);
   const [compactingLocal, setCompactingLocal] = useState(false);
   const [prompt, setPrompt] = useState("");
+  const [goalLoopEnabled, setGoalLoopEnabled] = useState(false);
+  const [goalLoopAcceptance, setGoalLoopAcceptance] = useState("");
+  const [goalLoopMaxTurns, setGoalLoopMaxTurns] = useState(10);
+  const [goalLoopForceFullRun, setGoalLoopForceFullRun] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +129,8 @@ export function TaskView({ taskId }: { taskId: string }) {
         isStreaming?: boolean;
         isCompacting?: boolean;
         contextUsage?: ContextUsageDto;
+        goalLoop?: GoalLoopDto | null;
+        todos?: TodoDto[];
         error?: string;
       };
       const snapshotTask = payload.task;
@@ -128,6 +145,8 @@ export function TaskView({ taskId }: { taskId: string }) {
               isStreaming: payload.isStreaming ?? snapshotTask.isStreaming ?? base.isStreaming,
               isCompacting: payload.isCompacting ?? snapshotTask.isCompacting ?? base.isCompacting,
               contextUsage: payload.contextUsage ?? snapshotTask.contextUsage ?? base.contextUsage,
+              goalLoop: payload.goalLoop ?? snapshotTask.goalLoop ?? base.goalLoop,
+              todos: payload.todos ?? snapshotTask.todos ?? base.todos,
             };
           });
         }
@@ -245,17 +264,47 @@ export function TaskView({ taskId }: { taskId: string }) {
           return { mimeType: attachment.mime, data: attachment.uri.slice(comma + 1) };
         })
         .filter((item): item is { mimeType: string; data: string } => item !== null);
-      await sendJson(`/api/tasks/${taskId}/prompt`, {
-        prompt,
-        images,
-        ...(agent ? { agent } : {}),
-        subagentPermission,
-      });
+      if (goalLoopEnabled) {
+        if (images.length > 0) throw new Error("Goal loop の開始では画像添付は使えません");
+        await sendJson(`/api/tasks/${taskId}/goal-loop`, {
+          action: "start",
+          goal: prompt,
+          acceptance: goalLoopAcceptance,
+          maxTurns: goalLoopMaxTurns,
+          forceFullRun: goalLoopForceFullRun,
+        });
+        setGoalLoopEnabled(false);
+      } else {
+        await sendJson(`/api/tasks/${taskId}/prompt`, {
+          prompt,
+          images,
+          ...(agent ? { agent } : {}),
+          subagentPermission,
+        });
+      }
       setPrompt("");
       setAttachments([]);
       notifyTasksChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "送信に失敗しました");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function goalLoopAction(action: "pause" | "resume" | "stop", maxTurns?: number) {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ loop: GoalLoopDto | null }>(
+        `/api/tasks/${taskId}/goal-loop`,
+        { action, ...(maxTurns ? { maxTurns } : {}) },
+        "PATCH",
+      );
+      setTask((current) => (current ? { ...current, goalLoop: result.loop } : current));
+      notifyTasksChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Goal loop の操作に失敗しました");
     } finally {
       setSubmitting(false);
     }
@@ -423,6 +472,7 @@ export function TaskView({ taskId }: { taskId: string }) {
           {messages.map((message) => (
             <PartView key={message.id} message={message} />
           ))}
+          {task?.todos && <TodoProgressPanel todos={task.todos} />}
           {messages.length === 0 && (
             <p className="py-12 text-center text-sm text-muted">メッセージはまだありません</p>
           )}
@@ -443,6 +493,25 @@ export function TaskView({ taskId }: { taskId: string }) {
           <p role="alert" className="mx-auto mb-2 max-w-3xl rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger">
             {error}
           </p>
+        )}
+        <GoalLoopPanel
+          loop={task?.goalLoop}
+          busy={submitting}
+          onAction={(action) => void goalLoopAction(action)}
+          onResume={(maxTurns) => void goalLoopAction("resume", maxTurns)}
+        />
+        {goalLoopEnabled && (
+          <div className="mx-auto max-w-3xl">
+            <GoalLoopOptions
+              acceptance={goalLoopAcceptance}
+              maxTurns={goalLoopMaxTurns}
+              forceFullRun={goalLoopForceFullRun}
+              disabled={submitting || working}
+              onAcceptanceChange={setGoalLoopAcceptance}
+              onMaxTurnsChange={setGoalLoopMaxTurns}
+              onForceFullRunChange={setGoalLoopForceFullRun}
+            />
+          </div>
         )}
         <Composer
           form={{
@@ -485,12 +554,19 @@ export function TaskView({ taskId }: { taskId: string }) {
           }}
           attachmentControl={{
             inputRef: fileInputRef,
+            inputDisabled: compacting || goalLoopEnabled,
+            buttonDisabled: compacting || goalLoopEnabled,
             buttonTitle: "画像を添付",
             onFilesSelected: addImageFiles,
             onTrigger: () => fileInputRef.current?.click(),
           }}
           toolbar={
             <>
+              <GoalLoopToggle
+                enabled={goalLoopEnabled}
+                disabled={submitting || working || Boolean(task?.goalLoop && !["completed", "blocked", "stopped"].includes(task.goalLoop.status))}
+                onToggle={() => setGoalLoopEnabled((value) => !value)}
+              />
               <ModelSelect
                 value={modelValue}
                 options={models}

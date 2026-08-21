@@ -37,6 +37,55 @@ export type TaskSummary = {
   error?: string | null;
 };
 
+export type GoalLoopStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "verifying_completed"
+  | "completed"
+  | "blocked"
+  | "stopped";
+
+export type GoalLoopProgress = {
+  time: string;
+  status: "progress" | "completed" | "verified_completed" | "blocked";
+  summary: string;
+  next?: string;
+  evidence?: string;
+};
+
+export type GoalLoopDto = {
+  id: string;
+  sessionId: string;
+  cwd: string;
+  status: GoalLoopStatus;
+  goal: string;
+  acceptance: string[];
+  maxTurns: number;
+  forceFullRun: boolean;
+  turnCount: number;
+  turnKind: "goal" | "verification";
+  pauseReason: string;
+  error: string;
+  progress: GoalLoopProgress[];
+  summary: string;
+  evidence: string;
+  blockedReason: string;
+  rejectedClaims: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
+export type TodoPriority = "high" | "medium" | "low";
+
+export type TodoDto = {
+  id: string;
+  content: string;
+  status: TodoStatus;
+  priority: TodoPriority;
+};
+
 export type ToolState = {
   status: "pending" | "running" | "completed" | "cancelled" | "error";
   input?: Record<string, unknown>;
@@ -122,6 +171,8 @@ export type TaskDetail = TaskSummary & {
     contextWindow: number;
     percent: number | null;
   };
+  goalLoop?: GoalLoopDto | null;
+  todos?: TodoDto[];
 };
 
 export type CompactionSettingsDto = {
