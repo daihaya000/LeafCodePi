@@ -12,6 +12,7 @@ import { SkillsSettings } from "@/components/settings/SkillsSettings";
 import { ExtensionsSettings } from "@/components/settings/ExtensionsSettings";
 import { McpSettings } from "@/components/settings/McpSettings";
 import { AgentsSettings } from "@/components/settings/AgentsSettings";
+import { BrowserSettings } from "@/components/settings/BrowserSettings";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { Badge, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
@@ -128,6 +129,7 @@ export function SettingsView() {
 
           {tab === "general" && (
             <section className="space-y-4">
+              <BrowserSettings />
               <AgentsMdSettings />
               <SkillsSettings />
               <ExtensionsSettings />

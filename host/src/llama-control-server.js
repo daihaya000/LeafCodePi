@@ -45,6 +45,8 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onLlamaServerStop: () => Promise<unknown> | unknown,
  *   onRestartWebui?: () => Promise<unknown> | unknown,
  *   onRestartHost?: () => Promise<unknown> | unknown,
+ *   onBrowserConfigRead?: () => { autoOpenBrowser: boolean },
+ *   onBrowserConfigWrite?: (patch: { autoOpenBrowser: boolean }) => { autoOpenBrowser: boolean },
  * }} handlers
  */
 export function createLlamaControlServer(handlers) {
@@ -165,6 +167,34 @@ export function createLlamaControlServer(handlers) {
             .then(() => handlers.onRestartHost())
             .catch(() => {});
         });
+        return;
+      }
+
+      if (pathname === "/browser/config") {
+        if (typeof handlers.onBrowserConfigRead !== "function") {
+          res.writeHead(501, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "browser config is not supported by this host" }));
+          return;
+        }
+        if (method === "GET") {
+          res.writeHead(200, JSON_HEADERS);
+          res.end(JSON.stringify(handlers.onBrowserConfigRead()));
+          return;
+        }
+        if (method === "POST") {
+          const body = await readJsonBody(req).catch(() => ({}));
+          if (typeof body?.autoOpenBrowser !== "boolean") {
+            res.writeHead(400, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: "autoOpenBrowser must be a boolean" }));
+            return;
+          }
+          const saved = handlers.onBrowserConfigWrite({ autoOpenBrowser: body.autoOpenBrowser });
+          res.writeHead(200, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: true, ...saved }));
+          return;
+        }
+        res.writeHead(405, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
         return;
       }
 
