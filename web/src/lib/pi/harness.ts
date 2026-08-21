@@ -524,6 +524,7 @@ async function createSession(options: {
   sessionFile?: string | null;
   model?: Model;
   thinkingLevel?: ThinkingLevel;
+  subagentPermission?: "allow" | "deny";
 }): Promise<AgentSession> {
   const pi = await loadPi();
   await ensureRuntime();
@@ -546,6 +547,14 @@ async function createSession(options: {
     }),
   });
   await resourceLoader.reload();
+  // pi-subagents registers a `subagent` tool via extension. Default tools do not
+  // include it. When subagent permission is "allow", expose the `subagent` tool so
+  // the model can delegate; when "deny", keep it out (mechanically enforced, not
+  // just prompt guidance).
+  const tools =
+    options.subagentPermission === "allow"
+      ? ["read", "write", "edit", "bash", "grep", "find", "ls", "subagent"]
+      : ["read", "write", "edit", "bash", "grep", "find", "ls"];
   const result = await pi.createAgentSession({
     cwd: options.cwd,
     agentDir,
@@ -554,7 +563,7 @@ async function createSession(options: {
     sessionManager,
     resourceLoader,
     modelRuntime: state().modelRuntime ?? undefined,
-    tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+    tools,
   });
   return result.session;
 }
@@ -923,6 +932,8 @@ export async function createTask(input: {
     cwd: project.rootPath,
     model,
     thinkingLevel,
+    // エージェントを明示選択した場合は委譲が必要なので許可扱いにする。
+    subagentPermission: input.agent ? "allow" : input.subagentPermission,
   });
   patchTask(task.id, {
     sessionId: session.sessionId,
