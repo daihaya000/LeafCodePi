@@ -17,6 +17,8 @@ export async function POST(req: NextRequest) {
       model?: string;
       thinkingLevel?: ThinkingLevel;
       images?: { mimeType: string; data: string }[];
+      agent?: string;
+      subagentPermission?: "allow" | "deny";
     } | null;
     if (!body?.projectId || !body.prompt?.trim()) {
       return NextResponse.json({ error: "projectId と prompt が必要です" }, { status: 400 });
@@ -27,6 +29,8 @@ export async function POST(req: NextRequest) {
       model: body.model,
       thinkingLevel: body.thinkingLevel,
       images: body.images,
+      agent: body.agent,
+      subagentPermission: body.subagentPermission,
     });
     return NextResponse.json({ task });
   } catch (error) {

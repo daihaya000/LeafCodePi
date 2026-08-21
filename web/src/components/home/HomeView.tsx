@@ -4,14 +4,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUp, FolderGit2, GitBranch } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
+import { AgentSelect } from "@/components/AgentSelect";
 import { Composer, type ComposerAttachment } from "@/components/Composer";
 import { ModelSelect } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
+import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { Button, GhostSelect } from "@/components/ui";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { isThinkingLevel } from "@/lib/thinking-levels";
+import {
+  readSubagentPermission,
+  writeSubagentPermission,
+  type SubagentPermission,
+} from "@/lib/subagent-permission";
 import type { HealthDto, ModelOption, ProjectDto, TaskSummary, ThinkingLevel } from "@/lib/types";
 
 const MODEL_KEY = "leafcodepi.defaultModel";
@@ -30,6 +37,11 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [agents, setAgents] = useState<string[]>([]);
+  const [agent, setAgent] = useState("");
+  const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
+    () => readSubagentPermission(),
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
@@ -42,10 +54,11 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   );
 
   const refresh = useCallback(async () => {
-    const [projectRes, modelRes, healthRes] = await Promise.allSettled([
+    const [projectRes, modelRes, healthRes, agentRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects"),
       getJson<{ models: ModelOption[] }>("/api/models"),
       getJson<HealthDto>("/api/health"),
+      getJson<{ agents: { name: string; enabled: boolean }[] }>("/api/agents"),
     ]);
     if (projectRes.status === "fulfilled") {
       setProjects(projectRes.value.projects);
@@ -64,6 +77,14 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
       });
     }
     if (healthRes.status === "fulfilled") setHealth(healthRes.value);
+    if (agentRes.status === "fulfilled") {
+      setAgents(agentRes.value.agents.filter((a) => a.enabled).map((a) => a.name));
+      setAgent((current) =>
+        current && agentRes.value.agents.some((a) => a.name === current && a.enabled)
+          ? current
+          : "",
+      );
+    }
     setLoaded(true);
   }, []);
 
@@ -114,6 +135,8 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
         model,
         thinkingLevel,
         images,
+        ...(agent ? { agent } : {}),
+        subagentPermission,
       });
       localStorage.setItem(MODEL_KEY, model);
       localStorage.setItem(THINKING_KEY, thinkingLevel);
@@ -244,6 +267,24 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                       localStorage.setItem(THINKING_KEY, value);
                     }}
                     className="min-w-0 max-w-[7rem] shrink sm:max-w-[8rem]"
+                  />
+                  {agents.length > 0 && (
+                    <AgentSelect
+                      value={agent}
+                      agents={agents}
+                      disabled={submitting}
+                      onChange={setAgent}
+                      className="min-w-0 max-w-[8rem] shrink sm:max-w-40"
+                    />
+                  )}
+                  <SubagentPermissionSelect
+                    value={subagentPermission}
+                    disabled={submitting}
+                    onChange={(mode) => {
+                      setSubagentPermission(mode);
+                      writeSubagentPermission(mode);
+                    }}
+                    className="h-8 shrink-0"
                   />
                 </>
               }

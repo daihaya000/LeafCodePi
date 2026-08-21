@@ -13,11 +13,16 @@ export async function POST(
     const body = (await req.json().catch(() => null)) as {
       prompt?: string;
       images?: { mimeType: string; data: string }[];
+      agent?: string;
+      subagentPermission?: "allow" | "deny";
     } | null;
     if (!body?.prompt?.trim() && !body?.images?.length) {
       return NextResponse.json({ error: "prompt が必要です" }, { status: 400 });
     }
-    const task = await promptTask(id, body.prompt ?? "", body.images);
+    const task = await promptTask(id, body.prompt ?? "", body.images, {
+      agent: body.agent,
+      subagentPermission: body.subagentPermission,
+    });
     return NextResponse.json({ task });
   } catch (error) {
     const { error: message, status } = jsonError(error);

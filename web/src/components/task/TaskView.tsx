@@ -5,6 +5,8 @@ import { ArrowUp, Shrink, Square } from "lucide-react";
 import { Composer, type ComposerAttachment } from "@/components/Composer";
 import { ModelSelect } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
+import { AgentSelect } from "@/components/AgentSelect";
+import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { PartView } from "@/components/task/PartView";
@@ -15,6 +17,11 @@ import { getJson, sendJson } from "@/lib/client";
 import { isNearBottom, nextStickState } from "@/lib/scroll-stick";
 import { stabilizeUiMessages } from "@/lib/stabilize-messages";
 import { isThinkingLevel } from "@/lib/thinking-levels";
+import {
+  readSubagentPermission,
+  writeSubagentPermission,
+  type SubagentPermission,
+} from "@/lib/subagent-permission";
 import type { ModelOption, TaskDetail, TaskSummary, ThinkingLevel, UiMessage } from "@/lib/types";
 
 /** Compaction LLM calls routinely exceed the default fetch budget. */
@@ -64,6 +71,11 @@ export function TaskView({ taskId }: { taskId: string }) {
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [agents, setAgents] = useState<string[]>([]);
+  const [agent, setAgent] = useState("");
+  const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
+    () => readSubagentPermission(),
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
@@ -135,6 +147,13 @@ export function TaskView({ taskId }: { taskId: string }) {
     });
     void getJson<{ models: ModelOption[] }>("/api/models").then((result) => {
       if (!closed) setModels(result.models);
+    });
+    void getJson<{ agents: { name: string; enabled: boolean }[] }>("/api/agents").then((result) => {
+      if (!closed) {
+        const names = result.agents.filter((a) => a.enabled).map((a) => a.name);
+        setAgents(names);
+        setAgent((current) => (current && names.includes(current) ? current : ""));
+      }
     });
     return () => {
       closed = true;
@@ -225,7 +244,12 @@ export function TaskView({ taskId }: { taskId: string }) {
           return { mimeType: attachment.mime, data: attachment.uri.slice(comma + 1) };
         })
         .filter((item): item is { mimeType: string; data: string } => item !== null);
-      await sendJson(`/api/tasks/${taskId}/prompt`, { prompt, images });
+      await sendJson(`/api/tasks/${taskId}/prompt`, {
+        prompt,
+        images,
+        ...(agent ? { agent } : {}),
+        subagentPermission,
+      });
       setPrompt("");
       setAttachments([]);
       notifyTasksChanged();
@@ -432,6 +456,24 @@ export function TaskView({ taskId }: { taskId: string }) {
                     }
                   })();
                 }}
+              />
+              {agents.length > 0 && (
+                <AgentSelect
+                  value={agent}
+                  agents={agents}
+                  disabled={working || compacting}
+                  onChange={setAgent}
+                  className="min-w-0 max-w-[8rem] sm:max-w-40"
+                />
+              )}
+              <SubagentPermissionSelect
+                value={subagentPermission}
+                disabled={working || compacting}
+                onChange={(mode) => {
+                  setSubagentPermission(mode);
+                  writeSubagentPermission(mode);
+                }}
+                className="h-8 shrink-0"
               />
             </>
           }
