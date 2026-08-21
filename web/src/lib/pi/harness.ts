@@ -38,6 +38,7 @@ import { registerCommandCodeProvider } from "@/lib/pi/commandcode-provider";
 import { registerOllamaCloudProvider, syncOllamaCloudProvider } from "@/lib/pi/ollama-cloud-provider";
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
 import { filterSkillsByState } from "@/lib/skills";
+import { filterExtensionsByState } from "@/lib/extensions";
 import {
   clampThinkingLevelForModel,
   isThinkingLevel,
@@ -538,6 +539,10 @@ async function createSession(options: {
     skillsOverride: (base) => ({
       skills: filterSkillsByState(base.skills),
       diagnostics: base.diagnostics,
+    }),
+    extensionsOverride: (base) => ({
+      ...base,
+      extensions: filterExtensionsByState(base.extensions),
     }),
   });
   await resourceLoader.reload();

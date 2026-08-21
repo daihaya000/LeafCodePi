@@ -1,0 +1,257 @@
+/**
+ * Global Pi extensions with ON/OFF via leafcode-pi state (not folder moves).
+ * Disabled extensions are filtered out of AgentSession through
+ * DefaultResourceLoader.extensionsOverride.
+ *
+ * Discovery mirrors Pi's global extension root: ~/.pi/agent/extensions
+ * (Pi's loader.js: direct *.ts/*.js files, subdirs with index.ts/index.js,
+ * and subdirs with a package.json "pi.extensions" manifest).
+ */
+
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { resolvePiAgentDir } from "@/lib/agents-md";
+import { dataDir } from "@/lib/paths";
+
+export type ExtensionDto = {
+  id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  filePath: string;
+};
+
+export type ExtensionListResult = {
+  extensions: ExtensionDto[];
+  extensionsDir: string;
+};
+
+type ExtensionsState = {
+  /** Extension names (basename of the entry) that must not load. */
+  disabled: Record<string, true>;
+};
+
+export class ExtensionsError extends Error {
+  constructor(
+    readonly code: "invalid-name" | "not-found",
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export function extensionsErrorStatus(error: unknown): number {
+  if (error instanceof ExtensionsError) {
+    return error.code === "invalid-name" ? 400 : 404;
+  }
+  return 500;
+}
+
+export function extensionsStatePath(dir = dataDir()): string {
+  return join(dir, "extensions-state.json");
+}
+
+export function extensionsDir(agentDir = resolvePiAgentDir()): string {
+  return join(agentDir, "extensions");
+}
+
+function emptyState(): ExtensionsState {
+  return { disabled: {} };
+}
+
+function atomicWrite(filePath: string, content: string): void {
+  mkdirSync(dirname(filePath), { recursive: true });
+  const tmp = join(dirname(filePath), `.${Date.now()}.${process.pid}.tmp`);
+  try {
+    writeFileSync(tmp, content, "utf8");
+    renameSync(tmp, filePath);
+  } catch (error) {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      /* ignore */
+    }
+    throw error;
+  }
+}
+
+export function readExtensionsState(path = extensionsStatePath()): ExtensionsState {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<ExtensionsState>;
+    const disabled: Record<string, true> = {};
+    if (parsed.disabled && typeof parsed.disabled === "object" && !Array.isArray(parsed.disabled)) {
+      for (const [key, value] of Object.entries(parsed.disabled)) {
+        if (value === true && typeof key === "string" && key.trim()) disabled[key] = true;
+      }
+    }
+    return { disabled };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn("[extensions] failed to read state", error);
+    }
+    return emptyState();
+  }
+}
+
+export function writeExtensionsState(state: ExtensionsState, path = extensionsStatePath()): void {
+  atomicWrite(path, `${JSON.stringify(state, null, 2)}\n`);
+}
+
+export function isExtensionDisabled(name: string, state = readExtensionsState()): boolean {
+  return state.disabled[name] === true;
+}
+
+/** Filter for DefaultResourceLoader.extensionsOverride. */
+export function filterExtensionsByState<T extends { path: string }>(
+  extensions: readonly T[],
+  state = readExtensionsState(),
+): T[] {
+  if (Object.keys(state.disabled).length === 0) return [...extensions];
+  return extensions.filter((extension) => state.disabled[basenameKey(extension.path)] !== true);
+}
+
+/**
+ * Stable per-extension key: the basename of the entry path. For an `index.*`
+ * entry the directory name is used instead, so a subdirectory extension is
+ * keyed by its folder (e.g. `ponytail/index.js` → `ponytail`).
+ */
+export function basenameKey(entryPath: string): string {
+  const base = basename(entryPath);
+  if (/^index\.(ts|js|mjs|cjs)$/i.test(base)) return basename(dirname(entryPath));
+  return base.replace(/\.(ts|js|mjs|cjs)$/i, "");
+}
+
+type DiscoveredEntry = { name: string; filePath: string; description?: string };
+
+function readPiManifestExtensions(dir: string): string[] {
+  try {
+    const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+      pi?: { extensions?: unknown };
+    };
+    const declared = manifest.pi?.extensions;
+    if (!Array.isArray(declared)) return [];
+    return declared.filter((value): value is string => typeof value === "string");
+  } catch {
+    return [];
+  }
+}
+
+function discoverExtensionsInDir(dir: string): DiscoveredEntry[] {
+  if (!existsSync(dir)) return [];
+  const entries: DiscoveredEntry[] = [];
+  let names: string[];
+  try {
+    names = readdirNames(dir);
+  } catch {
+    return [];
+  }
+  for (const name of names) {
+    const entryPath = join(dir, name);
+    // 1. Direct files: *.ts / *.js
+    if (isFile(entryPath) && /\.(ts|js|mjs|cjs)$/i.test(name)) {
+      entries.push({ name: basenameKey(entryPath), filePath: entryPath });
+      continue;
+    }
+    // 2 & 3. Subdirectories with index or a pi.extensions manifest.
+    if (isDirectory(entryPath)) {
+      const index = ["index.ts", "index.js"].find((file) => existsSync(join(entryPath, file)));
+      if (index) {
+        entries.push({ name: basenameKey(entryPath), filePath: join(entryPath, index) });
+        continue;
+      }
+      const declared = readPiManifestExtensions(entryPath);
+      if (declared.length > 0) {
+        for (const rel of declared) {
+          const resolved = join(entryPath, rel);
+          if (existsSync(resolved)) {
+            entries.push({ name: basenameKey(entryPath), filePath: resolved });
+          }
+        }
+      }
+    }
+  }
+  return entries;
+}
+
+function readdirNames(dir: string): string[] {
+  return readdirSync(dir);
+}
+
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+export type ListExtensionsOptions = {
+  /** Override the extensions dir (tests). */
+  extensionsDir?: string;
+};
+
+/**
+ * List globally discoverable extensions (~/.pi/agent/extensions).
+ * Toggle keys by basename of the entry path.
+ */
+export function listExtensions(
+  agentDir = resolvePiAgentDir(),
+  options?: ListExtensionsOptions,
+): ExtensionListResult {
+  const dir = options?.extensionsDir ?? extensionsDir(agentDir);
+  const state = readExtensionsState();
+  const byName = new Map<string, DiscoveredEntry>();
+  for (const entry of discoverExtensionsInDir(dir)) {
+    if (!byName.has(entry.name)) byName.set(entry.name, entry);
+  }
+  const extensions = [...byName.values()]
+    .map(
+      (entry): ExtensionDto => ({
+        id: entry.name,
+        name: entry.name,
+        description: entry.description,
+        enabled: !isExtensionDisabled(entry.name, state),
+        filePath: entry.filePath,
+      }),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name, "en"));
+  return { extensions, extensionsDir: dir };
+}
+
+export function setExtensionEnabled(
+  name: string,
+  enabled: boolean,
+  agentDir = resolvePiAgentDir(),
+  options?: ListExtensionsOptions,
+): ExtensionListResult {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..")) {
+    throw new ExtensionsError("invalid-name", "名前が不正です");
+  }
+  const listed = listExtensions(agentDir, options);
+  if (!listed.extensions.some((extension) => extension.name === trimmed)) {
+    throw new ExtensionsError("not-found", "拡張機能が見つかりません");
+  }
+  const state = readExtensionsState();
+  if (enabled) delete state.disabled[trimmed];
+  else state.disabled[trimmed] = true;
+  writeExtensionsState(state);
+  return listExtensions(agentDir, options);
+}
