@@ -11,6 +11,7 @@ import { CompactionSettings } from "@/components/settings/CompactionSettings";
 import { SkillsSettings } from "@/components/settings/SkillsSettings";
 import { ExtensionsSettings } from "@/components/settings/ExtensionsSettings";
 import { McpSettings } from "@/components/settings/McpSettings";
+import { AgentsSettings } from "@/components/settings/AgentsSettings";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { Badge, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
@@ -131,6 +132,7 @@ export function SettingsView() {
               <SkillsSettings />
               <ExtensionsSettings />
               <McpSettings />
+              <AgentsSettings />
               <CompactionSettings />
               <div className="rounded-2xl border border-border bg-surface p-4 text-sm text-muted">
                 <p>テーマはサイドバー右下のアイコンから切り替えます（ライト / ダーク / システム）。</p>
