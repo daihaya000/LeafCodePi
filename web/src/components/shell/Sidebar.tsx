@@ -539,7 +539,7 @@ export function Sidebar({
                                 onClose();
                               }}
                               className={cx(
-                                "flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left",
+                                "flex min-h-11 min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left md:min-h-8",
                                 task.id === activeTaskId ? "bg-surface-3 text-text" : "text-muted hover:bg-surface-2 hover:text-text",
                               )}
                             >
