@@ -62,7 +62,9 @@ OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペ
 
 ## 起動
 
-リポジトリ直下の `start.bat` をダブルクリックします。初回は Node.js / 依存関係 / production build を確認し、トレイに常駐します。ソースが `web/.next/BUILD_ID` より新しければ、本家 LeafCode と同じく起動時に `next build` し直します。準備できたら `http://127.0.0.1:3010` を開きます。
+リポジトリ直下の `start.bat` をダブルクリックします。初回は Node.js / 依存関係 / production build を確認し、トレイに常駐します。ソースがビルドより新しければ、本家 LeafCode と同じく起動時に `next build` し直します。準備できたら `http://127.0.0.1:3010` を開きます。
+
+production build は本家 LeafCode と同じく **`%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>\`** のハードリンクミラーで実行し、`next start` もそこから配信します。OneDrive がビルド中・配信中の `.next` に触れてチャンク世代が混ざるのを防ぐためです（`scripts\web-build-mirror.mjs`）。`next dev` はリポジトリのまま動きます（Next 16 の dev 出力は `web/.next/dev` で prod と分離）。ミラーの場所は `LEAFCODE_PI_BUILD_DIR` で変更できます。
 
 トレイメニュー:
 
@@ -107,6 +109,8 @@ npm run dev
 - `web/` — Next.js UI と BFF
 - `host/` — Windows トレイ常駐。Next.js の起動・監視・再起動
 - `start.bat` — 導入とホスト起動
+- `scripts/build-web.mjs` — production build の唯一の入口（ミラー同期 → `next build` → BUILD_ID 検証）
+- `scripts/web-build-mirror.mjs` — OneDrive 外へのハードリンクミラー
 - `web/src/lib/pi/harness.ts` — Pi `createAgentSession` のプロセス内シングルトン
 - `web/src/lib/store.ts` — プロジェクト / タスクの JSON ストア
 
@@ -121,6 +125,8 @@ npm run dev
 | `LEAFCODE_PI_LLAMA_PORT` | llama-server ポート。既定 **8081** |
 | `LLAMA_BASE_URL` / `LLAMA_API_KEY` | Pi の llama.cpp プロバイダー用（未設定時は `http://127.0.0.1:8081`） |
 | `LEAFCODE_PI_MODE` | `prod`（既定・start.bat）または `dev` |
+| `LEAFCODE_PI_BUILD_DIR` | production build のミラー先（未設定時は `%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>`） |
+| `LEAFCODE_PI_USE_WEBPACK` | `1` で `next build` を Turbopack でなく webpack で行う（切り分け用） |
 | `LEAFCODE_PI_HEADLESS` | `1` でトレイなし |
 | `LEAFCODE_PI_NO_BROWSER` | `1` で起動時にブラウザを開かない |
 | `LEAFCODE_PI_NONINTERACTIVE` | `1` で失敗時の pause を省略 |

@@ -78,11 +78,9 @@ if not exist "%~dp0..\web\node_modules\next" (
     exit /b 5
   )
 )
-if exist "%~dp0..\web\.next\BUILD_ID" (
-  echo [LeafCodePi] Existing build found; host will rebuild if sources are newer.
-) else (
-  echo [LeafCodePi] No production build yet; host will run next build on start.
-)
+rem The production build lives in the hard-link mirror outside OneDrive
+rem (scripts\web-build-mirror.mjs), so this batch cannot check BUILD_ID here.
+echo [LeafCodePi] Host will build the WebUI on start if it is missing or stale.
 exit /b 0
 
 :install_host

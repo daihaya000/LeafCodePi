@@ -21,6 +21,12 @@ import {
   isWebBuildStale,
   procRunning,
 } from "./web-plan.js";
+import {
+  isMirroredNextCliReady,
+  mirrorDistDir,
+  resolveMirrorRoot,
+  syncMirror,
+} from "../../scripts/web-build-mirror.mjs";
 
 const SysTray =
   SysTrayImport?.default?.default || SysTrayImport?.default || SysTrayImport;
@@ -34,6 +40,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const HOST_DIR = join(__dirname, "..");
 const REPO_ROOT = join(HOST_DIR, "..");
 const WEB_DIR = join(REPO_ROOT, "web");
+/**
+ * Production builds and `next start` both run in the hard-link mirror outside
+ * the OneDrive-synced tree (scripts/web-build-mirror.mjs), so the sync client
+ * can never touch a build that is being written or served. `next dev` keeps
+ * running from WEB_DIR — Next 16 puts its output in `.next/dev`, which no
+ * longer collides with a production `.next`.
+ */
+const WEB_MIRROR_DIR = resolveMirrorRoot(process.env, WEB_DIR);
+const WEB_DIST_DIR = mirrorDistDir(WEB_MIRROR_DIR);
 const DATA_DIR = dataDir();
 const LOCK_FILE = join(DATA_DIR, "host.lock");
 const HOST_VERSION = (() => {
@@ -102,16 +117,17 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function nextBin() {
-  return join(WEB_DIR, "node_modules", "next", "dist", "bin", "next");
+/** `next dev` runs from the repository; production runs from the mirror. */
+function nextBin(projectDir = WEB_DIR) {
+  return join(projectDir, "node_modules", "next", "dist", "bin", "next");
 }
 
 function hasProductionBuild() {
-  return existsSync(join(WEB_DIR, ".next", "BUILD_ID"));
+  return existsSync(join(WEB_DIST_DIR, "BUILD_ID"));
 }
 
 function webDistDir() {
-  return join(WEB_DIR, ".next");
+  return WEB_DIST_DIR;
 }
 
 function npmCmd() {
@@ -200,7 +216,12 @@ function buildWeb(reason = "missing") {
         ? "Production LeafCodePi build is stale (sources newer than BUILD_ID); rebuilding before start…"
         : "Production LeafCodePi build is missing; rebuilding before start…";
     log(reasonText);
-    const child = runNodeScript([nextBin(), "build"], { cwd: WEB_DIR });
+    // Syncs the hard-link mirror and builds there; see scripts/build-web.mjs.
+    // --skip-guard: the host builds before it starts `next start`, so the only
+    // listener the guard could find would be a WebUI this host is replacing.
+    const child = runNodeScript([join(REPO_ROOT, "scripts", "build-web.mjs"), "--skip-guard"], {
+      cwd: REPO_ROOT,
+    });
     webBuildProc = child;
     void refreshStatusMenu();
     pipeChild("build", child);
@@ -233,9 +254,9 @@ async function spawnWeb() {
         error(
           `Production build failed; falling back to next dev (${err instanceof Error ? err.message : String(err)})`,
         );
-        // 失敗ビルドの中途半端な .next を残すと next dev がそれを読み、
-        // routes-manifest.json ENOENT や 404 / 500 を返し続ける
-        rmSync(webDistDir(), { recursive: true, force: true });
+        // build-web.mjs restores the last good `.next` after a failure. Only a
+        // build that left no BUILD_ID at all is junk worth removing.
+        if (!hasProductionBuild()) rmSync(webDistDir(), { recursive: true, force: true });
         process.env.LEAFCODE_PI_MODE = "dev";
       }
     }
@@ -251,13 +272,27 @@ async function spawnWeb() {
     throw new Error("LeafCodePi production build is unavailable");
   }
 
-  const useProd = plan.useProd && existsSync(nextBin()) && hasProductionBuild();
+  let useProd = plan.useProd && hasProductionBuild();
+  if (useProd && !isMirroredNextCliReady(WEB_MIRROR_DIR)) {
+    // OneDrive can leave the mirror with empty `next/dist/compiled/*` dirs.
+    log("Production mirror is missing the Next.js CLI payload; re-syncing…");
+    const mirror = syncMirror({ sourceDir: WEB_DIR, mirrorRoot: WEB_MIRROR_DIR });
+    log(
+      `Mirror re-synced ${mirror.mirrorRoot} (linked ${mirror.linked}, copied ${mirror.copied}, unchanged ${mirror.unchanged}, removed ${mirror.removed}, ${mirror.durationMs}ms)`,
+    );
+    if (!isMirroredNextCliReady(WEB_MIRROR_DIR)) {
+      error(`Production mirror is missing next/dist/compiled/commander under ${WEB_MIRROR_DIR}`);
+      useProd = false;
+    }
+  }
+  // Production serves the mirrored project; dev keeps running from the repo.
+  const projectDir = useProd ? WEB_MIRROR_DIR : WEB_DIR;
   const args = useProd
-    ? [nextBin(), "start", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)]
-    : [nextBin(), "dev", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)];
+    ? [nextBin(projectDir), "start", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)]
+    : [nextBin(projectDir), "dev", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)];
   log(`Starting LeafCodePi (${useProd ? "production" : "dev"}) on ${WEBUI_URL}`);
   const child = runNodeScript(args, {
-    cwd: WEB_DIR,
+    cwd: projectDir,
     env: {
       ...process.env,
       PORT: String(WEBUI_PORT),

@@ -4,8 +4,7 @@
   "description": "Pi Coding Agent をバックエンドにした LeafCode 互換フロントエンド",
   "scripts": {
     "dev": "npm --prefix web run dev -- --hostname 127.0.0.1 --port 3010",
-    "build": "npm --prefix web run build",
-    "start": "npm --prefix web run start -- --hostname 127.0.0.1 --port 3010",
+    "build": "node scripts/build-web.mjs",
     "host": "npm --prefix host start",
     "icons": "node scripts/gen-icons.mjs",
     "test": "npm --prefix web test && npm --prefix host test",

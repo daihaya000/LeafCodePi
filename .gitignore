@@ -1,6 +1,9 @@
 node_modules/
 .next/
 .next-*/
+.next.prev/
+# 最終手段のビルドミラー（通常は %LOCALAPPDATA%\leafcode-pi\build\ 配下）
+.build-mirror/
 .env*.local
 *.log
 .DS_Store

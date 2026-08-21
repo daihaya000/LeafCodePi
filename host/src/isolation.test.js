@@ -47,6 +47,9 @@ test("host rebuilds stale production builds like LeafCode", () => {
   assert.match(index, /isWebBuildStale/);
   assert.match(index, /rebuildReason === "stale"/);
   assert.match(index, /continuing with the existing production build/);
+  // The production build moved into the hard-link mirror outside OneDrive, so
+  // the batch can no longer look for BUILD_ID itself; the host reports instead.
   const bat = readFileSync(join(repoRoot, "scripts", "start-webui.bat"), "utf8");
-  assert.match(bat, /host will rebuild if sources are newer/);
+  assert.match(bat, /Host will build the WebUI on start if it is missing or stale/);
+  assert.doesNotMatch(bat, /\.next\\BUILD_ID/);
 });
