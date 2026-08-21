@@ -152,3 +152,29 @@ export function patchTask(
 export function setTaskStatus(id: string, status: TaskStatus, error?: string | null): TaskSummary | undefined {
   return patchTask(id, { status, error: error ?? null });
 }
+
+export function deleteTask(id: string): boolean {
+  const store = readStore();
+  const index = store.tasks.findIndex((task) => task.id === id);
+  if (index < 0) return false;
+  store.tasks.splice(index, 1);
+  writeStore(store);
+  return true;
+}
+
+export function deleteTasksByProject(projectId: string): number {
+  const store = readStore();
+  const before = store.tasks.length;
+  store.tasks = store.tasks.filter((task) => task.projectId !== projectId);
+  writeStore(store);
+  return before - store.tasks.length;
+}
+
+export function deleteProjectRecord(id: string): boolean {
+  const store = readStore();
+  const index = store.projects.findIndex((project) => project.id === id);
+  if (index < 0) return false;
+  store.projects.splice(index, 1);
+  writeStore(store);
+  return true;
+}

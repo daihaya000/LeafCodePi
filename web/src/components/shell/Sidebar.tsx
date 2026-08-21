@@ -3,7 +3,17 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronRight, Loader2, Menu, Plus, Settings, Trash2, X } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  ChevronRight,
+  Loader2,
+  Menu,
+  Plus,
+  Settings,
+  Trash2,
+  X,
+} from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
@@ -15,12 +25,15 @@ import type { HealthDto, ProjectDto, TaskSummary } from "@/lib/types";
 const WIDTH_KEY = "webui.sidebar.width";
 const COLLAPSED_KEY = "webui.sidebar.collapsed";
 const EXPANDED_KEY = "webui.sidebar.expanded";
+const PROJECT_ORDER_KEY = "webui.sidebar.project_order";
+const ARCHIVED_EXPANDED_KEY = "webui.sidebar.archived_expanded";
 const DEFAULT_WIDTH = 240;
 const COLLAPSED_WIDTH = 80;
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 480;
 const POLL_IDLE_MS = 12_000;
 const POLL_WORKING_MS = 4_000;
+const PROJECT_DRAG_MIME = "application/x-leafcode-project";
 
 const PROJECT_ICON_TONES = [
   "border-danger/30 bg-danger-bg text-danger",
@@ -39,6 +52,58 @@ function projectIconTone(projectId: string): string {
     hash = (hash * 31 + character.codePointAt(0)!) >>> 0;
   }
   return PROJECT_ICON_TONES[hash % PROJECT_ICON_TONES.length]!;
+}
+
+function countRunningTasks(tasks: TaskSummary[]): number {
+  return tasks.filter((task) => task.status === "working").length;
+}
+
+function loadExpanded(): Set<string> {
+  try {
+    const raw = localStorage.getItem(EXPANDED_KEY);
+    if (raw) return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    /* ignore */
+  }
+  return new Set();
+}
+
+function saveExpanded(ids: Set<string>): void {
+  try {
+    localStorage.setItem(EXPANDED_KEY, JSON.stringify([...ids]));
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadProjectOrder(): string[] {
+  try {
+    const raw = localStorage.getItem(PROJECT_ORDER_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
+      return parsed;
+    }
+  } catch {
+    /* ignore */
+  }
+  return [];
+}
+
+function saveProjectOrder(ids: string[]): void {
+  try {
+    localStorage.setItem(PROJECT_ORDER_KEY, JSON.stringify(ids));
+  } catch {
+    /* ignore */
+  }
+}
+
+function projectDragIdFromDataTransfer(dataTransfer: DataTransfer): string | null {
+  try {
+    return dataTransfer.getData(PROJECT_DRAG_MIME) || null;
+  } catch {
+    return null;
+  }
 }
 
 function subscribeMdUp(onChange: () => void) {
@@ -66,20 +131,37 @@ export function Sidebar({
   const router = useRouter();
   const mdUp = useIsMdUp();
   const [projects, setProjects] = useState<ProjectDto[]>([]);
+  const [archivedProjects, setArchivedProjects] = useState<ProjectDto[]>([]);
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
+  const [archivedTasks, setArchivedTasks] = useState<TaskSummary[]>([]);
   const [health, setHealth] = useState<HealthDto | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [projectOrder, setProjectOrder] = useState<string[]>(() => loadProjectOrder());
+  const [archivedExpanded, setArchivedExpanded] = useState(false);
+  const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
+  const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null);
+  const [keyboardDraggedProjectId, setKeyboardDraggedProjectId] = useState<string | null>(null);
+  const [reorderAnnouncement, setReorderAnnouncement] = useState("");
+  const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [projectRes, taskRes, healthRes] = await Promise.allSettled([
+    const [projectRes, taskRes, archivedRes, archivedProjectsRes, healthRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects"),
       getJson<{ tasks: TaskSummary[] }>("/api/tasks"),
+      getJson<{ tasks: TaskSummary[] }>("/api/tasks?archived=1"),
+      getJson<{ projects: ProjectDto[] }>("/api/projects?archived=1"),
       getJson<HealthDto>("/api/health"),
     ]);
     if (projectRes.status === "fulfilled") setProjects(projectRes.value.projects);
     if (taskRes.status === "fulfilled") setTasks(taskRes.value.tasks);
+    if (archivedRes.status === "fulfilled") {
+      setArchivedTasks(archivedRes.value.tasks.filter((task) => task.status === "archived"));
+    }
+    if (archivedProjectsRes.status === "fulfilled") {
+      setArchivedProjects(archivedProjectsRes.value.projects.filter((project) => project.archived));
+    }
     if (healthRes.status === "fulfilled") setHealth(healthRes.value);
   }, []);
 
@@ -93,8 +175,8 @@ export function Sidebar({
       const storedWidth = Number(localStorage.getItem(WIDTH_KEY));
       if (Number.isFinite(storedWidth) && storedWidth >= MIN_WIDTH) setWidth(storedWidth);
       setCollapsed(localStorage.getItem(COLLAPSED_KEY) === "1");
-      const raw = localStorage.getItem(EXPANDED_KEY);
-      if (raw) setExpanded(new Set(JSON.parse(raw) as string[]));
+      setExpanded(loadExpanded());
+      setArchivedExpanded(localStorage.getItem(ARCHIVED_EXPANDED_KEY) === "1");
     } catch {
       /* ignore */
     }
@@ -125,14 +207,206 @@ export function Sidebar({
     return map;
   }, [tasks]);
 
+  const archivedGroups = useMemo(() => {
+    const groups = new Map<string, TaskSummary[]>();
+    for (const task of archivedTasks) {
+      const list = groups.get(task.projectName) ?? [];
+      list.push(task);
+      groups.set(task.projectName, list);
+    }
+    return [...groups.entries()].map(([name, list]) => ({
+      key: name,
+      name,
+      tasks: list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    }));
+  }, [archivedTasks]);
+
+  const orderedProjects = useMemo(() => {
+    const projectsById = new Map(projects.map((project) => [project.id, project]));
+    const seen = new Set<string>();
+    const ordered: ProjectDto[] = [];
+    for (const id of projectOrder) {
+      const project = projectsById.get(id);
+      if (!project || seen.has(id)) continue;
+      seen.add(id);
+      ordered.push(project);
+    }
+    for (const project of projects) {
+      if (seen.has(project.id)) continue;
+      seen.add(project.id);
+      ordered.push(project);
+    }
+    return ordered;
+  }, [projects, projectOrder]);
+
   function toggleExpanded(id: string) {
     setExpanded((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      localStorage.setItem(EXPANDED_KEY, JSON.stringify([...next]));
+      saveExpanded(next);
       return next;
     });
+  }
+
+  const reorderProjects = useCallback(
+    (sourceId: string, targetId: string, placement: "before" | "after" = "before"): boolean => {
+      if (sourceId === targetId) return false;
+      const nextOrder = orderedProjects.map((project) => project.id);
+      const sourceIndex = nextOrder.indexOf(sourceId);
+      if (sourceIndex < 0 || nextOrder.indexOf(targetId) < 0) return false;
+      const [moved] = nextOrder.splice(sourceIndex, 1);
+      if (!moved) return false;
+      const targetIndex = nextOrder.indexOf(targetId);
+      nextOrder.splice(targetIndex + (placement === "after" ? 1 : 0), 0, moved);
+      setProjectOrder(nextOrder);
+      saveProjectOrder(nextOrder);
+      return true;
+    },
+    [orderedProjects],
+  );
+
+  const handleProjectDragStart = useCallback(
+    (event: React.DragEvent<HTMLElement>, projectId: string) => {
+      if (orderedProjects.length < 2) return;
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(PROJECT_DRAG_MIME, projectId);
+      event.dataTransfer.setData("text/plain", projectId);
+      setDraggedProjectId(projectId);
+      setDragOverProjectId(null);
+      setKeyboardDraggedProjectId(null);
+    },
+    [orderedProjects.length],
+  );
+
+  const handleProjectDragOver = useCallback(
+    (event: React.DragEvent<HTMLElement>, projectId: string) => {
+      const sourceId = draggedProjectId || projectDragIdFromDataTransfer(event.dataTransfer);
+      if (!sourceId || sourceId === projectId) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      setDragOverProjectId(projectId);
+    },
+    [draggedProjectId],
+  );
+
+  const handleProjectDrop = useCallback(
+    (event: React.DragEvent<HTMLElement>, targetId: string) => {
+      event.preventDefault();
+      const sourceId = projectDragIdFromDataTransfer(event.dataTransfer) || draggedProjectId;
+      if (sourceId && reorderProjects(sourceId, targetId)) {
+        const source = orderedProjects.find((project) => project.id === sourceId);
+        const target = orderedProjects.find((project) => project.id === targetId);
+        if (source && target) {
+          setReorderAnnouncement(`${source.name}を${target.name}の前に移動しました`);
+        }
+      }
+      setDraggedProjectId(null);
+      setDragOverProjectId(null);
+    },
+    [draggedProjectId, orderedProjects, reorderProjects],
+  );
+
+  const handleProjectDragEnd = useCallback(() => {
+    setDraggedProjectId(null);
+    setDragOverProjectId(null);
+  }, []);
+
+  const handleProjectKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLElement>, projectId: string) => {
+      if (orderedProjects.length < 2) return;
+      const project = orderedProjects.find((item) => item.id === projectId);
+      if (!project) return;
+
+      if (event.key === " " && keyboardDraggedProjectId === null) {
+        event.preventDefault();
+        setKeyboardDraggedProjectId(projectId);
+        setReorderAnnouncement(
+          `${project.name}の並べ替えを開始しました。上下矢印で移動し、スペースで終了します`,
+        );
+        return;
+      }
+
+      if (keyboardDraggedProjectId !== projectId) return;
+      if (event.key === "Escape" || event.key === " ") {
+        event.preventDefault();
+        setKeyboardDraggedProjectId(null);
+        setReorderAnnouncement(`${project.name}の並べ替えを終了しました`);
+        return;
+      }
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+
+      event.preventDefault();
+      const currentIndex = orderedProjects.findIndex((item) => item.id === projectId);
+      const targetIndex = currentIndex + (event.key === "ArrowUp" ? -1 : 1);
+      const target = orderedProjects[targetIndex];
+      if (!target) {
+        setReorderAnnouncement(
+          `${project.name}はこれ以上${event.key === "ArrowUp" ? "上" : "下"}へ移動できません`,
+        );
+        return;
+      }
+      const moveAfter = event.key === "ArrowDown";
+      reorderProjects(projectId, target.id, moveAfter ? "after" : "before");
+      setReorderAnnouncement(
+        `${project.name}を${target.name}の${event.key === "ArrowUp" ? "前" : "後ろ"}へ移動しました`,
+      );
+    },
+    [keyboardDraggedProjectId, orderedProjects, reorderProjects],
+  );
+
+  async function runAction(key: string, action: () => Promise<unknown>) {
+    if (actionBusyKey) return;
+    setActionBusyKey(key);
+    try {
+      await action();
+    } catch (err) {
+      console.error("[sidebar] action failed", err);
+    } finally {
+      setActionBusyKey(null);
+      void refresh();
+      notifyTasksChanged();
+    }
+  }
+
+  async function restoreArchivedTask(task: TaskSummary) {
+    await runAction(`restore:${task.id}`, () =>
+      sendJson(`/api/tasks/${encodeURIComponent(task.id)}`, { archived: false }, "PATCH"),
+    );
+  }
+
+  async function destroyArchivedTask(task: TaskSummary) {
+    await runAction(`destroy:${task.id}`, () =>
+      sendJson(`/api/tasks/${encodeURIComponent(task.id)}?hard=1`, undefined, "DELETE"),
+    );
+  }
+
+  async function destroyArchivedGroup(group: { key: string; name: string; tasks: TaskSummary[] }) {
+    if (!window.confirm(`「${group.name}」のアーカイブ済みタスクを${group.tasks.length}件すべて完全に削除しますか？`)) return;
+    const projectId = group.tasks[0]?.projectId;
+    if (!projectId) return;
+    await runAction(`destroy-group:${group.key}`, () =>
+      sendJson(`/api/tasks?projectId=${encodeURIComponent(projectId)}`, undefined, "DELETE"),
+    );
+  }
+
+  async function archiveProjectAction(project: ProjectDto) {
+    await runAction(`archive-project:${project.id}`, () =>
+      sendJson("/api/projects", { id: project.id, archived: true }, "PATCH"),
+    );
+  }
+
+  async function restoreProjectAction(project: ProjectDto) {
+    await runAction(`restore-project:${project.id}`, () =>
+      sendJson("/api/projects", { id: project.id, archived: false }, "PATCH"),
+    );
+  }
+
+  async function destroyProjectAction(project: ProjectDto) {
+    if (!window.confirm(`プロジェクト「${project.name}」と関連タスクを完全に削除しますか？`)) return;
+    await runAction(`destroy-project:${project.id}`, () =>
+      sendJson(`/api/projects?id=${encodeURIComponent(project.id)}`, undefined, "DELETE"),
+    );
   }
 
   // `collapsed` はデスクトップ専用のレール表示（collapsedRail）用。body は
@@ -165,22 +439,43 @@ export function Sidebar({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+        <span className="sr-only">
+          ドラッグしてプロジェクトを並べ替えます。キーボードではスペースで開始し、上下矢印で移動、スペースで終了します。
+        </span>
+        <span role="status" aria-live="polite" className="sr-only">
+          {reorderAnnouncement}
+        </span>
         {projects.length === 0 ? (
           <p className="px-2 py-3 text-xs text-muted">プロジェクトなし</p>
         ) : (
           <ul className="space-y-1">
-            {projects.map((project) => {
+            {orderedProjects.map((project) => {
               const children = tasksByProject.get(project.id) ?? [];
               const open = expanded.has(project.id) || children.some((task) => task.id === activeTaskId);
-              const running = children.filter((task) => task.status === "working").length;
+              const running = countRunningTasks(children);
               return (
                 <li key={project.id}>
-                  <div className="flex items-center gap-0.5 rounded-lg hover:bg-surface-2">
+                  <div
+                    className={cx(
+                      "flex items-center gap-0.5 rounded-lg",
+                      dragOverProjectId === project.id && draggedProjectId !== project.id && "bg-surface-3",
+                    )}
+                  >
                     <button
                       type="button"
                       aria-expanded={open}
+                      aria-label={`${project.name}を${open ? "折りたたむ" : "展開"}`}
+                      draggable={orderedProjects.length > 1}
+                      onDragStart={(event) => handleProjectDragStart(event, project.id)}
+                      onDragOver={(event) => handleProjectDragOver(event, project.id)}
+                      onDrop={(event) => handleProjectDrop(event, project.id)}
+                      onDragEnd={handleProjectDragEnd}
+                      onKeyDown={(event) => handleProjectKeyDown(event, project.id)}
                       onClick={() => toggleExpanded(project.id)}
-                      className="inline-flex h-8 w-6 items-center justify-center text-faint"
+                      className={cx(
+                        "inline-flex h-8 w-6 items-center justify-center text-faint",
+                        orderedProjects.length > 1 && "cursor-grab active:cursor-grabbing",
+                      )}
                     >
                       <ChevronRight className={cx("h-3.5 w-3.5 transition", open && "rotate-90")} />
                     </button>
@@ -210,6 +505,7 @@ export function Sidebar({
                     <button
                       type="button"
                       aria-label={`${project.name}に新規タスクを作成`}
+                      title="新規タスク"
                       onClick={() => {
                         router.push(`/?projectId=${encodeURIComponent(project.id)}`);
                         onClose();
@@ -217,6 +513,16 @@ export function Sidebar({
                       className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:text-text"
                     >
                       <Plus className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`${project.name}をアーカイブ`}
+                      title="プロジェクトをアーカイブ"
+                      disabled={actionBusyKey !== null}
+                      onClick={() => void archiveProjectAction(project)}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-danger-bg hover:text-danger"
+                    >
+                      <Archive className="h-3.5 w-3.5" />
                     </button>
                   </div>
                   {open && (
@@ -252,13 +558,14 @@ export function Sidebar({
                             </button>
                             <button
                               type="button"
-                              aria-label="アーカイブ"
+                              aria-label={`「${task.title}」をアーカイブ`}
+                              title="タスクをアーカイブ"
                               className="hidden h-7 w-7 items-center justify-center text-muted group-hover:inline-flex hover:text-text"
-                              onClick={async () => {
-                                await sendJson(`/api/tasks/${task.id}`, undefined, "DELETE");
-                                notifyTasksChanged();
-                                void refresh();
-                              }}
+                              onClick={() =>
+                                void runAction(`archive:${task.id}`, () =>
+                                  sendJson(`/api/tasks/${task.id}`, undefined, "DELETE"),
+                                )
+                              }
                             >
                               <Trash2 className="h-3 w-3" />
                             </button>
@@ -272,6 +579,147 @@ export function Sidebar({
             })}
           </ul>
         )}
+
+        <div className="mt-2">
+          <button
+            type="button"
+            aria-expanded={archivedExpanded}
+            aria-label={`アーカイブ${archivedExpanded ? "を折りたたむ" : "を展開"}`}
+            onClick={() => {
+              const next = !archivedExpanded;
+              setArchivedExpanded(next);
+              try {
+                localStorage.setItem(ARCHIVED_EXPANDED_KEY, next ? "1" : "0");
+              } catch {
+                /* ignore */
+              }
+            }}
+            className="flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-muted hover:bg-surface-2 hover:text-text"
+          >
+            <Archive className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">アーカイブ</span>
+            <span className="tabular-nums text-[10px] text-muted">{archivedTasks.length}</span>
+            <ChevronRight
+              className={cx("h-3 w-3 shrink-0 transition-transform", archivedExpanded && "rotate-90")}
+              aria-hidden="true"
+            />
+          </button>
+          {archivedExpanded && (
+            <ul className="mb-1 ml-2 space-y-0.5 border-l border-border pl-1.5">
+              {archivedGroups.length === 0 ? (
+                <li className="px-2 py-1.5 text-[11px] text-muted">
+                  アーカイブされたタスクはありません
+                </li>
+              ) : (
+                archivedGroups.map((group) => (
+                  <li key={group.key}>
+                    <div className="flex items-center gap-0.5">
+                      <span className="min-w-0 flex-1 truncate px-1.5 py-1 text-[11px] font-medium text-muted">
+                        {group.name}
+                        <span className="ml-1 tabular-nums text-[10px] text-faint">
+                          {group.tasks.length}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={`${group.name}のアーカイブを一括削除`}
+                        title="このプロジェクトのアーカイブを一括削除"
+                        disabled={actionBusyKey !== null}
+                        onClick={() => void destroyArchivedGroup(group)}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-danger-bg hover:text-danger disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                    <ul className="ml-2 space-y-0.5 border-l border-border pl-1.5">
+                      {group.tasks.map((task) => (
+                        <li key={task.id}>
+                          <div className="flex items-center gap-0.5 rounded-lg text-muted hover:bg-surface-2 hover:text-text">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                router.push(`/task/${task.id}`);
+                                onClose();
+                              }}
+                              className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left"
+                            >
+                              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint" />
+                              <span className="min-w-0 flex-1 truncate text-xs font-medium">{task.title}</span>
+                              <span className="shrink-0 text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`「${task.title}」を復元`}
+                              title="タスクを復元"
+                              disabled={actionBusyKey !== null}
+                              onClick={() => void restoreArchivedTask(task)}
+                              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-surface-2 hover:text-text disabled:opacity-50"
+                            >
+                              <ArchiveRestore className="h-3 w-3" />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`「${task.title}」を完全に削除`}
+                              title="タスクを完全に削除"
+                              disabled={actionBusyKey !== null}
+                              onClick={() => void destroyArchivedTask(task)}
+                              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-danger-bg hover:text-danger disabled:opacity-50"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))
+              )}
+            </ul>
+          )}
+          {archivedProjects.length > 0 && (
+            <div className="mt-2">
+              <p className="px-2 py-1 text-[11px] font-medium text-muted">アーカイブ済みプロジェクト</p>
+              <ul className="ml-2 space-y-0.5 border-l border-border pl-1.5">
+                {archivedProjects.map((project) => (
+                  <li key={project.id}>
+                    <div className="flex items-center gap-0.5 rounded-lg text-muted hover:bg-surface-2 hover:text-text">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          router.push(`/?projectId=${encodeURIComponent(project.id)}`);
+                          onClose();
+                        }}
+                        className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left"
+                      >
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium">{project.name}</span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`${project.name}を復元`}
+                        title="プロジェクトを復元"
+                        disabled={actionBusyKey !== null}
+                        onClick={() => void restoreProjectAction(project)}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-surface-2 hover:text-text disabled:opacity-50"
+                      >
+                        <ArchiveRestore className="h-3 w-3" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`${project.name}を完全に削除`}
+                        title="プロジェクトを完全に削除"
+                        disabled={actionBusyKey !== null}
+                        onClick={() => void destroyProjectAction(project)}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-danger-bg hover:text-danger disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="shrink-0 border-t border-border p-2 pb-[env(safe-area-inset-bottom)]">

@@ -1,12 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createTask, getTaskSummaries, jsonError } from "@/lib/pi/harness";
+import {
+  createTask,
+  destroyArchivedTasksByProject,
+  getTaskSummaries,
+  jsonError,
+} from "@/lib/pi/harness";
 import type { ThinkingLevel } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  return NextResponse.json({ tasks: getTaskSummaries() });
+export async function GET(req: NextRequest) {
+  const includeArchived = req.nextUrl.searchParams.get("archived") === "1";
+  return NextResponse.json({ tasks: getTaskSummaries(includeArchived) });
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const projectId = req.nextUrl.searchParams.get("projectId");
+    if (!projectId) {
+      return NextResponse.json({ error: "projectId is required" }, { status: 400 });
+    }
+    return NextResponse.json(destroyArchivedTasksByProject(projectId));
+  } catch (error) {
+    const { error: message, status } = jsonError(error);
+    return NextResponse.json({ error: message }, { status });
+  }
 }
 
 export async function POST(req: NextRequest) {

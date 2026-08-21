@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { addProject, archiveProject, getProjects, jsonError } from "@/lib/pi/harness";
+import {
+  addProject,
+  archiveProject,
+  destroyProject,
+  getProjects,
+  jsonError,
+  restoreProject,
+} from "@/lib/pi/harness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  return NextResponse.json({ projects: getProjects() });
+export async function GET(req: NextRequest) {
+  const includeArchived = req.nextUrl.searchParams.get("archived") === "1";
+  return NextResponse.json({ projects: getProjects(includeArchived) });
 }
 
 export async function POST(req: NextRequest) {
@@ -28,10 +36,26 @@ export async function PATCH(req: NextRequest) {
     if (!body?.id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
-    if (body.archived) {
+    if (body.archived === true) {
       return NextResponse.json({ project: archiveProject(body.id) });
     }
+    if (body.archived === false) {
+      return NextResponse.json({ project: restoreProject(body.id) });
+    }
     return NextResponse.json({ error: "unsupported patch" }, { status: 400 });
+  } catch (error) {
+    const { error: message, status } = jsonError(error);
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const id = req.nextUrl.searchParams.get("id");
+    if (!id) {
+      return NextResponse.json({ error: "id is required" }, { status: 400 });
+    }
+    return NextResponse.json(destroyProject(id));
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

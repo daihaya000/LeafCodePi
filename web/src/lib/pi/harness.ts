@@ -5,6 +5,8 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dataDir, isAbsolutePath } from "@/lib/paths";
 import {
+  deleteProjectRecord,
+  deleteTask,
   getProject,
   getTask,
   insertTask,
@@ -854,8 +856,8 @@ export async function logoutProvider(providerId: string): Promise<void> {
   invalidateHealthCache();
 }
 
-export function getProjects(): ProjectDto[] {
-  return listProjects();
+export function getProjects(includeArchived = false): ProjectDto[] {
+  return listProjects(includeArchived);
 }
 
 export function addProject(rootPath: string): ProjectDto {
@@ -873,8 +875,8 @@ export function archiveProject(id: string): ProjectDto {
   return project;
 }
 
-export function getTaskSummaries(): TaskSummary[] {
-  return listTasks().map(toSummary);
+export function getTaskSummaries(includeArchived = false): TaskSummary[] {
+  return listTasks(includeArchived).map(toSummary);
 }
 
 export async function getTaskDetail(id: string): Promise<TaskDetail> {
@@ -1150,6 +1152,63 @@ export function archiveTask(id: string): TaskSummary {
   const task = setTaskStatus(id, "archived");
   if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   return task;
+}
+
+export function restoreTask(id: string): TaskSummary {
+  const task = getTask(id);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (task.status !== "archived") throw Object.assign(new Error("アーカイブされたタスクのみ復元できます"), { status: 400 });
+  return patchTask(id, { status: "idle" }) ?? task;
+}
+
+export function destroyTask(id: string): { ok: true } {
+  const task = getTask(id);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const live = state().live.get(id);
+  if (live) {
+    live.unsubscribe();
+    live.session.dispose();
+    state().live.delete(id);
+  }
+  deleteTask(id);
+  return { ok: true };
+}
+
+export function destroyArchivedTasksByProject(projectId: string): { ok: true; removed: number } {
+  const tasks = listTasks(true).filter((task) => task.projectId === projectId && task.status === "archived");
+  for (const task of tasks) {
+    const live = state().live.get(task.id);
+    if (live) {
+      live.unsubscribe();
+      live.session.dispose();
+      state().live.delete(task.id);
+    }
+    deleteTask(task.id);
+  }
+  return { ok: true, removed: tasks.length };
+}
+
+export function restoreProject(id: string): ProjectDto {
+  const project = patchProject(id, { archived: false });
+  if (!project) throw Object.assign(new Error("プロジェクトが見つかりません"), { status: 404 });
+  return project;
+}
+
+export function destroyProject(id: string): { ok: true } {
+  const project = getProject(id);
+  if (!project) throw Object.assign(new Error("プロジェクトが見つかりません"), { status: 404 });
+  const tasks = listTasks(true).filter((task) => task.projectId === id);
+  for (const task of tasks) {
+    const live = state().live.get(task.id);
+    if (live) {
+      live.unsubscribe();
+      live.session.dispose();
+      state().live.delete(task.id);
+    }
+    deleteTask(task.id);
+  }
+  deleteProjectRecord(id);
+  return { ok: true };
 }
 
 /**
