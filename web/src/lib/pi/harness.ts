@@ -104,6 +104,7 @@ type HarnessState = {
   live: Map<string, LiveRuntime>;
   events: EventEmitter;
   loginSession: ProviderLoginSession | null;
+  healthCache: HealthCacheEntry | null;
 };
 
 const GLOBAL_KEY = "__leafcodePiHarness" as const;
@@ -119,6 +120,7 @@ function state(): HarnessState {
       live: new Map(),
       events: new EventEmitter(),
       loginSession: null,
+      healthCache: null,
     };
     globalRef[GLOBAL_KEY].events.setMaxListeners(100);
   }
@@ -624,7 +626,45 @@ function validateProjectPath(rootPath: string): { ok: true; path: string } | { o
   return { ok: true, path: canonical };
 }
 
+/**
+ * `/api/health` is the most frequently polled endpoint (sidebar: 4s while a task
+ * runs, 12s idle) and the only expensive part is `listModels()`, which re-syncs
+ * llama-server / Ollama Cloud and rebuilds the provider catalog every call
+ * (~250ms measured). A short TTL keeps the poll nearly free.
+ */
+const HEALTH_TTL_MS = 15_000;
+
+type HealthCacheEntry = { at: number; value: HealthDto };
+
+/** Fresh cache entries only; unhealthy snapshots are never cached (see below). */
+export function readHealthCache(
+  entry: HealthCacheEntry | null,
+  now: number,
+  ttlMs = HEALTH_TTL_MS,
+): HealthDto | null {
+  if (!entry) return null;
+  const age = now - entry.at;
+  if (age < 0 || age >= ttlMs) return null;
+  return entry.value;
+}
+
+/**
+ * Never cache a broken engine: HomeView polls every 3s waiting for `engineOk`
+ * to flip true, so caching the failure would delay recovery by up to the TTL.
+ */
+export function nextHealthCache(value: HealthDto, now: number): HealthCacheEntry | null {
+  return value.engineOk ? { at: now, value } : null;
+}
+
+/** Drop the cached snapshot after anything that can change the model list. */
+export function invalidateHealthCache(): void {
+  state().healthCache = null;
+}
+
 export async function getHealth(): Promise<HealthDto> {
+  const cached = readHealthCache(state().healthCache, Date.now());
+  if (cached) return cached;
+
   try {
     await ensureRuntime();
   } catch {
@@ -632,7 +672,7 @@ export async function getHealth(): Promise<HealthDto> {
   }
   const current = state();
   const models = current.modelRuntime ? await listModels().catch(() => []) : [];
-  return {
+  const value: HealthDto = {
     ok: !current.initError,
     engine: "pi",
     engineOk: !current.initError && models.length > 0,
@@ -641,6 +681,8 @@ export async function getHealth(): Promise<HealthDto> {
     dataDir: dataDir(),
     error: current.initError,
   };
+  current.healthCache = nextHealthCache(value, Date.now());
+  return value;
 }
 
 export async function listModels(): Promise<ModelOption[]> {
@@ -688,6 +730,7 @@ export async function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> 
 export async function setProviderOrModelEnabled(key: string, enabled: boolean): Promise<void> {
   if (!key.trim()) throw Object.assign(new Error("key が必要です"), { status: 400 });
   await setProviderModelDisabled(key, !enabled);
+  invalidateHealthCache();
 }
 
 export async function saveProviderModelsOrder(input: {
@@ -695,6 +738,7 @@ export async function saveProviderModelsOrder(input: {
   modelOrder?: Record<string, string[]>;
 }): Promise<void> {
   await setProviderModelOrder(input);
+  invalidateHealthCache();
 }
 
 export async function listProviderAuth(): Promise<ProviderAuthDto[]> {
@@ -750,6 +794,8 @@ export async function startProviderLogin(
   // Let the SSE client attach before the OAuth flow emits prompts.
   queueMicrotask(() => {
     void session.run(runtime).finally(() => {
+      // A successful login usually adds models, so drop the cached health snapshot.
+      invalidateHealthCache();
       // Keep the finished session briefly so a late EventSource can replay history.
       setTimeout(() => {
         if (current.loginSession === session) current.loginSession = null;
@@ -791,6 +837,7 @@ export async function logoutProvider(providerId: string): Promise<void> {
     throw Object.assign(new Error(`不明なプロバイダー: ${providerId}`), { status: 404 });
   }
   await runtime.logout(providerId);
+  invalidateHealthCache();
 }
 
 export function getProjects(): ProjectDto[] {

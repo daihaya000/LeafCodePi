@@ -4,6 +4,7 @@ import {
   resolveHostControlUrl,
   type HostLlamaServerAction,
 } from "@/lib/host-control";
+import { invalidateHealthCache } from "@/lib/pi/harness";
 import {
   isSafeLlamaModelFile,
   isSafeLlamaPathValue,
@@ -143,6 +144,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ action:
   if (action !== "start" && action !== "stop") {
     return NextResponse.json({ error: "POST supports start or stop only" }, { status: 405 });
   }
+  // Starting/stopping llama-server changes the available models.
+  invalidateHealthCache();
   if (action === "stop") return forward(action, {});
   const body = parseStartBody(await req.json().catch(() => ({})));
   if (body === null) {
