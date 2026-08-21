@@ -72,7 +72,8 @@ function ProviderRow({
   onDragStartModel: (modelId: string) => void;
   onDropModel: (modelId: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  // 既定は折りたたみ。プロバイダーが増えると全展開では一覧が長くなるため。
+  const [expanded, setExpanded] = useState(false);
   const panelId = useId();
   const isBusy = busyId === provider.id;
   const hasModels = provider.models.length > 0;
