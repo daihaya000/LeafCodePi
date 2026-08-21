@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -233,6 +233,9 @@ async function spawnWeb() {
         error(
           `Production build failed; falling back to next dev (${err instanceof Error ? err.message : String(err)})`,
         );
+        // 失敗ビルドの中途半端な .next を残すと next dev がそれを読み、
+        // routes-manifest.json ENOENT や 404 / 500 を返し続ける
+        rmSync(webDistDir(), { recursive: true, force: true });
         process.env.LEAFCODE_PI_MODE = "dev";
       }
     }

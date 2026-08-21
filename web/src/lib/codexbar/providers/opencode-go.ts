@@ -192,7 +192,7 @@ export const opencodeGoProvider: IUsageProvider = {
     return extractOpenCodeCookieHeader() !== null;
   },
   async fetch(signal) {
-    let credentials = loadCredentials();
+    const credentials = loadCredentials();
     if (!credentials) {
       throw new ProviderError(
         "OpenCode Go の認証情報が見つかりません。\n" +

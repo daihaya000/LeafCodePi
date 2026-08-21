@@ -203,7 +203,7 @@ function parseQuota(
   if (percentUsed === null) {
     let limit = firstDouble(payload, LIMIT_KEYS);
     let used = firstDouble(payload, USED_KEYS);
-    let remaining = firstDouble(payload, REMAINING_KEYS);
+    const remaining = firstDouble(payload, REMAINING_KEYS);
     if (limit === null && used !== null && remaining !== null) limit = used + remaining;
     if (used === null && limit !== null && remaining !== null) used = limit - remaining;
     if (limit !== null && limit > 0 && used !== null) {
@@ -229,7 +229,7 @@ function parseQuota(
   };
 
   const creditsLimit = firstCurrency(payload, COST_LIMIT_KEYS);
-  let creditsRemaining = firstCurrency(payload, COST_REMAINING_KEYS);
+  const creditsRemaining = firstCurrency(payload, COST_REMAINING_KEYS);
   let creditsUsed = firstCurrency(payload, COST_USED_KEYS);
   if (creditsLimit !== null) {
     if (creditsUsed === null && creditsRemaining !== null) {
