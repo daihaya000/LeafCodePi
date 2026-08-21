@@ -487,11 +487,6 @@ export function TaskView({ taskId }: { taskId: string }) {
         </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        {graphOpen && task?.directory && (
-          <div className="h-72 shrink-0 border-b border-border lg:h-auto lg:w-80 lg:border-b-0 lg:border-l">
-            <GraphPanel directory={task.directory} working={working} />
-          </div>
-        )}
         <div
           ref={scrollRef}
           onScroll={onScroll}
@@ -507,6 +502,11 @@ export function TaskView({ taskId }: { taskId: string }) {
             )}
           </div>
         </div>
+        {graphOpen && task?.directory && (
+          <div className="h-72 shrink-0 border-b border-border lg:h-auto lg:w-80 lg:border-b-0 lg:border-l">
+            <GraphPanel directory={task.directory} working={working} />
+          </div>
+        )}
       </div>
       <div className="shrink-0 border-t border-border bg-surface px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         {compacting && (
