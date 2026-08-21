@@ -10,6 +10,7 @@ type ExtensionDto = {
   description?: string;
   enabled: boolean;
   filePath: string;
+  required: boolean;
 };
 
 type ExtensionsResponse = {
@@ -21,11 +22,13 @@ function ExtensionSwitch({
   name,
   enabled,
   busy,
+  locked,
   onToggle,
 }: {
   name: string;
   enabled: boolean;
   busy: boolean;
+  locked: boolean;
   onToggle: () => void;
 }) {
   return (
@@ -34,7 +37,8 @@ function ExtensionSwitch({
       role="switch"
       aria-checked={enabled}
       aria-label={`${name} を${enabled ? "無効化" : "有効化"}`}
-      disabled={busy}
+      disabled={busy || locked}
+      title={locked ? "WebUI が依存する拡張機能のため無効化できません" : undefined}
       onClick={onToggle}
       className={cx(
         "relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary",
@@ -142,11 +146,15 @@ export function ExtensionsSettings() {
                   <p className="mt-0.5 text-xs break-words text-faint">{extension.description}</p>
                 )}
                 <p className="mt-0.5 break-all font-mono text-[11px] text-faint">{extension.filePath}</p>
+                {extension.required && (
+                  <p className="mt-0.5 text-[11px] text-muted">WebUI が依存するため無効化できません</p>
+                )}
               </div>
               <ExtensionSwitch
                 name={extension.name}
                 enabled={extension.enabled}
                 busy={busyId === extension.id}
+                locked={extension.required}
                 onToggle={() => void toggle(extension)}
               />
             </li>

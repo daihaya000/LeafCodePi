@@ -4,6 +4,7 @@ import { startTransition, useCallback, useEffect, useMemo, useRef, useState } fr
 import { ArrowUp, Shrink, Square } from "lucide-react";
 import { Composer, type ComposerAttachment } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
+import { pasteImage } from "@/lib/clipboard-image";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
 import { ModelSelect } from "@/components/ModelSelect";
@@ -532,6 +533,9 @@ export function TaskView({ taskId }: { taskId: string }) {
             rows: 1,
             ariaLabel: "フォローアップ",
             onChange: (event) => setPrompt(event.target.value),
+            onPaste: (event) => {
+              if (pasteImage(addImageFiles, event)) event.preventDefault();
+            },
             onCompositionStart: () => {
               composingRef.current = true;
             },

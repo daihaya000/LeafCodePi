@@ -7,6 +7,7 @@ import { AddProjectButton } from "@/components/AddProjectButton";
 import { AgentSelect } from "@/components/AgentSelect";
 import { Composer, type ComposerAttachment } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
+import { pasteImage } from "@/lib/clipboard-image";
 import { ModelSelect } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
@@ -254,6 +255,9 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                 busy: submitting,
                 readOnly: submitting,
                 onChange: (event) => setPrompt(event.target.value),
+                onPaste: (event) => {
+                  if (pasteImage(addImageFiles, event)) event.preventDefault();
+                },
                 onCompositionStart: () => {
                   composingRef.current = true;
                 },
