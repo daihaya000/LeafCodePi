@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -22,6 +22,12 @@ import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import type { HealthDto, ProjectDto, TaskSummary } from "@/lib/types";
 
+type ProjectTaskMenuState = {
+  projectId: string;
+  top: number;
+  left: number;
+};
+
 const WIDTH_KEY = "webui.sidebar.width";
 const COLLAPSED_KEY = "webui.sidebar.collapsed";
 const EXPANDED_KEY = "webui.sidebar.expanded";
@@ -34,6 +40,7 @@ const MAX_WIDTH = 480;
 const POLL_IDLE_MS = 12_000;
 const POLL_WORKING_MS = 4_000;
 const PROJECT_DRAG_MIME = "application/x-leafcode-project";
+const HOVER_QUERY = "(hover: hover)";
 
 const PROJECT_ICON_TONES = [
   "border-danger/30 bg-danger-bg text-danger",
@@ -137,6 +144,12 @@ export function Sidebar({
   const [health, setHealth] = useState<HealthDto | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const [hoverCapable, setHoverCapable] = useState(
+    () =>
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function" ||
+      window.matchMedia(HOVER_QUERY).matches,
+  );
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [projectOrder, setProjectOrder] = useState<string[]>(() => loadProjectOrder());
   const [archivedExpanded, setArchivedExpanded] = useState(false);
@@ -145,6 +158,9 @@ export function Sidebar({
   const [keyboardDraggedProjectId, setKeyboardDraggedProjectId] = useState<string | null>(null);
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
+  const [projectTaskMenu, setProjectTaskMenu] = useState<ProjectTaskMenuState | null>(null);
+  const projectTaskMenuHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const projectTaskMenuRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async () => {
     const [projectRes, taskRes, archivedRes, archivedProjectsRes, healthRes] = await Promise.allSettled([
@@ -195,6 +211,15 @@ export function Sidebar({
     }, intervalMs);
     return () => clearInterval(timer);
   }, [refresh, hasWorking]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia(HOVER_QUERY);
+    const update = () => setHoverCapable(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
 
   const activeTaskId = pathname.startsWith("/task/") ? pathname.slice("/task/".length) : null;
   const tasksByProject = useMemo(() => {
@@ -408,6 +433,71 @@ export function Sidebar({
       sendJson(`/api/projects?id=${encodeURIComponent(project.id)}`, undefined, "DELETE"),
     );
   }
+
+  const cancelProjectTaskMenuHide = useCallback(() => {
+    if (projectTaskMenuHideTimerRef.current === null) return;
+    clearTimeout(projectTaskMenuHideTimerRef.current);
+    projectTaskMenuHideTimerRef.current = null;
+  }, []);
+
+  const scheduleProjectTaskMenuHide = useCallback(() => {
+    if (!hoverCapable) return;
+    cancelProjectTaskMenuHide();
+    projectTaskMenuHideTimerRef.current = setTimeout(() => {
+      setProjectTaskMenu(null);
+      projectTaskMenuHideTimerRef.current = null;
+    }, 180);
+  }, [cancelProjectTaskMenuHide, hoverCapable]);
+
+  const showProjectTaskMenu = useCallback(
+    (projectId: string, target: HTMLElement) => {
+      cancelProjectTaskMenuHide();
+      const rect = target.getBoundingClientRect();
+      const viewportWidth = typeof window === "undefined" ? 1024 : window.innerWidth;
+      const viewportHeight = typeof window === "undefined" ? 800 : window.innerHeight;
+      const menuWidth = Math.min(288, Math.max(160, viewportWidth - 16));
+      const menuHeight = Math.min(360, Math.max(120, viewportHeight - 16));
+      setProjectTaskMenu({
+        projectId,
+        top: Math.max(8, Math.min(rect.top, viewportHeight - menuHeight - 8)),
+        left: Math.max(8, Math.min(rect.right + 8, viewportWidth - menuWidth - 8)),
+      });
+    },
+    [cancelProjectTaskMenuHide],
+  );
+
+  useEffect(() => {
+    if (collapsed && mdUp) return;
+    cancelProjectTaskMenuHide();
+    setProjectTaskMenu(null);
+  }, [cancelProjectTaskMenuHide, collapsed, mdUp]);
+
+  useEffect(() => {
+    if (!projectTaskMenu) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (projectTaskMenuRef.current?.contains(target)) return;
+      if (target.closest("[data-project-id]")) return;
+      setProjectTaskMenu(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProjectTaskMenu(null);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [projectTaskMenu]);
+
+  useEffect(
+    () => () => {
+      cancelProjectTaskMenuHide();
+    },
+    [cancelProjectTaskMenuHide],
+  );
 
   // `collapsed` はデスクトップ専用のレール表示（collapsedRail）用。body は
   // デスクトップでは !collapsed のときだけ描画され、モバイルドロワーは常に全幅なので、
@@ -752,6 +842,13 @@ export function Sidebar({
     </div>
   );
 
+  const projectTaskMenuProject = projectTaskMenu
+    ? projects.find((project) => project.id === projectTaskMenu.projectId)
+    : undefined;
+  const projectTaskMenuTasks = projectTaskMenuProject
+    ? (tasksByProject.get(projectTaskMenuProject.id) ?? []).slice(0, 20)
+    : [];
+
   const collapsedRail = (
     <div className="flex h-full w-20 flex-col items-center bg-surface">
       <div className="flex h-14 w-full items-center justify-center border-b border-border">
@@ -769,28 +866,64 @@ export function Sidebar({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <ul className="flex flex-col items-center gap-3">
-          {projects.map((project) => (
-            <li key={project.id}>
-              <button
-                type="button"
-                title={project.name}
-                onClick={() => {
-                  router.push(`/?projectId=${encodeURIComponent(project.id)}`);
-                  onClose();
-                }}
-                className="inline-flex h-12 w-12 items-center justify-center rounded-xl p-1 hover:bg-surface-2"
-              >
-                <span
-                  className={cx(
-                    "flex h-full w-full items-center justify-center rounded-lg border text-base font-medium",
-                    projectIconTone(project.id),
-                  )}
+          {projects.map((project) => {
+            const projectTasks = tasksByProject.get(project.id) ?? [];
+            const running = countRunningTasks(projectTasks);
+            const tapOpensMenu = !hoverCapable && projectTasks.length > 0;
+            const menuOpen = projectTaskMenu?.projectId === project.id;
+            const projectLabel = tapOpensMenu
+              ? running > 0
+                ? `${project.name}のタスクを表示（実行中のタスク${running}件）`
+                : `${project.name}のタスクを表示`
+              : running > 0
+                ? `${project.name}を選択（実行中のタスク${running}件）`
+                : `${project.name}を選択`;
+            return (
+              <li key={project.id}>
+                <button
+                  type="button"
+                  title={projectLabel}
+                  aria-label={projectLabel}
+                  aria-haspopup={tapOpensMenu ? "menu" : undefined}
+                  aria-expanded={tapOpensMenu ? menuOpen : undefined}
+                  data-project-id={project.id}
+                  onClick={(event) => {
+                    if (!tapOpensMenu) {
+                      router.push(`/?projectId=${encodeURIComponent(project.id)}`);
+                      onClose();
+                      return;
+                    }
+                    if (menuOpen) {
+                      setProjectTaskMenu(null);
+                      return;
+                    }
+                    showProjectTaskMenu(project.id, event.currentTarget);
+                  }}
+                  onMouseEnter={(event) => showProjectTaskMenu(project.id, event.currentTarget)}
+                  onMouseLeave={scheduleProjectTaskMenuHide}
+                  onFocus={(event) => {
+                    if (hoverCapable) showProjectTaskMenu(project.id, event.currentTarget);
+                  }}
+                  onBlur={scheduleProjectTaskMenuHide}
+                  className="group relative inline-flex h-12 w-12 items-center justify-center rounded-xl p-1 hover:bg-surface-2"
                 >
-                  {projectInitial(project.name)}
-                </span>
-              </button>
-            </li>
-          ))}
+                  <span
+                    className={cx(
+                      "flex h-full w-full items-center justify-center rounded-lg border text-base font-medium transition-transform group-hover:scale-105",
+                      projectIconTone(project.id),
+                    )}
+                  >
+                    {projectInitial(project.name)}
+                  </span>
+                  {running > 0 && (
+                    <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-surface bg-working px-1 text-[10px] font-semibold text-primary-fg">
+                      {running}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       </div>
       <div className="flex w-full flex-col items-center gap-1 border-t border-border py-2">
@@ -799,6 +932,83 @@ export function Sidebar({
           <Settings className="h-4 w-4" />
         </Link>
       </div>
+      {projectTaskMenuProject && projectTaskMenu && (
+        <div
+          ref={projectTaskMenuRef}
+          role="menu"
+          aria-label={`${projectTaskMenuProject.name}のタスク`}
+          className="fixed z-50 max-h-[min(22.5rem,calc(100vh-1rem))] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl border border-border/80 bg-surface/85 p-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.12)] backdrop-blur-xl"
+          style={{ top: projectTaskMenu.top, left: projectTaskMenu.left }}
+          onMouseEnter={cancelProjectTaskMenuHide}
+          onMouseLeave={scheduleProjectTaskMenuHide}
+          onFocus={cancelProjectTaskMenuHide}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              scheduleProjectTaskMenuHide();
+            }
+          }}
+        >
+          <div className="flex items-center gap-1 px-2 py-1">
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-muted">
+              {projectTaskMenuProject.name}
+            </p>
+            <button
+              type="button"
+              role="menuitem"
+              aria-label={`${projectTaskMenuProject.name}に新規タスクを作成`}
+              title="新規タスク"
+              onClick={() => {
+                cancelProjectTaskMenuHide();
+                setProjectTaskMenu(null);
+                router.push(`/?projectId=${encodeURIComponent(projectTaskMenuProject.id)}`);
+                onClose();
+              }}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
+          {projectTaskMenuTasks.length === 0 ? (
+            <p className="px-2 py-2 text-xs text-faint">タスクなし</p>
+          ) : (
+            <div className="space-y-0.5">
+              {projectTaskMenuTasks.map((task) => (
+                <button
+                  key={task.id}
+                  type="button"
+                  role="menuitem"
+                  aria-current={task.id === activeTaskId ? "page" : undefined}
+                  title={task.title}
+                  onClick={() => {
+                    cancelProjectTaskMenuHide();
+                    setProjectTaskMenu(null);
+                    router.push(`/task/${encodeURIComponent(task.id)}`);
+                    onClose();
+                  }}
+                  className={cx(
+                    "flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-muted hover:bg-surface-2 hover:text-text",
+                    task.id === activeTaskId && "bg-surface-3 text-text",
+                  )}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={cx(
+                      "h-1.5 w-1.5 shrink-0 rounded-full",
+                      task.status === "working"
+                        ? "bg-working"
+                        : task.status === "error"
+                          ? "bg-danger"
+                          : "bg-faint",
+                    )}
+                  />
+                  <span className="min-w-0 flex-1 truncate font-medium">{task.title}</span>
+                  <span className="shrink-0 text-[10px] text-faint">{timeAgo(task.updatedAt)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 
