@@ -12,6 +12,7 @@ import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { PartView } from "@/components/task/PartView";
 import { Button, cx } from "@/components/ui";
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
+import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { isNearBottom, nextStickState } from "@/lib/scroll-stick";
@@ -307,6 +308,46 @@ export function TaskView({ taskId }: { taskId: string }) {
       : (thinkingLevels[0] ?? "off");
   const working = task?.status === "working" || task?.isStreaming;
 
+  // ヘッダー表示用の会話統計: 合計出力 tok / 平均 tok/s / 合計生成時間。
+  const stats = useMemo(() => {
+    let totalTokens = 0;
+    let rateSum = 0;
+    let rateCount = 0;
+    let durationMs = 0;
+    let prevCreatedAt: number | null = null;
+    for (const message of messages) {
+      if (message.role === "user" || message.role === "compaction") continue;
+      if (typeof message.outputTokens === "number" && message.outputTokens > 0) {
+        totalTokens += message.outputTokens;
+      }
+      if (typeof message.tokensPerSecond === "number" && message.tokensPerSecond > 0) {
+        rateSum += message.tokensPerSecond;
+        rateCount += 1;
+      }
+      if (prevCreatedAt !== null) {
+        durationMs += Math.max(0, message.createdAt - prevCreatedAt);
+      }
+      prevCreatedAt = message.createdAt;
+    }
+    const avgRate = rateCount > 0 ? rateSum / rateCount : null;
+    return {
+      totalTokens,
+      avgRate,
+      durationMs: messages.length > 1 ? durationMs : 0,
+    };
+  }, [messages]);
+
+  function formatDuration(ms: number): string {
+    if (!Number.isFinite(ms) || ms <= 0) return "—";
+    const totalSeconds = Math.round(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+  }
+
   return (
     <div className="flex h-full flex-col">
       <MobileMenuHeader />
@@ -315,6 +356,20 @@ export function TaskView({ taskId }: { taskId: string }) {
           <h1 className="truncate text-sm font-semibold">{task?.title ?? "読み込み中…"}</h1>
           <p className="truncate text-[11px] text-muted">{task?.directory}</p>
         </div>
+        <span
+          className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] text-muted"
+          title={`合計 ${formatTokens(stats.totalTokens)} tok（出力のみ）・平均 ${stats.avgRate ? formatTokensPerSecond(stats.avgRate) : "—"}・生成時間 ${formatDuration(stats.durationMs)}`}
+        >
+          <span className="tabular-nums">
+            {stats.totalTokens > 0 ? `${formatTokens(stats.totalTokens)} tok` : "—"}
+          </span>
+          <span className="text-faint">/</span>
+          <span className="tabular-nums">
+            {stats.avgRate ? formatTokensPerSecond(stats.avgRate) : "—"}
+          </span>
+          <span className="text-faint">/</span>
+          <span className="tabular-nums">{formatDuration(stats.durationMs)}</span>
+        </span>
         {contextUsage && <ContextUsageMeter usage={contextUsage} />}
         <Button
           variant="secondary"
