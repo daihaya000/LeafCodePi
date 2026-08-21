@@ -129,6 +129,27 @@ describe("listExtensions / setExtensionEnabled", () => {
     assert.equal(listed.extensions.find((e) => e.name === "ponytail")?.filePath, join(pkgDir, "pi-extension", "index.js"));
     expectNames(listed.extensions, ["one", "ponytail"]);
   });
+
+  it("discovers extensions from npm packages (settings.json packages)", () => {
+    const { agentDir: agent } = fixture();
+    const pkgDir = join(agent, "npm", "node_modules", "pi-mcp-adapter");
+    mkdirSync(pkgDir, { recursive: true });
+    writeFileSync(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ pi: { extensions: ["./index.ts"] } }),
+      "utf8",
+    );
+    writeFileSync(join(pkgDir, "index.ts"), "export default () => {};\n", "utf8");
+    writeFileSync(
+      join(agent, "settings.json"),
+      JSON.stringify({ packages: ["npm:pi-mcp-adapter"] }),
+      "utf8",
+    );
+
+    const listed = listExtensions(agent);
+    assert.equal(listed.extensions.find((e) => e.name === "pi-mcp-adapter")?.filePath, join(pkgDir, "index.ts"));
+    expectNames(listed.extensions, ["one", "pi-mcp-adapter"]);
+  });
 });
 
 describe("resolvePackageDir", () => {
@@ -146,8 +167,29 @@ describe("resolvePackageDir", () => {
     );
   });
 
+  it("resolves npm:pkg to ~/.pi/agent/npm/node_modules", () => {
+    assert.equal(
+      resolvePackageDir("npm:pi-mcp-adapter", "C:\\pi\\agent"),
+      "C:\\pi\\agent\\npm\\node_modules\\pi-mcp-adapter",
+    );
+  });
+
+  it("strips npm version spec", () => {
+    assert.equal(
+      resolvePackageDir("npm:pi-mcp-adapter@2.0.0", "C:\\pi\\agent"),
+      "C:\\pi\\agent\\npm\\node_modules\\pi-mcp-adapter",
+    );
+  });
+
+  it("resolves scoped npm packages", () => {
+    assert.equal(
+      resolvePackageDir("npm:@scope/pkg@1.2.3", "C:\\pi\\agent"),
+      "C:\\pi\\agent\\npm\\node_modules\\@scope\\pkg",
+    );
+  });
+
   it("returns null for unsupported sources", () => {
-    assert.equal(resolvePackageDir("npm:@foo/bar", "C:\\pi\\agent"), null);
+    assert.equal(resolvePackageDir("ssh://git@github.com/user/repo", "C:\\pi\\agent"), null);
   });
 });
 

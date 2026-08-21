@@ -7,7 +7,8 @@
  * - ~/.pi/agent/extensions (direct *.ts/*.js files, subdirs with index.ts/index.js,
  *   and subdirs with a package.json "pi.extensions" manifest)
  * - ~/.pi/agent/git/<host>/<owner>/<repo> for entries declared by installed
- *   packages (settings.json "packages"), such as ponytail.
+ *   git packages (settings.json "packages"), such as ponytail.
+ * - ~/.pi/agent/npm/node_modules/<name> for installed npm packages (e.g. pi-mcp-adapter).
  */
 
 import {
@@ -149,8 +150,9 @@ export function readPiSettings(agentDir = resolvePiAgentDir()): PiSettings {
 }
 
 /**
- * Resolve an installed package source to its clone directory under ~/.pi/agent/git.
- * Supports `git:github.com/owner/repo` and `https://github.com/owner/repo`.
+ * Resolve an installed package source to its clone/install directory.
+ * - `git:github.com/owner/repo` / `https://github.com/owner/repo` → ~/.pi/agent/git/...
+ * - `npm:<name>[@version]` → ~/.pi/agent/npm/node_modules/<name>
  */
 export function resolvePackageDir(source: string, agentDir = resolvePiAgentDir()): string | null {
   const trimmed = source.trim();
@@ -170,6 +172,16 @@ export function resolvePackageDir(source: string, agentDir = resolvePiAgentDir()
     } catch {
       return null;
     }
+  }
+
+  if (trimmed.startsWith("npm:")) {
+    const spec = trimmed.slice("npm:".length);
+    // Strip the version: "@scope/pkg@1.2" → "@scope/pkg", "pkg@1.2" → "pkg".
+    const name = spec.startsWith("@")
+      ? `@${spec.slice(1).split("@")[0]}`
+      : spec.split("@")[0];
+    if (!name) return null;
+    return join(agentDir, "npm", "node_modules", name);
   }
 
   return null;
