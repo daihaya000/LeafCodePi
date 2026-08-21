@@ -1,5 +1,5 @@
 /**
- * GET /api/skills — list global skills (~/.pi/agent/skills + ~/.agents/skills) with ON/OFF state.
+ * GET /api/skills — list global skills (~/.pi/agent/skills) with ON/OFF state.
  */
 import { NextResponse } from "next/server";
 import { listSkills, skillsErrorStatus } from "@/lib/skills";

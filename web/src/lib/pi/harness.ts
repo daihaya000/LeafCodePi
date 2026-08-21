@@ -43,6 +43,16 @@ import { todosFromPiMessages } from "@/lib/pi/todowrite-state";
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
 import { filterSkillsByState } from "@/lib/skills";
 import { filterExtensionsByState } from "@/lib/extensions";
+
+/** True when a skill lives under the user's ~/.agents directory. */
+function isAgentsSkill(skill: { baseDir?: string; filePath?: string }): boolean {
+  const agentsRoot = join(homedir(), ".agents");
+  const lower = agentsRoot.toLowerCase();
+  return (
+    (skill.baseDir?.toLowerCase().startsWith(lower) ?? false) ||
+    (skill.filePath?.toLowerCase().startsWith(lower) ?? false)
+  );
+}
 import {
   clampThinkingLevelForModel,
   isThinkingLevel,
@@ -612,11 +622,13 @@ async function createSession(options: {
     : pi.SessionManager.create(options.cwd);
   // Filter disabled skills via state file (skills-state.json), not folder moves.
   // skillsOverride re-reads state on every resourceLoader.reload() / session.reload().
+  // Also drop any ~/.agents skills Pi loads internally: this harness must not
+  // read C:\Users\Daichi\.agents (skills.ts discovery already excludes it).
   const resourceLoader = new pi.DefaultResourceLoader({
     cwd: options.cwd,
     agentDir,
     skillsOverride: (base) => ({
-      skills: filterSkillsByState(base.skills),
+      skills: filterSkillsByState(base.skills).filter((skill) => !isAgentsSkill(skill)),
       diagnostics: base.diagnostics,
     }),
     extensionsOverride: (base) => ({

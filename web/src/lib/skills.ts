@@ -2,19 +2,20 @@
  * Global Pi skills with ON/OFF via leafcode-pi state (not folder moves).
  * Disabled names are filtered out of AgentSession through DefaultResourceLoader.skillsOverride.
  *
- * Discovery mirrors Pi's global skill roots:
+ * Discovery mirrors Pi's global skill root:
  * - ~/.pi/agent/skills
- * - ~/.agents/skills
+ *
+ * `~/.agents/skills` is intentionally not read (see harness.ts, which also
+ * strips any ~/.agents skills Pi loads internally).
  */
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
 
-export type SkillSource = "pi" | "agents";
+export type SkillSource = "pi";
 
 export type SkillDto = {
   id: string;
@@ -29,8 +30,6 @@ export type SkillListResult = {
   skills: SkillDto[];
   /** Primary Pi agent skills dir (for display). */
   skillsDir: string;
-  /** Global Agent Skills dir (~/.agents/skills). */
-  agentsSkillsDir: string;
 };
 
 type SkillsState = {
@@ -60,11 +59,6 @@ export function skillsStatePath(dir = dataDir()): string {
 
 export function skillsDir(agentDir = resolvePiAgentDir()): string {
   return join(agentDir, "skills");
-}
-
-/** Pi also auto-loads this (Agent Skills standard / shared harnesses). */
-export function agentsSkillsDir(home = homedir()): string {
-  return join(home, ".agents", "skills");
 }
 
 function emptyState(): SkillsState {
@@ -127,24 +121,17 @@ function loadFromDir(dir: string, source: SkillSource): Array<Skill & { source: 
   return loadSkillsFromDir({ dir, source }).skills.map((skill) => ({ ...skill, source }));
 }
 
-export type ListSkillsOptions = {
-  /** Override ~/.agents/skills (tests). */
-  agentsSkillsDir?: string;
-};
-
 /**
- * List globally discoverable skills (Pi agent dir + ~/.agents/skills).
- * Same-name collisions: first wins (pi, then agents) — toggle keys by skill name.
+ * List globally discoverable skills (Pi agent dir only).
+ * Toggle keys by skill name.
  */
 export function listSkills(
   agentDir = resolvePiAgentDir(),
-  options?: ListSkillsOptions,
 ): SkillListResult {
   const piDir = skillsDir(agentDir);
-  const agentsDir = options?.agentsSkillsDir ?? agentsSkillsDir();
   const state = readSkillsState();
   const byName = new Map<string, Skill & { source: SkillSource }>();
-  for (const skill of [...loadFromDir(piDir, "pi"), ...loadFromDir(agentsDir, "agents")]) {
+  for (const skill of loadFromDir(piDir, "pi")) {
     if (!byName.has(skill.name)) byName.set(skill.name, skill);
   }
   const skills = [...byName.values()]
@@ -159,20 +146,19 @@ export function listSkills(
       }),
     )
     .sort((a, b) => a.name.localeCompare(b.name, "en"));
-  return { skills, skillsDir: piDir, agentsSkillsDir: agentsDir };
+  return { skills, skillsDir: piDir };
 }
 
 export function setSkillEnabled(
   name: string,
   enabled: boolean,
   agentDir = resolvePiAgentDir(),
-  options?: ListSkillsOptions,
 ): SkillListResult {
   const trimmed = name.trim();
   if (!trimmed || trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..")) {
     throw new SkillsError("invalid-name", "名前が不正です");
   }
-  const listed = listSkills(agentDir, options);
+  const listed = listSkills(agentDir);
   if (!listed.skills.some((skill) => skill.name === trimmed)) {
     throw new SkillsError("not-found", "スキルが見つかりません");
   }
@@ -180,5 +166,5 @@ export function setSkillEnabled(
   if (enabled) delete state.disabled[trimmed];
   else state.disabled[trimmed] = true;
   writeSkillsState(state);
-  return listSkills(agentDir, options);
+  return listSkills(agentDir);
 }
