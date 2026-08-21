@@ -33,6 +33,21 @@ function isValidPathShape(value: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(trimmed) || trimmed.startsWith("/") || trimmed.startsWith("\\\\");
 }
 
+/** ネイティブダイアログはホスト PC の画面に開く。リモートからは要求しない。 */
+function isWindowsClient(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+  return [nav.userAgentData?.platform, navigator.platform, navigator.userAgent]
+    .filter((v): v is string => typeof v === "string")
+    .some((v) => /win/i.test(v));
+}
+
+function isLoopbackClientUrl(): boolean {
+  if (typeof location === "undefined") return false;
+  const hostname = location.hostname.toLowerCase();
+  return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1" || hostname === "[::1]";
+}
+
 export function AddProjectButton({
   onAdded,
   variant = "button",
@@ -79,6 +94,33 @@ export function AddProjectButton({
     }
   }
 
+  /** 本家同様: ホスト PC ではクリック時にエクスプローラーを直接開き、選択したら即追加。 */
+  async function openNativeOrDialog() {
+    if (isWindowsClient() && isLoopbackClientUrl()) {
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await sendJson<{ path?: string; cancelled?: boolean }>(
+          "/api/browse/dirs",
+          {},
+          "POST",
+          { timeoutMs: 135_000 },
+        );
+        if (result.path) {
+          await add(result.path);
+        }
+        // キャンセルは無操作で閉じる
+        return;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "フォルダ選択に失敗しました");
+      } finally {
+        setBusy(false);
+      }
+    }
+    // リモート端末・ネイティブ起動失敗は従来通りアプリ内一覧へ
+    setOpen(true);
+  }
+
   async function nativePick() {
     setBusy(true);
     setError(null);
@@ -104,16 +146,22 @@ export function AddProjectButton({
         type="button"
         aria-label={label}
         title={label}
-        onClick={() => setOpen(true)}
         className={cx(
           "inline-flex items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-text",
           className,
         )}
+        onClick={() => void openNativeOrDialog()}
       >
         {icon === "plus" ? <Plus className="h-4 w-4" /> : <FolderPlus className="h-4 w-4" />}
       </button>
     ) : (
-      <Button variant={buttonVariant} size={buttonSize} className={className} onClick={() => setOpen(true)}>
+      <Button
+        variant={buttonVariant}
+        size={buttonSize}
+        className={className}
+        busy={busy}
+        onClick={() => void openNativeOrDialog()}
+      >
         <FolderPlus className="h-3.5 w-3.5" />
         {label}
       </Button>
