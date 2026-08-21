@@ -275,12 +275,6 @@ export function Sidebar({
       </div>
 
       <div className="shrink-0 border-t border-border p-2 pb-[env(safe-area-inset-bottom)]">
-        <div className="mb-2">
-          <CodexBarWidget />
-        </div>
-        <div className="mb-2">
-          <SystemMonitorWidget />
-        </div>
         <div className="mb-2 px-1">
           <AddProjectButton onAdded={() => void refresh()} className="w-full" />
         </div>
@@ -299,6 +293,12 @@ export function Sidebar({
               <Settings className="h-4 w-4" />
             </Link>
           </div>
+        </div>
+        <div className="mt-2">
+          <CodexBarWidget />
+        </div>
+        <div className="mt-2">
+          <SystemMonitorWidget />
         </div>
       </div>
     </div>
