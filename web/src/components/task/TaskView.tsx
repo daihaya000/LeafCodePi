@@ -406,10 +406,37 @@ export function TaskView({ taskId }: { taskId: string }) {
         <MobileMenuButton />
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">{task?.title ?? "読み込み中…"}</h1>
-          <p className="truncate text-[11px] text-muted">{task?.directory}</p>
-          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden sm:hidden">
+          {/* Mobile-only compact meta row: the sm:flex row below is hidden
+              below sm, so phones would otherwise show no status/context. */}
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-[11px] text-faint sm:hidden">
             {task && <StatusBadge status={working ? "working" : task.status} />}
             {contextUsage && <ContextUsageMeter usage={contextUsage} />}
+          </div>
+          <div className="mt-0.5 hidden min-w-0 items-center gap-1 text-xs text-faint sm:flex">
+            {task && <StatusBadge status={working ? "working" : task.status} />}
+            {task?.projectName && (
+              <>
+                <span className="mx-1 shrink-0">·</span>
+                <span className="truncate">{task.projectName}</span>
+              </>
+            )}
+            {contextUsage && (
+              <>
+                <span className="mx-1 shrink-0">·</span>
+                <ContextUsageMeter usage={contextUsage} />
+              </>
+            )}
+            {stats.totalTokens > 0 && (
+              <>
+                <span className="mx-1 shrink-0">·</span>
+                <span
+                  className="shrink-0"
+                  title={`合計 ${formatTokens(stats.totalTokens)} tok（出力のみ）・平均 ${stats.avgRate ? formatTokensPerSecond(stats.avgRate) : "—"}・生成時間 ${formatDuration(stats.durationMs)}`}
+                >
+                  {formatTokens(stats.totalTokens)} tok
+                </span>
+              </>
+            )}
           </div>
         </div>
         <div className="relative flex min-w-0 shrink-0 items-center gap-1">
@@ -419,52 +446,33 @@ export function TaskView({ taskId }: { taskId: string }) {
             tabIndex={0}
             className="flex max-w-[52vw] items-center gap-1 overflow-x-auto rounded-md [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:max-w-none sm:overflow-visible"
           >
-            <span
-              className="hidden shrink-0 items-center gap-1.5 font-mono text-[11px] text-muted sm:flex"
-              title={`合計 ${formatTokens(stats.totalTokens)} tok（出力のみ）・平均 ${stats.avgRate ? formatTokensPerSecond(stats.avgRate) : "—"}・生成時間 ${formatDuration(stats.durationMs)}`}
-            >
-              <span className="tabular-nums">
-                {stats.totalTokens > 0 ? `${formatTokens(stats.totalTokens)} tok` : "—"}
-              </span>
-              <span className="text-faint">/</span>
-              <span className="tabular-nums">
-                {stats.avgRate ? formatTokensPerSecond(stats.avgRate) : "—"}
-              </span>
-              <span className="text-faint">/</span>
-              <span className="tabular-nums">{formatDuration(stats.durationMs)}</span>
-            </span>
-            {contextUsage && (
-              <span className="hidden shrink-0 sm:flex">
-                <ContextUsageMeter usage={contextUsage} />
-              </span>
-            )}
             <Button
-              variant="secondary"
-              size="sm"
+              variant="ghost"
+              size="icon"
               title="コンテキスト圧縮"
               aria-label="コンテキスト圧縮"
               busy={compacting}
               disabled={!task || working || compacting}
+              className="h-11 w-11 md:h-9 md:w-9"
               onClick={() => void compact()}
             >
-              {!compacting && <Shrink className="h-3.5 w-3.5" />}
-              <span className="hidden sm:inline">圧縮</span>
+              {!compacting && <Shrink className="h-4 w-4" />}
             </Button>
             <Button
-              variant={graphOpen ? "primary" : "secondary"}
-              size="sm"
+              variant="ghost"
+              size="icon"
               title="コミットグラフ"
               aria-label="コミットグラフ"
               aria-pressed={graphOpen}
               disabled={!task}
+              className={cx(
+                "h-11 w-11 md:h-9 md:w-9",
+                graphOpen && "bg-surface-2 text-text",
+              )}
               onClick={() => setGraphOpen((value) => !value)}
             >
-              <GitGraph className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">グラフ</span>
+              <GitGraph className="h-4 w-4" />
             </Button>
-            <span className="hidden shrink-0 sm:inline-flex">
-              {task && <StatusBadge status={working ? "working" : task.status} />}
-            </span>
             {working && (
               <Button
                 variant="danger"
