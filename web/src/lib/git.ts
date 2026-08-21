@@ -80,6 +80,19 @@ export function assertSafeCommitHash(hash: string): void {
   if (!SAFE_HASH.test(hash)) throw new Error("invalid commit hash");
 }
 
+/** Unstaged + staged unified diff (no pager). */
+export async function gitDiff(cwd: string): Promise<string> {
+  const staged = await runGit(cwd, ["diff", "--cached", "--no-color", "--no-ext-diff", "-M"]);
+  const unstaged = await runGit(cwd, ["diff", "--no-color", "--no-ext-diff", "-M"]);
+  if (staged.code !== 0 && unstaged.code !== 0) {
+    throw new Error(
+      staged.stderr.trim() || unstaged.stderr.trim() || "git diff failed",
+    );
+  }
+  const parts = [staged.stdout.trim(), unstaged.stdout.trim()].filter(Boolean);
+  return parts.join("\n\n") || "";
+}
+
 const LOG_SEP = "\x1f";
 const LOG_REC = "\x1e";
 

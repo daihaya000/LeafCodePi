@@ -175,6 +175,39 @@ export type TaskDetail = TaskSummary & {
   todos?: TodoDto[];
 };
 
+export type DiffLine = {
+  t: " " | "+" | "-";
+  text: string;
+};
+
+export type DiffHunk = {
+  header: string;
+  lines: DiffLine[];
+};
+
+export type DiffFile = {
+  path: string;
+  oldPath?: string;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  untracked: boolean;
+  hunks: DiffHunk[];
+  /** Last on-disk modification time (ISO), when the file still exists. */
+  modifiedAt?: string;
+};
+
+export type DiffFilesPayload = {
+  git: boolean;
+  branch: string | null;
+  /** Base ref this diff was computed against (merge-base compare), if any. */
+  base?: string | null;
+  files: DiffFile[];
+  additions: number;
+  deletions: number;
+  error?: string;
+};
+
 /** One commit for the graph panel. */
 export type GraphCommit = {
   hash: string;

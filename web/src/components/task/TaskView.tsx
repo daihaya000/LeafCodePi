@@ -1,11 +1,12 @@
 "use client";
 
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, GitGraph, Shrink, Square } from "lucide-react";
+import { ArrowUp, GitGraph, PanelRight, Shrink, Square } from "lucide-react";
 import { Composer, type ComposerAttachment } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { pasteImage } from "@/lib/clipboard-image";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
+import { DiffPane } from "@/components/task/DiffPane";
 import { GraphPanel } from "@/components/task/GraphPanel";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
 import { ModelSelect } from "@/components/ModelSelect";
@@ -87,6 +88,7 @@ export function TaskView({ taskId }: { taskId: string }) {
   const [goalLoopMaxTurns, setGoalLoopMaxTurns] = useState(10);
   const [goalLoopForceFullRun, setGoalLoopForceFullRun] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
+  const [diffOpen, setDiffOpen] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -492,6 +494,21 @@ export function TaskView({ taskId }: { taskId: string }) {
             >
               <GitGraph className="h-4 w-4" />
             </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Diff パネル"
+              aria-label="Diff パネル"
+              aria-pressed={diffOpen}
+              disabled={!task}
+              className={cx(
+                "h-11 w-11 md:h-9 md:w-9",
+                diffOpen && "bg-surface-2 text-text",
+              )}
+              onClick={() => setDiffOpen((value) => !value)}
+            >
+              <PanelRight className="h-4 w-4" />
+            </Button>
             {working && (
               <Button
                 variant="danger"
@@ -524,6 +541,11 @@ export function TaskView({ taskId }: { taskId: string }) {
         {graphOpen && task?.directory && (
           <div className="h-72 shrink-0 border-b border-border lg:h-auto lg:w-80 lg:border-b-0 lg:border-l">
             <GraphPanel directory={task.directory} working={working} />
+          </div>
+        )}
+        {diffOpen && task?.directory && (
+          <div className="h-72 shrink-0 border-b border-border lg:h-auto lg:w-80 lg:border-b-0 lg:border-l">
+            <DiffPane directory={task.directory} />
           </div>
         )}
       </div>

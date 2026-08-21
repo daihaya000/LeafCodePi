@@ -357,6 +357,24 @@ export function Spinner({ className }: { className?: string }) {
   return <Loader2 className={cx("h-4 w-4 animate-spin text-muted", className)} />;
 }
 
+export function DiffStat({
+  additions,
+  deletions,
+  className,
+}: {
+  additions: number;
+  deletions: number;
+  className?: string;
+}) {
+  if (additions === 0 && deletions === 0) return null;
+  return (
+    <span className={cx("inline-flex items-center gap-1.5 font-mono text-xs", className)}>
+      <span className="text-success">+{additions}</span>
+      <span className="text-danger">−{deletions}</span>
+    </span>
+  );
+}
+
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
