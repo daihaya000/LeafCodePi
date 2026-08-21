@@ -1025,25 +1025,17 @@ export function applySubagentPermission(
 }
 
 /**
- * エージェント選択 / サブエージェント許可・禁止をプロンプトへ反映する。
- * pi-subagents は LLM が自然言語でエージェントを呼ぶ設計のため、
- * 選択されたエージェントは明示的な委譲指示として前置きし、禁止時は
- * subagent ツールの不使用を指示する。
- */
+  * エージェント選択をプロンプトへ反映する。
+  * サブエージェント禁止は tools からの除外で機械的に強制されるため、
+  * プロンプトには指示を付与しない。
+  */
 export function decoratePrompt(prompt: string, options?: { agent?: string; subagentPermission?: "allow" | "deny" }): string {
-  const parts: string[] = [];
   const agent = options?.agent?.trim();
-  if (agent) {
-    parts.push(
-      `このタスクはサブエージェント「${agent}」に委譲して実行してください。` +
-        `subagent ツールで agent: "${agent}" を指定して開始し、結果を要約して報告してください。`,
-    );
-  }
-  if (options?.subagentPermission === "deny") {
-    parts.push("サブエージェント（subagent ツール）の起動は禁止されています。このタスクは自分で実行してください。");
-  }
-  if (parts.length === 0) return prompt;
-  return `${parts.join("\n")}\n\n---\n\n${prompt}`;
+  if (!agent) return prompt;
+  const instruction =
+    `このタスクはサブエージェント「${agent}」に委譲して実行してください。` +
+    `subagent ツールで agent: "${agent}" を指定して開始し、結果を要約して報告してください。`;
+  return `${instruction}\n\n---\n\n${prompt}`;
 }
 
 export async function abortTask(id: string): Promise<TaskSummary> {

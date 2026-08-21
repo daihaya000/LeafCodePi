@@ -14,16 +14,15 @@ describe("decoratePrompt", () => {
     assert.ok(result.endsWith("Fix the bug"));
   });
 
-  it("prepends a subagent deny instruction", () => {
+  it("leaves the prompt unchanged when subagent is denied (mechanical enforcement only)", () => {
     const result = decoratePrompt("Fix the bug", { subagentPermission: "deny" });
-    assert.match(result, /禁止されています/);
-    assert.ok(result.endsWith("Fix the bug"));
+    assert.equal(result, "Fix the bug");
   });
 
-  it("combines agent and deny instructions", () => {
+  it("prepends only the agent instruction when agent is chosen and deny is set", () => {
     const result = decoratePrompt("Fix", { agent: "scout", subagentPermission: "deny" });
     assert.match(result, /scout/);
-    assert.match(result, /禁止されています/);
+    assert.doesNotMatch(result, /禁止されています/);
   });
 });
 
