@@ -12,3 +12,7 @@ web/.playwright/
 web/coverage/
 web/tsconfig.tsbuildinfo
 .leafcode-pi/
+
+# ローカル専用メモ（共有しない）
+/MEMORY.md
+/LESSONS.md
