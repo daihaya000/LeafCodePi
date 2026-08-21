@@ -24,9 +24,14 @@ export function ShellProvider({ children }: { children: ReactNode }) {
       event.preventDefault();
     };
     document.addEventListener("touchmove", onTouchMove, { passive: false });
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileNavOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
     return () => {
       document.body.style.overflow = previous;
       document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("keydown", onKeyDown);
     };
   }, [mobileNavOpen]);
 
