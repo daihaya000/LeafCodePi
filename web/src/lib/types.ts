@@ -96,6 +96,23 @@ export type ToolState = {
   startedAtMs?: number;
   /** Wall-clock end time of tool execution (ms epoch). */
   endedAtMs?: number;
+  /** pi-subagents run ids reported in the tool result details (subagent tool). */
+  subagentRunIds?: string[];
+};
+
+/** One pi-subagents child run, projected from its transcript artifact. */
+export type SubagentRunDto = {
+  runId: string;
+  agent: string;
+  index?: number;
+  status: "running" | "completed" | "error" | "stale";
+  startedAtMs: number;
+  lastActivityAtMs: number;
+  /** Tool the child is currently running, when known. */
+  currentTool: string | null;
+  /** True when only the tail of a huge transcript was read. */
+  truncated: boolean;
+  messages: UiMessage[];
 };
 
 export type UiPart =

@@ -546,6 +546,7 @@ export function TaskView({ taskId }: { taskId: string }) {
                     : undefined
                 }
                 effort={message.role === "assistant" ? effortLabel : undefined}
+                taskId={taskId}
               />
             ))}
             {working && <WorkingRow messages={messages} />}

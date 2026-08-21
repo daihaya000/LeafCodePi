@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, memo, useEffect, useMemo, useState } from "react";
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -24,7 +24,8 @@ import { cx, formatMessageTime } from "@/components/ui";
 import { formatTokens } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { toolInputFields, toolLabel, toolSummary } from "@/lib/tool-labels";
-import type { UiMessage, UiPart } from "@/lib/types";
+import { subagentAgentNames, useSubagentRuns } from "@/components/task/use-subagent-runs";
+import type { SubagentRunDto, UiMessage, UiPart } from "@/lib/types";
 
 const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
   return (
@@ -69,18 +70,152 @@ function useElapsedMs(startedAtMs: number | undefined, endedAtMs: number | undef
   return Math.max(0, now - startedAtMs);
 }
 
-function ToolCard({ part }: { part: Extract<UiPart, { type: "tool" }> }) {
+const SUBAGENT_STATUS_LABEL: Record<SubagentRunDto["status"], string> = {
+  running: "実行中",
+  completed: "完了",
+  error: "失敗",
+  stale: "応答なし",
+};
+
+/** 子タイムライン。実行中は末尾に追従する（上へスクロールしたら追従しない）。 */
+function NestedRunTimeline({ run }: { run: SubagentRunDto }) {
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const stickRef = useRef(true);
+  useEffect(() => {
+    if (run.status !== "running" || !stickRef.current) return;
+    const el = scrollerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [run.messages, run.status, run.currentTool]);
+  return (
+    <div
+      ref={scrollerRef}
+      onScroll={(event) => {
+        const el = event.currentTarget;
+        stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+      }}
+      className="max-h-72 space-y-3 overflow-y-auto border-t border-border px-3 py-3"
+    >
+      {run.truncated && <p className="text-[11px] text-faint">（長いため先頭は省略）</p>}
+      {run.messages.length === 0 ? (
+        <p className="text-[11px] text-faint">
+          {run.status === "running" ? "作業を開始しています…" : "タイムラインはまだありません"}
+        </p>
+      ) : (
+        run.messages.map((message) => <PartView key={message.id} message={message} nested />)
+      )}
+    </div>
+  );
+}
+
+/**
+ * 子エージェント（pi-subagents）のライブタイムライン。本家 LeafCode の
+ * NestedAgentPanel 相当。子の transcript アーティファクトを BFF 経由で読む。
+ */
+function NestedAgentPanel({
+  taskId,
+  part,
+  live,
+}: {
+  taskId: string;
+  part: Extract<UiPart, { type: "tool" }>;
+  live: boolean;
+}) {
+  const runIds = part.state.subagentRunIds ?? [];
+  const agentNames = useMemo(() => subagentAgentNames(part.state.input), [part.state.input]);
+  // 開始時刻も run id も無い（古いセッション）ときは無関係な実行を拾わない。
+  const sinceMs =
+    part.state.startedAtMs !== undefined ? part.state.startedAtMs - 5_000 : undefined;
+  const enabled = runIds.length > 0 || sinceMs !== undefined;
+  const { runs, error, loading } = useSubagentRuns({
+    taskId,
+    enabled,
+    live,
+    ...(sinceMs !== undefined ? { sinceMs } : {}),
+    runIds,
+    agentNames,
+  });
+
+  if (!enabled) return null;
+  if (runs.length === 0) {
+    return (
+      <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-[11px] text-faint">
+        {(live || loading) && <Loader2 className="h-3 w-3 animate-spin" />}
+        {error ?? (live ? "サブエージェント起動を待機中…" : "子エージェントの記録は見つかりませんでした")}
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t border-border bg-surface">
+      {error && <p className="px-3 pt-2 text-[11px] text-danger">{error}</p>}
+      {runs.map((run) => (
+        <section key={run.runId} className="border-b border-border/60 last:border-b-0">
+          <div className="flex items-center gap-2 px-3 py-2">
+            {run.status === "running" ? (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-working" />
+            ) : run.status === "error" ? (
+              <CircleAlert className="h-3.5 w-3.5 shrink-0 text-danger" />
+            ) : run.status === "stale" ? (
+              <Minus className="h-3.5 w-3.5 shrink-0 text-muted" />
+            ) : (
+              <Check className="h-3.5 w-3.5 shrink-0 text-success/70" />
+            )}
+            <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
+              {run.agent}
+              {run.index !== undefined && run.index > 0 ? ` #${run.index}` : ""}
+            </span>
+            {run.currentTool && (
+              <span className="hidden max-w-40 truncate text-[10px] text-working sm:inline">
+                {toolLabel(run.currentTool)}
+              </span>
+            )}
+            <span className="shrink-0 text-[10px] text-faint">
+              {SUBAGENT_STATUS_LABEL[run.status]}
+            </span>
+          </div>
+          <NestedRunTimeline run={run} />
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function ToolCard({
+  part,
+  taskId,
+  nested = false,
+}: {
+  part: Extract<UiPart, { type: "tool" }>;
+  taskId?: string;
+  nested?: boolean;
+}) {
   const state = part.state;
   const status = state.status;
   const tool = part.tool;
   const active = status === "running" || status === "pending";
   const isError = status === "error";
   const isCancelled = status === "cancelled";
-  // 本家 LeafCode と同じ: 通常は畳んだまま、失敗・中断だけ最初から開く。
-  const [open, setOpen] = useState(isError || isCancelled);
+  // サブエージェントは入れ子タイムラインを見せたいので実行中は開いておく。
+  const isSubagent = !nested && Boolean(taskId) && /subagent|^task$/i.test(tool);
+  // 本家 LeafCode と同じ: 通常は畳んだまま、失敗・中断・サブエージェント実行中は開く。
+  const [open, setOpen] = useState(isError || isCancelled || (isSubagent && active));
+  const wasActiveRef = useRef(false);
   useEffect(() => {
     if (isError || isCancelled) setOpen(true);
   }, [isError, isCancelled]);
+  useEffect(() => {
+    if (!isSubagent) return;
+    if (active) {
+      if (!wasActiveRef.current) setOpen(true);
+      wasActiveRef.current = true;
+      return;
+    }
+    // 実行が終わったタイミングで一度だけ結果を見せる（本家と同じ挙動）。
+    if (wasActiveRef.current) {
+      setOpen(true);
+      wasActiveRef.current = false;
+    }
+  }, [isSubagent, active]);
   const elapsedMs = useElapsedMs(state.startedAtMs, state.endedAtMs);
   const Icon = toolIcon(tool);
   const summary = toolSummary(tool, state);
@@ -93,7 +228,9 @@ function ToolCard({ part }: { part: Extract<UiPart, { type: "tool" }> }) {
     : output
       ? `${isError ? "エラー: " : ""}${output.replace(/\s+/g, " ").slice(0, isError ? 80 : 100)}`
       : "";
-  const hasDetail = fields.length > 0 || Boolean(output) || isCancelled;
+  const hasDetail = fields.length > 0 || Boolean(output) || isCancelled || isSubagent;
+  // 実行中は自動で開く（上の effect）が、畳めば隠せる。
+  const showNested = isSubagent && open;
   // シェル出力は Markdown にすると空白・整列が壊れるので等幅のまま出す。
   const monoOutput = isError || /bash|shell/i.test(tool);
 
@@ -157,6 +294,7 @@ function ToolCard({ part }: { part: Extract<UiPart, { type: "tool" }> }) {
           />
         )}
       </button>
+      {showNested && taskId && <NestedAgentPanel taskId={taskId} part={part} live={active} />}
       {open && (
         <div className="max-h-80 space-y-3 overflow-x-hidden overflow-y-auto border-t border-border bg-surface px-3 py-3">
           {fields.length > 0 && (
@@ -316,10 +454,16 @@ export const PartView = memo(
     message,
     modelLabel,
     effort,
+    taskId,
+    nested = false,
   }: {
     message: UiMessage;
     modelLabel?: string;
     effort?: string;
+    /** サブエージェント入れ子パネルの取得に使う（トップレベルのみ）。 */
+    taskId?: string;
+    /** 入れ子タイムライン内での描画（さらに入れ子にはしない）。 */
+    nested?: boolean;
   }) {
     if (message.role === "compaction") {
       return <CompactionNotice message={message} />;
@@ -375,7 +519,7 @@ export const PartView = memo(
               />
             );
           }
-          return <ToolCard key={part.id} part={part} />;
+          return <ToolCard key={part.id} part={part} taskId={taskId} nested={nested} />;
         })}
         {message.error && (
           <p
@@ -391,5 +535,7 @@ export const PartView = memo(
   (prev, next) =>
     prev.message === next.message &&
     prev.modelLabel === next.modelLabel &&
-    prev.effort === next.effort,
+    prev.effort === next.effort &&
+    prev.taskId === next.taskId &&
+    prev.nested === next.nested,
 );

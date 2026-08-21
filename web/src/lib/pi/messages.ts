@@ -50,7 +50,36 @@ function imagePartsFromBlocks(blocks: unknown[], prefix: string): UiPart[] {
   return parts;
 }
 
-function mergeToolResult(messages: UiMessage[], toolCallId: string, output: string, isError: boolean): void {
+/**
+ * pi-subagents は tool result の `details` に実行 ID を載せる
+ * （`runId` / `asyncId` / `results[].runId`）。入れ子パネルがどの実行を
+ * 表示すべきか特定するために回収する。
+ */
+export function subagentRunIdsFromDetails(details: unknown): string[] {
+  if (!isRecord(details)) return [];
+  const ids = new Set<string>();
+  const add = (value: unknown) => {
+    if (typeof value === "string" && value.trim()) ids.add(value);
+  };
+  add(details.runId);
+  add(details.asyncId);
+  if (Array.isArray(details.results)) {
+    for (const row of details.results) {
+      if (!isRecord(row)) continue;
+      add(row.runId);
+      add(row.asyncId);
+    }
+  }
+  return [...ids];
+}
+
+function mergeToolResult(
+  messages: UiMessage[],
+  toolCallId: string,
+  output: string,
+  isError: boolean,
+  subagentRunIds: string[] = [],
+): void {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (!message) continue;
@@ -64,6 +93,7 @@ function mergeToolResult(messages: UiMessage[], toolCallId: string, output: stri
       status: isError ? "error" : "completed",
       output,
       error: isError ? output : undefined,
+      ...(subagentRunIds.length > 0 ? { subagentRunIds } : {}),
     };
     return;
   }
@@ -140,7 +170,13 @@ export function projectPiMessages(raw: unknown[]): UiMessage[] {
     if (role === "toolResult") {
       const callID = asString(item.toolCallId);
       const output = textFromBlocks(contentBlocks(item.content)) || asString(item.content);
-      mergeToolResult(messages, callID, output, item.isError === true);
+      mergeToolResult(
+        messages,
+        callID,
+        output,
+        item.isError === true,
+        subagentRunIdsFromDetails(item.details),
+      );
       return;
     }
 
