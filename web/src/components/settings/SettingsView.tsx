@@ -70,6 +70,8 @@ export function SettingsView() {
 
           {tab === "engine" && (
             <section className="space-y-4">
+              <HostRestartPanel onRestarted={reload} />
+
               <div className="rounded-2xl border border-border bg-surface p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-sm font-semibold">Pi Coding Agent</h2>
@@ -92,8 +94,6 @@ export function SettingsView() {
               </div>
 
               <LlamaServerSettings />
-
-              <HostRestartPanel onRestarted={reload} />
             </section>
           )}
 
