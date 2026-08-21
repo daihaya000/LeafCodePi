@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { decoratePrompt } from "./harness";
+import { applySubagentPermission, decoratePrompt } from "./harness";
 
 describe("decoratePrompt", () => {
   it("returns the prompt unchanged without options", () => {
@@ -24,5 +24,42 @@ describe("decoratePrompt", () => {
     const result = decoratePrompt("Fix", { agent: "scout", subagentPermission: "deny" });
     assert.match(result, /scout/);
     assert.match(result, /禁止されています/);
+  });
+});
+
+describe("applySubagentPermission", () => {
+  function mockSession(initial: string[]) {
+    let names = [...initial];
+    return {
+      getActiveToolNames: () => [...names],
+      setActiveToolsByName: (next: string[]) => {
+        names = [...next];
+      },
+      names: () => [...names],
+    };
+  }
+
+  it("adds subagent when allow and absent", () => {
+    const s = mockSession(["read", "bash"]);
+    applySubagentPermission(s as never, "allow");
+    assert.deepEqual(s.names(), ["read", "bash", "subagent"]);
+  });
+
+  it("removes subagent when deny and present", () => {
+    const s = mockSession(["read", "bash", "subagent"]);
+    applySubagentPermission(s as never, "deny");
+    assert.deepEqual(s.names(), ["read", "bash"]);
+  });
+
+  it("defaults to deny when undefined", () => {
+    const s = mockSession(["read", "bash", "subagent"]);
+    applySubagentPermission(s as never, undefined);
+    assert.deepEqual(s.names(), ["read", "bash"]);
+  });
+
+  it("is idempotent", () => {
+    const s = mockSession(["read", "bash"]);
+    applySubagentPermission(s as never, "deny");
+    assert.deepEqual(s.names(), ["read", "bash"]);
   });
 });

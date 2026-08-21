@@ -996,8 +996,30 @@ export async function promptTask(
   options?: { agent?: string; subagentPermission?: "allow" | "deny" },
 ): Promise<TaskSummary> {
   const live = await ensureLive(id);
+  applySubagentPermission(live.session, options?.agent ? "allow" : options?.subagentPermission);
   queuePrompt(live, decoratePrompt(prompt, options), images);
   return toSummary(getTask(id)!);
+}
+
+/**
+ * 既存セッションの active tools を更新し、サブエージェント許可を機械的に強制する。
+ * 禁止時は `subagent` ツールを除外、許可時は追加する。エージェント明示選択は許可扱い。
+ */
+export function applySubagentPermission(
+  session: AgentSession,
+  permission: "allow" | "deny" | undefined,
+): void {
+  const effective = permission ?? "deny";
+  if (typeof session.setActiveToolsByName !== "function" || typeof session.getActiveToolNames !== "function") {
+    return;
+  }
+  const current = session.getActiveToolNames();
+  const hasSubagent = current.includes("subagent");
+  if (effective === "allow" && !hasSubagent) {
+    session.setActiveToolsByName([...current, "subagent"]);
+  } else if (effective === "deny" && hasSubagent) {
+    session.setActiveToolsByName(current.filter((tool) => tool !== "subagent"));
+  }
 }
 
 /**
