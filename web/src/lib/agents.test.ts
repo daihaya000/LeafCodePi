@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
-import { agentsDir, AgentsError, agentsErrorStatus, listAgents, parseAgentFile, setAgentEnabled } from "./agents";
+import { agentsDir, AgentsError, agentsErrorStatus, createAgent, deleteAgent, listAgents, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, updateAgent } from "./agents";
 
 const AGENT = `---
 name: __NAME__
@@ -102,6 +102,52 @@ describe("listAgents / setAgentEnabled", () => {
   it("rejects unknown names", () => {
     fixture();
     assert.throws(() => setAgentEnabled("missing", false, agentDir), AgentsError);
+  });
+
+  it("creates, reads, updates and deletes a user agent", () => {
+    fixture();
+    createAgent({ name: "mydoc", description: "A doc writer", tools: ["read", "edit", "write"], systemPrompt: "Write docs." }, agentDir);
+    assert.equal(listAgents(agentDir).agents.find((a) => a.name === "mydoc")?.source, "user");
+
+    const { draft } = readUserAgent("mydoc", agentDir);
+    assert.equal(draft.description, "A doc writer");
+    assert.deepEqual(draft.tools, ["read", "edit", "write"]);
+    assert.equal(draft.systemPrompt, "Write docs.");
+
+    updateAgent({ name: "mydoc", description: "Docs writer v2", systemPrompt: "Write great docs." }, agentDir);
+    const updated = readUserAgent("mydoc", agentDir).draft;
+    assert.equal(updated.description, "Docs writer v2");
+    assert.equal(updated.systemPrompt, "Write great docs.");
+
+    deleteAgent("mydoc", agentDir);
+    assert.equal(listAgents(agentDir).agents.some((a) => a.name === "mydoc"), false);
+  });
+
+  it("rejects creating a duplicate name", () => {
+    fixture();
+    createAgent({ name: "brand-new", systemPrompt: "x" }, agentDir);
+    assert.throws(() => createAgent({ name: "brand-new", systemPrompt: "y" }, agentDir), /既に存在/);
+  });
+
+  it("rejects editing a package agent", () => {
+    fixture();
+    assert.throws(() => updateAgent({ name: "worker", systemPrompt: "x" }, agentDir), /編集できません/);
+    assert.throws(() => deleteAgent("worker", agentDir), /編集できません/);
+  });
+
+  it("serializes frontmatter and round-trips", () => {
+    const md = serializeAgent({
+      name: "foo",
+      description: "Foo agent",
+      aliases: ["bar"],
+      tools: ["read", "grep"],
+      systemPrompt: "Do foo.",
+    });
+    const fm = parseAgentFile(md);
+    assert.equal(fm.name, "foo");
+    assert.equal(fm.description, "Foo agent");
+    assert.equal(fm.tools, "read, grep");
+    assert.match(md, /Do foo\.\n$/);
   });
 });
 

@@ -1,8 +1,9 @@
 /**
  * GET /api/agents — list pi-subagents agents (builtin + user) with ON/OFF state.
+ * POST /api/agents — create a user agent definition (~/.pi/agent/agents/<name>.md).
  */
 import { NextResponse } from "next/server";
-import { agentsErrorStatus, listAgents } from "@/lib/agents";
+import { agentsErrorStatus, createAgent, listAgents, type AgentDraft } from "@/lib/agents";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,4 +17,41 @@ export async function GET() {
       { status: agentsErrorStatus(error) },
     );
   }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = (await request.json()) as Partial<AgentDraft>;
+    if (typeof body.name !== "string" || !body.name.trim()) {
+      return NextResponse.json({ error: "name が必要です" }, { status: 400 });
+    }
+    if (typeof body.systemPrompt !== "string") {
+      return NextResponse.json({ error: "systemPrompt が必要です" }, { status: 400 });
+    }
+    const result = createAgent(normalize(body as AgentDraft));
+    return NextResponse.json(result, { status: 201 });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "エージェントの作成に失敗しました" },
+      { status: agentsErrorStatus(error) },
+    );
+  }
+}
+
+function normalize(draft: AgentDraft): AgentDraft {
+  return {
+    ...draft,
+    name: draft.name.trim(),
+    description: draft.description?.trim() || undefined,
+    aliases: toArray(draft.aliases),
+    tools: toArray(draft.tools),
+    fallbackModels: toArray(draft.fallbackModels),
+    systemPrompt: draft.systemPrompt,
+  };
+}
+
+function toArray(values: string[] | undefined): string[] | undefined {
+  if (!values) return undefined;
+  const list = values.map((v) => v.trim()).filter(Boolean);
+  return list.length > 0 ? list : undefined;
 }

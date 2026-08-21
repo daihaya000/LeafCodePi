@@ -27,6 +27,22 @@ export type AgentDto = {
   tools?: string[];
 };
 
+/** Editable fields for user agent definitions. */
+export type AgentDraft = {
+  name: string;
+  description?: string;
+  aliases?: string[];
+  tools?: string[];
+  model?: string;
+  fallbackModels?: string[];
+  thinking?: string;
+  systemPromptMode?: "replace" | "append";
+  inheritProjectContext?: boolean;
+  inheritSkills?: boolean;
+  async?: boolean;
+  systemPrompt: string;
+};
+
 export type AgentListResult = {
   agents: AgentDto[];
   /** User agents dir (for display). */
@@ -35,7 +51,7 @@ export type AgentListResult = {
 
 export class AgentsError extends Error {
   constructor(
-    readonly code: "invalid-name" | "not-found",
+    readonly code: "invalid-name" | "not-found" | "readonly",
     message: string,
   ) {
     super(message);
@@ -44,7 +60,7 @@ export class AgentsError extends Error {
 
 export function agentsErrorStatus(error: unknown): number {
   if (error instanceof AgentsError) {
-    return error.code === "invalid-name" ? 400 : 404;
+    return error.code === "invalid-name" ? 400 : error.code === "readonly" ? 403 : 404;
   }
   return 500;
 }
@@ -83,6 +99,14 @@ export type ParsedAgent = {
   description?: unknown;
   tools?: unknown;
   disabled?: unknown;
+  aliases?: unknown;
+  model?: unknown;
+  fallbackModels?: unknown;
+  thinking?: unknown;
+  systemPromptMode?: unknown;
+  inheritProjectContext?: unknown;
+  inheritSkills?: unknown;
+  async?: unknown;
 };
 
 /** Parse YAML frontmatter from a pi agent markdown file. */
@@ -218,5 +242,118 @@ export function setAgentEnabled(name: string, enabled: boolean, agentDir = resol
   else delete settings.subagents;
 
   atomicWrite(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+  return listAgents(agentDir);
+}
+
+function userAgentPath(agentDir: string, name: string): string {
+  return join(agentsDir(agentDir), `${name}.md`);
+}
+
+function assertValidName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(trimmed)) {
+    throw new AgentsError("invalid-name", "名前は英数字・._- のみ使用できます");
+  }
+  if (trimmed.includes("..")) throw new AgentsError("invalid-name", "名前が不正です");
+  return trimmed;
+}
+
+function assertEditable(agentDir: string, name: string): string {
+  const listed = listAgents(agentDir);
+  const agent = listed.agents.find((a) => a.name === name);
+  if (!agent) throw new AgentsError("not-found", "エージェントが見つかりません");
+  if (agent.source !== "user") {
+    throw new AgentsError("readonly", "ビルトイン・パッケージエージェントは編集できません");
+  }
+  return agent.filePath;
+}
+
+function joinCsv(values: string[] | undefined): string | undefined {
+  if (!values || values.length === 0) return undefined;
+  return values.join(", ");
+}
+
+/** Build markdown file with YAML frontmatter for a user agent. */
+export function serializeAgent(draft: AgentDraft): string {
+  const frontmatter: Record<string, unknown> = { name: draft.name };
+  if (draft.description) frontmatter.description = draft.description;
+  const aliases = joinCsv(draft.aliases);
+  if (aliases) frontmatter.aliases = aliases;
+  const tools = joinCsv(draft.tools);
+  if (tools) frontmatter.tools = tools;
+  if (draft.model) frontmatter.model = draft.model;
+  const fallback = joinCsv(draft.fallbackModels);
+  if (fallback) frontmatter.fallbackModels = fallback;
+  if (draft.thinking) frontmatter.thinking = draft.thinking;
+  if (draft.systemPromptMode) frontmatter.systemPromptMode = draft.systemPromptMode;
+  if (draft.inheritProjectContext !== undefined) frontmatter.inheritProjectContext = draft.inheritProjectContext;
+  if (draft.inheritSkills !== undefined) frontmatter.inheritSkills = draft.inheritSkills;
+  if (draft.async !== undefined) frontmatter.async = draft.async;
+  const body = draft.systemPrompt?.trim() ? `\n${draft.systemPrompt.trim()}\n` : "";
+  return `---\n${YAML.stringify(frontmatter).trimEnd()}\n---\n${body}`;
+}
+
+/** Read a user agent definition into an editable draft. */
+export function readUserAgent(name: string, agentDir = resolvePiAgentDir()): { draft: AgentDraft; filePath: string } {
+  const filePath = assertEditable(agentDir, name);
+  const content = readFileSync(filePath, "utf8");
+  const fm = parseAgentFile(content);
+  const match = /^---\s*\n[\s\S]*?\n---\n?([\s\S]*)$/.exec(content);
+  const systemPrompt = match?.[1]?.trim() ?? "";
+  return {
+    filePath,
+    draft: {
+      name,
+      description: typeof fm.description === "string" ? fm.description : undefined,
+      aliases: fromCsv(fm.aliases),
+      tools: toTools(fm.tools),
+      model: typeof fm.model === "string" ? fm.model : undefined,
+      fallbackModels: fromCsv(fm.fallbackModels),
+      thinking: typeof fm.thinking === "string" ? fm.thinking : undefined,
+      systemPromptMode: fm.systemPromptMode === "append" ? "append" : fm.systemPromptMode === "replace" ? "replace" : undefined,
+      inheritProjectContext: typeof fm.inheritProjectContext === "boolean" ? fm.inheritProjectContext : undefined,
+      inheritSkills: typeof fm.inheritSkills === "boolean" ? fm.inheritSkills : undefined,
+      async: typeof fm.async === "boolean" ? fm.async : undefined,
+      systemPrompt,
+    },
+  };
+}
+
+function fromCsv(value: unknown): string[] | undefined {
+  if (typeof value === "string") {
+    const list = value.split(",").map((v) => v.trim()).filter(Boolean);
+    return list.length > 0 ? list : undefined;
+  }
+  if (Array.isArray(value)) {
+    const list = value.filter((v): v is string => typeof v === "string");
+    return list.length > 0 ? list : undefined;
+  }
+  return undefined;
+}
+
+/** Create a new user agent. Rejects names that already exist. */
+export function createAgent(draft: AgentDraft, agentDir = resolvePiAgentDir()): AgentListResult {
+  const name = assertValidName(draft.name);
+  const existing = listAgents(agentDir);
+  if (existing.agents.some((a) => a.name === name)) {
+    throw new AgentsError("invalid-name", "同名のエージェントが既に存在します");
+  }
+  mkdirSync(agentsDir(agentDir), { recursive: true });
+  atomicWrite(userAgentPath(agentDir, name), serializeAgent({ ...draft, name }));
+  return listAgents(agentDir);
+}
+
+/** Update a user agent. */
+export function updateAgent(draft: AgentDraft, agentDir = resolvePiAgentDir()): AgentListResult {
+  const name = assertValidName(draft.name);
+  const filePath = assertEditable(agentDir, name);
+  atomicWrite(filePath, serializeAgent({ ...draft, name }));
+  return listAgents(agentDir);
+}
+
+/** Delete a user agent. */
+export function deleteAgent(name: string, agentDir = resolvePiAgentDir()): AgentListResult {
+  const filePath = assertEditable(agentDir, name.trim());
+  rmSync(filePath, { force: true });
   return listAgents(agentDir);
 }

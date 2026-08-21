@@ -1,14 +1,43 @@
 /**
- * PATCH /api/agents/:name — enable/disable a pi-subagents agent via settings.json overrides.
+ * PATCH /api/agents/:name — enable/disable or update a user agent.
+ * GET    /api/agents/:name — read a user agent draft.
+ * DELETE /api/agents/:name — delete a user agent.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { reloadLiveSessionsContext } from "@/lib/pi/harness";
-import { agentsErrorStatus, listAgents, setAgentEnabled } from "@/lib/agents";
+import {
+  agentsErrorStatus,
+  deleteAgent,
+  listAgents,
+  readUserAgent,
+  setAgentEnabled,
+  updateAgent,
+  type AgentDraft,
+} from "@/lib/agents";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ name: string }> };
+
+export async function GET(_req: NextRequest, context: RouteContext) {
+  const { name: rawName } = await context.params;
+  let name: string;
+  try {
+    name = decodeURIComponent(rawName);
+  } catch {
+    return NextResponse.json({ error: "名前が不正です" }, { status: 400 });
+  }
+  try {
+    const result = readUserAgent(name);
+    return NextResponse.json(result);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "エージェントの取得に失敗しました" },
+      { status: agentsErrorStatus(error) },
+    );
+  }
+}
 
 export async function PATCH(req: NextRequest, context: RouteContext) {
   const { name: rawName } = await context.params;
@@ -26,27 +55,46 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "リクエスト本文が不正です" }, { status: 400 });
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return NextResponse.json({ error: "enabled（boolean）が必要です" }, { status: 400 });
+    return NextResponse.json({ error: "リクエスト本文が不正です" }, { status: 400 });
   }
-  const enabled = (body as { enabled?: unknown }).enabled;
-  if (typeof enabled !== "boolean") {
-    return NextResponse.json({ error: "enabled（boolean）が必要です" }, { status: 400 });
-  }
+  const record = body as { enabled?: unknown } & Partial<AgentDraft>;
 
   try {
-    setAgentEnabled(name, enabled);
+    if (typeof record.enabled === "boolean") {
+      // Toggle only (used by the switch).
+      setAgentEnabled(name, record.enabled);
+    } else {
+      // Update the agent definition.
+      if (typeof record.systemPrompt !== "string") {
+        return NextResponse.json({ error: "systemPrompt が必要です" }, { status: 400 });
+      }
+      updateAgent({ ...(record as AgentDraft), name });
+    }
     const reload = await reloadLiveSessionsContext();
     const listed = listAgents();
-    return NextResponse.json({
-      ok: true,
-      name,
-      enabled,
-      agents: listed.agents,
-      reload,
-    });
+    return NextResponse.json({ ok: true, name, agents: listed.agents, reload });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "エージェントの切替に失敗しました" },
+      { error: error instanceof Error ? error.message : "エージェントの更新に失敗しました" },
+      { status: agentsErrorStatus(error) },
+    );
+  }
+}
+
+export async function DELETE(_req: NextRequest, context: RouteContext) {
+  const { name: rawName } = await context.params;
+  let name: string;
+  try {
+    name = decodeURIComponent(rawName);
+  } catch {
+    return NextResponse.json({ error: "名前が不正です" }, { status: 400 });
+  }
+  try {
+    const listed = deleteAgent(name);
+    return NextResponse.json({ ok: true, agents: listed.agents });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "エージェントの削除に失敗しました" },
       { status: agentsErrorStatus(error) },
     );
   }
