@@ -34,6 +34,75 @@ export function resolveCommandCodeExtensionEntry(
   return null;
 }
 
+/** pi-ai transform-messages.ts uses these exact strings; keep them identical. */
+const USER_IMAGE_PLACEHOLDER = "(image omitted: model does not support images)";
+const TOOL_IMAGE_PLACEHOLDER = "(tool image omitted: model does not support images)";
+
+type ContentBlock = { type: string; text?: string };
+type MessageLike = { role?: string; content?: unknown };
+
+function replaceImages(content: ContentBlock[], placeholder: string): ContentBlock[] {
+  const result: ContentBlock[] = [];
+  let previousWasPlaceholder = false;
+  for (const block of content) {
+    if (block.type === "image") {
+      if (!previousWasPlaceholder) result.push({ type: "text", text: placeholder });
+      previousWasPlaceholder = true;
+      continue;
+    }
+    result.push(block);
+    previousWasPlaceholder = block.text === placeholder;
+  }
+  return result;
+}
+
+/**
+ * Drop image blocks for text-only models.
+ *
+ * pi-ai runs this in `transformMessages` for its own APIs, but a native provider
+ * (`streamSimple`) receives the raw context, so the Command Code provider throws
+ * "does not support image content in tool results" and kills the task instead.
+ * The `read` tool already annotates the omission in text; only the blob must go.
+ */
+export function downgradeUnsupportedImages<T extends { messages?: unknown }>(
+  model: { input?: readonly string[] } | undefined,
+  context: T,
+): T {
+  if (model?.input?.includes("image")) return context;
+  if (!Array.isArray(context?.messages)) return context;
+
+  let changed = false;
+  const messages = (context.messages as MessageLike[]).map((message) => {
+    if (!Array.isArray(message?.content)) return message;
+    const content = message.content as ContentBlock[];
+    if (!content.some((block) => block?.type === "image")) return message;
+    const placeholder =
+      message.role === "toolResult" ? TOOL_IMAGE_PLACEHOLDER : USER_IMAGE_PLACEHOLDER;
+    changed = true;
+    return { ...message, content: replaceImages(content, placeholder) };
+  });
+
+  return changed ? { ...context, messages } : context;
+}
+
+type StreamSimple = (
+  model: { input?: readonly string[] } | undefined,
+  context: { messages?: unknown },
+  options?: unknown,
+) => unknown;
+
+/** Wrap the extension's `streamSimple` so text-only models never receive image blocks. */
+export function withImageDowngrade(config: Record<string, unknown>): Record<string, unknown> {
+  const stream = config.streamSimple;
+  if (typeof stream !== "function") return config;
+  const inner = stream as StreamSimple;
+  return {
+    ...config,
+    streamSimple: (model: Parameters<StreamSimple>[0], context: Parameters<StreamSimple>[1], options?: unknown) =>
+      inner(model, downgradeUnsupportedImages(model, context), options),
+  };
+}
+
 /**
  * Align LeafCodePi / CodexBar env name with the extension's COMMANDCODE_API_KEY.
  */
@@ -86,7 +155,7 @@ export async function registerCommandCodeProvider(runtime: ModelRuntime): Promis
   const api: ExtensionApiStub = {
     registerProvider(nameOrProvider, config) {
       if (typeof nameOrProvider === "string") {
-        runtime.registerProvider(nameOrProvider, (config ?? {}) as never);
+        runtime.registerProvider(nameOrProvider, withImageDowngrade(config ?? {}) as never);
         return;
       }
       runtime.registerNativeProvider(nameOrProvider as never);
