@@ -265,7 +265,8 @@ async function loadCreateLlamaProvider(): Promise<(() => { provider: unknown }) 
     ];
     for (const file of candidates) {
       try {
-        const mod = (await import(pathToFileURL(file).href)) as {
+        // Absolute file URL resolved at runtime; webpack must not try to bundle it.
+        const mod = (await import(/* webpackIgnore: true */ pathToFileURL(file).href)) as {
           createLlamaProvider?: () => { provider: unknown };
         };
         if (typeof mod.createLlamaProvider === "function") return mod.createLlamaProvider;
