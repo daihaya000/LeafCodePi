@@ -1,0 +1,92 @@
+import { NextRequest, NextResponse } from "next/server";
+import { commitPathError, runGit } from "@/lib/git";
+import { isAbsolutePath } from "@/lib/paths";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const SAFE_MSG = /^[\s\S]{1,2000}$/;
+const SAFE_AGENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+export async function POST(req: NextRequest) {
+  const body = (await req.json().catch(() => null)) as {
+    directory?: string;
+    message?: string;
+    paths?: string[];
+    all?: boolean;
+    agent?: string;
+  } | null;
+
+  if (!body?.directory || !body.message?.trim()) {
+    return NextResponse.json(
+      { error: "directory and message are required" },
+      { status: 400 },
+    );
+  }
+  if (!isAbsolutePath(body.directory)) {
+    return NextResponse.json({ error: "invalid directory" }, { status: 400 });
+  }
+  if (!SAFE_MSG.test(body.message)) {
+    return NextResponse.json({ error: "invalid commit message" }, { status: 400 });
+  }
+
+  // Stage — require an explicit all:true or a non-empty paths list.
+  if (body.all === true) {
+    const add = await runGit(body.directory, ["add", "-A", "--", "."]);
+    if (add.code !== 0) {
+      return NextResponse.json(
+        { error: add.stderr.trim() || "git add failed" },
+        { status: 500 },
+      );
+    }
+  } else if (body.paths?.length) {
+    for (const p of body.paths) {
+      const err = commitPathError(p);
+      if (err) return NextResponse.json({ error: err }, { status: 400 });
+    }
+    const add = await runGit(body.directory, ["add", "--", ...body.paths]);
+    if (add.code !== 0) {
+      return NextResponse.json(
+        { error: add.stderr.trim() || "git add failed" },
+        { status: 500 },
+      );
+    }
+  } else {
+    return NextResponse.json(
+      { error: "paths or all:true is required" },
+      { status: 400 },
+    );
+  }
+
+  const commitArgs = ["commit", "-m", body.message.trim()];
+  if (!body.all && body.paths?.length) {
+    commitArgs.push("--", ...body.paths);
+  }
+
+  const agentName = body.agent?.trim() || "build";
+  const gitEnv: Record<string, string> | undefined = SAFE_AGENT.test(agentName)
+    ? {
+        GIT_AUTHOR_NAME: agentName,
+        GIT_AUTHOR_EMAIL: `${agentName}@opencode.local`,
+        GIT_COMMITTER_NAME: agentName,
+        GIT_COMMITTER_EMAIL: `${agentName}@opencode.local`,
+      }
+    : undefined;
+
+  const commit = await runGit(body.directory, commitArgs, undefined, gitEnv);
+  if (commit.code !== 0) {
+    return NextResponse.json(
+      {
+        error: commit.stderr.trim() || commit.stdout.trim() || "git commit failed",
+        stdout: commit.stdout,
+      },
+      { status: 500 },
+    );
+  }
+
+  const log = await runGit(body.directory, ["log", "-1", "--oneline"]);
+  return NextResponse.json({
+    ok: true,
+    summary: log.stdout.trim() || commit.stdout.trim(),
+  });
+}

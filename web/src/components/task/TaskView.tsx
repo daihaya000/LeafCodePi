@@ -545,7 +545,11 @@ export function TaskView({ taskId }: { taskId: string }) {
         )}
         {diffOpen && task?.directory && (
           <div className="h-72 shrink-0 border-b border-border lg:h-auto lg:w-80 lg:border-b-0 lg:border-l">
-            <DiffPane directory={task.directory} />
+            <DiffPane
+              directory={task.directory}
+              agent={agent || undefined}
+              onMutated={() => notifyTasksChanged()}
+            />
           </div>
         )}
       </div>

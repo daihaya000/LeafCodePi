@@ -80,6 +80,42 @@ export function assertSafeCommitHash(hash: string): void {
   if (!SAFE_HASH.test(hash)) throw new Error("invalid commit hash");
 }
 
+/**
+ * Reject option injection / path traversal / shell-dangerous chars while
+ * allowing Unicode branch names (e.g. 機能/ログイン).
+ */
+const SAFE_BRANCH = /^[\p{L}\p{N}._/+-]+$/u;
+
+export function assertSafeBranchName(name: string): void {
+  if (
+    !name ||
+    name.length > 200 ||
+    !SAFE_BRANCH.test(name) ||
+    name.startsWith("-") ||
+    name.startsWith("/") ||
+    name.endsWith("/") ||
+    name.includes("..") ||
+    name.includes("//")
+  ) {
+    throw new Error("invalid branch name");
+  }
+}
+
+/** Reject pathspecs that are magic/glob forms or escape the repo root. */
+export function commitPathError(p: string): string | null {
+  if (!p || typeof p !== "string") return "empty path";
+  if (p.includes("\0")) return `unsafe path: ${p}`;
+  if (p.includes("..") || p.startsWith("-")) return `unsafe path: ${p}`;
+  if (p.startsWith("/") || p.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(p)) {
+    return `unsafe path: ${p}`;
+  }
+  if (p.startsWith(":")) return `unsafe path: ${p}`;
+  if (p === "." || p === "*" || p === "**" || p.includes("*") || p.includes("?")) {
+    return `unsafe path: ${p}`;
+  }
+  return null;
+}
+
 /** Unstaged + staged unified diff (no pager). */
 export async function gitDiff(cwd: string): Promise<string> {
   const staged = await runGit(cwd, ["diff", "--cached", "--no-color", "--no-ext-diff", "-M"]);
