@@ -94,6 +94,10 @@ type LiveRuntime = {
   throughputByStartedAt: Map<number, ThroughputTiming>;
   /** startedAtMs values already written to the Pi session file. */
   persistedThroughputKeys: Set<number>;
+  /** toolCallId → wall-clock start (ms) for live elapsed display. */
+  toolStartedAt: Map<string, number>;
+  /** toolCallId → wall-clock end (ms), set on tool_execution_end. */
+  toolEndedAt: Map<string, number>;
   /** Coalesce message_update snapshots onto the event loop. */
   snapshotTimer: ReturnType<typeof setTimeout> | null;
   pendingSnapshotEventType: string | null;
@@ -231,14 +235,47 @@ function applyThroughput(
 function snapshotMessages(
   session: AgentSession,
   throughputByStartedAt?: Map<number, ThroughputTiming>,
+  toolStartedAt?: Map<string, number>,
+  toolEndedAt?: Map<string, number>,
 ): UiMessage[] {
   const stored: unknown[] = Array.isArray(session.messages) ? [...session.messages] : [];
   const streaming = session.agent.state.streamingMessage;
   if (streaming && stored[stored.length - 1] !== streaming) {
     stored.push(streaming);
   }
-  const projected = projectPiMessages(stored);
-  return throughputByStartedAt ? applyThroughput(projected, throughputByStartedAt) : projected;
+  let projected = projectPiMessages(stored);
+  if (throughputByStartedAt) projected = applyThroughput(projected, throughputByStartedAt);
+  if (toolStartedAt && toolStartedAt.size > 0 && toolEndedAt) {
+    projected = applyToolTiming(projected, toolStartedAt, toolEndedAt);
+  }
+  return projected;
+}
+
+/** toolCallId に対応する tool パートに実行開始/終了時刻を注入する。 */
+export function applyToolTiming(
+  messages: UiMessage[],
+  toolStartedAt: Map<string, number>,
+  toolEndedAt: Map<string, number>,
+): UiMessage[] {
+  return messages.map((message) => {
+    if (message.role !== "assistant") return message;
+    let changed = false;
+    const parts = message.parts.map((part) => {
+      if (part.type !== "tool") return part;
+      const startedAtMs = toolStartedAt.get(part.callID);
+      if (!startedAtMs) return part;
+      changed = true;
+      return {
+        ...part,
+        state: {
+          ...part.state,
+          startedAtMs,
+          endedAtMs: toolEndedAt.get(part.callID) ?? part.state.endedAtMs,
+        },
+      };
+    });
+    return changed ? { ...message, parts } : message;
+  });
 }
 
 function loadThroughputFromSession(session: AgentSession): {
@@ -294,6 +331,28 @@ function trackThroughputEvent(
   live: LiveRuntime,
   event: { type: string; [key: string]: unknown },
 ): void {
+  if (event.type === "tool_execution_start") {
+    const toolCallId =
+      typeof event.toolCallId === "string"
+        ? event.toolCallId
+        : typeof event.toolCallID === "string"
+          ? event.toolCallID
+          : "";
+    if (toolCallId) live.toolStartedAt.set(toolCallId, Date.now());
+    return;
+  }
+
+  if (event.type === "tool_execution_end") {
+    const toolCallId =
+      typeof event.toolCallId === "string"
+        ? event.toolCallId
+        : typeof event.toolCallID === "string"
+          ? event.toolCallID
+          : "";
+    if (toolCallId) live.toolEndedAt.set(toolCallId, Date.now());
+    return;
+  }
+
   if (event.type === "message_start") {
     const message = event.message;
     if (!message || typeof message !== "object") return;
@@ -369,6 +428,8 @@ function sessionContextUsage(session: AgentSession): ContextUsageDto | undefined
 function sessionSnapshotFields(
   session: AgentSession,
   throughputByStartedAt?: Map<number, ThroughputTiming>,
+  toolStartedAt?: Map<string, number>,
+  toolEndedAt?: Map<string, number>,
 ): {
   messages: UiMessage[];
   isStreaming: boolean;
@@ -376,7 +437,7 @@ function sessionSnapshotFields(
   contextUsage: ContextUsageDto | undefined;
 } {
   return {
-    messages: snapshotMessages(session, throughputByStartedAt),
+    messages: snapshotMessages(session, throughputByStartedAt, toolStartedAt, toolEndedAt),
     isStreaming: session.isStreaming,
     isCompacting: session.isCompacting,
     contextUsage: sessionContextUsage(session),
@@ -398,7 +459,12 @@ function emitTaskSnapshot(
   emit(live.taskId, {
     type: "snapshot",
     task: toSummary(task),
-    ...sessionSnapshotFields(live.session, live.throughputByStartedAt),
+    ...sessionSnapshotFields(
+      live.session,
+      live.throughputByStartedAt,
+      live.toolStartedAt,
+      live.toolEndedAt,
+    ),
     eventType,
     ...extra,
   });
@@ -469,6 +535,8 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
     throughputByStartedAt: existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
     persistedThroughputKeys:
       existing?.persistedThroughputKeys ?? loaded?.persistedKeys ?? new Set(),
+    toolStartedAt: existing?.toolStartedAt ?? new Map(),
+    toolEndedAt: existing?.toolEndedAt ?? new Map(),
     snapshotTimer: null,
     pendingSnapshotEventType: null,
   };
@@ -888,7 +956,12 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
   let contextUsage: ContextUsageDto | undefined;
   try {
     const live = await ensureLive(id);
-    const fields = sessionSnapshotFields(live.session, live.throughputByStartedAt);
+    const fields = sessionSnapshotFields(
+      live.session,
+      live.throughputByStartedAt,
+      live.toolStartedAt,
+      live.toolEndedAt,
+    );
     messages = fields.messages;
     isStreaming = fields.isStreaming;
     isCompacting = fields.isCompacting;
@@ -983,7 +1056,12 @@ function queuePrompt(live: LiveRuntime, prompt: string, images?: PromptImage[]):
       emit(live.taskId, {
         type: "snapshot",
         task: toSummary(getTask(live.taskId)!),
-        ...sessionSnapshotFields(live.session, live.throughputByStartedAt),
+        ...sessionSnapshotFields(
+        live.session,
+        live.throughputByStartedAt,
+        live.toolStartedAt,
+        live.toolEndedAt,
+      ),
         isStreaming: false,
         eventType: "error",
         error: message,
@@ -1066,7 +1144,12 @@ export async function setTaskModel(id: string, modelValueRaw: string): Promise<T
   emit(id, {
     type: "snapshot",
     task: summary,
-    ...sessionSnapshotFields(live.session, live.throughputByStartedAt),
+    ...sessionSnapshotFields(
+        live.session,
+        live.throughputByStartedAt,
+        live.toolStartedAt,
+        live.toolEndedAt,
+      ),
   });
   return summary;
 }
@@ -1089,7 +1172,12 @@ export async function setTaskThinkingLevel(
   emit(id, {
     type: "snapshot",
     task: summary,
-    ...sessionSnapshotFields(live.session, live.throughputByStartedAt),
+    ...sessionSnapshotFields(
+        live.session,
+        live.throughputByStartedAt,
+        live.toolStartedAt,
+        live.toolEndedAt,
+      ),
   });
   return summary;
 }

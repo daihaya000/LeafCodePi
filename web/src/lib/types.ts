@@ -43,6 +43,10 @@ export type ToolState = {
   output?: string;
   title?: string;
   error?: string;
+  /** Wall-clock start time of tool execution (ms epoch). */
+  startedAtMs?: number;
+  /** Wall-clock end time of tool execution (ms epoch). */
+  endedAtMs?: number;
 };
 
 export type UiPart =

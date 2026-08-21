@@ -18,12 +18,37 @@ const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
   );
 });
 
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+/** 実行中 tool の経過時間を 500ms 毎に更新する。 */
+function useElapsedMs(startedAtMs: number | undefined, endedAtMs: number | undefined): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (endedAtMs !== undefined) {
+      setNow(endedAtMs);
+      return;
+    }
+    const timer = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(timer);
+  }, [endedAtMs]);
+  if (startedAtMs === undefined) return 0;
+  return Math.max(0, now - startedAtMs);
+}
+
 function ToolCard({ part }: { part: Extract<UiPart, { type: "tool" }> }) {
   const [open, setOpen] = useState(part.state.status !== "completed");
   // 実行完了時に自動で折りたたむ（ユーザーが意図的に開いた状態は保持しない）。
   useEffect(() => {
     if (part.state.status === "completed") setOpen(false);
   }, [part.state.status]);
+  const elapsedMs = useElapsedMs(part.state.startedAtMs, part.state.endedAtMs);
+  const running = part.state.status === "running";
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-surface-2">
       <button
@@ -33,6 +58,21 @@ function ToolCard({ part }: { part: Extract<UiPart, { type: "tool" }> }) {
       >
         <ChevronRight className={cx("h-3.5 w-3.5 text-muted transition", open && "rotate-90")} />
         <span className="font-mono font-medium">{part.tool}</span>
+        {part.state.startedAtMs !== undefined && (
+          <span
+            className={cx(
+              "font-mono tabular-nums",
+              running ? "text-working" : "text-faint",
+            )}
+            title={
+              part.state.endedAtMs !== undefined
+                ? `実行時間 ${formatElapsed(elapsedMs)}`
+                : `経過時間 ${formatElapsed(elapsedMs)}`
+            }
+          >
+            {formatElapsed(elapsedMs)}
+          </span>
+        )}
         <span
           className={cx(
             "ml-auto rounded-full px-2 py-0.5 text-[10px]",
