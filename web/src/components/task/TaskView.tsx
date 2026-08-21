@@ -1,11 +1,12 @@
 "use client";
 
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Shrink, Square } from "lucide-react";
+import { ArrowUp, GitGraph, Shrink, Square } from "lucide-react";
 import { Composer, type ComposerAttachment } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { pasteImage } from "@/lib/clipboard-image";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
+import { GraphPanel } from "@/components/task/GraphPanel";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
 import { ModelSelect } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
@@ -85,6 +86,7 @@ export function TaskView({ taskId }: { taskId: string }) {
   const [goalLoopAcceptance, setGoalLoopAcceptance] = useState("");
   const [goalLoopMaxTurns, setGoalLoopMaxTurns] = useState(10);
   const [goalLoopForceFullRun, setGoalLoopForceFullRun] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -448,6 +450,18 @@ export function TaskView({ taskId }: { taskId: string }) {
               {!compacting && <Shrink className="h-3.5 w-3.5" />}
               <span className="hidden sm:inline">圧縮</span>
             </Button>
+            <Button
+              variant={graphOpen ? "primary" : "secondary"}
+              size="sm"
+              title="コミットグラフ"
+              aria-label="コミットグラフ"
+              aria-pressed={graphOpen}
+              disabled={!task}
+              onClick={() => setGraphOpen((value) => !value)}
+            >
+              <GitGraph className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">グラフ</span>
+            </Button>
             <span className="hidden shrink-0 sm:inline-flex">
               {task && <StatusBadge status={working ? "working" : task.status} />}
             </span>
@@ -464,20 +478,27 @@ export function TaskView({ taskId }: { taskId: string }) {
           </div>
         </div>
       </header>
-      <div
-        ref={scrollRef}
-        onScroll={onScroll}
-        className="min-h-0 flex-1 overflow-y-auto px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4"
-      >
-        <div ref={contentRef} className="mx-auto flex max-w-3xl flex-col gap-6">
-          {messages.map((message) => (
-            <PartView key={message.id} message={message} />
-          ))}
-          {task?.todos && <TodoProgressPanel todos={task.todos} />}
-          {messages.length === 0 && (
-            <p className="py-12 text-center text-sm text-muted">メッセージはまだありません</p>
-          )}
+      <div className="flex min-h-0 flex-1">
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          className="min-h-0 flex-1 overflow-y-auto px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4"
+        >
+          <div ref={contentRef} className="mx-auto flex max-w-3xl flex-col gap-6">
+            {messages.map((message) => (
+              <PartView key={message.id} message={message} />
+            ))}
+            {task?.todos && <TodoProgressPanel todos={task.todos} />}
+            {messages.length === 0 && (
+              <p className="py-12 text-center text-sm text-muted">メッセージはまだありません</p>
+            )}
+          </div>
         </div>
+        {graphOpen && task?.directory && (
+          <div className="hidden w-80 shrink-0 border-l border-border lg:block">
+            <GraphPanel directory={task.directory} working={working} />
+          </div>
+        )}
       </div>
       <div className="shrink-0 border-t border-border bg-surface px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         {compacting && (
