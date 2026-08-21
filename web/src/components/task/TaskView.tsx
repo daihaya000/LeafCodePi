@@ -15,7 +15,7 @@ import { AgentSelect } from "@/components/AgentSelect";
 import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
-import { PartView } from "@/components/task/PartView";
+import { PartView, WorkingRow } from "@/components/task/PartView";
 import { Button, cx } from "@/components/ui";
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
@@ -23,7 +23,7 @@ import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { isNearBottom, nextStickState } from "@/lib/scroll-stick";
 import { stabilizeUiMessages } from "@/lib/stabilize-messages";
-import { isThinkingLevel } from "@/lib/thinking-levels";
+import { isThinkingLevel, thinkingLevelLabel } from "@/lib/thinking-levels";
 import {
   readSubagentPermission,
   writeSubagentPermission,
@@ -380,6 +380,13 @@ export function TaskView({ taskId }: { taskId: string }) {
       ? "off"
       : (thinkingLevels[0] ?? "off");
   const working = task?.status === "working" || task?.isStreaming;
+  const modelLabels = useMemo(
+    () => Object.fromEntries(models.map((option) => [option.value, option.label])),
+    [models],
+  );
+  // 本家 LeafCode と同じく、メタ行の effort はタスクの現在値を表示する。
+  const effortLabel =
+    thinkingLevels.length > 1 ? thinkingLevelLabel(thinkingValue) : undefined;
 
   // ヘッダー表示用の会話統計: 合計出力 tok / 平均 tok/s / 合計生成時間。
   const stats = useMemo(() => {
@@ -528,10 +535,20 @@ export function TaskView({ taskId }: { taskId: string }) {
           onScroll={onScroll}
           className="min-h-0 flex-1 overflow-y-auto px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4"
         >
-          <div ref={contentRef} className="mx-auto flex max-w-3xl flex-col gap-6">
+          <div ref={contentRef} className="mx-auto flex max-w-5xl flex-col gap-4">
             {messages.map((message) => (
-              <PartView key={message.id} message={message} />
+              <PartView
+                key={message.id}
+                message={message}
+                modelLabel={
+                  message.provider && message.model
+                    ? modelLabels[`${message.provider}::${message.model}`]
+                    : undefined
+                }
+                effort={message.role === "assistant" ? effortLabel : undefined}
+              />
             ))}
+            {working && <WorkingRow messages={messages} />}
             {task?.todos && <TodoProgressPanel todos={task.todos} />}
             {messages.length === 0 && (
               <p className="py-12 text-center text-sm text-muted">メッセージはまだありません</p>
@@ -555,7 +572,7 @@ export function TaskView({ taskId }: { taskId: string }) {
       </div>
       <div className="shrink-0 border-t border-border bg-surface px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         {compacting && (
-          <div className="mx-auto mb-2 flex max-w-3xl items-center gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
+          <div className="mx-auto mb-2 flex max-w-5xl items-center gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
             <span className="min-w-0 flex-1">
               コンテキストを圧縮しています… 完了まで数分かかることがあります
             </span>
@@ -565,7 +582,7 @@ export function TaskView({ taskId }: { taskId: string }) {
           </div>
         )}
         {error && (
-          <p role="alert" className="mx-auto mb-2 max-w-3xl rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger">
+          <p role="alert" className="mx-auto mb-2 max-w-5xl rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger">
             {error}
           </p>
         )}
@@ -576,7 +593,7 @@ export function TaskView({ taskId }: { taskId: string }) {
           onResume={(maxTurns) => void goalLoopAction("resume", maxTurns)}
         />
         {goalLoopEnabled && (
-          <div className="mx-auto max-w-3xl">
+          <div className="mx-auto max-w-5xl">
             <GoalLoopOptions
               acceptance={goalLoopAcceptance}
               maxTurns={goalLoopMaxTurns}
@@ -596,7 +613,7 @@ export function TaskView({ taskId }: { taskId: string }) {
               void submit();
             },
           }}
-          className="relative mx-auto max-w-3xl rounded-2xl border border-border bg-bg px-3 py-2 shadow-sm focus-within:border-border-strong focus-within:ring-2 focus-within:ring-primary/20"
+          className="relative mx-auto max-w-5xl rounded-2xl border border-border bg-bg px-3 py-2 shadow-sm focus-within:border-border-strong focus-within:ring-2 focus-within:ring-primary/20"
           attachments={attachments}
           onRemoveAttachment={(index) =>
             setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))
