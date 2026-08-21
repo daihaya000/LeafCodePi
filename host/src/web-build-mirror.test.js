@@ -13,6 +13,8 @@ import {
 } from "../../scripts/web-build-mirror.mjs";
 import {
   discardPreviousBuild,
+  handOffToServedWebUi,
+  hostControlUrl,
   previousBuildDir,
   productionWebUiIsIdle,
   restorePreviousBuild,
@@ -237,4 +239,57 @@ test("the host builds through build-web.mjs and serves the mirror", () => {
   assert.match(source, /scripts", "build-web\.mjs"\), "--skip-guard"/);
   assert.match(source, /const WEB_DIST_DIR = mirrorDistDir\(WEB_MIRROR_DIR\)/);
   assert.match(source, /const projectDir = useProd \? WEB_MIRROR_DIR : WEB_DIR/);
+});
+
+test("hostControlUrl prefers the running host's file, then the default port", () => {
+  const file = () => JSON.stringify({ url: "http://127.0.0.1:18999/" });
+  assert.equal(hostControlUrl({ APPDATA: "C:\\data" }, file), "http://127.0.0.1:18999");
+  assert.equal(
+    hostControlUrl({ APPDATA: "C:\\data", LEAFCODE_PI_HOST_CONTROL_URL: "http://127.0.0.1:1/" }, file),
+    "http://127.0.0.1:1",
+  );
+  const missing = () => {
+    throw new Error("ENOENT");
+  };
+  assert.equal(hostControlUrl({ APPDATA: "C:\\data" }, missing), "http://127.0.0.1:18775");
+  assert.equal(
+    hostControlUrl({ APPDATA: "C:\\data", LEAFCODE_PI_HOST_CONTROL_PORT: "18900" }, missing),
+    "http://127.0.0.1:18900",
+  );
+});
+
+test("a build that replaced a served .next asks the host to restart the WebUI", async () => {
+  const calls = [];
+  const post = async (url, init) => {
+    calls.push([url, init?.method]);
+    return { ok: true, status: 202 };
+  };
+  const result = await handOffToServedWebUi({
+    port: 3010,
+    isIdle: () => false,
+    controlUrl: "http://127.0.0.1:18775",
+    post,
+  });
+  assert.equal(result, "restarted");
+  assert.deepEqual(calls, [["http://127.0.0.1:18775/restart/webui", "POST"]]);
+});
+
+test("no WebUI is serving the mirror: nothing is restarted", async () => {
+  const post = async () => {
+    throw new Error("must not be called");
+  };
+  assert.equal(await handOffToServedWebUi({ port: 3010, isIdle: () => true, post }), "idle");
+});
+
+test("an unreachable host degrades to a manual restart notice", async () => {
+  const refused = async () => ({ ok: false, status: 501 });
+  assert.equal(
+    await handOffToServedWebUi({
+      port: 3010,
+      isIdle: () => false,
+      controlUrl: "http://127.0.0.1:18775",
+      post: refused,
+    }),
+    "manual",
+  );
 });

@@ -86,6 +86,8 @@ OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペ
 
 リポジトリ直下の `start.bat` をダブルクリックします。初回は Node.js / 依存関係 / production build を確認し、トレイに常駐します。ソースがビルドより新しければ、本家 LeafCode と同じく起動時に `next build` し直します。準備できたら `http://127.0.0.1:3010` を開きます。
 
+ビルドが稼働中の `next start` の `.next` を置き換えたときは、そのままだと配信中の HTML が参照するチャンクが消えて `/_next/static/...` が 500 になり、キャッシュを持たないクライアント（スマホなど）に Next の "This page couldn't load" が出ます。`scripts/build-web.mjs` はビルド後に稼働中の WebUI を検出したら、ホスト制御の `POST /restart/webui` で新しい世代へ切り替えます。ホストに届かない場合はトレイの Restart WebUI が必要です。
+
 production build は本家 LeafCode と同じく **`%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>\`** のハードリンクミラーで実行し、`next start` もそこから配信します。OneDrive がビルド中・配信中の `.next` に触れてチャンク世代が混ざるのを防ぐためです（`scripts\web-build-mirror.mjs`）。`next dev` はリポジトリのまま動きます（Next 16 の dev 出力は `web/.next/dev` で prod と分離）。ミラーの場所は `LEAFCODE_PI_BUILD_DIR` で変更できます。
 
 トレイメニュー:

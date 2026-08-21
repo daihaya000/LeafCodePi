@@ -1,8 +1,9 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, renameSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveMirrorRoot, syncMirror } from "./web-build-mirror.mjs";
+import { DEFAULT_HOST_CONTROL_PORT, dataDir, readPort } from "../host/src/config.js";
 import { parseListeningPids } from "../host/src/port-plan.js";
 
 /**
@@ -148,6 +149,55 @@ export function productionWebUiIsIdle({
   return true;
 }
 
+/**
+ * Loopback control plane of the running tray host (`host-control.json`).
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {(path: string, encoding: string) => string} [read]
+ */
+export function hostControlUrl(env = process.env, read = readFileSync) {
+  const override = env.LEAFCODE_PI_HOST_CONTROL_URL?.trim();
+  if (override) return override.replace(/\/$/, "");
+  try {
+    const raw = JSON.parse(read(join(dataDir(env), "host-control.json"), "utf8"));
+    if (typeof raw?.url === "string" && raw.url) return raw.url.replace(/\/$/, "");
+  } catch {
+    // No host is running, or its file is unreadable: fall back to the default port.
+  }
+  return `http://127.0.0.1:${readPort(env.LEAFCODE_PI_HOST_CONTROL_PORT, DEFAULT_HOST_CONTROL_PORT)}`;
+}
+
+/**
+ * A `next start` keeps serving the BUILD_ID it launched with, but this build has
+ * just replaced the very `.next` underneath it: every chunk the already served
+ * HTML references is gone, so `/_next/static/...` answers 500 and fresh clients
+ * (typically a phone that has nothing cached) only get Next's "This page
+ * couldn't load" error page. Hand the new generation over to the host serving it.
+ *
+ * @returns {Promise<"idle" | "restarted" | "manual">}
+ */
+export async function handOffToServedWebUi({
+  port = webUiPort(),
+  isIdle = productionWebUiIsIdle,
+  controlUrl = hostControlUrl(),
+  post = fetch,
+} = {}) {
+  if (isIdle({ port })) return "idle";
+  try {
+    const response = await post(`${controlUrl}/restart/webui`, { method: "POST" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    console.error("[build-web] the running WebUI was restarted onto the new build");
+    return "restarted";
+  } catch (err) {
+    console.error(
+      `[build-web] the running WebUI still serves the replaced build; restart it from the tray (${
+        err instanceof Error ? err.message : String(err)
+      })`,
+    );
+    return "manual";
+  }
+}
+
 function run(command, args, options) {
   const result = spawnSync(command, args, { stdio: "inherit", windowsHide: true, ...options });
   if (result.error) throw result.error;
@@ -208,6 +258,7 @@ export async function main(argv = process.argv.slice(2)) {
 
   discardPreviousBuild(mirror.distDir);
   console.error(`[build-web] build output: ${mirror.distDir}`);
+  await handOffToServedWebUi({ port });
   return 0;
 }
 
