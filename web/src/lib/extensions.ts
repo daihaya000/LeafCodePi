@@ -21,7 +21,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
 
@@ -31,6 +31,8 @@ export type ExtensionDto = {
   description?: string;
   enabled: boolean;
   filePath: string;
+  /** WebUI が機能依存している拡張は無効化できない。 */
+  required: boolean;
 };
 
 export type ExtensionListResult = {
@@ -67,8 +69,18 @@ export function extensionsDir(agentDir = resolvePiAgentDir()): string {
   return join(agentDir, "extensions");
 }
 
-function emptyState(): ExtensionsState {
+const emptyState = (): ExtensionsState => {
   return { disabled: {} };
+};
+
+/** WebUI の機能（Goal Loop / ToDo）が動作依存する同梱拡張。無効化禁止。 */
+export const WEBUI_REQUIRED_EXTENSIONS: ReadonlySet<string> = new Set([
+  "leafcode-goal-loop",
+  "leafcode-todowrite",
+]);
+
+export function isWebUiRequiredExtension(name: string): boolean {
+  return WEBUI_REQUIRED_EXTENSIONS.has(name);
 }
 
 function atomicWrite(filePath: string, content: string): void {
@@ -183,6 +195,12 @@ export function resolvePackageDir(source: string, agentDir = resolvePiAgentDir()
     if (!name) return null;
     return join(agentDir, "npm", "node_modules", name);
   }
+
+  // `pi install ./path/to/package` keeps a local source in settings.json.
+  // Resolve it from the Pi agent directory so the Extensions screen can list
+  // the same package that Pi itself loads.
+  if (isAbsolute(trimmed) || /^[A-Za-z]:[\\/]/.test(trimmed)) return trimmed;
+  if (/^(?:\.\.?)[\\/]/.test(trimmed)) return resolve(agentDir, trimmed);
 
   return null;
 }
@@ -309,6 +327,7 @@ export function listExtensions(
         description: entry.description,
         enabled: !isExtensionDisabled(entry.name, state),
         filePath: entry.filePath,
+        required: isWebUiRequiredExtension(entry.name),
       }),
     )
     .sort((a, b) => a.name.localeCompare(b.name, "en"));
@@ -328,6 +347,9 @@ export function setExtensionEnabled(
   const listed = listExtensions(agentDir, options);
   if (!listed.extensions.some((extension) => extension.name === trimmed)) {
     throw new ExtensionsError("not-found", "拡張機能が見つかりません");
+  }
+  if (!enabled && isWebUiRequiredExtension(trimmed)) {
+    throw new ExtensionsError("invalid-name", "WebUI が依存する拡張機能は無効化できません");
   }
   const state = readExtensionsState();
   if (enabled) delete state.disabled[trimmed];

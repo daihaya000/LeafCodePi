@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import {
   basenameKey,
@@ -107,6 +107,20 @@ describe("listExtensions / setExtensionEnabled", () => {
     assert.throws(() => setExtensionEnabled("missing", false, agent), /見つかりません/);
   });
 
+  it("marks WebUI-required extensions and refuses to disable them", () => {
+    const { agentDir: agent } = fixture();
+    writeExtension(join(agent, "extensions"), "leafcode-todowrite");
+
+    const listed = listExtensions(agent);
+    const required = listed.extensions.find((e) => e.name === "leafcode-todowrite");
+    assert.equal(required?.required, true);
+    assert.equal(listed.extensions.find((e) => e.name === "one")?.required, false);
+
+    assert.throws(() => setExtensionEnabled("leafcode-todowrite", false, agent), /無効化できません/);
+    // 無効化禁止の後も有効状態は維持される。
+    assert.equal(listExtensions(agent).extensions.find((e) => e.name === "leafcode-todowrite")?.enabled, true);
+  });
+
   it("discovers extensions from installed packages (settings.json packages)", () => {
     const { agentDir: agent } = fixture();
     // Simulate a `pi install`-style package clone with a pi.extensions manifest.
@@ -150,6 +164,23 @@ describe("listExtensions / setExtensionEnabled", () => {
     assert.equal(listed.extensions.find((e) => e.name === "pi-mcp-adapter")?.filePath, join(pkgDir, "index.ts"));
     expectNames(listed.extensions, ["one", "pi-mcp-adapter"]);
   });
+
+  it("discovers extensions from local packages (settings.json packages)", () => {
+    const { agentDir: agent } = fixture();
+    const pkgDir = join(agent, "local-package");
+    mkdirSync(pkgDir, { recursive: true });
+    writeFileSync(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ pi: { extensions: ["./index.ts"] } }),
+      "utf8",
+    );
+    writeFileSync(join(pkgDir, "index.ts"), "export default () => {};\n", "utf8");
+    writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: ["./local-package"] }), "utf8");
+
+    const listed = listExtensions(agent);
+    assert.equal(listed.extensions.find((e) => e.name === "local-package")?.filePath, join(pkgDir, "index.ts"));
+    expectNames(listed.extensions, ["local-package", "one"]);
+  });
 });
 
 describe("resolvePackageDir", () => {
@@ -185,6 +216,13 @@ describe("resolvePackageDir", () => {
     assert.equal(
       resolvePackageDir("npm:@scope/pkg@1.2.3", "C:\\pi\\agent"),
       "C:\\pi\\agent\\npm\\node_modules\\@scope\\pkg",
+    );
+  });
+
+  it("resolves local package paths relative to the Pi agent directory", () => {
+    assert.equal(
+      resolvePackageDir("..\\..\\OneDrive\\AI\\Pi\\LeafCodePi\\extensions\\leafcode-todowrite", "C:\\Users\\Daichi\\.pi\\agent"),
+      resolve("C:\\Users\\Daichi\\.pi\\agent", "..\\..\\OneDrive\\AI\\Pi\\LeafCodePi\\extensions\\leafcode-todowrite"),
     );
   });
 
