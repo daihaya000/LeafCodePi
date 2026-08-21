@@ -567,7 +567,7 @@ export function Sidebar({
                                 )
                               }
                             >
-                              <Trash2 className="h-3 w-3" />
+                              <Archive className="h-3 w-3" />
                             </button>
                           </li>
                         ))
