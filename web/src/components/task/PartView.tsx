@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChevronRight } from "lucide-react";
@@ -20,6 +20,10 @@ const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
 
 function ToolCard({ part }: { part: Extract<UiPart, { type: "tool" }> }) {
   const [open, setOpen] = useState(part.state.status !== "completed");
+  // 実行完了時に自動で折りたたむ（ユーザーが意図的に開いた状態は保持しない）。
+  useEffect(() => {
+    if (part.state.status === "completed") setOpen(false);
+  }, [part.state.status]);
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-surface-2">
       <button
