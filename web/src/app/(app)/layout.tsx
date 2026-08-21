@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect } from "react";
 import { AppShell } from "@/components/shell/AppShell";
 import { maybeRedirectToLocalhost } from "@/lib/localhost-redirect";
