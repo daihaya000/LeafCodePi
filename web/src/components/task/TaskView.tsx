@@ -31,7 +31,7 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
       className="flex min-w-0 shrink-0 items-center gap-1.5 text-[11px] text-muted"
       title={`コンテキスト使用量: ${usedLabel} / ${limitLabel} トークン（${pctLabel}）`}
     >
-      <span className="h-1.5 w-10 shrink-0 overflow-hidden rounded-full bg-surface-2">
+      <span className="h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-surface-2 sm:w-10">
         <span
           className={cx(
             "block h-full rounded-full transition-[width]",
@@ -46,7 +46,7 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
           style={{ width: `${barWidth}%` }}
         />
       </span>
-      <span className="font-mono tabular-nums">
+      <span className="hidden font-mono tabular-nums sm:inline">
         {usedLabel}/{limitLabel} ({pctLabel})
       </span>
     </span>
@@ -286,8 +286,8 @@ export function TaskView({ taskId }: { taskId: string }) {
   return (
     <div className="flex h-full flex-col">
       <MobileMenuHeader />
-      <header className="flex shrink-0 items-center gap-3 border-b border-border bg-surface px-4 py-2">
-        <div className="min-w-0 flex-1">
+      <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b border-border bg-surface px-3 py-2 md:flex-nowrap md:px-4 md:gap-3">
+        <div className="min-w-0 flex-1 basis-full md:basis-auto">
           <h1 className="truncate text-sm font-semibold">{task?.title ?? "読み込み中…"}</h1>
           <p className="truncate text-[11px] text-muted">{task?.directory}</p>
         </div>
@@ -302,7 +302,7 @@ export function TaskView({ taskId }: { taskId: string }) {
           onClick={() => void compact()}
         >
           {!compacting && <Shrink className="h-3.5 w-3.5" />}
-          圧縮
+          <span className="hidden sm:inline">圧縮</span>
         </Button>
         {task && <StatusBadge status={working ? "working" : task.status} />}
         {working && (
@@ -312,14 +312,14 @@ export function TaskView({ taskId }: { taskId: string }) {
             onClick={() => void sendJson(`/api/tasks/${taskId}/abort`, {})}
           >
             <Square className="h-3.5 w-3.5" />
-            停止
+            <span className="hidden sm:inline">停止</span>
           </Button>
         )}
       </header>
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+        className="min-h-0 flex-1 overflow-y-auto px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4"
       >
         <div ref={contentRef} className="mx-auto flex max-w-3xl flex-col gap-6">
           {messages.map((message) => (
@@ -330,7 +330,7 @@ export function TaskView({ taskId }: { taskId: string }) {
           )}
         </div>
       </div>
-      <div className="shrink-0 border-t border-border bg-surface px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="shrink-0 border-t border-border bg-surface px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         {compacting && (
           <div className="mx-auto mb-2 flex max-w-3xl items-center gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
             <span className="min-w-0 flex-1">
@@ -412,7 +412,7 @@ export function TaskView({ taskId }: { taskId: string }) {
                     }
                   })();
                 }}
-                className="max-w-[12rem]"
+                className="min-w-0 max-w-[10rem] sm:max-w-[12rem]"
               />
               <ThinkingSelect
                 levels={thinkingLevels}

@@ -129,7 +129,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
     <div className="flex h-full flex-col">
       <MobileMenuHeader />
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-clip">
-        <main className="mx-auto flex min-h-full max-w-5xl flex-col justify-center px-4 py-12 pb-[max(6rem,env(safe-area-inset-bottom))]">
+        <main className="mx-auto flex min-h-full max-w-5xl flex-col justify-center px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-12 pb-[max(6rem,env(safe-area-inset-bottom))]">
           <section>
             <h1 className="mb-6 flex items-center justify-center gap-2 text-center text-2xl font-semibold tracking-tight sm:text-3xl">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -144,7 +144,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                 icon={<FolderGit2 className="h-3.5 w-3.5" />}
                 valueLabel={selectedProject ? selectedProject.name : "プロジェクトなし"}
                 onChange={setProjectId}
-                className="max-w-[12rem] shrink-0 sm:max-w-56"
+                className="min-w-0 max-w-[11rem] shrink sm:max-w-56"
                 title={selectedProject?.name ?? "プロジェクトなし"}
                 action={
                   <AddProjectButton
@@ -171,7 +171,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                 icon={<GitBranch className="h-3.5 w-3.5" />}
                 valueLabel="そのまま"
                 onChange={() => {}}
-                className="max-w-[10rem] shrink-0 sm:max-w-40"
+                className="min-w-0 max-w-[9rem] shrink sm:max-w-40"
                 title="MVP はプロジェクトフォルダを直接使います"
               >
                 <option value="current_folder">そのまま</option>
@@ -233,7 +233,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                       setModel(value);
                       localStorage.setItem(MODEL_KEY, value);
                     }}
-                    className="max-w-[11rem] shrink-0 sm:max-w-48"
+                    className="min-w-0 max-w-[9rem] shrink sm:max-w-48"
                   />
                   <ThinkingSelect
                     levels={thinkingLevels}
@@ -243,6 +243,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                       setThinkingLevel(value);
                       localStorage.setItem(THINKING_KEY, value);
                     }}
+                    className="min-w-0 max-w-[7rem] shrink sm:max-w-[8rem]"
                   />
                 </>
               }

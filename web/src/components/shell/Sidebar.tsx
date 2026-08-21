@@ -367,7 +367,7 @@ export function Sidebar({
         <button
           type="button"
           aria-label="メニューを閉じる"
-          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          className="fixed inset-0 z-40 bg-black/40 md:hidden animate-[fade-in_0.15s_ease-out]"
           onClick={onClose}
         />
       )}
@@ -403,7 +403,10 @@ export function Sidebar({
         )}
       </aside>
       {!mdUp && mobileOpen && (
-        <aside className="fixed inset-y-0 left-0 z-50 w-[min(20rem,85vw)] border-r border-border bg-surface md:hidden">
+        <aside
+          data-mobile-drawer
+          className="fixed inset-y-0 left-0 z-50 w-[min(20rem,85vw)] border-r border-border bg-surface md:hidden animate-[nav-in_0.18s_ease-out]"
+        >
           {body}
         </aside>
       )}
