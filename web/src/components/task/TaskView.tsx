@@ -122,49 +122,67 @@ export function TaskView({ taskId }: { taskId: string }) {
 
   useEffect(() => {
     let closed = false;
+    let source: EventSource | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
     sidebarNotifyKeyRef.current = "";
-    const source = new EventSource(`/api/tasks/${taskId}/events`);
-    source.addEventListener("snapshot", (event) => {
+
+    const connect = () => {
       if (closed) return;
-      const payload = JSON.parse((event as MessageEvent).data) as {
-        task?: TaskDetail;
-        messages?: UiMessage[];
-        isStreaming?: boolean;
-        isCompacting?: boolean;
-        contextUsage?: ContextUsageDto;
-        goalLoop?: GoalLoopDto | null;
-        todos?: TodoDto[];
-        error?: string;
-      };
-      const snapshotTask = payload.task;
-      startTransition(() => {
-        if (snapshotTask) {
-          setTask((current) => {
-            const base = current ?? snapshotTask;
-            return {
-              ...base,
-              ...snapshotTask,
-              messages: payload.messages ?? base.messages ?? [],
-              isStreaming: payload.isStreaming ?? snapshotTask.isStreaming ?? base.isStreaming,
-              isCompacting: payload.isCompacting ?? snapshotTask.isCompacting ?? base.isCompacting,
-              contextUsage: payload.contextUsage ?? snapshotTask.contextUsage ?? base.contextUsage,
-              goalLoop: payload.goalLoop ?? snapshotTask.goalLoop ?? base.goalLoop,
-              todos: payload.todos ?? snapshotTask.todos ?? base.todos,
-            };
-          });
-        }
-        if (payload.messages) {
-          setMessages((prev) => stabilizeUiMessages(prev, payload.messages!));
-        }
-        if ("contextUsage" in payload) setContextUsage(payload.contextUsage);
-        if ("isCompacting" in payload) setIsCompacting(Boolean(payload.isCompacting));
+      source = new EventSource(`/api/tasks/${taskId}/events`);
+      source.addEventListener("snapshot", (event) => {
+        if (closed) return;
+        retryCount = 0;
+        const payload = JSON.parse((event as MessageEvent).data) as {
+          task?: TaskDetail;
+          messages?: UiMessage[];
+          isStreaming?: boolean;
+          isCompacting?: boolean;
+          contextUsage?: ContextUsageDto;
+          goalLoop?: GoalLoopDto | null;
+          todos?: TodoDto[];
+          error?: string;
+        };
+        const snapshotTask = payload.task;
+        startTransition(() => {
+          if (snapshotTask) {
+            setTask((current) => {
+              const base = current ?? snapshotTask;
+              return {
+                ...base,
+                ...snapshotTask,
+                messages: payload.messages ?? base.messages ?? [],
+                isStreaming: payload.isStreaming ?? snapshotTask.isStreaming ?? base.isStreaming,
+                isCompacting: payload.isCompacting ?? snapshotTask.isCompacting ?? base.isCompacting,
+                contextUsage: payload.contextUsage ?? snapshotTask.contextUsage ?? base.contextUsage,
+                goalLoop: payload.goalLoop ?? snapshotTask.goalLoop ?? base.goalLoop,
+                todos: payload.todos ?? snapshotTask.todos ?? base.todos,
+              };
+            });
+          }
+          if (payload.messages) {
+            setMessages((prev) => stabilizeUiMessages(prev, payload.messages!));
+          }
+          if ("contextUsage" in payload) setContextUsage(payload.contextUsage);
+          if ("isCompacting" in payload) setIsCompacting(Boolean(payload.isCompacting));
+        });
+        if (payload.error) setError(payload.error);
+        notifySidebarIfNeeded(snapshotTask);
       });
-      if (payload.error) setError(payload.error);
-      notifySidebarIfNeeded(snapshotTask);
-    });
-    source.addEventListener("error", () => {
-      if (!closed) setError((current) => current ?? "イベント接続に失敗しました");
-    });
+      source.addEventListener("error", () => {
+        if (closed) return;
+        setError((current) => current ?? "イベント接続に失敗しました");
+        // Auto-reconnect: close the broken stream and retry with backoff.
+        source?.close();
+        source = null;
+        retryCount += 1;
+        const delay = Math.min(1000 * 2 ** (retryCount - 1), 15000);
+        retryTimer = setTimeout(connect, delay);
+      });
+    };
+
+    connect();
+
     void getJson<{ task: TaskDetail }>(`/api/tasks/${taskId}`).then((result) => {
       if (!closed) applyDetail(result.task);
     });
@@ -180,7 +198,8 @@ export function TaskView({ taskId }: { taskId: string }) {
     });
     return () => {
       closed = true;
-      source.close();
+      if (retryTimer) clearTimeout(retryTimer);
+      source?.close();
       if (scrollRafRef.current != null) {
         cancelAnimationFrame(scrollRafRef.current);
         scrollRafRef.current = null;
