@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
       images?: { mimeType: string; data: string }[];
       agent?: string;
       subagentPermission?: "allow" | "deny";
+      permissionMode?: "allow" | "ask" | "deny";
       goalLoop?: {
         enabled?: unknown;
         acceptance?: unknown;
@@ -81,6 +82,7 @@ export async function POST(req: NextRequest) {
       images: body.images,
       agent: body.agent,
       subagentPermission: body.subagentPermission,
+      permissionMode: body.permissionMode,
       goalLoop,
     });
     return NextResponse.json({ task });

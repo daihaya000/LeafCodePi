@@ -1,0 +1,51 @@
+/**
+ * Pi ツール実行の承認/確認モード。
+ * 本家 LeafCode のサブエージェント許可設定と同じ localStorage + CustomEvent 設計。
+ */
+
+export type PermissionMode = "allow" | "ask" | "deny";
+
+export const PERMISSION_STORAGE_KEY = "webui:permission-mode";
+export const PERMISSION_EVENT = "webui:permission-mode";
+
+export const PERMISSION_OPTIONS: {
+  value: PermissionMode;
+  label: string;
+  title: string;
+}[] = [
+  {
+    value: "allow",
+    label: "許可",
+    title: "危険な操作も確認なしで実行します",
+  },
+  {
+    value: "ask",
+    label: "確認",
+    title: "危険な操作の前に確認ダイアログを出します",
+  },
+  {
+    value: "deny",
+    label: "拒否",
+    title: "危険な操作を自動で拒否します",
+  },
+];
+
+export function readPermissionMode(): PermissionMode {
+  if (typeof window === "undefined") return "ask";
+  try {
+    const raw = localStorage.getItem(PERMISSION_STORAGE_KEY);
+    if (raw === "allow" || raw === "ask" || raw === "deny") return raw;
+  } catch {
+    /* ignore */
+  }
+  return "ask";
+}
+
+export function writePermissionMode(mode: PermissionMode): void {
+  try {
+    localStorage.setItem(PERMISSION_STORAGE_KEY, mode);
+    window.dispatchEvent(new CustomEvent(PERMISSION_EVENT, { detail: mode }));
+  } catch {
+    /* ignore */
+  }
+}

@@ -43,7 +43,7 @@ export function GhostSelect({
   icon: ReactNode;
   valueLabel: ReactNode;
   action?: ReactNode;
-  tone?: "default" | "warning";
+  tone?: "default" | "warning" | "danger";
   className?: string;
   disabled?: boolean;
   value: string;
@@ -250,7 +250,9 @@ export function GhostSelect({
           "group inline-flex h-full w-full min-w-0 items-center gap-1.5 rounded-lg border bg-bg px-2 py-1.5 text-xs font-medium shadow-sm transition-colors",
           tone === "warning"
             ? "border-warning/40 text-warning hover:bg-warning-bg"
-            : "border-border text-muted hover:bg-surface-2 hover:text-text",
+            : tone === "danger"
+              ? "border-danger/40 text-danger hover:bg-danger-bg"
+              : "border-border text-muted hover:bg-surface-2 hover:text-text",
           disabled && "cursor-not-allowed opacity-40",
         )}
       >

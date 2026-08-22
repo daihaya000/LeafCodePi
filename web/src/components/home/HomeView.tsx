@@ -11,6 +11,7 @@ import { pasteImage } from "@/lib/clipboard-image";
 import { ModelSelect } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
+import { PermissionSelect } from "@/components/PermissionSelect";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { Button, GhostSelect } from "@/components/ui";
 import { notifyTasksChanged } from "@/lib/events";
@@ -21,6 +22,11 @@ import {
   writeSubagentPermission,
   type SubagentPermission,
 } from "@/lib/subagent-permission";
+import {
+  readPermissionMode,
+  writePermissionMode,
+  type PermissionMode,
+} from "@/lib/permission-gate";
 import type { HealthDto, ModelOption, ProjectDto, TaskSummary, ThinkingLevel } from "@/lib/types";
 
 const MODEL_KEY = "leafcodepi.defaultModel";
@@ -48,6 +54,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
     () => readSubagentPermission(),
   );
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => readPermissionMode());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
@@ -151,6 +158,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
         images,
         ...(agent ? { agent } : {}),
         subagentPermission,
+        permissionMode,
         ...(goalLoopEnabled
           ? {
               goalLoop: {
@@ -328,6 +336,15 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                     onChange={(mode) => {
                       setSubagentPermission(mode);
                       writeSubagentPermission(mode);
+                    }}
+                    className="h-8 shrink-0"
+                  />
+                  <PermissionSelect
+                    value={permissionMode}
+                    disabled={submitting}
+                    onChange={(mode) => {
+                      setPermissionMode(mode);
+                      writePermissionMode(mode);
                     }}
                     className="h-8 shrink-0"
                   />

@@ -24,6 +24,7 @@ import { ModelSelect } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { AgentSelect } from "@/components/AgentSelect";
 import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
+import { PermissionSelect } from "@/components/PermissionSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
 import { PartView, WorkingRow } from "@/components/task/PartView";
@@ -44,6 +45,11 @@ import {
   writeSubagentPermission,
   type SubagentPermission,
 } from "@/lib/subagent-permission";
+import {
+  readPermissionMode,
+  writePermissionMode,
+  type PermissionMode,
+} from "@/lib/permission-gate";
 import type {
   GoalLoopDto,
   ModelOption,
@@ -126,6 +132,7 @@ export function TaskView({
   const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
     () => readSubagentPermission(),
   );
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => readPermissionMode());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
@@ -391,6 +398,7 @@ export function TaskView({
           images,
           ...(agent ? { agent } : {}),
           subagentPermission,
+          permissionMode,
         });
       }
       setPrompt("");
@@ -909,6 +917,15 @@ export function TaskView({
                 onChange={(mode) => {
                   setSubagentPermission(mode);
                   writeSubagentPermission(mode);
+                }}
+                className="h-8 shrink-0"
+              />
+              <PermissionSelect
+                value={permissionMode}
+                disabled={working || compacting}
+                onChange={(mode) => {
+                  setPermissionMode(mode);
+                  writePermissionMode(mode);
                 }}
                 className="h-8 shrink-0"
               />

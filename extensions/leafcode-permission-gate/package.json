@@ -1,0 +1,13 @@
+{
+  "name": "leafcode-permission-gate",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "LeafCode-style permission gates for Pi tools",
+  "pi": {
+    "extensions": ["index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

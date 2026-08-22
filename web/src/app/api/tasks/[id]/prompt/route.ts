@@ -15,6 +15,7 @@ export async function POST(
       images?: { mimeType: string; data: string }[];
       agent?: string;
       subagentPermission?: "allow" | "deny";
+      permissionMode?: "allow" | "ask" | "deny";
     } | null;
     if (!body?.prompt?.trim() && !body?.images?.length) {
       return NextResponse.json({ error: "prompt が必要です" }, { status: 400 });
@@ -22,6 +23,7 @@ export async function POST(
     const task = await promptTask(id, body.prompt ?? "", body.images, {
       agent: body.agent,
       subagentPermission: body.subagentPermission,
+      permissionMode: body.permissionMode,
     });
     return NextResponse.json({ task });
   } catch (error) {

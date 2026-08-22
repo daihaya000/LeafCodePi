@@ -621,6 +621,7 @@ async function createSession(options: {
   model?: Model;
   thinkingLevel?: ThinkingLevel;
   subagentPermission?: "allow" | "deny";
+  permissionMode?: "allow" | "ask" | "deny";
 }): Promise<AgentSession> {
   const pi = await loadPi();
   await ensureRuntime();
@@ -1053,6 +1054,7 @@ export async function createTask(input: {
   images?: PromptImage[];
   agent?: string;
   subagentPermission?: "allow" | "deny";
+  permissionMode?: "allow" | "ask" | "deny";
   goalLoop?: {
     acceptance?: string[];
     maxTurns?: number;
@@ -1081,6 +1083,7 @@ export async function createTask(input: {
     thinkingLevel,
     // エージェントを明示選択した場合は委譲が必要なので許可扱いにする。
     subagentPermission: input.agent ? "allow" : input.subagentPermission,
+    permissionMode: input.permissionMode,
   });
   patchTask(task.id, {
     sessionId: session.sessionId,
@@ -1155,7 +1158,7 @@ export async function promptTask(
   id: string,
   prompt: string,
   images?: PromptImage[],
-  options?: { agent?: string; subagentPermission?: "allow" | "deny" },
+  options?: { agent?: string; subagentPermission?: "allow" | "deny"; permissionMode?: "allow" | "ask" | "deny" },
 ): Promise<TaskSummary> {
   const live = await ensureLive(id);
   applySubagentPermission(live.session, options?.agent ? "allow" : options?.subagentPermission);
