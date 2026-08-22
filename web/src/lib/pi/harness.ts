@@ -132,6 +132,8 @@ type LiveRuntime = {
   manualAbortedAssistantId: string | null;
   /** 直近のハング自動再開回数（UI 通知用）。 */
   hangRetryCount: number;
+  /** 「Reasoning is mandatory」400 で思考 ON に上げて再試行済みか。 */
+  reasoningFallbackTried: boolean;
 };
 
 type HarnessState = {
@@ -602,6 +604,18 @@ function emit(taskId: string, payload: { type: string; [key: string]: unknown })
   state().events.emit("*", { taskId, ...payload });
 }
 
+/** プロバイダが「思考オフ不可」の 400 を返したか。 */
+export function isReasoningMandatoryError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /reasoning is mandatory/i.test(message);
+}
+
+/** 思考必須モデル向けのフォールバックレベル（対応する最下位、なければ minimal）。 */
+export function reasoningFallbackLevel(model: Model | null | undefined): ThinkingLevel {
+  const levels = model ? thinkingLevelsForModel(model).filter((l) => l !== "off") : [];
+  return levels[0] ?? "minimal";
+}
+
 function emitTaskSnapshot(
   live: LiveRuntime,
   eventType: string,
@@ -701,6 +715,7 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
     revertLeafId: null,
     manualAbortedAssistantId: null,
     hangRetryCount: 0,
+    reasoningFallbackTried: false,
   };
 
   const unsubscribe = session.subscribe((event) => {
@@ -1367,7 +1382,19 @@ function queuePrompt(
       if (live.session.isStreaming) {
         options.streamingBehavior = "followUp";
       }
-      await live.session.prompt(prompt, options);
+      try {
+        await live.session.prompt(prompt, options);
+      } catch (error) {
+        // 一部モデル（o系/gpt-5-pro 等）は思考オフ不可の 400 を返す。
+        // 思考レベルを引き上げて同じプロンプトを一度だけ再試行する。
+        if (!isReasoningMandatoryError(error) || live.reasoningFallbackTried) throw error;
+        live.reasoningFallbackTried = true;
+        const level = reasoningFallbackLevel(live.session.model);
+        if (live.session.thinkingLevel !== level) live.session.setThinkingLevel(level);
+        patchTask(live.taskId, { thinkingLevel: level });
+        emitTaskSnapshot(live, "thinking_level_changed", { thinkingLevel: level });
+        await live.session.prompt(prompt, options);
+      }
     })
     .catch((error) => {
       const message = error instanceof Error ? error.message : String(error);

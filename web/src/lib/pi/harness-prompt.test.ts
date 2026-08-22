@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { applySubagentPermission, applyThroughput, applyToolTiming } from "./harness";
+import {
+  applySubagentPermission,
+  applyThroughput,
+  applyToolTiming,
+  isReasoningMandatoryError,
+  reasoningFallbackLevel,
+} from "./harness";
 import type { ThroughputTiming } from "@/lib/token-throughput";
 import type { UiMessage } from "@/lib/types";
 
@@ -71,6 +77,21 @@ describe("applyToolTiming", () => {
     const result = applyToolTiming(messages, new Map(), new Map());
     const part = result[0]!.parts[0] as Extract<(typeof result)[0]["parts"][number], { type: "tool" }>;
     assert.equal(part.state.startedAtMs, undefined);
+  });
+});
+
+describe("reasoning mandatory fallback", () => {
+  it("detects the reasoning-mandatory 400 message", () => {
+    assert.equal(
+      isReasoningMandatoryError(new Error('400: {"message":"Reasoning is mandatory for this endpoint and cannot be disabled."}')),
+      true,
+    );
+    assert.equal(isReasoningMandatoryError(new Error("some other error")), false);
+  });
+
+  it("defaults to minimal when no model is available", () => {
+    assert.equal(reasoningFallbackLevel(null), "minimal");
+    assert.equal(reasoningFallbackLevel(undefined), "minimal");
   });
 });
 
