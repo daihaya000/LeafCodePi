@@ -38,6 +38,8 @@ describe("projectPiMessages", () => {
     ]);
     expect(messages).toHaveLength(2);
     expect(messages[0].role).toBe("user");
+    // 応答時間の近似: 直前レコード（ts=1）からの差分。
+    expect(messages[1]).toMatchObject({ responseDurationMs: 1 });
     const tool = messages[1].parts.find((part) => part.type === "tool");
     expect(tool?.type === "tool" && tool.state.status).toBe("completed");
     expect(tool?.type === "tool" && tool.state.output).toBe("package.json");
@@ -83,5 +85,7 @@ describe("projectPiMessages", () => {
       role: "assistant",
       outputTokens: 42,
     });
+    // 直前レコードが無いので応答時間は付かない。
+    expect(messages[0].responseDurationMs).toBeUndefined();
   });
 });

@@ -458,10 +458,32 @@ export function TaskView({ taskId }: { taskId: string }) {
               <>
                 <span className="mx-1 shrink-0">·</span>
                 <span
-                  className="shrink-0"
-                  title={`合計 ${formatTokens(stats.totalTokens)} tok（出力のみ）・平均 ${stats.avgRate ? formatTokensPerSecond(stats.avgRate) : "—"}・生成時間 ${formatDuration(stats.durationMs)}`}
+                  className="shrink-0 font-mono tabular-nums"
+                  title={`合計 ${formatTokens(stats.totalTokens)} tok（出力のみ）`}
                 >
                   {formatTokens(stats.totalTokens)} tok
+                </span>
+              </>
+            )}
+            {stats.avgRate !== null && (
+              <>
+                <span className="mx-1 shrink-0">·</span>
+                <span
+                  className="shrink-0 font-mono tabular-nums"
+                  title="平均 tok/s（応答ごとの tok/s の平均）"
+                >
+                  {formatTokensPerSecond(stats.avgRate)}
+                </span>
+              </>
+            )}
+            {stats.durationMs > 0 && (
+              <>
+                <span className="mx-1 shrink-0">·</span>
+                <span
+                  className="shrink-0 font-mono tabular-nums"
+                  title="合計生成時間（メッセージ間隔の累計）"
+                >
+                  {formatDuration(stats.durationMs)}
                 </span>
               </>
             )}

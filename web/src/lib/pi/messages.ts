@@ -101,11 +101,20 @@ function mergeToolResult(
 
 export function projectPiMessages(raw: unknown[]): UiMessage[] {
   const messages: UiMessage[] = [];
+  // 直前レコードのタイムスタンプ。assistant の応答時間（思考＋生成の目安）
+  // はこの差分で近似する（本家 LeafCode の thinking 秒表示と同じ発想）。
+  let lastRecordTsMs: number | undefined;
   raw.forEach((item, index) => {
     if (!isRecord(item)) return;
     const role = asString(item.role);
     const id = asString(item.id) || `msg-${index}`;
-    const createdAt = typeof item.timestamp === "number" ? item.timestamp : Date.now();
+    const recordTsMs =
+      typeof item.timestamp === "number" && Number.isFinite(item.timestamp)
+        ? item.timestamp
+        : undefined;
+    const createdAt = recordTsMs ?? Date.now();
+    const prevRecordTsMs = lastRecordTsMs;
+    if (recordTsMs !== undefined) lastRecordTsMs = recordTsMs;
 
     if (role === "user") {
       const blocks = contentBlocks(item.content);
@@ -163,6 +172,11 @@ export function projectPiMessages(raw: unknown[]): UiMessage[] {
         provider: asString(item.provider) || undefined,
         error: asString(item.errorMessage) || undefined,
         ...(usageOutput !== undefined ? { outputTokens: usageOutput } : {}),
+        ...(recordTsMs !== undefined &&
+        prevRecordTsMs !== undefined &&
+        recordTsMs > prevRecordTsMs
+          ? { responseDurationMs: recordTsMs - prevRecordTsMs }
+          : {}),
       });
       return;
     }

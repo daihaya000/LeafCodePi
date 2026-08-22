@@ -369,12 +369,19 @@ function MessageMetaHeader({
     typeof message.tokensPerSecond === "number"
       ? formatTokensPerSecond(message.tokensPerSecond)
       : "";
+  // 応答全体の所要時間（直前レコードからの差分）。本家も同じ近似で
+  // 「thinking 秒」として表示している。
+  const thinking =
+    typeof message.responseDurationMs === "number" && message.responseDurationMs > 0
+      ? formatElapsed(message.responseDurationMs)
+      : "";
   const fields = [
     model ? { key: "model", text: model } : null,
     effort?.trim() ? { key: "effort", text: effort.trim() } : null,
     { key: "time", text: formatMessageTime(message.createdAt) },
     tokens ? { key: "tokens", text: tokens } : null,
     rate ? { key: "rate", text: rate } : null,
+    thinking ? { key: "thinking", text: thinking } : null,
   ].filter((field): field is { key: string; text: string } => Boolean(field?.text));
 
   return (
@@ -397,9 +404,11 @@ function MessageMetaHeader({
                 ? "decode tok/s（最初のトークン以降、TTFT 除外）"
                 : field.key === "rate"
                   ? "end-to-end tok/s（TTFT 含む）"
-                  : field.key === "model"
-                    ? field.text
-                    : undefined
+                  : field.key === "thinking"
+                    ? "応答時間（思考＋生成を含む目安）"
+                    : field.key === "model"
+                      ? field.text
+                      : undefined
             }
           >
             {field.text}
