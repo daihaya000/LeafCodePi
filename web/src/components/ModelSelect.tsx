@@ -19,13 +19,13 @@ export function modelSupportsImage(option: ModelOption | undefined): boolean {
   return Boolean(option?.input?.includes("image"));
 }
 
-/** Provider rate limit is close (>=75%): render the option in red. */
+/** Provider rate limit is close (>=75%): render the option in orange. */
 export function modelNearLimit(option: ModelOption | undefined): boolean {
   if (!option || option.codexbarMaxed) return false;
   return (option.codexbarUsedPercent ?? 0) >= 75;
 }
 
-/** Provider hit its limit (100%): grey out and disable the option. */
+/** Provider hit its limit (100%): render the option in red (still selectable). */
 export function modelLimitReached(option: ModelOption | undefined): boolean {
   return Boolean(option?.codexbarMaxed);
 }
@@ -150,6 +150,7 @@ export function ModelSelect({
 
   const isDisabled = disabled || options.length === 0;
   const selectedNearLimit = !isDisabled && modelNearLimit(selected);
+  const selectedMaxed = !isDisabled && modelLimitReached(selected);
 
   const menu = open && !isDisabled && (
     <div
@@ -183,20 +184,18 @@ export function ModelSelect({
                   type="button"
                   role="option"
                   aria-selected={option.value === value}
-                  aria-disabled={maxed || undefined}
-                  title={maxed ? `${option.label}（制限に達しました）` : option.label}
-                  onClick={() => (maxed ? undefined : chooseOption(option))}
+                  title={maxed ? `${option.label}（制限到達 100%）` : option.label}
+                  onClick={() => chooseOption(option)}
                   className={cx(
                     "flex w-full appearance-none items-center gap-2 rounded-lg border-0 bg-transparent px-2 py-1.5 text-left text-muted hover:bg-surface-2 hover:text-text focus:bg-surface-2 focus:text-text focus:outline-none",
                     option.value === value && "bg-surface-2 text-text",
-                    nearLimit && !maxed && "text-danger hover:text-danger focus:text-danger",
-                    maxed && "cursor-not-allowed opacity-40 hover:bg-transparent focus:bg-transparent",
-                    maxed && option.value === value && "bg-surface-2",
+                    nearLimit && "text-warning hover:text-warning focus:text-warning",
+                    maxed && "text-danger hover:text-danger focus:text-danger",
                   )}
                 >
                   <ProviderIcon providerID={option.providerID} size={14} />
                   <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                  {maxed && <span className="shrink-0 text-[10px] text-faint">100%</span>}
+                  {maxed && <span className="shrink-0 text-[10px] font-medium">100%</span>}
                   {image && (
                     <span title="画像入力対応" className="inline-flex shrink-0">
                       <ImageIcon
@@ -238,7 +237,8 @@ export function ModelSelect({
         <span
           className={cx(
             "min-w-0 flex-1 truncate text-left",
-            selectedNearLimit && "text-danger",
+            selectedNearLimit && "text-warning",
+            selectedMaxed && "text-danger",
           )}
         >
           {selected?.label ?? (options.length === 0 ? "モデルなし" : "モデル")}
