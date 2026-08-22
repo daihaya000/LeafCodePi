@@ -10,8 +10,8 @@ export type WebUiPermissionRequest = {
 
 type WebUiPermissionHandler = (request: WebUiPermissionRequest) => Promise<boolean>;
 
+/** Must match extensions/leafcode-permission-gate/webui-bridge.ts */
 const GLOBAL_KEY = "__leafcodeWebUiPermissionHandler" as const;
-/** Keep in sync with web/src/lib/pi/webui-permission-bridge.ts */
 
 function readHandler(): WebUiPermissionHandler | null {
   return (globalThis as typeof globalThis & { [GLOBAL_KEY]?: WebUiPermissionHandler | null })[GLOBAL_KEY] ?? null;

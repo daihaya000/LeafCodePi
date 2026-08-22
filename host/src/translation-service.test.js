@@ -7,6 +7,18 @@ import { createHash } from 'node:crypto';
 import { createTranslationService } from './translation-service.js';
 import { TRANSLATION_PIPELINE_VERSION } from './reasoning-translation-quality.js';
 
+async function cleanupTempDir(path, services = []) {
+  for (const service of services) {
+    service?.stop();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  try {
+    rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  } catch {
+    /* Windows may keep translation handles briefly */
+  }
+}
+
 test('translation status reports an installed runtime before lazy startup', () => {
   const dataDir = join(tmpdir(), `leafcode-translation-status-${process.pid}`);
   const translationDir = join(dataDir, 'translation');
@@ -352,7 +364,7 @@ test('quality failure retries once and persists an improved result', async () =>
     second?.stop();
     if (originalPython === undefined) delete process.env.LEAFCODE_TRANSLATION_PYTHON;
     else process.env.LEAFCODE_TRANSLATION_PYTHON = originalPython;
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    await cleanupTempDir(root, [first, second]);
   }
 });
 
@@ -377,11 +389,9 @@ test('long multi-paragraph summaries are translated per segment and reassembled'
     assert.deepEqual(result.fallbacks, [false]);
     assert.equal(service.status().cacheEntries, 1);
   } finally {
-    service?.stop();
-    await new Promise((resolve) => setTimeout(resolve, 150));
     if (originalPython === undefined) delete process.env.LEAFCODE_TRANSLATION_PYTHON;
     else process.env.LEAFCODE_TRANSLATION_PYTHON = originalPython;
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    await cleanupTempDir(root, [service]);
   }
 });
 
@@ -401,12 +411,9 @@ test('unacceptable retry falls back to the source without caching it', async () 
     assert.deepEqual(result.fallbacks, [true]);
     assert.equal(service.status().cacheEntries, 0);
   } finally {
-    service?.stop();
-    // Windows keeps the fake service script open briefly after child.kill().
-    await new Promise((resolve) => setTimeout(resolve, 150));
     if (originalPython === undefined) delete process.env.LEAFCODE_TRANSLATION_PYTHON;
     else process.env.LEAFCODE_TRANSLATION_PYTHON = originalPython;
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    await cleanupTempDir(root, [service]);
   }
 });
 

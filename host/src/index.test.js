@@ -16,7 +16,7 @@ import { isThisModuleEntrypoint } from "./entry.js";
 import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { formatLogLine } from "./log-file.js";
 import { localLeafcodePiTempDir } from "./tray-temp.js";
-import { formatWebStatus, getPostBuildLaunchPlan, getWebLaunchPlan, isWebBuildStale } from "./web-plan.js";
+import { formatWebStatus, getPostBuildLaunchPlan, getWebLaunchPlan, isWebBuildStale, staleRebuildFailureAction } from "./web-plan.js";
 
 test("readPort falls back on invalid values", () => {
   assert.equal(readPort("3000", 1), 3000);
@@ -140,6 +140,42 @@ test("isWebBuildStale is false when sources are older than BUILD_ID", () => {
     readdirSync: (path) => children.get(normalize(path)) ?? [],
   };
   assert.equal(isWebBuildStale("web", "web/.next", fsApi), false);
+});
+
+test("staleRebuildFailureAction fails prod when rebuild failed and sources stay stale", () => {
+  assert.equal(
+    staleRebuildFailureAction({
+      rebuildReason: "stale",
+      hasBuild: true,
+      stillStale: true,
+      mode: "prod",
+    }),
+    "fail",
+  );
+});
+
+test("staleRebuildFailureAction continues when stale rebuild failed but sources caught up", () => {
+  assert.equal(
+    staleRebuildFailureAction({
+      rebuildReason: "stale",
+      hasBuild: true,
+      stillStale: false,
+      mode: "prod",
+    }),
+    "continue-stale",
+  );
+});
+
+test("staleRebuildFailureAction falls back to dev when the initial build was missing", () => {
+  assert.equal(
+    staleRebuildFailureAction({
+      rebuildReason: "missing",
+      hasBuild: false,
+      stillStale: false,
+      mode: "prod",
+    }),
+    "fallback-dev",
+  );
 });
 
 function normalize(path) {

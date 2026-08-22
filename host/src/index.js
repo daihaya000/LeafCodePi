@@ -22,6 +22,7 @@ import {
   getWebLaunchPlan,
   isWebBuildStale,
   procRunning,
+  staleRebuildFailureAction,
 } from "./web-plan.js";
 import {
   isMirroredNextCliReady,
@@ -260,7 +261,19 @@ async function spawnWeb() {
       await buildWeb(rebuildReason);
     } catch (err) {
       hasBuild = hasProductionBuild();
-      if (rebuildReason === "stale" && hasBuild) {
+      const stillStaleAfterFailure = hasBuild && isWebBuildStale(WEB_DIR, webDistDir());
+      const failureAction = staleRebuildFailureAction({
+        rebuildReason,
+        hasBuild,
+        stillStale: stillStaleAfterFailure,
+        mode: process.env.LEAFCODE_PI_MODE,
+      });
+      if (failureAction === "fail") {
+        throw new Error(
+          `Stale production rebuild failed and sources are still newer than the build (${err instanceof Error ? err.message : String(err)})`,
+        );
+      }
+      if (failureAction === "continue-stale") {
         error(
           `Stale rebuild failed; continuing with the existing production build (${err instanceof Error ? err.message : String(err)})`,
         );

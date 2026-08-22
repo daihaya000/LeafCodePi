@@ -51,7 +51,7 @@ import {
 } from "@/lib/pi/hang-watchdog";
 import { HANG_RETRY_PREFIX } from "@/lib/hang-retry";
 import { createPermissionPromptService, taskIdForSession } from "@/lib/pi/permission-prompt";
-import { registerWebUiPermissionHandler } from "../../../../extensions/leafcode-permission-gate/webui-bridge";
+import { registerWebUiPermissionHandler } from "@/lib/pi/webui-permission-bridge";
 
 /** True when a skill lives under the user's ~/.agents directory. */
 function isAgentsSkill(skill: { baseDir?: string; filePath?: string }): boolean {

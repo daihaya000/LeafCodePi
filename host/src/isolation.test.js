@@ -45,7 +45,7 @@ test("desktop shortcut name is LeafCodePi.lnk", () => {
 test("host rebuilds stale production builds like LeafCode", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   assert.match(index, /isWebBuildStale/);
-  assert.match(index, /rebuildReason === "stale"/);
+  assert.match(index, /staleRebuildFailureAction/);
   assert.match(index, /continuing with the existing production build/);
   // The production build moved into the hard-link mirror outside OneDrive, so
   // the batch can no longer look for BUILD_ID itself; the host reports instead.

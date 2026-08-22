@@ -25,9 +25,19 @@
 
 ### 残存（次バッチ）
 
-- Turbopack dynamic fs trace 警告
-- stale 再ビルド失敗時の古い本番ビルド黙認継続
-- translation-service.test Windows EPERM flaky（temp 削除）
+- Turbopack dynamic fs trace 警告（build 実測で要確認）
+
+## 2026-08-22: サービス品質バッチ5（stale rebuild・bridge・flaky test）
+
+全検証: web **368 passed** / **tsc OK** / host **100 passed**。
+
+### 修正
+
+| 領域 | 問題 | 修正 |
+| --- | --- | --- |
+| stale rebuild | 失敗後も古い本番を黙認（ソースが新しいまま） | `staleRebuildFailureAction` — prod で still stale なら起動失敗 |
+| Turbopack trace | harness が `extensions/` を repo 外 import | `web/src/lib/pi/webui-permission-bridge.ts` へ移動（globalThis 共有） |
+| translation test | Windows EPERM on rmSync | `cleanupTempDir()` — stop + 150ms + maxRetries |
 
 ## 2026-08-22: サービス品質バッチ4（guard・tsc・P2）
 

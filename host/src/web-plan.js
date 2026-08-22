@@ -71,6 +71,16 @@ export function getPostBuildLaunchPlan(mode, hasBuild, buildStale = false) {
 }
 
 /**
+ * After a failed rebuild, decide whether to keep serving an older BUILD_ID.
+ * @returns {"continue-stale"|"fallback-dev"|"fail"}
+ */
+export function staleRebuildFailureAction({ rebuildReason, hasBuild, stillStale, mode }) {
+  if (rebuildReason !== "stale" || !hasBuild) return "fallback-dev";
+  if (stillStale && mode !== "dev") return "fail";
+  return "continue-stale";
+}
+
+/**
  * True when a production BUILD_ID exists but watched sources are newer.
  * Missing BUILD_ID is not "stale" — callers treat absence via hasBuild.
  * @param {string} webDir
