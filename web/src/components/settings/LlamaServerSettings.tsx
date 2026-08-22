@@ -54,6 +54,9 @@ export function LlamaServerSettings() {
   const [modelsBusy, setModelsBusy] = useState(false);
   const [modelsNote, setModelsNote] = useState<string | null>(null);
   const [shelfOpen, setShelfOpen] = useState(false);
+  /** Explicitly chosen family; survives until the GGUF listing can resolve it
+   *  into config.modelFile. Null = derive the family from the saved model. */
+  const [selectedFamily, setSelectedFamily] = useState<string | null>(null);
   const mountedRef = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -79,14 +82,20 @@ export function LlamaServerSettings() {
     setModelsBusy(true);
     setModelsNote(null);
     try {
-      const res = await getJson<{ models?: string[]; defaultModel?: string | null }>(
-        "/api/llama-server/models",
-        { dir: trimmed || undefined },
-      );
+      const res = await getJson<{
+        models?: string[];
+        defaultModel?: string | null;
+        dir?: string | null;
+      }>("/api/llama-server/models", { dir: trimmed || undefined });
       if (!mountedRef.current) return;
       const found = res.models ?? [];
       setModels(found);
       setDefaultModel(res.defaultModel ?? null);
+      // The API resolved an empty dir against the bat's MODEL_DIR; save it so
+      // presets keep working across reloads.
+      if (!trimmed && typeof res.dir === "string" && res.dir) {
+        setConfig((c) => (c.modelDir ? c : { ...c, modelDir: res.dir as string }));
+      }
       if (trimmed && found.length === 0) {
         setModelsNote("この保存先に .gguf が見つかりません");
       }
@@ -107,6 +116,7 @@ export function LlamaServerSettings() {
         if (cancelled) return;
         const parsed = parseLlamaServerSettings(res.value);
         setConfig(parsed);
+        setSelectedFamily(null); // derive from the saved model first
         hydratedRef.current = true;
         void loadModels(parsed.modelDir);
       })
@@ -253,7 +263,9 @@ export function LlamaServerSettings() {
 
   const running = status?.running === true;
   const activePreset = LLAMA_MODEL_PRESETS.find((p) => p.match.test(config.modelFile)) ?? null;
-  const familyKey: string = activePreset?.key ?? "custom";
+  /** The explicit choice wins so the dropdown does not snap back to カスタム
+   *  while the GGUF listing is still empty. */
+  const familyKey = selectedFamily ?? activePreset?.key ?? "custom";
   const presetMismatched =
     activePreset !== null &&
     (config.effort !== activePreset.settings.effort ||
@@ -263,22 +275,34 @@ export function LlamaServerSettings() {
       (config.cacheTypeV ?? "") !== activePreset.settings.cacheTypeV);
   const specBroken = isLlamaSpecComboBroken(config.modelFile, config.specType);
 
-  /** Pick a model family (or "custom"): applies the preset wholesale. */
+  /** Pick a model family (or "custom"): applies the preset wholesale. The
+   *  GGUF file itself resolves later, once `models` has loaded (see effect). */
   const selectModelFamily = (key: string) => {
+    setSelectedFamily(key);
     if (key === "custom") {
       setShelfOpen(true);
       return;
     }
     const preset = LLAMA_MODEL_PRESETS.find((p) => p.key === key);
     if (!preset) return;
-    const currentMatches = config.modelFile && preset.match.test(config.modelFile);
-    const candidate = models.find((m) => preset.match.test(m));
-    setConfig((c) => ({
-      ...c,
-      ...(currentMatches ? {} : candidate ? { modelFile: candidate } : {}),
-      ...preset.settings,
-    }));
+    setConfig((c) => {
+      if (c.modelFile && preset.match.test(c.modelFile)) return c;
+      const candidate = models.find((m) => preset.match.test(m));
+      return candidate ? { ...c, ...preset.settings, modelFile: candidate } : { ...c, ...preset.settings };
+    });
   };
+
+  // Late resolution: the family was picked before the GGUF listing arrived.
+  useEffect(() => {
+    if (!selectedFamily || selectedFamily === "custom" || models.length === 0) return;
+    const preset = LLAMA_MODEL_PRESETS.find((p) => p.key === selectedFamily);
+    if (!preset) return;
+    setConfig((c) => {
+      if (c.modelFile && preset.match.test(c.modelFile)) return c;
+      const candidate = models.find((m) => preset.match.test(m));
+      return candidate ? { ...c, modelFile: candidate } : c;
+    });
+  }, [selectedFamily, models]);
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">

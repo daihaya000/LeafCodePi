@@ -24,6 +24,20 @@ function batDefaultModel(): string | null {
   }
 }
 
+/** The bat's fallback MODEL_DIR, so an empty `dir` param still lists GGUFs. */
+function batDefaultModelDir(): string | null {
+  try {
+    const bat = fs.readFileSync(
+      path.join(installationRoot(), "scripts", "llama-server-load.bat"),
+      "utf8",
+    );
+    const match = /if not defined MODEL_DIR set "MODEL_DIR=([^"\r\n]*)"/.exec(bat);
+    return match?.[1] ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
 const MAX_DEPTH = 2;
 const MAX_MODELS = 300;
 
@@ -56,7 +70,10 @@ function collect(root: string, rel: string, depth: number, out: string[]): void 
 
 export async function GET(req: NextRequest) {
   const defaultModel = batDefaultModel();
-  const dir = (req.nextUrl.searchParams.get("dir") ?? "").trim();
+  // An empty dir falls back to the bat's MODEL_DIR: presets must be able to
+  // resolve a GGUF even before the user has ever saved a model directory.
+  const requested = (req.nextUrl.searchParams.get("dir") ?? "").trim();
+  const dir = requested || batDefaultModelDir() || "";
   if (!dir) {
     return NextResponse.json({ dir: null, models: [], defaultModel });
   }
