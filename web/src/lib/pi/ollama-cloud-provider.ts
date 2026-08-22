@@ -27,11 +27,17 @@ export function inferOllamaCapabilities(id: string): {
   input: ("text" | "image")[];
 } {
   const lower = id.toLowerCase();
+  // ponytail: 既知のビジョン系ファミリー名の照合のみ。/api/tags の capabilities 等の
+  // 正式ソースを使う場合は parseOllamaCloudModelsPayload ごと拡張する
   const vision =
     lower.includes("vl") ||
     lower.includes("vision") ||
-    lower.startsWith("gemma4") ||
-    lower.includes("gemma-4");
+    lower.includes("llava") ||
+    lower.includes("minicpm") ||
+    lower.includes("gemma3") ||
+    lower.includes("gemma4") ||
+    lower.includes("llama4") ||
+    /mistral-small[23]/.test(lower);
   const reasoning =
     lower.includes("gpt-oss") ||
     lower.includes("deepseek-r1") ||

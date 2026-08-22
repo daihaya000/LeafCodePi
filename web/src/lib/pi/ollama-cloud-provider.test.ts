@@ -33,6 +33,11 @@ describe("ollama-cloud-provider", () => {
   it("infers vision / reasoning hints from ids", () => {
     expect(inferOllamaCapabilities("gemma4:31b").input).toContain("image");
     expect(inferOllamaCapabilities("qwen2.5vl:7b").input).toContain("image");
+    expect(inferOllamaCapabilities("gemma3:27b").input).toContain("image");
+    expect(inferOllamaCapabilities("llama4:scout").input).toContain("image");
+    expect(inferOllamaCapabilities("llava:13b").input).toContain("image");
+    expect(inferOllamaCapabilities("minicpm-v:8b").input).toContain("image");
+    expect(inferOllamaCapabilities("mistral-small3.2:24b").input).toContain("image");
     expect(inferOllamaCapabilities("llama3:8b").input).toEqual(["text"]);
     expect(inferOllamaCapabilities("gpt-oss:20b").reasoning).toBe(true);
   });
