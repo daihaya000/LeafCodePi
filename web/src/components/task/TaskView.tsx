@@ -47,6 +47,7 @@ import type {
   GoalLoopDto,
   ModelOption,
   TaskDetail,
+  TaskStatus,
   TaskSummary,
   TodoDto,
   ThinkingLevel,
@@ -89,7 +90,17 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
   );
 }
 
-export function TaskView({ taskId }: { taskId: string }) {
+export function TaskView({
+  taskId,
+  active = true,
+  onStatus,
+}: {
+  taskId: string;
+  /** 非アクティブタブは hidden mount（CSS で非表示、SSE は維持）。 */
+  active?: boolean;
+  /** SSE snapshot の status 変化をタブバッジへ報告する（TaskPanesProvider）。 */
+  onStatus?: (status: TaskStatus) => void;
+}) {
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -198,6 +209,8 @@ export function TaskView({ taskId }: { taskId: string }) {
         });
         if (payload.error) setError(payload.error);
         notifySidebarIfNeeded(snapshotTask);
+        const status = snapshotTask?.status;
+        if (status) onStatus?.(status);
       });
       source.addEventListener("error", () => {
         if (closed) return;
@@ -235,7 +248,7 @@ export function TaskView({ taskId }: { taskId: string }) {
         scrollRafRef.current = null;
       }
     };
-  }, [taskId, applyDetail, notifySidebarIfNeeded]);
+  }, [taskId, applyDetail, notifySidebarIfNeeded, onStatus]);
 
   const scrollToBottom = useCallback((el: HTMLElement) => {
     el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
@@ -499,7 +512,7 @@ export function TaskView({ taskId }: { taskId: string }) {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className={cx("flex h-full flex-col", !active && "hidden")}>
       <header className="flex min-h-14 shrink-0 items-center gap-2 border-b border-border bg-surface px-3 pt-[env(safe-area-inset-top)] md:px-4 md:gap-3">
         <MobileMenuButton />
         <div className="min-w-0 flex-1">

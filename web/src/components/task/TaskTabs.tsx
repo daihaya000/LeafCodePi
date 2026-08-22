@@ -1,0 +1,174 @@
+"use client";
+
+import { useState } from "react";
+import { Loader2, Plus, X } from "lucide-react";
+import { cx } from "@/components/ui";
+import type { TaskPane, TaskPanesState } from "@/lib/task-panes";
+import type { TaskStatus } from "@/lib/types";
+
+/** Sidebar のタスクドラッグと同じ MIME（Phase 4 で接続）。 */
+const TASK_DRAG_MIME = "application/x-leafcodepi-task";
+
+function dragTaskIdFrom(dataTransfer: DataTransfer): string | null {
+  try {
+    return dataTransfer.getData(TASK_DRAG_MIME) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * タブバー 1 本。仕様 §6: タイトル省略 + hover フルタイトル、status バッジ
+ * （working = スピン / error = 赤点）、× ボタン、右端 + = 空ペイン追加。
+ * ペイン全体（空ペイン含む）へのドロップもタブバー扱い。
+ */
+export function TaskTabs({
+  pane,
+  isActivePane,
+  statusFor,
+  canAddPane,
+  showAddButton,
+  onActivateTab,
+  onCloseTab,
+  onReorderTabs,
+  onMoveTab,
+  onOpenTabExternal,
+  onAddPane,
+}: {
+  pane: TaskPane;
+  isActivePane: boolean;
+  /** taskId → 最新 status（Provider の報告 map）。 */
+  statusFor: (taskId: string) => TaskStatus | null;
+  canAddPane: boolean;
+  /** + ボタンは最後のペインのタブバーのみ（仕様 §6）。 */
+  showAddButton: boolean;
+  onActivateTab: (taskId: string) => void;
+  onCloseTab: (taskId: string) => void;
+  onReorderTabs: (tabs: string[]) => void;
+  onMoveTab: (taskId: string, toPaneId: string) => void;
+  /** 未登録タスクのドロップ（Phase 4 の Sidebar 接続用）。 */
+  onOpenTabExternal?: (taskId: string) => void;
+  onAddPane: () => void;
+}) {
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  const handleDrop = (event: React.DragEvent<HTMLElement>, index: number) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragOverIndex(null);
+    const taskId = dragTaskIdFrom(event.dataTransfer);
+    if (!taskId) return;
+    const targetPaneId =
+      (event.currentTarget.closest("[data-pane-id]") as HTMLElement | null)?.dataset.paneId ??
+      pane.id;
+    if (targetPaneId !== pane.id) {
+      // 他ペインのタブ上へのドロップ: 親の onMoveTab が移動先ペインを解決する
+      onMoveTab(taskId, targetPaneId);
+      return;
+    }
+    if (pane.tabs.includes(taskId)) {
+      // 同一ペイン内の並び替え（移動先 index へ挿入）
+      const without = pane.tabs.filter((id) => id !== taskId);
+      const at = Math.max(0, Math.min(index > without.length ? without.length : index, without.length));
+      onReorderTabs([...without.slice(0, at), taskId, ...without.slice(at)]);
+      return;
+    }
+    // Sidebar からの新規ドロップ（Phase 4 接続予定）: 末尾へ追加
+    onOpenTabExternal?.(taskId);
+  };
+
+  return (
+    <div
+      role="tablist"
+      aria-label="タスクタブ"
+      className="flex min-h-9 shrink-0 items-stretch gap-0.5 overflow-x-auto border-b border-border bg-surface px-1 pt-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes(TASK_DRAG_MIME)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+      }}
+      onDrop={(event) => handleDrop(event, pane.tabs.length)}
+    >
+      {pane.tabs.map((taskId, index) => {
+        const status = statusFor(taskId);
+        const active = pane.activeTabId === taskId;
+        return (
+          <div
+            key={taskId}
+            role="tab"
+            aria-selected={active}
+            tabIndex={0}
+            draggable
+            onDragStart={(event) => {
+              event.dataTransfer.setData(TASK_DRAG_MIME, taskId);
+              event.dataTransfer.effectAllowed = "move";
+            }}
+            onDragOver={(event) => {
+              if (!event.dataTransfer.types.includes(TASK_DRAG_MIME)) return;
+              event.preventDefault();
+              event.stopPropagation();
+              setDragOverIndex(index);
+            }}
+            onDrop={(event) => handleDrop(event, index)}
+            onDragLeave={() => setDragOverIndex((current) => (current === index ? null : current))}
+            onDragEnd={() => setDragOverIndex(null)}
+            onClick={() => onActivateTab(taskId)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onActivateTab(taskId);
+              }
+            }}
+            title={taskId}
+            className={cx(
+              "group/tab flex min-w-0 max-w-40 shrink cursor-pointer select-none items-center gap-1 rounded-t-md border border-b-0 px-2 py-1 text-xs",
+              active
+                ? "border-border bg-bg font-medium text-text"
+                : "border-transparent bg-surface-2/50 text-muted hover:bg-surface-2 hover:text-text",
+              isActivePane ? "" : "opacity-70",
+              dragOverIndex === index && "ring-1 ring-accent",
+            )}
+          >
+            {status === "working" && (
+              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-working" aria-hidden="true" />
+            )}
+            {status === "error" && (
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" aria-label="エラー" />
+            )}
+            <span className="min-w-0 flex-1 truncate">{taskId}</span>
+            <button
+              type="button"
+              aria-label={`タブ ${taskId} を閉じる`}
+              className="-mr-1 hidden h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-surface-3 group-hover/tab:inline-flex aria-[current]:inline-flex focus-visible:inline-flex"
+              onClick={(event) => {
+                event.stopPropagation();
+                onCloseTab(taskId);
+              }}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        );
+      })}
+      {showAddButton && (
+        <button
+          type="button"
+          aria-label="新しいペインを追加"
+          title={canAddPane ? "空のペインを追加（タスクをドロップして開く）" : "ペイン数の上限です"}
+          disabled={!canAddPane}
+          onClick={onAddPane}
+          className="ml-auto inline-flex h-7 w-7 shrink-0 items-center justify-center self-center rounded-md text-muted hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function paneLayoutClass(state: TaskPanesState): string {
+  // レイアウト自動切替（仕様 §1）: 4 ペイン = 2x2 grid、それ以外 = 横並び
+  return state.panes.length >= 4
+    ? "grid min-h-0 min-w-0 flex-1 grid-cols-2 grid-rows-2"
+    : "flex min-h-0 min-w-0 flex-1";
+}
