@@ -1,6 +1,8 @@
 export const LLAMA_SERVER_SETTINGS_KEY = "llama-server-config";
 
-export const LLAMA_SERVER_EFFORTS = ["low", "medium", "xhigh"] as const;
+/** "" = omit the kwarg entirely (models without a reasoning_effort template,
+ *  e.g. Ornith-1.5). The other values are graded Qwen3 efforts. */
+export const LLAMA_SERVER_EFFORTS = ["", "low", "medium", "xhigh"] as const;
 export type LlamaServerEffort = (typeof LLAMA_SERVER_EFFORTS)[number];
 
 /** Speculative decoding types for the bat's SPEC_TYPE env. "" = disabled.
@@ -124,4 +126,38 @@ export function parseLlamaServerSettings(raw: string | null | undefined): LlamaS
 
 export function serializeLlamaServerSettings(value: LlamaServerSettings): string {
   return JSON.stringify(value);
+}
+
+/** Recommended launch settings for a known local model family. */
+export type LlamaModelPreset = {
+  /** Matches the model file path (case-insensitive). */
+  match: RegExp;
+  label: string;
+  settings: Pick<LlamaServerSettings, "effort" | "specType" | "contextLength">;
+};
+
+export const LLAMA_MODEL_PRESETS: readonly LlamaModelPreset[] = [
+  {
+    // Ornith GGUFs have no reasoning_effort kwarg and no MTP tensors:
+    // graded efforts and draft-mtp both break them.
+    match: /ornith/i,
+    label: "Ornith-1.5",
+    settings: { effort: "", specType: "", contextLength: 131_072 },
+  },
+  {
+    // Qwen3.5-class dense builds ship an MTP head; draft-mtp is ~15x faster.
+    match: /qwen3[._]?8|qwen3\.5|qwen35/i,
+    label: "Qwen3.8 / Qwen3.5系",
+    settings: { effort: "low", specType: "draft-mtp", contextLength: 131_072 },
+  },
+];
+
+/** First preset whose pattern matches the model file path, if any. */
+export function findLlamaModelPreset(modelFile: string): LlamaModelPreset | null {
+  return LLAMA_MODEL_PRESETS.find((p) => p.match.test(modelFile)) ?? null;
+}
+
+/** True when the current specType choice cannot load the given model. */
+export function isLlamaSpecComboBroken(modelFile: string, specType?: string): boolean {
+  return Boolean(specType) && !findLlamaModelPreset(modelFile)?.settings.specType;
 }

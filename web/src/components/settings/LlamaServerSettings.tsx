@@ -6,6 +6,9 @@ import { getJson, sendJson } from "@/lib/client";
 import { isLoopbackHost } from "@/lib/loopback";
 import {
   DEFAULT_LLAMA_SERVER_SETTINGS,
+  findLlamaModelPreset,
+  isLlamaServerSettings,
+  isLlamaSpecComboBroken,
   LLAMA_SERVER_EFFORTS,
   LLAMA_SERVER_SPEC_TYPES,
   type LlamaServerEffort,
@@ -161,6 +164,11 @@ export function LlamaServerSettings() {
     setActionBusy("start");
     setError(null);
     setMessage(null);
+    if (specBroken) {
+      setActionBusy(null);
+      setError("このモデルは推測デコード非対応です。「高速化」を「なし」に変更してください。");
+      return;
+    }
     try {
       const res = await sendJson<{ ok?: boolean; pid?: number | null; error?: string }>(
         "/api/llama-server/start",
@@ -242,6 +250,13 @@ export function LlamaServerSettings() {
   };
 
   const running = status?.running === true;
+  const preset = findLlamaModelPreset(config.modelFile);
+  const presetMismatched =
+    preset !== null &&
+    (config.effort !== preset.settings.effort ||
+      (config.specType ?? "") !== preset.settings.specType ||
+      config.contextLength !== preset.settings.contextLength);
+  const specBroken = isLlamaSpecComboBroken(config.modelFile, config.specType);
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
@@ -399,6 +414,30 @@ export function LlamaServerSettings() {
                 {modelsNote}
               </span>
             )}
+            {preset && presetMismatched && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-bg px-3 py-2">
+                <span className="text-[11px] text-muted">
+                  {preset.label} 向けの推奨設定があります
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={actionBusy !== null}
+                  onClick={() => setConfig((c) => ({ ...c, ...preset.settings }))}
+                >
+                  推奨設定を適用
+                </Button>
+              </div>
+            )}
+            {specBroken && (
+              <p
+                className="mt-2 rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-xs text-danger"
+                role="alert"
+              >
+                このモデルは推測デコード非対応のため、draft-mtp のままでは起動できません。「高速化」を「なし」にしてください。
+              </p>
+            )}
           </div>
 
           <label className="flex items-start gap-3 text-sm">
@@ -428,7 +467,7 @@ export function LlamaServerSettings() {
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="block">
-            <span className="mb-1 block text-sm text-muted">reasoning_effort</span>
+            <span className="mb-1 block text-sm text-muted">思考の深さ</span>
             <select
               value={config.effort}
               disabled={actionBusy !== null}
@@ -438,14 +477,14 @@ export function LlamaServerSettings() {
               className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             >
               {LLAMA_SERVER_EFFORTS.map((effort) => (
-                <option key={effort} value={effort}>
-                  {effort}
+                <option key={effort || "none"} value={effort}>
+                  {effort === "" ? "なし（思考テンプレなし）" : { low: "低", medium: "中", xhigh: "特高" }[effort]}
                 </option>
               ))}
             </select>
           </label>
           <label className="block">
-            <span className="mb-1 block text-sm text-muted">speculative decoding</span>
+            <span className="mb-1 block text-sm text-muted">高速化（推測デコード）</span>
             <select
               value={config.specType ?? ""}
               disabled={actionBusy !== null}
@@ -464,11 +503,11 @@ export function LlamaServerSettings() {
               ))}
             </select>
             <span className="mt-1 block text-[11px] text-faint">
-              draft-mtp は MTP テンソル込み GGUF（Qwen3.5系 dense 等）専用
+              draft-mtp は MTP 込み GGUF（Qwen3.8 等）専用。非対応モデルでは起動しません
             </span>
           </label>
           <label className="block">
-            <span className="mb-1 block text-sm text-muted">context_length</span>
+            <span className="mb-1 block text-sm text-muted">コンテキスト長</span>
             <input
               type="number"
               min={4096}
@@ -484,9 +523,26 @@ export function LlamaServerSettings() {
               }
               className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             />
+            <div className="mt-1 flex gap-1" role="group" aria-label="コンテキスト長プリセット">
+              {[32_768, 65_536, 131_072].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  disabled={actionBusy !== null}
+                  onClick={() => setConfig((c) => ({ ...c, contextLength: n }))}
+                  className={`rounded-md border px-2 py-0.5 text-[11px] outline-none disabled:opacity-40 ${
+                    config.contextLength === n
+                      ? "border-border-strong bg-surface-3 font-medium"
+                      : "border-border text-muted hover:border-border-strong"
+                  }`}
+                >
+                  {Math.round(n / 1024)}K
+                </button>
+              ))}
+            </div>
           </label>
           <label className="block">
-            <span className="mb-1 block text-sm text-muted">parallel (slots)</span>
+            <span className="mb-1 block text-sm text-muted">同時処理数</span>
             <input
               type="number"
               min={1}

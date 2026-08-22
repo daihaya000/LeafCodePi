@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_LLAMA_SERVER_SETTINGS,
+  findLlamaModelPreset,
   isLlamaServerSettings,
+  isLlamaSpecComboBroken,
   isSafeLlamaModelFile,
   isSafeLlamaPathValue,
   LLAMA_SERVER_EFFORTS,
@@ -12,8 +14,14 @@ import {
 } from "@/lib/llama-server-settings";
 
 describe("llama-server-settings", () => {
-  it("exposes low/medium/xhigh as the only valid efforts", () => {
-    expect(LLAMA_SERVER_EFFORTS).toEqual(["low", "medium", "xhigh"]);
+  it("exposes none/low/medium/xhigh as the valid efforts", () => {
+    expect(LLAMA_SERVER_EFFORTS).toEqual(["", "low", "medium", "xhigh"]);
+  });
+
+  it("accepts an empty effort (models without a reasoning template)", () => {
+    expect(
+      isLlamaServerSettings({ effort: "", contextLength: 131072, parallel: 1 }),
+    ).toBe(true);
   });
 
   it("accepts a well-formed settings object", () => {
@@ -88,6 +96,34 @@ describe("llama-server-settings", () => {
     expect(isLlamaServerSettings({ ...base, specType: "draft-mtp" })).toBe(true);
     expect(isLlamaServerSettings({ ...base, specType: "ngram-simple" })).toBe(false);
     expect(isLlamaServerSettings({ ...base, specType: 'evil" & calc' })).toBe(false);
+  });
+
+  it("matches model presets by file path", () => {
+    const ornith = findLlamaModelPreset(
+      "Ornith-1.5-35B-A3B-GGUF\\Ornith-1.5-35B-A3B-AD-Q5_K-Q4_K.gguf",
+    );
+    expect(ornith?.label).toBe("Ornith-1.5");
+    expect(ornith?.settings).toEqual({
+      effort: "",
+      specType: "",
+      contextLength: 131_072,
+    });
+
+    const qwen = findLlamaModelPreset("Qwen3.8-27B-Uncensored-GGUF\\model.gguf");
+    expect(qwen?.label).toContain("Qwen3.8");
+    expect(qwen?.settings.specType).toBe("draft-mtp");
+
+    expect(findLlamaModelPreset("unknown-model.gguf")).toBeNull();
+    expect(findLlamaModelPreset("")).toBeNull();
+  });
+
+  it("flags broken spec/model combinations", () => {
+    // Ornith has no MTP tensors -> draft-mtp would fail to load.
+    expect(isLlamaSpecComboBroken("Ornith-1.5-x.gguf", "draft-mtp")).toBe(true);
+    expect(isLlamaSpecComboBroken("Ornith-1.5-x.gguf", "")).toBe(false);
+    // Qwen3.8 ships MTP tensors -> draft-mtp is fine.
+    expect(isLlamaSpecComboBroken("Qwen3.8-27B-Q4_K_S.gguf", "draft-mtp")).toBe(false);
+    expect(isLlamaSpecComboBroken("", "draft-mtp")).toBe(true);
   });
 
   it("rejects a path value cmd.exe could reinterpret", () => {
