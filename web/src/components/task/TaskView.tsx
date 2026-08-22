@@ -32,6 +32,10 @@ import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { isNearBottom, nextStickState } from "@/lib/scroll-stick";
+import {
+  readScrollButtonOpacity,
+  subscribeScrollButtonOpacity,
+} from "@/lib/scroll-button-opacity";
 import { stabilizeUiMessages } from "@/lib/stabilize-messages";
 import { isThinkingLevel, thinkingLevelLabel } from "@/lib/thinking-levels";
 import {
@@ -121,6 +125,14 @@ export function TaskView({ taskId }: { taskId: string }) {
   const currentUserIdxRef = useRef(0);
   // onScroll の deps を安定させるため、id 一覧を ref にミラーする（本家と同じ）。
   const userMessageIdsRef = useRef<string[]>([]);
+  // ナビゲーター ボタンの不透明度（設定 → 一般タブで変更可）。
+  const [scrollButtonOpacity, setScrollButtonOpacity] = useState(
+    () => readScrollButtonOpacity(),
+  );
+  useEffect(
+    () => subscribeScrollButtonOpacity(() => setScrollButtonOpacity(readScrollButtonOpacity())),
+    [],
+  );
   const sidebarNotifyKeyRef = useRef("");
 
   const applyDetail = useCallback((detail: TaskDetail) => {
@@ -643,59 +655,53 @@ export function TaskView({ taskId }: { taskId: string }) {
             )}
           </div>
         </div>
-        {/* ユーザーメッセージ間を移動するナビゲーター（本家 LeafCode と同じ）。 */}
+        {/* ユーザーメッセージ間を移動するナビゲーター（本家 LeafCode と同じ）。
+            設定した不透明度で常時表示し、ホバー・フォーカス時だけ不透明になる。 */}
         {userMessageIds.length > 0 && (
           <div className="absolute right-4 bottom-4 z-50 flex flex-col gap-2">
-            <Button
-              variant="secondary"
-              size="icon"
-              aria-label="最初のユーザーメッセージへ"
-              title="最初のユーザーメッセージへ"
-              className="h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg"
-              onClick={() => jumpToUserMessage(0)}
-            >
-              <ChevronsUp className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="secondary"
-              size="icon"
-              aria-label="一つ前のユーザーメッセージへ"
-              title="一つ前のユーザーメッセージへ"
-              className="h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg"
-              onClick={() => {
-                const target = currentUserIdxRef.current - 1;
-                jumpToUserMessage(target >= 0 ? target : 0);
-              }}
-            >
-              <ChevronUp className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="secondary"
-              size="icon"
-              aria-label="一つ後のユーザーメッセージへ"
-              title="一つ後のユーザーメッセージへ"
-              className="h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg"
-              onClick={() => {
-                const target = currentUserIdxRef.current + 1;
-                if (target >= userMessageIdsRef.current.length) {
-                  jumpToLatest();
-                  return;
-                }
-                jumpToUserMessage(target);
-              }}
-            >
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="secondary"
-              size="icon"
-              aria-label="最新のメッセージへ"
-              title="最新のメッセージへ"
-              className="h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg"
-              onClick={jumpToLatest}
-            >
-              <ChevronsDown className="h-4 w-4" />
-            </Button>
+            {(
+              [
+                ["最初のユーザーメッセージへ", () => jumpToUserMessage(0), <ChevronsUp key="i" className="h-4 w-4" />],
+                [
+                  "一つ前のユーザーメッセージへ",
+                  () => {
+                    const target = currentUserIdxRef.current - 1;
+                    jumpToUserMessage(target >= 0 ? target : 0);
+                  },
+                  <ChevronUp key="i" className="h-4 w-4" />,
+                ],
+                [
+                  "一つ後のユーザーメッセージへ",
+                  () => {
+                    const target = currentUserIdxRef.current + 1;
+                    if (target >= userMessageIdsRef.current.length) {
+                      jumpToLatest();
+                      return;
+                    }
+                    jumpToUserMessage(target);
+                  },
+                  <ChevronDown key="i" className="h-4 w-4" />,
+                ],
+                ["最新のメッセージへ", () => jumpToLatest(), <ChevronsDown key="i" className="h-4 w-4" />],
+              ] as const
+            ).map(([label, onClick, icon]) => (
+              <Button
+                key={label}
+                variant="secondary"
+                size="icon"
+                aria-label={label}
+                title={label}
+                className={cx(
+                  "h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg",
+                  scrollButtonOpacity < 0.95 &&
+                    "opacity-[var(--sb-opacity)] hover:opacity-100 focus-visible:opacity-100 active:opacity-100 transition-opacity",
+                )}
+                style={{ "--sb-opacity": scrollButtonOpacity } as React.CSSProperties}
+                onClick={onClick}
+              >
+                {icon}
+              </Button>
+            ))}
           </div>
         )}
         {graphOpen && task?.directory && (

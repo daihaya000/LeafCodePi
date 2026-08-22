@@ -8,6 +8,7 @@ import { LlamaServerSettings } from "@/components/settings/LlamaServerSettings";
 import { HostRestartPanel } from "@/components/settings/HostRestartPanel";
 import { AgentsMdSettings } from "@/components/settings/AgentsMdSettings";
 import { CompactionSettings } from "@/components/settings/CompactionSettings";
+import { NavigatorSettings } from "@/components/settings/NavigatorSettings";
 import { SkillsSettings } from "@/components/settings/SkillsSettings";
 import { ExtensionsSettings } from "@/components/settings/ExtensionsSettings";
 import { McpSettings } from "@/components/settings/McpSettings";
@@ -136,6 +137,7 @@ export function SettingsView() {
               <McpSettings />
               <AgentsSettings />
               <CompactionSettings />
+              <NavigatorSettings />
               <div className="rounded-2xl border border-border bg-surface p-4 text-sm text-muted">
                 <p>テーマはサイドバー右下のアイコンから切り替えます（ライト / ダーク / システム）。</p>
                 <p className="mt-2">
