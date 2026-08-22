@@ -187,10 +187,13 @@ export function ModelSelect({
                   title={maxed ? `${option.label}（制限到達 100%）` : option.label}
                   onClick={() => chooseOption(option)}
                   className={cx(
-                    "flex w-full appearance-none items-center gap-2 rounded-lg border-0 bg-transparent px-2 py-1.5 text-left text-muted hover:bg-surface-2 hover:text-text focus:bg-surface-2 focus:text-text focus:outline-none",
-                    option.value === value && "bg-surface-2 text-text",
-                    nearLimit && "text-warning hover:text-warning focus:text-warning",
-                    maxed && "text-danger hover:text-danger focus:text-danger",
+                    "flex w-full appearance-none items-center gap-2 rounded-lg border-0 bg-transparent px-2 py-1.5 text-left hover:bg-surface-2 focus:bg-surface-2 focus:outline-none",
+                    maxed
+                      ? "text-danger hover:text-danger focus:text-danger"
+                      : nearLimit
+                        ? "text-warning hover:text-warning focus:text-warning"
+                        : "text-muted hover:text-text focus:text-text",
+                    option.value === value && "bg-surface-2",
                   )}
                 >
                   <ProviderIcon providerID={option.providerID} size={14} />
