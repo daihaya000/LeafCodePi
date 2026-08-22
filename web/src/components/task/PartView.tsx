@@ -20,11 +20,15 @@ import {
   Wrench,
 } from "lucide-react";
 import { ProviderIcon } from "@/components/ProviderIcon";
-import { cx, formatMessageTime } from "@/components/ui";
+import { Button, cx, formatMessageTime } from "@/components/ui";
 import { formatTokens } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { toolInputFields, toolLabel, toolSummary } from "@/lib/tool-labels";
 import { subagentAgentNames, useSubagentRuns } from "@/components/task/use-subagent-runs";
+import {
+  saveReasoningTranslationOverride,
+  useReasoningTranslation,
+} from "@/lib/reasoning-translation";
 import type { SubagentRunDto, UiMessage, UiPart } from "@/lib/types";
 
 const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
@@ -458,6 +462,164 @@ export function WorkingRow({ messages }: { messages: UiMessage[] }) {
   );
 }
 
+/** 本家 LeafCode と同じ: 思考要約の太字マーカーを落としてから翻訳に渡す。 */
+function stripReasoningMarkdown(text: string): string {
+  return text.replace(/(\*\*|__)([\s\S]*?)\1/g, "$2");
+}
+
+const ReasoningView = memo(function ReasoningView({ text }: { text: string }) {
+  const shownText = stripReasoningMarkdown(text);
+  const { mode, translated } = useReasoningTranslation(shownText);
+  const [showOriginal, setShowOriginal] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const editButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    setEditing(false);
+    setSaveError(null);
+  }, [shownText]);
+
+  useEffect(() => {
+    setShowOriginal(false);
+  }, [mode, shownText, translated]);
+
+  if (!shownText.trim()) return null;
+  const showTranslation = mode !== "original" && Boolean(translated);
+
+  const closeEditor = () => {
+    setEditing(false);
+    setSaveError(null);
+    window.setTimeout(() => editButtonRef.current?.focus(), 0);
+  };
+
+  const saveCorrection = async () => {
+    if (saving || !draft.trim()) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await saveReasoningTranslationOverride(shownText, draft);
+      closeEditor();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "修正訳を保存できませんでした");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="group/reasoning relative flex min-w-0 items-start gap-2">
+      <span className="flex shrink-0 items-center gap-1.5 pt-0.5 text-xs text-faint">
+        <Brain className="h-3.5 w-3.5" />
+        思考
+      </span>
+      <div className="min-w-0 flex-1 pr-10 text-sm font-normal text-muted">
+        {showTranslation ? (
+          mode === "bilingual" ? (
+            <>
+              <div className="whitespace-pre-wrap break-words">{translated}</div>
+              <div className="mt-1.5 border-t border-border/60 pt-1.5 text-xs text-faint">
+                <div className="whitespace-pre-wrap break-words">{shownText}</div>
+              </div>
+            </>
+          ) : (
+            // Keep the original text in the grid's intrinsic height while the
+            // translated text is shown. Most Japanese translations are
+            // shorter, so this prevents async translation from shrinking the
+            // timeline and shifting the user's scroll position.
+            <div className="grid">
+              <div
+                aria-hidden="true"
+                className="invisible col-start-1 row-start-1 whitespace-pre-wrap break-words"
+              >
+                {shownText}
+              </div>
+              <button
+                type="button"
+                className="col-start-1 row-start-1 block w-full cursor-pointer border-0 bg-transparent p-0 text-left text-sm font-normal text-muted focus-visible:rounded focus-visible:ring-2 focus-visible:ring-primary/40 whitespace-pre-wrap break-words"
+                title={showOriginal ? "クリックして翻訳を表示" : shownText}
+                aria-label={showOriginal ? "翻訳を表示" : "原文を表示"}
+                aria-pressed={showOriginal}
+                onClick={() => setShowOriginal((value) => !value)}
+              >
+                {showOriginal ? shownText : translated}
+              </button>
+            </div>
+          )
+        ) : (
+          <div className="whitespace-pre-wrap break-words">{shownText}</div>
+        )}
+        {showTranslation && !editing && (
+          <Button
+            ref={editButtonRef}
+            variant="ghost"
+            size="icon"
+            title="訳を修正"
+            aria-label="訳を修正"
+            onClick={() => {
+              setDraft(translated ?? "");
+              setSaveError(null);
+              setEditing(true);
+            }}
+            className="absolute right-0 top-0 z-10 h-9 w-9 bg-surface/90 opacity-60 after:absolute after:-inset-1 hover:opacity-100 focus-visible:opacity-100 sm:opacity-0 sm:group-hover/reasoning:opacity-100"
+          >
+            <FilePen className="h-3.5 w-3.5" />
+          </Button>
+        )}
+        {showTranslation && editing && (
+          <form
+            className="mt-3 rounded-lg border border-border bg-surface-2 p-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveCorrection();
+            }}
+          >
+            <p className="text-[11px] font-medium text-faint">原文</p>
+            <p className="mt-1 whitespace-pre-wrap break-words text-xs text-faint">{shownText}</p>
+            <label className="mt-3 block text-[11px] font-medium text-muted">
+              修正後の翻訳
+              <textarea
+                autoFocus
+                value={draft}
+                maxLength={16_000}
+                onChange={(event) => setDraft(event.target.value)}
+                className="mt-1 min-h-24 w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </label>
+            {saveError && (
+              <p role="alert" className="mt-2 text-xs text-danger">{saveError}</p>
+            )}
+            <div className="mt-3 flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-11 sm:h-8"
+                disabled={saving}
+                onClick={closeEditor}
+              >
+                キャンセル
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                className="h-11 sm:h-8"
+                busy={saving}
+                disabled={!draft.trim()}
+                type="submit"
+              >
+                <Check className="h-3.5 w-3.5" />
+                保存
+              </Button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+});
+
 export const PartView = memo(
   function PartView({
     message,
@@ -502,17 +664,7 @@ export const PartView = memo(
             );
           }
           if (part.type === "thinking") {
-            return (
-              <div key={part.id} className="flex min-w-0 items-start gap-2">
-                <span className="flex shrink-0 items-center gap-1.5 pt-0.5 text-xs text-faint">
-                  <Brain className="h-3.5 w-3.5" />
-                  思考
-                </span>
-                <div className="min-w-0 flex-1 text-sm whitespace-pre-wrap break-words text-muted">
-                  {part.text}
-                </div>
-              </div>
-            );
+            return <ReasoningView key={part.id} text={part.text} />;
           }
           if (part.type === "image") {
             return (

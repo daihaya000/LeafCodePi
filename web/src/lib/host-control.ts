@@ -10,6 +10,20 @@ export function hostLlamaServerPath(action: HostLlamaServerAction): string {
   return `/llama-server/${action}`;
 }
 
+/** Paths on the host control server for the local en→ja translation service. */
+export type HostTranslationAction =
+  | "status"
+  | "start"
+  | "stop"
+  | "translate"
+  | "override"
+  | "unreviewed"
+  | "review-results";
+
+export function hostTranslationPath(action: HostTranslationAction): string {
+  return `/translation/${action}`;
+}
+
 export type HostRestartTarget = "webui" | "host";
 
 export function hostRestartPath(target: HostRestartTarget): string {
