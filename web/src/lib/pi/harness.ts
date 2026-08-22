@@ -115,6 +115,8 @@ type LiveRuntime = {
   /** Coalesce message_update snapshots onto the event loop. */
   snapshotTimer: ReturnType<typeof setTimeout> | null;
   pendingSnapshotEventType: string | null;
+  /** Session entry id the last navigateTree moved the leaf to (for undo). */
+  revertLeafId: string | null;
 };
 
 type HarnessState = {
@@ -565,6 +567,7 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
     toolEndedAt: existing?.toolEndedAt ?? new Map(),
     snapshotTimer: null,
     pendingSnapshotEventType: null,
+    revertLeafId: null,
   };
 
   const unsubscribe = session.subscribe((event) => {
@@ -1295,6 +1298,122 @@ export async function abortTaskCompaction(id: string): Promise<TaskDetail> {
   if (!live) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   live.session.abortCompaction();
   return getTaskDetail(id);
+}
+
+/**
+ * 巻き戻し: 指定ユーザーメッセージ（UI のメッセージ id）以降を破棄し、その
+ * 内容を text / images として返す（本家 LeafCode の「入力欄に戻す」と同じ）。
+ * Pi コアの navigateTree は user メッセージをターゲットにすると leaf を親へ
+ * 移し、破棄した分の入力を editorText として返す。
+ */
+export async function revertTask(id: string, messageId: string): Promise<{
+  task: TaskDetail;
+  text: string;
+  images: { uri: string; mime: string; name?: string }[];
+}> {
+  const live = await ensureLive(id);
+  if (live.session.isStreaming) {
+    throw Object.assign(new Error("応答中は巻き戻せません。停止してからお試しください"), {
+      status: 409,
+    });
+  }
+  const entry = messageEntryById(live.session, messageId);
+  if (!entry) {
+    throw Object.assign(new Error("対象メッセージが見つかりません"), { status: 404 });
+  }
+  if (entry.message.role !== "user") {
+    throw Object.assign(new Error("ユーザーメッセージのみ入力欄に戻せます"), { status: 400 });
+  }
+  const result = await live.session.navigateTree(entry.id);
+  if (result.cancelled) {
+    throw Object.assign(new Error("巻き戻しがキャンセルされました"), { status: 400 });
+  }
+  live.revertLeafId = live.session.sessionManager.getLeafId();
+  const taskDetail = await getTaskDetail(id);
+  emit(id, {
+    type: "snapshot",
+    task: toSummary(getTask(id)!),
+    ...sessionSnapshotFields(
+      live.session,
+      live.throughputByStartedAt,
+      live.toolStartedAt,
+      live.toolEndedAt,
+    ),
+    eventType: "revert",
+  });
+  return { task: taskDetail, text: result.editorText ?? "", images: imagesFromEntry(entry) };
+}
+
+/** UI のメッセージ id（エージェント側）からセッションエントリを取り出す。 */
+export function messageEntryById(
+  session: AgentSession,
+  messageId: string,
+): { id: string; message: { role: string; content: unknown } } | null {
+  try {
+    for (const entry of session.sessionManager.getEntries()) {
+      if (entry.type !== "message") continue;
+      const message = (entry as { message?: unknown }).message;
+      if (!message || typeof message !== "object") continue;
+      if ((message as { id?: unknown }).id === messageId) {
+        return {
+          id: entry.id,
+          message: message as { role: string; content: unknown },
+        };
+      }
+    }
+  } catch {
+    /* session may not expose entries yet */
+  }
+  return null;
+}
+
+/** user エントリの image ブロックを Composer 添付相当に変換する。 */
+export function imagesFromEntry(entry: {
+  message: { role: string; content: unknown };
+}): { uri: string; mime: string; name?: string }[] {
+  const content = Array.isArray(entry.message.content) ? entry.message.content : [];
+  const images: { uri: string; mime: string; name?: string }[] = [];
+  content.forEach((block, index) => {
+    if (!block || typeof block !== "object") return;
+    const record = block as { type?: unknown; mimeType?: unknown; data?: unknown; filename?: unknown };
+    if (record.type !== "image") return;
+    const data = typeof record.data === "string" ? record.data : "";
+    if (!data) return;
+    const mime = typeof record.mimeType === "string" && record.mimeType ? record.mimeType : "image/png";
+    images.push({
+      uri: `data:${mime};base64,${data}`,
+      mime,
+      ...(typeof record.filename === "string" && record.filename
+        ? { name: record.filename }
+        : { name: `image-${index + 1}` }),
+    });
+  });
+  return images;
+}
+
+/** 巻き戻し取消: revert 前の leaf へ戻す。 */
+export async function unrevertTask(id: string): Promise<TaskDetail> {
+  const live = state().live.get(id);
+  if (!live) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const target = live.revertLeafId;
+  if (!target) {
+    throw Object.assign(new Error("巻き戻しの対象がありません"), { status: 400 });
+  }
+  live.revertLeafId = null;
+  await live.session.navigateTree(target);
+  const taskDetail = getTaskDetail(id);
+  emit(id, {
+    type: "snapshot",
+    task: toSummary(getTask(id)!),
+    ...sessionSnapshotFields(
+      live.session,
+      live.throughputByStartedAt,
+      live.toolStartedAt,
+      live.toolEndedAt,
+    ),
+    eventType: "unrevert",
+  });
+  return taskDetail;
 }
 
 export async function getCompactionSettings(): Promise<CompactionSettingsDto> {

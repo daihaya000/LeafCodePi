@@ -10,6 +10,7 @@ import {
   GitGraph,
   PanelRight,
   Plus,
+  RotateCcw,
   Shrink,
   Square,
 } from "lucide-react";
@@ -117,6 +118,10 @@ export function TaskView({
   const [contextUsage, setContextUsage] = useState<ContextUsageDto | undefined>();
   const [isCompacting, setIsCompacting] = useState(false);
   const [compactingLocal, setCompactingLocal] = useState(false);
+  const [isReverted, setIsReverted] = useState(false);
+  const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
+  const [revertBusy, setRevertBusy] = useState(false);
+  const revertEntryRef = useRef<{ messageId: string; message: UiMessage | undefined } | null>(null);
   const [prompt, setPrompt] = useState("");
   const [goalLoopEnabled, setGoalLoopEnabled] = useState(false);
   const [goalLoopAcceptance, setGoalLoopAcceptance] = useState("");
@@ -369,6 +374,71 @@ export function TaskView({
   }
 
   const compacting = isCompacting || compactingLocal;
+
+  // 巻き戻し対象候補: 末尾のユーザーメッセージ。末尾が user なら直前の user へ
+  // フォールバック（最後まで巻き戻せる状態を保つ）。
+  const lastUserMessage = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message && message.role === "user") return message;
+    }
+    return undefined;
+  }, [messages]);
+
+  async function revert() {
+    const target = revertEntryRef.current;
+    if (!target || revertBusy || working) return;
+    setRevertBusy(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ task: TaskDetail; text: string; images: ComposerAttachment[] }>(
+        `/api/tasks/${taskId}/revert`,
+        { entryId: target.messageId },
+      );
+      setIsReverted(true);
+      if (target.message) {
+        setPrompt(
+          target.message.parts
+            .filter((part) => part.type === "text")
+            .map((part) => part.text)
+            .join("\n\n"),
+        );
+        setAttachments((current) => [
+          ...current,
+          ...result.images.filter(
+            (image) => !current.some((item) => item.uri === image.uri),
+          ),
+        ]);
+      }
+      applyDetail(result.task);
+      notifyTasksChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "巻き戻しに失敗しました");
+    } finally {
+      setRevertBusy(false);
+      setRevertConfirmOpen(false);
+      revertEntryRef.current = null;
+    }
+  }
+
+  async function unrevert() {
+    if (revertBusy) return;
+    setRevertBusy(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ task: TaskDetail }>(
+        `/api/tasks/${taskId}/unrevert`,
+        {},
+      );
+      setIsReverted(false);
+      applyDetail(result.task);
+      notifyTasksChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "巻き戻しの取り消しに失敗しました");
+    } finally {
+      setRevertBusy(false);
+    }
+  }
 
   async function submit() {
     if ((!prompt.trim() && attachments.length === 0) || submitting || compacting) return;
@@ -627,6 +697,33 @@ export function TaskView({
             <Button
               variant="ghost"
               size="icon"
+              title={isReverted ? "巻き戻しを取消" : "巻き戻す (undo)"}
+              aria-label={isReverted ? "巻き戻しを取消" : "巻き戻す"}
+              busy={revertBusy}
+              aria-pressed={isReverted}
+              disabled={!task || !(isReverted || lastUserMessage) || working || compacting}
+              className={cx(
+                "h-11 w-11 md:h-9 md:w-9",
+                isReverted && "bg-surface-2 text-text",
+              )}
+              onClick={() => {
+                if (isReverted) {
+                  void unrevert();
+                  return;
+                }
+                if (!lastUserMessage) return;
+                revertEntryRef.current = {
+                  messageId: lastUserMessage.id,
+                  message: lastUserMessage,
+                };
+                setRevertConfirmOpen(true);
+              }}
+            >
+              {!revertBusy && <RotateCcw className="h-4 w-4" />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               title="コミットグラフ"
               aria-label="コミットグラフ"
               aria-pressed={graphOpen}
@@ -691,6 +788,18 @@ export function TaskView({
                   }
                   effort={message.role === "assistant" ? effortLabel : undefined}
                   taskId={taskId}
+                  onRevert={
+                    message.role === "user"
+                      ? (target) => {
+                          if (working) {
+                            setError("実行中は巻き戻せません。停止してからお試しください");
+                            return;
+                          }
+                          revertEntryRef.current = { messageId: target.id, message: target };
+                          setRevertConfirmOpen(true);
+                        }
+                      : undefined
+                  }
                 />
               </div>
             ))}
@@ -766,6 +875,55 @@ export function TaskView({
         )}
       </div>
       <div className="shrink-0 border-t border-border bg-surface px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        {isReverted && (
+          <div className="mx-auto mb-2 flex max-w-5xl items-center gap-3 rounded-lg border border-warning/30 bg-warning-bg px-3 py-2 text-sm text-warning">
+            <span className="min-w-0 flex-1">
+              巻き戻し中（以降のメッセージは非表示）
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              busy={revertBusy}
+              onClick={() => void unrevert()}
+            >
+              復元
+            </Button>
+          </div>
+        )}
+        {revertConfirmOpen && (
+          <div
+            role="alertdialog"
+            aria-label="巻き戻しの確認"
+            aria-describedby="session-revert-confirm-description"
+            className="mx-auto mb-2 max-w-5xl rounded-lg border border-warning/30 bg-warning-bg px-3 py-3 text-sm text-warning"
+          >
+            <p id="session-revert-confirm-description">
+              直前の入力を下の入力欄に戻し、その返答以降を巻き戻しますか？
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button
+                variant="danger"
+                size="sm"
+                busy={revertBusy}
+                disabled={revertBusy || working}
+                onClick={() => void revert()}
+              >
+                巻き戻す
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={revertBusy}
+                onClick={() => {
+                  setRevertConfirmOpen(false);
+                  revertEntryRef.current = null;
+                }}
+              >
+                キャンセル
+              </Button>
+            </div>
+          </div>
+        )}
         {compacting && (
           <div className="mx-auto mb-2 flex max-w-5xl items-center gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
             <span className="min-w-0 flex-1">

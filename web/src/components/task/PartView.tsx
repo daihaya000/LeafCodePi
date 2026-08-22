@@ -15,6 +15,7 @@ import {
   ListTodo,
   Loader2,
   Minus,
+  RotateCcw,
   Search,
   Terminal,
   Wrench,
@@ -627,6 +628,7 @@ export const PartView = memo(
     effort,
     taskId,
     nested = false,
+    onRevert,
   }: {
     message: UiMessage;
     modelLabel?: string;
@@ -635,6 +637,8 @@ export const PartView = memo(
     taskId?: string;
     /** 入れ子タイムライン内での描画（さらに入れ子にはしない）。 */
     nested?: boolean;
+    /** ユーザーメッセージの「入力欄に戻す」コールバック（トップレベル user のみ）。 */
+    onRevert?: (message: UiMessage) => void;
   }) {
     if (message.role === "compaction") {
       return <CompactionNotice message={message} />;
@@ -682,6 +686,17 @@ export const PartView = memo(
           }
           return <ToolCard key={part.id} part={part} taskId={taskId} nested={nested} />;
         })}
+        {isUser && !nested && onRevert && (
+          <button
+            type="button"
+            title="このコメントを入力欄に戻して巻き戻す"
+            onClick={() => onRevert(message)}
+            className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"
+          >
+            <RotateCcw className="h-3 w-3" />
+            入力欄に戻す
+          </button>
+        )}
         {message.error && (
           <p
             role="alert"
@@ -698,5 +713,6 @@ export const PartView = memo(
     prev.modelLabel === next.modelLabel &&
     prev.effort === next.effort &&
     prev.taskId === next.taskId &&
-    prev.nested === next.nested,
+    prev.nested === next.nested &&
+    prev.onRevert === next.onRevert,
 );
