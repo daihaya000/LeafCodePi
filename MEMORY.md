@@ -1,5 +1,34 @@
 # MEMORY
 
+## 2026-08-22: サービス品質向けバグ修正バッチ
+
+全検証: web vitest **364 passed** / tsc OK / eslint 1 warning（no-img-element のみ）/ `next build` OK / host test **95 passed**。
+
+### P0 修正
+
+| 領域 | 問題 | 修正 |
+| --- | --- | --- |
+| 巻き戻し | `revertLeafId` を navigate **後**に保存 → unrevert 無効 | navigate **前**の leaf id を `captureRevertLeafId` で保存 |
+| 巻き戻し UI | 新規プロンプト後も「巻き戻し中」／誤復元 | `promptTask` で `revertLeafId` クリア、TaskView 送信成功・taskId 変更で state リセット |
+| 権限モード | Composer の allow/ask/deny が Pi に未反映 | `permission-gate-config.ts` — JSON + extension context。`createSession` / `promptTask` で適用 |
+| getTaskDetail | セッション読込失敗を握りつぶし空タイムライン 200 | 404/503 を throw |
+| ensureLive | タスク不在が 500 | `{ status: 404 }` |
+| SSE | snapshot の `JSON.parse` 未保護 / throttle 破棄 | try/catch、unsubscribe で flush |
+| llama-server | ポート未伝達・リトライ全 kill | launcher `SERVER_PORT`、ポート限定 taskkill |
+| 翻訳 host | stdin 並行 write 混線 | write キュー + バッチ逐次 |
+| WebUI | restart レース / quit 時 build 残存 | `restarting` ガード、build proc kill |
+
+### テスト修正
+
+- `hang-watchdog.test.ts` import パス
+- `extensions.test.ts` bundled 優先の期待値
+
+### 残存（次バッチ）
+
+- `build-web.mjs` handoff が 202 のみで再起動成否未検証
+- control server 起動失敗のサイレント継続
+- Turbopack dynamic fs trace 警告
+
 ## 2026-08-22: 無言終了対策（本家 LeafCode 移植）
 
 本家 OpenCode 版 LeafCode の `aborted-resume.ts` / サーバー側 `hang-watchdog.ts` / TaskView 再開 UI を Pi 向けに移植。

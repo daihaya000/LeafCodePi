@@ -53,11 +53,15 @@ describe("listExtensions / setExtensionEnabled", () => {
   let agentDir = "";
   let data = "";
   let prevData: string | undefined;
+  let prevExtDir: string | undefined;
 
   afterEach(() => {
     if (prevData === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
     else process.env.LEAFCODE_PI_DATA_DIR = prevData;
     prevData = undefined;
+    if (prevExtDir === undefined) delete process.env.LEAFCODE_PI_EXTENSIONS_DIR;
+    else process.env.LEAFCODE_PI_EXTENSIONS_DIR = prevExtDir;
+    prevExtDir = undefined;
     for (const dir of [agentDir, data]) {
       if (dir) rmSync(dir, { recursive: true, force: true });
     }
@@ -75,6 +79,9 @@ describe("listExtensions / setExtensionEnabled", () => {
     data = mkdtempSync(join(tmpdir(), "leafcode-pi-ext-data-"));
     prevData = process.env.LEAFCODE_PI_DATA_DIR;
     process.env.LEAFCODE_PI_DATA_DIR = data;
+    // Keep the real repository's extensions/ out of discovery.
+    prevExtDir = process.env.LEAFCODE_PI_EXTENSIONS_DIR;
+    process.env.LEAFCODE_PI_EXTENSIONS_DIR = join(data, "no-such-bundled-dir");
     mkdirSync(join(agentDir, "extensions"), { recursive: true });
     if (opts?.withPonytail) writeExtension(join(agentDir, "extensions"), "ponytail");
     writeFileSync(join(agentDir, "extensions", "one.js"), "export default () => {};\n", "utf8");
@@ -119,6 +126,21 @@ describe("listExtensions / setExtensionEnabled", () => {
     assert.throws(() => setExtensionEnabled("leafcode-todowrite", false, agent), /無効化できません/);
     // 無効化禁止の後も有効状態は維持される。
     assert.equal(listExtensions(agent).extensions.find((e) => e.name === "leafcode-todowrite")?.enabled, true);
+  });
+
+  it("prefers bundled repo extensions over same-name global copies", () => {
+    const { agentDir: agent } = fixture();
+    const bundledRoot = join(data, "repo-extensions");
+    writeExtension(bundledRoot, "leafcode-goal-loop");
+    // Stale copy under ~/.pi/agent/extensions must be shadowed.
+    const staleCopy = join(agent, "extensions", "leafcode-goal-loop", "index.js");
+    writeExtension(join(agent, "extensions"), "leafcode-goal-loop");
+    writeExtension(join(agent, "extensions"), "other");
+
+    const listed = listExtensions(agent, { bundledDir: bundledRoot });
+    assert.equal(listed.extensions.find((e) => e.name === "leafcode-goal-loop")?.filePath, join(bundledRoot, "leafcode-goal-loop", "index.js"));
+    assert.notEqual(listed.extensions.find((e) => e.name === "leafcode-goal-loop")?.filePath, staleCopy);
+    expectNames(listed.extensions, ["leafcode-goal-loop", "one", "other"]);
   });
 
   it("discovers extensions from installed packages (settings.json packages)", () => {

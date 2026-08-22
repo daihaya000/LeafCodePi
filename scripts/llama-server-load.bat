@@ -16,7 +16,7 @@ rem template has no reasoning_effort kwarg (e.g. Ornith-1.5).
 setlocal enabledelayedexpansion
 cd /d "%~dp0.."
 
-set "SERVER_PORT=8081"
+if not defined SERVER_PORT set "SERVER_PORT=8081"
 if not defined LLAMA_SERVER_HOST set "LLAMA_SERVER_HOST=127.0.0.1"
 if not defined MODEL_DIR set "MODEL_DIR=C:\Users\Daichi\models\llm"
 if not defined MODEL_FILE set "MODEL_FILE="
@@ -140,8 +140,10 @@ if defined LAUNCH_RETRIED (
   exit /b 3
 )
 set "LAUNCH_RETRIED=1"
-echo [llama-server] Not healthy; retrying once ^(killing leftovers, waiting for VRAM release^)...
-taskkill /F /IM llama-server.exe >nul 2>&1
+echo [llama-server] Not healthy; retrying once ^(killing port %SERVER_PORT% listeners, waiting for VRAM release^)...
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":%SERVER_PORT% .*LISTENING"') do (
+  taskkill /F /PID %%P >nul 2>&1
+)
 ping -n 21 127.0.0.1 >nul
 goto :launch
 

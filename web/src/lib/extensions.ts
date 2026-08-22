@@ -3,7 +3,12 @@
  * Disabled extensions are filtered out of AgentSession through
  * DefaultResourceLoader.extensionsOverride.
  *
+ * WebUI-dependent bundled extensions (leafcode-goal-loop, leafcode-todowrite,
+ * leafcode-permission-gate) are read directly from this repository's
+ * extensions/ directory and win over same-name entries in ~/.pi.
+ *
  * Discovery mirrors Pi's global extension roots:
+ * - <repo>/extensions (bundled; resolved via LEAFCODE_PI_EXTENSIONS_DIR or cwd)
  * - ~/.pi/agent/extensions (direct *.ts/*.js files, subdirs with index.ts/index.js,
  *   and subdirs with a package.json "pi.extensions" manifest)
  * - ~/.pi/agent/git/<host>/<owner>/<repo> for entries declared by installed
@@ -67,6 +72,22 @@ export function extensionsStatePath(dir = dataDir()): string {
 
 export function extensionsDir(agentDir = resolvePiAgentDir()): string {
   return join(agentDir, "extensions");
+}
+
+/** Repository extensions/ dir shipped with LeafCodePi (bundled WebUI extensions). */
+export function bundledExtensionsDir(): string | null {
+  const override = process.env.LEAFCODE_PI_EXTENSIONS_DIR?.trim();
+  const candidates = override ? [override] : [join(process.cwd(), "extensions"), join(process.cwd(), "..", "extensions")];
+  for (const candidate of candidates) {
+    if (isDirectory(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** Bundled extension entries (<repo>/extensions/<name>/index.ts), repo path wins. */
+export function bundledExtensionEntries(): DiscoveredEntry[] {
+  const dir = bundledExtensionsDir();
+  return dir ? discoverExtensionsInDir(dir) : [];
 }
 
 const emptyState = (): ExtensionsState => {
@@ -300,6 +321,8 @@ function isDirectory(path: string): boolean {
 export type ListExtensionsOptions = {
   /** Override the extensions dir (tests). */
   extensionsDir?: string;
+  /** Override the bundled repo extensions dir; null disables bundled discovery. */
+  bundledDir?: string | null;
 };
 
 /**
@@ -313,6 +336,13 @@ export function listExtensions(
   const dir = options?.extensionsDir ?? extensionsDir(agentDir);
   const state = readExtensionsState();
   const byName = new Map<string, DiscoveredEntry>();
+  // Bundled repo extensions first: they own their names and must not be
+  // shadowed by stale copies in ~/.pi or by settings.json packages.
+  const bundled =
+    options?.bundledDir === null ? [] : options?.bundledDir ? discoverExtensionsInDir(options.bundledDir) : bundledExtensionEntries();
+  for (const entry of bundled) {
+    if (!byName.has(entry.name)) byName.set(entry.name, entry);
+  }
   for (const entry of discoverExtensionsInDir(dir)) {
     if (!byName.has(entry.name)) byName.set(entry.name, entry);
   }

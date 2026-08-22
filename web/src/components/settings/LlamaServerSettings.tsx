@@ -7,7 +7,6 @@ import { getJson, sendJson } from "@/lib/client";
 import { isLoopbackHost } from "@/lib/loopback";
 import {
   DEFAULT_LLAMA_SERVER_SETTINGS,
-  isLlamaServerSettings,
   isLlamaSpecComboBroken,
   LLAMA_MODEL_PRESETS,
   LLAMA_SERVER_EFFORTS,

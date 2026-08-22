@@ -312,6 +312,8 @@ async function spawnWeb() {
       PORT: String(WEBUI_PORT),
       LEAFCODE_PI_HOST: WEBUI_HOST,
       LEAFCODE_PI_PORT: String(WEBUI_PORT),
+      // Bundled WebUI extensions live in the repo (prod runs from the web/ mirror).
+      LEAFCODE_PI_EXTENSIONS_DIR: join(REPO_ROOT, "extensions"),
     },
   });
   webProc = child;
@@ -328,7 +330,7 @@ async function spawnWeb() {
 }
 
 function scheduleWebRestart() {
-  if (quitting) return;
+  if (quitting || restarting) return;
   if (webRestarts >= MAX_WEB_RESTARTS) {
     error(`WebUI restart budget exhausted (${MAX_WEB_RESTARTS})`);
     return;
@@ -648,6 +650,11 @@ async function quit() {
   if (quitting) return;
   quitting = true;
   log("Quitting...");
+  const buildChild = webBuildProc;
+  if (buildChild?.pid) {
+    killTree(buildChild.pid);
+    webBuildProc = null;
+  }
   try {
     await closeControlServer(controlServer);
     controlServer = null;

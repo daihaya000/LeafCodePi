@@ -59,11 +59,11 @@ export function displayRegionName(region: QwenCloudRegion): string {
   return region === "chinaMainland" ? "China mainland" : "International";
 }
 
-export function dashboardUrl(_region: QwenCloudRegion): string {
+export function dashboardUrl(): string {
   return "https://home.qwencloud.com/billing/subscription/token-plan-individual";
 }
 
-export function gatewayBaseUrl(_region: QwenCloudRegion): string {
+export function gatewayBaseUrl(): string {
   return "https://home.qwencloud.com";
 }
 

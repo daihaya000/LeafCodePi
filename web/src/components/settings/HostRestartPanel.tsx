@@ -16,8 +16,7 @@ const HEALTH_INTERVAL_MS = 1_500;
 const HEALTH_TIMEOUT_MS = 4_000;
 
 async function timedFetch(input: string, init?: RequestInit & { timeoutMs?: number }) {
-  const timeoutMs = init?.timeoutMs ?? 10_000;
-  const { timeoutMs: _ignored, ...rest } = init ?? {};
+  const { timeoutMs = 10_000, ...rest } = init ?? {};
   return fetch(input, {
     ...rest,
     signal: AbortSignal.timeout(timeoutMs),

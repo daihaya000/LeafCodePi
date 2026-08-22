@@ -148,6 +148,7 @@ export function createLlamaServerService(deps) {
     const name = `llama-launch-${randomBytes(6).toString('hex')}.bat`;
     const path = join(getTmpDir(), name);
     const lines = ['@echo off', 'chcp 65001 >nul', 'setlocal EnableDelayedExpansion'];
+    lines.push(`set "SERVER_PORT=${port}"`);
     if (config.effort) lines.push(`set "REASONING_EFFORT=${config.effort}"`);
     if (config.contextLength)
       lines.push(`set "CONTEXT_LENGTH=${String(config.contextLength)}"`);

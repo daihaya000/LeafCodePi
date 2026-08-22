@@ -94,6 +94,7 @@ test('start writes a UTF-8 launcher bat that inlines config and calls the real b
   assert.match(data, /set "REASONING_EFFORT=medium"/);
   assert.match(data, /set "CONTEXT_LENGTH=131072"/);
   assert.match(data, /set "PARALLEL=2"/);
+  assert.match(data, /set "SERVER_PORT=8080"/);
   assert.match(data, /call "C:\\fake\\llama-server-load.bat"/);
   assert.match(data, /del "%~f0" >nul 2>&1/);
   // WMI via powershell -EncodedCommand (base64 UTF-16LE).

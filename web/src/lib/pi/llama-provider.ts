@@ -170,7 +170,8 @@ export function rewriteLlamaServerEffortPayload(
   }
 
   if (isRecord(body.chat_template_kwargs)) {
-    const { reasoning_effort: _removed, ...rest } = body.chat_template_kwargs;
+    const rest = { ...body.chat_template_kwargs };
+    delete rest.reasoning_effort;
     if (Object.keys(rest).length > 0) body.chat_template_kwargs = rest;
     else delete body.chat_template_kwargs;
   }

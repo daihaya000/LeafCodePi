@@ -58,6 +58,30 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
   let installProc = null;
   let installError = null;
   let installStderr = '';
+  /** Serialize stdin writes — parallel batches must not interleave JSON lines. */
+  let stdinQueue = Promise.resolve();
+
+  function enqueueStdinWrite(line) {
+    const task = stdinQueue.then(
+      () =>
+        new Promise((resolve, reject) => {
+          if (!child?.stdin) {
+            reject(new Error('translation stdin unavailable'));
+            return;
+          }
+          const ok = child.stdin.write(line, 'utf8', (err) => {
+            if (err) reject(err);
+            else resolve(undefined);
+          });
+          if (!ok) {
+            child.stdin.once('drain', resolve);
+            child.stdin.once('error', reject);
+          }
+        }),
+    );
+    stdinQueue = task.catch(() => undefined);
+    return task;
+  }
 
   function modelVersion() {
     if (cachedModelVersion !== null && cachedModelVersion !== 'unknown') return cachedModelVersion;
@@ -465,16 +489,11 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
         target: TARGET_CODE,
         texts,
       }) + '\n';
-      if (!child.stdin.write(line, 'utf8')) {
-        child.stdin.once('error', (error) => {
-          clearTimeout(timer);
-          pending.delete(id);
-          reject(error);
-        });
-        child.stdin.once('drain', () => {
-          child.stdin.removeAllListeners('error');
-        });
-      }
+      void enqueueStdinWrite(line).catch((error) => {
+        clearTimeout(timer);
+        pending.delete(id);
+        reject(error);
+      });
     });
   }
 
@@ -507,11 +526,8 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
       offset += batch.length;
     }
 
-    const responses = await Promise.all(
-      batches.map(({ batch }) => requestTranslation(batch.map((item) => item.engineText))),
-    );
-    for (const [index, { offset: batchOffset, batch }] of batches.entries()) {
-      const response = responses[index];
+    for (const { offset: batchOffset, batch } of batches) {
+      const response = await requestTranslation(batch.map((item) => item.engineText));
       if (
         !Array.isArray(response?.translations) ||
         response.translations.length !== batch.length

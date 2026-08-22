@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { imagesFromEntry, messageEntryById } from "./harness";
+import { captureRevertLeafId, imagesFromEntry, messageEntryById } from "./harness";
+
+describe("captureRevertLeafId", () => {
+  it("keeps the pre-navigate leaf id (not the post-navigate position)", () => {
+    const before = "leaf-tip-with-discarded-messages";
+    const afterNavigate = "leaf-at-parent-user-message";
+    assert.equal(captureRevertLeafId(before), before);
+    assert.notEqual(captureRevertLeafId(before), afterNavigate);
+  });
+});
 
 describe("messageEntryById", () => {
   function mockEntries(entries: unknown[]) {
