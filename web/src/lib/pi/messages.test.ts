@@ -38,8 +38,10 @@ describe("projectPiMessages", () => {
     ]);
     expect(messages).toHaveLength(2);
     expect(messages[0].role).toBe("user");
-    // 応答時間の近似: 直前レコード（ts=1）からの差分。
-    expect(messages[1]).toMatchObject({ responseDurationMs: 1 });
+    // 応答時間は射影では作らない（Pi の assistant timestamp は生成開始時刻で、
+    // 直前レコード差分は常に 0s になるため）。実測値は harness の
+    // applyThroughput が throughput timing から注入する。
+    expect(messages[1].responseDurationMs).toBeUndefined();
     const tool = messages[1].parts.find((part) => part.type === "tool");
     expect(tool?.type === "tool" && tool.state.status).toBe("completed");
     expect(tool?.type === "tool" && tool.state.output).toBe("package.json");
@@ -85,7 +87,7 @@ describe("projectPiMessages", () => {
       role: "assistant",
       outputTokens: 42,
     });
-    // 直前レコードが無いので応答時間は付かない。
+    // 応答時間は射影では付かない（throughput timing が無いメッセージは非表示）。
     expect(messages[0].responseDurationMs).toBeUndefined();
   });
 });

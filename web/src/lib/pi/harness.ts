@@ -225,7 +225,8 @@ function modelId(model: Model | undefined): { providerID?: string; modelID?: str
   };
 }
 
-function applyThroughput(
+/** throughput timing をメッセージへ反映（tok/s + 実測の応答所要時間）。 */
+export function applyThroughput(
   messages: UiMessage[],
   throughputByStartedAt: Map<number, ThroughputTiming>,
 ): UiMessage[] {
@@ -235,13 +236,20 @@ function applyThroughput(
     if (message.role !== "assistant") return message;
     const timing = throughputByStartedAt.get(message.createdAt);
     if (!timing) return message;
+    // 応答全体の所要時間（思考＋生成、TTFT 込み）。Pi の assistant timestamp は
+    // 生成「開始」時刻のため、直前レコードとの差分では常に 0s になる —
+    // 実測 lastToken を使う（応答完了後は永続化された値で復元）。
+    const responseDurationMs = Math.max(0, (timing.lastTokenAtMs ?? nowMs) - timing.startedAtMs);
     const snap = snapshotThroughput(timing, nowMs);
-    if (!snap || snap.tokensPerSecond === null) return message;
+    if (!snap || snap.tokensPerSecond === null) {
+      return responseDurationMs > 0 ? { ...message, responseDurationMs } : message;
+    }
     return {
       ...message,
       outputTokens: snap.outputTokens,
       tokensPerSecond: snap.tokensPerSecond,
       tokensPerSecondDecode: snap.decodePhase,
+      ...(responseDurationMs > 0 ? { responseDurationMs } : {}),
     };
   });
 }

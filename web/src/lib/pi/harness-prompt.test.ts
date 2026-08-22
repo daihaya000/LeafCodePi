@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { applySubagentPermission, applyToolTiming, decoratePrompt } from "./harness";
+import { applySubagentPermission, applyThroughput, applyToolTiming, decoratePrompt } from "./harness";
+import type { ThroughputTiming } from "@/lib/token-throughput";
 import type { UiMessage } from "@/lib/types";
 
 function toolMessage(callID: string): UiMessage {
@@ -94,5 +95,33 @@ describe("applyToolTiming", () => {
     const result = applyToolTiming(messages, new Map(), new Map());
     const part = result[0]!.parts[0] as Extract<(typeof result)[0]["parts"][number], { type: "tool" }>;
     assert.equal(part.state.startedAtMs, undefined);
+  });
+});
+
+describe("applyThroughput", () => {
+  function assistantMessage(createdAt: number): UiMessage {
+    return { id: "a", role: "assistant", createdAt, parts: [] };
+  }
+
+  function timing(startedAtMs: number): ThroughputTiming {
+    return {
+      startedAtMs,
+      firstTokenAtMs: startedAtMs + 500,
+      lastTokenAtMs: startedAtMs + 9500,
+      outputTokens: 100,
+      charCount: 0,
+    };
+  }
+
+  it("injects the measured response duration (last token − start)", () => {
+    // 回帰: 直前レコードとの差分近似は assistant timestamp が生成開始時刻の
+    // ため常に 0s を表示した。実測 lastToken から計算する。
+    const result = applyThroughput([assistantMessage(1_000)], new Map([[1_000, timing(1_000)]]));
+    assert.equal(result[0]!.responseDurationMs, 9_500);
+  });
+
+  it("leaves messages without timing untouched instead of fabricating a duration", () => {
+    const result = applyThroughput([assistantMessage(2_000)], new Map([[1_000, timing(1_000)]]));
+    assert.equal(result[0]!.responseDurationMs, undefined);
   });
 });
