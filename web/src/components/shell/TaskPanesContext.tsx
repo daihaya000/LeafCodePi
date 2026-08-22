@@ -41,6 +41,8 @@ type TaskPanesContextValue = {
   /** タブバッジ用。TaskView の SSE snapshot が報告した最新 status。 */
   statusFor: (taskId: string) => TaskStatus | null;
   reportStatus: (taskId: string, status: TaskStatus) => void;
+  /** タブ表示名（セッション名 = タスク title）。未取得は null。 */
+  titleFor: (taskId: string) => string | null;
 };
 
 const EMPTY: TaskPanesContextValue = {
@@ -52,6 +54,7 @@ const EMPTY: TaskPanesContextValue = {
   mdUp: false,
   statusFor: () => null,
   reportStatus: () => undefined,
+  titleFor: () => null,
 };
 
 const TaskPanesContext = createContext<TaskPanesContextValue>(EMPTY);
@@ -85,15 +88,29 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     0,
   );
   const statusMapRef = useRef(new Map<string, TaskStatus>());
+  const taskTitlesRef = useRef(new Map<string, string>());
+  const [titlesVersion, bumpTitlesVersion] = useReducer(
+    (count: number) => count + 1,
+    0,
+  );
   // タスク削除（アーカイブ/DELETE）時の自動クローズ（仕様 §4）。
   // tasks-changed 購読で活タスク ID 集合を見て、消えたタブを全ペインから閉じる。
   // status 報告 map からも除去してタブバッジの残滓を消す。
+  // 同時に取得した title をセッション名（タブ表示名）map へも反映する。
   useEffect(() => {
     if (!mdUp) return;
     const onChange = () => {
       void (async () => {
         try {
           const { tasks } = await getJson<{ tasks: TaskSummary[] }>("/api/tasks");
+          let titlesDirty = false;
+          for (const task of tasks) {
+            if (taskTitlesRef.current.get(task.id) !== task.title) {
+              taskTitlesRef.current.set(task.id, task.title);
+              titlesDirty = true;
+            }
+          }
+          if (titlesDirty) bumpTitlesVersion();
           const liveIds = new Set(tasks.map((task) => task.id));
           const latest = latestStateForRetarget;
           if (!latest) return;
@@ -104,6 +121,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
           for (const taskId of missingIds) {
             next = removeTaskEverywhere(next, taskId);
             statusMapRef.current.delete(taskId);
+            taskTitlesRef.current.delete(taskId);
           }
           if (next === latest) return;
           // replace は state 参照を更新し、module 変数経由で次の外部遷移でも追従できる
@@ -115,6 +133,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
         }
       })();
     };
+    onChange(); // mount 直後にも 1 回取得（タブ名の初期表示）
     window.addEventListener("webui:tasks-changed", onChange);
     return () => window.removeEventListener("webui:tasks-changed", onChange);
   }, [mdUp]);
@@ -209,6 +228,15 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     [statusVersion],
   );
 
+  // titlesVersion を依存に持たせ、取得時に呼び出し元が再評価されるようにする
+  const titleFor = useCallback(
+    (taskId: string) => {
+      void titlesVersion;
+      return taskTitlesRef.current.get(taskId) ?? null;
+    },
+    [titlesVersion],
+  );
+
   const value = useMemo<TaskPanesContextValue>(
     () => ({
       state,
@@ -219,8 +247,9 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       mdUp,
       statusFor,
       reportStatus,
+      titleFor,
     }),
-    [state, dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp, statusFor, reportStatus],
+    [state, dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp, statusFor, reportStatus, titleFor],
   );
 
   return <TaskPanesContext.Provider value={value}>{children}</TaskPanesContext.Provider>;

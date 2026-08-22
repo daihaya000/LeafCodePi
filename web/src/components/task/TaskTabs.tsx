@@ -16,6 +16,7 @@ export function TaskTabs({
   pane,
   isActivePane,
   statusFor,
+  titleFor,
   canAddPane,
   showAddButton,
   onActivateTab,
@@ -29,6 +30,8 @@ export function TaskTabs({
   isActivePane: boolean;
   /** taskId → 最新 status（Provider の報告 map）。 */
   statusFor: (taskId: string) => TaskStatus | null;
+  /** taskId → セッション名（タスク title）。未取得なら null。 */
+  titleFor?: (taskId: string) => string | null;
   canAddPane: boolean;
   /** + ボタンは最後のペインのタブバーのみ（仕様 §6）。 */
   showAddButton: boolean;
@@ -82,6 +85,8 @@ export function TaskTabs({
       {pane.tabs.map((taskId, index) => {
         const status = statusFor(taskId);
         const active = pane.activeTabId === taskId;
+        // セッション名（タスク title）。未取得の間は taskId をフォールバック表示
+        const label = titleFor?.(taskId) ?? taskId;
         return (
           <div
             key={taskId}
@@ -109,7 +114,7 @@ export function TaskTabs({
                 onActivateTab(taskId);
               }
             }}
-            title={taskId}
+            title={label}
             className={cx(
               "group/tab flex min-w-0 max-w-40 shrink cursor-pointer select-none items-center gap-1 rounded-t-md border border-b-0 px-2 py-1 text-xs",
               active
@@ -125,10 +130,10 @@ export function TaskTabs({
             {status === "error" && (
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" aria-label="エラー" />
             )}
-            <span className="min-w-0 flex-1 truncate">{taskId}</span>
+            <span className="min-w-0 flex-1 truncate">{label}</span>
             <button
               type="button"
-              aria-label={`タブ ${taskId} を閉じる`}
+              aria-label={`タブ ${label} を閉じる`}
               className="-mr-1 hidden h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-surface-3 group-hover/tab:inline-flex aria-[current]:inline-flex focus-visible:inline-flex"
               onClick={(event) => {
                 event.stopPropagation();

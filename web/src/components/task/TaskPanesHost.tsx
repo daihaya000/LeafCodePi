@@ -33,7 +33,7 @@ const SplitTaskView = dynamic(
  * 1 ペイン × 1 タブではタブバーを表示しない（仕様 §1 の従来通り）。
  */
 export function TaskPanesHost() {
-  const { state, statusFor, reportStatus, dispatch, splitHostEnabled, mdUp } = useTaskPanes();
+  const { state, statusFor, reportStatus, dispatch, titleFor, mdUp } = useTaskPanes();
   const pathname = usePathname();
   const [dragOverPaneId, setDragOverPaneId] = useState<string | null>(null);
 
@@ -47,13 +47,15 @@ export function TaskPanesHost() {
       window.removeEventListener("drop", reset);
     };
   }, []);
-  if (!splitHostEnabled) return null;
+
+  // task path でのみ render（仕様 §7: Home/settings では非表示、panes state は保持）。
+  // splitHostEnabled は Home を含むため描画ゲートには使わない。
+  const urlTaskId = taskIdFromPathname(pathname);
+  if (!urlTaskId) return null;
 
   // md 未満: 分割・タブは無効で URL タスクのみ単一表示（仕様 §1 のフォールバック）。
   // モバイルでは Provider の panes/復元を触らず、URL 由来の taskId を直接 render する。
   if (!mdUp) {
-    const urlTaskId = taskIdFromPathname(pathname);
-    if (!urlTaskId) return null;
     return (
       <div className="flex min-h-0 min-w-0 flex-1">
         <SplitTaskView
@@ -126,6 +128,7 @@ export function TaskPanesHost() {
               pane={pane}
               isActivePane={pane.id === activePaneId}
               statusFor={statusFor}
+              titleFor={titleFor}
               canAddPane={state.panes.length < 4}
               showAddButton={pane.id === state.panes[state.panes.length - 1].id}
               onActivateTab={(taskId) => dispatch({ type: "activateTab", paneId: pane.id, taskId })}
