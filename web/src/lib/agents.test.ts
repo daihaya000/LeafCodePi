@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
-import { agentsDir, AgentsError, agentsErrorStatus, createAgent, deleteAgent, listAgents, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, updateAgent } from "./agents";
+import { agentsDir, AgentsError, agentsErrorStatus, buildAgentResourceOptions, createAgent, deleteAgent, listAgents, loadAgentDefinition, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, updateAgent } from "./agents";
 
 const AGENT = `---
 name: __NAME__
@@ -148,6 +148,114 @@ describe("listAgents / setAgentEnabled", () => {
     assert.equal(fm.description, "Foo agent");
     assert.equal(fm.tools, "read, grep");
     assert.match(md, /Do foo\.\n$/);
+  });
+});
+
+describe("loadAgentDefinition / buildAgentResourceOptions", () => {
+  let agentDir = "";
+
+  afterEach(() => {
+    if (agentDir) rmSync(agentDir, { recursive: true, force: true });
+    agentDir = "";
+  });
+
+  function fixture() {
+    agentDir = mkdtempSync(join(tmpdir(), "leafcode-pi-agent-def-"));
+    mkdirSync(join(agentDir, "agents"), { recursive: true });
+    writeFileSync(
+      join(agentDir, "settings.json"),
+      JSON.stringify({ packages: [] }),
+      "utf8",
+    );
+    return { agentDir };
+  }
+
+  it("loads an enabled agent with replace defaults and its body as the prompt", () => {
+    fixture();
+    writeFileSync(
+      join(agentDir, "agents", "scout.md"),
+      agentNamed("scout"),
+      "utf8",
+    );
+    const def = loadAgentDefinition("scout", agentDir);
+    assert.ok(def);
+    assert.equal(def.name, "scout");
+    assert.equal(def.systemPromptMode, "replace");
+    assert.equal(def.inheritProjectContext, false);
+    assert.equal(def.inheritSkills, false);
+    assert.match(def.systemPrompt, /Review the diff\./);
+
+    const options = buildAgentResourceOptions(def);
+    assert.ok(options.systemPrompt?.includes("Review the diff."));
+    assert.equal(options.appendSystemPrompt, undefined);
+    // Non-delegate agents run fresh: no AGENTS.md context, no skills.
+    assert.equal(options.noContextFiles, true);
+    assert.equal(options.noSkills, true);
+  });
+
+  it("respects append mode and inherit flags from frontmatter", () => {
+    fixture();
+    writeFileSync(
+      join(agentDir, "agents", "helper.md"),
+      [
+        "---",
+        "name: helper",
+        "systemPromptMode: append",
+        "inheritProjectContext: true",
+        "inheritSkills: true",
+        "---",
+        "",
+        "Extra instructions.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const def = loadAgentDefinition("helper", agentDir);
+    assert.ok(def);
+    assert.equal(def.systemPromptMode, "append");
+    assert.equal(def.inheritProjectContext, true);
+    assert.equal(def.inheritSkills, true);
+
+    const options = buildAgentResourceOptions(def);
+    assert.equal(options.systemPrompt, undefined);
+    assert.deepEqual(options.appendSystemPrompt, ["Extra instructions."]);
+    assert.equal(options.noContextFiles, undefined);
+    assert.equal(options.noSkills, undefined);
+  });
+
+  it("applies a frontmatter tool allowlist", () => {
+    fixture();
+    createAgent({ name: "reader", tools: ["read", "grep"], systemPrompt: "Read only." }, agentDir);
+    const options = buildAgentResourceOptions(loadAgentDefinition("reader", agentDir)!);
+    assert.deepEqual(options.tools, ["read", "grep"]);
+  });
+
+  it("omits prompt overrides when the body is empty", () => {
+    fixture();
+    createAgent({ name: "silent", systemPrompt: "" }, agentDir);
+    const def = loadAgentDefinition("silent", agentDir);
+    assert.ok(def);
+    assert.equal(def.systemPrompt, "");
+    const options = buildAgentResourceOptions(def);
+    assert.equal(options.systemPrompt, undefined);
+    assert.equal(options.appendSystemPrompt, undefined);
+  });
+
+  it("returns undefined for disabled or unknown agents and delegate appends by default", () => {
+    fixture();
+    writeFileSync(join(agentDir, "agents", "researcher.md"), agentNamed("researcher"), "utf8");
+    setAgentEnabled("researcher", false, agentDir);
+    assert.equal(loadAgentDefinition("researcher", agentDir), undefined);
+    assert.equal(loadAgentDefinition("missing-agent", agentDir), undefined);
+
+    writeFileSync(
+      join(agentDir, "agents", "delegate.md"),
+      agentNamed("delegate"),
+      "utf8",
+    );
+    const delegate = buildAgentResourceOptions(loadAgentDefinition("delegate", agentDir)!);
+    assert.ok(delegate.appendSystemPrompt?.[0]?.includes("Review the diff."));
+    assert.equal(delegate.noContextFiles, undefined);
   });
 });
 

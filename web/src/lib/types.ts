@@ -32,6 +32,8 @@ export type TaskSummary = {
   providerID?: string;
   modelID?: string;
   thinkingLevel?: ThinkingLevel;
+  /** pi-subagents agent running as the main session persona (null = default). */
+  agent?: string | null;
   createdAt: string;
   updatedAt: string;
   error?: string | null;

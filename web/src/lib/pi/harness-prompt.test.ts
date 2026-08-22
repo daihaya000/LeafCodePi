@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { applySubagentPermission, applyThroughput, applyToolTiming, decoratePrompt } from "./harness";
+import { applySubagentPermission, applyThroughput, applyToolTiming } from "./harness";
 import type { ThroughputTiming } from "@/lib/token-throughput";
 import type { UiMessage } from "@/lib/types";
 
@@ -14,30 +14,6 @@ function toolMessage(callID: string): UiMessage {
     ],
   };
 }
-
-describe("decoratePrompt", () => {
-  it("returns the prompt unchanged without options", () => {
-    assert.equal(decoratePrompt("Do the thing"), "Do the thing");
-  });
-
-  it("prepends an agent delegation instruction", () => {
-    const result = decoratePrompt("Fix the bug", { agent: "worker" });
-    assert.match(result, /サブエージェント「worker」に委譲/);
-    assert.match(result, /agent: "worker"/);
-    assert.ok(result.endsWith("Fix the bug"));
-  });
-
-  it("leaves the prompt unchanged when subagent is denied (mechanical enforcement only)", () => {
-    const result = decoratePrompt("Fix the bug", { subagentPermission: "deny" });
-    assert.equal(result, "Fix the bug");
-  });
-
-  it("prepends only the agent instruction when agent is chosen and deny is set", () => {
-    const result = decoratePrompt("Fix", { agent: "scout", subagentPermission: "deny" });
-    assert.match(result, /scout/);
-    assert.doesNotMatch(result, /禁止されています/);
-  });
-});
 
 describe("applySubagentPermission", () => {
   function mockSession(initial: string[]) {

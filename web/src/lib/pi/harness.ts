@@ -44,6 +44,7 @@ import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
 import { filterSkillsByState } from "@/lib/skills";
 import { basenameKey, bundledExtensionEntries, filterExtensionsByState } from "@/lib/extensions";
 import { applyPermissionMode, readPermissionGateConfig } from "@/lib/permission-gate-config";
+import { buildAgentResourceOptions, loadAgentDefinition } from "@/lib/agents";
 import {
   armTaskHangWatch,
   registerHangWatchdogHooks,
@@ -762,6 +763,8 @@ async function createSession(options: {
   thinkingLevel?: ThinkingLevel;
   subagentPermission?: "allow" | "deny";
   permissionMode?: "allow" | "ask" | "deny";
+  /** pi-subagents agent running as the main session persona. */
+  agentName?: string | null;
 }): Promise<AgentSession> {
   const pi = await loadPi();
   await ensureRuntime();
@@ -778,15 +781,24 @@ async function createSession(options: {
   // under ~/.pi are dropped so they never register duplicate tools.
   const bundled = bundledExtensionEntries();
   const bundledNames = new Set(bundled.map((entry) => entry.name));
-  const bundledPaths = new Set(bundled.map((entry) => resolve(entry.filePath)));
+  const bundledPaths = new Set(bundled.map((entry) => entry.filePath));
+  // Selected agent becomes the main persona: its system prompt replaces (or
+  // appends to) the base prompt, and context files / skills follow the agent's
+  // inherit flags — mirroring how pi-subagents launches child sessions.
+  const agentDefinition = options.agentName
+    ? loadAgentDefinition(options.agentName, agentDir)
+    : undefined;
+  const agentOptions = agentDefinition ? buildAgentResourceOptions(agentDefinition) : undefined;
   const resourceLoader = new pi.DefaultResourceLoader({
     cwd: options.cwd,
     agentDir,
     additionalExtensionPaths: bundled.map((entry) => entry.filePath),
-    skillsOverride: (base) => ({
-      skills: filterSkillsByState(base.skills).filter((skill) => !isAgentsSkill(skill)),
-      diagnostics: base.diagnostics,
-    }),
+    skillsOverride: agentOptions?.noSkills
+      ? () => ({ skills: [], diagnostics: [] })
+      : (base) => ({
+          skills: filterSkillsByState(base.skills).filter((skill) => !isAgentsSkill(skill)),
+          diagnostics: base.diagnostics,
+        }),
     extensionsOverride: (base) => ({
       ...base,
       extensions: filterExtensionsByState(
@@ -795,6 +807,9 @@ async function createSession(options: {
         ),
       ),
     }),
+    ...(agentOptions?.systemPrompt ? { systemPrompt: agentOptions.systemPrompt } : {}),
+    ...(agentOptions?.appendSystemPrompt ? { appendSystemPrompt: agentOptions.appendSystemPrompt } : {}),
+    ...(agentOptions?.noContextFiles ? { noContextFiles: true } : {}),
   });
   await resourceLoader.reload();
   const permissionMode = options.permissionMode ?? readPermissionGateConfig(options.cwd);
@@ -802,14 +817,14 @@ async function createSession(options: {
   applyPermissionMode({ extensionRunner: undefined }, options.cwd, permissionMode, {
     persist: persistPermission,
   });
-  // pi-subagents registers a `subagent` tool via extension. Default tools do not
-  // include it. When subagent permission is "allow", expose the `subagent` tool so
-  // the model can delegate; when "deny", keep it out (mechanically enforced, not
-  // just prompt guidance).
+  // Agent-defined tool allowlist wins; otherwise default tools. The `subagent`
+  // tool is only exposed when subagent permission is "allow" (delegation stays
+  // independent from running an agent as the main persona).
   const tools =
-    options.subagentPermission === "allow"
+    agentOptions?.tools ??
+    (options.subagentPermission === "allow"
       ? ["read", "write", "edit", "bash", "grep", "find", "ls", "subagent", "todowrite"]
-      : ["read", "write", "edit", "bash", "grep", "find", "ls", "todowrite"];
+      : ["read", "write", "edit", "bash", "grep", "find", "ls", "todowrite"]);
   const result = await pi.createAgentSession({
     cwd: options.cwd,
     agentDir,
@@ -879,6 +894,7 @@ async function ensureLive(taskId: string): Promise<LiveRuntime> {
       sessionFile: task.sessionFile,
       model,
       thinkingLevel: task.thinkingLevel,
+      agentName: task.agent ?? null,
     });
     patchTask(taskId, {
       sessionId: session.sessionId,
@@ -1269,6 +1285,7 @@ export async function createTask(input: {
     thinkingLevel: input.thinkingLevel,
     providerID: parsed?.providerID,
     modelID: parsed?.modelID,
+    ...(input.agent ? { agent: input.agent.trim() } : {}),
   });
   const model = await resolveModel(input.model);
   const requestedThinking = isThinkingLevel(input.thinkingLevel) ? input.thinkingLevel : "off";
@@ -1279,9 +1296,10 @@ export async function createTask(input: {
     cwd: project.rootPath,
     model,
     thinkingLevel,
-    // エージェントを明示選択した場合は委譲が必要なので許可扱いにする。
-    subagentPermission: input.agent ? "allow" : input.subagentPermission,
+    subagentPermission: input.subagentPermission,
     permissionMode: input.permissionMode,
+    // The selected agent talks as the main persona for this whole session.
+    agentName: input.agent ?? null,
   });
   patchTask(task.id, {
     sessionId: session.sessionId,
@@ -1301,19 +1319,11 @@ export async function createTask(input: {
       forceFullRun: input.goalLoop.forceFullRun,
     });
   } else {
-    queuePrompt(
-      live,
-      decoratePrompt(input.prompt, {
-        agent: input.agent,
-        subagentPermission: input.subagentPermission,
-      }),
-      input.images,
-      {
-        agent: input.agent,
-        subagentPermission: input.subagentPermission,
-        permissionMode: input.permissionMode,
-      },
-    );
+    queuePrompt(live, input.prompt, input.images, {
+      agent: input.agent,
+      subagentPermission: input.subagentPermission,
+      permissionMode: input.permissionMode,
+    });
   }
   return toSummary(getTask(task.id) ?? task);
 }
@@ -1385,7 +1395,7 @@ export async function promptTask(
   options?: { agent?: string; subagentPermission?: "allow" | "deny"; permissionMode?: "allow" | "ask" | "deny" },
 ): Promise<TaskSummary> {
   const live = await ensureLive(id);
-  applySubagentPermission(live.session, options?.agent ? "allow" : options?.subagentPermission);
+  applySubagentPermission(live.session, options?.subagentPermission);
   if (options?.permissionMode) {
     const task = getTask(id);
     const project = task ? getProject(task.projectId) : undefined;
@@ -1393,7 +1403,7 @@ export async function promptTask(
     applyPermissionMode(live.session, cwd, options.permissionMode);
   }
   live.revertLeafId = null;
-  queuePrompt(live, decoratePrompt(prompt, options), images, options);
+  queuePrompt(live, prompt, images, options);
   return toSummary(getTask(id)!);
 }
 
@@ -1412,7 +1422,7 @@ export async function setTaskPermissionMode(
 
 /**
  * 既存セッションの active tools を更新し、サブエージェント許可を機械的に強制する。
- * 禁止時は `subagent` ツールを除外、許可時は追加する。エージェント明示選択は許可扱い。
+ * 禁止時は `subagent` ツールを除外、許可時は追加する。
  */
 export function applySubagentPermission(
   session: AgentSession,
@@ -1429,20 +1439,6 @@ export function applySubagentPermission(
   } else if (effective === "deny" && hasSubagent) {
     session.setActiveToolsByName(current.filter((tool) => tool !== "subagent"));
   }
-}
-
-/**
-  * エージェント選択をプロンプトへ反映する。
-  * サブエージェント禁止は tools からの除外で機械的に強制されるため、
-  * プロンプトには指示を付与しない。
-  */
-export function decoratePrompt(prompt: string, options?: { agent?: string; subagentPermission?: "allow" | "deny" }): string {
-  const agent = options?.agent?.trim();
-  if (!agent) return prompt;
-  const instruction =
-    `このタスクはサブエージェント「${agent}」に委譲して実行してください。` +
-    `subagent ツールで agent: "${agent}" を指定して開始し、結果を要約して報告してください。`;
-  return `${instruction}\n\n---\n\n${prompt}`;
 }
 
 export async function abortTask(id: string): Promise<TaskSummary> {

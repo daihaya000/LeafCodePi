@@ -99,6 +99,7 @@ export function insertTask(input: {
   thinkingLevel?: ThinkingLevel;
   providerID?: string;
   modelID?: string;
+  agent?: string;
 }): TaskSummary {
   const store = readStore();
   const now = new Date().toISOString();
@@ -115,6 +116,7 @@ export function insertTask(input: {
     providerID: input.providerID,
     modelID: input.modelID,
     thinkingLevel: input.thinkingLevel,
+    ...(input.agent ? { agent: input.agent } : {}),
     createdAt: now,
     updatedAt: now,
     error: null,
@@ -136,6 +138,7 @@ export function patchTask(
       | "providerID"
       | "modelID"
       | "thinkingLevel"
+      | "agent"
       | "error"
     >
   >,

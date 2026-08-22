@@ -357,3 +357,98 @@ export function deleteAgent(name: string, agentDir = resolvePiAgentDir()): Agent
   rmSync(filePath, { force: true });
   return listAgents(agentDir);
 }
+
+/** An agent definition resolved for running it as the main session persona. */
+export type LoadedAgentDefinition = {
+  name: string;
+  description?: string;
+  tools?: string[];
+  model?: string;
+  thinking?: string;
+  /** pi-subagents semantics: replace (default) swaps the base prompt, append adds to it. */
+  systemPromptMode: "replace" | "append";
+  inheritProjectContext: boolean;
+  inheritSkills: boolean;
+  /** Markdown body — the agent's own instructions. */
+  systemPrompt: string;
+};
+
+function defaultSystemPromptMode(name: string): "replace" | "append" {
+  // pi-subagents: only the built-in delegate agent appends by default.
+  return name === "delegate" ? "append" : "replace";
+}
+
+/**
+ * Load an enabled agent definition (user / package / builtin) by name.
+ * Defaults mirror pi-subagents' frontmatter handling.
+ */
+export function loadAgentDefinition(
+  name: string,
+  agentDir = resolvePiAgentDir(),
+): LoadedAgentDefinition | undefined {
+  const trimmed = name.trim();
+  if (!trimmed) return undefined;
+  const dto = listAgents(agentDir).agents.find(
+    (agent) => agent.name === trimmed && agent.enabled,
+  );
+  if (!dto) return undefined;
+  let content = "";
+  try {
+    content = readFileSync(dto.filePath, "utf8");
+  } catch {
+    return undefined;
+  }
+  const fm = parseAgentFile(content);
+  const match = /^---\s*\n[\s\S]*?\n---\n?([\s\S]*)$/.exec(content);
+  return {
+    name: dto.name,
+    ...(typeof fm.description === "string" && fm.description.trim()
+      ? { description: fm.description.trim() }
+      : {}),
+    tools: toTools(fm.tools),
+    model: typeof fm.model === "string" && fm.model.trim() ? fm.model.trim() : undefined,
+    thinking: typeof fm.thinking === "string" && fm.thinking.trim() ? fm.thinking.trim() : undefined,
+    systemPromptMode:
+      fm.systemPromptMode === "append"
+        ? "append"
+        : fm.systemPromptMode === "replace"
+          ? "replace"
+          : defaultSystemPromptMode(dto.name),
+    inheritProjectContext:
+      typeof fm.inheritProjectContext === "boolean"
+        ? fm.inheritProjectContext
+        : dto.name === "delegate",
+    inheritSkills: typeof fm.inheritSkills === "boolean" ? fm.inheritSkills : false,
+    systemPrompt: (match?.[1] ?? "").trim(),
+  };
+}
+
+/**
+ * Resource-loader options that make the selected agent talk as the main
+ * session (mirrors how pi CLI applies --system-prompt/--append-system-prompt,
+ * --no-context-files and --no-skills for subagent child sessions).
+ */
+export function buildAgentResourceOptions(definition: LoadedAgentDefinition): {
+  systemPrompt?: string;
+  appendSystemPrompt?: string[];
+  noContextFiles?: boolean;
+  noSkills?: boolean;
+  tools?: string[];
+} {
+  // An empty body means "no prompt override", like pi-subagents does.
+  const prompt =
+    definition.systemPromptMode === "replace"
+      ? definition.systemPrompt || undefined
+      : undefined;
+  const append =
+    definition.systemPromptMode === "append" && definition.systemPrompt
+      ? [definition.systemPrompt]
+      : undefined;
+  return {
+    ...(prompt ? { systemPrompt: prompt } : {}),
+    ...(append ? { appendSystemPrompt: append } : {}),
+    ...(definition.inheritProjectContext ? {} : { noContextFiles: true }),
+    ...(definition.inheritSkills ? {} : { noSkills: true }),
+    ...(definition.tools && definition.tools.length > 0 ? { tools: definition.tools } : {}),
+  };
+}
