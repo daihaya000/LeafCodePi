@@ -4,9 +4,13 @@ import {
   MAX_TABS_PER_PANE,
   TASK_PANES_STORAGE_KEY,
   createState,
+  isSplitHostPath,
   loadTaskPanes,
   normalize,
+  restoreTaskPanesForUrl,
+  retargetActiveTab,
   saveTaskPanes,
+  taskIdFromPathname,
   taskPanesReducer as reducer,
   type TaskPane,
   type TaskPanesState,
@@ -289,5 +293,91 @@ describe("localStorage 永続化", () => {
     const loaded = loadTaskPanes();
     expect(loaded?.panes[0].tabs).toHaveLength(MAX_TABS_PER_PANE);
     expect(loaded?.activePaneId).toBe(P1); // 不正 activePaneId は panes[0] へ補正
+  });
+});
+
+describe("taskIdFromPathname / isSplitHostPath", () => {
+  it("/task/<id> から taskId を取り出す", () => {
+    expect(taskIdFromPathname("/task/abc")).toBe("abc");
+    expect(taskIdFromPathname("/task/a%2Fb")).toBe("a/b");
+    expect(taskIdFromPathname("/task/abc/sub")).toBe("abc");
+    expect(taskIdFromPathname("/")).toBeNull();
+    expect(taskIdFromPathname("/settings")).toBeNull();
+    expect(taskIdFromPathname(null)).toBeNull();
+  });
+
+  it("Home・task のみが分割ホスト", () => {
+    expect(isSplitHostPath("/")).toBe(true);
+    expect(isSplitHostPath("/task/x")).toBe(true);
+    expect(isSplitHostPath("/settings")).toBe(false);
+  });
+});
+
+describe("retargetActiveTab", () => {
+  it("既存タブならそのペインを活性化する", () => {
+    const base = state(pane(P1, ["a"]), pane(P2, ["url-task"]));
+    const next = retargetActiveTab(base, "url-task");
+    expect(next.activePaneId).toBe(P2);
+    expect(next.panes[1].activeTabId).toBe("url-task");
+  });
+
+  it("未登録なら panes[0] のタブへ追加して活性化する", () => {
+    const base = state(pane(P1, ["a"]), pane(P2, []));
+    const next = retargetActiveTab(base, "fresh");
+    expect(next.panes[0].tabs).toEqual(["a", "fresh"]);
+    expect(next.panes[0].activeTabId).toBe("fresh");
+    expect(next.activePaneId).toBe(P1);
+  });
+
+  it("panes[0] 満杯時は activeTabId 差し替えのみ（タブ数は増やさない）", () => {
+    const full = Array.from({ length: MAX_TABS_PER_PANE }, (_, i) => `t${i}`);
+    const base = state(pane(P1, full));
+    const next = retargetActiveTab(base, "fresh");
+    expect(next.panes[0].tabs).toEqual(full);
+    expect(next.panes[0].activeTabId).toBe("fresh");
+  });
+
+  it("変更不要なら同一参照を返す", () => {
+    const base = state(pane(P1, ["a"]));
+    expect(retargetActiveTab(base, "a")).toBe(base);
+  });
+});
+
+describe("restoreTaskPanesForUrl", () => {
+  afterEach(() => {
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+  });
+
+  function installLocalStorage(): MemoryLocalStorage {
+    const store = new MemoryLocalStorage();
+    (globalThis as { localStorage?: unknown }).localStorage = store;
+    return store;
+  }
+
+  it("md 未満では復元しない", () => {
+    installLocalStorage();
+    saveTaskPanes(state(pane(P1, ["a"])));
+    expect(restoreTaskPanesForUrl("a", false)).toBeNull();
+  });
+
+  it("URL taskId を含む構成へ差し替える", () => {
+    installLocalStorage();
+    saveTaskPanes({ panes: [pane(P1, ["a"]), pane(P2, ["url-task"])], activePaneId: P1 });
+    const restored = restoreTaskPanesForUrl("url-task", true);
+    expect(restored?.activePaneId).toBe(P2);
+    expect(restored?.panes[1].activeTabId).toBe("url-task");
+  });
+
+  it("含まれない場合は保存 panes[0] の activeTabId を URL taskId に修正", () => {
+    installLocalStorage();
+    saveTaskPanes(state(pane(P1, ["a"]), pane(P2, ["b"])));
+    const restored = restoreTaskPanesForUrl("direct-link", true);
+    expect(restored?.panes[0].tabs).toEqual(["a", "direct-link"]);
+    expect(restored?.panes[0].activeTabId).toBe("direct-link");
+  });
+
+  it("保存値なしは null", () => {
+    installLocalStorage();
+    expect(restoreTaskPanesForUrl("x", true)).toBeNull();
   });
 });

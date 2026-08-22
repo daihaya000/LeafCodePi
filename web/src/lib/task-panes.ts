@@ -279,3 +279,77 @@ export function saveTaskPanes(state: TaskPanesState): void {
     /* ignore */
   }
 }
+
+/** URL パスから taskId を取り出す（/task/<id> 形式のみ）。 */
+export function taskIdFromPathname(pathname: string | null | undefined): string | null {
+  if (!pathname || !pathname.startsWith("/task/")) return null;
+  const encoded = pathname.slice("/task/".length).split("/")[0];
+  if (!encoded) return null;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
+
+/** 分割ホスト（Provider の操作対象）になるパスか。Home・task のみ。 */
+export function isSplitHostPath(pathname: string | null | undefined): boolean {
+  return pathname === "/" || Boolean(pathname?.startsWith("/task/"));
+}
+
+/**
+ * アクティブタブを urlTaskId へ向けた新 state を返す（URL → panes 反映用）。
+ * タブとして未登録なら panes[0] の activeTabId を差し替える（直リンク互換、仕様 §5）。
+ * 変更不要なら同一参照を返す。
+ */
+export function retargetActiveTab(
+  state: TaskPanesState,
+  urlTaskId: string,
+): TaskPanesState {
+  const existing = state.panes.find((pane) => pane.tabs.includes(urlTaskId));
+  if (existing && existing.activeTabId === urlTaskId && state.activePaneId === existing.id) {
+    return state;
+  }
+  if (existing) {
+    return {
+      activePaneId: existing.id,
+      panes: state.panes.map((pane) =>
+        pane.id === existing.id ? { ...pane, activeTabId: urlTaskId } : pane,
+      ),
+    };
+  }
+  const [first, ...rest] = state.panes;
+  const nextFirst: TaskPane = { ...first, activeTabId: urlTaskId };
+  // panes[0] に URL タスクが無ければタブとして追加（空きがなければ activeTabId 差し替えのみ）
+  if (nextFirst.tabs.length < MAX_TABS_PER_PANE) {
+    nextFirst.tabs = [...first.tabs, urlTaskId];
+  }
+  return { panes: [nextFirst, ...rest], activePaneId: first.id };
+}
+
+/**
+ * localStorage 復元（仕様 §5 の復元順序）:
+ * URL taskId を含む構成へ差し替え、含まれない場合は保存 panes[0] の
+ * activeTabId を URL taskId に修正して復元。md 未満は null（復元しない）。
+ */
+export function restoreTaskPanesForUrl(
+  urlTaskId: string | null,
+  mdUp: boolean,
+): TaskPanesState | null {
+  if (!mdUp) return null;
+  const saved = loadTaskPanes();
+  if (!saved) return null;
+  if (urlTaskId) {
+    const hit = saved.panes.find((pane) => pane.tabs.includes(urlTaskId));
+    if (hit) {
+      return {
+        activePaneId: hit.id,
+        panes: saved.panes.map((pane) =>
+          pane.id === hit.id ? { ...pane, activeTabId: urlTaskId } : pane,
+        ),
+      };
+    }
+    return retargetActiveTab(saved, urlTaskId);
+  }
+  return saved;
+}
