@@ -9,6 +9,7 @@ import {
   ChevronsUp,
   GitGraph,
   PanelRight,
+  Plus,
   Shrink,
   Square,
 } from "lucide-react";
@@ -94,12 +95,15 @@ export function TaskView({
   taskId,
   active = true,
   onStatus,
+  onAddPane,
 }: {
   taskId: string;
   /** 非アクティブタブは hidden mount（CSS で非表示、SSE は維持）。 */
   active?: boolean;
   /** SSE snapshot の status 変化をタブバッジへ報告する（TaskPanesProvider）。 */
   onStatus?: (status: TaskStatus) => void;
+  /** 1 ペイン時にも分割を開始できるよう空ペインを追加する。 */
+  onAddPane?: () => void;
 }) {
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>([]);
@@ -582,6 +586,18 @@ export function TaskView({
           </div>
         </div>
         <div className="relative flex min-w-0 shrink-0 items-center gap-1">
+          {onAddPane && (
+            <Button
+              variant="ghost"
+              size="icon"
+              title="新しいペインを追加"
+              aria-label="新しいペインを追加"
+              className="h-11 w-11 md:h-9 md:w-9"
+              onClick={onAddPane}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          )}
           <div
             role="group"
             aria-label="タスク操作"

@@ -174,6 +174,11 @@ export function TaskPanesHost() {
                 taskId={taskId}
                 active={isActiveTab}
                 onStatus={(status) => reportStatus(taskId, status)}
+                onAddPane={
+                  single && state.panes.length < 4
+                    ? () => dispatch({ type: "addPane" })
+                    : undefined
+                }
               />
             );
           })}
