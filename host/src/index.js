@@ -16,6 +16,7 @@ import { getListeningPids } from "./port-scanner.js";
 import { stopProcessTreeGracefully } from "./process-stop.js";
 import { createTranslationService } from "./translation-service.js";
 import { withLocalLeafcodeTempEnv } from "./tray-temp.js";
+import { ensureWebUiAuth, webUiAuthPath } from "./webui-auth.js";
 import {
   formatWebStatus,
   getPostBuildLaunchPlan,
@@ -65,6 +66,7 @@ const HOST_VERSION = (() => {
 const WEBUI_HOST = bindHost();
 const WEBUI_PORT = readPort(process.env.LEAFCODE_PI_PORT, DEFAULT_WEBUI_PORT);
 const WEBUI_URL = webUiUrl(WEBUI_HOST, WEBUI_PORT);
+const WEBUI_AUTH = ensureWebUiAuth(process.env, WEBUI_HOST, DATA_DIR);
 const CONTROL_PORT = readPort(process.env.LEAFCODE_PI_HOST_CONTROL_PORT, DEFAULT_HOST_CONTROL_PORT);
 const LLAMA_SERVER_PORT = readPort(process.env.LEAFCODE_PI_LLAMA_PORT, DEFAULT_LLAMA_SERVER_PORT);
 const CONTROL_FILE = join(DATA_DIR, "host-control.json");
@@ -325,6 +327,9 @@ async function spawnWeb() {
       PORT: String(WEBUI_PORT),
       LEAFCODE_PI_HOST: WEBUI_HOST,
       LEAFCODE_PI_PORT: String(WEBUI_PORT),
+      LEAFCODE_PI_BIND_HOST: WEBUI_HOST,
+      LEAFCODE_PI_WEBUI_AUTH: WEBUI_AUTH.authRequired ? "required" : "",
+      LEAFCODE_PI_WEBUI_TOKEN: WEBUI_AUTH.token ?? "",
       // Bundled WebUI extensions live in the repo (prod runs from the web/ mirror).
       LEAFCODE_PI_EXTENSIONS_DIR: join(REPO_ROOT, "extensions"),
     },
@@ -720,6 +725,10 @@ async function main() {
   log(`Binding WebUI on ${WEBUI_HOST}:${WEBUI_PORT} (open ${WEBUI_URL})`);
   if (WEBUI_HOST === "127.0.0.1" && (!process.env.LEAFCODE_PI_HOST || process.env.LEAFCODE_PI_HOST.trim().toLowerCase() === "tailscale")) {
     log("Tailscale IPv4 was not found; bound to 127.0.0.1. Connect Tailscale or set LEAFCODE_PI_HOST=0.0.0.0");
+  }
+  if (WEBUI_AUTH.authRequired && WEBUI_AUTH.token) {
+    log(`WebUI remote access requires a token (${webUiAuthPath(DATA_DIR)}). Use /login in the browser.`);
+    log(`WebUI access token: ${WEBUI_AUTH.token}`);
   }
 
   process.on("SIGINT", () => {

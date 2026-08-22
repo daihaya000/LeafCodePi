@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, parse, resolve } from "node:path";
+import { isAllowedBrowsePath, browseAllowedRoots } from "@/lib/browse-paths";
 import { isAbsolutePath } from "@/lib/paths";
 
 export const runtime = "nodejs";
@@ -22,6 +23,12 @@ function windowsDrives(): DirEntry[] {
 export async function GET(req: NextRequest) {
   const requested = req.nextUrl.searchParams.get("path");
   const target = requested && isAbsolutePath(requested) ? resolve(requested) : homedir();
+  if (!isAllowedBrowsePath(target)) {
+    return NextResponse.json(
+      { error: "このパスは参照できません", path: target, entries: [] },
+      { status: 403 },
+    );
+  }
   try {
     const entries = await readdir(target, { withFileTypes: true });
     const dirs: DirEntry[] = [];
@@ -37,7 +44,11 @@ export async function GET(req: NextRequest) {
       parent: parent !== target ? parent : null,
       quickAccess: [
         { name: "ホーム", path: homedir() },
-        ...windowsDrives().slice(0, 4),
+        ...browseAllowedRoots()
+          .filter((root) => root.toLowerCase() !== homedir().toLowerCase())
+          .slice(0, 3)
+          .map((root) => ({ name: root, path: root })),
+        ...windowsDrives().slice(0, 2),
       ],
       entries: dirs,
     });

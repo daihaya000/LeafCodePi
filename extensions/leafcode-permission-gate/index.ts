@@ -120,13 +120,13 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("tool_call", async (event, ctx) => {
     if (event.toolName === "bash") {
+      const mode = sessionMode(ctx);
+      if (mode === "deny") {
+        return { block: true, reason: "Bash execution blocked (permission mode: deny)" };
+      }
       const command = (event.input as { command?: string }).command ?? "";
       const { dangerous, labels } = matchedDanger(command);
       if (dangerous) {
-        const mode = sessionMode(ctx);
-        if (mode === "deny") {
-          return { block: true, reason: `Dangerous command blocked: ${labels.join(", ")}` };
-        }
         if (mode === "ask") {
           const prompt = `危険なコマンドを検出しました:\n  ${command}\n\n許可しますか?`;
           if (!ctx.hasUI) {

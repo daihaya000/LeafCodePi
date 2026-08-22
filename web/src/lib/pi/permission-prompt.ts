@@ -15,15 +15,45 @@ type Pending = {
 const PERMISSION_TIMEOUT_MS = 5 * 60_000;
 
 const pendingById = new Map<string, Pending>();
-const pendingByTask = new Map<string, string>();
+const queueByTask = new Map<string, Pending[]>();
 
-function clearPending(id: string): void {
-  const row = pendingById.get(id);
-  if (!row) return;
+function clearPendingRow(row: Pending): void {
   clearTimeout(row.timer);
-  pendingById.delete(id);
-  if (pendingByTask.get(row.taskId) === id) pendingByTask.delete(row.taskId);
+  pendingById.delete(row.request.id);
 }
+
+function headPending(taskId: string): Pending | null {
+  const queue = queueByTask.get(taskId);
+  return queue?.[0] ?? null;
+}
+
+function finishHead(taskId: string, approved: boolean): Pending | null {
+  const queue = queueByTask.get(taskId);
+  if (!queue || queue.length === 0) return null;
+  const row = queue.shift()!;
+  clearPendingRow(row);
+  row.resolve(approved);
+  if (queue.length === 0) {
+    queueByTask.delete(taskId);
+    return null;
+  }
+  const next = queue[0]!;
+  armTimer(next);
+  return next;
+}
+
+function armTimer(row: Pending): void {
+  clearTimeout(row.timer);
+  row.timer = setTimeout(() => {
+    if (headPending(row.taskId)?.request.id !== row.request.id) return;
+    finishHead(row.taskId, false);
+    pushSnapshotGlobal(row.taskId, headPending(row.taskId)?.request ?? null);
+  }, PERMISSION_TIMEOUT_MS);
+}
+
+/** Set by createPermissionPromptService — used by armTimer for timeouts. */
+let pushSnapshotGlobal: (taskId: string, permissionRequest: PermissionRequestDto | null) => void =
+  () => undefined;
 
 export function taskIdForSession(
   sessionId: string,
@@ -53,17 +83,11 @@ export function createPermissionPromptService(options: {
       ...options.snapshotExtras(taskId),
     });
   }
+  pushSnapshotGlobal = pushSnapshot;
 
   function handleRequest(input: Omit<PermissionRequestDto, "id"> & { id: string }): Promise<boolean> {
     const taskId = options.resolveTaskId(input.sessionId);
     if (!taskId) return Promise.resolve(false);
-
-    const existingId = pendingByTask.get(taskId);
-    if (existingId) {
-      const existing = pendingById.get(existingId);
-      existing?.resolve(false);
-      clearPending(existingId);
-    }
 
     const request: PermissionRequestDto = {
       id: input.id,
@@ -74,38 +98,45 @@ export function createPermissionPromptService(options: {
     };
 
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        clearPending(request.id);
-        pushSnapshot(taskId, null);
-        resolve(false);
-      }, PERMISSION_TIMEOUT_MS);
+      const row: Pending = {
+        taskId,
+        request,
+        resolve,
+        timer: setTimeout(() => undefined),
+      };
+      armTimer(row);
 
-      pendingById.set(request.id, { taskId, request, resolve, timer });
-      pendingByTask.set(taskId, request.id);
-      pushSnapshot(taskId, request);
+      pendingById.set(request.id, row);
+      const queue = queueByTask.get(taskId) ?? [];
+      queue.push(row);
+      queueByTask.set(taskId, queue);
+
+      if (queue.length === 1) {
+        pushSnapshot(taskId, request);
+      }
     });
   }
 
   function respond(taskId: string, requestId: string, approved: boolean): boolean {
-    const row = pendingById.get(requestId);
-    if (!row || row.taskId !== taskId) return false;
-    clearPending(requestId);
-    pushSnapshot(taskId, null);
-    row.resolve(approved);
+    const head = headPending(taskId);
+    if (!head || head.request.id !== requestId) return false;
+    const next = finishHead(taskId, approved);
+    pushSnapshot(taskId, next?.request ?? null);
     return true;
   }
 
   function pendingForTask(taskId: string): PermissionRequestDto | null {
-    const id = pendingByTask.get(taskId);
-    if (!id) return null;
-    return pendingById.get(id)?.request ?? null;
+    return headPending(taskId)?.request ?? null;
   }
 
   function dispose(): void {
-    for (const id of [...pendingById.keys()]) {
-      const row = pendingById.get(id);
-      row?.resolve(false);
-      clearPending(id);
+    for (const taskId of [...queueByTask.keys()]) {
+      const queue = queueByTask.get(taskId) ?? [];
+      for (const row of queue) {
+        row.resolve(false);
+        clearPendingRow(row);
+      }
+      queueByTask.delete(taskId);
     }
   }
 

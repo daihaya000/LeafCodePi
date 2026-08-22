@@ -1,5 +1,39 @@
 # MEMORY
 
+## 2026-08-22: サービス品質バッチ7（WebUI 認証・permission・browse 制限）
+
+全検証: web vitest **384 passed** / **tsc OK** / eslint 警告 1 件 / `next build` **OK** / `build-web.mjs` OK / host test **104 passed**。
+
+### 修正
+
+| 領域 | 問題 | 修正 |
+| --- | --- | --- |
+| ホスト起動 | `withLocalLeafcodeTempEnv` import 欠落で Tray クラッシュ | `tray-temp.js` import を `webui-auth.js` と併存 |
+| WebUI 認証 | Tailscale/LAN 公開時 API/UI が無認証 | 非 loopback バインド時 `ensureWebUiAuth` → token + middleware + `/login` |
+| middleware build | Edge で `node:crypto` 不可 | `webui-auth-shared.ts`（Edge 安全）と `webui-auth.ts`（Node route）に分離 |
+| permission deny | 危険コマンドのみブロック（UI と不一致） | `deny` 時は **bash 全拒否** |
+| permission ask | 連続要求で前件を auto-deny | タスク単位 **FIFO キュー** |
+| browse/dirs | 任意絶対パス列挙 | ホーム + 登録プロジェクト配下のみ（403） |
+
+### 新規
+
+- `host/src/webui-auth.js` + test — token 生成/永続化（`%APPDATA%\leafcode-pi\webui-auth.json`）
+- `web/src/middleware.ts` — リモート bind 時 token 必須（cookie / Bearer / query）
+- `web/src/app/login/` — トークン入力 UI
+- `web/src/app/api/auth/webui/route.ts` — cookie 設定
+- `web/src/lib/browse-paths.ts` + test
+
+### 運用
+
+- loopback（127.0.0.1）のみ: 認証なし（従来通り）
+- Tailscale / 0.0.0.0 / LAN IP: 起動ログに token 表示 → ブラウザ `/login` で入力
+- 上書き: `LEAFCODE_PI_WEBUI_TOKEN` 環境変数
+
+### 残存（低優先）
+
+- `listModels()` llama sync 失敗の silent fail（ログ/health 警告）
+- permission `allow` モードは意図的 fail-open（製品方針として文書化済み）
+
 ## 2026-08-22: サービス品質バッチ6（Turbopack trace・ensureLive レース・models usage）
 
 全検証: web vitest **377 passed** / **tsc OK** / eslint 警告 1 件（no-img-element）/ `next build` **警告 0** / host test **100 passed**。
@@ -19,11 +53,11 @@
 - `web/src/app/api/models/route.test.ts` — `attachCodexBarUsage`, `CODEXBAR_PROVIDER_MAP`
 - `web/src/components/ModelSelect.test.ts` — `modelNearLimit`, `modelLimitReached`
 
-### 残存（既知・次バッチ候補）
+### 残存（次バッチ候補・バッチ7で解消済み項目は MEMORY バッチ7参照）
 
-- Tailscale/LAN 公開時 WebUI 無認証（loopback 推奨を README/MEMORY に明記済み想定）
-- permission `deny` は危険パターンのみブロック（UI ラベルとセマンティクス要確認）
-- permission 連続要求時、未回答分を auto-deny（fail-closed だが UX 改善余地）
+- ~~Tailscale/LAN 公開時 WebUI 無認証~~ → バッチ7で token 認証
+- ~~permission deny セマンティクス~~ → バッチ7で bash 全拒否
+- ~~permission 連続要求 auto-deny~~ → バッチ7でキュー化
 
 ## 2026-08-22: サービス品質向けバグ修正バッチ
 

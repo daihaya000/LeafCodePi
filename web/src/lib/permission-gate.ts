@@ -26,7 +26,7 @@ export const PERMISSION_OPTIONS: {
   {
     value: "deny",
     label: "拒否",
-    title: "危険な操作を自動で拒否します",
+    title: "bash ツールの実行をすべて拒否します（危険コマンドに限りません）",
   },
 ];
 

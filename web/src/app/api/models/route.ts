@@ -49,7 +49,8 @@ export async function GET() {
       ).providers;
     } catch {
       /* usage unavailable or timed out → models without usage info */
-    }    return NextResponse.json({ models: attachCodexBarUsage(models, providers) });
+    }
+    return NextResponse.json({ models: attachCodexBarUsage(models, providers) });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

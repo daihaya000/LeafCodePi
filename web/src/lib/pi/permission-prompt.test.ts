@@ -44,4 +44,38 @@ describe("createPermissionPromptService", () => {
     });
     expect(service.respond("task-a", "missing", true)).toBe(false);
   });
+
+  it("queues concurrent requests instead of auto-denying the first", async () => {
+    const emit = vi.fn();
+    const service = createPermissionPromptService({
+      resolveTaskId: () => "task-a",
+      emit,
+      snapshotExtras: () => ({}),
+    });
+
+    const first = service.handleRequest({
+      id: "req-1",
+      sessionId: "sess-1",
+      command: "rm -rf a",
+      labels: ["rm -rf"],
+      message: "first",
+    });
+    const second = service.handleRequest({
+      id: "req-2",
+      sessionId: "sess-1",
+      command: "sudo apt",
+      labels: ["sudo"],
+      message: "second",
+    });
+
+    expect(service.pendingForTask("task-a")?.id).toBe("req-1");
+
+    expect(service.respond("task-a", "req-1", true)).toBe(true);
+    await expect(first).resolves.toBe(true);
+    expect(service.pendingForTask("task-a")?.id).toBe("req-2");
+
+    expect(service.respond("task-a", "req-2", false)).toBe(true);
+    await expect(second).resolves.toBe(false);
+    expect(service.pendingForTask("task-a")).toBeNull();
+  });
 });
