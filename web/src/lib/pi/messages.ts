@@ -1,3 +1,4 @@
+import { HANG_RETRY_PREFIX, stripHangRetryPrefix } from "../hang-retry";
 import type { ToolState, UiMessage, UiPart } from "../types";
 
 export function titleFromPrompt(prompt: string): string {
@@ -114,10 +115,18 @@ export function projectPiMessages(raw: unknown[]): UiMessage[] {
     if (role === "user") {
       const blocks = contentBlocks(item.content);
       const parts: UiPart[] = [];
-      const text = typeof item.content === "string" ? item.content : textFromBlocks(blocks);
+      const rawText = typeof item.content === "string" ? item.content : textFromBlocks(blocks);
+      const hangRetry = rawText.startsWith(HANG_RETRY_PREFIX);
+      const text = hangRetry ? stripHangRetryPrefix(rawText) : rawText;
       if (text) parts.push({ id: `${id}-text`, type: "text", text });
       parts.push(...imagePartsFromBlocks(blocks, id));
-      messages.push({ id, role: "user", createdAt, parts });
+      messages.push({
+        id,
+        role: "user",
+        createdAt,
+        parts,
+        ...(hangRetry ? { hangRetry: true } : {}),
+      });
       return;
     }
 

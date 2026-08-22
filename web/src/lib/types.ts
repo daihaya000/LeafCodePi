@@ -132,6 +132,8 @@ export type UiMessage = {
   role: "user" | "assistant" | "compaction";
   createdAt: number;
   parts: UiPart[];
+  /** ハング watchdog による自動再送 user メッセージ（UI 非表示）。 */
+  hangRetry?: boolean;
   model?: string;
   provider?: string;
   error?: string;

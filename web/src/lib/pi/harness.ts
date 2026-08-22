@@ -42,7 +42,14 @@ import { readGoalLoopState } from "@/lib/pi/goal-loop-state";
 import { todosFromPiMessages } from "@/lib/pi/todowrite-state";
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
 import { filterSkillsByState } from "@/lib/skills";
-import { filterExtensionsByState } from "@/lib/extensions";
+import { basenameKey, bundledExtensionEntries, filterExtensionsByState } from "@/lib/extensions";
+import { applyPermissionMode } from "@/lib/permission-gate-config";
+import {
+  armTaskHangWatch,
+  registerHangWatchdogHooks,
+  startHangWatchdog,
+} from "@/lib/pi/hang-watchdog";
+import { HANG_RETRY_PREFIX } from "@/lib/hang-retry";
 
 /** True when a skill lives under the user's ~/.agents directory. */
 function isAgentsSkill(skill: { baseDir?: string; filePath?: string }): boolean {
@@ -117,6 +124,10 @@ type LiveRuntime = {
   pendingSnapshotEventType: string | null;
   /** Session entry id the last navigateTree moved the leaf to (for undo). */
   revertLeafId: string | null;
+  /** POST /abort で中断したターンの assistant メッセージ ID。 */
+  manualAbortedAssistantId: string | null;
+  /** 直近のハング自動再開回数（UI 通知用）。 */
+  hangRetryCount: number;
 };
 
 type HarnessState = {
@@ -128,6 +139,7 @@ type HarnessState = {
   events: EventEmitter;
   loginSession: ProviderLoginSession | null;
   healthCache: HealthCacheEntry | null;
+  watchdogRegistered: boolean;
 };
 
 const GLOBAL_KEY = "__leafcodePiHarness" as const;
@@ -144,6 +156,7 @@ function state(): HarnessState {
       events: new EventEmitter(),
       loginSession: null,
       healthCache: null,
+      watchdogRegistered: false,
     };
     globalRef[GLOBAL_KEY].events.setMaxListeners(100);
   }
@@ -202,6 +215,66 @@ async function ensureRuntime(): Promise<void> {
   if (current.initPromise) await current.initPromise;
   if (current.modelRuntime) {
     await ensureOptionalProviders(current.modelRuntime);
+  }
+  if (!current.watchdogRegistered) {
+    current.watchdogRegistered = true;
+    registerHangWatchdogHooks({
+      getLive: (taskId) => {
+        const live = current.live.get(taskId);
+        if (!live) return null;
+        return {
+          isStreaming: live.session.isStreaming,
+          isCompacting: live.session.isCompacting,
+          messages: snapshotMessages(
+            live.session,
+            live.throughputByStartedAt,
+            live.toolStartedAt,
+            live.toolEndedAt,
+          ),
+        };
+      },
+      abortTask: async (taskId) => {
+        const live = current.live.get(taskId);
+        if (live) {
+          const msgs = snapshotMessages(
+            live.session,
+            live.throughputByStartedAt,
+            live.toolStartedAt,
+            live.toolEndedAt,
+          );
+          let promptIndex = -1;
+          for (let i = msgs.length - 1; i >= 0; i -= 1) {
+            if (msgs[i]?.role === "user") {
+              promptIndex = i;
+              break;
+            }
+          }
+          const turnAssistants = promptIndex >= 0
+            ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant")
+            : [];
+          live.manualAbortedAssistantId = turnAssistants.at(-1)?.id ?? null;
+          await live.session.abort();
+        }
+        setTaskStatus(taskId, "idle");
+      },
+      resumePrompt: (taskId, input) => {
+        const live = current.live.get(taskId);
+        if (!live) return;
+        queuePrompt(live, input.prompt, input.images, {
+          agent: input.agent,
+          subagentPermission: input.subagentPermission,
+          permissionMode: input.permissionMode,
+          isHangRetry: true,
+        });
+      },
+      notifyHangRetry: (taskId, retryCount) => {
+        const live = current.live.get(taskId);
+        if (!live) return;
+        live.hangRetryCount = retryCount;
+        emitTaskSnapshot(live, "hang_retry", { hangRetryCount: retryCount });
+      },
+    });
+    startHangWatchdog();
   }
 }
 
@@ -493,6 +566,8 @@ function emitTaskSnapshot(
       live.toolStartedAt,
       live.toolEndedAt,
     ),
+    manualAbortedAssistantId: live.manualAbortedAssistantId,
+    hangRetryCount: live.hangRetryCount,
     eventType,
     ...extra,
   });
@@ -568,6 +643,8 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
     snapshotTimer: null,
     pendingSnapshotEventType: null,
     revertLeafId: null,
+    manualAbortedAssistantId: null,
+    hangRetryCount: 0,
   };
 
   const unsubscribe = session.subscribe((event) => {
@@ -611,6 +688,11 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
     if (live.snapshotTimer) {
       clearTimeout(live.snapshotTimer);
       live.snapshotTimer = null;
+      const pendingType = live.pendingSnapshotEventType;
+      live.pendingSnapshotEventType = null;
+      if (pendingType) {
+        emitTaskSnapshot(live, pendingType);
+      }
     }
     unsubscribe();
   };
@@ -636,19 +718,32 @@ async function createSession(options: {
   // skillsOverride re-reads state on every resourceLoader.reload() / session.reload().
   // Also drop any ~/.agents skills Pi loads internally: this harness must not
   // read C:\Users\Daichi\.agents (skills.ts discovery already excludes it).
+  // Bundled WebUI extensions (goal-loop / todowrite / permission-gate) load
+  // straight from this repository's extensions/ dir; stale same-name copies
+  // under ~/.pi are dropped so they never register duplicate tools.
+  const bundled = bundledExtensionEntries();
+  const bundledNames = new Set(bundled.map((entry) => entry.name));
+  const bundledPaths = new Set(bundled.map((entry) => resolve(entry.filePath)));
   const resourceLoader = new pi.DefaultResourceLoader({
     cwd: options.cwd,
     agentDir,
+    additionalExtensionPaths: bundled.map((entry) => entry.filePath),
     skillsOverride: (base) => ({
       skills: filterSkillsByState(base.skills).filter((skill) => !isAgentsSkill(skill)),
       diagnostics: base.diagnostics,
     }),
     extensionsOverride: (base) => ({
       ...base,
-      extensions: filterExtensionsByState(base.extensions),
+      extensions: filterExtensionsByState(
+        base.extensions.filter(
+          (extension) => !bundledNames.has(basenameKey(extension.path)) || bundledPaths.has(resolve(extension.path)),
+        ),
+      ),
     }),
   });
   await resourceLoader.reload();
+  const permissionMode = options.permissionMode ?? "ask";
+  applyPermissionMode({ extensionRunner: undefined }, options.cwd, permissionMode);
   // pi-subagents registers a `subagent` tool via extension. Default tools do not
   // include it. When subagent permission is "allow", expose the `subagent` tool so
   // the model can delegate; when "deny", keep it out (mechanically enforced, not
@@ -667,6 +762,7 @@ async function createSession(options: {
     modelRuntime: state().modelRuntime ?? undefined,
     tools,
   });
+  applyPermissionMode(result.session, options.cwd, permissionMode);
   return result.session;
 }
 
@@ -704,7 +800,7 @@ async function ensureLive(taskId: string): Promise<LiveRuntime> {
   const existing = current.live.get(taskId);
   if (existing) return existing;
   const task = getTask(taskId);
-  if (!task) throw new Error("タスクが見つかりません");
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   const project = getProject(task.projectId);
   const cwd = project?.rootPath ?? task.directory;
   const model = await resolveModel(
@@ -1002,8 +1098,9 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
     contextUsage = fields.contextUsage;
     goalLoop = fields.goalLoop;
     todos = fields.todos;
-  } catch {
-    messages = [];
+  } catch (error) {
+    if (error && typeof error === "object" && "status" in error) throw error;
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), { status: 503 });
   }
   return {
     ...toSummary(getTask(id) ?? task),
@@ -1113,12 +1210,38 @@ export async function createTask(input: {
         subagentPermission: input.subagentPermission,
       }),
       input.images,
+      {
+        agent: input.agent,
+        subagentPermission: input.subagentPermission,
+        permissionMode: input.permissionMode,
+      },
     );
   }
   return toSummary(getTask(task.id) ?? task);
 }
 
-function queuePrompt(live: LiveRuntime, prompt: string, images?: PromptImage[]): void {
+function queuePrompt(
+  live: LiveRuntime,
+  prompt: string,
+  images?: PromptImage[],
+  meta?: {
+    agent?: string;
+    subagentPermission?: "allow" | "deny";
+    permissionMode?: "allow" | "ask" | "deny";
+    isHangRetry?: boolean;
+  },
+): void {
+  const isHangRetry = meta?.isHangRetry === true || prompt.startsWith(HANG_RETRY_PREFIX);
+  live.manualAbortedAssistantId = null;
+  armTaskHangWatch({
+    taskId: live.taskId,
+    prompt,
+    images,
+    ...(meta?.agent ? { agent: meta.agent } : {}),
+    ...(meta?.subagentPermission ? { subagentPermission: meta.subagentPermission } : {}),
+    ...(meta?.permissionMode ? { permissionMode: meta.permissionMode } : {}),
+    isHangRetry,
+  });
   live.promptChain = live.promptChain
     .then(async () => {
       setTaskStatus(live.taskId, "working");
@@ -1165,7 +1288,14 @@ export async function promptTask(
 ): Promise<TaskSummary> {
   const live = await ensureLive(id);
   applySubagentPermission(live.session, options?.agent ? "allow" : options?.subagentPermission);
-  queuePrompt(live, decoratePrompt(prompt, options), images);
+  if (options?.permissionMode) {
+    const task = getTask(id);
+    const project = task ? getProject(task.projectId) : undefined;
+    const cwd = project?.rootPath ?? live.session.sessionManager.getCwd();
+    applyPermissionMode(live.session, cwd, options.permissionMode);
+  }
+  live.revertLeafId = null;
+  queuePrompt(live, decoratePrompt(prompt, options), images, options);
   return toSummary(getTask(id)!);
 }
 
@@ -1206,7 +1336,26 @@ export function decoratePrompt(prompt: string, options?: { agent?: string; subag
 
 export async function abortTask(id: string): Promise<TaskSummary> {
   const live = state().live.get(id);
-  if (live) await live.session.abort();
+  if (live) {
+    const msgs = snapshotMessages(
+      live.session,
+      live.throughputByStartedAt,
+      live.toolStartedAt,
+      live.toolEndedAt,
+    );
+    let promptIndex = -1;
+    for (let i = msgs.length - 1; i >= 0; i -= 1) {
+      if (msgs[i]?.role === "user") {
+        promptIndex = i;
+        break;
+      }
+    }
+    const turnAssistants =
+      promptIndex >= 0 ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant") : [];
+    live.manualAbortedAssistantId = turnAssistants.at(-1)?.id ?? null;
+    await live.session.abort();
+    emitTaskSnapshot(live, "abort");
+  }
   const task = setTaskStatus(id, "idle");
   if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   return toSummary(task);
@@ -1324,11 +1473,12 @@ export async function revertTask(id: string, messageId: string): Promise<{
   if (entry.message.role !== "user") {
     throw Object.assign(new Error("ユーザーメッセージのみ入力欄に戻せます"), { status: 400 });
   }
+  const previousLeafId = live.session.sessionManager.getLeafId();
   const result = await live.session.navigateTree(entry.id);
   if (result.cancelled) {
     throw Object.assign(new Error("巻き戻しがキャンセルされました"), { status: 400 });
   }
-  live.revertLeafId = live.session.sessionManager.getLeafId();
+  live.revertLeafId = captureRevertLeafId(previousLeafId);
   const taskDetail = await getTaskDetail(id);
   emit(id, {
     type: "snapshot",
@@ -1389,6 +1539,11 @@ export function imagesFromEntry(entry: {
     });
   });
   return images;
+}
+
+/** unrevert 用: navigateTree の前に leaf id を保存する（後だと巻き戻し後の位置になる）。 */
+export function captureRevertLeafId(leafIdBeforeNavigate: string | null): string | null {
+  return leafIdBeforeNavigate;
 }
 
 /** 巻き戻し取消: revert 前の leaf へ戻す。 */

@@ -15,6 +15,7 @@ import { McpSettings } from "@/components/settings/McpSettings";
 import { AgentsSettings } from "@/components/settings/AgentsSettings";
 import { BrowserSettings } from "@/components/settings/BrowserSettings";
 import { ReasoningTranslationSettings } from "@/components/settings/ReasoningTranslationSettings";
+import { HangTimeoutSettings } from "@/components/settings/HangTimeoutSettings";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { Badge, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
@@ -139,6 +140,7 @@ export function SettingsView() {
               <McpSettings />
               <AgentsSettings />
               <CompactionSettings />
+              <HangTimeoutSettings />
               <NavigatorSettings />
               <div className="rounded-2xl border border-border bg-surface p-4 text-sm text-muted">
                 <p>テーマはサイドバー右下のアイコンから切り替えます（ライト / ダーク / システム）。</p>

@@ -40,6 +40,18 @@ import {
   subscribeScrollButtonOpacity,
 } from "@/lib/scroll-button-opacity";
 import { stabilizeUiMessages } from "@/lib/stabilize-messages";
+import {
+  findResumableTurn,
+  type ResumableTurn,
+} from "@/lib/aborted-resume";
+import {
+  countHangRetryUserMessages,
+  isHangRetryUserMessage,
+} from "@/lib/hang-retry";
+import {
+  formatHangTimeout,
+  readHangTimeoutMs,
+} from "@/lib/hang-timeout";
 import { isThinkingLevel, thinkingLevelLabel } from "@/lib/thinking-levels";
 import {
   readSubagentPermission,
@@ -64,6 +76,46 @@ import type {
 
 /** Compaction LLM calls routinely exceed the default fetch budget. */
 const COMPACT_TIMEOUT_MS = 240_000;
+
+function TurnNoticeBanner({
+  message,
+  action,
+  actionError,
+  tone = "danger",
+}: {
+  message: string;
+  action?: React.ReactNode;
+  actionError?: string | null;
+  tone?: "danger" | "neutral";
+}) {
+  return (
+    <div
+      className={cx(
+        "rounded-lg border px-3 py-2",
+        tone === "danger"
+          ? "border-danger/30 bg-danger-bg"
+          : "border-border bg-surface-2",
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p
+          className={cx(
+            "min-w-0 break-all text-xs",
+            tone === "danger" ? "text-danger" : "text-muted",
+          )}
+        >
+          {message}
+        </p>
+        {action}
+      </div>
+      {actionError && (
+        <p role="alert" className="mt-1.5 break-all text-xs text-danger">
+          {actionError}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
   const pct = usage.percent;
@@ -131,6 +183,10 @@ export function TaskView({
   const [diffOpen, setDiffOpen] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [resumingTurn, setResumingTurn] = useState(false);
+  const [resumeTurnError, setResumeTurnError] = useState<string | null>(null);
+  const [manualAbortedAssistantId, setManualAbortedAssistantId] = useState<string | null>(null);
+  const [hangRetryCount, setHangRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [agents, setAgents] = useState<string[]>([]);
   const [agent, setAgent] = useState("");
@@ -190,6 +246,9 @@ export function TaskView({
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryCount = 0;
     sidebarNotifyKeyRef.current = "";
+    setManualAbortedAssistantId(null);
+    setHangRetryCount(0);
+    setResumeTurnError(null);
 
     const connect = () => {
       if (closed) return;
@@ -197,7 +256,7 @@ export function TaskView({
       source.addEventListener("snapshot", (event) => {
         if (closed) return;
         retryCount = 0;
-        const payload = JSON.parse((event as MessageEvent).data) as {
+        let payload: {
           task?: TaskDetail;
           messages?: UiMessage[];
           isStreaming?: boolean;
@@ -206,7 +265,15 @@ export function TaskView({
           goalLoop?: GoalLoopDto | null;
           todos?: TodoDto[];
           error?: string;
+          manualAbortedAssistantId?: string | null;
+          hangRetryCount?: number;
         };
+        try {
+          payload = JSON.parse((event as MessageEvent).data) as typeof payload;
+        } catch {
+          setError("イベントデータの解析に失敗しました");
+          return;
+        }
         const snapshotTask = payload.task;
         startTransition(() => {
           if (snapshotTask) {
@@ -229,6 +296,12 @@ export function TaskView({
           }
           if ("contextUsage" in payload) setContextUsage(payload.contextUsage);
           if ("isCompacting" in payload) setIsCompacting(Boolean(payload.isCompacting));
+          if ("manualAbortedAssistantId" in payload) {
+            setManualAbortedAssistantId(payload.manualAbortedAssistantId ?? null);
+          }
+          if (typeof payload.hangRetryCount === "number") {
+            setHangRetryCount(payload.hangRetryCount);
+          }
         });
         if (payload.error) setError(payload.error);
         notifySidebarIfNeeded(snapshotTask);
@@ -251,9 +324,13 @@ export function TaskView({
 
     void getJson<{ task: TaskDetail }>(`/api/tasks/${taskId}`).then((result) => {
       if (!closed) applyDetail(result.task);
+    }).catch((err) => {
+      if (!closed) setError(err instanceof Error ? err.message : "タスクの読み込みに失敗しました");
     });
     void getJson<{ models: ModelOption[] }>("/api/models").then((result) => {
       if (!closed) setModels(result.models);
+    }).catch(() => {
+      /* models are optional for the timeline */
     });
     void getJson<{ agents: { name: string; enabled: boolean }[] }>("/api/agents").then((result) => {
       if (!closed) {
@@ -261,6 +338,8 @@ export function TaskView({
         setAgents(names);
         setAgent((current) => (current && names.includes(current) ? current : ""));
       }
+    }).catch(() => {
+      /* agents are optional for the composer */
     });
     return () => {
       closed = true;
@@ -335,6 +414,9 @@ export function TaskView({
   useEffect(() => {
     stickRef.current = true;
     lastScrollTopRef.current = 0;
+    setIsReverted(false);
+    setRevertConfirmOpen(false);
+    revertEntryRef.current = null;
   }, [taskId]);
 
   useEffect(() => {
@@ -473,6 +555,7 @@ export function TaskView({
       }
       setPrompt("");
       setAttachments([]);
+      setIsReverted(false);
       notifyTasksChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "送信に失敗しました");
@@ -532,6 +615,37 @@ export function TaskView({
     }
   }
 
+  async function resumeTurn(target: ResumableTurn) {
+    if (working || resumingTurn) return;
+    setResumeTurnError(null);
+    setResumingTurn(true);
+    stickRef.current = true;
+    try {
+      const images = target.files
+        .map((file) => {
+          const comma = file.uri.indexOf(",");
+          if (comma < 0) return null;
+          return { mimeType: file.mime, data: file.uri.slice(comma + 1) };
+        })
+        .filter((item): item is { mimeType: string; data: string } => item !== null);
+      await sendJson(`/api/tasks/${taskId}/prompt`, {
+        prompt: target.text,
+        images,
+        ...(target.model
+          ? { model: `${target.model.providerID}::${target.model.modelID}` }
+          : {}),
+        subagentPermission,
+        permissionMode,
+      });
+      setManualAbortedAssistantId(null);
+      notifyTasksChanged();
+    } catch (err) {
+      setResumeTurnError(err instanceof Error ? err.message : "再開に失敗しました");
+    } finally {
+      setResumingTurn(false);
+    }
+  }
+
   const modelValue =
     task?.providerID && task.modelID ? `${task.providerID}::${task.modelID}` : models[0]?.value ?? "";
   const selectedModel = models.find((option) => option.value === modelValue);
@@ -545,6 +659,68 @@ export function TaskView({
       ? "off"
       : (thinkingLevels[0] ?? "off");
   const working = task?.status === "working" || task?.isStreaming;
+  const goalLoopLive = Boolean(
+    task?.goalLoop && ["queued", "running", "verifying_completed"].includes(task.goalLoop.status),
+  );
+  const visibleMessages = useMemo(
+    () => messages.filter((message) => !isHangRetryUserMessage(message)),
+    [messages],
+  );
+  const resumeTarget = useMemo(
+    () =>
+      findResumableTurn(visibleMessages, {
+        manualAbortedAssistantId,
+      }),
+    [visibleMessages, manualAbortedAssistantId],
+  );
+  const showResume =
+    !!resumeTarget &&
+    !!task &&
+    !working &&
+    !goalLoopLive;
+  const resumeMessage = resumeTarget
+    ? visibleMessages.find((message) => message.id === resumeTarget.messageId)
+    : undefined;
+  const resumeErrorText = resumeTarget ? resumeMessage?.error ?? "" : "";
+  const resumeInsideExistingBanner =
+    !!resumeTarget &&
+    resumeTarget.reason === "aborted" &&
+    !!resumeErrorText &&
+    visibleMessages.some((message) => message.id === resumeTarget.messageId);
+  const resumeBannerText =
+    resumeTarget?.reason === "silent"
+      ? "応答がありませんでした"
+      : resumeErrorText || "Aborted";
+  const resumeAction =
+    showResume && resumeTarget ? (
+      <Button
+        variant="secondary"
+        size="sm"
+        className="shrink-0"
+        aria-label={
+          resumeTarget.reason === "silent"
+            ? "無言終了したターンを再開"
+            : "中断したターンを再開"
+        }
+        title="直前のプロンプトを同じ内容で再送します"
+        busy={resumingTurn}
+        disabled={resumingTurn}
+        onClick={() => void resumeTurn(resumeTarget)}
+      >
+        {!resumingTurn && <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />}
+        {resumingTurn ? "再開中…" : "再開"}
+      </Button>
+    ) : null;
+  const autoHangRetryCount = useMemo(
+    () => Math.max(hangRetryCount, countHangRetryUserMessages(messages)),
+    [hangRetryCount, messages],
+  );
+  const hangRetryNotice =
+    autoHangRetryCount > 0
+      ? `応答が${formatHangTimeout(readHangTimeoutMs())}間止まったため自動的に停止し、同じ処理を再開しました${
+          autoHangRetryCount > 1 ? `（${autoHangRetryCount}回）` : ""
+        }`
+      : null;
   const modelLabels = useMemo(
     () => Object.fromEntries(models.map((option) => [option.value, option.label])),
     [models],
@@ -555,8 +731,8 @@ export function TaskView({
 
   // ナビゲーターのジャンプ対象: ユーザーメッセージの id 一覧（時系列順）。
   const userMessageIds = useMemo(
-    () => messages.filter((message) => message.role === "user").map((message) => message.id),
-    [messages],
+    () => visibleMessages.filter((message) => message.role === "user").map((message) => message.id),
+    [visibleMessages],
   );
   userMessageIdsRef.current = userMessageIds;
 
@@ -771,7 +947,12 @@ export function TaskView({
           className="min-h-0 flex-1 overflow-y-auto px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4"
         >
           <div ref={contentRef} className="relative mx-auto flex max-w-5xl flex-col gap-4">
-            {messages.map((message) => (
+            {hangRetryNotice && (
+              <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
+                {hangRetryNotice}
+              </p>
+            )}
+            {visibleMessages.map((message) => (
               <div
                 key={message.id}
                 ref={(el) => {
@@ -779,33 +960,52 @@ export function TaskView({
                   else messageElsRef.current.delete(message.id);
                 }}
               >
-                <PartView
-                  message={message}
-                  modelLabel={
-                    message.provider && message.model
-                      ? modelLabels[`${message.provider}::${message.model}`]
-                      : undefined
-                  }
-                  effort={message.role === "assistant" ? effortLabel : undefined}
-                  taskId={taskId}
-                  onRevert={
-                    message.role === "user"
-                      ? (target) => {
-                          if (working) {
-                            setError("実行中は巻き戻せません。停止してからお試しください");
-                            return;
+                {showResume &&
+                resumeInsideExistingBanner &&
+                resumeTarget?.messageId === message.id ? (
+                  <TurnNoticeBanner
+                    message={resumeBannerText}
+                    action={resumeAction}
+                    actionError={resumeTurnError}
+                    tone="danger"
+                  />
+                ) : (
+                  <PartView
+                    message={message}
+                    modelLabel={
+                      message.provider && message.model
+                        ? modelLabels[`${message.provider}::${message.model}`]
+                        : undefined
+                    }
+                    effort={message.role === "assistant" ? effortLabel : undefined}
+                    taskId={taskId}
+                    onRevert={
+                      message.role === "user"
+                        ? (target) => {
+                            if (working) {
+                              setError("実行中は巻き戻せません。停止してからお試しください");
+                              return;
+                            }
+                            revertEntryRef.current = { messageId: target.id, message: target };
+                            setRevertConfirmOpen(true);
                           }
-                          revertEntryRef.current = { messageId: target.id, message: target };
-                          setRevertConfirmOpen(true);
-                        }
-                      : undefined
-                  }
-                />
+                        : undefined
+                    }
+                  />
+                )}
               </div>
             ))}
-            {working && <WorkingRow messages={messages} />}
+            {showResume && !resumeInsideExistingBanner && resumeTarget && (
+              <TurnNoticeBanner
+                message={resumeBannerText}
+                action={resumeAction}
+                actionError={resumeTurnError}
+                tone={resumeTarget.reason === "silent" ? "neutral" : "danger"}
+              />
+            )}
+            {working && <WorkingRow messages={visibleMessages} />}
             {task?.todos && <TodoProgressPanel todos={task.todos} />}
-            {messages.length === 0 && (
+            {visibleMessages.length === 0 && (
               <p className="py-12 text-center text-sm text-muted">メッセージはまだありません</p>
             )}
           </div>
