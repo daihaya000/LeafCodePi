@@ -72,8 +72,8 @@ describe("thinking-levels", () => {
     expect(clampThinkingLevelForModel(qwen, "minimal")).toBe("off");
   });
 
-  it("labels off as デフォルト when shown among effort options", () => {
-    expect(THINKING_LEVEL_LABELS.off).toBe("デフォルト");
-    expect(thinkingLevelLabel("off")).toBe("デフォルト");
+  it("labels levels with model-baseline English names", () => {
+    expect(THINKING_LEVEL_LABELS.off).toBe("off");
+    expect(thinkingLevelLabel("xhigh")).toBe("xhigh");
   });
 });

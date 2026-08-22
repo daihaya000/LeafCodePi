@@ -16,16 +16,15 @@ export const ALL_THINKING_LEVELS: readonly ThinkingLevel[] = [
   "max",
 ] as const;
 
+// Model-baseline English labels shown verbatim in the effort dropdown / meta line.
 export const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
-  // Shown only when graded effort options exist (ThinkingSelect hides lone `off`).
-  // "デフォルト" = baseline / no extra effort, relative to low–max — clearer than「思考なし」.
-  off: "デフォルト",
-  minimal: "最小",
-  low: "低",
-  medium: "中",
-  high: "高",
-  xhigh: "特高",
-  max: "最大",
+  off: "off",
+  minimal: "minimal",
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "xhigh",
+  max: "max",
 };
 
 export function isThinkingLevel(value: unknown): value is ThinkingLevel {
@@ -48,5 +47,5 @@ export function clampThinkingLevelForModel(
 
 export function thinkingLevelLabel(level: ThinkingLevel | string | undefined): string {
   if (isThinkingLevel(level)) return THINKING_LEVEL_LABELS[level];
-  return "思考";
+  return "effort";
 }
