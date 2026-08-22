@@ -101,13 +101,9 @@ for %%F in ("%MODEL_FILE%") do set "MODEL_ALIAS=%%~nF"
 echo [llama-server] Starting single-model ^(alias %MODEL_ALIAS%, context %CONTEXT_LENGTH%, parallel %PARALLEL%^)...
 rem Ornith-1.5 and other GGUFs without a reasoning_effort template kwarg must
 rem start with REASONING_EFFORT empty (plain mode).
-if not "%REASONING_EFFORT%"=="" goto :single_model_kwargs
-start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %MMPROJ_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
-goto :wait_health
-
-:single_model_kwargs
-start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %MMPROJ_ARGS% --jinja --chat-template-kwargs "{\"reasoning_effort\":\"%REASONING_EFFORT%\"}" >> "%LLAMA_SERVER_LOG%" 2>&1"
-goto :wait_health
+if not "%REASONING_EFFORT%"=="" set "LAUNCH_MODE=single_kwargs"
+if "%REASONING_EFFORT%"=="" set "LAUNCH_MODE=single_plain"
+goto :launch
 
 :router_mode
 if not exist "%MODEL_DIR%" (
@@ -118,8 +114,13 @@ if not exist "%MODEL_DIR%" (
 echo [llama-server] Starting router mode ^(models-dir, context %CONTEXT_LENGTH%^)...
 rem Do not pass --no-models-autoload: we want a model available for chat after start.
 rem ensure-loaded.mjs still POST /models/load if the catalog stays unloaded.
-start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %MMPROJ_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
-goto :wait_health
+set "LAUNCH_MODE=router"
+goto :launch
+
+:launch
+if "%LAUNCH_MODE%"=="single_kwargs" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %MMPROJ_ARGS% --jinja --chat-template-kwargs "{\"reasoning_effort\":\"%REASONING_EFFORT%\"}" >> "%LLAMA_SERVER_LOG%" 2>&1"
+if "%LAUNCH_MODE%"=="single_plain" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %MMPROJ_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+if "%LAUNCH_MODE%"=="router" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %MMPROJ_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
 
 :wait_health
 echo [llama-server] Waiting for the server to become healthy...
@@ -131,10 +132,18 @@ for /l %%I in (1,1,60) do (
     if not errorlevel 1 set "READY=1"
   )
 )
-if not defined READY (
-  echo [FAIL] Server did not become healthy within 120s.
+if defined READY goto :ready
+rem One automatic retry: right after a kill, VRAM may still be releasing and
+rem llama-server can die before it logs anything.
+if defined LAUNCH_RETRIED (
+  echo [FAIL] Server did not become healthy within 120s (retry exhausted).
   exit /b 3
 )
+set "LAUNCH_RETRIED=1"
+echo [llama-server] Not healthy; retrying once ^(killing leftovers, waiting for VRAM release^)...
+taskkill /F /IM llama-server.exe >nul 2>&1
+ping -n 21 127.0.0.1 >nul
+goto :launch
 
 :ready
 echo [llama-server] Ensuring a model is loaded...
