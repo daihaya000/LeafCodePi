@@ -164,7 +164,10 @@ export function TaskPanesHost() {
             </div>
           )}
           {pane.tabs.map((taskId) => {
-            const isActiveTab = pane.activeTabId === taskId && pane.id === activePaneId;
+            // 可視性は各ペインの自ペイン内 activeTabId のみで決める。
+            // ペインのフォーカス（activePaneId）を条件にすると非アクティブペインが
+            // 空描画になる（隣ペインは常に自タブを表示していてこそ分割にならない）。
+            const isActiveTab = pane.activeTabId === taskId;
             return (
               <SplitTaskView
                 key={taskId}
