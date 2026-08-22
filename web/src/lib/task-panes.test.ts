@@ -85,6 +85,44 @@ describe("openTab", () => {
   });
 });
 
+describe("openInNewPane", () => {
+  it("未登録タスクを新ペインで開いて活性化する", () => {
+    const base = state(pane(P1, ["t1"]));
+    const next = reducer(base, { type: "openInNewPane", taskId: "t2" });
+    expect(next.panes).toHaveLength(2);
+    expect(next.panes[1].tabs).toEqual(["t2"]);
+    expect(next.activePaneId).toBe(next.panes[1].id);
+    expect(next.panes[0].tabs).toEqual(["t1"]);
+  });
+
+  it("既存タスクは元ペインから外して新ペインへ移す", () => {
+    const base = state(pane(P1, ["a", "b"], "b"));
+    const next = reducer(base, { type: "openInNewPane", taskId: "b" });
+    expect(next.panes).toHaveLength(2);
+    expect(next.panes[0].tabs).toEqual(["a"]);
+    expect(next.panes[0].activeTabId).toBe("a");
+    expect(next.panes[1].tabs).toEqual(["b"]);
+    expect(next.activePaneId).toBe(next.panes[1].id);
+  });
+
+  it("単独タブの既存タスクは移動せず活性化のみ", () => {
+    const base = state(pane(P1, ["only"]));
+    const next = reducer(base, { type: "openInNewPane", taskId: "only" });
+    expect(next.panes).toHaveLength(1);
+    expect(next.activePaneId).toBe(P1);
+    expect(next.panes[0].activeTabId).toBe("only");
+  });
+
+  it("ペイン上限では最後のペインのタブへフォールバックする", () => {
+    const full = Array.from({ length: MAX_PANES }, (_, i) => pane(`p${i}`, [`t${i}`]));
+    const base = { panes: full, activePaneId: "p0" };
+    const next = reducer(base, { type: "openInNewPane", taskId: "extra" });
+    expect(next.panes).toHaveLength(MAX_PANES);
+    expect(next.panes[MAX_PANES - 1].tabs).toEqual(["t3", "extra"]);
+    expect(next.activePaneId).toBe("p3");
+  });
+});
+
 describe("closeTab", () => {
   it("中間タブを閉じると右隣が active になる", () => {
     const base = state(pane(P1, ["a", "b", "c"], "b"));

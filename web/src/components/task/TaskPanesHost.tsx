@@ -112,8 +112,14 @@ export function TaskPanesHost() {
             const source = state.panes.find((p) => p.tabs.includes(taskId));
             if (source && source.id !== pane.id) {
               dispatch({ type: "moveTab", fromPaneId: source.id, toPaneId: pane.id, taskId });
-            } else {
+            } else if (pane.tabs.length === 0) {
+              // 空ペイン: そのまま開く
               dispatch({ type: "openTab", paneId: pane.id, taskId });
+            } else if (!source) {
+              // ペイン本体ドロップ = 分割（新ペインで開く）。タブとして追加したい場合はタブバーへ
+              dispatch({ type: "openInNewPane", taskId });
+            } else {
+              dispatch({ type: "activateTab", paneId: pane.id, taskId });
             }
           }}
           onPointerDown={() => {
@@ -150,6 +156,12 @@ export function TaskPanesHost() {
               aria-hidden="true"
               className="pointer-events-none absolute inset-x-0 top-0 z-[70] h-0.5 bg-accent"
             />
+          )}
+          {/* 空ペインのガイド（仕様 §6 のドロップ待ち状態） */}
+          {pane.tabs.length === 0 && (
+            <div className="flex min-h-0 flex-1 items-center justify-center p-4 text-center text-xs text-faint">
+              サイドバーからタスクをドロップして開けます
+            </div>
           )}
           {pane.tabs.map((taskId) => {
             const isActiveTab = pane.activeTabId === taskId && pane.id === activePaneId;

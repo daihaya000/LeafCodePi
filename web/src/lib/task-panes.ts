@@ -25,6 +25,7 @@ export type TaskPanesState = {
 
 export type TaskPanesAction =
   | { type: "openTab"; paneId: string; taskId: string }
+  | { type: "openInNewPane"; taskId: string }
   | { type: "closeTab"; paneId: string; taskId: string }
   | { type: "activateTab"; paneId: string; taskId: string }
   | { type: "reorderTabs"; paneId: string; tabs: string[] }
@@ -135,6 +136,38 @@ export function taskPanesReducer(
             ? { ...pane, tabs: [...pane.tabs, action.taskId], activeTabId: action.taskId }
             : pane,
         ),
+      };
+    }
+
+    case "openInNewPane": {
+      // ペイン本体へのドロップ = 分割の意図。新ペインでタスクを開く。
+      // 上限到達時は最後のペインのタブへフォールバック。
+      const existing = state.panes.find((pane) => pane.tabs.includes(action.taskId));
+      let panes = state.panes;
+      if (existing) {
+        // 単独タブのペインなら移動しても見た目が同じため活性化のみ
+        if (existing.tabs.length === 1) return activate(state, existing.id, action.taskId);
+        const fromIndex = existing.tabs.indexOf(action.taskId);
+        const fromTabs = existing.tabs.filter((id) => id !== action.taskId);
+        const nextActive =
+          existing.activeTabId !== action.taskId
+            ? existing.activeTabId
+            : (fromTabs[Math.min(fromIndex, fromTabs.length - 1)] ?? null);
+        panes = panes.map((pane) =>
+          pane.id === existing.id ? { ...pane, tabs: fromTabs, activeTabId: nextActive } : pane,
+        );
+      }
+      if (panes.length >= MAX_PANES) {
+        const last = panes[panes.length - 1]!;
+        return taskPanesReducer(
+          { panes, activePaneId: state.activePaneId },
+          { type: "openTab", paneId: last.id, taskId: action.taskId },
+        );
+      }
+      const pane = createPane();
+      return {
+        activePaneId: pane.id,
+        panes: [...panes, { ...pane, tabs: [action.taskId], activeTabId: action.taskId }],
       };
     }
 
