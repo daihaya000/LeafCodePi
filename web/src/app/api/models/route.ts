@@ -1,26 +1,23 @@
 import { NextResponse } from "next/server";
 import { listModels, jsonError } from "@/lib/pi/harness";
-import { fetchNativeUsage } from "@/lib/codexbar/orchestrator";
-import type { CodexBarProvider } from "@/lib/codexbar";
+import { getCachedUsage } from "@/lib/codexbar/cache";
 import { attachCodexBarUsage } from "./map";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Best-effort usage lookup; never block model listing on cold CodexBar fetches. */
-const USAGE_LOOKUP_TIMEOUT_MS = 2_500;
+/**
+ * Read the aggregate cache only — never fetch here. A short-timeout
+ * fetchNativeUsage aborts slow providers mid-flight and poisons their
+ * per-provider caches with errors. The CodexBar widget (~5min poll) keeps
+ * the cache warm; allow up to 30 min stale for dropdown coloring.
+ */
+const USAGE_MAX_AGE_MS = 30 * 60 * 1000;
 
 export async function GET() {
   try {
     const models = await listModels();
-    let providers: CodexBarProvider[] = [];
-    try {
-      providers = (
-        await fetchNativeUsage({ signal: AbortSignal.timeout(USAGE_LOOKUP_TIMEOUT_MS) })
-      ).providers;
-    } catch {
-      /* usage unavailable or timed out → models without usage info */
-    }
+    const providers = getCachedUsage(Date.now(), USAGE_MAX_AGE_MS)?.providers ?? [];
     return NextResponse.json({ models: attachCodexBarUsage(models, providers) });
   } catch (error) {
     const { error: message, status } = jsonError(error);

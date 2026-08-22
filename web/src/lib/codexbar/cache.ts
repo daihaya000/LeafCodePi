@@ -13,9 +13,12 @@ type CacheEntry = {
 
 let entry: CacheEntry | null = null;
 
-export function getCachedUsage(nowMs = Date.now()): CodexBarUsage | null {
+export function getCachedUsage(
+  nowMs = Date.now(),
+  ttlMs: number = TTL_MS,
+): CodexBarUsage | null {
   if (!entry) return null;
-  if (nowMs - entry.storedAt > TTL_MS) {
+  if (nowMs - entry.storedAt > ttlMs) {
     entry = null;
     return null;
   }
