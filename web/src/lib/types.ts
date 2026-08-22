@@ -175,6 +175,8 @@ export type HealthDto = {
   modelCount: number;
   dataDir: string;
   error?: string | null;
+  /** Non-fatal provider sync issues from the last model list refresh. */
+  warnings?: string[];
 };
 
 export type ProviderAuthDto = {

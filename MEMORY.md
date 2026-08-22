@@ -31,10 +31,20 @@
 
 ### 残存（低優先）
 
-- `listModels()` llama sync 失敗の silent fail（ログ/health 警告）
+- ~~`listModels()` llama sync 失敗の silent fail~~ → バッチ8で `syncProvidersBestEffort` + `HealthDto.warnings`
 - permission `allow` モードは意図的 fail-open（製品方針として文書化済み）
 
-## 2026-08-22: サービス品質バッチ6（Turbopack trace・ensureLive レース・models usage）
+## 2026-08-22: サービス品質バッチ8（provider sync 警告）
+
+全検証: web vitest OK / tsc OK / host test OK。
+
+### 修正
+
+| 領域 | 問題 | 修正 |
+| --- | --- | --- |
+| listModels | llama/Ollama sync 失敗を `.catch(() => {})` で握りつぶし | `syncProvidersBestEffort` — `console.warn` + `HealthDto.warnings` |
+
+## 2026-08-22: サービス品質バッチ7（WebUI 認証・permission・browse 制限）
 
 全検証: web vitest **377 passed** / **tsc OK** / eslint 警告 1 件（no-img-element）/ `next build` **警告 0** / host test **100 passed**。
 

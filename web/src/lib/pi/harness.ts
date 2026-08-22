@@ -143,6 +143,7 @@ type HarnessState = {
   loginSession: ProviderLoginSession | null;
   healthCache: HealthCacheEntry | null;
   watchdogRegistered: boolean;
+  lastProviderSyncWarnings: string[];
 };
 
 const GLOBAL_KEY = "__leafcodePiHarness" as const;
@@ -204,6 +205,7 @@ function state(): HarnessState {
       loginSession: null,
       healthCache: null,
       watchdogRegistered: false,
+      lastProviderSyncWarnings: [],
     };
     globalRef[GLOBAL_KEY].events.setMaxListeners(100);
   }
@@ -912,6 +914,26 @@ function validateProjectPath(rootPath: string): { ok: true; path: string } | { o
   return { ok: true, path: canonical };
 }
 
+async function syncProvidersBestEffort(runtime: ModelRuntime): Promise<string[]> {
+  const warnings: string[] = [];
+  try {
+    await syncLlamaServerProvider(runtime);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`llama-server: ${message}`);
+    console.warn("[leafcode-pi] llama-server provider sync failed:", message);
+  }
+  try {
+    await syncOllamaCloudProvider(runtime);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`ollama-cloud: ${message}`);
+    console.warn("[leafcode-pi] ollama-cloud provider sync failed:", message);
+  }
+  state().lastProviderSyncWarnings = warnings;
+  return warnings;
+}
+
 /**
  * `/api/health` is the most frequently polled endpoint (sidebar: 4s while a task
  * runs, 12s idle) and the only expensive part is `listModels()`, which re-syncs
@@ -966,6 +988,9 @@ export async function getHealth(): Promise<HealthDto> {
     modelCount: models.length,
     dataDir: dataDir(),
     error: current.initError,
+    ...(current.lastProviderSyncWarnings.length > 0
+      ? { warnings: [...current.lastProviderSyncWarnings] }
+      : {}),
   };
   current.healthCache = nextHealthCache(value, Date.now());
   return value;
@@ -975,9 +1000,7 @@ export async function listModels(): Promise<ModelOption[]> {
   await ensureRuntime();
   const runtime = state().modelRuntime;
   if (!runtime) return [];
-  // Pick up the real GGUF id from a running llama-server (avoids stub "local").
-  await syncLlamaServerProvider(runtime).catch(() => {});
-  await syncOllamaCloudProvider(runtime).catch(() => {});
+  await syncProvidersBestEffort(runtime);
   const catalog = buildProviderModelsCatalog(runtime);
   const enabled = new Set(
     enabledModelOptionsFromCatalog(catalog).map((option) => option.value),
