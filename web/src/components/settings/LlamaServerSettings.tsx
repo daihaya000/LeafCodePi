@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { Badge, Button } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import { isLoopbackHost } from "@/lib/loopback";
 import {
   DEFAULT_LLAMA_SERVER_SETTINGS,
-  findLlamaModelPreset,
   isLlamaServerSettings,
   isLlamaSpecComboBroken,
+  LLAMA_MODEL_PRESETS,
   LLAMA_SERVER_EFFORTS,
   LLAMA_SERVER_SPEC_TYPES,
   type LlamaServerEffort,
@@ -52,6 +53,7 @@ export function LlamaServerSettings() {
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [modelsBusy, setModelsBusy] = useState(false);
   const [modelsNote, setModelsNote] = useState<string | null>(null);
+  const [shelfOpen, setShelfOpen] = useState(false);
   const mountedRef = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -250,13 +252,33 @@ export function LlamaServerSettings() {
   };
 
   const running = status?.running === true;
-  const preset = findLlamaModelPreset(config.modelFile);
+  const activePreset = LLAMA_MODEL_PRESETS.find((p) => p.match.test(config.modelFile)) ?? null;
+  const familyKey: string = activePreset?.key ?? "custom";
   const presetMismatched =
-    preset !== null &&
-    (config.effort !== preset.settings.effort ||
-      (config.specType ?? "") !== preset.settings.specType ||
-      config.contextLength !== preset.settings.contextLength);
+    activePreset !== null &&
+    (config.effort !== activePreset.settings.effort ||
+      (config.specType ?? "") !== activePreset.settings.specType ||
+      config.contextLength !== activePreset.settings.contextLength ||
+      (config.cacheTypeK ?? "") !== activePreset.settings.cacheTypeK ||
+      (config.cacheTypeV ?? "") !== activePreset.settings.cacheTypeV);
   const specBroken = isLlamaSpecComboBroken(config.modelFile, config.specType);
+
+  /** Pick a model family (or "custom"): applies the preset wholesale. */
+  const selectModelFamily = (key: string) => {
+    if (key === "custom") {
+      setShelfOpen(true);
+      return;
+    }
+    const preset = LLAMA_MODEL_PRESETS.find((p) => p.key === key);
+    if (!preset) return;
+    const currentMatches = config.modelFile && preset.match.test(config.modelFile);
+    const candidate = models.find((m) => preset.match.test(m));
+    setConfig((c) => ({
+      ...c,
+      ...(currentMatches ? {} : candidate ? { modelFile: candidate } : {}),
+      ...preset.settings,
+    }));
+  };
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
@@ -328,7 +350,63 @@ export function LlamaServerSettings() {
 
       <div className="mt-4 border-t border-border pt-4">
         <h3 className="mb-2 text-sm font-semibold">起動設定</h3>
-        <div className="mb-3 grid gap-3">
+
+        <div>
+          <label htmlFor="llama-model-family" className="mb-1 block text-sm text-muted">
+            使用するモデル
+          </label>
+          <select
+            id="llama-model-family"
+            value={familyKey}
+            disabled={actionBusy !== null}
+            aria-describedby="llama-model-family-hint"
+            onChange={(e) => selectModelFamily(e.target.value)}
+            className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
+          >
+            {LLAMA_MODEL_PRESETS.map((p) => (
+              <option key={p.key} value={p.key}>
+                {p.label}
+              </option>
+            ))}
+            <option value="custom">カスタム（詳細設定）</option>
+          </select>
+          <span id="llama-model-family-hint" className="mt-1 block text-[11px] text-faint">
+            {activePreset
+              ? activePreset.description
+              : "個別の GGUF やパラメータを使う場合に選択してください。"}
+          </span>
+        </div>
+
+        {specBroken && (
+          <p
+            className="mt-2 rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-xs text-danger"
+            role="alert"
+          >
+            このモデルは推測デコード非対応のため、draft-mtp のままでは起動できません。詳細設定で「高速化」を「なし」にしてください。
+          </p>
+        )}
+
+        <button
+          type="button"
+          aria-expanded={shelfOpen}
+          onClick={() => setShelfOpen((o) => !o)}
+          className="mt-3 flex w-full items-center justify-between rounded-lg border border-border bg-bg px-3 py-2 text-sm text-muted outline-none hover:border-border-strong focus:border-border-strong"
+        >
+          <span className="flex items-center gap-2">
+            詳細設定
+            {presetMismatched && (
+              <Badge tone="neutral">カスタム値あり</Badge>
+            )}
+          </span>
+          <ChevronDown
+            size={16}
+            className={`transition-transform ${shelfOpen ? "rotate-180" : ""}`}
+            aria-hidden
+          />
+        </button>
+
+        {shelfOpen && (
+          <div className="mb-3 mt-3 grid gap-3 border-t border-border pt-3">
           {/* Hints sit outside the <label> as aria-describedby so the
               accessible name stays the field title alone. */}
           <div>
@@ -414,30 +492,6 @@ export function LlamaServerSettings() {
                 {modelsNote}
               </span>
             )}
-            {preset && presetMismatched && (
-              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-bg px-3 py-2">
-                <span className="text-[11px] text-muted">
-                  {preset.label} 向けの推奨設定があります
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  disabled={actionBusy !== null}
-                  onClick={() => setConfig((c) => ({ ...c, ...preset.settings }))}
-                >
-                  推奨設定を適用
-                </Button>
-              </div>
-            )}
-            {specBroken && (
-              <p
-                className="mt-2 rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-xs text-danger"
-                role="alert"
-              >
-                このモデルは推測デコード非対応のため、draft-mtp のままでは起動できません。「高速化」を「なし」にしてください。
-              </p>
-            )}
           </div>
 
           <label className="flex items-start gap-3 text-sm">
@@ -464,8 +518,7 @@ export function LlamaServerSettings() {
               </span>
             </span>
           </label>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="block">
             <span className="mb-1 block text-sm text-muted">思考の深さ</span>
             <select
@@ -558,7 +611,9 @@ export function LlamaServerSettings() {
               className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             />
           </label>
+          </div>
         </div>
+        )}
         <p className="mt-2 text-[11px] text-faint">
           変更は自動で保存され、次回起動時に反映されます
         </p>

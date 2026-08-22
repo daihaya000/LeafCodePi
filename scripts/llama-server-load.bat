@@ -34,7 +34,8 @@ rem Leave empty to use llama.cpp defaults.
 if not defined CT_K set "CT_K="
 if not defined CT_V set "CT_V="
 set "CACHE_ARGS="
-if not "%CT_K%"=="" if not "%CT_V%"=="" set "CACHE_ARGS=--cache-type-k %CT_K% --cache-type-v %CT_V%"
+if not "%CT_K%"=="" set "CACHE_ARGS=%CACHE_ARGS% --cache-type-k %CT_K%"
+if not "%CT_V%"=="" set "CACHE_ARGS=%CACHE_ARGS% --cache-type-v %CT_V%"
 rem Speculative decoding type (e.g. draft-mtp). Leave empty for GGUFs without
 rem MTP tensors (e.g. Ornith-1.5 AtomicChat builds) - they fail to load with
 rem --spec-type draft-mtp. Qwen3.5-class dense builds (nextn_predict_layers=1,

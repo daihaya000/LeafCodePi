@@ -36,6 +36,8 @@ import { join } from 'path';
  *   (bind address; 0.0.0.0 opens the server to LAN/Tailscale clients).
  * @property {string} [specType] SPEC_TYPE (--spec-type; "" = off). Only
  *   "draft-mtp" today, and only for GGUFs bundling MTP tensors.
+ * @property {string} [cacheTypeK] CT_K (--cache-type-k; "" = f16 default).
+ * @property {string} [cacheTypeV] CT_V (--cache-type-v; "" = f16 default).
  */
 
 /**
@@ -156,6 +158,8 @@ export function createLlamaServerService(deps) {
     if (config.llamaServerHost)
       lines.push(`set "LLAMA_SERVER_HOST=${config.llamaServerHost}"`);
     if (config.specType) lines.push(`set "SPEC_TYPE=${config.specType}"`);
+    if (config.cacheTypeK) lines.push(`set "CT_K=${config.cacheTypeK}"`);
+    if (config.cacheTypeV) lines.push(`set "CT_V=${config.cacheTypeV}"`);
     // The real bat blocks until the model is loaded, so the self-delete line
     // below only runs after it exits. The launcher removes itself so a temp
     // file is not left behind, and there is no window where the WMI-spawned

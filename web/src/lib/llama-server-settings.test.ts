@@ -68,6 +68,8 @@ describe("llama-server-settings", () => {
       modelFile: "repoA\\model-Q4_K_S.gguf",
       llamaServerHost: "0.0.0.0" as const,
       specType: "draft-mtp" as const,
+      cacheTypeK: "q8_0" as const,
+      cacheTypeV: "q8_0" as const,
     };
     const raw = serializeLlamaServerSettings(settings);
     expect(parseLlamaServerSettings(raw)).toEqual(settings);
@@ -85,6 +87,8 @@ describe("llama-server-settings", () => {
       modelFile: "",
       llamaServerHost: "127.0.0.1",
       specType: "",
+      cacheTypeK: "",
+      cacheTypeV: "",
     });
   });
 
@@ -102,19 +106,31 @@ describe("llama-server-settings", () => {
     const ornith = findLlamaModelPreset(
       "Ornith-1.5-35B-A3B-GGUF\\Ornith-1.5-35B-A3B-AD-Q5_K-Q4_K.gguf",
     );
-    expect(ornith?.label).toBe("Ornith-1.5");
+    expect(ornith?.key).toBe("ornith");
     expect(ornith?.settings).toEqual({
       effort: "",
       specType: "",
       contextLength: 131_072,
+      cacheTypeK: "",
+      cacheTypeV: "q8_0",
     });
 
     const qwen = findLlamaModelPreset("Qwen3.8-27B-Uncensored-GGUF\\model.gguf");
-    expect(qwen?.label).toContain("Qwen3.8");
+    expect(qwen?.key).toBe("qwen38");
     expect(qwen?.settings.specType).toBe("draft-mtp");
+    expect(qwen?.settings.cacheTypeK).toBe("q8_0");
 
     expect(findLlamaModelPreset("unknown-model.gguf")).toBeNull();
     expect(findLlamaModelPreset("")).toBeNull();
+  });
+
+  it("accepts only the known KV cache types", () => {
+    const base = { effort: "low", contextLength: 4096, parallel: 1 };
+    expect(isLlamaServerSettings({ ...base, cacheTypeK: "", cacheTypeV: "q8_0" })).toBe(true);
+    expect(isLlamaServerSettings({ ...base, cacheTypeV: "f16" })).toBe(true);
+    expect(isLlamaServerSettings({ ...base, cacheTypeK: "q4_0" })).toBe(false);
+    expect(isLlamaServerSettings({ ...base, cacheTypeV: 'evil" & calc' })).toBe(false);
+    expect(isLlamaServerSettings(base)).toBe(true);
   });
 
   it("flags broken spec/model combinations", () => {

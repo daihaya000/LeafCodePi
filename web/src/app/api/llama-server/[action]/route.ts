@@ -8,10 +8,12 @@ import { invalidateHealthCache } from "@/lib/pi/harness";
 import {
   isSafeLlamaModelFile,
   isSafeLlamaPathValue,
+  LLAMA_CACHE_TYPES,
   LLAMA_SERVER_EFFORTS,
   LLAMA_SERVER_HOSTS,
   LLAMA_SERVER_SPEC_TYPES,
   resolveLlamaServerBin,
+  type LlamaCacheType,
   type LlamaServerEffort,
   type LlamaServerHost,
   type LlamaServerSpecType,
@@ -31,6 +33,8 @@ type StartBody = {
   modelFile?: string;
   llamaServerHost?: LlamaServerHost;
   specType?: LlamaServerSpecType;
+  cacheTypeK?: LlamaCacheType;
+  cacheTypeV?: LlamaCacheType;
 };
 
 function parseAction(raw: string): HostLlamaServerAction | null {
@@ -101,6 +105,17 @@ function parseStartBody(value: unknown): StartBody | null {
       return null;
     }
     config.specType = raw.specType as LlamaServerSpecType;
+  }
+  for (const key of ["cacheTypeK", "cacheTypeV"] as const) {
+    const rawValue = raw[key];
+    if (rawValue === undefined) continue;
+    if (
+      typeof rawValue !== "string" ||
+      !LLAMA_CACHE_TYPES.includes(rawValue as LlamaCacheType)
+    ) {
+      return null;
+    }
+    config[key] = rawValue as LlamaCacheType;
   }
   if (config.modelFile !== undefined && config.modelDir === undefined) return null;
   return config;

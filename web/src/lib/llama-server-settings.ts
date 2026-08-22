@@ -11,6 +11,11 @@ export type LlamaServerEffort = (typeof LLAMA_SERVER_EFFORTS)[number];
 export const LLAMA_SERVER_SPEC_TYPES = ["", "draft-mtp"] as const;
 export type LlamaServerSpecType = (typeof LLAMA_SERVER_SPEC_TYPES)[number];
 
+/** KV cache quantization for the bat's CT_K / CT_V env. "" = f16 (default).
+ *  q8_0 halves KV VRAM at ~0 quality cost (measured on both local models). */
+export const LLAMA_CACHE_TYPES = ["", "f16", "q8_0"] as const;
+export type LlamaCacheType = (typeof LLAMA_CACHE_TYPES)[number];
+
 /** Bind addresses llama-server may listen on. `127.0.0.1` is the loopback-only
  *  default; `0.0.0.0` also serves LAN/Tailscale clients. */
 export const LLAMA_SERVER_HOSTS = ["127.0.0.1", "0.0.0.0"] as const;
@@ -30,6 +35,9 @@ export type LlamaServerSettings = {
   llamaServerHost: LlamaServerHost;
   /** 推測デコード。"draft-mtp" は MTP テンソル込み GGUF（Qwen3.5系 dense 等）専用。 */
   specType?: LlamaServerSpecType;
+  /** KV キャッシュ型。"" = f16（既定）。q8_0 は VRAM 半減。 */
+  cacheTypeK?: LlamaCacheType;
+  cacheTypeV?: LlamaCacheType;
 };
 
 export const DEFAULT_LLAMA_SERVER_SETTINGS: LlamaServerSettings = {
@@ -41,6 +49,8 @@ export const DEFAULT_LLAMA_SERVER_SETTINGS: LlamaServerSettings = {
   modelFile: "",
   llamaServerHost: "127.0.0.1",
   specType: "",
+  cacheTypeK: "",
+  cacheTypeV: "",
 };
 
 export const LLAMA_SERVER_PATH_MAX_CHARS = 400;
@@ -106,7 +116,11 @@ export function isLlamaServerSettings(value: unknown): boolean {
     (candidate.llamaServerHost === undefined ||
       LLAMA_SERVER_HOSTS.includes(candidate.llamaServerHost as LlamaServerHost)) &&
     (candidate.specType === undefined ||
-      LLAMA_SERVER_SPEC_TYPES.includes(candidate.specType as LlamaServerSpecType))
+      LLAMA_SERVER_SPEC_TYPES.includes(candidate.specType as LlamaServerSpecType)) &&
+    (candidate.cacheTypeK === undefined ||
+      LLAMA_CACHE_TYPES.includes(candidate.cacheTypeK as LlamaCacheType)) &&
+    (candidate.cacheTypeV === undefined ||
+      LLAMA_CACHE_TYPES.includes(candidate.cacheTypeV as LlamaCacheType))
   );
 }
 
@@ -130,25 +144,35 @@ export function serializeLlamaServerSettings(value: LlamaServerSettings): string
 
 /** Recommended launch settings for a known local model family. */
 export type LlamaModelPreset = {
+  /** Stable select value. */
+  key: "ornith" | "qwen38";
   /** Matches the model file path (case-insensitive). */
   match: RegExp;
   label: string;
-  settings: Pick<LlamaServerSettings, "effort" | "specType" | "contextLength">;
+  description: string;
+  settings: Pick<
+    LlamaServerSettings,
+    "effort" | "specType" | "contextLength" | "cacheTypeK" | "cacheTypeV"
+  >;
 };
 
 export const LLAMA_MODEL_PRESETS: readonly LlamaModelPreset[] = [
   {
+    key: "ornith",
     // Ornith GGUFs have no reasoning_effort kwarg and no MTP tensors:
     // graded efforts and draft-mtp both break them.
     match: /ornith/i,
-    label: "Ornith-1.5",
-    settings: { effort: "", specType: "", contextLength: 131_072 },
+    label: "Ornith-1.5 35B（バランス）",
+    description: "思考なしで 111 tok/s。128K コンテキスト。通常のコーディング向け。",
+    settings: { effort: "", specType: "", contextLength: 131_072, cacheTypeK: "", cacheTypeV: "q8_0" },
   },
   {
+    key: "qwen38",
     // Qwen3.5-class dense builds ship an MTP head; draft-mtp is ~15x faster.
     match: /qwen3[._]?8|qwen3\.5|qwen35/i,
-    label: "Qwen3.8 / Qwen3.5系",
-    settings: { effort: "low", specType: "draft-mtp", contextLength: 131_072 },
+    label: "Qwen3.8 27B（思考つき・高速）",
+    description: "draft-mtp 推測デコードで 68 tok/s。effort low の思考つき。",
+    settings: { effort: "low", specType: "draft-mtp", contextLength: 131_072, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
   },
 ];
 
