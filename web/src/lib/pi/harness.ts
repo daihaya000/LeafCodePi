@@ -50,6 +50,8 @@ import {
   startHangWatchdog,
 } from "@/lib/pi/hang-watchdog";
 import { HANG_RETRY_PREFIX } from "@/lib/hang-retry";
+import { createPermissionPromptService, taskIdForSession } from "@/lib/pi/permission-prompt";
+import { registerWebUiPermissionHandler } from "../../../../extensions/leafcode-permission-gate/webui-bridge";
 
 /** True when a skill lives under the user's ~/.agents directory. */
 function isAgentsSkill(skill: { baseDir?: string; filePath?: string }): boolean {
@@ -84,6 +86,7 @@ import type {
   ModelOption,
   ProjectDto,
   ProviderAuthDto,
+  PermissionRequestDto,
   TaskDetail,
   TaskSummary,
   TodoDto,
@@ -143,6 +146,47 @@ type HarnessState = {
 };
 
 const GLOBAL_KEY = "__leafcodePiHarness" as const;
+
+type PermissionPromptService = ReturnType<typeof createPermissionPromptService>;
+let permissionPromptService: PermissionPromptService | null = null;
+
+function resolveTaskIdFromSession(sessionId: string): string | null {
+  return taskIdForSession(
+    sessionId,
+    [...state().live.values()].map((live) => ({
+      taskId: live.taskId,
+      sessionId: live.session.sessionId,
+    })),
+  );
+}
+
+function permissionSnapshotExtras(taskId: string): Record<string, unknown> {
+  const live = state().live.get(taskId);
+  const task = getTask(taskId);
+  if (!live || !task) return {};
+  return {
+    task: toSummary(task),
+    ...sessionSnapshotFields(
+      live.session,
+      live.throughputByStartedAt,
+      live.toolStartedAt,
+      live.toolEndedAt,
+    ),
+    manualAbortedAssistantId: live.manualAbortedAssistantId,
+    hangRetryCount: live.hangRetryCount,
+  };
+}
+
+function ensurePermissionPromptService(): PermissionPromptService {
+  if (permissionPromptService) return permissionPromptService;
+  permissionPromptService = createPermissionPromptService({
+    resolveTaskId: resolveTaskIdFromSession,
+    emit: (taskId, payload) => emit(taskId, payload),
+    snapshotExtras: permissionSnapshotExtras,
+  });
+  registerWebUiPermissionHandler((request) => permissionPromptService!.handleRequest(request));
+  return permissionPromptService;
+}
 
 function state(): HarnessState {
   const globalRef = globalThis as typeof globalThis & { [GLOBAL_KEY]?: HarnessState };
@@ -276,6 +320,7 @@ async function ensureRuntime(): Promise<void> {
     });
     startHangWatchdog();
   }
+  ensurePermissionPromptService();
 }
 
 function modelValue(providerID: string, modelID: string): string {
@@ -1110,6 +1155,7 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
     contextUsage,
     goalLoop,
     todos,
+    permissionRequest: ensurePermissionPromptService().pendingForTask(id),
   };
 }
 
@@ -1691,6 +1737,18 @@ export function subscribeTask(
   return () => {
     state().events.off(id, handler);
   };
+}
+
+export function pendingPermissionForTask(taskId: string): PermissionRequestDto | null {
+  return ensurePermissionPromptService().pendingForTask(taskId);
+}
+
+export function respondToPermissionPrompt(
+  taskId: string,
+  requestId: string,
+  approved: boolean,
+): boolean {
+  return ensurePermissionPromptService().respond(taskId, requestId, approved);
 }
 
 export function jsonError(error: unknown, fallbackStatus = 500): { error: string; status: number } {

@@ -731,7 +731,10 @@ async function main() {
   try {
     await startControlServer();
   } catch (err) {
-    error(err instanceof Error ? err.message : String(err));
+    await stopWeb();
+    removeLock(LOCK_FILE);
+    error(`Control server failed to start: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
   }
 
   const headless = isHeadless();

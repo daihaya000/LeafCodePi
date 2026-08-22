@@ -25,9 +25,25 @@
 
 ### 残存（次バッチ）
 
-- `build-web.mjs` handoff が 202 のみで再起動成否未検証
-- control server 起動失敗のサイレント継続
 - Turbopack dynamic fs trace 警告
+
+## 2026-08-22: サービス品質バッチ2（handoff / control / permission ask）
+
+全検証: web vitest **367 passed** / host test **97 passed**（tsc は qwen-cloud.ts の既存 4 件のみ）。
+
+### P0/P1 修正
+
+| 領域 | 問題 | 修正 |
+| --- | --- | --- |
+| build handoff | `POST /restart/webui` の 202 のみで成功扱い | `waitForWebUiHealth()` で `/api/health` をポーリング（90s）。失敗時 `manual` |
+| control server | 起動失敗でもホストがサイレント継続 | `stopWeb` + lock 解放 + `process.exit(1)` |
+| permission ask | headless BFF で ask = 常時ブロック | `webui-bridge`（globalThis）+ `permission-prompt` + SSE + API + TaskView 許可/拒否 UI |
+
+### 新規
+
+- `extensions/leafcode-permission-gate/webui-bridge.ts`
+- `web/src/lib/pi/permission-prompt.ts` + test
+- `web/src/app/api/tasks/[id]/permission/route.ts`
 
 ## 2026-08-22: 無言終了対策（本家 LeafCode 移植）
 

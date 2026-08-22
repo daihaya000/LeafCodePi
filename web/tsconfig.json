@@ -32,6 +32,7 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    "../extensions/leafcode-permission-gate/webui-bridge.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
     ".next/dev/types/**/*.ts"

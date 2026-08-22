@@ -19,6 +19,7 @@ import {
   productionWebUiIsIdle,
   restorePreviousBuild,
   stashPreviousBuild,
+  waitForWebUiHealth,
   webUiPort,
 } from "../../scripts/build-web.mjs";
 
@@ -264,14 +265,44 @@ test("a build that replaced a served .next asks the host to restart the WebUI", 
     calls.push([url, init?.method]);
     return { ok: true, status: 202 };
   };
+  const get = async (url) => {
+    calls.push([url, "GET"]);
+    return { ok: true, json: async () => ({ ok: true }) };
+  };
   const result = await handOffToServedWebUi({
     port: 3010,
     isIdle: () => false,
     controlUrl: "http://127.0.0.1:18775",
     post,
+    get,
   });
   assert.equal(result, "restarted");
-  assert.deepEqual(calls, [["http://127.0.0.1:18775/restart/webui", "POST"]]);
+  assert.deepEqual(calls, [
+    ["http://127.0.0.1:18775/restart/webui", "POST"],
+    ["http://127.0.0.1:3010/api/health", "GET"],
+  ]);
+});
+
+test("health check failure after restart returns manual", async () => {
+  const post = async () => ({ ok: true, status: 202 });
+  const get = async () => ({ ok: false, status: 503 });
+  assert.equal(
+    await handOffToServedWebUi({
+      port: 3010,
+      isIdle: () => false,
+      controlUrl: "http://127.0.0.1:18775",
+      post,
+      get,
+      healthTimeoutMs: 200,
+      healthIntervalMs: 50,
+    }),
+    "manual",
+  );
+});
+
+test("waitForWebUiHealth succeeds when /api/health returns ok", async () => {
+  const get = async () => ({ ok: true, json: async () => ({ ok: true }) });
+  assert.equal(await waitForWebUiHealth({ port: 3010, get, timeoutMs: 1000, intervalMs: 10 }), true);
 });
 
 test("no WebUI is serving the mirror: nothing is restarted", async () => {

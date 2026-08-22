@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getTaskDetail, subscribeTask } from "@/lib/pi/harness";
+import { getTaskDetail, pendingPermissionForTask, subscribeTask } from "@/lib/pi/harness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +29,7 @@ export async function GET(
           contextUsage: detail.contextUsage,
           goalLoop: detail.goalLoop,
           todos: detail.todos,
+          permissionRequest: detail.permissionRequest ?? pendingPermissionForTask(id),
         });
       } catch (error) {
         send("error", { error: error instanceof Error ? error.message : String(error) });

@@ -10,6 +10,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { requestWebUiPermission } from "./webui-bridge";
 
 export type PermissionMode = "allow" | "ask" | "deny";
 
@@ -92,6 +93,14 @@ function matchedDanger(command: string): { dangerous: boolean; labels: string[] 
   return { dangerous: labels.length > 0, labels };
 }
 
+function extensionSessionId(ctx: ExtensionContext): string {
+  try {
+    return ctx.sessionManager.getSessionId();
+  } catch {
+    return "";
+  }
+}
+
 export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     try {
@@ -112,13 +121,23 @@ export default function (pi: ExtensionAPI): void {
           return { block: true, reason: `Dangerous command blocked: ${labels.join(", ")}` };
         }
         if (mode === "ask") {
+          const prompt = `危険なコマンドを検出しました:\n  ${command}\n\n許可しますか?`;
           if (!ctx.hasUI) {
-            return { block: true, reason: "Dangerous command blocked (no UI for confirmation)" };
+            const approved = await requestWebUiPermission({
+              sessionId: extensionSessionId(ctx),
+              command,
+              labels,
+              message: prompt,
+            });
+            if (approved === null) {
+              return { block: true, reason: "Dangerous command blocked (no UI for confirmation)" };
+            }
+            if (!approved) {
+              return { block: true, reason: "Blocked by user" };
+            }
+            return undefined;
           }
-          const choice = await ctx.ui.select(
-            `危険なコマンドを検出しました:\n  ${command}\n\n許可しますか?`,
-            ["Yes", "No"],
-          );
+          const choice = await ctx.ui.select(prompt, ["Yes", "No"]);
           if (choice !== "Yes") {
             return { block: true, reason: "Blocked by user" };
           }

@@ -198,6 +198,15 @@ export type TaskDetail = TaskSummary & {
   };
   goalLoop?: GoalLoopDto | null;
   todos?: TodoDto[];
+  permissionRequest?: PermissionRequestDto | null;
+};
+
+export type PermissionRequestDto = {
+  id: string;
+  sessionId: string;
+  command: string;
+  labels: string[];
+  message: string;
 };
 
 export type DiffLine = {

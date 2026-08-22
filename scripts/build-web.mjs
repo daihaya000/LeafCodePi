@@ -168,7 +168,34 @@ export function hostControlUrl(env = process.env, read = readFileSync) {
 }
 
 /**
- * A `next start` keeps serving the BUILD_ID it launched with, but this build has
+ * Poll `/api/health` until the WebUI answers ok or the budget expires.
+ * Used after POST /restart/webui so a 202 alone cannot masquerade as success.
+ */
+export async function waitForWebUiHealth({
+  port = webUiPort(),
+  timeoutMs = 90_000,
+  intervalMs = 1500,
+  get = fetch,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+} = {}) {
+  const deadline = Date.now() + timeoutMs;
+  const url = `http://127.0.0.1:${port}/api/health`;
+  while (Date.now() < deadline) {
+    try {
+      const response = await get(url, { signal: AbortSignal.timeout(4_000) });
+      if (response.ok) {
+        const body = await response.json();
+        if (body && typeof body === "object" && body.ok === true) return true;
+      }
+    } catch {
+      /* retry until timeout */
+    }
+    await sleep(intervalMs);
+  }
+  return false;
+}
+
+/**
  * just replaced the very `.next` underneath it: every chunk the already served
  * HTML references is gone, so `/_next/static/...` answers 500 and fresh clients
  * (typically a phone that has nothing cached) only get Next's "This page
@@ -181,13 +208,25 @@ export async function handOffToServedWebUi({
   isIdle = productionWebUiIsIdle,
   controlUrl = hostControlUrl(),
   post = fetch,
+  get = fetch,
+  healthTimeoutMs = 90_000,
+  healthIntervalMs = 1500,
 } = {}) {
   if (isIdle({ port })) return "idle";
   try {
     const response = await post(`${controlUrl}/restart/webui`, { method: "POST" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    console.error("[build-web] the running WebUI was restarted onto the new build");
-    return "restarted";
+    const healthy = await waitForWebUiHealth({
+      port,
+      get,
+      timeoutMs: healthTimeoutMs,
+      intervalMs: healthIntervalMs,
+    });
+    if (healthy) {
+      console.error("[build-web] the running WebUI was restarted onto the new build");
+      return "restarted";
+    }
+    throw new Error("health check timed out after restart");
   } catch (err) {
     console.error(
       `[build-web] the running WebUI still serves the replaced build; restart it from the tray (${

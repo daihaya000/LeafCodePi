@@ -66,6 +66,7 @@ import {
 import type {
   GoalLoopDto,
   ModelOption,
+  PermissionRequestDto,
   TaskDetail,
   TaskStatus,
   TaskSummary,
@@ -194,6 +195,8 @@ export function TaskView({
     () => readSubagentPermission(),
   );
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => readPermissionMode());
+  const [permissionRequest, setPermissionRequest] = useState<PermissionRequestDto | null>(null);
+  const [permissionBusy, setPermissionBusy] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
@@ -230,6 +233,7 @@ export function TaskView({
     setMessages((prev) => stabilizeUiMessages(prev, detail.messages));
     setContextUsage(detail.contextUsage);
     setIsCompacting(Boolean(detail.isCompacting));
+    setPermissionRequest(detail.permissionRequest ?? null);
   }, []);
 
   const notifySidebarIfNeeded = useCallback((snapshotTask?: TaskSummary | TaskDetail | null) => {
@@ -249,6 +253,8 @@ export function TaskView({
     setManualAbortedAssistantId(null);
     setHangRetryCount(0);
     setResumeTurnError(null);
+    setPermissionRequest(null);
+    setPermissionBusy(false);
 
     const connect = () => {
       if (closed) return;
@@ -267,6 +273,7 @@ export function TaskView({
           error?: string;
           manualAbortedAssistantId?: string | null;
           hangRetryCount?: number;
+          permissionRequest?: PermissionRequestDto | null;
         };
         try {
           payload = JSON.parse((event as MessageEvent).data) as typeof payload;
@@ -301,6 +308,9 @@ export function TaskView({
           }
           if (typeof payload.hangRetryCount === "number") {
             setHangRetryCount(payload.hangRetryCount);
+          }
+          if ("permissionRequest" in payload) {
+            setPermissionRequest(payload.permissionRequest ?? null);
           }
         });
         if (payload.error) setError(payload.error);
@@ -1075,6 +1085,75 @@ export function TaskView({
         )}
       </div>
       <div className="shrink-0 border-t border-border bg-surface px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        {permissionRequest && (
+          <div
+            role="alertdialog"
+            aria-label="危険なコマンドの確認"
+            className="mx-auto mb-2 max-w-5xl rounded-lg border border-warning/30 bg-warning-bg px-3 py-3 text-sm text-warning"
+          >
+            <p className="whitespace-pre-wrap break-all">{permissionRequest.message}</p>
+            {permissionRequest.labels.length > 0 && (
+              <p className="mt-1 text-xs text-muted">
+                検出: {permissionRequest.labels.join(", ")}
+              </p>
+            )}
+            <pre className="mt-2 max-h-32 overflow-auto rounded border border-border bg-surface px-2 py-1.5 font-mono text-xs text-foreground">
+              {permissionRequest.command}
+            </pre>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                busy={permissionBusy}
+                disabled={permissionBusy}
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      setPermissionBusy(true);
+                      setError(null);
+                      await sendJson(`/api/tasks/${taskId}/permission`, {
+                        requestId: permissionRequest.id,
+                        approved: true,
+                      });
+                      setPermissionRequest(null);
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "許可の送信に失敗しました");
+                    } finally {
+                      setPermissionBusy(false);
+                    }
+                  })();
+                }}
+              >
+                許可
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                busy={permissionBusy}
+                disabled={permissionBusy}
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      setPermissionBusy(true);
+                      setError(null);
+                      await sendJson(`/api/tasks/${taskId}/permission`, {
+                        requestId: permissionRequest.id,
+                        approved: false,
+                      });
+                      setPermissionRequest(null);
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "拒否の送信に失敗しました");
+                    } finally {
+                      setPermissionBusy(false);
+                    }
+                  })();
+                }}
+              >
+                拒否
+              </Button>
+            </div>
+          </div>
+        )}
         {isReverted && (
           <div className="mx-auto mb-2 flex max-w-5xl items-center gap-3 rounded-lg border border-warning/30 bg-warning-bg px-3 py-2 text-sm text-warning">
             <span className="min-w-0 flex-1">
