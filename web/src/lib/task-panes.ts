@@ -1,0 +1,281 @@
+/**
+ * TaskView タブ・ペイン model。React に依存しない純関数のみ。
+ * 設計: docs/specs/taskview-tabs.md §1〜§5、docs/plans/taskview-tabs-implementation.md Phase 1
+ *
+ * 不変条件:
+ * - panes は最小 1 / 最大 MAX_PANES
+ * - 各ペインのタブは最大 MAX_TABS_PER_PANE、同一ペイン内に重複なし
+ * - 上限超過・不正操作は前状態を**同一参照**のまま返す no-op（prev === next で拒否を検知可）
+ */
+
+export const MAX_PANES = 4;
+export const MAX_TABS_PER_PANE = 5;
+export const TASK_PANES_STORAGE_KEY = "webui:task-panes";
+
+export type TaskPane = {
+  id: string;
+  tabs: string[];
+  activeTabId: string | null;
+};
+
+export type TaskPanesState = {
+  panes: TaskPane[];
+  activePaneId: string | null;
+};
+
+export type TaskPanesAction =
+  | { type: "openTab"; paneId: string; taskId: string }
+  | { type: "closeTab"; paneId: string; taskId: string }
+  | { type: "activateTab"; paneId: string; taskId: string }
+  | { type: "reorderTabs"; paneId: string; tabs: string[] }
+  | {
+      type: "moveTab";
+      fromPaneId: string;
+      toPaneId: string;
+      taskId: string;
+      index?: number;
+    }
+  | { type: "addPane" }
+  | { type: "closePane"; paneId: string }
+  | { type: "activatePane"; paneId: string }
+  | { type: "replace"; state: TaskPanesState };
+
+/** UI ローカル ID。http（非 secure context）でも動くよう自前生成。 */
+export function createPane(): TaskPane {
+  const id = `pane-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return { id, tabs: [], activeTabId: null };
+}
+
+/** 初期状態。URL 直リンクの taskId を最初のタブにする（仕様 §5）。 */
+export function createState(urlTaskId?: string | null): TaskPanesState {
+  const pane = createPane();
+  if (urlTaskId) {
+    pane.tabs = [urlTaskId];
+    pane.activeTabId = urlTaskId;
+  }
+  return { panes: [pane], activePaneId: pane.id };
+}
+
+function activate(
+  state: TaskPanesState,
+  paneId: string,
+  taskId: string,
+): TaskPanesState {
+  const target = state.panes.find((pane) => pane.id === paneId);
+  if (!target || !target.tabs.includes(taskId)) return state;
+  return {
+    activePaneId: paneId,
+    panes: state.panes.map((pane) =>
+      pane.id === paneId ? { ...pane, activeTabId: taskId } : pane,
+    ),
+  };
+}
+
+function removePane(state: TaskPanesState, paneId: string): TaskPanesState {
+  if (state.panes.length <= 1) return state; // 最小 1 ペイン制約
+  const index = state.panes.findIndex((pane) => pane.id === paneId);
+  if (index < 0) return state;
+  const panes = state.panes.filter((pane) => pane.id !== paneId);
+  // 繰り上げ規則: 閉じた位置の右隣、端なら左隣（panes.length ≥ 1 は制約で保証）
+  return {
+    panes,
+    activePaneId:
+      state.activePaneId === paneId
+        ? (panes[Math.min(index, panes.length - 1)]?.id ?? null)
+        : state.activePaneId,
+  };
+}
+
+function applyReorder(
+  state: TaskPanesState,
+  paneId: string,
+  tabs: string[],
+): TaskPanesState {
+  const target = state.panes.find((pane) => pane.id === paneId);
+  if (!target) return state;
+  // 同一集合のみ許容（長さ・重複なし・全要素一致）
+  if (
+    tabs.length !== target.tabs.length ||
+    new Set(tabs).size !== tabs.length ||
+    !tabs.every((id) => target.tabs.includes(id))
+  ) {
+    return state;
+  }
+  return {
+    ...state,
+    panes: state.panes.map((pane) =>
+      pane.id === paneId ? { ...pane, tabs: [...tabs] } : pane,
+    ),
+  };
+}
+
+function insertAt(list: string[], value: string, index: number): string[] {
+  const at = Math.max(0, Math.min(index, list.length));
+  return [...list.slice(0, at), value, ...list.slice(at)];
+}
+
+export function taskPanesReducer(
+  state: TaskPanesState,
+  action: TaskPanesAction,
+): TaskPanesState {
+  switch (action.type) {
+    case "replace":
+      return normalize(action.state) ?? state;
+
+    case "openTab": {
+      // 重複時は既存タブの活性化に寄せる（同一タスクを複数タブにしない）
+      const existing = state.panes.find((pane) => pane.tabs.includes(action.taskId));
+      if (existing) return activate(state, existing.id, action.taskId);
+      const target = state.panes.find((pane) => pane.id === action.paneId);
+      if (!target || target.tabs.length >= MAX_TABS_PER_PANE) return state;
+      return {
+        activePaneId: target.id,
+        panes: state.panes.map((pane) =>
+          pane.id === target.id
+            ? { ...pane, tabs: [...pane.tabs, action.taskId], activeTabId: action.taskId }
+            : pane,
+        ),
+      };
+    }
+
+    case "closeTab": {
+      const target = state.panes.find((pane) => pane.id === action.paneId);
+      const tabIndex = target?.tabs.indexOf(action.taskId) ?? -1;
+      if (!target || tabIndex < 0) return state;
+      // 最終タブを閉じたらペインごと閉じる。ただし最小 1 ペイン制約で最後のペインは残す
+      if (target.tabs.length === 1) {
+        return removePane(state, target.id);
+      }
+      const nextTabs = target.tabs.filter((id) => id !== action.taskId);
+      const nextActive =
+        target.activeTabId !== action.taskId
+          ? target.activeTabId
+          : (nextTabs[Math.min(tabIndex, nextTabs.length - 1)] ?? null);
+      return {
+        ...state,
+        panes: state.panes.map((pane) =>
+          pane.id === target.id ? { ...pane, tabs: nextTabs, activeTabId: nextActive } : pane,
+        ),
+      };
+    }
+
+    case "activateTab":
+      return activate(state, action.paneId, action.taskId);
+
+    case "reorderTabs":
+      return applyReorder(state, action.paneId, action.tabs);
+
+    case "moveTab": {
+      const from = state.panes.find((pane) => pane.id === action.fromPaneId);
+      const to = state.panes.find((pane) => pane.id === action.toPaneId);
+      if (!from || !to || !from.tabs.includes(action.taskId)) return state;
+      if (from.id === to.id) {
+        const without = from.tabs.filter((id) => id !== action.taskId);
+        return applyReorder(
+          state,
+          from.id,
+          insertAt(without, action.taskId, action.index ?? without.length),
+        );
+      }
+      if (to.tabs.length >= MAX_TABS_PER_PANE) return state;
+      const fromIndex = from.tabs.indexOf(action.taskId);
+      const fromTabs = from.tabs.filter((id) => id !== action.taskId);
+      const nextFromActive =
+        from.activeTabId !== action.taskId
+          ? from.activeTabId
+          : (fromTabs[Math.min(fromIndex, fromTabs.length - 1)] ?? null);
+      return {
+        activePaneId: to.id, // 移動したタブを見せる（本家 openSplit と同じ）
+        panes: state.panes.map((pane) => {
+          if (pane.id === from.id) {
+            return { ...pane, tabs: fromTabs, activeTabId: nextFromActive };
+          }
+          if (pane.id === to.id) {
+            return {
+              ...pane,
+              tabs: insertAt(to.tabs, action.taskId, action.index ?? to.tabs.length),
+              activeTabId: action.taskId,
+            };
+          }
+          return pane;
+        }),
+      };
+    }
+
+    case "addPane": {
+      if (state.panes.length >= MAX_PANES) return state;
+      const pane = createPane();
+      return { panes: [...state.panes, pane], activePaneId: pane.id };
+    }
+
+    case "closePane":
+      return removePane(state, action.paneId);
+
+    case "activatePane": {
+      if (!state.panes.some((pane) => pane.id === action.paneId)) return state;
+      return state.activePaneId === action.paneId
+        ? state
+        : { ...state, activePaneId: action.paneId };
+    }
+  }
+}
+
+/**
+ * 外部由来（localStorage / replace アクション）値の正規化。
+ * 破損・構造不一致は null、上限違反・型違いは無害化する。
+ */
+export function normalize(input: unknown): TaskPanesState | null {
+  if (typeof input !== "object" || input === null) return null;
+  const raw = input as Partial<TaskPanesState>;
+  if (!Array.isArray(raw.panes)) return null;
+
+  const panes: TaskPane[] = [];
+  for (const item of raw.panes.slice(0, MAX_PANES)) {
+    if (typeof item !== "object" || item === null) continue;
+    const candidate = item as Partial<TaskPane>;
+    if (typeof candidate.id !== "string" || !candidate.id) continue;
+    if (!Array.isArray(candidate.tabs)) continue;
+    const tabs: string[] = [];
+    for (const tab of candidate.tabs) {
+      if (typeof tab !== "string" || !tab || tabs.includes(tab)) continue;
+      if (tabs.length >= MAX_TABS_PER_PANE) break;
+      tabs.push(tab);
+    }
+    const activeTabId =
+      typeof candidate.activeTabId === "string" && tabs.includes(candidate.activeTabId)
+        ? candidate.activeTabId
+        : (tabs[0] ?? null);
+    panes.push({ id: candidate.id, tabs, activeTabId });
+  }
+  if (panes.length === 0) return null;
+  const activePaneId =
+    typeof raw.activePaneId === "string" && panes.some((pane) => pane.id === raw.activePaneId)
+      ? raw.activePaneId
+      : panes[0].id;
+  return { panes, activePaneId };
+}
+
+type StoredTaskPanes = { version: 1 } & TaskPanesState;
+
+export function loadTaskPanes(): TaskPanesState | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(TASK_PANES_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredTaskPanes;
+    if (!parsed || parsed.version !== 1) return null;
+    return normalize(parsed);
+  } catch {
+    return null;
+  }
+}
+
+export function saveTaskPanes(state: TaskPanesState): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const stored = { version: 1, ...state } satisfies StoredTaskPanes;
+    localStorage.setItem(TASK_PANES_STORAGE_KEY, JSON.stringify(stored));
+  } catch {
+    /* ignore */
+  }
+}
