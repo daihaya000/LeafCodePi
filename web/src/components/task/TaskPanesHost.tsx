@@ -56,7 +56,11 @@ export function TaskPanesHost() {
     if (!urlTaskId) return null;
     return (
       <div className="flex min-h-0 min-w-0 flex-1">
-        <SplitTaskView taskId={urlTaskId} onStatus={(status) => reportStatus(urlTaskId, status)} />
+        <SplitTaskView
+        key={urlTaskId}
+        taskId={urlTaskId}
+        onStatus={(status) => reportStatus(urlTaskId, status)}
+      />
       </div>
     );
   }
