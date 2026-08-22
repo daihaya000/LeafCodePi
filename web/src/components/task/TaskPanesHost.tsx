@@ -57,10 +57,10 @@ export function TaskPanesHost() {
     return (
       <div className="flex min-h-0 min-w-0 flex-1">
         <SplitTaskView
-        key={urlTaskId}
-        taskId={urlTaskId}
-        onStatus={(status) => reportStatus(urlTaskId, status)}
-      />
+          key={urlTaskId}
+          taskId={urlTaskId}
+          onStatus={(status) => reportStatus(urlTaskId, status)}
+        />
       </div>
     );
   }
