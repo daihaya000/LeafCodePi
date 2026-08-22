@@ -1,5 +1,9 @@
 /**
  * In-memory usage cache (~5 minutes, matching CodexBarWin default RefreshMinutes).
+ *
+ * State lives on `globalThis`: Next.js bundles each route separately, so a
+ * module-level variable would be duplicated per route and /api/models would
+ * never see what the widget's /api/codexbar/usage fetch cached.
  */
 
 import type { CodexBarUsage } from "@/lib/codexbar";
@@ -11,31 +15,34 @@ type CacheEntry = {
   storedAt: number;
 };
 
-let entry: CacheEntry | null = null;
+const store = globalThis as { __leafcodeCodexbarUsage?: CacheEntry | null };
 
 export function getCachedUsage(
   nowMs = Date.now(),
   ttlMs: number = TTL_MS,
 ): CodexBarUsage | null {
+  const entry = store.__leafcodeCodexbarUsage;
   if (!entry) return null;
   if (nowMs - entry.storedAt > ttlMs) {
-    entry = null;
+    store.__leafcodeCodexbarUsage = null;
     return null;
   }
   return entry.usage;
 }
 
 export function setCachedUsage(usage: CodexBarUsage, nowMs = Date.now()): void {
-  entry = { usage, storedAt: nowMs };
+  store.__leafcodeCodexbarUsage = { usage, storedAt: nowMs };
 }
 
 export function clearCachedUsage(): void {
-  entry = null;
+  store.__leafcodeCodexbarUsage = null;
 }
 
 /** Soft clear: keep entry but mark expired so next non-force read refetches. */
 export function invalidateCachedUsage(): void {
-  if (entry) entry = { ...entry, storedAt: 0 };
+  if (store.__leafcodeCodexbarUsage) {
+    store.__leafcodeCodexbarUsage = { ...store.__leafcodeCodexbarUsage, storedAt: 0 };
+  }
 }
 
 export function cacheTtlMs(): number {
