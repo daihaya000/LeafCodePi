@@ -519,7 +519,9 @@ export function TaskView({
   }
 
   return (
-    <div className={cx("flex h-full flex-col", !active && "hidden")}>
+    // min-h-0 flex-1: ペイン section が TaskTabs を持つ場合でも残り高さに収める。
+    // h-full だとタブバー分だけはみ出し composer 下端が overflow-hidden で欠ける。
+    <div className={cx("flex min-h-0 flex-1 flex-col", !active && "hidden")}>
       <header className="flex min-h-14 shrink-0 items-center gap-2 border-b border-border bg-surface px-3 pt-[env(safe-area-inset-top)] md:px-4 md:gap-3">
         <MobileMenuButton />
         <div className="min-w-0 flex-1">
@@ -800,6 +802,11 @@ export function TaskView({
               composingRef.current = true;
             },
             onCompositionEnd: () => {
+              composingRef.current = false;
+            },
+            onBlur: () => {
+              // composition 中にフォーカスが外れると compositionEnd が来ない
+              // ことがあり、stuck true で Ctrl+Enter 送信が永久に無効化される
               composingRef.current = false;
             },
             onKeyDown: (event) => {

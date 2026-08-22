@@ -5,6 +5,7 @@ import type {
   ClipboardEventHandler,
   CompositionEventHandler,
   CSSProperties,
+  FocusEventHandler,
   FormEventHandler,
   KeyboardEventHandler,
   MouseEventHandler,
@@ -47,6 +48,7 @@ type ComposerProps = {
     onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
     onCompositionStart?: CompositionEventHandler<HTMLTextAreaElement>;
     onCompositionEnd?: CompositionEventHandler<HTMLTextAreaElement>;
+    onBlur?: FocusEventHandler<HTMLTextAreaElement>;
     onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
   };
   attachmentControl: {
@@ -113,6 +115,7 @@ export function Composer({
         onPaste={textarea.onPaste}
         onCompositionStart={textarea.onCompositionStart}
         onCompositionEnd={textarea.onCompositionEnd}
+        onBlur={textarea.onBlur}
         onKeyDown={textarea.onKeyDown}
       />
       <div className="flex items-center gap-2 pt-1">

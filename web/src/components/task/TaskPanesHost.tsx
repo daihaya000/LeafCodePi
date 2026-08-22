@@ -16,7 +16,7 @@ const SplitTaskView = dynamic(
     loading: () => (
       <div
         role="status"
-        className="flex h-full items-center justify-center text-xs text-muted"
+        className="flex min-h-0 flex-1 items-center justify-center text-xs text-muted"
       >
         タスクを読み込み中...
       </div>
