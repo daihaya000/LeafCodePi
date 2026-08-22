@@ -1330,11 +1330,6 @@ export function TaskView({
           }}
           toolbar={
             <>
-              <GoalLoopToggle
-                enabled={goalLoopEnabled}
-                disabled={submitting || working || Boolean(task?.goalLoop && !["completed", "blocked", "stopped"].includes(task.goalLoop.status))}
-                onToggle={() => setGoalLoopEnabled((value) => !value)}
-              />
               <ModelSelect
                 value={modelValue}
                 options={models}
@@ -1387,15 +1382,6 @@ export function TaskView({
                   className="min-w-0 max-w-[8rem] sm:max-w-40"
                 />
               )}
-              <SubagentPermissionSelect
-                value={subagentPermission}
-                disabled={working || compacting}
-                onChange={(mode) => {
-                  setSubagentPermission(mode);
-                  writeSubagentPermission(mode);
-                }}
-                className="h-8 shrink-0"
-              />
               <PermissionSelect
                 value={permissionMode}
                 disabled={working || compacting}
@@ -1411,6 +1397,20 @@ export function TaskView({
                   })();
                 }}
                 className="h-8 shrink-0"
+              />
+              <SubagentPermissionSelect
+                value={subagentPermission}
+                disabled={working || compacting}
+                onChange={(mode) => {
+                  setSubagentPermission(mode);
+                  writeSubagentPermission(mode);
+                }}
+                className="h-8 shrink-0"
+              />
+              <GoalLoopToggle
+                enabled={goalLoopEnabled}
+                disabled={submitting || working || Boolean(task?.goalLoop && !["completed", "blocked", "stopped"].includes(task.goalLoop.status))}
+                onToggle={() => setGoalLoopEnabled((value) => !value)}
               />
             </>
           }

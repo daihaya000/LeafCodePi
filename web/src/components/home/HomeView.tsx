@@ -301,11 +301,6 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
               }}
               toolbar={
                 <>
-                  <GoalLoopToggle
-                    enabled={goalLoopEnabled}
-                    disabled={submitting}
-                    onToggle={() => setGoalLoopEnabled((value) => !value)}
-                  />
                   <ModelSelect
                     value={model}
                     disabled={submitting}
@@ -338,6 +333,15 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                       className="min-w-0 max-w-[8rem] shrink sm:max-w-40"
                     />
                   )}
+                  <PermissionSelect
+                    value={permissionMode}
+                    disabled={submitting}
+                    onChange={(mode) => {
+                      setPermissionMode(mode);
+                      writePermissionMode(mode);
+                    }}
+                    className="h-8 shrink-0"
+                  />
                   <SubagentPermissionSelect
                     value={subagentPermission}
                     disabled={submitting}
@@ -347,14 +351,10 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                     }}
                     className="h-8 shrink-0"
                   />
-                  <PermissionSelect
-                    value={permissionMode}
+                  <GoalLoopToggle
+                    enabled={goalLoopEnabled}
                     disabled={submitting}
-                    onChange={(mode) => {
-                      setPermissionMode(mode);
-                      writePermissionMode(mode);
-                    }}
-                    className="h-8 shrink-0"
+                    onToggle={() => setGoalLoopEnabled((value) => !value)}
                   />
                 </>
               }
