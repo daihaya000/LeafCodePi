@@ -14,6 +14,7 @@ import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids } from "./port-scanner.js";
 import { stopProcessTreeGracefully } from "./process-stop.js";
+import { createTranslationService } from "./translation-service.js";
 import { withLocalLeafcodeTempEnv } from "./tray-temp.js";
 import {
   formatWebStatus,
@@ -75,6 +76,13 @@ const llamaServerService = createLlamaServerService({
   getListeningPids,
   stopProcessTreeGracefully,
   trayScript: join(__dirname, "llama-server-tray.mjs"),
+});
+
+/** Local en→ja reasoning translation (Argos Translate via Python stdio worker). */
+const translationService = createTranslationService({
+  repoRoot: REPO_ROOT,
+  dataDir: DATA_DIR,
+  log,
 });
 
 /** @type {import("node:http").Server | null} */
@@ -558,6 +566,65 @@ async function startControlServer() {
     onRestartHost: () => restartHost(),
     onBrowserConfigRead: () => readBrowserConfig(),
     onBrowserConfigWrite: (patch) => writeBrowserConfig(patch),
+    onTranslationStatus: () => translationService.status(),
+    onTranslationStart: () => {
+      translationService.start();
+      return translationService.status();
+    },
+    onTranslationStop: () => translationService.stop(),
+    onTranslationTranslate: async (body) => {
+      if (!body || typeof body !== "object" || !Array.isArray(body.texts)) {
+        throw new Error("texts must be an array");
+      }
+      const texts = body.texts;
+      if (
+        texts.length < 1 ||
+        texts.length > 16 ||
+        texts.some((text) => typeof text !== "string" || !text.trim())
+      ) {
+        throw new Error("texts must contain 1-16 non-empty strings");
+      }
+      if (texts.reduce((sum, text) => sum + text.length, 0) > 16_000) {
+        throw new Error("translation request is too large");
+      }
+      const result = await translationService.translate(texts);
+      return {
+        translations: result.translations,
+        fallbacks: result.fallbacks,
+        overridden: result.overridden,
+      };
+    },
+    onTranslationOverride: (body) => {
+      if (
+        !body ||
+        typeof body !== "object" ||
+        typeof body.text !== "string" ||
+        typeof body.translation !== "string"
+      ) {
+        throw new Error("text and translation are required");
+      }
+      return translationService.setOverride(body.text, body.translation);
+    },
+    onTranslationUnreviewed: (limitRaw) => {
+      // Grade fixed-template lines locally first so the paid review prompt
+      // only carries entries a model can actually improve.
+      translationService.skipTrivialReviews();
+      const limit = Number.parseInt(String(limitRaw ?? ""), 10);
+      return {
+        entries: translationService.unreviewedEntries(
+          Number.isFinite(limit) && limit > 0 ? limit : 100,
+        ),
+      };
+    },
+    onTranslationReviewResults: (body) => {
+      if (!body || typeof body !== "object" || !Array.isArray(body.results)) {
+        throw new Error("results must be an array");
+      }
+      const model =
+        typeof body.model === "string" && body.model.trim() ? body.model.trim() : "unknown";
+      const updated = translationService.applyReviewResults(body.results, model);
+      return { updated };
+    },
   });
   try {
     await listenControlServer(server, CONTROL_PORT);
@@ -583,6 +650,11 @@ async function quit() {
   try {
     await closeControlServer(controlServer);
     controlServer = null;
+  } catch {
+    /* ignore */
+  }
+  try {
+    translationService.stop();
   } catch {
     /* ignore */
   }

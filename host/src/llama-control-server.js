@@ -47,6 +47,13 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onRestartHost?: () => Promise<unknown> | unknown,
  *   onBrowserConfigRead?: () => { autoOpenBrowser: boolean },
  *   onBrowserConfigWrite?: (patch: { autoOpenBrowser: boolean }) => { autoOpenBrowser: boolean },
+ *   onTranslationStatus?: () => Promise<object> | object,
+ *   onTranslationStart?: () => Promise<object> | object,
+ *   onTranslationStop?: () => Promise<unknown> | unknown,
+ *   onTranslationTranslate?: (body: object) => Promise<object> | object,
+ *   onTranslationOverride?: (body: object) => Promise<object> | object,
+ *   onTranslationUnreviewed?: (limit: unknown) => Promise<object> | object,
+ *   onTranslationReviewResults?: (body: object) => Promise<object> | object,
  * }} handlers
  */
 export function createLlamaControlServer(handlers) {
@@ -196,6 +203,95 @@ export function createLlamaControlServer(handlers) {
         res.writeHead(405, JSON_HEADERS);
         res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
         return;
+      }
+
+      if (pathname.startsWith("/translation/")) {
+        const action = pathname.slice("/translation/".length);
+        if (method === "GET" && action === "status" && handlers.onTranslationStatus) {
+          try {
+            const result = await handlers.onTranslationStatus();
+            res.writeHead(200, JSON_HEADERS);
+            res.end(JSON.stringify(result ?? { ok: true }));
+          } catch (err) {
+            res.writeHead(502, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+          }
+          return;
+        }
+        if (method === "POST" && action === "start" && handlers.onTranslationStart) {
+          try {
+            const result = await handlers.onTranslationStart();
+            res.writeHead(200, JSON_HEADERS);
+            res.end(JSON.stringify(result ?? { ok: true }));
+          } catch (err) {
+            res.writeHead(502, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+          }
+          return;
+        }
+        if (method === "POST" && action === "stop" && handlers.onTranslationStop) {
+          res.writeHead(202, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: true, target: "translation", accepted: true }));
+          setImmediate(() => {
+            Promise.resolve()
+              .then(() => handlers.onTranslationStop())
+              .catch(() => {});
+          });
+          return;
+        }
+        if (method === "POST" && action === "translate" && handlers.onTranslationTranslate) {
+          const body = await readJsonBody(req, 65_536).catch(() => ({}));
+          try {
+            const result = await handlers.onTranslationTranslate(body);
+            res.writeHead(200, JSON_HEADERS);
+            res.end(JSON.stringify(result ?? { ok: true }));
+          } catch (err) {
+            res.writeHead(502, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+          }
+          return;
+        }
+        if (method === "POST" && action === "override" && handlers.onTranslationOverride) {
+          const body = await readJsonBody(req).catch(() => ({}));
+          try {
+            const result = await handlers.onTranslationOverride(body);
+            res.writeHead(200, JSON_HEADERS);
+            res.end(JSON.stringify(result ?? { ok: true }));
+          } catch (err) {
+            res.writeHead(400, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+          }
+          return;
+        }
+        if (method === "GET" && action === "unreviewed" && handlers.onTranslationUnreviewed) {
+          let limit;
+          try {
+            limit = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("limit");
+          } catch {
+            limit = null;
+          }
+          try {
+            const result = await handlers.onTranslationUnreviewed(limit);
+            res.writeHead(200, JSON_HEADERS);
+            res.end(JSON.stringify(result ?? { ok: true }));
+          } catch (err) {
+            res.writeHead(502, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+          }
+          return;
+        }
+        if (method === "POST" && action === "review-results" && handlers.onTranslationReviewResults) {
+          const body = await readJsonBody(req, 262_144).catch(() => ({}));
+          try {
+            const result = await handlers.onTranslationReviewResults(body);
+            res.writeHead(200, JSON_HEADERS);
+            res.end(JSON.stringify(result ?? { ok: true }));
+          } catch (err) {
+            res.writeHead(502, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+          }
+          return;
+        }
       }
 
       res.writeHead(404, JSON_HEADERS);
