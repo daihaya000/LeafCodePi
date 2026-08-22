@@ -184,7 +184,7 @@ export function ModelSelect({
                   type="button"
                   role="option"
                   aria-selected={option.value === value}
-                  title={maxed ? `${option.label}（制限到達 100%）` : option.label}
+                  title={option.label}
                   onClick={() => chooseOption(option)}
                   className={cx(
                     "flex w-full appearance-none items-center gap-2 rounded-lg border-0 bg-transparent px-2 py-1.5 text-left hover:bg-surface-2 focus:bg-surface-2 focus:outline-none",
@@ -198,7 +198,6 @@ export function ModelSelect({
                 >
                   <ProviderIcon providerID={option.providerID} size={14} />
                   <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                  {maxed && <span className="shrink-0 text-[10px] font-medium">100%</span>}
                   {image && (
                     <span title="画像入力対応" className="inline-flex shrink-0">
                       <ImageIcon
