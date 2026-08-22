@@ -94,11 +94,12 @@ const emptyState = (): ExtensionsState => {
   return { disabled: {} };
 };
 
-/** WebUI の機能（Goal Loop / ToDo / Permission Gate）が動作依存する同梱拡張。無効化禁止。 */
+/** WebUI の機能（Goal Loop / ToDo / Permission Gate / Subagents）が動作依存する同梱拡張。無効化禁止。 */
 export const WEBUI_REQUIRED_EXTENSIONS: ReadonlySet<string> = new Set([
   "leafcode-goal-loop",
   "leafcode-todowrite",
   "leafcode-permission-gate",
+  "leafcode-subagents",
 ]);
 
 export function isWebUiRequiredExtension(name: string): boolean {
