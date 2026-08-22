@@ -19,7 +19,7 @@ import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { cx, timeAgo, ThemeToggle } from "@/components/ui";
-import { setTaskDragData } from "@/lib/task-drag";
+import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import type { HealthDto, ProjectDto, TaskSummary } from "@/lib/types";
@@ -161,6 +161,7 @@ export function Sidebar({
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
   const [projectTaskMenu, setProjectTaskMenu] = useState<ProjectTaskMenuState | null>(null);
+  const taskDragActiveRef = useRef(false);
   const projectTaskMenuHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const projectTaskMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -172,6 +173,7 @@ export function Sidebar({
       getJson<{ projects: ProjectDto[] }>("/api/projects?archived=1"),
       getJson<HealthDto>("/api/health"),
     ]);
+    if (taskDragActiveRef.current) return;
     if (projectRes.status === "fulfilled") setProjects(projectRes.value.projects);
     if (taskRes.status === "fulfilled") setTasks(taskRes.value.tasks);
     if (archivedRes.status === "fulfilled") {
@@ -213,6 +215,16 @@ export function Sidebar({
     }, intervalMs);
     return () => clearInterval(timer);
   }, [refresh, hasWorking]);
+
+  useEffect(() => {
+    const onDragEnd = (event: DragEvent) => {
+      if (!taskDragActiveRef.current && !isTaskDrag(event.dataTransfer?.types ?? [])) return;
+      taskDragActiveRef.current = false;
+      void refresh();
+    };
+    document.addEventListener("dragend", onDragEnd);
+    return () => document.removeEventListener("dragend", onDragEnd);
+  }, [refresh]);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
@@ -632,6 +644,7 @@ export function Sidebar({
                               type="button"
                               draggable={mdUp}
                               onDragStart={(event) => {
+                                taskDragActiveRef.current = true;
                                 event.dataTransfer.effectAllowed = "move";
                                 setTaskDragData(event.dataTransfer, task.id);
                               }}
