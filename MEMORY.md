@@ -1,5 +1,42 @@
 # MEMORY
 
+## 2026-08-22: 思考必須モデルの 400 フォールバック（19b5197）
+
+- `queuePrompt`（全プロンプトの共通経路）で `Reasoning is mandatory ... cannot be disabled` の 400 を検出したら、思考レベルを対応最下位（非off）に引き上げて同じプロンプトを一度だけ再試行。`live.reasoningFallbackTried` で無限ループ防止。UI へ `thinking_level_changed` スナップショット通知
+
+## 2026-08-22: Composer のエージェント選択を「メイン対話」方式へ（本家 LeafCode 準拠）（a009a37）
+
+### 変更前後
+
+| | 挙動 |
+| --- | --- |
+| 旧 | メインセッションのプロンプトに「サブエージェント『X』に委譲せよ」指示を前置き（decoratePrompt）→ 対話者はメインのまま、subagent ツールで呼ばせるだけ。agent 選択時は subagentPermission を強制 allow |
+| 新 | 選択した pi-subagents エージェント定義を DefaultResourceLoader へ適用し、**その人格がタスク全体の対話者になる**（本家 OpenCode が agent の system prompt でセッションを動かす方式と同等） |
+
+### 実装
+
+- `agents.ts`: `loadAgentDefinition(name)` — user/package/builtin の .md を frontmatter+body で読む。既定値は pi-subagents 準拠（`systemPromptMode`: delegate 以外 replace / `inheritProjectContext`: delegate のみ true / `inheritSkills`: false）。enabled のみ
+- `buildAgentResourceOptions(def)` → `{ systemPrompt? | appendSystemPrompt?, noContextFiles, noSkills, tools }`。body 空ならプロンプト指定なし（pi-subagents の `--system-prompt` 未付与と同じ）
+- `harness.createSession({ agentName })`: resourceLoader options に反映（replace→`systemPrompt`、append→`appendSystemPrompt`、noContextFiles/noSkills、tools allowlist 優先）
+- `decoratePrompt` 廃止。agent 選択による subagentPermission 強制 allow も廃止（委譲許可は SubagentPermissionSelect 独立に戻った）
+- `TaskSummary.agent` を永続化（store insert/patch）し、WebUI 再オープン（ensureLive）でも人格復元。hang-watchdog 再送も agent メタ維持
+- AgentSelect に「エージェント」（value=""）option 追加 → デフォルト persona へ戻せる
+
+### 制限（意図的）
+
+- follow-up（TaskView）での途中切替は不可。system prompt はセッション作成時に固定（DefaultResourceLoader の source は private で差し替え不能）。切替は新規タスクで
+- エージェント定義の model/thinking は未適用（UI モデル選択を常に優先）
+
+### 検証
+
+- web vitest **385 passed** / tsc OK / eslint（変更ファイル）警告なし
+
+## 2026-08-22: モデルドロップダウンに CodexBar 使用率連動（赤文字/グレーアウト）
+
+- `/api/models` BFF が `fetchNativeUsage()`（~5分キャッシュ + 2.5s AbortSignal タイムアウト、失敗しても一覧は返す）を呼び、`map.ts` の `CODEXBAR_PROVIDER_MAP`（pi プロバイダID→codexbar ID: anthropic→claude, openai-codex→codex, cursor→cursor 等）経由で各 ModelOption へ `codexbarUsedPercent` / `codexbarMaxed` を付与
+- `ModelSelect`: 使用率 ≥75% で行ラベル赤文字（text-danger）、`maxed`（≥99.5%）でグレーアウト+選択不可+「100%」表示、トリガーの選択中モデルも接近時赤文字
+- 注意: UI 側（ModelSelect/types）は並列セッションの「サービス品質バッチ6」(6a14a7d) に混入コミットされた。ロジック整理分は 6334fbc。並列作業時は自分の差分範囲を git status で必ず確認
+
 ## 2026-08-22: サービス品質バッチ7（WebUI 認証・permission・browse 制限）
 
 全検証: web vitest **384 passed** / **tsc OK** / eslint 警告 1 件 / `next build` **OK** / `build-web.mjs` OK / host test **104 passed**。
