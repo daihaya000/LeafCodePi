@@ -16,6 +16,7 @@ import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { Button, GhostSelect } from "@/components/ui";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
+import { DEFAULT_AGENT, readStoredAgent, writeStoredAgent } from "@/lib/default-agent";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import {
   readSubagentPermission,
@@ -91,12 +92,16 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
     }
     if (healthRes.status === "fulfilled") setHealth(healthRes.value);
     if (agentRes.status === "fulfilled") {
-      setAgents(agentRes.value.agents.filter((a) => a.enabled).map((a) => a.name));
-      setAgent((current) =>
-        current && agentRes.value.agents.some((a) => a.name === current && a.enabled)
-          ? current
-          : "",
-      );
+      const enabledAgents = agentRes.value.agents.filter((a) => a.enabled).map((a) => a.name);
+      setAgents(enabledAgents);
+      setAgent((current) => {
+        if (current && enabledAgents.includes(current)) return current;
+        const stored = readStoredAgent();
+        if (stored && enabledAgents.includes(stored)) return stored;
+        // 本家 LeafCode と同じく build を既定対話者にする。
+        if (enabledAgents.includes(DEFAULT_AGENT)) return DEFAULT_AGENT;
+        return "";
+      });
     }
     setLoaded(true);
   }, []);
@@ -326,7 +331,10 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                       value={agent}
                       agents={agents}
                       disabled={submitting}
-                      onChange={setAgent}
+                      onChange={(value) => {
+                        setAgent(value);
+                        writeStoredAgent(value);
+                      }}
                       className="min-w-0 max-w-[8rem] shrink sm:max-w-40"
                     />
                   )}

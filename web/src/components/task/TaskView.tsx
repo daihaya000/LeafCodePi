@@ -34,6 +34,7 @@ import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
+import { writeStoredAgent } from "@/lib/default-agent";
 import { isNearBottom, nextStickState } from "@/lib/scroll-stick";
 import {
   readScrollButtonOpacity,
@@ -234,6 +235,8 @@ export function TaskView({
     setContextUsage(detail.contextUsage);
     setIsCompacting(Boolean(detail.isCompacting));
     setPermissionRequest(detail.permissionRequest ?? null);
+    // セッション人格は作成時固定。タスクに紐づくエージェントを選択状態へ反映する。
+    setAgent((current) => current || detail.agent || "");
   }, []);
 
   const notifySidebarIfNeeded = useCallback((snapshotTask?: TaskSummary | TaskDetail | null) => {
@@ -1377,7 +1380,10 @@ export function TaskView({
                   value={agent}
                   agents={agents}
                   disabled={working || compacting}
-                  onChange={setAgent}
+                  onChange={(value) => {
+                    setAgent(value);
+                    writeStoredAgent(value);
+                  }}
                   className="min-w-0 max-w-[8rem] sm:max-w-40"
                 />
               )}

@@ -797,6 +797,9 @@ async function createSession(options: {
   const bundled = bundledExtensionEntries();
   const bundledNames = new Set(bundled.map((entry) => entry.name));
   const bundledPaths = new Set(bundled.map((entry) => entry.filePath));
+  // The bundled leafcode-subagents fork replaces the npm pi-subagents package:
+  // drop the npm extension so the `subagent` tool is never registered twice.
+  const forkOwnsSubagents = bundledNames.has("leafcode-subagents");
   // Selected agent becomes the main persona: its system prompt replaces (or
   // appends to) the base prompt, and context files / skills follow the agent's
   // inherit flags — mirroring how pi-subagents launches child sessions.
@@ -818,7 +821,9 @@ async function createSession(options: {
       ...base,
       extensions: filterExtensionsByState(
         base.extensions.filter(
-          (extension) => !bundledNames.has(basenameKey(extension.path)) || bundledPaths.has(resolve(extension.path)),
+          (extension) =>
+            !(forkOwnsSubagents && basenameKey(extension.path) === "pi-subagents") &&
+            (!bundledNames.has(basenameKey(extension.path)) || bundledPaths.has(resolve(extension.path))),
         ),
       ),
     }),

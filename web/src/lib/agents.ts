@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 import YAML from "yaml";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { readPiSettings } from "@/lib/extensions";
-import { resolvePackageDir } from "@/lib/extensions";
+import { bundledExtensionsDir, resolvePackageDir } from "@/lib/extensions";
 
 export type AgentDto = {
   id: string;
@@ -172,6 +172,17 @@ function discoverPackageAgentDirs(agentDir: string): string[] {
   return dirs;
 }
 
+/**
+ * agents/ shipped inside the bundled leafcode-subagents fork. Listed before
+ * the npm package dirs so the fork's builtin agents win same-name collisions.
+ */
+function bundledForkAgentsDir(): string | null {
+  const root = bundledExtensionsDir();
+  if (!root) return null;
+  const dir = join(root, "leafcode-subagents", "agents");
+  return existsSync(dir) ? dir : null;
+}
+
 export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
   const userDir = agentsDir(agentDir);
   const settings = readSettings(agentDir);
@@ -195,7 +206,10 @@ export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
   };
 
   // User agents take precedence over package/builtin same-name collisions.
+  // The in-repo fork comes before installed packages so its builtins win.
   push("user", userDir);
+  const forkDir = bundledForkAgentsDir();
+  if (forkDir) push("package", forkDir);
   for (const pkgDir of discoverPackageAgentDirs(agentDir)) push("package", pkgDir);
 
   const agents = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name, "en"));
