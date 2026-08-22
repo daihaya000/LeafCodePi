@@ -10,9 +10,11 @@ import {
   isSafeLlamaPathValue,
   LLAMA_SERVER_EFFORTS,
   LLAMA_SERVER_HOSTS,
+  LLAMA_SERVER_SPEC_TYPES,
   resolveLlamaServerBin,
   type LlamaServerEffort,
   type LlamaServerHost,
+  type LlamaServerSpecType,
 } from "@/lib/llama-server-settings";
 
 export const runtime = "nodejs";
@@ -28,6 +30,7 @@ type StartBody = {
   modelDir?: string;
   modelFile?: string;
   llamaServerHost?: LlamaServerHost;
+  specType?: LlamaServerSpecType;
 };
 
 function parseAction(raw: string): HostLlamaServerAction | null {
@@ -89,6 +92,15 @@ function parseStartBody(value: unknown): StartBody | null {
       return null;
     }
     config.llamaServerHost = raw.llamaServerHost as LlamaServerHost;
+  }
+  if (raw.specType !== undefined) {
+    if (
+      typeof raw.specType !== "string" ||
+      !LLAMA_SERVER_SPEC_TYPES.includes(raw.specType as LlamaServerSpecType)
+    ) {
+      return null;
+    }
+    config.specType = raw.specType as LlamaServerSpecType;
   }
   if (config.modelFile !== undefined && config.modelDir === undefined) return null;
   return config;

@@ -5,6 +5,7 @@ import {
   isSafeLlamaModelFile,
   isSafeLlamaPathValue,
   LLAMA_SERVER_EFFORTS,
+  LLAMA_SERVER_SPEC_TYPES,
   parseLlamaServerSettings,
   resolveLlamaServerBin,
   serializeLlamaServerSettings,
@@ -58,6 +59,7 @@ describe("llama-server-settings", () => {
       modelDir: "D:\\models\\llm",
       modelFile: "repoA\\model-Q4_K_S.gguf",
       llamaServerHost: "0.0.0.0" as const,
+      specType: "draft-mtp" as const,
     };
     const raw = serializeLlamaServerSettings(settings);
     expect(parseLlamaServerSettings(raw)).toEqual(settings);
@@ -74,7 +76,18 @@ describe("llama-server-settings", () => {
       modelDir: "",
       modelFile: "",
       llamaServerHost: "127.0.0.1",
+      specType: "",
     });
+  });
+
+  it("accepts only the known speculative decoding types", () => {
+    expect(LLAMA_SERVER_SPEC_TYPES).toEqual(["", "draft-mtp"]);
+    const base = { effort: "low", contextLength: 4096, parallel: 1 };
+    expect(isLlamaServerSettings(base)).toBe(true);
+    expect(isLlamaServerSettings({ ...base, specType: "" })).toBe(true);
+    expect(isLlamaServerSettings({ ...base, specType: "draft-mtp" })).toBe(true);
+    expect(isLlamaServerSettings({ ...base, specType: "ngram-simple" })).toBe(false);
+    expect(isLlamaServerSettings({ ...base, specType: 'evil" & calc' })).toBe(false);
   });
 
   it("rejects a path value cmd.exe could reinterpret", () => {

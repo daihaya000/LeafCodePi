@@ -28,6 +28,13 @@ if not defined SAMPLING_TEMP set "SAMPLING_TEMP=0.6"
 if not defined TOP_P set "TOP_P=0.95"
 if not defined TOP_K set "TOP_K=20"
 if not defined LLAMA_SERVER_BIN set "LLAMA_SERVER_BIN=C:\tools\llama.cpp\llama-server.exe"
+rem Speculative decoding type (e.g. draft-mtp). Leave empty for GGUFs without
+rem MTP tensors (e.g. Ornith-1.5 AtomicChat builds) - they fail to load with
+rem --spec-type draft-mtp. Qwen3.5-class dense builds (nextn_predict_layers=1,
+rem e.g. Qwen3.8-27B) gain ~10x decode speed from draft-mtp.
+if not defined SPEC_TYPE set "SPEC_TYPE="
+set "SPEC_ARGS="
+if not "%SPEC_TYPE%"=="" set "SPEC_ARGS=--spec-type %SPEC_TYPE%"
 rem Shared perf + sampling flags: FlashAttention on (Ornith-1.5 / Qwen3 recommended),
 rem server-side sampling defaults (clients may still override per request).
 set "PERF_ARGS=-fa on --temp %SAMPLING_TEMP% --top-p %TOP_P% --top-k %TOP_K%"
@@ -41,6 +48,7 @@ if /i "%~1"=="/dry-run" (
   echo [DRY-RUN] parallel=%PARALLEL%
   echo [DRY-RUN] effort=%REASONING_EFFORT%
   echo [DRY-RUN] sampling=temp %SAMPLING_TEMP% top-p %TOP_P% top-k %TOP_K%
+  echo [DRY-RUN] spec=%SPEC_TYPE%
   echo [DRY-RUN] endpoint=http://127.0.0.1:%SERVER_PORT%/v1
   exit /b 0
 )
@@ -80,11 +88,11 @@ echo [llama-server] Starting single-model ^(alias %MODEL_ALIAS%, context %CONTEX
 rem Ornith-1.5 and other GGUFs without a reasoning_effort template kwarg must
 rem start with REASONING_EFFORT empty (plain mode).
 if not "%REASONING_EFFORT%"=="" goto :single_model_kwargs
-start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 -ub %UBATCH% %PERF_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 -ub %UBATCH% %PERF_ARGS% %SPEC_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
 goto :wait_health
 
 :single_model_kwargs
-start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 -ub %UBATCH% %PERF_ARGS% --jinja --chat-template-kwargs "{\"reasoning_effort\":\"%REASONING_EFFORT%\"}" >> "%LLAMA_SERVER_LOG%" 2>&1"
+start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 -ub %UBATCH% %PERF_ARGS% %SPEC_ARGS% --jinja --chat-template-kwargs "{\"reasoning_effort\":\"%REASONING_EFFORT%\"}" >> "%LLAMA_SERVER_LOG%" 2>&1"
 goto :wait_health
 
 :router_mode
@@ -96,7 +104,7 @@ if not exist "%MODEL_DIR%" (
 echo [llama-server] Starting router mode ^(models-dir, context %CONTEXT_LENGTH%^)...
 rem Do not pass --no-models-autoload: we want a model available for chat after start.
 rem ensure-loaded.mjs still POST /models/load if the catalog stays unloaded.
-start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 -ub %UBATCH% %PERF_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 -ub %UBATCH% %PERF_ARGS% %SPEC_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
 goto :wait_health
 
 :wait_health

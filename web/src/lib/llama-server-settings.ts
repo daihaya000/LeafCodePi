@@ -3,6 +3,12 @@ export const LLAMA_SERVER_SETTINGS_KEY = "llama-server-config";
 export const LLAMA_SERVER_EFFORTS = ["low", "medium", "xhigh"] as const;
 export type LlamaServerEffort = (typeof LLAMA_SERVER_EFFORTS)[number];
 
+/** Speculative decoding types for the bat's SPEC_TYPE env. "" = disabled.
+ *  `draft-mtp` needs GGUFs that bundle MTP tensors (nextn_predict_layers >= 1,
+ *  e.g. Qwen3.5-class dense builds); models without them fail to load. */
+export const LLAMA_SERVER_SPEC_TYPES = ["", "draft-mtp"] as const;
+export type LlamaServerSpecType = (typeof LLAMA_SERVER_SPEC_TYPES)[number];
+
 /** Bind addresses llama-server may listen on. `127.0.0.1` is the loopback-only
  *  default; `0.0.0.0` also serves LAN/Tailscale clients. */
 export const LLAMA_SERVER_HOSTS = ["127.0.0.1", "0.0.0.0"] as const;
@@ -20,6 +26,8 @@ export type LlamaServerSettings = {
   modelFile: string;
   /** バインド先。127.0.0.1 = このPCのみ / 0.0.0.0 = LAN・Tailscale からも可。 */
   llamaServerHost: LlamaServerHost;
+  /** 推測デコード。"draft-mtp" は MTP テンソル込み GGUF（Qwen3.5系 dense 等）専用。 */
+  specType?: LlamaServerSpecType;
 };
 
 export const DEFAULT_LLAMA_SERVER_SETTINGS: LlamaServerSettings = {
@@ -30,6 +38,7 @@ export const DEFAULT_LLAMA_SERVER_SETTINGS: LlamaServerSettings = {
   modelDir: "",
   modelFile: "",
   llamaServerHost: "127.0.0.1",
+  specType: "",
 };
 
 export const LLAMA_SERVER_PATH_MAX_CHARS = 400;
@@ -93,7 +102,9 @@ export function isLlamaServerSettings(value: unknown): boolean {
     (candidate.modelDir === undefined || isSafeLlamaPathValue(candidate.modelDir)) &&
     (candidate.modelFile === undefined || isSafeLlamaModelFile(candidate.modelFile)) &&
     (candidate.llamaServerHost === undefined ||
-      LLAMA_SERVER_HOSTS.includes(candidate.llamaServerHost as LlamaServerHost))
+      LLAMA_SERVER_HOSTS.includes(candidate.llamaServerHost as LlamaServerHost)) &&
+    (candidate.specType === undefined ||
+      LLAMA_SERVER_SPEC_TYPES.includes(candidate.specType as LlamaServerSpecType))
   );
 }
 

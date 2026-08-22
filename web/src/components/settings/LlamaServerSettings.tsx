@@ -7,8 +7,10 @@ import { isLoopbackHost } from "@/lib/loopback";
 import {
   DEFAULT_LLAMA_SERVER_SETTINGS,
   LLAMA_SERVER_EFFORTS,
+  LLAMA_SERVER_SPEC_TYPES,
   type LlamaServerEffort,
   type LlamaServerSettings,
+  type LlamaServerSpecType,
   parseLlamaServerSettings,
 } from "@/lib/llama-server-settings";
 
@@ -424,7 +426,7 @@ export function LlamaServerSettings() {
             </span>
           </label>
         </div>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="block">
             <span className="mb-1 block text-sm text-muted">reasoning_effort</span>
             <select
@@ -441,6 +443,29 @@ export function LlamaServerSettings() {
                 </option>
               ))}
             </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm text-muted">speculative decoding</span>
+            <select
+              value={config.specType ?? ""}
+              disabled={actionBusy !== null}
+              onChange={(e) =>
+                setConfig((c) => ({
+                  ...c,
+                  specType: e.target.value as LlamaServerSpecType,
+                }))
+              }
+              className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
+            >
+              {LLAMA_SERVER_SPEC_TYPES.map((spec) => (
+                <option key={spec || "off"} value={spec}>
+                  {spec === "" ? "なし" : spec}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-[11px] text-faint">
+              draft-mtp は MTP テンソル込み GGUF（Qwen3.5系 dense 等）専用
+            </span>
           </label>
           <label className="block">
             <span className="mb-1 block text-sm text-muted">context_length</span>
