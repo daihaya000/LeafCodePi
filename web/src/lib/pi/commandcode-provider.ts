@@ -29,7 +29,7 @@ export function resolveCommandCodeExtensionEntry(
     /* fall through to cwd candidates */
   }
   for (const file of candidates) {
-    if (existsSync(file)) return file;
+    if (existsSync(/* turbopackIgnore: true */ file)) return file;
   }
   return null;
 }

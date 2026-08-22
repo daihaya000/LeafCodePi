@@ -139,7 +139,7 @@ function openSqliteReadonlyCopy(dbPath: string): {
     // Chrome also uses -wal/-shm; best-effort copy
     for (const suffix of ["-wal", "-shm"]) {
       const side = `${dbPath}${suffix}`;
-      if (existsSync(side)) {
+      if (existsSync(/* turbopackIgnore: true */ side)) {
         try {
           copyFileSync(side, `${tmp}${suffix}`);
         } catch {

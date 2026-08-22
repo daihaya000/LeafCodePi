@@ -81,7 +81,7 @@ function tokenIssuedAt(accessToken: string): number {
 function tryLoadAccessTokenFromAuthJson(): string | null {
   try {
     const path = authJsonPath();
-    if (!existsSync(path)) return null;
+    if (!existsSync(/* turbopackIgnore: true */ path)) return null;
     const root = asRecord(JSON.parse(readFileSync(path, "utf8")));
     const at = root?.accessToken;
     return typeof at === "string" && at.trim() ? at : null;
@@ -125,7 +125,7 @@ function readItemFromDbCopy(dbPath: string, key: string): string | null {
     copyFileSync(dbPath, tmp);
     for (const suffix of ["-wal", "-shm"]) {
       const side = dbPath + suffix;
-      if (existsSync(side)) {
+      if (existsSync(/* turbopackIgnore: true */ side)) {
         try {
           copyFileSync(side, tmp + suffix);
         } catch {
@@ -139,7 +139,7 @@ function readItemFromDbCopy(dbPath: string, key: string): string | null {
   } finally {
     for (const p of [tmp, tmp + "-wal", tmp + "-shm"]) {
       try {
-        if (existsSync(p)) unlinkSync(p);
+        if (existsSync(/* turbopackIgnore: true */ p)) unlinkSync(p);
       } catch {
         /* ignore */
       }
@@ -149,7 +149,7 @@ function readItemFromDbCopy(dbPath: string, key: string): string | null {
 
 function tryLoadAccessTokenFromStateDb(): string | null {
   const path = stateDbPath();
-  if (!existsSync(path)) return null;
+  if (!existsSync(/* turbopackIgnore: true */ path)) return null;
   try {
     return readItemFromDb(path, "cursorAuth/accessToken");
   } catch {
@@ -159,7 +159,7 @@ function tryLoadAccessTokenFromStateDb(): string | null {
 
 function readItem(key: string): string | null {
   const path = stateDbPath();
-  if (!existsSync(path)) return null;
+  if (!existsSync(/* turbopackIgnore: true */ path)) return null;
   try {
     return readItemFromDb(path, key);
   } catch {
@@ -330,7 +330,7 @@ export const cursorProvider: IUsageProvider = {
     try {
       return loadCandidateAccessTokens().length > 0;
     } catch {
-      return existsSync(stateDbPath()) || existsSync(authJsonPath());
+      return existsSync(/* turbopackIgnore: true */ stateDbPath()) || existsSync(/* turbopackIgnore: true */ authJsonPath());
     }
   },
   async fetch(signal) {

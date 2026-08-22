@@ -147,6 +147,9 @@ type HarnessState = {
 
 const GLOBAL_KEY = "__leafcodePiHarness" as const;
 
+/** Coalesce concurrent ensureLive(taskId) so only one Pi session is created. */
+const ensureLiveInflight = new Map<string, Promise<LiveRuntime>>();
+
 type PermissionPromptService = ReturnType<typeof createPermissionPromptService>;
 let permissionPromptService: PermissionPromptService | null = null;
 
@@ -214,8 +217,8 @@ function packageVersion(): string | null {
       join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "node_modules", "@earendil-works", "pi-coding-agent", "package.json"),
     ];
     for (const pkgPath of candidates) {
-      if (!existsSync(pkgPath)) continue;
-      const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: string };
+      if (!existsSync(/* turbopackIgnore: true */ pkgPath)) continue;
+      const pkg = JSON.parse(readFileSync(/* turbopackIgnore: true */ pkgPath, "utf8")) as { version?: string };
       if (pkg.version) return pkg.version;
     }
     return null;
@@ -667,6 +670,10 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
   const current = state();
   const existing = current.live.get(taskId);
   existing?.unsubscribe();
+  const replacedSession = existing?.session;
+  if (replacedSession && replacedSession !== session) {
+    replacedSession.dispose();
+  }
 
   const loaded = existing
     ? null
@@ -850,25 +857,41 @@ async function ensureLive(taskId: string): Promise<LiveRuntime> {
   const current = state();
   const existing = current.live.get(taskId);
   if (existing) return existing;
-  const task = getTask(taskId);
-  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  const project = getProject(task.projectId);
-  const cwd = project?.rootPath ?? task.directory;
-  const model = await resolveModel(
-    task.providerID && task.modelID ? modelValue(task.providerID, task.modelID) : undefined,
-  );
-  const session = await createSession({
-    cwd,
-    sessionFile: task.sessionFile,
-    model,
-    thinkingLevel: task.thinkingLevel,
+
+  const inflight = ensureLiveInflight.get(taskId);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const again = state().live.get(taskId);
+    if (again) return again;
+
+    const task = getTask(taskId);
+    if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+    const project = getProject(task.projectId);
+    const cwd = project?.rootPath ?? task.directory;
+    const model = await resolveModel(
+      task.providerID && task.modelID ? modelValue(task.providerID, task.modelID) : undefined,
+    );
+    const session = await createSession({
+      cwd,
+      sessionFile: task.sessionFile,
+      model,
+      thinkingLevel: task.thinkingLevel,
+    });
+    patchTask(taskId, {
+      sessionId: session.sessionId,
+      sessionFile: session.sessionFile,
+      ...modelId(session.model),
+    });
+    return attachSession(taskId, session);
+  })().finally(() => {
+    if (ensureLiveInflight.get(taskId) === promise) {
+      ensureLiveInflight.delete(taskId);
+    }
   });
-  patchTask(taskId, {
-    sessionId: session.sessionId,
-    sessionFile: session.sessionFile,
-    ...modelId(session.model),
-  });
-  return attachSession(taskId, session);
+
+  ensureLiveInflight.set(taskId, promise);
+  return promise;
 }
 
 function validateProjectPath(rootPath: string): { ok: true; path: string } | { ok: false; error: string } {
@@ -1621,7 +1644,7 @@ export async function unrevertTask(id: string): Promise<TaskDetail> {
   }
   live.revertLeafId = null;
   await live.session.navigateTree(target);
-  const taskDetail = getTaskDetail(id);
+  const taskDetail = await getTaskDetail(id);
   emit(id, {
     type: "snapshot",
     task: toSummary(getTask(id)!),

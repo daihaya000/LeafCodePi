@@ -7,8 +7,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function installationRoot(): string {
-  // web/src/app/api/llama-server/models -> repo root
-  return path.resolve(process.cwd(), process.cwd().endsWith(`${path.sep}web`) ? ".." : ".");
+  // web/src/app/api/llama-server/models -> repo root (dev) or mirror root (prod)
+  return path.resolve(
+    /* turbopackIgnore: true */ process.cwd(),
+    process.cwd().endsWith(`${path.sep}web`) ? ".." : ".",
+  );
 }
 
 function batDefaultModel(): string | null {
@@ -97,10 +100,10 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const resolved = path.resolve(dir);
+  const resolved = path.resolve(/* turbopackIgnore: true */ dir);
   let stats: fs.Stats;
   try {
-    stats = fs.statSync(resolved);
+    stats = fs.statSync(/* turbopackIgnore: true */ resolved);
   } catch {
     return NextResponse.json({ error: "モデル保存先が見つかりません" }, { status: 404 });
   }

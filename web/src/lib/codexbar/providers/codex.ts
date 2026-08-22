@@ -252,7 +252,7 @@ function tryLoadFromSessionLogs(): UsageSnapshot | null {
     const home = codexHome();
     const candidates: { path: string; mtime: number }[] = [];
     for (const dir of [join(home, "sessions"), join(home, "archived_sessions")]) {
-      if (!existsSync(dir)) continue;
+      if (!existsSync(/* turbopackIgnore: true */ dir)) continue;
       const walk = (d: string) => {
         for (const name of readdirSync(d)) {
           const p = join(d, name);

@@ -1,5 +1,30 @@
 # MEMORY
 
+## 2026-08-22: サービス品質バッチ6（Turbopack trace・ensureLive レース・models usage）
+
+全検証: web vitest **377 passed** / **tsc OK** / eslint 警告 1 件（no-img-element）/ `next build` **警告 0** / host test **100 passed**。
+
+### 修正
+
+| 領域 | 問題 | 修正 |
+| --- | --- | --- |
+| Turbopack build | dynamic fs trace 警告 12 件 → プロジェクト全体トレース | 動的 `path`/`fs` 呼び出しに `/* turbopackIgnore: true */`（8 ファイル） |
+| ensureLive | 同一タスク並行オープンで Pi セッション二重生成・リーク | per-task `ensureLiveInflight` + `attachSession` で旧 session dispose |
+| unrevertTask | `getTaskDetail` 未 await で SSE snapshot が不完全 | `await getTaskDetail(id)` に統一 |
+| `/api/models` | CodexBar コールド fetch が最大 ~30s ブロック | `AbortSignal.timeout(2500)` best-effort |
+| ModelSelect | プロバイダー使用率が UI に未反映 | CodexBar usage 付与 + 75% 赤 / 100% 無効化 |
+
+### 新規テスト
+
+- `web/src/app/api/models/route.test.ts` — `attachCodexBarUsage`, `CODEXBAR_PROVIDER_MAP`
+- `web/src/components/ModelSelect.test.ts` — `modelNearLimit`, `modelLimitReached`
+
+### 残存（既知・次バッチ候補）
+
+- Tailscale/LAN 公開時 WebUI 無認証（loopback 推奨を README/MEMORY に明記済み想定）
+- permission `deny` は危険パターンのみブロック（UI ラベルとセマンティクス要確認）
+- permission 連続要求時、未回答分を auto-deny（fail-closed だが UX 改善余地）
+
 ## 2026-08-22: サービス品質向けバグ修正バッチ
 
 全検証: web vitest **364 passed** / tsc OK / eslint 1 warning（no-img-element のみ）/ `next build` OK / host test **95 passed**。

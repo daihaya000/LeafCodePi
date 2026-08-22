@@ -161,6 +161,10 @@ export type ModelOption = {
   input?: string[];
   reasoning?: boolean;
   thinkingLevels?: ThinkingLevel[];
+  /** CodexBar usage percent (0..100+) of the backing provider, when known. */
+  codexbarUsedPercent?: number | null;
+  /** True when the provider hit its rate limit (usage >= 99.5%). */
+  codexbarMaxed?: boolean;
 };
 
 export type HealthDto = {

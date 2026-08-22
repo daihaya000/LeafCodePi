@@ -70,7 +70,7 @@ async function readSnapshotFileFallback(
 ): Promise<CodexBarUsage | null> {
   const file = snapshotFilePath();
   try {
-    let text = await fs.readFile(file, "utf8");
+    let text = await fs.readFile(/* turbopackIgnore: true */ file, "utf8");
     if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
     const json: unknown = JSON.parse(text);
     const usage = parseCodexBarSnapshot(json);

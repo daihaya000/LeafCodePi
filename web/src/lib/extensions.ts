@@ -234,13 +234,13 @@ function discoverPackageExtensions(agentDir: string): DiscoveredEntry[] {
   const entries: DiscoveredEntry[] = [];
   for (const source of settings.packages ?? []) {
     const pkgDir = resolvePackageDir(source, agentDir);
-    if (!pkgDir || !existsSync(pkgDir)) continue;
+    if (!pkgDir || !existsSync(/* turbopackIgnore: true */ pkgDir)) continue;
     const manifestExtensions = readPiManifestExtensions(pkgDir);
     if (manifestExtensions.length === 0) continue;
     const packageName = basename(pkgDir);
     for (const rel of manifestExtensions) {
-      const resolved = join(pkgDir, rel);
-      if (existsSync(resolved)) {
+      const resolved = join(/* turbopackIgnore: true */ pkgDir, rel);
+      if (existsSync(/* turbopackIgnore: true */ resolved)) {
         entries.push({ name: packageName, filePath: resolved });
       }
     }
