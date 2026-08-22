@@ -48,6 +48,21 @@
 - `web/src/lib/pi/permission-prompt.ts` + test
 - `web/src/app/api/tasks/[id]/permission/route.ts`
 
+## 2026-08-22: サービス品質バッチ3（permission 永続化・SSE・build exit）
+
+全検証: web vitest **368 passed** / host test **97 passed**。
+
+### 修正
+
+| 領域 | 問題 | 修正 |
+| --- | --- | --- |
+| permission mode | lazy-load で disk の mode が `"ask"` に上書き | `readPermissionGateConfig` + 明示指定時のみ persist |
+| PermissionSelect | localStorage のみ | `POST /api/tasks/:id/permission-mode` |
+| build-web | handoff `"manual"` でも exit 0 | `main()` が 1 を返す |
+| SSE | 404/503 後も無限再接続 | サーバー `event: error` で再接続停止 |
+| initPromise | 初期化失敗が永久化 | 失敗時 `initPromise = null` |
+| stale build | `extensions/` 未監視 | `isWebBuildStale` に sibling `extensions/` |
+
 ## 2026-08-22: 無言終了対策（本家 LeafCode 移植）
 
 本家 OpenCode 版 LeafCode の `aborted-resume.ts` / サーバー側 `hang-watchdog.ts` / TaskView 再開 UI を Pi 向けに移植。
