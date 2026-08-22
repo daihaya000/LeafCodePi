@@ -1,7 +1,17 @@
 "use client";
 
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, GitGraph, PanelRight, Shrink, Square } from "lucide-react";
+import {
+  ArrowUp,
+  ChevronDown,
+  ChevronUp,
+  ChevronsDown,
+  ChevronsUp,
+  GitGraph,
+  PanelRight,
+  Shrink,
+  Square,
+} from "lucide-react";
 import { Composer, type ComposerAttachment } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { pasteImage } from "@/lib/clipboard-image";
@@ -105,6 +115,12 @@ export function TaskView({ taskId }: { taskId: string }) {
   const stickRef = useRef(true);
   const lastScrollTopRef = useRef(0);
   const scrollRafRef = useRef<number | null>(null);
+  // ユーザーメッセージ間をジャンプするナビゲーター（本家 LeafCode と同じ）。
+  // 描画済みメッセージ要素と「今どのユーザーメッセージを見ているか」を保持する。
+  const messageElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const currentUserIdxRef = useRef(0);
+  // onScroll の deps を安定させるため、id 一覧を ref にミラーする（本家と同じ）。
+  const userMessageIdsRef = useRef<string[]>([]);
   const sidebarNotifyKeyRef = useRef("");
 
   const applyDetail = useCallback((detail: TaskDetail) => {
@@ -231,6 +247,41 @@ export function TaskView({ taskId }: { taskId: string }) {
     const prevTop = lastScrollTopRef.current;
     lastScrollTopRef.current = el.scrollTop;
     stickRef.current = nextStickState(stickRef.current, el.scrollTop, prevTop, atBottom);
+    // ビューポート上端に来ているユーザーメッセージを追跡し、前後ジャンプの
+    // 基準にする（本家と同じ incremental スキャン）。
+    const ids = userMessageIdsRef.current;
+    if (ids.length > 0 && messageElsRef.current.size > 0) {
+      const line = el.scrollTop + 4;
+      let idx = currentUserIdxRef.current;
+      const topOf = (i: number) => messageElsRef.current.get(ids[i])?.offsetTop ?? Number.POSITIVE_INFINITY;
+      while (idx < ids.length && topOf(idx) < line) idx += 1;
+      while (idx > 0 && topOf(idx - 1) >= line) idx -= 1;
+      currentUserIdxRef.current = Math.min(Math.max(idx, 0), ids.length - 1);
+    }
+  }, []);
+
+  // 指定インデックスのユーザーメッセージへスムーズスクロールする。
+  // id 一覧は後段で宣言されるため ref 経由で参照する（本家と同じ TDZ 回避）。
+  const jumpToUserMessage = useCallback((index: number) => {
+    const el = scrollRef.current;
+    const targetEl = messageElsRef.current.get(userMessageIdsRef.current[index]);
+    if (!el || !targetEl) return;
+    const line = el.scrollTop + 4;
+    el.scrollTo({
+      top: el.scrollTop + targetEl.offsetTop - line,
+      behavior: "smooth",
+    });
+    currentUserIdxRef.current = index;
+    stickRef.current = false;
+  }, []);
+
+  // 最新位置（タイムライン最下部）へ戻り、追従モードを復帰する。
+  const jumpToLatest = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    currentUserIdxRef.current = Math.max(0, userMessageIdsRef.current.length - 1);
+    stickRef.current = true;
   }, []);
 
   useEffect(() => {
@@ -387,6 +438,13 @@ export function TaskView({ taskId }: { taskId: string }) {
   // 本家 LeafCode と同じく、メタ行の effort はタスクの現在値を表示する。
   const effortLabel =
     thinkingLevels.length > 1 ? thinkingLevelLabel(thinkingValue) : undefined;
+
+  // ナビゲーターのジャンプ対象: ユーザーメッセージの id 一覧（時系列順）。
+  const userMessageIds = useMemo(
+    () => messages.filter((message) => message.role === "user").map((message) => message.id),
+    [messages],
+  );
+  userMessageIdsRef.current = userMessageIds;
 
   // ヘッダー表示用の会話統計: 合計出力 tok / 平均 tok/s / 合計生成時間。
   const stats = useMemo(() => {
@@ -551,25 +609,32 @@ export function TaskView({ taskId }: { taskId: string }) {
           </div>
         </div>
       </header>
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
         <div
           ref={scrollRef}
           onScroll={onScroll}
           className="min-h-0 flex-1 overflow-y-auto px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4"
         >
-          <div ref={contentRef} className="mx-auto flex max-w-5xl flex-col gap-4">
+          <div ref={contentRef} className="relative mx-auto flex max-w-5xl flex-col gap-4">
             {messages.map((message) => (
-              <PartView
+              <div
                 key={message.id}
-                message={message}
-                modelLabel={
-                  message.provider && message.model
-                    ? modelLabels[`${message.provider}::${message.model}`]
-                    : undefined
-                }
-                effort={message.role === "assistant" ? effortLabel : undefined}
-                taskId={taskId}
-              />
+                ref={(el) => {
+                  if (el) messageElsRef.current.set(message.id, el);
+                  else messageElsRef.current.delete(message.id);
+                }}
+              >
+                <PartView
+                  message={message}
+                  modelLabel={
+                    message.provider && message.model
+                      ? modelLabels[`${message.provider}::${message.model}`]
+                      : undefined
+                  }
+                  effort={message.role === "assistant" ? effortLabel : undefined}
+                  taskId={taskId}
+                />
+              </div>
             ))}
             {working && <WorkingRow messages={messages} />}
             {task?.todos && <TodoProgressPanel todos={task.todos} />}
@@ -578,6 +643,61 @@ export function TaskView({ taskId }: { taskId: string }) {
             )}
           </div>
         </div>
+        {/* ユーザーメッセージ間を移動するナビゲーター（本家 LeafCode と同じ）。 */}
+        {userMessageIds.length > 0 && (
+          <div className="absolute right-4 bottom-4 z-50 flex flex-col gap-2">
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label="最初のユーザーメッセージへ"
+              title="最初のユーザーメッセージへ"
+              className="h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg"
+              onClick={() => jumpToUserMessage(0)}
+            >
+              <ChevronsUp className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label="一つ前のユーザーメッセージへ"
+              title="一つ前のユーザーメッセージへ"
+              className="h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg"
+              onClick={() => {
+                const target = currentUserIdxRef.current - 1;
+                jumpToUserMessage(target >= 0 ? target : 0);
+              }}
+            >
+              <ChevronUp className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label="一つ後のユーザーメッセージへ"
+              title="一つ後のユーザーメッセージへ"
+              className="h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg"
+              onClick={() => {
+                const target = currentUserIdxRef.current + 1;
+                if (target >= userMessageIdsRef.current.length) {
+                  jumpToLatest();
+                  return;
+                }
+                jumpToUserMessage(target);
+              }}
+            >
+              <ChevronDown className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label="最新のメッセージへ"
+              title="最新のメッセージへ"
+              className="h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg"
+              onClick={jumpToLatest}
+            >
+              <ChevronsDown className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
         {graphOpen && task?.directory && (
           <div className="h-72 shrink-0 border-b border-border lg:h-auto lg:w-80 lg:border-b-0 lg:border-l">
             <GraphPanel directory={task.directory} working={working} />
