@@ -54,6 +54,24 @@ describe("thinking-levels", () => {
     expect(isThinkingLevel("turbo")).toBe(false);
   });
 
+  it("does not promote a persisted level to an expensive level", () => {
+    const qwen = fakeModel({
+      id: "qwen35",
+      reasoning: true,
+      thinkingLevelMap: {
+        off: "none",
+        minimal: null,
+        low: null,
+        medium: null,
+        high: null,
+        max: null,
+      },
+    });
+    const levels = thinkingLevelsForModel(qwen);
+    expect(levels).toEqual(["off"]);
+    expect(clampThinkingLevelForModel(qwen, "minimal")).toBe("off");
+  });
+
   it("labels off as デフォルト when shown among effort options", () => {
     expect(THINKING_LEVEL_LABELS.off).toBe("デフォルト");
     expect(thinkingLevelLabel("off")).toBe("デフォルト");

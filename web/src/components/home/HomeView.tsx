@@ -102,7 +102,12 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
 
   useEffect(() => {
     if (thinkingLevels.includes(thinkingLevel)) return;
-    setThinkingLevel(thinkingLevels[thinkingLevels.length - 1] ?? "off");
+    // Never promote an invalid persisted level to the most expensive one.
+    // Qwen does not support Ornith's `minimal`; choosing the last level here
+    // used to silently turn a model switch into xhigh and cause long loops.
+    const safeLevel = thinkingLevels.includes("off") ? "off" : (thinkingLevels[0] ?? "off");
+    setThinkingLevel(safeLevel);
+    localStorage.setItem(THINKING_KEY, safeLevel);
   }, [thinkingLevels, thinkingLevel]);
 
   useEffect(() => {

@@ -1205,9 +1205,15 @@ export async function setTaskModel(id: string, modelValueRaw: string): Promise<T
   if (!model || !parsed) throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
   await live.session.setModel(model);
   const ids = modelId(live.session.model ?? model);
-  const thinkingLevel = isThinkingLevel(live.session.thinkingLevel)
-    ? live.session.thinkingLevel
-    : clampThinkingLevelForModel(model, getTask(id)?.thinkingLevel);
+  const thinkingLevel = clampThinkingLevelForModel(
+    model,
+    isThinkingLevel(live.session.thinkingLevel)
+      ? live.session.thinkingLevel
+      : getTask(id)?.thinkingLevel,
+  );
+  if (live.session.thinkingLevel !== thinkingLevel) {
+    live.session.setThinkingLevel(thinkingLevel);
+  }
   const task = patchTask(id, {
     providerID: ids.providerID ?? parsed.providerID,
     modelID: ids.modelID ?? parsed.modelID,

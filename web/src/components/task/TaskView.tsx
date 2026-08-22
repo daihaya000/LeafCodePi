@@ -457,7 +457,7 @@ export function TaskView({
     () => selectedModel?.thinkingLevels ?? (["off"] as ThinkingLevel[]),
     [selectedModel],
   );
-  const thinkingValue: ThinkingLevel = isThinkingLevel(task?.thinkingLevel)
+  const thinkingValue: ThinkingLevel = isThinkingLevel(task?.thinkingLevel) && thinkingLevels.includes(task.thinkingLevel)
     ? task.thinkingLevel
     : thinkingLevels.includes("off")
       ? "off"
