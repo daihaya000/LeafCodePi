@@ -837,7 +837,7 @@ export function buildQwenCloudForm(
       protocol: "V2",
       productCode: "p_efm",
       feTraceId: randomUUID(),
-      feURL: dashboardUrl(region),
+      feURL: dashboardUrl(),
     },
   };
   if (api === SUBSCRIPTION_API) {
@@ -939,8 +939,8 @@ async function fetchConsoleGateway(
       Accept: "application/json, text/plain, */*",
       "X-Requested-With": "XMLHttpRequest",
       "User-Agent": USER_AGENT,
-      Origin: gatewayBaseUrl(region),
-      Referer: dashboardUrl(region),
+      Origin: gatewayBaseUrl(),
+      Referer: dashboardUrl(),
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: buildQwenCloudForm(region, secToken, api),
@@ -974,7 +974,7 @@ async function fetchFromQwenCloudConsole(
   region: QwenCloudRegion,
   signal?: AbortSignal,
 ): Promise<UsageSnapshot> {
-  const dash = dashboardUrl(region);
+  const dash = dashboardUrl();
   const cookieHeader = createCookieHeaderForUrl(session, dash);
   if (!cookieHeader) {
     throw new QwenProviderFailure(

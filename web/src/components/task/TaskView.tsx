@@ -261,6 +261,7 @@ export function TaskView({
       source = new EventSource(`/api/tasks/${taskId}/events`);
       source.addEventListener("snapshot", (event) => {
         if (closed) return;
+        if (retryCount > 0) setError(null);
         retryCount = 0;
         let payload: {
           task?: TaskDetail;
@@ -638,6 +639,17 @@ export function TaskView({
     }
   }
 
+  async function abortWorking() {
+    try {
+      setError(null);
+      const result = await sendJson<{ task: TaskSummary }>(`/api/tasks/${taskId}/abort`, {});
+      setTask((current) => (current ? { ...current, ...result.task } : current));
+      notifyTasksChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "停止に失敗しました");
+    }
+  }
+
   async function resumeTurn(target: ResumableTurn) {
     if (working || resumingTurn) return;
     setResumeTurnError(null);
@@ -954,7 +966,7 @@ export function TaskView({
               <Button
                 variant="danger"
                 size="sm"
-                onClick={() => void sendJson(`/api/tasks/${taskId}/abort`, {})}
+                onClick={() => void abortWorking()}
               >
                 <Square className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">停止</span>

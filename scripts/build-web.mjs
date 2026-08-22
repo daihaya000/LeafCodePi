@@ -122,8 +122,8 @@ export function productionWebUiIsIdle({
   try {
     pids = parseListeningPids(exec("netstat", ["-ano"], { encoding: "utf8" }), port);
   } catch {
-    // netstat unavailable: nothing can be proven, so do not block the build.
-    return true;
+    // netstat unavailable: cannot prove the port is free — fail closed.
+    return false;
   }
 
   for (const pid of pids) {

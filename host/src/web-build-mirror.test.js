@@ -221,11 +221,11 @@ test("the build guard allows a rebuild when the port is free", () => {
   assert.equal(productionWebUiIsIdle({ port: 3010, mirrorRoot: MIRROR, exec: idle }), true);
 });
 
-test("the build guard does not block when netstat is unavailable", () => {
+test("the build guard fails closed when netstat is unavailable", () => {
   const broken = () => {
     throw new Error("netstat missing");
   };
-  assert.equal(productionWebUiIsIdle({ port: 3010, mirrorRoot: MIRROR, exec: broken }), true);
+  assert.equal(productionWebUiIsIdle({ port: 3010, mirrorRoot: MIRROR, exec: broken }), false);
 });
 
 test("webUiPort falls back to 3010 for absent or invalid values", () => {

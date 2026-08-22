@@ -35,8 +35,6 @@ const DANGEROUS_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /\b(git\s+reset\s+--hard|git\s+clean\s+-fd)/i, label: "destructive git" },
 ];
 
-const PROTECTED_PATHS = [".env", ".git/", "node_modules/", ".pi/agent/auth.json", ".ssh/", ".aws/"];
-
 function configPath(cwd: string): string {
   return `${cwd}/${CONFIG_DIR}/${CONFIG_FILE}`;
 }
@@ -81,9 +79,18 @@ export function setPermissionMode(ctx: ExtensionContext, mode: PermissionMode): 
 }
 
 function isProtectedPath(path: string): { protected: boolean; reason?: string } {
-  const normalized = path.replace(/\\/g, "/");
-  for (const p of PROTECTED_PATHS) {
-    if (normalized.includes(p)) return { protected: true, reason: `protected path "${p}"` };
+  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.includes(".env")) return { protected: true, reason: 'protected path ".env"' };
+  if (segments.includes(".git")) return { protected: true, reason: 'protected path ".git/"' };
+  if (segments.includes("node_modules")) {
+    return { protected: true, reason: 'protected path "node_modules/"' };
+  }
+  if (segments.includes(".ssh")) return { protected: true, reason: 'protected path ".ssh/"' };
+  if (segments.includes(".aws")) return { protected: true, reason: 'protected path ".aws/"' };
+  const authPath = ".pi/agent/auth.json";
+  if (normalized === authPath || normalized.endsWith(`/${authPath}`)) {
+    return { protected: true, reason: `protected path "${authPath}"` };
   }
   return { protected: false };
 }
