@@ -2,39 +2,10 @@ import { NextResponse } from "next/server";
 import { listModels, jsonError } from "@/lib/pi/harness";
 import { fetchNativeUsage } from "@/lib/codexbar/orchestrator";
 import type { CodexBarProvider } from "@/lib/codexbar";
+import { attachCodexBarUsage } from "./map";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** Map pi provider id → CodexBar provider id (subset that has usage data). */
-export const CODEXBAR_PROVIDER_MAP: Record<string, string> = {
-  anthropic: "claude",
-  "openai-codex": "codex",
-  cursor: "cursor",
-  "ollama-cloud": "ollama",
-  commandcode: "commandcode",
-  "opencode-go": "opencode-go",
-  synthetic: "synthetic",
-  "qwen-cloud": "qwen-cloud",
-  openrouter: "openrouter",
-};
-
-export function attachCodexBarUsage<T extends { providerID: string }>(
-  options: T[],
-  providers: CodexBarProvider[],
-): T[] {
-  if (providers.length === 0) return options;
-  const byId = new Map(providers.map((p) => [p.id, p]));
-  return options.map((option) => {
-    const p = byId.get(CODEXBAR_PROVIDER_MAP[option.providerID]);
-    if (!p) return option;
-    return {
-      ...option,
-      codexbarUsedPercent: p.usedPercent,
-      codexbarMaxed: p.maxed,
-    };
-  });
-}
 
 /** Best-effort usage lookup; never block model listing on cold CodexBar fetches. */
 const USAGE_LOOKUP_TIMEOUT_MS = 2_500;
