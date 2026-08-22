@@ -297,7 +297,8 @@ export async function main(argv = process.argv.slice(2)) {
 
   discardPreviousBuild(mirror.distDir);
   console.error(`[build-web] build output: ${mirror.distDir}`);
-  await handOffToServedWebUi({ port });
+  const handoff = await handOffToServedWebUi({ port });
+  if (handoff === "manual") return 1;
   return 0;
 }
 

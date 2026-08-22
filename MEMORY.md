@@ -26,6 +26,9 @@
 ### 残存（次バッチ）
 
 - Turbopack dynamic fs trace 警告
+- `productionWebUiIsIdle` netstat 失敗時 fail-open
+- qwen-cloud.ts tsc エラー（既存 4 件）
+- abort ボタン無エラー処理、保護パス substring 誤検知 等 P2
 
 ## 2026-08-22: サービス品質バッチ2（handoff / control / permission ask）
 

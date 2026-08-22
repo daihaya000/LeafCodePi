@@ -318,8 +318,21 @@ export function TaskView({
         const status = snapshotTask?.status;
         if (status) onStatusRef.current?.(status);
       });
-      source.addEventListener("error", () => {
+      source.addEventListener("error", (event) => {
         if (closed) return;
+        if (event instanceof MessageEvent && typeof event.data === "string") {
+          closed = true;
+          source?.close();
+          source = null;
+          if (retryTimer) clearTimeout(retryTimer);
+          try {
+            const payload = JSON.parse(event.data) as { error?: string };
+            setError(payload.error ?? "イベント接続に失敗しました");
+          } catch {
+            setError("イベント接続に失敗しました");
+          }
+          return;
+        }
         setError((current) => current ?? "イベント接続に失敗しました");
         // Auto-reconnect: close the broken stream and retry with backoff.
         source?.close();
@@ -1117,7 +1130,11 @@ export function TaskView({
                       });
                       setPermissionRequest(null);
                     } catch (err) {
-                      setError(err instanceof Error ? err.message : "許可の送信に失敗しました");
+                      const message = err instanceof Error ? err.message : "許可の送信に失敗しました";
+                      setError(message);
+                      if (/not found|見つかりません/i.test(message)) {
+                        setPermissionRequest(null);
+                      }
                     } finally {
                       setPermissionBusy(false);
                     }
@@ -1142,7 +1159,11 @@ export function TaskView({
                       });
                       setPermissionRequest(null);
                     } catch (err) {
-                      setError(err instanceof Error ? err.message : "拒否の送信に失敗しました");
+                      const message = err instanceof Error ? err.message : "拒否の送信に失敗しました";
+                      setError(message);
+                      if (/not found|見つかりません/i.test(message)) {
+                        setPermissionRequest(null);
+                      }
                     } finally {
                       setPermissionBusy(false);
                     }
@@ -1363,6 +1384,13 @@ export function TaskView({
                 onChange={(mode) => {
                   setPermissionMode(mode);
                   writePermissionMode(mode);
+                  void (async () => {
+                    try {
+                      await sendJson(`/api/tasks/${taskId}/permission-mode`, { mode });
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "権限モードの更新に失敗しました");
+                    }
+                  })();
                 }}
                 className="h-8 shrink-0"
               />

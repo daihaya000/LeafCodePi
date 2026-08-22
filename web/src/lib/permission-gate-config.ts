@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PermissionMode } from "@/lib/permission-gate";
 
@@ -15,6 +15,17 @@ export function permissionGateConfigPath(cwd: string): string {
   return join(cwd, CONFIG_DIR, CONFIG_FILE);
 }
 
+/** Read persisted mode without writing. Matches extension default when missing. */
+export function readPermissionGateConfig(cwd: string): PermissionMode {
+  try {
+    const raw = JSON.parse(readFileSync(permissionGateConfigPath(cwd), "utf8")) as { mode?: unknown };
+    if (raw.mode === "allow" || raw.mode === "ask" || raw.mode === "deny") return raw.mode;
+  } catch {
+    /* missing or invalid */
+  }
+  return "ask";
+}
+
 /** Persist mode for the next session_start (extension reads this file on bind). */
 export function writePermissionGateConfig(cwd: string, mode: PermissionMode): void {
   const file = permissionGateConfigPath(cwd);
@@ -23,8 +34,15 @@ export function writePermissionGateConfig(cwd: string, mode: PermissionMode): vo
 }
 
 /** Apply mode to disk and the live extension session context (if loaded). */
-export function applyPermissionMode(session: AgentSession, cwd: string, mode: PermissionMode): void {
-  writePermissionGateConfig(cwd, mode);
+export function applyPermissionMode(
+  session: AgentSession,
+  cwd: string,
+  mode: PermissionMode,
+  options?: { persist?: boolean },
+): void {
+  if (options?.persist !== false) {
+    writePermissionGateConfig(cwd, mode);
+  }
   try {
     const ctx = session.extensionRunner?.createContext();
     if (ctx && typeof ctx === "object") {

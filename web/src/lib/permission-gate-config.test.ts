@@ -7,6 +7,7 @@ import {
   PERMISSION_GATE_SESSION_KEY,
   applyPermissionMode,
   permissionGateConfigPath,
+  readPermissionGateConfig,
   writePermissionGateConfig,
 } from "./permission-gate-config";
 
@@ -17,6 +18,19 @@ describe("permission-gate-config", () => {
       writePermissionGateConfig(dir, "deny");
       const raw = readFileSync(permissionGateConfigPath(dir), "utf8");
       assert.deepEqual(JSON.parse(raw), { mode: "deny" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads persisted mode without writing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "lcp-perm-"));
+    try {
+      writePermissionGateConfig(dir, "deny");
+      assert.equal(readPermissionGateConfig(dir), "deny");
+      applyPermissionMode({ extensionRunner: undefined }, dir, "ask", { persist: false });
+      const raw = readFileSync(permissionGateConfigPath(dir), "utf8");
+      assert.equal(JSON.parse(raw).mode, "deny");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

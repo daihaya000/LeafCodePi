@@ -114,6 +114,13 @@ export function isWebBuildStale(webDir, distDir, fsApi = {}) {
     }
   }
 
+  const extensionsRoot = join(webDir, "..", "extensions");
+  if (existsSync(extensionsRoot)) {
+    if (hasNewerFile(extensionsRoot, buildMtimeMs, distDir, { existsSync, statSync, readdirSync })) {
+      return true;
+    }
+  }
+
   return false;
 }
 

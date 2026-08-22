@@ -43,7 +43,7 @@ import { todosFromPiMessages } from "@/lib/pi/todowrite-state";
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
 import { filterSkillsByState } from "@/lib/skills";
 import { basenameKey, bundledExtensionEntries, filterExtensionsByState } from "@/lib/extensions";
-import { applyPermissionMode } from "@/lib/permission-gate-config";
+import { applyPermissionMode, readPermissionGateConfig } from "@/lib/permission-gate-config";
 import {
   armTaskHangWatch,
   registerHangWatchdogHooks,
@@ -252,6 +252,7 @@ async function ensureRuntime(): Promise<void> {
         current.initError = null;
       } catch (error) {
         current.initError = error instanceof Error ? error.message : String(error);
+        current.initPromise = null;
         throw error;
       }
     })();
@@ -787,8 +788,11 @@ async function createSession(options: {
     }),
   });
   await resourceLoader.reload();
-  const permissionMode = options.permissionMode ?? "ask";
-  applyPermissionMode({ extensionRunner: undefined }, options.cwd, permissionMode);
+  const permissionMode = options.permissionMode ?? readPermissionGateConfig(options.cwd);
+  const persistPermission = options.permissionMode !== undefined;
+  applyPermissionMode({ extensionRunner: undefined }, options.cwd, permissionMode, {
+    persist: persistPermission,
+  });
   // pi-subagents registers a `subagent` tool via extension. Default tools do not
   // include it. When subagent permission is "allow", expose the `subagent` tool so
   // the model can delegate; when "deny", keep it out (mechanically enforced, not
@@ -807,7 +811,9 @@ async function createSession(options: {
     modelRuntime: state().modelRuntime ?? undefined,
     tools,
   });
-  applyPermissionMode(result.session, options.cwd, permissionMode);
+  applyPermissionMode(result.session, options.cwd, permissionMode, {
+    persist: persistPermission,
+  });
   return result.session;
 }
 
@@ -1343,6 +1349,19 @@ export async function promptTask(
   live.revertLeafId = null;
   queuePrompt(live, decoratePrompt(prompt, options), images, options);
   return toSummary(getTask(id)!);
+}
+
+export async function setTaskPermissionMode(
+  id: string,
+  mode: "allow" | "ask" | "deny",
+): Promise<TaskSummary> {
+  const live = await ensureLive(id);
+  const task = getTask(id);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const project = getProject(task.projectId);
+  const cwd = project?.rootPath ?? live.session.sessionManager.getCwd();
+  applyPermissionMode(live.session, cwd, mode);
+  return toSummary(task);
 }
 
 /**
