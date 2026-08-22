@@ -572,6 +572,7 @@ async function startControlServer() {
       return translationService.status();
     },
     onTranslationStop: () => translationService.stop(),
+    onTranslationInstall: () => translationService.install(),
     onTranslationTranslate: async (body) => {
       if (!body || typeof body !== "object" || !Array.isArray(body.texts)) {
         throw new Error("texts must be an array");

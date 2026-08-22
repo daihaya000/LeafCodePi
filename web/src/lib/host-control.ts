@@ -15,6 +15,7 @@ export type HostTranslationAction =
   | "status"
   | "start"
   | "stop"
+  | "install"
   | "translate"
   | "override"
   | "unreviewed"

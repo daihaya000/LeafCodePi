@@ -55,6 +55,9 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
   let cacheLoaded = false;
   let overridesLoaded = false;
   let cachedModelVersion = null;
+  let installProc = null;
+  let installError = null;
+  let installStderr = '';
 
   function modelVersion() {
     if (cachedModelVersion !== null && cachedModelVersion !== 'unknown') return cachedModelVersion;
@@ -365,6 +368,8 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
       state,
       available: existsSync(script),
       installed: installed(),
+      installState: installProc ? 'running' : installError ? 'error' : 'idle',
+      installError,
       cacheEntries: cache.size,
       unreviewedEntries: unreviewed,
       overrideEntries: overrides.size,
@@ -668,6 +673,43 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
     return { v: 1, id: randomUUID(), ok: true, translations, fallbacks, overridden };
   }
 
+  /**
+   * Run translation/install.py in the background (pip + Argos model download,
+   * minutes). Returns immediately; status().installState tracks progress.
+   */
+  function install() {
+    if (installProc) return { state: 'running' };
+    const installer = join(repoRoot, 'translation', 'install.py');
+    if (!existsSync(installer)) throw new Error('translation installer is missing');
+    const python = executable(dataDir);
+    installError = null;
+    installStderr = '';
+    const child = spawn(python.file, [...python.args, installer, '--data-dir', dataDir], {
+      cwd: repoRoot,
+      windowsHide: true,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      env: { ...process.env, PYTHONUTF8: '1' },
+    });
+    installProc = child;
+    child.stderr.on('data', (chunk) => {
+      installStderr = `${installStderr}${String(chunk)}`.slice(-4_000);
+    });
+    const fail = (message) => {
+      installError = `${message}${installStderr.trim() ? `: ${installStderr.trim().slice(-500)}` : ''}`;
+      if (installProc === child) installProc = null;
+    };
+    child.once('error', (error) => {
+      fail(`installer failed to start: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    child.once('exit', (code) => {
+      if (installProc !== child) return;
+      installProc = null;
+      if (code !== 0) fail(`install.py exited (${code ?? 'unknown'})`);
+    });
+    log('[translation] install started');
+    return { state: 'running' };
+  }
+
   return {
     status,
     start,
@@ -677,5 +719,6 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
     unreviewedEntries,
     skipTrivialReviews,
     applyReviewResults,
+    install,
   };
 }

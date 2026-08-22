@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui";
 import {
   readReasoningTranslationMode,
   writeReasoningTranslationMode,
@@ -16,6 +17,8 @@ const options: { value: ReasoningTranslationMode; label: string; description: st
 type TranslationStatus = {
   state?: string;
   installed?: boolean;
+  installState?: string;
+  installError?: string | null;
   cacheEntries?: number;
 };
 
@@ -32,6 +35,9 @@ export function ReasoningTranslationSettings() {
   const [mode, setMode] = useState<ReasoningTranslationMode>(readReasoningTranslationMode);
   const [serviceState, setServiceState] = useState("確認中");
   const [cacheEntries, setCacheEntries] = useState<number>(0);
+  const [installing, setInstalling] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
+  const [installStarted, setInstallStarted] = useState(false);
 
   useEffect(() => {
     const update = () => setMode(readReasoningTranslationMode());
@@ -47,12 +53,65 @@ export function ReasoningTranslationSettings() {
         if (!active) return;
         setServiceState(formatTranslationServiceState(body));
         setCacheEntries(typeof body?.cacheEntries === "number" ? body.cacheEntries : 0);
+        setInstalling(body?.installState === "running");
+        setInstallError(
+          body?.installState === "error" && typeof body.installError === "string"
+            ? body.installError
+            : null,
+        );
       })
       .catch(() => active && setServiceState("ホスト未接続"));
     return () => {
       active = false;
     };
   }, []);
+
+  // 導入中は完了／失敗が status に反映されるまでポーリングする。
+  useEffect(() => {
+    if (!installing) return;
+    const timer = window.setInterval(() => {
+      void fetch("/api/translation/status", { cache: "no-store" })
+        .then(async (response) =>
+          (await response.json().catch(() => null)) as TranslationStatus | null,
+        )
+        .then((body) => {
+          if (body?.installState === "running") return;
+          setInstalling(false);
+          setServiceState(formatTranslationServiceState(body));
+          setInstallError(
+            body?.installState === "error" && typeof body.installError === "string"
+              ? body.installError
+              : null,
+          );
+        })
+        .catch(() => {});
+    }, 3_000);
+    return () => window.clearInterval(timer);
+  }, [installing]);
+
+  const startInstall = async () => {
+    if (installing || installStarted) return;
+    setInstallStarted(true);
+    setInstallError(null);
+    try {
+      const response = await fetch("/api/translation/install", {
+        method: "POST",
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(
+          typeof body.error === "string" ? body.error : "導入を開始できませんでした",
+        );
+      }
+      setInstalling(true);
+    } catch (error) {
+      setInstallStarted(false);
+      setInstallError(
+        error instanceof Error ? error.message : "導入を開始できませんでした",
+      );
+    }
+  };
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
@@ -86,10 +145,32 @@ export function ReasoningTranslationSettings() {
       <p className="mt-2 text-[11px] text-faint">
         {options.find((option) => option.value === mode)?.description}
       </p>
-      {serviceState === "未導入" && (
-        <p className="mt-2 break-all text-[11px] text-warning">
-          初回のみ `py -3 translation/install.py --data-dir &lt;LeafCodePi data dir&gt;` を実行してください。
+      {installing && (
+        <p role="status" className="mt-2 text-xs text-muted">
+          ローカル翻訳エンジンを導入中です…（モデルのダウンロードを含むため数分かかります）
         </p>
+      )}
+      {installError && (
+        <p role="alert" className="mt-2 break-all text-[11px] text-danger">
+          導入に失敗しました: {installError}
+        </p>
+      )}
+      {serviceState === "未導入" && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            busy={installing}
+            disabled={installing || installStarted}
+            onClick={() => void startInstall()}
+            aria-label="ローカル翻訳を導入"
+          >
+            ローカル翻訳を導入
+          </Button>
+          <span className="text-[11px] text-faint">
+            初回のみ。Argos 翻訳モデル（約90MB）をダウンロードします。
+          </span>
+        </div>
       )}
     </div>
   );

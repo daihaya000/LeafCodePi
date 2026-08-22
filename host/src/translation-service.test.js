@@ -409,3 +409,16 @@ test('unacceptable retry falls back to the source without caching it', async () 
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
+
+test('install reports idle state and rejects a missing installer', () => {
+  const dataDir = join(tmpdir(), `leafcode-translation-install-${process.pid}`);
+  const repoRoot = join(tmpdir(), `leafcode-translation-install-repo-${process.pid}`);
+  rmSync(dataDir, { recursive: true, force: true });
+  try {
+    const service = createTranslationService({ repoRoot, dataDir });
+    assert.equal(service.status().installState, 'idle');
+    assert.throws(() => service.install(), /installer is missing/);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});

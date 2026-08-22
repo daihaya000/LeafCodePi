@@ -50,6 +50,7 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onTranslationStatus?: () => Promise<object> | object,
  *   onTranslationStart?: () => Promise<object> | object,
  *   onTranslationStop?: () => Promise<unknown> | unknown,
+ *   onTranslationInstall?: () => Promise<object> | object,
  *   onTranslationTranslate?: (body: object) => Promise<object> | object,
  *   onTranslationOverride?: (body: object) => Promise<object> | object,
  *   onTranslationUnreviewed?: (limit: unknown) => Promise<object> | object,
@@ -222,6 +223,17 @@ export function createLlamaControlServer(handlers) {
           try {
             const result = await handlers.onTranslationStart();
             res.writeHead(200, JSON_HEADERS);
+            res.end(JSON.stringify(result ?? { ok: true }));
+          } catch (err) {
+            res.writeHead(502, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+          }
+          return;
+        }
+        if (method === "POST" && action === "install" && handlers.onTranslationInstall) {
+          try {
+            const result = await handlers.onTranslationInstall();
+            res.writeHead(202, JSON_HEADERS);
             res.end(JSON.stringify(result ?? { ok: true }));
           } catch (err) {
             res.writeHead(502, JSON_HEADERS);
