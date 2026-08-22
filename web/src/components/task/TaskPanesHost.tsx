@@ -2,8 +2,10 @@
 
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { cx } from "@/components/ui";
+import { isTaskDrag, taskDragIdFrom } from "@/lib/task-drag";
 import { taskIdFromPathname } from "@/lib/task-panes";
 import { paneLayoutClass, TaskTabs } from "./TaskTabs";
 
@@ -33,6 +35,7 @@ const SplitTaskView = dynamic(
 export function TaskPanesHost() {
   const { state, statusFor, reportStatus, dispatch, splitHostEnabled, mdUp } = useTaskPanes();
   const pathname = usePathname();
+  const [dragOverPaneId, setDragOverPaneId] = useState<string | null>(null);
   if (!splitHostEnabled) return null;
 
   // md 未満: 分割・タブは無効で URL タスクのみ単一表示（仕様 §1 のフォールバック）。
@@ -70,7 +73,32 @@ export function TaskPanesHost() {
             !single && !isGrid && paneIndex > 0 && "border-l",
             !single && isGrid && paneIndex % 2 === 1 && "border-l",
             !single && isGrid && paneIndex >= 2 && "border-t",
+            dragOverPaneId === pane.id && "ring-1 ring-inset ring-accent/50",
           )}
+          onDragOver={(event) => {
+            if (!isTaskDrag(event.dataTransfer.types)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+            setDragOverPaneId(pane.id);
+          }}
+          onDragLeave={(event) => {
+            if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+            setDragOverPaneId((current) => (current === pane.id ? null : current));
+          }}
+          onDrop={(event) => {
+            if (!isTaskDrag(event.dataTransfer.types)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            setDragOverPaneId(null);
+            const taskId = taskDragIdFrom(event.dataTransfer);
+            if (!taskId) return;
+            const source = state.panes.find((p) => p.tabs.includes(taskId));
+            if (source && source.id !== pane.id) {
+              dispatch({ type: "moveTab", fromPaneId: source.id, toPaneId: pane.id, taskId });
+            } else {
+              dispatch({ type: "openTab", paneId: pane.id, taskId });
+            }
+          }}
           onPointerDown={() => {
             if (pane.id !== activePaneId) dispatch({ type: "activatePane", paneId: pane.id });
           }}

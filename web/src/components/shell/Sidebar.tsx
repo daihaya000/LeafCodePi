@@ -17,7 +17,9 @@ import {
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
+import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { cx, timeAgo, ThemeToggle } from "@/components/ui";
+import { setTaskDragData } from "@/lib/task-drag";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import type { HealthDto, ProjectDto, TaskSummary } from "@/lib/types";
@@ -221,7 +223,11 @@ export function Sidebar({
     return () => media.removeEventListener("change", update);
   }, []);
 
-  const activeTaskId = pathname.startsWith("/task/") ? pathname.slice("/task/".length) : null;
+  // 仕様 §2: タブ機構のある md 以上では provider の activeTaskId を
+  // ハイライト・自動展開の源とする。モバイルは panes を触らないため pathname 由来のまま。
+  const { activeTaskId: paneActiveTaskId, mdUp: paneMdUp } = useTaskPanes();
+  const pathnameTaskId = pathname.startsWith("/task/") ? pathname.slice("/task/".length) : null;
+  const activeTaskId = paneMdUp ? paneActiveTaskId : pathnameTaskId;
   const tasksByProject = useMemo(() => {
     const map = new Map<string, TaskSummary[]>();
     for (const task of tasks) {
@@ -624,6 +630,11 @@ export function Sidebar({
                           <li key={task.id} className="group flex items-center rounded-lg">
                             <button
                               type="button"
+                              draggable={mdUp}
+                              onDragStart={(event) => {
+                                event.dataTransfer.effectAllowed = "move";
+                                setTaskDragData(event.dataTransfer, task.id);
+                              }}
                               onClick={() => {
                                 router.push(`/task/${task.id}`);
                                 onClose();

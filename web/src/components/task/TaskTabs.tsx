@@ -3,19 +3,9 @@
 import { useState } from "react";
 import { Loader2, Plus, X } from "lucide-react";
 import { cx } from "@/components/ui";
+import { setTaskDragData, taskDragIdFrom, TASK_DRAG_MIME } from "@/lib/task-drag";
 import type { TaskPane, TaskPanesState } from "@/lib/task-panes";
 import type { TaskStatus } from "@/lib/types";
-
-/** Sidebar のタスクドラッグと同じ MIME（Phase 4 で接続）。 */
-const TASK_DRAG_MIME = "application/x-leafcodepi-task";
-
-function dragTaskIdFrom(dataTransfer: DataTransfer): string | null {
-  try {
-    return dataTransfer.getData(TASK_DRAG_MIME) || null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * タブバー 1 本。仕様 §6: タイトル省略 + hover フルタイトル、status バッジ
@@ -56,7 +46,7 @@ export function TaskTabs({
     event.preventDefault();
     event.stopPropagation();
     setDragOverIndex(null);
-    const taskId = dragTaskIdFrom(event.dataTransfer);
+    const taskId = taskDragIdFrom(event.dataTransfer);
     if (!taskId) return;
     const targetPaneId =
       (event.currentTarget.closest("[data-pane-id]") as HTMLElement | null)?.dataset.paneId ??
@@ -100,7 +90,7 @@ export function TaskTabs({
             tabIndex={0}
             draggable
             onDragStart={(event) => {
-              event.dataTransfer.setData(TASK_DRAG_MIME, taskId);
+              setTaskDragData(event.dataTransfer, taskId);
               event.dataTransfer.effectAllowed = "move";
             }}
             onDragOver={(event) => {
