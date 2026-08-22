@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { cx } from "@/components/ui";
 import { isTaskDrag, taskDragIdFrom } from "@/lib/task-drag";
@@ -36,6 +36,17 @@ export function TaskPanesHost() {
   const { state, statusFor, reportStatus, dispatch, splitHostEnabled, mdUp } = useTaskPanes();
   const pathname = usePathname();
   const [dragOverPaneId, setDragOverPaneId] = useState<string | null>(null);
+
+  // dragend/drop でリング解除（Escape キャンセル・ブラウザ外での drop 漏れ対策）
+  useEffect(() => {
+    const reset = () => setDragOverPaneId(null);
+    window.addEventListener("dragend", reset);
+    window.addEventListener("drop", reset);
+    return () => {
+      window.removeEventListener("dragend", reset);
+      window.removeEventListener("drop", reset);
+    };
+  }, []);
   if (!splitHostEnabled) return null;
 
   // md 未満: 分割・タブは無効で URL タスクのみ単一表示（仕様 §1 のフォールバック）。

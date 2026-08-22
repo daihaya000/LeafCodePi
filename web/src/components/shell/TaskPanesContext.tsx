@@ -105,7 +105,10 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
             next = removeTaskEverywhere(next, taskId);
             statusMapRef.current.delete(taskId);
           }
-          if (next !== latest) rawDispatch({ type: "replace", state: next });
+          if (next === latest) return;
+          // replace は state 参照を更新し、module 変数経由で次の外部遷移でも追従できる
+          // 状態にする。setState 系の version bump は replace とは別系統で発火させる。
+          rawDispatch({ type: "replace", state: next });
           bumpStatusVersion();
         } catch {
           /* 取得失敗時は何もしない（閉じ誤り防止） */
