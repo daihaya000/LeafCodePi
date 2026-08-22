@@ -10,6 +10,7 @@ import {
   restoreTaskPanesForUrl,
   retargetActiveTab,
   saveTaskPanes,
+  removeTaskEverywhere,
   taskIdFromPathname,
   taskPanesReducer as reducer,
   type TaskPane,
@@ -379,5 +380,44 @@ describe("restoreTaskPanesForUrl", () => {
   it("保存値なしは null", () => {
     installLocalStorage();
     expect(restoreTaskPanesForUrl("x", true)).toBeNull();
+  });
+});
+
+describe("removeTaskEverywhere", () => {
+  it("対象がなければ同一参照を返す", () => {
+    const base = state(pane(P1, ["a"]));
+    expect(removeTaskEverywhere(base, "absent")).toBe(base);
+  });
+
+  it("複数ペインの該当タブをすべて閉じる", () => {
+    const base = state(pane(P1, ["t", "keep"]), pane(P2, ["t"]));
+    const next = removeTaskEverywhere(base, "t");
+    // P2 は空になったためペインごと除去、P1 で activeTabId が繰り上がる
+    expect(next.panes).toHaveLength(1);
+    expect(next.panes[0].tabs).toEqual(["keep"]);
+    expect(next.panes[0].activeTabId).toBe("keep");
+  });
+
+  it("タブが全て消えたペインは縮退し、activePaneId を右隣へ繰り上げる", () => {
+    const base = state(pane(P1, ["t"]), pane(P2, ["x"]));
+    const next = removeTaskEverywhere(base, "t");
+    expect(next.panes).toEqual([pane(P2, ["x"])]);
+    expect(next.activePaneId).toBe(P2);
+  });
+
+  it("最終ペインの最終タブも除去し、空タブのペインへ縮退する", () => {
+    const base = state(pane(P1, ["gone"]));
+    const next = removeTaskEverywhere(base, "gone");
+    expect(next.panes).toHaveLength(1);
+    expect(next.panes[0].tabs).toEqual([]);
+    expect(next.panes[0].activeTabId).toBeNull();
+  });
+
+  it("削除対象でないペイン・タブはそのまま保つ", () => {
+    const base = state(pane(P1, ["a", "b"]), pane(P2, ["c"]));
+    const next = removeTaskEverywhere(base, "nope-not-used") === base; // 参照同一
+    expect(next).toBe(true);
+    const after = removeTaskEverywhere(base, "a");
+    expect(after.panes[1]).toBe(base.panes[1]); // 無関係ペインは参照保持
   });
 });

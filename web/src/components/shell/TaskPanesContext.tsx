@@ -14,6 +14,7 @@ import { usePathname } from "next/navigation";
 import {
   createState,
   isSplitHostPath,
+  removeTaskEverywhere,
   restoreTaskPanesForUrl,
   retargetActiveTab,
   saveTaskPanes,
@@ -22,7 +23,8 @@ import {
   type TaskPanesAction,
   type TaskPanesState,
 } from "@/lib/task-panes";
-import type { TaskStatus } from "@/lib/types";
+import { getJson } from "@/lib/client";
+import type { TaskStatus, TaskSummary } from "@/lib/types";
 
 const SAVE_DEBOUNCE_MS = 500;
 const MD_QUERY = "(min-width: 768px)";
@@ -83,6 +85,36 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     0,
   );
   const statusMapRef = useRef(new Map<string, TaskStatus>());
+  // タスク削除（アーカイブ/DELETE）時の自動クローズ（仕様 §4）。
+  // tasks-changed 購読で活タスク ID 集合を見て、消えたタブを全ペインから閉じる。
+  // status 報告 map からも除去してタブバッジの残滓を消す。
+  useEffect(() => {
+    if (!mdUp) return;
+    const onChange = () => {
+      void (async () => {
+        try {
+          const { tasks } = await getJson<{ tasks: TaskSummary[] }>("/api/tasks");
+          const liveIds = new Set(tasks.map((task) => task.id));
+          const latest = latestStateForRetarget;
+          if (!latest) return;
+          const currentTaskIds = new Set(latest.panes.flatMap((pane) => pane.tabs));
+          const missingIds = [...currentTaskIds].filter((taskId) => !liveIds.has(taskId));
+          if (missingIds.length === 0) return;
+          let next = latest;
+          for (const taskId of missingIds) {
+            next = removeTaskEverywhere(next, taskId);
+            statusMapRef.current.delete(taskId);
+          }
+          if (next !== latest) rawDispatch({ type: "replace", state: next });
+          bumpStatusVersion();
+        } catch {
+          /* 取得失敗時は何もしない（閉じ誤り防止） */
+        }
+      })();
+    };
+    window.addEventListener("webui:tasks-changed", onChange);
+    return () => window.removeEventListener("webui:tasks-changed", onChange);
+  }, [mdUp]);
 
   const dispatch = useCallback((action: TaskPanesAction) => {
     rawDispatch(action);

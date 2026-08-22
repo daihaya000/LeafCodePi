@@ -221,6 +221,56 @@ export function taskPanesReducer(
 }
 
 /**
+ * 指定 taskId を全ペインのタブから除去する（タスク削除時の自動クローズ、仕様 §4）。
+ * 各ペインで closeTab 相当の挙動（activeTabId 繰り上げ・空きペインの縮退）を
+ * 適用した新 state を返す。対象タブがなければ同一参照を返す。
+ * 最終ペインの最終タブでも除去し、URL タスク消失に備えて空タブのペインへ
+ * 縮退させる（removePane の「最小 1 ペイン」制約は削除クローズでは適用しない）。
+ */
+export function removeTaskEverywhere(
+  state: TaskPanesState,
+  taskId: string,
+): TaskPanesState {
+  if (!state.panes.some((pane) => pane.tabs.includes(taskId))) return state;
+  let nextPanes = state.panes;
+  let nextActivePaneId = state.activePaneId;
+  for (const pane of state.panes) {
+    if (!pane.tabs.includes(taskId)) continue;
+    const nextTabs = pane.tabs.filter((id) => id !== taskId);
+    if (nextTabs.length > 0) {
+      const tabIndex = pane.tabs.indexOf(taskId);
+      const nextActive =
+        pane.activeTabId !== taskId
+          ? pane.activeTabId
+          : (nextTabs[Math.min(tabIndex, nextTabs.length - 1)] ?? null);
+      nextPanes = nextPanes.map((item) =>
+        item.id === pane.id ? { ...item, tabs: nextTabs, activeTabId: nextActive } : item,
+      );
+      continue;
+    }
+    if (nextPanes.length > 1) {
+      const paneIndex = nextPanes.findIndex((item) => item.id === pane.id);
+      nextPanes = nextPanes.filter((item) => item.id !== pane.id);
+      if (nextActivePaneId === pane.id) {
+        nextActivePaneId = nextPanes[Math.min(paneIndex, nextPanes.length - 1)]!.id;
+      }
+      continue;
+    }
+    // 最終ペイン（タブ全削除のみ到達）: 空タブのペインへ縮退
+    nextPanes = nextPanes.map((item) =>
+      item.id === pane.id
+        ? { ...item, tabs: [], activeTabId: pane.activeTabId === taskId ? null : pane.activeTabId }
+        : item,
+    );
+  }
+  const activePaneId =
+    nextPanes.some((pane) => pane.id === nextActivePaneId)
+      ? nextActivePaneId
+      : (nextPanes[0]?.id ?? null);
+  return { panes: nextPanes, activePaneId };
+}
+
+/**
  * 外部由来（localStorage / replace アクション）値の正規化。
  * 破損・構造不一致は null、上限違反・型違いは無害化する。
  */
