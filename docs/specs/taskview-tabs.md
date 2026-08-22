@@ -19,8 +19,9 @@
 - 各ペインは複数タスクをタブで保持
 - **レイアウト**: ペイン数で自動切替（1〜3 = 横並び flex、4 = 2x2 grid）
 - **1 ペイン × 1 タブ時は従来通り**: タブバー非表示、見た目・動作とも現行と同一
-- **モバイル（md 未満）不可**: 分割もタブも無効化し、URL タスクの単一表示へフォールバック（`matchMedia("(min-width: 768px)")`）。md への復帰時は保存済み panes を復元しない（URL タスクのみの 1 ペインから再開）
-- 上限超過時の操作は無視し、呼び出し側でトースト表示
+- **最小 1 ペイン制約**: 最後のペインは閉じられない。1 ペイン時の最終タブ `×` は no-op
+- **モバイル（md 未満）不可**: 分割もタブも無効化し、URL タスクの単一表示へフォールバック（`matchMedia("(min-width: 768px)")`）。単純化のため md へ復帰した直後は URL タスクのみの 1 ペインから再開する
+- 上限超過時の操作は reducer が no-op。`+` ボタンは上限到達時に disabled。トースト等の新規通知 UI は作らない
 
 ### 本家との差分
 - 「4 ペインフル時にさらに追加 → 別ペインのタブとして追加」は廃止。どのペインに入れるかはドロップ先で明示的に指定する仕組みのため、暗黙のフォールバックは不要
@@ -31,7 +32,8 @@
 - アクティブタブ（= アクティブペインの activeTabId）に追従して変わるもの:
   - **Sidebar のタスク一覧ハイライト・自動展開**: 現行の pathname 由来判定を provider 由来に置換
   - **Graph / Diff パネル**: TaskView 内部で `task.directory` 由来のため実装追加なしで自動追従
-- URL は **プライマリペイン（panes[0]）の activeTabId** を指す。非アクティブペインのタブ切替では URL を変えない。ペイン活性化時のみ URL 追従
+- URL は **アクティブペインの activeTabId** を常に指す。タブ切替・ペイン活性化のたびに `history.replaceState` で同期する（RSC fetch の発生しない方式。本家のような router.push は使わない）
+- ブラウザ戻る/進む・直リンクによる外部 URL 変化は pathname 監視 effect が検知して panes 側へ反映する
 
 ## 3. タブ操作
 
@@ -53,7 +55,7 @@
 - **TaskView インスタンス**: 非アクティブタブも mount したまま（CSS `hidden` で保持、`key={taskId}`）
 - **SSE 接続**: 非アクティブタブも維持。snapshot で受けた status 変化を provider へ報告し、タブバッジへ即反映
 - **UI 状態**: hidden mount により Composer テキスト・graphOpen/diffOpen・スクロール位置がすべて自然に保持される（本家のように「Composer のみ保持・他は再計算」としない。LeafCodePi の stick スクロール機構が復帰時の追従を担うため追加のリセット処理が不要）
-- **タスク終了後もタブは残す**: status が working 以外になっても閉じない。削除（アーカイブ、`DELETE /api/tasks/[id]`）されたときのみ自動クローズ
+- **タスク終了後もタブは残す**: status が working 以外になっても閉じない。削除（アーカイブ、`DELETE /api/tasks/[id]`）されたときのみ自動クローズ。自動クローズ時に provider の status 報告 map からも当該 taskId を除去する
 - **状態バッジ**: タブ上に working（スピン）/ error（赤点）を表示
 
 ### 本家との差分
@@ -63,7 +65,7 @@
 ## 5. 永続化
 
 - **localStorage キー `webui:task-panes`** に panes JSON（taskId 配列 + activeTabId のみ）を保存。500ms デバウンス
-- 復元順序:
+- 復元順序（md 以上のときのみ実行）:
   1. URL taskId から `panes[0] = { tabs: [url], activeTabId: url }` で即時構築
   2. mount 後に localStorage を読み、保存値の中に URL taskId を含むペインがあればその構成へ差し替え。含まれない場合は保存値の panes[0] の activeTabId を URL taskId に修正して復元（直リンク互換）
 - Composer テキスト・スクロール位置等の UI state は保存しない（mount 保持で賄う範囲のみ）
@@ -82,12 +84,12 @@
 ## 7. 互換性
 
 - 1 ペイン × 1 タブ = 現行 `/task/[id]` と完全同等（タブバー非表示）
-- Home (`/`)・settings (`/settings`) では分割ホストを無効化し、panes を破棄して URL タスクのみへリセット（本家 `splitHostEnabled` と同じ挙動）
+- Home (`/`)・settings (`/settings`) では分割ホストを非表示にするだけで、provider の panes state は保持する（Home 表示中も SSE・UI state は生存し、task へ戻るとそのまま再表示）。リセット処理は書かず、Host が null を返すだけ
 - 既存テストへの影響: LeafCodePi に React コンポーネントテストは未整備（vitest node 環境のみ）のため、model 層を純関数として抽出し reducer 単体で検証する
 
 ## 8. 実装上の主要変更点
 
 - **新規 model**: `web/src/lib/task-panes.ts` — 型・reducer・上限ガード・localStorage I/O を純関数中心で実装
-- **Provider**: `web/src/components/shell/TaskPanesContext.tsx` — useReducer + router 同期 + md フォールバック + status 報告 map + tasks-changed 自動クローズ
+- **Provider**: `web/src/components/shell/TaskPanesContext.tsx` — useReducer + URL 同期（`history.replaceState`）+ md フォールバック + status 報告 map + tasks-changed 自動クローズ
 - **描画ホスト**: AppShell の `<section>` 内で panes を動的レンダリング（`next/dynamic` ssr:false）。`/task/[id]/page.tsx` は `null` を返す薄いページになり、URL 情報は pathname 経由で provider が取得
 - **DOM/SSE リソース**: 最大 4 ペイン × 5 タブ = 20 の TaskView + EventSource。LeafCodePi の SSE は BFF 内 harness 配信で軽量だが、接続数上限に注意（リスク節参照）

@@ -67,12 +67,12 @@ type Action =
   | { type: "replace"; state: TaskPanesState };  // 復元用
 ```
 
-- 上限ガードは reducer 内で enforce（超過 = 前状態を返す no-op）。超過検知は戻り値比較ではなくアクション前後の同一性で呼び出し側が判定できるよう、`openTab`/`addPane` は拒否時に同状態を返すだけにする
-- `closeTab`: ペインの最終タブを閉じた場合はペインごと閉じる（本家 `onCloseSplit` 相当の役割を集約）。activeTabId / activePaneId の繰り上げ規則: 閉じた位置の右隣、端なら左隣
+- 上限ガードは reducer 内で enforce（超過 = 前状態を**同一参照**のまま返す no-op）。呼び出し側は `prev === next` 比較で拒否を検知できるが、原則として UI 側で上限到達時に操作不能（disabled）にするため通知は不要
+- **最小 1 ペイン制約**: `closeTab` でペイン最終タブを閉じた場合のペイン閉鎖は `panes.length > 1` のときのみ。1 ペイン時はタブもペインも閉じない。activeTabId / activePaneId の繰り上げ規則: 閉じた位置の右隣、端なら左隣
 - localStorage I/O: `loadTaskPanes()` / `saveTaskPanes(state)`。破損 JSON・上限違反値は無視して `null` / 正規化済みを返す
 - **テスト**: `web/src/lib/task-panes.test.ts` — open/close/activate/reorder/move/addPane/closePane の遷移、上限ガード、activeTabId 繰り上げ、localStorage roundtrip（node 環境のため `globalThis.localStorage` を Map 実装でスタブ）
 
-**検証**: `npx vitest run src/lib/task-panes.test.ts`（web 配下）、`npm --prefix web run typecheck`
+**検証**: `npm --prefix web test -- src/lib/task-panes.test.ts`、`npm --prefix web run typecheck`
 
 ---
 
@@ -83,12 +83,13 @@ type Action =
 ### TaskPanesContext（Provider）
 
 - state: `useReducer(reducer, 初期 = URL taskId から構築)`
-- URL 同期:
-  - `usePathname()` 変更を effect で監視し、`taskIdFromPathname(pathname)` が現在の `panes[0].activeTabId` と異なれば冪等に反映（外部 push 直リンク対応）
-  - `activateTab(paneId, taskId)` / `activatePane(paneId)` は `paneId === panes[0].id` のとき `router.push(/task/${taskId})`。RSC fetch を避けたい場合の代替として `window.history.replaceState` を候補コメントに記す（初回は push で統一）
-- ホスト有効判定: `splitHostEnabled = pathname === "/" || pathname.startsWith("/task/")`。無効化（Home/settings）時に panes を URL タスクのみへリセット
-- md フォールバック: `matchMedia("(min-width: 768px)")` を監視。未満では 1 ペイン URL タスクのみに強制
-- status map: `reportStatus(taskId, status)` で TaskView の SSE snapshot を受け取り `Map<taskId, TaskStatus>` を保持。TaskTabs のバッジ源（Phase 3）
+- URL 同期（`history.replaceState` 方式）:
+  - タブ切替・ペイン活性化では「アクティブになったペインの activeTabId」へ `window.history.replaceState(null, "", /task/<id>)` で同期（Next.js App Router は replaceState を公式サポート。router.push は RSC fetch が発生するため使わない）
+  - pathname 監視 effect は**外部遷移専用**: ブラウザ戻る/進む・直リンクで URL が変化したとき、`taskIdFromPathname(pathname)` ≠ アクティブ activeTabId なら panes 側へ冪等反映
+- 自動クローズ後も同じ同期経路で URL を追従させる（panes[0] の activeTabId が繰り上がったら replaceState）
+- ホスト有効判定: `splitHostEnabled = pathname === "/" || pathname.startsWith("/task/")`。無効（Home/settings）のときは Host が null を返すだけで state は保持（リセット処理なし。SSE は生存するためリスク節参照）
+- md フォールバック: `matchMedia("(min-width: 768px)")` を監視。未満では 1 ペイン URL タスクのみに強制（localStorage 復元は行わない）
+- status map: `reportStatus(taskId, status)` で TaskView の SSE snapshot を受け取り `Map<taskId, TaskStatus>` を保持。TaskTabs のバッジ源（Phase 3）。closeTab 時に当該 taskId を map から除去
 - 自動クローズ: `webui:tasks-changed` を購読し、`GET /api/tasks` の ID 集合に含まれないタブを全ペインから closeTab（削除=アーカイブ反映）
 - localStorage 復元: mount 後に `loadTaskPanes()` → 仕様 §5 の復元順序で `replace`
 
@@ -150,7 +151,7 @@ type Action =
   2. 複数タブ開く → 切替・閉じる・並び替え・Composer テキスト保持
   3. 2〜4 ペイン分割・レイアウト自動切替（4 = 2x2）
   4. リロードで構成復元・直リンク (`/task/[id]`) で URL 優先
-  5. Home ↔ task 往復で panes リセット、エラーなし
+  5. Home ↔ task 往復で panes が保持され、戻るとそのまま再表示。エラーなし
   6. working 中タスクのバッジが裏タブでも更新される
   7. タスク削除で該当タブが全ペインから消える
   8. md 幅未満で単一表示フォールバック
@@ -159,8 +160,8 @@ type Action =
 
 ## リスク
 
-1. **20 EventSource**: 最大 4×5 の TaskView が常駐。BFF 内 harness 配信なので 1 接続あたりは軽いが、問題が出たら「タブ総数上限 10」へ緩和策を検討
-2. **router.push の RSC fetch**: タブ切替ごとに page 再取得が走る。体感重ければ `window.history.replaceState` へ切替（Phase 2 に代替案記載済み）
+1. **20 EventSource**: 最大 4×5 の TaskView が常駐。BFF 内 harness 配信なので 1 接続あたりは軽いが、**Home/settings 表示中も接続が生存する**（panes 保持方式のため）。問題が出たら「Home 遷移時に SSE を一時停止」or「タブ総数上限 10」へ緩和を検討
+2. **replaceState と usePathname の整合**: Next.js の replaceState 対応は App Router 公式だが、pathname 監視 effect との二重同期で不整合が出たら監視条件を見直す（冪等 set で済む設計にしてある）
 3. **SSR 白画面**: `ssr: false` の dynamic import のため初回一瞬ローディング表示。本家と同じ許容
 4. **コンポーネントテスト不在**: Testing Library 未導入のため UI 分岐は model 層テスト + 手動確認で担保。導入する場合は別タスク
 
@@ -174,4 +175,4 @@ type Action =
 | 4 | DnD | `TaskView タブ機能: サイドバーからのタブ DnD と N ペイン操作を実装` |
 | 5 | 統合 | `TaskView タブ機能: 全体統合と回帰確認` |
 
-設計文書自体（この docs 追加）は先行コミットする。
+設計文書自体（この docs 追加）は実装開始前に先行コミット済み。
