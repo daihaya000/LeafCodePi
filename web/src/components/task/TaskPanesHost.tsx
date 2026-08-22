@@ -1,8 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { cx } from "@/components/ui";
+import { taskIdFromPathname } from "@/lib/task-panes";
 import { paneLayoutClass, TaskTabs } from "./TaskTabs";
 
 const SplitTaskView = dynamic(
@@ -30,7 +32,20 @@ const SplitTaskView = dynamic(
  */
 export function TaskPanesHost() {
   const { state, statusFor, reportStatus, dispatch, splitHostEnabled, mdUp } = useTaskPanes();
-  if (!splitHostEnabled || !mdUp) return null;
+  const pathname = usePathname();
+  if (!splitHostEnabled) return null;
+
+  // md 未満: 分割・タブは無効で URL タスクのみ単一表示（仕様 §1 のフォールバック）。
+  // モバイルでは Provider の panes/復元を触らず、URL 由来の taskId を直接 render する。
+  if (!mdUp) {
+    const urlTaskId = taskIdFromPathname(pathname);
+    if (!urlTaskId) return null;
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <SplitTaskView taskId={urlTaskId} onStatus={(status) => reportStatus(urlTaskId, status)} />
+      </div>
+    );
+  }
 
   const activePaneId =
     state.panes.find((pane) => pane.id === state.activePaneId)?.id ?? state.panes[0]?.id ?? null;

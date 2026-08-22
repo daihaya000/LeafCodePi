@@ -115,8 +115,11 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     return () => media.removeEventListener("change", update);
   }, []);
 
-  // panes 変更を localStorage へデバウンス保存
+  // panes 変更を localStorage へデバウンス保存。
+  // md 未満では復元しない仕様（§5）と対になるよう、保存も md 以上に限定する
+  // （モバイル初期 state で既存レイアウトを上書きしないため）。
   useEffect(() => {
+    if (!mdUp) return;
     if (saveTimerRef.current != null) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       saveTimerRef.current = null;
@@ -128,7 +131,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
         saveTimerRef.current = null;
       }
     };
-  }, [state]);
+  }, [state, mdUp]);
 
   // 外部遷移（戻る/進む・直リンク）のみ panes 側へ反映
   const externalUrlRef = useRef<string | null>(null);
