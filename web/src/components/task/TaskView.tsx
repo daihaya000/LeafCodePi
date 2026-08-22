@@ -136,6 +136,13 @@ export function TaskView({
   const currentUserIdxRef = useRef(0);
   // onScroll の deps を安定させるため、id 一覧を ref にミラーする（本家と同じ）。
   const userMessageIdsRef = useRef<string[]>([]);
+  // 呼び出し元（TaskPanesHost）は毎レンダーで新しい onStatus 関数を渡すため、
+  // そのまま SSE effect の deps に入れると親の再描画ごとに EventSource が
+  // 張り直される。latest-ref 経由で呼び、effect を taskId 変化時のみ再接続に限定する。
+  const onStatusRef = useRef(onStatus);
+  useEffect(() => {
+    onStatusRef.current = onStatus;
+  }, [onStatus]);
   // ナビゲーター ボタンの不透明度（設定 → 一般タブで変更可）。
   const [scrollButtonOpacity, setScrollButtonOpacity] = useState(
     () => readScrollButtonOpacity(),
@@ -210,7 +217,7 @@ export function TaskView({
         if (payload.error) setError(payload.error);
         notifySidebarIfNeeded(snapshotTask);
         const status = snapshotTask?.status;
-        if (status) onStatus?.(status);
+        if (status) onStatusRef.current?.(status);
       });
       source.addEventListener("error", () => {
         if (closed) return;
@@ -248,7 +255,7 @@ export function TaskView({
         scrollRafRef.current = null;
       }
     };
-  }, [taskId, applyDetail, notifySidebarIfNeeded, onStatus]);
+  }, [taskId, applyDetail, notifySidebarIfNeeded]);
 
   const scrollToBottom = useCallback((el: HTMLElement) => {
     el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
