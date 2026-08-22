@@ -46,6 +46,12 @@ function isNonFirstShard(name: string): boolean {
   return match !== null && match[1] !== "00001";
 }
 
+/** Vision projectors are not launchable models; listing them makes the
+ *  family preset resolve to e.g. "...GGUF\mmproj.gguf". */
+function isMmProj(name: string): boolean {
+  return /^mmproj/i.test(name);
+}
+
 function collect(root: string, rel: string, depth: number, out: string[]): void {
   let entries: fs.Dirent[];
   try {
@@ -61,7 +67,8 @@ function collect(root: string, rel: string, depth: number, out: string[]): void 
     } else if (
       entry.isFile() &&
       entry.name.toLowerCase().endsWith(".gguf") &&
-      !isNonFirstShard(entry.name)
+      !isNonFirstShard(entry.name) &&
+      !isMmProj(entry.name)
     ) {
       out.push(next);
     }
