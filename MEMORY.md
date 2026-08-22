@@ -26,9 +26,22 @@
 ### 残存（次バッチ）
 
 - Turbopack dynamic fs trace 警告
-- `productionWebUiIsIdle` netstat 失敗時 fail-open
-- qwen-cloud.ts tsc エラー（既存 4 件）
-- abort ボタン無エラー処理、保護パス substring 誤検知 等 P2
+- stale 再ビルド失敗時の古い本番ビルド黙認継続
+- translation-service.test Windows EPERM flaky（temp 削除）
+
+## 2026-08-22: サービス品質バッチ4（guard・tsc・P2）
+
+全検証: web vitest **368 passed** / **tsc OK** / host test **97 passed** / eslint 警告 1 件。
+
+### 修正
+
+| 領域 | 問題 | 修正 |
+| --- | --- | --- |
+| build guard | netstat 失敗時 fail-open | fail-closed |
+| qwen-cloud.ts | tsc 4 件 | 引数なし呼び出しに統一 |
+| 保護パス | substring 誤ブロック | セグメント一致 |
+| abort / SSE | 無エラー・error 残存 | `abortWorking()`、再接続成功時 clear |
+| events route | enqueue 未保護 | send try/catch |
 
 ## 2026-08-22: サービス品質バッチ2（handoff / control / permission ask）
 
