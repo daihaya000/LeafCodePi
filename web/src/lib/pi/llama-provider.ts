@@ -28,6 +28,20 @@ export const LLAMA_QWEN_THINKING_LEVEL_MAP = {
   xhigh: "xhigh",
 } as const;
 
+/**
+ * Ornith-1.5 GGUFs expose a boolean `enable_thinking` chat-template kwarg only.
+ * `off` ("デフォルト") keeps the template default (thinking on); the one extra
+ * level (`minimal`, labeled 最小) turns thinking off.
+ */
+export const LLAMA_ORNITH_THINKING_LEVEL_MAP = {
+  off: "none",
+  minimal: "no_think",
+  low: null,
+  medium: null,
+  high: null,
+  max: null,
+} as const;
+
 type RuntimeLike = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   registerNativeProvider: (provider: any) => void;
@@ -66,12 +80,18 @@ function displayName(id: string): string {
 
 /**
  * Qwen3 GGUFs (e.g. Qwen3.8-27B-Uncensored-GGUF) expose graded reasoning_effort
- * via the chat template. Older Qwen / non-Qwen GGUFs stay non-reasoning in UI.
+ * via the chat template. Ornith-1.5 GGUFs use a `<think>` template too, but only
+ * with an `enable_thinking` boolean. Older / non-Qwen GGUFs stay non-reasoning.
  */
 export function isLlamaQwenReasoningModel(id: string): boolean {
   const lower = id.toLowerCase().replace(/\\/g, "/");
   const base = basename(lower).replace(/\.gguf$/i, "");
   return /qwen3/.test(base) || /qwen[_.-]?3/.test(base);
+}
+
+export function isLlamaOrnithModel(id: string): boolean {
+  const base = basename(id.toLowerCase().replace(/\\/g, "/")).replace(/\.gguf$/i, "");
+  return /ornith/.test(base);
 }
 
 export function isLlamaQwenGradedEffort(value: unknown): value is LlamaQwenGradedEffort {
@@ -111,6 +131,10 @@ function applyNoThinkPrefix(messages: unknown): unknown {
  * - graded efforts must live in `chat_template_kwargs.reasoning_effort`
  * - `none` must be top-level `reasoning_effort` (kwargs reject it with HTTP 500)
  * - `/no_think` helps Qwen3 actually skip reasoning when off
+ *
+ * Ornith-1.5 templates ignore `reasoning_effort`; they accept
+ * `chat_template_kwargs.enable_thinking: false` instead (no `/no_think` prefix —
+ * that would just pollute the prompt).
  */
 export function rewriteLlamaServerEffortPayload(
   payload: unknown,
@@ -125,6 +149,18 @@ export function rewriteLlamaServerEffortPayload(
           typeof body.chat_template_kwargs.reasoning_effort === "string"
         ? body.chat_template_kwargs.reasoning_effort
         : undefined;
+
+  if (isLlamaOrnithModel(String(body.model ?? model.id ?? ""))) {
+    const prev = isRecord(body.chat_template_kwargs) ? body.chat_template_kwargs : {};
+    if (effort === "no_think") {
+      body.chat_template_kwargs = { ...prev, enable_thinking: false };
+    } else {
+      if (Object.keys(prev).length > 0) body.chat_template_kwargs = prev;
+      else delete body.chat_template_kwargs;
+    }
+    delete body.reasoning_effort;
+    return body;
+  }
 
   if (isLlamaQwenGradedEffort(effort)) {
     const prev = isRecord(body.chat_template_kwargs) ? body.chat_template_kwargs : {};
@@ -187,12 +223,18 @@ export async function fetchLlamaServerModelIds(
 
 function buildModelRows(ids: string[], contextWindow: number): OpenAiModelRow[] {
   return ids.map((id) => {
-    const reasoning = isLlamaQwenReasoningModel(id);
+    const ornith = isLlamaOrnithModel(id);
+    const reasoning = ornith || isLlamaQwenReasoningModel(id);
     return {
       id,
       name: displayName(id),
       reasoning,
-      ...(reasoning ? { thinkingLevelMap: { ...LLAMA_QWEN_THINKING_LEVEL_MAP } } : {}),
+      ...(reasoning
+        ? {
+            thinkingLevelMap:
+              ornith ? { ...LLAMA_ORNITH_THINKING_LEVEL_MAP } : { ...LLAMA_QWEN_THINKING_LEVEL_MAP },
+          }
+        : {}),
       input: ["text"] as ("text" | "image")[],
       contextWindow,
       maxTokens: Math.min(contextWindow, 32_768),

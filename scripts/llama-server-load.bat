@@ -4,11 +4,15 @@ rem Start llama-server for LeafCodePi / Pi Coding Agent (OpenAI-compatible).
 rem
 rem Override via env (host passes these from Settings > Engine > llama-server):
 rem   LLAMA_SERVER_BIN, MODEL_DIR, MODEL_FILE, LLAMA_SERVER_HOST,
-rem   CONTEXT_LENGTH, PARALLEL, REASONING_EFFORT, LLAMA_SERVER_LOG
+rem   CONTEXT_LENGTH, PARALLEL, REASONING_EFFORT, LLAMA_SERVER_LOG,
+rem   SAMPLING_TEMP, TOP_P, TOP_K
 rem
 rem If MODEL_FILE is empty: router mode (--models-dir), then load a model.
 rem If MODEL_FILE is set: single-model mode (-m).
 rem Default port 8081 (shared with LeafCode llama-server).
+rem Sampling defaults follow Ornith-1.5 coding recommendations (temp 0.6 /
+rem top-p 0.95 / top-k 20). Leave REASONING_EFFORT empty for GGUFs whose chat
+rem template has no reasoning_effort kwarg (e.g. Ornith-1.5).
 setlocal enabledelayedexpansion
 cd /d "%~dp0.."
 
@@ -20,7 +24,13 @@ if not defined REASONING_EFFORT set "REASONING_EFFORT=low"
 if not defined CONTEXT_LENGTH set "CONTEXT_LENGTH=32768"
 if not defined PARALLEL set "PARALLEL=1"
 if not defined UBATCH set "UBATCH=512"
+if not defined SAMPLING_TEMP set "SAMPLING_TEMP=0.6"
+if not defined TOP_P set "TOP_P=0.95"
+if not defined TOP_K set "TOP_K=20"
 if not defined LLAMA_SERVER_BIN set "LLAMA_SERVER_BIN=C:\tools\llama.cpp\llama-server.exe"
+rem Shared perf + sampling flags: FlashAttention on (Ornith-1.5 / Qwen3 recommended),
+rem server-side sampling defaults (clients may still override per request).
+set "PERF_ARGS=-fa on --temp %SAMPLING_TEMP% --top-p %TOP_P% --top-k %TOP_K%"
 set "MODEL_ALIAS="
 
 if /i "%~1"=="/dry-run" (
@@ -30,6 +40,7 @@ if /i "%~1"=="/dry-run" (
   echo [DRY-RUN] context=%CONTEXT_LENGTH%
   echo [DRY-RUN] parallel=%PARALLEL%
   echo [DRY-RUN] effort=%REASONING_EFFORT%
+  echo [DRY-RUN] sampling=temp %SAMPLING_TEMP% top-p %TOP_P% top-k %TOP_K%
   echo [DRY-RUN] endpoint=http://127.0.0.1:%SERVER_PORT%/v1
   exit /b 0
 )
@@ -66,7 +77,14 @@ if not exist "%MODEL_PATH%" (
 rem Stable OpenAI model id (basename without .gguf) so clients need not send the full path.
 for %%F in ("%MODEL_FILE%") do set "MODEL_ALIAS=%%~nF"
 echo [llama-server] Starting single-model ^(alias %MODEL_ALIAS%, context %CONTEXT_LENGTH%, parallel %PARALLEL%^)...
-start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 -ub %UBATCH% --jinja --chat-template-kwargs "{\"reasoning_effort\":\"%REASONING_EFFORT%\"}" >> "%LLAMA_SERVER_LOG%" 2>&1"
+rem Ornith-1.5 and other GGUFs without a reasoning_effort template kwarg must
+rem start with REASONING_EFFORT empty (plain mode).
+if not "%REASONING_EFFORT%"=="" goto :single_model_kwargs
+start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 -ub %UBATCH% %PERF_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+goto :wait_health
+
+:single_model_kwargs
+start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 -ub %UBATCH% %PERF_ARGS% --jinja --chat-template-kwargs "{\"reasoning_effort\":\"%REASONING_EFFORT%\"}" >> "%LLAMA_SERVER_LOG%" 2>&1"
 goto :wait_health
 
 :router_mode
@@ -78,7 +96,7 @@ if not exist "%MODEL_DIR%" (
 echo [llama-server] Starting router mode ^(models-dir, context %CONTEXT_LENGTH%^)...
 rem Do not pass --no-models-autoload: we want a model available for chat after start.
 rem ensure-loaded.mjs still POST /models/load if the catalog stays unloaded.
-start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 -ub %UBATCH% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 -ub %UBATCH% %PERF_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
 goto :wait_health
 
 :wait_health
