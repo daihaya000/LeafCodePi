@@ -345,14 +345,26 @@ export function ProviderModelsPanel() {
     [dragging, saveOrder],
   );
 
+  const enabledCount = providers.reduce(
+    (n, p) => n + p.models.filter((m) => m.enabled).length,
+    0,
+  );
+
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="mb-2 text-sm font-semibold">モデル</h2>
-        <p className="mb-3 text-xs text-muted">
-          認証済みプロバイダーの表示と並び替えです。無効にしたモデルはホームとタスクの選択から外れます。
-          {orderSaving ? " 並び順を保存中…" : ""}
-        </p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h2 className="mb-1 text-sm font-semibold">モデルの有効化と並び替え</h2>
+          <p className="text-xs text-muted">
+            無効にしたモデルはホームとタスクの選択から外れます。ドラッグで並び替えできます。
+            {providers.length > 0 &&
+              `（${providers.length} プロバイダー・有効 ${enabledCount} モデル）`}
+            {orderSaving ? " 並び順を保存中…" : ""}
+          </p>
+        </div>
+        <Button variant="ghost" size="sm" onClick={() => void load()}>
+          再読み込み
+        </Button>
       </div>
       {status === "loading" && <p className="text-sm text-muted">読み込み中…</p>}
       {error && <p className="text-sm text-danger">{error}</p>}
@@ -383,11 +395,6 @@ export function ProviderModelsPanel() {
           ))}
         </ul>
       )}
-      <div className="flex gap-2">
-        <Button variant="ghost" size="sm" onClick={() => void load()}>
-          再読み込み
-        </Button>
-      </div>
     </div>
   );
 }
