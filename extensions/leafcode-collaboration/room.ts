@@ -513,10 +513,10 @@ async function isDirty(root: string, selector: string): Promise<boolean> {
   return Boolean(result.stdout.trim());
 }
 
-async function readHead(root: string): Promise<{ branch?: string; oid?: string }> {
+async function readHead(root: string, env?: NodeJS.ProcessEnv): Promise<{ branch?: string; oid?: string }> {
   const [branch, oid] = await Promise.all([
-    command(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
-    command(root, ["rev-parse", "HEAD"]),
+    command(root, ["symbolic-ref", "--quiet", "--short", "HEAD"], 8_000, env),
+    command(root, ["rev-parse", "HEAD"], 8_000, env),
   ]);
   return {
     ...(branch.code === 0 && branch.stdout.trim() ? { branch: branch.stdout.trim() } : {}),
@@ -629,8 +629,8 @@ function refEntries(value: string): Map<string, string> {
   return refs;
 }
 
-async function gitIndexFingerprint(root: string): Promise<string> {
-  const result = await command(root, ["rev-parse", "--git-path", "index"]);
+async function gitIndexFingerprint(root: string, env?: NodeJS.ProcessEnv): Promise<string> {
+  const result = await command(root, ["rev-parse", "--git-path", "index"], 8_000, env);
   if (result.code !== 0) throw new RoomError("git_index", result.stderr.trim() || "Unable to locate the Git index.");
   const indexPath = path.resolve(root, result.stdout.trim());
   try {
@@ -642,14 +642,16 @@ async function gitIndexFingerprint(root: string): Promise<string> {
 }
 
 async function scanGitState(root: string): Promise<GateScan> {
+  // Read-only scans must not refresh/write the shared index while another Git process uses it.
+  const readEnv: NodeJS.ProcessEnv = { ...process.env, GIT_OPTIONAL_LOCKS: "0" };
   const [head, status, staged, unstaged, refs] = await Promise.all([
-    readHead(root),
-    command(root, ["status", "--porcelain=v1", "--untracked-files=all", "-z"]),
-    command(root, ["diff", "--cached", "--raw", "-z", "--"]),
-    command(root, ["diff", "--raw", "-z", "--"]),
-    command(root, ["for-each-ref", "--format=%(refname)%00%(objectname)%00"]),
+    readHead(root, readEnv),
+    command(root, ["status", "--porcelain=v1", "--untracked-files=all", "-z"], 8_000, readEnv),
+    command(root, ["diff", "--cached", "--raw", "-z", "--"], 8_000, readEnv),
+    command(root, ["diff", "--raw", "-z", "--"], 8_000, readEnv),
+    command(root, ["for-each-ref", "--format=%(refname)%00%(objectname)%00"], 8_000, readEnv),
   ]);
-  const indexFingerprint = await gitIndexFingerprint(root);
+  const indexFingerprint = await gitIndexFingerprint(root, readEnv);
   if (status.code !== 0) throw new RoomError("git_status", status.stderr.trim() || "Unable to inspect Git status.");
   if (staged.code !== 0 || unstaged.code !== 0 || refs.code !== 0) {
     throw new RoomError("git_state", [staged.stderr, unstaged.stderr, refs.stderr].map((text) => text.trim()).find(Boolean) || "Unable to inspect the complete Git state.");
