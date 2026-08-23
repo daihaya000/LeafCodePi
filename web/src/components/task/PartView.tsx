@@ -24,6 +24,7 @@ import { ProviderIcon } from "@/components/ProviderIcon";
 import { Button, cx, formatMessageTime } from "@/components/ui";
 import { formatTokens } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
+import { clampScrollTop } from "@/lib/scroll-stick";
 import { toolInputFields, toolLabel, toolSummary } from "@/lib/tool-labels";
 import { subagentAgentNames, useSubagentRuns } from "@/components/task/use-subagent-runs";
 import {
@@ -89,7 +90,7 @@ function NestedRunTimeline({ run }: { run: SubagentRunDto }) {
   useEffect(() => {
     if (run.status !== "running" || !stickRef.current) return;
     const el = scrollerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el) el.scrollTop = clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight);
   }, [run.messages, run.status, run.currentTool]);
   return (
     <div

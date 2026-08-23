@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { isNearBottom, nextStickState } from "./scroll-stick";
+import { clampScrollTop, isNearBottom, maxScrollTop, nextStickState } from "./scroll-stick";
+
+describe("scroll bounds", () => {
+  it("computes the legal maximum scrollTop", () => {
+    expect(maxScrollTop(100, 1000)).toBe(900);
+    expect(maxScrollTop(100, 80)).toBe(0);
+  });
+
+  it("clamps programmatic targets to the scroll range", () => {
+    expect(clampScrollTop(1200, 100, 1000)).toBe(900);
+    expect(clampScrollTop(-20, 100, 1000)).toBe(0);
+  });
+});
 
 describe("isNearBottom", () => {
   it("treats the last 80px as near bottom", () => {

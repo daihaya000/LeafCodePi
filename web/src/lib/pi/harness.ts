@@ -67,6 +67,8 @@ import { createPermissionPromptService, taskIdForSession } from "@/lib/pi/permis
 import { registerWebUiPermissionHandler } from "@/lib/pi/webui-permission-bridge";
 import { createQuestionPromptService, type QuestionAnswer } from "@/lib/pi/question-prompt";
 import { registerWebUiQuestionHandler } from "@/lib/pi/webui-question-bridge";
+import { listSubagentRuns } from "@/lib/pi/subagent-runs";
+import { stopRunningSubagentRuns } from "@/lib/pi/stop-subagent-runs";
 
 /** True when a skill lives under the user's ~/.agents directory. */
 function isAgentsSkill(skill: { baseDir?: string; filePath?: string }): boolean {
@@ -336,6 +338,7 @@ async function ensureRuntime(): Promise<void> {
             ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant")
             : [];
           live.manualAbortedAssistantId = turnAssistants.at(-1)?.id ?? null;
+          await stopSubagentRunsForTask(live, msgs);
           await live.session.abort();
         }
         setTaskStatus(taskId, "idle");
@@ -1570,6 +1573,39 @@ export function applySubagentPermission(
   }
 }
 
+/** Stop detached async children before aborting the parent Pi turn. */
+async function stopSubagentRunsForTask(live: LiveRuntime, messages: UiMessage[]): Promise<void> {
+  const command = live.session.extensionRunner.getCommand("subagents-stop");
+  if (!command) return;
+  let sinceMs: number | undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "user") {
+      // Artifact mtime and message timestamps can differ slightly on Windows.
+      sinceMs = Math.max(0, message.createdAt - 5_000);
+      break;
+    }
+  }
+  try {
+    const runs = listSubagentRuns({
+      sessionFile: live.session.sessionFile,
+      cwd: live.session.sessionManager.getCwd(),
+      ...(sinceMs !== undefined ? { sinceMs } : {}),
+    });
+    const result = await stopRunningSubagentRuns(
+      runs,
+      async (runId) => command.handler(runId, live.session.extensionRunner.createCommandContext()),
+    );
+    if (result.failed.length > 0) {
+      console.warn(`[subagent] failed to stop runs: ${result.failed.join(", ")}`);
+    }
+  } catch (error) {
+    // Parent abort must remain available even when an artifact or extension is unavailable.
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`[subagent] failed to enumerate running children: ${reason}`);
+  }
+}
+
 export async function abortTask(id: string): Promise<TaskSummary> {
   const live = state().live.get(id);
   if (live) {
@@ -1589,6 +1625,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
     const turnAssistants =
       promptIndex >= 0 ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant") : [];
     live.manualAbortedAssistantId = turnAssistants.at(-1)?.id ?? null;
+    await stopSubagentRunsForTask(live, msgs);
     await live.session.abort();
     emitTaskSnapshot(live, "abort");
   }

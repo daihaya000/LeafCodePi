@@ -8,6 +8,16 @@ export function isNearBottom(
   return scrollTop + clientHeight >= scrollHeight - threshold;
 }
 
+/** The largest legal scrollTop for a scroll container. */
+export function maxScrollTop(clientHeight: number, scrollHeight: number): number {
+  return Math.max(0, scrollHeight - clientHeight);
+}
+
+/** Clamp programmatic scroll targets so callers cannot overshoot the content. */
+export function clampScrollTop(top: number, clientHeight: number, scrollHeight: number): number {
+  return Math.min(maxScrollTop(clientHeight, scrollHeight), Math.max(0, top));
+}
+
 /**
  * Stick-to-bottom follow mode.
  * Unstick only on an explicit upward scroll — content growth that moves the

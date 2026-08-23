@@ -37,7 +37,7 @@ import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { writeStoredAgent } from "@/lib/default-agent";
-import { isNearBottom, nextStickState } from "@/lib/scroll-stick";
+import { clampScrollTop, isNearBottom, nextStickState } from "@/lib/scroll-stick";
 import {
   readScrollButtonOpacity,
   subscribeScrollButtonOpacity,
@@ -445,7 +445,10 @@ export function TaskView({
   }, [taskId, applyDetail, notifySidebarIfNeeded]);
 
   const scrollToBottom = useCallback((el: HTMLElement) => {
-    el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+    el.scrollTo({
+      top: clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight),
+      behavior: "auto",
+    });
   }, []);
 
   const scheduleScrollToBottom = useCallback(() => {
@@ -486,8 +489,9 @@ export function TaskView({
     const targetEl = messageElsRef.current.get(userMessageIdsRef.current[index]);
     if (!el || !targetEl) return;
     const line = el.scrollTop + 4;
+    const targetTop = el.scrollTop + targetEl.offsetTop - line;
     el.scrollTo({
-      top: el.scrollTop + targetEl.offsetTop - line,
+      top: clampScrollTop(targetTop, el.clientHeight, el.scrollHeight),
       behavior: "smooth",
     });
     currentUserIdxRef.current = index;
@@ -498,7 +502,10 @@ export function TaskView({
   const jumpToLatest = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    el.scrollTo({
+      top: clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight),
+      behavior: "smooth",
+    });
     currentUserIdxRef.current = Math.max(0, userMessageIdsRef.current.length - 1);
     stickRef.current = true;
   }, []);
@@ -1146,7 +1153,7 @@ export function TaskView({
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className="min-h-0 flex-1 overflow-y-auto px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4"
+          className="min-h-0 flex-1 overscroll-y-contain overflow-y-auto px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4"
         >
           <div ref={contentRef} className="relative mx-auto flex max-w-5xl flex-col gap-4">
             {hangRetryNotice && (
