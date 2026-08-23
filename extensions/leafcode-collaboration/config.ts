@@ -104,8 +104,8 @@ export function readCollaborationConfig(
     if (mode === undefined) {
       return { config: DEFAULT_COLLABORATION_CONFIG, valid: false, error: "config.mode is required" };
     }
-    if (mode !== "strict" && mode !== "permissive") {
-      return { config: DEFAULT_COLLABORATION_CONFIG, valid: false, error: "config.mode must be strict or permissive" };
+    if (mode !== "strict" && mode !== "permissive" && mode !== "off") {
+      return { config: DEFAULT_COLLABORATION_CONFIG, valid: false, error: "config.mode must be strict, permissive, or off" };
     }
     const heartbeatMs = numberConfig(config, "heartbeatMs", 250, 60_000);
     const leaseTtlMs = numberConfig(config, "leaseTtlMs", 1_000, 300_000);

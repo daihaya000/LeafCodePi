@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -18,6 +18,51 @@ function git(cwd: string, args: string[]): void {
 }
 
 describe("LeafCode collaboration extension", () => {
+  it("stays inert when collaboration is off", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "leafcode-collab-extension-repo-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-extension-data-"));
+    const handlers = new Map<string, Handler>();
+    const tools = new Map<string, Tool>();
+    const pi = {
+      on: (name: string, handler: Handler) => handlers.set(name, handler),
+      registerTool: (tool: Tool) => tools.set(tool.name, tool),
+    } as unknown as ExtensionAPI;
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    git(repo, ["init"]);
+    writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({ mode: "off" }), "utf8");
+    process.env.LEAFCODE_PI_DATA_DIR = dataDir;
+    collaborationExtension(pi);
+    const ctx = {
+      cwd: repo,
+      hasUI: false,
+      sessionManager: {
+        getSessionId: () => "disabled-session",
+        getSessionName: () => "Disabled session",
+      },
+    } as ExtensionContext;
+
+    try {
+      await handlers.get("session_start")?.({}, ctx);
+      assert.equal(await handlers.get("before_agent_start")?.({}, ctx), undefined);
+      assert.equal(await handlers.get("tool_call")?.({ toolName: "bash", input: {} }, ctx), undefined);
+      const status = await tools.get("leafcode_collab")!.execute(
+        "status",
+        { action: "status" },
+        new AbortController().signal,
+        () => undefined,
+        ctx,
+      );
+      assert.equal(status.details?.disabled, true);
+      assert.equal(existsSync(join(dataDir, "rooms")), false);
+    } finally {
+      await handlers.get("session_shutdown")?.({}, ctx);
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it("joins lazily when an existing session calls status after extension reload", async () => {
     const repo = mkdtempSync(join(tmpdir(), "leafcode-collab-extension-repo-"));
     const dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-extension-data-"));

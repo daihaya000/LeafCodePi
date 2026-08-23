@@ -75,6 +75,13 @@ describe("applyCollaborationToolPolicy", () => {
       ["read", "write", "leafcode_collab", "leafcode_write", "leafcode_edit", "leafcode_check", "leafcode_commit"],
     );
   });
+
+  it("keeps only the configured tools when collaboration is off", () => {
+    assert.deepEqual(
+      applyCollaborationToolPolicy(["read", "write", "edit", "bash", "read"], "off"),
+      ["read", "write", "edit", "bash"],
+    );
+  });
 });
 
 describe("listExtensions / setExtensionEnabled", () => {

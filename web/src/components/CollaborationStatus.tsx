@@ -19,7 +19,7 @@ export function useCollaborationRoom(projectId?: string | null): {
       return;
     }
     try {
-      const response = await getJson<{ room: CollaborationRoomSummary }>(`/api/collaboration?projectId=${encodeURIComponent(projectId)}`);
+      const response = await getJson<{ room: CollaborationRoomSummary | null }>(`/api/collaboration?projectId=${encodeURIComponent(projectId)}`);
       setRoom(response.room);
     } catch {
       setRoom(null);
@@ -34,7 +34,7 @@ export function useCollaborationRoom(projectId?: string | null): {
     let closed = false;
     const tick = async () => {
       try {
-        const response = await getJson<{ room: CollaborationRoomSummary }>(`/api/collaboration?projectId=${encodeURIComponent(projectId)}`);
+        const response = await getJson<{ room: CollaborationRoomSummary | null }>(`/api/collaboration?projectId=${encodeURIComponent(projectId)}`);
         if (!closed) setRoom(response.room);
       } catch {
         if (!closed) setRoom(null);

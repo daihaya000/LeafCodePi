@@ -1,4 +1,4 @@
-export type CollaborationMode = "strict" | "permissive";
+export type CollaborationMode = "strict" | "permissive" | "off";
 export const COLLABORATION_CHECK_IDS = ["typecheck", "test", "lint", "build"] as const;
 export type CollaborationCheckId = (typeof COLLABORATION_CHECK_IDS)[number];
 export type CollaborationCheck = { file: string; args: string[] };
@@ -101,8 +101,8 @@ export function parseCollaborationConfig(raw: unknown): CollaborationConfigResul
   if (mode === undefined) {
     return { config: cloneConfig(DEFAULT_COLLABORATION_CONFIG), valid: false, error: "config.mode is required" };
   }
-  if (mode !== "strict" && mode !== "permissive") {
-    return { config: cloneConfig(DEFAULT_COLLABORATION_CONFIG), valid: false, error: "config.mode must be strict or permissive" };
+  if (mode !== "strict" && mode !== "permissive" && mode !== "off") {
+    return { config: cloneConfig(DEFAULT_COLLABORATION_CONFIG), valid: false, error: "config.mode must be strict, permissive, or off" };
   }
   const heartbeatMs = numberConfig(config, "heartbeatMs");
   const leaseTtlMs = numberConfig(config, "leaseTtlMs");

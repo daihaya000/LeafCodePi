@@ -78,6 +78,15 @@ describe("readCollaborationConfig", () => {
     assert.equal(rejected.valid, false);
     assert.equal(readCollaborationConfig(env).config.mode, "permissive");
   });
+
+  it("accepts off mode", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-config-"));
+    tempDirs.push(dataDir);
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const written = writeCollaborationConfig({ ...DEFAULT_COLLABORATION_CONFIG, mode: "off" }, env);
+    assert.equal(written.valid, true);
+    assert.equal(readCollaborationConfig(env).config.mode, "off");
+  });
 });
 
 describe("parseCheckArgs", () => {

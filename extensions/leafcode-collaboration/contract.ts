@@ -12,4 +12,4 @@ export type LeafCodeCollaborationToolName = (typeof LEAFCODE_COLLABORATION_TOOL_
 
 export const LEAFCODE_STRICT_BLOCKED_TOOL_NAMES = ["bash", "write", "edit"] as const;
 
-export type LeafCodeCollaborationMode = "strict" | "permissive";
+export type LeafCodeCollaborationMode = "strict" | "permissive" | "off";

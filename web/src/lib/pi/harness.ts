@@ -846,11 +846,16 @@ async function createSession(options: {
   // Bundled WebUI extensions (goal-loop / todowrite / permission-gate) load
   // straight from this repository's extensions/ dir; stale same-name copies
   // under ~/.pi are dropped so they never register duplicate tools.
+  const collaborationMode = readCollaborationConfig().config.mode;
+  const collaborationEnabled = collaborationMode !== "off";
   const bundled = bundledExtensionEntries();
   const bundledNames = new Set(bundled.map((entry) => entry.name));
-  const bundledPaths = new Set(bundled.map((entry) => entry.filePath));
-  const collaborationEntry = bundled.find((entry) => entry.name === LEAFCODE_COLLABORATION_EXTENSION_NAME);
-  if (!collaborationEntry) {
+  const activeBundled = bundled.filter(
+    (entry) => collaborationEnabled || entry.name !== LEAFCODE_COLLABORATION_EXTENSION_NAME,
+  );
+  const bundledPaths = new Set(activeBundled.map((entry) => entry.filePath));
+  const collaborationEntry = activeBundled.find((entry) => entry.name === LEAFCODE_COLLABORATION_EXTENSION_NAME);
+  if (collaborationEnabled && !collaborationEntry) {
     throw new Error(`Required bundled extension '${LEAFCODE_COLLABORATION_EXTENSION_NAME}' is missing; refusing to start a mutable session.`);
   }
   // The bundled leafcode-subagents fork replaces the npm pi-subagents package:
@@ -866,7 +871,7 @@ async function createSession(options: {
   const resourceLoader = new pi.DefaultResourceLoader({
     cwd: options.cwd,
     agentDir,
-    additionalExtensionPaths: bundled.map((entry) => entry.filePath),
+    additionalExtensionPaths: activeBundled.map((entry) => entry.filePath),
     skillsOverride: agentOptions?.noSkills
       ? () => ({ skills: [], diagnostics: [] })
       : (base) => ({
@@ -889,7 +894,7 @@ async function createSession(options: {
   });
   await resourceLoader.reload();
   const loadedExtensions = resourceLoader.getExtensions();
-  const collaborationExtension = loadedExtensions.extensions.find(
+  const collaborationExtension = collaborationEntry && loadedExtensions.extensions.find(
     (extension) =>
       basenameKey(extension.resolvedPath) === LEAFCODE_COLLABORATION_EXTENSION_NAME &&
       resolve(extension.resolvedPath) === resolve(collaborationEntry.filePath),
@@ -897,7 +902,7 @@ async function createSession(options: {
   const missingCollaborationTools = LEAFCODE_COLLABORATION_TOOL_NAMES.filter(
     (name) => !collaborationExtension?.tools.has(name),
   );
-  if (!collaborationExtension || missingCollaborationTools.length > 0) {
+  if (collaborationEnabled && (!collaborationExtension || missingCollaborationTools.length > 0)) {
     const loadError = loadedExtensions.errors
       .filter((entry) => basenameKey(entry.path) === LEAFCODE_COLLABORATION_EXTENSION_NAME)
       .map((entry) => entry.error)
@@ -921,7 +926,6 @@ async function createSession(options: {
     (options.subagentPermission === "allow"
       ? ["read", "write", "edit", "bash", "grep", "find", "ls", "subagent", "todowrite"]
       : ["read", "write", "edit", "bash", "grep", "find", "ls", "todowrite"]);
-  const collaborationMode = readCollaborationConfig().config.mode;
   const tools = applyCollaborationToolPolicy(configuredTools, collaborationMode);
   const result = await pi.createAgentSession({
     cwd: options.cwd,

@@ -11,7 +11,7 @@ function configErrorMessage(error?: string): string {
   if (!error) return "協調設定が不正です";
   if (error.includes("must be an object")) return "設定はオブジェクトである必要があります";
   if (error.includes("mode is required")) return "モードは必須です";
-  if (error.includes("strict or permissive")) return "モードは strict（厳格）または permissive（緩和）です";
+  if (error.includes("strict, permissive, or off")) return "モードは strict（厳格）、permissive（緩和）、off（無効）のいずれかです";
   if (error.includes("timing and activity")) return "時間・件数の値が範囲外です";
   if (error.includes("at least heartbeatMs")) return "リース TTL と無応答判定はハートビート以上にしてください";
   return error;

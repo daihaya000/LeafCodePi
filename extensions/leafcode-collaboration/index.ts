@@ -109,6 +109,12 @@ function sessionInfo(ctx: ExtensionContext): { sessionId: string; displayName: s
 }
 
 async function connectRuntime(ctx: ExtensionContext, state: RuntimeState, force = false): Promise<void> {
+  if (state.mode === "off") {
+    if (state.client) await state.client.disconnect();
+    state.client = undefined;
+    state.connectError = undefined;
+    return;
+  }
   if (state.connecting) {
     await state.connecting;
   }
@@ -165,6 +171,14 @@ async function statusResult(ctx: ExtensionContext): Promise<AgentToolResult<Reco
     ...(state.configError ? { configError: state.configError } : {}),
     ...(state.connectError ? { connectError: state.connectError } : {}),
   };
+  if (state.mode === "off") {
+    return result("LeafCode collaboration is disabled in settings.", {
+      ...base,
+      ready: false,
+      disabled: true,
+      degraded: false,
+    });
+  }
   if (!state.client) {
     return result(`LeafCode collaboration Phase 3 (${state.mode}); room unavailable.`, {
       ...base,
@@ -213,6 +227,7 @@ async function statusResult(ctx: ExtensionContext): Promise<AgentToolResult<Reco
 
 async function requireRoom(ctx: ExtensionContext): Promise<RoomClient> {
   const state = await ensureRuntime(ctx);
+  if (state.mode === "off") throw new Error("LeafCode collaboration is disabled in settings.");
   if (!state.client?.ready) {
     throw new Error(state.connectError ?? state.client?.degradedReason ?? "LeafCode room is unavailable; mutation and lease operations are disabled.");
   }
@@ -252,6 +267,7 @@ function peerInboxPrompt(messages: RoomMessage[]): string {
 export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     const state = await runtimeState(ctx);
+    if (state.mode === "off") return;
     await connectRuntime(ctx, state);
     if (!state.configValid && ctx.hasUI) {
       ctx.ui.notify(`LeafCode collaboration config is invalid; strict mode enforced (${state.configError ?? "unknown error"}).`, "warning");
@@ -262,9 +278,9 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("before_agent_start", async (_event, ctx) => {
-    await ensureRuntime(ctx);
+    const state = await ensureRuntime(ctx);
+    if (state.mode === "off") return undefined;
     await updatePresence(ctx, { state: "active", progress: true });
-    const state = await runtimeState(ctx);
     let messages: RoomMessage[] = [];
     if (state.client?.ready) {
       try { messages = await state.client.inbox(); } catch { /* the turn can continue without a peer inbox */ }

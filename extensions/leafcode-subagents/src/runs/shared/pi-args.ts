@@ -401,7 +401,9 @@ export function resolvePiLaunchToolPlan(
 			(tool) =>
 				!(tool.includes("/") || tool.endsWith(".ts") || tool.endsWith(".js")),
 		) ?? [];
-	const strictMode = readCollaborationConfig().config.mode === "strict";
+	const collaborationMode = readCollaborationConfig().config.mode;
+	const collaborationEnabled = collaborationMode !== "off";
+	const strictMode = collaborationMode === "strict";
 	const strictBlockedTools = LEAFCODE_STRICT_BLOCKED_TOOL_NAMES as readonly string[];
 	const effectiveRequestedBuiltinTools = strictMode
 		? requestedBuiltinTools.filter((tool) => !strictBlockedTools.includes(tool))
@@ -449,7 +451,7 @@ export function resolvePiLaunchToolPlan(
 		(input.mcpDirectTools?.length ?? 0) > 0 ||
 		allowedToolSet !== undefined;
 	const internalTools = input.structuredOutput ? ["structured_output"] : [];
-	const mandatoryChildTools = [...LEAFCODE_COLLABORATION_TOOL_NAMES];
+	const mandatoryChildTools = collaborationEnabled ? [...LEAFCODE_COLLABORATION_TOOL_NAMES] : [];
 	const effectiveToolAllowlist = [
 		...new Set([
 			...declaredBuiltinTools,
@@ -477,7 +479,7 @@ export function resolvePiLaunchToolPlan(
 		? undefined
 		: resolvePermissionSystemExtension();
 	const runtimeExtensions = [
-		LEAFCODE_COLLABORATION_EXTENSION_PATH,
+		...(collaborationEnabled ? [LEAFCODE_COLLABORATION_EXTENSION_PATH] : []),
 		PROMPT_RUNTIME_EXTENSION_PATH,
 		...(fanoutAuthorized ? [FANOUT_CHILD_EXTENSION_PATH] : []),
 		...(permSystemExt ? [permSystemExt] : []),

@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { getProjects, jsonError } from "@/lib/pi/harness";
 import { discardCollaborationLease } from "@/lib/collaboration-room-actions";
 import { readCollaborationRoom } from "@/lib/collaboration-room";
+import { readCollaborationConfig } from "@/lib/collaboration";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
+    if (readCollaborationConfig().config.mode === "off") {
+      return NextResponse.json({ rooms: {}, room: null, disabled: true });
+    }
     const projectId = req.nextUrl.searchParams.get("projectId");
     const projects = getProjects(true);
     if (projectId) {
@@ -26,6 +30,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    if (readCollaborationConfig().config.mode === "off") {
+      return NextResponse.json({ error: "collaboration is disabled" }, { status: 409 });
+    }
     const body = await req.json().catch(() => null) as { projectId?: unknown; action?: unknown; leaseId?: unknown } | null;
     const projectId = typeof body?.projectId === "string" ? body.projectId.trim() : "";
     const action = typeof body?.action === "string" ? body.action.trim() : "";

@@ -174,8 +174,9 @@ export function filterExtensionsByState<T extends { path: string }>(
 
 export function applyCollaborationToolPolicy(
   tools: readonly string[],
-  mode: "strict" | "permissive",
+  mode: "strict" | "permissive" | "off",
 ): string[] {
+  if (mode === "off") return [...new Set(tools)];
   const filtered = mode === "strict"
     ? tools.filter((tool) => !(LEAFCODE_STRICT_BLOCKED_TOOL_NAMES as readonly string[]).includes(tool))
     : [...tools];
