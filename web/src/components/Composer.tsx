@@ -1,5 +1,6 @@
 "use client";
 
+import { useLayoutEffect } from "react";
 import type {
   ChangeEventHandler,
   ClipboardEventHandler,
@@ -74,6 +75,14 @@ export function Composer({
   toolbar,
   action,
 }: ComposerProps) {
+  useLayoutEffect(() => {
+    const element = textarea.ref.current;
+    if (!element) return;
+
+    element.style.height = "auto";
+    element.style.height = `${element.scrollHeight}px`;
+  }, [textarea.ref, textarea.rows, textarea.value]);
+
   const inner = (
     <>
       {attachments.length > 0 && (
@@ -106,7 +115,7 @@ export function Composer({
         disabled={textarea.disabled}
         readOnly={textarea.readOnly}
         placeholder={textarea.placeholder}
-        className={textarea.className}
+        className={`${textarea.className} max-h-60 overflow-y-auto focus-visible:outline-none`}
         style={textarea.style}
         onChange={textarea.onChange}
         onClick={textarea.onClick}
