@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { AppShell } from "@/components/shell/AppShell";
+import { NotificationSoundSync } from "@/components/NotificationSoundSync";
 import { maybeRedirectToLocalhost } from "@/lib/localhost-redirect";
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
@@ -11,5 +12,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     void maybeRedirectToLocalhost();
   }, []);
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <AppShell>
+      <NotificationSoundSync />
+      {children}
+    </AppShell>
+  );
 }

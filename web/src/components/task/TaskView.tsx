@@ -53,6 +53,14 @@ import {
   formatHangTimeout,
   readHangTimeoutMs,
 } from "@/lib/hang-timeout";
+import {
+  playAttentionRequiredSound,
+  playSessionCompleteSound,
+} from "@/lib/session-complete-sound";
+import {
+  decideNotification,
+  notificationText,
+} from "@/lib/notify";
 import { isThinkingLevel, thinkingLevelLabel } from "@/lib/thinking-levels";
 import {
   readSubagentPermission,
@@ -696,10 +704,95 @@ export function TaskView({
     : thinkingLevels.includes("off")
       ? "off"
       : (thinkingLevels[0] ?? "off");
-  const working = task?.status === "working" || task?.isStreaming;
+  const working = Boolean(task?.status === "working" || task?.isStreaming);
   const goalLoopLive = Boolean(
     task?.goalLoop && ["queued", "running", "verifying_completed"].includes(task.goalLoop.status),
   );
+
+  // --- 通知音・デスクトップ通知（本家 LeafCode から移植） ---
+  const attention = permissionRequest !== null;
+  // 完了音：working → idle の立下りエッジ。初回マウント時の既定値は実状で
+  // 初期化し、既に走っていたターンの完了でも鳴る（本家と同じ挙動）。
+  const prevWorkingSoundRef = useRef(working);
+  useEffect(() => {
+    if (prevWorkingSoundRef.current && !working) playSessionCompleteSound();
+    prevWorkingSoundRef.current = working;
+  }, [working]);
+  // 注意音：承認 UI の立上がりエッジ。タブの可視状態に関係なく鳴らす。
+  const prevAttentionSoundRef = useRef(false);
+  useEffect(() => {
+    if (!prevAttentionSoundRef.current && attention) playAttentionRequiredSound();
+    prevAttentionSoundRef.current = attention;
+  }, [attention]);
+
+  // デスクトップ通知。document.hidden を state 化するのは、visibilitychange
+  // でエフェクトを再実行させ、タブ非表示の瞬間の遷移を見落とさないため。
+  const [documentHidden, setDocumentHidden] = useState(() =>
+    typeof document !== "undefined" ? document.hidden : false,
+  );
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVisibilityChange = () => setDocumentHidden(document.hidden);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
+  // requestPermission() 解決後に effect を再評価させるための tick。
+  const [permissionTick, setPermissionTick] = useState(0);
+  // requestPermission の多重発呼防止。
+  const permissionRequestedRef = useRef(false);
+  // 権限が「未許可」の間に検出したエッジの覚え書き。プロンプト回答後に発火。
+  const pendingKindRef = useRef<ReturnType<typeof decideNotification>>(null);
+  const prevAttentionNotifyRef = useRef(false);
+  const prevWorkingNotifyRef = useRef(working);
+  useEffect(() => {
+    if (typeof Notification === "undefined") return;
+    const permission = Notification.permission;
+
+    if (
+      permission === "default" &&
+      (working || attention) &&
+      !permissionRequestedRef.current
+    ) {
+      permissionRequestedRef.current = true;
+      void Notification.requestPermission()
+        .catch(() => undefined)
+        .then(() => {
+          permissionRequestedRef.current = false;
+          setPermissionTick((n) => n + 1);
+        });
+    }
+
+    // エッジは権限の有無にかかわらず検出し、prev 系 ref を実状に保つ
+    // （権限未決の間の遷移を握りつぶさない）。
+    const edgeKind = decideNotification({
+      prevAttention: prevAttentionNotifyRef.current,
+      attention,
+      prevWorking: prevWorkingNotifyRef.current,
+      working,
+      documentHidden,
+      permission: "granted",
+    });
+    prevAttentionNotifyRef.current = attention;
+    prevWorkingNotifyRef.current = working;
+    if (edgeKind) pendingKindRef.current = edgeKind;
+
+    if (permission === "granted" && pendingKindRef.current) {
+      const { title, body } = notificationText(pendingKindRef.current, task?.title ?? "");
+      try {
+        new Notification(title, { body, tag: `task-${task?.id ?? "x"}` });
+      } catch {
+        // 生成エラー（非対応コンテキスト等）は無視。
+      }
+      pendingKindRef.current = null;
+    }
+  }, [
+    working,
+    attention,
+    task?.title,
+    task?.id,
+    documentHidden,
+    permissionTick,
+  ]);
   const visibleMessages = useMemo(
     () => messages.filter((message) => !isHangRetryUserMessage(message)),
     [messages],
