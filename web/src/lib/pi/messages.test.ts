@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { findResumableTurn } from "../aborted-resume";
 import { projectPiMessages, titleFromPrompt } from "./messages";
 
 describe("titleFromPrompt", () => {
@@ -89,5 +90,25 @@ describe("projectPiMessages", () => {
     });
     // 応答時間は射影では付かない（throughput timing が無いメッセージは非表示）。
     expect(messages[0].responseDurationMs).toBeUndefined();
+  });
+
+  it("preserves Pi aborts as resumable turns after reload", () => {
+    const messages = projectPiMessages([
+      { role: "user", id: "u1", timestamp: 1, content: "続けて" },
+      {
+        role: "assistant",
+        id: "a1",
+        timestamp: 2,
+        stopReason: "aborted",
+        content: [],
+      },
+    ]);
+
+    expect(messages[1]?.error).toBe("Aborted");
+    expect(findResumableTurn(messages)).toMatchObject({
+      reason: "aborted",
+      messageId: "a1",
+      text: "続けて",
+    });
   });
 });

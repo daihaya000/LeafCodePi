@@ -167,6 +167,7 @@ export function projectPiMessages(raw: unknown[]): UiMessage[] {
         item.usage.output > 0
           ? Math.round(item.usage.output)
           : undefined;
+      const errorMessage = asString(item.errorMessage);
       messages.push({
         id,
         role: "assistant",
@@ -174,7 +175,10 @@ export function projectPiMessages(raw: unknown[]): UiMessage[] {
         parts,
         model: asString(item.model) || undefined,
         provider: asString(item.provider) || undefined,
-        error: asString(item.errorMessage) || undefined,
+        // Pi intentionally omits errorMessage for user aborts. Keep the
+        // stopReason as a stable marker so resume remains available after a
+        // session reload, not only immediately after clicking Stop.
+        error: errorMessage || (asString(item.stopReason) === "aborted" ? "Aborted" : undefined),
         ...(usageOutput !== undefined ? { outputTokens: usageOutput } : {}),
       });
       return;
