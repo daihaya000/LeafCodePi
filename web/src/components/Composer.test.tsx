@@ -98,6 +98,10 @@ describe("Composer", () => {
 
     fireEvent.change(textarea, { target: { value: "@rev" } });
     expect(screen.getByRole("listbox", { name: "エージェント候補" })).toBeTruthy();
+    const agentOption = screen.getByRole("option");
+    expect(agentOption.textContent).toContain("reviewer");
+    expect(agentOption.textContent).toContain("Review agent");
+    expect(agentOption.textContent).not.toContain("@reviewer");
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(textarea.value).toBe("@reviewer ");
     expect(document.querySelector('[aria-hidden="true"] .text-primary')).toBeTruthy();

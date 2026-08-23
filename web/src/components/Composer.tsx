@@ -15,7 +15,7 @@ import type {
   RefObject,
   UIEventHandler,
 } from "react";
-import { Bot, FileCode2, Paperclip, X } from "lucide-react";
+import { FileCode2, Paperclip, UsersRound, X } from "lucide-react";
 import {
   composerReferenceValue,
   filterComposerReferences,
@@ -277,7 +277,7 @@ export function Composer({
           <div
             role="listbox"
             aria-label={currentToken.kind === "skill" ? "スキル候補" : "エージェント候補"}
-            className="absolute bottom-full left-0 z-30 mb-1 max-h-64 w-full min-w-64 overflow-y-auto rounded-xl border border-border bg-bg p-1 shadow-lg"
+            className="absolute bottom-full left-0 z-30 mb-1 max-h-[28rem] w-full min-w-64 overflow-y-auto rounded-2xl border border-border bg-surface p-1.5 shadow-xl"
           >
             {suggestions.map((reference, index) => {
               const kind = currentToken.kind;
@@ -288,14 +288,36 @@ export function Composer({
                   type="button"
                   role="option"
                   aria-selected={selected}
-                  className={`flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-sm ${selected ? "bg-surface-2" : "hover:bg-surface-2"}`}
+                  className={`flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left ${selected ? "bg-working-bg" : "hover:bg-surface-2"}`}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => chooseSuggestion(reference, kind)}
                 >
-                  {kind === "skill" ? <FileCode2 className="mt-0.5 h-4 w-4 shrink-0 text-accent" /> : <Bot className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
-                  <span className="min-w-0">
-                    <span className="block truncate font-mono text-text">{composerReferenceValue(kind, reference.name)}</span>
-                    {reference.description && <span className="block truncate text-xs text-muted">{reference.description}</span>}
+                  {kind === "skill" ? (
+                    <FileCode2 className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+                  ) : (
+                    <UsersRound className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className={
+                        kind === "agent"
+                          ? "block truncate text-base font-semibold leading-6 text-accent"
+                          : "block truncate font-mono text-sm text-text"
+                      }
+                    >
+                      {kind === "agent" ? reference.name : composerReferenceValue(kind, reference.name)}
+                    </span>
+                    {reference.description && (
+                      <span
+                        className={
+                          kind === "agent"
+                            ? "mt-0.5 line-clamp-3 block text-sm leading-5 text-muted"
+                            : "block truncate text-xs text-muted"
+                        }
+                      >
+                        {reference.description}
+                      </span>
+                    )}
                   </span>
                 </button>
               );

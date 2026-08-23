@@ -51,7 +51,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [agents, setAgents] = useState<string[]>([]);
+  const [agents, setAgents] = useState<ComposerReference[]>([]);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
   const [agent, setAgent] = useState("");
   const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
@@ -75,7 +75,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
       getJson<{ projects: ProjectDto[] }>("/api/projects"),
       getJson<{ models: ModelOption[] }>("/api/models"),
       getJson<HealthDto>("/api/health"),
-      getJson<{ agents: { name: string; enabled: boolean }[] }>("/api/agents"),
+      getJson<{ agents: { name: string; description?: string; enabled: boolean }[] }>("/api/agents"),
       getJson<{ skills: { name: string; description?: string; enabled: boolean }[] }>("/api/skills"),
     ]);
     if (projectRes.status === "fulfilled") {
@@ -96,14 +96,17 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
     }
     if (healthRes.status === "fulfilled") setHealth(healthRes.value);
     if (agentRes.status === "fulfilled") {
-      const enabledAgents = agentRes.value.agents.filter((a) => a.enabled).map((a) => a.name);
+      const enabledAgents = agentRes.value.agents
+        .filter((a) => a.enabled)
+        .map(({ name, description }) => ({ name, description }));
+      const enabledAgentNames = enabledAgents.map(({ name }) => name);
       setAgents(enabledAgents);
       setAgent((current) => {
-        if (current && enabledAgents.includes(current)) return current;
+        if (current && enabledAgentNames.includes(current)) return current;
         const stored = readStoredAgent();
-        if (stored && enabledAgents.includes(stored)) return stored;
+        if (stored && enabledAgentNames.includes(stored)) return stored;
         // 本家 LeafCode と同じく build を既定対話者にする。
-        if (enabledAgents.includes(DEFAULT_AGENT)) return DEFAULT_AGENT;
+        if (enabledAgentNames.includes(DEFAULT_AGENT)) return DEFAULT_AGENT;
         return "";
       });
     }
@@ -312,7 +315,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                 placeholder: "タスクを説明してください…（Ctrl+Enter で開始）",
                 className: "w-full resize-none bg-transparent py-1.5 text-base outline-none placeholder:text-faint",
               }}
-              references={{ skills, agents: agents.map((name) => ({ name })) }}
+              references={{ skills, agents }}
               attachmentControl={{
                 inputRef: fileInputRef,
                 inputDisabled: submitting || goalLoopEnabled,
@@ -346,7 +349,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                   {agents.length > 0 && (
                     <AgentSelect
                       value={agent}
-                      agents={agents}
+                      agents={agents.map(({ name }) => name)}
                       disabled={submitting}
                       onChange={(value) => {
                         setAgent(value);

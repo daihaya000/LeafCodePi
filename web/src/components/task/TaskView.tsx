@@ -248,12 +248,12 @@ export function TaskView({
   const [manualAbortedAssistantId, setManualAbortedAssistantId] = useState<string | null>(null);
   const [hangRetryCount, setHangRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [agents, setAgents] = useState<string[]>([]);
+  const [agents, setAgents] = useState<ComposerReference[]>([]);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
   const messageReferences = useMemo(
     () => ({
       skills,
-      agents: agents.map((name) => ({ name })),
+      agents,
     }),
     [agents, skills],
   );
@@ -432,11 +432,14 @@ export function TaskView({
     }).catch(() => {
       /* models are optional for the timeline */
     });
-    void getJson<{ agents: { name: string; enabled: boolean }[] }>("/api/agents").then((result) => {
+    void getJson<{ agents: { name: string; description?: string; enabled: boolean }[] }>("/api/agents").then((result) => {
       if (!closed) {
-        const names = result.agents.filter((a) => a.enabled).map((a) => a.name);
-        setAgents(names);
-        setAgent((current) => (current && names.includes(current) ? current : ""));
+        const enabledAgents = result.agents
+          .filter((a) => a.enabled)
+          .map(({ name, description }) => ({ name, description }));
+        const enabledAgentNames = enabledAgents.map(({ name }) => name);
+        setAgents(enabledAgents);
+        setAgent((current) => (current && enabledAgentNames.includes(current) ? current : ""));
       }
     }).catch(() => {
       /* agents are optional for the composer */
@@ -1546,7 +1549,7 @@ export function TaskView({
             className: "w-full resize-none bg-transparent py-1.5 text-base outline-none placeholder:text-faint",
             disabled: compacting,
           }}
-          references={{ skills, agents: agents.map((name) => ({ name })) }}
+          references={{ skills, agents }}
           attachmentControl={{
             inputRef: fileInputRef,
             inputDisabled: compacting || goalLoopEnabled,
@@ -1600,7 +1603,7 @@ export function TaskView({
               {agents.length > 0 && (
                 <AgentSelect
                   value={agent}
-                  agents={agents}
+                  agents={agents.map(({ name }) => name)}
                   disabled={working || compacting}
                   onChange={(value) => {
                     setAgent(value);
