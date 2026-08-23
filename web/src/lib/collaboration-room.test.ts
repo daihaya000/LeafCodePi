@@ -268,7 +268,7 @@ describe("LeafCode room coordinator", () => {
     await assert.rejects(() => first.commit("update a", ["src/a.ts"]), /staged|foreign/i);
   });
 
-  it("keeps a disconnected session lease orphaned", async () => {
+  it("lets the same session reclaim an orphaned lease after reconnecting", async () => {
     repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
     dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
     git(repo, ["init"]);
@@ -278,14 +278,21 @@ describe("LeafCode room coordinator", () => {
     git(repo, ["add", "src/a.ts"]);
     git(repo, ["commit", "-m", "initial"]);
     const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
-    const first = await connectRoom(repo, { sessionId: "session-orphan", displayName: "Old", pid: process.pid }, env);
+    const first = await connectRoom(repo, { sessionId: "session-orphan", displayName: "Old", pid: process.pid }, env, { connectionId: "first-connection" });
     clients.push(first);
     const lease = await first.reserve(["src/a.ts"]);
-    const reconnect = await connectRoom(repo, { sessionId: "session-orphan", displayName: "New", pid: process.pid }, env);
+    await first.write("src/a.ts", "export const a = 2;\n");
+    await first.close();
+    const reconnect = await connectRoom(repo, { sessionId: "session-orphan", displayName: "New", pid: process.pid }, env, { connectionId: "second-connection" });
     clients.push(reconnect);
     assert.equal((await reconnect.snapshot()).leases[lease.id]?.state, "orphaned");
-    await assert.rejects(() => reconnect.reserve(["src/a.ts"]), /overlap|orphaned|conflict/i);
+    const reclaimed = await reconnect.reserve(["src/a.ts"]);
+    assert.equal(reclaimed.id, lease.id);
+    assert.equal(reclaimed.state, "dirty");
+    await reconnect.write("src/a.ts", "export const a = 3;\n");
+    assert.equal(readFileSync(join(repo, "src/a.ts"), "utf8"), "export const a = 3;\n");
   });
+
 
   it("runs and guards the configured Git hook", async () => {
     repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));

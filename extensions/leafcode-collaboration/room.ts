@@ -1302,17 +1302,71 @@ class Coordinator {
     return task;
   }
 
+  private mutableLease(sessionId: string, target: string): FileLease | undefined {
+    const matches = Object.values(this.state.leases).filter((lease) =>
+      lease.ownerSessionId === sessionId &&
+      (lease.state === "active" || lease.state === "dirty") &&
+      lease.epoch === this.state.epoch &&
+      lease.selectors.some((selector) => selectorMatches(selector, target)),
+    );
+    if (matches.length <= 1) return matches[0];
+    return matches.sort((left, right) => Date.parse(right.renewedAt) - Date.parse(left.renewedAt))[0];
+  }
+
+  private selectorsCoveredByLease(selectors: string[], lease: FileLease): boolean {
+    return selectors.every((selector) => lease.selectors.some((owned) => selectorCovers(owned, selector)));
+  }
+
+  private releaseOwnOrphanedLeases(sessionId: string, selectors: string[]): void {
+    for (const lease of Object.values(this.state.leases)) {
+      if (lease.ownerSessionId !== sessionId || lease.state !== "orphaned") continue;
+      if (!selectors.some((selector) => lease.selectors.some((owned) => selectorsOverlap(selector, owned)))) continue;
+      lease.state = "released";
+      lease.renewedAt = now();
+      this.touch("release", sessionId, lease.selectors);
+    }
+  }
+
+  private async tryReclaimOrphanedLease(sessionId: string, selectors: string[]): Promise<FileLease | undefined> {
+    const candidates = Object.values(this.state.leases).filter((lease) =>
+      lease.ownerSessionId === sessionId &&
+      lease.state === "orphaned" &&
+      this.selectorsCoveredByLease(selectors, lease),
+    );
+    if (candidates.length !== 1) return undefined;
+    const lease = candidates[0]!;
+    try {
+      this.validateLease(lease);
+    } catch {
+      lease.state = "released";
+      this.touch("release", sessionId, lease.selectors);
+      return undefined;
+    }
+    this.refreshLeaseState(lease);
+    if (lease.state !== "active" && lease.state !== "dirty") return undefined;
+    lease.epoch = this.state.epoch;
+    lease.fencingToken = this.fencingSequence++;
+    lease.renewedAt = now();
+    lease.expiresAt = new Date(Date.now() + this.config.leaseTtlMs).toISOString();
+    this.releaseOwnOrphanedLeases(sessionId, selectors);
+    this.touch("reserve", sessionId, lease.selectors);
+    return lease;
+  }
+
   private async reserve(sessionId: string, payload: Record<string, unknown>): Promise<FileLease> {
     this.ensureHealthy();
     if (!Array.isArray(payload.paths) || payload.paths.length < 1 || payload.paths.length > MAX_SELECTOR_COUNT) throw new RoomError("invalid_payload", "reserve requires 1-64 paths.");
     const selectors = [...new Set(payload.paths.map((value) => normalizeSelector(value)))];
     for (const selector of selectors) assertSelectorOutsideRoom(this.identity, selector);
+    const reclaimed = await this.tryReclaimOrphanedLease(sessionId, selectors);
+    if (reclaimed) return reclaimed;
     for (const lease of Object.values(this.state.leases)) {
-      if (!activeLease(lease.state) || (lease.ownerSessionId === sessionId && lease.state !== "orphaned")) continue;
+      if (!activeLease(lease.state) || lease.ownerSessionId === sessionId) continue;
       if (selectors.some((selector) => lease.selectors.some((other) => selectorsOverlap(selector, other)))) {
         throw new RoomError("lease_conflict", "Requested paths overlap another active or orphaned lease.", { leaseId: lease.id, ownerSessionId: lease.ownerSessionId });
       }
     }
+    this.releaseOwnOrphanedLeases(sessionId, selectors);
     const baseline: Record<string, string | null> = {};
     const identities: Record<string, FileIdentity> = {};
     for (const selector of selectors) {
@@ -1358,7 +1412,7 @@ class Coordinator {
     this.ensureHealthy();
     const target = normalizeSelector(payload.path);
     if (target.endsWith("/**")) throw new RoomError("invalid_path", "Mutation path must be an exact file path.");
-    const lease = Object.values(this.state.leases).find((entry) => entry.ownerSessionId === sessionId && activeLease(entry.state) && entry.epoch === this.state.epoch && entry.selectors.some((selector) => selectorMatches(selector, target)));
+    const lease = this.mutableLease(sessionId, target);
     if (!lease) throw new RoomError("lease_required", "An active lease covering this path is required.");
     if (lease.state !== "active" && lease.state !== "dirty") throw new RoomError("lease_invalid", `Lease is '${lease.state}'.`);
     this.validateLease(lease);
@@ -1407,12 +1461,7 @@ class Coordinator {
   }
 
   private leaseForPath(sessionId: string, target: string): FileLease | undefined {
-    return Object.values(this.state.leases).find((lease) =>
-      lease.ownerSessionId === sessionId &&
-      (lease.state === "active" || lease.state === "dirty") &&
-      lease.epoch === this.state.epoch &&
-      lease.selectors.some((selector) => selectorMatches(selector, target)),
-    );
+    return this.mutableLease(sessionId, target);
   }
 
   private changedPaths(before: GateScan, after: GateScan): string[] {
@@ -1783,10 +1832,10 @@ export class RoomClient {
   private connected: boolean;
   private reason?: string;
 
-  private constructor(identity: ProjectIdentity, session: RoomSessionInfo, options: { coordinator?: Coordinator; channel?: JsonRpcChannel; reason?: string; config: CollaborationConfig }) {
+  private constructor(identity: ProjectIdentity, session: RoomSessionInfo, options: { coordinator?: Coordinator; channel?: JsonRpcChannel; reason?: string; config: CollaborationConfig; connectionId?: string }) {
     this.identity = identity;
     this.sessionId = session.sessionId;
-    this.connectionId = randomUUID();
+    this.connectionId = options.connectionId ?? randomUUID();
     this.coordinator = options.coordinator;
     this.channel = options.channel;
     this.config = options.config;
@@ -1798,8 +1847,8 @@ export class RoomClient {
     return new RoomClient(identity, session, { reason, config });
   }
 
-  static async connect(identity: ProjectIdentity, session: RoomSessionInfo, coordinator: Coordinator | undefined, channel: JsonRpcChannel | undefined, config: CollaborationConfig): Promise<RoomClient> {
-    const client = new RoomClient(identity, session, { coordinator, channel, config });
+  static async connect(identity: ProjectIdentity, session: RoomSessionInfo, coordinator: Coordinator | undefined, channel: JsonRpcChannel | undefined, config: CollaborationConfig, connectionId?: string): Promise<RoomClient> {
+    const client = new RoomClient(identity, session, { coordinator, channel, config, ...(connectionId ? { connectionId } : {}) });
     try {
       const result = await client.request("join", { sessionId: session.sessionId, connectionId: client.connectionId, displayName: session.displayName, pid: session.pid }, true);
       client.epoch = result.epoch;
@@ -1933,6 +1982,7 @@ export async function connectRoom(
   cwd: string,
   session: RoomSessionInfo,
   env: NodeJS.ProcessEnv = process.env,
+  options: { connectionId?: string } = {},
 ): Promise<RoomClient> {
   const config = readCollaborationConfig(env);
   const identity = await resolveProjectIdentity(cwd, env);
@@ -1941,7 +1991,7 @@ export async function connectRoom(
     const coordinator = new Coordinator(identity, config.config);
     try {
       await coordinator.start();
-      return await RoomClient.connect(identity, session, coordinator, undefined, config.config);
+      return await RoomClient.connect(identity, session, coordinator, undefined, config.config, options.connectionId);
     } catch (error) {
       await coordinator.close();
       if (!(error instanceof LockHeldError)) throw error;
@@ -1949,7 +1999,7 @@ export async function connectRoom(
     if (takeOverStaleLock(identity)) continue;
     try {
       const channel = await JsonRpcChannel.connect(identity.socketPath);
-      return await RoomClient.connect(identity, session, undefined, channel, config.config);
+      return await RoomClient.connect(identity, session, undefined, channel, config.config, options.connectionId);
     } catch (error) {
       const lock = readLock(identity);
       if (lock && processIsAlive(lock.pid)) return RoomClient.degraded(identity, session, "Coordinator is alive but its IPC endpoint is unavailable.", config.config);

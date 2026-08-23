@@ -6,6 +6,7 @@ import {
 } from "./contract.ts";
 import { COLLABORATION_CHECK_IDS, readCollaborationConfig, type CollaborationCheckId } from "./config.ts";
 import { connectRoom, roomDegradedStatus, type PresenceUpdate, type RoomClient, type RoomMessage } from "./room.ts";
+import { randomUUID } from "node:crypto";
 
 export * from "./contract.ts";
 export * from "./config.ts";
@@ -16,6 +17,7 @@ type RuntimeState = {
   configError?: string;
   client?: RoomClient;
   connectError?: string;
+  connectionId?: string;
 };
 
 const runtimeStates = new WeakMap<ExtensionContext, RuntimeState>();
@@ -67,11 +69,13 @@ function sessionInfo(ctx: ExtensionContext): { sessionId: string; displayName: s
 }
 
 async function connectRuntime(ctx: ExtensionContext, state: RuntimeState): Promise<void> {
+  if (state.client?.ready) return;
+  if (!state.connectionId) state.connectionId = randomUUID();
   if (state.client) await state.client.close();
   state.client = undefined;
   state.connectError = undefined;
   try {
-    state.client = await connectRoom(ctx.cwd, sessionInfo(ctx));
+    state.client = await connectRoom(ctx.cwd, sessionInfo(ctx), process.env, { connectionId: state.connectionId });
   } catch (error) {
     state.connectError = error instanceof Error ? error.message : String(error);
   }
@@ -291,7 +295,7 @@ export default function (pi: ExtensionAPI): void {
       if (action === "reserve") {
         if (!params.paths?.length) throw new Error("leafcode_collab reserve requires paths.");
         const lease = await client.reserve(params.paths);
-        return result(`Reserved ${lease.selectors.join(", ")}.`, { phase: 1, ready: true, lease });
+        return result(`Reserved ${lease.selectors.join(", ")} (leaseId=${lease.id}).`, { phase: 1, ready: true, lease });
       }
       if (action === "release") {
         if (!params.leaseId) throw new Error("leafcode_collab release requires leaseId.");
