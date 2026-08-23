@@ -91,7 +91,10 @@ describe("Composer", () => {
     textarea.focus();
     fireEvent.change(textarea, { target: { value: "/skill:r" } });
     expect(screen.getByRole("listbox", { name: "スキル候補" })).toBeTruthy();
-    expect(screen.getByRole("option").textContent).toContain("/skill:review");
+    const skillOption = screen.getByRole("option");
+    expect(skillOption.textContent).toContain("review");
+    expect(skillOption.textContent).toContain("Review changes");
+    expect(skillOption.textContent).not.toContain("/skill:review");
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(textarea.value).toBe("/skill:review ");
     expect(document.querySelector('[aria-hidden="true"] .text-accent')).toBeTruthy();

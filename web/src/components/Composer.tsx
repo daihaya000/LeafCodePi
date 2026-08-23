@@ -15,7 +15,7 @@ import type {
   RefObject,
   UIEventHandler,
 } from "react";
-import { FileCode2, Paperclip, UsersRound, X } from "lucide-react";
+import { Paperclip, Sparkles, UsersRound, X } from "lucide-react";
 import {
   composerReferenceValue,
   filterComposerReferences,
@@ -293,28 +293,16 @@ export function Composer({
                   onClick={() => chooseSuggestion(reference, kind)}
                 >
                   {kind === "skill" ? (
-                    <FileCode2 className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+                    <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
                   ) : (
                     <UsersRound className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
                   )}
                   <span className="min-w-0 flex-1">
-                    <span
-                      className={
-                        kind === "agent"
-                          ? "block truncate text-base font-semibold leading-6 text-accent"
-                          : "block truncate font-mono text-sm text-text"
-                      }
-                    >
-                      {kind === "agent" ? reference.name : composerReferenceValue(kind, reference.name)}
+                    <span className="block truncate text-base font-semibold leading-6 text-accent">
+                      {reference.name}
                     </span>
                     {reference.description && (
-                      <span
-                        className={
-                          kind === "agent"
-                            ? "mt-0.5 line-clamp-3 block text-sm leading-5 text-muted"
-                            : "block truncate text-xs text-muted"
-                        }
-                      >
+                      <span className="mt-0.5 line-clamp-3 block text-sm leading-5 text-muted">
                         {reference.description}
                       </span>
                     )}
