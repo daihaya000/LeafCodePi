@@ -265,7 +265,7 @@ heartbeat と各 tool event のタイミングで、active lease の対象だけ
 ```ts
 leafcode_collab({
   action:
-    | "status" | "list" | "feed"
+    | "status" | "resync" | "list" | "feed"
     | "send" | "ask" | "reply"
     | "claim" | "reserve" | "release"
     | "away" | "return" | "takeover",
@@ -280,6 +280,7 @@ leafcode_collab({
 ```
 
 - `list`: peer の state / goal / model / branch / current tool / lease を表示
+- `resync`: 現在の client 接続を破棄し、同じ session / connection identity で room に再入室する。自分の有効な lease は検証後に復元し、他 session や room 全体の state は削除しない
 - `feed`: 直近の join、reserve、write、test、commit、message を表示
 - `send`: target の接続中 inbox に配信。target の次の turn で表示し、勝手に turn を起動しない
 - `ask`: reply を要求する message。target の次の turn で表示し、target を自動 wake しない。最大 timeout 後に失敗する

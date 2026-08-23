@@ -110,6 +110,78 @@ describe("LeafCode collaboration extension", () => {
     }
   });
 
+  it("resynchronizes the current session without losing its lease", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "leafcode-collab-extension-repo-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-extension-data-"));
+    const handlers = new Map<string, Handler>();
+    const tools = new Map<string, Tool>();
+    const pi = {
+      on: (name: string, handler: Handler) => handlers.set(name, handler),
+      registerTool: (tool: Tool) => tools.set(tool.name, tool),
+    } as unknown as ExtensionAPI;
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    collaborationExtension(pi);
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    const filePath = join(repo, "src/a.ts");
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, "export const a = 1;\n", "utf8");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+    const sessionManager = {
+      getSessionId: () => "resync-session",
+      getSessionName: () => "Resync session",
+    };
+    const ctx = { cwd: repo, hasUI: false, sessionManager } as ExtensionContext;
+
+    try {
+      process.env.LEAFCODE_PI_DATA_DIR = dataDir;
+      await handlers.get("session_start")?.({}, ctx);
+      const reserved = await tools.get("leafcode_collab")!.execute(
+        "reserve",
+        { action: "reserve", paths: ["src/a.ts"] },
+        new AbortController().signal,
+        () => undefined,
+        ctx,
+      );
+      const leaseId = (reserved.details?.lease as { id?: string } | undefined)?.id;
+
+      const resynced = await tools.get("leafcode_collab")!.execute(
+        "resync",
+        { action: "resync" },
+        new AbortController().signal,
+        () => undefined,
+        ctx,
+      );
+
+      assert.equal(resynced.details?.ready, true);
+      assert.equal(resynced.details?.resynchronized, true);
+      const snapshot = resynced.details?.snapshot as {
+        sessions: Record<string, { state: string }>;
+        leases: Record<string, { ownerSessionId: string; state: string }>;
+      };
+      assert.equal(snapshot.sessions["resync-session"]?.state, "active");
+      assert.equal(snapshot.leases[String(leaseId)]?.ownerSessionId, "resync-session");
+      assert.equal(snapshot.leases[String(leaseId)]?.state, "active");
+
+      await tools.get("leafcode_edit")!.execute(
+        "edit",
+        { path: "src/a.ts", oldText: "1", newText: "2" },
+        new AbortController().signal,
+        () => undefined,
+        ctx,
+      );
+      assert.equal(readFileSync(filePath, "utf8"), "export const a = 2;\n");
+    } finally {
+      await handlers.get("session_shutdown")?.({}, ctx);
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it("shares runtime across trailing-slash and subdirectory cwd values", async () => {
     const repo = mkdtempSync(join(tmpdir(), "leafcode-collab-extension-repo-"));
     const dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-extension-data-"));

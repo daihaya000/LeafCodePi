@@ -94,12 +94,11 @@ function sessionInfo(ctx: ExtensionContext): { sessionId: string; displayName: s
   return { sessionId: ctx.sessionManager.getSessionId(), displayName, pid: process.pid };
 }
 
-async function connectRuntime(ctx: ExtensionContext, state: RuntimeState): Promise<void> {
-  if (state.client?.ready) return;
+async function connectRuntime(ctx: ExtensionContext, state: RuntimeState, force = false): Promise<void> {
   if (state.connecting) {
     await state.connecting;
-    return;
   }
+  if (!force && state.client?.ready) return;
   state.connecting = (async () => {
     if (!state.connectionId) state.connectionId = randomUUID();
     if (state.client) await state.client.disconnect();
@@ -116,6 +115,23 @@ async function connectRuntime(ctx: ExtensionContext, state: RuntimeState): Promi
   } finally {
     state.connecting = undefined;
   }
+}
+
+async function resyncResult(ctx: ExtensionContext): Promise<AgentToolResult<Record<string, unknown>>> {
+  const state = await runtimeState(ctx);
+  await connectRuntime(ctx, state, true);
+  const status = await statusResult(ctx);
+  const ready = Boolean(state.client?.ready);
+  return {
+    ...status,
+    content: [{
+      type: "text",
+      text: ready
+        ? "LeafCode collaboration resynchronized; current session re-entered the room."
+        : "LeafCode collaboration resynchronization failed; room remains unavailable.",
+    }],
+    details: { ...(status.details ?? {}), resynchronized: ready },
+  };
 }
 
 async function ensureRuntime(ctx: ExtensionContext): Promise<RuntimeState> {
@@ -284,8 +300,8 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "leafcode_collab",
     label: "LeafCode Collaboration",
-    description: "Inspect the shared room, exchange untrusted peer messages, claim a task, or reserve/release owned paths.",
-    promptSnippet: "Inspect LeafCode collaboration status and reserve owned paths",
+    description: "Inspect or resynchronize the shared room, exchange untrusted peer messages, claim a task, or reserve/release owned paths.",
+    promptSnippet: "Inspect or resynchronize LeafCode collaboration and reserve owned paths",
     parameters: Type.Object({
       action: Type.Optional(Type.String()),
       title: Type.Optional(Type.String()),
@@ -300,6 +316,7 @@ export default function (pi: ExtensionAPI): void {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const action = params.action ?? "status";
       if (action === "status") return statusResult(ctx);
+      if (action === "resync") return resyncResult(ctx);
       const client = await requireRoom(ctx);
       if (action === "list" || action === "feed") {
         const current = await client.snapshot();
