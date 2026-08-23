@@ -6,7 +6,7 @@ import { GhostSelect } from "@/components/ui";
 /**
  * エージェント選択ドロップダウン。
  * agents は /api/agents の一覧（ビルトイン + ユーザー定義）から取得する。
- * 選択したエージェントはタスク全体のメイン対話者になる（value="" でデフォルトに戻す）。
+ * 選択したエージェントはタスク全体のメイン対話者になる（value="" は未選択状態）。
  */
 export function AgentSelect({
   value,
@@ -32,7 +32,6 @@ export function AgentSelect({
       onChange={onChange}
       className={className}
     >
-      <option value="">エージェント</option>
       {agents.map((agent) => (
         <option key={agent} value={agent}>
           {agent}
