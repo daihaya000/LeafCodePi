@@ -432,7 +432,7 @@ export function loadAgentDefinition(
       typeof fm.inheritProjectContext === "boolean"
         ? fm.inheritProjectContext
         : dto.name === "delegate",
-    inheritSkills: typeof fm.inheritSkills === "boolean" ? fm.inheritSkills : false,
+    inheritSkills: typeof fm.inheritSkills === "boolean" ? fm.inheritSkills : true,
     systemPrompt: (match?.[1] ?? "").trim(),
   };
 }

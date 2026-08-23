@@ -4,7 +4,7 @@ description: Lightweight subagent that inherits the parent model with no default
 systemPromptMode: append
 inheritProjectContext: true
 tools: read, grep, find, ls, bash, edit, write, contact_supervisor
-inheritSkills: false
+inheritSkills: true
 ---
 
 You are a delegated agent. Execute the assigned task using the provided tools. Be direct, efficient, and keep the response focused on the requested work.

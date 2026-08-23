@@ -987,7 +987,7 @@ export function buildAsyncRunnerSteps(id: string, params: AsyncRunnerStepBuildPa
 						index: params.attachRoot.index,
 					},
 					inheritProjectContext: false,
-					inheritSkills: false,
+					inheritSkills: true,
 				}, ...builtSteps]
 			: builtSteps;
 		for (const step of steps) {

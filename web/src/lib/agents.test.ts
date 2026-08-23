@@ -182,15 +182,15 @@ describe("loadAgentDefinition / buildAgentResourceOptions", () => {
     assert.equal(def.name, "scout");
     assert.equal(def.systemPromptMode, "replace");
     assert.equal(def.inheritProjectContext, false);
-    assert.equal(def.inheritSkills, false);
+    assert.equal(def.inheritSkills, true);
     assert.match(def.systemPrompt, /Review the diff\./);
 
     const options = buildAgentResourceOptions(def);
     assert.ok(options.systemPrompt?.includes("Review the diff."));
     assert.equal(options.appendSystemPrompt, undefined);
-    // Non-delegate agents run fresh: no AGENTS.md context, no skills.
+    // Non-delegate agents run fresh: no AGENTS.md context, but skills are inherited.
     assert.equal(options.noContextFiles, true);
-    assert.equal(options.noSkills, true);
+    assert.equal(options.noSkills, undefined);
   });
 
   it("respects append mode and inherit flags from frontmatter", () => {

@@ -45,7 +45,7 @@ export function defaultInheritProjectContext(name: string): boolean {
 }
 
 export function defaultInheritSkills(): boolean {
-	return false;
+	return true;
 }
 
 export interface BuiltinAgentOverrideBase {

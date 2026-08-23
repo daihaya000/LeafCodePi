@@ -81,7 +81,7 @@ function defaultInheritProjectContext(name: string): boolean {
 }
 
 function defaultInheritSkills(): boolean {
-	return false;
+	return true;
 }
 
 function registry(): RuntimeAgentRegistry {

@@ -5,7 +5,7 @@ aliases: developer, coder, implementer, develop
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
-inheritSkills: false
+inheritSkills: true
 tools: read, grep, find, ls, bash, edit, write, contact_supervisor
 defaultContext: fork
 defaultReads: context.md, plan.md

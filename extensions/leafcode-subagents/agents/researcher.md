@@ -5,7 +5,7 @@ tools: read, write, web_search, fetch_content, get_search_content
 thinking: medium
 systemPromptMode: replace
 inheritProjectContext: true
-inheritSkills: false
+inheritSkills: true
 output: research.md
 defaultProgress: true
 ---

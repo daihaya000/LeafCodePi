@@ -5,7 +5,7 @@ tools: read, grep, find, ls, bash, write
 thinking: low
 systemPromptMode: replace
 inheritProjectContext: true
-inheritSkills: false
+inheritSkills: true
 output: context.md
 defaultProgress: true
 ---
