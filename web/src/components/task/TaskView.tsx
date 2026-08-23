@@ -26,6 +26,7 @@ import { ModelSelect } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { AgentSelect } from "@/components/AgentSelect";
 import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
+import { SkillPermissionSelect } from "@/components/SkillPermissionSelect";
 import { PermissionSelect } from "@/components/PermissionSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
@@ -69,6 +70,11 @@ import {
   writeSubagentPermission,
   type SubagentPermission,
 } from "@/lib/subagent-permission";
+import {
+  readSkillPermission,
+  writeSkillPermission,
+  type SkillPermission,
+} from "@/lib/skill-permission";
 import {
   readPermissionMode,
   writePermissionMode,
@@ -261,6 +267,9 @@ export function TaskView({
   const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
     () => readSubagentPermission(),
   );
+  const [skillPermission, setSkillPermission] = useState<SkillPermission>(
+    () => readSkillPermission(),
+  );
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => readPermissionMode());
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequestDto | null>(null);
   const [questionRequest, setQuestionRequest] = useState<QuestionRequestDto | null>(null);
@@ -304,6 +313,7 @@ export function TaskView({
     setIsCompacting(Boolean(detail.isCompacting));
     setPermissionRequest(detail.permissionRequest ?? null);
     setQuestionRequest(detail.questionRequest ?? null);
+    setSkillPermission(detail.skillPermission ?? readSkillPermission());
     // セッション人格は作成時固定。タスクに紐づくエージェントを選択状態へ反映する。
     setAgent((current) => current || detail.agent || "");
   }, []);
@@ -672,6 +682,7 @@ export function TaskView({
           ...(agent ? { agent } : {}),
           subagentPermission,
           permissionMode,
+          skillPermission,
         });
       }
       setPrompt("");
@@ -1623,6 +1634,26 @@ export function TaskView({
                       await sendJson(`/api/tasks/${taskId}/permission-mode`, { mode });
                     } catch (err) {
                       setError(err instanceof Error ? err.message : "権限モードの更新に失敗しました");
+                    }
+                  })();
+                }}
+                className="h-8 shrink-0"
+              />
+              <SkillPermissionSelect
+                value={skillPermission}
+                disabled={working || compacting}
+                onChange={(permission) => {
+                  void (async () => {
+                    try {
+                      await sendJson(
+                        `/api/tasks/${taskId}/skill-permission`,
+                        { permission },
+                      );
+                      setSkillPermission(permission);
+                      writeSkillPermission(permission);
+                      setError(null);
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "スキル権限の更新に失敗しました");
                     }
                   })();
                 }}

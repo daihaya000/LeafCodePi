@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
       agent?: string;
       subagentPermission?: "allow" | "deny";
       permissionMode?: "allow" | "ask" | "deny";
+      skillPermission?: "allow" | "deny";
       goalLoop?: {
         enabled?: unknown;
         acceptance?: unknown;
@@ -88,6 +89,7 @@ export async function POST(req: NextRequest) {
       agent: body.agent,
       subagentPermission: body.subagentPermission,
       permissionMode: body.permissionMode,
+      skillPermission: body.skillPermission,
       goalLoop,
     });
     return NextResponse.json({ task });

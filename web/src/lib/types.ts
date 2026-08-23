@@ -32,6 +32,8 @@ export type TaskSummary = {
   providerID?: string;
   modelID?: string;
   thinkingLevel?: ThinkingLevel;
+  /** Composer からのスキル使用許可。未設定の旧タスクは許可扱い。 */
+  skillPermission?: "allow" | "deny";
   /** pi-subagents agent running as the main session persona (null = default). */
   agent?: string | null;
   createdAt: string;

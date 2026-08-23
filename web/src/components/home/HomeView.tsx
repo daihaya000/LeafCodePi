@@ -12,6 +12,7 @@ import { pasteImage } from "@/lib/clipboard-image";
 import { ModelSelect } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
+import { SkillPermissionSelect } from "@/components/SkillPermissionSelect";
 import { PermissionSelect } from "@/components/PermissionSelect";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { Button, GhostSelect } from "@/components/ui";
@@ -24,6 +25,11 @@ import {
   writeSubagentPermission,
   type SubagentPermission,
 } from "@/lib/subagent-permission";
+import {
+  readSkillPermission,
+  writeSkillPermission,
+  type SkillPermission,
+} from "@/lib/skill-permission";
 import {
   readPermissionMode,
   writePermissionMode,
@@ -56,6 +62,9 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const [agent, setAgent] = useState("");
   const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
     () => readSubagentPermission(),
+  );
+  const [skillPermission, setSkillPermission] = useState<SkillPermission>(
+    () => readSkillPermission(),
   );
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => readPermissionMode());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -178,6 +187,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
         ...(agent ? { agent } : {}),
         subagentPermission,
         permissionMode,
+        skillPermission,
         ...(goalLoopEnabled
           ? {
               goalLoop: {
@@ -364,6 +374,15 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                     onChange={(mode) => {
                       setPermissionMode(mode);
                       writePermissionMode(mode);
+                    }}
+                    className="h-8 shrink-0"
+                  />
+                  <SkillPermissionSelect
+                    value={skillPermission}
+                    disabled={submitting}
+                    onChange={(mode) => {
+                      setSkillPermission(mode);
+                      writeSkillPermission(mode);
                     }}
                     className="h-8 shrink-0"
                   />

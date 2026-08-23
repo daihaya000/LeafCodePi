@@ -16,6 +16,7 @@ export async function POST(
       agent?: string;
       subagentPermission?: "allow" | "deny";
       permissionMode?: "allow" | "ask" | "deny";
+      skillPermission?: "allow" | "deny";
     } | null;
     if (!body?.prompt?.trim() && !body?.images?.length) {
       return NextResponse.json({ error: "prompt が必要です" }, { status: 400 });
@@ -24,6 +25,7 @@ export async function POST(
       agent: body.agent,
       subagentPermission: body.subagentPermission,
       permissionMode: body.permissionMode,
+      skillPermission: body.skillPermission,
     });
     return NextResponse.json({ task });
   } catch (error) {

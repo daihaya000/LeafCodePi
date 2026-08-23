@@ -100,6 +100,7 @@ export function insertTask(input: {
   providerID?: string;
   modelID?: string;
   agent?: string;
+  skillPermission?: "allow" | "deny";
 }): TaskSummary {
   const store = readStore();
   const now = new Date().toISOString();
@@ -116,6 +117,7 @@ export function insertTask(input: {
     providerID: input.providerID,
     modelID: input.modelID,
     thinkingLevel: input.thinkingLevel,
+    ...(input.skillPermission ? { skillPermission: input.skillPermission } : {}),
     ...(input.agent ? { agent: input.agent } : {}),
     createdAt: now,
     updatedAt: now,
@@ -138,6 +140,7 @@ export function patchTask(
       | "providerID"
       | "modelID"
       | "thinkingLevel"
+      | "skillPermission"
       | "agent"
       | "error"
     >

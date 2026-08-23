@@ -46,6 +46,8 @@ import { readGoalLoopState } from "@/lib/pi/goal-loop-state";
 import { todosFromPiMessages } from "@/lib/pi/todowrite-state";
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
 import { filterSkillsByState } from "@/lib/skills";
+import type { SkillPermission } from "@/lib/skill-permission";
+import { sessionIdentityPatch } from "@/lib/pi/session-identity";
 import {
   applyCollaborationToolPolicy,
   basenameKey,
@@ -131,6 +133,8 @@ const SNAPSHOT_THROTTLE_MS = 100;
 type LiveRuntime = {
   taskId: string;
   session: AgentSession;
+  skillPermission: SkillPermission;
+  skillPermissionRef: { current: SkillPermission };
   unsubscribe: () => void;
   promptChain: Promise<void>;
   /** Assistant throughput samples keyed by message.timestamp (ms). */
@@ -152,6 +156,11 @@ type LiveRuntime = {
   hangRetryCount: number;
   /** 「Reasoning is mandatory」400 で思考 ON に上げて再試行済みか。 */
   reasoningFallbackTried: boolean;
+};
+
+type SessionSetup = {
+  session: AgentSession;
+  skillPermissionRef: { current: SkillPermission };
 };
 
 type HarnessState = {
@@ -729,7 +738,11 @@ function openSettingsManager() {
   return pi.SettingsManager.create(homedir(), pi.getAgentDir());
 }
 
-function attachSession(taskId: string, session: AgentSession): LiveRuntime {
+function attachSession(
+  taskId: string,
+  session: AgentSession,
+  skillPermissionRef: { current: SkillPermission },
+): LiveRuntime {
   const current = state();
   const existing = current.live.get(taskId);
   existing?.unsubscribe();
@@ -749,6 +762,8 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
   const live: LiveRuntime = {
     taskId,
     session,
+    skillPermission: skillPermissionRef.current,
+    skillPermissionRef,
     unsubscribe: () => undefined,
     promptChain: Promise.resolve(),
     throughputByStartedAt: existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
@@ -784,13 +799,14 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
     ) {
       setTaskStatus(taskId, "error", event.errorMessage);
     }
-    if (ids.providerID || ids.modelID) {
-      patchTask(taskId, {
-        providerID: ids.providerID,
-        modelID: ids.modelID,
-        sessionId: session.sessionId,
-        sessionFile: session.sessionFile,
-      });
+    const identityPatch = sessionIdentityPatch(task, {
+      providerID: ids.providerID,
+      modelID: ids.modelID,
+      sessionId: session.sessionId,
+      sessionFile: session.sessionFile,
+    });
+    if (Object.keys(identityPatch).length > 0) {
+      patchTask(taskId, identityPatch);
     }
     scheduleTaskSnapshot(
       live,
@@ -832,9 +848,10 @@ async function createSession(options: {
   thinkingLevel?: ThinkingLevel;
   subagentPermission?: "allow" | "deny";
   permissionMode?: "allow" | "ask" | "deny";
+  skillPermission?: SkillPermission;
   /** pi-subagents agent running as the main session persona. */
   agentName?: string | null;
-}): Promise<AgentSession> {
+}): Promise<SessionSetup> {
   const pi = await loadPi();
   await ensureRuntime();
   const agentDir = pi.getAgentDir();
@@ -842,6 +859,7 @@ async function createSession(options: {
     ? pi.SessionManager.open(options.sessionFile)
     : pi.SessionManager.create(options.cwd);
   syncSessionName(sessionManager, options.sessionName);
+  const skillPermissionRef = { current: options.skillPermission ?? ("allow" as SkillPermission) };
   // Filter disabled skills via state file (skills-state.json), not folder moves.
   // skillsOverride re-reads state on every resourceLoader.reload() / session.reload().
   // Also drop any ~/.agents skills Pi loads internally: this harness must not
@@ -875,12 +893,15 @@ async function createSession(options: {
     cwd: options.cwd,
     agentDir,
     additionalExtensionPaths: activeBundled.map((entry) => entry.filePath),
-    skillsOverride: agentOptions?.noSkills
-      ? () => ({ skills: [], diagnostics: [] })
-      : (base) => ({
-          skills: filterSkillsByState(base.skills).filter((skill) => !isAgentsSkill(skill)),
-          diagnostics: base.diagnostics,
-        }),
+    skillsOverride: (base) => {
+      if (agentOptions?.noSkills || skillPermissionRef.current === "deny") {
+        return { skills: [], diagnostics: base.diagnostics };
+      }
+      return {
+        skills: filterSkillsByState(base.skills).filter((skill) => !isAgentsSkill(skill)),
+        diagnostics: base.diagnostics,
+      };
+    },
     extensionsOverride: (base) => ({
       ...base,
       extensions: filterExtensionsByState(
@@ -954,7 +975,7 @@ async function createSession(options: {
   // Agent-defined tools may include `subagent`; enforce the user choice after
   // the full extension registry is ready, including the initial turn.
   applySubagentPermission(result.session, options.subagentPermission);
-  return result.session;
+  return { session: result.session, skillPermissionRef };
 }
 
 async function resolveModel(value: string | undefined): Promise<Model | undefined> {
@@ -1005,20 +1026,21 @@ async function ensureLive(taskId: string): Promise<LiveRuntime> {
     const model = await resolveModel(
       task.providerID && task.modelID ? modelValue(task.providerID, task.modelID) : undefined,
     );
-    const session = await createSession({
+    const setup = await createSession({
       cwd,
       sessionFile: task.sessionFile,
       sessionName: task.title,
       model,
       thinkingLevel: task.thinkingLevel,
+      skillPermission: task.skillPermission,
       agentName: task.agent ?? null,
     });
     patchTask(taskId, {
-      sessionId: session.sessionId,
-      sessionFile: session.sessionFile,
-      ...modelId(session.model),
+      sessionId: setup.session.sessionId,
+      sessionFile: setup.session.sessionFile,
+      ...modelId(setup.session.model),
     });
-    return attachSession(taskId, session);
+    return attachSession(taskId, setup.session, setup.skillPermissionRef);
   })().finally(() => {
     if (ensureLiveInflight.get(taskId) === promise) {
       ensureLiveInflight.delete(taskId);
@@ -1387,6 +1409,7 @@ export async function createTask(input: {
   agent?: string;
   subagentPermission?: "allow" | "deny";
   permissionMode?: "allow" | "ask" | "deny";
+  skillPermission?: SkillPermission;
   goalLoop?: {
     acceptance?: string[];
     maxTurns?: number;
@@ -1404,31 +1427,33 @@ export async function createTask(input: {
     providerID: parsed?.providerID,
     modelID: parsed?.modelID,
     ...(input.agent ? { agent: input.agent.trim() } : {}),
+    ...(input.skillPermission ? { skillPermission: input.skillPermission } : {}),
   });
   const model = await resolveModel(input.model);
   const requestedThinking = isThinkingLevel(input.thinkingLevel) ? input.thinkingLevel : "off";
   const thinkingLevel = model
     ? clampThinkingLevelForModel(model, requestedThinking)
     : requestedThinking;
-  const session = await createSession({
+  const setup = await createSession({
     cwd: project.rootPath,
     sessionName: task.title,
     model,
     thinkingLevel,
     subagentPermission: input.subagentPermission,
     permissionMode: input.permissionMode,
+    skillPermission: input.skillPermission,
     // The selected agent talks as the main persona for this whole session.
     agentName: input.agent ?? null,
   });
   patchTask(task.id, {
-    sessionId: session.sessionId,
-    sessionFile: session.sessionFile,
+    sessionId: setup.session.sessionId,
+    sessionFile: setup.session.sessionFile,
     status: "working",
     thinkingLevel:
-      isThinkingLevel(session.thinkingLevel) ? session.thinkingLevel : thinkingLevel,
-    ...modelId(session.model),
+      isThinkingLevel(setup.session.thinkingLevel) ? setup.session.thinkingLevel : thinkingLevel,
+    ...modelId(setup.session.model),
   });
-  const live = attachSession(task.id, session);
+  const live = attachSession(task.id, setup.session, setup.skillPermissionRef);
   if (input.goalLoop) {
     await goalLoopCommand(task.id, {
       action: "start",
@@ -1524,10 +1549,16 @@ export async function promptTask(
   id: string,
   prompt: string,
   images?: PromptImage[],
-  options?: { agent?: string; subagentPermission?: "allow" | "deny"; permissionMode?: "allow" | "ask" | "deny" },
+  options?: {
+    agent?: string;
+    subagentPermission?: "allow" | "deny";
+    permissionMode?: "allow" | "ask" | "deny";
+    skillPermission?: SkillPermission;
+  },
 ): Promise<TaskSummary> {
   const live = await ensureLive(id);
   applySubagentPermission(live.session, options?.subagentPermission);
+  if (options?.skillPermission) await applyLiveSkillPermission(live, options.skillPermission);
   if (options?.permissionMode) {
     const task = getTask(id);
     const project = task ? getProject(task.projectId) : undefined;
@@ -1535,8 +1566,39 @@ export async function promptTask(
     applyPermissionMode(live.session, cwd, options.permissionMode);
   }
   live.revertLeafId = null;
-  queuePrompt(live, prompt, images, options);
+  queuePrompt(live, prompt, images, {
+    agent: options?.agent,
+    subagentPermission: options?.subagentPermission,
+    permissionMode: options?.permissionMode,
+  });
   return toSummary(getTask(id)!);
+}
+
+async function applyLiveSkillPermission(
+  live: LiveRuntime,
+  permission: SkillPermission,
+): Promise<void> {
+  if (permission === live.skillPermission) return;
+  const previous = live.skillPermissionRef.current;
+  live.skillPermissionRef.current = permission;
+  try {
+    await live.session.reload();
+    live.skillPermission = permission;
+  } catch (error) {
+    live.skillPermissionRef.current = previous;
+    throw error;
+  }
+}
+
+export async function setTaskSkillPermission(
+  id: string,
+  permission: SkillPermission,
+): Promise<TaskSummary> {
+  const live = await ensureLive(id);
+  const task = getTask(id);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  await applyLiveSkillPermission(live, permission);
+  return patchTask(id, { skillPermission: permission }) ?? task;
 }
 
 export async function setTaskPermissionMode(
