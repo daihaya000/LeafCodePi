@@ -324,7 +324,7 @@ export function SystemMonitorWidget({
 
   return (
     <div className="flex w-full min-w-0 flex-col rounded-xl border border-border bg-surface">
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-2">
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1">
         <Cpu className={cx("h-4 w-4", textClass[summaryTone])} />
         <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text">
           システム使用率
