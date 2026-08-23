@@ -304,6 +304,17 @@ test("the host builds through build-web.mjs and serves the mirror", () => {
   assert.match(source, /const projectDir = useProd \? WEB_MIRROR_DIR : WEB_DIR/);
 });
 
+test("quit waits for and performs a pending production build after stopping the WebUI", () => {
+  const source = readFileSync(join(REPO_ROOT, "host", "src", "index.js"), "utf8");
+  const quitSource = source.slice(
+    source.indexOf("async function quit()"),
+    source.indexOf("function onHostExit()"),
+  );
+  assert.match(quitSource, /await stopWeb\(\)[\s\S]*await activeBuild/);
+  assert.match(quitSource, /getWebLaunchPlan\([\s\S]*quitPlan\.needsBuild[\s\S]*await buildWeb/);
+  assert.doesNotMatch(quitSource, /killTree\(buildChild\.pid\)/);
+});
+
 test("hostControlUrl prefers the running host's file, then the default port", () => {
   const file = () => JSON.stringify({ url: "http://127.0.0.1:18999/" });
   assert.equal(hostControlUrl({ APPDATA: "C:\\data" }, file), "http://127.0.0.1:18999");

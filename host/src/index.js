@@ -99,6 +99,7 @@ const logWriter = createLogFileWriter(DATA_DIR);
 /** @type {import("node:child_process").ChildProcess | null} */
 let webProc = null;
 let webBuildProc = null;
+let webBuildPromise = null;
 /** @type {import("systray2").default | null} */
 let systray = null;
 let quitting = false;
@@ -227,11 +228,13 @@ function installWebIfNeeded() {
 }
 
 function buildWeb(reason = "missing") {
-  return new Promise((resolve, reject) => {
+  if (webBuildPromise) return webBuildPromise;
+
+  const promise = new Promise((resolve, reject) => {
     const reasonText =
       reason === "stale"
-        ? "Production LeafCodePi build is stale (sources newer than BUILD_ID); rebuilding before start…"
-        : "Production LeafCodePi build is missing; rebuilding before start…";
+        ? "Production LeafCodePi build is stale (sources newer than BUILD_ID); rebuilding…"
+        : "Production LeafCodePi build is missing; rebuilding…";
     log(reasonText);
     // Syncs the hard-link mirror and builds there; see scripts/build-web.mjs.
     // --skip-guard: the host builds before it starts `next start`, so the only
@@ -250,6 +253,12 @@ function buildWeb(reason = "missing") {
       else reject(new Error(`next build exited ${code}`));
     });
   });
+  webBuildPromise = promise;
+  const clearPromise = () => {
+    if (webBuildPromise === promise) webBuildPromise = null;
+  };
+  promise.then(clearPromise, clearPromise);
+  return promise;
 }
 
 async function spawnWeb() {
@@ -668,11 +677,6 @@ async function quit() {
   if (quitting) return;
   quitting = true;
   log("Quitting...");
-  const buildChild = webBuildProc;
-  if (buildChild?.pid) {
-    killTree(buildChild.pid);
-    webBuildProc = null;
-  }
   try {
     await closeControlServer(controlServer);
     controlServer = null;
@@ -693,6 +697,30 @@ async function quit() {
     await stopWeb();
   } catch {
     /* ignore */
+  }
+  const activeBuild = webBuildPromise;
+  if (activeBuild) {
+    log("Waiting for the current production build before quitting…");
+    try {
+      await activeBuild;
+    } catch (err) {
+      error(
+        `Production build in progress failed while quitting (${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+  }
+  const hasBuild = hasProductionBuild();
+  const buildStale = hasBuild && isWebBuildStale(WEB_DIR, webDistDir());
+  const quitPlan = getWebLaunchPlan(process.env.LEAFCODE_PI_MODE, hasBuild, buildStale);
+  if (quitPlan.needsBuild) {
+    log("Building the pending production changes before quitting…");
+    try {
+      await buildWeb(hasBuild && buildStale ? "stale" : "missing");
+    } catch (err) {
+      error(
+        `Production build before quit failed (${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
   }
   try {
     if (systray) {

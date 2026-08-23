@@ -97,7 +97,7 @@ production build は本家 LeafCode と同じく **`%LOCALAPPDATA%\leafcode-pi\b
 - Open browser
 - 稼働状況
 - Restart WebUI
-- Quit
+- Quit（次回起動時に必要な production build があれば、先にビルドしてから終了）
 
 ```bat
 start.bat
