@@ -18,6 +18,13 @@ function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+const ANSI_ESCAPE_PATTERN =
+  /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d/#&.:=?%@~_]*)*)?\u0007)|(?:(?:\d{1,4}(?:[;:]\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
+
+export function stripAnsiEscapeSequences(text: string): string {
+  return text.replace(ANSI_ESCAPE_PATTERN, "");
+}
+
 function contentBlocks(content: unknown): unknown[] {
   if (typeof content === "string") return [{ type: "text", text: content }];
   return Array.isArray(content) ? content : [];
@@ -36,9 +43,11 @@ function textFromBlocks(blocks: unknown[]): string {
 
 /** Tool result / partial result のテキストを UI 表示用に取り出す。 */
 export function toolResultText(result: unknown): string {
-  if (typeof result === "string") return result;
+  if (typeof result === "string") return stripAnsiEscapeSequences(result);
   if (!isRecord(result)) return "";
-  return textFromBlocks(contentBlocks(result.content)) || asString(result.output);
+  return stripAnsiEscapeSequences(
+    textFromBlocks(contentBlocks(result.content)) || asString(result.output),
+  );
 }
 
 function imagePartsFromBlocks(blocks: unknown[], prefix: string): UiPart[] {
@@ -244,7 +253,7 @@ export function projectPiMessages(raw: unknown[]): UiMessage[] {
             state: {
               status: item.cancelled === true ? "cancelled" : item.exitCode === 0 || item.exitCode == null ? "completed" : "error",
               input: { command: asString(item.command) },
-              output: asString(item.output),
+              output: stripAnsiEscapeSequences(asString(item.output)),
               title: "bash",
             } satisfies ToolState,
           },

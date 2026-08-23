@@ -3,6 +3,7 @@ import { findResumableTurn } from "../aborted-resume";
 import {
   entryIdsForProjectedMessages,
   projectPiMessages,
+  stripAnsiEscapeSequences,
   titleFromPrompt,
 } from "./messages";
 
@@ -19,6 +20,42 @@ describe("titleFromPrompt", () => {
 });
 
 describe("projectPiMessages", () => {
+  it("removes ANSI escape sequences from tool output", () => {
+    const colored = "\u001b[1m\u001b[32m✓ passed\u001b[39m\u001b[22m";
+    const messages = projectPiMessages([
+      {
+        role: "assistant",
+        id: "a-ansi",
+        timestamp: 1,
+        content: [{ type: "toolCall", id: "call-ansi", name: "bash", arguments: {} }],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "call-ansi",
+        content: [{ type: "text", text: colored }],
+        isError: false,
+      },
+      {
+        role: "bashExecution",
+        id: "b-ansi",
+        timestamp: 2,
+        command: "npm test",
+        output: colored,
+        exitCode: 0,
+      },
+    ]);
+
+    expect(stripAnsiEscapeSequences(colored)).toBe("✓ passed");
+    expect(messages[0]?.parts[0]).toMatchObject({
+      type: "tool",
+      state: { output: "✓ passed" },
+    });
+    expect(messages[1]?.parts[0]).toMatchObject({
+      type: "tool",
+      state: { output: "✓ passed" },
+    });
+  });
+
   it("merges tool results into the assistant tool part", () => {
     const messages = projectPiMessages([
       { role: "user", content: "ls して", timestamp: 1, id: "u1" },
