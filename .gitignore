@@ -28,6 +28,7 @@ scripts/launcher/*.pdb
 # ローカル専用メモ（共有しない）
 /MEMORY.md
 /LESSONS.md
+/context.md
 
 # WebUI/拡張のローカル実行状態（goal-loop state, permission-gate 設定等）
 /.pi/
