@@ -473,15 +473,26 @@ function ToolCard({
           {output && (
             <div
               className={cx(
-                "rounded-lg px-3 py-2 text-sm",
-                isError ? "bg-danger-bg text-danger" : "bg-surface-2 text-text/90",
+                "rounded-lg border px-3 py-2 text-sm",
+                isShell
+                  ? "border-terminal-border bg-terminal-bg text-terminal-text"
+                  : isError
+                    ? "border-danger/30 bg-danger-bg text-danger"
+                    : "border-transparent bg-surface-2 text-text/90",
               )}
             >
               {isShell && (
-                <p className="mb-1.5 text-[10px] font-medium tracking-wide text-faint">ログ</p>
+                <p className="mb-1.5 text-[10px] font-medium tracking-wide text-terminal-muted">ログ</p>
               )}
               {monoOutput ? (
-                <pre className="whitespace-pre-wrap break-words font-mono text-xs">{output}</pre>
+                <pre
+                  className={cx(
+                    "whitespace-pre-wrap break-words font-mono text-xs",
+                    isShell && (isError ? "text-danger" : "text-terminal-text"),
+                  )}
+                >
+                  {output}
+                </pre>
               ) : (
                 <MarkdownBody text={output} />
               )}

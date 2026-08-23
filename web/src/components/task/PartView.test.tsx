@@ -44,6 +44,14 @@ function setScrollMetrics(element: HTMLDivElement, scrollTop: number, scrollHeig
 describe("PartView shell log", () => {
   afterEach(() => cleanup());
 
+  it("uses a terminal-style dark surface for shell output", () => {
+    render(<PartView message={bashMessage("line 1")} />);
+
+    const pre = document.querySelector("pre");
+    expect(pre?.className).toContain("text-terminal-text");
+    expect(pre?.parentElement?.className).toContain("bg-terminal-bg");
+  });
+
   it("follows new output until the user scrolls up, then resumes at the bottom", () => {
     const view = render(<PartView message={bashMessage("line 1")} />);
     const scroller = logScroller();

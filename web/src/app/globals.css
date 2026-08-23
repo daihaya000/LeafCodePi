@@ -23,6 +23,10 @@
   --danger-bg: #fef2f2;
   --working: #2563eb;
   --working-bg: #eff6ff;
+  --terminal-bg: #0b0b0c;
+  --terminal-text: #f4f4f5;
+  --terminal-muted: #a1a1aa;
+  --terminal-border: #27272a;
   --diff-add-bg: #ecfdf3;
   --diff-add-text: #067647;
   --diff-del-bg: #fef3f2;
@@ -51,6 +55,10 @@
   --danger-bg: #faeae9;
   --working: #2563eb;
   --working-bg: #eaeffb;
+  --terminal-bg: #0b0b0c;
+  --terminal-text: #f4f4f5;
+  --terminal-muted: #a1a1aa;
+  --terminal-border: #27272a;
 }
 
 .dark {
@@ -74,6 +82,10 @@
   --danger-bg: #2c1618;
   --working: #60a5fa;
   --working-bg: #16202f;
+  --terminal-bg: #0b0b0c;
+  --terminal-text: #f4f4f5;
+  --terminal-muted: #a1a1aa;
+  --terminal-border: #27272a;
 }
 
 @theme inline {
@@ -97,6 +109,10 @@
   --color-danger-bg: var(--danger-bg);
   --color-working: var(--working);
   --color-working-bg: var(--working-bg);
+  --color-terminal-bg: var(--terminal-bg);
+  --color-terminal-text: var(--terminal-text);
+  --color-terminal-muted: var(--terminal-muted);
+  --color-terminal-border: var(--terminal-border);
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
