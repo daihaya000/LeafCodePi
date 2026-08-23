@@ -909,6 +909,7 @@ class Coordinator {
       });
       this.lockTimer = setInterval(() => {
         try {
+          this.renewConnectedLeases();
           this.expireCleanLeases();
           this.expireAsks();
           this.writeLock();
@@ -1086,6 +1087,7 @@ class Coordinator {
     }
     if (payload.progress === true) session.lastProgressAt = timestamp;
     if (session.state !== "away" && Date.now() - Date.parse(session.lastProgressAt) >= this.config.stuckAfterMs) session.state = "stuck";
+    this.renewConnectedLeases();
     this.validateActiveLeases();
     this.expireCleanLeases();
     this.clearOfflineGitQuarantine();
@@ -1120,6 +1122,7 @@ class Coordinator {
   }
 
   private status(): RoomSnapshot {
+    this.renewConnectedLeases();
     this.validateActiveLeases();
     this.expireCleanLeases();
     this.expireAsks();
@@ -1313,6 +1316,44 @@ class Coordinator {
     return matches.sort((left, right) => Date.parse(right.renewedAt) - Date.parse(left.renewedAt))[0];
   }
 
+  private renewConnectedLeases(): void {
+    const timestamp = now();
+    const expiresAt = new Date(Date.now() + this.config.leaseTtlMs).toISOString();
+    for (const lease of Object.values(this.state.leases)) {
+      if (lease.state !== "active" && lease.state !== "dirty") continue;
+      if (lease.epoch !== this.state.epoch) continue;
+      const owner = this.state.sessions[lease.ownerSessionId];
+      if (!owner || owner.state === "offline") continue;
+      lease.renewedAt = timestamp;
+      lease.expiresAt = expiresAt;
+    }
+  }
+
+  private requireMutableLease(sessionId: string, target: string): FileLease {
+    const lease = this.mutableLease(sessionId, target);
+    if (lease) return lease;
+    const covering = Object.values(this.state.leases).filter((entry) =>
+      entry.selectors.some((selector) => selectorMatches(selector, target)),
+    );
+    const own = covering.find((entry) => entry.ownerSessionId === sessionId);
+    if (own) {
+      throw new RoomError(
+        "lease_required",
+        `Lease for '${target}' is '${own.state}'; call leafcode_collab reserve again.`,
+        { path: target, leaseId: own.id, state: own.state },
+      );
+    }
+    const other = covering.find((entry) => activeLease(entry.state));
+    if (other) {
+      throw new RoomError(
+        "lease_required",
+        `Path '${target}' is reserved by another session's lease.`,
+        { path: target, leaseId: other.id, ownerSessionId: other.ownerSessionId },
+      );
+    }
+    throw new RoomError("lease_required", `An active lease covering '${target}' is required.`);
+  }
+
   private selectorsCoveredByLease(selectors: string[], lease: FileLease): boolean {
     return selectors.every((selector) => lease.selectors.some((owned) => selectorCovers(owned, selector)));
   }
@@ -1412,8 +1453,7 @@ class Coordinator {
     this.ensureHealthy();
     const target = normalizeSelector(payload.path);
     if (target.endsWith("/**")) throw new RoomError("invalid_path", "Mutation path must be an exact file path.");
-    const lease = this.mutableLease(sessionId, target);
-    if (!lease) throw new RoomError("lease_required", "An active lease covering this path is required.");
+    const lease = this.requireMutableLease(sessionId, target);
     if (lease.state !== "active" && lease.state !== "dirty") throw new RoomError("lease_invalid", `Lease is '${lease.state}'.`);
     this.validateLease(lease);
     const current = fingerprintAt(this.identity.root, target);

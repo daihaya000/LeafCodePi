@@ -1,5 +1,49 @@
 # LeafCodePi メモリ
 
+## 2026-08-23: leafcode-collaboration が reserve 直後に edit できない
+
+報告: `leafcode_collab reserve` は成功するが、続けて `leafcode_edit` が
+`An active lease covering this path is required.` で落ち、作業不能。
+
+### 原因
+
+同じ症状を出す独立した欠陥が2つあった。
+
+1. **ツールごとに RoomClient が分裂する**  
+   runtime を `WeakMap<ExtensionContext>`、その後 `WeakMap<sessionManager>` で
+   持っていた。Pi は tool call ごとに新しい context / sessionManager を渡し得る。
+   そのたびに新しい `connectionId` で join し、既存リースが `orphaned` になる。
+   再現テスト: `keeps one room client when tool calls use fresh ExtensionContext objects`
+   （sessionManager キーでも、start / reserve / edit / shutdown を別オブジェクトにすると落ちる）。
+
+2. **接続中でも clean lease が 15 秒で切れる**  
+   既定 `leaseTtlMs` は 15s。coordinator の timer / heartbeat / status は
+   `expireCleanLeases()` するだけで、接続中セッションのリースを更新しない。
+   エージェントが reserve 後に 15 秒以上考えると、edit 前に `released` になる。
+
+パスの大文字小文字（`SettingsView.tsx` vs `settingsview.tsx`）は Windows では
+`relativeKey` で既に正規化済み。今回の失敗の直接原因ではない。
+
+### 修正
+
+- `extensions/leafcode-collaboration/index.ts`: sessionId + cwd 文字列で runtime を共有
+- `extensions/leafcode-collaboration/room.ts`: 接続中セッションの lease を heartbeat / status / timer で更新
+- 失敗時は orphaned / 他セッション予約をメッセージで区別する
+
+### 検証
+
+```
+npm --prefix web test -- --run src/lib/collaboration-room.test.ts ../extensions/leafcode-collaboration/index.test.ts
+```
+
+17 tests passed。
+
+### 残る制約
+
+- coordinator 再起動後の orphaned lease は、同じセッションが `reserve` し直せば回収できる
+- hardlink (`nlink > 1`) のファイルは今も予約・編集できない（web-build-mirror は `src/` を copy している）
+- 切断後の clean lease は従来どおり TTL で解放する
+
 ## 2026-08-23: 巻き戻し「ユーザーメッセージのみ入力欄に戻せます」修正
 
 ### 症状
@@ -35,7 +79,6 @@
 - 修正: active/dirty のみ mutate、orphaned reclaim、connectionId 安定化、reserve 応答に leaseId
 - 手順: `reserve` → 応答の leaseId 確認 → 直後に edit。reconnect 後は再 reserve
 
-### runtime WeakMap キー（続き）
-- 症状: reserve 直後の edit が `An active lease covering this path is required`、release は既に `released`
-- 原因: `runtimeStates` が `WeakMap<ExtensionContext>` キーで、Pi は tool 呼び出しごとに新しい ctx オブジェクトを渡す。edit 時に別 RoomClient・別 connectionId で join → 直前の lease が orphaned/released
-- 修正: `WeakMap<sessionManager>` に変更。reserve→edit 統合テスト追加
+### runtime WeakMap キー（ea1746f、不十分）
+- `WeakMap<sessionManager>` では、sessionManager 自体が tool ごとに新しい場合に再発する
+- sessionId + cwd の Map に置き換えた（上記 2026-08-23 節）

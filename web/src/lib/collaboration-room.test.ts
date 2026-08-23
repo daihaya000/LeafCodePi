@@ -268,6 +268,49 @@ describe("LeafCode room coordinator", () => {
     await assert.rejects(() => first.commit("update a", ["src/a.ts"]), /staged|foreign/i);
   });
 
+  it("keeps a clean lease while the owner stays connected past TTL", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({
+      mode: "strict",
+      heartbeatMs: 250,
+      leaseTtlMs: 1_000,
+    }), "utf8");
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 1;\n");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const client = await connectRoom(repo, { sessionId: "session-ttl", displayName: "TTL", pid: process.pid }, env);
+    clients.push(client);
+    await client.reserve(["src/a.ts"]);
+    await new Promise((resolve) => setTimeout(resolve, 1_600));
+    await client.snapshot();
+    await client.edit("src/a.ts", "1", "2");
+    assert.equal(readFileSync(join(repo, "src/a.ts"), "utf8"), "export const a = 2;\n");
+  });
+
+  it("matches reserved Windows paths case-insensitively", async () => {
+    if (process.platform !== "win32") return;
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "web/src/components/settings/SettingsView.tsx", "export const x = 1;\n");
+    git(repo, ["add", "web/src/components/settings/SettingsView.tsx"]);
+    git(repo, ["commit", "-m", "initial"]);
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const client = await connectRoom(repo, { sessionId: "session-case", displayName: "Case", pid: process.pid }, env);
+    clients.push(client);
+    const lease = await client.reserve(["web/src/components/settings/settingsview.tsx"]);
+    assert.equal(lease.selectors[0], "web/src/components/settings/settingsview.tsx");
+    await client.edit("web/src/components/settings/SettingsView.tsx", "1", "2");
+    assert.equal(readFileSync(join(repo, "web/src/components/settings/SettingsView.tsx"), "utf8"), "export const x = 2;\n");
+  });
+
   it("lets the same session reclaim an orphaned lease after reconnecting", async () => {
     repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
     dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));

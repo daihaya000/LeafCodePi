@@ -7,6 +7,7 @@ import {
 import { COLLABORATION_CHECK_IDS, readCollaborationConfig, type CollaborationCheckId } from "./config.ts";
 import { connectRoom, roomDegradedStatus, type PresenceUpdate, type RoomClient, type RoomMessage } from "./room.ts";
 import { randomUUID } from "node:crypto";
+import * as path from "node:path";
 
 export * from "./contract.ts";
 export * from "./config.ts";
@@ -20,7 +21,7 @@ type RuntimeState = {
   connectionId?: string;
 };
 
-const runtimeStates = new WeakMap<object, RuntimeState>();
+const runtimeStatesBySession = new Map<string, RuntimeState>();
 const POLICY = [
   "This is a shared LeafCodePi checkout.",
   'Call leafcode_collab({ action: "status" }) before editing.',
@@ -29,12 +30,15 @@ const POLICY = [
   "Do not request worktree isolation. If a lease or commit is blocked, report the conflict instead of bypassing it.",
 ].join("\n");
 
-function runtimeKey(ctx: ExtensionContext): object {
-  return ctx.sessionManager;
+function runtimeKey(ctx: ExtensionContext): string {
+  const sessionId = ctx.sessionManager.getSessionId();
+  const cwd = path.normalize(ctx.cwd);
+  return `${sessionId}\n${process.platform === "win32" ? cwd.toLowerCase() : cwd}`;
 }
 
 function runtimeState(ctx: ExtensionContext): RuntimeState {
-  const existing = runtimeStates.get(runtimeKey(ctx));
+  const key = runtimeKey(ctx);
+  const existing = runtimeStatesBySession.get(key);
   if (existing) return existing;
   const loaded = readCollaborationConfig();
   const state = {
@@ -42,7 +46,7 @@ function runtimeState(ctx: ExtensionContext): RuntimeState {
     configValid: loaded.valid,
     ...(loaded.error ? { configError: loaded.error } : {}),
   } satisfies RuntimeState;
-  runtimeStates.set(runtimeKey(ctx), state);
+  runtimeStatesBySession.set(key, state);
   return state;
 }
 
@@ -239,10 +243,11 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
-    const state = runtimeStates.get(runtimeKey(ctx));
+    const key = runtimeKey(ctx);
+    const state = runtimeStatesBySession.get(key);
     if (!state) return;
     await state.client?.close();
-    runtimeStates.delete(runtimeKey(ctx));
+    runtimeStatesBySession.delete(key);
   });
 
   pi.registerTool({

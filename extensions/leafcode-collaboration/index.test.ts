@@ -77,12 +77,14 @@ describe("LeafCode collaboration extension", () => {
       getSessionId: () => "stable-session",
       getSessionName: () => "Stable session",
     };
+    const ctxStart = { cwd: repo, hasUI: false, sessionManager } as ExtensionContext;
     const ctxReserve = { cwd: repo, hasUI: false, sessionManager } as ExtensionContext;
     const ctxEdit = { cwd: repo, hasUI: false, sessionManager } as ExtensionContext;
+    const ctxShutdown = { cwd: repo, hasUI: false, sessionManager } as ExtensionContext;
 
     try {
       process.env.LEAFCODE_PI_DATA_DIR = dataDir;
-      await handlers.get("session_start")?.({}, ctxReserve);
+      await handlers.get("session_start")?.({}, ctxStart);
       const reserved = await tools.get("leafcode_collab")!.execute(
         "reserve",
         { action: "reserve", paths: ["src/a.ts"] },
@@ -100,7 +102,7 @@ describe("LeafCode collaboration extension", () => {
       );
       assert.equal(readFileSync(filePath, "utf8"), "export const a = 2;\n");
     } finally {
-      await handlers.get("session_shutdown")?.({}, ctxReserve);
+      await handlers.get("session_shutdown")?.({}, ctxShutdown);
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
       rmSync(repo, { recursive: true, force: true });
