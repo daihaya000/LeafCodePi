@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Check, CircleAlert, ListTodo, Pause, Play, Square } from "lucide-react";
 import { Button, cx } from "@/components/ui";
 import type { GoalLoopDto } from "@/lib/types";
+import { formatGoalLoopCooldownSeconds } from "@/lib/goal-loop-settings";
 
 const labels: Record<GoalLoopDto["status"], string> = {
   queued: "送信待ち",
@@ -22,6 +23,19 @@ function badgeClass(status: GoalLoopDto["status"]): string {
   if (status === "paused" || status === "stopped") return "bg-surface-2 text-muted";
   return "bg-working/15 text-working";
 }
+
+const pauseHints: Record<string, string> = {
+  user: "ユーザー操作で一時停止しました。再開すると次のターンを送信します。",
+  manual_send: "手動送信が行われたため一時停止しました。",
+  turn_limit: "最大ターン数に到達しました。再開時に上限を増やせます。",
+  unreadable_result: "結果JSONを読めなかったため一時停止しました。",
+  turn_timeout: "応答が確認できないまま時間切れになりました。",
+  unknown_delivery: "送達が不明なため重複送信を防止して一時停止しました。",
+  transcript_unreadable: "会話履歴を読めないため一時停止しました。",
+  boundary_lost: "基準メッセージが見つからないため誤読を防止して一時停止しました。",
+  verification_rejected: "完了宣言が検証で繰り返し拒否されました。",
+  scheduler_error: "スケジューラーでエラーが発生しました。",
+};
 
 export function GoalLoopPanel({
   loop,
@@ -44,8 +58,20 @@ export function GoalLoopPanel({
   const turn = loop.status === "queued" ? loop.turnCount + 1 : loop.turnCount;
   const progress = loop.progress.at(-1);
   const turnLimit = loop.pauseReason === "turn_limit";
-  const commitMaxTurns = () =>
-    onResume(Math.min(100, Math.max(loop.maxTurns + 1, Math.trunc(Number(maxTurns) || loop.maxTurns + 1))));
+  const maxTurnsLabel = loop.maxTurns === 0 ? "∞" : String(loop.maxTurns);
+  const shownTurn = loop.maxTurns === 0 ? turn : Math.min(turn, loop.maxTurns);
+  const commitMaxTurns = () => {
+    const parsed = Math.trunc(Number(maxTurns));
+    const value = parsed === 0
+      ? 0
+      : Math.min(100, Math.max(loop.maxTurns + 1, Number.isFinite(parsed) ? parsed : loop.maxTurns + 1));
+    setMaxTurns(String(value));
+    onResume(value);
+  };
+  const pauseHint = loop.status === "paused" ? pauseHints[loop.pauseReason] : undefined;
+  const cooldownActive = Boolean(
+    loop.nextTurnAt && Date.parse(loop.nextTurnAt) > Date.now(),
+  );
 
   return (
     <section
@@ -58,8 +84,11 @@ export function GoalLoopPanel({
       <div className="flex flex-wrap items-center gap-2">
         <ListTodo className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
         <span className="font-medium">ループ</span>
-        <span className={cx("rounded-full px-2 py-0.5 text-[11px]", badgeClass(loop.status))}>
-          {labels[loop.status]} {Math.min(turn, loop.maxTurns)}/{loop.maxTurns}
+        <span
+          className={cx("rounded-full px-2 py-0.5 text-[11px]", badgeClass(loop.status))}
+          aria-label={`ループ状態: ${labels[loop.status]}、Goalターン ${shownTurn} / ${loop.maxTurns === 0 ? "無制限" : maxTurnsLabel}`}
+        >
+          {labels[loop.status]} {shownTurn}/{maxTurnsLabel}
         </span>
         {loop.forceFullRun && (
           <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-muted">完走</span>
@@ -79,7 +108,7 @@ export function GoalLoopPanel({
               {turnLimit && (
                 <input
                   type="number"
-                  min={loop.maxTurns + 1}
+                  min={0}
                   max={100}
                   value={maxTurns}
                   disabled={busy}
@@ -106,6 +135,13 @@ export function GoalLoopPanel({
           )}
         </div>
       </div>
+      {loop.cooldownSeconds > 0 && (
+        <p className="mt-2 text-xs text-muted" title="結果適用後に次のターン開始まで待機します">
+          クールタイム: {formatGoalLoopCooldownSeconds(loop.cooldownSeconds)}
+          {cooldownActive ? "（待機中）" : ""}
+        </p>
+      )}
+      {pauseHint && <p className="mt-2 text-xs text-muted">{pauseHint}</p>}
       {(progress || loop.error || loop.blockedReason) && (
         <div className="mt-2 flex gap-2 border-t border-border pt-2 text-xs text-muted">
           {loop.status === "blocked" ? (

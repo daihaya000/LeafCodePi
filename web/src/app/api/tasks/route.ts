@@ -6,6 +6,11 @@ import {
   jsonError,
   listPendingAttention,
 } from "@/lib/pi/harness";
+import {
+  clampGoalLoopCooldownSeconds,
+  clampGoalLoopMaxTurns,
+  DEFAULT_GOAL_LOOP_MAX_TURNS,
+} from "@/lib/goal-loop-settings";
 import type { ThinkingLevel } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -49,6 +54,7 @@ export async function POST(req: NextRequest) {
         enabled?: unknown;
         acceptance?: unknown;
         maxTurns?: unknown;
+        cooldownSeconds?: unknown;
         forceFullRun?: unknown;
       };
     } | null;
@@ -59,7 +65,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Goal loop の開始では画像添付は使えません" }, { status: 400 });
     }
     let goalLoop:
-      | { acceptance: string[]; maxTurns: number; forceFullRun: boolean }
+      | { acceptance: string[]; maxTurns: number; cooldownSeconds: number; forceFullRun: boolean }
       | undefined;
     if (body.goalLoop?.enabled === true) {
       const raw = body.goalLoop.acceptance;
@@ -70,13 +76,13 @@ export async function POST(req: NextRequest) {
       ) {
         return NextResponse.json({ error: "acceptance が不正です" }, { status: 400 });
       }
-      const number = Number(body.goalLoop.maxTurns ?? 10);
       goalLoop = {
         acceptance: values
           .filter((item): item is string => typeof item === "string")
           .map((item) => item.trim())
           .filter(Boolean),
-        maxTurns: Number.isFinite(number) ? Math.min(100, Math.max(1, Math.trunc(number))) : 10,
+        maxTurns: clampGoalLoopMaxTurns(body.goalLoop.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS),
+        cooldownSeconds: clampGoalLoopCooldownSeconds(body.goalLoop.cooldownSeconds),
         forceFullRun: body.goalLoop.forceFullRun === true,
       };
     }
