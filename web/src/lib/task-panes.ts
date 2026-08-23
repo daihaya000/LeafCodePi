@@ -382,7 +382,8 @@ export function isSplitHostPath(pathname: string | null | undefined): boolean {
 
 /**
  * アクティブタブを urlTaskId へ向けた新 state を返す（URL → panes 反映用）。
- * タブとして未登録なら panes[0] の activeTabId を差し替える（直リンク互換、仕様 §5）。
+ * タブとして未登録なら panes[0] に新規タブで追加する。満杯時は最も古いタブ
+ * （tabs 先頭）を閉じてから新規タブで開く。
  * 変更不要なら同一参照を返す。
  */
 export function retargetActiveTab(
@@ -403,10 +404,11 @@ export function retargetActiveTab(
   }
   const [first, ...rest] = state.panes;
   const nextFirst: TaskPane = { ...first, activeTabId: urlTaskId };
-  // panes[0] に URL タスクが無ければタブとして追加（空きがなければ activeTabId 差し替えのみ）
-  if (nextFirst.tabs.length < MAX_TABS_PER_PANE) {
-    nextFirst.tabs = [...first.tabs, urlTaskId];
-  }
+  // 空きがなければ最も古いタブを閉じてから新規タブとして追加
+  nextFirst.tabs =
+    first.tabs.length < MAX_TABS_PER_PANE
+      ? [...first.tabs, urlTaskId]
+      : [...first.tabs.slice(1), urlTaskId];
   return { panes: [nextFirst, ...rest], activePaneId: first.id };
 }
 

@@ -372,7 +372,7 @@ describe("retargetActiveTab", () => {
     const full = Array.from({ length: MAX_TABS_PER_PANE }, (_, i) => `t${i}`);
     const base = state(pane(P1, full));
     const next = retargetActiveTab(base, "fresh");
-    expect(next.panes[0].tabs).toEqual(full);
+    expect(next.panes[0].tabs).toEqual([...full.slice(1), "fresh"]);
     expect(next.panes[0].activeTabId).toBe("fresh");
   });
 
