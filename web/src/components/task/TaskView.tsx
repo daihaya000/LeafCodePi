@@ -15,6 +15,7 @@ import {
   Square,
 } from "lucide-react";
 import { Composer, type ComposerAttachment } from "@/components/Composer";
+import { CollaborationBadge, CollaborationNotice, useCollaborationRoom } from "@/components/CollaborationStatus";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { pasteImage } from "@/lib/clipboard-image";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
@@ -209,6 +210,7 @@ export function TaskView({
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequestDto | null>(null);
   const [questionRequest, setQuestionRequest] = useState<QuestionRequestDto | null>(null);
   const [permissionBusy, setPermissionBusy] = useState(false);
+  const collaborationRoom = useCollaborationRoom(active ? task?.projectId : null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
@@ -928,6 +930,7 @@ export function TaskView({
           <div className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-[11px] text-faint sm:hidden">
             {task && <StatusBadge status={working ? "working" : task.status} />}
             {contextUsage && <ContextUsageMeter usage={contextUsage} />}
+            <CollaborationBadge room={collaborationRoom ?? undefined} className="sm:hidden" />
           </div>
           <div className="mt-0.5 hidden min-w-0 items-center gap-1 text-xs text-faint sm:flex">
             {task && <StatusBadge status={working ? "working" : task.status} />}
@@ -979,6 +982,7 @@ export function TaskView({
           </div>
         </div>
         <div className="relative flex min-w-0 shrink-0 items-center gap-1">
+          <CollaborationBadge room={collaborationRoom ?? undefined} className="hidden sm:inline-flex" />
           {onAddPane && (
             <Button
               variant="ghost"
@@ -1076,6 +1080,7 @@ export function TaskView({
           className="min-h-0 flex-1 overflow-y-auto px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4"
         >
           <div ref={contentRef} className="relative mx-auto flex max-w-5xl flex-col gap-4">
+            <CollaborationNotice room={collaborationRoom} />
             {hangRetryNotice && (
               <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
                 {hangRetryNotice}

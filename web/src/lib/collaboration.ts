@@ -82,7 +82,7 @@ function numberConfig(
   return value;
 }
 
-function dataDir(env: NodeJS.ProcessEnv): string {
+export function collaborationDataDir(env: NodeJS.ProcessEnv = process.env): string {
   const override = env.LEAFCODE_PI_DATA_DIR?.trim();
   if (override) return override;
   if (process.platform === "win32") {
@@ -96,7 +96,7 @@ export function readCollaborationConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): CollaborationConfigResult {
   try {
-    const raw = JSON.parse(readFileSync(join(dataDir(env), "collaboration.json"), "utf8")) as unknown;
+    const raw = JSON.parse(readFileSync(join(collaborationDataDir(env), "collaboration.json"), "utf8")) as unknown;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
       return { config: DEFAULT_COLLABORATION_CONFIG, valid: false, error: "config must be an object" };
     }

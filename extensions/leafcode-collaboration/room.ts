@@ -19,6 +19,11 @@ const MAX_SCAN_FILES = 5_000;
 const MAX_SELECTOR_COUNT = 64;
 const MAX_PATH_LENGTH = 1_000;
 const MAX_COMMAND_OUTPUT_BYTES = 8 * 1024 * 1024;
+const MAX_MESSAGE_BYTES = 64 * 1024;
+const MAX_INBOX_MESSAGES = 100;
+const MAX_INBOX_RESPONSE_BYTES = 1_500_000;
+const MESSAGE_RATE_WINDOW_MS = 60_000;
+const MAX_MESSAGES_PER_WINDOW = 30;
 const CHECK_TIMEOUT_MS = 120_000;
 
 export type PresenceState = "active" | "idle" | "away" | "stuck" | "offline";
@@ -39,10 +44,32 @@ export type FileIdentity = {
 
 export type ActivityEntry = {
   seq: number;
-  kind: "join" | "leave" | "heartbeat" | "claim" | "reserve" | "release" | "write" | "edit" | "check" | "commit" | "lease-invalid" | "compromised";
+  kind: "join" | "leave" | "heartbeat" | "claim" | "reserve" | "release" | "write" | "edit" | "check" | "commit" | "send" | "ask" | "reply" | "lease-invalid" | "compromised";
   sessionId: string;
   paths: string[];
   at: string;
+};
+
+export type RoomMessage = {
+  id: string;
+  kind: "send" | "ask" | "reply";
+  fromSessionId: string;
+  toSessionId: string;
+  requestId?: string;
+  message: string;
+  at: string;
+};
+
+export type AskResult = {
+  requestId: string;
+  expiresAt: string;
+};
+
+export type PendingAsk = {
+  requestId: string;
+  fromSessionId: string;
+  toSessionId: string;
+  expiresAt: string;
 };
 
 export type SessionPresence = {
@@ -95,6 +122,7 @@ export type RoomSnapshot = {
   sessions: Record<string, SessionPresence>;
   tasks: Record<string, TaskClaim>;
   leases: Record<string, FileLease>;
+  pendingAsks: PendingAsk[];
   activity: ActivityEntry[];
   updatedAt: string;
   refFingerprint?: string;
@@ -629,6 +657,7 @@ function emptySnapshot(projectKey: string): RoomSnapshot {
     sessions: {},
     tasks: {},
     leases: {},
+    pendingAsks: [],
     activity: [],
     updatedAt: now(),
   };
@@ -652,7 +681,7 @@ function loadSnapshot(identity: ProjectIdentity): RoomSnapshot {
     ) {
       throw new Error("invalid snapshot shape");
     }
-    return parsed;
+    return { ...parsed, pendingAsks: Array.isArray(parsed.pendingAsks) ? parsed.pendingAsks : [] };
   } catch (error) {
     throw new RoomError("snapshot_corrupt", `Room snapshot is invalid: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -692,6 +721,12 @@ function payloadObject(value: unknown): Record<string, unknown> {
 function requireString(value: unknown, label: string, max = 500): string {
   if (typeof value !== "string" || !value.trim() || value.length > max) throw new RoomError("invalid_payload", `${label} is invalid.`);
   return value;
+}
+
+function requireMessage(value: unknown): string {
+  const message = requireString(value, "message", MAX_MESSAGE_BYTES);
+  if (Buffer.byteLength(message, "utf8") > MAX_MESSAGE_BYTES) throw new RoomError("invalid_payload", "message is too large.");
+  return message;
 }
 
 function processIsAlive(pid: number): boolean {
@@ -830,6 +865,9 @@ class Coordinator {
   private state: RoomSnapshot;
   private refFingerprint = "";
   private readonly socketConnections = new Map<net.Socket, { sessionId: string; connectionId: string } | undefined>();
+  private readonly inboxes = new Map<string, RoomMessage[]>();
+  private readonly pendingAsks = new Map<string, { fromSessionId: string; toSessionId: string; expiresAt: number }>();
+  private readonly messageRates = new Map<string, { startedAt: number; count: number }>();
 
   constructor(private readonly identity: ProjectIdentity, private readonly config: CollaborationConfig) {
     this.state = emptySnapshot(identity.projectKey);
@@ -846,6 +884,8 @@ class Coordinator {
     try {
       this.writeLock();
       this.state = loadSnapshot(this.identity);
+      this.pendingAsks.clear();
+      this.state.pendingAsks = [];
       const savedHead = this.state.head;
       const savedRefFingerprint = this.state.refFingerprint;
       this.state.epoch += 1;
@@ -872,6 +912,7 @@ class Coordinator {
       this.lockTimer = setInterval(() => {
         try {
           this.expireCleanLeases();
+          this.expireAsks();
           this.writeLock();
           this.persist();
         } catch {
@@ -984,6 +1025,10 @@ class Coordinator {
       case "mutate_edit": return this.mutate(request.sessionId, payloadObject(request.payload), "edit");
       case "check": return this.check(request.sessionId, payloadObject(request.payload));
       case "commit": return this.commit(request.sessionId, payloadObject(request.payload));
+      case "inbox": return this.inbox(request.sessionId);
+      case "send": return this.send(request.sessionId, payloadObject(request.payload));
+      case "ask": return this.ask(request.sessionId, payloadObject(request.payload));
+      case "reply": return this.reply(request.sessionId, payloadObject(request.payload));
       default: throw new RoomError("unknown_method", `Unknown room method '${request.method}'.`);
     }
   }
@@ -1000,6 +1045,7 @@ class Coordinator {
       for (const lease of Object.values(this.state.leases)) {
         if (lease.ownerSessionId === sessionId && activeLease(lease.state)) lease.state = "orphaned";
       }
+      this.dropSessionMessages(sessionId);
     }
     this.state.sessions[sessionId] = {
       sessionId,
@@ -1050,6 +1096,7 @@ class Coordinator {
     for (const lease of Object.values(this.state.leases)) {
       if (lease.ownerSessionId === sessionId && activeLease(lease.state)) lease.state = "orphaned";
     }
+    this.dropSessionMessages(sessionId);
     this.touch("leave", sessionId, []);
     if (!Object.values(this.state.sessions).some((entry) => entry.state !== "offline")) await this.close();
   }
@@ -1062,6 +1109,7 @@ class Coordinator {
       if (lease.state === "active") lease.state = "released";
       else if (activeLease(lease.state)) lease.state = "orphaned";
     }
+    this.dropSessionMessages(sessionId);
     this.touch("leave", sessionId, []);
     if (!Object.values(this.state.sessions).some((entry) => entry.state !== "offline")) setTimeout(() => { void this.close(); }, 0).unref?.();
     return this.state;
@@ -1070,7 +1118,152 @@ class Coordinator {
   private status(): RoomSnapshot {
     this.validateActiveLeases();
     this.expireCleanLeases();
+    this.expireAsks();
+    this.persist();
     return this.state;
+  }
+
+  private peerSession(sessionId: string, value: unknown): SessionPresence {
+    const peerId = requireString(value, "to", 200);
+    if (peerId === sessionId) throw new RoomError("invalid_payload", "Messages must target another session.");
+    const peer = this.state.sessions[peerId];
+    if (!peer || peer.state === "offline") throw new RoomError("peer_unavailable", "Target session is not connected.", { sessionId: peerId });
+    return peer;
+  }
+
+  private consumeMessageRate(sessionId: string): void {
+    const timestamp = Date.now();
+    const current = this.messageRates.get(sessionId);
+    if (!current || timestamp - current.startedAt >= MESSAGE_RATE_WINDOW_MS) {
+      this.messageRates.set(sessionId, { startedAt: timestamp, count: 1 });
+      return;
+    }
+    if (current.count >= MAX_MESSAGES_PER_WINDOW) {
+      throw new RoomError("rate_limited", "Peer message rate limit exceeded.", { retryAfterMs: MESSAGE_RATE_WINDOW_MS - (timestamp - current.startedAt) });
+    }
+    current.count += 1;
+  }
+
+  private expireAsks(): void {
+    const timestamp = Date.now();
+    const expired = new Set<string>();
+    for (const [requestId, ask] of this.pendingAsks) {
+      if (ask.expiresAt <= timestamp) {
+        this.pendingAsks.delete(requestId);
+        expired.add(requestId);
+      }
+    }
+    if (!expired.size) return;
+    for (const [sessionId, queue] of this.inboxes) {
+      const remaining = queue.filter((message) => message.kind !== "ask" || !message.requestId || !expired.has(message.requestId));
+      if (remaining.length) this.inboxes.set(sessionId, remaining);
+      else this.inboxes.delete(sessionId);
+    }
+  }
+
+  private queueMessage(message: RoomMessage): void {
+    const queue = this.inboxes.get(message.toSessionId) ?? [];
+    if (queue.length >= MAX_INBOX_MESSAGES) throw new RoomError("inbox_full", "Target session inbox is full.");
+    queue.push(message);
+    this.inboxes.set(message.toSessionId, queue);
+  }
+
+  private dropSessionMessages(sessionId: string): void {
+    this.inboxes.delete(sessionId);
+    this.messageRates.delete(sessionId);
+    for (const [requestId, ask] of this.pendingAsks) {
+      if (ask.fromSessionId === sessionId || ask.toSessionId === sessionId) this.pendingAsks.delete(requestId);
+    }
+  }
+
+  private inbox(sessionId: string): RoomMessage[] {
+    this.expireAsks();
+    const queue = this.inboxes.get(sessionId) ?? [];
+    const messages: RoomMessage[] = [];
+    let responseBytes = 2;
+    while (queue.length) {
+      const next = queue[0]!;
+      const nextBytes = Buffer.byteLength(JSON.stringify(next), "utf8") + 1;
+      if (messages.length > 0 && responseBytes + nextBytes > MAX_INBOX_RESPONSE_BYTES) break;
+      messages.push(queue.shift()!);
+      responseBytes += nextBytes;
+    }
+    if (queue.length) this.inboxes.set(sessionId, queue);
+    else this.inboxes.delete(sessionId);
+    this.persist();
+    return messages;
+  }
+
+  private send(sessionId: string, payload: Record<string, unknown>): RoomMessage {
+    const peer = this.peerSession(sessionId, payload.to);
+    const text = requireMessage(payload.message);
+    this.consumeMessageRate(sessionId);
+    const message: RoomMessage = {
+      id: randomUUID(),
+      kind: "send",
+      fromSessionId: sessionId,
+      toSessionId: peer.sessionId,
+      message: text,
+      at: now(),
+    };
+    this.queueMessage(message);
+    this.touch("send", sessionId, []);
+    return message;
+  }
+
+  private ask(sessionId: string, payload: Record<string, unknown>): AskResult {
+    const peer = this.peerSession(sessionId, payload.to);
+    const text = requireMessage(payload.message);
+    this.consumeMessageRate(sessionId);
+    this.expireAsks();
+    const requestId = payload.requestId === undefined ? randomUUID() : requireString(payload.requestId, "requestId", 200);
+    if (this.pendingAsks.has(requestId)) throw new RoomError("invalid_payload", "requestId is already in use.");
+    const expiresAt = Date.now() + this.config.askTimeoutMs;
+    this.queueMessage({
+      id: randomUUID(),
+      kind: "ask",
+      fromSessionId: sessionId,
+      toSessionId: peer.sessionId,
+      requestId,
+      message: text,
+      at: now(),
+    });
+    this.pendingAsks.set(requestId, { fromSessionId: sessionId, toSessionId: peer.sessionId, expiresAt });
+    this.touch("ask", sessionId, []);
+    return { requestId, expiresAt: new Date(expiresAt).toISOString() };
+  }
+
+  private reply(sessionId: string, payload: Record<string, unknown>): RoomMessage {
+    this.expireAsks();
+    const requestId = requireString(payload.requestId, "requestId", 200);
+    const pending = this.pendingAsks.get(requestId);
+    if (!pending) throw new RoomError("ask_not_found", "Ask request is unknown or expired.");
+    if (pending.expiresAt <= Date.now()) {
+      this.pendingAsks.delete(requestId);
+      throw new RoomError("ask_timeout", "Ask request has expired.");
+    }
+    if (pending.toSessionId !== sessionId) throw new RoomError("ask_recipient", "Only the ask target can reply.");
+    try {
+      this.peerSession(sessionId, pending.fromSessionId);
+    } catch (error) {
+      this.pendingAsks.delete(requestId);
+      throw error;
+    }
+    const text = requireMessage(payload.message);
+    this.consumeMessageRate(sessionId);
+    const message: RoomMessage = {
+      id: randomUUID(),
+      kind: "reply",
+      fromSessionId: sessionId,
+      toSessionId: pending.fromSessionId,
+      requestId,
+      message: text,
+      at: now(),
+    };
+    this.queueMessage(message);
+    this.pendingAsks.delete(requestId);
+    this.touch("reply", sessionId, []);
+    return message;
   }
 
   private ensureHealthy(): void {
@@ -1530,6 +1723,13 @@ class Coordinator {
   }
 
   private persist(): void {
+    this.state.updatedAt = now();
+    this.state.pendingAsks = [...this.pendingAsks].map(([requestId, ask]) => ({
+      requestId,
+      fromSessionId: ask.fromSessionId,
+      toSessionId: ask.toSessionId,
+      expiresAt: new Date(ask.expiresAt).toISOString(),
+    }));
     persistJson(this.identity.snapshotPath, this.state);
   }
 
@@ -1628,6 +1828,23 @@ export class RoomClient {
 
   async updatePresence(update: PresenceUpdate): Promise<void> {
     await this.request("heartbeat", update);
+  }
+
+  async inbox(): Promise<RoomMessage[]> {
+    if (!this.ready) return [];
+    return (await this.request("inbox", {})).value as RoomMessage[];
+  }
+
+  async send(to: string, message: string): Promise<RoomMessage> {
+    return (await this.request("send", { to, message })).value as RoomMessage;
+  }
+
+  async ask(to: string, message: string, requestId?: string): Promise<AskResult> {
+    return (await this.request("ask", { to, message, ...(requestId ? { requestId } : {}) })).value as AskResult;
+  }
+
+  async reply(requestId: string, message: string): Promise<RoomMessage> {
+    return (await this.request("reply", { requestId, message })).value as RoomMessage;
   }
 
   async write(filePath: string, content: string): Promise<unknown> {

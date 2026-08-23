@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore The standalone production mirror does not include extension sources; Vitest runs from the repository.
-import { connectRoom, normalizeSelector, selectorsOverlap, type RoomClient } from "../../../extensions/leafcode-collaboration/room";
+import { connectRoom, normalizeSelector, selectorsOverlap, type ActivityEntry, type RoomClient } from "../../../extensions/leafcode-collaboration/room";
 
 function git(cwd: string, args: string[]): void {
   execFileSync("git", args, { cwd, stdio: "ignore", windowsHide: true });
@@ -210,6 +210,81 @@ describe("LeafCode room coordinator", () => {
     assert.equal(rejected, true);
     assert.equal(existsSync(marker), true);
     assert.equal(execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8", windowsHide: true }).trim(), before);
+  });
+
+  it("routes untrusted peer messages and ask replies in memory", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 1;\n");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const first = await connectRoom(repo, { sessionId: "session-message-a", displayName: "A", pid: process.pid }, env);
+    clients.push(first);
+    const second = await connectRoom(repo, { sessionId: "session-message-b", displayName: "B", pid: process.pid }, env);
+    clients.push(second);
+
+    await assert.rejects(() => first.send("session-message-b", "x".repeat(65_537)), /invalid|large/i);
+    const sent = await first.send("session-message-b", "secret peer message");
+    assert.equal(sent.kind, "send");
+    assert.equal((await second.inbox())[0]?.message, "secret peer message");
+    assert.deepEqual(await second.inbox(), []);
+    const ask = await first.ask("session-message-b", "please check this");
+    const receivedAsk = (await second.inbox())[0];
+    assert.equal(receivedAsk?.kind, "ask");
+    assert.equal(receivedAsk?.requestId, ask.requestId);
+    await assert.rejects(() => first.reply(ask.requestId, "not allowed"), /recipient|target/i);
+    const reply = await second.reply(ask.requestId, "checked");
+    assert.equal((await first.inbox())[0]?.message, reply.message);
+    await assert.rejects(() => second.reply(ask.requestId, "duplicate"), /unknown|expired/i);
+
+    const activity = (await first.snapshot()).activity;
+    assert.deepEqual(activity.map((entry: ActivityEntry) => entry.kind).filter((kind: ActivityEntry["kind"]) => ["send", "ask", "reply"].includes(kind)), ["send", "ask", "reply"]);
+    assert.equal(JSON.stringify(activity).includes("secret peer message"), false);
+    await second.close();
+    await assert.rejects(() => first.send("session-message-b", "offline messages are not queued"), /connected/i);
+  });
+
+  it("rate limits peer messages per sender", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 1;\n");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const first = await connectRoom(repo, { sessionId: "session-rate-a", displayName: "A", pid: process.pid }, env);
+    clients.push(first);
+    const second = await connectRoom(repo, { sessionId: "session-rate-b", displayName: "B", pid: process.pid }, env);
+    clients.push(second);
+    for (let index = 0; index < 30; index += 1) await first.send("session-rate-b", `message-${index}`);
+    await assert.rejects(() => first.send("session-rate-b", "message-31"), /rate/i);
+  });
+
+  it("expires asks without retaining an offline request", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({ mode: "strict", askTimeoutMs: 1_000 }), "utf8");
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 1;\n");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const first = await connectRoom(repo, { sessionId: "session-timeout-a", displayName: "A", pid: process.pid }, env);
+    clients.push(first);
+    const second = await connectRoom(repo, { sessionId: "session-timeout-b", displayName: "B", pid: process.pid }, env);
+    clients.push(second);
+    const ask = await first.ask("session-timeout-b", "this will expire");
+    await new Promise((resolve) => setTimeout(resolve, 1_050));
+    assert.deepEqual(await second.inbox(), []);
+    await assert.rejects(() => second.reply(ask.requestId, "too late"), /unknown|expired/i);
   });
 
 });

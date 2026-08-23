@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
+import { CollaborationBadge } from "@/components/CollaborationStatus";
 import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
@@ -23,6 +24,7 @@ import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import type { HealthDto, ProjectDto, TaskSummary } from "@/lib/types";
+import type { CollaborationRoomSummary } from "@/lib/collaboration-room";
 
 type ProjectTaskMenuState = {
   projectId: string;
@@ -144,6 +146,7 @@ export function Sidebar({
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [archivedTasks, setArchivedTasks] = useState<TaskSummary[]>([]);
   const [health, setHealth] = useState<HealthDto | null>(null);
+  const [collaborationRooms, setCollaborationRooms] = useState<Record<string, CollaborationRoomSummary>>({});
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [hoverCapable, setHoverCapable] = useState(
@@ -166,12 +169,13 @@ export function Sidebar({
   const projectTaskMenuRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async () => {
-    const [projectRes, taskRes, archivedRes, archivedProjectsRes, healthRes] = await Promise.allSettled([
+    const [projectRes, taskRes, archivedRes, archivedProjectsRes, healthRes, collaborationRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects"),
       getJson<{ tasks: TaskSummary[] }>("/api/tasks"),
       getJson<{ tasks: TaskSummary[] }>("/api/tasks?archived=1"),
       getJson<{ projects: ProjectDto[] }>("/api/projects?archived=1"),
       getJson<HealthDto>("/api/health"),
+      getJson<{ rooms: Record<string, CollaborationRoomSummary> }>("/api/collaboration"),
     ]);
     if (taskDragActiveRef.current) return;
     if (projectRes.status === "fulfilled") setProjects(projectRes.value.projects);
@@ -183,6 +187,7 @@ export function Sidebar({
       setArchivedProjects(archivedProjectsRes.value.projects.filter((project) => project.archived));
     }
     if (healthRes.status === "fulfilled") setHealth(healthRes.value);
+    if (collaborationRes.status === "fulfilled") setCollaborationRooms(collaborationRes.value.rooms);
   }, []);
 
   const hasWorking = useMemo(
@@ -609,6 +614,7 @@ export function Sidebar({
                           {running}
                         </span>
                       )}
+                      <CollaborationBadge room={collaborationRooms[project.id]} />
                     </button>
                     <button
                       type="button"
