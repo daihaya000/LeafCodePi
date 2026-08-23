@@ -1180,6 +1180,7 @@ export function TaskView({
                         : undefined
                     }
                     effort={message.role === "assistant" ? effortLabel : undefined}
+                    agent={message.role === "assistant" ? task?.agent ?? undefined : undefined}
                     taskId={taskId}
                     onRevert={
                       message.role === "user"

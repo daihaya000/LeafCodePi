@@ -366,10 +366,13 @@ function MessageMetaHeader({
   message,
   modelLabel,
   effort,
+  agent,
 }: {
   message: UiMessage;
   modelLabel?: string;
   effort?: string;
+  /** 本家同様、担当エージェント名をバッジ表示（セッションのメインペルソナ）。 */
+  agent?: string;
 }) {
   const model = modelLabel?.trim() || message.model?.trim() || "";
   const tokens =
@@ -389,6 +392,7 @@ function MessageMetaHeader({
   const fields = [
     model ? { key: "model", text: model } : null,
     effort?.trim() ? { key: "effort", text: effort.trim() } : null,
+    agent?.trim() ? { key: "agent", text: agent.trim() } : null,
     { key: "time", text: formatMessageTime(message.createdAt) },
     tokens ? { key: "tokens", text: tokens } : null,
     rate ? { key: "rate", text: rate } : null,
@@ -409,6 +413,8 @@ function MessageMetaHeader({
             className={cx(
               field.key === "model" ? "min-w-0 max-w-64 truncate" : "shrink-0",
               field.key === "rate" && "tabular-nums",
+              field.key === "agent" &&
+                "rounded bg-primary px-1 py-px text-[10px] font-medium text-primary-fg",
             )}
             title={
               field.key === "rate" && message.tokensPerSecondDecode
@@ -632,6 +638,7 @@ export const PartView = memo(
     message,
     modelLabel,
     effort,
+    agent,
     taskId,
     nested = false,
     onRevert,
@@ -639,6 +646,7 @@ export const PartView = memo(
     message: UiMessage;
     modelLabel?: string;
     effort?: string;
+    agent?: string;
     /** サブエージェント入れ子パネルの取得に使う（トップレベルのみ）。 */
     taskId?: string;
     /** 入れ子タイムライン内での描画（さらに入れ子にはしない）。 */
@@ -657,7 +665,7 @@ export const PartView = memo(
           {isUser ? (
             <span className="text-[10px] text-faint">{formatMessageTime(message.createdAt)}</span>
           ) : (
-            <MessageMetaHeader message={message} modelLabel={modelLabel} effort={effort} />
+            <MessageMetaHeader message={message} modelLabel={modelLabel} effort={effort} agent={agent} />
           )}
         </div>
         {message.parts.map((part) => {
@@ -718,6 +726,7 @@ export const PartView = memo(
     prev.message === next.message &&
     prev.modelLabel === next.modelLabel &&
     prev.effort === next.effort &&
+    prev.agent === next.agent &&
     prev.taskId === next.taskId &&
     prev.nested === next.nested &&
     prev.onRevert === next.onRevert,
