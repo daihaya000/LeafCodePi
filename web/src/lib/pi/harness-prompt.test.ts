@@ -6,6 +6,7 @@ import {
   applyToolTiming,
   isReasoningMandatoryError,
   reasoningFallbackLevel,
+  syncSessionName,
 } from "./harness";
 import type { ThroughputTiming } from "@/lib/token-throughput";
 import type { UiMessage } from "@/lib/types";
@@ -55,6 +56,24 @@ describe("applySubagentPermission", () => {
     const s = mockSession(["read", "bash"]);
     applySubagentPermission(s as never, "deny");
     assert.deepEqual(s.names(), ["read", "bash"]);
+  });
+});
+
+describe("syncSessionName", () => {
+  it("persists the task title once for extensions to read", () => {
+    let current: string | undefined;
+    const entries: string[] = [];
+    const manager = {
+      getSessionName: () => current,
+      appendSessionInfo: (name: string) => {
+        current = name;
+        entries.push(name);
+      },
+    };
+
+    syncSessionName(manager, "設定モデルタブを整理");
+    syncSessionName(manager, "設定モデルタブを整理");
+    assert.deepEqual(entries, ["設定モデルタブを整理"]);
   });
 });
 

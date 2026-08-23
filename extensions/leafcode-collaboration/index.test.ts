@@ -39,6 +39,8 @@ describe("LeafCode collaboration extension", () => {
       process.env.LEAFCODE_PI_DATA_DIR = dataDir;
       const result = await tools.get("leafcode_collab")!.execute("call", { action: "status" }, new AbortController().signal, () => undefined, ctx);
       assert.equal(result.details?.ready, true);
+      const snapshot = result.details?.snapshot as { sessions: Record<string, { displayName: string }> };
+      assert.equal(snapshot.sessions["existing-session"]?.displayName, "Existing session");
     } finally {
       await handlers.get("session_shutdown")?.({}, ctx);
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;

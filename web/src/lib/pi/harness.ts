@@ -809,9 +809,17 @@ function attachSession(taskId: string, session: AgentSession): LiveRuntime {
   return live;
 }
 
+export function syncSessionName(
+  sessionManager: { getSessionName(): string | undefined; appendSessionInfo(name: string): unknown },
+  sessionName: string | undefined,
+): void {
+  if (sessionName && sessionManager.getSessionName() !== sessionName) sessionManager.appendSessionInfo(sessionName);
+}
+
 async function createSession(options: {
   cwd: string;
   sessionFile?: string | null;
+  sessionName?: string;
   model?: Model;
   thinkingLevel?: ThinkingLevel;
   subagentPermission?: "allow" | "deny";
@@ -825,6 +833,7 @@ async function createSession(options: {
   const sessionManager = options.sessionFile
     ? pi.SessionManager.open(options.sessionFile)
     : pi.SessionManager.create(options.cwd);
+  syncSessionName(sessionManager, options.sessionName);
   // Filter disabled skills via state file (skills-state.json), not folder moves.
   // skillsOverride re-reads state on every resourceLoader.reload() / session.reload().
   // Also drop any ~/.agents skills Pi loads internally: this harness must not
@@ -984,6 +993,7 @@ async function ensureLive(taskId: string): Promise<LiveRuntime> {
     const session = await createSession({
       cwd,
       sessionFile: task.sessionFile,
+      sessionName: task.title,
       model,
       thinkingLevel: task.thinkingLevel,
       agentName: task.agent ?? null,
@@ -1387,6 +1397,7 @@ export async function createTask(input: {
     : requestedThinking;
   const session = await createSession({
     cwd: project.rootPath,
+    sessionName: task.title,
     model,
     thinkingLevel,
     subagentPermission: input.subagentPermission,
