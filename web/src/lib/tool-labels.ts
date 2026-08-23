@@ -1,8 +1,35 @@
 import type { ToolState } from "@/lib/types";
 
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/** Return the skill directory name when a read tool is loading a SKILL.md file. */
+export function skillNameFromReadInput(
+  tool: string,
+  input: Record<string, unknown> | undefined,
+): string | null {
+  if (!tool.toLowerCase().includes("read")) return null;
+  const path =
+    asString(input?.path) ?? asString(input?.filePath) ?? asString(input?.file_path);
+  if (!path) return null;
+
+  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  const match = /(?:^|\/)([^/]+)\/SKILL\.md$/i.exec(normalized);
+  return match?.[1] ?? null;
+}
+
+export function isSkillRead(
+  tool: string,
+  input: Record<string, unknown> | undefined,
+): boolean {
+  return skillNameFromReadInput(tool, input) !== null;
+}
+
 /** 本家 LeafCode のタイムラインと同じ日本語ラベル・要約規則。 */
-export function toolLabel(tool: string): string {
+export function toolLabel(tool: string, input?: Record<string, unknown>): string {
   const t = tool.toLowerCase();
+  if (isSkillRead(tool, input)) return "スキル";
   if (t.includes("subagent") || t === "task") return "サブエージェント";
   if (t === "question") return "確認";
   if (t.includes("bash") || t.includes("shell")) return "コマンド";
@@ -13,10 +40,6 @@ export function toolLabel(tool: string): string {
   if (t === "ls" || t.includes("list")) return "一覧";
   if (t.includes("web") || t.includes("fetch")) return "取得";
   return tool;
-}
-
-function asString(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function clip(text: string, max: number): string {
@@ -34,12 +57,15 @@ function todoSummary(input: Record<string, unknown>): string | null {
 
 /** カード見出しの 1 行要約。tool 名と同じだけの title は無視する。 */
 export function toolSummary(tool: string, state: ToolState | undefined): string {
-  const title = state?.title?.trim();
-  if (title && title.toLowerCase() !== tool.toLowerCase()) return title;
   const input = state?.input ?? {};
   const t = tool.toLowerCase();
+  const skillName = skillNameFromReadInput(tool, input);
+  if (skillName) return `読み込み済み: ${skillName}`;
+
+  const title = state?.title?.trim();
+  if (title && title.toLowerCase() !== tool.toLowerCase()) return title;
   if (t.includes("todo")) {
-    return todoSummary(input) ?? toolLabel(tool);
+    return todoSummary(input) ?? toolLabel(tool, input);
   }
   if (t.includes("subagent") || t === "task") {
     const prompt = asString(input.prompt);
@@ -106,6 +132,9 @@ export function toolInputFields(
     add("コマンド", "command");
     return fields;
   }
+
+  const skillName = skillNameFromReadInput(tool, input);
+  if (skillName) fields.push({ label: "スキル", value: skillName });
 
   add("パス", "path");
   add("パス", "filePath");

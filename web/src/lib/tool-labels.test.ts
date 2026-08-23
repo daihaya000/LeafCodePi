@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toolInputFields, toolLabel, toolSummary } from "./tool-labels";
+import { skillNameFromReadInput, toolInputFields, toolLabel, toolSummary } from "./tool-labels";
 
 describe("toolLabel", () => {
   it("maps pi tools to Japanese labels", () => {
@@ -10,6 +10,12 @@ describe("toolLabel", () => {
     expect(toolLabel("grep")).toBe("検索");
     expect(toolLabel("ls")).toBe("一覧");
     expect(toolLabel("subagent")).toBe("サブエージェント");
+  });
+
+  it("maps SKILL.md reads to the skill label", () => {
+    const input = { path: "C:\\Users\\Daichi\\.pi\\agent\\skills\\bug-hunt\\SKILL.md" };
+    expect(skillNameFromReadInput("read", input)).toBe("bug-hunt");
+    expect(toolLabel("read", input)).toBe("スキル");
   });
 
   it("keeps unknown tool names as-is", () => {
@@ -33,6 +39,16 @@ describe("toolSummary", () => {
       "src/a.ts",
     );
     expect(toolSummary("grep", { status: "completed", input: { pattern: "foo" } })).toBe("foo");
+  });
+
+  it("summarizes a loaded skill by name", () => {
+    expect(
+      toolSummary("read", {
+        status: "completed",
+        title: "read",
+        input: { path: "/home/user/.pi/agent/skills/bug-hunt/SKILL.md" },
+      }),
+    ).toBe("読み込み済み: bug-hunt");
   });
 
   it("summarizes todo progress", () => {
@@ -67,5 +83,16 @@ describe("toolInputFields", () => {
 
   it("returns nothing without input", () => {
     expect(toolInputFields("read", undefined)).toEqual([]);
+  });
+
+  it("includes the loaded skill name for an expanded skill card", () => {
+    expect(
+      toolInputFields("read", {
+        path: "/home/user/.pi/agent/skills/bug-hunt/SKILL.md",
+      }),
+    ).toEqual([
+      { label: "スキル", value: "bug-hunt" },
+      { label: "パス", value: "/home/user/.pi/agent/skills/bug-hunt/SKILL.md" },
+    ]);
   });
 });

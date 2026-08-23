@@ -26,7 +26,7 @@ import { Button, cx, formatMessageTime } from "@/components/ui";
 import { formatTokens } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { clampScrollTop } from "@/lib/scroll-stick";
-import { toolInputFields, toolLabel, toolSummary } from "@/lib/tool-labels";
+import { isSkillRead, toolInputFields, toolLabel, toolSummary } from "@/lib/tool-labels";
 import { subagentAgentNames, useSubagentRuns } from "@/components/task/use-subagent-runs";
 import {
   saveReasoningTranslationOverride,
@@ -42,8 +42,9 @@ const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
   );
 });
 
-export function toolIcon(tool: string) {
+export function toolIcon(tool: string, input?: Record<string, unknown>) {
   const t = tool.toLowerCase();
+  if (isSkillRead(tool, input)) return Wrench;
   if (t.includes("bash") || t.includes("shell")) return Terminal;
   if (t.includes("todo")) return ListTodo;
   if (t.includes("edit") || t.includes("write") || t.includes("patch")) return FilePen;
@@ -230,7 +231,7 @@ function ToolCard({
     }
   }, [isSubagent, active]);
   const elapsedMs = useElapsedMs(state.startedAtMs, state.endedAtMs);
-  const Icon = toolIcon(tool);
+  const Icon = toolIcon(tool, state.input);
   const summary = toolSummary(tool, state);
   const fields = useMemo(() => toolInputFields(tool, state.input), [tool, state.input]);
   const raw = isCancelled ? "" : state.error || state.output || "";
@@ -266,7 +267,7 @@ function ToolCard({
         <Icon className="h-4 w-4 shrink-0 text-muted" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="shrink-0 text-xs font-medium text-muted">{toolLabel(tool)}</span>
+            <span className="shrink-0 text-xs font-medium text-muted">{toolLabel(tool, state.input)}</span>
             <span className="min-w-0 truncate text-xs text-text" title={summary}>
               {summary}
             </span>
@@ -455,7 +456,7 @@ export function WorkingRow({ messages }: { messages: UiMessage[] }) {
     running?.state.startedAtMs ?? messages[messages.length - 1]?.createdAt ?? undefined;
   const elapsedMs = useElapsedMs(startedAtMs, undefined);
   const headline = running
-    ? `${toolLabel(running.tool)} ${toolSummary(running.tool, running.state)}`
+    ? `${toolLabel(running.tool, running.state.input)} ${toolSummary(running.tool, running.state)}`
     : "作業中…";
   return (
     <div role="status" aria-live="polite" className="flex items-center gap-2 text-sm text-muted">
