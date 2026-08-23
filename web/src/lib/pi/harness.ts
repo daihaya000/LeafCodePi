@@ -27,6 +27,7 @@ import {
 import {
   entryIdsForProjectedMessages,
   projectPiMessages,
+  toolResultText,
   titleFromPrompt,
 } from "@/lib/pi/messages";
 import {
@@ -127,7 +128,7 @@ export type PromptImage = {
 };
 
 /** High-frequency stream events — coalesce snapshot SSE instead of emitting every token. */
-const THROTTLED_SNAPSHOT_EVENTS = new Set(["message_update"]);
+const THROTTLED_SNAPSHOT_EVENTS = new Set(["message_update", "tool_execution_update"]);
 const SNAPSHOT_THROTTLE_MS = 100;
 
 type LiveRuntime = {
@@ -145,6 +146,8 @@ type LiveRuntime = {
   toolStartedAt: Map<string, number>;
   /** toolCallId → wall-clock end (ms), set on tool_execution_end. */
   toolEndedAt: Map<string, number>;
+  /** toolCallId → latest cumulative partial output while a tool is running. */
+  toolPartialOutputByCallId: Map<string, string>;
   /** Coalesce message_update snapshots onto the event loop. */
   snapshotTimer: ReturnType<typeof setTimeout> | null;
   pendingSnapshotEventType: string | null;
@@ -205,6 +208,7 @@ function permissionSnapshotExtras(taskId: string): Record<string, unknown> {
       live.throughputByStartedAt,
       live.toolStartedAt,
       live.toolEndedAt,
+      live.toolPartialOutputByCallId,
     ),
     manualAbortedAssistantId: live.manualAbortedAssistantId,
     hangRetryCount: live.hangRetryCount,
@@ -324,6 +328,7 @@ async function ensureRuntime(): Promise<void> {
             live.throughputByStartedAt,
             live.toolStartedAt,
             live.toolEndedAt,
+            live.toolPartialOutputByCallId,
           ),
         };
       },
@@ -335,6 +340,7 @@ async function ensureRuntime(): Promise<void> {
             live.throughputByStartedAt,
             live.toolStartedAt,
             live.toolEndedAt,
+            live.toolPartialOutputByCallId,
           );
           let promptIndex = -1;
           for (let i = msgs.length - 1; i >= 0; i -= 1) {
@@ -430,6 +436,7 @@ function snapshotMessages(
   throughputByStartedAt?: Map<number, ThroughputTiming>,
   toolStartedAt?: Map<string, number>,
   toolEndedAt?: Map<string, number>,
+  toolPartialOutputByCallId?: Map<string, string>,
 ): UiMessage[] {
   const stored: unknown[] = Array.isArray(session.messages) ? [...session.messages] : [];
   const streaming = session.agent.state.streamingMessage;
@@ -451,10 +458,41 @@ function snapshotMessages(
     return entryId ? { ...message, id: entryId } : message;
   });
   if (throughputByStartedAt) projected = applyThroughput(projected, throughputByStartedAt);
+  if (toolPartialOutputByCallId && toolPartialOutputByCallId.size > 0) {
+    projected = applyToolOutput(projected, toolPartialOutputByCallId);
+  }
   if (toolStartedAt && toolStartedAt.size > 0 && toolEndedAt) {
     projected = applyToolTiming(projected, toolStartedAt, toolEndedAt);
   }
   return projected;
+}
+
+/** 実行中 tool の累積 partial result を対応する UI パートへ注入する。 */
+export function applyToolOutput(
+  messages: UiMessage[],
+  partialOutputByCallId: Map<string, string>,
+): UiMessage[] {
+  return messages.map((message) => {
+    if (message.role !== "assistant") return message;
+    let changed = false;
+    const parts = message.parts.map((part) => {
+      if (part.type !== "tool") return part;
+      const output = partialOutputByCallId.get(part.callID);
+      if (output === undefined || (part.state.status !== "running" && part.state.status !== "pending")) {
+        return part;
+      }
+      changed = true;
+      return {
+        ...part,
+        state: {
+          ...part.state,
+          output,
+          error: undefined,
+        },
+      };
+    });
+    return changed ? { ...message, parts } : message;
+  });
 }
 
 /** toolCallId に対応する tool パートに実行開始/終了時刻を注入する。 */
@@ -548,6 +586,19 @@ function trackThroughputEvent(
     return;
   }
 
+  if (event.type === "tool_execution_update") {
+    const toolCallId =
+      typeof event.toolCallId === "string"
+        ? event.toolCallId
+        : typeof event.toolCallID === "string"
+          ? event.toolCallID
+          : "";
+    if (toolCallId) {
+      live.toolPartialOutputByCallId.set(toolCallId, toolResultText(event.partialResult));
+    }
+    return;
+  }
+
   if (event.type === "tool_execution_end") {
     const toolCallId =
       typeof event.toolCallId === "string"
@@ -555,7 +606,24 @@ function trackThroughputEvent(
         : typeof event.toolCallID === "string"
           ? event.toolCallID
           : "";
-    if (toolCallId) live.toolEndedAt.set(toolCallId, Date.now());
+    if (toolCallId) {
+      live.toolEndedAt.set(toolCallId, Date.now());
+      const output = toolResultText(event.result);
+      if (output) live.toolPartialOutputByCallId.set(toolCallId, output);
+    }
+    return;
+  }
+
+  if (event.type === "message_end") {
+    const message = event.message;
+    if (
+      message &&
+      typeof message === "object" &&
+      (message as { role?: unknown }).role === "toolResult" &&
+      typeof (message as { toolCallId?: unknown }).toolCallId === "string"
+    ) {
+      live.toolPartialOutputByCallId.delete((message as { toolCallId: string }).toolCallId);
+    }
     return;
   }
 
@@ -636,6 +704,7 @@ function sessionSnapshotFields(
   throughputByStartedAt?: Map<number, ThroughputTiming>,
   toolStartedAt?: Map<string, number>,
   toolEndedAt?: Map<string, number>,
+  toolPartialOutputByCallId?: Map<string, string>,
 ): {
   messages: UiMessage[];
   isStreaming: boolean;
@@ -645,7 +714,13 @@ function sessionSnapshotFields(
   todos: TodoDto[];
 } {
   return {
-    messages: snapshotMessages(session, throughputByStartedAt, toolStartedAt, toolEndedAt),
+    messages: snapshotMessages(
+      session,
+      throughputByStartedAt,
+      toolStartedAt,
+      toolEndedAt,
+      toolPartialOutputByCallId,
+    ),
     isStreaming: session.isStreaming,
     isCompacting: session.isCompacting,
     contextUsage: sessionContextUsage(session),
@@ -686,6 +761,7 @@ function emitTaskSnapshot(
       live.throughputByStartedAt,
       live.toolStartedAt,
       live.toolEndedAt,
+      live.toolPartialOutputByCallId,
     ),
     manualAbortedAssistantId: live.manualAbortedAssistantId,
     hangRetryCount: live.hangRetryCount,
@@ -771,6 +847,7 @@ function attachSession(
       existing?.persistedThroughputKeys ?? loaded?.persistedKeys ?? new Set(),
     toolStartedAt: existing?.toolStartedAt ?? new Map(),
     toolEndedAt: existing?.toolEndedAt ?? new Map(),
+    toolPartialOutputByCallId: existing?.toolPartialOutputByCallId ?? new Map(),
     snapshotTimer: null,
     pendingSnapshotEventType: null,
     revertLeafId: null,
@@ -1343,6 +1420,7 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
       live.throughputByStartedAt,
       live.toolStartedAt,
       live.toolEndedAt,
+      live.toolPartialOutputByCallId,
     );
     messages = fields.messages;
     isStreaming = fields.isStreaming;
@@ -1375,14 +1453,7 @@ export async function goalLoopState(taskId: string): Promise<GoalLoopDto | null>
 export async function goalLoopCommand(
   taskId: string,
   input:
-    | {
-        action: "start";
-        goal: string;
-        acceptance?: string[];
-        maxTurns?: number;
-        cooldownSeconds?: number;
-        forceFullRun?: boolean;
-      }
+    | { action: "start"; goal: string; acceptance?: string[]; maxTurns?: number; forceFullRun?: boolean }
     | { action: "pause" | "resume" | "stop"; maxTurns?: number },
 ): Promise<GoalLoopDto | null> {
   const live = await ensureLive(taskId);
@@ -1393,13 +1464,12 @@ export async function goalLoopCommand(
         goal: input.goal,
         acceptance: input.acceptance ?? [],
         maxTurns: input.maxTurns,
-        cooldownSeconds: input.cooldownSeconds,
         forceFullRun: input.forceFullRun === true,
       }),
       "utf8",
     ).toString("base64url");
     command = `/goal-start ${payload}`;
-  } else if (input.action === "resume" && input.maxTurns !== undefined) {
+  } else if (input.action === "resume" && input.maxTurns) {
     command = `/goal-resume --turns ${Math.trunc(input.maxTurns)}`;
   } else {
     command = `/goal-${input.action}`;
@@ -1421,7 +1491,6 @@ export async function createTask(input: {
   goalLoop?: {
     acceptance?: string[];
     maxTurns?: number;
-    cooldownSeconds?: number;
     forceFullRun?: boolean;
   };
 }): Promise<TaskSummary> {
@@ -1469,7 +1538,6 @@ export async function createTask(input: {
       goal: input.prompt,
       acceptance: input.goalLoop.acceptance,
       maxTurns: input.goalLoop.maxTurns,
-      cooldownSeconds: input.goalLoop.cooldownSeconds,
       forceFullRun: input.goalLoop.forceFullRun,
     });
   } else {
@@ -1547,6 +1615,7 @@ function queuePrompt(
         live.throughputByStartedAt,
         live.toolStartedAt,
         live.toolEndedAt,
+        live.toolPartialOutputByCallId,
       ),
         isStreaming: false,
         eventType: "error",
@@ -1686,6 +1755,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
       live.throughputByStartedAt,
       live.toolStartedAt,
       live.toolEndedAt,
+      live.toolPartialOutputByCallId,
     );
     let promptIndex = -1;
     for (let i = msgs.length - 1; i >= 0; i -= 1) {
@@ -1737,6 +1807,7 @@ export async function setTaskModel(id: string, modelValueRaw: string): Promise<T
         live.throughputByStartedAt,
         live.toolStartedAt,
         live.toolEndedAt,
+        live.toolPartialOutputByCallId,
       ),
   });
   return summary;
@@ -1765,6 +1836,7 @@ export async function setTaskThinkingLevel(
         live.throughputByStartedAt,
         live.toolStartedAt,
         live.toolEndedAt,
+        live.toolPartialOutputByCallId,
       ),
   });
   return summary;
@@ -1833,6 +1905,7 @@ export async function revertTask(id: string, messageId: string): Promise<{
       live.throughputByStartedAt,
       live.toolStartedAt,
       live.toolEndedAt,
+      live.toolPartialOutputByCallId,
     ),
     eventType: "revert",
   });
@@ -1917,6 +1990,7 @@ export async function unrevertTask(id: string): Promise<TaskDetail> {
       live.throughputByStartedAt,
       live.toolStartedAt,
       live.toolEndedAt,
+      live.toolPartialOutputByCallId,
     ),
     eventType: "unrevert",
   });

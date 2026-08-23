@@ -49,13 +49,13 @@ Cursor は非公式拡張です。本機の Cursor IDE / CLI のトークンを�
 
 ## Goal Loop
 
-`extensions/leafcode-goal-loop` に LeafCode 互換の Pi 拡張を同梱しています。登録すると Home / Task の Composer に「ループ」「承認条件」「最大ターン」「クールタイム」「完走モード」が表示されます。
+`extensions/leafcode-goal-loop` に LeafCode 互換の Pi 拡張を同梱しています。登録すると Home / Task の Composer に「ループ」「承認条件」「最大ターン」「完走モード」が表示されます。
 
 ```bash
 pi install ./extensions/leafcode-goal-loop
 ```
 
-通常モードは完了宣言を検証ターンで確認し、完走モードは完了宣言を無視して指定ターン数まで実行します。最大ターンを `0` にすると無制限、クールタイムは `15m 30s` のように指定できます。状態は各プロジェクトの `.pi/goals-loop/` に保存されます。
+通常モードは完了宣言を検証ターンで確認し、完走モードは完了宣言を無視して指定ターン数まで実行します。状態は各プロジェクトの `.pi/goals-loop/` に保存されます。
 
 ## ToDo (`todowrite`)
 

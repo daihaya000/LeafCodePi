@@ -34,6 +34,13 @@ function textFromBlocks(blocks: unknown[]): string {
     .join("\n");
 }
 
+/** Tool result / partial result のテキストを UI 表示用に取り出す。 */
+export function toolResultText(result: unknown): string {
+  if (typeof result === "string") return result;
+  if (!isRecord(result)) return "";
+  return textFromBlocks(contentBlocks(result.content)) || asString(result.output);
+}
+
 function imagePartsFromBlocks(blocks: unknown[], prefix: string): UiPart[] {
   const parts: UiPart[] = [];
   blocks.forEach((block, index) => {
@@ -212,7 +219,7 @@ export function projectPiMessages(raw: unknown[]): UiMessage[] {
 
     if (role === "toolResult") {
       const callID = asString(item.toolCallId);
-      const output = textFromBlocks(contentBlocks(item.content)) || asString(item.content);
+      const output = toolResultText(item);
       mergeToolResult(
         messages,
         callID,

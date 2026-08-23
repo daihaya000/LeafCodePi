@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import {
   applySubagentPermission,
+  applyToolOutput,
   applyThroughput,
   applyToolTiming,
   isReasoningMandatoryError,
@@ -96,6 +97,29 @@ describe("applyToolTiming", () => {
     const result = applyToolTiming(messages, new Map(), new Map());
     const part = result[0]!.parts[0] as Extract<(typeof result)[0]["parts"][number], { type: "tool" }>;
     assert.equal(part.state.startedAtMs, undefined);
+  });
+});
+
+describe("applyToolOutput", () => {
+  it("injects cumulative partial output into a running tool", () => {
+    const result = applyToolOutput(
+      [toolMessage("call-1")],
+      new Map([["call-1", "line 1\nline 2"]]),
+    );
+    const part = result[0]!.parts[0] as Extract<(typeof result)[0]["parts"][number], { type: "tool" }>;
+    assert.equal(part.state.output, "line 1\nline 2");
+  });
+
+  it("does not overwrite a finalized tool result", () => {
+    const message = toolMessage("call-1");
+    const part = message.parts[0] as Extract<(typeof message)["parts"][number], { type: "tool" }>;
+    part.state.status = "completed";
+    part.state.output = "final";
+    const output = applyToolOutput([message], new Map([["call-1", "partial"]]))[0]!.parts[0] as Extract<
+      (typeof message)["parts"][number],
+      { type: "tool" }
+    >;
+    assert.equal(output.state.output, "final");
   });
 });
 

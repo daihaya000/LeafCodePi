@@ -257,11 +257,15 @@ function ToolCard({
   const active = status === "running" || status === "pending";
   const isError = status === "error";
   const isCancelled = status === "cancelled";
+  const isShell = /bash|shell/i.test(tool);
   // サブエージェントは入れ子タイムラインを見せたいので実行中は開いておく。
   const isSubagent = !nested && Boolean(taskId) && /subagent|^task$/i.test(tool);
-  // 本家 LeafCode と同じ: 通常は畳んだまま、失敗・中断・サブエージェント実行中は開く。
-  const [open, setOpen] = useState(isError || isCancelled || (isSubagent && active));
+  // 通常は畳んだまま、失敗・中断・シェル実行中・サブエージェント実行中は開く。
+  const [open, setOpen] = useState(
+    isError || isCancelled || (isShell && active) || (isSubagent && active),
+  );
   const wasActiveRef = useRef(false);
+  const wasShellActiveRef = useRef(isShell && active);
   useEffect(() => {
     if (isError || isCancelled) setOpen(true);
   }, [isError, isCancelled]);
@@ -278,6 +282,10 @@ function ToolCard({
       wasActiveRef.current = false;
     }
   }, [isSubagent, active]);
+  useEffect(() => {
+    if (isShell && active && !wasShellActiveRef.current) setOpen(true);
+    wasShellActiveRef.current = isShell && active;
+  }, [isShell, active]);
   const elapsedMs = useElapsedMs(state.startedAtMs, state.endedAtMs);
   const Icon = toolIcon(tool, state.input);
   const summary = toolSummary(tool, state);
@@ -294,7 +302,7 @@ function ToolCard({
   // 実行中は自動で開く（上の effect）が、畳めば隠せる。
   const showNested = isSubagent && open;
   // シェル出力は Markdown にすると空白・整列が壊れるので等幅のまま出す。
-  const monoOutput = isError || /bash|shell/i.test(tool);
+  const monoOutput = isError || isShell;
 
   return (
     <div
@@ -372,6 +380,9 @@ function ToolCard({
             </dl>
           )}
           {isCancelled && <p className="text-sm text-muted">中断されました</p>}
+          {isShell && active && !output && (
+            <p className="text-[11px] text-faint">ログを待機中…</p>
+          )}
           {output && (
             <div
               className={cx(
@@ -379,6 +390,9 @@ function ToolCard({
                 isError ? "bg-danger-bg text-danger" : "bg-surface-2 text-text/90",
               )}
             >
+              {isShell && (
+                <p className="mb-1.5 text-[10px] font-medium tracking-wide text-faint">ログ</p>
+              )}
               {monoOutput ? (
                 <pre className="whitespace-pre-wrap break-words font-mono text-xs">{output}</pre>
               ) : (

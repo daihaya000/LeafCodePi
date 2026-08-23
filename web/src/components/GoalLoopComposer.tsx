@@ -3,18 +3,9 @@
 import { useEffect, useState } from "react";
 import { ListTodo } from "lucide-react";
 import { cx } from "@/components/ui";
-import {
-  clampGoalLoopCooldownSeconds,
-  clampGoalLoopMaxTurns,
-  DEFAULT_GOAL_LOOP_COOLDOWN_SECONDS,
-  formatGoalLoopCooldownSeconds,
-} from "@/lib/goal-loop-settings";
 
 export const GOAL_LOOP_FORCE_FULL_RUN_HINT =
   "完了宣言を使わず、指定の最大ターン数まで必ず実行します";
-export const GOAL_LOOP_COOLDOWN_LABEL = "クールタイム";
-export const GOAL_LOOP_COOLDOWN_HINT =
-  "次のターンを開始するまでの待機時間です。15m 30sのように入力できます。0で待機なし。";
 
 export function GoalLoopToggle({
   enabled,
@@ -50,43 +41,26 @@ export function GoalLoopOptions({
   acceptance,
   maxTurns,
   forceFullRun,
-  cooldownSeconds = DEFAULT_GOAL_LOOP_COOLDOWN_SECONDS,
   disabled,
   onAcceptanceChange,
   onMaxTurnsChange,
-  onCooldownSecondsChange,
   onForceFullRunChange,
 }: {
   acceptance: string;
   maxTurns: number;
   forceFullRun: boolean;
-  cooldownSeconds?: number;
   disabled?: boolean;
   onAcceptanceChange: (value: string) => void;
   onMaxTurnsChange: (value: number) => void;
-  onCooldownSecondsChange?: (value: number) => void;
   onForceFullRunChange: (value: boolean) => void;
 }) {
   const [draft, setDraft] = useState(String(maxTurns));
   useEffect(() => setDraft(String(maxTurns)), [maxTurns]);
-  const [cooldownDraft, setCooldownDraft] = useState(
-    formatGoalLoopCooldownSeconds(cooldownSeconds),
-  );
-  useEffect(
-    () => setCooldownDraft(formatGoalLoopCooldownSeconds(cooldownSeconds)),
-    [cooldownSeconds],
-  );
 
   function commitMaxTurns() {
-    const value = clampGoalLoopMaxTurns(draft, 1);
+    const value = Math.min(100, Math.max(1, Math.trunc(Number(draft) || 1)));
     setDraft(String(value));
     if (value !== maxTurns) onMaxTurnsChange(value);
-  }
-
-  function commitCooldown() {
-    const value = clampGoalLoopCooldownSeconds(cooldownDraft);
-    setCooldownDraft(formatGoalLoopCooldownSeconds(value));
-    if (value !== cooldownSeconds) onCooldownSecondsChange?.(value);
   }
 
   return (
@@ -104,10 +78,10 @@ export function GoalLoopOptions({
           />
         )}
         <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted">
-          <span title="0で無制限">最大ターン</span>
+          最大ターン
           <input
             type="number"
-            min={0}
+            min={1}
             max={100}
             value={draft}
             disabled={disabled}
@@ -121,29 +95,6 @@ export function GoalLoopOptions({
               }
             }}
             className="h-8 w-16 rounded-lg border border-border bg-bg px-2 text-sm text-text outline-none focus:border-primary"
-          />
-        </label>
-        <label
-          className="flex shrink-0 items-center gap-1.5 text-xs text-muted"
-          title={GOAL_LOOP_COOLDOWN_HINT}
-        >
-          {GOAL_LOOP_COOLDOWN_LABEL}
-          <input
-            type="text"
-            inputMode="text"
-            value={cooldownDraft}
-            disabled={disabled}
-            aria-label={GOAL_LOOP_COOLDOWN_LABEL}
-            placeholder="15m 30s"
-            onChange={(event) => setCooldownDraft(event.target.value)}
-            onBlur={commitCooldown}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                commitCooldown();
-              }
-            }}
-            className="h-8 w-24 rounded-lg border border-border bg-bg px-2 text-sm text-text outline-none focus:border-primary"
           />
         </label>
       </div>

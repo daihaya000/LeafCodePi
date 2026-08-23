@@ -8,7 +8,7 @@ function partFingerprint(part: UiPart): string {
     return `${part.type}:${part.id}:${part.url.length}`;
   }
   const state = part.state;
-  return `${part.type}:${part.id}:${part.tool}:${state.status}:${state.output?.length ?? 0}:${state.error?.length ?? 0}:${state.startedAtMs ?? ""}:${state.endedAtMs ?? ""}`;
+  return `${part.type}:${part.id}:${part.tool}:${state.status}:${state.output?.length ?? 0}:${state.output?.slice(-48) ?? ""}:${state.error?.length ?? 0}:${state.startedAtMs ?? ""}:${state.endedAtMs ?? ""}`;
 }
 
 function messageFingerprint(message: UiMessage): string {

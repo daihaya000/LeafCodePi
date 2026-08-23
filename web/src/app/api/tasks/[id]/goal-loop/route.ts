@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { goalLoopCommand, goalLoopState, jsonError } from "@/lib/pi/harness";
-import {
-  clampGoalLoopCooldownSeconds,
-  clampGoalLoopMaxTurns,
-  DEFAULT_GOAL_LOOP_MAX_TURNS,
-} from "@/lib/goal-loop-settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +11,6 @@ type Body = {
   goal?: string;
   acceptance?: unknown;
   maxTurns?: unknown;
-  cooldownSeconds?: unknown;
   forceFullRun?: unknown;
 };
 
@@ -33,6 +27,11 @@ function acceptance(value: unknown): string[] | null {
     result.push(text);
   }
   return result;
+}
+
+function maxTurns(value: unknown): number {
+  const number = Number(value ?? 10);
+  return Number.isFinite(number) ? Math.min(100, Math.max(1, Math.trunc(number))) : 10;
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {
@@ -63,8 +62,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       action: "start",
       goal,
       acceptance: criteria,
-      maxTurns: clampGoalLoopMaxTurns(body?.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS),
-      cooldownSeconds: clampGoalLoopCooldownSeconds(body?.cooldownSeconds),
+      maxTurns: maxTurns(body?.maxTurns),
       forceFullRun: body?.forceFullRun === true,
     });
     return NextResponse.json({ loop });
@@ -84,10 +82,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     }
     const loop = await goalLoopCommand(id, {
       action,
-      maxTurns:
-        action === "resume" && body?.maxTurns !== undefined
-          ? clampGoalLoopMaxTurns(body.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS)
-          : undefined,
+      maxTurns: action === "resume" && body?.maxTurns !== undefined ? maxTurns(body.maxTurns) : undefined,
     });
     return NextResponse.json({ loop });
   } catch (error) {
