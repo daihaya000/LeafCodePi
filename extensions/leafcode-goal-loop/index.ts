@@ -501,6 +501,18 @@ export function extractGoalResult(text: string): GoalLoopProgress | null {
   return null;
 }
 
+/**
+ * A Pi agent run can contain several assistant turns when tools are used.
+ * Only the last valid result in the complete run is authoritative.
+ */
+export function extractGoalResultFromMessages(messages: unknown[]): GoalLoopProgress | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const result = extractGoalResult(assistantText(messages[index]));
+    if (result) return result;
+  }
+  return null;
+}
+
 function acceptanceText(loop: GoalLoop, heading = "Acceptance criteria"): string {
   return loop.acceptance.length
     ? `\n\n${heading}:\n${loop.acceptance.map((item, index) => `${index + 1}. ${item}`).join("\n")}`
@@ -1118,18 +1130,9 @@ export default function (pi: ExtensionAPI): void {
       if (updated) appendSnapshot(current, updated);
       return;
     }
-    if (!current.awaitingTurn || loop.status !== "running") return;
-
-    current.awaitingTurn = false;
-    current.awaitingTurnIndex = undefined;
-    current.pausedTurnIndex = undefined;
-    if (current.timeoutTimer) clearTimeout(current.timeoutTimer);
-    current.timeoutTimer = undefined;
-    const result = extractGoalResult(assistantText(event.message));
-    applyResult(loop, result);
-    const updated = currentLoop(current);
-    updateUI(current, updated);
-    if (updated) appendSnapshot(current, updated);
+    // `turn_end` fires once per assistant/tool iteration. A tool call normally
+    // has no Goal JSON yet, so wait for `agent_end`, which contains the whole
+    // run and its final assistant messages.
   });
 
   pi.on("agent_end", async (event, ctx) => {
@@ -1137,8 +1140,20 @@ export default function (pi: ExtensionAPI): void {
     if (!current || !current.awaitingTurn) return;
     if (event.messages.some(isAbortedAssistant) || ctx.signal?.aborted) {
       pauseLoop(current, "user", "実行が中断されたため一時停止しました。/goal-resume で再開できます。");
+      return;
     }
-    // 非 retryable error は agent_settled で結果なしとして停止する。
+
+    const loop = currentLoop(current);
+    if (!loop || loop.status !== "running") return;
+    current.awaitingTurn = false;
+    current.awaitingTurnIndex = undefined;
+    current.pausedTurnIndex = undefined;
+    if (current.timeoutTimer) clearTimeout(current.timeoutTimer);
+    current.timeoutTimer = undefined;
+    applyResult(loop, extractGoalResultFromMessages(event.messages));
+    const updated = currentLoop(current);
+    updateUI(current, updated);
+    if (updated) appendSnapshot(current, updated);
   });
 
   pi.on("agent_settled", async (_event, _ctx) => {
@@ -1214,6 +1229,7 @@ export const goalLoopTestSeams = {
   jsonObjectCandidates,
   normalizeStructured,
   extractGoalResult,
+  extractGoalResultFromMessages,
   buildGoalPrompt,
   buildGoalContinuationPrompt,
   buildVerificationPrompt,

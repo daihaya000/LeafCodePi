@@ -38,6 +38,7 @@ import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { writeStoredAgent } from "@/lib/default-agent";
+import { messageNavigationIds } from "@/lib/message-navigation";
 import { clampScrollTop, isNearBottom, nextStickState } from "@/lib/scroll-stick";
 import {
   readScrollButtonOpacity,
@@ -284,12 +285,12 @@ export function TaskView({
   const stickRef = useRef(true);
   const lastScrollTopRef = useRef(0);
   const scrollRafRef = useRef<number | null>(null);
-  // ユーザーメッセージ間をジャンプするナビゲーター（本家 LeafCode と同じ）。
-  // 描画済みメッセージ要素と「今どのユーザーメッセージを見ているか」を保持する。
+  // メッセージ間をジャンプするナビゲーター（本家 LeafCode と同じ）。
+  // 描画済みメッセージ要素と「今どのナビゲーション対象を見ているか」を保持する。
   const messageElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
-  const currentUserIdxRef = useRef(0);
+  const currentNavigationIdxRef = useRef(0);
   // onScroll の deps を安定させるため、id 一覧を ref にミラーする（本家と同じ）。
-  const userMessageIdsRef = useRef<string[]>([]);
+  const navigationMessageIdsRef = useRef<string[]>([]);
   // 呼び出し元（TaskPanesHost）は毎レンダーで新しい onStatus 関数を渡すため、
   // そのまま SSE effect の deps に入れると親の再描画ごとに EventSource が
   // 張り直される。latest-ref 経由で呼び、effect を taskId 変化時のみ再接続に限定する。
@@ -502,24 +503,24 @@ export function TaskView({
     const prevTop = lastScrollTopRef.current;
     lastScrollTopRef.current = el.scrollTop;
     stickRef.current = nextStickState(stickRef.current, el.scrollTop, prevTop, atBottom);
-    // ビューポート上端に来ているユーザーメッセージを追跡し、前後ジャンプの
+    // ビューポート上端に来ているナビゲーション対象を追跡し、前後ジャンプの
     // 基準にする（本家と同じ incremental スキャン）。
-    const ids = userMessageIdsRef.current;
+    const ids = navigationMessageIdsRef.current;
     if (ids.length > 0 && messageElsRef.current.size > 0) {
       const line = el.scrollTop + 4;
-      let idx = currentUserIdxRef.current;
+      let idx = currentNavigationIdxRef.current;
       const topOf = (i: number) => messageElsRef.current.get(ids[i])?.offsetTop ?? Number.POSITIVE_INFINITY;
       while (idx < ids.length && topOf(idx) < line) idx += 1;
       while (idx > 0 && topOf(idx - 1) >= line) idx -= 1;
-      currentUserIdxRef.current = Math.min(Math.max(idx, 0), ids.length - 1);
+      currentNavigationIdxRef.current = Math.min(Math.max(idx, 0), ids.length - 1);
     }
   }, []);
 
-  // 指定インデックスのユーザーメッセージへスムーズスクロールする。
+  // 指定インデックスのナビゲーション対象へスムーズスクロールする。
   // id 一覧は後段で宣言されるため ref 経由で参照する（本家と同じ TDZ 回避）。
-  const jumpToUserMessage = useCallback((index: number) => {
+  const jumpToMessage = useCallback((index: number) => {
     const el = scrollRef.current;
-    const targetEl = messageElsRef.current.get(userMessageIdsRef.current[index]);
+    const targetEl = messageElsRef.current.get(navigationMessageIdsRef.current[index]);
     if (!el || !targetEl) return;
     const line = el.scrollTop + 4;
     const targetTop = el.scrollTop + targetEl.offsetTop - line;
@@ -527,7 +528,7 @@ export function TaskView({
       top: clampScrollTop(targetTop, el.clientHeight, el.scrollHeight),
       behavior: "smooth",
     });
-    currentUserIdxRef.current = index;
+    currentNavigationIdxRef.current = index;
     stickRef.current = false;
   }, []);
 
@@ -539,7 +540,7 @@ export function TaskView({
       top: clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight),
       behavior: "smooth",
     });
-    currentUserIdxRef.current = Math.max(0, userMessageIdsRef.current.length - 1);
+    currentNavigationIdxRef.current = Math.max(0, navigationMessageIdsRef.current.length - 1);
     stickRef.current = true;
   }, []);
 
@@ -959,12 +960,18 @@ export function TaskView({
   const effortLabel =
     thinkingLevels.length > 1 ? thinkingLevelLabel(thinkingValue) : undefined;
 
-  // ナビゲーターのジャンプ対象: ユーザーメッセージの id 一覧（時系列順）。
+  // ナビゲーターのジャンプ対象: ユーザーメッセージを優先し、Goal Loop の
+  // hidden custom message しかない履歴では投影済みメッセージへフォールバックする。
   const userMessageIds = useMemo(
     () => visibleMessages.filter((message) => message.role === "user").map((message) => message.id),
     [visibleMessages],
   );
-  userMessageIdsRef.current = userMessageIds;
+  const navigationMessageIds = useMemo(
+    () => messageNavigationIds(visibleMessages),
+    [visibleMessages],
+  );
+  const navigationTargetLabel = userMessageIds.length > 0 ? "ユーザーメッセージ" : "メッセージ";
+  navigationMessageIdsRef.current = navigationMessageIds;
 
   // ヘッダー表示用の会話統計: 合計出力 tok / 平均 tok/s / 合計生成時間。
   const stats = useMemo(() => {
@@ -1256,34 +1263,34 @@ export function TaskView({
             )}
           </div>
         </div>
-        {/* ユーザーメッセージ間を移動するナビゲーター（本家 LeafCode と同じ）。
+        {/* メッセージ間を移動するナビゲーター（本家 LeafCode と同じ）。
             設定した不透明度で常時表示し、ホバー・フォーカス時だけ不透明になる。 */}
-        {userMessageIds.length > 0 && (
+        {navigationMessageIds.length > 0 && (
           <div className="absolute right-4 bottom-4 z-50 flex flex-col gap-2">
             {(
               [
-                ["最初のユーザーメッセージへ", () => jumpToUserMessage(0), <ChevronsUp key="i" className="h-4 w-4" />],
+                [`最初の${navigationTargetLabel}へ`, () => jumpToMessage(0), <ChevronsUp key="i" className="h-4 w-4" />],
                 [
-                  "一つ前のユーザーメッセージへ",
+                  `一つ前の${navigationTargetLabel}へ`,
                   () => {
-                    const target = currentUserIdxRef.current - 1;
-                    jumpToUserMessage(target >= 0 ? target : 0);
+                    const target = currentNavigationIdxRef.current - 1;
+                    jumpToMessage(target >= 0 ? target : 0);
                   },
                   <ChevronUp key="i" className="h-4 w-4" />,
                 ],
                 [
-                  "一つ後のユーザーメッセージへ",
+                  `一つ後の${navigationTargetLabel}へ`,
                   () => {
-                    const target = currentUserIdxRef.current + 1;
-                    if (target >= userMessageIdsRef.current.length) {
+                    const target = currentNavigationIdxRef.current + 1;
+                    if (target >= navigationMessageIdsRef.current.length) {
                       jumpToLatest();
                       return;
                     }
-                    jumpToUserMessage(target);
+                    jumpToMessage(target);
                   },
                   <ChevronDown key="i" className="h-4 w-4" />,
                 ],
-                ["最新のメッセージへ", () => jumpToLatest(), <ChevronsDown key="i" className="h-4 w-4" />],
+                [`最新の${navigationTargetLabel}へ`, () => jumpToLatest(), <ChevronsDown key="i" className="h-4 w-4" />],
               ] as const
             ).map(([label, onClick, icon]) => (
               <Button
