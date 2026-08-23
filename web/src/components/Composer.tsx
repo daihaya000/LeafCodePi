@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   ChangeEventHandler,
   ClipboardEventHandler,
@@ -13,13 +13,29 @@ import type {
   ReactEventHandler,
   ReactNode,
   RefObject,
+  UIEventHandler,
 } from "react";
-import { Paperclip, X } from "lucide-react";
+import { Bot, FileCode2, Paperclip, X } from "lucide-react";
+import {
+  composerReferenceValue,
+  filterComposerReferences,
+  findComposerReferenceToken,
+  isKnownComposerReference,
+  type ComposerReference,
+  type ComposerReferenceKind,
+} from "@/lib/composer-references";
+
+export type { ComposerReference } from "@/lib/composer-references";
 
 export type ComposerAttachment = {
   uri: string;
   mime: string;
   name?: string;
+};
+
+export type ComposerReferences = {
+  skills?: readonly ComposerReference[];
+  agents?: readonly ComposerReference[];
 };
 
 type ComposerProps = {
@@ -43,6 +59,7 @@ type ComposerProps = {
     className: string;
     style?: CSSProperties;
     onChange: ChangeEventHandler<HTMLTextAreaElement>;
+    onValueChange?: (value: string) => void;
     onClick?: MouseEventHandler<HTMLTextAreaElement>;
     onKeyUp?: KeyboardEventHandler<HTMLTextAreaElement>;
     onSelect?: ReactEventHandler<HTMLTextAreaElement>;
@@ -50,8 +67,11 @@ type ComposerProps = {
     onCompositionStart?: CompositionEventHandler<HTMLTextAreaElement>;
     onCompositionEnd?: CompositionEventHandler<HTMLTextAreaElement>;
     onBlur?: FocusEventHandler<HTMLTextAreaElement>;
+    onFocus?: FocusEventHandler<HTMLTextAreaElement>;
+    onScroll?: UIEventHandler<HTMLTextAreaElement>;
     onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
   };
+  references?: ComposerReferences;
   attachmentControl: {
     inputRef: RefObject<HTMLInputElement | null>;
     inputDisabled?: boolean;
@@ -71,17 +91,80 @@ export function Composer({
   onRemoveAttachment,
   attachmentRemovalDisabled,
   textarea,
+  references,
   attachmentControl,
   toolbar,
   action,
 }: ComposerProps) {
+  const previewRef = useRef<HTMLDivElement>(null);
+  const composingRef = useRef(false);
+  const [focused, setFocused] = useState(false);
+  const [caret, setCaret] = useState(0);
+  const [activeSuggestion, setActiveSuggestion] = useState(0);
+  const availableReferences = useMemo(
+    () => ({ skills: references?.skills ?? [], agents: references?.agents ?? [] }),
+    [references?.agents, references?.skills],
+  );
+  const currentToken = useMemo(
+    () => findComposerReferenceToken(textarea.value, caret),
+    [caret, textarea.value],
+  );
+  const suggestions = useMemo(() => {
+    if (!currentToken) return [];
+    const source = currentToken.kind === "skill" ? availableReferences.skills : availableReferences.agents;
+    return filterComposerReferences(source, currentToken.query);
+  }, [availableReferences.agents, availableReferences.skills, currentToken]);
+  const showSuggestions = focused && !textarea.readOnly && !textarea.disabled && suggestions.length > 0;
+
+  useEffect(() => {
+    setActiveSuggestion(0);
+  }, [currentToken?.kind, currentToken?.query]);
+
   useLayoutEffect(() => {
     const element = textarea.ref.current;
     if (!element) return;
 
     element.style.height = "auto";
     element.style.height = `${element.scrollHeight}px`;
+    setCaret(element.selectionStart ?? textarea.value.length);
   }, [textarea.ref, textarea.rows, textarea.value]);
+
+  function refreshCaret(element = textarea.ref.current) {
+    if (element) setCaret(element.selectionStart ?? textarea.value.length);
+  }
+
+  function chooseSuggestion(reference: ComposerReference, kind: ComposerReferenceKind) {
+    const element = textarea.ref.current;
+    const token = currentToken;
+    if (!element || !token || !textarea.onValueChange) return;
+    const inserted = `${composerReferenceValue(kind, reference.name)} `;
+    const next = `${textarea.value.slice(0, token.start)}${inserted}${textarea.value.slice(token.end)}`;
+    textarea.onValueChange(next);
+    setFocused(true);
+    setActiveSuggestion(0);
+    requestAnimationFrame(() => {
+      const nextCaret = token.start + inserted.length;
+      element.focus();
+      element.setSelectionRange(nextCaret, nextCaret);
+      setCaret(nextCaret);
+    });
+  }
+
+  function handleScroll(event: Parameters<UIEventHandler<HTMLTextAreaElement>>[0]) {
+    const element = event.currentTarget;
+    if (previewRef.current) {
+      previewRef.current.scrollTop = element.scrollTop;
+      previewRef.current.scrollLeft = element.scrollLeft;
+    }
+    textarea.onScroll?.(event);
+  }
+
+  const highlightedText = renderHighlightedComposerText(textarea.value, availableReferences);
+  useLayoutEffect(() => {
+    if (!previewRef.current) return;
+    previewRef.current.scrollTop = textarea.ref.current?.scrollTop ?? 0;
+    previewRef.current.scrollLeft = textarea.ref.current?.scrollLeft ?? 0;
+  }, [textarea.ref, textarea.value]);
 
   const inner = (
     <>
@@ -107,26 +190,119 @@ export function Composer({
           ))}
         </div>
       )}
-      <textarea
-        ref={textarea.ref}
-        value={textarea.value}
-        rows={textarea.rows}
-        aria-label={textarea.ariaLabel}
-        disabled={textarea.disabled}
-        readOnly={textarea.readOnly}
-        placeholder={textarea.placeholder}
-        className={`${textarea.className} max-h-60 overflow-y-auto focus-visible:outline-none`}
-        style={textarea.style}
-        onChange={textarea.onChange}
-        onClick={textarea.onClick}
-        onKeyUp={textarea.onKeyUp}
-        onSelect={textarea.onSelect}
-        onPaste={textarea.onPaste}
-        onCompositionStart={textarea.onCompositionStart}
-        onCompositionEnd={textarea.onCompositionEnd}
-        onBlur={textarea.onBlur}
-        onKeyDown={textarea.onKeyDown}
-      />
+      <div className="relative">
+        <div
+          ref={previewRef}
+          aria-hidden="true"
+          className={`${textarea.className} pointer-events-none absolute inset-0 z-0 max-h-60 overflow-hidden whitespace-pre-wrap break-words text-text`}
+          style={textarea.style}
+        >
+          {highlightedText}
+        </div>
+        <textarea
+          ref={textarea.ref}
+          value={textarea.value}
+          rows={textarea.rows}
+          aria-label={textarea.ariaLabel}
+          disabled={textarea.disabled}
+          readOnly={textarea.readOnly}
+          placeholder={textarea.placeholder}
+          className={`${textarea.className} relative z-10 max-h-60 overflow-y-auto text-transparent caret-text selection:bg-primary/20 focus-visible:outline-none`}
+          style={textarea.style}
+          onChange={(event) => {
+            textarea.onChange(event);
+            refreshCaret(event.currentTarget);
+          }}
+          onClick={(event) => {
+            textarea.onClick?.(event);
+            refreshCaret(event.currentTarget);
+          }}
+          onKeyUp={(event) => {
+            textarea.onKeyUp?.(event);
+            refreshCaret(event.currentTarget);
+          }}
+          onSelect={(event) => {
+            textarea.onSelect?.(event);
+            refreshCaret(event.currentTarget);
+          }}
+          onPaste={textarea.onPaste}
+          onCompositionStart={(event) => {
+            composingRef.current = true;
+            textarea.onCompositionStart?.(event);
+          }}
+          onCompositionEnd={(event) => {
+            composingRef.current = false;
+            textarea.onCompositionEnd?.(event);
+            refreshCaret(event.currentTarget);
+          }}
+          onFocus={(event) => {
+            setFocused(true);
+            refreshCaret(event.currentTarget);
+            textarea.onFocus?.(event);
+          }}
+          onBlur={(event) => {
+            setFocused(false);
+            textarea.onBlur?.(event);
+          }}
+          onScroll={handleScroll}
+          onKeyDown={(event) => {
+            if (showSuggestions && !composingRef.current) {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setActiveSuggestion((index) => (index + 1) % suggestions.length);
+                return;
+              }
+              if (event.key === "ArrowUp") {
+                event.preventDefault();
+                setActiveSuggestion((index) => (index - 1 + suggestions.length) % suggestions.length);
+                return;
+              }
+              if (event.key === "Enter" || event.key === "Tab") {
+                event.preventDefault();
+                const kind = currentToken?.kind ?? "skill";
+                const selected = suggestions[activeSuggestion];
+                if (selected) chooseSuggestion(selected, kind);
+                return;
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setFocused(false);
+                return;
+              }
+            }
+            textarea.onKeyDown(event);
+          }}
+        />
+        {showSuggestions && currentToken && (
+          <div
+            role="listbox"
+            aria-label={currentToken.kind === "skill" ? "スキル候補" : "エージェント候補"}
+            className="absolute bottom-full left-0 z-30 mb-1 max-h-64 w-full min-w-64 overflow-y-auto rounded-xl border border-border bg-bg p-1 shadow-lg"
+          >
+            {suggestions.map((reference, index) => {
+              const kind = currentToken.kind;
+              const selected = index === activeSuggestion;
+              return (
+                <button
+                  key={`${kind}-${reference.name}`}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  className={`flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-sm ${selected ? "bg-surface-2" : "hover:bg-surface-2"}`}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => chooseSuggestion(reference, kind)}
+                >
+                  {kind === "skill" ? <FileCode2 className="mt-0.5 h-4 w-4 shrink-0 text-accent" /> : <Bot className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
+                  <span className="min-w-0">
+                    <span className="block truncate font-mono text-text">{composerReferenceValue(kind, reference.name)}</span>
+                    {reference.description && <span className="block truncate text-xs text-muted">{reference.description}</span>}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
       <div className="flex items-center gap-2 pt-1">
         <div className="relative min-w-0 flex-1 overflow-x-auto">
           <div
@@ -177,4 +353,40 @@ export function Composer({
     );
   }
   return <div className={className}>{inner}</div>;
+}
+
+function renderHighlightedComposerText(
+  value: string,
+  references: { skills: readonly ComposerReference[]; agents: readonly ComposerReference[] },
+): ReactNode {
+  if (!value) return "\u200b";
+  const parts: ReactNode[] = [];
+  const pattern = /(^|\s)(\/[A-Za-z0-9_.:-]+|@[A-Za-z0-9_.:-]+)/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(value)) !== null) {
+    const tokenStart = match.index + match[1].length;
+    const token = match[2];
+    if (tokenStart > cursor) parts.push(value.slice(cursor, tokenStart));
+    const kind: ComposerReferenceKind = token.startsWith("/") ? "skill" : "agent";
+    const rawName = token.slice(1);
+    const name = kind === "skill" && rawName.toLowerCase().startsWith("skill:")
+      ? rawName.slice("skill:".length)
+      : rawName;
+    if (isKnownComposerReference(kind, name, references)) {
+      parts.push(
+        <span
+          key={`${tokenStart}-${token}`}
+          className={kind === "skill" ? "rounded bg-accent/15 text-accent" : "rounded bg-primary/15 text-primary"}
+        >
+          {token}
+        </span>,
+      );
+    } else {
+      parts.push(token);
+    }
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < value.length) parts.push(value.slice(cursor));
+  return parts.length > 0 ? parts : value;
 }

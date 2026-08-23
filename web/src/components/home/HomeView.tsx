@@ -6,7 +6,7 @@ import { ArrowUp, FolderGit2, GitBranch } from "lucide-react";
 import { CollaborationNotice, useCollaborationRoom } from "@/components/CollaborationStatus";
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { AgentSelect } from "@/components/AgentSelect";
-import { Composer, type ComposerAttachment } from "@/components/Composer";
+import { Composer, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { pasteImage } from "@/lib/clipboard-image";
 import { ModelSelect } from "@/components/ModelSelect";
@@ -52,6 +52,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [agents, setAgents] = useState<string[]>([]);
+  const [skills, setSkills] = useState<ComposerReference[]>([]);
   const [agent, setAgent] = useState("");
   const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
     () => readSubagentPermission(),
@@ -70,11 +71,12 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   );
 
   const refresh = useCallback(async () => {
-    const [projectRes, modelRes, healthRes, agentRes] = await Promise.allSettled([
+    const [projectRes, modelRes, healthRes, agentRes, skillRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects"),
       getJson<{ models: ModelOption[] }>("/api/models"),
       getJson<HealthDto>("/api/health"),
       getJson<{ agents: { name: string; enabled: boolean }[] }>("/api/agents"),
+      getJson<{ skills: { name: string; description?: string; enabled: boolean }[] }>("/api/skills"),
     ]);
     if (projectRes.status === "fulfilled") {
       setProjects(projectRes.value.projects);
@@ -104,6 +106,13 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
         if (enabledAgents.includes(DEFAULT_AGENT)) return DEFAULT_AGENT;
         return "";
       });
+    }
+    if (skillRes.status === "fulfilled") {
+      setSkills(
+        skillRes.value.skills
+          .filter((skill) => skill.enabled)
+          .map(({ name, description }) => ({ name, description })),
+      );
     }
     setLoaded(true);
   }, []);
@@ -284,6 +293,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                 busy: submitting,
                 readOnly: submitting,
                 onChange: (event) => setPrompt(event.target.value),
+                onValueChange: setPrompt,
                 onPaste: (event) => {
                   if (pasteImage(addImageFiles, event)) event.preventDefault();
                 },
@@ -302,6 +312,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                 placeholder: "タスクを説明してください…（Ctrl+Enter で開始）",
                 className: "w-full resize-none bg-transparent py-1.5 text-base outline-none placeholder:text-faint",
               }}
+              references={{ skills, agents: agents.map((name) => ({ name })) }}
               attachmentControl={{
                 inputRef: fileInputRef,
                 inputDisabled: submitting || goalLoopEnabled,

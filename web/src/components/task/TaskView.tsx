@@ -14,7 +14,7 @@ import {
   Shrink,
   Square,
 } from "lucide-react";
-import { Composer, type ComposerAttachment } from "@/components/Composer";
+import { Composer, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { CollaborationBadge, CollaborationNotice, useCollaborationRoom } from "@/components/CollaborationStatus";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { pasteImage } from "@/lib/clipboard-image";
@@ -249,6 +249,7 @@ export function TaskView({
   const [hangRetryCount, setHangRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [agents, setAgents] = useState<string[]>([]);
+  const [skills, setSkills] = useState<ComposerReference[]>([]);
   const [agent, setAgent] = useState("");
   const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
     () => readSubagentPermission(),
@@ -432,6 +433,17 @@ export function TaskView({
       }
     }).catch(() => {
       /* agents are optional for the composer */
+    });
+    void getJson<{ skills: { name: string; description?: string; enabled: boolean }[] }>("/api/skills").then((result) => {
+      if (!closed) {
+        setSkills(
+          result.skills
+            .filter((skill) => skill.enabled)
+            .map(({ name, description }) => ({ name, description })),
+        );
+      }
+    }).catch(() => {
+      /* skills are optional for the composer */
     });
     return () => {
       closed = true;
@@ -1497,6 +1509,7 @@ export function TaskView({
             rows: 1,
             ariaLabel: "フォローアップ",
             onChange: (event) => setPrompt(event.target.value),
+            onValueChange: setPrompt,
             onPaste: (event) => {
               if (pasteImage(addImageFiles, event)) event.preventDefault();
             },
@@ -1525,6 +1538,7 @@ export function TaskView({
             className: "w-full resize-none bg-transparent py-1.5 text-base outline-none placeholder:text-faint",
             disabled: compacting,
           }}
+          references={{ skills, agents: agents.map((name) => ({ name })) }}
           attachmentControl={{
             inputRef: fileInputRef,
             inputDisabled: compacting || goalLoopEnabled,
