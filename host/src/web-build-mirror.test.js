@@ -103,17 +103,22 @@ test("tsconfig.json is copied, not hard-linked, so a build cannot rewrite the re
   }
 });
 
-test("web/src is copied, not hard-linked, so collaboration can mutate repository sources", () => {
+test("repository-owned web files are copied so collaboration can mutate them", () => {
   const { root, source, mirror } = sandbox();
   try {
     mkdirSync(join(source, "src"), { recursive: true });
+    mkdirSync(join(source, "public"), { recursive: true });
+    writeFileSync(join(source, "package.json"), "{}\n");
     writeFileSync(join(source, "src", "page.tsx"), "export default null;\n");
+    writeFileSync(join(source, "public", "icon.svg"), "<svg/>\n");
     syncMirror({ sourceDir: source, mirrorRoot: mirror });
 
-    const repoStat = lstatSync(join(source, "src", "page.tsx"));
-    const mirrorStat = lstatSync(join(mirror, "src", "page.tsx"));
-    assert.equal(repoStat.nlink, 1);
-    assert.notEqual(repoStat.ino, mirrorStat.ino);
+    for (const path of ["package.json", join("src", "page.tsx"), join("public", "icon.svg")]) {
+      const repoStat = lstatSync(join(source, path));
+      const mirrorStat = lstatSync(join(mirror, path));
+      assert.equal(repoStat.nlink, 1);
+      assert.notEqual(repoStat.ino, mirrorStat.ino);
+    }
 
     writeFileSync(join(mirror, "src", "page.tsx"), "export default function Page() { return null; }\n");
     assert.equal(readFileSync(join(source, "src", "page.tsx"), "utf8"), "export default null;\n");
@@ -122,22 +127,39 @@ test("web/src is copied, not hard-linked, so collaboration can mutate repository
   }
 });
 
-test("syncMirror migrates an existing linked src/ file to an independent copy", () => {
+test("syncMirror migrates existing linked repository files to independent copies", () => {
   const { root, source, mirror } = sandbox();
   try {
-    mkdirSync(join(source, "src"), { recursive: true });
-    writeFileSync(join(source, "src", "page.tsx"), "export default null;\n");
-    mkdirSync(join(mirror, "src"), { recursive: true });
-    linkSync(join(source, "src", "page.tsx"), join(mirror, "src", "page.tsx"));
-    assert.equal(lstatSync(join(source, "src", "page.tsx")).nlink, 2);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "package.json"), "{}\n");
+    mkdirSync(mirror, { recursive: true });
+    linkSync(join(source, "package.json"), join(mirror, "package.json"));
+    assert.equal(lstatSync(join(source, "package.json")).nlink, 2);
 
     syncMirror({ sourceDir: source, mirrorRoot: mirror });
 
-    assert.equal(lstatSync(join(source, "src", "page.tsx")).nlink, 1);
+    assert.equal(lstatSync(join(source, "package.json")).nlink, 1);
     assert.notEqual(
-      lstatSync(join(source, "src", "page.tsx")).ino,
-      lstatSync(join(mirror, "src", "page.tsx")).ino,
+      lstatSync(join(source, "package.json")).ino,
+      lstatSync(join(mirror, "package.json")).ino,
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("syncMirror keeps node_modules hard-linked for fast low-space builds", () => {
+  const { root, source, mirror } = sandbox();
+  try {
+    mkdirSync(join(source, "node_modules", "pkg"), { recursive: true });
+    writeFileSync(join(source, "node_modules", "pkg", "index.js"), "module.exports = {};\n");
+
+    syncMirror({ sourceDir: source, mirrorRoot: mirror });
+
+    const repoStat = lstatSync(join(source, "node_modules", "pkg", "index.js"));
+    const mirrorStat = lstatSync(join(mirror, "node_modules", "pkg", "index.js"));
+    assert.equal(repoStat.nlink, 2);
+    assert.equal(repoStat.ino, mirrorStat.ino);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

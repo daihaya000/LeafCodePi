@@ -27,18 +27,18 @@ import { fileURLToPath } from "node:url";
  * so moving only the output is not an option: the project itself has to sit
  * outside the synced tree.
  *
- * Why hard links: a byte copy of `web/` (node_modules included) is hundreds of
- * MB. Hard links cost no additional disk and mirror in seconds. Junctions and
- * symlinks do not work — bundlers canonicalize reparse points, so every module
- * resolves back to its OneDrive path. Hard links are not reparse points, so the
- * mirror looks like plain files. Cross-volume mirrors cannot be hard-linked and
- * fall back to a byte copy.
+ * Why hard links: a byte copy of `node_modules/` is hundreds of MB. Hard links
+ * cost no additional disk and mirror in seconds. Junctions and symlinks do not
+ * work — bundlers canonicalize reparse points, so every module resolves back to
+ * its OneDrive path. Hard links are not reparse points, so the mirror looks like
+ * plain files. Cross-volume mirrors cannot be hard-linked and fall back to a
+ * byte copy.
  *
  * Hazard: a hard link shares its contents with the source, so anything the
- * build writes in place would also rewrite the repository's file. Paths the
- * build is known to touch are copied instead — see COPY_INSTEAD_OF_LINK.
- * Agent-editable sources under `src/` are copied too so leafcode-collaboration
- * can mutate them (hard-linked files are rejected at nlink > 1).
+ * build writes in place would also rewrite the repository's file. Only ignored
+ * dependencies under `node_modules/` are linked. Repository-owned files are
+ * copied so leafcode-collaboration can mutate them (hard-linked files are
+ * rejected at nlink > 1).
  *
  * Unlike LeafCode this mirrors only `web/`, not the whole installation:
  * next.config.ts here imports nothing above `web/` and pins
@@ -53,18 +53,8 @@ const SKIP_DIRS = new Set([".git", ".next"]);
 
 const SKIP_FILES = new Set(["tsconfig.tsbuildinfo"]);
 
-/**
- * Copied, not linked. `next build` rewrites tsconfig.json and next-env.d.ts;
- * an in-place write through a hard link would silently edit the repository.
- */
-const COPY_INSTEAD_OF_LINK = ["tsconfig.json", "next-env.d.ts"];
-
-/**
- * Copied, not linked. Agent-editable sources must stay at nlink === 1 so
- * leafcode-collaboration can reserve and mutate them; hard links would block
- * every file mirrored from `web/`.
- */
-const COPY_PREFIXES = ["src"];
+/** Ignored dependencies are the only files safe to share with the mirror. */
+const LINK_PREFIXES = ["node_modules"];
 
 /** Stable per-checkout mirror name, so two checkouts never share one. */
 export function mirrorSlug(sourceDir) {
@@ -98,12 +88,11 @@ export function mirrorDistDir(mirrorRoot) {
 
 function shouldCopy(relPath) {
   const normalized = relPath.replaceAll("/", sep);
-  if (COPY_INSTEAD_OF_LINK.includes(normalized)) return true;
   const parts = normalized.split(sep).filter(Boolean);
-  return parts.length > 0 && COPY_PREFIXES.includes(parts[0]);
+  return parts.length === 0 || !LINK_PREFIXES.includes(parts[0]);
 }
 
-/** Re-place a linked `src/` file with an independent copy after policy changes. */
+/** Re-place a linked repository file with an independent copy after policy changes. */
 function needsReplace(sourceStat, targetStat, relPath) {
   if (!targetStat) return true;
   if (!isUpToDate(sourceStat, targetStat)) return true;
