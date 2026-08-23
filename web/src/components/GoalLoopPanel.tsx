@@ -60,6 +60,14 @@ export function GoalLoopPanel({
   const turnLimit = loop.pauseReason === "turn_limit";
   const maxTurnsLabel = loop.maxTurns === 0 ? "∞" : String(loop.maxTurns);
   const shownTurn = loop.maxTurns === 0 ? turn : Math.min(turn, loop.maxTurns);
+  const progressPercent =
+    loop.maxTurns > 0
+      ? Math.min(100, Math.max(0, Math.round((shownTurn / loop.maxTurns) * 100)))
+      : null;
+  const progressValueLabel =
+    progressPercent === null
+      ? `${shownTurn}ターン実行済み（無制限）`
+      : `${shownTurn}/${loop.maxTurns}ターン、${progressPercent}%`;
   const commitMaxTurns = () => {
     const parsed = Math.trunc(Number(maxTurns));
     const value = parsed === 0
@@ -141,6 +149,37 @@ export function GoalLoopPanel({
           {cooldownActive ? "（待機中）" : ""}
         </p>
       )}
+      <div className="mt-3 border-t border-border pt-2.5">
+        <div className="flex items-center justify-between gap-2 text-[11px]">
+          <span className="font-medium text-muted">進捗</span>
+          <span className="tabular-nums text-faint">
+            {progressPercent === null ? "無制限" : `${progressPercent}%`}
+          </span>
+        </div>
+        <div
+          className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-3"
+          role="progressbar"
+          aria-label="ループ進捗"
+          aria-valuemin={progressPercent === null ? undefined : 0}
+          aria-valuemax={progressPercent === null ? undefined : 100}
+          aria-valuenow={progressPercent ?? undefined}
+          aria-valuetext={progressValueLabel}
+        >
+          <div
+            className={cx(
+              "h-full rounded-full transition-[width] duration-300",
+              loop.status === "completed" || loop.status === "verifying_completed"
+                ? "bg-success"
+                : loop.status === "blocked"
+                  ? "bg-warning"
+                  : "bg-primary",
+              progressPercent === null && "animate-pulse",
+            )}
+            style={{ width: `${progressPercent ?? 35}%` }}
+          />
+        </div>
+        <p className="mt-1 text-[10px] text-faint">{progressValueLabel}</p>
+      </div>
       {pauseHint && <p className="mt-2 text-xs text-muted">{pauseHint}</p>}
       {(progress || loop.error || loop.blockedReason) && (
         <div className="mt-2 flex gap-2 border-t border-border pt-2 text-xs text-muted">

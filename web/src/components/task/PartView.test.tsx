@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { UiMessage } from "@/lib/types";
 import { PartView } from "./PartView";
@@ -62,5 +62,36 @@ describe("PartView shell log", () => {
     setScrollMetrics(scroller, 1100, 1400);
     view.rerender(<PartView message={bashMessage("line 1\nline 2\nline 3\nline 4")} />);
     expect(scroller.scrollTop).toBe(1300);
+  });
+});
+
+describe("PartView structured result", () => {
+  afterEach(() => cleanup());
+
+  it("renders Goal Loop result JSON as a readable card", () => {
+    const message: UiMessage = {
+      id: "assistant-result",
+      role: "assistant",
+      createdAt: 1,
+      parts: [
+        {
+          id: "result-text",
+          type: "text",
+          text: JSON.stringify({
+            status: "progress",
+            summary: "テストを実行しました",
+            next: "失敗箇所を確認します",
+            evidence: "24件成功",
+          }),
+        },
+      ],
+    };
+
+    render(<PartView message={message} />);
+
+    expect(screen.getByRole("region", { name: "実行結果" })).toBeTruthy();
+    expect(screen.getByText("テストを実行しました")).toBeTruthy();
+    expect(screen.getByText("次のステップ")).toBeTruthy();
+    expect(screen.queryByText(/"status"/)).toBeNull();
   });
 });

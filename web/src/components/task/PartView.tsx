@@ -26,6 +26,11 @@ import { Button, cx, formatMessageTime } from "@/components/ui";
 import { formatTokens } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { clampScrollTop, isNearBottom, nextStickState } from "@/lib/scroll-stick";
+import {
+  parseStructuredResult,
+  type StructuredResult,
+  type StructuredResultStatus,
+} from "@/lib/structured-result";
 import { isSkillRead, toolInputFields, toolLabel, toolSummary } from "@/lib/tool-labels";
 import { subagentAgentNames, useSubagentRuns } from "@/components/task/use-subagent-runs";
 import {
@@ -34,7 +39,60 @@ import {
 } from "@/lib/reasoning-translation";
 import type { SubagentRunDto, UiMessage, UiPart } from "@/lib/types";
 
+const structuredResultLabels: Record<StructuredResultStatus, string> = {
+  progress: "進行中",
+  completed: "完了",
+  verified_completed: "検証済み",
+  blocked: "要対応",
+};
+
+function structuredResultBadgeClass(status: StructuredResultStatus): string {
+  if (status === "completed" || status === "verified_completed") {
+    return "bg-success/15 text-success";
+  }
+  if (status === "blocked") return "bg-warning-bg text-warning";
+  return "bg-primary/15 text-primary";
+}
+
+function StructuredResultCard({ result }: { result: StructuredResult }) {
+  return (
+    <section
+      aria-label="実行結果"
+      className="rounded-xl border border-border bg-surface-2/60 px-3 py-2.5 text-sm"
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={cx(
+            "rounded-full px-2 py-0.5 text-[11px] font-medium",
+            structuredResultBadgeClass(result.status),
+          )}
+        >
+          {structuredResultLabels[result.status]}
+        </span>
+        <span className="text-[11px] text-faint">構造化された実行結果</span>
+      </div>
+      <p className="mt-2 whitespace-pre-wrap break-words text-sm text-text">{result.summary}</p>
+      {result.next && (
+        <div className="mt-2 border-t border-border pt-2">
+          <p className="text-[11px] font-medium text-faint">次のステップ</p>
+          <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-muted">{result.next}</p>
+        </div>
+      )}
+      {result.evidence && (
+        <details className="mt-2 rounded-lg bg-surface-2 px-2.5 py-2">
+          <summary className="cursor-pointer select-none text-[11px] font-medium text-muted">
+            証拠・確認結果
+          </summary>
+          <p className="mt-1 whitespace-pre-wrap break-words text-xs text-muted">{result.evidence}</p>
+        </details>
+      )}
+    </section>
+  );
+}
+
 const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
+  const structuredResult = parseStructuredResult(text);
+  if (structuredResult) return <StructuredResultCard result={structuredResult} />;
   return (
     <div className="md text-sm">
       <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
