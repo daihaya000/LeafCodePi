@@ -1,9 +1,9 @@
 {
-  "name": "leafcode-ask-user",
+  "name": "leafcode-question",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "LeafCode-style ask_user tool: let the agent ask the user a question from the WebUI",
+  "description": "LeafCode-style question tool: let the agent ask the user a question from the WebUI",
   "pi": {
     "extensions": ["index.ts"]
   },

@@ -1,7 +1,7 @@
 /**
- * LeafCode Ask User for Pi
+ * LeafCode Question for Pi
  *
- * エージェントがユーザーに質問できる ask_user ツールを登録する。
+ * エージェントがユーザーに質問できる question ツールを登録する。
  * 本家 LeafCode（OpenCode）の question 機能相当。
  *
  * - TUI モード（ctx.hasUI）: ネイティブ UI で選択/入力
@@ -41,14 +41,14 @@ function extensionSessionId(ctx: ExtensionContext): string {
 
 export default function (pi: ExtensionAPI): void {
   pi.registerTool({
-    name: "ask_user",
+    name: "question",
     label: "Ask User",
     description:
       "Ask the user a question and wait for their answer. Use when a decision needs human input " +
       "(ambiguous requirements, confirmation of an approach, choosing between options). " +
       "Provide 2-4 concise options when possible; the user can always reply with custom text. " +
       "Do not use this for permission to run tools (that has its own approval flow).",
-    promptSnippet: "**ask_user**: Ask the user a question with optional choices and wait for the answer",
+    promptSnippet: "**question**: Ask the user a question with optional choices and wait for the answer",
     parameters: params,
     async execute(_toolCallId, p, _signal, _onUpdate, ctx) {
       const info: WebUiQuestionInfo = {

@@ -6,7 +6,7 @@ export type WebUiQuestionAnswer = {
   answers: string[][];
 };
 
-/** Must match extensions/leafcode-ask-user/webui-question-bridge.ts */
+/** Must match extensions/leafcode-question/webui-question-bridge.ts */
 const GLOBAL_KEY = "__leafcodeWebUiQuestionHandler" as const;
 
 type WebUiQuestionHandler = (
