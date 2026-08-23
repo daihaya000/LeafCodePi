@@ -16,34 +16,47 @@ describe("messageEntryById", () => {
     return {
       sessionManager: {
         getEntries: () => entries,
+        getBranch: () => entries,
       },
     };
   }
 
-  it("finds the session entry whose inner message id matches", () => {
+  it("finds the session entry by entry id (UiMessage.id carries the entry id)", () => {
     const session = mockEntries([
-      { type: "message", id: "e1", message: { id: "m1", role: "user", content: "hello" } },
-      { type: "message", id: "e2", message: { id: "m2", role: "assistant", content: "hi" } },
+      { type: "message", id: "e1", message: { role: "user", content: "hello" } },
+      { type: "message", id: "e2", message: { role: "assistant", content: "hi" } },
     ]);
-    const found = messageEntryById(session as never, "m2");
+    const found = messageEntryById(session as never, "e2");
     assert.ok(found);
     assert.equal(found.id, "e2");
     assert.equal(found.message.role, "assistant");
   });
 
+  it("resolves legacy `msg-N` ids against branch message order", () => {
+    const session = mockEntries([
+      { type: "message", id: "e1", message: { role: "user", content: "hello" } },
+      { type: "message", id: "e2", message: { role: "assistant", content: "hi" } },
+    ]);
+    const found = messageEntryById(session as never, "msg-1");
+    assert.ok(found);
+    assert.equal(found.id, "e2");
+  });
+
   it("returns null for unknown ids", () => {
     const session = mockEntries([
-      { type: "message", id: "e1", message: { id: "m1", role: "user", content: "hello" } },
+      { type: "message", id: "e1", message: { role: "user", content: "hello" } },
     ]);
     assert.equal(messageEntryById(session as never, "nope"), null);
+    assert.equal(messageEntryById(session as never, "msg-9"), null);
   });
 
   it("ignores non-message entries", () => {
     const session = mockEntries([
       { type: "compaction", id: "c1", summary: "x", firstKeptEntryId: "e2", tokensBefore: 1 },
-      { type: "message", id: "e1", message: { id: "m1", role: "user", content: "hello" } },
+      { type: "message", id: "e1", message: { role: "user", content: "hello" } },
     ]);
-    const found = messageEntryById(session as never, "m1");
+    assert.equal(messageEntryById(session as never, "c1"), null);
+    const found = messageEntryById(session as never, "e1");
     assert.ok(found);
     assert.equal(found.id, "e1");
   });

@@ -395,6 +395,18 @@ function snapshotMessages(
     stored.push(streaming);
   }
   let projected = projectPiMessages(stored);
+  // Pi のメッセージ本体には id が無いため、projectPiMessages は `msg-N` を仮 id
+  // にする。「入力欄に戻す」はエントリ id 必須なので、参照一致するエントリの id で上書き
+  const entryIdByMessage = new Map<unknown, string>();
+  for (const entry of session.sessionManager.getEntries()) {
+    if (entry.type === "message") {
+      entryIdByMessage.set((entry as { message?: unknown }).message, entry.id);
+    }
+  }
+  projected = projected.map((message, index) => {
+    const entryId = entryIdByMessage.get(stored[index]);
+    return entryId ? { ...message, id: entryId } : message;
+  });
   if (throughputByStartedAt) projected = applyThroughput(projected, throughputByStartedAt);
   if (toolStartedAt && toolStartedAt.size > 0 && toolEndedAt) {
     projected = applyToolTiming(projected, toolStartedAt, toolEndedAt);
@@ -1633,21 +1645,28 @@ export async function revertTask(id: string, messageId: string): Promise<{
   return { task: taskDetail, text: result.editorText ?? "", images: imagesFromEntry(entry) };
 }
 
-/** UI のメッセージ id（エージェント側）からセッションエントリを取り出す。 */
+/** UI のメッセージ id からセッションエントリを取り出す。 */
 export function messageEntryById(
   session: AgentSession,
   messageId: string,
 ): { id: string; message: { role: string; content: unknown } } | null {
   try {
-    for (const entry of session.sessionManager.getEntries()) {
-      if (entry.type !== "message") continue;
+    const entries = session.sessionManager.getEntries();
+    // 通常経路: snapshotMessages が UiMessage.id へ設定したエントリ id
+    for (const entry of entries) {
+      if (entry.type !== "message" || entry.id !== messageId) continue;
       const message = (entry as { message?: unknown }).message;
       if (!message || typeof message !== "object") continue;
-      if ((message as { id?: unknown }).id === messageId) {
-        return {
-          id: entry.id,
-          message: message as { role: string; content: unknown },
-        };
+      return { id: entry.id, message: message as { role: string; content: unknown } };
+    }
+    // フォールバック: 旧スナップショットの仮 id `msg-N`（ブランチ上のメッセージ順）
+    const fallback = /^msg-(\d+)$/.exec(messageId);
+    if (fallback) {
+      const branch = entries.filter((entry) => entry.type === "message");
+      const entry = branch[Number(fallback[1])];
+      const message = entry ? (entry as { message?: unknown }).message : undefined;
+      if (entry && message && typeof message === "object") {
+        return { id: entry.id, message: message as { role: string; content: unknown } };
       }
     }
   } catch {
