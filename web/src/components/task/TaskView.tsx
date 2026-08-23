@@ -933,7 +933,12 @@ export function TaskView({
           <div className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-[11px] text-faint sm:hidden">
             {task && <StatusBadge status={working ? "working" : task.status} />}
             {contextUsage && <ContextUsageMeter usage={contextUsage} />}
-            <CollaborationBadge room={collaborationRoom ?? undefined} className="sm:hidden" />
+            <CollaborationBadge
+              projectId={task?.projectId}
+              room={collaborationRoom ?? undefined}
+              className="sm:hidden"
+              onResolved={() => void refreshCollaborationRoom()}
+            />
           </div>
           <div className="mt-0.5 hidden min-w-0 items-center gap-1 text-xs text-faint sm:flex">
             {task && <StatusBadge status={working ? "working" : task.status} />}
@@ -985,7 +990,12 @@ export function TaskView({
           </div>
         </div>
         <div className="relative flex min-w-0 shrink-0 items-center gap-1">
-          <CollaborationBadge room={collaborationRoom ?? undefined} className="hidden sm:inline-flex" />
+          <CollaborationBadge
+            projectId={task?.projectId}
+            room={collaborationRoom ?? undefined}
+            className="hidden sm:inline-flex"
+            onResolved={() => void refreshCollaborationRoom()}
+          />
           {onAddPane && (
             <Button
               variant="ghost"
@@ -1076,6 +1086,15 @@ export function TaskView({
           </div>
         </div>
       </header>
+      {collaborationRoom && (collaborationRoom.leaseConflicts > 0 || collaborationRoom.pendingAsks > 0 || !collaborationRoom.ready) && (
+        <div className="shrink-0 border-b border-warning/40 bg-warning-bg px-3 py-2 md:px-4">
+          <CollaborationNotice
+            projectId={active ? task?.projectId : null}
+            room={collaborationRoom}
+            onResolved={() => void refreshCollaborationRoom()}
+          />
+        </div>
+      )}
       <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
         <div
           ref={scrollRef}
@@ -1083,11 +1102,6 @@ export function TaskView({
           className="min-h-0 flex-1 overflow-y-auto px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4"
         >
           <div ref={contentRef} className="relative mx-auto flex max-w-5xl flex-col gap-4">
-            <CollaborationNotice
-              projectId={active ? task?.projectId : null}
-              room={collaborationRoom}
-              onResolved={() => void refreshCollaborationRoom()}
-            />
             {hangRetryNotice && (
               <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
                 {hangRetryNotice}

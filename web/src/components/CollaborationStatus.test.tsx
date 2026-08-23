@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { CollaborationBadge, CollaborationNotice } from "./CollaborationStatus";
 
@@ -16,9 +16,32 @@ describe("CollaborationStatus", () => {
     );
     const badge = screen.getByLabelText("2セッション接続中、競合1件、未処理ask3件、接続中のセッション: Alpha、Beta");
     expect(badge).toBeTruthy();
+    expect(badge.textContent).toContain("競合1件");
     expect(badge.getAttribute("title")).toContain("Alpha、Beta");
-    expect(screen.getByRole("status").textContent).toContain("lease競合 1件 / 未処理ask 3件");
+    expect(screen.getByRole("status").textContent).toContain("ファイル予約の競合 1件 / 未処理ask 3件");
     expect(screen.getByRole("status").textContent).toContain("切れたセッションや外部変更で無効になったファイル予約");
+  });
+
+  it("opens a conflict dialog from the badge", () => {
+    const room = {
+      ready: true,
+      peers: 1,
+      sessionNames: ["Alpha"],
+      leaseConflicts: 1,
+      pendingAsks: 0,
+      conflicts: [{
+        leaseId: "lease-1",
+        state: "orphaned" as const,
+        ownerSessionId: "s1",
+        ownerName: "Alpha",
+        ownerOnline: false,
+        paths: ["src/a.ts"],
+      }],
+    };
+    render(<CollaborationBadge projectId="proj" room={room} />);
+    fireEvent.click(screen.getByRole("button", { name: /競合1件/ }));
+    expect(screen.getByRole("dialog").textContent).toContain("協調セッションの状態");
+    expect(screen.getByRole("button", { name: "予約を解除" })).toBeTruthy();
   });
 
   it("explains a lease conflict and offers discard when a project is selected", () => {

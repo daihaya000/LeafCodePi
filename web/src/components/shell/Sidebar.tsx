@@ -614,8 +614,12 @@ export function Sidebar({
                           {running}
                         </span>
                       )}
-                      <CollaborationBadge room={collaborationRooms[project.id]} />
                     </button>
+                    <CollaborationBadge
+                      projectId={project.id}
+                      room={collaborationRooms[project.id]}
+                      onResolved={() => void refresh()}
+                    />
                     <button
                       type="button"
                       aria-label={`${project.name}に新規タスクを作成`}

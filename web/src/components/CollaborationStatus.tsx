@@ -1,7 +1,8 @@
 "use client";
 
-import { AlertTriangle, MessageCircle, Users } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, MessageCircle, Users, X } from "lucide-react";
+import { useCallback, useEffect, useId, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button, cx } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import type { CollaborationLeaseConflict, CollaborationRoomSummary } from "@/lib/collaboration-room";
@@ -52,9 +53,7 @@ export function useCollaborationRoom(projectId?: string | null): {
   return { room, refresh };
 }
 
-export function CollaborationBadge({ room, className }: { room: CollaborationRoomSummary | undefined; className?: string }) {
-  if (!room) return null;
-  const attention = room.leaseConflicts > 0 || room.pendingAsks > 0;
+function collaborationLabel(room: CollaborationRoomSummary): string {
   const label = [
     `${room.peers}セッション接続中`,
     room.leaseConflicts > 0 ? `競合${room.leaseConflicts}件` : "",
@@ -64,27 +63,7 @@ export function CollaborationBadge({ room, className }: { room: CollaborationRoo
   const sessionNames = room.sessionNames.length > 0
     ? `接続中のセッション: ${room.sessionNames.join("、")}`
     : "";
-  const accessibleLabel = [label, sessionNames].filter(Boolean).join("、");
-  return (
-    <span
-      title={[
-        accessibleLabel,
-        room.leaseConflicts > 0 ? "タスク画面の警告から予約を解除できます" : "",
-        room.reason,
-      ].filter(Boolean).join("。")}
-      aria-label={accessibleLabel}
-      className={cx(
-        "inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-        !room.ready ? "bg-surface-2 text-muted" : attention ? "bg-warning-bg text-warning" : "bg-surface-2 text-muted",
-        className,
-      )}
-    >
-      <Users aria-hidden="true" className="h-3 w-3" />
-      <span className="tabular-nums">{room.peers}</span>
-      {room.leaseConflicts > 0 && <AlertTriangle aria-hidden="true" className="h-3 w-3 text-danger" />}
-      {room.pendingAsks > 0 && <MessageCircle aria-hidden="true" className="h-3 w-3 text-accent" />}
-    </span>
-  );
+  return [label, sessionNames].filter(Boolean).join("、");
 }
 
 function conflictStateLabel(state: CollaborationLeaseConflict["state"]): string {
@@ -106,7 +85,7 @@ export function CollaborationNotice({
   const summary = !room.ready
     ? `協調roomを確認できません${room.reason ? `: ${room.reason}` : ""}`
     : [
-        room.leaseConflicts > 0 ? `lease競合 ${room.leaseConflicts}件` : "",
+        room.leaseConflicts > 0 ? `ファイル予約の競合 ${room.leaseConflicts}件` : "",
         room.pendingAsks > 0 ? `未処理ask ${room.pendingAsks}件` : "",
       ].filter(Boolean).join(" / ");
   const conflicts = room.conflicts ?? [];
@@ -129,21 +108,21 @@ export function CollaborationNotice({
   return (
     <div
       className={cx(
-        "flex flex-col gap-2 rounded-lg border px-3 py-2 text-xs",
-        room.ready ? "border-warning/30 bg-warning-bg text-warning" : "border-border bg-surface-2 text-muted",
+        "flex flex-col gap-2 rounded-lg border px-3 py-2 text-sm",
+        room.ready ? "border-warning/40 bg-warning-bg text-warning" : "border-border bg-surface-2 text-muted",
       )}
     >
       <div role="status" className="flex items-start gap-2">
-        {room.ready ? <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <Users aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+        {room.ready ? <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" /> : <Users aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />}
         <div className="min-w-0 space-y-1">
-          <p className="break-words">{summary}</p>
+          <p className="break-words font-medium">{summary}</p>
           {room.leaseConflicts > 0 && (
-            <p className="text-[11px] text-current/80">
+            <p className="text-xs text-current/90">
               切れたセッションや外部変更で無効になったファイル予約です。他のセッションはそのパスを編集・commitできません。作業ツリーの変更は消えません。所有セッションを再開して予約を取り戻すか、不要なら予約だけ解除できます。
             </p>
           )}
           {room.pendingAsks > 0 && (
-            <p className="text-[11px] text-current/80">
+            <p className="text-xs text-current/90">
               未処理askは相手セッションが次に応答するまで残ります。こちらから強制解決はできません。
             </p>
           )}
@@ -152,15 +131,15 @@ export function CollaborationNotice({
       {conflicts.length > 0 && (
         <ul className="space-y-2">
           {conflicts.map((conflict) => (
-            <li key={conflict.leaseId} className="rounded-md border border-current/15 bg-bg/40 px-2 py-2 text-text">
+            <li key={conflict.leaseId} className="rounded-md border border-current/20 bg-surface px-2 py-2 text-text">
               <p className="font-medium">{conflictStateLabel(conflict.state)}</p>
-              <p className="mt-0.5 text-[11px] text-muted">
+              <p className="mt-0.5 text-xs text-muted">
                 所有者: {conflict.ownerName}{conflict.ownerOnline ? "（接続中）" : "（切断）"}
               </p>
-              <p className="mt-0.5 break-all font-mono text-[11px] text-muted">
+              <p className="mt-0.5 break-all font-mono text-xs text-muted">
                 {conflict.paths.length > 0 ? conflict.paths.join(", ") : "パス不明"}
               </p>
-              {projectId && (
+              {projectId ? (
                 <Button
                   type="button"
                   variant="danger"
@@ -171,12 +150,108 @@ export function CollaborationNotice({
                 >
                   予約を解除
                 </Button>
+              ) : (
+                <p className="mt-2 text-xs text-muted">プロジェクトを選ぶか、サイドバーの「競合」を押すと予約を解除できます。</p>
               )}
             </li>
           ))}
         </ul>
       )}
-      {error && <p className="text-danger">{error}</p>}
+      {error && <p className="text-sm text-danger">{error}</p>}
     </div>
+  );
+}
+
+export function CollaborationBadge({
+  projectId,
+  room,
+  className,
+  onResolved,
+}: {
+  projectId?: string | null;
+  room: CollaborationRoomSummary | undefined;
+  className?: string;
+  onResolved?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const titleId = useId();
+  const attention = Boolean(room && (room.leaseConflicts > 0 || room.pendingAsks > 0 || !room.ready));
+
+  useEffect(() => {
+    if (!open) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  if (!room) return null;
+  const accessibleLabel = collaborationLabel(room);
+
+  return (
+    <>
+      <button
+        type="button"
+        title={[accessibleLabel, attention ? "クリックして詳細を開く" : ""].filter(Boolean).join("。")}
+        aria-label={accessibleLabel}
+        aria-expanded={attention ? open : undefined}
+        aria-haspopup={attention ? "dialog" : undefined}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (attention) setOpen(true);
+        }}
+        className={cx(
+          "inline-flex shrink-0 items-center gap-1 rounded-full font-medium",
+          attention ? "px-2 py-0.5 text-xs" : "px-1.5 py-0.5 text-[10px]",
+          !room.ready ? "bg-surface-2 text-muted" : attention ? "bg-warning-bg text-warning" : "bg-surface-2 text-muted",
+          attention && "cursor-pointer hover:ring-1 hover:ring-warning/50",
+          className,
+        )}
+      >
+        <Users aria-hidden="true" className={attention ? "h-3.5 w-3.5" : "h-3 w-3"} />
+        <span className="tabular-nums">{room.peers}</span>
+        {room.leaseConflicts > 0 && (
+          <>
+            <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 text-danger" />
+            <span>競合{room.leaseConflicts}件</span>
+          </>
+        )}
+        {room.pendingAsks > 0 && <MessageCircle aria-hidden="true" className="h-3.5 w-3.5 text-accent" />}
+      </button>
+      {open && attention && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[12vh]"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            className="w-full max-w-md rounded-xl border border-border bg-surface p-4 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <h2 id={titleId} className="text-sm font-semibold">
+                協調セッションの状態
+              </h2>
+              <Button type="button" variant="ghost" size="icon" aria-label="閉じる" onClick={() => setOpen(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <CollaborationNotice
+              projectId={projectId}
+              room={room}
+              onResolved={() => {
+                onResolved?.();
+                setOpen(false);
+              }}
+            />
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUp, FolderGit2, GitBranch } from "lucide-react";
+import { CollaborationNotice, useCollaborationRoom } from "@/components/CollaborationStatus";
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { AgentSelect } from "@/components/AgentSelect";
 import { Composer, type ComposerAttachment } from "@/components/Composer";
@@ -60,6 +61,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
 
+  const { room: collaborationRoom, refresh: refreshCollaborationRoom } = useCollaborationRoom(projectId || null);
   const selectedProject = projects.find((project) => project.id === projectId);
   const selectedModel = models.find((option) => option.value === model);
   const thinkingLevels = useMemo(
@@ -237,6 +239,15 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                 <option value="current_folder">そのまま</option>
               </GhostSelect>
             </div>
+            {collaborationRoom && (collaborationRoom.leaseConflicts > 0 || collaborationRoom.pendingAsks > 0 || !collaborationRoom.ready) && (
+              <div className="mx-auto mb-3 max-w-5xl">
+                <CollaborationNotice
+                  projectId={projectId || null}
+                  room={collaborationRoom}
+                  onResolved={() => void refreshCollaborationRoom()}
+                />
+              </div>
+            )}
             {goalLoopEnabled && (
               <div className="mx-auto max-w-5xl">
                 <GoalLoopOptions
