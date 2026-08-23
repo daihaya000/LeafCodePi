@@ -948,6 +948,9 @@ async function createSession(options: {
       console.error(`[extension] ${error.extensionPath} (${error.event}):`, error.error);
     },
   });
+  // Agent-defined tools may include `subagent`; enforce the user choice after
+  // the full extension registry is ready, including the initial turn.
+  applySubagentPermission(result.session, options.subagentPermission);
   return result.session;
 }
 
@@ -1452,6 +1455,7 @@ function queuePrompt(
     isHangRetry?: boolean;
   },
 ): void {
+  applySubagentPermission(live.session, meta?.subagentPermission);
   const isHangRetry = meta?.isHangRetry === true || prompt.startsWith(HANG_RETRY_PREFIX);
   live.manualAbortedAssistantId = null;
   armTaskHangWatch({
