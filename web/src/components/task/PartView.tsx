@@ -413,8 +413,6 @@ function MessageMetaHeader({
             className={cx(
               field.key === "model" ? "min-w-0 max-w-64 truncate" : "shrink-0",
               field.key === "rate" && "tabular-nums",
-              field.key === "agent" &&
-                "rounded bg-primary px-1 py-px text-[10px] font-medium text-primary-fg",
             )}
             title={
               field.key === "rate" && message.tokensPerSecondDecode
