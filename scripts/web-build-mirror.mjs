@@ -37,6 +37,8 @@ import { fileURLToPath } from "node:url";
  * Hazard: a hard link shares its contents with the source, so anything the
  * build writes in place would also rewrite the repository's file. Paths the
  * build is known to touch are copied instead — see COPY_INSTEAD_OF_LINK.
+ * Agent-editable sources under `src/` are copied too so leafcode-collaboration
+ * can mutate them (hard-linked files are rejected at nlink > 1).
  *
  * Unlike LeafCode this mirrors only `web/`, not the whole installation:
  * next.config.ts here imports nothing above `web/` and pins
@@ -56,6 +58,13 @@ const SKIP_FILES = new Set(["tsconfig.tsbuildinfo"]);
  * an in-place write through a hard link would silently edit the repository.
  */
 const COPY_INSTEAD_OF_LINK = ["tsconfig.json", "next-env.d.ts"];
+
+/**
+ * Copied, not linked. Agent-editable sources must stay at nlink === 1 so
+ * leafcode-collaboration can reserve and mutate them; hard links would block
+ * every file mirrored from `web/`.
+ */
+const COPY_PREFIXES = ["src"];
 
 /** Stable per-checkout mirror name, so two checkouts never share one. */
 export function mirrorSlug(sourceDir) {
@@ -88,7 +97,17 @@ export function mirrorDistDir(mirrorRoot) {
 }
 
 function shouldCopy(relPath) {
-  return COPY_INSTEAD_OF_LINK.includes(relPath.replaceAll("/", sep));
+  const normalized = relPath.replaceAll("/", sep);
+  if (COPY_INSTEAD_OF_LINK.includes(normalized)) return true;
+  const parts = normalized.split(sep).filter(Boolean);
+  return parts.length > 0 && COPY_PREFIXES.includes(parts[0]);
+}
+
+/** Re-place a linked `src/` file with an independent copy after policy changes. */
+function needsReplace(sourceStat, targetStat, relPath) {
+  if (!targetStat) return true;
+  if (!isUpToDate(sourceStat, targetStat)) return true;
+  return shouldCopy(relPath) && sourceStat.nlink > 1;
 }
 
 /**
@@ -186,7 +205,7 @@ function syncDir(sourceDir, targetDir, rootDir, counters) {
     } catch {
       targetStat = undefined;
     }
-    if (targetStat && isUpToDate(sourceStat, targetStat)) {
+    if (targetStat && !needsReplace(sourceStat, targetStat, relPath)) {
       counters.unchanged += 1;
       continue;
     }

@@ -1091,3 +1091,21 @@ DefaultResourceLoader 直叩き（settings.json packages の agentDir 相対パ�
 - `collaboration-room.test.ts` 13/13 PASS（オフライン drift 後即 reserve/write、persisted quarantine 解除）
 - `index.test.ts` PASS
 - 本番 snapshot 確認: head=4634ec8, compromised 付き → 修正後は起動/heartbeat で解除
+
+## 2026-08-23: web ビルドミラー hardlink が leafcode 編集をブロック
+
+### 症状
+- `web/src/**` の `leafcode_write` / `leafcode_edit` が `Hard-linked files are not supported.` で拒否
+
+### 原因
+- `scripts/web-build-mirror.mjs` が `web/` 全体（src 286 ファイル含む）を `%LOCALAPPDATA%\leafcode-pi\build\<slug>\` へ hard link
+- `room.ts` は `nlink > 1` を拒否（ミラー経由の in-place 書き換えでリポジトリも変わるため）
+- 本番ビルド後は `web/src` の **309/312 ファイルが nlink=2** になり、協調編集不能
+
+### 応急処置（限定的）
+- ミラー側の該当ファイルだけ `unlink` → リポジトリ側 nlink=1 に戻り編集可能。2 ファイル限定の手作業であり根本解決ではない
+
+### 恒久対策
+- `web-build-mirror.mjs`: `src/**` は hard link せず byte copy（約 1.4MB、node_modules は従来どおり link）
+- 既存 linked src は `needsReplace()` で次回 `syncMirror` 時に独立コピーへ移行
+- 実測: `node scripts/web-build-mirror.mjs` → copied 286、対象 2 ファイル nlink=1、web/src 286/286 が nlink=1

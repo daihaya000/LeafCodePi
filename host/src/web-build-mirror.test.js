@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -98,6 +98,46 @@ test("tsconfig.json is copied, not hard-linked, so a build cannot rewrite the re
     writeFileSync(join(mirror, "tsconfig.json"), '{"rewritten":true}\n');
 
     assert.equal(readFileSync(join(source, "tsconfig.json"), "utf8"), '{"original":true}\n');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("web/src is copied, not hard-linked, so collaboration can mutate repository sources", () => {
+  const { root, source, mirror } = sandbox();
+  try {
+    mkdirSync(join(source, "src"), { recursive: true });
+    writeFileSync(join(source, "src", "page.tsx"), "export default null;\n");
+    syncMirror({ sourceDir: source, mirrorRoot: mirror });
+
+    const repoStat = lstatSync(join(source, "src", "page.tsx"));
+    const mirrorStat = lstatSync(join(mirror, "src", "page.tsx"));
+    assert.equal(repoStat.nlink, 1);
+    assert.notEqual(repoStat.ino, mirrorStat.ino);
+
+    writeFileSync(join(mirror, "src", "page.tsx"), "export default function Page() { return null; }\n");
+    assert.equal(readFileSync(join(source, "src", "page.tsx"), "utf8"), "export default null;\n");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("syncMirror migrates an existing linked src/ file to an independent copy", () => {
+  const { root, source, mirror } = sandbox();
+  try {
+    mkdirSync(join(source, "src"), { recursive: true });
+    writeFileSync(join(source, "src", "page.tsx"), "export default null;\n");
+    mkdirSync(join(mirror, "src"), { recursive: true });
+    linkSync(join(source, "src", "page.tsx"), join(mirror, "src", "page.tsx"));
+    assert.equal(lstatSync(join(source, "src", "page.tsx")).nlink, 2);
+
+    syncMirror({ sourceDir: source, mirrorRoot: mirror });
+
+    assert.equal(lstatSync(join(source, "src", "page.tsx")).nlink, 1);
+    assert.notEqual(
+      lstatSync(join(source, "src", "page.tsx")).ino,
+      lstatSync(join(mirror, "src", "page.tsx")).ino,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
