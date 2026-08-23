@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { AppShell } from "@/components/shell/AppShell";
 import { NotificationSoundSync } from "@/components/NotificationSoundSync";
+import { GlobalAttentionProvider } from "@/components/shell/GlobalAttentionProvider";
 import { maybeRedirectToLocalhost } from "@/lib/localhost-redirect";
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
@@ -15,6 +16,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   return (
     <AppShell>
       <NotificationSoundSync />
+      <GlobalAttentionProvider />
       {children}
     </AppShell>
   );

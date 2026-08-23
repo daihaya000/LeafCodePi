@@ -4,6 +4,7 @@ import {
   destroyArchivedTasksByProject,
   getTaskSummaries,
   jsonError,
+  listPendingAttention,
 } from "@/lib/pi/harness";
 import type { ThinkingLevel } from "@/lib/types";
 
@@ -12,6 +13,10 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const includeArchived = req.nextUrl.searchParams.get("archived") === "1";
+  // GlobalAttentionProvider のポーリング用（軽量リスト）。
+  if (req.nextUrl.searchParams.get("attention") === "1") {
+    return NextResponse.json({ attention: listPendingAttention() });
+  }
   return NextResponse.json({ tasks: getTaskSummaries(includeArchived) });
 }
 

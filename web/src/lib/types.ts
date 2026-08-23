@@ -207,6 +207,7 @@ export type TaskDetail = TaskSummary & {
   goalLoop?: GoalLoopDto | null;
   todos?: TodoDto[];
   permissionRequest?: PermissionRequestDto | null;
+  questionRequest?: QuestionRequestDto | null;
 };
 
 export type PermissionRequestDto = {
@@ -215,6 +216,33 @@ export type PermissionRequestDto = {
   command: string;
   labels: string[];
   message: string;
+};
+
+export type QuestionOptionDto = {
+  label: string;
+  description?: string;
+};
+
+export type QuestionInfoDto = {
+  question: string;
+  header?: string;
+  options: QuestionOptionDto[];
+  multiple?: boolean;
+  /** 自由入力を無効化する場合のみ false。 */
+  custom?: boolean;
+};
+
+export type QuestionRequestDto = {
+  id: string;
+  sessionId: string;
+  questions: QuestionInfoDto[];
+};
+
+/** タスク横断の注意喚起（GlobalAttentionProvider 用ポーリング応答）。 */
+export type AttentionItemDto = {
+  taskId: string;
+  title: string;
+  kinds: ("permission" | "question")[];
 };
 
 export type DiffLine = {

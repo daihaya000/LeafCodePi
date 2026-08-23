@@ -1,0 +1,13 @@
+{
+  "name": "leafcode-ask-user",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "LeafCode-style ask_user tool: let the agent ask the user a question from the WebUI",
+  "pi": {
+    "extensions": ["index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

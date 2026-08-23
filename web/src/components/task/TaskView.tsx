@@ -29,6 +29,7 @@ import { PermissionSelect } from "@/components/PermissionSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
 import { PartView, WorkingRow } from "@/components/task/PartView";
+import { QuestionCard } from "@/components/task/QuestionCard";
 import { Button, cx } from "@/components/ui";
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
@@ -76,6 +77,7 @@ import type {
   GoalLoopDto,
   ModelOption,
   PermissionRequestDto,
+  QuestionRequestDto,
   TaskDetail,
   TaskStatus,
   TaskSummary,
@@ -205,6 +207,7 @@ export function TaskView({
   );
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => readPermissionMode());
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequestDto | null>(null);
+  const [questionRequest, setQuestionRequest] = useState<QuestionRequestDto | null>(null);
   const [permissionBusy, setPermissionBusy] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -243,6 +246,7 @@ export function TaskView({
     setContextUsage(detail.contextUsage);
     setIsCompacting(Boolean(detail.isCompacting));
     setPermissionRequest(detail.permissionRequest ?? null);
+    setQuestionRequest(detail.questionRequest ?? null);
     // セッション人格は作成時固定。タスクに紐づくエージェントを選択状態へ反映する。
     setAgent((current) => current || detail.agent || "");
   }, []);
@@ -286,6 +290,7 @@ export function TaskView({
           manualAbortedAssistantId?: string | null;
           hangRetryCount?: number;
           permissionRequest?: PermissionRequestDto | null;
+          questionRequest?: QuestionRequestDto | null;
         };
         try {
           payload = JSON.parse((event as MessageEvent).data) as typeof payload;
@@ -323,6 +328,9 @@ export function TaskView({
           }
           if ("permissionRequest" in payload) {
             setPermissionRequest(payload.permissionRequest ?? null);
+          }
+          if ("questionRequest" in payload) {
+            setQuestionRequest(payload.questionRequest ?? null);
           }
         });
         if (payload.error) setError(payload.error);
@@ -710,7 +718,7 @@ export function TaskView({
   );
 
   // --- 通知音・デスクトップ通知（本家 LeafCode から移植） ---
-  const attention = permissionRequest !== null;
+  const attention = permissionRequest !== null || questionRequest !== null;
   // 完了音：working → idle の立下りエッジ。初回マウント時の既定値は実状で
   // 初期化し、既に走っていたターンの完了でも鳴る（本家と同じ挙動）。
   const prevWorkingSoundRef = useRef(working);
@@ -1281,6 +1289,41 @@ export function TaskView({
                 拒否
               </Button>
             </div>
+          </div>
+        )}
+        {questionRequest && (
+          <div className="mb-2">
+            <QuestionCard
+              request={questionRequest}
+              onReply={async (request, answers) => {
+                setError(null);
+                try {
+                  await sendJson(`/api/tasks/${taskId}/question`, {
+                    requestId: request.id,
+                    answers,
+                  });
+                  setQuestionRequest(null);
+                } catch (err) {
+                  const message = err instanceof Error ? err.message : "回答の送信に失敗しました";
+                  if (/not found|見つかりません/i.test(message)) setQuestionRequest(null);
+                  throw err;
+                }
+              }}
+              onReject={async (request) => {
+                setError(null);
+                try {
+                  await sendJson(`/api/tasks/${taskId}/question`, {
+                    requestId: request.id,
+                    reject: true,
+                  });
+                  setQuestionRequest(null);
+                } catch (err) {
+                  const message = err instanceof Error ? err.message : "拒否の送信に失敗しました";
+                  if (/not found|見つかりません/i.test(message)) setQuestionRequest(null);
+                  throw err;
+                }
+              }}
+            />
           </div>
         )}
         {isReverted && (

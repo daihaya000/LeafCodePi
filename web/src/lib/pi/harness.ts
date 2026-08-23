@@ -53,6 +53,8 @@ import {
 import { HANG_RETRY_PREFIX } from "@/lib/hang-retry";
 import { createPermissionPromptService, taskIdForSession } from "@/lib/pi/permission-prompt";
 import { registerWebUiPermissionHandler } from "@/lib/pi/webui-permission-bridge";
+import { createQuestionPromptService, type QuestionAnswer } from "@/lib/pi/question-prompt";
+import { registerWebUiQuestionHandler } from "@/lib/pi/webui-question-bridge";
 
 /** True when a skill lives under the user's ~/.agents directory. */
 function isAgentsSkill(skill: { baseDir?: string; filePath?: string }): boolean {
@@ -88,6 +90,8 @@ import type {
   ProjectDto,
   ProviderAuthDto,
   PermissionRequestDto,
+  QuestionRequestDto,
+  AttentionItemDto,
   TaskDetail,
   TaskSummary,
   TodoDto,
@@ -193,6 +197,20 @@ function ensurePermissionPromptService(): PermissionPromptService {
   });
   registerWebUiPermissionHandler((request) => permissionPromptService!.handleRequest(request));
   return permissionPromptService;
+}
+
+type QuestionPromptService = ReturnType<typeof createQuestionPromptService>;
+let questionPromptService: QuestionPromptService | null = null;
+
+function ensureQuestionPromptService(): QuestionPromptService {
+  if (questionPromptService) return questionPromptService;
+  questionPromptService = createQuestionPromptService({
+    resolveTaskId: resolveTaskIdFromSession,
+    emit: (taskId, payload) => emit(taskId, payload),
+    snapshotExtras: permissionSnapshotExtras,
+  });
+  registerWebUiQuestionHandler((request) => questionPromptService!.handleRequest(request));
+  return questionPromptService;
 }
 
 function state(): HarnessState {
@@ -1264,6 +1282,7 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
     goalLoop,
     todos,
     permissionRequest: ensurePermissionPromptService().pendingForTask(id),
+    questionRequest: ensureQuestionPromptService().pendingForTask(id),
   };
 }
 
@@ -1869,6 +1888,30 @@ export function respondToPermissionPrompt(
   approved: boolean,
 ): boolean {
   return ensurePermissionPromptService().respond(taskId, requestId, approved);
+}
+
+export function pendingQuestionForTask(taskId: string): QuestionRequestDto | null {
+  return ensureQuestionPromptService().pendingForTask(taskId);
+}
+
+export function respondToQuestionPrompt(
+  taskId: string,
+  requestId: string,
+  answer: QuestionAnswer | null,
+): boolean {
+  return ensureQuestionPromptService().respond(taskId, requestId, answer);
+}
+
+/** 注意喚起が必要なタスク一覧（GlobalAttentionProvider のポーリング応答）。 */
+export function listPendingAttention(): AttentionItemDto[] {
+  const items: AttentionItemDto[] = [];
+  for (const task of getTaskSummaries(false)) {
+    const kinds: AttentionItemDto["kinds"] = [];
+    if (ensurePermissionPromptService().pendingForTask(task.id)) kinds.push("permission");
+    if (ensureQuestionPromptService().pendingForTask(task.id)) kinds.push("question");
+    if (kinds.length > 0) items.push({ taskId: task.id, title: task.title, kinds });
+  }
+  return items;
 }
 
 export function jsonError(error: unknown, fallbackStatus = 500): { error: string; status: number } {
