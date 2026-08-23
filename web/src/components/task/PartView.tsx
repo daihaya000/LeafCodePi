@@ -25,7 +25,7 @@ import { ReferenceHighlight, type ReferenceHighlightReferences } from "@/compone
 import { Button, cx, formatMessageTime } from "@/components/ui";
 import { formatTokens } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
-import { clampScrollTop } from "@/lib/scroll-stick";
+import { clampScrollTop, isNearBottom, nextStickState } from "@/lib/scroll-stick";
 import { isSkillRead, toolInputFields, toolLabel, toolSummary } from "@/lib/tool-labels";
 import { subagentAgentNames, useSubagentRuns } from "@/components/task/use-subagent-runs";
 import {
@@ -266,6 +266,9 @@ function ToolCard({
   );
   const wasActiveRef = useRef(false);
   const wasShellActiveRef = useRef(isShell && active);
+  const logScrollerRef = useRef<HTMLDivElement | null>(null);
+  const logStickRef = useRef(true);
+  const lastLogScrollTopRef = useRef(0);
   useEffect(() => {
     if (isError || isCancelled) setOpen(true);
   }, [isError, isCancelled]);
@@ -293,6 +296,13 @@ function ToolCard({
   const raw = isCancelled ? "" : state.error || state.output || "";
   // 巨大出力で Markdown / DOM が固まらないよう頭を切る。
   const output = raw.length > 20_000 ? `${raw.slice(0, 20_000)}\n…（以降省略）` : raw;
+  useEffect(() => {
+    if (!isShell || !open || !output || !logStickRef.current) return;
+    const el = logScrollerRef.current;
+    if (!el) return;
+    el.scrollTop = clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight);
+    lastLogScrollTopRef.current = el.scrollTop;
+  }, [isShell, open, output]);
   const preview = isCancelled
     ? "中断されました"
     : output
@@ -366,7 +376,26 @@ function ToolCard({
       </button>
       {showNested && taskId && <NestedAgentPanel taskId={taskId} part={part} live={active} />}
       {open && (
-        <div className="max-h-80 space-y-3 overflow-x-hidden overflow-y-auto border-t border-border bg-surface px-3 py-3">
+        <div
+          ref={isShell ? logScrollerRef : undefined}
+          onScroll={
+            isShell
+              ? (event) => {
+                  const el = event.currentTarget;
+                  const atBottom = isNearBottom(el.scrollTop, el.clientHeight, el.scrollHeight);
+                  const previousTop = lastLogScrollTopRef.current;
+                  lastLogScrollTopRef.current = el.scrollTop;
+                  logStickRef.current = nextStickState(
+                    logStickRef.current,
+                    el.scrollTop,
+                    previousTop,
+                    atBottom,
+                  );
+                }
+              : undefined
+          }
+          className="max-h-80 space-y-3 overflow-x-hidden overflow-y-auto border-t border-border bg-surface px-3 py-3"
+        >
           {fields.length > 0 && (
             <dl className="space-y-2">
               {fields.map((field) => (
