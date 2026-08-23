@@ -63,6 +63,15 @@ describe("toolSummary", () => {
   it("falls back to the tool name", () => {
     expect(toolSummary("weird", { status: "completed" })).toBe("weird");
   });
+
+  it("uses the Pi task as the subagent summary", () => {
+    expect(
+      toolSummary("subagent", {
+        status: "running",
+        input: { agent: "debugger", task: "呼び出しテストを実行する" },
+      }),
+    ).toBe("呼び出しテストを実行する");
+  });
 });
 
 describe("toolInputFields", () => {
@@ -93,6 +102,31 @@ describe("toolInputFields", () => {
     ).toEqual([
       { label: "スキル", value: "bug-hunt" },
       { label: "パス", value: "/home/user/.pi/agent/skills/bug-hunt/SKILL.md" },
+    ]);
+  });
+
+  it("normalizes Pi subagent input into OpenCode-style fields", () => {
+    expect(
+      toolInputFields("subagent", {
+        agent: "debugger",
+        task: "呼び出しテストを実行する\n詳細な指示",
+      }),
+    ).toEqual([
+      { label: "内容", value: "呼び出しテストを実行する 詳細な指示" },
+      { label: "エージェント", value: "debugger" },
+      { label: "指示", value: "呼び出しテストを実行する\n詳細な指示" },
+    ]);
+  });
+
+  it("reads the first task from a workflow input", () => {
+    expect(
+      toolInputFields("subagent", {
+        tasks: [{ agent: "reviewer", task: "差分を確認する" }],
+      }),
+    ).toEqual([
+      { label: "内容", value: "差分を確認する" },
+      { label: "エージェント", value: "reviewer" },
+      { label: "指示", value: "差分を確認する" },
     ]);
   });
 });

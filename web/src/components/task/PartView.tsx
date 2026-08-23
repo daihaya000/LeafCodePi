@@ -85,15 +85,53 @@ const SUBAGENT_STATUS_LABEL: Record<SubagentRunDto["status"], string> = {
   stale: "応答なし",
 };
 
+const SUBAGENT_PROMPT_PLACEHOLDER = "[prompt redacted]; live Prompt Audit only.";
+
+function textPartsOf(message: UiMessage): string {
+  return message.parts
+    .filter((part): part is Extract<UiPart, { type: "text" }> => part.type === "text")
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
+}
+
+function isSubagentPromptPlaceholder(message: UiMessage): boolean {
+  return message.role === "user" && textPartsOf(message) === SUBAGENT_PROMPT_PLACEHOLDER;
+}
+
+function NestedUserMetaHeader({
+  run,
+  message,
+}: {
+  run: SubagentRunDto;
+  message: UiMessage;
+}) {
+  return (
+    <div
+      aria-label="サブエージェントメタデータ"
+      className="flex min-w-0 items-center gap-1.5 text-[11px] whitespace-nowrap text-muted"
+    >
+      <Bot className="h-3.5 w-3.5 shrink-0 text-faint" />
+      <span className="min-w-0 truncate">{run.agent}</span>
+      <span aria-hidden="true">·</span>
+      <span className="shrink-0">{formatMessageTime(message.createdAt)}</span>
+    </div>
+  );
+}
+
 /** 子タイムライン。実行中は末尾に追従する（上へスクロールしたら追従しない）。 */
 function NestedRunTimeline({ run }: { run: SubagentRunDto }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
+  const visibleMessages = useMemo(
+    () => run.messages.filter((message) => !isSubagentPromptPlaceholder(message)),
+    [run.messages],
+  );
   useEffect(() => {
     if (run.status !== "running" || !stickRef.current) return;
     const el = scrollerRef.current;
     if (el) el.scrollTop = clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight);
-  }, [run.messages, run.status, run.currentTool]);
+  }, [visibleMessages, run.status, run.currentTool]);
   return (
     <div
       ref={scrollerRef}
@@ -104,12 +142,22 @@ function NestedRunTimeline({ run }: { run: SubagentRunDto }) {
       className="max-h-72 space-y-3 overflow-y-auto border-t border-border px-3 py-3"
     >
       {run.truncated && <p className="text-[11px] text-faint">（長いため先頭は省略）</p>}
-      {run.messages.length === 0 ? (
+      {visibleMessages.length === 0 ? (
         <p className="text-[11px] text-faint">
           {run.status === "running" ? "作業を開始しています…" : "タイムラインはまだありません"}
         </p>
       ) : (
-        run.messages.map((message) => <PartView key={message.id} message={message} nested />)
+        visibleMessages.map((message) => (
+          <div key={message.id} className="flex min-w-0 flex-col gap-2">
+            {message.role === "user" && <NestedUserMetaHeader run={run} message={message} />}
+            <PartView
+              message={message}
+              modelLabel={run.model}
+              agent={run.agent}
+              nested
+            />
+          </div>
+        ))
       )}
     </div>
   );
@@ -667,7 +715,9 @@ export const PartView = memo(
       <article className="flex min-w-0 flex-col gap-2">
         <div className={cx("flex min-w-0", isUser ? "justify-end" : "justify-start")}>
           {isUser ? (
-            <span className="text-[10px] text-faint">{formatMessageTime(message.createdAt)}</span>
+            !nested && (
+              <span className="text-[10px] text-faint">{formatMessageTime(message.createdAt)}</span>
+            )
           ) : (
             <MessageMetaHeader message={message} modelLabel={modelLabel} effort={effort} agent={agent} />
           )}

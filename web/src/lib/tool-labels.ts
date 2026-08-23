@@ -4,6 +4,28 @@ function asString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+/** Pi の単一実行と workflow/tasks 形式から、最初の子タスクを取り出す。 */
+function firstSubagentTask(input: Record<string, unknown>): Record<string, unknown> | null {
+  if (!Array.isArray(input.tasks)) return null;
+  for (const item of input.tasks) {
+    const task = recordValue(item);
+    if (task) return task;
+  }
+  return null;
+}
+
+function subagentValue(input: Record<string, unknown>, key: string): string | null {
+  return asString(input[key]) ?? asString(firstSubagentTask(input)?.[key]);
+}
+
+function subagentInstruction(input: Record<string, unknown>): string | null {
+  return subagentValue(input, "prompt") ?? subagentValue(input, "task");
+}
+
 /** Return the skill directory name when a read tool is loading a SKILL.md file. */
 export function skillNameFromReadInput(
   tool: string,
@@ -68,12 +90,13 @@ export function toolSummary(tool: string, state: ToolState | undefined): string 
     return todoSummary(input) ?? toolLabel(tool, input);
   }
   if (t.includes("subagent") || t === "task") {
-    const prompt = asString(input.prompt);
+    const instruction = subagentInstruction(input);
     return (
-      asString(input.description) ??
-      asString(input.agent) ??
-      asString(input.subagent_type) ??
-      (prompt ? clip(prompt.replace(/\s+/g, " "), 80) : null) ??
+      subagentValue(input, "description") ??
+      subagentValue(input, "label") ??
+      (instruction ? clip(instruction.replace(/\s+/g, " "), 80) : null) ??
+      subagentValue(input, "agent") ??
+      subagentValue(input, "subagent_type") ??
       "サブエージェント"
     );
   }
@@ -121,10 +144,16 @@ export function toolInputFields(
     return fields;
   }
   if (t.includes("subagent") || t === "task") {
-    add("内容", "description");
-    add("エージェント", "agent");
-    add("エージェント", "subagent_type");
-    add("指示", "prompt", (value) => clip(value, 200));
+    const description = subagentValue(input, "description") ?? subagentValue(input, "label");
+    const instruction = subagentInstruction(input);
+    const agent = subagentValue(input, "agent") ?? subagentValue(input, "subagent_type");
+    if (description) {
+      fields.push({ label: "内容", value: description });
+    } else if (instruction) {
+      fields.push({ label: "内容", value: clip(instruction.replace(/\s+/g, " "), 80) });
+    }
+    if (agent) fields.push({ label: "エージェント", value: agent });
+    if (instruction) fields.push({ label: "指示", value: clip(instruction, 200) });
     return fields;
   }
   if (t.includes("bash") || t.includes("shell")) {
