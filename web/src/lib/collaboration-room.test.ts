@@ -113,7 +113,7 @@ describe("LeafCode room coordinator", () => {
     assert.equal(client.ready, true);
   });
 
-  it("clears an offline Git-change quarantine after the new baseline stays stable", async () => {
+  it("accepts a new git baseline after offline drift without permanent quarantine", async () => {
     repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
     dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
     git(repo, ["init"]);
@@ -138,21 +138,47 @@ describe("LeafCode room coordinator", () => {
       heartbeatAt: new Date().toISOString(),
     }), "utf8");
 
-    const quarantined = await connectRoom(repo, { sessionId: "session-after-crash", pid: process.pid }, env);
-    clients.push(quarantined);
-    assert.match((await quarantined.snapshot()).compromised?.reason ?? "", /offline/i);
-    await quarantined.close();
-    writeFileSync(first.identity.lockPath, JSON.stringify({
-      schema: 1,
-      pid: 2_147_483_647,
-      connectionId: "second-dead-coordinator",
-      epoch: 2,
-      heartbeatAt: new Date().toISOString(),
-    }), "utf8");
-
-    const recovered = await connectRoom(repo, { sessionId: "session-after-stable-restart", pid: process.pid }, env);
+    const recovered = await connectRoom(repo, { sessionId: "session-after-offline-change", pid: process.pid }, env);
     clients.push(recovered);
     assert.equal((await recovered.snapshot()).compromised, undefined);
+    await recovered.reserve(["src/a.ts"]);
+    await recovered.write("src/a.ts", "export const a = 3;\n");
+    assert.equal(readFileSync(join(repo, "src/a.ts"), "utf8"), "export const a = 3;\n");
+  });
+
+  it("clears a persisted offline quarantine on the next heartbeat", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 1;\n");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const identity = await resolveProjectIdentity(repo, env);
+    mkdirSync(identity.roomDir, { recursive: true });
+    writeFileSync(identity.snapshotPath, JSON.stringify({
+      schema: 1,
+      projectKey: identity.projectKey,
+      epoch: 3,
+      seq: 0,
+      head: { branch: "master", oid: execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8", windowsHide: true }).trim() },
+      sessions: {},
+      tasks: {},
+      leases: {},
+      pendingAsks: [],
+      activity: [],
+      updatedAt: new Date().toISOString(),
+      refFingerprint: "stale-fingerprint",
+      compromised: { reason: "HEAD or refs changed while the coordinator was offline.", at: new Date().toISOString() },
+    }), "utf8");
+
+    const client = await connectRoom(repo, { sessionId: "session-recover-quarantine", pid: process.pid }, env);
+    clients.push(client);
+    assert.equal((await client.snapshot()).compromised, undefined);
+    await client.reserve(["src/a.ts"]);
   });
 
   it("runs a fixed check and commits only the selected lease paths", async () => {

@@ -872,7 +872,6 @@ class Coordinator {
   constructor(
     private readonly identity: ProjectIdentity,
     private readonly config: CollaborationConfig,
-    private readonly cleanRestart: boolean,
   ) {
     this.state = emptySnapshot(identity.projectKey);
   }
@@ -890,8 +889,6 @@ class Coordinator {
       this.state = loadSnapshot(this.identity);
       this.pendingAsks.clear();
       this.state.pendingAsks = [];
-      const savedHead = this.state.head;
-      const savedRefFingerprint = this.state.refFingerprint;
       this.state.epoch += 1;
       for (const session of Object.values(this.state.sessions)) session.state = "offline";
       for (const lease of Object.values(this.state.leases)) {
@@ -902,12 +899,7 @@ class Coordinator {
       this.state.head = currentGitState.head;
       this.state.refFingerprint = currentGitState.refFingerprint;
       this.refFingerprint = currentGitState.refFingerprint;
-      const headChanged = Boolean(savedHead.oid && savedHead.oid !== currentGitState.head.oid) || Boolean(savedHead.branch && savedHead.branch !== currentGitState.head.branch);
-      const gitChanged = Boolean(savedRefFingerprint && savedRefFingerprint !== currentGitState.refFingerprint) || headChanged;
-      if (!gitChanged && this.state.compromised?.reason === OFFLINE_GIT_CHANGE_REASON) delete this.state.compromised;
-      if (!this.cleanRestart && !this.state.compromised && gitChanged) {
-        this.markCompromised(OFFLINE_GIT_CHANGE_REASON, "coordinator");
-      }
+      this.clearOfflineGitQuarantine();
       this.writeLock();
       if (process.platform !== "win32") fs.rmSync(this.identity.socketPath, { force: true });
       this.server = net.createServer((socket) => this.handleSocket(socket));
@@ -1068,6 +1060,11 @@ class Coordinator {
     return this.state;
   }
 
+  private clearOfflineGitQuarantine(): void {
+    if (this.state.compromised?.reason !== OFFLINE_GIT_CHANGE_REASON) return;
+    delete this.state.compromised;
+  }
+
   private heartbeat(sessionId: string, payload: Record<string, unknown>): RoomSnapshot {
     const session = this.state.sessions[sessionId]!;
     const timestamp = now();
@@ -1091,6 +1088,7 @@ class Coordinator {
     if (session.state !== "away" && Date.now() - Date.parse(session.lastProgressAt) >= this.config.stuckAfterMs) session.state = "stuck";
     this.validateActiveLeases();
     this.expireCleanLeases();
+    this.clearOfflineGitQuarantine();
     this.touch("heartbeat", sessionId, []);
     return this.state;
   }
@@ -1939,9 +1937,8 @@ export async function connectRoom(
   const config = readCollaborationConfig(env);
   const identity = await resolveProjectIdentity(cwd, env);
   fs.mkdirSync(identity.roomDir, { recursive: true, mode: 0o700 });
-  let uncleanTakeover = false;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const coordinator = new Coordinator(identity, config.config, !uncleanTakeover && !fs.existsSync(identity.lockPath));
+    const coordinator = new Coordinator(identity, config.config);
     try {
       await coordinator.start();
       return await RoomClient.connect(identity, session, coordinator, undefined, config.config);
@@ -1949,10 +1946,7 @@ export async function connectRoom(
       await coordinator.close();
       if (!(error instanceof LockHeldError)) throw error;
     }
-    if (takeOverStaleLock(identity)) {
-      uncleanTakeover = true;
-      continue;
-    }
+    if (takeOverStaleLock(identity)) continue;
     try {
       const channel = await JsonRpcChannel.connect(identity.socketPath);
       return await RoomClient.connect(identity, session, undefined, channel, config.config);

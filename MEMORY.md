@@ -1,5 +1,91 @@
 # MEMORY
 
+## 2026-08-22: DeepSeek-V4-Flash REAP-150B の速度実測（結論: 実用外・不採用）
+
+`puwaer/DeepSeek-V4-Flash-0731-reap-150b-gguf` の IQ3_XXS（67.0GB / 62.4GiB）をDLし llama.cpp Vulkan で実測。
+
+### 実測値（-c 16384、Vulkan build 10488）
+
+| 構成 | prefill | 生成 |
+|---|---|---|
+| `-ngl 99 -ncmoe 43`（MoE全部CPU） | **39.3 tok/s** | **3.81 tok/s** |
+| `-ngl 99 -ncmoe 26`（一部VRAM） | 15.0 tok/s（悪化） | 4.15 tok/s |
+| 参考: Ornith-1.5-35B-A3B | — | 111 tok/s |
+| 参考: Qwen3.8-27B + draft-mtp | — | 63〜68 tok/s |
+
+### 不採用の理由
+
+- 生成 3.8〜4.2 tok/s = 現行の **1/27〜1/17**。10kコンテキスト+1k出力の1ターンで約9分かかり、エージェント用途に耐えない
+- `-ncmoe` を下げてVRAMにエキスパートを載せると生成は微増（3.81→4.15）だが prefill が 39→15 tok/s に悪化。VRAM 32GB では両立不可
+- Vulkan で DeepSeek-V4 の融合opsが未対応: 起動ログに `Lightning Indexer not supported, set to disabled`、`fused DeepSeek V4 HC pre/comb/post not supported` → CPUフォールバック
+- MTP モジュールが GGUF に含まれない（カード記載）ため `--spec-type draft-mtp` による高速化も使えない
+- 初回リクエストの prompt_per_second（1.06 tok/s）はウォームアップ込みの見かけ値。2回目以降は39 tok/s
+
+### 学び
+
+- 活性6/132エキスパート（約6.5B活性）でも、IQ3_XXSでRAM常駐だとDDR5帯域律速で1桁 tok/s に留まる
+- GGUFカードの「Full GPU offload (`-ngl 99`) is what this pipeline verified against」は文字通りで、96GB級VRAM前提。32GB VRAM + 96GB RAM 構成では性能が出ない
+- FreeToken（NVIDIA+Linux専用）が狙っていた領域そのもので、llama.cpp の素の CPU オフロードでは代替できない
+
+### 残置物
+
+- モデルファイル 67GB は `C:\Users\Daichi\models\llm\DeepSeek-V4-Flash-0731-reap-150b-GGUF\` に保持（削除はユーザー判断待ち）
+
+## 2026-08-22: コーディング性能で現行2モデルを上回る候補の調査（結論: 同サイズ帯に無し）
+
+調査対象は 32GB VRAM / 96GB RAM で動く GGUF。HF API と各モデルカードの実測値ベース。
+
+### 現行2モデル（いずれも 2026-08 の最新世代フラッグシップ）
+
+- Ornith-1.5-35B-A3B（8/18）: SWE-bench Verified 79 / Pro 59.6 / Terminal-Bench 2.1 67.8-68.5（OpenHands・Claude Code）
+- Qwen3.8-27B（8/5）: SWE-bench Pro 61.7 / TB2.1 73.0 / LiveCodeBench v6 90.3 / QwenSWEBench 79（Claude Code）
+
+### コーディング特化系は全て 1 世代前ベースで下位
+
+- Kwaipilot/KAT-Coder-V2.5-Dev（7/23, 35B-A3B, base Qwen3.6-35B-A3B, arch qwen35moe, 256k）: 自社統一harness で SWE-V 69.40 / Pro 45.96 / TB2.1 41.02。同harnessの Qwen3.6-35BA3B は Pro 40.63 だが Ornith カードでは同モデル 49.5 → harness差 約9pp。補正しても Pro 約55 で現行2モデル未満
+- Jackrong/Qwopus3.6-35B-A3B-Coder-MTP（6/29）: SWE-bench 62.4%（300問, thinking off, Q5_K_M）
+- ManniX-ITA/Qwen3.6-27B-A3B-CoderX-MTP（8/21, 256e→184e prune）: LiveCodeBench v6 0.727（Qwen3.8 は 0.903）、HumanEval+ 0.970
+- Qwen3-Coder-Next（2026-02, 80B-A3B, arch qwen3next）: 旧世代かつ 4bit で 45GB 超
+
+### 唯一の上位候補: DeepSeek-V4-Flash-0731（REAP-150B GGUF）
+
+- 本家スコア: Terminal Bench 2.1 = 82.7 / DeepSWE 54.4（Qwen3.8: 73.0/42.2、Ornith-1.5: 67.8/22）
+- GGUF: puwaer/DeepSeek-V4-Flash-0731-reap-150b-gguf → Q2_K 62.4GB / IQ3_XXS 67.0GB / Q3_K_M 70.9GB / MXFP4_MOE 85GB
+- config: 43層 / hidden 4096 / 256 routed experts（REAP後 132）/ 6 experts per token + shared 1 / 1M ctx → 活性 約10-12B/token
+- 32GB VRAM + 96GB RAM = 128GB なので Q3_K_M まで載るが MoE の CPU 退避（--n-cpu-moe）必須。速度は要実測（Ornith 111 tok/s から大幅低下見込み）
+- `--reasoning-format deepseek` 指定が必要。REAP＋低ビット量子化の劣化リスクあり
+
+### 除外理由
+
+- GLM-5.2（SWE-Pro 62.1 / TB2.1 81.0）: arch `glm_moe_dsa` が手元 llama.dll に無く非対応。REAP50 でも 504B級
+- Kimi-K3: GGUF 無し（MLX のみ）
+- DFlash2 draft（HumanEval 3.11× 高速化）: SGLang/vLLM 専用。llama.cpp では MTP が現行最善（導入済み）
+
+### llama.cpp build 10488 の対応アーキ（llama.dll 内文字列で確認）
+
+`deepseek4` / `deepseek2` / `qwen35moe` / `qwen3next` / `glm4moe` / `kimi-k2` は有り。`glm_moe_dsa` / `glm5moe` は無し。
+なお `llama-server.exe` 側には arch 文字列が無い（薄いランチャ）ため、対応確認は llama.dll を見る。
+
+## 2026-08-22: leafcode-subagents を WebUI 必須拡張に指定（9bd6c71）
+
+- `WEBUI_REQUIRED_EXTENSIONS` に leafcode-subagents を追加 → 設定画面で無効化不可（goal-loop/todowrite/permission-gate と同様）
+- Composer 既定表示の調査: ホームは c97d8f7 で build 既定化済み。settings.json に build の disabled override は無く、`/api/agents` は build を有効で返す。「エージェント」表示のままだったのは WebUI 再起動前の旧ビルド観察（3010 は現在停止中）。TaskView は task.agent 反映仕様（agent 無しの旧タスクは「エージェント」表示が正）
+
+## 2026-08-22: leafcode-subagents へ完全移行・pi-subagents 本体削除
+
+- `~/.pi/agent/settings.json` packages: `npm:pi-subagents` を外し `..\..\OneDrive\AI\Pi\LeafCodePi\extensions\leafcode-subagents`（leafcode-todowrite と同形式の agentDir 相対パス）を追加
+- `~/.pi/agent/npm/node_modules/pi-subagents` 本体を削除。skills/prompts/extensions/agents の供給源はすべて fork 一元化
+- 検証（DefaultResourceLoader 直叩き）: fork 拡張は packages 由来と additionalExtensionPaths 由来で同一パスに dedupe（FORK EXT ENTRIES=1、二重ロード無し）。skills に council-mode/pi-subagents、prompts に council 等が fork 側から読める。active tools に subagent 登録 ✓
+- リポジトリ側コード変更は無し（前コミット c97d8f7 の harness フィルタ・agents 発見がそのまま機能）。harness の npm 版除外フィルタと bundledForkAgentsDir は将来の npm 再インストール時の保険として保持
+
+## 2026-08-22: pi-subagents を leafcode-subagents として同梱・build 既定化（c97d8f7）
+
+- pi-subagents v0.53.0 を `extensions/leafcode-subagents/` へ取り込み（docs/CHANGELOG/install.mjs 除く）。今後の改造はここで行う。package.json は改名+private 化、`dependencies`（acorn/jiti/typebox/yaml）はローカル npm install で復活（jiti loader が拡張ファイル基点で依存解決するため yaml 等が無いと `Cannot find module 'yaml'` で起動死する）
+- harness: 同梱 fork があるとき extensionsOverride で npm の pi-subagents 拡張を除外 → subagent/subagent_wait ツールの二重登録防止。検証済み: createAgentSession で active tools に subagent 単独登録
+- agents 一覧: fork 同梱 `extensions/leafcode-subagents/agents/` を npm パッケージより先に push し同名は fork 側優先。user 定義が最優先は不変
+- Composer のエージェント選択を **build 既定**（本家 LeafCode 準拠）。`web/src/lib/default-agent.ts`（DEFAULT_AGENT="build" + localStorage `leafcodepi.defaultAgent`）。HomeView は stored→build フォールバック、TaskView は task.agent を初期反映し変更時 localStorage 更新
+- skills/prompts は ~~settings.json packages の `npm:pi-subagents` 由来のまま~~ → 完全移行セクション（冒頭）参照。fork 一元化済み
+
 ## 2026-08-22: 思考必須モデルの 400 フォールバック（19b5197）
 
 - `queuePrompt`（全プロンプトの共通経路）で `Reasoning is mandatory ... cannot be disabled` の 400 を検出したら、思考レベルを対応最下位（非off）に引き上げて同じプロンプトを一度だけ再試行。`live.reasoningFallbackTried` で無限ループ防止。UI へ `thinking_level_changed` スナップショット通知
@@ -930,3 +1016,78 @@ bat を再構成: start 行を `:launch` ラベルに集約し、ヘルス待ち
 - webテストは happy-dom + @testing-library/react を devDependencies に追加して tsx テストに対応
 - 導入ボタン追加（5ff6b7d）: host translation-service.install() が install.py をバックグラウンド実行、status().installState/installError をポーリング表示。設定「一般」タブの未導入時のみボタン出現
 - 設定コンポーネントテスト追加（f89d4f4）。tsxテストは @vitest-environment happy-dom ディレクティブ方式
+
+## 2026-08-23: 入力欄に戻す 404 修正（dadbfde）
+
+- 原因: Pi の UserMessage/AssistantMessage には id フィールドが無く、projectPiMessages の仮 id `msg-N` と messageEntryById の `entry.message.id` 照合が常に不一致 → revert が必ず 404
+- 修正: snapshotMessages が entry.message 参照一致で UiMessage.id をセッションエントリ id で上書き（buildSessionContext が entry.message を参照渡しするため成立）。messageEntryById は entry.id 直照合 + 旧 `msg-N` は getBranch フォールバック
+- 注意: 圧縮後は state.messages 先頭に合成サマリが入るため `msg-N` フォールバックの index はずれ得る（通常経路はエントリ id なので無影響）
+
+## 2026-XX-XX: 本家 LeafCode の通知音機能を移植（d4d9d93）
+- WebAudio 生成音（standard/soft/clear × 音量 0–200%）。`session-complete-sound.ts` / `notification-sound-settings.ts` / `setting-sync.ts` / `notify.ts` は本家からほぼ無修正コピー
+- サーバ永続化は本家の settings 表ではなく `web-settings.json`（hang-settings と共有）+ `/api/settings/[key]` ルート（許容キー: notification-sound-type/volume のみ）
+- `sendJson` の引数順が本家と違う（path, body, method）ため setting-sync 呼び出しとテスト期待値を修正
+- TaskView へ配線: working→idle で完了音、permissionRequest 立上がりで注意音、デスクトップ通知（Notification API、非表示タブのみ）
+- テストは本家からコピー + 冒頭に `// @vitest-environment happy-dom`（Pi は node 既定）
+- 環境注意: この PC はシェルの NODE_ENV=production のため vitest が React 本番ビルドを読み Component テストが落ちる。`NODE_ENV=test npx vitest run` で実行すること（webui-auth.test.ts 1件は WEBUI_AUTH env 由来で別途落ちる）
+
+## 2026-08-23: Qwen3 reasoning budget / structured output / vLLM 調査
+
+### 確認結果
+
+- vLLM の Qwen3 は `--reasoning-parser qwen3` で reasoning を抽出でき、`thinking_token_budget` をリクエストごとの推論トークン上限に使える。上限到達時は `reasoning_end_str` を強制して回答へ移る。`--reasoning-config` は境界文字列の設定。
+- vLLM の structured output は `structured_outputs: { json: schema }`（または `response_format`）による生成時制約。Qwen3 Coder の reasoning 併用時は `--structured-outputs-config.enable_in_reasoning=True` が必要な場合がある。
+- vLLM の custom logits processor は起動時に `--logits_processors module:Class` でロードし、リクエストごとの引数は `vllm_xargs` で渡す。現行 API は変更中で、batch-level の `apply/update_state` 実装が必要。動的に後付けロードはできない。
+- vLLM は Windows native 非対応。現行の Windows + Vulkan llama.cpp 環境から移行するなら WSL/Linux、または別ホストの vLLM を使う必要がある。
+
+### LeafCodePi との対応
+
+- `extensions/leafcode-subagents/src/runs/shared/structured-output.ts` と `subagent-prompt-runtime.ts` の structured output は、`structured_output` ツール呼び出し → TypeBox JSON Schema 検証 → 一時 JSON ファイル保存の方式。vLLM の token-level grammar 制約ではない。
+- `@earendil-works/pi-ai` 0.84.2 には `supportsThinkingTokenBudget` と `thinkingBudgets` の vLLM 経路が既にある。デフォルトは minimal 1024 / low 2048 / medium 8192 / high 16384、回答用に最低 1024 token を残す。
+- `web/src/lib/pi/llama-provider.ts` は現在 llama.cpp 専用で、Qwen の `reasoning_effort` を `chat_template_kwargs` へ変換する。llama.cpp が `thinking_token_budget` を受け付ける実測は未確認のため、現 provider に vLLM budget flag を有効化しない。
+
+### 結論
+
+- 今回は production code を変更しない。現行 Qwen + llama.cpp の `effort=low` と既存の turn/tool budget を維持する。
+- vLLM を試す段階では、llama provider に混ぜず別 provider として接続し、`supportsThinkingTokenBudget: true` と `thinkingBudgets` を設定して実HTTP検証する。
+- custom logits processor は vLLM の別ホストが動き、状態アクション用の `vllm_xargs` 契約と性能測定が固まってから追加する。
+
+## 2026-XX-XX: 質問（ask_user）機能 + グローバル注意喚起を追加（0b42962）
+- `extensions/leafcode-ask-user`: registerTool ask_user。WebUI モードでは permission-gate と同じグローバルブリッジ（`__leafcodeWebUiQuestionHandler`）で harness へ。TUI は ctx.ui.select/input
+- `web/src/lib/pi/question-prompt.ts`: permission-prompt と同型のタスク別キュー。5 分タイムアウト＝null（拒否扱い）。SSE snapshot に questionRequest、API は POST /api/tasks/[id]/question {requestId, answers|reject}
+- TaskView: QuestionCard（本家移植・quick reply/自由入力対応）。attention = permission || question で注意音・デスクトップ通知
+- GlobalAttentionProvider 相当: `/api/tasks?attention=1` を 4 秒ポーリング → 新規アイテムで注意音＋モーダル自動オープン（入力中は focusout 後に再試行）。表示中タスク自身の要求は音を鳴らさない（TaskView 側と二重再生防止）
+- 拡張の型チェックは web の tsconfig が効かないため paths マップした一時 tsconfig で検証した（リポジトリに常設はしていない）
+
+## 2026-08-22: leafcode-subagents 拡張の動作検証（ALL PASS）
+
+DefaultResourceLoader 直叩き（settings.json packages の agentDir 相対パス経由、harness と同じ extensionsOverride で dirname 重複排除を適用）で確認:
+
+- fork 拡張は `extensions/leafcode-subagents/index.ts` から単一ロード、tools=[subagent, subagent_wait] 登録 ✓
+- npm 版 pi-subagents の混入無し（二重登録なし）✓
+- skills: council-mode / pi-subagents、prompts: council / gather-context-and-clarify / parallel-cleanup / parallel-research / parallel-review / review-loop が fork 側から読める ✓
+- createAgentSession（subagentPermission=allow 時と同じ allowlist）で active tools に subagent 登録 ✓
+- 検証スクリプトは一時ファイルとして作成し実行後削除済み
+
+### 副次所見（leafcode-todowrite の環境重複・要整理）
+
+`~/.pi/agent/extensions/leafcode-todowrite/` と settings.json packages の repo 相対パスの両方に leafcode-todowrite があり、ロード時に Tool "todowrite" conflict エラーが記録される。WebUI harness の override で ~/.pi 側が生きるため機能はするが、packages エントリか ~/.pi 側フォルダのどちらかを削除すべき。
+
+## 2026-08-23: leafcode-collaboration オフライン quarantine 永久化バグ修正
+
+### 症状
+- `leafcode_collab` status は「coordinator ready」と返すが、`reserve` / `leafcode_write` / `leafcode_edit` が `Room mutation is disabled: HEAD or refs changed while the coordinator was offline.` で拒否される
+- `%APPDATA%\leafcode-pi\rooms\<key>\snapshot.json` に `compromised` が永続化されたままコーディネータが稼働し続ける
+
+### 根本原因
+4634ec8 の「2 回再起動で quarantine 解除」設計が、本番ではコーディネータがセッション接続中に再起動しないため永久ブロックになる。コーディネータ外の git commit（例: 4634ec8 自身）後の 1 回目の takeover で `compromised` が付き、2 回目の restart が来ない限り解除されない。
+
+### 修正
+- オフライン git drift では `compromised` を付けない（lease orphan + baseline 同期で十分）
+- coordinator 起動時と heartbeat で `OFFLINE_GIT_CHANGE_REASON` の persisted quarantine を自動解除
+- `leafcode_collab status` が `compromised` 時は「mutation disabled」を明示返却
+
+### 検証
+- `collaboration-room.test.ts` 13/13 PASS（オフライン drift 後即 reserve/write、persisted quarantine 解除）
+- `index.test.ts` PASS
+- 本番 snapshot 確認: head=4634ec8, compromised 付き → 修正後は起動/heartbeat で解除

@@ -108,6 +108,16 @@ async function statusResult(ctx: ExtensionContext): Promise<AgentToolResult<Reco
   }
   try {
     const current = await state.client.snapshot();
+    if (current.compromised) {
+      return result(`LeafCode collaboration Phase 3 (${state.mode}); mutation disabled: ${current.compromised.reason}`, {
+        ...base,
+        ...room,
+        ready: true,
+        degraded: true,
+        compromised: current.compromised,
+        snapshot: current,
+      });
+    }
     return result(`LeafCode collaboration Phase 3 (${state.mode}); coordinator ready.`, {
       ...base,
       ...room,
