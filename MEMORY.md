@@ -160,3 +160,27 @@ npm --prefix web test -- --run src/lib/collaboration-room.test.ts ../extensions/
 ### runtime WeakMap キー（ea1746f、不十分）
 - `WeakMap<sessionManager>` では、sessionManager 自体が tool ごとに新しい場合に再発する
 - sessionId + cwd の Map に置き換えた（上記 2026-08-23 節）
+
+## 2026-08-23: 協調「競合1件」の解消手段が UI に無かった
+
+バッジとバナーが `leaseConflicts` の件数だけ出し、どのファイルか・どう直すかを示していなかった。`takeover` は Phase 3 未実装で、エージェントの `leafcode_collab release` も clean lease 以外は失敗する。
+
+### 仕様
+
+件数は `invalid` / `orphaned` のファイル予約。切断後に残った予約、または予約後の外部変更。自動では消えない。
+
+### 修正
+
+- GET `/api/collaboration` が衝突の所有者・パス・状態を返す
+- タスク画面の警告に説明と「予約を解除」を出した。作業ツリーは残す
+- POST `/api/collaboration` `{ action: "discard", leaseId }` が coordinator 経由で orphaned/invalid だけ released にする
+- 所有セッションを再開して同じパスを `reserve` すれば従来どおり回収できる
+
+### 検証
+
+```
+npx vitest run src/lib/collaboration-room.test.ts src/lib/collaboration-room-status.test.ts src/components/CollaborationStatus.test.tsx
+```
+
+28 tests passed。localhost:3011 のホームは回帰なし（このデータディレクトリにはプロジェクトも衝突も無い）。
+

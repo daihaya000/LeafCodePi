@@ -419,6 +419,29 @@ describe("LeafCode room coordinator", () => {
     assert.equal(readFileSync(join(repo, "src/a.ts"), "utf8"), "export const a = 3;\n");
   });
 
+  it("lets another session discard an orphaned lease", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 1;\n");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const first = await connectRoom(repo, { sessionId: "session-owner", displayName: "Owner", pid: process.pid }, env, { connectionId: "owner-connection" });
+    clients.push(first);
+    const lease = await first.reserve(["src/a.ts"]);
+    await first.write("src/a.ts", "export const a = 2;\n");
+    await first.close();
+    const other = await connectRoom(repo, { sessionId: "session-other", displayName: "Other", pid: process.pid }, env, { connectionId: "other-connection" });
+    clients.push(other);
+    assert.equal((await other.snapshot()).leases[lease.id]?.state, "orphaned");
+    const discarded = await other.discard(lease.id);
+    assert.equal(discarded.state, "released");
+    assert.equal((await other.snapshot()).leases[lease.id]?.state, "released");
+    await assert.rejects(() => other.discard(lease.id), /discard/i);
+  });
 
   it("runs and guards the configured Git hook", async () => {
     repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));

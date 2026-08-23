@@ -36,7 +36,10 @@ describe("readCollaborationRoom", () => {
         b: { state: "away", displayName: "Beta" },
         c: { state: "offline", displayName: "Offline" },
       },
-      leases: { clean: { state: "dirty" }, conflict: { state: "orphaned" } },
+      leases: {
+        clean: { state: "dirty", ownerSessionId: "a", selectors: ["src/ok.ts"] },
+        conflict: { state: "orphaned", ownerSessionId: "c", selectors: ["src/held.ts"] },
+      },
       pendingAsks: [{ requestId: "ask-1", expiresAt: new Date(Date.now() + 60_000).toISOString() }],
       activity: [{ kind: "ask", paths: [] }],
     }), "utf8");
@@ -47,6 +50,14 @@ describe("readCollaborationRoom", () => {
       sessionNames: ["Alpha", "Beta"],
       leaseConflicts: 1,
       pendingAsks: 1,
+      conflicts: [{
+        leaseId: "conflict",
+        state: "orphaned",
+        ownerSessionId: "c",
+        ownerName: "Offline",
+        ownerOnline: false,
+        paths: ["src/held.ts"],
+      }],
       epoch: 4,
       updatedAt: JSON.parse(readFileSync(snapshotPath, "utf8")).updatedAt,
     });
@@ -61,6 +72,7 @@ describe("readCollaborationRoom", () => {
     assert.equal(room.peers, 0);
     assert.deepEqual(room.sessionNames, []);
     assert.equal(room.pendingAsks, 0);
+    assert.deepEqual(room.conflicts, []);
   });
 
   it("does not leak git stderr for a non-repository", () => {

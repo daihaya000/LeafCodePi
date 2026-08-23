@@ -210,7 +210,7 @@ export function TaskView({
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequestDto | null>(null);
   const [questionRequest, setQuestionRequest] = useState<QuestionRequestDto | null>(null);
   const [permissionBusy, setPermissionBusy] = useState(false);
-  const collaborationRoom = useCollaborationRoom(active ? task?.projectId : null);
+  const { room: collaborationRoom, refresh: refreshCollaborationRoom } = useCollaborationRoom(active ? task?.projectId : null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
@@ -1083,7 +1083,11 @@ export function TaskView({
           className="min-h-0 flex-1 overflow-y-auto px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4"
         >
           <div ref={contentRef} className="relative mx-auto flex max-w-5xl flex-col gap-4">
-            <CollaborationNotice room={collaborationRoom} />
+            <CollaborationNotice
+              projectId={active ? task?.projectId : null}
+              room={collaborationRoom}
+              onResolved={() => void refreshCollaborationRoom()}
+            />
             {hangRetryNotice && (
               <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
                 {hangRetryNotice}

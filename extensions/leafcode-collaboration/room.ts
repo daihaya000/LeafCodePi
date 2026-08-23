@@ -1059,6 +1059,7 @@ class Coordinator {
       case "claim": return this.claim(request.sessionId, payloadObject(request.payload));
       case "reserve": return this.reserve(request.sessionId, payloadObject(request.payload));
       case "release": return this.release(request.sessionId, payloadObject(request.payload));
+      case "discard": return this.discard(request.sessionId, payloadObject(request.payload));
       case "mutate_write": return this.mutate(request.sessionId, payloadObject(request.payload), "write");
       case "mutate_edit": return this.mutate(request.sessionId, payloadObject(request.payload), "edit");
       case "check": return this.check(request.sessionId, payloadObject(request.payload));
@@ -1516,6 +1517,20 @@ class Coordinator {
     if (!lease || lease.ownerSessionId !== sessionId) throw new RoomError("lease_not_owned", "Lease is not owned by this session.");
     if (lease.state !== "active") throw new RoomError("lease_not_clean", `Lease cannot be released from state '${lease.state}'.`);
     lease.state = "released";
+    lease.renewedAt = now();
+    this.touch("release", sessionId, lease.selectors);
+    return lease;
+  }
+
+  private discard(sessionId: string, payload: Record<string, unknown>): FileLease {
+    const leaseId = requireString(payload.leaseId, "leaseId", 100);
+    const lease = this.state.leases[leaseId];
+    if (!lease) throw new RoomError("lease_not_found", "Lease was not found.");
+    if (lease.state !== "orphaned" && lease.state !== "invalid") {
+      throw new RoomError("lease_not_discardable", `Lease cannot be discarded from state '${lease.state}'.`);
+    }
+    lease.state = "released";
+    lease.epoch = this.state.epoch;
     lease.renewedAt = now();
     this.touch("release", sessionId, lease.selectors);
     return lease;
@@ -1991,6 +2006,10 @@ export class RoomClient {
     return (await this.request("release", { leaseId })).value as FileLease;
   }
 
+  async discard(leaseId: string): Promise<FileLease> {
+    return (await this.request("discard", { leaseId })).value as FileLease;
+  }
+
   async updatePresence(update: PresenceUpdate): Promise<void> {
     await this.request("heartbeat", update);
   }
@@ -2102,8 +2121,10 @@ export class RoomClient {
       if (code === "stale_epoch" || code === "session_not_joined" || code === "room_disconnected") this.connected = false;
       throw new RoomError(code || "room_error", response.error?.message || "Room request failed.", response.error?.details);
     }
-    const result = (response.result ?? {}) as { epoch?: unknown; snapshot?: RoomSnapshot; value?: unknown };
-    if (typeof result.epoch === "number") this.epoch = result.epoch;
+    const result = (response.result ?? {}) as { epoch?: unknown; snapshot?: RoomSnapshot; value?: unknown; sessions?: unknown; leases?: unknown };
+    if (typeof result.epoch === "number" && (joining || result.snapshot || result.sessions !== undefined || result.leases !== undefined)) {
+      this.epoch = result.epoch;
+    }
     return { epoch: this.epoch, snapshot: result.snapshot ?? (result as unknown as RoomSnapshot), value: result.value ?? result };
   }
 }
