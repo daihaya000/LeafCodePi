@@ -1,5 +1,46 @@
 # LeafCodePi メモリ
 
+## 2026-08-23: leafcode-collaboration 徹底バグハント
+
+reserve 直後 edit 失敗の続き。コード・IPC・再接続・Windows パス・lock を洗い、実害のある残件を直した。
+
+### 今回潰した欠陥
+
+1. **pipe 再接続で旧 socket の close が session を offline にし lease を orphan する**  
+   同じ `connectionId` の再 join 後に古い close が `markDisconnected` していた。  
+   現行 socket だけ切断扱いし、切断を `operationTail` に載せる。同じ connectionId で join したら orphan を復元する。
+2. **再接続が `leave` を送り clean lease を released にする**  
+   `connectRuntime` は `disconnect()`（leave なし）を使う。
+3. **最後の leave の `setTimeout(close)` が直後の join を殺す**  
+   遅延 close は世代番号と「誰か online か」を再確認する。
+4. **runtime key が cwd 文字列**  
+   trailing slash / サブディレクトリで RoomClient が分裂する。key は sessionId + git `projectKey`。
+5. **空・壊れた lock を stale と見なさない**  
+   ファイルはあるが parse できない lock を takeover 可能にした。
+6. **生きた coordinator の listen 前に即 degraded**  
+   IPC 失敗時は短く再試行する。
+7. **check/commit の pipe RPC が 5s で切れる**  
+   check/commit は `CHECK_TIMEOUT_MS + 10s`。
+8. **Git パス大小文字で observed が汚染される**  
+   `normalizeGitPath` / `updateLeaseObservation` を `relativeKey` に統一。index 指紋は status の後に取る。
+9. **`requireRoom` が degraded 理由を捨てる**  
+   `connectError` / `degradedReason` を例外に含める。
+
+### 検証
+
+```
+npm --prefix web test -- --run src/lib/collaboration-room.test.ts src/lib/collaboration-config.test.ts src/lib/collaboration-room-status.test.ts ../extensions/leafcode-collaboration/index.test.ts
+```
+
+27 tests passed。新規: trailing-slash/subdir cwd、空 lock takeover、同一 connectionId の pipe 再接続。
+
+### 残る制約（仕様または環境）
+
+- dirty/orphaned lease の他セッション takeover は仕様どおり未実装。死んだ agent の dirty path は同じ session の再 reserve が必要
+- PID 再利用で lock が生きて見える場合は、再試行後も degraded になり得る
+- Windows で git スキャンが稀に `git_state` になるのは並列テスト負荷のフレーク。単体再実行では成功する
+- hardlink (`nlink > 1`) は予約・編集できない
+
 ## 2026-08-23: leafcode-collaboration が reserve 直後に edit できない
 
 報告: `leafcode_collab reserve` は成功するが、続けて `leafcode_edit` が

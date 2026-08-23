@@ -113,6 +113,49 @@ describe("LeafCode room coordinator", () => {
     assert.equal(client.ready, true);
   });
 
+  it("takes over an empty lock file instead of staying degraded", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 1;\n");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const identity = await resolveProjectIdentity(repo, env);
+    mkdirSync(identity.roomDir, { recursive: true });
+    writeFileSync(identity.lockPath, "", "utf8");
+    const client = await connectRoom(repo, { sessionId: "session-empty-lock", displayName: "Empty", pid: process.pid }, env);
+    clients.push(client);
+    assert.equal(client.ready, true);
+    await client.reserve(["src/a.ts"]);
+    await client.write("src/a.ts", "export const a = 2;\n");
+  });
+
+  it("keeps a reserved lease across a pipe reconnect with the same connectionId", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 1;\n");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const host = await connectRoom(repo, { sessionId: "session-host", displayName: "Host", pid: process.pid }, env);
+    clients.push(host);
+    const connectionId = "stable-pipe-connection";
+    const pipe = await connectRoom(repo, { sessionId: "session-pipe", displayName: "Pipe", pid: process.pid }, env, { connectionId });
+    clients.push(pipe);
+    await pipe.reserve(["src/a.ts"]);
+    await pipe.disconnect();
+    const reconnected = await connectRoom(repo, { sessionId: "session-pipe", displayName: "Pipe", pid: process.pid }, env, { connectionId });
+    clients.push(reconnected);
+    await reconnected.edit("src/a.ts", "1", "2");
+    assert.equal(readFileSync(join(repo, "src/a.ts"), "utf8"), "export const a = 2;\n");
+  });
+
   it("accepts a new git baseline after offline drift without permanent quarantine", async () => {
     repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
     dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));

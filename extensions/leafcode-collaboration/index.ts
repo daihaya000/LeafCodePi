@@ -5,7 +5,7 @@ import {
   type LeafCodeCollaborationMode,
 } from "./contract.ts";
 import { COLLABORATION_CHECK_IDS, readCollaborationConfig, type CollaborationCheckId } from "./config.ts";
-import { connectRoom, roomDegradedStatus, type PresenceUpdate, type RoomClient, type RoomMessage } from "./room.ts";
+import { connectRoom, resolveProjectIdentity, roomDegradedStatus, type PresenceUpdate, type RoomClient, type RoomMessage } from "./room.ts";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
@@ -19,9 +19,11 @@ type RuntimeState = {
   client?: RoomClient;
   connectError?: string;
   connectionId?: string;
+  connecting?: Promise<void>;
 };
 
 const runtimeStatesBySession = new Map<string, RuntimeState>();
+const projectKeysByCwd = new Map<string, string>();
 const POLICY = [
   "This is a shared LeafCodePi checkout.",
   'Call leafcode_collab({ action: "status" }) before editing.',
@@ -30,14 +32,30 @@ const POLICY = [
   "Do not request worktree isolation. If a lease or commit is blocked, report the conflict instead of bypassing it.",
 ].join("\n");
 
-function runtimeKey(ctx: ExtensionContext): string {
-  const sessionId = ctx.sessionManager.getSessionId();
-  const cwd = path.normalize(ctx.cwd);
-  return `${sessionId}\n${process.platform === "win32" ? cwd.toLowerCase() : cwd}`;
+function canonicalizeCwd(cwd: string): string {
+  const normalized = path.normalize(cwd);
+  const { root } = path.parse(normalized);
+  const trimmed = normalized.endsWith(path.sep) && normalized !== root ? normalized.slice(0, -path.sep.length) : normalized;
+  return process.platform === "win32" ? trimmed.toLowerCase() : trimmed;
 }
 
-function runtimeState(ctx: ExtensionContext): RuntimeState {
-  const key = runtimeKey(ctx);
+async function runtimeKey(ctx: ExtensionContext): Promise<string> {
+  const sessionId = ctx.sessionManager.getSessionId();
+  const cwdKey = canonicalizeCwd(ctx.cwd);
+  let projectKey = projectKeysByCwd.get(cwdKey);
+  if (!projectKey) {
+    try {
+      projectKey = (await resolveProjectIdentity(ctx.cwd)).projectKey;
+    } catch {
+      projectKey = cwdKey;
+    }
+    projectKeysByCwd.set(cwdKey, projectKey);
+  }
+  return `${sessionId}\n${projectKey}`;
+}
+
+async function runtimeState(ctx: ExtensionContext): Promise<RuntimeState> {
+  const key = await runtimeKey(ctx);
   const existing = runtimeStatesBySession.get(key);
   if (existing) return existing;
   const loaded = readCollaborationConfig();
@@ -78,19 +96,30 @@ function sessionInfo(ctx: ExtensionContext): { sessionId: string; displayName: s
 
 async function connectRuntime(ctx: ExtensionContext, state: RuntimeState): Promise<void> {
   if (state.client?.ready) return;
-  if (!state.connectionId) state.connectionId = randomUUID();
-  if (state.client) await state.client.close();
-  state.client = undefined;
-  state.connectError = undefined;
+  if (state.connecting) {
+    await state.connecting;
+    return;
+  }
+  state.connecting = (async () => {
+    if (!state.connectionId) state.connectionId = randomUUID();
+    if (state.client) await state.client.disconnect();
+    state.client = undefined;
+    state.connectError = undefined;
+    try {
+      state.client = await connectRoom(ctx.cwd, sessionInfo(ctx), process.env, { connectionId: state.connectionId });
+    } catch (error) {
+      state.connectError = error instanceof Error ? error.message : String(error);
+    }
+  })();
   try {
-    state.client = await connectRoom(ctx.cwd, sessionInfo(ctx), process.env, { connectionId: state.connectionId });
-  } catch (error) {
-    state.connectError = error instanceof Error ? error.message : String(error);
+    await state.connecting;
+  } finally {
+    state.connecting = undefined;
   }
 }
 
 async function ensureRuntime(ctx: ExtensionContext): Promise<RuntimeState> {
-  const state = runtimeState(ctx);
+  const state = await runtimeState(ctx);
   if (!state.client?.ready) await connectRuntime(ctx, state);
   return state;
 }
@@ -149,9 +178,11 @@ async function statusResult(ctx: ExtensionContext): Promise<AgentToolResult<Reco
 }
 
 async function requireRoom(ctx: ExtensionContext): Promise<RoomClient> {
-  const client = (await ensureRuntime(ctx)).client;
-  if (!client?.ready) throw new Error("LeafCode room is unavailable; mutation and lease operations are disabled.");
-  return client;
+  const state = await ensureRuntime(ctx);
+  if (!state.client?.ready) {
+    throw new Error(state.connectError ?? state.client?.degradedReason ?? "LeafCode room is unavailable; mutation and lease operations are disabled.");
+  }
+  return state.client;
 }
 
 async function requireCheckRoom(ctx: ExtensionContext): Promise<RoomClient> {
@@ -164,8 +195,8 @@ function currentPaths(input: Record<string, unknown>): string[] {
   return typeof input.path === "string" ? [input.path] : [];
 }
 
-function updatePresence(ctx: ExtensionContext, update: PresenceUpdate): void {
-  const client = runtimeState(ctx).client;
+async function updatePresence(ctx: ExtensionContext, update: PresenceUpdate): Promise<void> {
+  const client = (await runtimeState(ctx)).client;
   if (client?.ready) void client.updatePresence(update).catch(() => undefined);
 }
 
@@ -186,7 +217,7 @@ function peerInboxPrompt(messages: RoomMessage[]): string {
 
 export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
-    const state = runtimeState(ctx);
+    const state = await runtimeState(ctx);
     await connectRuntime(ctx, state);
     if (!state.configValid && ctx.hasUI) {
       ctx.ui.notify(`LeafCode collaboration config is invalid; strict mode enforced (${state.configError ?? "unknown error"}).`, "warning");
@@ -198,8 +229,8 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("before_agent_start", async (_event, ctx) => {
     await ensureRuntime(ctx);
-    updatePresence(ctx, { state: "active", progress: true });
-    const state = runtimeState(ctx);
+    await updatePresence(ctx, { state: "active", progress: true });
+    const state = await runtimeState(ctx);
     let messages: RoomMessage[] = [];
     if (state.client?.ready) {
       try { messages = await state.client.inbox(); } catch { /* the turn can continue without a peer inbox */ }
@@ -213,16 +244,16 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("agent_start", async (_event, ctx) => {
-    updatePresence(ctx, { state: "active", progress: true });
+    await updatePresence(ctx, { state: "active", progress: true });
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
-    updatePresence(ctx, { state: "idle", currentTool: null, currentPaths: [], progress: true });
+    await updatePresence(ctx, { state: "idle", currentTool: null, currentPaths: [], progress: true });
   });
 
   pi.on("tool_call", async (event, ctx) => {
-    const state = runtimeState(ctx);
-    updatePresence(ctx, { state: "active", currentTool: event.toolName, currentPaths: currentPaths(event.input), progress: true });
+    const state = await runtimeState(ctx);
+    await updatePresence(ctx, { state: "active", currentTool: event.toolName, currentPaths: currentPaths(event.input), progress: true });
     if (strictToolBlocked(event.toolName, state.mode)) {
       return {
         block: true,
@@ -239,11 +270,11 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("tool_result", async (_event, ctx) => {
-    updatePresence(ctx, { state: "idle", currentTool: null, currentPaths: [], progress: true });
+    await updatePresence(ctx, { state: "idle", currentTool: null, currentPaths: [], progress: true });
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
-    const key = runtimeKey(ctx);
+    const key = await runtimeKey(ctx);
     const state = runtimeStatesBySession.get(key);
     if (!state) return;
     await state.client?.close();

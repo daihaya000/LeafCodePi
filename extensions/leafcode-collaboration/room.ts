@@ -507,7 +507,7 @@ function normalizeGitPath(value: string): string {
   if (!raw || raw.startsWith("/") || /^[A-Za-z]:\//.test(raw) || raw.startsWith("//") || raw.split("/").some((part) => part === "..")) {
     throw new RoomError("git_path", "Git returned an invalid repository-relative path.");
   }
-  return raw.split("/").filter((part) => part && part !== ".").join("/");
+  return relativeKey(raw.split("/").filter((part) => part && part !== ".").join("/"));
 }
 
 function statusPathsFromOutput(stdout: string): string[] {
@@ -616,17 +616,17 @@ async function gitIndexFingerprint(root: string): Promise<string> {
 }
 
 async function scanGitState(root: string): Promise<GateScan> {
-  const [head, status, staged, unstaged, indexFingerprint, refs] = await Promise.all([
+  const [head, status, staged, unstaged, refs] = await Promise.all([
     readHead(root),
     command(root, ["status", "--porcelain=v1", "--untracked-files=all", "-z"]),
     command(root, ["diff", "--cached", "--raw", "-z", "--"]),
     command(root, ["diff", "--raw", "-z", "--"]),
-    gitIndexFingerprint(root),
     command(root, ["for-each-ref", "--format=%(refname)%00%(objectname)%00"]),
   ]);
+  const indexFingerprint = await gitIndexFingerprint(root);
   if (status.code !== 0) throw new RoomError("git_status", status.stderr.trim() || "Unable to inspect Git status.");
   if (staged.code !== 0 || unstaged.code !== 0 || refs.code !== 0) {
-    throw new RoomError("git_state", "Unable to inspect the complete Git state.");
+    throw new RoomError("git_state", [staged.stderr, unstaged.stderr, refs.stderr].map((text) => text.trim()).find(Boolean) || "Unable to inspect the complete Git state.");
   }
   const statusPaths = statusPathsFromOutput(status.stdout);
   const fileFingerprints: Record<string, string | null> = {};
@@ -750,11 +750,14 @@ function readLock(identity: ProjectIdentity): LockRecord | undefined {
   }
 }
 
+function lockFileExists(identity: ProjectIdentity): boolean {
+  return fs.existsSync(identity.lockPath);
+}
+
 function staleLock(identity: ProjectIdentity): boolean {
   const lock = readLock(identity);
-  if (!lock) return false;
-  if (processIsAlive(lock.pid)) return false;
-  return true;
+  if (!lock) return lockFileExists(identity);
+  return !processIsAlive(lock.pid);
 }
 
 function takeOverStaleLock(identity: ProjectIdentity): boolean {
@@ -865,6 +868,9 @@ class Coordinator {
   private state: RoomSnapshot;
   private refFingerprint = "";
   private readonly socketConnections = new Map<net.Socket, { sessionId: string; connectionId: string } | undefined>();
+  private readonly sessionSockets = new Map<string, net.Socket>();
+  private closeGeneration = 0;
+  private closing = false;
   private readonly inboxes = new Map<string, RoomMessage[]>();
   private readonly pendingAsks = new Map<string, { fromSessionId: string; toSessionId: string; expiresAt: number }>();
   private readonly messageRates = new Map<string, { startedAt: number; count: number }>();
@@ -926,11 +932,14 @@ class Coordinator {
   }
 
   async close(): Promise<void> {
+    this.closing = true;
+    this.closeGeneration += 1;
     const ownedLock = this.lockFd >= 0;
     if (this.lockTimer) clearInterval(this.lockTimer);
     this.lockTimer = undefined;
     for (const socket of this.socketConnections.keys()) socket.destroy();
     this.socketConnections.clear();
+    this.sessionSockets.clear();
     if (this.server) await new Promise<void>((resolve) => this.server!.close(() => resolve()));
     this.server = undefined;
     if (ownedLock && process.platform !== "win32") fs.rmSync(this.identity.socketPath, { force: true });
@@ -946,10 +955,14 @@ class Coordinator {
     }
   }
 
-  async invoke(request: RpcRequest): Promise<RpcResponse> {
-    const operation = this.operationTail.then(() => this.invokeSerial(request));
+  private enqueue<T>(task: () => T | Promise<T>): Promise<T> {
+    const operation = this.operationTail.then(task, task);
     this.operationTail = operation.then(() => undefined, () => undefined);
     return operation;
+  }
+
+  async invoke(request: RpcRequest): Promise<RpcResponse> {
+    return this.enqueue(() => this.invokeSerial(request));
   }
 
   private async invokeSerial(request: RpcRequest): Promise<RpcResponse> {
@@ -985,9 +998,8 @@ class Coordinator {
     socket.on("close", () => {
       const connection = this.socketConnections.get(socket);
       this.socketConnections.delete(socket);
-      if (connection && this.state.sessions[connection.sessionId]?.connectionId === connection.connectionId) {
-        void this.markDisconnected(connection.sessionId);
-      }
+      if (!connection) return;
+      void this.enqueue(() => this.markDisconnected(connection.sessionId, socket));
     });
   }
 
@@ -1003,6 +1015,7 @@ class Coordinator {
     if (!socket.destroyed) socket.write(`${JSON.stringify(response)}\n`);
     if (request.method === "join" && response.ok) {
       this.socketConnections.set(socket, { sessionId: request.sessionId, connectionId: request.connectionId });
+      this.sessionSockets.set(request.sessionId, socket);
     }
   }
 
@@ -1057,6 +1070,23 @@ class Coordinator {
       lastHeartbeatAt: timestamp,
       lastProgressAt: timestamp,
     };
+    if (!previous || previous.connectionId === connectionId) {
+      for (const lease of Object.values(this.state.leases)) {
+        if (lease.ownerSessionId !== sessionId || lease.state !== "orphaned") continue;
+        try {
+          this.validateLease(lease);
+        } catch {
+          continue;
+        }
+        this.refreshLeaseState(lease);
+        if (lease.state !== "active" && lease.state !== "dirty") continue;
+        lease.epoch = this.state.epoch;
+        lease.fencingToken = this.fencingSequence++;
+        lease.renewedAt = timestamp;
+        lease.expiresAt = new Date(Date.now() + this.config.leaseTtlMs).toISOString();
+        this.touch("reserve", sessionId, lease.selectors);
+      }
+    }
     this.touch("join", sessionId, []);
     return this.state;
   }
@@ -1095,7 +1125,9 @@ class Coordinator {
     return this.state;
   }
 
-  private async markDisconnected(sessionId: string): Promise<void> {
+  private async markDisconnected(sessionId: string, socket?: net.Socket): Promise<void> {
+    if (socket && this.sessionSockets.get(sessionId) !== socket) return;
+    if (socket && this.sessionSockets.get(sessionId) === socket) this.sessionSockets.delete(sessionId);
     const session = this.state.sessions[sessionId];
     if (!session || session.state === "offline") return;
     session.state = "offline";
@@ -1107,9 +1139,23 @@ class Coordinator {
     if (!Object.values(this.state.sessions).some((entry) => entry.state !== "offline")) await this.close();
   }
 
+  private scheduleCloseIfIdle(): void {
+    if (Object.values(this.state.sessions).some((entry) => entry.state !== "offline")) return;
+    this.closeGeneration += 1;
+    const generation = this.closeGeneration;
+    setTimeout(() => {
+      void this.enqueue(async () => {
+        if (generation !== this.closeGeneration) return;
+        if (Object.values(this.state.sessions).some((entry) => entry.state !== "offline")) return;
+        await this.close();
+      });
+    }, 0).unref?.();
+  }
+
   private leave(sessionId: string): RoomSnapshot {
     const session = this.state.sessions[sessionId]!;
     session.state = "offline";
+    this.sessionSockets.delete(sessionId);
     for (const lease of Object.values(this.state.leases)) {
       if (lease.ownerSessionId !== sessionId) continue;
       if (lease.state === "active") lease.state = "released";
@@ -1117,7 +1163,7 @@ class Coordinator {
     }
     this.dropSessionMessages(sessionId);
     this.touch("leave", sessionId, []);
-    if (!Object.values(this.state.sessions).some((entry) => entry.state !== "offline")) setTimeout(() => { void this.close(); }, 0).unref?.();
+    this.scheduleCloseIfIdle();
     return this.state;
   }
 
@@ -1509,6 +1555,7 @@ class Coordinator {
   }
 
   private updateLeaseObservation(lease: FileLease, relative: string, fingerprint: string | null): void {
+    relative = relativeKey(relative);
     lease.observed[relative] = fingerprint;
     if (fingerprint === null) delete lease.identities[relative];
     else {
@@ -1816,6 +1863,7 @@ class Coordinator {
   }
 
   private persist(): void {
+    if (this.closing) return;
     this.state.updatedAt = now();
     this.state.pendingAsks = [...this.pendingAsks].map(([requestId, ask]) => ({
       requestId,
@@ -1957,6 +2005,13 @@ export class RoomClient {
     return (await this.request("commit", { message, paths })).value as CommitResult;
   }
 
+  async disconnect(): Promise<void> {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = undefined;
+    this.connected = false;
+    this.channel?.close();
+  }
+
   async close(): Promise<void> {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = undefined;
@@ -2010,8 +2065,19 @@ export class RoomClient {
       sessionId: this.sessionId,
       connectionId: this.connectionId,
     };
-    const response = this.coordinator ? await this.coordinator.invoke(request) : await this.channel!.request(request);
-    if (!response.ok) throw new RoomError(response.error?.code || "room_error", response.error?.message || "Room request failed.", response.error?.details);
+    const timeoutMs = method === "check" || method === "commit" ? CHECK_TIMEOUT_MS + 10_000 : 5_000;
+    let response: RpcResponse;
+    try {
+      response = this.coordinator ? await this.coordinator.invoke(request) : await this.channel!.request(request, timeoutMs);
+    } catch (error) {
+      if (error instanceof RoomError && (error.code === "room_timeout" || error.code === "room_disconnected")) this.connected = false;
+      throw error;
+    }
+    if (!response.ok) {
+      const code = response.error?.code;
+      if (code === "stale_epoch" || code === "session_not_joined" || code === "room_disconnected") this.connected = false;
+      throw new RoomError(code || "room_error", response.error?.message || "Room request failed.", response.error?.details);
+    }
     const result = (response.result ?? {}) as { epoch?: unknown; snapshot?: RoomSnapshot; value?: unknown };
     if (typeof result.epoch === "number") this.epoch = result.epoch;
     return { epoch: this.epoch, snapshot: result.snapshot ?? (result as unknown as RoomSnapshot), value: result.value ?? result };
@@ -2042,7 +2108,10 @@ export async function connectRoom(
       return await RoomClient.connect(identity, session, undefined, channel, config.config, options.connectionId);
     } catch (error) {
       const lock = readLock(identity);
-      if (lock && processIsAlive(lock.pid)) return RoomClient.degraded(identity, session, "Coordinator is alive but its IPC endpoint is unavailable.", config.config);
+      if (lock && processIsAlive(lock.pid)) {
+        await new Promise((resolve) => setTimeout(resolve, 75 * (attempt + 1)));
+        continue;
+      }
       if (!takeOverStaleLock(identity)) return RoomClient.degraded(identity, session, error instanceof Error ? error.message : String(error), config.config);
     }
   }
