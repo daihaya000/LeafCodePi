@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getActiveProviderLogin, subscribeProviderLogin } from "@/lib/pi/harness";
+import { createSseWriter } from "@/lib/sse-writer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,22 +10,20 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const encoder = new TextEncoder();
-  let unsubscribe = () => {};
-  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let sse: ReturnType<typeof createSseWriter> | undefined;
 
   const stream = new ReadableStream({
     start(controller) {
-      const send = (event: string, data: unknown) => {
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-      };
+      let unsubscribe = () => {};
+      sse = createSseWriter(controller);
+      sse.onCleanup(() => unsubscribe());
       const active = getActiveProviderLogin();
       if (!active || active.providerId !== id) {
-        send("done", { type: "done", ok: false, error: "ログインセッションがありません" });
-        controller.close();
+        sse.send("done", { type: "done", ok: false, error: "ログインセッションがありません" });
+        sse.close();
         return;
       }
-      send("started", {
+      sse.send("started", {
         type: "started",
         providerId: active.providerId,
         authType: active.authType,
@@ -32,38 +31,27 @@ export async function GET(
       });
       try {
         unsubscribe = subscribeProviderLogin((payload) => {
-          send(payload.type, payload);
-          if (payload.type === "done") {
-            unsubscribe();
-            if (heartbeat) clearInterval(heartbeat);
-            controller.close();
-          }
+          sse?.send(payload.type, payload);
+          if (payload.type === "done") sse?.close();
         });
       } catch (error) {
-        send("done", {
+        sse.send("done", {
           type: "done",
           ok: false,
           error: error instanceof Error ? error.message : String(error),
         });
-        controller.close();
+        sse.close();
         return;
       }
-      heartbeat = setInterval(() => {
-        controller.enqueue(encoder.encode(`: ping\n\n`));
-      }, 15000);
-      req.signal.addEventListener("abort", () => {
+      if (sse.closed) {
         unsubscribe();
-        if (heartbeat) clearInterval(heartbeat);
-        try {
-          controller.close();
-        } catch {
-          /* ignore */
-        }
-      });
+        return;
+      }
+      sse.startHeartbeat();
+      req.signal.addEventListener("abort", () => sse?.close());
     },
     cancel() {
-      unsubscribe();
-      if (heartbeat) clearInterval(heartbeat);
+      sse?.cleanup();
     },
   });
 

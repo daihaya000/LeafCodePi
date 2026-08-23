@@ -6,11 +6,32 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore The standalone production mirror does not include extension sources; Vitest runs from the repository.
-import { connectRoom, normalizeSelector, resolveProjectIdentity, selectorsOverlap, type ActivityEntry, type RoomClient } from "../../../extensions/leafcode-collaboration/room";
+import { applyUniqueTextEdit, connectRoom, normalizeSelector, resolveProjectIdentity, selectorsOverlap, type ActivityEntry, type RoomClient } from "../../../extensions/leafcode-collaboration/room";
 
 function git(cwd: string, args: string[]): void {
   execFileSync("git", args, { cwd, stdio: "ignore", windowsHide: true });
 }
+
+describe("leafcode_edit newline matching", () => {
+  it("matches LF oldText against a CRLF file and preserves CRLF", () => {
+    const current = "export const a = 1;\r\nexport const b = 2;\r\n";
+    const next = applyUniqueTextEdit(current, "export const a = 1;\nexport const b = 2;\n", "export const a = 3;\nexport const b = 4;\n");
+    assert.equal(next, "export const a = 3;\r\nexport const b = 4;\r\n");
+  });
+
+  it("matches CRLF oldText against an LF file and preserves LF", () => {
+    const current = "export const a = 1;\nexport const b = 2;\n";
+    const next = applyUniqueTextEdit(current, "export const a = 1;\r\nexport const b = 2;\r\n", "export const a = 3;\r\nexport const b = 4;\r\n");
+    assert.equal(next, "export const a = 3;\nexport const b = 4;\n");
+  });
+
+  it("still rejects oldText that occurs twice after newline normalization", () => {
+    assert.throws(
+      () => applyUniqueTextEdit("a\r\nx\na\nx\n", "a\nx\n", "b\n"),
+      /oldText must match exactly once/,
+    );
+  });
+});
 
 describe("LeafCode room selectors", () => {
   it("allows exact and trailing-prefix selectors only", () => {
@@ -81,6 +102,25 @@ describe("LeafCode room coordinator", () => {
     await first.reserve(["src/new/nested.ts"]);
     await first.write("src/new/nested.ts", "export const nested = true;\n");
     assert.equal(readFileSync(join(repo, "src/new/nested.ts"), "utf8"), "export const nested = true;\n");
+  });
+
+  it("edits a CRLF working tree when oldText uses LF", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    git(repo, ["config", "core.autocrlf", "false"]);
+    mkdirAndWrite(repo, "src/settings.ts", "const a = 1;\r\nconst b = 2;\r\n");
+    git(repo, ["add", "src/settings.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const client = await connectRoom(repo, { sessionId: "session-crlf", displayName: "CRLF", pid: process.pid }, env);
+    clients.push(client);
+    await client.reserve(["src/settings.ts"]);
+    await client.edit("src/settings.ts", "const a = 1;\nconst b = 2;\n", "const a = 3;\nconst b = 4;\n");
+    assert.equal(readFileSync(join(repo, "src/settings.ts"), "utf8"), "const a = 3;\r\nconst b = 4;\r\n");
   });
 
   it("takes over a lock immediately when its coordinator process is gone", async () => {

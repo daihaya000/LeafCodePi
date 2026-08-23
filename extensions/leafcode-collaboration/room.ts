@@ -208,6 +208,32 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+export function normalizeNewlines(text: string): string {
+  return text.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+}
+
+function dominantEol(text: string): "\r\n" | "\n" {
+  let crlf = 0;
+  let lf = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) !== 10) continue;
+    if (i > 0 && text.charCodeAt(i - 1) === 13) crlf += 1;
+    else lf += 1;
+  }
+  return crlf > lf ? "\r\n" : "\n";
+}
+
+export function applyUniqueTextEdit(currentText: string, oldText: string, newText: string): string {
+  const currentNorm = normalizeNewlines(currentText);
+  const oldNorm = normalizeNewlines(oldText);
+  const first = currentNorm.indexOf(oldNorm);
+  if (first < 0 || currentNorm.indexOf(oldNorm, first + oldNorm.length) >= 0) {
+    throw new RoomError("edit_mismatch", "oldText must match exactly once.");
+  }
+  const replaced = `${currentNorm.slice(0, first)}${normalizeNewlines(newText)}${currentNorm.slice(first + oldNorm.length)}`;
+  return dominantEol(currentText) === "\r\n" ? replaced.replaceAll("\n", "\r\n") : replaced;
+}
+
 function pathKey(value: string): string {
   const normalized = path.normalize(value);
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
@@ -1519,9 +1545,7 @@ class Coordinator {
       const absolute = path.resolve(this.identity.root, ...target.split("/"));
       if (!fs.existsSync(absolute)) throw new RoomError("missing_file", "Edit target does not exist.");
       const currentText = fs.readFileSync(absolute, "utf8");
-      const first = currentText.indexOf(oldText);
-      if (first < 0 || currentText.indexOf(oldText, first + oldText.length) >= 0) throw new RoomError("edit_mismatch", "oldText must match exactly once.");
-      content = `${currentText.slice(0, first)}${payload.newText}${currentText.slice(first + oldText.length)}`;
+      content = applyUniqueTextEdit(currentText, oldText, payload.newText);
     }
     if (Buffer.byteLength(content, "utf8") > MAX_CONTENT_BYTES) throw new RoomError("content_too_large", "Mutation content is too large.");
     const recheck = fingerprintAt(this.identity.root, target);

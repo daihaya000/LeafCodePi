@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getTaskDetail, pendingPermissionForTask, pendingQuestionForTask, subscribeTask } from "@/lib/pi/harness";
+import { createSseWriter } from "@/lib/sse-writer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,22 +10,17 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const encoder = new TextEncoder();
-  let unsubscribe = () => {};
-  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let sse: ReturnType<typeof createSseWriter> | undefined;
 
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (event: string, data: unknown) => {
-        try {
-          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-        } catch {
-          /* stream already closed */
-        }
-      };
+      let unsubscribe = () => {};
+      sse = createSseWriter(controller);
+      sse.onCleanup(() => unsubscribe());
       try {
         const detail = await getTaskDetail(id);
-        send("snapshot", {
+        if (sse.closed) return;
+        sse.send("snapshot", {
           type: "snapshot",
           task: detail,
           messages: detail.messages,
@@ -37,23 +33,20 @@ export async function GET(
           questionRequest: detail.questionRequest ?? pendingQuestionForTask(id),
         });
       } catch (error) {
-        send("error", { error: error instanceof Error ? error.message : String(error) });
-        controller.close();
+        sse.send("error", { error: error instanceof Error ? error.message : String(error) });
+        sse.close();
         return;
       }
-      unsubscribe = subscribeTask(id, (payload) => send("snapshot", payload));
-      heartbeat = setInterval(() => {
-        controller.enqueue(encoder.encode(`: ping\n\n`));
-      }, 15000);
-      req.signal.addEventListener("abort", () => {
+      unsubscribe = subscribeTask(id, (payload) => sse?.send("snapshot", payload));
+      if (sse.closed) {
         unsubscribe();
-        if (heartbeat) clearInterval(heartbeat);
-        controller.close();
-      });
+        return;
+      }
+      sse.startHeartbeat();
+      req.signal.addEventListener("abort", () => sse?.close());
     },
     cancel() {
-      unsubscribe();
-      if (heartbeat) clearInterval(heartbeat);
+      sse?.cleanup();
     },
   });
 

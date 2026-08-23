@@ -1,5 +1,31 @@
 # LeafCodePi メモリ
 
+## 2026-08-23: leafcode_edit の CRLF 不一致と SSE heartbeat の closed enqueue
+
+リース確保後の `leafcode_edit` が `oldText must match exactly once.` で連続失敗し、WebUI は `Controller is already closed` を繰り返していた。どちらも実害のある欠陥だった。
+
+### 不具合1: CRLF ファイルに LF の oldText が一致しない
+
+Windows の `SettingsView.tsx` は CRLF（160 行すべて `\r\n`）。エージェントは読取結果どおり LF の複数行 `oldText` を送る。`mutate` は `String.indexOf` の生一致だけだったため、改行を含む置換は必ず失敗する。単一行（改行なし）の最初の編集だけ成功していた。
+
+修正: `applyUniqueTextEdit` で改行を正規化して一意一致を取り、書き戻し時はファイルの多数派 EOL を維持する。
+
+### 不具合2: SSE ping が close 後に enqueue する
+
+タスク/プロバイダログインの SSE が `setInterval` で `controller.enqueue` していた。abort で `close()` したあと、すでにキューに入った timer が `ERR_INVALID_STATE` を投げ、`uncaughtException` になる。`send()` 側だけ try/catch があり ping は無防備だった。
+
+修正: `createSseWriter` で closed フラグ・heartbeat 停止・enqueue 失敗時 cleanup を共通化。両 events ルートがこれを使う。
+
+### 検証
+
+```
+npm --prefix web test -- --run src/lib/sse-writer.test.ts src/lib/collaboration-room.test.ts ../extensions/leafcode-collaboration/index.test.ts
+```
+
+27 tests passed（sse-writer 3、collaboration-room 21、index 3）。新規: LF oldText × CRLF ファイル、heartbeat after close。
+
+拡張と WebUI の反映には LeafCode セッション再起動が必要。本番は `%LOCALAPPDATA%\leafcode-pi\build\...` のミラーから動く。
+
 ## 2026-08-23: leafcode-collaboration 徹底バグハント
 
 reserve 直後 edit 失敗の続き。コード・IPC・再接続・Windows パス・lock を洗い、実害のある残件を直した。
