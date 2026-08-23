@@ -1106,7 +1106,6 @@ class Coordinator {
           continue;
         }
         this.refreshLeaseState(lease);
-        if (lease.state !== "active" && lease.state !== "dirty") continue;
         lease.epoch = this.state.epoch;
         lease.fencingToken = this.fencingSequence++;
         lease.renewedAt = timestamp;
