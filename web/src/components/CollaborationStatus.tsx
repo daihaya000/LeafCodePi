@@ -45,10 +45,14 @@ export function CollaborationBadge({ room, className }: { room: CollaborationRoo
     room.pendingAsks > 0 ? `未処理ask${room.pendingAsks}件` : "",
     !room.ready ? "room状態を確認できません" : "",
   ].filter(Boolean).join("、");
+  const sessionNames = room.sessionNames.length > 0
+    ? `接続中のセッション: ${room.sessionNames.join("、")}`
+    : "";
+  const accessibleLabel = [label, sessionNames].filter(Boolean).join("、");
   return (
     <span
-      title={room.reason ? `${label}。${room.reason}` : label}
-      aria-label={label}
+      title={[accessibleLabel, room.reason].filter(Boolean).join("。")}
+      aria-label={accessibleLabel}
       className={cx(
         "inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
         !room.ready ? "bg-surface-2 text-muted" : attention ? "bg-warning-bg text-warning" : "bg-surface-2 text-muted",

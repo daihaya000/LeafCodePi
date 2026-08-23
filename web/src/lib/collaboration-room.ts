@@ -7,6 +7,7 @@ import { collaborationDataDir, readCollaborationConfig } from "./collaboration";
 export type CollaborationRoomSummary = {
   ready: boolean;
   peers: number;
+  sessionNames: string[];
   leaseConflicts: number;
   pendingAsks: number;
   epoch?: number;
@@ -49,11 +50,16 @@ export function readCollaborationRoom(rootPath: string, env: NodeJS.ProcessEnv =
     const root = repositoryRoot(rootPath);
     const snapshotPath = join(collaborationDataDir(env), "rooms", projectKey(root), "snapshot.json");
     if (!existsSync(snapshotPath)) {
-      return { ready: false, peers: 0, leaseConflicts: 0, pendingAsks: 0, reason: "Room snapshot is not available." };
+      return { ready: false, peers: 0, sessionNames: [], leaseConflicts: 0, pendingAsks: 0, reason: "Room snapshot is not available." };
     }
     const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8")) as RoomSnapshotLike;
     const sessions = record(snapshot.sessions);
     const leases = record(snapshot.leases);
+    const connectedSessions = Object.values(sessions).filter((session) => record(session).state !== "offline");
+    const sessionNames = connectedSessions.map((session) => {
+      const name = record(session).displayName;
+      return typeof name === "string" && name.trim() ? name.trim().slice(0, 120) : "LeafCode session";
+    });
     const pendingAsks = Array.isArray(snapshot.pendingAsks)
       ? snapshot.pendingAsks.filter((ask) => Date.parse(String(record(ask).expiresAt ?? "")) > Date.now()).length
       : 0;
@@ -63,7 +69,8 @@ export function readCollaborationRoom(rootPath: string, env: NodeJS.ProcessEnv =
     const stale = !Number.isFinite(updatedMs) || Date.now() - updatedMs > Math.max(15_000, heartbeatMs * 4);
     return {
       ready: !stale,
-      peers: Object.values(sessions).filter((session) => record(session).state !== "offline").length,
+      peers: connectedSessions.length,
+      sessionNames,
       leaseConflicts: Object.values(leases).filter((lease) => ["invalid", "orphaned"].includes(String(record(lease).state))).length,
       pendingAsks,
       ...(typeof snapshot.epoch === "number" ? { epoch: snapshot.epoch } : {}),
@@ -74,6 +81,7 @@ export function readCollaborationRoom(rootPath: string, env: NodeJS.ProcessEnv =
     return {
       ready: false,
       peers: 0,
+      sessionNames: [],
       leaseConflicts: 0,
       pendingAsks: 0,
       reason: error instanceof Error ? error.message : "Room snapshot could not be read.",

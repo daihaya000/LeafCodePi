@@ -31,7 +31,11 @@ describe("readCollaborationRoom", () => {
       projectKey: key,
       epoch: 4,
       updatedAt: new Date().toISOString(),
-      sessions: { a: { state: "active" }, b: { state: "away" }, c: { state: "offline" } },
+      sessions: {
+        a: { state: "active", displayName: "Alpha" },
+        b: { state: "away", displayName: "Beta" },
+        c: { state: "offline", displayName: "Offline" },
+      },
       leases: { clean: { state: "dirty" }, conflict: { state: "orphaned" } },
       pendingAsks: [{ requestId: "ask-1", expiresAt: new Date(Date.now() + 60_000).toISOString() }],
       activity: [{ kind: "ask", paths: [] }],
@@ -40,6 +44,7 @@ describe("readCollaborationRoom", () => {
     assert.deepEqual(readCollaborationRoom(repo, { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir }), {
       ready: true,
       peers: 2,
+      sessionNames: ["Alpha", "Beta"],
       leaseConflicts: 1,
       pendingAsks: 1,
       epoch: 4,
@@ -54,6 +59,7 @@ describe("readCollaborationRoom", () => {
     const room = readCollaborationRoom(repo, { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir });
     assert.equal(room.ready, false);
     assert.equal(room.peers, 0);
+    assert.deepEqual(room.sessionNames, []);
     assert.equal(room.pendingAsks, 0);
   });
 
