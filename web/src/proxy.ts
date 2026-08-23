@@ -15,7 +15,7 @@ function tokenFromRequest(req: NextRequest): string | null {
   return req.nextUrl.searchParams.get("token");
 }
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   if (!webUiAuthRequired()) return NextResponse.next();
 
   const pathname = req.nextUrl.pathname;

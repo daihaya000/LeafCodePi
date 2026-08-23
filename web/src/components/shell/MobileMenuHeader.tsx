@@ -1,6 +1,7 @@
 "use client";
 
 import { Menu } from "lucide-react";
+import Image from "next/image";
 import { useShellMobileNav } from "./ShellContext";
 
 export function MobileMenuButton() {
@@ -19,9 +20,12 @@ export function MobileMenuButton() {
 
 export function MobileMenuHeader() {
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-2 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:hidden">
+    <div
+      className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-2 pb-2 md:hidden"
+      style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
+    >
       <MobileMenuButton />
-      <img src="/icon.svg" alt="" className="h-5 w-5 rounded-[4px]" />
+      <Image src="/icon.svg" alt="" width={20} height={20} className="h-5 w-5 rounded-[4px]" />
       <span className="text-sm font-semibold">LeafCodePi</span>
     </div>
   );

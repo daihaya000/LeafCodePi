@@ -76,7 +76,8 @@ function FileDiffBlock({
           type="checkbox"
           checked={selected}
           onChange={(e) => onSelect(e.target.checked)}
-          className="h-5 w-5 shrink-0 cursor-pointer accent-[var(--accent)]"
+          className="h-5 w-5 shrink-0 cursor-pointer"
+          style={{ accentColor: "var(--accent)" }}
           aria-label={`${file.path} をコミット対象にする`}
         />
         <button

@@ -921,7 +921,10 @@ export function TaskView({
     // min-h-0 flex-1: ペイン section が TaskTabs を持つ場合でも残り高さに収める。
     // h-full だとタブバー分だけはみ出し composer 下端が overflow-hidden で欠ける。
     <div className={cx("flex min-h-0 flex-1 flex-col", !active && "hidden")}>
-      <header className="flex min-h-14 shrink-0 items-center gap-2 border-b border-border bg-surface px-3 pt-[env(safe-area-inset-top)] md:px-4 md:gap-3">
+      <header
+        className="flex min-h-14 shrink-0 items-center gap-2 border-b border-border bg-surface px-3 md:px-4 md:gap-3"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >
         <MobileMenuButton />
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">{task?.title ?? "読み込み中…"}</h1>
@@ -1181,11 +1184,9 @@ export function TaskView({
                 aria-label={label}
                 title={label}
                 className={cx(
-                  "h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg",
-                  scrollButtonOpacity < 0.95 &&
-                    "opacity-[var(--sb-opacity)] hover:opacity-100 focus-visible:opacity-100 active:opacity-100 transition-opacity",
+                  "h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100 active:opacity-100",
                 )}
-                style={{ "--sb-opacity": scrollButtonOpacity } as React.CSSProperties}
+                style={{ opacity: scrollButtonOpacity }}
                 onClick={onClick}
               >
                 {icon}
