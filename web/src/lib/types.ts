@@ -66,6 +66,10 @@ export type GoalLoopDto = {
   goal: string;
   acceptance: string[];
   maxTurns: number;
+  /** 次のターン開始までの待機時間（秒）。 */
+  cooldownSeconds: number;
+  /** クールタイム終了時刻。待機不要なら null。 */
+  nextTurnAt: string | null;
   forceFullRun: boolean;
   turnCount: number;
   turnKind: "goal" | "verification";

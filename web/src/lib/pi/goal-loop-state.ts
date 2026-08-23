@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { GoalLoopDto } from "@/lib/types";
+import {
+  clampGoalLoopCooldownSeconds,
+  clampGoalLoopMaxTurns,
+} from "@/lib/goal-loop-settings";
 
 export const GOAL_LOOP_DIR = ".pi/goals-loop";
 
@@ -14,7 +18,12 @@ export function readGoalLoopState(cwd: string, sessionId: string | null | undefi
   try {
     const value = JSON.parse(readFileSync(goalLoopStateFile(cwd, sessionId), "utf8")) as Partial<GoalLoopDto>;
     if (!value || typeof value.goal !== "string" || typeof value.status !== "string") return null;
-    return value as GoalLoopDto;
+    return {
+      ...value,
+      maxTurns: clampGoalLoopMaxTurns(value.maxTurns),
+      cooldownSeconds: clampGoalLoopCooldownSeconds(value.cooldownSeconds),
+      nextTurnAt: typeof value.nextTurnAt === "string" ? value.nextTurnAt : null,
+    } as GoalLoopDto;
   } catch {
     return null;
   }

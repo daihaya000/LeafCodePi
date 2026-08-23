@@ -244,6 +244,7 @@ export function TaskView({
   const [goalLoopEnabled, setGoalLoopEnabled] = useState(false);
   const [goalLoopAcceptance, setGoalLoopAcceptance] = useState("");
   const [goalLoopMaxTurns, setGoalLoopMaxTurns] = useState(10);
+  const [goalLoopCooldownSeconds, setGoalLoopCooldownSeconds] = useState(0);
   const [goalLoopForceFullRun, setGoalLoopForceFullRun] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
@@ -672,6 +673,7 @@ export function TaskView({
           goal: prompt,
           acceptance: goalLoopAcceptance,
           maxTurns: goalLoopMaxTurns,
+          cooldownSeconds: goalLoopCooldownSeconds,
           forceFullRun: goalLoopForceFullRun,
         });
         setGoalLoopEnabled(false);
@@ -702,7 +704,7 @@ export function TaskView({
     try {
       const result = await sendJson<{ loop: GoalLoopDto | null }>(
         `/api/tasks/${taskId}/goal-loop`,
-        { action, ...(maxTurns ? { maxTurns } : {}) },
+        { action, ...(maxTurns !== undefined ? { maxTurns } : {}) },
         "PATCH",
       );
       setTask((current) => (current ? { ...current, goalLoop: result.loop } : current));
@@ -1504,10 +1506,12 @@ export function TaskView({
             <GoalLoopOptions
               acceptance={goalLoopAcceptance}
               maxTurns={goalLoopMaxTurns}
+              cooldownSeconds={goalLoopCooldownSeconds}
               forceFullRun={goalLoopForceFullRun}
               disabled={submitting || working}
               onAcceptanceChange={setGoalLoopAcceptance}
               onMaxTurnsChange={setGoalLoopMaxTurns}
+              onCooldownSecondsChange={setGoalLoopCooldownSeconds}
               onForceFullRunChange={setGoalLoopForceFullRun}
             />
           </div>

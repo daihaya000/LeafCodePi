@@ -51,6 +51,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const [goalLoopEnabled, setGoalLoopEnabled] = useState(false);
   const [goalLoopAcceptance, setGoalLoopAcceptance] = useState("");
   const [goalLoopMaxTurns, setGoalLoopMaxTurns] = useState(10);
+  const [goalLoopCooldownSeconds, setGoalLoopCooldownSeconds] = useState(0);
   const [goalLoopForceFullRun, setGoalLoopForceFullRun] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [health, setHealth] = useState<HealthDto | null>(null);
@@ -194,6 +195,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                 enabled: true,
                 acceptance: goalLoopAcceptance,
                 maxTurns: goalLoopMaxTurns,
+                cooldownSeconds: goalLoopCooldownSeconds,
                 forceFullRun: goalLoopForceFullRun,
               },
             }
@@ -275,10 +277,12 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                 <GoalLoopOptions
                   acceptance={goalLoopAcceptance}
                   maxTurns={goalLoopMaxTurns}
+                  cooldownSeconds={goalLoopCooldownSeconds}
                   forceFullRun={goalLoopForceFullRun}
                   disabled={submitting}
                   onAcceptanceChange={setGoalLoopAcceptance}
                   onMaxTurnsChange={setGoalLoopMaxTurns}
+                  onCooldownSecondsChange={setGoalLoopCooldownSeconds}
                   onForceFullRunChange={setGoalLoopForceFullRun}
                 />
               </div>

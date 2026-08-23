@@ -1453,7 +1453,14 @@ export async function goalLoopState(taskId: string): Promise<GoalLoopDto | null>
 export async function goalLoopCommand(
   taskId: string,
   input:
-    | { action: "start"; goal: string; acceptance?: string[]; maxTurns?: number; forceFullRun?: boolean }
+    | {
+        action: "start";
+        goal: string;
+        acceptance?: string[];
+        maxTurns?: number;
+        cooldownSeconds?: number;
+        forceFullRun?: boolean;
+      }
     | { action: "pause" | "resume" | "stop"; maxTurns?: number },
 ): Promise<GoalLoopDto | null> {
   const live = await ensureLive(taskId);
@@ -1464,12 +1471,13 @@ export async function goalLoopCommand(
         goal: input.goal,
         acceptance: input.acceptance ?? [],
         maxTurns: input.maxTurns,
+        cooldownSeconds: input.cooldownSeconds,
         forceFullRun: input.forceFullRun === true,
       }),
       "utf8",
     ).toString("base64url");
     command = `/goal-start ${payload}`;
-  } else if (input.action === "resume" && input.maxTurns) {
+  } else if (input.action === "resume" && input.maxTurns !== undefined) {
     command = `/goal-resume --turns ${Math.trunc(input.maxTurns)}`;
   } else {
     command = `/goal-${input.action}`;
@@ -1491,6 +1499,7 @@ export async function createTask(input: {
   goalLoop?: {
     acceptance?: string[];
     maxTurns?: number;
+    cooldownSeconds?: number;
     forceFullRun?: boolean;
   };
 }): Promise<TaskSummary> {
@@ -1538,6 +1547,7 @@ export async function createTask(input: {
       goal: input.prompt,
       acceptance: input.goalLoop.acceptance,
       maxTurns: input.goalLoop.maxTurns,
+      cooldownSeconds: input.goalLoop.cooldownSeconds,
       forceFullRun: input.goalLoop.forceFullRun,
     });
   } else {
