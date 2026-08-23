@@ -997,16 +997,6 @@ export function TaskView({
             tabIndex={0}
             className="flex max-w-[52vw] items-center gap-1 overflow-x-auto rounded-md [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:max-w-none sm:overflow-visible"
           >
-            {working && (
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={() => void abortWorking()}
-              >
-                <Square className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">停止</span>
-              </Button>
-            )}
             <Button
               variant="ghost"
               size="icon"
@@ -1551,16 +1541,28 @@ export function TaskView({
             </>
           }
           action={
-            <Button
-              variant="primary"
-              size="icon"
-              type="submit"
-              aria-label="送信"
-              busy={submitting}
-              disabled={compacting || (!prompt.trim() && attachments.length === 0)}
-            >
-              {!submitting && <ArrowUp className="h-4.5 w-4.5" />}
-            </Button>
+            working && !prompt.trim() && attachments.length === 0 ? (
+              <Button
+                variant="danger"
+                size="icon"
+                aria-label="停止"
+                title="停止"
+                onClick={() => void abortWorking()}
+              >
+                <Square className="h-3.5 w-3.5" />
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                size="icon"
+                type="submit"
+                aria-label="送信"
+                busy={submitting}
+                disabled={compacting || (!prompt.trim() && attachments.length === 0)}
+              >
+                {!submitting && <ArrowUp className="h-4.5 w-4.5" />}
+              </Button>
+            )
           }
         />
       </div>
