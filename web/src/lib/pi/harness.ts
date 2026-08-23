@@ -870,6 +870,14 @@ async function createSession(options: {
   applyPermissionMode(result.session, options.cwd, permissionMode, {
     persist: persistPermission,
   });
+  // bindExtensions() emits session_start; bundled extensions (goal-loop 等)
+  // create their per-session runtime there. Without it /goal-start silently
+  // no-ops because the extension never sees a runtime.
+  await result.session.bindExtensions({
+    onError: (error) => {
+      console.error(`[extension] ${error.extensionPath} (${error.event}):`, error.error);
+    },
+  });
   return result.session;
 }
 
