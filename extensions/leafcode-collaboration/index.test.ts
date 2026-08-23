@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, it } from "vitest";
 import collaborationExtension from "./index";
@@ -12,6 +12,10 @@ type Tool = {
   name: string;
   execute: (toolCallId: string, params: Record<string, unknown>, signal: AbortSignal, onUpdate: () => void, ctx: ExtensionContext) => Promise<{ details?: Record<string, unknown> }>;
 };
+
+function git(cwd: string, args: string[]): void {
+  execFileSync("git", args, { cwd, stdio: "ignore", windowsHide: true });
+}
 
 describe("LeafCode collaboration extension", () => {
   it("joins lazily when an existing session calls status after extension reload", async () => {
@@ -43,6 +47,60 @@ describe("LeafCode collaboration extension", () => {
       assert.equal(snapshot.sessions["existing-session"]?.displayName, "Existing session");
     } finally {
       await handlers.get("session_shutdown")?.({}, ctx);
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps one room client when tool calls use fresh ExtensionContext objects", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "leafcode-collab-extension-repo-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-extension-data-"));
+    const handlers = new Map<string, Handler>();
+    const tools = new Map<string, Tool>();
+    const pi = {
+      on: (name: string, handler: Handler) => handlers.set(name, handler),
+      registerTool: (tool: Tool) => tools.set(tool.name, tool),
+    } as unknown as ExtensionAPI;
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    collaborationExtension(pi);
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    const filePath = join(repo, "src/a.ts");
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, "export const a = 1;\n", "utf8");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+    const sessionManager = {
+      getSessionId: () => "stable-session",
+      getSessionName: () => "Stable session",
+    };
+    const ctxReserve = { cwd: repo, hasUI: false, sessionManager } as ExtensionContext;
+    const ctxEdit = { cwd: repo, hasUI: false, sessionManager } as ExtensionContext;
+
+    try {
+      process.env.LEAFCODE_PI_DATA_DIR = dataDir;
+      await handlers.get("session_start")?.({}, ctxReserve);
+      const reserved = await tools.get("leafcode_collab")!.execute(
+        "reserve",
+        { action: "reserve", paths: ["src/a.ts"] },
+        new AbortController().signal,
+        () => undefined,
+        ctxReserve,
+      );
+      assert.match(String(reserved.details?.lease && (reserved.details.lease as { id?: string }).id), /-/);
+      await tools.get("leafcode_edit")!.execute(
+        "edit",
+        { path: "src/a.ts", oldText: "1", newText: "2" },
+        new AbortController().signal,
+        () => undefined,
+        ctxEdit,
+      );
+      assert.equal(readFileSync(filePath, "utf8"), "export const a = 2;\n");
+    } finally {
+      await handlers.get("session_shutdown")?.({}, ctxReserve);
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
       rmSync(repo, { recursive: true, force: true });

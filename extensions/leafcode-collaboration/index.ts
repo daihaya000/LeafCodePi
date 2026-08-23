@@ -20,7 +20,7 @@ type RuntimeState = {
   connectionId?: string;
 };
 
-const runtimeStates = new WeakMap<ExtensionContext, RuntimeState>();
+const runtimeStates = new WeakMap<object, RuntimeState>();
 const POLICY = [
   "This is a shared LeafCodePi checkout.",
   'Call leafcode_collab({ action: "status" }) before editing.',
@@ -29,8 +29,12 @@ const POLICY = [
   "Do not request worktree isolation. If a lease or commit is blocked, report the conflict instead of bypassing it.",
 ].join("\n");
 
+function runtimeKey(ctx: ExtensionContext): object {
+  return ctx.sessionManager;
+}
+
 function runtimeState(ctx: ExtensionContext): RuntimeState {
-  const existing = runtimeStates.get(ctx);
+  const existing = runtimeStates.get(runtimeKey(ctx));
   if (existing) return existing;
   const loaded = readCollaborationConfig();
   const state = {
@@ -38,7 +42,7 @@ function runtimeState(ctx: ExtensionContext): RuntimeState {
     configValid: loaded.valid,
     ...(loaded.error ? { configError: loaded.error } : {}),
   } satisfies RuntimeState;
-  runtimeStates.set(ctx, state);
+  runtimeStates.set(runtimeKey(ctx), state);
   return state;
 }
 
@@ -235,10 +239,10 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
-    const state = runtimeStates.get(ctx);
+    const state = runtimeStates.get(runtimeKey(ctx));
     if (!state) return;
     await state.client?.close();
-    runtimeStates.delete(ctx);
+    runtimeStates.delete(runtimeKey(ctx));
   });
 
   pi.registerTool({

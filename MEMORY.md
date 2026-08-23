@@ -34,3 +34,8 @@
 - 原因: mutate が orphaned を選択、同一 session の reserve が自分の orphaned を conflict、reconnect で connectionId 変化
 - 修正: active/dirty のみ mutate、orphaned reclaim、connectionId 安定化、reserve 応答に leaseId
 - 手順: `reserve` → 応答の leaseId 確認 → 直後に edit。reconnect 後は再 reserve
+
+### runtime WeakMap キー（続き）
+- 症状: reserve 直後の edit が `An active lease covering this path is required`、release は既に `released`
+- 原因: `runtimeStates` が `WeakMap<ExtensionContext>` キーで、Pi は tool 呼び出しごとに新しい ctx オブジェクトを渡す。edit 時に別 RoomClient・別 connectionId で join → 直前の lease が orphaned/released
+- 修正: `WeakMap<sessionManager>` に変更。reserve→edit 統合テスト追加
