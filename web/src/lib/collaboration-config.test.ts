@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
-import { DEFAULT_COLLABORATION_CONFIG, readCollaborationConfig } from "./collaboration";
+import { DEFAULT_COLLABORATION_CONFIG, parseCheckArgs, readCollaborationConfig, writeCollaborationConfig } from "./collaboration";
 
 describe("readCollaborationConfig", () => {
   const tempDirs: string[] = [];
@@ -57,5 +57,34 @@ describe("readCollaborationConfig", () => {
       checks: { unknown: { file: "node", args: [] } },
     }), "utf8");
     assert.equal(readCollaborationConfig({ ...process.env, LEAFCODE_PI_DATA_DIR: dataDir }).valid, false);
+  });
+
+  it("writes a validated config and refuses invalid values", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-config-"));
+    tempDirs.push(dataDir);
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const written = writeCollaborationConfig({
+      ...DEFAULT_COLLABORATION_CONFIG,
+      mode: "permissive",
+      heartbeatMs: 1_000,
+      leaseTtlMs: 20_000,
+    }, env);
+    assert.equal(written.valid, true);
+    assert.equal(written.exists, true);
+    assert.equal(readCollaborationConfig(env).config.mode, "permissive");
+    assert.equal(readCollaborationConfig(env).config.heartbeatMs, 1_000);
+
+    const rejected = writeCollaborationConfig({ mode: "strict", leaseTtlMs: 100 }, env);
+    assert.equal(rejected.valid, false);
+    assert.equal(readCollaborationConfig(env).config.mode, "permissive");
+  });
+});
+
+describe("parseCheckArgs", () => {
+  it("parses whitespace, quotes, and JSON arrays", () => {
+    assert.deepEqual(parseCheckArgs("--prefix web run typecheck"), ["--prefix", "web", "run", "typecheck"]);
+    assert.deepEqual(parseCheckArgs(`"--prefix" "web app" run`), ["--prefix", "web app", "run"]);
+    assert.deepEqual(parseCheckArgs('["--prefix","web","run","typecheck"]'), ["--prefix", "web", "run", "typecheck"]);
+    assert.equal(parseCheckArgs('"unterminated'), undefined);
   });
 });

@@ -10,6 +10,7 @@ import { AgentsMdSettings } from "@/components/settings/AgentsMdSettings";
 import { CompactionSettings } from "@/components/settings/CompactionSettings";
 import { NavigatorSettings } from "@/components/settings/NavigatorSettings";
 import { SkillsSettings } from "@/components/settings/SkillsSettings";
+import { CollaborationSettings } from "@/components/settings/CollaborationSettings";
 import { ExtensionsSettings } from "@/components/settings/ExtensionsSettings";
 import { McpSettings } from "@/components/settings/McpSettings";
 import { AgentsSettings } from "@/components/settings/AgentsSettings";
@@ -137,6 +138,7 @@ export function SettingsView() {
               <ReasoningTranslationSettings />
               <AgentsMdSettings />
               <SkillsSettings />
+              <CollaborationSettings />
               <ExtensionsSettings />
               <McpSettings />
               <AgentsSettings />
@@ -148,7 +150,7 @@ export function SettingsView() {
                 <p>テーマはサイドバー右下のアイコンから切り替えます（ライト / ダーク / システム）。</p>
                 <p className="mt-2">
                   サブスクログイン・モデルの有効／無効・並び替え・有効モデル一覧は「モデル」タブです。ローカル LLM（llama-server）の起動と
-                  WebUI／トレイホストの再起動は「エンジン」タブです。
+                  WebUI／トレイホストの再起動は「エンジン」タブです。協調（strict / リース TTL / チェックコマンド）は「一般」タブの協調パネルです。
                 </p>
               </div>
             </section>

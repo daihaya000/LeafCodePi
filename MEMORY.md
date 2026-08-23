@@ -1,5 +1,16 @@
 # LeafCodePi メモリ
 
+## 2026-08-23: 協調設定を設定画面の一般タブへ露出
+
+`collaboration.json`（モード、ハートビート、リース TTL、stuck、ask タイムアウト、活動上限、check コマンド）はファイル直編集だけだった。設定 UI の「一般」に協調パネルを追加した。
+
+- `GET`/`PUT` `/api/collaboration/config` が同じバリデーションで読み書きする
+- 不正値は保存せず fail-closed（実行時は従来どおり既定の strict）
+- 変更は新しいセッションまたはホスト再起動から適用される旨を表示する
+- 拡張の無効化スイッチとは別。協調拡張自体は必須のまま
+
+検証: `collaboration-config` と `CollaborationSettings` のテスト。localhost:3011 の一般タブで緩和へ切替→保存し、一時 `LEAFCODE_PI_DATA_DIR` の `collaboration.json` が `mode: "permissive"` になった。
+
 ## 2026-08-23: leafcode_edit の CRLF 不一致と SSE heartbeat の closed enqueue
 
 リース確保後の `leafcode_edit` が `oldText must match exactly once.` で連続失敗し、WebUI は `Controller is already closed` を繰り返していた。どちらも実害のある欠陥だった。
