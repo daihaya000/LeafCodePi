@@ -749,16 +749,15 @@ function readLock(identity: ProjectIdentity): LockRecord | undefined {
   }
 }
 
-function staleLock(identity: ProjectIdentity, config: CollaborationConfig): boolean {
+function staleLock(identity: ProjectIdentity): boolean {
   const lock = readLock(identity);
   if (!lock) return false;
   if (processIsAlive(lock.pid)) return false;
-  const heartbeatAt = Date.parse(lock.heartbeatAt);
-  return Number.isFinite(heartbeatAt) && Date.now() - heartbeatAt >= config.stuckAfterMs;
+  return true;
 }
 
-function takeOverStaleLock(identity: ProjectIdentity, config: CollaborationConfig): boolean {
-  if (!staleLock(identity, config)) return false;
+function takeOverStaleLock(identity: ProjectIdentity): boolean {
+  if (!staleLock(identity)) return false;
   const moved = `${identity.lockPath}.stale-${process.pid}-${randomUUID()}`;
   try {
     fs.renameSync(identity.lockPath, moved);
@@ -1942,14 +1941,14 @@ export async function connectRoom(
       await coordinator.close();
       if (!(error instanceof LockHeldError)) throw error;
     }
-    if (takeOverStaleLock(identity, config.config)) continue;
+    if (takeOverStaleLock(identity)) continue;
     try {
       const channel = await JsonRpcChannel.connect(identity.socketPath);
       return await RoomClient.connect(identity, session, undefined, channel, config.config);
     } catch (error) {
       const lock = readLock(identity);
       if (lock && processIsAlive(lock.pid)) return RoomClient.degraded(identity, session, "Coordinator is alive but its IPC endpoint is unavailable.", config.config);
-      if (!takeOverStaleLock(identity, config.config)) return RoomClient.degraded(identity, session, error instanceof Error ? error.message : String(error), config.config);
+      if (!takeOverStaleLock(identity)) return RoomClient.degraded(identity, session, error instanceof Error ? error.message : String(error), config.config);
     }
   }
   return RoomClient.degraded(identity, session, "Coordinator takeover is uncertain; mutations are disabled.", config.config);

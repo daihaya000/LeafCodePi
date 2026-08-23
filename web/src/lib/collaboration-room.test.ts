@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore The standalone production mirror does not include extension sources; Vitest runs from the repository.
-import { connectRoom, normalizeSelector, selectorsOverlap, type ActivityEntry, type RoomClient } from "../../../extensions/leafcode-collaboration/room";
+import { connectRoom, normalizeSelector, resolveProjectIdentity, selectorsOverlap, type ActivityEntry, type RoomClient } from "../../../extensions/leafcode-collaboration/room";
 
 function git(cwd: string, args: string[]): void {
   execFileSync("git", args, { cwd, stdio: "ignore", windowsHide: true });
@@ -81,6 +81,36 @@ describe("LeafCode room coordinator", () => {
     await first.reserve(["src/new/nested.ts"]);
     await first.write("src/new/nested.ts", "export const nested = true;\n");
     assert.equal(readFileSync(join(repo, "src/new/nested.ts"), "utf8"), "export const nested = true;\n");
+  });
+
+  it("takes over a lock immediately when its coordinator process is gone", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 1;\n");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const identity = await resolveProjectIdentity(repo, env);
+    mkdirSync(identity.roomDir, { recursive: true });
+    writeFileSync(
+      identity.lockPath,
+      JSON.stringify({
+        schema: 1,
+        pid: 2_147_483_647,
+        connectionId: "dead-coordinator",
+        epoch: 1,
+        heartbeatAt: new Date().toISOString(),
+      }),
+      "utf8",
+    );
+
+    const client = await connectRoom(repo, { sessionId: "session-stale-lock", displayName: "Stale", pid: process.pid }, env);
+    clients.push(client);
+    assert.equal(client.ready, true);
   });
 
   it("runs a fixed check and commits only the selected lease paths", async () => {
