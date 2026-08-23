@@ -113,6 +113,48 @@ describe("LeafCode room coordinator", () => {
     assert.equal(client.ready, true);
   });
 
+  it("clears an offline Git-change quarantine after the new baseline stays stable", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 1;\n");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const first = await connectRoom(repo, { sessionId: "session-before-restart", pid: process.pid }, env);
+    clients.push(first);
+    await first.close();
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 2;\n");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "offline change"]);
+    writeFileSync(first.identity.lockPath, JSON.stringify({
+      schema: 1,
+      pid: 2_147_483_647,
+      connectionId: "dead-coordinator",
+      epoch: 1,
+      heartbeatAt: new Date().toISOString(),
+    }), "utf8");
+
+    const quarantined = await connectRoom(repo, { sessionId: "session-after-crash", pid: process.pid }, env);
+    clients.push(quarantined);
+    assert.match((await quarantined.snapshot()).compromised?.reason ?? "", /offline/i);
+    await quarantined.close();
+    writeFileSync(first.identity.lockPath, JSON.stringify({
+      schema: 1,
+      pid: 2_147_483_647,
+      connectionId: "second-dead-coordinator",
+      epoch: 2,
+      heartbeatAt: new Date().toISOString(),
+    }), "utf8");
+
+    const recovered = await connectRoom(repo, { sessionId: "session-after-stable-restart", pid: process.pid }, env);
+    clients.push(recovered);
+    assert.equal((await recovered.snapshot()).compromised, undefined);
+  });
+
   it("runs a fixed check and commits only the selected lease paths", async () => {
     repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
     dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
@@ -171,6 +213,10 @@ describe("LeafCode room coordinator", () => {
     await assert.rejects(() => client.check("test"), /HEAD|refs|compromised/i);
     assert.match((await client.snapshot()).compromised?.reason ?? "", /HEAD|refs/i);
     await assert.rejects(() => client.reserve(["src/a.ts"]), /compromised|disabled/i);
+    await client.close();
+    const restarted = await connectRoom(repo, { sessionId: "session-still-compromised", pid: process.pid }, { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir });
+    clients.push(restarted);
+    await assert.rejects(() => restarted.reserve(["src/a.ts"]), /compromised|disabled/i);
   });
 
   it("rejects a commit when another session has shared staged changes", async () => {

@@ -25,6 +25,7 @@ const MAX_INBOX_RESPONSE_BYTES = 1_500_000;
 const MESSAGE_RATE_WINDOW_MS = 60_000;
 const MAX_MESSAGES_PER_WINDOW = 30;
 const CHECK_TIMEOUT_MS = 120_000;
+const OFFLINE_GIT_CHANGE_REASON = "HEAD or refs changed while the coordinator was offline.";
 
 export type PresenceState = "active" | "idle" | "away" | "stuck" | "offline";
 export type LeaseState = "active" | "dirty" | "invalid" | "orphaned" | "released";
@@ -868,7 +869,11 @@ class Coordinator {
   private readonly pendingAsks = new Map<string, { fromSessionId: string; toSessionId: string; expiresAt: number }>();
   private readonly messageRates = new Map<string, { startedAt: number; count: number }>();
 
-  constructor(private readonly identity: ProjectIdentity, private readonly config: CollaborationConfig) {
+  constructor(
+    private readonly identity: ProjectIdentity,
+    private readonly config: CollaborationConfig,
+    private readonly cleanRestart: boolean,
+  ) {
     this.state = emptySnapshot(identity.projectKey);
   }
 
@@ -898,8 +903,10 @@ class Coordinator {
       this.state.refFingerprint = currentGitState.refFingerprint;
       this.refFingerprint = currentGitState.refFingerprint;
       const headChanged = Boolean(savedHead.oid && savedHead.oid !== currentGitState.head.oid) || Boolean(savedHead.branch && savedHead.branch !== currentGitState.head.branch);
-      if (!this.state.compromised && ((savedRefFingerprint && savedRefFingerprint !== currentGitState.refFingerprint) || headChanged)) {
-        this.markCompromised("HEAD or refs changed while the coordinator was offline.", "coordinator");
+      const gitChanged = Boolean(savedRefFingerprint && savedRefFingerprint !== currentGitState.refFingerprint) || headChanged;
+      if (!gitChanged && this.state.compromised?.reason === OFFLINE_GIT_CHANGE_REASON) delete this.state.compromised;
+      if (!this.cleanRestart && !this.state.compromised && gitChanged) {
+        this.markCompromised(OFFLINE_GIT_CHANGE_REASON, "coordinator");
       }
       this.writeLock();
       if (process.platform !== "win32") fs.rmSync(this.identity.socketPath, { force: true });
@@ -1932,8 +1939,9 @@ export async function connectRoom(
   const config = readCollaborationConfig(env);
   const identity = await resolveProjectIdentity(cwd, env);
   fs.mkdirSync(identity.roomDir, { recursive: true, mode: 0o700 });
+  let uncleanTakeover = false;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const coordinator = new Coordinator(identity, config.config);
+    const coordinator = new Coordinator(identity, config.config, !uncleanTakeover && !fs.existsSync(identity.lockPath));
     try {
       await coordinator.start();
       return await RoomClient.connect(identity, session, coordinator, undefined, config.config);
@@ -1941,7 +1949,10 @@ export async function connectRoom(
       await coordinator.close();
       if (!(error instanceof LockHeldError)) throw error;
     }
-    if (takeOverStaleLock(identity)) continue;
+    if (takeOverStaleLock(identity)) {
+      uncleanTakeover = true;
+      continue;
+    }
     try {
       const channel = await JsonRpcChannel.connect(identity.socketPath);
       return await RoomClient.connect(identity, session, undefined, channel, config.config);
