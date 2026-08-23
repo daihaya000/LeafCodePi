@@ -90,6 +90,53 @@ import type {
 /** Compaction LLM calls routinely exceed the default fetch budget. */
 const COMPACT_TIMEOUT_MS = 240_000;
 
+const SIDE_PANEL_MIN_WIDTH = 240;
+const SIDE_PANEL_MAX_WIDTH = 640;
+
+/** 右側パネル（Graph / Diff）の幅を左端ドラッグで調整できるラッパー。 */
+function SidePanel({ storageKey, children }: { storageKey: string; children: React.ReactNode }) {
+  const [width, setWidth] = useState(320);
+  useEffect(() => {
+    const saved = Number(localStorage.getItem(storageKey));
+    if (Number.isFinite(saved) && saved >= SIDE_PANEL_MIN_WIDTH) {
+      setWidth(Math.min(saved, SIDE_PANEL_MAX_WIDTH));
+    }
+  }, [storageKey]);
+  return (
+    <div
+      className="relative h-72 shrink-0 border-b border-border lg:h-auto lg:w-(--panel-width) lg:border-b-0 lg:border-l"
+      style={{ "--panel-width": `${width}px` } as React.CSSProperties}
+    >
+      {children}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="パネルの幅を調整"
+        className="absolute top-0 left-0 hidden h-full w-1 cursor-col-resize lg:block"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          const startX = event.clientX;
+          const startWidth = width;
+          const onMove = (move: PointerEvent) => {
+            const next = Math.min(
+              SIDE_PANEL_MAX_WIDTH,
+              Math.max(SIDE_PANEL_MIN_WIDTH, startWidth - (move.clientX - startX)),
+            );
+            setWidth(next);
+            localStorage.setItem(storageKey, String(next));
+          };
+          const onUp = () => {
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("pointerup", onUp);
+          };
+          window.addEventListener("pointermove", onMove);
+          window.addEventListener("pointerup", onUp);
+        }}
+      />
+    </div>
+  );
+}
+
 function TurnNoticeBanner({
   message,
   action,
@@ -1213,18 +1260,18 @@ export function TaskView({
           </div>
         )}
         {graphOpen && task?.directory && (
-          <div className="h-72 shrink-0 border-b border-border lg:h-auto lg:w-80 lg:border-b-0 lg:border-l">
+          <SidePanel storageKey="webui.graphpanel.width">
             <GraphPanel directory={task.directory} working={working} />
-          </div>
+          </SidePanel>
         )}
         {diffOpen && task?.directory && (
-          <div className="h-72 shrink-0 border-b border-border lg:h-auto lg:w-80 lg:border-b-0 lg:border-l">
+          <SidePanel storageKey="webui.diffpane.width">
             <DiffPane
               directory={task.directory}
               agent={agent || undefined}
               onMutated={() => notifyTasksChanged()}
             />
-          </div>
+          </SidePanel>
         )}
       </div>
       <div className="shrink-0 border-t border-border bg-surface px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
