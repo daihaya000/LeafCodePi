@@ -42,7 +42,15 @@ import { readGoalLoopState } from "@/lib/pi/goal-loop-state";
 import { todosFromPiMessages } from "@/lib/pi/todowrite-state";
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
 import { filterSkillsByState } from "@/lib/skills";
-import { basenameKey, bundledExtensionEntries, filterExtensionsByState } from "@/lib/extensions";
+import {
+  applyCollaborationToolPolicy,
+  basenameKey,
+  bundledExtensionEntries,
+  filterExtensionsByState,
+  LEAFCODE_COLLABORATION_EXTENSION_NAME,
+  LEAFCODE_COLLABORATION_TOOL_NAMES,
+} from "@/lib/extensions";
+import { readCollaborationConfig } from "@/lib/collaboration";
 import { applyPermissionMode, readPermissionGateConfig } from "@/lib/permission-gate-config";
 import { buildAgentResourceOptions, loadAgentDefinition } from "@/lib/agents";
 import {
@@ -827,6 +835,10 @@ async function createSession(options: {
   const bundled = bundledExtensionEntries();
   const bundledNames = new Set(bundled.map((entry) => entry.name));
   const bundledPaths = new Set(bundled.map((entry) => entry.filePath));
+  const collaborationEntry = bundled.find((entry) => entry.name === LEAFCODE_COLLABORATION_EXTENSION_NAME);
+  if (!collaborationEntry) {
+    throw new Error(`Required bundled extension '${LEAFCODE_COLLABORATION_EXTENSION_NAME}' is missing; refusing to start a mutable session.`);
+  }
   // The bundled leafcode-subagents fork replaces the npm pi-subagents package:
   // drop the npm extension so the `subagent` tool is never registered twice.
   const forkOwnsSubagents = bundledNames.has("leafcode-subagents");
@@ -862,6 +874,26 @@ async function createSession(options: {
     ...(agentOptions?.noContextFiles ? { noContextFiles: true } : {}),
   });
   await resourceLoader.reload();
+  const loadedExtensions = resourceLoader.getExtensions();
+  const collaborationExtension = loadedExtensions.extensions.find(
+    (extension) =>
+      basenameKey(extension.resolvedPath) === LEAFCODE_COLLABORATION_EXTENSION_NAME &&
+      resolve(extension.resolvedPath) === resolve(collaborationEntry.filePath),
+  );
+  const missingCollaborationTools = LEAFCODE_COLLABORATION_TOOL_NAMES.filter(
+    (name) => !collaborationExtension?.tools.has(name),
+  );
+  if (!collaborationExtension || missingCollaborationTools.length > 0) {
+    const loadError = loadedExtensions.errors
+      .filter((entry) => basenameKey(entry.path) === LEAFCODE_COLLABORATION_EXTENSION_NAME)
+      .map((entry) => entry.error)
+      .join("; ");
+    throw new Error(
+      `Required collaboration extension failed to load; refusing to start a mutable session.${
+        missingCollaborationTools.length > 0 ? ` Missing tools: ${missingCollaborationTools.join(", ")}.` : ""
+      }${loadError ? ` ${loadError}` : ""}`,
+    );
+  }
   const permissionMode = options.permissionMode ?? readPermissionGateConfig(options.cwd);
   const persistPermission = options.permissionMode !== undefined;
   applyPermissionMode({ extensionRunner: undefined }, options.cwd, permissionMode, {
@@ -870,11 +902,13 @@ async function createSession(options: {
   // Agent-defined tool allowlist wins; otherwise default tools. The `subagent`
   // tool is only exposed when subagent permission is "allow" (delegation stays
   // independent from running an agent as the main persona).
-  const tools =
+  const configuredTools =
     agentOptions?.tools ??
     (options.subagentPermission === "allow"
       ? ["read", "write", "edit", "bash", "grep", "find", "ls", "subagent", "todowrite"]
       : ["read", "write", "edit", "bash", "grep", "find", "ls", "todowrite"]);
+  const collaborationMode = readCollaborationConfig().config.mode;
+  const tools = applyCollaborationToolPolicy(configuredTools, collaborationMode);
   const result = await pi.createAgentSession({
     cwd: options.cwd,
     agentDir,

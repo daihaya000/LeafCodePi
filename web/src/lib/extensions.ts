@@ -29,6 +29,17 @@ import {
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
+import {
+  LEAFCODE_COLLABORATION_EXTENSION_NAME,
+  LEAFCODE_COLLABORATION_TOOL_NAMES,
+  LEAFCODE_STRICT_BLOCKED_TOOL_NAMES,
+} from "@/lib/collaboration";
+
+export {
+  LEAFCODE_COLLABORATION_EXTENSION_NAME,
+  LEAFCODE_COLLABORATION_TOOL_NAMES,
+  LEAFCODE_STRICT_BLOCKED_TOOL_NAMES,
+} from "@/lib/collaboration";
 
 export type ExtensionDto = {
   id: string;
@@ -94,12 +105,13 @@ const emptyState = (): ExtensionsState => {
   return { disabled: {} };
 };
 
-/** WebUI の機能（Goal Loop / ToDo / Permission Gate / Subagents）が動作依存する同梱拡張。無効化禁止。 */
+/** WebUI / shared-checkout の動作に必須な同梱拡張。無効化禁止。 */
 export const WEBUI_REQUIRED_EXTENSIONS: ReadonlySet<string> = new Set([
   "leafcode-goal-loop",
   "leafcode-todowrite",
   "leafcode-permission-gate",
   "leafcode-subagents",
+  LEAFCODE_COLLABORATION_EXTENSION_NAME,
 ]);
 
 export function isWebUiRequiredExtension(name: string): boolean {
@@ -154,7 +166,20 @@ export function filterExtensionsByState<T extends { path: string }>(
   state = readExtensionsState(),
 ): T[] {
   if (Object.keys(state.disabled).length === 0) return [...extensions];
-  return extensions.filter((extension) => state.disabled[basenameKey(extension.path)] !== true);
+  return extensions.filter((extension) => {
+    const name = basenameKey(extension.path);
+    return isWebUiRequiredExtension(name) || state.disabled[name] !== true;
+  });
+}
+
+export function applyCollaborationToolPolicy(
+  tools: readonly string[],
+  mode: "strict" | "permissive",
+): string[] {
+  const filtered = mode === "strict"
+    ? tools.filter((tool) => !(LEAFCODE_STRICT_BLOCKED_TOOL_NAMES as readonly string[]).includes(tool))
+    : [...tools];
+  return [...new Set([...filtered, ...LEAFCODE_COLLABORATION_TOOL_NAMES])];
 }
 
 /**

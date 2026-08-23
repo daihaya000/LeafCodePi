@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import {
+  applyCollaborationToolPolicy,
   basenameKey,
   extensionsStatePath,
   filterExtensionsByState,
@@ -46,6 +47,33 @@ describe("filterExtensionsByState", () => {
   it("keeps everything when nothing is disabled", () => {
     const all = [{ path: "C:\\pi\\extensions\\a.js" }, { path: "C:\\pi\\extensions\\b.js" }];
     assert.deepEqual(filterExtensionsByState(all, { disabled: {} }), all);
+  });
+
+  it("keeps required extensions even if stale state tries to disable them", () => {
+    const filtered = filterExtensionsByState(
+      [
+        { path: "C:\\pi\\extensions\\leafcode-collaboration\\index.ts" },
+        { path: "C:\\pi\\extensions\\other.js" },
+      ],
+      { disabled: { "leafcode-collaboration": true, other: true } },
+    );
+    assert.deepEqual(filtered.map((entry) => entry.path), ["C:\\pi\\extensions\\leafcode-collaboration\\index.ts"]);
+  });
+});
+
+describe("applyCollaborationToolPolicy", () => {
+  it("hides mutation-capable standard tools and adds mandatory custom tools in strict mode", () => {
+    assert.deepEqual(
+      applyCollaborationToolPolicy(["read", "write", "edit", "bash", "read"], "strict"),
+      ["read", "leafcode_collab", "leafcode_write", "leafcode_edit", "leafcode_check", "leafcode_commit"],
+    );
+  });
+
+  it("keeps standard tools in permissive mode while still loading collaboration tools", () => {
+    assert.deepEqual(
+      applyCollaborationToolPolicy(["read", "write"], "permissive"),
+      ["read", "write", "leafcode_collab", "leafcode_write", "leafcode_edit", "leafcode_check", "leafcode_commit"],
+    );
   });
 });
 
