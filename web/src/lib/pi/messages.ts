@@ -100,6 +100,32 @@ function mergeToolResult(
   }
 }
 
+/** projectPiMessages で独立した UiMessage になる raw（toolResult は assistant へ merge され除外）。 */
+export function piRawMessageProjectsToUi(item: unknown): boolean {
+  if (!isRecord(item)) return false;
+  const role = asString(item.role);
+  if (role === "toolResult") return false;
+  return (
+    role === "user" ||
+    role === "assistant" ||
+    role === "bashExecution" ||
+    role === "compactionSummary"
+  );
+}
+
+/** projectPiMessages の出力順と同じ順で、各 UiMessage に対応するセッション entry id を返す。 */
+export function entryIdsForProjectedMessages(
+  raw: unknown[],
+  entryIdByMessage: Map<unknown, string>,
+): (string | undefined)[] {
+  const ids: (string | undefined)[] = [];
+  for (const item of raw) {
+    if (!piRawMessageProjectsToUi(item)) continue;
+    ids.push(entryIdByMessage.get(item));
+  }
+  return ids;
+}
+
 export function projectPiMessages(raw: unknown[]): UiMessage[] {
   const messages: UiMessage[] = [];
   raw.forEach((item, index) => {

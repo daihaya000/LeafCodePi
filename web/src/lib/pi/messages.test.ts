@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { findResumableTurn } from "../aborted-resume";
-import { projectPiMessages, titleFromPrompt } from "./messages";
+import {
+  entryIdsForProjectedMessages,
+  projectPiMessages,
+  titleFromPrompt,
+} from "./messages";
 
 describe("titleFromPrompt", () => {
   it("uses the first non-empty line", () => {
@@ -110,5 +114,39 @@ describe("projectPiMessages", () => {
       messageId: "a1",
       text: "続けて",
     });
+  });
+});
+
+describe("entryIdsForProjectedMessages", () => {
+  it("skips toolResult entries so user message ids stay aligned", () => {
+    const user1 = { role: "user", content: "ls して" };
+    const assistant = {
+      role: "assistant",
+      content: [{ type: "toolCall", id: "call1", name: "ls", arguments: {} }],
+    };
+    const toolResult = {
+      role: "toolResult",
+      toolCallId: "call1",
+      content: [{ type: "text", text: "ok" }],
+    };
+    const user2 = { role: "user", content: "続き" };
+    const stored = [user1, assistant, toolResult, user2];
+    const entryIdByMessage = new Map<unknown, string>([
+      [user1, "e-user-1"],
+      [assistant, "e-assistant"],
+      [toolResult, "e-tool-result"],
+      [user2, "e-user-2"],
+    ]);
+
+    const projected = projectPiMessages(stored);
+    const entryIds = entryIdsForProjectedMessages(stored, entryIdByMessage);
+
+    expect(projected).toHaveLength(3);
+    expect(entryIds).toEqual(["e-user-1", "e-assistant", "e-user-2"]);
+    expect(
+      projected.map((message, index) =>
+        entryIds[index] ? { ...message, id: entryIds[index]! } : message,
+      )[2],
+    ).toMatchObject({ role: "user", id: "e-user-2" });
   });
 });

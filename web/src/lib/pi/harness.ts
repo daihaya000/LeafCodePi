@@ -24,7 +24,11 @@ import {
   type AuthTypeDto,
   type LoginSessionEvent,
 } from "@/lib/pi/auth-login";
-import { projectPiMessages, titleFromPrompt } from "@/lib/pi/messages";
+import {
+  entryIdsForProjectedMessages,
+  projectPiMessages,
+  titleFromPrompt,
+} from "@/lib/pi/messages";
 import {
   buildProviderModelsCatalog,
   enabledModelOptionsFromCatalog,
@@ -429,8 +433,9 @@ function snapshotMessages(
       entryIdByMessage.set((entry as { message?: unknown }).message, entry.id);
     }
   }
+  const entryIds = entryIdsForProjectedMessages(stored, entryIdByMessage);
   projected = projected.map((message, index) => {
-    const entryId = entryIdByMessage.get(stored[index]);
+    const entryId = entryIds[index];
     return entryId ? { ...message, id: entryId } : message;
   });
   if (throughputByStartedAt) projected = applyThroughput(projected, throughputByStartedAt);
