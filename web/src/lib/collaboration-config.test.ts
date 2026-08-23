@@ -16,7 +16,14 @@ describe("readCollaborationConfig", () => {
     const dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-config-"));
     tempDirs.push(dataDir);
     assert.deepEqual(readCollaborationConfig({ ...process.env, LEAFCODE_PI_DATA_DIR: dataDir }), {
-      config: { mode: "strict" },
+      config: {
+        mode: "strict",
+        heartbeatMs: 2_000,
+        leaseTtlMs: 15_000,
+        stuckAfterMs: 120_000,
+        askTimeoutMs: 120_000,
+        activityLimit: 200,
+      },
       valid: true,
     });
   });
@@ -27,6 +34,16 @@ describe("readCollaborationConfig", () => {
     writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({ mode: "unsafe" }), "utf8");
     const result = readCollaborationConfig({ ...process.env, LEAFCODE_PI_DATA_DIR: dataDir });
     assert.equal(result.valid, false);
-    assert.deepEqual(result.config, { mode: "strict" });
+    assert.equal(result.config.mode, "strict");
+    assert.equal(result.config.heartbeatMs, 2_000);
+  });
+
+  it("uses defaults for omitted timing values and rejects unsafe values", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-config-"));
+    tempDirs.push(dataDir);
+    writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({ mode: "strict", leaseTtlMs: 100 }), "utf8");
+    const result = readCollaborationConfig({ ...process.env, LEAFCODE_PI_DATA_DIR: dataDir });
+    assert.equal(result.valid, false);
+    assert.match(result.error ?? "", /invalid/);
   });
 });
