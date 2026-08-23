@@ -437,7 +437,7 @@ export function GraphPanel({
   };
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col border-border bg-surface lg:border-l">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-1 select-text flex-col border-border bg-surface lg:border-l">
       <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-border px-2.5 py-1.5">
         <GitGraph className="h-3.5 w-3.5 shrink-0 text-muted" />
         <span className="shrink-0 text-xs font-semibold text-muted">グラフ</span>
@@ -480,7 +480,7 @@ export function GraphPanel({
               title={repository.path}
               onClick={() => setSelectedDirectory(repository.path)}
               className={cx(
-                "shrink-0 rounded-md px-2 py-1 text-xs transition-colors",
+                "shrink-0 select-text rounded-md px-2 py-1 text-xs transition-colors",
                 repository.path === selectedDirectory
                   ? "bg-accent/15 text-accent"
                   : "text-muted hover:bg-surface-2 hover:text-text",
@@ -541,7 +541,7 @@ export function GraphPanel({
                 aria-controls={`graph-files-${row.commit.hash}`}
                 aria-busy={loadingCommits.has(row.commit.hash) || undefined}
                 onClick={() => void toggleExpand(row.commit.hash)}
-                className="flex w-full min-w-0 cursor-pointer items-stretch gap-1 px-1 py-0 text-left hover:bg-surface-2"
+                className="flex w-full min-w-0 cursor-pointer select-text items-stretch gap-1 px-1 py-0 text-left hover:bg-surface-2"
                 style={{ minHeight: ROW_H }}
               >
                 <GraphCell row={row} />
@@ -636,7 +636,7 @@ export function GraphPanel({
                         type="button"
                         disabled={fileBusy || loadingCommits.has(row.commit.hash)}
                         onClick={() => void openFileDiff(row.commit.hash, f.path)}
-                        className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-surface-2"
+                        className="flex w-full cursor-pointer select-text items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-surface-2"
                       >
                         <span
                           className={cx(
@@ -669,6 +669,7 @@ export function GraphPanel({
               size="sm"
               variant="secondary"
               busy={loadingMore}
+              className="select-text"
               onClick={() => void load({ append: true })}
             >
               さらに読み込む
