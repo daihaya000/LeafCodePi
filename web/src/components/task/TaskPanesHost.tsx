@@ -144,9 +144,10 @@ export function TaskPanesHost() {
                 const source = state.panes.find((p) => p.tabs.includes(taskId));
                 if (source && source.id !== toPaneId) {
                   dispatch({ type: "moveTab", fromPaneId: source.id, toPaneId, taskId });
+                } else if (!source) {
+                  dispatch({ type: "openTab", paneId: toPaneId, taskId });
                 }
               }}
-              onOpenTabExternal={(taskId) => dispatch({ type: "openTab", paneId: pane.id, taskId })}
               onAddPane={() => dispatch({ type: "addPane" })}
             />
           )}

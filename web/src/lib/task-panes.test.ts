@@ -64,6 +64,14 @@ describe("openTab", () => {
     expect(next.activePaneId).toBe(P2);
   });
 
+  it("未登録タスクを既存タブのある指定ペインへ追加して活性化する", () => {
+    const base = state(pane(P1, ["t1"]), pane(P2, ["t2"]));
+    const next = reducer(base, { type: "openTab", paneId: P2, taskId: "fresh" });
+    expect(next.panes[1].tabs).toEqual(["t2", "fresh"]);
+    expect(next.panes[1].activeTabId).toBe("fresh");
+    expect(next.activePaneId).toBe(P2);
+  });
+
   it("重複時は既存タブの活性化に寄せる（二重登録しない）", () => {
     const base = state(pane(P1, ["t1"]), pane(P2, ["t2"]));
     const next = reducer(base, { type: "openTab", paneId: P2, taskId: "t1" });

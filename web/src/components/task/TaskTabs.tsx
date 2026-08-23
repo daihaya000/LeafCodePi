@@ -23,7 +23,6 @@ export function TaskTabs({
   onCloseTab,
   onReorderTabs,
   onMoveTab,
-  onOpenTabExternal,
   onAddPane,
 }: {
   pane: TaskPane;
@@ -39,8 +38,6 @@ export function TaskTabs({
   onCloseTab: (taskId: string) => void;
   onReorderTabs: (tabs: string[]) => void;
   onMoveTab: (taskId: string, toPaneId: string) => void;
-  /** 未登録タスクのドロップ（Phase 4 の Sidebar 接続用）。 */
-  onOpenTabExternal?: (taskId: string) => void;
   onAddPane: () => void;
 }) {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -51,14 +48,6 @@ export function TaskTabs({
     setDragOverIndex(null);
     const taskId = taskDragIdFrom(event.dataTransfer);
     if (!taskId) return;
-    const targetPaneId =
-      (event.currentTarget.closest("[data-pane-id]") as HTMLElement | null)?.dataset.paneId ??
-      pane.id;
-    if (targetPaneId !== pane.id) {
-      // 他ペインのタブ上へのドロップ: 親の onMoveTab が移動先ペインを解決する
-      onMoveTab(taskId, targetPaneId);
-      return;
-    }
     if (pane.tabs.includes(taskId)) {
       // 同一ペイン内の並び替え（移動先 index へ挿入）
       const without = pane.tabs.filter((id) => id !== taskId);
@@ -66,8 +55,8 @@ export function TaskTabs({
       onReorderTabs([...without.slice(0, at), taskId, ...without.slice(at)]);
       return;
     }
-    // Sidebar からの新規ドロップ（Phase 4 接続予定）: 末尾へ追加
-    onOpenTabExternal?.(taskId);
+    // 他ペインのタブ、または Sidebar からの新規ドロップを親で解決する。
+    onMoveTab(taskId, pane.id);
   };
 
   return (
