@@ -547,10 +547,10 @@ function shellSafeJson(value: unknown): string {
 
 function hookWrapperSource(originalPath: string | undefined, guardPath: string, guardAfter: boolean): string {
   const original = originalPath
-    ? `const original = spawnSync(${shellSafeJson(originalPath)}, process.argv.slice(2), { cwd: process.cwd(), env: process.env, stdio: "inherit", windowsHide: true });\nif (original.error || (original.status ?? 1) !== 0) process.exit(original.status ?? 1);`
+    ? `const runHook = (file, args) => { const firstLine = readFileSync(file, "utf8").split(/\\r?\\n/, 1)[0] ?? ""; if (/node(?:\\.exe)?\\s*$/i.test(firstLine)) return spawnSync(process.execPath, [file, ...args], { cwd: process.cwd(), env: process.env, stdio: "inherit", windowsHide: true }); if (/(?:sh|bash|zsh)(?:\\.exe)?\\s*$/i.test(firstLine)) return spawnSync("sh", [file, ...args], { cwd: process.cwd(), env: process.env, stdio: "inherit", windowsHide: true }); return spawnSync(file, args, { cwd: process.cwd(), env: process.env, stdio: "inherit", windowsHide: true, shell: process.platform === "win32" && /\\.(?:cmd|bat)$/i.test(file) }); };\nconst original = runHook(${shellSafeJson(originalPath)}, process.argv.slice(2));\nif (original.error || (original.status ?? 1) !== 0) process.exit(original.status ?? 1);`
     : "";
   const guard = guardAfter ? `const guard = spawnSync(process.execPath, [${shellSafeJson(guardPath)}], { cwd: process.cwd(), env: process.env, stdio: "inherit", windowsHide: true });\nif (guard.error || guard.status !== 0) process.exit(71);\n` : "";
-  return `#!/usr/bin/env node\nimport { spawnSync } from "node:child_process";\n${original}\n${guard}`;
+  return `#!/usr/bin/env node\nconst { readFileSync } = require("node:fs");\nconst { spawnSync } = require("node:child_process");\n${original}\n${guard}`;
 }
 
 function hookGuardScript(expectedHead: string, expectedBranch: string, expectedRefs: string, selectors: string[]): string {
@@ -1111,7 +1111,7 @@ class Coordinator {
     const selectors = [...new Set(payload.paths.map((value) => normalizeSelector(value)))];
     for (const selector of selectors) assertSelectorOutsideRoom(this.identity, selector);
     for (const lease of Object.values(this.state.leases)) {
-      if (!activeLease(lease.state) || lease.ownerSessionId === sessionId) continue;
+      if (!activeLease(lease.state) || (lease.ownerSessionId === sessionId && lease.state !== "orphaned")) continue;
       if (selectors.some((selector) => lease.selectors.some((other) => selectorsOverlap(selector, other)))) {
         throw new RoomError("lease_conflict", "Requested paths overlap another active or orphaned lease.", { leaseId: lease.id, ownerSessionId: lease.ownerSessionId });
       }
@@ -1400,10 +1400,11 @@ class Coordinator {
         throw new RoomError("foreign_change", "Temporary index contains a path outside the requested leases.");
       }
       const hooksPath = await this.makeCommitHooks(this.identity.root, temporaryRoot, before, requested);
+      const hooksConfigPath = hooksPath.replace(/\\/g, "/");
       let commit: CommandResult | undefined;
       let commitError: unknown;
       try {
-        commit = await command(this.identity.root, ["-c", `core.hooksPath=${hooksPath}`, "commit", "-m", message, "--", ...requested], 120_000, tempEnv);
+        commit = await command(this.identity.root, ["-c", `core.hooksPath=${hooksConfigPath}`, "commit", "-m", message, "--", ...requested], 120_000, tempEnv);
       } catch (error) {
         commitError = error;
       }

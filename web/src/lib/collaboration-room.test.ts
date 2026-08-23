@@ -4,12 +4,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, it } from "vitest";
-import {
-  connectRoom,
-  normalizeSelector,
-  selectorsOverlap,
-  type RoomClient,
-} from "../../../extensions/leafcode-collaboration/room";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore The standalone production mirror does not include extension sources; Vitest runs from the repository.
+import { connectRoom, normalizeSelector, selectorsOverlap, type RoomClient } from "../../../extensions/leafcode-collaboration/room";
 
 function git(cwd: string, args: string[]): void {
   execFileSync("git", args, { cwd, stdio: "ignore", windowsHide: true });
@@ -145,6 +142,76 @@ describe("LeafCode room coordinator", () => {
     assert.match((await client.snapshot()).compromised?.reason ?? "", /HEAD|refs/i);
     await assert.rejects(() => client.reserve(["src/a.ts"]), /compromised|disabled/i);
   });
+
+  it("rejects a commit when another session has shared staged changes", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 1;\n");
+    mkdirAndWrite(repo, "src/b.ts", "export const b = 1;\n");
+    git(repo, ["add", "src/a.ts", "src/b.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const first = await connectRoom(repo, { sessionId: "session-staged-a", displayName: "A", pid: process.pid }, env);
+    clients.push(first);
+    const second = await connectRoom(repo, { sessionId: "session-staged-b", displayName: "B", pid: process.pid }, env);
+    clients.push(second);
+    await first.reserve(["src/a.ts"]);
+    await first.write("src/a.ts", "export const a = 2;\n");
+    await second.reserve(["src/b.ts"]);
+    await second.write("src/b.ts", "export const b = 2;\n");
+    git(repo, ["add", "src/b.ts"]);
+    await assert.rejects(() => first.commit("update a", ["src/a.ts"]), /staged|foreign/i);
+  });
+
+  it("keeps a disconnected session lease orphaned", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 1;\n");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+    const env = { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir };
+    const first = await connectRoom(repo, { sessionId: "session-orphan", displayName: "Old", pid: process.pid }, env);
+    clients.push(first);
+    const lease = await first.reserve(["src/a.ts"]);
+    const reconnect = await connectRoom(repo, { sessionId: "session-orphan", displayName: "New", pid: process.pid }, env);
+    clients.push(reconnect);
+    assert.equal((await reconnect.snapshot()).leases[lease.id]?.state, "orphaned");
+    await assert.rejects(() => reconnect.reserve(["src/a.ts"]), /overlap|orphaned|conflict/i);
+  });
+
+  it("runs and guards the configured Git hook", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 1;\n");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+    const hookDir = execFileSync("git", ["rev-parse", "--git-path", "hooks"], { cwd: repo, encoding: "utf8", windowsHide: true }).trim();
+    const marker = join(dataDir, "hook-ran");
+    const hook = join(repo, hookDir, "pre-commit");
+    writeFileSync(hook, `#!/usr/bin/env node\nrequire("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran"); process.exit(77);\n`, { encoding: "utf8", mode: 0o700 });
+    git(repo, ["config", "core.hooksPath", hookDir]);
+
+    const client = await connectRoom(repo, { sessionId: "session-hook", displayName: "Hook", pid: process.pid }, { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir });
+    clients.push(client);
+    await client.reserve(["src/a.ts"]);
+    await client.write("src/a.ts", "export const a = 2;\n");
+    const before = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8", windowsHide: true }).trim();
+    let rejected = false;
+    try { await client.commit("update a", ["src/a.ts"]); } catch { rejected = true; }
+    assert.equal(rejected, true);
+    assert.equal(existsSync(marker), true);
+    assert.equal(execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8", windowsHide: true }).trim(), before);
+  });
+
 });
 
 function mkdirAndWrite(root: string, relative: string, content: string): void {
