@@ -22,3 +22,15 @@
 ### 関連 API
 - `POST /api/tasks/[id]/revert` — `entryId`（UiMessage.id = セッション entry id）
 - `revertTask` / `messageEntryById` in `harness.ts`
+
+## 2026-08-23: leafcode-collaboration 編集ブロック（hardlink + orphaned lease）
+
+### hardlink（11db897）
+- `web-build-mirror.mjs` が `web/src/**` を hard link → `nlink>1` で協調編集拒否
+- 恒久対策: `src/**` は byte copy（約 1.4MB）。`syncMirror` で既存 link を自動移行
+
+### orphaned lease（f7a3b61）
+- `reserve` 成功後の `edit` が `Lease is 'orphaned'` 等で失敗
+- 原因: mutate が orphaned を選択、同一 session の reserve が自分の orphaned を conflict、reconnect で connectionId 変化
+- 修正: active/dirty のみ mutate、orphaned reclaim、connectionId 安定化、reserve 応答に leaseId
+- 手順: `reserve` → 応答の leaseId 確認 → 直後に edit。reconnect 後は再 reserve
