@@ -55,9 +55,10 @@ const textClass: Record<UsageTone, string> = {
 
 function loadCollapsed(): boolean {
   try {
-    return localStorage.getItem(COLLAPSED_KEY) === "1";
+    const saved = localStorage.getItem(COLLAPSED_KEY);
+    return saved === null ? true : saved === "1";
   } catch {
-    return false;
+    return true;
   }
 }
 function saveCollapsed(v: boolean) {
@@ -405,11 +406,11 @@ function ProviderRow({
 }
 
 export function CodexBarWidget({
-  initialCollapsed = false,
+  initialCollapsed,
 }: {
   initialCollapsed?: boolean;
 } = {}) {
-  const [collapsed, setCollapsed] = useState(initialCollapsed);
+  const [collapsed, setCollapsed] = useState(initialCollapsed ?? true);
   const { usage, loadError, refreshing, refresh, now } = useCodexUsage({
     // Collapsed chip keeps last snapshot; avoid provider API churn while chatting.
     enabled: !collapsed,
@@ -447,7 +448,7 @@ export function CodexBarWidget({
   }, [usage]);
 
   useEffect(() => {
-    if (!initialCollapsed) setCollapsed(loadCollapsed());
+    setCollapsed(initialCollapsed ?? loadCollapsed());
     setTwoColumn(loadTwoColumn());
     setProviderCollapsed(loadProviderCollapsed());
   }, [initialCollapsed]);
@@ -513,6 +514,21 @@ export function CodexBarWidget({
         <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text">
           CodexBar 利用状況
         </span>
+        {usage?.available && usage.generatedAt && (
+          <span
+            className={cx(
+              "max-w-20 shrink-0 truncate text-[10px]",
+              isStale(usage.generatedAt, now) ? "text-warning" : "text-faint",
+            )}
+            title={
+              isStale(usage.generatedAt, now)
+                ? "古い可能性（CodexBar 停止中?）"
+                : "最終更新"
+            }
+          >
+            更新 {timeAgo(usage.generatedAt)}
+          </span>
+        )}
         <button
           type="button"
           onClick={() => void refresh()}
@@ -658,15 +674,6 @@ export function CodexBarWidget({
           </ul>
         )}
       </div>
-
-      {usage?.available && usage.generatedAt && (
-        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-3 py-1.5 text-[10px] text-faint">
-          <span>更新 {timeAgo(usage.generatedAt)}</span>
-          {isStale(usage.generatedAt, now) && (
-            <span className="text-warning">古い可能性（CodexBar 停止中?）</span>
-          )}
-        </div>
-      )}
     </div>
   );
 }
