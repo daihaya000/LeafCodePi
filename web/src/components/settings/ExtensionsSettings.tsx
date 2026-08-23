@@ -147,14 +147,18 @@ export function ExtensionsSettings() {
                 )}
                 <p className="mt-0.5 break-all font-mono text-[11px] text-faint">{extension.filePath}</p>
                 {extension.required && (
-                  <p className="mt-0.5 text-[11px] text-muted">WebUI が依存するため無効化できません</p>
+                  <p className="mt-0.5 text-[11px] text-muted">
+                    {extension.enabled
+                      ? "WebUI が依存するため無効化できません"
+                      : "WebUI が依存するため有効化が必要です"}
+                  </p>
                 )}
               </div>
               <ExtensionSwitch
                 name={extension.name}
                 enabled={extension.enabled}
                 busy={busyId === extension.id}
-                locked={extension.required}
+                locked={extension.required && extension.enabled}
                 onToggle={() => void toggle(extension)}
               />
             </li>
