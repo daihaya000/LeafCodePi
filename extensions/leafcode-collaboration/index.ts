@@ -24,6 +24,20 @@ type RuntimeState = {
 
 const runtimeStatesBySession = new Map<string, RuntimeState>();
 const projectKeysByCwd = new Map<string, string>();
+const COLLABORATION_ACTIONS = [
+  "status",
+  "resync",
+  "list",
+  "feed",
+  "send",
+  "ask",
+  "reply",
+  "claim",
+  "reserve",
+  "release",
+  "away",
+  "return",
+] as const;
 const POLICY = [
   "This is a shared LeafCodePi checkout.",
   'Call leafcode_collab({ action: "status" }) before editing.',
@@ -166,12 +180,16 @@ async function statusResult(ctx: ExtensionContext): Promise<AgentToolResult<Reco
   try {
     const current = await state.client.snapshot();
     if (current.compromised) {
-      return result(`LeafCode collaboration Phase 3 (${state.mode}); mutation disabled: ${current.compromised.reason}`, {
+      return result(`LeafCode collaboration Phase 3 (${state.mode}); mutation disabled: ${current.compromised.reason} Stop mutation attempts and report this state to the user; resync only repairs the client connection.`, {
         ...base,
         ...room,
         ready: true,
         degraded: true,
         compromised: current.compromised,
+        recovery: {
+          automatic: false,
+          guidance: "Stop mutation attempts and report the compromised room to the user. Resync does not clear this safety quarantine.",
+        },
         snapshot: current,
       });
     }
@@ -303,7 +321,7 @@ export default function (pi: ExtensionAPI): void {
     description: "Inspect or resynchronize the shared room, exchange untrusted peer messages, claim a task, or reserve/release owned paths.",
     promptSnippet: "Inspect or resynchronize LeafCode collaboration and reserve owned paths",
     parameters: Type.Object({
-      action: Type.Optional(Type.String()),
+      action: Type.Optional(Type.Union(COLLABORATION_ACTIONS.map((action) => Type.Literal(action)))),
       title: Type.Optional(Type.String()),
       goal: Type.Optional(Type.String()),
       to: Type.Optional(Type.String()),
@@ -363,7 +381,7 @@ export default function (pi: ExtensionAPI): void {
         await client.updatePresence({ state: action === "away" ? "away" : "active", progress: true });
         return statusResult(ctx);
       }
-      throw new Error(`leafcode_collab action '${action}' is not available in Phase 3.`);
+      throw new Error(`Unknown leafcode_collab action '${action}'. Available actions: ${COLLABORATION_ACTIONS.join(", ")}.`);
     },
   });
 
