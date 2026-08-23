@@ -21,7 +21,7 @@ const snapshot = {
 describe("CollaborationSettings", () => {
   beforeEach(() => {
     getJson.mockResolvedValue(snapshot);
-    sendJson.mockResolvedValue({ ...snapshot, exists: true, config: { ...DEFAULT_COLLABORATION_CONFIG, mode: "permissive" } });
+    sendJson.mockImplementation((_url: string, config: unknown) => Promise.resolve({ ...snapshot, exists: true, config }));
   });
 
   afterEach(() => {
@@ -48,5 +48,19 @@ describe("CollaborationSettings", () => {
     expect(body.mode).toBe("permissive");
     expect(body.leaseTtlMs).toBe(30_000);
     expect(await screen.findByText(/保存しました/)).toBeTruthy();
+  });
+
+  it("turns collaboration completely off", async () => {
+    render(<CollaborationSettings />);
+
+    fireEvent.click(await screen.findByRole("radio", { name: /OFF/ }));
+    expect(screen.queryByLabelText("ハートビート")).toBeNull();
+    expect(screen.getByText(/協調機能を読み込みません/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(sendJson).toHaveBeenCalledTimes(1));
+    const [, body] = sendJson.mock.calls[0] as [string, { mode: string }];
+    expect(body.mode).toBe("off");
+    expect((screen.getByRole("radio", { name: /OFF/ }) as HTMLInputElement).checked).toBe(true);
   });
 });

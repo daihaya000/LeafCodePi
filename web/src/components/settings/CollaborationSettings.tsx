@@ -197,8 +197,8 @@ export function CollaborationSettings() {
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="mb-2 flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold">協調</h2>
-        <Badge tone={!snapshot || !snapshot.valid ? "warning" : draft.mode === "strict" ? "success" : "warning"}>
-          {!snapshot ? "読み込み中" : !snapshot.valid ? "設定不正" : draft.mode === "strict" ? "厳格" : "緩和"}
+        <Badge tone={!snapshot || !snapshot.valid ? "warning" : draft.mode === "strict" ? "success" : draft.mode === "off" ? "neutral" : "warning"}>
+          {!snapshot ? "読み込み中" : !snapshot.valid ? "設定不正" : draft.mode === "strict" ? "厳格" : draft.mode === "off" ? "OFF" : "緩和"}
         </Badge>
       </div>
       <p className="text-xs text-muted">
@@ -213,6 +213,7 @@ export function CollaborationSettings() {
             [
               ["strict", "厳格", "標準の write / edit / bash を隠し、leafcode_* だけを許可します。"],
               ["permissive", "緩和", "開発用。事故ゼロは主張しません。"],
+              ["off", "OFF", "room接続、協調ツール、リース、commit gate、peer通信をすべて停止します。"],
             ] as const
           ).map(([value, label, description]) => (
             <label
@@ -239,9 +240,14 @@ export function CollaborationSettings() {
             緩和モードでは標準ツールが残るため、並列編集の事故を防げません。
           </p>
         )}
+        {draft.mode === "off" && (
+          <p className="rounded-xl border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
+            保存後に作成する新しいタスクから協調機能を読み込みません。実行中のタスクを含めて停止するにはホストを再起動してください。
+          </p>
+        )}
       </fieldset>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      {draft.mode !== "off" && <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <NumberField
           label="ハートビート"
           value={draft.heartbeatSec}
@@ -291,9 +297,9 @@ export function CollaborationSettings() {
           unit="件"
           onChange={(activityLimit) => setDraft((current) => ({ ...current, activityLimit }))}
         />
-      </div>
+      </div>}
 
-      <div className="mt-4 space-y-3">
+      {draft.mode !== "off" && <div className="mt-4 space-y-3">
         <h3 className="text-sm font-medium">チェックコマンド</h3>
         <p className="text-[11px] text-faint">
           `leafcode_check` が使う固定レジストリです。引数は空白区切り（スペースを含む値は引用符）、または JSON 配列で指定します。
@@ -325,7 +331,7 @@ export function CollaborationSettings() {
             />
           </div>
         ))}
-      </div>
+      </div>}
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Button

@@ -431,7 +431,7 @@ session lifecycle では次を登録する。
 }
 ```
 
-この config は project checkout ではなく `LEAFCODE_PI_DATA_DIR/collaboration.json` に保存し、通常の agent tool から書き換えられない user-owned 設定とする。`mode: permissive` は開発用に残しても LeafCodePi の既定値にはしない。permissive では事故 0 を主張せず、WebUI / TUI に警告を出す。
+この config は project checkout ではなく `LEAFCODE_PI_DATA_DIR/collaboration.json` に保存し、通常の agent tool から書き換えられない user-owned 設定とする。`mode: permissive` は開発用に残しても LeafCodePi の既定値にはしない。permissive では事故 0 を主張せず、WebUI / TUI に警告を出す。`mode: off` は明示的な完全停止であり、main / child session の協調拡張と専用 tool を読み込まず、room API も停止する。実行中 session には適用せず、新規 session または host 再起動から反映する。
 
 ## 12. 実装フェーズ
 
