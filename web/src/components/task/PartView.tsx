@@ -169,6 +169,12 @@ function NestedAgentPanel({
               {run.agent}
               {run.index !== undefined && run.index > 0 ? ` #${run.index}` : ""}
             </span>
+            {run.model && (
+              <span className="hidden min-w-0 items-center gap-1 text-[10px] text-faint sm:flex">
+                <ProviderIcon providerID={run.provider} size={12} />
+                <span className="truncate">{run.model}</span>
+              </span>
+            )}
             {run.currentTool && (
               <span className="hidden max-w-40 truncate text-[10px] text-working sm:inline">
                 {toolLabel(run.currentTool)}

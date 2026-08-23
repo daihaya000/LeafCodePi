@@ -112,6 +112,9 @@ export type SubagentRunDto = {
   lastActivityAtMs: number;
   /** Tool the child is currently running, when known. */
   currentTool: string | null;
+  /** Provider / model the child runs on (latest assistant message). */
+  provider?: string;
+  model?: string;
   /** True when only the tail of a huge transcript was read. */
   truncated: boolean;
   messages: UiMessage[];

@@ -31,6 +31,8 @@ type TranscriptRecord = {
   message?: unknown;
   text?: unknown;
   role?: unknown;
+  model?: unknown;
+  provider?: unknown;
 };
 
 function asString(value: unknown): string | undefined {
@@ -53,6 +55,8 @@ export type ParsedTranscript = {
   rawMessages: unknown[];
   /** 未完了のツール名（tool_start に対応する tool_end が無いもの）。 */
   currentTool: string | null;
+  provider?: string;
+  model?: string;
   firstTsMs?: number;
   lastTsMs?: number;
   /** 先頭が切り落とされている（末尾読み）ときに true。 */
@@ -68,6 +72,8 @@ export function parseSubagentTranscript(text: string, options?: { truncated?: bo
   let index: number | undefined;
   let firstTsMs: number | undefined;
   let lastTsMs: number | undefined;
+  let model: string | undefined;
+  let provider: string | undefined;
 
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -91,6 +97,10 @@ export function parseSubagentTranscript(text: string, options?: { truncated?: bo
       const message = { ...record.message };
       if (message.timestamp === undefined && ts !== undefined) message.timestamp = ts;
       rawMessages.push(message);
+      if (asString(record.role) === "assistant") {
+        model = asString(message.model) ?? asString(record.model) ?? model;
+        provider = asString(message.provider) ?? asString(record.provider) ?? provider;
+      }
       continue;
     }
     if (record.recordType === "tool_start") {
@@ -112,6 +122,8 @@ export function parseSubagentTranscript(text: string, options?: { truncated?: bo
     index,
     rawMessages,
     currentTool,
+    ...(model ? { model } : {}),
+    ...(provider ? { provider } : {}),
     firstTsMs,
     lastTsMs,
     truncated: options?.truncated === true,
@@ -267,6 +279,8 @@ export function listSubagentRuns(input: {
       startedAtMs: parsed.firstTsMs ?? candidate.mtimeMs,
       lastActivityAtMs,
       currentTool: parsed.currentTool,
+      ...(parsed.model ? { model: parsed.model } : {}),
+      ...(parsed.provider ? { provider: parsed.provider } : {}),
       truncated: parsed.truncated,
       messages: projectPiMessages(parsed.rawMessages),
     });

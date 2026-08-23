@@ -94,6 +94,12 @@ describe("parseSubagentTranscript", () => {
     });
   });
 
+  it("extracts the latest assistant model and provider", () => {
+    const parsed = parseSubagentTranscript(transcript);
+    expect(parsed.model).toBe("claude-opus-5");
+    expect(parsed.provider).toBe("anthropic");
+  });
+
   it("reports the tool still running when tool_end is missing", () => {
     const partial = [
       record({ recordType: "tool_start", toolCallId: "call-9", toolName: "bash" }),
