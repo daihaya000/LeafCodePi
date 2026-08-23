@@ -77,8 +77,14 @@ async function connectRuntime(ctx: ExtensionContext, state: RuntimeState): Promi
   }
 }
 
-async function statusResult(ctx: ExtensionContext): Promise<AgentToolResult<Record<string, unknown>>> {
+async function ensureRuntime(ctx: ExtensionContext): Promise<RuntimeState> {
   const state = runtimeState(ctx);
+  if (!state.client?.ready) await connectRuntime(ctx, state);
+  return state;
+}
+
+async function statusResult(ctx: ExtensionContext): Promise<AgentToolResult<Record<string, unknown>>> {
+  const state = await ensureRuntime(ctx);
   const base: Record<string, unknown> = {
     phase: 3,
     mode: state.mode,
@@ -120,14 +126,14 @@ async function statusResult(ctx: ExtensionContext): Promise<AgentToolResult<Reco
   }
 }
 
-function requireRoom(ctx: ExtensionContext): RoomClient {
-  const client = runtimeState(ctx).client;
+async function requireRoom(ctx: ExtensionContext): Promise<RoomClient> {
+  const client = (await ensureRuntime(ctx)).client;
   if (!client?.ready) throw new Error("LeafCode room is unavailable; mutation and lease operations are disabled.");
   return client;
 }
 
-function requireCheckRoom(ctx: ExtensionContext): RoomClient {
-  const client = runtimeState(ctx).client;
+async function requireCheckRoom(ctx: ExtensionContext): Promise<RoomClient> {
+  const client = (await ensureRuntime(ctx)).client;
   if (!client) throw new Error("LeafCode room identity is unavailable; check cannot run.");
   return client;
 }
@@ -169,6 +175,7 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("before_agent_start", async (_event, ctx) => {
+    await ensureRuntime(ctx);
     updatePresence(ctx, { state: "active", progress: true });
     const state = runtimeState(ctx);
     let messages: RoomMessage[] = [];
@@ -239,7 +246,7 @@ export default function (pi: ExtensionAPI): void {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const action = params.action ?? "status";
       if (action === "status") return statusResult(ctx);
-      const client = requireRoom(ctx);
+      const client = await requireRoom(ctx);
       if (action === "list" || action === "feed") {
         const current = await client.snapshot();
         const details = action === "list"
@@ -295,7 +302,7 @@ export default function (pi: ExtensionAPI): void {
     description: "Write an owned LeafCode path after lease validation (Phase 1).",
     parameters: Type.Object({ path: Type.String(), content: Type.String() }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const value = await requireRoom(ctx).write(params.path, params.content);
+      const value = await (await requireRoom(ctx)).write(params.path, params.content);
       return result(`Wrote ${params.path}.`, { phase: 1, ready: true, mutation: value });
     },
   });
@@ -306,7 +313,7 @@ export default function (pi: ExtensionAPI): void {
     description: "Edit an owned LeafCode path after lease validation (Phase 1).",
     parameters: Type.Object({ path: Type.String(), oldText: Type.String(), newText: Type.String() }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const value = await requireRoom(ctx).edit(params.path, params.oldText, params.newText);
+      const value = await (await requireRoom(ctx)).edit(params.path, params.oldText, params.newText);
       return result(`Edited ${params.path}.`, { phase: 1, ready: true, mutation: value });
     },
   });
@@ -318,7 +325,7 @@ export default function (pi: ExtensionAPI): void {
     parameters: Type.Object({ checkId: Type.String() }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       if (!(COLLABORATION_CHECK_IDS as readonly string[]).includes(params.checkId)) throw new Error(`Unknown collaboration check '${params.checkId}'.`);
-      const value = await requireCheckRoom(ctx).check(params.checkId as CollaborationCheckId);
+      const value = await (await requireCheckRoom(ctx)).check(params.checkId as CollaborationCheckId);
       return result(`LeafCode check '${value.checkId}' exited with code ${value.code}.`, { phase: 2, ready: true, check: value });
     },
   });
@@ -329,7 +336,7 @@ export default function (pi: ExtensionAPI): void {
     description: "Commit only explicitly owned paths through the LeafCode transaction (Phase 2).",
     parameters: Type.Object({ message: Type.String(), paths: Type.Array(Type.String()) }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const value = await requireRoom(ctx).commit(params.message, params.paths);
+      const value = await (await requireRoom(ctx)).commit(params.message, params.paths);
       return result(`Committed ${value.paths.join(", ")}.`, { phase: 2, ready: true, commit: value });
     },
   });
