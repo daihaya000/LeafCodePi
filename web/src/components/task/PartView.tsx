@@ -21,6 +21,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { ProviderIcon } from "@/components/ProviderIcon";
+import { ReferenceHighlight, type ReferenceHighlightReferences } from "@/components/ReferenceHighlight";
 import { Button, cx, formatMessageTime } from "@/components/ui";
 import { formatTokens } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
@@ -641,6 +642,7 @@ export const PartView = memo(
     taskId,
     nested = false,
     onRevert,
+    references,
   }: {
     message: UiMessage;
     modelLabel?: string;
@@ -652,6 +654,8 @@ export const PartView = memo(
     nested?: boolean;
     /** ユーザーメッセージの「入力欄に戻す」コールバック（トップレベル user のみ）。 */
     onRevert?: (message: UiMessage) => void;
+    /** 送信済みメッセージ内でハイライトする既知のスキル・エージェント。 */
+    references?: ReferenceHighlightReferences;
   }) {
     if (message.role === "compaction") {
       return <CompactionNotice message={message} />;
@@ -674,7 +678,7 @@ export const PartView = memo(
                 key={part.id}
                 className="ml-auto min-w-0 max-w-[88%] rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5 text-[0.925rem] whitespace-pre-wrap break-words"
               >
-                {part.text}
+                {references ? <ReferenceHighlight text={part.text} references={references} /> : part.text}
               </div>
             ) : (
               <MarkdownBody key={part.id} text={part.text} />

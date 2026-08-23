@@ -250,6 +250,13 @@ export function TaskView({
   const [error, setError] = useState<string | null>(null);
   const [agents, setAgents] = useState<string[]>([]);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
+  const messageReferences = useMemo(
+    () => ({
+      skills,
+      agents: agents.map((name) => ({ name })),
+    }),
+    [agents, skills],
+  );
   const [agent, setAgent] = useState("");
   const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
     () => readSubagentPermission(),
@@ -1200,6 +1207,7 @@ export function TaskView({
                     }
                     effort={message.role === "assistant" ? effortLabel : undefined}
                     agent={message.role === "assistant" ? task?.agent ?? undefined : undefined}
+                    references={messageReferences}
                     taskId={taskId}
                     onRevert={
                       message.role === "user"
