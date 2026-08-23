@@ -4,10 +4,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BellRing } from "lucide-react";
 import { Button, cx } from "@/components/ui";
-import { getJson } from "@/lib/client";
+import { QuestionCard } from "@/components/task/QuestionCard";
+import { getJson, sendJson } from "@/lib/client";
 import { taskIdFromPathname } from "@/lib/task-panes";
 import { playAttentionRequiredSound } from "@/lib/session-complete-sound";
-import type { AttentionItemDto } from "@/lib/types";
+import type {
+  AttentionItemDto,
+  PermissionRequestDto,
+  QuestionRequestDto,
+  TaskDetail,
+} from "@/lib/types";
 
 /**
  * 本家 LeafCode の GlobalAttentionProvider 相当。
@@ -38,7 +44,10 @@ function hasEditingFocus(): boolean {
 export function GlobalAttentionProvider() {
   const router = useRouter();
   const [items, setItems] = useState<AttentionItemDto[]>([]);
+  const [details, setDetails] = useState<Record<string, TaskDetail>>({});
   const [open, setOpen] = useState(false);
+  const [responseBusy, setResponseBusy] = useState<string | null>(null);
+  const [responseError, setResponseError] = useState<string | null>(null);
   const seenIdsRef = useRef<Set<string>>(new Set());
   // 二重オープン防止（本家 autoOpenedRef と同じ）。
   const autoOpenedRef = useRef(true);
@@ -113,10 +122,61 @@ export function GlobalAttentionProvider() {
     return () => window.removeEventListener("focusout", onFocusOut);
   }, [open, tryAutoOpen]);
 
-  // 手動クローズ後は同じバッチで再オープンしない（新規アイテムでリセット）。
+  useEffect(() => {
+    if (!open || items.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      items.map(async (item) => {
+        try {
+          const data = await getJson<{ task: TaskDetail }>(`/api/tasks/${item.taskId}`);
+          return [item.taskId, data.task] as const;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setDetails((current) => ({
+        ...current,
+        ...Object.fromEntries(entries.filter((entry): entry is readonly [string, TaskDetail] => entry !== null)),
+      }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [details, items, open]);
+
   const close = () => {
+    setResponseError(null);
     setOpen(false);
     autoOpenedRef.current = true;
+  };
+
+  const respondToPermission = async (taskId: string, request: PermissionRequestDto, approved: boolean) => {
+    setResponseBusy(request.id);
+    setResponseError(null);
+    try {
+      await sendJson(`/api/tasks/${taskId}/permission`, {
+        requestId: request.id,
+        approved,
+      });
+      setDetails((current) => ({
+        ...current,
+        [taskId]: { ...current[taskId], permissionRequest: null },
+      }));
+    } catch (error) {
+      setResponseError(error instanceof Error ? error.message : "承認の送信に失敗しました");
+    } finally {
+      setResponseBusy(null);
+    }
+  };
+
+  const respondToQuestion = async (taskId: string, request: QuestionRequestDto, answers: string[][]) => {
+    await sendJson(`/api/tasks/${taskId}/question`, { requestId: request.id, answers });
+    setDetails((current) => ({
+      ...current,
+      [taskId]: { ...current[taskId], questionRequest: null },
+    }));
   };
 
   const openTask = (taskId: string) => {
@@ -138,27 +198,83 @@ export function GlobalAttentionProvider() {
         role="dialog"
         aria-modal="true"
         aria-label="注意が必要なタスク"
-        className="relative w-full max-w-md rounded-2xl border border-border bg-surface p-4 shadow-xl"
+        className="relative max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-surface p-4 shadow-xl"
       >
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-accent">
           <BellRing className="h-4 w-4" />
           承認・回答が必要です
         </div>
-        <ul className="flex flex-col gap-1.5">
-          {items.map((item) => (
-            <li key={item.taskId}>
-              <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2">
-                <span className="min-w-0 flex-1 truncate text-sm text-text" title={item.title}>
-                  {item.title}
-                </span>
-                {item.kinds.includes("question") && <Badge tone="accent">質問</Badge>}
-                {item.kinds.includes("permission") && <Badge tone="warning">承認</Badge>}
-                <Button variant="secondary" size="sm" onClick={() => openTask(item.taskId)}>
-                  開く
-                </Button>
-              </div>
-            </li>
-          ))}
+        {responseError && (
+          <p className="mb-3 rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-xs text-danger" role="alert">
+            {responseError}
+          </p>
+        )}
+        <ul className="flex flex-col gap-3">
+          {items.map((item) => {
+            const detail = details[item.taskId];
+            const question = detail?.questionRequest;
+            const permission = detail?.permissionRequest;
+            return (
+              <li key={item.taskId} className="rounded-xl border border-border bg-surface-2 p-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm text-text" title={item.title}>
+                    {item.title}
+                  </span>
+                  {item.kinds.includes("question") && <Badge tone="accent">質問</Badge>}
+                  {item.kinds.includes("permission") && <Badge tone="warning">承認</Badge>}
+                  <Button variant="ghost" size="sm" onClick={() => openTask(item.taskId)}>
+                    開く
+                  </Button>
+                </div>
+                {question && (
+                  <QuestionCard
+                    request={question}
+                    onReply={(request, answers) => respondToQuestion(item.taskId, request, answers)}
+                    onReject={(request) =>
+                      sendJson(`/api/tasks/${item.taskId}/question`, {
+                        requestId: request.id,
+                        reject: true,
+                      }).then(() => {
+                        setDetails((current) => ({
+                          ...current,
+                          [item.taskId]: { ...current[item.taskId], questionRequest: null },
+                        }));
+                      })
+                    }
+                  />
+                )}
+                {permission && (
+                  <div className="rounded-lg border border-warning/30 bg-warning-bg px-3 py-3 text-sm">
+                    <p className="whitespace-pre-wrap break-words text-warning">{permission.message}</p>
+                    <pre className="mt-2 max-h-32 overflow-auto rounded border border-border bg-surface px-2 py-1.5 font-mono text-xs text-text">
+                      {permission.command}
+                    </pre>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        busy={responseBusy === permission.id}
+                        disabled={responseBusy !== null}
+                        onClick={() => void respondToPermission(item.taskId, permission, true)}
+                      >
+                        許可
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        busy={responseBusy === permission.id}
+                        disabled={responseBusy !== null}
+                        onClick={() => void respondToPermission(item.taskId, permission, false)}
+                      >
+                        拒否
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {!detail && <p className="text-xs text-muted">内容を読み込んでいます…</p>}
+              </li>
+            );
+          })}
         </ul>
         <div className="mt-3 flex justify-end">
           <Button variant="ghost" size="sm" onClick={close}>
