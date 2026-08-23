@@ -4,7 +4,7 @@ import {
   LEAFCODE_STRICT_BLOCKED_TOOL_NAMES,
   type LeafCodeCollaborationMode,
 } from "./contract.ts";
-import { readCollaborationConfig } from "./config.ts";
+import { COLLABORATION_CHECK_IDS, readCollaborationConfig, type CollaborationCheckId } from "./config.ts";
 import { connectRoom, roomDegradedStatus, type PresenceUpdate, type RoomClient } from "./room.ts";
 
 export * from "./contract.ts";
@@ -23,7 +23,7 @@ const POLICY = [
   "This is a shared LeafCodePi checkout.",
   'Call leafcode_collab({ action: "status" }) before editing.',
   "Standard write, edit, and bash tools are unavailable in strict mode.",
-  "Use the leafcode_* tools; checks and commits remain disabled until their fixed gates are ready.",
+  "Use the leafcode_* tools; checks and commits run only through their fixed gates.",
   "Do not request worktree isolation. If a lease or commit is blocked, report the conflict instead of bypassing it.",
 ].join("\n");
 
@@ -50,10 +50,6 @@ function requestsWorktree(input: Record<string, unknown>): boolean {
   // Inline workflow code can construct worktree options dynamically; do not
   // attempt an incomplete parser at this trust boundary.
   return script.trim().length > 0;
-}
-
-function unavailable(toolName: string): never {
-  throw new Error(`${toolName} is disabled during Phase 2; the fixed check/commit gate is not ready.`);
 }
 
 function result(text: string, details: Record<string, unknown>): AgentToolResult<Record<string, unknown>> {
@@ -127,6 +123,12 @@ async function statusResult(ctx: ExtensionContext): Promise<AgentToolResult<Reco
 function requireRoom(ctx: ExtensionContext): RoomClient {
   const client = runtimeState(ctx).client;
   if (!client?.ready) throw new Error("LeafCode room is unavailable; mutation and lease operations are disabled.");
+  return client;
+}
+
+function requireCheckRoom(ctx: ExtensionContext): RoomClient {
+  const client = runtimeState(ctx).client;
+  if (!client) throw new Error("LeafCode room identity is unavailable; check cannot run.");
   return client;
 }
 
@@ -272,8 +274,10 @@ export default function (pi: ExtensionAPI): void {
     label: "LeafCode Check",
     description: "Run a fixed LeafCode check registry entry (Phase 2).",
     parameters: Type.Object({ checkId: Type.String() }),
-    async execute() {
-      return unavailable("leafcode_check");
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      if (!(COLLABORATION_CHECK_IDS as readonly string[]).includes(params.checkId)) throw new Error(`Unknown collaboration check '${params.checkId}'.`);
+      const value = await requireCheckRoom(ctx).check(params.checkId as CollaborationCheckId);
+      return result(`LeafCode check '${value.checkId}' exited with code ${value.code}.`, { phase: 2, ready: true, check: value });
     },
   });
 
@@ -282,8 +286,9 @@ export default function (pi: ExtensionAPI): void {
     label: "LeafCode Commit",
     description: "Commit only explicitly owned paths through the LeafCode transaction (Phase 2).",
     parameters: Type.Object({ message: Type.String(), paths: Type.Array(Type.String()) }),
-    async execute() {
-      return unavailable("leafcode_commit");
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const value = await requireRoom(ctx).commit(params.message, params.paths);
+      return result(`Committed ${value.paths.join(", ")}.`, { phase: 2, ready: true, commit: value });
     },
   });
 

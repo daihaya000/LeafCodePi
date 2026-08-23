@@ -85,6 +85,66 @@ describe("LeafCode room coordinator", () => {
     await first.write("src/new/nested.ts", "export const nested = true;\n");
     assert.equal(readFileSync(join(repo, "src/new/nested.ts"), "utf8"), "export const nested = true;\n");
   });
+
+  it("runs a fixed check and commits only the selected lease paths", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 1;\n");
+    mkdirAndWrite(repo, "src/b.ts", "export const b = 1;\n");
+    git(repo, ["add", "src/a.ts", "src/b.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+    writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({
+      mode: "strict",
+      checks: { test: { file: process.execPath, args: ["-e", "process.stdout.write('check-ok')"] } },
+    }), "utf8");
+
+    const client = await connectRoom(repo, { sessionId: "session-check", displayName: "Check", pid: process.pid }, { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir });
+    clients.push(client);
+    const peer = await connectRoom(repo, { sessionId: "session-peer", displayName: "Peer", pid: process.pid }, { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir });
+    clients.push(peer);
+    await client.reserve(["src/a.ts"]);
+    await client.write("src/a.ts", "export const a = 2;\n");
+    await peer.reserve(["src/b.ts"]);
+    await peer.write("src/b.ts", "export const b = 2;\n");
+
+    const check = await client.check("test");
+    assert.equal(check.code, 0);
+    assert.equal(check.stdout, "check-ok");
+    const commit = await client.commit("update a", ["src/a.ts"]);
+    assert.equal(commit.paths.includes("src/a.ts"), true);
+    assert.equal(execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8", windowsHide: true }).trim(), commit.oid);
+    assert.equal(execFileSync("git", ["show", "HEAD:src/b.ts"], { cwd: repo, encoding: "utf8", windowsHide: true }), "export const b = 1;\n");
+    assert.match(execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8", windowsHide: true }), /src\/b\.ts/);
+  });
+
+  it("fails closed when a check moves HEAD", async () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-collab-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
+    git(repo, ["init"]);
+    git(repo, ["config", "user.email", "leafcode@example.invalid"]);
+    git(repo, ["config", "user.name", "LeafCode Test"]);
+    mkdirAndWrite(repo, "src/a.ts", "export const a = 1;\n");
+    git(repo, ["add", "src/a.ts"]);
+    git(repo, ["commit", "-m", "initial"]);
+    writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({
+      mode: "strict",
+      checks: {
+        test: {
+          file: process.execPath,
+          args: ["-e", "require('node:child_process').execFileSync('git',['commit','--allow-empty','-m','check'],{stdio:'ignore'})"],
+        },
+      },
+    }), "utf8");
+
+    const client = await connectRoom(repo, { sessionId: "session-compromised", displayName: "Compromised", pid: process.pid }, { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir });
+    clients.push(client);
+    await assert.rejects(() => client.check("test"), /HEAD|refs|compromised/i);
+    assert.match((await client.snapshot()).compromised?.reason ?? "", /HEAD|refs/i);
+    await assert.rejects(() => client.reserve(["src/a.ts"]), /compromised|disabled/i);
+  });
 });
 
 function mkdirAndWrite(root: string, relative: string, content: string): void {

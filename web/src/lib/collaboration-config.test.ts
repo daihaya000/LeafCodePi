@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
-import { readCollaborationConfig } from "./collaboration";
+import { DEFAULT_COLLABORATION_CONFIG, readCollaborationConfig } from "./collaboration";
 
 describe("readCollaborationConfig", () => {
   const tempDirs: string[] = [];
@@ -16,14 +16,7 @@ describe("readCollaborationConfig", () => {
     const dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-config-"));
     tempDirs.push(dataDir);
     assert.deepEqual(readCollaborationConfig({ ...process.env, LEAFCODE_PI_DATA_DIR: dataDir }), {
-      config: {
-        mode: "strict",
-        heartbeatMs: 2_000,
-        leaseTtlMs: 15_000,
-        stuckAfterMs: 120_000,
-        askTimeoutMs: 120_000,
-        activityLimit: 200,
-      },
+      config: DEFAULT_COLLABORATION_CONFIG,
       valid: true,
     });
   });
@@ -45,5 +38,24 @@ describe("readCollaborationConfig", () => {
     const result = readCollaborationConfig({ ...process.env, LEAFCODE_PI_DATA_DIR: dataDir });
     assert.equal(result.valid, false);
     assert.match(result.error ?? "", /invalid/);
+  });
+
+  it("keeps the fixed check registry while allowing user-owned argv overrides", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-config-"));
+    tempDirs.push(dataDir);
+    writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({
+      mode: "strict",
+      checks: { test: { file: "node", args: ["-e", "process.exit(0)"] } },
+    }), "utf8");
+    const result = readCollaborationConfig({ ...process.env, LEAFCODE_PI_DATA_DIR: dataDir });
+    assert.equal(result.valid, true);
+    assert.deepEqual(result.config.checks.test, { file: "node", args: ["-e", "process.exit(0)"] });
+    assert.deepEqual(result.config.checks.typecheck, DEFAULT_COLLABORATION_CONFIG.checks.typecheck);
+
+    writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({
+      mode: "strict",
+      checks: { unknown: { file: "node", args: [] } },
+    }), "utf8");
+    assert.equal(readCollaborationConfig({ ...process.env, LEAFCODE_PI_DATA_DIR: dataDir }).valid, false);
   });
 });

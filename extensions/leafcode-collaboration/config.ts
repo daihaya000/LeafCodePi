@@ -3,6 +3,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { LeafCodeCollaborationMode } from "./contract.ts";
 
+export const COLLABORATION_CHECK_IDS = ["typecheck", "test", "lint", "build"] as const;
+export type CollaborationCheckId = (typeof COLLABORATION_CHECK_IDS)[number];
+
+export type CollaborationCheck = {
+  file: string;
+  args: string[];
+};
+
 export type CollaborationConfig = {
   mode: LeafCodeCollaborationMode;
   heartbeatMs: number;
@@ -10,12 +18,20 @@ export type CollaborationConfig = {
   stuckAfterMs: number;
   askTimeoutMs: number;
   activityLimit: number;
+  checks: Record<CollaborationCheckId, CollaborationCheck>;
 };
 
 export type CollaborationConfigResult = {
   config: CollaborationConfig;
   valid: boolean;
   error?: string;
+};
+
+const DEFAULT_CHECKS: Record<CollaborationCheckId, CollaborationCheck> = {
+  typecheck: { file: "npm", args: ["--prefix", "web", "run", "typecheck"] },
+  test: { file: "npm", args: ["test"] },
+  lint: { file: "npm", args: ["--prefix", "web", "run", "lint"] },
+  build: { file: "npm", args: ["--prefix", "web", "run", "build"] },
 };
 
 export const DEFAULT_COLLABORATION_CONFIG: CollaborationConfig = {
@@ -25,7 +41,29 @@ export const DEFAULT_COLLABORATION_CONFIG: CollaborationConfig = {
   stuckAfterMs: 120_000,
   askTimeoutMs: 120_000,
   activityLimit: 200,
+  checks: DEFAULT_CHECKS,
 };
+
+function cloneChecks(): Record<CollaborationCheckId, CollaborationCheck> {
+  return Object.fromEntries(
+    COLLABORATION_CHECK_IDS.map((id) => [id, { file: DEFAULT_CHECKS[id].file, args: [...DEFAULT_CHECKS[id].args] }]),
+  ) as Record<CollaborationCheckId, CollaborationCheck>;
+}
+
+function readChecks(value: unknown): Record<CollaborationCheckId, CollaborationCheck> | undefined {
+  if (value === undefined) return cloneChecks();
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const checks = cloneChecks();
+  for (const [key, rawCheck] of Object.entries(value)) {
+    if (!(COLLABORATION_CHECK_IDS as readonly string[]).includes(key)) return undefined;
+    if (!rawCheck || typeof rawCheck !== "object" || Array.isArray(rawCheck)) return undefined;
+    const check = rawCheck as { file?: unknown; args?: unknown };
+    if (typeof check.file !== "string" || !check.file.trim() || check.file.length > 260 || check.file.includes("\0")) return undefined;
+    if (!Array.isArray(check.args) || check.args.length > 64 || check.args.some((arg) => typeof arg !== "string" || arg.length > 2_000 || arg.includes("\0"))) return undefined;
+    checks[key as CollaborationCheckId] = { file: check.file, args: [...check.args] as string[] };
+  }
+  return checks;
+}
 
 function numberConfig(
   raw: Record<string, unknown>,
@@ -74,14 +112,15 @@ export function readCollaborationConfig(
     const stuckAfterMs = numberConfig(config, "stuckAfterMs", 1_000, 3_600_000);
     const askTimeoutMs = numberConfig(config, "askTimeoutMs", 1_000, 3_600_000);
     const activityLimit = numberConfig(config, "activityLimit", 1, 1_000);
-    if (heartbeatMs === undefined || leaseTtlMs === undefined || stuckAfterMs === undefined || askTimeoutMs === undefined || activityLimit === undefined) {
+    const checks = readChecks(config.checks);
+    if (heartbeatMs === undefined || leaseTtlMs === undefined || stuckAfterMs === undefined || askTimeoutMs === undefined || activityLimit === undefined || !checks) {
       return { config: DEFAULT_COLLABORATION_CONFIG, valid: false, error: "config timing and activity values are invalid" };
     }
     if (leaseTtlMs < heartbeatMs || stuckAfterMs < heartbeatMs) {
       return { config: DEFAULT_COLLABORATION_CONFIG, valid: false, error: "config lease and stuck thresholds must be at least heartbeatMs" };
     }
     return {
-      config: { mode, heartbeatMs, leaseTtlMs, stuckAfterMs, askTimeoutMs, activityLimit },
+      config: { mode, heartbeatMs, leaseTtlMs, stuckAfterMs, askTimeoutMs, activityLimit, checks },
       valid: true,
     };
   } catch (error) {

@@ -3,7 +3,14 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
-import { collaborationDataDir, readCollaborationConfig, type CollaborationConfig } from "./config.ts";
+import {
+  COLLABORATION_CHECK_IDS,
+  collaborationDataDir,
+  readCollaborationConfig,
+  type CollaborationCheck,
+  type CollaborationCheckId,
+  type CollaborationConfig,
+} from "./config.ts";
 
 const SNAPSHOT_SCHEMA = 1;
 const MAX_RPC_BYTES = 2 * 1024 * 1024;
@@ -11,6 +18,8 @@ const MAX_CONTENT_BYTES = 2 * 1024 * 1024;
 const MAX_SCAN_FILES = 5_000;
 const MAX_SELECTOR_COUNT = 64;
 const MAX_PATH_LENGTH = 1_000;
+const MAX_COMMAND_OUTPUT_BYTES = 8 * 1024 * 1024;
+const CHECK_TIMEOUT_MS = 120_000;
 
 export type PresenceState = "active" | "idle" | "away" | "stuck" | "offline";
 export type LeaseState = "active" | "dirty" | "invalid" | "orphaned" | "released";
@@ -30,7 +39,7 @@ export type FileIdentity = {
 
 export type ActivityEntry = {
   seq: number;
-  kind: "join" | "leave" | "heartbeat" | "claim" | "reserve" | "release" | "write" | "edit" | "lease-invalid";
+  kind: "join" | "leave" | "heartbeat" | "claim" | "reserve" | "release" | "write" | "edit" | "check" | "commit" | "lease-invalid" | "compromised";
   sessionId: string;
   paths: string[];
   at: string;
@@ -88,6 +97,21 @@ export type RoomSnapshot = {
   leases: Record<string, FileLease>;
   activity: ActivityEntry[];
   updatedAt: string;
+  refFingerprint?: string;
+  compromised?: { reason: string; at: string };
+};
+
+export type CheckResult = {
+  checkId: string;
+  code: number;
+  stdout: string;
+  stderr: string;
+};
+
+export type CommitResult = {
+  oid: string;
+  paths: string[];
+  epoch: number;
 };
 
 export type ProjectIdentity = {
@@ -175,46 +199,83 @@ function safeName(value: string, fallback: string): string {
   return normalized.slice(0, 120) || fallback;
 }
 
-function command(cwd: string, args: string[], timeoutMs = 8_000): Promise<CommandResult> {
+function runProgram(
+  file: string,
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  env: NodeJS.ProcessEnv,
+): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn("git", ["-c", "core.quotepath=false", ...args], {
+    const child = spawn(file, args, {
       cwd,
       shell: false,
       windowsHide: true,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_EDITOR: "true" },
+      env,
     });
     let stdout = "";
     let stderr = "";
     let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
+    let terminationError: RoomError | undefined;
+    let timer: NodeJS.Timeout;
+    const terminate = (error: RoomError): void => {
+      if (settled || terminationError) return;
+      terminationError = error;
+      clearTimeout(timer);
       try {
-        if (process.platform === "win32" && child.pid) {
-          spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
-        } else {
-          child.kill("SIGKILL");
-        }
-      } catch {
-        /* process already exited */
+        if (process.platform === "win32" && child.pid) spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+        else child.kill("SIGKILL");
+      } catch { /* already gone */ }
+    };
+    timer = setTimeout(() => terminate(new RoomError("command_timeout", `${file} timed out: ${args.join(" ")}`)), timeoutMs);
+    const append = (kind: "stdout" | "stderr", chunk: unknown) => {
+      if (terminationError) return;
+      const text = String(chunk);
+      if (Buffer.byteLength(stdout, "utf8") + Buffer.byteLength(stderr, "utf8") + Buffer.byteLength(text, "utf8") > MAX_COMMAND_OUTPUT_BYTES) {
+        terminate(new RoomError("output_too_large", `${file} produced too much output.`));
+        return;
       }
-      reject(new RoomError("command_timeout", `git timed out: ${args.join(" ")}`));
-    }, timeoutMs);
-    child.stdout.on("data", (chunk) => { stdout += String(chunk); });
-    child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+      if (kind === "stdout") stdout += text;
+      else stderr += text;
+    };
+    child.stdout.on("data", (chunk) => append("stdout", chunk));
+    child.stderr.on("data", (chunk) => append("stderr", chunk));
     child.once("error", (error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      reject(error);
+      reject(terminationError ?? error);
     });
     child.once("close", (code) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (terminationError) {
+        reject(terminationError);
+        return;
+      }
       resolve({ code: code ?? 1, stdout, stderr });
     });
   });
+}
+
+function command(cwd: string, args: string[], timeoutMs = 8_000, env?: NodeJS.ProcessEnv): Promise<CommandResult> {
+  const commandEnv: NodeJS.ProcessEnv = { ...process.env, ...(env ?? {}) };
+  const temporaryIndex = env?.GIT_INDEX_FILE;
+  delete commandEnv.GIT_DIR;
+  delete commandEnv.GIT_WORK_TREE;
+  delete commandEnv.GIT_COMMON_DIR;
+  delete commandEnv.GIT_INDEX_FILE;
+  delete commandEnv.GIT_OBJECT_DIRECTORY;
+  delete commandEnv.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+  if (temporaryIndex) commandEnv.GIT_INDEX_FILE = temporaryIndex;
+  return runProgram(
+    "git",
+    ["-c", "core.quotepath=false", ...args],
+    cwd,
+    timeoutMs,
+    { ...commandEnv, GIT_TERMINAL_PROMPT: "0", GIT_EDITOR: "true" },
+  );
 }
 
 export async function resolveProjectIdentity(
@@ -406,6 +467,156 @@ async function readHead(root: string): Promise<{ branch?: string; oid?: string }
     ...(branch.code === 0 && branch.stdout.trim() ? { branch: branch.stdout.trim() } : {}),
     ...(oid.code === 0 && oid.stdout.trim() ? { oid: oid.stdout.trim() } : {}),
   };
+}
+
+function parseNulPaths(stdout: string): string[] {
+  return stdout.split("\0").filter(Boolean);
+}
+
+function normalizeGitPath(value: string): string {
+  const raw = value.replace(/\\/g, "/");
+  if (!raw || raw.startsWith("/") || /^[A-Za-z]:\//.test(raw) || raw.startsWith("//") || raw.split("/").some((part) => part === "..")) {
+    throw new RoomError("git_path", "Git returned an invalid repository-relative path.");
+  }
+  return raw.split("/").filter((part) => part && part !== ".").join("/");
+}
+
+function statusPathsFromOutput(stdout: string): string[] {
+  const paths: string[] = [];
+  for (const entry of parseNulPaths(stdout)) {
+    const status = entry.slice(0, 2);
+    if (status.includes("R") || status.includes("C")) throw new RoomError("foreign_change", "Rename and copy changes are not supported by the collaboration gate.");
+    const relative = entry.slice(3);
+    if (relative) paths.push(normalizeGitPath(relative));
+  }
+  return paths;
+}
+
+async function gitStagedPaths(root: string, env?: NodeJS.ProcessEnv): Promise<string[]> {
+  const result = await command(root, ["diff", "--cached", "--name-only", "-z", "--"], 8_000, env);
+  if (result.code !== 0) throw new RoomError("git_index", result.stderr.trim() || "Unable to inspect the Git index.");
+  return parseNulPaths(result.stdout).map((relative) => normalizeGitPath(relative));
+}
+
+function truncateOutput(value: string): string {
+  const max = 64 * 1024;
+  if (Buffer.byteLength(value, "utf8") <= max) return value;
+  return `${value.slice(0, max)}\n[output truncated]`;
+}
+
+function hashText(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function selectorCovers(leaseSelector: string, requestedSelector: string): boolean {
+  return selectorMatches(leaseSelector, selectorBase(requestedSelector));
+}
+
+function pathCoveredByAny(selectors: string[], relative: string): boolean {
+  return selectors.some((selector) => selectorMatches(selector, relative));
+}
+
+function basenameLower(value: string): string {
+  return path.basename(value.replace(/\\/g, "/")).toLowerCase();
+}
+
+function checkExecutable(check: CollaborationCheck): string {
+  const executable = process.platform === "win32" && check.file.trim().toLowerCase() === "npm" ? "npm.cmd" : check.file.trim();
+  if (basenameLower(executable) === "git" || basenameLower(executable) === "git.exe") {
+    throw new RoomError("invalid_check", "Git is not an allowed check executable.");
+  }
+  return executable;
+}
+
+function checkEnvironment(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_COMMON_DIR;
+  delete env.GIT_INDEX_FILE;
+  delete env.GIT_OBJECT_DIRECTORY;
+  delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+  env.GIT_TERMINAL_PROMPT = "0";
+  env.GIT_EDITOR = "true";
+  return env;
+}
+
+function shellSafeJson(value: unknown): string {
+  return (JSON.stringify(value) ?? "null").replace(/</g, "\\u003c");
+}
+
+function hookWrapperSource(originalPath: string | undefined, guardPath: string, guardAfter: boolean): string {
+  const original = originalPath
+    ? `const original = spawnSync(${shellSafeJson(originalPath)}, process.argv.slice(2), { cwd: process.cwd(), env: process.env, stdio: "inherit", windowsHide: true });\nif (original.error || (original.status ?? 1) !== 0) process.exit(original.status ?? 1);`
+    : "";
+  const guard = guardAfter ? `const guard = spawnSync(process.execPath, [${shellSafeJson(guardPath)}], { cwd: process.cwd(), env: process.env, stdio: "inherit", windowsHide: true });\nif (guard.error || guard.status !== 0) process.exit(71);\n` : "";
+  return `#!/usr/bin/env node\nimport { spawnSync } from "node:child_process";\n${original}\n${guard}`;
+}
+
+function hookGuardScript(expectedHead: string, expectedBranch: string, expectedRefs: string, selectors: string[]): string {
+  return `import { execFileSync } from "node:child_process";\nimport { createHash } from "node:crypto";\nconst env = process.env;\nconst cwd = process.cwd();\nconst run = (args) => { try { return execFileSync("git", args, { cwd, env, encoding: "utf8", windowsHide: true }); } catch (error) { if (error && typeof error === "object" && "stdout" in error) return String(error.stdout ?? ""); throw error; } };\nconst head = run(["rev-parse", "HEAD"]).trim();\nconst branch = (() => { try { return run(["symbolic-ref", "--quiet", "--short", "HEAD"]).trim(); } catch { return ""; } })();\nconst refs = run(["for-each-ref", "--format=%(refname)%00%(objectname)%00"]);\nconst staged = run(["diff", "--cached", "--name-only", "-z", "--"]).split("\\0").filter(Boolean);\nconst selectors = ${shellSafeJson(selectors)};\nconst covered = (relative) => selectors.some((selector) => selector.endsWith("/**") ? relative === selector.slice(0, -3) || relative.startsWith(selector.slice(0, -3) + "/") : relative === selector);\nif (head !== ${shellSafeJson(expectedHead)} || branch !== ${shellSafeJson(expectedBranch)} || createHash("sha256").update(refs, "utf8").digest("hex") !== ${shellSafeJson(expectedRefs)} || staged.some((relative) => !covered(relative))) process.exit(71);\n`;
+}
+
+type GateScan = {
+  head: { branch?: string; oid?: string };
+  indexFingerprint: string;
+  worktreeFingerprint: string;
+  refFingerprint: string;
+  refs: string;
+  statusPaths: string[];
+  fileFingerprints: Record<string, string | null>;
+};
+
+function refEntries(value: string): Map<string, string> {
+  const entries = value.split("\0").filter(Boolean);
+  const refs = new Map<string, string>();
+  for (let index = 0; index + 1 < entries.length; index += 2) refs.set(entries[index]!, entries[index + 1]!);
+  return refs;
+}
+
+async function gitIndexFingerprint(root: string): Promise<string> {
+  const result = await command(root, ["rev-parse", "--git-path", "index"]);
+  if (result.code !== 0) throw new RoomError("git_index", result.stderr.trim() || "Unable to locate the Git index.");
+  const indexPath = path.resolve(root, result.stdout.trim());
+  try {
+    return createHash("sha256").update(fs.readFileSync(indexPath)).digest("hex");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return hashText("");
+    throw error;
+  }
+}
+
+async function scanGitState(root: string): Promise<GateScan> {
+  const [head, status, staged, unstaged, indexFingerprint, refs] = await Promise.all([
+    readHead(root),
+    command(root, ["status", "--porcelain=v1", "--untracked-files=all", "-z"]),
+    command(root, ["diff", "--cached", "--raw", "-z", "--"]),
+    command(root, ["diff", "--raw", "-z", "--"]),
+    gitIndexFingerprint(root),
+    command(root, ["for-each-ref", "--format=%(refname)%00%(objectname)%00"]),
+  ]);
+  if (status.code !== 0) throw new RoomError("git_status", status.stderr.trim() || "Unable to inspect Git status.");
+  if (staged.code !== 0 || unstaged.code !== 0 || refs.code !== 0) {
+    throw new RoomError("git_state", "Unable to inspect the complete Git state.");
+  }
+  const statusPaths = statusPathsFromOutput(status.stdout);
+  const fileFingerprints: Record<string, string | null> = {};
+  for (const relative of statusPaths) fileFingerprints[relative] = fingerprintAt(root, relative).fingerprint;
+  const fingerprintRows = Object.entries(fileFingerprints).sort(([left], [right]) => relativeKey(left).localeCompare(relativeKey(right)));
+  return {
+    head,
+    indexFingerprint,
+    worktreeFingerprint: hashText(`${status.stdout}\0${unstaged.stdout}\0${JSON.stringify(fingerprintRows)}`),
+    refFingerprint: hashText(refs.stdout),
+    refs: refs.stdout,
+    statusPaths,
+    fileFingerprints,
+  };
+}
+
+function changedGatePaths(before: GateScan, after: GateScan): string[] {
+  const paths = new Set([...Object.keys(before.fileFingerprints), ...Object.keys(after.fileFingerprints)]);
+  return [...paths].filter((relative) => (before.fileFingerprints[relative] ?? null) !== (after.fileFingerprints[relative] ?? null));
 }
 
 function emptySnapshot(projectKey: string): RoomSnapshot {
@@ -617,6 +828,7 @@ class Coordinator {
   private fencingSequence = 1;
   private operationTail: Promise<void> = Promise.resolve();
   private state: RoomSnapshot;
+  private refFingerprint = "";
   private readonly socketConnections = new Map<net.Socket, { sessionId: string; connectionId: string } | undefined>();
 
   constructor(private readonly identity: ProjectIdentity, private readonly config: CollaborationConfig) {
@@ -634,13 +846,22 @@ class Coordinator {
     try {
       this.writeLock();
       this.state = loadSnapshot(this.identity);
+      const savedHead = this.state.head;
+      const savedRefFingerprint = this.state.refFingerprint;
       this.state.epoch += 1;
       for (const session of Object.values(this.state.sessions)) session.state = "offline";
       for (const lease of Object.values(this.state.leases)) {
         if (activeLease(lease.state)) lease.state = "orphaned";
       }
       this.fencingSequence = Math.max(1, ...Object.values(this.state.leases).map((lease) => lease.fencingToken + 1));
-      this.state.head = await readHead(this.identity.root);
+      const currentGitState = await scanGitState(this.identity.root);
+      this.state.head = currentGitState.head;
+      this.state.refFingerprint = currentGitState.refFingerprint;
+      this.refFingerprint = currentGitState.refFingerprint;
+      const headChanged = Boolean(savedHead.oid && savedHead.oid !== currentGitState.head.oid) || Boolean(savedHead.branch && savedHead.branch !== currentGitState.head.branch);
+      if (!this.state.compromised && ((savedRefFingerprint && savedRefFingerprint !== currentGitState.refFingerprint) || headChanged)) {
+        this.markCompromised("HEAD or refs changed while the coordinator was offline.", "coordinator");
+      }
       this.writeLock();
       if (process.platform !== "win32") fs.rmSync(this.identity.socketPath, { force: true });
       this.server = net.createServer((socket) => this.handleSocket(socket));
@@ -761,6 +982,8 @@ class Coordinator {
       case "release": return this.release(request.sessionId, payloadObject(request.payload));
       case "mutate_write": return this.mutate(request.sessionId, payloadObject(request.payload), "write");
       case "mutate_edit": return this.mutate(request.sessionId, payloadObject(request.payload), "edit");
+      case "check": return this.check(request.sessionId, payloadObject(request.payload));
+      case "commit": return this.commit(request.sessionId, payloadObject(request.payload));
       default: throw new RoomError("unknown_method", `Unknown room method '${request.method}'.`);
     }
   }
@@ -850,6 +1073,17 @@ class Coordinator {
     return this.state;
   }
 
+  private ensureHealthy(): void {
+    if (this.state.compromised) {
+      throw new RoomError("compromised", `Room mutation is disabled: ${this.state.compromised.reason}`);
+    }
+  }
+
+  private markCompromised(reason: string, sessionId: string, paths: string[] = []): void {
+    if (!this.state.compromised) this.state.compromised = { reason, at: now() };
+    this.touch("compromised", sessionId, paths);
+  }
+
   private claim(sessionId: string, payload: Record<string, unknown>): TaskClaim {
     const title = requireString(payload.title, "title");
     const taskId = typeof payload.taskId === "string" && payload.taskId.trim() ? payload.taskId.trim().slice(0, 200) : randomUUID();
@@ -872,6 +1106,7 @@ class Coordinator {
   }
 
   private async reserve(sessionId: string, payload: Record<string, unknown>): Promise<FileLease> {
+    this.ensureHealthy();
     if (!Array.isArray(payload.paths) || payload.paths.length < 1 || payload.paths.length > MAX_SELECTOR_COUNT) throw new RoomError("invalid_payload", "reserve requires 1-64 paths.");
     const selectors = [...new Set(payload.paths.map((value) => normalizeSelector(value)))];
     for (const selector of selectors) assertSelectorOutsideRoom(this.identity, selector);
@@ -911,6 +1146,7 @@ class Coordinator {
   }
 
   private release(sessionId: string, payload: Record<string, unknown>): FileLease {
+    this.ensureHealthy();
     const leaseId = requireString(payload.leaseId, "leaseId", 100);
     const lease = this.state.leases[leaseId];
     if (!lease || lease.ownerSessionId !== sessionId) throw new RoomError("lease_not_owned", "Lease is not owned by this session.");
@@ -922,6 +1158,7 @@ class Coordinator {
   }
 
   private async mutate(sessionId: string, payload: Record<string, unknown>, operation: "write" | "edit"): Promise<{ path: string; fingerprint: string; leaseId: string; epoch: number; fencingToken: number }> {
+    this.ensureHealthy();
     const target = normalizeSelector(payload.path);
     if (target.endsWith("/**")) throw new RoomError("invalid_path", "Mutation path must be an exact file path.");
     const lease = Object.values(this.state.leases).find((entry) => entry.ownerSessionId === sessionId && activeLease(entry.state) && entry.epoch === this.state.epoch && entry.selectors.some((selector) => selectorMatches(selector, target)));
@@ -970,6 +1207,277 @@ class Coordinator {
     this.state.sessions[sessionId]!.currentPaths = [target];
     this.touch(operation, sessionId, [target]);
     return { path: target, fingerprint: after.fingerprint, leaseId: lease.id, epoch: lease.epoch, fencingToken: lease.fencingToken };
+  }
+
+  private leaseForPath(sessionId: string, target: string): FileLease | undefined {
+    return Object.values(this.state.leases).find((lease) =>
+      lease.ownerSessionId === sessionId &&
+      (lease.state === "active" || lease.state === "dirty") &&
+      lease.epoch === this.state.epoch &&
+      lease.selectors.some((selector) => selectorMatches(selector, target)),
+    );
+  }
+
+  private changedPaths(before: GateScan, after: GateScan): string[] {
+    return changedGatePaths(before, after);
+  }
+
+  private updateLeaseObservation(lease: FileLease, relative: string, fingerprint: string | null): void {
+    lease.observed[relative] = fingerprint;
+    if (fingerprint === null) delete lease.identities[relative];
+    else {
+      const current = fingerprintAt(this.identity.root, relative);
+      if (!current.identity || current.fingerprint !== fingerprint) throw new RoomError("foreign_change", `Unable to verify changed path '${relative}'.`);
+      lease.identities[relative] = current.identity;
+    }
+    lease.renewedAt = now();
+    lease.expiresAt = new Date(Date.now() + this.config.leaseTtlMs).toISOString();
+  }
+
+  private refreshLeaseState(lease: FileLease): void {
+    const keys = new Set([...Object.keys(lease.baseline), ...Object.keys(lease.observed)]);
+    lease.state = [...keys].some((relative) => (lease.baseline[relative] ?? null) !== (lease.observed[relative] ?? null)) ? "dirty" : "active";
+  }
+
+  private applyCheckChanges(sessionId: string, before: GateScan, after: GateScan): string[] {
+    const changed = this.changedPaths(before, after);
+    for (const relative of changed) {
+      const ownerLease = this.leaseForPath(sessionId, relative);
+      const otherLease = Object.values(this.state.leases).find((lease) =>
+        lease.ownerSessionId !== sessionId && activeLease(lease.state) && lease.selectors.some((selector) => selectorMatches(selector, relative)),
+      );
+      if (!ownerLease || otherLease) {
+        throw new RoomError("foreign_change", `Check changed an unowned path '${relative}'.`);
+      }
+      this.updateLeaseObservation(ownerLease, relative, after.fileFingerprints[relative] ?? null);
+      ownerLease.state = "dirty";
+    }
+    return changed;
+  }
+
+  private async check(sessionId: string, payload: Record<string, unknown>): Promise<CheckResult> {
+    this.ensureHealthy();
+    const rawCheckId = requireString(payload.checkId, "checkId", 40);
+    if (!(COLLABORATION_CHECK_IDS as readonly string[]).includes(rawCheckId)) throw new RoomError("invalid_check", `Unknown check '${rawCheckId}'.`);
+    const checkId = rawCheckId as CollaborationCheckId;
+    const check = this.config.checks[checkId];
+    const executable = checkExecutable(check);
+    const before = await scanGitState(this.identity.root);
+    if (before.refFingerprint !== this.refFingerprint || before.head.branch !== this.state.head.branch || before.head.oid !== this.state.head.oid) {
+      this.markCompromised("HEAD or refs changed outside the collaboration coordinator.", sessionId);
+      throw new RoomError("compromised", "HEAD or refs changed outside the collaboration coordinator.");
+    }
+    const env = checkEnvironment();
+    let execution: CommandResult | undefined;
+    let executionError: unknown;
+    try {
+      execution = await runProgram(executable, check.args, this.identity.root, CHECK_TIMEOUT_MS, env);
+    } catch (error) {
+      executionError = error;
+    }
+    const after = await scanGitState(this.identity.root);
+    if (after.head.branch !== before.head.branch || after.head.oid !== before.head.oid || after.refFingerprint !== before.refFingerprint) {
+      this.markCompromised("The check changed HEAD or Git refs.", sessionId);
+      throw new RoomError("compromised", "The check changed HEAD or Git refs; all mutation is disabled.");
+    }
+    if (after.indexFingerprint !== before.indexFingerprint) {
+      throw new RoomError("foreign_change", "The check changed the shared Git index.");
+    }
+    const changed = this.applyCheckChanges(sessionId, before, after);
+    this.touch("check", sessionId, changed);
+    if (executionError) throw new RoomError("check_failed", executionError instanceof Error ? executionError.message : String(executionError));
+    if (!execution) throw new RoomError("check_failed", "Check did not produce a result.");
+    return {
+      checkId,
+      code: execution.code,
+      stdout: truncateOutput(execution.stdout),
+      stderr: truncateOutput(execution.stderr),
+    };
+  }
+
+  private async assertHeadConflict(lease: FileLease, headOid: string | undefined): Promise<void> {
+    if (!lease.acquiredHeadOid || !headOid || lease.acquiredHeadOid === headOid) return;
+    const result = await command(this.identity.root, ["diff", "--name-only", "-z", `${lease.acquiredHeadOid}..${headOid}`, "--"]);
+    if (result.code !== 0) throw new RoomError("head_conflict", result.stderr.trim() || "Unable to compare the lease base with HEAD.");
+    const changed = parseNulPaths(result.stdout).map((relative) => normalizeGitPath(relative));
+    if (changed.some((relative) => lease.selectors.some((selector) => selectorMatches(selector, relative)))) {
+      throw new RoomError("head_conflict", "HEAD changed a path reserved by this lease.");
+    }
+  }
+
+  private async makeCommitHooks(root: string, temporaryRoot: string, before: GateScan, selectors: string[]): Promise<string> {
+    const hookPathResult = await command(root, ["rev-parse", "--git-path", "hooks"]);
+    if (hookPathResult.code !== 0) throw new RoomError("git_hooks", hookPathResult.stderr.trim() || "Unable to locate Git hooks.");
+    const originalHooks = path.resolve(root, hookPathResult.stdout.trim());
+    const temporaryHooks = path.join(temporaryRoot, "hooks");
+    fs.mkdirSync(temporaryHooks, { recursive: true, mode: 0o700 });
+    for (const hookName of ["pre-commit", "commit-msg"]) {
+      const original = path.join(originalHooks, hookName);
+      const originalPath = fs.existsSync(original) ? fs.realpathSync.native(original) : undefined;
+      const guardPath = path.join(temporaryRoot, `${hookName}-guard.mjs`);
+      fs.writeFileSync(guardPath, hookGuardScript(before.head.oid ?? "", before.head.branch ?? "", before.refFingerprint, selectors), { encoding: "utf8", mode: 0o700, flag: "wx" });
+      const wrapperPath = path.join(temporaryHooks, hookName);
+      fs.writeFileSync(wrapperPath, hookWrapperSource(originalPath, guardPath, true), { encoding: "utf8", mode: 0o700, flag: "wx" });
+      try { fs.chmodSync(wrapperPath, 0o700); } catch { /* Windows does not require executable bits. */ }
+    }
+    return temporaryHooks;
+  }
+
+  private markUnexpectedCommitMutation(sessionId: string, before: GateScan, after: GateScan, requested: string[], commitSucceeded: boolean): void {
+    if (!commitSucceeded && (after.head.branch !== before.head.branch || after.head.oid !== before.head.oid || after.refFingerprint !== before.refFingerprint)) {
+      this.markCompromised("Commit hook or external code changed HEAD or refs unexpectedly.", sessionId);
+      throw new RoomError("compromised", "Commit changed HEAD or refs unexpectedly.");
+    }
+    if (!commitSucceeded && after.indexFingerprint !== before.indexFingerprint) {
+      this.markCompromised("Commit hook changed the shared Git index.", sessionId);
+      throw new RoomError("compromised", "Commit hook changed the shared Git index.");
+    }
+    const changed = this.changedPaths(before, after);
+    const unexpected = changed.filter((relative) => !pathCoveredByAny(requested, relative));
+    if (unexpected.length) {
+      this.markCompromised("Commit hook changed paths outside the requested set.", sessionId, unexpected);
+      throw new RoomError("compromised", "Commit hook changed paths outside the requested set.", { paths: unexpected });
+    }
+    if (after.statusPaths.some((relative) => pathCoveredByAny(requested, relative))) {
+      this.markCompromised("Commit hook left a requested path dirty.", sessionId, after.statusPaths);
+      throw new RoomError("compromised", "Commit hook left a requested path dirty.");
+    }
+  }
+
+  private async commit(sessionId: string, payload: Record<string, unknown>): Promise<CommitResult> {
+    this.ensureHealthy();
+    const message = requireString(payload.message, "message", 10_000);
+    if (message.includes("\0")) throw new RoomError("invalid_payload", "message is invalid.");
+    if (!Array.isArray(payload.paths) || payload.paths.length < 1 || payload.paths.length > MAX_SELECTOR_COUNT) {
+      throw new RoomError("invalid_payload", "commit requires 1-64 paths.");
+    }
+    const requested = [...new Set(payload.paths.map((value) => normalizeSelector(value)))];
+    const before = await scanGitState(this.identity.root);
+    if (before.refFingerprint !== this.refFingerprint || before.head.branch !== this.state.head.branch || before.head.oid !== this.state.head.oid) {
+      this.markCompromised("HEAD or refs changed outside the collaboration coordinator.", sessionId);
+      throw new RoomError("compromised", "HEAD or refs changed outside the collaboration coordinator.");
+    }
+    const selectedLeases = new Set<FileLease>();
+    for (const requestedPath of requested) {
+      const lease = Object.values(this.state.leases).find((entry) =>
+        entry.ownerSessionId === sessionId &&
+        (entry.state === "active" || entry.state === "dirty") &&
+        entry.epoch === this.state.epoch &&
+        entry.selectors.some((selector) => selectorCovers(selector, requestedPath)),
+      );
+      if (!lease) throw new RoomError("lease_required", `Commit path '${requestedPath}' is not covered by an owned lease.`);
+      selectedLeases.add(lease);
+    }
+    this.validateActiveLeases();
+    for (const lease of selectedLeases) {
+      if (lease.state !== "active" && lease.state !== "dirty") throw new RoomError("lease_invalid", `Lease '${lease.id}' is '${lease.state}'.`);
+      this.validateLease(lease);
+      await this.assertHeadConflict(lease, before.head.oid);
+    }
+    for (const relative of before.statusPaths) {
+      const owner = Object.values(this.state.leases).find((lease) =>
+        (lease.state === "active" || lease.state === "dirty") && lease.selectors.some((selector) => selectorMatches(selector, relative)),
+      );
+      if (!owner) throw new RoomError("foreign_change", `Unowned or foreign change exists at '${relative}'.`);
+    }
+    const sharedStaged = await gitStagedPaths(this.identity.root);
+    if (sharedStaged.length) throw new RoomError("foreign_change", `Shared index contains staged paths: ${sharedStaged.join(", ")}.`);
+
+    const temporaryRoot = fs.mkdtempSync(path.join(this.identity.roomDir, "commit-"));
+    const indexPath = path.join(temporaryRoot, "index");
+    try {
+      const tempEnv: NodeJS.ProcessEnv = { ...process.env, GIT_INDEX_FILE: indexPath, GIT_TERMINAL_PROMPT: "0", GIT_EDITOR: "true" };
+      delete tempEnv.GIT_DIR;
+      delete tempEnv.GIT_WORK_TREE;
+      delete tempEnv.GIT_COMMON_DIR;
+      const readTree = await command(this.identity.root, ["read-tree", "HEAD"], 8_000, tempEnv);
+      if (readTree.code !== 0) throw new RoomError("git_index", readTree.stderr.trim() || "Unable to create a temporary Git index.");
+      const add = await command(this.identity.root, ["add", "-A", "--", ...requested], 8_000, tempEnv);
+      if (add.code !== 0) throw new RoomError("git_add", add.stderr.trim() || "Unable to stage the requested paths.");
+      const temporaryStaged = await gitStagedPaths(this.identity.root, tempEnv);
+      if (!temporaryStaged.length) throw new RoomError("nothing_to_commit", "The requested paths have no changes to commit.");
+      if (temporaryStaged.some((relative) => !pathCoveredByAny(requested, relative) || !pathCoveredByAny([...selectedLeases].flatMap((lease) => lease.selectors), relative))) {
+        throw new RoomError("foreign_change", "Temporary index contains a path outside the requested leases.");
+      }
+      const hooksPath = await this.makeCommitHooks(this.identity.root, temporaryRoot, before, requested);
+      let commit: CommandResult | undefined;
+      let commitError: unknown;
+      try {
+        commit = await command(this.identity.root, ["-c", `core.hooksPath=${hooksPath}`, "commit", "-m", message, "--", ...requested], 120_000, tempEnv);
+      } catch (error) {
+        commitError = error;
+      }
+      if (commitError) {
+        const failedAfter = await scanGitState(this.identity.root);
+        this.markUnexpectedCommitMutation(sessionId, before, failedAfter, [], false);
+        throw new RoomError("commit_failed", commitError instanceof Error ? commitError.message : String(commitError));
+      }
+      if (!commit) throw new RoomError("commit_failed", "Git did not produce a result.");
+      if (commit.code !== 0) {
+        const failedAfter = await scanGitState(this.identity.root);
+        this.markUnexpectedCommitMutation(sessionId, before, failedAfter, [], false);
+        throw new RoomError("commit_failed", commit.stderr.trim() || commit.stdout.trim() || "Git commit failed.");
+      }
+      const preReset = await scanGitState(this.identity.root);
+      if (preReset.indexFingerprint !== before.indexFingerprint) {
+        this.markCompromised("A shared staged change appeared during commit.", sessionId, preReset.statusPaths);
+        throw new RoomError("compromised", "A shared staged change appeared during commit.");
+      }
+      const sharedEnv: NodeJS.ProcessEnv = { ...process.env };
+      delete sharedEnv.GIT_DIR;
+      delete sharedEnv.GIT_WORK_TREE;
+      delete sharedEnv.GIT_COMMON_DIR;
+      delete sharedEnv.GIT_INDEX_FILE;
+      const sync = await command(this.identity.root, ["add", "-A", "--", ...requested], 8_000, sharedEnv);
+      if (sync.code !== 0) {
+        this.markCompromised("Unable to synchronize the shared index after commit.", sessionId);
+        throw new RoomError("compromised", sync.stderr.trim() || "Unable to synchronize the shared index after commit.");
+      }
+      const stagedAfterSync = await gitStagedPaths(this.identity.root, sharedEnv);
+      if (stagedAfterSync.length) {
+        this.markCompromised("The shared index remained staged after commit.", sessionId, stagedAfterSync);
+        throw new RoomError("compromised", "The shared index remained staged after commit.");
+      }
+      const after = await scanGitState(this.identity.root);
+      this.markUnexpectedCommitMutation(sessionId, before, after, requested, true);
+      if (after.head.oid === before.head.oid || !after.head.oid) throw new RoomError("commit_failed", "Git did not produce a new commit.");
+      const beforeRefs = refEntries(before.refs);
+      const afterRefs = refEntries(after.refs);
+      const changedRefs = new Set([...beforeRefs.keys(), ...afterRefs.keys()].filter((ref) => beforeRefs.get(ref) !== afterRefs.get(ref)));
+      if (before.head.branch) {
+        const branchRef = `refs/heads/${before.head.branch}`;
+        if (changedRefs.size !== 1 || !changedRefs.has(branchRef) || afterRefs.get(branchRef) !== after.head.oid) {
+          this.markCompromised("Commit changed an unexpected Git ref.", sessionId);
+          throw new RoomError("compromised", "Commit changed an unexpected Git ref.");
+        }
+      } else if (changedRefs.size) {
+        this.markCompromised("Detached-head commit changed an unexpected Git ref.", sessionId);
+        throw new RoomError("compromised", "Commit changed an unexpected Git ref.");
+      }
+      for (const lease of selectedLeases) {
+        for (const requestedPath of requested) {
+          if (!lease.selectors.some((selector) => selectorCovers(selector, requestedPath))) continue;
+          const scanned = scanSelector(this.identity.root, selectorBase(requestedPath));
+          for (const [relative, fingerprint] of Object.entries(scanned.fingerprints)) {
+            lease.baseline[relative] = fingerprint;
+            this.updateLeaseObservation(lease, relative, fingerprint);
+          }
+          if (!requestedPath.endsWith("/**")) {
+            const exact = fingerprintAt(this.identity.root, requestedPath);
+            lease.baseline[requestedPath] = exact.fingerprint;
+            this.updateLeaseObservation(lease, requestedPath, exact.fingerprint);
+          }
+        }
+        this.refreshLeaseState(lease);
+      }
+      this.state.head = after.head;
+      this.refFingerprint = after.refFingerprint;
+      this.state.refFingerprint = after.refFingerprint;
+      this.touch("commit", sessionId, temporaryStaged);
+      return { oid: after.head.oid, paths: temporaryStaged, epoch: this.state.epoch };
+    } finally {
+      fs.rmSync(temporaryRoot, { recursive: true, force: true });
+    }
   }
 
   private validateLease(lease: FileLease): void {
@@ -1064,27 +1572,29 @@ export class RoomClient {
   readonly connectionId: string;
   private readonly coordinator?: Coordinator;
   private readonly channel?: JsonRpcChannel;
+  private readonly config: CollaborationConfig;
   private heartbeatTimer: NodeJS.Timeout | undefined;
   private epoch = 0;
   private connected: boolean;
   private reason?: string;
 
-  private constructor(identity: ProjectIdentity, session: RoomSessionInfo, options: { coordinator?: Coordinator; channel?: JsonRpcChannel; reason?: string }) {
+  private constructor(identity: ProjectIdentity, session: RoomSessionInfo, options: { coordinator?: Coordinator; channel?: JsonRpcChannel; reason?: string; config: CollaborationConfig }) {
     this.identity = identity;
     this.sessionId = session.sessionId;
     this.connectionId = randomUUID();
     this.coordinator = options.coordinator;
     this.channel = options.channel;
+    this.config = options.config;
     this.connected = Boolean(options.coordinator || options.channel);
     this.reason = options.reason;
   }
 
-  static degraded(identity: ProjectIdentity, session: RoomSessionInfo, reason: string): RoomClient {
-    return new RoomClient(identity, session, { reason });
+  static degraded(identity: ProjectIdentity, session: RoomSessionInfo, reason: string, config: CollaborationConfig): RoomClient {
+    return new RoomClient(identity, session, { reason, config });
   }
 
   static async connect(identity: ProjectIdentity, session: RoomSessionInfo, coordinator: Coordinator | undefined, channel: JsonRpcChannel | undefined, config: CollaborationConfig): Promise<RoomClient> {
-    const client = new RoomClient(identity, session, { coordinator, channel });
+    const client = new RoomClient(identity, session, { coordinator, channel, config });
     try {
       const result = await client.request("join", { sessionId: session.sessionId, connectionId: client.connectionId, displayName: session.displayName, pid: session.pid }, true);
       client.epoch = result.epoch;
@@ -1127,6 +1637,15 @@ export class RoomClient {
     return (await this.request("mutate_edit", { path: filePath, oldText, newText })).value;
   }
 
+  async check(checkId: CollaborationCheckId): Promise<CheckResult> {
+    if (!this.ready) return this.degradedCheck(checkId);
+    return (await this.request("check", { checkId })).value as CheckResult;
+  }
+
+  async commit(message: string, paths: string[]): Promise<CommitResult> {
+    return (await this.request("commit", { message, paths })).value as CommitResult;
+  }
+
   async close(): Promise<void> {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = undefined;
@@ -1135,6 +1654,30 @@ export class RoomClient {
     }
     this.connected = false;
     this.channel?.close();
+  }
+
+  private async degradedCheck(checkId: CollaborationCheckId): Promise<CheckResult> {
+    if (!(COLLABORATION_CHECK_IDS as readonly string[]).includes(checkId)) throw new RoomError("invalid_check", `Unknown check '${checkId}'.`);
+    const check = this.config.checks[checkId];
+    const executable = checkExecutable(check);
+    const before = await scanGitState(this.identity.root);
+    let execution: CommandResult | undefined;
+    let executionError: unknown;
+    try {
+      execution = await runProgram(executable, check.args, this.identity.root, CHECK_TIMEOUT_MS, checkEnvironment());
+    } catch (error) {
+      executionError = error;
+    }
+    const after = await scanGitState(this.identity.root);
+    if (after.head.branch !== before.head.branch || after.head.oid !== before.head.oid || after.refFingerprint !== before.refFingerprint) {
+      throw new RoomError("compromised", "The read-only check changed HEAD or Git refs.");
+    }
+    if (after.indexFingerprint !== before.indexFingerprint || changedGatePaths(before, after).length) {
+      throw new RoomError("foreign_change", "The read-only check changed the Git worktree or index.");
+    }
+    if (executionError) throw new RoomError("check_failed", executionError instanceof Error ? executionError.message : String(executionError));
+    if (!execution) throw new RoomError("check_failed", "Check did not produce a result.");
+    return { checkId, code: execution.code, stdout: truncateOutput(execution.stdout), stderr: truncateOutput(execution.stderr) };
   }
 
   private async heartbeat(): Promise<void> {
@@ -1187,11 +1730,11 @@ export async function connectRoom(
       return await RoomClient.connect(identity, session, undefined, channel, config.config);
     } catch (error) {
       const lock = readLock(identity);
-      if (lock && processIsAlive(lock.pid)) return RoomClient.degraded(identity, session, "Coordinator is alive but its IPC endpoint is unavailable.");
-      if (!takeOverStaleLock(identity, config.config)) return RoomClient.degraded(identity, session, error instanceof Error ? error.message : String(error));
+      if (lock && processIsAlive(lock.pid)) return RoomClient.degraded(identity, session, "Coordinator is alive but its IPC endpoint is unavailable.", config.config);
+      if (!takeOverStaleLock(identity, config.config)) return RoomClient.degraded(identity, session, error instanceof Error ? error.message : String(error), config.config);
     }
   }
-  return RoomClient.degraded(identity, session, "Coordinator takeover is uncertain; mutations are disabled.");
+  return RoomClient.degraded(identity, session, "Coordinator takeover is uncertain; mutations are disabled.", config.config);
 }
 
 export function roomDegradedStatus(client: RoomClient): Record<string, unknown> {
