@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, it } from "vitest";
+import { afterEach, describe, it, vi } from "vitest";
 import { readCollaborationRoom } from "./collaboration-room";
 
 describe("readCollaborationRoom", () => {
@@ -55,5 +55,17 @@ describe("readCollaborationRoom", () => {
     assert.equal(room.ready, false);
     assert.equal(room.peers, 0);
     assert.equal(room.pendingAsks, 0);
+  });
+
+  it("does not leak git stderr for a non-repository", () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-room-status-nonrepo-"));
+    const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const room = readCollaborationRoom(repo);
+      assert.equal(room.ready, false);
+      assert.equal(stderrWrite.mock.calls.length, 0);
+    } finally {
+      stderrWrite.mockRestore();
+    }
   });
 });

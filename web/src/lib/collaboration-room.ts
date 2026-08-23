@@ -33,6 +33,7 @@ function repositoryRoot(rootPath: string): string {
   const output = execFileSync("git", ["rev-parse", "--show-toplevel"], {
     cwd: root,
     encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
     timeout: 1_500,
   });
