@@ -16,11 +16,6 @@ export type DirectModel = {
   modelID: string;
 };
 
-type ResolvedDirectModel = DirectModel & {
-  baseUrl: string;
-  apiKey?: string;
-};
-
 export class DirectGenerationError extends Error {
   readonly status?: number;
 
@@ -77,24 +72,6 @@ function safeModelId(value: string): string {
   return modelID;
 }
 
-/**
- * Resolve providers with fixed, server-owned endpoints. Other registered
- * providers use Pi's runtime adapter instead of accepting a browser URL.
- */
-export function resolveDirectModel(model: DirectModel): ResolvedDirectModel {
-  const providerID = safeProviderId(model.providerID);
-  const modelID = safeModelId(model.modelID);
-  if (providerID === LLAMA_SERVER_PROVIDER_ID) {
-    return {
-      providerID,
-      modelID,
-      baseUrl: `${DEFAULT_LLAMA_SERVER_BASE}/v1`,
-      apiKey: "local",
-    };
-  }
-  throw new DirectGenerationError(`直接生成に未対応のプロバイダーです: ${providerID}`, 400);
-}
-
 function textFromContent(value: unknown): string {
   if (typeof value === "string") return value;
   if (!Array.isArray(value)) return "";
@@ -145,9 +122,7 @@ export async function generateDirectText(options: {
   try {
     // Pi's runtime owns auth and API adapters for every registered provider. This
     // keeps custom/API/OAuth providers direct without accepting a browser URL.
-    if (
-      model.providerID !== LLAMA_SERVER_PROVIDER_ID
-    ) {
+    if (model.providerID !== LLAMA_SERVER_PROVIDER_ID) {
       const text = await completeModelText({
         ...model,
         system,
@@ -159,16 +134,15 @@ export async function generateDirectText(options: {
       return text.trim().slice(0, MAX_OUTPUT_CHARS);
     }
 
-    const resolved = resolveDirectModel(model);
-    const response = await fetch(`${resolved.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+    const response = await fetch(`${DEFAULT_LLAMA_SERVER_BASE}/v1/chat/completions`, {
       method: "POST",
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
-        ...(resolved.apiKey ? { Authorization: `Bearer ${resolved.apiKey}` } : {}),
+        Authorization: "Bearer local",
       },
       body: JSON.stringify({
-        model: resolved.modelID,
+        model: model.modelID,
         messages: [
           { role: "system", content: system },
           { role: "user", content: prompt },

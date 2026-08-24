@@ -6,28 +6,12 @@ const { completeModelText } = vi.hoisted(() => ({
 
 vi.mock("@/lib/pi/harness", () => ({ completeModelText }));
 
-import {
-  extractDirectText,
-  generateDirectText,
-  resolveDirectModel,
-} from "./direct-generation";
+import { extractDirectText, generateDirectText } from "./direct-generation";
 
 describe("direct-generation", () => {
   afterEach(() => {
     completeModelText.mockReset();
     vi.unstubAllGlobals();
-  });
-
-  it("resolves only fixed direct provider endpoints", () => {
-    expect(resolveDirectModel({ providerID: "llama-server", modelID: "local-model" })).toEqual({
-      providerID: "llama-server",
-      modelID: "local-model",
-      baseUrl: "http://127.0.0.1:8081/v1",
-      apiKey: "local",
-    });
-    expect(() =>
-      resolveDirectModel({ providerID: "arbitrary", modelID: "http://169.254.169.254" }),
-    ).toThrow("未対応");
   });
 
   it("extracts string and block-based chat completion text", () => {
