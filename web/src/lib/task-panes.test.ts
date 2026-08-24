@@ -8,6 +8,7 @@ import {
   loadTaskPanes,
   normalize,
   restoreTaskPanesForUrl,
+  resizeAdjacentPaneWidths,
   retargetActiveTab,
   saveTaskPanes,
   removeTaskEverywhere,
@@ -28,6 +29,24 @@ function state(...panes: TaskPane[]): TaskPanesState {
 const P1 = "pane-1";
 const P2 = "pane-2";
 const P3 = "pane-3";
+
+describe("resizeAdjacentPaneWidths", () => {
+  it("隣接ペインの境界を移動し、最小幅を守る", () => {
+    const wider = resizeAdjacentPaneWidths([0.5, 0.5], 0, 0.2, 0.2);
+    const clamped = resizeAdjacentPaneWidths([0.5, 0.5], 0, -0.5, 0.2);
+    expect(wider[0]).toBeCloseTo(0.7);
+    expect(wider[1]).toBeCloseTo(0.3);
+    expect(clamped[0]).toBeCloseTo(0.2);
+    expect(clamped[1]).toBeCloseTo(0.8);
+  });
+
+  it("3 ペインでも指定した境界の 2 ペインだけを調整する", () => {
+    const next = resizeAdjacentPaneWidths([0.3, 0.4, 0.3], 1, 0.1, 0.2);
+    expect(next[0]).toBeCloseTo(0.3);
+    expect(next[1]).toBeCloseTo(0.5);
+    expect(next[2]).toBeCloseTo(0.2);
+  });
+});
 
 class MemoryLocalStorage {
   private map = new Map<string, string>();

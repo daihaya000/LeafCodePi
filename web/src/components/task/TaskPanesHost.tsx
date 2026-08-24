@@ -2,12 +2,105 @@
 
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { cx } from "@/components/ui";
 import { isTaskDrag, taskDragIdFrom } from "@/lib/task-drag";
-import { taskIdFromPathname } from "@/lib/task-panes";
+import { resizeAdjacentPaneWidths, taskIdFromPathname } from "@/lib/task-panes";
 import { paneLayoutClass, TaskTabs } from "./TaskTabs";
+
+const MIN_PANE_WIDTH = 240;
+
+function equalPaneWidths(count: number): number[] {
+  return count > 0 ? Array.from({ length: count }, () => 1 / count) : [];
+}
+
+function PaneResizeHandle({
+  boundaryIndex,
+  position,
+  widths,
+  containerRef,
+  onResize,
+}: {
+  boundaryIndex: number;
+  position: number;
+  widths: readonly number[];
+  containerRef: { current: HTMLDivElement | null };
+  onResize: (widths: number[]) => void;
+}) {
+  const pairTotal = widths[boundaryIndex]! + widths[boundaryIndex + 1]!;
+  const currentWidth = widths[boundaryIndex]!;
+  const minimumFor = (containerWidth: number) =>
+    Math.min(MIN_PANE_WIDTH / Math.max(containerWidth, MIN_PANE_WIDTH), pairTotal / 2);
+
+  const resizeBy = (delta: number, containerWidth: number, startWidths = widths) => {
+    onResize(resizeAdjacentPaneWidths(startWidths, boundaryIndex, delta, minimumFor(containerWidth)));
+  };
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={`ペイン ${boundaryIndex + 1} と ${boundaryIndex + 2} の幅を調整`}
+      aria-valuemin={Math.round(minimumFor(containerRef.current?.clientWidth ?? 0) * 100)}
+      aria-valuemax={Math.round((pairTotal - minimumFor(containerRef.current?.clientWidth ?? 0)) * 100)}
+      aria-valuenow={Math.round(currentWidth * 100)}
+      tabIndex={0}
+      className="group absolute top-0 z-[80] h-full w-2 -translate-x-1/2 cursor-col-resize touch-none focus-visible:outline-none"
+      style={{ left: `${position * 100}%` }}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const container = containerRef.current;
+        if (!container) return;
+        const rect = container.getBoundingClientRect();
+        if (rect.width <= 0) return;
+        const startX = event.clientX;
+        const startWidths = [...widths];
+        const previousUserSelect = document.body.style.userSelect;
+        const previousCursor = document.body.style.cursor;
+        document.body.style.userSelect = "none";
+        document.body.style.cursor = "col-resize";
+        const onMove = (moveEvent: PointerEvent) => {
+          resizeBy((moveEvent.clientX - startX) / rect.width, rect.width, startWidths);
+        };
+        const onUp = () => {
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+          window.removeEventListener("pointercancel", onUp);
+          window.removeEventListener("blur", onUp);
+          document.body.style.userSelect = previousUserSelect;
+          document.body.style.cursor = previousCursor;
+        };
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+        window.addEventListener("pointercancel", onUp);
+        window.addEventListener("blur", onUp);
+      }}
+      onKeyDown={(event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const containerWidth = containerRef.current?.clientWidth ?? 0;
+        const minimum = minimumFor(containerWidth);
+        const step = event.shiftKey ? 0.1 : 0.02;
+        const delta =
+          event.key === "Home"
+            ? minimum - currentWidth
+            : event.key === "End"
+              ? pairTotal - minimum - currentWidth
+              : event.key === "ArrowRight"
+                ? step
+                : -step;
+        resizeBy(delta, containerWidth);
+      }}
+    >
+      <span
+        aria-hidden="true"
+        className="absolute inset-y-0 left-1/2 w-px bg-border transition-colors group-hover:bg-accent group-focus-visible:bg-accent"
+      />
+    </div>
+  );
+}
 
 const SplitTaskView = dynamic(
   () => import("@/components/task/TaskView").then((module) => module.TaskView),
@@ -35,10 +128,21 @@ const SplitTaskView = dynamic(
 export function TaskPanesHost() {
   const { state, statusFor, reportStatus, dispatch, titleFor, mdUp } = useTaskPanes();
   const pathname = usePathname();
+  const containerRef = useRef<HTMLDivElement>(null);
   const [dragOverPaneId, setDragOverPaneId] = useState<string | null>(null);
+  const [paneWidths, setPaneWidths] = useState<number[]>([]);
+  const [gridColumnWidth, setGridColumnWidth] = useState(0.5);
   // 一度開いたタブのみマウントする（初回読み込み・SSE 接続を遅延）。
   // アクティブタブは開封済みに追加、タブが閉じられたら除去して再オープン時に再読み込み。
   const [openedTabs, setOpenedTabs] = useState<Set<string>>(() => new Set());
+  const paneLayoutKey = state.panes.map((pane) => pane.id).join("|");
+  const paneCount = state.panes.length;
+
+  // ペインの追加・削除時は新しい構成を均等幅から始める。タブ操作では幅を保持する。
+  useEffect(() => {
+    setPaneWidths(equalPaneWidths(paneCount));
+    setGridColumnWidth(0.5);
+  }, [paneCount, paneLayoutKey]);
 
   // dragend/drop でリング解除（Escape キャンセル・ブラウザ外での drop 漏れ対策）
   useEffect(() => {
@@ -99,9 +203,29 @@ export function TaskPanesHost() {
 
   const single = state.panes.length === 1 && state.panes[0].tabs.length <= 1;
   const isGrid = state.panes.length >= 4;
+  const widths = paneWidths.length === state.panes.length
+    ? paneWidths
+    : equalPaneWidths(state.panes.length);
+  const resizeWidths = isGrid ? [gridColumnWidth, 1 - gridColumnWidth] : widths;
+  const handlePositions = isGrid
+    ? [gridColumnWidth]
+    : widths.slice(0, -1).map((_, index) =>
+        widths.slice(0, index + 1).reduce((sum, width) => sum + width, 0),
+      );
+  const updatePaneWidths = (next: number[]) => {
+    if (isGrid) {
+      setGridColumnWidth(next[0] ?? 0.5);
+    } else {
+      setPaneWidths(next);
+    }
+  };
 
   return (
-    <div className={paneLayoutClass(state)}>
+    <div
+      ref={containerRef}
+      className={cx(paneLayoutClass(state), "relative")}
+      style={isGrid ? { gridTemplateColumns: `${gridColumnWidth}fr ${1 - gridColumnWidth}fr` } : undefined}
+    >
       {state.panes.map((pane, paneIndex) => (
         <section
           key={pane.id}
@@ -118,6 +242,7 @@ export function TaskPanesHost() {
             !single && isGrid && paneIndex >= 2 && "border-t",
             dragOverPaneId === pane.id && "ring-1 ring-inset ring-accent/50",
           )}
+          style={!isGrid ? { flex: `${widths[paneIndex] ?? 0} 1 0%` } : undefined}
           onDragOver={(event) => {
             if (!isTaskDrag(event.dataTransfer.types)) return;
             event.preventDefault();
@@ -213,6 +338,16 @@ export function TaskPanesHost() {
             );
           })}
         </section>
+      ))}
+      {!single && handlePositions.map((position, boundaryIndex) => (
+        <PaneResizeHandle
+          key={`pane-resize-${boundaryIndex}`}
+          boundaryIndex={boundaryIndex}
+          position={position}
+          widths={resizeWidths}
+          containerRef={containerRef}
+          onResize={updatePaneWidths}
+        />
       ))}
     </div>
   );

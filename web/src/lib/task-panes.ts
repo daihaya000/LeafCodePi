@@ -23,6 +23,34 @@ export type TaskPanesState = {
   activePaneId: string | null;
 };
 
+/** 隣接する 2 ペインの幅を、指定した最小幅を保って調整する。 */
+export function resizeAdjacentPaneWidths(
+  widths: readonly number[],
+  boundaryIndex: number,
+  delta: number,
+  minWidth: number,
+): number[] {
+  const rightIndex = boundaryIndex + 1;
+  if (
+    !Number.isFinite(delta) ||
+    !Number.isFinite(minWidth) ||
+    boundaryIndex < 0 ||
+    rightIndex >= widths.length
+  ) {
+    return [...widths];
+  }
+  const pairTotal = widths[boundaryIndex]! + widths[rightIndex]!;
+  const minimum = Math.max(0, Math.min(minWidth, pairTotal / 2));
+  const leftWidth = Math.max(
+    minimum,
+    Math.min(pairTotal - minimum, widths[boundaryIndex]! + delta),
+  );
+  const next = [...widths];
+  next[boundaryIndex] = leftWidth;
+  next[rightIndex] = pairTotal - leftWidth;
+  return next;
+}
+
 export type TaskPanesAction =
   | { type: "openTab"; paneId: string; taskId: string }
   | { type: "openInNewPane"; taskId: string }
