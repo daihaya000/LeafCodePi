@@ -84,6 +84,7 @@ function isAgentsSkill(skill: { baseDir?: string; filePath?: string }): boolean 
 }
 import {
   clampThinkingLevelForModel,
+  defaultThinkingLevel,
   isThinkingLevel,
   thinkingLevelsForModel,
 } from "@/lib/thinking-levels";
@@ -138,6 +139,8 @@ type LiveRuntime = {
   skillPermissionRef: { current: SkillPermission };
   unsubscribe: () => void;
   promptChain: Promise<void>;
+  /** A prompt has been accepted and is about to start or is still running. */
+  promptActive: boolean;
   /** Assistant throughput samples keyed by message.timestamp (ms). */
   throughputByStartedAt: Map<number, ThroughputTiming>;
   /** startedAtMs values already written to the Pi session file. */
@@ -842,6 +845,7 @@ function attachSession(
     skillPermissionRef,
     unsubscribe: () => undefined,
     promptChain: Promise.resolve(),
+    promptActive: false,
     throughputByStartedAt: existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
     persistedThroughputKeys:
       existing?.persistedThroughputKeys ?? loaded?.persistedKeys ?? new Set(),
@@ -1569,6 +1573,7 @@ function queuePrompt(
     subagentPermission?: "allow" | "deny";
     permissionMode?: "allow" | "ask" | "deny";
     isHangRetry?: boolean;
+    streamingBehavior?: "steer" | "followUp";
   },
 ): void {
   applySubagentPermission(live.session, meta?.subagentPermission);
@@ -1583,8 +1588,7 @@ function queuePrompt(
     ...(meta?.permissionMode ? { permissionMode: meta.permissionMode } : {}),
     isHangRetry,
   });
-  live.promptChain = live.promptChain
-    .then(async () => {
+  const runPrompt = async () => {
       setTaskStatus(live.taskId, "working");
       const options: {
         images?: Array<{ type: "image"; data: string; mimeType: string }>;
@@ -1597,7 +1601,9 @@ function queuePrompt(
           mimeType: image.mimeType,
         }));
       }
-      if (live.session.isStreaming) {
+      if (meta?.streamingBehavior) {
+        options.streamingBehavior = meta.streamingBehavior;
+      } else if (live.session.isStreaming) {
         options.streamingBehavior = "followUp";
       }
       try {
@@ -1613,24 +1619,38 @@ function queuePrompt(
         emitTaskSnapshot(live, "thinking_level_changed", { thinkingLevel: level });
         await live.session.prompt(prompt, options);
       }
-    })
-    .catch((error) => {
-      const message = error instanceof Error ? error.message : String(error);
-      setTaskStatus(live.taskId, "error", message);
-      emit(live.taskId, {
-        type: "snapshot",
-        task: toSummary(getTask(live.taskId)!),
-        ...sessionSnapshotFields(
+    };
+  const handlePromptError = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    setTaskStatus(live.taskId, "error", message);
+    emit(live.taskId, {
+      type: "snapshot",
+      task: toSummary(getTask(live.taskId)!),
+      ...sessionSnapshotFields(
         live.session,
         live.throughputByStartedAt,
         live.toolStartedAt,
         live.toolEndedAt,
         live.toolPartialOutputByCallId,
       ),
-        isStreaming: false,
-        eventType: "error",
-        error: message,
-      });
+      isStreaming: false,
+      eventType: "error",
+      error: message,
+    });
+  };
+  // A steering request must reach the SDK while the current turn is still
+  // running. The normal prompt chain is retained for idle submissions so two
+  // simultaneous starts cannot race each other.
+  if (meta?.streamingBehavior && (live.session.isStreaming || live.promptActive)) {
+    void runPrompt().catch(handlePromptError);
+    return;
+  }
+  live.promptActive = true;
+  live.promptChain = live.promptChain
+    .then(runPrompt)
+    .catch(handlePromptError)
+    .finally(() => {
+      live.promptActive = false;
     });
 }
 
@@ -1643,6 +1663,7 @@ export async function promptTask(
     subagentPermission?: "allow" | "deny";
     permissionMode?: "allow" | "ask" | "deny";
     skillPermission?: SkillPermission;
+    streamingBehavior?: "steer" | "followUp";
   },
 ): Promise<TaskSummary> {
   const live = await ensureLive(id);
@@ -1659,6 +1680,7 @@ export async function promptTask(
     agent: options?.agent,
     subagentPermission: options?.subagentPermission,
     permissionMode: options?.permissionMode,
+    streamingBehavior: options?.streamingBehavior,
   });
   return toSummary(getTask(id)!);
 }
@@ -1793,12 +1815,13 @@ export async function setTaskModel(id: string, modelValueRaw: string): Promise<T
   if (!model || !parsed) throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
   await live.session.setModel(model);
   const ids = modelId(live.session.model ?? model);
-  const thinkingLevel = clampThinkingLevelForModel(
-    model,
-    isThinkingLevel(live.session.thinkingLevel)
-      ? live.session.thinkingLevel
-      : getTask(id)?.thinkingLevel,
-  );
+  const current = isThinkingLevel(live.session.thinkingLevel)
+    ? live.session.thinkingLevel
+    : getTask(id)?.thinkingLevel;
+  const levels = thinkingLevelsForModel(model);
+  // 現レベルが新モデルでも有効なら維持、無ければ既定（medium 相当）へ。
+  // clampThinkingLevel は上位レベルへ昇格するため使わない。
+  const thinkingLevel = current && levels.includes(current) ? current : defaultThinkingLevel(levels);
   if (live.session.thinkingLevel !== thinkingLevel) {
     live.session.setThinkingLevel(thinkingLevel);
   }

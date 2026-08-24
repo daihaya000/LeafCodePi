@@ -8,11 +8,13 @@ import {
   ChevronsDown,
   ChevronsUp,
   GitGraph,
+  ListPlus,
   PanelRight,
   Plus,
   RotateCcw,
   Shrink,
   Square,
+  Zap,
 } from "lucide-react";
 import { Composer, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { CollaborationBadge, CollaborationNotice, useCollaborationRoom } from "@/components/CollaborationStatus";
@@ -32,7 +34,11 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
 import { PartView, WorkingRow } from "@/components/task/PartView";
 import { QuestionCard } from "@/components/task/QuestionCard";
-import { Button, cx } from "@/components/ui";
+import {
+  QueuedFollowUpsNotice,
+  type QueuedFollowUp,
+} from "@/components/task/QueuedFollowUpsNotice";
+import { Button, cx, GhostSelect } from "@/components/ui";
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { notifyTasksChanged } from "@/lib/events";
@@ -65,7 +71,7 @@ import {
   decideNotification,
   notificationText,
 } from "@/lib/notify";
-import { isThinkingLevel, thinkingLevelLabel } from "@/lib/thinking-levels";
+import { defaultThinkingLevel, isThinkingLevel, thinkingLevelLabel } from "@/lib/thinking-levels";
 import {
   readSubagentPermission,
   writeSubagentPermission,
@@ -250,6 +256,11 @@ export function TaskView({
   const [graphOpen, setGraphOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [deliveryMode, setDeliveryMode] = useState<"queue" | "steer">("queue");
+  const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>([]);
+  const [queuedAutoSend, setQueuedAutoSend] = useState(false);
+  const nextQueueIdRef = useRef(1);
+  const submitRef = useRef<() => Promise<void>>(async () => undefined);
   const [submitting, setSubmitting] = useState(false);
   const [resumingTurn, setResumingTurn] = useState(false);
   const [resumeTurnError, setResumeTurnError] = useState<string | null>(null);
@@ -551,6 +562,8 @@ export function TaskView({
     setIsReverted(false);
     setRevertConfirmOpen(false);
     revertEntryRef.current = null;
+    setQueuedFollowUps([]);
+    setQueuedAutoSend(false);
   }, [taskId]);
 
   useEffect(() => {
@@ -591,6 +604,9 @@ export function TaskView({
 
   const compacting = isCompacting || compactingLocal;
   const working = Boolean(task?.status === "working" || task?.isStreaming);
+  const goalLoopLive = Boolean(
+    task?.goalLoop && ["queued", "running", "verifying_completed"].includes(task.goalLoop.status),
+  );
 
   // 巻き戻し対象候補: 末尾のユーザーメッセージ。末尾が user なら直前の user へ
   // フォールバック（最後まで巻き戻せる状態を保つ）。
@@ -659,6 +675,20 @@ export function TaskView({
 
   async function submit() {
     if ((!prompt.trim() && attachments.length === 0) || submitting || compacting) return;
+    if (working && deliveryMode === "queue") {
+      setQueuedFollowUps((current) => [
+        ...current,
+        {
+          id: nextQueueIdRef.current++,
+          text: prompt,
+          attachments,
+        },
+      ]);
+      setPrompt("");
+      setAttachments([]);
+      setError(null);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -688,6 +718,7 @@ export function TaskView({
           subagentPermission,
           permissionMode,
           skillPermission,
+          ...(working && deliveryMode === "steer" ? { streamingBehavior: "steer" } : {}),
         });
       }
       setPrompt("");
@@ -700,6 +731,27 @@ export function TaskView({
       setSubmitting(false);
     }
   }
+  submitRef.current = submit;
+
+  useEffect(() => {
+    if (working || submitting || queuedAutoSend || goalLoopEnabled || goalLoopLive) return;
+    const next = queuedFollowUps[0];
+    if (!next) return;
+    setQueuedFollowUps((current) => current.filter((item) => item.id !== next.id));
+    setPrompt(next.text);
+    setAttachments(next.attachments);
+    setQueuedAutoSend(true);
+  }, [goalLoopEnabled, goalLoopLive, queuedAutoSend, queuedFollowUps, submitting, working]);
+
+  useEffect(() => {
+    if (!queuedAutoSend || working || submitting || goalLoopEnabled || goalLoopLive) return;
+    if (!prompt.trim() && attachments.length === 0) {
+      setQueuedAutoSend(false);
+      return;
+    }
+    setQueuedAutoSend(false);
+    void submitRef.current();
+  }, [attachments.length, goalLoopEnabled, goalLoopLive, prompt, queuedAutoSend, submitting, working]);
 
   async function goalLoopAction(action: "pause" | "resume" | "stop" | "complete", maxTurns?: number) {
     setSubmitting(true);
@@ -803,13 +855,7 @@ export function TaskView({
   );
   const thinkingValue: ThinkingLevel = isThinkingLevel(task?.thinkingLevel) && thinkingLevels.includes(task.thinkingLevel)
     ? task.thinkingLevel
-    : thinkingLevels.includes("off")
-      ? "off"
-      : (thinkingLevels[0] ?? "off");
-  const goalLoopLive = Boolean(
-    task?.goalLoop && ["queued", "running", "verifying_completed"].includes(task.goalLoop.status),
-  );
-
+    : defaultThinkingLevel(thinkingLevels);
   // --- 通知音・デスクトップ通知（本家 LeafCode から移植） ---
   const attention = permissionRequest !== null || questionRequest !== null;
   // 完了音：working → idle の立下りエッジ。初回マウント時の既定値は実状で
@@ -1546,6 +1592,14 @@ export function TaskView({
             />
           </div>
         )}
+        <div className="mx-auto max-w-5xl">
+          <QueuedFollowUpsNotice
+            items={queuedFollowUps}
+            onRemove={(id) =>
+              setQueuedFollowUps((current) => current.filter((item) => item.id !== id))
+            }
+          />
+        </div>
         <Composer
           form={{
             ariaLabel: "フォローアップ",
@@ -1707,6 +1761,31 @@ export function TaskView({
                 disabled={submitting || working || Boolean(task?.goalLoop && !["completed", "blocked", "stopped"].includes(task.goalLoop.status))}
                 onToggle={() => setGoalLoopEnabled((value) => !value)}
               />
+              <GhostSelect
+                value={deliveryMode}
+                disabled={!task || compacting}
+                aria-label="送信方式"
+                title={deliveryMode === "queue" ? "現在の処理後に送信" : "実行中の処理へ割り込み"}
+                icon={
+                  deliveryMode === "queue" ? (
+                    <ListPlus className="h-3.5 w-3.5" />
+                  ) : (
+                    <Zap className="h-3.5 w-3.5" />
+                  )
+                }
+                valueLabel={deliveryMode === "queue" ? "キュー" : "割り込み"}
+                className="max-w-[8rem] shrink-0"
+                onChange={(value) => {
+                  if (value === "queue" || value === "steer") setDeliveryMode(value);
+                }}
+              >
+                <option value="queue" title="現在の処理後に送信">
+                  キュー
+                </option>
+                <option value="steer" title="実行中の処理へ割り込み">
+                  割り込み
+                </option>
+              </GhostSelect>
             </>
           }
           action={

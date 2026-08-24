@@ -17,15 +17,23 @@ export async function POST(
       subagentPermission?: "allow" | "deny";
       permissionMode?: "allow" | "ask" | "deny";
       skillPermission?: "allow" | "deny";
+      streamingBehavior?: "steer" | "followUp";
     } | null;
     if (!body?.prompt?.trim() && !body?.images?.length) {
       return NextResponse.json({ error: "prompt が必要です" }, { status: 400 });
+    }
+    if (
+      body?.streamingBehavior !== undefined &&
+      !["steer", "followUp"].includes(body.streamingBehavior)
+    ) {
+      return NextResponse.json({ error: "無効な送信方式です" }, { status: 400 });
     }
     const task = await promptTask(id, body.prompt ?? "", body.images, {
       agent: body.agent,
       subagentPermission: body.subagentPermission,
       permissionMode: body.permissionMode,
       skillPermission: body.skillPermission,
+      streamingBehavior: body.streamingBehavior,
     });
     return NextResponse.json({ task });
   } catch (error) {
