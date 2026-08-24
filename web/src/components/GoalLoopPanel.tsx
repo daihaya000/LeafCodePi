@@ -178,7 +178,7 @@ export function GoalLoopPanel({
                 ? "bg-success"
                 : loop.status === "blocked"
                   ? "bg-warning"
-                  : "bg-primary",
+                  : "bg-success",
               progressPercent === null && "animate-pulse",
             )}
             style={{ width: `${progressPercent ?? 35}%` }}
