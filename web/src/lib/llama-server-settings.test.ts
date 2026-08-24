@@ -6,6 +6,7 @@ import {
   isLlamaSpecComboBroken,
   isSafeLlamaModelFile,
   isSafeLlamaPathValue,
+  LLAMA_MODEL_PRESETS,
   LLAMA_SERVER_EFFORTS,
   LLAMA_SERVER_SPEC_TYPES,
   parseLlamaServerSettings,
@@ -112,6 +113,16 @@ describe("llama-server-settings", () => {
       specType: "",
       contextLength: 131_072,
       cacheTypeK: "",
+      cacheTypeV: "q8_0",
+    });
+
+    const ornithThinking = LLAMA_MODEL_PRESETS.find((p) => p.key === "ornith-thinking");
+    expect(ornithThinking?.label).toContain("思考つき");
+    expect(ornithThinking?.settings).toEqual({
+      effort: "",
+      specType: "",
+      contextLength: 131_072,
+      cacheTypeK: "q8_0",
       cacheTypeV: "q8_0",
     });
 

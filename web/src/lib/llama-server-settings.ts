@@ -145,7 +145,7 @@ export function serializeLlamaServerSettings(value: LlamaServerSettings): string
 /** Recommended launch settings for a known local model family. */
 export type LlamaModelPreset = {
   /** Stable select value. */
-  key: "ornith" | "qwen38";
+  key: "ornith" | "ornith-thinking" | "qwen38";
   /** Matches the model file path (case-insensitive). */
   match: RegExp;
   label: string;
@@ -165,6 +165,15 @@ export const LLAMA_MODEL_PRESETS: readonly LlamaModelPreset[] = [
     label: "Ornith-1.5 35B（バランス）",
     description: "思考なしで 111 tok/s。128K コンテキスト。通常のコーディング向け。",
     settings: { effort: "", specType: "", contextLength: 131_072, cacheTypeK: "", cacheTypeV: "q8_0" },
+  },
+  {
+    key: "ornith-thinking",
+    // Ornith's native template enables thinking when no reasoning_effort kwarg
+    // is supplied. Quantizing both KV sides saves memory for long thought traces.
+    match: /ornith/i,
+    label: "Ornith-1.5 35B（思考つき・最適化）",
+    description: "モデル既定の思考つき。128K コンテキスト。KV キャッシュを K/V とも q8_0 にして省メモリ化。",
+    settings: { effort: "", specType: "", contextLength: 131_072, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
   },
   {
     key: "qwen38",

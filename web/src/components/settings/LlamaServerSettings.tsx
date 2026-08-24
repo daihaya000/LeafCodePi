@@ -261,7 +261,23 @@ export function LlamaServerSettings() {
   };
 
   const running = status?.running === true;
-  const activePreset = LLAMA_MODEL_PRESETS.find((p) => p.match.test(config.modelFile)) ?? null;
+  const selectedPreset =
+    selectedFamily && selectedFamily !== "custom"
+      ? LLAMA_MODEL_PRESETS.find((p) => p.key === selectedFamily) ?? null
+      : null;
+  const activePreset =
+    selectedPreset ??
+    (selectedFamily === "custom"
+      ? null
+      : LLAMA_MODEL_PRESETS.find(
+          (p) =>
+            p.match.test(config.modelFile) &&
+            config.effort === p.settings.effort &&
+            (config.specType ?? "") === p.settings.specType &&
+            config.contextLength === p.settings.contextLength &&
+            (config.cacheTypeK ?? "") === p.settings.cacheTypeK &&
+            (config.cacheTypeV ?? "") === p.settings.cacheTypeV,
+        ) ?? LLAMA_MODEL_PRESETS.find((p) => p.match.test(config.modelFile)) ?? null);
   /** The explicit choice wins so the dropdown does not snap back to カスタム
    *  while the GGUF listing is still empty. */
   const familyKey = selectedFamily ?? activePreset?.key ?? "custom";
@@ -285,9 +301,13 @@ export function LlamaServerSettings() {
     const preset = LLAMA_MODEL_PRESETS.find((p) => p.key === key);
     if (!preset) return;
     setConfig((c) => {
-      if (c.modelFile && preset.match.test(c.modelFile)) return c;
-      const candidate = models.find((m) => preset.match.test(m));
-      return candidate ? { ...c, ...preset.settings, modelFile: candidate } : { ...c, ...preset.settings };
+      const modelFile =
+        c.modelFile && preset.match.test(c.modelFile)
+          ? c.modelFile
+          : models.find((m) => preset.match.test(m));
+      return modelFile
+        ? { ...c, ...preset.settings, modelFile }
+        : { ...c, ...preset.settings };
     });
   };
 
