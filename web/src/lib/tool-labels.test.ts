@@ -48,7 +48,7 @@ describe("toolSummary", () => {
         title: "read",
         input: { path: "/home/user/.pi/agent/skills/bug-hunt/SKILL.md" },
       }),
-    ).toBe("読み込み済み: bug-hunt");
+    ).toBe("bug-hunt");
   });
 
   it("summarizes todo progress", () => {

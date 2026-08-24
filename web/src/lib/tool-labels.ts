@@ -82,7 +82,7 @@ export function toolSummary(tool: string, state: ToolState | undefined): string 
   const input = state?.input ?? {};
   const t = tool.toLowerCase();
   const skillName = skillNameFromReadInput(tool, input);
-  if (skillName) return `読み込み済み: ${skillName}`;
+  if (skillName) return skillName;
 
   const title = state?.title?.trim();
   if (title && title.toLowerCase() !== tool.toLowerCase()) return title;
