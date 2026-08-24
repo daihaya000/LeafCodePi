@@ -329,7 +329,7 @@ function ProviderRow({
   const planBadge = formatPlanBadge(p.plan, p.planMonthlyUsd);
 
   return (
-    <li className="flex min-w-0 flex-col gap-1.5 rounded-lg border border-border bg-surface-2/40 p-2">
+    <li className="flex min-w-0 flex-col gap-1 rounded-lg border border-border bg-surface-2/40 p-1.5">
       <button
         type="button"
         onClick={canExpand ? onToggle : undefined}
@@ -337,7 +337,7 @@ function ProviderRow({
         aria-label={canExpand ? `${label} を${collapsed ? "展開" : "最小化"}` : undefined}
         className={cx(
           "flex w-full items-center gap-2 text-xs",
-          canExpand && "cursor-pointer rounded-md -mx-1 px-1 py-0.5 hover:bg-surface-3",
+          canExpand && "cursor-pointer rounded-md -mx-1 px-1 py-0 hover:bg-surface-3",
         )}
       >
         <ProviderIcon p={p} tone={showErrorOnly ? "danger" : tone} />
