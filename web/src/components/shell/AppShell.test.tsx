@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import type { ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   usePathname: vi.fn(() => "/"),
@@ -23,6 +23,8 @@ vi.mock("@/components/task/TaskPanesHost", () => ({
 import { AppShell } from "./AppShell";
 
 describe("AppShell", () => {
+  afterEach(() => cleanup());
+
   beforeEach(() => {
     mocks.usePathname.mockReturnValue("/");
   });
@@ -38,5 +40,18 @@ describe("AppShell", () => {
     const pageWrapper = pageContent.parentElement;
     expect(pageWrapper?.className.split(/\s+/)).toContain("md:hidden");
     expect(pageWrapper?.className.split(/\s+/)).not.toContain("max-md:hidden");
+  });
+
+  it("モバイルの task 画面では空の page wrapper が高さを奪わない", () => {
+    mocks.usePathname.mockReturnValue("/task/task-a");
+    render(
+      <AppShell>
+        <div data-testid="page-content" />
+      </AppShell>,
+    );
+
+    const pageWrapper = screen.getByTestId("page-content").parentElement;
+    expect(pageWrapper?.className.split(/\s+/)).toContain("hidden");
+    expect(pageWrapper?.className.split(/\s+/)).not.toContain("md:hidden");
   });
 });
