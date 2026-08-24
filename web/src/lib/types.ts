@@ -19,6 +19,11 @@ export type ProjectDto = {
   lastOpenedAt: string | null;
 };
 
+export type TodoProgressDto = {
+  completed: number;
+  total: number;
+};
+
 export type TaskSummary = {
   id: string;
   projectId: string;
@@ -39,6 +44,7 @@ export type TaskSummary = {
   createdAt: string;
   updatedAt: string;
   error?: string | null;
+  todoProgress?: TodoProgressDto;
 };
 
 export type GoalLoopStatus =

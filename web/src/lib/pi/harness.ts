@@ -44,7 +44,7 @@ import { registerCursorProvider } from "@/lib/pi/cursor-provider";
 import { registerCommandCodeProvider } from "@/lib/pi/commandcode-provider";
 import { registerOllamaCloudProvider, syncOllamaCloudProvider } from "@/lib/pi/ollama-cloud-provider";
 import { readGoalLoopState } from "@/lib/pi/goal-loop-state";
-import { todosFromPiMessages } from "@/lib/pi/todowrite-state";
+import { todoProgressFromTodos, todosFromPiMessages } from "@/lib/pi/todowrite-state";
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
 import { filterSkillsByState } from "@/lib/skills";
 import type { SkillPermission } from "@/lib/skill-permission";
@@ -113,6 +113,7 @@ import type {
   TaskDetail,
   TaskSummary,
   TodoDto,
+  TodoProgressDto,
   ThinkingLevel,
   UiMessage,
 } from "@/lib/types";
@@ -1073,6 +1074,7 @@ function toSummary(task: TaskSummary): TaskSummary {
   const live = state().live.get(task.id);
   if (!live) return task;
   const ids = modelId(live.session.model);
+  const todoProgress = todoProgressFromTodos(todosFromPiMessages(live.session.messages));
   const thinking =
     typeof live.session.thinkingLevel === "string" && isThinkingLevel(live.session.thinkingLevel)
       ? live.session.thinkingLevel
@@ -1085,6 +1087,7 @@ function toSummary(task: TaskSummary): TaskSummary {
     providerID: ids.providerID ?? task.providerID,
     modelID: ids.modelID ?? task.modelID,
     thinkingLevel: thinking,
+    ...(todoProgress ? { todoProgress } : {}),
   };
 }
 
@@ -1406,6 +1409,39 @@ export function archiveProject(id: string): ProjectDto {
 
 export function getTaskSummaries(includeArchived = false): TaskSummary[] {
   return listTasks(includeArchived).map(toSummary);
+}
+
+function readTodoProgress(pi: PiModule, task: TaskSummary): TodoProgressDto | undefined {
+  if (!task.sessionFile) return undefined;
+  try {
+    const sessionManager = pi.SessionManager.open(task.sessionFile);
+    return todoProgressFromTodos(todosFromPiMessages(sessionManager.buildSessionContext().messages));
+  } catch {
+    return undefined;
+  }
+}
+
+export async function getTaskSummariesWithTodoProgress(includeArchived = false): Promise<TaskSummary[]> {
+  const summaries = getTaskSummaries(includeArchived);
+  const tasksToRead = summaries.filter((task) => !state().live.has(task.id) && !task.todoProgress && task.sessionFile);
+  if (tasksToRead.length === 0) return summaries;
+
+  let pi: PiModule;
+  try {
+    pi = await loadPi();
+  } catch {
+    return summaries;
+  }
+  const progressByTaskId = new Map(
+    tasksToRead.flatMap((task) => {
+      const progress = readTodoProgress(pi, task);
+      return progress ? [[task.id, progress] as const] : [];
+    }),
+  );
+  return summaries.map((task) => {
+    const todoProgress = progressByTaskId.get(task.id);
+    return todoProgress ? { ...task, todoProgress } : task;
+  });
 }
 
 export async function getTaskDetail(id: string): Promise<TaskDetail> {

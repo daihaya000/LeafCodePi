@@ -1,4 +1,4 @@
-import type { TodoDto, TodoPriority, TodoStatus } from "@/lib/types";
+import type { TodoDto, TodoPriority, TodoProgressDto, TodoStatus } from "@/lib/types";
 
 const MAX_TODOS = 100;
 const MAX_CONTENT_CHARS = 2_000;
@@ -35,6 +35,14 @@ function normalizeTodos(value: unknown): TodoDto[] {
     const id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim().slice(0, 120) : `todo-${index + 1}`;
     return [{ id, content, status: raw.status, priority: raw.priority }];
   });
+}
+
+export function todoProgressFromTodos(todos: readonly TodoDto[]): TodoProgressDto | undefined {
+  if (todos.length === 0) return undefined;
+  return {
+    completed: todos.filter((todo) => todo.status === "completed" || todo.status === "cancelled").length,
+    total: todos.length,
+  };
 }
 
 /** Return the latest persisted todowrite snapshot from the current Pi branch. */

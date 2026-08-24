@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   createTask,
   destroyArchivedTasksByProject,
-  getTaskSummaries,
+  getTaskSummariesWithTodoProgress,
   jsonError,
   listPendingAttention,
 } from "@/lib/pi/harness";
@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   if (req.nextUrl.searchParams.get("attention") === "1") {
     return NextResponse.json({ attention: listPendingAttention() });
   }
-  return NextResponse.json({ tasks: getTaskSummaries(includeArchived) });
+  return NextResponse.json({ tasks: await getTaskSummariesWithTodoProgress(includeArchived) });
 }
 
 export async function DELETE(req: NextRequest) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { todosFromPiMessages } from "./todowrite-state";
+import { todoProgressFromTodos, todosFromPiMessages } from "./todowrite-state";
 
 describe("todosFromPiMessages", () => {
   it("returns the latest todowrite snapshot", () => {
@@ -39,5 +39,15 @@ describe("todosFromPiMessages", () => {
         },
       ]),
     ).toEqual([]);
+  });
+
+  it("counts completed and cancelled todos as finished", () => {
+    expect(
+      todoProgressFromTodos([
+        { id: "done", content: "完了", status: "completed", priority: "low" },
+        { id: "cancelled", content: "中止", status: "cancelled", priority: "low" },
+        { id: "pending", content: "未完了", status: "pending", priority: "low" },
+      ]),
+    ).toEqual({ completed: 2, total: 3 });
   });
 });

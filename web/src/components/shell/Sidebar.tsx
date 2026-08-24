@@ -69,6 +69,45 @@ function countRunningTasks(tasks: TaskSummary[]): number {
   return tasks.filter((task) => task.status === "working").length;
 }
 
+function TodoProgressBar({
+  task,
+  className,
+}: {
+  task: Pick<TaskSummary, "title" | "todoProgress">;
+  className?: string;
+}) {
+  const progress = task.todoProgress;
+  if (!progress || !Number.isFinite(progress.total) || progress.total <= 0) return null;
+
+  const total = Math.trunc(progress.total);
+  if (total <= 0) return null;
+  const completed = Number.isFinite(progress.completed)
+    ? Math.min(total, Math.max(0, Math.trunc(progress.completed)))
+    : 0;
+  const percent = Math.round((completed / total) * 100);
+  const valueText = `ToDo ${completed}/${total}件完了（${percent}%）`;
+
+  return (
+    <div className={cx("min-w-0", className)}>
+      <div
+        role="progressbar"
+        aria-label={`${task.title}のToDo進捗`}
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={completed}
+        aria-valuetext={valueText}
+        title={valueText}
+        className="h-1 overflow-hidden rounded-full bg-surface-2"
+      >
+        <div
+          className={cx("h-full rounded-full transition-[width]", percent === 100 ? "bg-success" : "bg-working")}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function loadExpanded(): Set<string> {
   try {
     const raw = localStorage.getItem(EXPANDED_KEY);
@@ -649,50 +688,53 @@ export function Sidebar({
                         <li className="px-2 py-1.5 text-[11px] text-muted">タスクなし</li>
                       ) : (
                         children.map((task) => (
-                          <li key={task.id} className="group flex items-center rounded-lg">
-                            <button
-                              type="button"
-                              draggable={mdUp}
-                              onDragStart={(event) => {
-                                taskDragActiveRef.current = true;
-                                event.dataTransfer.effectAllowed = "move";
-                                setTaskDragData(event.dataTransfer, task.id);
-                              }}
-                              onClick={() => {
-                                router.push(`/task/${task.id}`);
-                                onClose();
-                              }}
-                              className={cx(
-                                "flex min-h-11 min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left md:min-h-8",
-                                task.id === activeTaskId ? "bg-surface-3 text-text" : "text-muted hover:bg-surface-2 hover:text-text",
-                              )}
-                            >
-                              {task.status === "working" ? (
-                                <Loader2 className="h-3 w-3 shrink-0 animate-spin text-working" />
-                              ) : (
-                                <span
-                                  className={cx(
-                                    "h-1.5 w-1.5 shrink-0 rounded-full",
-                                    task.status === "error" ? "bg-danger" : "bg-faint",
-                                  )}
-                                />
-                              )}
-                              <span className="min-w-0 flex-1 truncate text-xs font-medium">{task.title}</span>
-                              <span className="shrink-0 text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={`「${task.title}」をアーカイブ`}
-                              title="タスクをアーカイブ"
-                              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text md:h-6 md:w-6"
-                              onClick={() =>
-                                void runAction(`archive:${task.id}`, () =>
-                                  sendJson(`/api/tasks/${task.id}`, undefined, "DELETE"),
-                                )
-                              }
-                            >
-                              <Archive className="h-3 w-3" />
-                            </button>
+                          <li key={task.id} className="group rounded-lg">
+                            <div className="flex items-center">
+                              <button
+                                type="button"
+                                draggable={mdUp}
+                                onDragStart={(event) => {
+                                  taskDragActiveRef.current = true;
+                                  event.dataTransfer.effectAllowed = "move";
+                                  setTaskDragData(event.dataTransfer, task.id);
+                                }}
+                                onClick={() => {
+                                  router.push(`/task/${task.id}`);
+                                  onClose();
+                                }}
+                                className={cx(
+                                  "flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 py-1.5 text-left md:min-h-8",
+                                  task.id === activeTaskId ? "bg-surface-3 text-text" : "text-muted hover:bg-surface-2 hover:text-text",
+                                )}
+                              >
+                                {task.status === "working" ? (
+                                  <Loader2 className="h-3 w-3 shrink-0 animate-spin text-working" />
+                                ) : (
+                                  <span
+                                    className={cx(
+                                      "h-1.5 w-1.5 shrink-0 rounded-full",
+                                      task.status === "error" ? "bg-danger" : "bg-faint",
+                                    )}
+                                  />
+                                )}
+                                <span className="min-w-0 flex-1 truncate text-xs font-medium">{task.title}</span>
+                                <span className="shrink-0 text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={`「${task.title}」をアーカイブ`}
+                                title="タスクをアーカイブ"
+                                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text md:h-6 md:w-6"
+                                onClick={() =>
+                                  void runAction(`archive:${task.id}`, () =>
+                                    sendJson(`/api/tasks/${task.id}`, undefined, "DELETE"),
+                                  )
+                                }
+                              >
+                                <Archive className="h-3 w-3" />
+                              </button>
+                            </div>
+                            <TodoProgressBar task={task} className="mx-8 pb-1.5 md:mx-7" />
                           </li>
                         ))
                       )}
@@ -1007,37 +1049,39 @@ export function Sidebar({
           ) : (
             <div className="space-y-0.5">
               {projectTaskMenuTasks.map((task) => (
-                <button
-                  key={task.id}
-                  type="button"
-                  role="menuitem"
-                  aria-current={task.id === activeTaskId ? "page" : undefined}
-                  title={task.title}
-                  onClick={() => {
-                    cancelProjectTaskMenuHide();
-                    setProjectTaskMenu(null);
-                    router.push(`/task/${encodeURIComponent(task.id)}`);
-                    onClose();
-                  }}
-                  className={cx(
-                    "flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-muted hover:bg-surface-2 hover:text-text",
-                    task.id === activeTaskId && "bg-surface-3 text-text",
-                  )}
-                >
-                  <span
-                    aria-hidden="true"
+                <div key={task.id}>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    aria-current={task.id === activeTaskId ? "page" : undefined}
+                    title={task.title}
+                    onClick={() => {
+                      cancelProjectTaskMenuHide();
+                      setProjectTaskMenu(null);
+                      router.push(`/task/${encodeURIComponent(task.id)}`);
+                      onClose();
+                    }}
                     className={cx(
-                      "h-1.5 w-1.5 shrink-0 rounded-full",
-                      task.status === "working"
-                        ? "bg-working"
-                        : task.status === "error"
-                          ? "bg-danger"
-                          : "bg-faint",
+                      "flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-muted hover:bg-surface-2 hover:text-text",
+                      task.id === activeTaskId && "bg-surface-3 text-text",
                     )}
-                  />
-                  <span className="min-w-0 flex-1 truncate font-medium">{task.title}</span>
-                  <span className="shrink-0 text-[10px] text-faint">{timeAgo(task.updatedAt)}</span>
-                </button>
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={cx(
+                        "h-1.5 w-1.5 shrink-0 rounded-full",
+                        task.status === "working"
+                          ? "bg-working"
+                          : task.status === "error"
+                            ? "bg-danger"
+                            : "bg-faint",
+                      )}
+                    />
+                    <span className="min-w-0 flex-1 truncate font-medium">{task.title}</span>
+                    <span className="shrink-0 text-[10px] text-faint">{timeAgo(task.updatedAt)}</span>
+                  </button>
+                  <TodoProgressBar task={task} className="mx-3 mb-1" />
+                </div>
               ))}
             </div>
           )}
