@@ -1,4 +1,5 @@
 import { readStoredCredential } from "@earendil-works/pi-coding-agent";
+import { completeModelText } from "@/lib/pi/harness";
 import {
   DEFAULT_LLAMA_SERVER_BASE,
   LLAMA_SERVER_PROVIDER_ID,
@@ -9,6 +10,7 @@ import {
   OLLAMA_CLOUD_PROVIDER_ID,
 } from "@/lib/pi/ollama-cloud-provider";
 
+const MAX_PROVIDER_ID_CHARS = 100;
 const MAX_MODEL_ID_CHARS = 200;
 const MAX_INPUT_CHARS = 120_000;
 const MAX_OUTPUT_CHARS = 4_000;
@@ -54,6 +56,19 @@ export function parseDirectModelKey(value: unknown): DirectModel | undefined {
     providerID: value.slice(0, separator),
     modelID: value.slice(separator + 2),
   });
+}
+
+function safeProviderId(value: string): string {
+  const providerID = value.trim();
+  if (
+    !providerID ||
+    providerID.length > MAX_PROVIDER_ID_CHARS ||
+    providerID.includes("::") ||
+    /[\u0000-\u001f\u007f]/.test(providerID)
+  ) {
+    throw new DirectGenerationError("プロバイダーIDが不正です", 400);
+  }
+  return providerID;
 }
 
 function safeModelId(value: string): string {
@@ -102,12 +117,11 @@ function apiKeyFor(providerID: string, envName?: string): string | undefined {
 }
 
 /**
- * Resolve the small allowlist of providers supported by the direct path.
- * The URL is never accepted from the browser, which avoids turning this BFF
- * into an arbitrary server-side fetcher.
+ * Resolve providers with fixed, server-owned endpoints. Other registered
+ * providers use Pi's runtime adapter instead of accepting a browser URL.
  */
 export function resolveDirectModel(model: DirectModel): ResolvedDirectModel {
-  const providerID = model.providerID.trim();
+  const providerID = safeProviderId(model.providerID);
   const modelID = safeModelId(model.modelID);
   if (providerID === LLAMA_SERVER_PROVIDER_ID) {
     return {
@@ -160,7 +174,10 @@ export async function generateDirectText(options: {
     throw new DirectGenerationError("生成プロンプトが長すぎます", 413);
   }
 
-  const model = resolveDirectModel(options.model);
+  const model = {
+    providerID: safeProviderId(options.model.providerID),
+    modelID: safeModelId(options.model.modelID),
+  };
   const timeoutMs = Math.min(
     MAX_TIMEOUT_MS,
     Math.max(1_000, Math.floor(options.timeoutMs ?? DEFAULT_TIMEOUT_MS)),
@@ -172,15 +189,33 @@ export async function generateDirectText(options: {
   else options.signal?.addEventListener("abort", abort, { once: true });
 
   try {
-    const response = await fetch(`${model.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+    // Pi's runtime owns auth and API adapters for every registered provider. This
+    // keeps custom/API/OAuth providers direct without accepting a browser URL.
+    if (
+      model.providerID !== LLAMA_SERVER_PROVIDER_ID &&
+      model.providerID !== OLLAMA_CLOUD_PROVIDER_ID
+    ) {
+      const text = await completeModelText({
+        ...model,
+        system,
+        prompt,
+        maxTokens: options.maxTokens,
+        temperature: options.temperature,
+        signal: controller.signal,
+      });
+      return text.trim().slice(0, MAX_OUTPUT_CHARS);
+    }
+
+    const resolved = resolveDirectModel(model);
+    const response = await fetch(`${resolved.baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
-        ...(model.apiKey ? { Authorization: `Bearer ${model.apiKey}` } : {}),
+        ...(resolved.apiKey ? { Authorization: `Bearer ${resolved.apiKey}` } : {}),
       },
       body: JSON.stringify({
-        model: model.modelID,
+        model: resolved.modelID,
         messages: [
           { role: "system", content: system },
           { role: "user", content: prompt },

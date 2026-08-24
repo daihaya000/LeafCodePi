@@ -1268,6 +1268,50 @@ export async function listModels(): Promise<ModelOption[]> {
   return options;
 }
 
+/** Complete a short prompt through Pi's registered provider, without tools or an agent session. */
+export async function completeModelText(options: {
+  providerID: string;
+  modelID: string;
+  system: string;
+  prompt: string;
+  maxTokens?: number;
+  temperature?: number;
+  signal?: AbortSignal;
+}): Promise<string> {
+  const system = options.system.trim();
+  const prompt = options.prompt.trim();
+  if (!system || !prompt) throw new Error("生成プロンプトが空です");
+
+  await ensureRuntime();
+  const runtime = state().modelRuntime;
+  if (!runtime) throw new Error("Pi ランタイムを利用できません");
+  const model = runtime.getModel(options.providerID, options.modelID);
+  if (!model) {
+    throw new Error(`モデルが見つかりません: ${options.providerID}::${options.modelID}`);
+  }
+
+  const response = await runtime.completeSimple(
+    model,
+    {
+      systemPrompt: system,
+      messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
+    },
+    {
+      signal: options.signal,
+      maxRetries: 0,
+      maxTokens: Math.min(1_024, Math.max(1, Math.floor(options.maxTokens ?? 256))),
+      temperature: Math.min(2, Math.max(0, options.temperature ?? 0.2)),
+    },
+  );
+  let text = "";
+  for (const part of response.content) {
+    if (part.type === "text") text += part.text;
+  }
+  text = text.trim();
+  if (!text) throw new Error("プロバイダーの応答にテキストがありません");
+  return text;
+}
+
 export async function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> {
   await ensureRuntime();
   const runtime = state().modelRuntime;

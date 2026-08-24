@@ -1,4 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const { completeModelText } = vi.hoisted(() => ({
+  completeModelText: vi.fn(),
+}));
+
+vi.mock("@/lib/pi/harness", () => ({ completeModelText }));
+
 import {
   extractDirectText,
   generateDirectText,
@@ -7,6 +14,7 @@ import {
 
 describe("direct-generation", () => {
   afterEach(() => {
+    completeModelText.mockReset();
     vi.unstubAllGlobals();
   });
 
@@ -30,6 +38,29 @@ describe("direct-generation", () => {
       }),
     ).toBe("one\ntwo");
     expect(extractDirectText({ choices: [] })).toBe("");
+  });
+
+  it("uses Pi's runtime directly for API providers", async () => {
+    completeModelText.mockResolvedValue(" API direct ");
+
+    await expect(
+      generateDirectText({
+        model: { providerID: "anthropic", modelID: "claude-sonnet" },
+        system: "system",
+        prompt: "prompt",
+        maxTokens: 64,
+      }),
+    ).resolves.toBe("API direct");
+    expect(completeModelText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerID: "anthropic",
+        modelID: "claude-sonnet",
+        system: "system",
+        prompt: "prompt",
+        maxTokens: 64,
+        signal: expect.any(AbortSignal),
+      }),
+    );
   });
 
   it("calls the OpenAI-compatible endpoint without tools", async () => {

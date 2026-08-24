@@ -51,12 +51,15 @@ describe("/api/settings/[key]", () => {
     expect(settings.setSetting).not.toHaveBeenCalled();
   });
 
-  it("rejects providers unsupported by direct generation", async () => {
+  it("accepts an API or subscription provider model", async () => {
     const response = await PUT(
-      request("generation-model", { value: "cursor::subscription-model" }),
+      request("generation-model", { value: "anthropic::claude-sonnet" }),
       { params: Promise.resolve({ key: "generation-model" }) },
     );
-    expect(response.status).toBe(400);
-    expect(settings.setSetting).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith(
+      "generation-model",
+      "anthropic::claude-sonnet",
+    );
   });
 });

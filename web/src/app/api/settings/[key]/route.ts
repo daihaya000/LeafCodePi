@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSetting, MAX_SETTING_VALUE_CHARS, setSetting } from "@/lib/pi/web-settings";
 import {
-  DIRECT_GENERATION_PROVIDER_IDS,
   GENERATION_MODEL_SETTING_KEY,
   splitGenerationModel,
 } from "@/lib/generation-model-key";
@@ -27,10 +26,7 @@ const ALLOWED_KEYS = new Set<string>([
 function validateValue(key: string, value: string): string | null {
   if (key === GENERATION_MODEL_SETTING_KEY) {
     const model = splitGenerationModel(value);
-    if (!model || !DIRECT_GENERATION_PROVIDER_IDS.includes(
-      model.providerID as (typeof DIRECT_GENERATION_PROVIDER_IDS)[number],
-    )) return null;
-    return `${model.providerID}::${model.modelID}`;
+    return model ? `${model.providerID}::${model.modelID}` : null;
   }
   if (key === NOTIFICATION_SOUND_TYPE_SETTING_KEY) {
     return isNotificationSoundType(value) ? value : null;

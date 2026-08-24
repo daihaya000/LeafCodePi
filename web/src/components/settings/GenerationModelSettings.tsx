@@ -10,7 +10,6 @@ import {
   writeGenerationModel,
   writeGenerationModelToServer,
 } from "@/lib/generation-model";
-import { DIRECT_GENERATION_PROVIDER_IDS } from "@/lib/generation-model-key";
 import type { ModelOption } from "@/lib/types";
 
 export function GenerationModelSettings() {
@@ -27,9 +26,7 @@ export function GenerationModelSettings() {
     ]).then(([modelsResult, settingResult]) => {
       if (cancelled) return;
       if (modelsResult.status === "fulfilled") {
-        const nextModels = modelsResult.value.models.filter((model) =>
-          (DIRECT_GENERATION_PROVIDER_IDS as readonly string[]).includes(model.providerID),
-        );
+        const nextModels = modelsResult.value.models;
         setModels(nextModels);
         const serverValue = settingResult.status === "fulfilled" ? settingResult.value : null;
         const localValue = readGenerationModel();
@@ -65,7 +62,7 @@ export function GenerationModelSettings() {
     <section aria-labelledby="generation-model-heading" className="rounded-2xl border border-border bg-surface p-4">
       <h2 id="generation-model-heading" className="text-sm font-semibold">タイトル / NextAction / NextTask 生成モデル</h2>
       <p className="mt-1 text-xs text-muted">
-        タイトル、NextAction、NextTaskの提案に使うモデルです。未設定時は画面で選択したモデルを使います（llama-server / Ollama Cloud対応）。
+        タイトル、NextAction、NextTaskの提案に使うモデルです。未設定時は画面で選択したモデルを使います。認証済みのAPI・サブスク・ローカルプロバイダーを選択できます。
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <ModelSelect
