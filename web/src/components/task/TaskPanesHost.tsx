@@ -36,6 +36,9 @@ export function TaskPanesHost() {
   const { state, statusFor, reportStatus, dispatch, titleFor, mdUp } = useTaskPanes();
   const pathname = usePathname();
   const [dragOverPaneId, setDragOverPaneId] = useState<string | null>(null);
+  // 一度開いたタブのみマウントする（初回読み込み・SSE 接続を遅延）。
+  // アクティブタブは開封済みに追加、タブが閉じられたら除去して再オープン時に再読み込み。
+  const [openedTabs, setOpenedTabs] = useState<Set<string>>(() => new Set());
 
   // dragend/drop でリング解除（Escape キャンセル・ブラウザ外での drop 漏れ対策）
   useEffect(() => {
@@ -47,6 +50,29 @@ export function TaskPanesHost() {
       window.removeEventListener("drop", reset);
     };
   }, []);
+
+  // 開封済みタブ集合の同期: アクティブタブを追加、閉じられたタブを除去。
+  // タブ切替の初回のみ読み込みが走り、以降は hidden mount で維持される。
+  // reducer は変更時のみ新参照を返すため state を deps にできる。
+  useEffect(() => {
+    const allTabIds = state.panes.flatMap((pane) => pane.tabs);
+    setOpenedTabs((current) => {
+      let next = current;
+      for (const taskId of allTabIds) {
+        if (!next.has(taskId)) {
+          next = new Set(next);
+          next.add(taskId);
+        }
+      }
+      for (const taskId of current) {
+        if (!allTabIds.includes(taskId)) {
+          next = new Set(next);
+          next.delete(taskId);
+        }
+      }
+      return next;
+    });
+  }, [state]);
 
   // task path でのみ render（仕様 §7: Home/settings では非表示、panes state は保持）。
   // splitHostEnabled は Home を含むため描画ゲートには使わない。
@@ -169,6 +195,9 @@ export function TaskPanesHost() {
             // ペインのフォーカス（activePaneId）を条件にすると非アクティブペインが
             // 空描画になる（隣ペインは常に自タブを表示していてこそ分割にならない）。
             const isActiveTab = pane.activeTabId === taskId;
+            // 未開封タブはマウントしない（初回読み込み・SSE 接続を遅延）。
+            // アクティブタブは開封済み集合へ追加済みなので常にマウントされる。
+            if (!openedTabs.has(taskId)) return null;
             return (
               <SplitTaskView
                 key={taskId}
