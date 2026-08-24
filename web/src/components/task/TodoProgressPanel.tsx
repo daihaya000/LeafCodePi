@@ -51,7 +51,9 @@ export function TodoProgressPanel({ todos }: { todos: TodoDto[] }) {
         )}
         <span className="min-w-0 flex-1 truncate text-left">{headline}</span>
         <span className="shrink-0 text-xs tabular-nums">ToDo {done}/{todos.length}</span>
-        <span className="shrink-0 text-xs tabular-nums text-success">{percent}%</span>
+        <span className={cx("shrink-0 text-xs tabular-nums", complete ? "text-success" : "text-working")}>
+          {percent}%
+        </span>
         <ChevronRight
           className={cx("h-3.5 w-3.5 shrink-0 text-faint transition-transform", expanded && "rotate-90")}
           aria-hidden="true"
@@ -68,7 +70,7 @@ export function TodoProgressPanel({ todos }: { todos: TodoDto[] }) {
         title={`${done}/${todos.length} 完了（${percent}%）`}
       >
         <div
-          className="h-full rounded-full bg-success transition-[width]"
+          className={cx("h-full rounded-full transition-[width]", complete ? "bg-success" : "bg-working")}
           style={{ width: `${percent}%` }}
         />
       </div>

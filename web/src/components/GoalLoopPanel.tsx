@@ -174,11 +174,11 @@ export function GoalLoopPanel({
           <div
             className={cx(
               "h-full rounded-full transition-[width] duration-300",
-              loop.status === "completed" || loop.status === "verifying_completed"
+              loop.status === "completed"
                 ? "bg-success"
                 : loop.status === "blocked"
                   ? "bg-warning"
-                  : "bg-success",
+                  : "bg-working",
               progressPercent === null && "animate-pulse",
             )}
             style={{ width: `${progressPercent ?? 35}%` }}

@@ -60,6 +60,30 @@ describe("GoalLoopPanel progress", () => {
     expect(screen.getByText("無制限")).toBeTruthy();
   });
 
+  it("uses blue while running and green only after completion", () => {
+    const { rerender } = render(
+      <GoalLoopPanel
+        loop={loopFixture({ status: "verifying_completed" })}
+        busy={false}
+        onAction={() => {}}
+        onResume={() => {}}
+      />,
+    );
+
+    const progress = screen.getByRole("progressbar", { name: "ループ進捗" });
+    expect(progress.firstElementChild?.classList.contains("bg-working")).toBe(true);
+
+    rerender(
+      <GoalLoopPanel
+        loop={loopFixture({ status: "completed" })}
+        busy={false}
+        onAction={() => {}}
+        onResume={() => {}}
+      />,
+    );
+    expect(progress.firstElementChild?.classList.contains("bg-success")).toBe(true);
+  });
+
   it("offers completion at the turn limit", () => {
     const onAction = vi.fn();
     render(
