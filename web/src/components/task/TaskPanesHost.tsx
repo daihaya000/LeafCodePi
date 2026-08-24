@@ -6,63 +6,102 @@ import { useEffect, useRef, useState } from "react";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { cx } from "@/components/ui";
 import { isTaskDrag, taskDragIdFrom } from "@/lib/task-drag";
-import { resizeAdjacentPaneWidths, taskIdFromPathname } from "@/lib/task-panes";
+import {
+  HOME_TAB_ID,
+  isSplitHostPath,
+  resizeAdjacentPaneWidths,
+  taskIdFromPathname,
+  type SplitDirection,
+} from "@/lib/task-panes";
 import { paneLayoutClass, TaskTabs } from "./TaskTabs";
 
 const MIN_PANE_WIDTH = 240;
+
+/**
+ * 要素矩形の端（25% 以内）へのドラッグ座標から分割方向を返す。
+ * 中央寄りは null = 従来どおりのペイン内ドロップ扱い。
+ */
+function edgeDirectionAt(
+  element: Element,
+  clientX: number,
+  clientY: number,
+): SplitDirection | null {
+  const rect = element.getBoundingClientRect();
+  const distances: readonly [SplitDirection, number][] = [
+    ["left", clientX - rect.left],
+    ["right", rect.right - clientX],
+    ["top", clientY - rect.top],
+    ["bottom", rect.bottom - clientY],
+  ];
+  const nearest = Math.min(...distances.map(([, distance]) => distance));
+  if (nearest < 0 || nearest > Math.min(rect.width, rect.height) * 0.25) return null;
+  return distances.find(([, distance]) => distance === nearest)?.[0] ?? null;
+}
 
 function equalPaneWidths(count: number): number[] {
   return count > 0 ? Array.from({ length: count }, () => 1 / count) : [];
 }
 
+/** ペイン境界のドラッグハンドル。axis="x" は縦仕切り（左右移動）、y は横仕切り（上下移動）。 */
 function PaneResizeHandle({
   boundaryIndex,
   position,
   widths,
   containerRef,
   onResize,
+  axis,
 }: {
   boundaryIndex: number;
   position: number;
   widths: readonly number[];
   containerRef: { current: HTMLDivElement | null };
   onResize: (widths: number[]) => void;
+  axis: "x" | "y";
 }) {
   const pairTotal = widths[boundaryIndex]! + widths[boundaryIndex + 1]!;
-  const currentWidth = widths[boundaryIndex]!;
-  const minimumFor = (containerWidth: number) =>
-    Math.min(MIN_PANE_WIDTH / Math.max(containerWidth, MIN_PANE_WIDTH), pairTotal / 2);
+  const currentSize = widths[boundaryIndex]!;
+  const sizeLabel = axis === "x" ? "幅" : "高さ";
+  const minimumFor = (containerSize: number) =>
+    Math.min(MIN_PANE_WIDTH / Math.max(containerSize, MIN_PANE_WIDTH), pairTotal / 2);
 
-  const resizeBy = (delta: number, containerWidth: number, startWidths = widths) => {
-    onResize(resizeAdjacentPaneWidths(startWidths, boundaryIndex, delta, minimumFor(containerWidth)));
+  const resizeBy = (delta: number, containerSize: number, startSizes = widths) => {
+    onResize(resizeAdjacentPaneWidths(startSizes, boundaryIndex, delta, minimumFor(containerSize)));
   };
 
   return (
     <div
       role="separator"
-      aria-orientation="vertical"
-      aria-label={`ペイン ${boundaryIndex + 1} と ${boundaryIndex + 2} の幅を調整`}
+      aria-orientation={axis === "x" ? "vertical" : "horizontal"}
+      aria-label={`ペイン ${boundaryIndex + 1} と ${boundaryIndex + 2} の${sizeLabel}を調整`}
       aria-valuemin={Math.round(minimumFor(containerRef.current?.clientWidth ?? 0) * 100)}
       aria-valuemax={Math.round((pairTotal - minimumFor(containerRef.current?.clientWidth ?? 0)) * 100)}
-      aria-valuenow={Math.round(currentWidth * 100)}
+      aria-valuenow={Math.round(currentSize * 100)}
       tabIndex={0}
-      className="group absolute top-0 z-[80] h-full w-2 -translate-x-1/2 cursor-col-resize touch-none focus-visible:outline-none"
-      style={{ left: `${position * 100}%` }}
+      className={cx(
+        "group absolute z-[80] touch-none focus-visible:outline-none",
+        axis === "x"
+          ? "top-0 h-full w-2 -translate-x-1/2 cursor-col-resize"
+          : "left-0 w-full h-2 -translate-y-1/2 cursor-row-resize",
+      )}
+      style={axis === "x" ? { left: `${position * 100}%` } : { top: `${position * 100}%` }}
       onPointerDown={(event) => {
         event.preventDefault();
         event.stopPropagation();
         const container = containerRef.current;
         if (!container) return;
         const rect = container.getBoundingClientRect();
-        if (rect.width <= 0) return;
-        const startX = event.clientX;
-        const startWidths = [...widths];
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const containerSize = axis === "x" ? rect.width : rect.height;
+        const startPos = axis === "x" ? event.clientX : event.clientY;
+        const startSizes = [...widths];
         const previousUserSelect = document.body.style.userSelect;
         const previousCursor = document.body.style.cursor;
         document.body.style.userSelect = "none";
-        document.body.style.cursor = "col-resize";
+        document.body.style.cursor = axis === "x" ? "col-resize" : "row-resize";
         const onMove = (moveEvent: PointerEvent) => {
-          resizeBy((moveEvent.clientX - startX) / rect.width, rect.width, startWidths);
+          const moved =
+            (axis === "x" ? moveEvent.clientX : moveEvent.clientY) - startPos;
+          resizeBy(moved / containerSize, containerSize, startSizes);
         };
         const onUp = () => {
           window.removeEventListener("pointermove", onMove);
@@ -78,25 +117,34 @@ function PaneResizeHandle({
         window.addEventListener("blur", onUp);
       }}
       onKeyDown={(event) => {
-        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        const backKey = axis === "x" ? "ArrowLeft" : "ArrowUp";
+        const forwardKey = axis === "x" ? "ArrowRight" : "ArrowDown";
+        if (![backKey, forwardKey, "Home", "End"].includes(event.key)) return;
         event.preventDefault();
-        const containerWidth = containerRef.current?.clientWidth ?? 0;
-        const minimum = minimumFor(containerWidth);
+        const containerSize =
+          (axis === "x"
+            ? containerRef.current?.clientWidth
+            : containerRef.current?.clientHeight) ?? 0;
+        const minimum = minimumFor(containerSize);
         const step = event.shiftKey ? 0.1 : 0.02;
         const delta =
           event.key === "Home"
-            ? minimum - currentWidth
+            ? minimum - currentSize
             : event.key === "End"
-              ? pairTotal - minimum - currentWidth
-              : event.key === "ArrowRight"
+              ? pairTotal - minimum - currentSize
+              : event.key === forwardKey
                 ? step
                 : -step;
-        resizeBy(delta, containerWidth);
+        resizeBy(delta, containerSize);
       }}
     >
       <span
         aria-hidden="true"
-        className="absolute inset-y-0 left-1/2 w-px bg-border transition-colors group-hover:bg-accent group-focus-visible:bg-accent"
+        className={
+          axis === "x"
+            ? "absolute inset-y-0 left-1/2 w-px bg-border transition-colors group-hover:bg-accent group-focus-visible:bg-accent"
+            : "absolute inset-x-0 top-1/2 h-px bg-border transition-colors group-hover:bg-accent group-focus-visible:bg-accent"
+        }
       />
     </div>
   );
@@ -117,9 +165,16 @@ const SplitTaskView = dynamic(
   },
 );
 
+const PaneHomeView = dynamic(
+  () => import("@/components/home/HomeView").then((module) => module.HomeView),
+  { ssr: false },
+);
+
 /**
- * task path でのみ内容を返す描画ホスト。Home/settings では null を返すだけで
- * Provider の panes state・SSE は保持される（仕様 §7 の panes 保持方式）。
+ * 分割ホスト対象パス（「/」＝新規作成タブ含む）で内容を返す描画ホスト。
+ * settings では null を返すだけで Provider の panes state・SSE は保持される
+ * （仕様 §7 の panes 保持方式）。Home タブは特殊 ID HOME_TAB_ID として
+ * タスクと同じくペイン内に HomeView をマウントする。
  *
  * hidden mount（仕様 §4）: 各ペイン内の全タブの TaskView を render し、
  * 非アクティブは CSS hidden。key={taskId} でインスタンスと SSE を維持する。
@@ -130,6 +185,10 @@ export function TaskPanesHost() {
   const pathname = usePathname();
   const containerRef = useRef<HTMLDivElement>(null);
   const [dragOverPaneId, setDragOverPaneId] = useState<string | null>(null);
+  // 端ドラッグ中の分割プレビュー。null = 中央（通常ドロップ）。
+  const [dragEdge, setDragEdge] = useState<{ paneId: string; direction: SplitDirection } | null>(
+    null,
+  );
   const [paneWidths, setPaneWidths] = useState<number[]>([]);
   const [gridColumnWidth, setGridColumnWidth] = useState(0.5);
   // 一度開いたタブのみマウントする（初回読み込み・SSE 接続を遅延）。
@@ -146,7 +205,10 @@ export function TaskPanesHost() {
 
   // dragend/drop でリング解除（Escape キャンセル・ブラウザ外での drop 漏れ対策）
   useEffect(() => {
-    const reset = () => setDragOverPaneId(null);
+    const reset = () => {
+      setDragOverPaneId(null);
+      setDragEdge(null);
+    };
     window.addEventListener("dragend", reset);
     window.addEventListener("drop", reset);
     return () => {
@@ -178,14 +240,15 @@ export function TaskPanesHost() {
     });
   }, [state]);
 
-  // task path でのみ render（仕様 §7: Home/settings では非表示、panes state は保持）。
-  // splitHostEnabled は Home を含むため描画ゲートには使わない。
+  // 分割ホスト対象パス（「/」と task path）でのみ render。settings では非表示。
   const urlTaskId = taskIdFromPathname(pathname);
-  if (!urlTaskId) return null;
+  if (!isSplitHostPath(pathname)) return null;
 
   // md 未満: 分割・タブは無効で URL タスクのみ単一表示（仕様 §1 のフォールバック）。
   // モバイルでは Provider の panes/復元を触らず、URL 由来の taskId を直接 render する。
+  // 「/」では Host を出さず page の HomeView（children）へ任せる。
   if (!mdUp) {
+    if (!urlTaskId) return null;
     return (
       <div className="flex min-h-0 min-w-0 flex-1">
         <SplitTaskView
@@ -201,8 +264,13 @@ export function TaskPanesHost() {
     state.panes.find((pane) => pane.id === state.activePaneId)?.id ?? state.panes[0]?.id ?? null;
   if (!activePaneId) return null;
 
-  const single = state.panes.length === 1 && state.panes[0].tabs.length <= 1;
+  // Home タブだけの単一ペインでもタブバーを出す（+ でタスクを新規作成する入口のため）。
+  const single =
+    state.panes.length === 1 &&
+    state.panes[0].tabs.length <= 1 &&
+    state.panes[0].tabs[0] !== HOME_TAB_ID;
   const isGrid = state.panes.length >= 4;
+  const isColumn = !isGrid && state.orientation === "column";
   const widths = paneWidths.length === state.panes.length
     ? paneWidths
     : equalPaneWidths(state.panes.length);
@@ -224,7 +292,11 @@ export function TaskPanesHost() {
     <div
       ref={containerRef}
       className={cx(paneLayoutClass(state), "relative")}
-      style={isGrid ? { gridTemplateColumns: `${gridColumnWidth}fr ${1 - gridColumnWidth}fr` } : undefined}
+      style={
+        isGrid
+          ? { gridTemplateColumns: `${gridColumnWidth}fr ${1 - gridColumnWidth}fr` }
+          : undefined
+      }
     >
       {state.panes.map((pane, paneIndex) => (
         <section
@@ -236,11 +308,13 @@ export function TaskPanesHost() {
             "relative flex min-h-0 min-w-0 flex-col overflow-hidden",
             !single && "border-border",
             !single && !isGrid && "flex-1",
-            // 横並び: 左隣との境界 / grid: 右列・下段に罫線
-            !single && !isGrid && paneIndex > 0 && "border-l",
+            // 横並び: 左隣との境界 / 縦並び: 上隣との境界 / grid: 右列・下段に罫線
+            !single && !isGrid && paneIndex > 0 && (isColumn ? "border-t" : "border-l"),
             !single && isGrid && paneIndex % 2 === 1 && "border-l",
             !single && isGrid && paneIndex >= 2 && "border-t",
-            dragOverPaneId === pane.id && "ring-1 ring-inset ring-accent/50",
+            dragOverPaneId === pane.id &&
+              dragEdge?.paneId !== pane.id &&
+              "ring-1 ring-inset ring-accent/50",
           )}
           style={!isGrid ? { flex: `${widths[paneIndex] ?? 0} 1 0%` } : undefined}
           onDragOver={(event) => {
@@ -248,20 +322,34 @@ export function TaskPanesHost() {
             event.preventDefault();
             event.dataTransfer.dropEffect = "move";
             setDragOverPaneId(pane.id);
+            const direction = edgeDirectionAt(event.currentTarget, event.clientX, event.clientY);
+            setDragEdge((current) =>
+              current?.paneId === pane.id && current.direction === direction
+                ? current
+                : direction
+                  ? { paneId: pane.id, direction }
+                  : null,
+            );
           }}
           onDragLeave={(event) => {
             if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
             setDragOverPaneId((current) => (current === pane.id ? null : current));
+            setDragEdge((current) => (current?.paneId === pane.id ? null : current));
           }}
           onDrop={(event) => {
             if (!isTaskDrag(event.dataTransfer.types)) return;
             event.preventDefault();
             event.stopPropagation();
             setDragOverPaneId(null);
+            setDragEdge(null);
             const taskId = taskDragIdFrom(event.dataTransfer);
             if (!taskId) return;
             const source = state.panes.find((p) => p.tabs.includes(taskId));
-            if (source && source.id !== pane.id) {
+            const direction = edgeDirectionAt(event.currentTarget, event.clientX, event.clientY);
+            if (direction) {
+              // 端ドロップ = Blender/Cursor 方式の方向分割。既存タスクは元ペインから外れて新ペインへ移動する。
+              dispatch({ type: "openInNewPane", taskId, anchorPaneId: pane.id, direction });
+            } else if (source && source.id !== pane.id) {
               dispatch({ type: "moveTab", fromPaneId: source.id, toPaneId: pane.id, taskId });
             } else if (pane.tabs.length === 0) {
               // 空ペイン: そのまま開く
@@ -300,6 +388,7 @@ export function TaskPanesHost() {
                 }
               }}
               onAddPane={() => dispatch({ type: "addPane" })}
+              onOpenHome={() => dispatch({ type: "openTab", paneId: pane.id, taskId: HOME_TAB_ID })}
             />
           )}
           {/* アクティブペインのアクセント線（仕様 §6） */}
@@ -307,6 +396,19 @@ export function TaskPanesHost() {
             <span
               aria-hidden="true"
               className="pointer-events-none absolute inset-x-0 top-0 z-[70] h-0.5 bg-accent"
+            />
+          )}
+          {/* 端ドラッグ中の分割プレビュー（VS Code 風に分割後の占有領域を半分で示す） */}
+          {dragEdge?.paneId === pane.id && (
+            <span
+              aria-hidden="true"
+              className={cx(
+                "pointer-events-none absolute z-[75] bg-accent/15 ring-1 ring-inset ring-accent/40",
+                dragEdge.direction === "left" && "inset-y-0 left-0 w-1/2",
+                dragEdge.direction === "right" && "inset-y-0 right-0 w-1/2",
+                dragEdge.direction === "top" && "inset-x-0 top-0 h-1/2",
+                dragEdge.direction === "bottom" && "inset-x-0 bottom-0 h-1/2",
+              )}
             />
           )}
           {/* 空ペインのガイド（仕様 §6 のドロップ待ち状態） */}
@@ -323,6 +425,17 @@ export function TaskPanesHost() {
             // 未開封タブはマウントしない（初回読み込み・SSE 接続を遅延）。
             // アクティブタブは開封済み集合へ追加済みなので常にマウントされる。
             if (!openedTabs.has(taskId)) return null;
+            // 新規作成（Home）タブ: TaskView の代わりに HomeView を同じ隠しマウント方式で載せる
+            if (taskId === HOME_TAB_ID) {
+              return (
+                <div
+                  key={taskId}
+                  className={cx("min-h-0 min-w-0 flex-1", !isActiveTab && "hidden")}
+                >
+                  <PaneHomeView />
+                </div>
+              );
+            }
             return (
               <SplitTaskView
                 key={taskId}
@@ -347,6 +460,7 @@ export function TaskPanesHost() {
           widths={resizeWidths}
           containerRef={containerRef}
           onResize={updatePaneWidths}
+          axis={isGrid || !isColumn ? "x" : "y"}
         />
       ))}
     </div>

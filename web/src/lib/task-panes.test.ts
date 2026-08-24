@@ -150,6 +150,87 @@ describe("openInNewPane", () => {
   });
 });
 
+describe("openInNewPane with direction", () => {
+  it("direction=right は anchor 直後に挿入し orientation=row を設定する", () => {
+    const base = state(pane(P1, ["a"]), pane(P2, ["b"]));
+    const next = reducer(base, {
+      type: "openInNewPane",
+      taskId: "c",
+      anchorPaneId: P1,
+      direction: "right",
+    });
+    expect(next.panes.map((p) => p.id)).toEqual([P1, next.panes[1].id, P2]);
+    expect(next.panes[1].tabs).toEqual(["c"]);
+    expect(next.activePaneId).toBe(next.panes[1].id);
+    expect(next.orientation).toBe("row");
+  });
+
+  it("direction=left は anchor 直前に挿入する", () => {
+    const base = state(pane(P1, ["a"]), pane(P2, ["b"]));
+    const next = reducer(base, {
+      type: "openInNewPane",
+      taskId: "c",
+      anchorPaneId: P2,
+      direction: "left",
+    });
+    expect(next.panes.map((p) => p.id)).toEqual([P1, next.panes[1].id, P2]);
+    expect(next.orientation).toBe("row");
+  });
+
+  it("direction=top / bottom は orientation を column に切り替える", () => {
+    const base = state(pane(P1, ["a"]));
+    const top = reducer(base, {
+      type: "openInNewPane",
+      taskId: "c",
+      anchorPaneId: P1,
+      direction: "top",
+    });
+    expect(top.orientation).toBe("column");
+    expect(top.panes.map((p) => p.tabs)).toEqual([["c"], ["a"]]);
+
+    const bottom = reducer(
+      { ...base, orientation: "row" },
+      { type: "openInNewPane", taskId: "c", anchorPaneId: P1, direction: "bottom" },
+    );
+    expect(bottom.orientation).toBe("column");
+    expect(bottom.panes.map((p) => p.tabs)).toEqual([["a"], ["c"]]);
+  });
+
+  it("direction 指定時は単独タブの既存タスクも元ペインから外して分割移動する", () => {
+    const base = state(pane(P1, ["only"], "only"));
+    const next = reducer(base, {
+      type: "openInNewPane",
+      taskId: "only",
+      anchorPaneId: P1,
+      direction: "right",
+    });
+    expect(next.panes).toHaveLength(2);
+    expect(next.panes[0].tabs).toEqual([]);
+    expect(next.panes[1].tabs).toEqual(["only"]);
+    expect(next.activePaneId).toBe(next.panes[1].id);
+  });
+
+  it("direction 未指定なら末尾追加で既存 orientation を引き継ぐ", () => {
+    const base: TaskPanesState = { ...state(pane(P1, ["a"])), orientation: "column" };
+    const next = reducer(base, { type: "openInNewPane", taskId: "b" });
+    expect(next.panes.map((p) => p.tabs)).toEqual([["a"], ["b"]]);
+    expect(next.orientation).toBe("column");
+  });
+
+  it("不明 anchorPaneId は末尾フォールバック", () => {
+    const base = state(pane(P1, ["a"]));
+    const next = reducer(base, {
+      type: "openInNewPane",
+      taskId: "b",
+      anchorPaneId: "nope",
+      direction: "left",
+    });
+    expect(next.panes).toHaveLength(2);
+    expect(next.panes[0].tabs).toEqual(["a"]);
+    expect(next.panes[1].tabs).toEqual(["b"]);
+  });
+});
+
 describe("closeTab", () => {
   it("中間タブを閉じると右隣が active になる", () => {
     const base = state(pane(P1, ["a", "b", "c"], "b"));
@@ -309,6 +390,15 @@ describe("normalize", () => {
     expect(normalize({})).toBeNull();
     expect(normalize({ panes: [] })).toBeNull();
     expect(normalize({ panes: [{ id: "", tabs: [] }, { id: "ok", tabs: "not-array" }] })).toBeNull();
+  });
+
+  it("orientation=column を保持し、不正値は無視する", () => {
+    const kept = normalize({ panes: [{ id: P1, tabs: ["a"] }], activePaneId: P1, orientation: "column" });
+    expect(kept?.orientation).toBe("column");
+    const dropped = normalize({ panes: [{ id: P1, tabs: ["a"] }], activePaneId: P1, orientation: "diagonal" });
+    expect(dropped?.orientation).toBeUndefined();
+    const absent = normalize({ panes: [{ id: P1, tabs: ["a"] }], activePaneId: P1 });
+    expect(absent?.orientation).toBeUndefined();
   });
 });
 
@@ -484,5 +574,11 @@ describe("removeTaskEverywhere", () => {
     expect(next).toBe(true);
     const after = removeTaskEverywhere(base, "a");
     expect(after.panes[1]).toBe(base.panes[1]); // 無関係ペインは参照保持
+  });
+
+  it("orientation を保持する", () => {
+    const base: TaskPanesState = { ...state(pane(P1, ["t"]), pane(P2, ["x"])), orientation: "column" };
+    const next = removeTaskEverywhere(base, "t");
+    expect(next.orientation).toBe("column");
   });
 });

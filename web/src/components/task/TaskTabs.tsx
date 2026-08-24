@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Plus, X } from "lucide-react";
+import { Loader2, Plus, SquarePen, X } from "lucide-react";
 import { cx } from "@/components/ui";
 import { setTaskDragData, taskDragIdFrom, TASK_DRAG_MIME } from "@/lib/task-drag";
-import type { TaskPane, TaskPanesState } from "@/lib/task-panes";
+import { HOME_TAB_ID, type TaskPane, type TaskPanesState } from "@/lib/task-panes";
 import type { TaskStatus } from "@/lib/types";
 
 /**
@@ -39,6 +39,8 @@ export function TaskTabs({
   onReorderTabs: (tabs: string[]) => void;
   onMoveTab: (taskId: string, toPaneId: string) => void;
   onAddPane: () => void;
+  /** 新規作成（Home）タブをこのペインに開く（既にあれば活性化）。 */
+  onOpenHome: () => void;
 }) {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
@@ -74,8 +76,9 @@ export function TaskTabs({
       {pane.tabs.map((taskId, index) => {
         const status = statusFor(taskId);
         const active = pane.activeTabId === taskId;
-        // セッション名（タスク title）。未取得の間は taskId をフォールバック表示
-        const label = titleFor?.(taskId) ?? taskId;
+        // セッション名（タスク title）。未取得の間は taskId をフォールバック表示。
+        // 新規作成（Home）タブは固定ラベル。
+        const label = taskId === HOME_TAB_ID ? "新規作成" : (titleFor?.(taskId) ?? taskId);
         return (
           <div
             key={taskId}
@@ -134,6 +137,15 @@ export function TaskTabs({
           </div>
         );
       })}
+      <button
+        type="button"
+        aria-label="新規作成タブを開く"
+        title="新規作成（ホーム）タブを開く"
+        onClick={onOpenHome}
+        className="ml-auto inline-flex h-7 w-7 shrink-0 items-center justify-center self-center rounded-md text-muted hover:bg-surface-2 hover:text-text"
+      >
+        <SquarePen className="h-4 w-4" />
+      </button>
       {showAddButton && (
         <button
           type="button"
@@ -141,7 +153,7 @@ export function TaskTabs({
           title={canAddPane ? "空のペインを追加（タスクをドロップして開く）" : "ペイン数の上限です"}
           disabled={!canAddPane}
           onClick={onAddPane}
-          className="ml-auto inline-flex h-7 w-7 shrink-0 items-center justify-center self-center rounded-md text-muted hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center self-center rounded-md text-muted hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Plus className="h-4 w-4" />
         </button>
@@ -151,8 +163,9 @@ export function TaskTabs({
 }
 
 export function paneLayoutClass(state: TaskPanesState): string {
-  // レイアウト自動切替（仕様 §1）: 4 ペイン = 2x2 grid、それ以外 = 横並び
-  return state.panes.length >= 4
-    ? "grid min-h-0 min-w-0 flex-1 grid-cols-2 grid-rows-2"
+  // レイアウト自動切替（仕様 §1）: 4 ペイン = 2x2 grid、それ以外 = orientation 方向の並び
+  if (state.panes.length >= 4) return "grid min-h-0 min-w-0 flex-1 grid-cols-2 grid-rows-2";
+  return state.orientation === "column"
+    ? "flex min-h-0 min-w-0 flex-1 flex-col"
     : "flex min-h-0 min-w-0 flex-1";
 }
