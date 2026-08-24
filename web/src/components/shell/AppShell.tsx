@@ -25,7 +25,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
             <div
               className={cx(
                 "flex min-h-0 min-w-0 flex-1 flex-col",
-                isSplitHostPath(pathname) && "max-md:hidden",
+                isSplitHostPath(pathname) && "md:hidden",
               )}
             >
               {children}
