@@ -7,9 +7,11 @@ import { codexBarConfigPath } from "@/lib/codexbar/codexbar-config";
 import {
   catalog,
   isKnownProviderId,
+  LEAFCODE_PROVIDER_ORDER_KEY,
   PROVIDER_CATALOG,
   ProviderConfigError,
   readProviderConfig,
+  serializeProviderIds,
   versionOf,
   type ProviderId,
 } from "@/lib/codexbar/provider-catalog";
@@ -164,8 +166,8 @@ export async function PUT(request: Request) {
     if ("providerOrder" in body) {
       const updated = {
         ...current.config,
-        enabledProviders: current.enabled,
-        providerOrder: body.providerOrder,
+        enabledProviders: serializeProviderIds(current.enabled, current.config),
+        [LEAFCODE_PROVIDER_ORDER_KEY]: body.providerOrder,
       };
       await writeConfig(updated);
       clearCachedUsage();
@@ -189,11 +191,8 @@ export async function PUT(request: Request) {
     const enabled = current.order.filter((id) => next.has(id));
     const updated: Record<string, unknown> = {
       ...current.config,
-      enabledProviders: enabled,
+      enabledProviders: serializeProviderIds(enabled, current.config),
     };
-    if (current.config.providerOrder !== undefined) {
-      updated.providerOrder = current.order;
-    }
     await writeConfig(updated);
     clearCachedUsage();
     clearProviderCache();

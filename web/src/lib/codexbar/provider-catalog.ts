@@ -38,6 +38,13 @@ export type CatalogProvider = (typeof PROVIDER_CATALOG)[number] & {
 export const DEFAULT_ENABLED: ProviderId[] = ["openai-codex", "anthropic", "cursor"];
 
 const providerIds = new Set<string>(PROVIDER_CATALOG.map((p) => p.id));
+const LEGACY_PROVIDER_IDS: Record<string, ProviderId> = {
+  codex: "openai-codex",
+  claude: "anthropic",
+  ollama: "ollama-cloud",
+};
+
+export const LEAFCODE_PROVIDER_ORDER_KEY = "leafCodePiProviderOrder";
 
 export class ProviderConfigError extends Error {}
 
@@ -49,18 +56,33 @@ export function versionOf(text: string): string {
 /** Version used when config.json is absent (GET defaults / first PUT). */
 export const MISSING_CONFIG_TEXT = "{}";
 
+function normalizeProviderId(id: string): ProviderId | null {
+  if (providerIds.has(id)) return id as ProviderId;
+  return LEGACY_PROVIDER_IDS[id] ?? null;
+}
+
+function normalizeProviderIds(raw: unknown): ProviderId[] | null {
+  if (!Array.isArray(raw)) return null;
+  const result: ProviderId[] = [];
+  for (const id of raw) {
+    if (typeof id !== "string") return null;
+    const normalized = normalizeProviderId(id);
+    if (!normalized) return null;
+    if (!result.includes(normalized)) result.push(normalized);
+  }
+  return result;
+}
+
 export function parseEnabledProviders(
   config: Record<string, unknown>,
 ): ProviderId[] {
   const raw = config.enabledProviders;
   if (raw === undefined) return [...DEFAULT_ENABLED];
-  if (
-    !Array.isArray(raw) ||
-    raw.some((id) => typeof id !== "string" || !providerIds.has(id))
-  ) {
+  const normalized = normalizeProviderIds(raw);
+  if (!normalized) {
     throw new ProviderConfigError("CodexBar のプロバイダー設定が不正です");
   }
-  return [...new Set(raw)] as ProviderId[];
+  return normalized;
 }
 
 function completeProviderOrder(order: readonly ProviderId[]): ProviderId[] {
@@ -78,15 +100,57 @@ export function parseProviderOrder(
   config: Record<string, unknown>,
   enabled: readonly ProviderId[] = parseEnabledProviders(config),
 ): ProviderId[] {
-  const raw = config.providerOrder;
+  const hasLeafCodeOrder = Object.prototype.hasOwnProperty.call(
+    config,
+    LEAFCODE_PROVIDER_ORDER_KEY,
+  );
+  const raw = hasLeafCodeOrder
+    ? config[LEAFCODE_PROVIDER_ORDER_KEY]
+    : config.providerOrder;
   if (raw === undefined) return completeProviderOrder(enabled);
-  if (
-    !Array.isArray(raw) ||
-    raw.some((id) => typeof id !== "string" || !providerIds.has(id))
-  ) {
+
+  const normalized = normalizeProviderIds(raw);
+  if (!normalized) {
+    // CodexBar's native providerOrder is optional metadata; ignore an unknown
+    // native value, but reject malformed values written by LeafCodePi.
+    if (!hasLeafCodeOrder) return completeProviderOrder(enabled);
     throw new ProviderConfigError("CodexBar のプロバイダー順序が不正です");
   }
-  return completeProviderOrder(raw as ProviderId[]);
+  return completeProviderOrder(normalized);
+}
+
+export function toStoredProviderId(id: ProviderId): string {
+  switch (id) {
+    case "openai-codex":
+      return "codex";
+    case "anthropic":
+      return "claude";
+    case "ollama-cloud":
+      return "ollama";
+    default:
+      return id;
+  }
+}
+
+export function serializeProviderIds(
+  ids: readonly ProviderId[],
+  config: Record<string, unknown>,
+): string[] {
+  const raw = config.enabledProviders;
+  const existing = new Map<ProviderId, string>();
+  let usesLegacyIds = false;
+  if (Array.isArray(raw)) {
+    for (const value of raw) {
+      if (typeof value !== "string") continue;
+      const normalized = normalizeProviderId(value);
+      if (!normalized || existing.has(normalized)) continue;
+      existing.set(normalized, value);
+      if (LEGACY_PROVIDER_IDS[value]) usesLegacyIds = true;
+    }
+  }
+  return ids.map(
+    (id) => existing.get(id) ?? (usesLegacyIds ? toStoredProviderId(id) : id),
+  );
 }
 
 /**
@@ -196,5 +260,5 @@ export async function readProviderConfig(): Promise<ReadConfigResult> {
 /** Patch type for documentation; config may hold more keys. */
 export type CodexBarConfigWithProviders = CodexBarConfig & {
   enabledProviders?: ProviderId[];
-  providerOrder?: ProviderId[];
+  leafCodePiProviderOrder?: ProviderId[];
 };

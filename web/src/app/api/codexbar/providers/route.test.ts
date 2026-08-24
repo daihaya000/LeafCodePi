@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   DEFAULT_ENABLED,
+  LEAFCODE_PROVIDER_ORDER_KEY,
   parseEnabledProviders,
   ProviderConfigError,
   resolveEnabledProviderIds,
@@ -54,6 +55,29 @@ describe("parseEnabledProviders / resolveEnabledProviderIds", () => {
     expect(() => parseEnabledProviders({ enabledProviders: ["nope"] })).toThrow(
       ProviderConfigError,
     );
+  });
+
+  it("normalizes native CodexBar IDs used by cookie providers", () => {
+    expect(
+      parseEnabledProviders({
+        enabledProviders: ["codex", "claude", "ollama", "cursor"],
+      }),
+    ).toEqual(["openai-codex", "anthropic", "ollama-cloud", "cursor"]);
+  });
+
+  it("resolves native IDs and native order for usage fetching", async () => {
+    await fs.writeFile(
+      path.join(appData, "CodexBar", "config.json"),
+      JSON.stringify({
+        enabledProviders: ["codex", "claude", "ollama"],
+        providerOrder: ["ollama", "claude", "codex"],
+      }),
+    );
+    expect(resolveEnabledProviderIds()).toEqual([
+      "ollama-cloud",
+      "anthropic",
+      "openai-codex",
+    ]);
   });
 
   it("resolveEnabledProviderIds defaults when no config file", async () => {
@@ -150,13 +174,65 @@ describe("CodexBar provider settings API", () => {
     const saved = JSON.parse(
       await fs.readFile(path.join(appData, "CodexBar", "config.json"), "utf8"),
     );
-    expect(saved.providerOrder).toEqual(providerOrder);
+    expect(saved[LEAFCODE_PROVIDER_ORDER_KEY]).toEqual(providerOrder);
     expect(saved.enabledProviders).toEqual(["openai-codex", "anthropic"]);
 
     const reloaded = await responseJson(await GET());
     expect(
       (reloaded.providers as Array<{ id: string }>).map((provider) => provider.id),
     ).toEqual(providerOrder);
+  });
+
+  it("accepts native CodexBar order without colliding with LeafCodePi order", async () => {
+    const nativeOrder = [
+      "codex",
+      "claude",
+      "ollama",
+      "qwen-cloud",
+      "opencode-go",
+      "cursor",
+      "commandcode",
+      "synthetic",
+      "openrouter",
+    ];
+    await fs.writeFile(
+      path.join(appData, "CodexBar", "config.json"),
+      JSON.stringify({
+        enabledProviders: ["codex", "claude", "ollama", "cursor"],
+        providerOrder: nativeOrder,
+      }),
+    );
+
+    const initial = await responseJson(await GET());
+    expect(initial.providers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "openai-codex", enabled: true }),
+        expect.objectContaining({ id: "anthropic", enabled: true }),
+        expect.objectContaining({ id: "ollama-cloud", enabled: true }),
+      ]),
+    );
+
+    const providerOrder = [
+      "openrouter",
+      "synthetic",
+      "commandcode",
+      "cursor",
+      "opencode-go",
+      "qwen-cloud",
+      "ollama-cloud",
+      "anthropic",
+      "openai-codex",
+    ];
+    const response = await PUT(
+      request({ providerOrder, version: initial.version }),
+    );
+    expect(response.status).toBe(200);
+    const saved = JSON.parse(
+      await fs.readFile(path.join(appData, "CodexBar", "config.json"), "utf8"),
+    );
+    expect(saved.providerOrder).toEqual(nativeOrder);
+    expect(saved[LEAFCODE_PROVIDER_ORDER_KEY]).toEqual(providerOrder);
+    expect(saved.enabledProviders).toEqual(["codex", "claude", "ollama", "cursor"]);
   });
 
   it("accepts OpenRouter in the native enabledProviders setting", async () => {
