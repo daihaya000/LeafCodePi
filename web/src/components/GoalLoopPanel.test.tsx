@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GoalLoopPanel } from "./GoalLoopPanel";
 import type { GoalLoopDto } from "@/lib/types";
 
@@ -57,5 +57,20 @@ describe("GoalLoopPanel progress", () => {
     expect(progress.getAttribute("aria-valuenow")).toBeNull();
     expect(progress.getAttribute("aria-valuetext")).toBe("12ターン実行済み（無制限）");
     expect(screen.getByText("無制限")).toBeTruthy();
+  });
+
+  it("offers completion at the turn limit", () => {
+    const onAction = vi.fn();
+    render(
+      <GoalLoopPanel
+        loop={loopFixture({ status: "paused", pauseReason: "turn_limit", turnCount: 10 })}
+        busy={false}
+        onAction={onAction}
+        onResume={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "完了" }));
+    expect(onAction).toHaveBeenCalledWith("complete");
   });
 });

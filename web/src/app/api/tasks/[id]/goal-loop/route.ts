@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 type Params = { params: Promise<{ id: string }> };
 
 type Body = {
-  action?: "start" | "pause" | "resume" | "stop";
+  action?: "start" | "pause" | "resume" | "stop" | "complete";
   goal?: string;
   acceptance?: unknown;
   maxTurns?: unknown;
@@ -79,8 +79,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const { id } = await params;
     const body = (await req.json().catch(() => null)) as Body | null;
     const action = body?.action;
-    if (action !== "pause" && action !== "resume" && action !== "stop") {
-      return NextResponse.json({ error: "action は pause/resume/stop のいずれかです" }, { status: 400 });
+    if (action !== "pause" && action !== "resume" && action !== "stop" && action !== "complete") {
+      return NextResponse.json({ error: "action は pause/resume/stop/complete のいずれかです" }, { status: 400 });
     }
     const loop = await goalLoopCommand(id, {
       action,

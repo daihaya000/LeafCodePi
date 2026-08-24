@@ -662,6 +662,24 @@ function stopLoop(runtime: Runtime): void {
   }
 }
 
+function completeLoop(runtime: Runtime): boolean {
+  const loop = currentLoop(runtime);
+  if (!loop || loop.status !== "paused" || loop.pauseReason !== "turn_limit") return false;
+  clearTimer(runtime);
+  runtime.awaitingTurn = false;
+  runtime.pausedTurnPending = false;
+  runtime.awaitingTurnIndex = undefined;
+  runtime.pausedTurnIndex = undefined;
+  loop.status = "completed";
+  loop.pauseReason = "";
+  loop.error = "";
+  loop.nextTurnAt = null;
+  writeLoop(loop);
+  updateUI(runtime, loop);
+  appendSnapshot(runtime, loop);
+  return true;
+}
+
 function schedule(runtime: Runtime, delay = 250): void {
   if (runtime.disposed || runtime.timer) return;
   runtime.timer = setTimeout(() => {
@@ -933,7 +951,7 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
   return true;
 }
 
-function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop", args = ""): void {
+function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "complete", args = ""): void {
   if (action === "pause") {
     const loop = currentLoop(runtime);
     if (!loop) runtime.ctx.ui.notify("Goal loop はありません。", "info");
@@ -951,6 +969,16 @@ function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop", arg
   if (action === "stop") {
     stopLoop(runtime);
     runtime.ctx.ui.notify("Goal loop を停止しました。", "info");
+    return;
+  }
+  if (action === "complete") {
+    const completed = completeLoop(runtime);
+    runtime.ctx.ui.notify(
+      completed
+        ? "Goal loop を完了しました。新しい Goal loop を開始できます。"
+        : "最大ターン数に到達した一時停止中の Goal loop はありません。",
+      completed ? "info" : "warning",
+    );
     return;
   }
   const turns = args.match(/--(?:turns|max-turns)\s+(\d+)/i)?.[1];
@@ -1036,6 +1064,13 @@ function registerCommandAliases(pi: ExtensionAPI, getRuntime: () => Runtime | nu
       if (runtime) handleAction(runtime, "stop");
     },
   });
+  pi.registerCommand("goal-complete", {
+    description: "最大ターン数に到達した Goal loop を完了",
+    handler: async () => {
+      const runtime = getRuntime();
+      if (runtime) handleAction(runtime, "complete");
+    },
+  });
   pi.registerCommand("goal-compose", {
     description: "Goal / 承認条件 / 最大ターン / 完走モードを設定する Composer",
     handler: async () => {
@@ -1088,7 +1123,7 @@ export default function (pi: ExtensionAPI): void {
   pi.on("input", async (event, ctx) => {
     const current = getRuntime();
     if (!current || event.source === "extension") return;
-    if (/^\/(?:goal|goal-status|goal-pause|goal-resume|goal-stop|goal-compose)(?:\s|$)/i.test(event.text)) return;
+    if (/^\/(?:goal|goal-status|goal-pause|goal-resume|goal-stop|goal-complete|goal-compose)(?:\s|$)/i.test(event.text)) return;
     const loop = currentLoop(current);
     if (loop && (loop.status === "queued" || loop.status === "running" || loop.status === "verifying_completed")) {
       pauseLoop(current, "manual_send", "手動入力が行われたため一時停止しました。/goal-resume で再開できます。");
@@ -1200,7 +1235,7 @@ export default function (pi: ExtensionAPI): void {
         ctx.ui.notify(statusMessage(currentLoop(current)), "info");
         return;
       }
-      if (command === "pause" || command === "resume" || command === "stop") {
+      if (command === "pause" || command === "resume" || command === "stop" || command === "complete") {
         handleAction(current, command, "");
         return;
       }

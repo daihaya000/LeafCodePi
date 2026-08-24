@@ -27,7 +27,7 @@ function badgeClass(status: GoalLoopDto["status"]): string {
 const pauseHints: Record<string, string> = {
   user: "ユーザー操作で一時停止しました。再開すると次のターンを送信します。",
   manual_send: "手動送信が行われたため一時停止しました。",
-  turn_limit: "最大ターン数に到達しました。再開時に上限を増やせます。",
+  turn_limit: "最大ターン数に到達しました。完了するか、上限を増やして再開できます。",
   unreadable_result: "結果JSONを読めなかったため一時停止しました。",
   turn_timeout: "応答が確認できないまま時間切れになりました。",
   unknown_delivery: "送達が不明なため重複送信を防止して一時停止しました。",
@@ -45,7 +45,7 @@ export function GoalLoopPanel({
 }: {
   loop: GoalLoopDto | null | undefined;
   busy: boolean;
-  onAction: (action: "pause" | "stop") => void;
+  onAction: (action: "pause" | "stop" | "complete") => void;
   onResume: (maxTurns?: number) => void;
 }) {
   const [maxTurns, setMaxTurns] = useState(String(loop?.maxTurns ?? 10));
@@ -58,6 +58,7 @@ export function GoalLoopPanel({
   const turn = loop.status === "queued" ? loop.turnCount + 1 : loop.turnCount;
   const progress = loop.progress.at(-1);
   const turnLimit = loop.pauseReason === "turn_limit";
+  const canComplete = loop.status === "paused" && turnLimit;
   const maxTurnsLabel = loop.maxTurns === 0 ? "∞" : String(loop.maxTurns);
   const shownTurn = loop.maxTurns === 0 ? turn : Math.min(turn, loop.maxTurns);
   const progressPercent =
@@ -109,6 +110,11 @@ export function GoalLoopPanel({
             <Button variant="secondary" size="sm" disabled={busy} onClick={() => onAction("pause")}>
               <Pause className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">一時停止</span>
+            </Button>
+          )}
+          {canComplete && (
+            <Button variant="primary" size="sm" disabled={busy} onClick={() => onAction("complete")}>
+              <Check className="h-3.5 w-3.5" />完了
             </Button>
           )}
           {canResume && (

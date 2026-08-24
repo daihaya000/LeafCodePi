@@ -699,7 +699,7 @@ export function TaskView({
     }
   }
 
-  async function goalLoopAction(action: "pause" | "resume" | "stop", maxTurns?: number) {
+  async function goalLoopAction(action: "pause" | "resume" | "stop" | "complete", maxTurns?: number) {
     setSubmitting(true);
     setError(null);
     try {

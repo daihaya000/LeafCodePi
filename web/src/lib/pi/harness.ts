@@ -1461,7 +1461,7 @@ export async function goalLoopCommand(
         cooldownSeconds?: number;
         forceFullRun?: boolean;
       }
-    | { action: "pause" | "resume" | "stop"; maxTurns?: number },
+    | { action: "pause" | "resume" | "stop" | "complete"; maxTurns?: number },
 ): Promise<GoalLoopDto | null> {
   const live = await ensureLive(taskId);
   let command: string;

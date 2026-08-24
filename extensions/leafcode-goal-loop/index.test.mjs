@@ -119,6 +119,86 @@ test("full-run ignores early completion and stops at the turn limit", () => {
   }
 });
 
+test("completes a turn-limited loop and allows a new loop", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-complete-"));
+  const handlers = new Map();
+  const commands = new Map();
+  const notices = [];
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    abort: () => {},
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "complete-session",
+      getBranch: () => [],
+    },
+    ui: {
+      setStatus: () => {},
+      setWidget: () => {},
+      notify: (message, level) => notices.push({ message, level }),
+    },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand(name, options) { commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage() {},
+  };
+  const loop = {
+    id: "complete-session",
+    sessionId: "complete-session",
+    cwd,
+    status: "running",
+    goal: "old goal",
+    acceptance: [],
+    maxTurns: 1,
+    cooldownSeconds: 0,
+    nextTurnAt: null,
+    forceFullRun: true,
+    turnCount: 1,
+    turnKind: "goal",
+    pauseReason: "",
+    error: "",
+    progress: [],
+    summary: "",
+    evidence: "",
+    blockedReason: "",
+    rejectedClaims: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    applyResult(loop, { time: new Date().toISOString(), status: "completed", summary: "turn limit reached" });
+    assert.equal(loop.status, "paused");
+    assert.equal(loop.pauseReason, "turn_limit");
+
+    await commands.get("goal-complete")?.("", ctx);
+    const completed = JSON.parse(
+      readFileSync(join(cwd, ".pi", "goals-loop", "complete-session.json"), "utf8"),
+    );
+    assert.equal(completed.status, "completed");
+    assert.match(notices.at(-1).message, /新しい Goal loop/);
+
+    const payload = Buffer.from(JSON.stringify({ goal: "new goal", maxTurns: 1 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    const restarted = JSON.parse(
+      readFileSync(join(cwd, ".pi", "goals-loop", "complete-session.json"), "utf8"),
+    );
+    assert.equal(restarted.goal, "new goal");
+    assert.ok(restarted.status === "queued" || restarted.status === "running");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("unlimited mode does not pause at zero", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-"));
   try {
