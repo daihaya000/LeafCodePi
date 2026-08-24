@@ -46,6 +46,16 @@ export function parseDirectModel(value: unknown): DirectModel | undefined {
     : undefined;
 }
 
+export function parseDirectModelKey(value: unknown): DirectModel | undefined {
+  if (typeof value !== "string") return undefined;
+  const separator = value.indexOf("::");
+  if (separator <= 0 || separator !== value.lastIndexOf("::")) return undefined;
+  return parseDirectModel({
+    providerID: value.slice(0, separator),
+    modelID: value.slice(separator + 2),
+  });
+}
+
 function safeModelId(value: string): string {
   const modelID = value.trim();
   if (

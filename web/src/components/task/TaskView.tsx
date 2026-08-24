@@ -22,6 +22,7 @@ import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { pasteImage } from "@/lib/clipboard-image";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { DiffPane } from "@/components/task/DiffPane";
+import { NextAction } from "@/components/task/NextAction";
 import { GraphPanel } from "@/components/task/GraphPanel";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
 import { ModelSelect } from "@/components/ModelSelect";
@@ -299,6 +300,8 @@ export function TaskView({
   const stickRef = useRef(true);
   const lastScrollTopRef = useRef(0);
   const scrollRafRef = useRef<number | null>(null);
+  const previousWorkingRef = useRef(false);
+  const titleTaskRef = useRef(taskId);
   // メッセージ間をジャンプするナビゲーター（本家 LeafCode と同じ）。
   // 描画済みメッセージ要素と「今どのナビゲーション対象を見ているか」を保持する。
   const messageElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -609,6 +612,20 @@ export function TaskView({
   const goalLoopLive = Boolean(
     task?.goalLoop && ["queued", "running", "verifying_completed"].includes(task.goalLoop.status),
   );
+
+  useEffect(() => {
+    if (titleTaskRef.current !== taskId) {
+      titleTaskRef.current = taskId;
+      previousWorkingRef.current = false;
+    }
+    const wasWorking = previousWorkingRef.current;
+    previousWorkingRef.current = working;
+    if (!wasWorking || working || !task?.sessionId) return;
+    void sendJson<{ title: string; task: TaskSummary }>(`/api/tasks/${taskId}/title`, {}).then((result) => {
+      setTask((current) => (current ? { ...current, title: result.title } : current));
+      notifyTasksChanged();
+    }).catch(() => undefined);
+  }, [task?.sessionId, taskId, working]);
 
   // 巻き戻し対象候補: 末尾のユーザーメッセージ。末尾が user なら直前の user へ
   // フォールバック（最後まで巻き戻せる状態を保つ）。
@@ -1394,6 +1411,11 @@ export function TaskView({
             <DiffPane
               directory={task.directory}
               agent={agent || undefined}
+              model={
+                task.providerID && task.modelID
+                  ? { providerID: task.providerID, modelID: task.modelID }
+                  : undefined
+              }
               onMutated={() => notifyTasksChanged()}
             />
           </SidePanel>
@@ -1605,6 +1627,19 @@ export function TaskView({
             }
           />
         </div>
+        {task?.sessionId && (
+          <NextAction
+            taskId={taskId}
+            sessionId={task.sessionId}
+            model={modelValue}
+            invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
+            disabled={compacting}
+            onApply={(suggestion) => {
+              setPrompt(suggestion);
+              textareaRef.current?.focus();
+            }}
+          />
+        )}
         <Composer
           form={{
             ariaLabel: "フォローアップ",

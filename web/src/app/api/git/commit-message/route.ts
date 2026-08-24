@@ -1,26 +1,118 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAbsolutePath } from "@/lib/paths";
 import { suggestCommitMessage } from "@/lib/commit-message";
+import { getSetting } from "@/lib/pi/web-settings";
+import { GENERATION_MODEL_SETTING_KEY } from "@/lib/generation-model-key";
+import { generateDirectText, parseDirectModel, parseDirectModelKey } from "@/lib/direct-generation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const MAX_REQUEST_CHARS = 300_000;
+const MAX_DIFF_CHARS_PER_FILE = 8_000;
+
+type NormalizedFile = {
+  path: string;
+  untracked: boolean;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  diff: string;
+};
+
 type InputFile = {
   path?: unknown;
   untracked?: unknown;
+  additions?: unknown;
+  deletions?: unknown;
+  binary?: unknown;
+  hunks?: unknown;
 };
 
-function normalizeFiles(value: unknown): InputFile[] {
+function finiteCount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.min(100_000, Math.floor(value))
+    : 0;
+}
+
+function normalizeHunks(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  let output = "";
+  for (const hunk of value.slice(0, 20)) {
+    if (!hunk || typeof hunk !== "object") continue;
+    const record = hunk as { header?: unknown; lines?: unknown };
+    if (typeof record.header === "string") output += `${record.header.slice(0, 200)}\n`;
+    if (!Array.isArray(record.lines)) continue;
+    for (const line of record.lines.slice(0, 300)) {
+      if (!line || typeof line !== "object") continue;
+      const row = line as { t?: unknown; text?: unknown };
+      const marker = row.t === "+" || row.t === "-" ? row.t : " ";
+      const text = typeof row.text === "string" ? row.text.slice(0, 500) : "";
+      output += `${marker}${text}\n`;
+      if (output.length >= MAX_DIFF_CHARS_PER_FILE) return output.slice(0, MAX_DIFF_CHARS_PER_FILE);
+    }
+  }
+  return output.slice(0, MAX_DIFF_CHARS_PER_FILE);
+}
+
+function normalizeFiles(value: unknown): NormalizedFile[] {
   if (!Array.isArray(value)) return [];
-  return value.slice(0, 100).filter((file): file is InputFile => {
-    if (!file || typeof file !== "object") return false;
-    const path = (file as InputFile).path;
-    return typeof path === "string" && path.length > 0 && path.length <= 500;
-  });
+  const files: NormalizedFile[] = [];
+  for (const file of value.slice(0, 100)) {
+    if (!file || typeof file !== "object") continue;
+    const input = file as InputFile;
+    if (
+      typeof input.path !== "string" ||
+      input.path.length === 0 ||
+      input.path.length > 500 ||
+      /[\u0000-\u001f\u007f]/.test(input.path)
+    ) {
+      continue;
+    }
+    files.push({
+      path: input.path,
+      untracked: input.untracked === true,
+      additions: finiteCount(input.additions),
+      deletions: finiteCount(input.deletions),
+      binary: input.binary === true,
+      diff: normalizeHunks(input.hunks),
+    });
+  }
+  return files;
+}
+
+function generatedCommitLine(value: string): string {
+  const line = value
+    .replace(/^```(?:text|plain)?\s*/i, "")
+    .split(/\r?\n/)
+    .map((part) => part.trim())
+    .find((part) => part && !part.startsWith("```"));
+  return (line ?? "").replace(/^[`\"']+|[`\"']+$/g, "").trim().slice(0, 200);
+}
+
+function directPrompt(files: NormalizedFile[]): string {
+  return files
+    .map((file) => {
+      const status = file.untracked ? "new" : "modified";
+      const stats = `+${file.additions}/-${file.deletions}`;
+      const diff = file.binary ? "[binary]" : file.diff || "[diff unavailable]";
+      return `### ${status} ${file.path} (${stats})\n${diff}`;
+    })
+    .join("\n\n");
 }
 
 export async function POST(req: NextRequest) {
-  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const raw = await req.text().catch(() => "");
+  if (raw.length > MAX_REQUEST_CHARS) {
+    return NextResponse.json({ error: "request body is too large" }, { status: 413 });
+  }
+  const body = (() => {
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  })();
   const directory = typeof body?.directory === "string" ? body.directory : "";
   if (!directory || !isAbsolutePath(directory)) {
     return NextResponse.json({ error: "directory is required" }, { status: 400 });
@@ -30,12 +122,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "files are required" }, { status: 400 });
   }
 
-  const message = suggestCommitMessage(
-    files.map((f) => ({
-      path: String(f.path),
-      untracked: f.untracked === true,
-    })),
-  );
+  const model =
+    parseDirectModelKey(getSetting(GENERATION_MODEL_SETTING_KEY)) ??
+    parseDirectModel(body?.model);
+  if (model) {
+    try {
+      const generated = generatedCommitLine(
+        await generateDirectText({
+          model,
+          system:
+            "あなたはGitコミットメッセージ作成者です。差分だけを根拠に、日本語の短い命令形コミットメッセージを1行だけ返してください。説明、引用符、コードブロック、接頭辞は不要です。",
+          prompt: directPrompt(files),
+          maxTokens: 120,
+          temperature: 0.1,
+        }),
+      );
+      if (generated) return NextResponse.json({ message: generated, source: "direct" });
+    } catch {
+      console.warn("[LeafCodePi] direct commit-message generation failed");
+    }
+  }
+
+  const message = suggestCommitMessage(files);
   if (!message) {
     return NextResponse.json({ error: "could not suggest a message" }, { status: 400 });
   }

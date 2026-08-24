@@ -6,11 +6,13 @@ const mocks = vi.hoisted(() => ({
   getTask: vi.fn(),
   patchTask: vi.fn(),
   readSessionConversation: vi.fn(),
+  getSetting: vi.fn(),
 }));
-const { getTask, patchTask, readSessionConversation } = mocks;
+const { getTask, patchTask, readSessionConversation, getSetting } = mocks;
 
 vi.mock("@/lib/store", () => ({ getTask: mocks.getTask, patchTask: mocks.patchTask }));
 vi.mock("@/lib/direct-session", () => ({ readSessionConversation: mocks.readSessionConversation }));
+vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/title", {
@@ -25,6 +27,7 @@ describe("/api/tasks/[id]/title", () => {
     getTask.mockReset();
     patchTask.mockReset();
     readSessionConversation.mockReset();
+    getSetting.mockReset();
     vi.unstubAllGlobals();
     getTask.mockReturnValue({
       id: "task-1",
@@ -35,6 +38,7 @@ describe("/api/tasks/[id]/title", () => {
     });
     patchTask.mockReturnValue({ id: "task-1", title: "ログイン修正" });
     readSessionConversation.mockReturnValue([{ role: "user", text: "ログインを修正する" }]);
+    getSetting.mockReturnValue(null);
   });
 
   it("generates a title directly and persists it to the task store", async () => {

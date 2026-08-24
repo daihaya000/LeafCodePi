@@ -213,11 +213,13 @@ function FileDiffBlock({
 export function DiffPane({
   directory,
   agent,
+  model,
   refreshKey,
   onMutated,
 }: {
   directory: string;
   agent?: string;
+  model?: { providerID: string; modelID: string };
   /** Bump this to force an immediate refetch (e.g. after commit/merge/revert). */
   refreshKey?: number;
   onMutated?: () => void;
@@ -603,7 +605,7 @@ export function DiffPane({
               try {
                 const result = await sendJson<{ message: string }>(
                   "/api/git/commit-message",
-                  { directory, files: selectedFiles },
+                  { directory, files: selectedFiles, ...(model ? { model } : {}) },
                   "POST",
                 );
                 setCommitMsg(result.message);

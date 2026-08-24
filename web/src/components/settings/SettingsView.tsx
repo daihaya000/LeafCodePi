@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { ProviderAuthPanel } from "@/components/settings/ProviderAuthPanel";
 import { ProviderModelsPanel } from "@/components/settings/ProviderModelsPanel";
+import { GenerationModelSettings } from "@/components/settings/GenerationModelSettings";
 import { LlamaServerSettings } from "@/components/settings/LlamaServerSettings";
 import { HostRestartPanel } from "@/components/settings/HostRestartPanel";
 import { AgentsMdSettings } from "@/components/settings/AgentsMdSettings";
@@ -104,6 +105,7 @@ export function SettingsView() {
 
           {tab === "models" && (
             <section className="space-y-4">
+              <GenerationModelSettings />
               <div className="rounded-2xl border border-border bg-surface p-4">
                 <ProviderAuthPanel providers={providers} onChanged={reload} />
               </div>

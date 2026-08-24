@@ -9,8 +9,9 @@ const mocks = vi.hoisted(() => ({
   gitDiff: vi.fn(),
   gitLogGraph: vi.fn(),
   gitBranchRefs: vi.fn(),
+  getSetting: vi.fn(),
 }));
-const { getProject, listTasks, gitStatus, gitDiff, gitLogGraph, gitBranchRefs } = mocks;
+const { getProject, listTasks, gitStatus, gitDiff, gitLogGraph, gitBranchRefs, getSetting } = mocks;
 
 vi.mock("@/lib/store", () => ({ getProject: mocks.getProject, listTasks: mocks.listTasks }));
 vi.mock("@/lib/git", () => ({
@@ -19,6 +20,7 @@ vi.mock("@/lib/git", () => ({
   gitLogGraph: mocks.gitLogGraph,
   gitBranchRefs: mocks.gitBranchRefs,
 }));
+vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/projects/project-1/next-task", {
@@ -36,6 +38,7 @@ describe("/api/projects/[id]/next-task", () => {
     gitDiff.mockReset();
     gitLogGraph.mockReset();
     gitBranchRefs.mockReset();
+    getSetting.mockReset();
     vi.unstubAllGlobals();
     getProject.mockReturnValue({ id: "project-1", name: "LeafCodePi", rootPath: process.cwd() });
     listTasks.mockReturnValue([{ projectId: "project-1", title: "既存タスク", status: "idle" }]);
@@ -43,6 +46,7 @@ describe("/api/projects/[id]/next-task", () => {
     gitDiff.mockResolvedValue("+new line");
     gitLogGraph.mockResolvedValue({ commits: [{ shortHash: "abc1234", subject: "初期実装" }] });
     gitBranchRefs.mockResolvedValue({ currentBranch: "main" });
+    getSetting.mockReturnValue(null);
   });
 
   it("builds the direct prompt from repository state", async () => {

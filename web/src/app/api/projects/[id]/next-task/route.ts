@@ -1,7 +1,9 @@
 import { existsSync, statSync } from "node:fs";
 import { NextRequest, NextResponse } from "next/server";
 import { getProject, listTasks } from "@/lib/store";
-import { generateDirectText, parseDirectModel } from "@/lib/direct-generation";
+import { getSetting } from "@/lib/pi/web-settings";
+import { GENERATION_MODEL_SETTING_KEY } from "@/lib/generation-model-key";
+import { generateDirectText, parseDirectModel, parseDirectModelKey } from "@/lib/direct-generation";
 import { gitBranchRefs, gitDiff, gitLogGraph, gitStatus } from "@/lib/git";
 import { isAbsolutePath } from "@/lib/paths";
 import {
@@ -84,7 +86,9 @@ export async function POST(
   if (!prompt) {
     return NextResponse.json({ error: "リポジトリに提案可能な状態がありません" }, { status: 400 });
   }
-  const model = parseDirectModel(body.model);
+  const model =
+    parseDirectModelKey(getSetting(GENERATION_MODEL_SETTING_KEY)) ??
+    parseDirectModel(body.model);
   if (!model) return NextResponse.json({ error: "生成モデルが設定されていません" }, { status: 400 });
 
   try {

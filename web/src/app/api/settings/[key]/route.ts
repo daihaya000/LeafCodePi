@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSetting, MAX_SETTING_VALUE_CHARS, setSetting } from "@/lib/pi/web-settings";
 import {
+  DIRECT_GENERATION_PROVIDER_IDS,
+  GENERATION_MODEL_SETTING_KEY,
+  splitGenerationModel,
+} from "@/lib/generation-model-key";
+import {
   clampNotificationSoundVolume,
   isNotificationSoundType,
   MAX_NOTIFICATION_SOUND_VOLUME,
@@ -14,11 +19,19 @@ export const dynamic = "force-dynamic";
 
 /** 本家 LeafCode の /api/settings/[key] 相当。許容キーを絞って任意上書きを防ぐ。 */
 const ALLOWED_KEYS = new Set<string>([
+  GENERATION_MODEL_SETTING_KEY,
   NOTIFICATION_SOUND_TYPE_SETTING_KEY,
   NOTIFICATION_SOUND_VOLUME_SETTING_KEY,
 ]);
 
 function validateValue(key: string, value: string): string | null {
+  if (key === GENERATION_MODEL_SETTING_KEY) {
+    const model = splitGenerationModel(value);
+    if (!model || !DIRECT_GENERATION_PROVIDER_IDS.includes(
+      model.providerID as (typeof DIRECT_GENERATION_PROVIDER_IDS)[number],
+    )) return null;
+    return `${model.providerID}::${model.modelID}`;
+  }
   if (key === NOTIFICATION_SOUND_TYPE_SETTING_KEY) {
     return isNotificationSoundType(value) ? value : null;
   }

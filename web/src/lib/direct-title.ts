@@ -1,8 +1,11 @@
 import { getTask, patchTask } from "@/lib/store";
+import { getSetting } from "@/lib/pi/web-settings";
+import { GENERATION_MODEL_SETTING_KEY } from "@/lib/generation-model-key";
 import {
   DirectGenerationError,
   generateDirectText,
   parseDirectModel,
+  parseDirectModelKey,
   type DirectModel,
 } from "@/lib/direct-generation";
 import { readSessionConversation } from "@/lib/direct-session";
@@ -21,10 +24,10 @@ export async function refreshTaskTitleDirect(
   const prompt = formatTranscriptForTitle(conversation);
   if (!prompt) throw new DirectGenerationError("タイトルを生成できる会話がありません", 422);
 
-  const model = requestedModel ?? parseDirectModel({
-    providerID: task.providerID,
-    modelID: task.modelID,
-  });
+  const model =
+    parseDirectModelKey(getSetting(GENERATION_MODEL_SETTING_KEY)) ??
+    requestedModel ??
+    parseDirectModel({ providerID: task.providerID, modelID: task.modelID });
   if (!model) throw new DirectGenerationError("生成モデルが設定されていません", 400);
 
   const title = sanitizeTitle(

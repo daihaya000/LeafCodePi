@@ -5,11 +5,13 @@ import { POST } from "./route";
 const mocks = vi.hoisted(() => ({
   getTask: vi.fn(),
   readSessionConversation: vi.fn(),
+  getSetting: vi.fn(),
 }));
-const { getTask, readSessionConversation } = mocks;
+const { getTask, readSessionConversation, getSetting } = mocks;
 
 vi.mock("@/lib/store", () => ({ getTask: mocks.getTask }));
 vi.mock("@/lib/direct-session", () => ({ readSessionConversation: mocks.readSessionConversation }));
+vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/next-action", {
@@ -23,6 +25,7 @@ describe("/api/tasks/[id]/next-action", () => {
   beforeEach(() => {
     getTask.mockReset();
     readSessionConversation.mockReset();
+    getSetting.mockReset();
     vi.unstubAllGlobals();
     getTask.mockReturnValue({
       id: "task-1",
@@ -34,6 +37,7 @@ describe("/api/tasks/[id]/next-action", () => {
       { role: "user", text: "APIを追加しました" },
       { role: "assistant", text: "テストが必要です" },
     ]);
+    getSetting.mockReturnValue(null);
   });
 
   it("reads the server-side session and returns a direct suggestion", async () => {
@@ -62,6 +66,27 @@ describe("/api/tasks/[id]/next-action", () => {
       source: "direct",
     });
     expect(readSessionConversation).toHaveBeenCalledWith("C:\\sessions\\task-1.jsonl");
+  });
+
+  it("prefers the persisted generation model over the request model", async () => {
+    getSetting.mockReturnValue("llama-server::configured-model");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(JSON.parse(String(init?.body)).model).toBe("configured-model");
+        return new Response(JSON.stringify({ choices: [{ message: { content: "設定済みモデルを使用" } }] }), {
+          status: 200,
+        });
+      }),
+    );
+
+    const response = await POST(
+      request({ model: { providerID: "llama-server", modelID: "request-model" } }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ source: "direct" });
   });
 
   it("does not accept a browser-supplied transcript", async () => {

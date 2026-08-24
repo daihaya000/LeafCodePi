@@ -2,6 +2,10 @@ import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { POST } from "./route";
 
+const getSetting = vi.hoisted(() => vi.fn(() => null));
+
+vi.mock("@/lib/pi/web-settings", () => ({ getSetting }));
+
 function request(body: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/git/commit-message", {
     method: "POST",

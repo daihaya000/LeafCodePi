@@ -129,6 +129,13 @@ export async function gitDiff(cwd: string): Promise<string> {
   return parts.join("\n\n") || "";
 }
 
+/** Short working-tree status including all untracked files. */
+export async function gitStatus(cwd: string): Promise<string> {
+  const result = await runGit(cwd, ["status", "--short", "--untracked-files=all"]);
+  if (result.code !== 0) throw new Error(result.stderr.trim() || "git status failed");
+  return result.stdout;
+}
+
 const LOG_SEP = "\x1f";
 const LOG_REC = "\x1e";
 

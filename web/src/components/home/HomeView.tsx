@@ -8,6 +8,7 @@ import { AddProjectButton } from "@/components/AddProjectButton";
 import { AgentSelect } from "@/components/AgentSelect";
 import { Composer, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
+import { NextTaskSuggest } from "@/components/home/NextTaskSuggest";
 import { pasteImage } from "@/lib/clipboard-image";
 import { ModelSelect } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
@@ -418,6 +419,15 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                   {!submitting && <ArrowUp className="h-4.5 w-4.5" />}
                 </Button>
               }
+            />
+            <NextTaskSuggest
+              projectId={projectId}
+              model={model}
+              disabled={submitting || health?.engineOk === false}
+              onApply={(suggestion) => {
+                setPrompt(suggestion);
+                textareaRef.current?.focus();
+              }}
             />
             {loaded && health && !health.engineOk && (
               <p className="mx-auto mt-3 max-w-2xl rounded-lg border border-warning/30 bg-warning-bg px-3 py-2 text-sm text-warning">
