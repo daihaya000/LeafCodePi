@@ -1,23 +1,56 @@
 import { NextRequest, NextResponse } from "next/server";
+import { existsSync, statSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, parse, resolve } from "node:path";
-import { isAllowedBrowsePath, browseAllowedRoots } from "@/lib/browse-paths";
+import { basename, dirname, join, parse, resolve } from "node:path";
+import { browseAllowedRoots, isAllowedBrowsePath, oneDriveRoots } from "@/lib/browse-paths";
 import { isAbsolutePath } from "@/lib/paths";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type DirEntry = { name: string; path: string };
+type EntryKind = "home" | "oneDrive" | "desktop" | "documents" | "downloads" | "pictures" | "project";
+type DirEntry = { name: string; path: string; kind?: EntryKind };
 
-function windowsDrives(): DirEntry[] {
-  if (process.platform !== "win32") return [];
-  const drives: DirEntry[] = [];
-  for (const letter of "CDEFGHIJKLMNOPQRSTUVWXYZ") {
-    const path = `${letter}:\\`;
-    drives.push({ name: path, path });
+function isDirectory(path: string): boolean {
+  try {
+    return existsSync(path) && statSync(path).isDirectory();
+  } catch {
+    return false;
   }
-  return drives;
+}
+
+function quickAccessEntries(): DirEntry[] {
+  const home = homedir();
+  const cloudRoot = oneDriveRoots()[0];
+  const entries: DirEntry[] = [];
+  const seen = new Set<string>();
+  const add = (name: string, path: string, kind: EntryKind) => {
+    const resolved = resolve(path);
+    const key = resolved.toLowerCase();
+    if (seen.has(key) || !isDirectory(resolved)) return;
+    seen.add(key);
+    entries.push({ name, path: resolved, kind });
+  };
+
+  add("ホーム", home, "home");
+  for (const [name, folders, kind] of [
+    ["デスクトップ", [join(home, "Desktop"), ...(cloudRoot ? [join(cloudRoot, "Desktop")] : [])], "desktop"],
+    ["ドキュメント", [join(home, "Documents"), ...(cloudRoot ? [join(cloudRoot, "Documents")] : [])], "documents"],
+    ["ダウンロード", [join(home, "Downloads")], "downloads"],
+    ["ピクチャ", [join(home, "Pictures")], "pictures"],
+  ] as const) {
+    const path = folders.find(isDirectory);
+    if (path) add(name, path, kind);
+  }
+  if (cloudRoot) add("OneDrive", cloudRoot, "oneDrive");
+
+  for (const root of browseAllowedRoots()) {
+    const path = resolve(root);
+    if (seen.has(path.toLowerCase())) continue;
+    add(basename(path) || path, path, "project");
+  }
+  return entries;
 }
 
 export async function GET(req: NextRequest) {
@@ -42,14 +75,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       path: target,
       parent: parent !== target ? parent : null,
-      quickAccess: [
-        { name: "ホーム", path: homedir() },
-        ...browseAllowedRoots()
-          .filter((root) => root.toLowerCase() !== homedir().toLowerCase())
-          .slice(0, 3)
-          .map((root) => ({ name: root, path: root })),
-        ...windowsDrives().slice(0, 2),
-      ],
+      quickAccess: quickAccessEntries(),
       entries: dirs,
     });
   } catch (error) {

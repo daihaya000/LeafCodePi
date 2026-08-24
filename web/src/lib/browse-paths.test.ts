@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { browseAllowedRoots, isAllowedBrowsePath } from "./browse-paths";
 
 const originalAppData = process.env.APPDATA;
+const originalOneDrive = process.env.OneDrive;
 let appData: string;
 
 beforeEach(() => {
@@ -20,6 +21,8 @@ beforeEach(() => {
 afterEach(() => {
   if (originalAppData === undefined) delete process.env.APPDATA;
   else process.env.APPDATA = originalAppData;
+  if (originalOneDrive === undefined) delete process.env.OneDrive;
+  else process.env.OneDrive = originalOneDrive;
   rmSync(appData, { recursive: true, force: true });
 });
 
@@ -32,6 +35,15 @@ describe("isAllowedBrowsePath", () => {
 
   it("blocks paths outside allowed roots", () => {
     expect(isAllowedBrowsePath("C:\\Windows")).toBe(false);
+  });
+
+  it("includes a configured OneDrive root", () => {
+    const oneDrive = join(appData, "OneDrive");
+    mkdirSync(oneDrive);
+    process.env.OneDrive = oneDrive;
+
+    expect(browseAllowedRoots()).toContain(resolve(oneDrive));
+    expect(isAllowedBrowsePath(join(oneDrive, "Projects"))).toBe(true);
   });
 
   it("includes registered project roots", () => {
