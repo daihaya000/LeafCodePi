@@ -5,6 +5,7 @@ import {
   destroyProject,
   getProjects,
   jsonError,
+  patchProject,
   restoreProject,
 } from "@/lib/pi/harness";
 
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const body = (await req.json().catch(() => null)) as { id?: string; archived?: boolean } | null;
+    const body = (await req.json().catch(() => null)) as { id?: string; archived?: boolean; icon?: unknown } | null;
     if (!body?.id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
@@ -41,6 +42,14 @@ export async function PATCH(req: NextRequest) {
     }
     if (body.archived === false) {
       return NextResponse.json({ project: restoreProject(body.id) });
+    }
+    if (typeof body.icon === "string" || body.icon === null) {
+      if (typeof body.icon === "string" && (!/^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(body.icon) || body.icon.length > 3_000_000)) {
+        return NextResponse.json({ error: "icon must be a valid image under 2 MB" }, { status: 400 });
+      }
+      const project = patchProject(body.id, { icon: body.icon });
+      if (!project) return NextResponse.json({ error: "プロジェクトが見つかりません" }, { status: 404 });
+      return NextResponse.json({ project });
     }
     return NextResponse.json({ error: "unsupported patch" }, { status: 400 });
   } catch (error) {

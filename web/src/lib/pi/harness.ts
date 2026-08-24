@@ -1388,6 +1388,8 @@ export async function logoutProvider(providerId: string): Promise<void> {
   invalidateHealthCache();
 }
 
+export { patchProject };
+
 export function getProjects(includeArchived = false): ProjectDto[] {
   return listProjects(includeArchived);
 }

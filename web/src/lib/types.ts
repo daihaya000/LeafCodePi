@@ -17,6 +17,7 @@ export type ProjectDto = {
   archived: boolean;
   createdAt: string;
   lastOpenedAt: string | null;
+  icon?: string | null;
 };
 
 export type TodoProgressDto = {

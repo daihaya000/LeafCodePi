@@ -74,7 +74,7 @@ export function upsertProject(input: {
 
 export function patchProject(
   id: string,
-  patch: Partial<Pick<ProjectDto, "name" | "favorite" | "archived" | "lastOpenedAt">>,
+  patch: Partial<Pick<ProjectDto, "name" | "favorite" | "archived" | "lastOpenedAt" | "icon">>,
 ): ProjectDto | undefined {
   const store = readStore();
   const project = store.projects.find((item) => item.id === id);

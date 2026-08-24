@@ -6,6 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
   Archive,
+  Image as ImageIcon,
+  ImageOff,
   ArchiveRestore,
   ChevronRight,
   Cpu,
@@ -67,6 +69,15 @@ function projectIconTone(projectId: string): string {
     hash = (hash * 31 + character.codePointAt(0)!) >>> 0;
   }
   return PROJECT_ICON_TONES[hash % PROJECT_ICON_TONES.length]!;
+}
+
+function ProjectIcon({ project, className }: { project: Pick<ProjectDto, "id" | "name" | "icon">; className?: string }) {
+  return project.icon ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={project.icon} alt="" className={cx("rounded-md object-cover", className)} />
+  ) : (
+    <span className={cx(projectIconTone(project.id), className)}>{projectInitial(project.name)}</span>
+  );
 }
 
 function countRunningTasks(tasks: TaskSummary[]): number {
@@ -504,6 +515,27 @@ export function Sidebar({
     );
   }
 
+  async function setProjectIcon(project: ProjectDto, file: File | null) {
+    if (!file) return;
+    if (!file.type.startsWith("image/") || file.size > 2 * 1024 * 1024) {
+      window.alert("2 MB以下の画像を選択してください。");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      void runAction(`icon:${project.id}`, () =>
+        sendJson("/api/projects", { id: project.id, icon: String(reader.result) }, "PATCH"),
+      );
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function clearProjectIcon(project: ProjectDto) {
+    await runAction(`icon:${project.id}`, () =>
+      sendJson("/api/projects", { id: project.id, icon: null }, "PATCH"),
+    );
+  }
+
   const cancelProjectTaskMenuHide = useCallback(() => {
     if (projectTaskMenuHideTimerRef.current === null) return;
     clearTimeout(projectTaskMenuHideTimerRef.current);
@@ -700,14 +732,10 @@ export function Sidebar({
                       }}
                       className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 text-left"
                     >
-                      <span
-                        className={cx(
-                          "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[10px] font-medium",
-                          projectIconTone(project.id),
-                        )}
-                      >
-                        {projectInitial(project.name)}
-                      </span>
+                      <ProjectIcon
+                        project={project}
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[10px] font-medium"
+                      />
                       <span className="min-w-0 flex-1 truncate text-sm">{project.name}</span>
                       {running > 0 && (
                         <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-working px-1 text-[10px] font-semibold text-primary-fg">
@@ -1044,14 +1072,10 @@ export function Sidebar({
                   onBlur={scheduleProjectTaskMenuHide}
                   className="group relative inline-flex h-12 w-12 items-center justify-center rounded-xl p-1 hover:bg-surface-2"
                 >
-                  <span
-                    className={cx(
-                      "flex h-full w-full items-center justify-center rounded-lg border text-base font-medium transition-transform group-hover:scale-105",
-                      projectIconTone(project.id),
-                    )}
-                  >
-                    {projectInitial(project.name)}
-                  </span>
+                  <ProjectIcon
+                    project={project}
+                    className="flex h-full w-full items-center justify-center rounded-lg border text-base font-medium transition-transform group-hover:scale-105"
+                  />
                   {running > 0 && (
                     <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-surface bg-working px-1 text-[10px] font-semibold text-primary-fg">
                       {running}
@@ -1157,9 +1181,39 @@ export function Sidebar({
           }}
         >
           <div className="flex items-center gap-1 px-2 py-1">
+            <ProjectIcon project={projectTaskMenuProject} className="h-7 w-7 shrink-0 border text-xs font-medium" />
             <p className="min-w-0 flex-1 truncate text-sm font-medium text-muted">
               {projectTaskMenuProject.name}
             </p>
+            <label
+              role="menuitem"
+              title="プロジェクトアイコンを設定"
+              aria-label="プロジェクトアイコンを設定"
+              className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"
+            >
+              <ImageIcon className="h-4 w-4" />
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                className="sr-only"
+                onChange={(event) => {
+                  void setProjectIcon(projectTaskMenuProject, event.target.files?.[0] ?? null);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </label>
+            {projectTaskMenuProject.icon && (
+              <button
+                type="button"
+                role="menuitem"
+                aria-label="プロジェクトアイコンを削除"
+                title="プロジェクトアイコンを削除"
+                onClick={() => void clearProjectIcon(projectTaskMenuProject)}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"
+              >
+                <ImageOff className="h-4 w-4" />
+              </button>
+            )}
             <button
               type="button"
               role="menuitem"
