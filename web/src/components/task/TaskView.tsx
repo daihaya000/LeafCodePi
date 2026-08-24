@@ -1090,7 +1090,7 @@ export function TaskView({
   return (
     // min-h-0 flex-1: ペイン section が TaskTabs を持つ場合でも残り高さに収める。
     // h-full だとタブバー分だけはみ出し composer 下端が overflow-hidden で欠ける。
-    <div className={cx("flex min-h-0 flex-1 flex-col", !active && "hidden")}>
+    <div className={cx("flex min-h-0 min-w-0 flex-1 flex-col", !active && "hidden")}>
       <header
         className="flex min-h-14 shrink-0 items-center gap-2 border-b border-border bg-surface px-3 md:px-4 md:gap-3"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
