@@ -61,6 +61,20 @@ describe("findResumableTurn", () => {
     });
   });
 
+  it("returns silent resume for thinking-only assistant turn", () => {
+    expect(
+      findResumableTurn([
+        userMessage("u1"),
+        {
+          id: "a1",
+          role: "assistant",
+          createdAt: 2,
+          parts: [{ id: "a1-k", type: "thinking", text: "考えています" }],
+        },
+      ]),
+    ).toMatchObject({ reason: "silent", messageId: "a1" });
+  });
+
   it("returns aborted resume from manual abort id", () => {
     expect(
       findResumableTurn([userMessage("u1"), emptyAssistant("a1")], {

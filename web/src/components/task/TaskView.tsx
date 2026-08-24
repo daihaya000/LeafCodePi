@@ -254,6 +254,7 @@ export function TaskView({
   const [resumingTurn, setResumingTurn] = useState(false);
   const [resumeTurnError, setResumeTurnError] = useState<string | null>(null);
   const [manualAbortedAssistantId, setManualAbortedAssistantId] = useState<string | null>(null);
+  const autoResumeKeyRef = useRef<string | null>(null);
   const [hangRetryCount, setHangRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [agents, setAgents] = useState<ComposerReference[]>([]);
@@ -589,6 +590,7 @@ export function TaskView({
   }
 
   const compacting = isCompacting || compactingLocal;
+  const working = Boolean(task?.status === "working" || task?.isStreaming);
 
   // 巻き戻し対象候補: 末尾のユーザーメッセージ。末尾が user なら直前の user へ
   // フォールバック（最後まで巻き戻せる状態を保つ）。
@@ -761,7 +763,7 @@ export function TaskView({
     }
   }
 
-  async function resumeTurn(target: ResumableTurn) {
+  const resumeTurn = useCallback(async (target: ResumableTurn) => {
     if (working || resumingTurn) return;
     setResumeTurnError(null);
     setResumingTurn(true);
@@ -790,7 +792,7 @@ export function TaskView({
     } finally {
       setResumingTurn(false);
     }
-  }
+  }, [permissionMode, resumingTurn, subagentPermission, taskId, working]);
 
   const modelValue =
     task?.providerID && task.modelID ? `${task.providerID}::${task.modelID}` : models[0]?.value ?? "";
@@ -804,7 +806,6 @@ export function TaskView({
     : thinkingLevels.includes("off")
       ? "off"
       : (thinkingLevels[0] ?? "off");
-  const working = Boolean(task?.status === "working" || task?.isStreaming);
   const goalLoopLive = Boolean(
     task?.goalLoop && ["queued", "running", "verifying_completed"].includes(task.goalLoop.status),
   );
@@ -904,11 +905,33 @@ export function TaskView({
       }),
     [visibleMessages, manualAbortedAssistantId],
   );
+  const currentPromptIsHangRetry = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message?.role === "user") return isHangRetryUserMessage(message);
+    }
+    return false;
+  }, [messages]);
   const showResume =
     !!resumeTarget &&
     !!task &&
     !working &&
     !goalLoopLive;
+  useEffect(() => {
+    if (
+      !showResume ||
+      resumeTarget?.reason !== "silent" ||
+      task?.status !== "idle" ||
+      resumingTurn ||
+      currentPromptIsHangRetry
+    ) {
+      return;
+    }
+    const key = `${taskId}:${resumeTarget.messageId}`;
+    if (autoResumeKeyRef.current === key) return;
+    autoResumeKeyRef.current = key;
+    void resumeTurn(resumeTarget);
+  }, [currentPromptIsHangRetry, resumeTarget, resumeTurn, resumingTurn, showResume, task?.status, taskId]);
   const resumeMessage = resumeTarget
     ? visibleMessages.find((message) => message.id === resumeTarget.messageId)
     : undefined;

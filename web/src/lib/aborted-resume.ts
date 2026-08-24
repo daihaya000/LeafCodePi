@@ -1,7 +1,7 @@
 import type { UiMessage } from "./types";
 
 /**
- * 途中で終わったターンを手動で再開するための判定ロジック。
+ * 途中で終わったターンを再開するための判定ロジック。
  *
  * 対象は 2 種類。
  * - `aborted`: ユーザー停止・ハング watchdog による停止などで中断されたターン。
@@ -45,18 +45,13 @@ export function isAbortedAssistantMessage(message: UiMessage): boolean {
   return error === MESSAGE_ABORTED_ERROR || ABORT_ERROR_PATTERN.test(error);
 }
 
-/**
- * そのメッセージが「ターンの成果」と言えるかどうう。error / 非空 text /
- * 非空 thinking のいずれかを成果とみなす。
- */
+/** そのメッセージにユーザー可視のターン成果があるか。 */
 function hasTurnOutput(message: UiMessage): boolean {
   if (message.role !== "assistant") return false;
   if (message.error) return true;
-  return message.parts.some((part) => {
-    if (part.type === "text" && part.text.trim() !== "") return true;
-    if (part.type === "thinking" && part.text.trim() !== "") return true;
-    return false;
-  });
+  return message.parts.some(
+    (part) => part.type === "text" && part.text.trim() !== "",
+  );
 }
 
 /** まだ動いているツールがある（idle 誤報の隙間）。 */

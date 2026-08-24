@@ -78,7 +78,7 @@ export function HangTimeoutSettings() {
         <span className="text-xs text-muted">分</span>
       </label>
       <p className="mt-2 text-[11px] text-muted">
-        無言終了したターンは手動「再開」ボタンからも同じプロンプトを再送できます。
+        無言終了したターンは自動的に再開します。失敗時は「再開」ボタンから再送できます。
       </p>
       {error && <p className="mt-2 text-sm text-danger">{error}</p>}
     </div>
