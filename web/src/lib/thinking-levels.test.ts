@@ -3,6 +3,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   THINKING_LEVEL_LABELS,
   clampThinkingLevelForModel,
+  defaultThinkingLevel,
   isThinkingLevel,
   thinkingLevelLabel,
   thinkingLevelsForModel,
@@ -24,13 +25,30 @@ function fakeModel(partial: Partial<Model<Api>> & Pick<Model<Api>, "id">): Model
 }
 
 describe("thinking-levels", () => {
-  it("returns only off for non-reasoning models", () => {
-    expect(thinkingLevelsForModel(fakeModel({ id: "plain", reasoning: false }))).toEqual(["off"]);
+  it("exposes no options for non-reasoning models without an explicit off", () => {
+    expect(thinkingLevelsForModel(fakeModel({ id: "plain", reasoning: false }))).toEqual([]);
+  });
+
+  it("drops off unless the provider defines it explicitly", () => {
+    // map なしなら off は選択肢に現れない。
+    expect(thinkingLevelsForModel(fakeModel({ id: "r0", reasoning: true }))).not.toContain("off");
+    // 明示定義（値）があれば残る。
+    const explicit = fakeModel({ id: "r1", reasoning: true, thinkingLevelMap: { off: "none" } });
+    expect(thinkingLevelsForModel(explicit)).toContain("off");
+  });
+
+  it("picks medium as default and rounds to the nearest supported level", () => {
+    expect(defaultThinkingLevel(["minimal", "low", "medium", "high"])).toBe("medium");
+    expect(defaultThinkingLevel(["off", "minimal"])).toBe("minimal");
+    expect(defaultThinkingLevel(["xhigh"])).toBe("xhigh");
+    // 同距離は安い方（low/ xhigh から medium まで等距離なら low）。
+    expect(defaultThinkingLevel(["low", "xhigh"])).toBe("low");
+    expect(defaultThinkingLevel([])).toBe("off");
   });
 
   it("includes xhigh/max only when thinkingLevelMap declares them", () => {
-    const base = thinkingLevelsForModel(fakeModel({ id: "r1", reasoning: true }));
-    expect(base).toEqual(["off", "minimal", "low", "medium", "high"]);
+    const base = thinkingLevelsForModel(fakeModel({ id: "rb", reasoning: true }));
+    expect(base).toEqual(["minimal", "low", "medium", "high"]);
 
     const withXhigh = thinkingLevelsForModel(
       fakeModel({

@@ -19,7 +19,7 @@ import { Button, GhostSelect } from "@/components/ui";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { DEFAULT_AGENT, readStoredAgent, writeStoredAgent } from "@/lib/default-agent";
-import { isThinkingLevel } from "@/lib/thinking-levels";
+import { defaultThinkingLevel, isThinkingLevel } from "@/lib/thinking-levels";
 import {
   readSubagentPermission,
   writeSubagentPermission,
@@ -138,10 +138,9 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
 
   useEffect(() => {
     if (thinkingLevels.includes(thinkingLevel)) return;
-    // Never promote an invalid persisted level to the most expensive one.
-    // Qwen does not support Ornith's `minimal`; choosing the last level here
-    // used to silently turn a model switch into xhigh and cause long loops.
-    const safeLevel = thinkingLevels.includes("off") ? "off" : (thinkingLevels[0] ?? "off");
+    // 現レベルが新モデルに無ければ既定（medium 相当）へ。最高レベルへの
+    // 暗黙昇格は Qwen 切替で長ループを招いたためしない。
+    const safeLevel = defaultThinkingLevel(thinkingLevels);
     setThinkingLevel(safeLevel);
     localStorage.setItem(THINKING_KEY, safeLevel);
   }, [thinkingLevels, thinkingLevel]);
