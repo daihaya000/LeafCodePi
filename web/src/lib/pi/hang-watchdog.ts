@@ -10,8 +10,12 @@ import {
   turnHasAssistantResponse,
 } from "@/lib/aborted-resume";
 import { markHangRetryPrompt } from "@/lib/hang-retry";
+import { autoResumePrompt } from "@/lib/hang-timeout";
 import { dataDir } from "@/lib/paths";
-import { readHangTimeoutSettingMs } from "@/lib/pi/hang-settings";
+import {
+  readAutoResumeModeSetting,
+  readHangTimeoutSettingMs,
+} from "@/lib/pi/hang-settings";
 import type { PromptImage } from "@/lib/pi/harness";
 import type { UiMessage } from "@/lib/types";
 
@@ -270,7 +274,8 @@ async function resolveHang(row: TaskHangWatchRow): Promise<void> {
     return;
   }
 
-  if (!row.resumeAllowed) {
+  const resumeMode = readAutoResumeModeSetting();
+  if (!row.resumeAllowed && resumeMode !== "continue") {
     disarmTaskHangWatch(row.taskId);
     logWatchdog("stopped without resuming (request body was too large to store)", row);
     return;
@@ -286,14 +291,14 @@ async function resolveHang(row: TaskHangWatchRow): Promise<void> {
   writeStore();
 
   hooks.resumePrompt(row.taskId, {
-    prompt: markHangRetryPrompt(row.prompt),
-    images: row.images,
+    prompt: markHangRetryPrompt(autoResumePrompt(resumeMode, row.prompt)),
+    images: resumeMode === "continue" ? [] : row.images,
     ...(row.agent ? { agent: row.agent } : {}),
     ...(row.subagentPermission ? { subagentPermission: row.subagentPermission } : {}),
     ...(row.permissionMode ? { permissionMode: row.permissionMode } : {}),
   });
   hooks.notifyHangRetry(row.taskId, row.retryUsed);
-  logWatchdog(`resumed the same request (retry #${row.retryUsed})`, row);
+  logWatchdog(`resumed the request with ${resumeMode} mode (retry #${row.retryUsed})`, row);
 }
 
 function isTurnComplete(messages: UiMessage[], startedAt: number): boolean {

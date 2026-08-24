@@ -2,14 +2,19 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { dataDir } from "@/lib/paths";
 import {
+  AUTO_RESUME_MODE_SETTING_KEY,
   DEFAULT_HANG_TIMEOUT_MS,
+  DEFAULT_AUTO_RESUME_MODE,
   HANG_TIMEOUT_SETTING_KEY,
   clampHangTimeoutMs,
+  isAutoResumeMode,
+  type AutoResumeMode,
 } from "@/lib/hang-timeout";
 
 type WebSettingsFile = {
   version: 1;
   [HANG_TIMEOUT_SETTING_KEY]?: number;
+  [AUTO_RESUME_MODE_SETTING_KEY]?: AutoResumeMode;
 };
 
 function settingsPath(): string {
@@ -42,6 +47,19 @@ export function writeHangTimeoutSettingMs(value: number): number {
   const normalized = clampHangTimeoutMs(value);
   const settings = readSettings();
   settings[HANG_TIMEOUT_SETTING_KEY] = normalized;
+  writeSettings(settings);
+  return normalized;
+}
+
+export function readAutoResumeModeSetting(): AutoResumeMode {
+  const raw = readSettings()[AUTO_RESUME_MODE_SETTING_KEY];
+  return isAutoResumeMode(raw) ? raw : DEFAULT_AUTO_RESUME_MODE;
+}
+
+export function writeAutoResumeModeSetting(mode: AutoResumeMode): AutoResumeMode {
+  const normalized = isAutoResumeMode(mode) ? mode : DEFAULT_AUTO_RESUME_MODE;
+  const settings = readSettings();
+  settings[AUTO_RESUME_MODE_SETTING_KEY] = normalized;
   writeSettings(settings);
   return normalized;
 }

@@ -60,7 +60,9 @@ import {
   isHangRetryUserMessage,
 } from "@/lib/hang-retry";
 import {
+  autoResumePrompt,
   formatHangTimeout,
+  readAutoResumeMode,
   readHangTimeoutMs,
 } from "@/lib/hang-timeout";
 import {
@@ -815,21 +817,24 @@ export function TaskView({
     }
   }
 
-  const resumeTurn = useCallback(async (target: ResumableTurn) => {
+  const resumeTurn = useCallback(async (target: ResumableTurn, automatic = false) => {
     if (working || resumingTurn) return;
     setResumeTurnError(null);
     setResumingTurn(true);
     stickRef.current = true;
     try {
-      const images = target.files
-        .map((file) => {
-          const comma = file.uri.indexOf(",");
-          if (comma < 0) return null;
-          return { mimeType: file.mime, data: file.uri.slice(comma + 1) };
-        })
-        .filter((item): item is { mimeType: string; data: string } => item !== null);
+      const resumeMode = automatic ? readAutoResumeMode() : "same";
+      const images = resumeMode === "continue"
+        ? []
+        : target.files
+            .map((file) => {
+              const comma = file.uri.indexOf(",");
+              if (comma < 0) return null;
+              return { mimeType: file.mime, data: file.uri.slice(comma + 1) };
+            })
+            .filter((item): item is { mimeType: string; data: string } => item !== null);
       await sendJson(`/api/tasks/${taskId}/prompt`, {
-        prompt: target.text,
+        prompt: autoResumePrompt(resumeMode, target.text),
         images,
         ...(target.model
           ? { model: `${target.model.providerID}::${target.model.modelID}` }
@@ -976,7 +981,7 @@ export function TaskView({
     const key = `${taskId}:${resumeTarget.messageId}`;
     if (autoResumeKeyRef.current === key) return;
     autoResumeKeyRef.current = key;
-    void resumeTurn(resumeTarget);
+    void resumeTurn(resumeTarget, true);
   }, [currentPromptIsHangRetry, resumeTarget, resumeTurn, resumingTurn, showResume, task?.status, taskId]);
   const resumeMessage = resumeTarget
     ? visibleMessages.find((message) => message.id === resumeTarget.messageId)
@@ -1017,7 +1022,7 @@ export function TaskView({
   );
   const hangRetryNotice =
     autoHangRetryCount > 0
-      ? `応答が${formatHangTimeout(readHangTimeoutMs())}間止まったため自動的に停止し、同じ処理を再開しました${
+      ? `応答が${formatHangTimeout(readHangTimeoutMs())}間止まったため自動的に停止し、設定した方法で再開しました${
           autoHangRetryCount > 1 ? `（${autoHangRetryCount}回）` : ""
         }`
       : null;

@@ -3,21 +3,39 @@
 import { useCallback, useEffect, useState } from "react";
 import { getJson, sendJson } from "@/lib/client";
 import {
+  DEFAULT_AUTO_RESUME_MODE,
   MAX_HANG_TIMEOUT_MS,
   MIN_HANG_TIMEOUT_MS,
+  isAutoResumeMode,
+  readAutoResumeMode,
   readHangTimeoutMs,
+  type AutoResumeMode,
+  writeAutoResumeMode,
   writeHangTimeoutMs,
 } from "@/lib/hang-timeout";
 
+type HangSettingsDto = {
+  timeoutMs: number;
+  resumeMode?: AutoResumeMode;
+};
+
 export function HangTimeoutSettings() {
   const [minutes, setMinutes] = useState(() => String(readHangTimeoutMs() / 60_000));
+  const [resumeMode, setResumeMode] = useState<AutoResumeMode>(() => readAutoResumeMode());
   const [error, setError] = useState<string | null>(null);
 
+  function applySettings(result: HangSettingsDto): void {
+    const mode = result.resumeMode ?? DEFAULT_AUTO_RESUME_MODE;
+    writeHangTimeoutMs(result.timeoutMs);
+    writeAutoResumeMode(mode);
+    setMinutes(String(result.timeoutMs / 60_000));
+    setResumeMode(mode);
+  }
+
   const reload = useCallback(() => {
-    void getJson<{ timeoutMs: number }>("/api/settings/hang-timeout")
+    void getJson<HangSettingsDto>("/api/settings/hang-timeout")
       .then((result) => {
-        writeHangTimeoutMs(result.timeoutMs);
-        setMinutes(String(result.timeoutMs / 60_000));
+        applySettings(result);
         setError(null);
       })
       .catch((err) => {
@@ -29,7 +47,7 @@ export function HangTimeoutSettings() {
     reload();
   }, [reload]);
 
-  async function commit() {
+  async function commitTimeout() {
     const parsed = Number(minutes);
     if (!Number.isFinite(parsed)) {
       setError("数値を入力してください");
@@ -40,16 +58,32 @@ export function HangTimeoutSettings() {
       Math.max(MIN_HANG_TIMEOUT_MS, Math.round(parsed * 60_000)),
     );
     try {
-      const result = await sendJson<{ timeoutMs: number }>(
+      const result = await sendJson<HangSettingsDto>(
         "/api/settings/hang-timeout",
         { timeoutMs },
         "PATCH",
       );
-      writeHangTimeoutMs(result.timeoutMs);
-      setMinutes(String(result.timeoutMs / 60_000));
+      applySettings(result);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "ハング判定時間の保存に失敗しました");
+    }
+  }
+
+  async function commitResumeMode(next: AutoResumeMode) {
+    const previous = resumeMode;
+    setResumeMode(next);
+    try {
+      const result = await sendJson<HangSettingsDto>(
+        "/api/settings/hang-timeout",
+        { resumeMode: next },
+        "PATCH",
+      );
+      applySettings(result);
+      setError(null);
+    } catch (err) {
+      setResumeMode(previous);
+      setError(err instanceof Error ? err.message : "自動再開方法の保存に失敗しました");
     }
   }
 
@@ -57,7 +91,7 @@ export function HangTimeoutSettings() {
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h2 className="text-sm font-semibold">ハング判定</h2>
       <p className="mt-1 text-xs text-muted">
-        応答がない状態がこの時間続いた場合、自動停止して同じプロンプトを再送します（Goal Loop は対象外）。
+        応答がない状態がこの時間続いた場合、自動停止して設定した方法で再開します（Goal Loop は対象外）。
       </p>
       <label className="mt-3 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
         <span className="shrink-0 text-sm text-muted">ハング判定時間</span>
@@ -69,7 +103,7 @@ export function HangTimeoutSettings() {
           value={minutes}
           aria-label="ハング判定時間"
           onChange={(event) => setMinutes(event.target.value)}
-          onBlur={() => void commit()}
+          onBlur={() => void commitTimeout()}
           onKeyDown={(event) => {
             if (event.key === "Enter") event.currentTarget.blur();
           }}
@@ -77,8 +111,23 @@ export function HangTimeoutSettings() {
         />
         <span className="text-xs text-muted">分</span>
       </label>
-      <p className="mt-2 text-[11px] text-muted">
-        無言終了したターンは自動的に再開します。失敗時は「再開」ボタンから再送できます。
+      <label className="mt-3 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+        <span className="shrink-0 text-sm text-muted">自動再開方法</span>
+        <select
+          value={resumeMode}
+          aria-label="自動再開方法"
+          aria-describedby="hang-resume-help"
+          onChange={(event) => {
+            if (isAutoResumeMode(event.target.value)) void commitResumeMode(event.target.value);
+          }}
+          className="h-9 w-full max-w-[16rem] rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-border-strong"
+        >
+          <option value="same">同じプロンプトを再送</option>
+          <option value="continue">「続けて」を送信</option>
+        </select>
+      </label>
+      <p id="hang-resume-help" className="mt-2 text-[11px] text-muted">
+        無言終了時は選択した方法で自動再開します。手動の「再開」ボタンは同じプロンプトを再送します。
       </p>
       {error && <p className="mt-2 text-sm text-danger">{error}</p>}
     </div>
