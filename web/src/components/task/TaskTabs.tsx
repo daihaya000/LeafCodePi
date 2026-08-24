@@ -24,6 +24,7 @@ export function TaskTabs({
   onReorderTabs,
   onMoveTab,
   onAddPane,
+  onOpenHome,
 }: {
   pane: TaskPane;
   isActivePane: boolean;

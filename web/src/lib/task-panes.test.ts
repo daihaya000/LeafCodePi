@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  HOME_TAB_ID,
   MAX_PANES,
   MAX_TABS_PER_PANE,
   TASK_PANES_STORAGE_KEY,
@@ -71,6 +72,16 @@ describe("createState", () => {
     expect(created.panes[0].tabs).toEqual(["task-a"]);
     expect(created.panes[0].activeTabId).toBe("task-a");
     expect(created.activePaneId).toBe(created.panes[0].id);
+  });
+
+  it("URL taskId が無ければ新規作成（Home）タブをアクティブにする", () => {
+    const created = createState(null);
+    expect(created.panes[0].tabs).toEqual([HOME_TAB_ID]);
+    expect(created.panes[0].activeTabId).toBe(HOME_TAB_ID);
+    expect(retargetActiveTab(created, "task-a").panes[0].tabs).toEqual([
+      HOME_TAB_ID,
+      "task-a",
+    ]);
   });
 });
 

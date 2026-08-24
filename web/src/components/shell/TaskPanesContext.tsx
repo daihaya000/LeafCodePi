@@ -13,6 +13,7 @@ import {
 import { usePathname } from "next/navigation";
 import {
   createState,
+  HOME_TAB_ID,
   isSplitHostPath,
   removeTaskEverywhere,
   restoreTaskPanesForUrl,
@@ -62,7 +63,7 @@ const TaskPanesContext = createContext<TaskPanesContextValue>(EMPTY);
 /** RSC fetch の発生しない URL 同期（Next.js App Router の replaceState 公式サポート）。 */
 function syncUrl(taskId: string | null): void {
   if (typeof window === "undefined") return;
-  const target = taskId ? `/task/${encodeURIComponent(taskId)}` : "/";
+  const target = taskId == null || taskId === HOME_TAB_ID ? "/" : `/task/${encodeURIComponent(taskId)}`;
   if (window.location.pathname === target) return;
   window.history.replaceState(null, "", target);
 }
@@ -115,7 +116,10 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
           const latest = latestStateForRetarget;
           if (!latest) return;
           const currentTaskIds = new Set(latest.panes.flatMap((pane) => pane.tabs));
-          const missingIds = [...currentTaskIds].filter((taskId) => !liveIds.has(taskId));
+          // Home タブはタスク実体を持たないため自動クローズ対象外
+          const missingIds = [...currentTaskIds].filter(
+            (taskId) => !liveIds.has(taskId) && taskId !== HOME_TAB_ID,
+          );
           if (missingIds.length === 0) return;
           let next = latest;
           for (const taskId of missingIds) {
@@ -187,20 +191,23 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     };
   }, [state, mdUp]);
 
-  // 外部遷移（戻る/進む・直リンク）のみ panes 側へ反映
+  // 外部遷移（戻る/進む・直リンク）のみ panes 側へ反映。
+  // 「/」は新規作成（Home）タブへ向ける。
   const externalUrlRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!splitHostEnabled || !mdUp || !urlTaskId) return;
-    if (externalUrlRef.current === urlTaskId) return;
-    externalUrlRef.current = urlTaskId;
-    rawDispatch(retargetAction(urlTaskId));
+    if (!splitHostEnabled || !mdUp) return;
+    const target = urlTaskId ?? HOME_TAB_ID;
+    if (externalUrlRef.current === target) return;
+    externalUrlRef.current = target;
+    rawDispatch(retargetAction(target));
   }, [splitHostEnabled, mdUp, urlTaskId]);
 
   const activePane =
     state.panes.find((pane) => pane.id === state.activePaneId) ?? state.panes[0];
   const activeTaskId = activePane?.activeTabId ?? null;
 
-  // panes 由来の URL 同期: アクティブタブ変化を replaceState で追わせる
+  // panes 由来の URL 同期: アクティブタブ変化を replaceState で追わせる。
+  // Home タブのアクティブ時は「/」へ寄せる（syncUrl 内で解決）。
   useEffect(() => {
     if (!splitHostEnabled || !mdUp) return;
     if (activeTaskId == null) return;
