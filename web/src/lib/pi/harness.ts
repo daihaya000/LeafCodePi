@@ -1303,6 +1303,11 @@ export async function completeModelText(options: {
       temperature: Math.min(2, Math.max(0, options.temperature ?? 0.2)),
     },
   );
+  if (response.stopReason === "error" || response.stopReason === "aborted") {
+    throw new Error(
+      response.errorMessage || `生成が${response.stopReason === "aborted" ? "中断" : "失敗"}しました`,
+    );
+  }
   let text = "";
   for (const part of response.content) {
     if (part.type === "text") text += part.text;
