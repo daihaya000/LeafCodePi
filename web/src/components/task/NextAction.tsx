@@ -13,7 +13,7 @@ type State =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "success"; suggestions: string[] }
-  | { kind: "error" };
+  | { kind: "error"; message: string };
 
 export function NextAction({
   taskId,
@@ -75,16 +75,19 @@ export function NextAction({
       if (previous.length > 0) body.previousSuggestions = previous;
       const response = await sendJson<unknown>(`/api/tasks/${taskId}/next-action`, body);
       const suggestions = parseSuggestions(response);
-      if (suggestions.length === 0) throw new Error("empty suggestions");
+      if (suggestions.length === 0) throw new Error("提案の応答が空です");
       if (!mountedRef.current || generation !== generationRef.current) return;
       setPrevious((current) => {
         const next = [...current, ...suggestions.filter((item) => !current.includes(item))];
         return next.slice(-PREVIOUS_SUGGESTIONS_MAX_COUNT);
       });
       setState({ kind: "success", suggestions });
-    } catch {
+    } catch (error) {
       if (!mountedRef.current || generation !== generationRef.current) return;
-      setState({ kind: "error" });
+      setState({
+        kind: "error",
+        message: error instanceof Error ? error.message : "提案の生成に失敗しました。",
+      });
     }
   }, [disabled, model, previous, taskId]);
 
@@ -103,7 +106,7 @@ export function NextAction({
       )}
       {state.kind === "error" && (
         <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger-bg px-3 py-2">
-          <p role="alert" className="min-w-0 flex-1 text-xs text-danger">提案の生成に失敗しました。</p>
+          <p role="alert" className="min-w-0 flex-1 break-words text-xs text-danger">{state.message}</p>
           <Button variant="secondary" size="sm" disabled={disabled} onClick={() => void generate()}>
             <RefreshCw className="h-3.5 w-3.5" />
             再試行

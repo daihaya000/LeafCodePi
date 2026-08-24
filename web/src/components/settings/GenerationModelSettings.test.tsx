@@ -50,6 +50,7 @@ describe("GenerationModelSettings", () => {
   it("restores and persists the selected generation effort", async () => {
     render(<GenerationModelSettings />);
 
+    expect(screen.getByRole("heading", { name: /コミットメッセージ 生成モデル/ })).toBeTruthy();
     const effort = await screen.findByRole("button", { name: "生成モデルのEffort" });
     expect(effort.textContent).toContain("low");
 

@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAbsolutePath } from "@/lib/paths";
 import { suggestCommitMessage } from "@/lib/commit-message";
 import { getSetting } from "@/lib/pi/web-settings";
-import { GENERATION_MODEL_SETTING_KEY } from "@/lib/generation-model-key";
+import {
+  GENERATION_MODEL_EFFORT_SETTING_KEY,
+  GENERATION_MODEL_SETTING_KEY,
+} from "@/lib/generation-model-key";
 import { generateDirectText, parseDirectModel, parseDirectModelKey } from "@/lib/direct-generation";
 
 export const runtime = "nodejs";
@@ -122,9 +125,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "files are required" }, { status: 400 });
   }
 
-  const model =
-    parseDirectModelKey(getSetting(GENERATION_MODEL_SETTING_KEY)) ??
-    parseDirectModel(body?.model);
+  const configuredModel = parseDirectModelKey(getSetting(GENERATION_MODEL_SETTING_KEY));
+  const model = configuredModel ?? parseDirectModel(body?.model);
+  const effort = configuredModel
+    ? getSetting(GENERATION_MODEL_EFFORT_SETTING_KEY) || undefined
+    : undefined;
+  let warning: string | undefined;
   if (model) {
     try {
       const generated = generatedCommitLine(
@@ -135,11 +141,16 @@ export async function POST(req: NextRequest) {
           prompt: directPrompt(files),
           maxTokens: 120,
           temperature: 0.1,
+          effort,
+          timeoutMs: 60_000,
         }),
       );
       if (generated) return NextResponse.json({ message: generated, source: "direct" });
-    } catch {
-      console.warn("[LeafCodePi] direct commit-message generation failed");
+      warning = "AI生成の応答が空だったため、ファイル情報から生成しました";
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "直接生成に失敗しました";
+      warning = `AI生成に失敗したため、ファイル情報から生成しました: ${reason}`;
+      console.warn("[LeafCodePi] direct commit-message generation failed:", reason);
     }
   }
 
@@ -147,5 +158,5 @@ export async function POST(req: NextRequest) {
   if (!message) {
     return NextResponse.json({ error: "could not suggest a message" }, { status: 400 });
   }
-  return NextResponse.json({ message });
+  return NextResponse.json({ message, source: "fallback", ...(warning ? { warning } : {}) });
 }

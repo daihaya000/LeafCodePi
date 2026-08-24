@@ -603,18 +603,20 @@ export function DiffPane({
             onClick={async () => {
               const selectedFiles = files.filter((f) => !deselected[f.path]);
               try {
-                const result = await sendJson<{ message: string }>(
+                const result = await sendJson<{ message: string; warning?: string }>(
                   "/api/git/commit-message",
                   { directory, files: selectedFiles, ...(model ? { model } : {}) },
                   "POST",
                 );
                 setCommitMsg(result.message);
-              } catch {
+                setError(result.warning ?? null);
+              } catch (error) {
                 setCommitMsg(
                   suggestCommitMessage(
                     selectedFiles.map((f) => ({ path: f.path, untracked: f.untracked })),
                   ),
                 );
+                setError(error instanceof Error ? error.message : "コミットメッセージの生成に失敗しました");
               }
             }}
           >

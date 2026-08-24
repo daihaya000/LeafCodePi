@@ -13,7 +13,7 @@ type State =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "success"; suggestion: string }
-  | { kind: "error" };
+  | { kind: "error"; message: string };
 
 export function NextTaskSuggest({
   projectId,
@@ -69,13 +69,16 @@ export function NextTaskSuggest({
         { timeoutMs: 180_000 },
       );
       const suggestion = parseSuggestions(response)[0];
-      if (!suggestion) throw new Error("empty suggestion");
+      if (!suggestion) throw new Error("提案の応答が空です");
       if (!mountedRef.current || generation !== generationRef.current) return;
       setPrevious((current) => [...current, suggestion].filter((item, index, all) => all.indexOf(item) === index).slice(-PREVIOUS_SUGGESTIONS_MAX_COUNT));
       setState({ kind: "success", suggestion });
-    } catch {
+    } catch (error) {
       if (!mountedRef.current || generation !== generationRef.current) return;
-      setState({ kind: "error" });
+      setState({
+        kind: "error",
+        message: error instanceof Error ? error.message : "提案の生成に失敗しました。",
+      });
     }
   }, [disabled, model, previous, projectId]);
 
@@ -95,7 +98,7 @@ export function NextTaskSuggest({
       </div>
       {state.kind === "error" && (
         <div className="mt-2 flex items-center gap-2 rounded-lg border border-danger/30 bg-danger-bg px-3 py-2">
-          <p role="alert" className="min-w-0 flex-1 text-xs text-danger">提案の生成に失敗しました。</p>
+          <p role="alert" className="min-w-0 flex-1 break-words text-xs text-danger">{state.message}</p>
           <Button variant="secondary" size="sm" disabled={disabled} onClick={() => void generate()}>
             <RefreshCw className="h-3.5 w-3.5" />
             再試行
