@@ -25,6 +25,7 @@ function loopFixture(overrides: Partial<GoalLoopDto> = {}): GoalLoopDto {
     evidence: "",
     blockedReason: "",
     rejectedClaims: 0,
+    unreadableStreak: 0,
     createdAt: "2026-08-24T00:00:00.000Z",
     updatedAt: "2026-08-24T00:00:00.000Z",
     ...overrides,

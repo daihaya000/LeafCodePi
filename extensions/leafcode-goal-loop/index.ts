@@ -563,7 +563,7 @@ export function buildGoalContinuationPrompt(loop: GoalLoop, turn: number): strin
 }
 
 export function buildVerificationPrompt(loop: GoalLoop): string {
-  const claim = loop.progress.at(-1);
+  const claim = [...loop.progress].reverse().find((item) => item.status === "completed") ?? loop.progress.at(-1);
   return `${PROMPT_MARKER}\n\nThe previous turn claimed the goal was completed. Independently verify that claim. Inspect the repository and run appropriate checks; do not trust the claim's narration.\n\nGoal:\n${loop.goal}${acceptanceText(loop, "Acceptance criteria to verify")}\n\nClaimed completion:\n${claim ? `summary: ${claim.summary}\nevidence: ${claim.evidence ?? "(none)"}` : "(none)"}\n\nReturn verified_completed only when every criterion is backed by observable evidence. Return progress when more work is required, or blocked when verification cannot proceed.${jsonInstructions("verified_completed, progress, blocked")}`;
 }
 
@@ -638,12 +638,14 @@ export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): vo
  * block in the next prompt.
  */
 export function applyMissingResult(loop: GoalLoop, assistantText: string): void {
+  const verification = loop.status === "running" && loop.turnKind === "verification";
   const summary = short(assistantText, 500) || "(結果JSONなし)";
   loop.progress = [...loop.progress, { time: isoNow(), status: "progress", summary }].slice(-MAX_PROGRESS);
   loop.summary = summary;
   loop.evidence = "";
   loop.blockedReason = "";
-  loop.unreadableStreak += 1;
+  loop.unreadableStreak = Math.max(0, Math.trunc(Number(loop.unreadableStreak) || 0)) + 1;
+  loop.turnKind = verification ? "verification" : "goal";
   if (loop.unreadableStreak >= MAX_UNREADABLE_STREAK) {
     loop.status = "paused";
     loop.pauseReason = "unreadable_result";
@@ -651,13 +653,13 @@ export function applyMissingResult(loop: GoalLoop, assistantText: string): void 
     loop.nextTurnAt = null;
   } else {
     loop.status = "queued";
+    if (verification) loop.status = "verifying_completed";
     loop.pauseReason = "";
     loop.error = "";
     loop.nextTurnAt = loop.cooldownSeconds > 0
       ? new Date(Date.now() + loop.cooldownSeconds * 1000).toISOString()
       : null;
   }
-  loop.turnKind = "goal";
   writeLoop(loop);
 }
 
@@ -749,7 +751,8 @@ function sendTurn(runtime: Runtime): void {
   let prompt: string;
   let kind: GoalLoopTurnKind;
   if (loop.status === "queued") {
-    if (loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns) {
+    const retryingUnreadableResult = loop.unreadableStreak === 1;
+    if (loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns && !retryingUnreadableResult) {
       loop.status = "paused";
       loop.pauseReason = "turn_limit";
       loop.error = "最大ターン数に到達したため一時停止しました。";
@@ -757,12 +760,12 @@ function sendTurn(runtime: Runtime): void {
       updateUI(runtime, loop);
       return;
     }
-    loop.turnCount += 1;
+    if (!retryingUnreadableResult) loop.turnCount += 1;
     loop.status = "running";
     loop.turnKind = "goal";
     loop.nextTurnAt = null;
     kind = "goal";
-    prompt = loop.turnCount === 1
+    prompt = loop.turnCount === 1 && !retryingUnreadableResult
       ? buildGoalPrompt(loop, loop.turnCount)
       : buildGoalContinuationPrompt(loop, loop.turnCount);
   } else if (loop.status === "verifying_completed") {

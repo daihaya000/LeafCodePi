@@ -10,6 +10,7 @@ import {
   applyResult,
   applyMissingResult,
   buildGoalContinuationPrompt,
+  buildVerificationPrompt,
   clampCooldownSeconds,
   clampMaxTurns,
   normalizeAcceptance,
@@ -242,6 +243,49 @@ test("keeps the loop alive once when the result JSON is missing", () => {
   }
 });
 
+test("keeps a missing verification result in the verification phase", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-missing-verification-"));
+  try {
+    const loop = {
+      id: "session",
+      sessionId: "session",
+      cwd,
+      status: "running",
+      goal: "demo",
+      acceptance: [],
+      maxTurns: 1,
+      cooldownSeconds: 0,
+      nextTurnAt: null,
+      forceFullRun: false,
+      turnCount: 1,
+      turnKind: "verification",
+      pauseReason: "",
+      error: "",
+      progress: [{
+        time: new Date().toISOString(),
+        status: "completed",
+        summary: "実装を完了した",
+        evidence: "テスト成功",
+      }],
+      summary: "実装を完了した",
+      evidence: "テスト成功",
+      blockedReason: "",
+      rejectedClaims: 0,
+      unreadableStreak: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    applyMissingResult(loop, "検証結果を説明しました");
+    assert.equal(loop.status, "verifying_completed");
+    assert.equal(loop.turnKind, "verification");
+    assert.equal(loop.unreadableStreak, 1);
+    assert.match(buildVerificationPrompt(loop), /summary: 実装を完了した/);
+    assert.doesNotMatch(buildVerificationPrompt(loop), /検証結果を説明しました/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("resets the unreadable streak after a readable result", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-recover-"));
   try {
@@ -431,6 +475,77 @@ test("waits for agent_end so tool turns do not stop the loop before the result J
     assert.equal(sendCount, 2);
     assert.equal(loop.status, "blocked");
     assert.equal(loop.progress[0].summary, "after tool");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("retries a missing result on the final bounded turn without consuming another turn", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-missing-final-"));
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "missing-final-session",
+      getBranch: () => [],
+    },
+    ui: {
+      setStatus: () => {},
+      setWidget: () => {},
+      notify: () => {},
+    },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand(name, options) { commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage() {
+      sendCount += 1;
+      busy = true;
+      const text = sendCount === 1
+        ? "作業は完了しました。"
+        : JSON.stringify({ status: "progress", summary: "再試行で結果を返した" });
+      void (async () => {
+        busy = false;
+        await handlers.get("agent_end")?.({
+          type: "agent_end",
+          messages: [{ role: "assistant", content: [{ type: "text", text }] }],
+        }, ctx);
+        await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+      })();
+    },
+  };
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({
+      goal: "demo",
+      maxTurns: 1,
+      forceFullRun: true,
+    })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    const loop = JSON.parse(
+      readFileSync(join(cwd, ".pi", "goals-loop", "missing-final-session.json"), "utf8"),
+    );
+    assert.equal(sendCount, 2);
+    assert.equal(loop.turnCount, 1);
+    assert.equal(loop.status, "paused");
+    assert.equal(loop.pauseReason, "turn_limit");
+    assert.equal(loop.unreadableStreak, 0);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     rmSync(cwd, { recursive: true, force: true });

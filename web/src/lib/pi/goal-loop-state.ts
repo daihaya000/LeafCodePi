@@ -23,6 +23,7 @@ export function readGoalLoopState(cwd: string, sessionId: string | null | undefi
       maxTurns: clampGoalLoopMaxTurns(value.maxTurns),
       cooldownSeconds: clampGoalLoopCooldownSeconds(value.cooldownSeconds),
       nextTurnAt: typeof value.nextTurnAt === "string" ? value.nextTurnAt : null,
+      unreadableStreak: Math.max(0, Math.trunc(Number(value.unreadableStreak) || 0)),
     } as GoalLoopDto;
   } catch {
     return null;

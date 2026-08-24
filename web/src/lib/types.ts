@@ -80,6 +80,8 @@ export type GoalLoopDto = {
   evidence: string;
   blockedReason: string;
   rejectedClaims: number;
+  /** 連続して結果JSONを読めなかったターン数。正常な結果で0に戻る。 */
+  unreadableStreak: number;
   createdAt: string;
   updatedAt: string;
 };
