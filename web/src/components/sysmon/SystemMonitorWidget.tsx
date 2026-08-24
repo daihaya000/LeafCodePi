@@ -254,10 +254,13 @@ function MetricRows({
 
 export function SystemMonitorWidget({
   initialCollapsed = false,
+  /** true で常に展開（サイドバー縮小時ポップアップ用）。保存値を無視する。 */
+  forceExpanded = false,
 }: {
   initialCollapsed?: boolean;
+  forceExpanded?: boolean;
 } = {}) {
-  const [collapsed, setCollapsed] = useState(initialCollapsed);
+  const [collapsed, setCollapsed] = useState(forceExpanded ? false : initialCollapsed);
   const [twoColumn, setTwoColumn] = useState(true);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -267,8 +270,9 @@ export function SystemMonitorWidget({
   });
 
   useEffect(() => {
+    if (forceExpanded) return;
     if (!initialCollapsed) setCollapsed(loadCollapsed());
-  }, [initialCollapsed]);
+  }, [initialCollapsed, forceExpanded]);
 
   useEffect(() => {
     setTwoColumn(loadTwoColumn());

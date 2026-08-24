@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  Activity,
   Archive,
   ArchiveRestore,
   ChevronRight,
+  Cpu,
   Loader2,
   Menu,
   Plus,
@@ -31,6 +33,8 @@ type ProjectTaskMenuState = {
   top: number;
   left: number;
 };
+
+type RailWidget = "codexbar" | "sysmon";
 
 const WIDTH_KEY = "webui.sidebar.width";
 const COLLAPSED_KEY = "webui.sidebar.collapsed";
@@ -203,9 +207,13 @@ export function Sidebar({
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
   const [projectTaskMenu, setProjectTaskMenu] = useState<ProjectTaskMenuState | null>(null);
+  const [railWidget, setRailWidget] = useState<RailWidget | null>(null);
+  const [railWidgetPos, setRailWidgetPos] = useState({ bottom: 0, left: 0 });
   const taskDragActiveRef = useRef(false);
   const projectTaskMenuHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const projectTaskMenuRef = useRef<HTMLDivElement | null>(null);
+  const railWidgetHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const railWidgetRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async () => {
     const [projectRes, taskRes, archivedRes, archivedProjectsRes, healthRes, collaborationRes] = await Promise.allSettled([
@@ -534,6 +542,58 @@ export function Sidebar({
     setProjectTaskMenu(null);
   }, [cancelProjectTaskMenuHide, collapsed, mdUp]);
 
+  const cancelRailWidgetHide = useCallback(() => {
+    if (railWidgetHideTimerRef.current === null) return;
+    clearTimeout(railWidgetHideTimerRef.current);
+    railWidgetHideTimerRef.current = null;
+  }, []);
+
+  const scheduleRailWidgetHide = useCallback(() => {
+    if (!hoverCapable) return;
+    cancelRailWidgetHide();
+    railWidgetHideTimerRef.current = setTimeout(() => {
+      setRailWidget(null);
+      railWidgetHideTimerRef.current = null;
+    }, 180);
+  }, [cancelRailWidgetHide, hoverCapable]);
+
+  const showRailWidget = useCallback(
+    (widget: RailWidget, target: HTMLElement) => {
+      cancelRailWidgetHide();
+      const rect = target.getBoundingClientRect();
+      const viewportWidth = typeof window === "undefined" ? 1024 : window.innerWidth;
+      const viewportHeight = typeof window === "undefined" ? 800 : window.innerHeight;
+      const popupWidth = Math.min(576, viewportWidth - 96);
+      // フッターアイコンの右・上方向に開く。bottom アンカーなので max-height 分伸しても下にはみ出さない。
+      setRailWidgetPos({
+        bottom: Math.max(8, viewportHeight - rect.bottom),
+        left: Math.max(8, Math.min(rect.right + 8, viewportWidth - popupWidth - 8)),
+      });
+      setRailWidget(widget);
+    },
+    [cancelRailWidgetHide],
+  );
+
+  useEffect(() => {
+    if (!railWidget) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (railWidgetRef.current?.contains(target)) return;
+      if (target.closest("[data-rail-widget-button]")) return;
+      setRailWidget(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setRailWidget(null);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [railWidget]);
+
   useEffect(() => {
     if (!projectTaskMenu) return;
     const onPointerDown = (event: PointerEvent) => {
@@ -557,8 +617,9 @@ export function Sidebar({
   useEffect(
     () => () => {
       cancelProjectTaskMenuHide();
+      cancelRailWidgetHide();
     },
-    [cancelProjectTaskMenuHide],
+    [cancelProjectTaskMenuHide, cancelRailWidgetHide],
   );
 
   // `collapsed` はデスクトップ専用のレール表示（collapsedRail）用。body は
@@ -1004,10 +1065,81 @@ export function Sidebar({
       </div>
       <div className="flex w-full flex-col items-center gap-1 border-t border-border py-2">
         <AddProjectButton variant="icon" icon="plus" className="h-11 w-11" onAdded={() => void refresh()} />
+        <button
+          type="button"
+          aria-label="CodexBar 利用状況を表示"
+          title="CodexBar 利用状況"
+          aria-haspopup="dialog"
+          aria-expanded={railWidget === "codexbar"}
+          data-rail-widget-button="codexbar"
+          onClick={(event) => {
+            if (railWidget === "codexbar") {
+              setRailWidget(null);
+              return;
+            }
+            showRailWidget("codexbar", event.currentTarget);
+          }}
+          onMouseEnter={(event) => showRailWidget("codexbar", event.currentTarget)}
+          onMouseLeave={scheduleRailWidgetHide}
+          onFocus={(event) => {
+            if (hoverCapable) showRailWidget("codexbar", event.currentTarget);
+          }}
+          onBlur={scheduleRailWidgetHide}
+          className={cx(
+            "inline-flex h-11 w-11 items-center justify-center rounded-xl hover:bg-surface-2",
+            railWidget === "codexbar" && "bg-surface-2 text-text",
+          )}
+        >
+          <Activity className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          aria-label="システム使用率を表示"
+          title="システム使用率"
+          aria-haspopup="dialog"
+          aria-expanded={railWidget === "sysmon"}
+          data-rail-widget-button="sysmon"
+          onClick={(event) => {
+            if (railWidget === "sysmon") {
+              setRailWidget(null);
+              return;
+            }
+            showRailWidget("sysmon", event.currentTarget);
+          }}
+          onMouseEnter={(event) => showRailWidget("sysmon", event.currentTarget)}
+          onMouseLeave={scheduleRailWidgetHide}
+          onFocus={(event) => {
+            if (hoverCapable) showRailWidget("sysmon", event.currentTarget);
+          }}
+          onBlur={scheduleRailWidgetHide}
+          className={cx(
+            "inline-flex h-11 w-11 items-center justify-center rounded-xl hover:bg-surface-2",
+            railWidget === "sysmon" && "bg-surface-2 text-text",
+          )}
+        >
+          <Cpu className="h-4 w-4" />
+        </button>
         <Link href="/settings" aria-label="設定" className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-muted hover:bg-surface-2">
           <Settings className="h-4 w-4" />
         </Link>
       </div>
+      {railWidget && (
+        <div
+          ref={railWidgetRef}
+          role="dialog"
+          aria-label={railWidget === "codexbar" ? "CodexBar 利用状況" : "システム使用率"}
+          className="fixed z-50 w-[min(36rem,calc(100vw-6rem))] max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl border border-border/80 bg-surface shadow-[0_8px_30px_rgba(0,0,0,0.12)]"
+          style={{ bottom: railWidgetPos.bottom, left: railWidgetPos.left }}
+          onMouseEnter={cancelRailWidgetHide}
+          onMouseLeave={scheduleRailWidgetHide}
+        >
+          {railWidget === "codexbar" ? (
+            <CodexBarWidget key="rail-codexbar" initialCollapsed={false} />
+          ) : (
+            <SystemMonitorWidget key="rail-sysmon" forceExpanded />
+          )}
+        </div>
+      )}
       {projectTaskMenuProject && projectTaskMenu && (
         <div
           ref={projectTaskMenuRef}
