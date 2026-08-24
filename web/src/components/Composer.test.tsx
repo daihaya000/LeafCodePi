@@ -49,6 +49,16 @@ describe("Composer", () => {
     expect(textarea.className).toContain("focus-visible:outline-none");
   });
 
+  it("does not persist a zero height when the textarea has no layout yet", () => {
+    const view = render(<TestComposer value="一行目" />);
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    Object.defineProperty(textarea, "scrollHeight", { configurable: true, value: 0 });
+
+    view.rerender(<TestComposer value="一行目" />);
+
+    expect(textarea.style.height).not.toBe("0px");
+  });
+
   it("suggests and highlights slash skill references", () => {
     function ReferenceComposer() {
       const [value, setValue] = useState("");

@@ -124,9 +124,17 @@ export function Composer({
     const element = textarea.ref.current;
     if (!element) return;
 
-    element.style.height = "auto";
-    element.style.height = `${element.scrollHeight}px`;
+    const resize = () => {
+      element.style.height = "auto";
+      const height = element.scrollHeight;
+      if (height > 0) element.style.height = `${height}px`;
+    };
+    resize();
+
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
+    observer?.observe(element);
     setCaret(element.selectionStart ?? textarea.value.length);
+    return () => observer?.disconnect();
   }, [textarea.ref, textarea.rows, textarea.value]);
 
   function refreshCaret(element = textarea.ref.current) {
