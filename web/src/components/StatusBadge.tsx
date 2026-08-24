@@ -6,7 +6,8 @@ const STATUS_META: Record<
   { label: string; tone: "neutral" | "working" | "success" | "warning" | "danger"; pulse?: boolean }
 > = {
   working: { label: "実行中", tone: "working", pulse: true },
-  idle: { label: "待機", tone: "neutral" },
+  ready: { label: "変更あり", tone: "success" },
+  idle: { label: "クリーン", tone: "neutral" },
   error: { label: "エラー", tone: "danger" },
   archived: { label: "アーカイブ済", tone: "neutral" },
   unknown: { label: "不明", tone: "neutral" },

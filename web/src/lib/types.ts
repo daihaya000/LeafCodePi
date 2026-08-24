@@ -1,4 +1,4 @@
-export type TaskStatus = "working" | "idle" | "error" | "archived" | "unknown";
+export type TaskStatus = "working" | "ready" | "idle" | "error" | "archived" | "unknown";
 
 export type ThinkingLevel =
   | "off"

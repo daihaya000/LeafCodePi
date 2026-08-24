@@ -91,6 +91,7 @@ import {
   type PermissionMode,
 } from "@/lib/permission-gate";
 import type {
+  DiffFilesPayload,
   GoalLoopDto,
   ModelOption,
   PermissionRequestDto,
@@ -102,6 +103,7 @@ import type {
   ThinkingLevel,
   UiMessage,
 } from "@/lib/types";
+import { statusFromChangedFileCount, type WorktreeStatus } from "@/lib/worktree-status";
 
 /** Compaction LLM calls routinely exceed the default fetch budget. */
 const COMPACT_TIMEOUT_MS = 240_000;
@@ -241,6 +243,7 @@ export function TaskView({
   onAddPane?: () => void;
 }) {
   const [task, setTask] = useState<TaskDetail | null>(null);
+  const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [contextUsage, setContextUsage] = useState<ContextUsageDto | undefined>();
@@ -612,6 +615,43 @@ export function TaskView({
   const goalLoopLive = Boolean(
     task?.goalLoop && ["queued", "running", "verifying_completed"].includes(task.goalLoop.status),
   );
+
+  useEffect(() => {
+    if (!active || !task?.directory) return;
+    let closed = false;
+    let inFlight = false;
+    const refreshWorktreeStatus = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const payload = await getJson<DiffFilesPayload>("/api/diff/files", {
+          directory: task.directory,
+        });
+        if (closed) return;
+        if (payload.error) {
+          setWorktreeStatus(null);
+          return;
+        }
+        const next = statusFromChangedFileCount(payload.files.length);
+        setWorktreeStatus(next);
+        onStatusRef.current?.(working ? "working" : task.status === "idle" ? next : task.status);
+      } catch {
+        if (!closed) setWorktreeStatus(null);
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    setWorktreeStatus(null);
+    void refreshWorktreeStatus();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshWorktreeStatus();
+    }, 4_000);
+    return () => {
+      closed = true;
+      window.clearInterval(timer);
+    };
+  }, [active, task?.directory, task?.status, working]);
 
   useEffect(() => {
     if (titleTaskRef.current !== taskId) {
@@ -1104,6 +1144,14 @@ export function TaskView({
     return `${seconds}s`;
   }
 
+  const displayedStatus = task
+    ? working
+      ? "working"
+      : task.status === "idle" && worktreeStatus
+        ? worktreeStatus
+        : task.status
+    : null;
+
   return (
     // min-h-0 flex-1: ペイン section が TaskTabs を持つ場合でも残り高さに収める。
     // h-full だとタブバー分だけはみ出し composer 下端が overflow-hidden で欠ける。
@@ -1118,7 +1166,7 @@ export function TaskView({
           {/* Mobile-only compact meta row: the sm:flex row below is hidden
               below sm, so phones would otherwise show no status/context. */}
           <div className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-[11px] text-faint sm:hidden">
-            {task && <StatusBadge status={working ? "working" : task.status} />}
+            {displayedStatus && <StatusBadge status={displayedStatus} />}
             {contextUsage && <ContextUsageMeter usage={contextUsage} />}
             <CollaborationBadge
               projectId={task?.projectId}
@@ -1128,7 +1176,7 @@ export function TaskView({
             />
           </div>
           <div className="mt-0.5 hidden min-w-0 items-center gap-1 text-xs text-faint sm:flex">
-            {task && <StatusBadge status={working ? "working" : task.status} />}
+            {displayedStatus && <StatusBadge status={displayedStatus} />}
             {task?.projectName && (
               <>
                 <span className="mx-1 shrink-0">·</span>
