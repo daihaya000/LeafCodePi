@@ -84,6 +84,8 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   const restoredRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastUrlSyncRef = useRef<string | null>(urlTaskId ?? null);
+  // 外部遷移（戻る/進む・直リンク）のみ panes 側へ反映。
+  const externalUrlRef = useRef<string | null>(null);
   const [statusVersion, bumpStatusVersion] = useReducer(
     (count: number) => count + 1,
     0,
@@ -156,13 +158,14 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     }
     setMdUp(true);
     restoredRef.current = true;
+    externalUrlRef.current = urlTaskId ?? HOME_TAB_ID;
     const saved = restoreTaskPanesForUrl(urlTaskId, true);
     if (!saved) return;
     rawDispatch({ type: "replace", state: saved });
     const savedActive =
       saved.panes.find((pane) => pane.id === saved.activePaneId)?.activeTabId ?? null;
     lastUrlSyncRef.current = savedActive; // 復元構成に合わせたので以後は panes 観測で同期
-  }, [urlTaskId]);
+  }, [mdUp, urlTaskId]);
   // md 幅の追跡
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
@@ -193,7 +196,6 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
 
   // 外部遷移（戻る/進む・直リンク）のみ panes 側へ反映。
   // 「/」は新規作成（Home）タブへ向ける。
-  const externalUrlRef = useRef<string | null>(null);
   useEffect(() => {
     if (!splitHostEnabled || !mdUp) return;
     const target = urlTaskId ?? HOME_TAB_ID;
