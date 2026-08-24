@@ -40,12 +40,14 @@ describe("direct-generation", () => {
     expect(extractDirectText({ choices: [] })).toBe("");
   });
 
-  it("uses Pi's runtime directly for API providers", async () => {
+  it("uses Pi's runtime directly for Ollama Cloud", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
     completeModelText.mockResolvedValue(" API direct ");
 
     await expect(
       generateDirectText({
-        model: { providerID: "anthropic", modelID: "claude-sonnet" },
+        model: { providerID: "ollama-cloud", modelID: "qwen3" },
         system: "system",
         prompt: "prompt",
         maxTokens: 64,
@@ -53,14 +55,15 @@ describe("direct-generation", () => {
     ).resolves.toBe("API direct");
     expect(completeModelText).toHaveBeenCalledWith(
       expect.objectContaining({
-        providerID: "anthropic",
-        modelID: "claude-sonnet",
+        providerID: "ollama-cloud",
+        modelID: "qwen3",
         system: "system",
         prompt: "prompt",
         maxTokens: 64,
         signal: expect.any(AbortSignal),
       }),
     );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("calls the OpenAI-compatible endpoint without tools", async () => {

@@ -1,14 +1,8 @@
-import { readStoredCredential } from "@earendil-works/pi-coding-agent";
 import { completeModelText } from "@/lib/pi/harness";
 import {
   DEFAULT_LLAMA_SERVER_BASE,
   LLAMA_SERVER_PROVIDER_ID,
 } from "@/lib/pi/llama-provider";
-import {
-  DEFAULT_OLLAMA_CLOUD_BASE,
-  OLLAMA_API_KEY_ENV,
-  OLLAMA_CLOUD_PROVIDER_ID,
-} from "@/lib/pi/ollama-cloud-provider";
 
 const MAX_PROVIDER_ID_CHARS = 100;
 const MAX_MODEL_ID_CHARS = 200;
@@ -83,39 +77,6 @@ function safeModelId(value: string): string {
   return modelID;
 }
 
-/** Resolve only literal/env API keys; never execute auth.json command values here. */
-function resolveCredentialKey(value: unknown): string | undefined {
-  if (typeof value !== "string" || value.startsWith("!")) return undefined;
-  let missing = false;
-  const resolved = value.replace(
-    /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g,
-    (_match, braced: string | undefined, bare: string | undefined) => {
-      const name = braced ?? bare;
-      const envValue = name ? process.env[name] : undefined;
-      if (!envValue) {
-        missing = true;
-        return "";
-      }
-      return envValue;
-    },
-  );
-  return missing ? undefined : resolved.trim() || undefined;
-}
-
-function storedApiKey(providerID: string): string | undefined {
-  try {
-    const credential = readStoredCredential(providerID);
-    return credential?.type === "api_key" ? resolveCredentialKey(credential.key) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function apiKeyFor(providerID: string, envName?: string): string | undefined {
-  const fromEnv = envName ? process.env[envName]?.trim() : undefined;
-  return fromEnv || storedApiKey(providerID);
-}
-
 /**
  * Resolve providers with fixed, server-owned endpoints. Other registered
  * providers use Pi's runtime adapter instead of accepting a browser URL.
@@ -130,13 +91,6 @@ export function resolveDirectModel(model: DirectModel): ResolvedDirectModel {
       baseUrl: `${DEFAULT_LLAMA_SERVER_BASE}/v1`,
       apiKey: "local",
     };
-  }
-  if (providerID === OLLAMA_CLOUD_PROVIDER_ID) {
-    const apiKey = apiKeyFor(providerID, OLLAMA_API_KEY_ENV);
-    if (!apiKey) {
-      throw new DirectGenerationError("Ollama Cloud のAPIキーが設定されていません", 401);
-    }
-    return { providerID, modelID, baseUrl: DEFAULT_OLLAMA_CLOUD_BASE, apiKey };
   }
   throw new DirectGenerationError(`直接生成に未対応のプロバイダーです: ${providerID}`, 400);
 }
@@ -192,8 +146,7 @@ export async function generateDirectText(options: {
     // Pi's runtime owns auth and API adapters for every registered provider. This
     // keeps custom/API/OAuth providers direct without accepting a browser URL.
     if (
-      model.providerID !== LLAMA_SERVER_PROVIDER_ID &&
-      model.providerID !== OLLAMA_CLOUD_PROVIDER_ID
+      model.providerID !== LLAMA_SERVER_PROVIDER_ID
     ) {
       const text = await completeModelText({
         ...model,
