@@ -8,6 +8,8 @@ import {
   extractGoalResultFromMessages,
   jsonObjectCandidates,
   applyResult,
+  applyMissingResult,
+  buildGoalContinuationPrompt,
   clampCooldownSeconds,
   clampMaxTurns,
   normalizeAcceptance,
@@ -195,6 +197,83 @@ test("completes a turn-limited loop and allows a new loop", async () => {
     assert.ok(restarted.status === "queued" || restarted.status === "running");
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("keeps the loop alive once when the result JSON is missing", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-missing-"));
+  try {
+    const loop = {
+      id: "session",
+      sessionId: "session",
+      cwd,
+      status: "running",
+      goal: "demo",
+      acceptance: [],
+      maxTurns: 0,
+      cooldownSeconds: 0,
+      nextTurnAt: null,
+      forceFullRun: true,
+      turnCount: 1,
+      turnKind: "goal",
+      pauseReason: "",
+      error: "",
+      progress: [],
+      summary: "",
+      evidence: "",
+      blockedReason: "",
+      rejectedClaims: 0,
+      unreadableStreak: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    applyMissingResult(loop, "ToDo完了");
+    assert.equal(loop.status, "queued");
+    assert.equal(loop.unreadableStreak, 1);
+    assert.equal(loop.progress.at(-1).summary, "ToDo完了");
+    assert.match(buildGoalContinuationPrompt(loop, 2), /JSON result block/);
+
+    applyMissingResult(loop, "");
+    assert.equal(loop.status, "paused");
+    assert.equal(loop.pauseReason, "unreadable_result");
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("resets the unreadable streak after a readable result", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-recover-"));
+  try {
+    const loop = {
+      id: "session",
+      sessionId: "session",
+      cwd,
+      status: "running",
+      goal: "demo",
+      acceptance: [],
+      maxTurns: 0,
+      cooldownSeconds: 0,
+      nextTurnAt: null,
+      forceFullRun: true,
+      turnCount: 1,
+      turnKind: "goal",
+      pauseReason: "",
+      error: "",
+      progress: [],
+      summary: "",
+      evidence: "",
+      blockedReason: "",
+      rejectedClaims: 0,
+      unreadableStreak: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "back on track" });
+    assert.equal(loop.status, "queued");
+    assert.equal(loop.unreadableStreak, 0);
+    assert.equal(loop.pauseReason, "");
+  } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
 });

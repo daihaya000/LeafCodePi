@@ -28,7 +28,7 @@ const pauseHints: Record<string, string> = {
   user: "ユーザー操作で一時停止しました。再開すると次のターンを送信します。",
   manual_send: "手動送信が行われたため一時停止しました。",
   turn_limit: "最大ターン数に到達しました。完了するか、上限を増やして再開できます。",
-  unreadable_result: "結果JSONを読めなかったため一時停止しました。",
+  unreadable_result: "結果JSONを繰り返し読めなかったため一時停止しました。",
   turn_timeout: "応答が確認できないまま時間切れになりました。",
   unknown_delivery: "送達が不明なため重複送信を防止して一時停止しました。",
   transcript_unreadable: "会話履歴を読めないため一時停止しました。",

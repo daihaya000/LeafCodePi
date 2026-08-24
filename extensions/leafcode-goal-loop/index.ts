@@ -64,6 +64,8 @@ export type GoalLoop = {
   evidence: string;
   blockedReason: string;
   rejectedClaims: number;
+  /** 連続して結果JSONを読めなかったターン数。正常な結果で0に戻る。 */
+  unreadableStreak: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -81,6 +83,7 @@ const MAX_ACCEPTANCE_ITEMS = 10;
 const MAX_ACCEPTANCE_CHARS = 2_000;
 const MAX_PROGRESS = 50;
 const MAX_REJECTED_CLAIMS = 2;
+const MAX_UNREADABLE_STREAK = 2;
 const TURN_TIMEOUT_MS = 15 * 60 * 1000;
 const TERMINAL = new Set<GoalLoopStatus>(["completed", "blocked", "stopped"]);
 
@@ -276,6 +279,7 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     evidence: typeof raw.evidence === "string" ? raw.evidence.slice(0, 4_000) : progress.at(-1)?.evidence ?? "",
     blockedReason: typeof raw.blockedReason === "string" ? raw.blockedReason.slice(0, 4_000) : "",
     rejectedClaims: Math.max(0, Math.trunc(Number(raw.rejectedClaims) || 0)),
+    unreadableStreak: Math.max(0, Math.trunc(Number(raw.unreadableStreak) || 0)),
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : now,
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : now,
   };
@@ -548,7 +552,10 @@ export function buildGoalContinuationPrompt(loop: GoalLoop, turn: number): strin
   const turnBudget = loop.maxTurns === 0
     ? `This is loop turn ${turn}. There is no automatic turn limit.`
     : `This is turn ${turn} of ${loop.forceFullRun ? "exactly" : "at most"} ${loop.maxTurns}.`;
-  const common = `${PROMPT_MARKER}\n\nContinue the persistent goal loop. Work on exactly one smallest useful step, then end this turn. ${turnBudget}\n\nGoal:\n${loop.goal}${acceptanceText(loop)}${recentProgress(loop, 2)}`;
+  const missingResultReminder = loop.unreadableStreak > 0
+    ? "\n\nYour previous reply did not include the required JSON result block, so the loop could not read a result. This turn MUST end with the fenced JSON block described below, and nothing may come after it."
+    : "";
+  const common = `${PROMPT_MARKER}\n\nContinue the persistent goal loop. Work on exactly one smallest useful step, then end this turn. ${turnBudget}${missingResultReminder}\n\nGoal:\n${loop.goal}${acceptanceText(loop)}${recentProgress(loop, 2)}`;
   if (loop.forceFullRun) {
     return `${common}\n\nFull-run mode: never declare completion. The loop will ${loop.maxTurns === 0 ? "continue until you pause or stop it" : "run until the turn limit"}. Do not simulate future work.${jsonInstructions("progress, blocked")}`;
   }
@@ -569,6 +576,7 @@ export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): vo
     writeLoop(loop);
     return;
   }
+  loop.unreadableStreak = 0;
 
   const verification = loop.status === "running" && loop.turnKind === "verification";
   const effective = loop.forceFullRun && !verification && result.status === "completed"
@@ -620,6 +628,36 @@ export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): vo
       ? new Date(Date.now() + loop.cooldownSeconds * 1000).toISOString()
       : null;
   loop.turnKind = loop.status === "verifying_completed" ? "verification" : "goal";
+  writeLoop(loop);
+}
+
+/**
+ * The model finished a run without the required JSON result block (e.g. it only
+ * updated todos). Pause only after repeated misses: keep the loop alive once by
+ * recording the assistant text as a plain progress entry and demanding the JSON
+ * block in the next prompt.
+ */
+export function applyMissingResult(loop: GoalLoop, assistantText: string): void {
+  const summary = short(assistantText, 500) || "(結果JSONなし)";
+  loop.progress = [...loop.progress, { time: isoNow(), status: "progress", summary }].slice(-MAX_PROGRESS);
+  loop.summary = summary;
+  loop.evidence = "";
+  loop.blockedReason = "";
+  loop.unreadableStreak += 1;
+  if (loop.unreadableStreak >= MAX_UNREADABLE_STREAK) {
+    loop.status = "paused";
+    loop.pauseReason = "unreadable_result";
+    loop.error = `${MAX_UNREADABLE_STREAK}回連続で結果JSONを読めなかったため一時停止しました。`;
+    loop.nextTurnAt = null;
+  } else {
+    loop.status = "queued";
+    loop.pauseReason = "";
+    loop.error = "";
+    loop.nextTurnAt = loop.cooldownSeconds > 0
+      ? new Date(Date.now() + loop.cooldownSeconds * 1000).toISOString()
+      : null;
+  }
+  loop.turnKind = "goal";
   writeLoop(loop);
 }
 
@@ -820,6 +858,7 @@ function startLoop(
     evidence: "",
     blockedReason: "",
     rejectedClaims: 0,
+    unreadableStreak: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -1185,7 +1224,16 @@ export default function (pi: ExtensionAPI): void {
     current.pausedTurnIndex = undefined;
     if (current.timeoutTimer) clearTimeout(current.timeoutTimer);
     current.timeoutTimer = undefined;
-    applyResult(loop, extractGoalResultFromMessages(event.messages));
+    const result = extractGoalResultFromMessages(event.messages);
+    if (result) {
+      applyResult(loop, result);
+    } else {
+      const text = [...event.messages]
+        .reverse()
+        .map((message) => assistantText(message))
+        .find((value) => value.trim()) ?? "";
+      applyMissingResult(loop, text);
+    }
     const updated = currentLoop(current);
     updateUI(current, updated);
     if (updated) appendSnapshot(current, updated);
@@ -1269,6 +1317,7 @@ export const goalLoopTestSeams = {
   buildGoalContinuationPrompt,
   buildVerificationPrompt,
   applyResult,
+  applyMissingResult,
   goalStateFile,
   clampMaxTurns,
   clampCooldownSeconds,
