@@ -280,7 +280,8 @@ async function collectNvidiaGpu(): Promise<GpuMetric | null> {
         "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu",
         "--format=csv,noheader,nounits",
       ],
-      { timeout: 3000, windowsHide: true },
+      // PC 起動直後の初回 spawn はドライバ初期化で遅くなることがある。
+      { timeout: 6000, windowsHide: true },
     );
     const parsed = parseNvidiaSmiCsv(stdout);
     if (!parsed) return null;
@@ -310,8 +311,9 @@ async function collectAmdGpu(): Promise<GpuMetric[]> {
     const { stdout } = await execFileAsync(
       powershellBin(),
       ["-NoProfile", "-NonInteractive", "-Command", AMD_GPU_QUERY],
-      // Add-Type コンパイル + WMI 列挙で遅くなることがあるため余裕を持たせる。
-      { timeout: 8000, windowsHide: true },
+      // Add-Type コンパイル + WMI 列挙は PC 起動直後のコールドスタートで
+      // 10 秒超えることがあるため余裕を持たせる。
+      { timeout: 15000, windowsHide: true },
     );
     return parseAmdGpuJson(stdout).map((parsed) => {
       const vramUsedPercent =
@@ -353,10 +355,11 @@ let lastNvidiaGpu: { value: GpuMetric; at: number } | null = null;
 let lastAmdGpus: { value: GpuMetric[]; at: number } | null = null;
 
 /**
+/**
  * GPU使用率・VRAMを取得する。NVidia と AMD を並列で試し、見つかったものを全部返す。
  * 一時的な取得失敗では直近の成功値にフォールバックし、表示の点滅を防ぐ。
  */
-async function collectGpus(): Promise<GpuMetric[]> {
+async function collectGpusOnce(): Promise<GpuMetric[]> {
   const requestedAt = Date.now();
   const [nvidia, amd] = await Promise.all([collectNvidiaGpu(), collectAmdGpu()]);
   if (nvidia) lastNvidiaGpu = { value: nvidia, at: requestedAt };
@@ -375,6 +378,18 @@ async function collectGpus(): Promise<GpuMetric[]> {
         ? lastAmdGpus.value
         : [];
   return [...(nvidiaOut ? [nvidiaOut] : []), ...amdOut];
+}
+
+/**
+ * 空結果のときだけ一度再試行する。PC / サーバ起動直後の最初の spawn は
+ * nvidia-smi や PowerShell (Add-Type コンパイル) がタイムアウトしやすく、
+ * その場合 stale フォールバックも初回成功前なので GPU が欠けたままになる。
+ * 2回目はバイナリが温まっているため成功しやすい。
+ */
+async function collectGpus(): Promise<GpuMetric[]> {
+  const first = await collectGpusOnce();
+  if (first.length > 0) return first;
+  return collectGpusOnce();
 }
 
 /**

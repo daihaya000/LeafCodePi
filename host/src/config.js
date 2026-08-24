@@ -1,3 +1,4 @@
+import { readFileSync, writeFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -70,18 +71,25 @@ export function findTailscaleIPv4(interfaces = networkInterfaces()) {
   return null;
 }
 
+/** Last successful Tailscale bind, so the WebUI origin (localStorage) stays stable. */
+const BIND_FILE = "webui-bind.txt";
+
 /**
  * Resolve Next.js bind address.
- * - unset / `tailscale` → Tailscale IPv4 (fallback 127.0.0.1)
+ * - unset / `tailscale` → Tailscale IPv4 (fallback: last saved bind → 127.0.0.1)
  * - `0.0.0.0` / explicit IP → as-is
  * @param {NodeJS.ProcessEnv} [env]
- * @param {{ findTailscale?: () => string | null }} [deps]
+ * @param {{ findTailscale?: () => string | null, readSavedBind?: () => string | null }} [deps]
  */
 export function bindHost(env = process.env, deps = {}) {
   const raw = env.LEAFCODE_PI_HOST?.trim();
   const find = deps.findTailscale ?? findTailscaleIPv4;
   if (!raw || raw.toLowerCase() === "tailscale") {
-    return find() || "127.0.0.1";
+    const found = find();
+    if (found) return found;
+    // Tailscale 未起動のまま起動しても前回のバインドを再利用し、origin が
+    // 127.0.0.1 ↔ 100.x.y.z で揺れて localStorage の設定が消えないようにする。
+    return (deps.readSavedBind ?? (() => readSavedBind(dataDir(env))))() ?? "127.0.0.1";
   }
   return raw;
 }
@@ -101,4 +109,24 @@ export function publicHost(bind, deps = {}) {
 
 export function webUiUrl(bind, port, deps = {}) {
   return `http://${publicHost(bind, deps)}:${port}`;
+}
+
+/** Read the last saved bind address; null when missing/invalid. */
+export function readSavedBind(dir) {
+  try {
+    const raw = readFileSync(join(dir, BIND_FILE), "utf8").trim();
+    return isTailscaleCgnatIPv4(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Persist a successful Tailscale bind address. Best-effort. */
+export function saveBind(dir, address) {
+  if (!isTailscaleCgnatIPv4(address)) return;
+  try {
+    writeFileSync(join(dir, BIND_FILE), `${address}\n`, "utf8");
+  } catch {
+    /* ignore */
+  }
 }

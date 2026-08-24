@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import SysTrayImport from "systray2";
-import { bindHost, dataDir, DEFAULT_HOST_CONTROL_PORT, DEFAULT_LLAMA_SERVER_PORT, DEFAULT_WEBUI_PORT, isHeadless, readPort, shouldOpenBrowser as envAllowsBrowser, webUiUrl } from "./config.js";
+import { bindHost, dataDir, DEFAULT_HOST_CONTROL_PORT, DEFAULT_LLAMA_SERVER_PORT, DEFAULT_WEBUI_PORT, isHeadless, isTailscaleCgnatIPv4, readPort, saveBind, shouldOpenBrowser as envAllowsBrowser, webUiUrl } from "./config.js";
 import { readBrowserConfig, writeBrowserConfig } from "./browser-config.js";
 import { isThisModuleEntrypoint } from "./entry.js";
 import { createLlamaControlServer, closeControlServer, listenControlServer } from "./llama-control-server.js";
@@ -64,6 +64,9 @@ const HOST_VERSION = (() => {
 })();
 
 const WEBUI_HOST = bindHost();
+// Tailscale アドレスでバインドできたときだけ保存し、次回 Tailscale 未起動でも
+// 同じ origin で起動できるようにする（localStorage の設定消失防止）。
+if (isTailscaleCgnatIPv4(WEBUI_HOST)) saveBind(DATA_DIR, WEBUI_HOST);
 const WEBUI_PORT = readPort(process.env.LEAFCODE_PI_PORT, DEFAULT_WEBUI_PORT);
 const WEBUI_URL = webUiUrl(WEBUI_HOST, WEBUI_PORT);
 const WEBUI_AUTH = ensureWebUiAuth(process.env, WEBUI_HOST, DATA_DIR);
