@@ -106,8 +106,8 @@ export function parseOllamaHtml(html: string): {
   return { windows, plan, accountEmail };
 }
 
-export const ollamaProvider: IUsageProvider = {
-  id: "ollama",
+export const ollamaCloudProvider: IUsageProvider = {
+  id: "ollama-cloud",
   name: "Ollama Cloud",
   isConfigured() {
     return ollamaCookieFilePath() !== null;
@@ -162,7 +162,7 @@ export const ollamaProvider: IUsageProvider = {
     }
 
     return {
-      providerId: "ollama",
+      providerId: "ollama-cloud",
       providerName: "Ollama Cloud",
       plan,
       accountEmail,

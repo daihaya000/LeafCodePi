@@ -303,7 +303,7 @@ export function parseClaudeUsageJson(
   }
 
   return {
-    providerId: "claude",
+    providerId: "anthropic",
     providerName: "Claude",
     plan: prettyPlan(subscriptionType),
     accountEmail: null,
@@ -345,8 +345,8 @@ async function fetchFromApi(
   return { ...snap, accountEmail: readAccountEmail() };
 }
 
-export const claudeProvider: IUsageProvider = {
-  id: "claude",
+export const anthropicProvider: IUsageProvider = {
+  id: "anthropic",
   name: "Claude",
   isConfigured() {
     return existsSync(credentialsPath());

@@ -6,7 +6,7 @@ import { representativePercent } from "./utils";
 
 function snap(partial: Partial<UsageSnapshot> & Pick<UsageSnapshot, "windows">): UsageSnapshot {
   return {
-    providerId: "claude",
+    providerId: "anthropic",
     providerName: "Claude",
     plan: null,
     accountEmail: null,
@@ -25,8 +25,8 @@ function snap(partial: Partial<UsageSnapshot> & Pick<UsageSnapshot, "windows">):
 
 describe("toOpencodeProviderId", () => {
   it("maps known providers", () => {
-    expect(toOpencodeProviderId("codex")).toBe("openai");
-    expect(toOpencodeProviderId("claude")).toBe("anthropic");
+    expect(toOpencodeProviderId("openai-codex")).toBe("openai");
+    expect(toOpencodeProviderId("anthropic")).toBe("anthropic");
     expect(toOpencodeProviderId("cursor")).toBe("cursor-acp");
     expect(toOpencodeProviderId("openrouter")).toBe("openrouter");
     expect(toOpencodeProviderId("mystery")).toBeNull();
@@ -35,11 +35,11 @@ describe("toOpencodeProviderId", () => {
 
 describe("tryGetMonthlyUsd", () => {
   it("resolves longer plan keys first", () => {
-    expect(tryGetMonthlyUsd("claude", "Max 20x")).toBe(200);
-    expect(tryGetMonthlyUsd("claude", "Max")).toBe(100);
+    expect(tryGetMonthlyUsd("anthropic", "Max 20x")).toBe(200);
+    expect(tryGetMonthlyUsd("anthropic", "Max")).toBe(100);
     expect(tryGetMonthlyUsd("cursor", "Pro+")).toBe(60);
     expect(tryGetMonthlyUsd("cursor", "Pro")).toBe(20);
-    expect(tryGetMonthlyUsd("codex", "Free")).toBeNull();
+    expect(tryGetMonthlyUsd("openai-codex", "Free")).toBeNull();
   });
 });
 
@@ -86,7 +86,7 @@ describe("buildEntry", () => {
 
   it("sets limited/maxed thresholds and plan monthly total", () => {
     const entry = buildEntry(
-      "claude",
+      "anthropic",
       snap({
         plan: "Pro",
         windows: [
@@ -107,7 +107,7 @@ describe("buildEntry", () => {
     expect(entry!.planMonthlyUsd).toBe(20);
 
     const maxed = buildEntry(
-      "claude",
+      "anthropic",
       snap({
         windows: [
           {
@@ -127,9 +127,9 @@ describe("buildEntry", () => {
 
   it("keeps error null when last-good windows exist", () => {
     const entry = buildEntry(
-      "codex",
+      "openai-codex",
       snap({
-        providerId: "codex",
+        providerId: "openai-codex",
         windows: [
           {
             id: "codex-primary",
@@ -148,7 +148,7 @@ describe("buildEntry", () => {
   });
 
   it("surfaces error when snapshot is empty", () => {
-    const entry = buildEntry("codex", null, "トークン切れ");
+    const entry = buildEntry("openai-codex", null, "トークン切れ");
     expect(entry!.error).toBe("トークン切れ");
     expect(entry!.usedPercent).toBeNull();
   });
@@ -170,7 +170,7 @@ describe("buildEntry", () => {
       creditsLimit: 100,
     });
     expect(representativePercent(s)).toBe(90);
-    const entry = buildEntry("claude", s, null);
+    const entry = buildEntry("anthropic", s, null);
     expect(entry!.usedPercent).toBe(90);
     expect(entry!.credits).toMatchObject({ used: 90, limit: 100 });
   });
@@ -197,7 +197,7 @@ describe("buildSnapshotFile", () => {
       null,
     )!;
     const b = buildEntry(
-      "claude",
+      "anthropic",
       snap({
         plan: "Team",
         windows: [

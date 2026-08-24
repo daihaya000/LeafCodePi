@@ -181,13 +181,13 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
-  codex: "Codex",
-  claude: "Claude",
+  "openai-codex": "Codex",
+  anthropic: "Claude",
   commandcode: "CommandCode",
   "command-code": "CommandCode",
   cursor: "Cursor",
   "opencode-go": "OpenCode",
-  ollama: "Ollama",
+  "ollama-cloud": "Ollama",
   synthetic: "Synthetic",
   "qwen-cloud": "Qwen Cloud",
   qwen: "Qwen Cloud",

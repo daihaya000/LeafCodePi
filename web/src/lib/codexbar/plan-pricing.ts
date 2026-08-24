@@ -6,22 +6,22 @@
 type Entry = { providerId: string; planKey: string; monthlyUsd: number };
 
 const TABLE: Entry[] = [
-  { providerId: "claude", planKey: "max 20x", monthlyUsd: 200 },
-  { providerId: "claude", planKey: "max20x", monthlyUsd: 200 },
-  { providerId: "claude", planKey: "max_20x", monthlyUsd: 200 },
-  { providerId: "claude", planKey: "max 5x", monthlyUsd: 100 },
-  { providerId: "claude", planKey: "max5x", monthlyUsd: 100 },
-  { providerId: "claude", planKey: "max_5x", monthlyUsd: 100 },
-  { providerId: "claude", planKey: "max", monthlyUsd: 100 },
-  { providerId: "claude", planKey: "team", monthlyUsd: 25 },
-  { providerId: "claude", planKey: "pro", monthlyUsd: 20 },
-  { providerId: "claude", planKey: "free", monthlyUsd: 0 },
+  { providerId: "anthropic", planKey: "max 20x", monthlyUsd: 200 },
+  { providerId: "anthropic", planKey: "max20x", monthlyUsd: 200 },
+  { providerId: "anthropic", planKey: "max_20x", monthlyUsd: 200 },
+  { providerId: "anthropic", planKey: "max 5x", monthlyUsd: 100 },
+  { providerId: "anthropic", planKey: "max5x", monthlyUsd: 100 },
+  { providerId: "anthropic", planKey: "max_5x", monthlyUsd: 100 },
+  { providerId: "anthropic", planKey: "max", monthlyUsd: 100 },
+  { providerId: "anthropic", planKey: "team", monthlyUsd: 25 },
+  { providerId: "anthropic", planKey: "pro", monthlyUsd: 20 },
+  { providerId: "anthropic", planKey: "free", monthlyUsd: 0 },
 
-  { providerId: "codex", planKey: "pro", monthlyUsd: 200 },
-  { providerId: "codex", planKey: "plus", monthlyUsd: 20 },
-  { providerId: "codex", planKey: "team", monthlyUsd: 25 },
-  { providerId: "codex", planKey: "business", monthlyUsd: 25 },
-  { providerId: "codex", planKey: "free", monthlyUsd: 0 },
+  { providerId: "openai-codex", planKey: "pro", monthlyUsd: 200 },
+  { providerId: "openai-codex", planKey: "plus", monthlyUsd: 20 },
+  { providerId: "openai-codex", planKey: "team", monthlyUsd: 25 },
+  { providerId: "openai-codex", planKey: "business", monthlyUsd: 25 },
+  { providerId: "openai-codex", planKey: "free", monthlyUsd: 0 },
 
   { providerId: "cursor", planKey: "ultra", monthlyUsd: 200 },
   { providerId: "cursor", planKey: "pro+", monthlyUsd: 60 },
@@ -45,8 +45,8 @@ const TABLE: Entry[] = [
 
   { providerId: "qwen-cloud", planKey: "standard", monthlyUsd: 20 },
 
-  { providerId: "ollama", planKey: "pro", monthlyUsd: 20 },
-  { providerId: "ollama", planKey: "free", monthlyUsd: 0 },
+  { providerId: "ollama-cloud", planKey: "pro", monthlyUsd: 20 },
+  { providerId: "ollama-cloud", planKey: "free", monthlyUsd: 0 },
 
   { providerId: "synthetic", planKey: "starter", monthlyUsd: 20 },
   { providerId: "synthetic", planKey: "pro", monthlyUsd: 40 },

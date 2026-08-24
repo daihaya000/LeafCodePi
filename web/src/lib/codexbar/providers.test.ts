@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseOpenRouterKeyJson, openrouterProvider } from "./providers/openrouter";
-import { parseClaudeUsageJson } from "./providers/claude";
-import { parseCodexUsageJson } from "./providers/codex";
+import { parseClaudeUsageJson } from "./providers/anthropic";
+import { parseCodexUsageJson } from "./providers/openai-codex";
 import { parseCursorUsageSummary } from "./providers/cursor";
 
 describe("parseOpenRouterKeyJson", () => {

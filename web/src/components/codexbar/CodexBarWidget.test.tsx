@@ -20,7 +20,7 @@ const usage: CodexBarUsage = {
   subscriptionTotalMonthlyUsd: null,
   providers: [
     {
-      id: "codex",
+      id: "openai-codex",
       opencodeId: null,
       plan: null,
       planMonthlyUsd: null,

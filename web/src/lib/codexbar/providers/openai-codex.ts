@@ -203,7 +203,7 @@ function parseUsageBody(root: Record<string, unknown>, auth: CodexAuth): UsageSn
   if (creditsEl) credits = flexibleNumber(creditsEl.balance);
 
   return {
-    providerId: "codex",
+    providerId: "openai-codex",
     providerName: "Codex",
     plan: plan ?? auth.planFromJwt,
     accountEmail: auth.emailFromJwt,
@@ -292,7 +292,7 @@ function tryLoadFromSessionLogs(): UsageSnapshot | null {
           if (!Number.isNaN(t)) updatedAt = new Date(t);
         }
         return {
-          providerId: "codex",
+          providerId: "openai-codex",
           providerName: "Codex",
           plan,
           accountEmail: null,
@@ -338,8 +338,8 @@ async function fetchFromApi(
   return parseUsageBody(root, auth);
 }
 
-export const codexProvider: IUsageProvider = {
-  id: "codex",
+export const openaiCodexProvider: IUsageProvider = {
+  id: "openai-codex",
   name: "Codex",
   isConfigured() {
     return existsSync(authPath());

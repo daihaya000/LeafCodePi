@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attachCodexBarUsage, CODEXBAR_PROVIDER_MAP } from "./map";
+import { attachCodexBarUsage } from "./map";
 import type { CodexBarProvider } from "@/lib/codexbar";
 import type { ModelOption } from "@/lib/types";
 
@@ -26,7 +26,7 @@ function model(providerID: string): ModelOption {
 
 describe("attachCodexBarUsage", () => {
   it("attaches percent / maxed for mapped providers", () => {
-    const providers = [provider("claude", 80), provider("codex", 100, true)];
+    const providers = [provider("anthropic", 80), provider("openai-codex", 100, true)];
     const [claude] = attachCodexBarUsage([model("anthropic")], providers);
     expect(claude.codexbarUsedPercent).toBe(80);
     expect(claude.codexbarMaxed).toBe(false);
@@ -50,18 +50,3 @@ describe("attachCodexBarUsage", () => {
   });
 });
 
-describe("CODEXBAR_PROVIDER_MAP coverage", () => {
-  it("maps every subscription provider and skips local ones", () => {
-    expect(CODEXBAR_PROVIDER_MAP["anthropic"]).toBe("claude");
-    expect(CODEXBAR_PROVIDER_MAP["openai-codex"]).toBe("codex");
-    expect(CODEXBAR_PROVIDER_MAP["cursor"]).toBe("cursor");
-    expect(CODEXBAR_PROVIDER_MAP["ollama-cloud"]).toBe("ollama");
-    expect(CODEXBAR_PROVIDER_MAP["commandcode"]).toBe("commandcode");
-    expect(CODEXBAR_PROVIDER_MAP["qwen-cloud"]).toBe("qwen-cloud");
-    expect(CODEXBAR_PROVIDER_MAP["openrouter"]).toBe("openrouter");
-    expect(CODEXBAR_PROVIDER_MAP["synthetic"]).toBe("synthetic");
-    // Local LLM providers have no rate limits.
-    expect(CODEXBAR_PROVIDER_MAP["llama-server"]).toBeUndefined();
-    expect(CODEXBAR_PROVIDER_MAP["llama.cpp"]).toBeUndefined();
-  });
-});

@@ -33,7 +33,7 @@ beforeEach(async () => {
   await fs.writeFile(
     path.join(appData, "CodexBar", "config.json"),
     JSON.stringify({
-      enabledProviders: ["codex", "claude", "codex"],
+      enabledProviders: ["openai-codex", "anthropic", "openai-codex"],
       syntheticApiKey: "not-returned",
     }),
   );
@@ -79,12 +79,12 @@ describe("CodexBar provider settings API", () => {
     expect(body).toEqual({
       providers: expect.arrayContaining([
         expect.objectContaining({
-          id: "codex",
+          id: "openai-codex",
           name: "Codex",
           enabled: true,
           configurable: true,
         }),
-        expect.objectContaining({ id: "claude", enabled: true }),
+        expect.objectContaining({ id: "anthropic", enabled: true }),
         expect.objectContaining({ id: "synthetic", enabled: false }),
       ]),
       version: expect.any(String),
@@ -101,8 +101,8 @@ describe("CodexBar provider settings API", () => {
     expect(body.version).toBe(versionOf("{}"));
     expect(body.providers).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: "codex", enabled: true }),
-        expect.objectContaining({ id: "claude", enabled: true }),
+        expect.objectContaining({ id: "openai-codex", enabled: true }),
+        expect.objectContaining({ id: "anthropic", enabled: true }),
         expect.objectContaining({ id: "cursor", enabled: true }),
         expect.objectContaining({ id: "synthetic", enabled: false }),
       ]),
@@ -112,7 +112,7 @@ describe("CodexBar provider settings API", () => {
   it("accepts OpenRouter in the native enabledProviders setting", async () => {
     await fs.writeFile(
       path.join(appData, "CodexBar", "config.json"),
-      JSON.stringify({ enabledProviders: ["codex", "openrouter"] }),
+      JSON.stringify({ enabledProviders: ["openai-codex", "openrouter"] }),
     );
 
     const response = await GET();
@@ -135,7 +135,7 @@ describe("CodexBar provider settings API", () => {
     const initial = await responseJson(await GET());
     const updatedResponse = await PUT(
       request({
-        providerId: "claude",
+        providerId: "anthropic",
         enabled: false,
         version: initial.version,
       }),
@@ -145,15 +145,15 @@ describe("CodexBar provider settings API", () => {
     expect(updatedResponse.status).toBe(200);
     expect(updated.providers).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: "codex", enabled: true }),
-        expect.objectContaining({ id: "claude", enabled: false }),
+        expect.objectContaining({ id: "openai-codex", enabled: true }),
+        expect.objectContaining({ id: "anthropic", enabled: false }),
       ]),
     );
     const saved = JSON.parse(
       await fs.readFile(path.join(appData, "CodexBar", "config.json"), "utf8"),
     );
     expect(saved).toEqual({
-      enabledProviders: ["codex"],
+      enabledProviders: ["openai-codex"],
       syntheticApiKey: "not-returned",
     });
 
@@ -184,15 +184,15 @@ describe("CodexBar provider settings API", () => {
     expect(body.providers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: "openrouter", enabled: true }),
-        expect.objectContaining({ id: "codex", enabled: true }),
+        expect.objectContaining({ id: "openai-codex", enabled: true }),
       ]),
     );
     const saved = JSON.parse(
       await fs.readFile(path.join(appData, "CodexBar", "config.json"), "utf8"),
     );
     expect(saved.enabledProviders).toEqual([
-      "codex",
-      "claude",
+      "openai-codex",
+      "anthropic",
       "cursor",
       "openrouter",
     ]);
@@ -215,7 +215,7 @@ describe("CodexBar provider settings API", () => {
       await new Promise((resolve) => setTimeout(resolve, 25));
       await fs.writeFile(
         file,
-        JSON.stringify({ enabledProviders: ["codex", "claude", "synthetic"] }),
+        JSON.stringify({ enabledProviders: ["openai-codex", "anthropic", "synthetic"] }),
       );
     } finally {
       await lock.close();
@@ -239,12 +239,12 @@ describe("CodexBar provider settings API", () => {
 
     await fs.writeFile(
       path.join(appData, "CodexBar", "config.json"),
-      JSON.stringify({ enabledProviders: ["codex"] }),
+      JSON.stringify({ enabledProviders: ["openai-codex"] }),
     );
     const single = await responseJson(await GET());
     const response = await PUT(
       request({
-        providerId: "codex",
+        providerId: "openai-codex",
         enabled: false,
         version: single.version,
       }),
@@ -265,7 +265,7 @@ describe("CodexBar provider settings API", () => {
     const bom = "\ufeff";
     await fs.writeFile(
       file,
-      bom + JSON.stringify({ enabledProviders: ["codex", "claude"] }),
+      bom + JSON.stringify({ enabledProviders: ["openai-codex", "anthropic"] }),
       "utf8",
     );
 
@@ -275,8 +275,8 @@ describe("CodexBar provider settings API", () => {
     expect(response.status).toBe(200);
     expect(body.providers).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: "codex", enabled: true }),
-        expect.objectContaining({ id: "claude", enabled: true }),
+        expect.objectContaining({ id: "openai-codex", enabled: true }),
+        expect.objectContaining({ id: "anthropic", enabled: true }),
         expect.objectContaining({ id: "cursor", enabled: false }),
       ]),
     );

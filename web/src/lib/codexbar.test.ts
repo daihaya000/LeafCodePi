@@ -26,7 +26,7 @@ const SAMPLE = {
   providers: [
     {
       opencodeProviderId: "openai",
-      codexBarProviderId: "codex",
+      codexBarProviderId: "openai-codex",
       usedPercent: 1,
       limited: false,
       maxed: false,
@@ -52,7 +52,7 @@ describe("parseCodexBarSnapshot", () => {
     expect(u.schema).toBe("codexbar.usage-snapshot/v1");
     expect(u.providers).toHaveLength(2);
     expect(u.providers[0]).toMatchObject({
-      id: "codex",
+      id: "openai-codex",
       opencodeId: "openai",
       usedPercent: 1,
       limited: false,
@@ -63,12 +63,12 @@ describe("parseCodexBarSnapshot", () => {
 
   it("derives limited/maxed from usedPercent when flags absent", () => {
     const u = parseCodexBarSnapshot({
-      providers: [{ codexBarProviderId: "claude", usedPercent: 95 }],
+      providers: [{ codexBarProviderId: "anthropic", usedPercent: 95 }],
     });
     expect(u.providers[0].limited).toBe(true);
     expect(u.providers[0].maxed).toBe(false);
     const u2 = parseCodexBarSnapshot({
-      providers: [{ codexBarProviderId: "claude", usedPercent: 99.9 }],
+      providers: [{ codexBarProviderId: "anthropic", usedPercent: 99.9 }],
     });
     expect(u2.providers[0].maxed).toBe(true);
   });
@@ -80,7 +80,7 @@ describe("parseCodexBarSnapshot", () => {
 
   it("captures error and keeps usedPercent null", () => {
     const u = parseCodexBarSnapshot({
-      providers: [{ codexBarProviderId: "ollama", error: "timeout" }],
+      providers: [{ codexBarProviderId: "ollama-cloud", error: "timeout" }],
     });
     expect(u.providers[0].error).toBe("timeout");
     expect(u.providers[0].usedPercent).toBeNull();
@@ -96,8 +96,8 @@ describe("parseCodexBarSnapshot", () => {
   it("parses the plan label and defaults to null", () => {
     const u = parseCodexBarSnapshot({
       providers: [
-        { codexBarProviderId: "claude", usedPercent: 10, plan: "Max" },
-        { codexBarProviderId: "codex", usedPercent: 10 },
+        { codexBarProviderId: "anthropic", usedPercent: 10, plan: "Max" },
+        { codexBarProviderId: "openai-codex", usedPercent: 10 },
         { codexBarProviderId: "cursor", usedPercent: 10, plan: "" },
       ],
     });
@@ -111,7 +111,7 @@ describe("parseCodexBarSnapshot", () => {
       subscriptionTotalMonthlyUsd: 100,
       providers: [
         { codexBarProviderId: "cursor", plan: "Pro", planMonthlyUsd: 20, usedPercent: 10 },
-        { codexBarProviderId: "claude", plan: "Team", planMonthlyUsd: 25, usedPercent: 10 },
+        { codexBarProviderId: "anthropic", plan: "Team", planMonthlyUsd: 25, usedPercent: 10 },
         { codexBarProviderId: "synthetic", plan: null, usedPercent: 0 },
       ],
     });
@@ -124,16 +124,16 @@ describe("parseCodexBarSnapshot", () => {
     const u = parseCodexBarSnapshot({
       providers: [
         { codexBarProviderId: "cursor", planMonthlyUsd: 20 },
-        { codexBarProviderId: "ollama", planMonthlyUsd: 20 },
+        { codexBarProviderId: "ollama-cloud", planMonthlyUsd: 20 },
       ],
     });
     expect(u.subscriptionTotalMonthlyUsd).toBe(40);
   });
 
   it("skips non-object provider entries", () => {
-    const u = parseCodexBarSnapshot({ providers: [null, 3, { codexBarProviderId: "codex" }] });
+    const u = parseCodexBarSnapshot({ providers: [null, 3, { codexBarProviderId: "openai-codex" }] });
     expect(u.providers).toHaveLength(1);
-    expect(u.providers[0].id).toBe("codex");
+    expect(u.providers[0].id).toBe("openai-codex");
   });
 });
 
@@ -142,7 +142,7 @@ describe("parseCodexBarSnapshot windows", () => {
     const u = parseCodexBarSnapshot({
       providers: [
         {
-          codexBarProviderId: "claude",
+          codexBarProviderId: "anthropic",
           usedPercent: 23,
           windows: [
             { id: "claude-5h", title: "5時間", usedPercent: 0, windowMinutes: 300 },
@@ -171,9 +171,9 @@ describe("parseCodexBarSnapshot windows", () => {
   });
 
   it("defaults windows to [] when absent or not an array", () => {
-    expect(parseCodexBarSnapshot({ providers: [{ codexBarProviderId: "codex" }] }).providers[0].windows).toEqual([]);
+    expect(parseCodexBarSnapshot({ providers: [{ codexBarProviderId: "openai-codex" }] }).providers[0].windows).toEqual([]);
     expect(
-      parseCodexBarSnapshot({ providers: [{ codexBarProviderId: "codex", windows: "no" }] }).providers[0].windows,
+      parseCodexBarSnapshot({ providers: [{ codexBarProviderId: "openai-codex", windows: "no" }] }).providers[0].windows,
     ).toEqual([]);
   });
 });
@@ -183,7 +183,7 @@ describe("parseCodexBarSnapshot credits", () => {
     const u = parseCodexBarSnapshot({
       providers: [
         {
-          codexBarProviderId: "claude",
+          codexBarProviderId: "anthropic",
           usedPercent: 10,
           credits: {
             title: "利用クレジット",
@@ -237,7 +237,7 @@ describe("parseCodexBarSnapshot credits", () => {
     const u = parseCodexBarSnapshot({
       providers: [
         {
-          codexBarProviderId: "claude",
+          codexBarProviderId: "anthropic",
           usedPercent: 20,
           credits: { used: 300, limit: 300, balance: 0 },
         },
@@ -259,7 +259,7 @@ describe("parseCodexBarSnapshot credits", () => {
   it("excludes an unbounded OpenRouter key from the overall percentage", () => {
     const u = parseCodexBarSnapshot({
       providers: [
-        { codexBarProviderId: "codex", usedPercent: 50 },
+        { codexBarProviderId: "openai-codex", usedPercent: 50 },
         {
           codexBarProviderId: "openrouter",
           usedPercent: 0,
@@ -375,7 +375,7 @@ describe("emptyUsage", () => {
 
 describe("providerLabel", () => {
   it("maps known ids and title-cases unknown ones", () => {
-    expect(providerLabel("codex")).toBe("Codex");
+    expect(providerLabel("openai-codex")).toBe("Codex");
     expect(providerLabel("opencode-go")).toBe("OpenCode");
     expect(providerLabel("synthetic")).toBe("Synthetic");
     expect(providerLabel("openrouter")).toBe("OpenRouter");
@@ -391,7 +391,7 @@ describe("providerLabel", () => {
 
 describe("providerIconSrc", () => {
   it("maps known providers to bundled icons and null otherwise", () => {
-    expect(providerIconSrc("codex")).toBe("/icons/codex.png");
+    expect(providerIconSrc("openai-codex")).toBe("/icons/codex.png");
     expect(providerIconSrc("commandcode")).toBe("/icons/commandcode.svg");
     expect(providerIconSrc("command-code")).toBe("/icons/commandcode.svg");
     expect(providerIconSrc("opencode-go")).toBe("/icons/opencode.png");
@@ -423,7 +423,7 @@ describe("providerIconSrcForOpencodeId", () => {
     expect(providerIconSrcForOpencodeId("commandcode")).toBe("/icons/commandcode.svg");
     expect(providerIconSrcForOpencodeId("command-code")).toBe("/icons/commandcode.svg");
     expect(providerIconSrcForOpencodeId("cursor")).toBe("/icons/cursor.png");
-    expect(providerIconSrcForOpencodeId("ollama")).toBe("/icons/ollama.png");
+    expect(providerIconSrcForOpencodeId("ollama-cloud")).toBe("/icons/ollama.png");
     expect(providerIconSrcForOpencodeId("ollama-cloud")).toBe("/icons/ollama.png");
     expect(providerIconSrcForOpencodeId("opencode-go")).toBe("/icons/opencode.png");
     expect(providerIconSrcForOpencodeId("synthetic")).toBe("/icons/synthetic.png");

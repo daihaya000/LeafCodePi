@@ -5,7 +5,7 @@ import {
   filterCookiesForDomain,
   parseNetscapeCookieText,
 } from "./netscape-cookies";
-import { parseOllamaHtml } from "./providers/ollama";
+import { parseOllamaHtml } from "./providers/ollama-cloud";
 import { parseOpenCodeGoHtml } from "./providers/opencode-go";
 import {
   buildQwenCloudForm,

@@ -50,15 +50,15 @@ export type SnapshotFile = {
 
 export function toOpencodeProviderId(codexBarProviderId: string): string | null {
   switch (codexBarProviderId) {
-    case "codex":
+    case "openai-codex":
       return "openai";
-    case "claude":
+    case "anthropic":
       return "anthropic";
     case "commandcode":
       return "commandcode";
     case "opencode-go":
       return "opencode-go";
-    case "ollama":
+    case "ollama-cloud":
       return "ollama-cloud";
     case "cursor":
       return "cursor-acp";

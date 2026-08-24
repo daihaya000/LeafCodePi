@@ -13,11 +13,11 @@ import {
 } from "@/lib/codexbar/codexbar-config";
 
 export const PROVIDER_CATALOG = [
-  { id: "codex", name: "Codex" },
-  { id: "claude", name: "Claude" },
+  { id: "openai-codex", name: "Codex" },
+  { id: "anthropic", name: "Claude" },
   { id: "commandcode", name: "Command Code" },
   { id: "opencode-go", name: "OpenCode" },
-  { id: "ollama", name: "Ollama" },
+  { id: "ollama-cloud", name: "Ollama" },
   { id: "cursor", name: "Cursor" },
   { id: "qwen-cloud", name: "Qwen Cloud" },
   { id: "synthetic", name: "Synthetic" },
@@ -31,7 +31,7 @@ export type CatalogProvider = (typeof PROVIDER_CATALOG)[number] & {
   configurable: boolean;
 };
 
-export const DEFAULT_ENABLED: ProviderId[] = ["codex", "claude", "cursor"];
+export const DEFAULT_ENABLED: ProviderId[] = ["openai-codex", "anthropic", "cursor"];
 
 const providerIds = new Set<string>(PROVIDER_CATALOG.map((p) => p.id));
 
