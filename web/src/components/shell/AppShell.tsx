@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { ShellProvider, useShellMobileNav } from "./ShellContext";
@@ -21,7 +22,9 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
             {/* task / 「/」（新規作成タブ）では panes ホストが描画を担う。
                 page 側の内容はモバイル（md未満）でのみ出す（「/」の HomeView 用）。
                 settings では従来どおり page の内容を出す。 */}
-            <TaskPanesHost />
+            <Suspense fallback={null}>
+              <TaskPanesHost />
+            </Suspense>
             <div
               className={cx(
                 "flex min-h-0 min-w-0 flex-1 flex-col",

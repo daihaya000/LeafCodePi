@@ -138,6 +138,10 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   }, [refresh]);
 
   useEffect(() => {
+    if (initialProjectId !== undefined) setProjectId(initialProjectId);
+  }, [initialProjectId]);
+
+  useEffect(() => {
     if (thinkingLevels.includes(thinkingLevel)) return;
     // 現レベルが新モデルに無ければ既定（medium 相当）へ。最高レベルへの
     // 暗黙昇格は Qwen 切替で長ループを招いたためしない。
