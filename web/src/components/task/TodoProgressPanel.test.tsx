@@ -26,4 +26,12 @@ describe("TodoProgressPanel progress color", () => {
     expect(progress.firstElementChild?.classList.contains("bg-success")).toBe(true);
     expect(screen.getByText("100%").classList.contains("text-success")).toBe(true);
   });
+
+  it("defaults to expanded when a ToDo is created", () => {
+    const { rerender } = render(<TodoProgressPanel todos={[]} />);
+    rerender(<TodoProgressPanel todos={todos(["pending"])} />);
+
+    expect(screen.getByRole("button").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("list").textContent).toContain("作業1");
+  });
 });

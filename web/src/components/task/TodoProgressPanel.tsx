@@ -23,7 +23,7 @@ function TodoIcon({ todo }: { todo: TodoDto }) {
 }
 
 export function TodoProgressPanel({ todos }: { todos: TodoDto[] }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   if (todos.length === 0) return null;
 
   const done = todos.filter(isDone).length;
