@@ -1,4 +1,23 @@
 export const GENERATION_MODEL_SETTING_KEY = "generation-model";
+export const GENERATION_MODEL_EFFORT_SETTING_KEY = "generation-model-effort";
+export const GENERATION_MODEL_EFFORTS = [
+  "",
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+export type GenerationModelEffort = (typeof GENERATION_MODEL_EFFORTS)[number];
+
+export function isGenerationModelEffort(value: unknown): value is GenerationModelEffort {
+  return (
+    typeof value === "string" &&
+    (GENERATION_MODEL_EFFORTS as readonly string[]).includes(value)
+  );
+}
 
 const MAX_PROVIDER_ID_CHARS = 100;
 const MAX_MODEL_ID_CHARS = 200;

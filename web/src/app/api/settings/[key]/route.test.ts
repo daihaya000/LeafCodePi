@@ -62,4 +62,22 @@ describe("/api/settings/[key]", () => {
       "anthropic::claude-sonnet",
     );
   });
+
+  it("accepts and persists a generation-model effort", async () => {
+    const response = await PUT(
+      request("generation-model-effort", { value: "high" }),
+      { params: Promise.resolve({ key: "generation-model-effort" }) },
+    );
+    expect(response.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith("generation-model-effort", "high");
+  });
+
+  it("rejects an invalid generation-model effort", async () => {
+    const response = await PUT(
+      request("generation-model-effort", { value: "turbo" }),
+      { params: Promise.resolve({ key: "generation-model-effort" }) },
+    );
+    expect(response.status).toBe(400);
+    expect(settings.setSetting).not.toHaveBeenCalled();
+  });
 });

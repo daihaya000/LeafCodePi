@@ -1,6 +1,9 @@
 import { getTask, patchTask } from "@/lib/store";
 import { getSetting } from "@/lib/pi/web-settings";
-import { GENERATION_MODEL_SETTING_KEY } from "@/lib/generation-model-key";
+import {
+  GENERATION_MODEL_EFFORT_SETTING_KEY,
+  GENERATION_MODEL_SETTING_KEY,
+} from "@/lib/generation-model-key";
 import {
   DirectGenerationError,
   generateDirectText,
@@ -24,11 +27,15 @@ export async function refreshTaskTitleDirect(
   const prompt = formatTranscriptForTitle(conversation);
   if (!prompt) throw new DirectGenerationError("タイトルを生成できる会話がありません", 422);
 
+  const configuredModel = parseDirectModelKey(getSetting(GENERATION_MODEL_SETTING_KEY));
   const model =
-    parseDirectModelKey(getSetting(GENERATION_MODEL_SETTING_KEY)) ??
+    configuredModel ??
     requestedModel ??
     parseDirectModel({ providerID: task.providerID, modelID: task.modelID });
   if (!model) throw new DirectGenerationError("生成モデルが設定されていません", 400);
+  const effort = configuredModel
+    ? getSetting(GENERATION_MODEL_EFFORT_SETTING_KEY) || undefined
+    : undefined;
 
   const title = sanitizeTitle(
     await generateDirectText({
@@ -37,6 +44,7 @@ export async function refreshTaskTitleDirect(
       prompt,
       maxTokens: 80,
       temperature: 0.1,
+      effort,
       timeoutMs: 60_000,
     }),
   );

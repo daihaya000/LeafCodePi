@@ -1,8 +1,13 @@
 import { completeModelText } from "@/lib/pi/harness";
 import {
   DEFAULT_LLAMA_SERVER_BASE,
+  isLlamaOrnithModel,
+  isLlamaQwenReasoningModel,
   LLAMA_SERVER_PROVIDER_ID,
+  rewriteLlamaServerEffortPayload,
 } from "@/lib/pi/llama-provider";
+import { isThinkingLevel } from "@/lib/thinking-levels";
+import type { ThinkingLevel } from "@/lib/types";
 
 const MAX_PROVIDER_ID_CHARS = 100;
 const MAX_MODEL_ID_CHARS = 200;
@@ -60,6 +65,21 @@ function safeProviderId(value: string): string {
   return providerID;
 }
 
+function runtimeReasoningForEffort(
+  effort: string | undefined,
+): Exclude<ThinkingLevel, "off"> | undefined {
+  return isThinkingLevel(effort) && effort !== "off" ? effort : undefined;
+}
+
+function llamaEffortForModel(modelID: string, effort: string | undefined): string | undefined {
+  if (!isThinkingLevel(effort)) return undefined;
+  if (isLlamaOrnithModel(modelID)) {
+    if (effort === "minimal") return "no_think";
+    if (effort === "off") return "none";
+  }
+  return effort === "off" ? "none" : effort;
+}
+
 function safeModelId(value: string): string {
   const modelID = value.trim();
   if (
@@ -95,6 +115,7 @@ export async function generateDirectText(options: {
   prompt: string;
   maxTokens?: number;
   temperature?: number;
+  effort?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
 }): Promise<string> {
@@ -123,17 +144,33 @@ export async function generateDirectText(options: {
     // Pi's runtime owns auth and API adapters for every registered provider. This
     // keeps custom/API/OAuth providers direct without accepting a browser URL.
     if (model.providerID !== LLAMA_SERVER_PROVIDER_ID) {
+      const reasoning = runtimeReasoningForEffort(options.effort);
       const text = await completeModelText({
         ...model,
         system,
         prompt,
         maxTokens: options.maxTokens,
         temperature: options.temperature,
+        ...(reasoning ? { reasoning } : {}),
         signal: controller.signal,
       });
       return text.trim().slice(0, MAX_OUTPUT_CHARS);
     }
 
+    const reasoning =
+      isLlamaOrnithModel(model.modelID) || isLlamaQwenReasoningModel(model.modelID);
+    const effort = reasoning ? llamaEffortForModel(model.modelID, options.effort) : undefined;
+    const payload = {
+      model: model.modelID,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: prompt },
+      ],
+      temperature: Math.min(2, Math.max(0, options.temperature ?? 0.2)),
+      max_tokens: Math.min(1_024, Math.max(1, Math.floor(options.maxTokens ?? 256))),
+      stream: false,
+      ...(effort ? { reasoning_effort: effort } : {}),
+    };
     const response = await fetch(`${DEFAULT_LLAMA_SERVER_BASE}/v1/chat/completions`, {
       method: "POST",
       headers: {
@@ -141,16 +178,14 @@ export async function generateDirectText(options: {
         "Content-Type": "application/json",
         Authorization: "Bearer local",
       },
-      body: JSON.stringify({
-        model: model.modelID,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: prompt },
-        ],
-        temperature: Math.min(2, Math.max(0, options.temperature ?? 0.2)),
-        max_tokens: Math.min(1_024, Math.max(1, Math.floor(options.maxTokens ?? 256))),
-        stream: false,
-      }),
+      body: JSON.stringify(
+        effort
+          ? rewriteLlamaServerEffortPayload(payload, {
+              id: model.modelID,
+              reasoning,
+            })
+          : payload,
+      ),
       signal: controller.signal,
     });
     const body = await response.json().catch(() => null);

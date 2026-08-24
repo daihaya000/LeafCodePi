@@ -71,4 +71,26 @@ describe("/api/projects/[id]/next-task", () => {
       source: "direct",
     });
   });
+
+  it("forwards the configured generation effort", async () => {
+    getSetting.mockImplementation((key: string) => {
+      if (key === "generation-model") return "llama-server::Qwen3.8-27B-Uncensored-GGUF";
+      if (key === "generation-model-effort") return "medium";
+      return null;
+    });
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body)).chat_template_kwargs).toEqual({ reasoning_effort: "medium" });
+      return new Response(JSON.stringify({ choices: [{ message: { content: "次のタスクを作る" } }] }), {
+        status: 200,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(
+      request({}),
+      { params: Promise.resolve({ id: "project-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+  });
 });

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTask } from "@/lib/store";
 import { getSetting } from "@/lib/pi/web-settings";
-import { GENERATION_MODEL_SETTING_KEY } from "@/lib/generation-model-key";
+import {
+  GENERATION_MODEL_EFFORT_SETTING_KEY,
+  GENERATION_MODEL_SETTING_KEY,
+} from "@/lib/generation-model-key";
 import { generateDirectText, parseDirectModel, parseDirectModelKey } from "@/lib/direct-generation";
 import { readSessionConversation } from "@/lib/direct-session";
 import {
@@ -55,11 +58,15 @@ export async function POST(
   if (!prompt) {
     return NextResponse.json({ error: "会話に提案可能な内容がありません" }, { status: 400 });
   }
+  const configuredModel = parseDirectModelKey(getSetting(GENERATION_MODEL_SETTING_KEY));
   const model =
-    parseDirectModelKey(getSetting(GENERATION_MODEL_SETTING_KEY)) ??
+    configuredModel ??
     parseDirectModel(body.model) ??
     parseDirectModel({ providerID: task.providerID, modelID: task.modelID });
   if (!model) return NextResponse.json({ error: "生成モデルが設定されていません" }, { status: 400 });
+  const effort = configuredModel
+    ? getSetting(GENERATION_MODEL_EFFORT_SETTING_KEY) || undefined
+    : undefined;
 
   try {
     const suggestion = normalizeSuggestion(
@@ -69,6 +76,7 @@ export async function POST(
         prompt,
         maxTokens: 180,
         temperature: 0.2,
+        effort,
         timeoutMs: 60_000,
       }),
     );

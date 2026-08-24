@@ -35,6 +35,7 @@ describe("direct-generation", () => {
         system: "system",
         prompt: "prompt",
         maxTokens: 64,
+        effort: "high",
       }),
     ).resolves.toBe("API direct");
     expect(completeModelText).toHaveBeenCalledWith(
@@ -44,6 +45,7 @@ describe("direct-generation", () => {
         system: "system",
         prompt: "prompt",
         maxTokens: 64,
+        reasoning: "high",
         signal: expect.any(AbortSignal),
       }),
     );
@@ -72,6 +74,47 @@ describe("direct-generation", () => {
       }),
     ).resolves.toBe("更新 foo");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves local Qwen defaults unchanged without an effort setting", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.reasoning_effort).toBeUndefined();
+      expect(body.chat_template_kwargs).toBeUndefined();
+      return new Response(JSON.stringify({ choices: [{ message: { content: "更新 foo" } }] }), {
+        status: 200,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      generateDirectText({
+        model: { providerID: "llama-server", modelID: "Qwen3.8-27B-Uncensored-GGUF" },
+        system: "system",
+        prompt: "prompt",
+      }),
+    ).resolves.toBe("更新 foo");
+  });
+
+  it("maps local Qwen effort into the llama-server chat template", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.reasoning_effort).toBeUndefined();
+      expect(body.chat_template_kwargs).toEqual({ reasoning_effort: "medium" });
+      return new Response(JSON.stringify({ choices: [{ message: { content: "更新 foo" } }] }), {
+        status: 200,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      generateDirectText({
+        model: { providerID: "llama-server", modelID: "Qwen3.8-27B-Uncensored-GGUF" },
+        system: "system",
+        prompt: "prompt",
+        effort: "medium",
+      }),
+    ).resolves.toBe("更新 foo");
   });
 
   it("returns a bounded provider error", async () => {

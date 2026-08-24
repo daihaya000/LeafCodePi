@@ -1276,6 +1276,7 @@ export async function completeModelText(options: {
   prompt: string;
   maxTokens?: number;
   temperature?: number;
+  reasoning?: Exclude<ThinkingLevel, "off">;
   signal?: AbortSignal;
 }): Promise<string> {
   const system = options.system.trim();
@@ -1301,6 +1302,7 @@ export async function completeModelText(options: {
       maxRetries: 0,
       maxTokens: Math.min(1_024, Math.max(1, Math.floor(options.maxTokens ?? 256))),
       temperature: Math.min(2, Math.max(0, options.temperature ?? 0.2)),
+      reasoning: options.reasoning,
     },
   );
   if (response.stopReason === "error" || response.stopReason === "aborted") {
