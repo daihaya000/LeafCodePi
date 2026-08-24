@@ -10,6 +10,8 @@ import { codexBarConfigDir } from "@/lib/codexbar/netscape-cookies";
 export type CodexBarConfig = Record<string, unknown> & {
   /** Which native providers CodexBar should fetch/display. */
   enabledProviders?: string[];
+  /** Display/fetch order for native providers. */
+  providerOrder?: string[];
   openCodeGoWorkspaceId?: string | null;
   qwenCloudApiKey?: string | null;
   qwenCloudRegion?: string | null;

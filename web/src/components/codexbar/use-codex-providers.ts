@@ -31,6 +31,7 @@ export function useCodexProviders({
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsStatus, setSettingsStatus] = useState<string | null>(null);
   const [savingProviderId, setSavingProviderId] = useState<string | null>(null);
+  const [savingProviderOrder, setSavingProviderOrder] = useState(false);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -97,6 +98,55 @@ export function useCodexProviders({
     [providerSettings, refresh],
   );
 
+  const reorderProviderSettings = useCallback(
+    async (providerOrder: string[]) => {
+      if (!providerSettings) return;
+      const currentIds = providerSettings.providers.map((provider) => provider.id);
+      if (
+        providerOrder.length !== currentIds.length ||
+        new Set(providerOrder).size !== currentIds.length ||
+        providerOrder.some((id) => !currentIds.includes(id))
+      ) {
+        setSettingsError("プロバイダー順序が不正です");
+        return;
+      }
+
+      const byId = new Map(
+        providerSettings.providers.map((provider) => [provider.id, provider]),
+      );
+      setProviderSettings((current) =>
+        current
+          ? {
+              ...current,
+              providers: providerOrder.map((id) => byId.get(id)!),
+            }
+          : current,
+      );
+      setSavingProviderOrder(true);
+      try {
+        const updated = await sendJson<ProviderSettings>(
+          "/api/codexbar/providers",
+          { providerOrder, version: providerSettings.version },
+          "PUT",
+        );
+        if (!mounted.current) return;
+        setProviderSettings(updated);
+        setSettingsError(null);
+        setSettingsStatus("プロバイダー順序を保存しました");
+        void refresh(true);
+      } catch (err) {
+        if (!mounted.current) return;
+        setSettingsError(
+          err instanceof Error ? err.message : "設定の保存に失敗しました",
+        );
+        void loadProviderSettings();
+      } finally {
+        if (mounted.current) setSavingProviderOrder(false);
+      }
+    },
+    [loadProviderSettings, providerSettings, refresh],
+  );
+
   const toggleProviderSettings = useCallback(() => {
     setSettingsOpen((open) => {
       const next = !open;
@@ -114,8 +164,10 @@ export function useCodexProviders({
     settingsError,
     settingsStatus,
     savingProviderId,
+    savingProviderOrder,
     toggleProviderSettings,
     toggleProviderEnabled,
+    reorderProviderSettings,
     loadProviderSettings,
   };
 }

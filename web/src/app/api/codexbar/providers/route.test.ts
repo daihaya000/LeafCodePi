@@ -68,6 +68,21 @@ describe("parseEnabledProviders / resolveEnabledProviderIds", () => {
     );
     expect(resolveEnabledProviderIds()).toEqual(DEFAULT_ENABLED);
   });
+
+  it("resolves enabled providers in the configured order", async () => {
+    await fs.writeFile(
+      path.join(appData, "CodexBar", "config.json"),
+      JSON.stringify({
+        enabledProviders: ["openai-codex", "anthropic", "cursor"],
+        providerOrder: ["cursor", "anthropic", "openai-codex"],
+      }),
+    );
+    expect(resolveEnabledProviderIds()).toEqual([
+      "cursor",
+      "anthropic",
+      "openai-codex",
+    ]);
+  });
 });
 
 describe("CodexBar provider settings API", () => {
@@ -107,6 +122,41 @@ describe("CodexBar provider settings API", () => {
         expect.objectContaining({ id: "synthetic", enabled: false }),
       ]),
     );
+  });
+
+  it("preserves provider order in the catalog and config", async () => {
+    const initial = await responseJson(await GET());
+    const providerOrder = [
+      "cursor",
+      "openrouter",
+      "synthetic",
+      "qwen-cloud",
+      "ollama-cloud",
+      "opencode-go",
+      "commandcode",
+      "anthropic",
+      "openai-codex",
+    ];
+
+    const response = await PUT(
+      request({ providerOrder, version: initial.version }),
+    );
+    const body = await responseJson(response);
+
+    expect(response.status).toBe(200);
+    expect(
+      (body.providers as Array<{ id: string }>).map((provider) => provider.id),
+    ).toEqual(providerOrder);
+    const saved = JSON.parse(
+      await fs.readFile(path.join(appData, "CodexBar", "config.json"), "utf8"),
+    );
+    expect(saved.providerOrder).toEqual(providerOrder);
+    expect(saved.enabledProviders).toEqual(["openai-codex", "anthropic"]);
+
+    const reloaded = await responseJson(await GET());
+    expect(
+      (reloaded.providers as Array<{ id: string }>).map((provider) => provider.id),
+    ).toEqual(providerOrder);
   });
 
   it("accepts OpenRouter in the native enabledProviders setting", async () => {
@@ -232,6 +282,14 @@ describe("CodexBar provider settings API", () => {
         request({
           providerId: "unknown",
           enabled: true,
+          version: initial.version,
+        }),
+      ),
+    ).toMatchObject({ status: 400 });
+    expect(
+      await PUT(
+        request({
+          providerOrder: ["openai-codex"],
           version: initial.version,
         }),
       ),

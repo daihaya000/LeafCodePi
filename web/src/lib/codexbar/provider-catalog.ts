@@ -26,6 +26,10 @@ export const PROVIDER_CATALOG = [
 
 export type ProviderId = (typeof PROVIDER_CATALOG)[number]["id"];
 
+export const DEFAULT_PROVIDER_ORDER: ProviderId[] = PROVIDER_CATALOG.map(
+  (provider) => provider.id,
+);
+
 export type CatalogProvider = (typeof PROVIDER_CATALOG)[number] & {
   enabled: boolean;
   configurable: boolean;
@@ -59,34 +63,61 @@ export function parseEnabledProviders(
   return [...new Set(raw)] as ProviderId[];
 }
 
+function completeProviderOrder(order: readonly ProviderId[]): ProviderId[] {
+  const seen = new Set<ProviderId>();
+  const result: ProviderId[] = [];
+  for (const id of [...order, ...DEFAULT_PROVIDER_ORDER]) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+}
+
+export function parseProviderOrder(
+  config: Record<string, unknown>,
+  enabled: readonly ProviderId[] = parseEnabledProviders(config),
+): ProviderId[] {
+  const raw = config.providerOrder;
+  if (raw === undefined) return completeProviderOrder(enabled);
+  if (
+    !Array.isArray(raw) ||
+    raw.some((id) => typeof id !== "string" || !providerIds.has(id))
+  ) {
+    throw new ProviderConfigError("CodexBar のプロバイダー順序が不正です");
+  }
+  return completeProviderOrder(raw as ProviderId[]);
+}
+
 /**
- * Soft resolve for native fetch / snapshot filter.
- * Missing file → defaults. Invalid enabledProviders → defaults (do not break usage).
+ * Soft resolve for native fetch.
+ * Missing file → defaults. Invalid provider settings → defaults (do not break usage).
  */
 export function resolveEnabledProviderIds(): ProviderId[] {
   const path = codexBarConfigPath();
   if (!existsSync(path)) return [...DEFAULT_ENABLED];
   try {
     const config = loadCodexBarConfig();
-    return parseEnabledProviders(config);
+    const enabled = parseEnabledProviders(config);
+    const order = parseProviderOrder(config, enabled);
+    const active = new Set(enabled);
+    return order.filter((id) => active.has(id));
   } catch {
     return [...DEFAULT_ENABLED];
   }
 }
 
-export function catalog(enabled: readonly ProviderId[]): CatalogProvider[] {
+export function catalog(
+  enabled: readonly ProviderId[],
+  order: readonly ProviderId[] = DEFAULT_PROVIDER_ORDER,
+): CatalogProvider[] {
   const active = new Set(enabled);
-  return PROVIDER_CATALOG.map((provider) => ({
-    ...provider,
-    enabled: active.has(provider.id),
+  const byId = new Map(PROVIDER_CATALOG.map((provider) => [provider.id, provider]));
+  return completeProviderOrder(order).map((id) => ({
+    ...byId.get(id)!,
+    enabled: active.has(id),
     configurable: true,
   }));
-}
-
-/** Catalog order, filtered to the enabled set (deduped). */
-export function orderEnabledProviders(enabled: Iterable<string>): ProviderId[] {
-  const active = new Set(enabled);
-  return PROVIDER_CATALOG.map((p) => p.id).filter((id) => active.has(id));
 }
 
 export function isKnownProviderId(id: string): id is ProviderId {
@@ -103,6 +134,7 @@ export type ReadConfigResult = {
   text: string;
   config: ConfigFile;
   enabled: ProviderId[];
+  order: ProviderId[];
   /** True when config.json was absent; version is hash of "{}". */
   missing: boolean;
 };
@@ -135,6 +167,7 @@ export async function readProviderConfig(): Promise<ReadConfigResult> {
         text: MISSING_CONFIG_TEXT,
         config: {},
         enabled: [...DEFAULT_ENABLED],
+        order: [...DEFAULT_PROVIDER_ORDER],
         missing: true,
       };
     }
@@ -155,6 +188,7 @@ export async function readProviderConfig(): Promise<ReadConfigResult> {
     text,
     config: value,
     enabled: parseEnabledProviders(value),
+    order: parseProviderOrder(value),
     missing: false,
   };
 }
@@ -162,4 +196,5 @@ export async function readProviderConfig(): Promise<ReadConfigResult> {
 /** Patch type for documentation; config may hold more keys. */
 export type CodexBarConfigWithProviders = CodexBarConfig & {
   enabledProviders?: ProviderId[];
+  providerOrder?: ProviderId[];
 };

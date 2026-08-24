@@ -7,7 +7,7 @@ import { codexBarConfigPath } from "@/lib/codexbar/codexbar-config";
 import {
   catalog,
   isKnownProviderId,
-  orderEnabledProviders,
+  PROVIDER_CATALOG,
   ProviderConfigError,
   readProviderConfig,
   versionOf,
@@ -63,14 +63,36 @@ function safeError(error: unknown, status = 503): Response {
   return json({ error: message }, status);
 }
 
-function isUpdateRequest(value: unknown): value is {
-  providerId: ProviderId;
-  enabled: boolean;
-  version: string;
-} {
+type UpdateRequest =
+  | {
+      providerId: ProviderId;
+      enabled: boolean;
+      version: string;
+    }
+  | {
+      providerOrder: ProviderId[];
+      version: string;
+    };
+
+function isUpdateRequest(value: unknown): value is UpdateRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
   const keys = Object.keys(body);
+  if (typeof body.version !== "string") return false;
+
+  if (
+    keys.length === 2 &&
+    keys.every((key) => key === "providerOrder" || key === "version") &&
+    Array.isArray(body.providerOrder)
+  ) {
+    const order = body.providerOrder;
+    return (
+      order.length === PROVIDER_CATALOG.length &&
+      new Set(order).size === order.length &&
+      order.every((id) => typeof id === "string" && isKnownProviderId(id))
+    );
+  }
+
   return (
     keys.length === 3 &&
     keys.every(
@@ -78,8 +100,7 @@ function isUpdateRequest(value: unknown): value is {
     ) &&
     typeof body.providerId === "string" &&
     isKnownProviderId(body.providerId) &&
-    typeof body.enabled === "boolean" &&
-    typeof body.version === "string"
+    typeof body.enabled === "boolean"
   );
 }
 
@@ -103,7 +124,7 @@ export async function GET() {
   try {
     const current = await readProviderConfig();
     return json({
-      providers: catalog(current.enabled),
+      providers: catalog(current.enabled, current.order),
       version: versionOf(current.text),
     });
   } catch (error) {
@@ -112,7 +133,7 @@ export async function GET() {
 }
 
 /**
- * Update only enabledProviders. Preserves every other config key.
+ * Update provider enablement or order. Preserves every other config key.
  * Missing config.json is treated as "{}" so the first PUT can succeed.
  */
 export async function PUT(request: Request) {
@@ -124,7 +145,7 @@ export async function PUT(request: Request) {
   }
   if (!isUpdateRequest(body)) {
     return json(
-      { error: "providerId、enabled、version を指定してください" },
+      { error: "providerId、enabled または providerOrder と version を指定してください" },
       400,
     );
   }
@@ -140,6 +161,21 @@ export async function PUT(request: Request) {
       );
     }
 
+    if ("providerOrder" in body) {
+      const updated = {
+        ...current.config,
+        enabledProviders: current.enabled,
+        providerOrder: body.providerOrder,
+      };
+      await writeConfig(updated);
+      clearCachedUsage();
+      const text = `${JSON.stringify(updated, null, 2)}\n`;
+      return json({
+        providers: catalog(current.enabled, body.providerOrder),
+        version: versionOf(text),
+      });
+    }
+
     const next = new Set(current.enabled);
     if (body.enabled) next.add(body.providerId);
     else next.delete(body.providerId);
@@ -150,13 +186,22 @@ export async function PUT(request: Request) {
       );
     }
 
-    const enabled = orderEnabledProviders(next);
-    const updated = { ...current.config, enabledProviders: enabled };
+    const enabled = current.order.filter((id) => next.has(id));
+    const updated: Record<string, unknown> = {
+      ...current.config,
+      enabledProviders: enabled,
+    };
+    if (current.config.providerOrder !== undefined) {
+      updated.providerOrder = current.order;
+    }
     await writeConfig(updated);
     clearCachedUsage();
     clearProviderCache();
     const text = `${JSON.stringify(updated, null, 2)}\n`;
-    return json({ providers: catalog(enabled), version: versionOf(text) });
+    return json({
+      providers: catalog(enabled, current.order),
+      version: versionOf(text),
+    });
   } catch (error) {
     return safeError(error);
   } finally {

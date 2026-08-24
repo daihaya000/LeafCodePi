@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Activity,
   AlertTriangle,
+  GripVertical,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -110,6 +111,14 @@ function saveProviderCollapsed(map: Record<string, boolean>) {
   }
 }
 
+function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
+  if (from < 0 || to < 0 || from === to) return [...items];
+  const next = [...items];
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
+  return next;
+}
+
 function OverallRow({
   percent,
   subscriptionTotalMonthlyUsd,
@@ -183,21 +192,82 @@ function ProviderSettingsRow({
   provider,
   saving,
   isLastEnabled,
+  isFirst,
+  isLast,
+  dragging,
   onToggle,
+  onMoveUp,
+  onMoveDown,
+  onDragStart,
+  onDrop,
+  onDragEnd,
 }: {
   provider: ConfigProvider;
   saving: boolean;
   isLastEnabled: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+  dragging: boolean;
   onToggle: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onDragStart: () => void;
+  onDrop: () => void;
+  onDragEnd: () => void;
 }) {
   const disabled =
     saving || !provider.configurable || (provider.enabled && isLastEnabled);
   return (
-    <li className="flex items-center gap-2 border-b border-border py-2 last:border-b-0">
+    <li
+      draggable={!saving}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "move";
+        onDragStart();
+      }}
+      onDragOver={(event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDrop();
+      }}
+      onDragEnd={onDragEnd}
+      className={cx(
+        "flex items-center gap-2 border-b border-border py-2 last:border-b-0",
+        dragging && "opacity-50",
+      )}
+    >
+      <GripVertical
+        aria-label={`${provider.name} をドラッグして並び替え`}
+        className="h-4 w-4 shrink-0 cursor-grab text-muted active:cursor-grabbing"
+      />
       <SettingsProviderIcon id={provider.id} />
       <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
         {provider.name}
       </span>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <button
+          type="button"
+          onClick={onMoveUp}
+          disabled={saving || isFirst}
+          aria-label={`${provider.name} を上へ移動`}
+          title={`${provider.name} を上へ移動`}
+          className="h-5 w-5 rounded p-0.5 text-faint hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <ChevronUp className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={onMoveDown}
+          disabled={saving || isLast}
+          aria-label={`${provider.name} を下へ移動`}
+          title={`${provider.name} を下へ移動`}
+          className="h-5 w-5 rounded p-0.5 text-faint hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+        </button>
+      </div>
       <button
         type="button"
         role="switch"
@@ -417,6 +487,7 @@ export function CodexBarWidget({
   });
   const [twoColumn, setTwoColumn] = useState(true);
   const [providerCollapsed, setProviderCollapsed] = useState<Record<string, boolean>>({});
+  const [draggingProviderId, setDraggingProviderId] = useState<string | null>(null);
   const {
     settingsOpen,
     providerSettings,
@@ -424,8 +495,10 @@ export function CodexBarWidget({
     settingsError,
     settingsStatus,
     savingProviderId,
+    savingProviderOrder,
     toggleProviderSettings,
     toggleProviderEnabled,
+    reorderProviderSettings,
     loadProviderSettings,
   } = useCodexProviders({ refresh });
 
@@ -478,6 +551,38 @@ export function CodexBarWidget({
       return next;
     });
   }, []);
+
+  const moveProviderTo = useCallback(
+    (providerId: string, targetIndex: number) => {
+      if (!providerSettings || savingProviderOrder) return;
+      const fromIndex = providerSettings.providers.findIndex(
+        (provider) => provider.id === providerId,
+      );
+      if (
+        fromIndex < 0 ||
+        targetIndex < 0 ||
+        targetIndex >= providerSettings.providers.length ||
+        fromIndex === targetIndex
+      ) {
+        return;
+      }
+      const next = moveItem(providerSettings.providers, fromIndex, targetIndex);
+      void reorderProviderSettings(next.map((provider) => provider.id));
+    },
+    [providerSettings, reorderProviderSettings, savingProviderOrder],
+  );
+
+  const moveDraggedProvider = useCallback(
+    (targetId: string) => {
+      if (!draggingProviderId || !providerSettings || savingProviderOrder) return;
+      const targetIndex = providerSettings.providers.findIndex(
+        (provider) => provider.id === targetId,
+      );
+      moveProviderTo(draggingProviderId, targetIndex);
+      setDraggingProviderId(null);
+    },
+    [draggingProviderId, moveProviderTo, providerSettings, savingProviderOrder],
+  );
 
   const worst = usage ? worstProvider(usage) : null;
   const summaryTone: UsageTone = worst ? usageTone(worst) : "ok";
@@ -585,18 +690,20 @@ export function CodexBarWidget({
         <section
           id="codexbar-provider-settings"
           aria-label="更新するプロバイダー"
-          aria-busy={settingsLoading || savingProviderId !== null}
+          aria-busy={settingsLoading || savingProviderId !== null || savingProviderOrder}
           className="shrink-0 border-b border-border px-3 py-2"
         >
           <p className="mb-1 min-w-0 text-[10px] font-medium text-muted">
-            更新するプロバイダー
+            更新するプロバイダー（ドラッグまたは矢印で並び替え）
           </p>
           <div role="status" aria-live="polite" className="sr-only">
             {settingsLoading
               ? "読み込み中…"
-              : savingProviderId !== null
-                ? "保存中…"
-                : settingsStatus}
+              : savingProviderOrder
+                ? "並び替えを保存中…"
+                : savingProviderId !== null
+                  ? "保存中…"
+                  : settingsStatus}
           </div>
           {settingsLoading && (
             <p className="text-[11px] text-muted">読み込み中…</p>
@@ -618,17 +725,25 @@ export function CodexBarWidget({
           )}
           {providerSettings && (
             <ul>
-              {providerSettings.providers.map((provider) => (
+              {providerSettings.providers.map((provider, index) => (
                 <ProviderSettingsRow
                   key={provider.id}
                   provider={provider}
-                  saving={savingProviderId === provider.id}
+                  saving={savingProviderOrder || savingProviderId === provider.id}
                   isLastEnabled={
                     provider.enabled &&
                     providerSettings.providers.filter((item) => item.enabled)
                       .length === 1
                   }
+                  isFirst={index === 0}
+                  isLast={index === providerSettings.providers.length - 1}
+                  dragging={draggingProviderId === provider.id}
                   onToggle={() => void toggleProviderEnabled(provider)}
+                  onMoveUp={() => moveProviderTo(provider.id, index - 1)}
+                  onMoveDown={() => moveProviderTo(provider.id, index + 1)}
+                  onDragStart={() => setDraggingProviderId(provider.id)}
+                  onDrop={() => moveDraggedProvider(provider.id)}
+                  onDragEnd={() => setDraggingProviderId(null)}
                 />
               ))}
             </ul>

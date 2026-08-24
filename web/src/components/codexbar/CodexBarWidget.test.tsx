@@ -53,8 +53,10 @@ describe("CodexBarWidget", () => {
       settingsError: null,
       settingsStatus: null,
       savingProviderId: null,
+      savingProviderOrder: false,
       toggleProviderSettings: vi.fn(),
       toggleProviderEnabled: vi.fn(),
+      reorderProviderSettings: vi.fn(),
       loadProviderSettings: vi.fn(),
     });
   });

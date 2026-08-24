@@ -162,9 +162,14 @@ async function fetchNativeUsageUncached(
   options: FetchUsageOptions,
 ): Promise<CodexBarUsage> {
   const { forceRefresh = false, signal } = options;
-  const enabledIds = new Set<string>(resolveEnabledProviderIds());
+  const enabledIds = resolveEnabledProviderIds();
 
-  const providers = NATIVE_PROVIDERS.filter((p) => enabledIds.has(p.id));
+  const providers = enabledIds
+    .map((id) => NATIVE_PROVIDERS.find((provider) => provider.id === id))
+    .filter(
+      (provider): provider is (typeof NATIVE_PROVIDERS)[number] =>
+        provider !== undefined,
+    );
   const results = await Promise.all(
     providers.map((p) => fetchOne(p, forceRefresh, signal)),
   );
