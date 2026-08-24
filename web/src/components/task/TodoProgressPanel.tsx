@@ -50,10 +50,10 @@ export function TodoProgressPanel({ todos }: { todos: TodoDto[] }) {
           <Loader2 className="h-4 w-4 shrink-0 animate-spin text-working" aria-hidden="true" />
         )}
         <span className="min-w-0 flex-1 truncate text-left">{headline}</span>
-        <span className="shrink-0 text-xs tabular-nums">ToDo {done}/{todos.length}</span>
         <span className={cx("shrink-0 text-xs tabular-nums", complete ? "text-success" : "text-working")}>
           {percent}%
         </span>
+        <span className="shrink-0 text-xs tabular-nums">ToDo {done}/{todos.length}</span>
         <ChevronRight
           className={cx("h-3.5 w-3.5 shrink-0 text-faint transition-transform", expanded && "rotate-90")}
           aria-hidden="true"
