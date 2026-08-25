@@ -11,6 +11,7 @@ import {
   extractDirectText,
   generateDirectText,
   generateDirectTextWithFallback,
+  generateDirectTextWithFallbackResult,
 } from "./direct-generation";
 
 describe("direct-generation", () => {
@@ -189,7 +190,7 @@ describe("direct-generation", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      generateDirectTextWithFallback({
+      generateDirectTextWithFallbackResult({
         candidates: [
           { model: { providerID: "llama-server", modelID: "primary" }, effort: "low" },
           { model: { providerID: "llama-server", modelID: "Qwen3.8-27B-Uncensored-GGUF" }, effort: "medium" },
@@ -197,7 +198,10 @@ describe("direct-generation", () => {
         system: "system",
         prompt: "prompt",
       }),
-    ).resolves.toBe("fallback result");
+    ).resolves.toEqual({
+      text: "fallback result",
+      model: { providerID: "llama-server", modelID: "Qwen3.8-27B-Uncensored-GGUF" },
+    });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

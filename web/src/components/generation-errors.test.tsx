@@ -56,6 +56,44 @@ describe("generation error details", () => {
     expect((await screen.findByRole("alert")).textContent).toContain(providerError);
   });
 
+  it("shows the model used for small suggestions", async () => {
+    mocks.sendJson.mockResolvedValue({
+      suggestion: "テストを追加する",
+      suggestions: ["テストを追加する"],
+      model: { providerID: "opencode-go", modelID: "mimo-v2.5" },
+    });
+    render(
+      <NextAction
+        taskId="task-1"
+        sessionId="session-1"
+        onApply={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "次の指示を提案" }));
+
+    expect(await screen.findByText("mimo-v2.5")).toBeTruthy();
+    expect(screen.getByText("生成モデル:")).toBeTruthy();
+  });
+
+  it("shows the model used for the next-task suggestion", async () => {
+    mocks.sendJson.mockResolvedValue({
+      suggestion: "テストを追加する",
+      suggestions: ["テストを追加する"],
+      model: { providerID: "opencode-go", modelID: "mimo-v2.5" },
+    });
+    render(
+      <NextTaskSuggest
+        projectId="project-1"
+        onApply={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "次のタスクを提案" }));
+
+    expect(await screen.findByText("mimo-v2.5")).toBeTruthy();
+  });
+
   it("shows when commit-message generation used its deterministic fallback", async () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/diff/files") {

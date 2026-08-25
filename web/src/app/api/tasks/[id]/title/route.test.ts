@@ -55,7 +55,10 @@ describe("/api/tasks/[id]/title", () => {
 
     expect(response.status).toBe(200);
     expect(patchTask).toHaveBeenCalledWith("task-1", { title: "ログイン修正" });
-    expect(await response.json()).toMatchObject({ title: "ログイン修正" });
+    expect(await response.json()).toMatchObject({
+      title: "ログイン修正",
+      model: { providerID: "llama-server", modelID: "local-model" },
+    });
   });
 
   it("forwards the configured generation effort", async () => {
@@ -101,6 +104,9 @@ describe("/api/tasks/[id]/title", () => {
 
     expect(response.status).toBe(200);
     expect(patchTask).toHaveBeenCalledWith("task-1", { title: "フォールバックタイトル" });
+    expect(await response.json()).toMatchObject({
+      model: { providerID: "llama-server", modelID: "Qwen3.8-27B-Uncensored-GGUF" },
+    });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

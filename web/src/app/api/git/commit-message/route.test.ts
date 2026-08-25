@@ -57,7 +57,11 @@ describe("/api/git/commit-message", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ message: "追加 app.ts", source: "direct" });
+    expect(await response.json()).toEqual({
+      message: "追加 app.ts",
+      source: "direct",
+      model: { providerID: "llama-server", modelID: "local-model" },
+    });
   });
 
   it("uses the persisted generation model and effort", async () => {
@@ -71,7 +75,11 @@ describe("/api/git/commit-message", () => {
     const response = await POST(request({ directory: "C:\\repo", files: [file] }));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ message: "変更内容を明確化", source: "direct" });
+    expect(await response.json()).toEqual({
+      message: "変更内容を明確化",
+      source: "direct",
+      model: { providerID: "openrouter", modelID: "stealth/ox-alpha" },
+    });
     expect(mocks.completeModelText).toHaveBeenCalledWith(
       expect.objectContaining({
         providerID: "openrouter",
@@ -96,6 +104,7 @@ describe("/api/git/commit-message", () => {
     expect(await response.json()).toEqual({
       message: "更新 app.ts",
       source: "fallback",
+      model: null,
       warning:
         "AI生成に失敗したため、ファイル情報から生成しました: 直接生成に失敗しました: 429: temporarily rate-limited",
     });
@@ -116,7 +125,11 @@ describe("/api/git/commit-message", () => {
     const response = await POST(request({ directory: "C:\\repo", files: [file] }));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ message: "フォールバックでコミット", source: "direct" });
+    expect(await response.json()).toEqual({
+      message: "フォールバックでコミット",
+      source: "direct",
+      model: { providerID: "ollama-cloud", modelID: "fallback" },
+    });
     expect(mocks.completeModelText).toHaveBeenCalledTimes(2);
     expect(mocks.completeModelText).toHaveBeenLastCalledWith(
       expect.objectContaining({

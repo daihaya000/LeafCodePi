@@ -28,8 +28,29 @@ export type RepoSnapshot = {
   recentTasks: string[];
 };
 
+export type DirectGenerationModel = {
+  providerID: string;
+  modelID: string;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function parseDirectGenerationModel(value: unknown): DirectGenerationModel | undefined {
+  if (!isRecord(value)) return undefined;
+  const providerID = typeof value.providerID === "string" ? value.providerID.trim() : "";
+  const modelID = typeof value.modelID === "string" ? value.modelID.trim() : "";
+  return providerID && modelID ? { providerID, modelID } : undefined;
+}
+
+export function directGenerationModelKey(model: DirectGenerationModel): string {
+  return `${model.providerID}::${model.modelID}`;
+}
+
+export function parseDirectGenerationModelResponse(value: unknown): DirectGenerationModel | undefined {
+  if (!isRecord(value)) return undefined;
+  return parseDirectGenerationModel(value.model);
 }
 
 function textFromContent(value: unknown): string {

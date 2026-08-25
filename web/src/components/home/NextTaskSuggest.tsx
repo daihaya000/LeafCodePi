@@ -5,14 +5,17 @@ import { ArrowDownToLine, RefreshCw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui";
 import { sendJson } from "@/lib/client";
 import {
+  directGenerationModelKey,
+  parseDirectGenerationModelResponse,
   parseSuggestions,
   PREVIOUS_SUGGESTIONS_MAX_COUNT,
+  type DirectGenerationModel,
 } from "@/lib/direct-generation-text";
 
 type State =
   | { kind: "idle" }
   | { kind: "loading" }
-  | { kind: "success"; suggestion: string }
+  | { kind: "success"; suggestion: string; model?: DirectGenerationModel }
   | { kind: "error"; message: string };
 
 export function NextTaskSuggest({
@@ -69,10 +72,11 @@ export function NextTaskSuggest({
         { timeoutMs: 180_000 },
       );
       const suggestion = parseSuggestions(response)[0];
+      const generatedModel = parseDirectGenerationModelResponse(response);
       if (!suggestion) throw new Error("提案の応答が空です");
       if (!mountedRef.current || generation !== generationRef.current) return;
       setPrevious((current) => [...current, suggestion].filter((item, index, all) => all.indexOf(item) === index).slice(-PREVIOUS_SUGGESTIONS_MAX_COUNT));
-      setState({ kind: "success", suggestion });
+      setState({ kind: "success", suggestion, model: generatedModel });
     } catch (error) {
       if (!mountedRef.current || generation !== generationRef.current) return;
       setState({
@@ -117,7 +121,17 @@ export function NextTaskSuggest({
           title="この提案をコンポーザーに反映"
         >
           <ArrowDownToLine className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
-          <span className="min-w-0 flex-1 break-words">{state.suggestion}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block break-words">{state.suggestion}</span>
+            {state.model && (
+              <span
+                className="mt-1 block truncate text-xs text-muted"
+                title={`生成モデル: ${directGenerationModelKey(state.model)}`}
+              >
+                生成モデル: <span className="font-mono">{state.model.modelID}</span>
+              </span>
+            )}
+          </span>
           <span className="shrink-0 text-[11px] text-muted">{applied ? "反映済み" : "入力欄に反映"}</span>
         </button>
       )}

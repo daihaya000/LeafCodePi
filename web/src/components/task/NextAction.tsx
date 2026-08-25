@@ -5,14 +5,17 @@ import { ArrowDownToLine, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui";
 import { sendJson } from "@/lib/client";
 import {
+  directGenerationModelKey,
+  parseDirectGenerationModelResponse,
   parseSuggestions,
   PREVIOUS_SUGGESTIONS_MAX_COUNT,
+  type DirectGenerationModel,
 } from "@/lib/direct-generation-text";
 
 type State =
   | { kind: "idle" }
   | { kind: "loading" }
-  | { kind: "success"; suggestions: string[] }
+  | { kind: "success"; suggestions: string[]; model?: DirectGenerationModel }
   | { kind: "error"; message: string };
 
 export function NextAction({
@@ -75,13 +78,14 @@ export function NextAction({
       if (previous.length > 0) body.previousSuggestions = previous;
       const response = await sendJson<unknown>(`/api/tasks/${taskId}/next-action`, body);
       const suggestions = parseSuggestions(response);
+      const generatedModel = parseDirectGenerationModelResponse(response);
       if (suggestions.length === 0) throw new Error("提案の応答が空です");
       if (!mountedRef.current || generation !== generationRef.current) return;
       setPrevious((current) => {
         const next = [...current, ...suggestions.filter((item) => !current.includes(item))];
         return next.slice(-PREVIOUS_SUGGESTIONS_MAX_COUNT);
       });
-      setState({ kind: "success", suggestions });
+      setState({ kind: "success", suggestions, model: generatedModel });
     } catch (error) {
       if (!mountedRef.current || generation !== generationRef.current) return;
       setState({
@@ -115,6 +119,15 @@ export function NextAction({
       )}
       {state.kind === "success" && (
         <div className="flex flex-col gap-2" aria-live="polite">
+          {state.model && (
+            <p
+              className="flex min-w-0 items-center gap-1 text-xs text-muted"
+              title={`生成モデル: ${directGenerationModelKey(state.model)}`}
+            >
+              <span className="shrink-0">生成モデル:</span>
+              <span className="min-w-0 truncate font-mono">{state.model.modelID}</span>
+            </p>
+          )}
           {state.suggestions.map((suggestion, index) => (
             <div key={`${index}-${suggestion}`} className="rounded-lg border border-border bg-surface-2 px-3 py-2">
               <p className="text-sm leading-6 text-text">{suggestion}</p>

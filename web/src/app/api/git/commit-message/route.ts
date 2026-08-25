@@ -10,7 +10,7 @@ import {
 } from "@/lib/generation-model-key";
 import {
   buildDirectGenerationCandidates,
-  generateDirectTextWithFallback,
+  generateDirectTextWithFallbackResult,
   parseDirectModel,
   parseDirectModelKey,
 } from "@/lib/direct-generation";
@@ -148,18 +148,17 @@ export async function POST(req: NextRequest) {
   let warning: string | undefined;
   if (candidates.length > 0) {
     try {
-      const generated = generatedCommitLine(
-        await generateDirectTextWithFallback({
-          candidates,
-          system:
-            "あなたはGitコミットメッセージ作成者です。差分だけを根拠に、日本語の短い命令形コミットメッセージを1行だけ返してください。説明、引用符、コードブロック、接頭辞は不要です。",
-          prompt: directPrompt(files),
-          maxTokens: 120,
-          temperature: 0.1,
-          timeoutMs: 60_000,
-        }),
-      );
-      if (generated) return NextResponse.json({ message: generated, source: "direct" });
+      const generated = await generateDirectTextWithFallbackResult({
+        candidates,
+        system:
+          "あなたはGitコミットメッセージ作成者です。差分だけを根拠に、日本語の短い命令形コミットメッセージを1行だけ返してください。説明、引用符、コードブロック、接頭辞は不要です。",
+        prompt: directPrompt(files),
+        maxTokens: 120,
+        temperature: 0.1,
+        timeoutMs: 60_000,
+      });
+      const message = generatedCommitLine(generated.text);
+      if (message) return NextResponse.json({ message, source: "direct", model: generated.model });
       warning = "AI生成の応答が空だったため、ファイル情報から生成しました";
     } catch (error) {
       const reason = error instanceof Error ? error.message : "直接生成に失敗しました";
@@ -172,5 +171,5 @@ export async function POST(req: NextRequest) {
   if (!message) {
     return NextResponse.json({ error: "could not suggest a message" }, { status: 400 });
   }
-  return NextResponse.json({ message, source: "fallback", ...(warning ? { warning } : {}) });
+  return NextResponse.json({ message, source: "fallback", model: null, ...(warning ? { warning } : {}) });
 }

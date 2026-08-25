@@ -69,6 +69,7 @@ describe("/api/projects/[id]/next-task", () => {
     expect(await response.json()).toMatchObject({
       suggestion: "APIのテストを追加する",
       source: "direct",
+      model: { providerID: "llama-server", modelID: "local-model" },
     });
   });
 
@@ -123,6 +124,7 @@ describe("/api/projects/[id]/next-task", () => {
     expect(await response.json()).toMatchObject({
       suggestion: "フォールバックで次のタスク",
       source: "direct",
+      model: { providerID: "llama-server", modelID: "Qwen3.8-27B-Uncensored-GGUF" },
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });

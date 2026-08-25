@@ -10,7 +10,7 @@ import {
 } from "@/lib/generation-model-key";
 import {
   buildDirectGenerationCandidates,
-  generateDirectTextWithFallback,
+  generateDirectTextWithFallbackResult,
   parseDirectModel,
   parseDirectModelKey,
 } from "@/lib/direct-generation";
@@ -112,19 +112,18 @@ export async function POST(
   if (candidates.length === 0) return NextResponse.json({ error: "生成モデルが設定されていません" }, { status: 400 });
 
   try {
-    const suggestion = (
-      await generateDirectTextWithFallback({
-        candidates,
-        system: NEXT_TASK_SYSTEM_INSTRUCTION,
-        prompt,
-        maxTokens: 180,
-        temperature: 0.2,
-        timeoutMs: 60_000,
-      })
-    ).trim();
+    const generated = await generateDirectTextWithFallbackResult({
+      candidates,
+      system: NEXT_TASK_SYSTEM_INSTRUCTION,
+      prompt,
+      maxTokens: 180,
+      temperature: 0.2,
+      timeoutMs: 60_000,
+    });
+    const suggestion = generated.text.trim();
     const suggestions = parseSuggestions({ suggestion });
     if (suggestions.length === 0) return errorResponse(new Error("提案の応答が空です"));
-    return NextResponse.json({ suggestion: suggestions[0], suggestions, source: "direct" });
+    return NextResponse.json({ suggestion: suggestions[0], suggestions, source: "direct", model: generated.model });
   } catch (error) {
     return errorResponse(error);
   }

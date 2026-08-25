@@ -9,7 +9,7 @@ import {
 import {
   buildDirectGenerationCandidates,
   DirectGenerationError,
-  generateDirectTextWithFallback,
+  generateDirectTextWithFallbackResult,
   parseDirectModel,
   parseDirectModelKey,
   type DirectModel,
@@ -23,7 +23,7 @@ const TITLE_SYSTEM_INSTRUCTION =
 export async function refreshTaskTitleDirect(
   taskId: string,
   requestedModel?: DirectModel,
-): Promise<{ title: string; task: ReturnType<typeof patchTask> }> {
+): Promise<{ title: string; task: ReturnType<typeof patchTask>; model: DirectModel }> {
   const task = getTask(taskId);
   if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   const conversation = readSessionConversation(task.sessionFile);
@@ -48,18 +48,17 @@ export async function refreshTaskTitleDirect(
   });
   if (candidates.length === 0) throw new DirectGenerationError("生成モデルが設定されていません", 400);
 
-  const title = sanitizeTitle(
-    await generateDirectTextWithFallback({
-      candidates,
-      system: TITLE_SYSTEM_INSTRUCTION,
-      prompt,
-      maxTokens: 80,
-      temperature: 0.1,
-      timeoutMs: 60_000,
-    }),
-  );
+  const generated = await generateDirectTextWithFallbackResult({
+    candidates,
+    system: TITLE_SYSTEM_INSTRUCTION,
+    prompt,
+    maxTokens: 80,
+    temperature: 0.1,
+    timeoutMs: 60_000,
+  });
+  const title = sanitizeTitle(generated.text);
   if (!title) throw new DirectGenerationError("タイトルの応答が空です");
   const updated = patchTask(taskId, { title });
   if (!updated) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  return { title, task: updated };
+  return { title, task: updated, model: generated.model };
 }

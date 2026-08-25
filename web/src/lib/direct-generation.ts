@@ -245,26 +245,39 @@ export function buildDirectGenerationCandidates(options: {
   return candidates;
 }
 
-export async function generateDirectTextWithFallback(
-  options: Omit<Parameters<typeof generateDirectText>[0], "model" | "effort"> & {
-    candidates: readonly DirectGenerationCandidate[];
-  },
-): Promise<string> {
+export type DirectGenerationResult = {
+  text: string;
+  model: DirectModel;
+};
+
+type DirectGenerationFallbackOptions = Omit<Parameters<typeof generateDirectText>[0], "model" | "effort"> & {
+  candidates: readonly DirectGenerationCandidate[];
+};
+
+export async function generateDirectTextWithFallbackResult(
+  options: DirectGenerationFallbackOptions,
+): Promise<DirectGenerationResult> {
   const { candidates, ...base } = options;
   let lastError: unknown;
   for (const candidate of candidates) {
     try {
-      return await generateDirectText({
-        ...base,
+      return {
+        text: await generateDirectText({
+          ...base,
+          model: candidate.model,
+          effort: candidate.effort,
+        }),
         model: candidate.model,
-        effort: candidate.effort,
-      });
+      };
     } catch (error) {
       lastError = error;
       if (base.signal?.aborted) throw error;
       if (candidate.effort && candidate.effort !== "off" && isProviderInternalError(error)) {
         try {
-          return await generateDirectText({ ...base, model: candidate.model });
+          return {
+            text: await generateDirectText({ ...base, model: candidate.model }),
+            model: candidate.model,
+          };
         } catch (retryError) {
           lastError = retryError;
           if (base.signal?.aborted) throw retryError;
@@ -273,4 +286,10 @@ export async function generateDirectTextWithFallback(
     }
   }
   throw lastError ?? new DirectGenerationError("生成モデルが設定されていません", 400);
+}
+
+export async function generateDirectTextWithFallback(
+  options: DirectGenerationFallbackOptions,
+): Promise<string> {
+  return (await generateDirectTextWithFallbackResult(options)).text;
 }

@@ -64,6 +64,7 @@ describe("/api/tasks/[id]/next-action", () => {
       suggestion: "テストを追加する",
       suggestions: ["テストを追加する"],
       source: "direct",
+      model: { providerID: "llama-server", modelID: "local-model" },
     });
     expect(readSessionConversation).toHaveBeenCalledWith("C:\\sessions\\task-1.jsonl");
   });
@@ -140,6 +141,7 @@ describe("/api/tasks/[id]/next-action", () => {
     expect(await response.json()).toMatchObject({
       suggestion: "フォールバックで提案",
       source: "direct",
+      model: { providerID: "llama-server", modelID: "Qwen3.8-27B-Uncensored-GGUF" },
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });

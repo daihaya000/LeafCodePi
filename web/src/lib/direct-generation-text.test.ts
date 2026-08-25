@@ -5,6 +5,7 @@ import {
   formatRepoSnapshotForPrompt,
   formatTranscriptForTitle,
   normalizeSuggestion,
+  parseDirectGenerationModelResponse,
   sanitizePreviousSuggestions,
   sanitizeTitle,
 } from "./direct-generation-text";
@@ -26,6 +27,15 @@ describe("direct-generation-text", () => {
     expect(sanitizeTitle('「タイトル案」\n補足')).toBe("タイトル案");
     expect(normalizeSuggestion("1. `npm test を実行する`\n補足")).toBe("npm test を実行する");
     expect(sanitizePreviousSuggestions(["同じ", "同じ", "", 1])).toEqual(["同じ"]);
+  });
+
+  it("parses the model metadata from a generation response", () => {
+    expect(
+      parseDirectGenerationModelResponse({
+        model: { providerID: "opencode-go", modelID: "mimo-v2.5" },
+      }),
+    ).toEqual({ providerID: "opencode-go", modelID: "mimo-v2.5" });
+    expect(parseDirectGenerationModelResponse({ model: null })).toBeUndefined();
   });
 
   it("builds a repository prompt only when there is actionable state", () => {
