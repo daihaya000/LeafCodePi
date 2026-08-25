@@ -27,6 +27,41 @@ const POLL_IDLE_MS = 15000;
 
 type GraphRepository = { path: string; name: string };
 
+/** 表示に影響するフィールドのみ比較（ポーリング毎の新ペイロードで再描画させない）。 */
+function sameGraphPayload(
+  a: GraphLogPayload | null,
+  b: GraphLogPayload,
+): boolean {
+  if (!a) return false;
+  if (a.currentBranch !== b.currentBranch || a.hasMore !== b.hasMore) return false;
+  if (a.refs.length !== b.refs.length) return false;
+  for (let index = 0; index < a.refs.length; index += 1) {
+    const left = a.refs[index]!;
+    const right = b.refs[index]!;
+    if (left.name !== right.name || left.hash !== right.hash || left.current !== right.current) {
+      return false;
+    }
+  }
+  if (a.commits.length !== b.commits.length) return false;
+  for (let index = 0; index < a.commits.length; index += 1) {
+    const left = a.commits[index]!;
+    const right = b.commits[index]!;
+    if (
+      left.hash !== right.hash ||
+      left.parents.length !== right.parents.length ||
+      left.subject !== right.subject ||
+      left.author !== right.author ||
+      left.date !== right.date
+    ) {
+      return false;
+    }
+    for (let parent = 0; parent < left.parents.length; parent += 1) {
+      if (left.parents[parent] !== right.parents[parent]) return false;
+    }
+  }
+  return true;
+}
+
 const LANE_STROKE = [
   "var(--accent)",
   "var(--working)",
@@ -263,7 +298,8 @@ export function GraphPanel({
                 }
               : data;
           commitCountRef.current = next.commits.length;
-          return next;
+          // ポーリング応答が実質不変なら参照を維持し、グラフ再描画を避ける。
+          return sameGraphPayload(prev, next) ? prev : next;
         });
       } catch (err) {
         if (!mountedRef.current || id !== reqIdRef.current) return;
