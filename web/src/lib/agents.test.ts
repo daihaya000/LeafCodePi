@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
-import { agentsDir, AgentsError, agentsErrorStatus, buildAgentResourceOptions, createAgent, deleteAgent, listAgents, loadAgentDefinition, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, updateAgent } from "./agents";
+import { agentsDir, AgentsError, agentsErrorStatus, buildAgentResourceOptions, createAgent, deleteAgent, listAgents, loadAgentDefinition, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, setAgentModel, updateAgent } from "./agents";
 
 const AGENT = `---
 name: __NAME__
@@ -99,6 +99,25 @@ describe("listAgents / setAgentEnabled", () => {
     assert.equal(raw2.subagents?.agentOverrides?.scout, undefined);
   });
 
+  it("prioritizes enabled agents and persists a package model override", () => {
+    fixture();
+    setAgentEnabled("researcher", false, agentDir);
+    setAgentModel("worker", "anthropic/claude", agentDir);
+
+    const listed = listAgents(agentDir);
+    const names = listed.agents.map((agent) => agent.name);
+    assert.equal(names.at(-1), "researcher");
+    assert.equal(listed.agents.slice(0, -1).every((agent) => agent.enabled), true);
+    assert.equal(listed.agents.at(-1)?.enabled, false);
+    assert.equal(listed.agents.find((agent) => agent.name === "worker")?.model, "anthropic/claude");
+
+    const raw = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
+    assert.equal(raw.subagents.agentOverrides.worker.model, "anthropic/claude");
+
+    setAgentModel("worker", null, agentDir);
+    assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.model, undefined);
+  });
+
   it("rejects unknown names", () => {
     fixture();
     assert.throws(() => setAgentEnabled("missing", false, agentDir), AgentsError);
@@ -113,6 +132,9 @@ describe("listAgents / setAgentEnabled", () => {
     assert.equal(draft.description, "A doc writer");
     assert.deepEqual(draft.tools, ["read", "edit", "write"]);
     assert.equal(draft.systemPrompt, "Write docs.");
+
+    setAgentModel("mydoc", "openai-codex/gpt-5.6-luna", agentDir);
+    assert.equal(readUserAgent("mydoc", agentDir).draft.model, "openai-codex/gpt-5.6-luna");
 
     updateAgent({ name: "mydoc", description: "Docs writer v2", systemPrompt: "Write great docs." }, agentDir);
     const updated = readUserAgent("mydoc", agentDir).draft;
@@ -141,12 +163,14 @@ describe("listAgents / setAgentEnabled", () => {
       description: "Foo agent",
       aliases: ["bar"],
       tools: ["read", "grep"],
+      model: "openai-codex/gpt-5.6-luna",
       systemPrompt: "Do foo.",
     });
     const fm = parseAgentFile(md);
     assert.equal(fm.name, "foo");
     assert.equal(fm.description, "Foo agent");
     assert.equal(fm.tools, "read, grep");
+    assert.equal(fm.model, "openai-codex/gpt-5.6-luna");
     assert.match(md, /Do foo\.\n$/);
   });
 });

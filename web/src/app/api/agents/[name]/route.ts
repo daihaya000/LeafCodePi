@@ -1,5 +1,5 @@
 /**
- * PATCH /api/agents/:name — enable/disable or update a user agent.
+ * PATCH /api/agents/:name — enable/disable, set a model, or update a user agent.
  * GET    /api/agents/:name — read a user agent draft.
  * DELETE /api/agents/:name — delete a user agent.
  */
@@ -11,6 +11,7 @@ import {
   listAgents,
   readUserAgent,
   setAgentEnabled,
+  setAgentModel,
   updateAgent,
   type AgentDraft,
 } from "@/lib/agents";
@@ -58,11 +59,16 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "リクエスト本文が不正です" }, { status: 400 });
   }
   const record = body as { enabled?: unknown } & Partial<AgentDraft>;
+  if ("model" in record && record.model !== undefined && record.model !== null && typeof record.model !== "string") {
+    return NextResponse.json({ error: "model は文字列または null が必要です" }, { status: 400 });
+  }
 
   try {
     if (typeof record.enabled === "boolean") {
       // Toggle only (used by the switch).
       setAgentEnabled(name, record.enabled);
+    } else if (!("systemPrompt" in record) && "model" in record) {
+      setAgentModel(name, record.model ?? null);
     } else {
       // Update the agent definition.
       if (typeof record.systemPrompt !== "string") {

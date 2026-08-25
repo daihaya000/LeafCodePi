@@ -1,0 +1,112 @@
+// @vitest-environment happy-dom
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ModelOption } from "@/lib/types";
+import { AgentsSettings } from "./AgentsSettings";
+
+const { getJson, sendJson } = vi.hoisted(() => ({
+  getJson: vi.fn(),
+  sendJson: vi.fn(),
+}));
+
+vi.mock("@/lib/client", () => ({ getJson, sendJson }));
+vi.mock("@/components/ModelSelect", () => ({
+  ModelSelect: ({
+    value,
+    options,
+    disabled,
+    onChange,
+    ariaLabel,
+  }: {
+    value: string;
+    options: ModelOption[];
+    disabled?: boolean;
+    onChange: (value: string) => void;
+    ariaLabel?: string;
+  }) => (
+    <select
+      aria-label={ariaLabel}
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  ),
+}));
+
+const agents = [
+  {
+    id: "disabled",
+    name: "disabled",
+    enabled: false,
+    source: "package" as const,
+    filePath: "C:/disabled.md",
+  },
+  {
+    id: "enabled",
+    name: "enabled",
+    enabled: true,
+    model: "openai-codex/gpt-5.6-luna",
+    source: "package" as const,
+    filePath: "C:/enabled.md",
+  },
+];
+
+const models: ModelOption[] = [
+  {
+    value: "openai-codex::gpt-5.6-luna",
+    label: "GPT-5.6 Luna",
+    providerID: "openai-codex",
+    modelID: "gpt-5.6-luna",
+  },
+  {
+    value: "anthropic::claude",
+    label: "Claude",
+    providerID: "anthropic",
+    modelID: "claude",
+  },
+];
+
+describe("AgentsSettings", () => {
+  beforeEach(() => {
+    getJson.mockImplementation((path: string) =>
+      path === "/api/agents"
+        ? Promise.resolve({ agents, agentsDir: "C:/pi/agent/agents" })
+        : Promise.resolve({ models }),
+    );
+    sendJson.mockResolvedValue({ agents });
+  });
+
+  afterEach(() => {
+    cleanup();
+    getJson.mockReset();
+    sendJson.mockReset();
+  });
+
+  it("prioritizes enabled agents and saves a selected model", async () => {
+    render(<AgentsSettings />);
+
+    await screen.findByRole("switch", { name: "enabled を無効化" });
+    expect(screen.getAllByRole("listitem").map((item) => item.querySelector("p")?.textContent)).toEqual([
+      "enabled",
+      "disabled",
+    ]);
+
+    const model = screen.getByRole("combobox", { name: "enabled のモデル" }) as HTMLSelectElement;
+    expect(model.value).toBe("openai-codex::gpt-5.6-luna");
+    fireEvent.change(model, { target: { value: "anthropic::claude" } });
+
+    await waitFor(() => {
+      expect(sendJson).toHaveBeenCalledWith(
+        "/api/agents/enabled",
+        { model: "anthropic/claude" },
+        "PATCH",
+      );
+    });
+  });
+});

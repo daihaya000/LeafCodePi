@@ -1,14 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ModelSelect } from "@/components/ModelSelect";
 import { Badge, Button, cx } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
+import type { ModelOption } from "@/lib/types";
 
 type AgentDto = {
   id: string;
   name: string;
   description?: string;
   enabled: boolean;
+  model?: string;
   filePath: string;
   source: "user" | "builtin" | "package";
   tools?: string[];
@@ -45,6 +48,45 @@ function emptyDraft(): AgentDraft {
   return { name: "", description: "", tools: ["read", "grep", "find", "ls"], systemPrompt: "" };
 }
 
+function modelSelectionValue(model: string | undefined, options: readonly ModelOption[]): string {
+  if (!model) return "";
+  const trimmed = model.trim();
+  return options.find(
+    (option) =>
+      option.value === trimmed ||
+      `${option.providerID}/${option.modelID}` === trimmed ||
+      option.modelID === trimmed,
+  )?.value ?? trimmed;
+}
+
+function optionsForModel(model: string | undefined, options: readonly ModelOption[]): ModelOption[] {
+  if (!model || options.some((option) => option.value === modelSelectionValue(model, options))) {
+    return [...options];
+  }
+  const trimmed = model.trim();
+  const slash = trimmed.indexOf("/");
+  const separator = slash > 0 ? slash : trimmed.indexOf("::");
+  const providerID = separator > 0 ? trimmed.slice(0, separator) : "設定済み";
+  const modelID = separator > 0 ? trimmed.slice(separator + (slash > 0 ? 1 : 2)) : trimmed;
+  return [
+    { value: trimmed, label: `${trimmed}（未取得）`, providerID, modelID },
+    ...options,
+  ];
+}
+
+function modelFromSelection(value: string, options: readonly ModelOption[]): string | null {
+  if (!value) return null;
+  const option = options.find((entry) => entry.value === value);
+  if (!option || option.label.endsWith("（未取得）")) return value;
+  return `${option.providerID}/${option.modelID}`;
+}
+
+function sortAgentRows(agents: readonly AgentDto[]): AgentDto[] {
+  return [...agents].sort(
+    (a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name, "en"),
+  );
+}
+
 const INPUT_CLASS =
   "w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent";
 const LABEL_CLASS = "block text-xs font-medium text-muted";
@@ -73,16 +115,61 @@ function Field({
   );
 }
 
+function AgentModelPicker({
+  name,
+  model,
+  models,
+  loading,
+  busy,
+  onChange,
+}: {
+  name: string;
+  model?: string;
+  models: readonly ModelOption[];
+  loading: boolean;
+  busy: boolean;
+  onChange: (model: string | null) => void;
+}) {
+  const options = optionsForModel(model, models);
+  const value = modelSelectionValue(model, options);
+
+  return (
+    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+      <span className={LABEL_CLASS}>モデル</span>
+      <ModelSelect
+        value={value}
+        options={options}
+        disabled={loading || busy}
+        onChange={(next) => onChange(modelFromSelection(next, options))}
+        ariaLabel={`${name} のモデル`}
+        className="min-w-0 flex-1 sm:min-w-48 sm:max-w-md"
+        title={model ?? "モデルを選択"}
+      />
+      {model && (
+        <Button variant="ghost" size="sm" disabled={loading || busy} onClick={() => onChange(null)}>
+          既定に戻す
+        </Button>
+      )}
+      {loading && <span className="text-[11px] text-faint">モデルを読み込み中…</span>}
+      {!loading && models.length === 0 && <span className="text-[11px] text-muted">利用可能なモデルがありません</span>}
+    </div>
+  );
+}
+
 function AgentEditor({
   mode,
   initial,
   busy,
+  models,
+  modelsLoading,
   onSave,
   onCancel,
 }: {
   mode: "create" | "edit";
   initial: AgentDraft;
   busy: boolean;
+  models: readonly ModelOption[];
+  modelsLoading: boolean;
   onSave: (draft: AgentDraft) => void;
   onCancel: () => void;
 }) {
@@ -104,7 +191,14 @@ function AgentEditor({
       <p className="text-sm font-medium">{mode === "create" ? "新規エージェント" : `編集: ${initial.name}`}</p>
       <Field label="名前" value={draft.name} disabled={mode === "edit"} onChange={(v) => setDraft({ ...draft, name: v })} />
       <Field label="説明" value={draft.description ?? ""} onChange={(v) => setDraft({ ...draft, description: v })} />
-      <Field label="モデル（任意）" value={draft.model ?? ""} onChange={(v) => setDraft({ ...draft, model: v })} />
+      <AgentModelPicker
+        name={draft.name || "新規エージェント"}
+        model={draft.model}
+        models={models}
+        loading={modelsLoading}
+        busy={busy}
+        onChange={(model) => setDraft({ ...draft, model: model ?? undefined })}
+      />
       <Field label="思考レベル（off/low/medium/high）" value={draft.thinking ?? ""} onChange={(v) => setDraft({ ...draft, thinking: v })} />
       <Field label="ツール（カンマ区切り）" value={toolsText} onChange={setToolsText} />
       <Field label="エイリアス（カンマ区切り）" value={draft.aliases?.join(", ") ?? ""} onChange={(v) => setDraft({ ...draft, aliases: v.split(",").map((x) => x.trim()).filter(Boolean) })} />
@@ -165,26 +259,46 @@ function AgentSwitch({
 
 export function AgentsSettings() {
   const [agents, setAgents] = useState<AgentDto[]>([]);
+  const [models, setModels] = useState<ModelOption[]>([]);
   const [agentsPath, setAgentsPath] = useState<string>("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [modelsLoading, setModelsLoading] = useState(true);
   const [editor, setEditor] = useState<EditorState>({ mode: "closed" });
   const [editingDraft, setEditingDraft] = useState<AgentDraft>(emptyDraft());
   const [saving, setSaving] = useState(false);
 
   const reload = useCallback(() => {
     setLoading(true);
-    void getJson<AgentsResponse>("/api/agents")
-      .then((result) => {
-        setAgents(result.agents);
-        setAgentsPath(result.agentsDir);
-        setError(null);
+    setModelsLoading(true);
+    void Promise.allSettled([
+      getJson<AgentsResponse>("/api/agents"),
+      getJson<{ models: ModelOption[] }>("/api/models"),
+    ])
+      .then(([agentsResult, modelsResult]) => {
+        const errors: string[] = [];
+        if (agentsResult.status === "fulfilled") {
+          setAgents(sortAgentRows(agentsResult.value.agents));
+          setAgentsPath(agentsResult.value.agentsDir);
+        } else {
+          errors.push(
+            agentsResult.reason instanceof Error
+              ? agentsResult.reason.message
+              : "エージェント一覧の取得に失敗しました",
+          );
+        }
+        if (modelsResult.status === "fulfilled") {
+          setModels(modelsResult.value.models);
+        } else {
+          errors.push("モデル一覧の取得に失敗しました");
+        }
+        setError(errors[0] ?? null);
       })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : "エージェント一覧の取得に失敗しました");
-      })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setModelsLoading(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -201,9 +315,28 @@ export function AgentsSettings() {
         { enabled: !agent.enabled },
         "PATCH",
       );
-      setAgents(result.agents);
+      setAgents(sortAgentRows(result.agents));
     } catch (err) {
       setError(err instanceof Error ? err.message : "エージェントの切替に失敗しました");
+      reload();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function changeModel(agent: AgentDto, model: string | null) {
+    if (busyId) return;
+    setBusyId(agent.id);
+    setError(null);
+    try {
+      const result = await sendJson<{ agents: AgentDto[] }>(
+        `/api/agents/${encodeURIComponent(agent.id)}`,
+        { model },
+        "PATCH",
+      );
+      setAgents(sortAgentRows(result.agents));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "エージェントのモデル保存に失敗しました");
       reload();
     } finally {
       setBusyId(null);
@@ -266,7 +399,7 @@ export function AgentsSettings() {
         undefined,
         "DELETE",
       );
-      setAgents(result.agents);
+      setAgents(sortAgentRows(result.agents));
     } catch (err) {
       setError(err instanceof Error ? err.message : "エージェントの削除に失敗しました");
     } finally {
@@ -288,7 +421,7 @@ export function AgentsSettings() {
         </div>
       </div>
       <p className="text-xs text-muted">
-        pi-subagents が提供するサブエージェントの一覧と有効／無効を管理します。ユーザー定義は{" "}
+        pi-subagents が提供するサブエージェントの有効／無効とモデルを管理します。ユーザー定義は{" "}
         <span className="font-mono">~/.pi/agent/agents/&lt;name&gt;.md</span> に保存されます。
       </p>
       {agentsPath && (
@@ -329,6 +462,14 @@ export function AgentsSettings() {
                 {agent.tools && agent.tools.length > 0 && (
                   <p className="mt-0.5 truncate font-mono text-[11px] text-faint">{agent.tools.join(", ")}</p>
                 )}
+                <AgentModelPicker
+                  name={agent.name}
+                  model={agent.model}
+                  models={models}
+                  loading={modelsLoading}
+                  busy={busyId === agent.id}
+                  onChange={(model) => void changeModel(agent, model)}
+                />
                 <p className="mt-0.5 break-all font-mono text-[11px] text-faint">{agent.filePath}</p>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1">
@@ -358,11 +499,13 @@ export function AgentsSettings() {
           mode={editor.mode}
           initial={editingDraft}
           busy={saving}
+          models={models}
+          modelsLoading={modelsLoading}
           onSave={(draft) => void saveDraft(draft, editor)}
           onCancel={() => setEditor({ mode: "closed" })}
         />
       )}
-      {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
     </div>
   );
 }

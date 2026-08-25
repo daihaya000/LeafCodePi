@@ -6,8 +6,8 @@
  * - Package: agents/ dir inside each installed pi package (e.g. pi-subagents builtins)
  *
  * ON/OFF is persisted in ~/.pi/agent/settings.json under
- * `subagents.agentOverrides.<name>.disabled` (user scope), which pi-subagents
- * reads and applies.
+ * `subagents.agentOverrides.<name>` (user scope), which pi-subagents reads
+ * and applies for disabled state and package agent model overrides.
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -22,6 +22,7 @@ export type AgentDto = {
   name: string;
   description?: string;
   enabled: boolean;
+  model?: string;
   filePath: string;
   source: "user" | "builtin" | "package";
   tools?: string[];
@@ -69,10 +70,17 @@ export function agentsDir(agentDir = resolvePiAgentDir()): string {
   return join(agentDir, "agents");
 }
 
-function readSettings(agentDir: string): { subagents?: { agentOverrides?: Record<string, { disabled?: boolean }> } } {
+type AgentOverride = { disabled?: boolean; model?: string };
+
+type PiSettings = {
+  subagents?: { agentOverrides?: Record<string, AgentOverride>; [key: string]: unknown };
+  [key: string]: unknown;
+};
+
+function readSettings(agentDir: string): PiSettings {
   try {
     const parsed = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
-    return parsed && typeof parsed === "object" ? parsed : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as PiSettings : {};
   } catch {
     return {};
   }
@@ -134,8 +142,8 @@ function toTools(value: unknown): string[] | undefined {
   return undefined;
 }
 
-function discoverInDir(dir: string, source: AgentDto["source"]): Array<{ name: string; description?: string; tools?: string[]; filePath: string }> {
-  const entries: Array<{ name: string; description?: string; tools?: string[]; filePath: string }> = [];
+function discoverInDir(dir: string, source: AgentDto["source"]): Array<{ name: string; description?: string; model?: string; tools?: string[]; filePath: string }> {
+  const entries: Array<{ name: string; description?: string; model?: string; tools?: string[]; filePath: string }> = [];
   if (!existsSync(dir)) return entries;
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -153,7 +161,8 @@ function discoverInDir(dir: string, source: AgentDto["source"]): Array<{ name: s
     const fm = parseAgentFile(content);
     if (typeof fm.name !== "string" || !fm.name.trim()) continue;
     const description = typeof fm.description === "string" ? fm.description : undefined;
-    entries.push({ name: fm.name.trim(), description, tools: toTools(fm.tools), filePath: full });
+    const model = typeof fm.model === "string" && fm.model.trim() ? fm.model.trim() : undefined;
+    entries.push({ name: fm.name.trim(), description, model, tools: toTools(fm.tools), filePath: full });
   }
   return entries;
 }
@@ -192,11 +201,17 @@ export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
   const push = (source: AgentDto["source"], dir: string) => {
     for (const entry of discoverInDir(dir, source)) {
       if (!byName.has(entry.name)) {
+        const rawOverrideModel = overrides[entry.name]?.model;
+        const overrideModel = typeof rawOverrideModel === "string" ? rawOverrideModel.trim() || undefined : undefined;
+        const model = source === "user"
+          ? entry.model ?? overrideModel
+          : overrideModel ?? entry.model;
         byName.set(entry.name, {
           id: entry.name,
           name: entry.name,
           description: entry.description,
           enabled: overrides[entry.name]?.disabled !== true,
+          ...(model ? { model } : {}),
           filePath: entry.filePath,
           source,
           tools: entry.tools,
@@ -212,20 +227,35 @@ export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
   if (forkDir) push("package", forkDir);
   for (const pkgDir of discoverPackageAgentDirs(agentDir)) push("package", pkgDir);
 
-  const agents = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name, "en"));
+  const agents = sortAgents([...byName.values()]);
   return { agents, agentsDir: userDir };
 }
 
-export function setAgentEnabled(name: string, enabled: boolean, agentDir = resolvePiAgentDir()): AgentListResult {
+export function sortAgents(agents: readonly AgentDto[]): AgentDto[] {
+  return [...agents].sort(
+    (a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name, "en"),
+  );
+}
+
+function assertListedAgent(name: string, agentDir: string): { name: string; agent: AgentDto } {
   const trimmed = name.trim();
   if (!trimmed || trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..")) {
     throw new AgentsError("invalid-name", "名前が不正です");
   }
   const listed = listAgents(agentDir);
-  if (!listed.agents.some((agent) => agent.name === trimmed)) {
+  const agent = listed.agents.find((entry) => entry.name === trimmed);
+  if (!agent) {
     throw new AgentsError("not-found", "エージェントが見つかりません");
   }
+  return { name: trimmed, agent };
+}
 
+function updateAgentOverride(
+  name: string,
+  update: (override: AgentOverride) => void,
+  agentDir: string,
+): AgentListResult {
+  const { name: trimmed } = assertListedAgent(name, agentDir);
   const settingsPath = join(agentDir, "settings.json");
   const settings = readSettings(agentDir);
   const subagents = settings.subagents && typeof settings.subagents === "object"
@@ -235,19 +265,13 @@ export function setAgentEnabled(name: string, enabled: boolean, agentDir = resol
     ? { ...subagents.agentOverrides }
     : {};
 
-  if (enabled) {
-    const current = agentOverrides[trimmed];
-    if (current && typeof current === "object") {
-      const next = { ...current };
-      delete next.disabled;
-      if (Object.keys(next).length > 0) agentOverrides[trimmed] = next;
-      else delete agentOverrides[trimmed];
-    } else {
-      delete agentOverrides[trimmed];
-    }
-  } else {
-    agentOverrides[trimmed] = { ...(agentOverrides[trimmed] ?? {}), disabled: true };
-  }
+  const current = agentOverrides[trimmed];
+  const next: AgentOverride = current && typeof current === "object" && !Array.isArray(current)
+    ? { ...current }
+    : {};
+  update(next);
+  if (Object.keys(next).length > 0) agentOverrides[trimmed] = next;
+  else delete agentOverrides[trimmed];
 
   if (Object.keys(agentOverrides).length > 0) subagents.agentOverrides = agentOverrides;
   else delete subagents.agentOverrides;
@@ -257,6 +281,39 @@ export function setAgentEnabled(name: string, enabled: boolean, agentDir = resol
 
   atomicWrite(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
   return listAgents(agentDir);
+}
+
+export function setAgentEnabled(name: string, enabled: boolean, agentDir = resolvePiAgentDir()): AgentListResult {
+  return updateAgentOverride(
+    name,
+    (override) => {
+      if (enabled) delete override.disabled;
+      else override.disabled = true;
+    },
+    agentDir,
+  );
+}
+
+/** Set a user agent's frontmatter model or a package agent's settings override. */
+export function setAgentModel(
+  name: string,
+  model: string | null,
+  agentDir = resolvePiAgentDir(),
+): AgentListResult {
+  const { name: trimmed, agent } = assertListedAgent(name, agentDir);
+  const nextModel = model?.trim() || null;
+  if (agent.source === "user") {
+    const { draft } = readUserAgent(trimmed, agentDir);
+    return updateAgent({ ...draft, model: nextModel ?? undefined }, agentDir);
+  }
+  return updateAgentOverride(
+    trimmed,
+    (override) => {
+      if (nextModel) override.model = nextModel;
+      else delete override.model;
+    },
+    agentDir,
+  );
 }
 
 function userAgentPath(agentDir: string, name: string): string {
