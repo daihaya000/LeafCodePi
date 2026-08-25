@@ -310,8 +310,9 @@ async function evaluateWatch(row: TaskHangWatchRow, timeoutMs: number): Promise<
   if (!hooks) return;
   const live = hooks.getLive(row.taskId);
   if (!live) {
-    disarmTaskHangWatch(row.taskId);
-    logWatchdog("live session missing — dropping the watch", row);
+    // WebUI restart can temporarily detach the session. Keep the persisted
+    // watch so it can resume when the task is reattached.
+    logWatchdog("live session missing — keeping the watch", row);
     return;
   }
 
