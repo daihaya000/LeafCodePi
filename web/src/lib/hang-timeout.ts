@@ -72,6 +72,19 @@ export function writeAutoResumeMode(mode: AutoResumeMode): void {
   }
 }
 
+export function subscribeAutoResumeMode(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === AUTO_RESUME_MODE_STORAGE_KEY || event.key === null) listener();
+  };
+  window.addEventListener(AUTO_RESUME_MODE_EVENT, listener);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(AUTO_RESUME_MODE_EVENT, listener);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
 export function subscribeHangTimeout(listener: () => void): () => void {
   if (typeof window === "undefined") return () => {};
   const onStorage = (event: StorageEvent) => {

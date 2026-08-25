@@ -74,6 +74,7 @@ import {
   formatHangTimeout,
   readAutoResumeMode,
   readHangTimeoutMs,
+  subscribeAutoResumeMode,
 } from "@/lib/hang-timeout";
 import {
   playAttentionRequiredSound,
@@ -392,6 +393,13 @@ export function TaskView({
   );
   useEffect(
     () => subscribeScrollButtonOpacity(() => setScrollButtonOpacity(readScrollButtonOpacity())),
+    [],
+  );
+  // 自動再開方法（同じプロンプト再送 / 「続けて」）。手動再開ボタンの文言と
+  // 再送内容の両方に反映する。
+  const [autoResumeMode, setAutoResumeMode] = useState(readAutoResumeMode);
+  useEffect(
+    () => subscribeAutoResumeMode(() => setAutoResumeMode(readAutoResumeMode())),
     [],
   );
   const sidebarNotifyKeyRef = useRef("");
@@ -972,13 +980,13 @@ export function TaskView({
     }
   }
 
-  const resumeTurn = useCallback(async (target: ResumableTurn, automatic = false) => {
+  const resumeTurn = useCallback(async (target: ResumableTurn) => {
     if (working || resumingTurn) return;
     setResumeTurnError(null);
     setResumingTurn(true);
     stickRef.current = true;
     try {
-      const resumeMode = automatic ? readAutoResumeMode() : "same";
+      const resumeMode = readAutoResumeMode();
       const images = resumeMode === "continue"
         ? []
         : target.files
@@ -1136,7 +1144,7 @@ export function TaskView({
     const key = `${taskId}:${resumeTarget.messageId}`;
     if (autoResumeKeyRef.current === key) return;
     autoResumeKeyRef.current = key;
-    void resumeTurn(resumeTarget, true);
+    void resumeTurn(resumeTarget);
   }, [currentPromptIsHangRetry, resumeTarget, resumeTurn, resumingTurn, showResume, task?.status, taskId]);
   const resumeMessage = resumeTarget
     ? visibleMessages.find((message) => message.id === resumeTarget.messageId)
@@ -1162,7 +1170,11 @@ export function TaskView({
             ? "無言終了したターンを再開"
             : "中断したターンを再開"
         }
-        title="直前のプロンプトを同じ内容で再送します"
+        title={
+          autoResumeMode === "continue"
+            ? "「続けて」を送信して再開します（設定 → ハング判定の自動再開方法に従います）"
+            : "直前のプロンプトを同じ内容で再送します"
+        }
         busy={resumingTurn}
         disabled={resumingTurn}
         onClick={() => void resumeTurn(resumeTarget)}
