@@ -136,6 +136,30 @@ function sameTaskDetail(a: TaskDetail | null, b: TaskDetail): boolean {
   );
 }
 
+function samePermissionRequest(
+  a: PermissionRequestDto | null,
+  b: PermissionRequestDto | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.id === b.id &&
+    a.sessionId === b.sessionId &&
+    a.command === b.command &&
+    a.message === b.message &&
+    JSON.stringify(a.labels) === JSON.stringify(b.labels)
+  );
+}
+
+function sameQuestionRequest(
+  a: QuestionRequestDto | null,
+  b: QuestionRequestDto | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.id === b.id && a.sessionId === b.sessionId && JSON.stringify(a.questions) === JSON.stringify(b.questions);
+}
+
 const SIDE_PANEL_MIN_WIDTH = 240;
 const SIDE_PANEL_MAX_WIDTH = 640;
 
@@ -451,10 +475,18 @@ export function TaskView({
             setHangRetryCount(payload.hangRetryCount);
           }
           if ("permissionRequest" in payload) {
-            setPermissionRequest(payload.permissionRequest ?? null);
+            setPermissionRequest((current) =>
+              samePermissionRequest(current, payload.permissionRequest ?? null)
+                ? current
+                : payload.permissionRequest ?? null,
+            );
           }
           if ("questionRequest" in payload) {
-            setQuestionRequest(payload.questionRequest ?? null);
+            setQuestionRequest((current) =>
+              sameQuestionRequest(current, payload.questionRequest ?? null)
+                ? current
+                : payload.questionRequest ?? null,
+            );
           }
         });
         if (payload.error) setError(payload.error);
