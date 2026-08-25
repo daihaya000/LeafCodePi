@@ -354,7 +354,7 @@ export function ProviderModelsPanel() {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h2 className="mb-1 text-sm font-semibold">モデルの有効化と並び替え</h2>
+          <h2 className="mb-1 text-sm font-semibold">モデル</h2>
           <p className="text-xs text-muted">
             無効にしたモデルはホームとタスクの選択から外れます。ドラッグで並び替えできます。
             {providers.length > 0 &&

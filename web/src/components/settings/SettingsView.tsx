@@ -105,14 +105,13 @@ export function SettingsView() {
 
           {tab === "models" && (
             <section className="space-y-4">
-              <GenerationModelSettings />
-              <div className="rounded-2xl border border-border bg-surface p-4">
-                <ProviderAuthPanel providers={providers} onChanged={reload} />
-              </div>
-
               <div className="rounded-2xl border border-border bg-surface p-4">
                 <ProviderModelsPanel />
               </div>
+              <div className="rounded-2xl border border-border bg-surface p-4">
+                <ProviderAuthPanel providers={providers} onChanged={reload} />
+              </div>
+              <GenerationModelSettings />
             </section>
           )}
 
