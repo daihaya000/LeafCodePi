@@ -59,7 +59,7 @@ const TintedLine = memo(function TintedLine({
   return <span dangerouslySetInnerHTML={{ __html: tintCodeLine(text, path) }} />;
 });
 
-function FileDiffBlock({
+const FileDiffBlock = memo(function FileDiffBlock({
   file,
   expanded,
   selected,
@@ -74,9 +74,9 @@ function FileDiffBlock({
   selected: boolean;
   sideBySide: boolean;
   busy: boolean;
-  onToggle: () => void;
-  onSelect: (v: boolean) => void;
-  onDelete: () => void;
+  onToggle: (path: string) => void;
+  onSelect: (path: string, v: boolean) => void;
+  onDelete: (path: string) => void;
 }) {
   const dir = file.path.includes("/")
     ? file.path.slice(0, file.path.lastIndexOf("/") + 1)
@@ -90,14 +90,14 @@ function FileDiffBlock({
         <input
           type="checkbox"
           checked={selected}
-          onChange={(e) => onSelect(e.target.checked)}
+          onChange={(e) => onSelect(file.path, e.target.checked)}
           className="h-5 w-5 shrink-0 cursor-pointer"
           style={{ accentColor: "var(--accent)" }}
           aria-label={`${file.path} をコミット対象にする`}
         />
         <button
           type="button"
-          onClick={onToggle}
+          onClick={() => onToggle(file.path)}
           aria-expanded={expanded}
           aria-label={`${file.path} の差分を${expanded ? "折りたたむ" : "展開"}`}
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
@@ -140,7 +140,7 @@ function FileDiffBlock({
             disabled={busy}
             title="ファイルを削除（コミット対象からも取り除きます）"
             aria-label={`${file.path} を削除`}
-            onClick={onDelete}
+            onClick={() => onDelete(file.path)}
             className="hover:bg-danger-bg hover:text-danger"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -219,7 +219,7 @@ function FileDiffBlock({
       )}
     </div>
   );
-}
+});
 
 export function DiffPane({
   directory,
@@ -447,6 +447,16 @@ export function DiffPane({
       );
       return `プッシュしました: ${res.summary ?? ""}`;
     });
+
+  // Stable per-path callbacks so memoized FileDiffBlock rows do not re-render
+  // when unrelated state (busy, panel, filter…) changes.
+  const toggleFile = useCallback((path: string) => {
+    setExpanded((prev) => ({ ...prev, [path]: !prev[path] }));
+  }, []);
+
+  const selectFile = useCallback((path: string, v: boolean) => {
+    setDeselected((prev) => ({ ...prev, [path]: !v }));
+  }, []);
 
   const deleteFile = (filePath: string) => {
     if (
@@ -784,13 +794,9 @@ export function DiffPane({
             selected={!deselected[f.path]}
             sideBySide={sideBySide}
             busy={busy}
-            onToggle={() =>
-              setExpanded((prev) => ({ ...prev, [f.path]: !prev[f.path] }))
-            }
-            onSelect={(v) =>
-              setDeselected((prev) => ({ ...prev, [f.path]: !v }))
-            }
-            onDelete={() => deleteFile(f.path)}
+            onToggle={toggleFile}
+            onSelect={selectFile}
+            onDelete={deleteFile}
           />
         ))}
       </div>
