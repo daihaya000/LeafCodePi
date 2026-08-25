@@ -3,6 +3,12 @@ import type { TodoDto, TodoPriority, TodoProgressDto, TodoStatus } from "@/lib/t
 const MAX_TODOS = 100;
 const MAX_CONTENT_CHARS = 2_000;
 
+const todoSnapshotCache = new WeakMap<readonly unknown[], {
+  length: number;
+  last: unknown;
+  value: TodoDto[];
+}>();
+
 type RecordLike = Record<string, unknown>;
 
 function asRecord(value: unknown): RecordLike | null {
@@ -47,12 +53,18 @@ export function todoProgressFromTodos(todos: readonly TodoDto[]): TodoProgressDt
 
 /** Return the latest persisted todowrite snapshot from the current Pi branch. */
 export function todosFromPiMessages(messages: readonly unknown[]): TodoDto[] {
+  const last = messages[messages.length - 1];
+  const cached = todoSnapshotCache.get(messages);
+  if (cached?.length === messages.length && cached.last === last) return cached.value;
+
+  let value: TodoDto[] = [];
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = asRecord(messages[index]);
     if (message?.role !== "toolResult" || message.toolName !== "todowrite") continue;
     const details = asRecord(message.details);
-    if (!details || !Array.isArray(details.todos)) return [];
-    return normalizeTodos(details.todos);
+    value = details && Array.isArray(details.todos) ? normalizeTodos(details.todos) : [];
+    break;
   }
-  return [];
+  todoSnapshotCache.set(messages, { length: messages.length, last, value });
+  return value;
 }

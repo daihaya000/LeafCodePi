@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { storePath } from "./paths";
@@ -10,19 +10,58 @@ type StoreFile = {
   tasks: TaskSummary[];
 };
 
+/** SSE snapshots read the same store repeatedly; recheck disk only twice/sec. */
+const STORE_CACHE_CHECK_MS = 500;
+let cachedStore: {
+  file: string;
+  value: StoreFile;
+  mtimeMs: number;
+  size: number;
+  checkedAt: number;
+} | null = null;
+
 function emptyStore(): StoreFile {
   return { version: 1, projects: [], tasks: [] };
 }
 
 function readStore(): StoreFile {
+  const file = storePath();
+  const now = Date.now();
+  if (cachedStore?.file === file && now - cachedStore.checkedAt < STORE_CACHE_CHECK_MS) {
+    return cachedStore.value;
+  }
+  let stat: ReturnType<typeof statSync>;
   try {
-    const raw = readFileSync(storePath(), "utf8");
+    stat = statSync(file);
+  } catch {
+    if (cachedStore?.file === file) cachedStore = null;
+    return emptyStore();
+  }
+  if (
+    cachedStore?.file === file &&
+    cachedStore.mtimeMs === stat.mtimeMs &&
+    cachedStore.size === stat.size
+  ) {
+    cachedStore.checkedAt = now;
+    return cachedStore.value;
+  }
+  try {
+    const raw = readFileSync(file, "utf8");
     const parsed = JSON.parse(raw) as StoreFile;
     if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.projects) || !Array.isArray(parsed.tasks)) {
+      cachedStore = null;
       return emptyStore();
     }
+    cachedStore = {
+      file,
+      value: parsed,
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      checkedAt: now,
+    };
     return parsed;
   } catch {
+    cachedStore = null;
     return emptyStore();
   }
 }
@@ -31,6 +70,7 @@ function writeStore(store: StoreFile): void {
   const file = storePath();
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  cachedStore = { file, value: store, mtimeMs: -1, size: -1, checkedAt: Date.now() };
 }
 
 export function listProjects(includeArchived = false): ProjectDto[] {

@@ -227,22 +227,20 @@ export function Sidebar({
   const railWidgetRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async () => {
-    const [projectRes, taskRes, archivedRes, archivedProjectsRes, healthRes, collaborationRes] = await Promise.allSettled([
-      getJson<{ projects: ProjectDto[] }>("/api/projects"),
-      getJson<{ tasks: TaskSummary[] }>("/api/tasks"),
-      getJson<{ tasks: TaskSummary[] }>("/api/tasks?archived=1"),
+    const [projectRes, taskRes, healthRes, collaborationRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects?archived=1"),
+      getJson<{ tasks: TaskSummary[] }>("/api/tasks?archived=1"),
       getJson<HealthDto>("/api/health"),
       getJson<{ rooms: Record<string, CollaborationRoomSummary> }>("/api/collaboration"),
     ]);
     if (taskDragActiveRef.current) return;
-    if (projectRes.status === "fulfilled") setProjects(projectRes.value.projects);
-    if (taskRes.status === "fulfilled") setTasks(taskRes.value.tasks);
-    if (archivedRes.status === "fulfilled") {
-      setArchivedTasks(archivedRes.value.tasks.filter((task) => task.status === "archived"));
+    if (projectRes.status === "fulfilled") {
+      setProjects(projectRes.value.projects.filter((project) => !project.archived));
+      setArchivedProjects(projectRes.value.projects.filter((project) => project.archived));
     }
-    if (archivedProjectsRes.status === "fulfilled") {
-      setArchivedProjects(archivedProjectsRes.value.projects.filter((project) => project.archived));
+    if (taskRes.status === "fulfilled") {
+      setTasks(taskRes.value.tasks.filter((task) => task.status !== "archived"));
+      setArchivedTasks(taskRes.value.tasks.filter((task) => task.status === "archived"));
     }
     if (healthRes.status === "fulfilled") setHealth(healthRes.value);
     if (collaborationRes.status === "fulfilled") setCollaborationRooms(collaborationRes.value.rooms);

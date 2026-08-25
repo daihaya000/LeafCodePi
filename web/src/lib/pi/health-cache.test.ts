@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { nextHealthCache, readHealthCache } from "./harness";
+import {
+  nextHealthCache,
+  nextModelCache,
+  readHealthCache,
+  readModelCache,
+} from "./harness";
 import type { HealthDto } from "@/lib/types";
 
 const healthy: HealthDto = {
@@ -43,5 +48,24 @@ describe("nextHealthCache", () => {
 
   it("refuses to cache a broken engine so recovery polling stays live", () => {
     assert.equal(nextHealthCache(broken, 42), null);
+  });
+});
+
+describe("model cache", () => {
+  const models = [{
+    value: "test::model",
+    label: "Test",
+    providerID: "test",
+    modelID: "model",
+  }];
+
+  it("serves a fresh model snapshot", () => {
+    const entry = nextModelCache(models, 1_000);
+    assert.equal(readModelCache(entry, 15_999, 15_000), models);
+    assert.equal(readModelCache(entry, 16_000, 15_000), null);
+  });
+
+  it("does not cache an empty model list", () => {
+    assert.equal(nextModelCache([], 1_000), null);
   });
 });

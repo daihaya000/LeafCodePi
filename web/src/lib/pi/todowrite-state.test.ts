@@ -41,6 +41,20 @@ describe("todosFromPiMessages", () => {
     ).toEqual([]);
   });
 
+  it("reuses the parsed snapshot while the message list is unchanged", () => {
+    const messages: unknown[] = [
+      {
+        role: "toolResult",
+        toolName: "todowrite",
+        details: { todos: [{ content: "検証", status: "pending", priority: "low" }] },
+      },
+    ];
+    const first = todosFromPiMessages(messages);
+    expect(todosFromPiMessages(messages)).toBe(first);
+    messages.push({ role: "assistant", content: "次へ" });
+    expect(todosFromPiMessages(messages)).not.toBe(first);
+  });
+
   it("counts completed and cancelled todos as finished", () => {
     expect(
       todoProgressFromTodos([

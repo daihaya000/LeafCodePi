@@ -179,6 +179,8 @@ type HarnessState = {
   events: EventEmitter;
   loginSession: ProviderLoginSession | null;
   healthCache: HealthCacheEntry | null;
+  modelCache: ModelCacheEntry | null;
+  modelInflight: Promise<ModelOption[]> | null;
   watchdogRegistered: boolean;
   lastProviderSyncWarnings: string[];
 };
@@ -256,6 +258,8 @@ function state(): HarnessState {
       events: new EventEmitter(),
       loginSession: null,
       healthCache: null,
+      modelCache: null,
+      modelInflight: null,
       watchdogRegistered: false,
       lastProviderSyncWarnings: [],
     };
@@ -862,10 +866,20 @@ function attachSession(
   };
 
   const unsubscribe = session.subscribe((event) => {
-    const task = getTask(taskId);
-    if (!task) return;
+    const syncTask =
+      event.type === "agent_start" ||
+      event.type === "agent_settled" ||
+      (event.type === "agent_end" && !event.willRetry) ||
+      (event.type === "compaction_end" &&
+        !event.aborted &&
+        Boolean(event.errorMessage) &&
+        event.reason !== "manual");
+    // Message/tool deltas arrive much more often than task metadata changes.
+    // Avoid a synchronous store read for every token; status/identity changes
+    // still use the existing path below.
+    const task = syncTask ? getTask(taskId) : undefined;
+    if (syncTask && !task) return;
     trackThroughputEvent(live, event as { type: string; [key: string]: unknown });
-    const ids = modelId(session.model);
     if (event.type === "agent_start") {
       setTaskStatus(taskId, "working");
     }
@@ -881,14 +895,17 @@ function attachSession(
     ) {
       setTaskStatus(taskId, "error", event.errorMessage);
     }
-    const identityPatch = sessionIdentityPatch(task, {
-      providerID: ids.providerID,
-      modelID: ids.modelID,
-      sessionId: session.sessionId,
-      sessionFile: session.sessionFile,
-    });
-    if (Object.keys(identityPatch).length > 0) {
-      patchTask(taskId, identityPatch);
+    if (task) {
+      const ids = modelId(session.model);
+      const identityPatch = sessionIdentityPatch(task, {
+        providerID: ids.providerID,
+        modelID: ids.modelID,
+        sessionId: session.sessionId,
+        sessionFile: session.sessionFile,
+      });
+      if (Object.keys(identityPatch).length > 0) {
+        patchTask(taskId, identityPatch);
+      }
     }
     scheduleTaskSnapshot(
       live,
@@ -1180,8 +1197,10 @@ async function syncProvidersBestEffort(runtime: ModelRuntime): Promise<string[]>
  * (~250ms measured). A short TTL keeps the poll nearly free.
  */
 const HEALTH_TTL_MS = 15_000;
+const MODEL_TTL_MS = 15_000;
 
 type HealthCacheEntry = { at: number; value: HealthDto };
+type ModelCacheEntry = { at: number; value: ModelOption[] };
 
 /** Fresh cache entries only; unhealthy snapshots are never cached (see below). */
 export function readHealthCache(
@@ -1203,9 +1222,27 @@ export function nextHealthCache(value: HealthDto, now: number): HealthCacheEntry
   return value.engineOk ? { at: now, value } : null;
 }
 
+export function readModelCache(
+  entry: ModelCacheEntry | null,
+  now: number,
+  ttlMs = MODEL_TTL_MS,
+): ModelOption[] | null {
+  if (!entry) return null;
+  const age = now - entry.at;
+  if (age < 0 || age >= ttlMs) return null;
+  return entry.value;
+}
+
+export function nextModelCache(value: ModelOption[], now: number): ModelCacheEntry | null {
+  // Do not hide recovery from the model picker while the engine has no models.
+  return value.length > 0 ? { at: now, value } : null;
+}
+
 /** Drop the cached snapshot after anything that can change the model list. */
 export function invalidateHealthCache(): void {
-  state().healthCache = null;
+  const current = state();
+  current.healthCache = null;
+  current.modelCache = null;
 }
 
 export async function getHealth(): Promise<HealthDto> {
@@ -1236,36 +1273,47 @@ export async function getHealth(): Promise<HealthDto> {
 }
 
 export async function listModels(): Promise<ModelOption[]> {
-  await ensureRuntime();
-  const runtime = state().modelRuntime;
-  if (!runtime) return [];
-  await syncProvidersBestEffort(runtime);
-  const catalog = buildProviderModelsCatalog(runtime);
-  const enabled = new Set(
-    enabledModelOptionsFromCatalog(catalog).map((option) => option.value),
-  );
-  const available = await runtime.getAvailable();
-  const options: ModelOption[] = [];
-  for (const model of available) {
-    const providerID = String(model.provider);
-    const modelID = model.id;
-    const value = modelValue(providerID, modelID);
-    if (!enabled.has(value)) continue;
-    options.push({
-      value,
-      label: model.name || modelID,
-      providerID,
-      modelID,
-      input: [...model.input],
-      reasoning: Boolean(model.reasoning),
-      thinkingLevels: thinkingLevelsForModel(model),
-    });
-  }
-  // Preserve settings order from the catalog.
-  const order = enabledModelOptionsFromCatalog(catalog).map((option) => option.value);
-  const rank = new Map(order.map((value, index) => [value, index]));
-  options.sort((a, b) => (rank.get(a.value) ?? 1e9) - (rank.get(b.value) ?? 1e9));
-  return options;
+  const current = state();
+  const cached = readModelCache(current.modelCache, Date.now());
+  if (cached) return cached;
+  if (current.modelInflight) return current.modelInflight;
+
+  current.modelInflight = (async () => {
+    await ensureRuntime();
+    const runtime = state().modelRuntime;
+    if (!runtime) return [];
+    await syncProvidersBestEffort(runtime);
+    const catalog = buildProviderModelsCatalog(runtime);
+    const enabled = new Set(
+      enabledModelOptionsFromCatalog(catalog).map((option) => option.value),
+    );
+    const available = await runtime.getAvailable();
+    const options: ModelOption[] = [];
+    for (const model of available) {
+      const providerID = String(model.provider);
+      const modelID = model.id;
+      const value = modelValue(providerID, modelID);
+      if (!enabled.has(value)) continue;
+      options.push({
+        value,
+        label: model.name || modelID,
+        providerID,
+        modelID,
+        input: [...model.input],
+        reasoning: Boolean(model.reasoning),
+        thinkingLevels: thinkingLevelsForModel(model),
+      });
+    }
+    // Preserve settings order from the catalog.
+    const order = enabledModelOptionsFromCatalog(catalog).map((option) => option.value);
+    const rank = new Map(order.map((value, index) => [value, index]));
+    options.sort((a, b) => (rank.get(a.value) ?? 1e9) - (rank.get(b.value) ?? 1e9));
+    current.modelCache = nextModelCache(options, Date.now());
+    return options;
+  })().finally(() => {
+    current.modelInflight = null;
+  });
+  return current.modelInflight;
 }
 
 /** Complete a short prompt through Pi's registered provider, without tools or an agent session. */
