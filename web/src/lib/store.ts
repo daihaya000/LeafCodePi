@@ -199,7 +199,16 @@ export function patchTask(
     }
   }
   if (!changed) return task;
-  task.updatedAt = new Date().toISOString();
+  // Monotonic guard: two real changes within the same millisecond must still
+  // advance updatedAt (preserves ordering and keeps the store-test's
+  // same-millisecond writes deterministic).
+  const previous = task.updatedAt;
+  let next = new Date().toISOString();
+  if (previous && next <= previous) {
+    const ms = Date.parse(previous) + 1;
+    next = new Date(ms).toISOString();
+  }
+  task.updatedAt = next;
   writeStore(store);
   return task;
 }
