@@ -18,9 +18,46 @@ vi.mock("@/components/settings/ProviderAuthPanel", () => ({
 vi.mock("@/components/settings/GenerationModelSettings", () => ({
   GenerationModelSettings: () => <h2>生成モデル</h2>,
 }));
+vi.mock("@/components/settings/BrowserSettings", () => ({
+  BrowserSettings: () => <h2>ブラウザ設定</h2>,
+}));
+vi.mock("@/components/settings/NotificationSoundSettings", () => ({
+  NotificationSoundSettings: () => <h2>通知音</h2>,
+}));
+vi.mock("@/components/settings/NavigatorSettings", () => ({
+  NavigatorSettings: () => <h2>ナビゲーター</h2>,
+}));
+vi.mock("@/components/settings/ReasoningTranslationSettings", () => ({
+  ReasoningTranslationSettings: () => <h2>思考要約の翻訳</h2>,
+}));
+vi.mock("@/components/settings/CompactionSettings", () => ({
+  CompactionSettings: () => <h2>コンテキスト圧縮</h2>,
+}));
+vi.mock("@/components/settings/HangTimeoutSettings", () => ({
+  HangTimeoutSettings: () => <h2>ハング判定</h2>,
+}));
+vi.mock("@/components/settings/AgentsMdSettings", () => ({
+  AgentsMdSettings: () => <h2>AGENTS.md</h2>,
+}));
+vi.mock("@/components/settings/SkillsSettings", () => ({
+  SkillsSettings: () => <h2>スキル</h2>,
+}));
+vi.mock("@/components/settings/AgentsSettings", () => ({
+  AgentsSettings: () => <h2>エージェント</h2>,
+}));
+vi.mock("@/components/settings/CollaborationSettings", () => ({
+  CollaborationSettings: () => <h2>協調</h2>,
+}));
+vi.mock("@/components/settings/ExtensionsSettings", () => ({
+  ExtensionsSettings: () => <h2>拡張機能</h2>,
+}));
+vi.mock("@/components/settings/McpSettings", () => ({
+  McpSettings: () => <h2>MCPサーバー</h2>,
+}));
 
 describe("SettingsView", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "/settings");
     getJson.mockResolvedValue({ providers: [] });
   });
 
@@ -29,14 +66,41 @@ describe("SettingsView", () => {
     getJson.mockReset();
   });
 
-  it("モデルタブをモデル、プロバイダ、生成モデルの順に表示する", () => {
+  it("モデルタブをプロバイダ、モデル、生成モデルの順に表示する", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("button", { name: /^モデル$/ }));
 
     expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
-      "モデル",
       "プロバイダ",
+      "モデル",
       "生成モデル",
     ]);
+  });
+
+  it("一般タブをカテゴリごとに切り替え、選択したカテゴリをハッシュに反映する", () => {
+    render(<SettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: /^一般$/ }));
+
+    expect(screen.getByRole("navigation", { name: "一般設定" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "基本" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "思考要約の翻訳" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "応答" }));
+
+    expect(window.location.hash).toBe("#general-response");
+    expect(screen.getByRole("heading", { name: "応答" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "ブラウザ設定" })).toBeNull();
+  });
+
+  it("一般カテゴリのハッシュから直接開ける", () => {
+    window.history.replaceState(null, "", "/settings#general-agents");
+    render(<SettingsView />);
+
+    expect(screen.getByRole("button", { name: "一般" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("heading", { name: "エージェント環境" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "AGENTS.md" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "ブラウザ設定" })).toBeNull();
   });
 });
