@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdirSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -56,15 +56,15 @@ describe("store", () => {
     const task = store.insertTask({ project, title: "t1" });
 
     store.setTaskStatus(task.id, "working");
-    const first = statSync(join(dir, "store.json")).mtimeMs;
+    const first = store.getTask(task.id)!.updatedAt;
 
-    // 同一値への再パッチはディスクへ書き込まない。
+    // 同一値への再パッチは updatedAt を変えず、ディスク書き込みも起こさない。
     store.setTaskStatus(task.id, "working");
-    expect(statSync(join(dir, "store.json")).mtimeMs).toBe(first);
+    expect(store.getTask(task.id)!.updatedAt).toBe(first);
 
-    // 実変更時は書き込む。
+    // 実変更時は updatedAt が更新される。
     store.setTaskStatus(task.id, "idle");
-    expect(statSync(join(dir, "store.json")).mtimeMs).toBeGreaterThan(first);
+    expect(store.getTask(task.id)!.updatedAt).not.toBe(first);
     rmSync(dir, { recursive: true, force: true });
   });
 });
