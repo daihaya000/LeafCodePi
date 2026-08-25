@@ -200,6 +200,16 @@ type SnapshotProjectionCache = {
 /** Stable session history is reused between 100ms SSE snapshots. */
 const snapshotProjectionCache = new WeakMap<object, SnapshotProjectionCache>();
 
+type ContextUsageCacheEntry = {
+  source: readonly unknown[];
+  length: number;
+  last: unknown;
+  value: ContextUsageDto | undefined;
+};
+
+/** getContextUsage() estimates tokens over all messages; skip it while messages are unchanged. */
+const contextUsageCache = new WeakMap<object, ContextUsageCacheEntry>();
+
 type PermissionPromptService = ReturnType<typeof createPermissionPromptService>;
 let permissionPromptService: PermissionPromptService | null = null;
 
@@ -744,12 +754,21 @@ function trackThroughputEvent(
   }
 }
 
-function sessionContextUsage(session: AgentSession): ContextUsageDto | undefined {
-  try {
-    return toContextUsageDto(session.getContextUsage());
-  } catch {
-    return undefined;
+export function sessionContextUsage(session: AgentSession): ContextUsageDto | undefined {
+  const stored: unknown[] = Array.isArray(session.messages) ? session.messages : [];
+  const last = stored[stored.length - 1];
+  const cached = contextUsageCache.get(session);
+  if (cached?.source === stored && cached.length === stored.length && cached.last === last) {
+    return cached.value;
   }
+  let value: ContextUsageDto | undefined;
+  try {
+    value = toContextUsageDto(session.getContextUsage());
+  } catch {
+    value = undefined;
+  }
+  contextUsageCache.set(session, { source: stored, length: stored.length, last, value });
+  return value;
 }
 
 function sessionSnapshotFields(
