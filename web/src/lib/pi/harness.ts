@@ -197,8 +197,17 @@ type SnapshotProjectionCache = {
   projected: UiMessage[];
 };
 
+type BranchProjectionCache = {
+  leafId: string | null;
+  raw: unknown[];
+  entryIdByMessage: Map<unknown, string>;
+  projected: UiMessage[];
+};
+
 /** Stable session history is reused between 100ms SSE snapshots. */
 const snapshotProjectionCache = new WeakMap<object, SnapshotProjectionCache>();
+/** Full current-branch history survives compaction and is reused between snapshots. */
+const branchProjectionCache = new WeakMap<object, BranchProjectionCache>();
 
 type ContextUsageCacheEntry = {
   source: readonly unknown[];
@@ -476,25 +485,56 @@ export function snapshotMessages(
   toolPartialOutputByCallId?: Map<string, string>,
 ): UiMessage[] {
   const stored: unknown[] = Array.isArray(session.messages) ? session.messages : [];
+  const branchLeafId = session.sessionManager.getLeafId();
+  const cachedBranch = branchProjectionCache.get(session);
+  let useBranchHistory = false;
+  let branchCacheHit = false;
+  let historyRaw: unknown[] = stored;
+  let entryIdByMessage = new Map<unknown, string>();
+
+  if (cachedBranch?.leafId === branchLeafId) {
+    useBranchHistory = true;
+    branchCacheHit = true;
+    historyRaw = cachedBranch.raw;
+    entryIdByMessage = cachedBranch.entryIdByMessage;
+  } else {
+    const branch = session.sessionManager.getBranch();
+    if (branch.length > 0) {
+      useBranchHistory = true;
+      entryIdByMessage = new Map<unknown, string>();
+      historyRaw = branch.flatMap((entry) => {
+        if (entry.type === "message") {
+          entryIdByMessage.set(entry.message, entry.id);
+          return [entry.message];
+        }
+        if (entry.type !== "compaction") return [];
+        const timestamp = Date.parse(entry.timestamp);
+        return [{
+          id: entry.id,
+          role: "compactionSummary" as const,
+          timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+          summary: entry.summary,
+          tokensBefore: entry.tokensBefore,
+        }];
+      });
+    }
+  }
   const streaming = session.agent.state.streamingMessage;
-  const streamingInStored = streaming === stored[stored.length - 1];
+  const streamingInHistory = useBranchHistory
+    ? entryIdByMessage.has(streaming)
+    : stored.includes(streaming);
   const streamingRole =
     streaming && typeof streaming === "object"
       ? (streaming as { role?: unknown }).role
       : undefined;
-  const canAppendStreaming = Boolean(streaming && !streamingInStored && streamingRole !== "toolResult");
+  const canAppendStreaming = Boolean(
+    streaming && !streamingInHistory && streamingRole !== "toolResult",
+  );
 
   const projectWithEntryIds = (raw: unknown[]): UiMessage[] => {
     let result = projectPiMessages(raw);
     // Pi のメッセージ本体には id が無いため、projectPiMessages は `msg-N` を仮 id
     // にする。「入力欄に戻す」はエントリ id 必須なので、参照一致するエントリの id で上書き
-    const entryIdByMessage = new Map<unknown, string>();
-    // session.messages is built from the active branch; scanning other branches only adds work.
-    for (const entry of session.sessionManager.getBranch()) {
-      if (entry.type === "message") {
-        entryIdByMessage.set((entry as { message?: unknown }).message, entry.id);
-      }
-    }
     const entryIds = entryIdsForProjectedMessages(raw, entryIdByMessage);
     result = result.map((message, index) => {
       const entryId = entryIds[index];
@@ -505,29 +545,56 @@ export function snapshotMessages(
 
   let projected: UiMessage[];
   if (!streaming || canAppendStreaming) {
-    const last = stored[stored.length - 1];
-    const cached = snapshotProjectionCache.get(session);
-    if (
-      cached?.source === stored &&
-      cached.length === stored.length &&
-      cached.last === last
-    ) {
-      projected = cached.projected;
+    if (useBranchHistory) {
+      if (branchCacheHit) {
+        projected = cachedBranch!.projected;
+      } else {
+        projected = projectWithEntryIds(historyRaw);
+        branchProjectionCache.set(session, {
+          leafId: branchLeafId,
+          raw: historyRaw,
+          entryIdByMessage,
+          projected,
+        });
+      }
     } else {
-      projected = projectWithEntryIds(stored);
-      snapshotProjectionCache.set(session, {
-        source: stored,
-        length: stored.length,
-        last,
-        projected,
-      });
+      const cached = snapshotProjectionCache.get(session);
+      const last = stored[stored.length - 1];
+      if (cached?.source === stored && cached.length === stored.length && cached.last === last) {
+        projected = cached.projected;
+      } else {
+        projected = projectWithEntryIds(historyRaw);
+        snapshotProjectionCache.set(session, {
+          source: stored,
+          length: stored.length,
+          last,
+          projected,
+        });
+      }
     }
     if (canAppendStreaming) {
-      projected = projected.concat(projectPiMessages([streaming], stored.length));
+      projected = projected.concat(projectPiMessages([streaming], historyRaw.length));
     }
   } else {
-    const raw = streamingInStored ? stored : [...stored, streaming];
+    const raw = streamingInHistory ? historyRaw : [...historyRaw, streaming];
     projected = projectWithEntryIds(raw);
+    if (streamingInHistory) {
+      if (useBranchHistory) {
+        branchProjectionCache.set(session, {
+          leafId: branchLeafId,
+          raw: historyRaw,
+          entryIdByMessage,
+          projected,
+        });
+      } else {
+        snapshotProjectionCache.set(session, {
+          source: stored,
+          length: stored.length,
+          last: stored[stored.length - 1],
+          projected,
+        });
+      }
+    }
   }
   if (throughputByStartedAt) projected = applyThroughput(projected, throughputByStartedAt);
   if (toolPartialOutputByCallId && toolPartialOutputByCallId.size > 0) {
