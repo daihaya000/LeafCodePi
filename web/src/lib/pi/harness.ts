@@ -831,6 +831,10 @@ function emitTaskSnapshot(
   eventType: string,
   extra?: Record<string, unknown>,
 ): void {
+  // SSE リスナーが誰もいないタスクのスナップショット生成（メッセージ射影・
+  // エントリ走査・goal loop 読込・todo 抽出）は丸ごと不要。リスナーが付いた
+  // タイミングで getTaskDetail が初期状態を送るため欠落は生じない。
+  if (state().events.listenerCount(live.taskId) === 0) return;
   const task = getTask(live.taskId);
   if (!task) return;
   emit(live.taskId, {
