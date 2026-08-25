@@ -63,6 +63,47 @@ function projectInitial(name: string): string {
   return Array.from(name.trim())[0]?.toUpperCase() ?? "?";
 }
 
+/** 表示に影響するフィールドのみ比較（未変更なら参照を維持して再レンダーを防ぐ）。 */
+function sameTaskList(a: TaskSummary[], b: TaskSummary[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    const left = a[index]!;
+    const right = b[index]!;
+    if (
+      left.id !== right.id ||
+      left.status !== right.status ||
+      left.title !== right.title ||
+      left.projectId !== right.projectId ||
+      left.projectName !== right.projectName ||
+      left.updatedAt !== right.updatedAt ||
+      left.todoProgress?.completed !== right.todoProgress?.completed ||
+      left.todoProgress?.total !== right.todoProgress?.total
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sameProjectList(a: ProjectDto[], b: ProjectDto[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    const left = a[index]!;
+    const right = b[index]!;
+    if (
+      left.id !== right.id ||
+      left.name !== right.name ||
+      left.favorite !== right.favorite ||
+      left.archived !== right.archived ||
+      left.lastOpenedAt !== right.lastOpenedAt ||
+      left.icon !== right.icon
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function projectIconTone(projectId: string): string {
   let hash = 0;
   for (const character of projectId) {
@@ -235,12 +276,23 @@ export function Sidebar({
     ]);
     if (taskDragActiveRef.current) return;
     if (projectRes.status === "fulfilled") {
-      setProjects(projectRes.value.projects.filter((project) => !project.archived));
-      setArchivedProjects(projectRes.value.projects.filter((project) => project.archived));
+      // 実質不変なら前回の参照を維持し、Sidebar の不要な再レンダーを避ける。
+      const nextProjects = projectRes.value.projects.filter((project) => !project.archived);
+      const nextArchived = projectRes.value.projects.filter((project) => project.archived);
+      setProjects((current) =>
+        sameProjectList(current, nextProjects) ? current : nextProjects,
+      );
+      setArchivedProjects((current) =>
+        sameProjectList(current, nextArchived) ? current : nextArchived,
+      );
     }
     if (taskRes.status === "fulfilled") {
-      setTasks(taskRes.value.tasks.filter((task) => task.status !== "archived"));
-      setArchivedTasks(taskRes.value.tasks.filter((task) => task.status === "archived"));
+      const nextTasks = taskRes.value.tasks.filter((task) => task.status !== "archived");
+      const nextArchivedTasks = taskRes.value.tasks.filter((task) => task.status === "archived");
+      setTasks((current) => (sameTaskList(current, nextTasks) ? current : nextTasks));
+      setArchivedTasks((current) =>
+        sameTaskList(current, nextArchivedTasks) ? current : nextArchivedTasks,
+      );
     }
     if (healthRes.status === "fulfilled") setHealth(healthRes.value);
     if (collaborationRes.status === "fulfilled") setCollaborationRooms(collaborationRes.value.rooms);
