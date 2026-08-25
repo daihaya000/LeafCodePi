@@ -165,6 +165,37 @@ export function latestActivityAt(messages: UiMessage[], startedAt: number): numb
   return latest;
 }
 
+/** 子エージェントの実行中は、親ターンのハング watchdog から除外する。 */
+export function turnHasOnlyActiveSubagentTool(
+  messages: UiMessage[],
+  startedAtMs: number,
+): boolean {
+  let from = 0;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message?.role === "user" && message.createdAt >= startedAtMs) {
+      from = i + 1;
+      break;
+    }
+  }
+
+  let hasActiveTool = false;
+  for (const message of messages.slice(from)) {
+    for (const part of message.parts) {
+      if (
+        part.type !== "tool" ||
+        (part.state.status !== "running" && part.state.status !== "pending")
+      ) {
+        continue;
+      }
+      hasActiveTool = true;
+      const tool = part.tool.toLowerCase();
+      if (!tool.includes("subagent") && tool !== "task") return false;
+    }
+  }
+  return hasActiveTool;
+}
+
 function syncMemoryFromDisk(): void {
   memoryWatches.clear();
   for (const row of readStore().watches) {
@@ -317,6 +348,8 @@ async function evaluateWatch(row: TaskHangWatchRow, timeoutMs: number): Promise<
   }
 
   const { messages, isStreaming, isCompacting } = live;
+  if (turnHasOnlyActiveSubagentTool(messages, row.startedAt)) return;
+
   const fingerprint = progressFingerprint(messages);
   const activityAt = Math.max(latestActivityAt(messages, row.startedAt), row.startedAt);
 
