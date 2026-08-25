@@ -4,6 +4,7 @@ import {
   sameProjectList,
   sameRooms,
   sameTaskList,
+  reorderProjectIds,
 } from "./Sidebar";
 import type { HealthDto, ProjectDto, TaskSummary } from "@/lib/types";
 import type { CollaborationRoomSummary } from "@/lib/collaboration-room";
@@ -76,6 +77,21 @@ describe("sameProjectList", () => {
     expect(
       sameProjectList([project("p1", "A")], [{ ...project("p1", "A"), favorite: true }]),
     ).toBe(false);
+  });
+});
+
+describe("reorderProjectIds", () => {
+  it("moves an item before or after the target without mutating the source", () => {
+    const ids = ["a", "b", "c"];
+
+    expect(reorderProjectIds(ids, "a", "c")).toEqual(["b", "a", "c"]);
+    expect(reorderProjectIds(ids, "a", "c", "after")).toEqual(["b", "c", "a"]);
+    expect(ids).toEqual(["a", "b", "c"]);
+  });
+
+  it("rejects missing or identical project ids", () => {
+    expect(reorderProjectIds(["a", "b"], "a", "a")).toBeNull();
+    expect(reorderProjectIds(["a", "b"], "a", "missing")).toBeNull();
   });
 });
 

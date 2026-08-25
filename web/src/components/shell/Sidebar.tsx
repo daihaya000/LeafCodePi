@@ -37,6 +37,7 @@ type ProjectTaskMenuState = {
 };
 
 type RailWidget = "codexbar" | "sysmon";
+type ProjectDropPlacement = "before" | "after";
 
 const WIDTH_KEY = "webui.sidebar.width";
 const COLLAPSED_KEY = "webui.sidebar.collapsed";
@@ -102,6 +103,24 @@ export function sameProjectList(a: ProjectDto[], b: ProjectDto[]): boolean {
     }
   }
   return true;
+}
+
+export function reorderProjectIds(
+  ids: string[],
+  sourceId: string,
+  targetId: string,
+  placement: ProjectDropPlacement = "before",
+): string[] | null {
+  if (sourceId === targetId) return null;
+  const next = [...ids];
+  const sourceIndex = next.indexOf(sourceId);
+  const targetIndexBeforeMove = next.indexOf(targetId);
+  if (sourceIndex < 0 || targetIndexBeforeMove < 0) return null;
+  const [moved] = next.splice(sourceIndex, 1);
+  if (!moved) return null;
+  const targetIndex = next.indexOf(targetId);
+  next.splice(targetIndex + (placement === "after" ? 1 : 0), 0, moved);
+  return next;
 }
 
 export function sameHealth(a: HealthDto | null, b: HealthDto): boolean {
@@ -449,15 +468,14 @@ export function Sidebar({
   }
 
   const reorderProjects = useCallback(
-    (sourceId: string, targetId: string, placement: "before" | "after" = "before"): boolean => {
-      if (sourceId === targetId) return false;
-      const nextOrder = orderedProjects.map((project) => project.id);
-      const sourceIndex = nextOrder.indexOf(sourceId);
-      if (sourceIndex < 0 || nextOrder.indexOf(targetId) < 0) return false;
-      const [moved] = nextOrder.splice(sourceIndex, 1);
-      if (!moved) return false;
-      const targetIndex = nextOrder.indexOf(targetId);
-      nextOrder.splice(targetIndex + (placement === "after" ? 1 : 0), 0, moved);
+    (sourceId: string, targetId: string, placement: ProjectDropPlacement = "before"): boolean => {
+      const nextOrder = reorderProjectIds(
+        orderedProjects.map((project) => project.id),
+        sourceId,
+        targetId,
+        placement,
+      );
+      if (!nextOrder) return false;
       setProjectOrder(nextOrder);
       saveProjectOrder(nextOrder);
       return true;
@@ -493,11 +511,16 @@ export function Sidebar({
     (event: React.DragEvent<HTMLElement>, targetId: string) => {
       event.preventDefault();
       const sourceId = projectDragIdFromDataTransfer(event.dataTransfer) || draggedProjectId;
-      if (sourceId && reorderProjects(sourceId, targetId)) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const placement: ProjectDropPlacement =
+        event.clientY >= rect.top + rect.height / 2 ? "after" : "before";
+      if (sourceId && reorderProjects(sourceId, targetId, placement)) {
         const source = orderedProjects.find((project) => project.id === sourceId);
         const target = orderedProjects.find((project) => project.id === targetId);
         if (source && target) {
-          setReorderAnnouncement(`${source.name}を${target.name}の前に移動しました`);
+          setReorderAnnouncement(
+            `${source.name}を${target.name}の${placement === "after" ? "後ろ" : "前"}に移動しました`,
+          );
         }
       }
       setDraggedProjectId(null);
@@ -798,6 +821,8 @@ export function Sidebar({
                       "flex items-center gap-0.5 rounded-lg",
                       dragOverProjectId === project.id && draggedProjectId !== project.id && "bg-surface-3",
                     )}
+                    onDragOver={(event) => handleProjectDragOver(event, project.id)}
+                    onDrop={(event) => handleProjectDrop(event, project.id)}
                   >
                     <button
                       type="button"
@@ -805,8 +830,6 @@ export function Sidebar({
                       aria-label={`${project.name}を${open ? "折りたたむ" : "展開"}`}
                       draggable={orderedProjects.length > 1}
                       onDragStart={(event) => handleProjectDragStart(event, project.id)}
-                      onDragOver={(event) => handleProjectDragOver(event, project.id)}
-                      onDrop={(event) => handleProjectDrop(event, project.id)}
                       onDragEnd={handleProjectDragEnd}
                       onKeyDown={(event) => handleProjectKeyDown(event, project.id)}
                       onClick={() => toggleExpanded(project.id)}
@@ -1124,7 +1147,7 @@ export function Sidebar({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <ul className="flex flex-col items-center gap-3">
-          {projects.map((project) => {
+          {orderedProjects.map((project) => {
             const projectTasks = tasksByProject.get(project.id) ?? [];
             const running = countRunningTasks(projectTasks);
             const tapOpensMenu = !hoverCapable && projectTasks.length > 0;
