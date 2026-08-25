@@ -20,6 +20,16 @@ describe("titleFromPrompt", () => {
 });
 
 describe("projectPiMessages", () => {
+  it("keeps fallback ids aligned when projecting a streamed suffix", () => {
+    const [message] = projectPiMessages(
+      [{ role: "assistant", content: [{ type: "text", text: "続き" }] }],
+      3,
+    );
+
+    expect(message?.id).toBe("msg-3");
+    expect(message?.parts[0]?.id).toBe("msg-3-text-0");
+  });
+
   it("removes ANSI escape sequences from tool output", () => {
     const colored = "\u001b[1m\u001b[32m✓ passed\u001b[39m\u001b[22m";
     const messages = projectPiMessages([

@@ -190,6 +190,16 @@ const GLOBAL_KEY = "__leafcodePiHarness" as const;
 /** Coalesce concurrent ensureLive(taskId) so only one Pi session is created. */
 const ensureLiveInflight = new Map<string, Promise<LiveRuntime>>();
 
+type SnapshotProjectionCache = {
+  source: readonly unknown[];
+  length: number;
+  last: unknown;
+  projected: UiMessage[];
+};
+
+/** Stable session history is reused between 100ms SSE snapshots. */
+const snapshotProjectionCache = new WeakMap<object, SnapshotProjectionCache>();
+
 type PermissionPromptService = ReturnType<typeof createPermissionPromptService>;
 let permissionPromptService: PermissionPromptService | null = null;
 
@@ -439,32 +449,67 @@ export function applyThroughput(
   });
 }
 
-function snapshotMessages(
+export function snapshotMessages(
   session: AgentSession,
   throughputByStartedAt?: Map<number, ThroughputTiming>,
   toolStartedAt?: Map<string, number>,
   toolEndedAt?: Map<string, number>,
   toolPartialOutputByCallId?: Map<string, string>,
 ): UiMessage[] {
-  const stored: unknown[] = Array.isArray(session.messages) ? [...session.messages] : [];
+  const stored: unknown[] = Array.isArray(session.messages) ? session.messages : [];
   const streaming = session.agent.state.streamingMessage;
-  if (streaming && stored[stored.length - 1] !== streaming) {
-    stored.push(streaming);
-  }
-  let projected = projectPiMessages(stored);
-  // Pi のメッセージ本体には id が無いため、projectPiMessages は `msg-N` を仮 id
-  // にする。「入力欄に戻す」はエントリ id 必須なので、参照一致するエントリの id で上書き
-  const entryIdByMessage = new Map<unknown, string>();
-  for (const entry of session.sessionManager.getEntries()) {
-    if (entry.type === "message") {
-      entryIdByMessage.set((entry as { message?: unknown }).message, entry.id);
+  const streamingInStored = streaming === stored[stored.length - 1];
+  const streamingRole =
+    streaming && typeof streaming === "object"
+      ? (streaming as { role?: unknown }).role
+      : undefined;
+  const canAppendStreaming = Boolean(streaming && !streamingInStored && streamingRole !== "toolResult");
+
+  const projectWithEntryIds = (raw: unknown[]): UiMessage[] => {
+    let result = projectPiMessages(raw);
+    // Pi のメッセージ本体には id が無いため、projectPiMessages は `msg-N` を仮 id
+    // にする。「入力欄に戻す」はエントリ id 必須なので、参照一致するエントリの id で上書き
+    const entryIdByMessage = new Map<unknown, string>();
+    // session.messages is built from the active branch; scanning other branches only adds work.
+    for (const entry of session.sessionManager.getBranch()) {
+      if (entry.type === "message") {
+        entryIdByMessage.set((entry as { message?: unknown }).message, entry.id);
+      }
     }
+    const entryIds = entryIdsForProjectedMessages(raw, entryIdByMessage);
+    result = result.map((message, index) => {
+      const entryId = entryIds[index];
+      return entryId ? { ...message, id: entryId } : message;
+    });
+    return result;
+  };
+
+  let projected: UiMessage[];
+  if (!streaming || canAppendStreaming) {
+    const last = stored[stored.length - 1];
+    const cached = snapshotProjectionCache.get(session);
+    if (
+      cached?.source === stored &&
+      cached.length === stored.length &&
+      cached.last === last
+    ) {
+      projected = cached.projected;
+    } else {
+      projected = projectWithEntryIds(stored);
+      snapshotProjectionCache.set(session, {
+        source: stored,
+        length: stored.length,
+        last,
+        projected,
+      });
+    }
+    if (canAppendStreaming) {
+      projected = projected.concat(projectPiMessages([streaming], stored.length));
+    }
+  } else {
+    const raw = streamingInStored ? stored : [...stored, streaming];
+    projected = projectWithEntryIds(raw);
   }
-  const entryIds = entryIdsForProjectedMessages(stored, entryIdByMessage);
-  projected = projected.map((message, index) => {
-    const entryId = entryIds[index];
-    return entryId ? { ...message, id: entryId } : message;
-  });
   if (throughputByStartedAt) projected = applyThroughput(projected, throughputByStartedAt);
   if (toolPartialOutputByCallId && toolPartialOutputByCallId.size > 0) {
     projected = applyToolOutput(projected, toolPartialOutputByCallId);

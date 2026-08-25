@@ -142,12 +142,12 @@ export function entryIdsForProjectedMessages(
   return ids;
 }
 
-export function projectPiMessages(raw: unknown[]): UiMessage[] {
+export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] {
   const messages: UiMessage[] = [];
   raw.forEach((item, index) => {
     if (!isRecord(item)) return;
     const role = asString(item.role);
-    const id = asString(item.id) || `msg-${index}`;
+    const id = asString(item.id) || `msg-${index + indexOffset}`;
     const recordTsMs =
       typeof item.timestamp === "number" && Number.isFinite(item.timestamp)
         ? item.timestamp
