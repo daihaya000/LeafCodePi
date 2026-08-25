@@ -116,7 +116,7 @@ describe("PartView structured result", () => {
 describe("PartView skill invocation", () => {
   afterEach(() => cleanup());
 
-  it("collapses Pi's expanded skill envelope and keeps trailing instructions separate", () => {
+  it("renders Pi's expanded skill envelope as a highlighted slash reference", () => {
     render(
       <PartView
         message={userMessage(
@@ -125,16 +125,11 @@ describe("PartView skill invocation", () => {
       />,
     );
 
-    const details = document.querySelector("details");
-    const summary = details?.querySelector("summary");
-    expect(details).toBeTruthy();
-    expect((details as HTMLDetailsElement).open).toBe(false);
-    expect(summary?.textContent?.replace(/\s+/g, " ").trim()).toBe("スキル: insane-search");
+    const reference = screen.getByText("/skill:insane-search");
+    expect(reference.className).toContain("bg-accent/15");
+    expect(reference.className).toContain("text-accent");
     expect(screen.queryByText(/^<skill name=/)).toBeNull();
+    expect(screen.queryByText("折りたたまれる本文")).toBeNull();
     expect(screen.getByText("追加の依頼")).toBeTruthy();
-
-    fireEvent.click(summary!);
-    expect((details as HTMLDetailsElement).open).toBe(true);
-    expect(screen.getByText("折りたたまれる本文")).toBeTruthy();
   });
 });

@@ -102,7 +102,6 @@ const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
 
 type SkillInvocation = {
   name: string;
-  content: string;
   userMessage?: string;
 };
 
@@ -114,22 +113,8 @@ function parseSkillInvocation(text: string): SkillInvocation | null {
   if (!match) return null;
   return {
     name: match[1]!,
-    content: match[3]!,
     userMessage: match[4]?.trim() || undefined,
   };
-}
-
-function SkillInvocationCard({ invocation }: { invocation: SkillInvocation }) {
-  return (
-    <details className="ml-auto min-w-0 max-w-[88%] rounded-2xl rounded-br-md border border-border bg-surface-2 px-4 py-2.5 text-sm">
-      <summary className="cursor-pointer select-none text-accent marker:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
-        <span className="font-medium">スキル:</span> {invocation.name}
-      </summary>
-      <div className="mt-2 border-t border-border pt-2 text-text">
-        <MarkdownBody text={invocation.content} />
-      </div>
-    </details>
-  );
 }
 
 function UserTextPart({
@@ -151,15 +136,17 @@ function UserTextPart({
     );
   }
 
+  const skillReference: ReferenceHighlightReferences = {
+    skills: [{ name: invocation.name }],
+    agents: [],
+  };
   return (
-    <>
-      <SkillInvocationCard invocation={invocation} />
+    <div className="ml-auto min-w-0 max-w-[88%] rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5 text-[0.925rem] whitespace-pre-wrap break-words">
+      <ReferenceHighlight text={`/skill:${invocation.name}`} references={skillReference} />
       {invocation.userMessage && (
-        <div className="ml-auto min-w-0 max-w-[88%] rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5 text-[0.925rem] whitespace-pre-wrap break-words">
-          {renderText(invocation.userMessage)}
-        </div>
+        <>{" "}{renderText(invocation.userMessage)}</>
       )}
-    </>
+    </div>
   );
 }
 
