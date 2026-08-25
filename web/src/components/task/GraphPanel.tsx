@@ -215,10 +215,10 @@ const GraphRowView = memo(function GraphRowView({
   refs,
   currentBranch,
   expanded,
-  loadingCommits,
+  loading,
   fileBusy,
-  filesByCommit,
-  fileDiff,
+  files,
+  diff,
   onToggle,
   onOpenFileDiff,
 }: {
@@ -226,10 +226,13 @@ const GraphRowView = memo(function GraphRowView({
   refs: string[];
   currentBranch: string | null;
   expanded: boolean;
-  loadingCommits: ReadonlySet<string>;
+  /** This row only — derived from the loadingCommits Set at the call site. */
+  loading: boolean;
   fileBusy: boolean;
-  filesByCommit: Record<string, GraphFileChange[]>;
-  fileDiff: { commit: string; path: string; text: string } | null;
+  /** This row only — derived from filesByCommit at the call site. */
+  files: GraphFileChange[] | undefined;
+  /** This row only — the open diff if it belongs to this commit. */
+  diff: { path: string; text: string } | null;
   onToggle: (hash: string) => void;
   onOpenFileDiff: (commit: string, path: string) => void;
 }) {
@@ -242,9 +245,6 @@ const GraphRowView = memo(function GraphRowView({
     [row.commit.date],
   );
   const open = expanded;
-  const files = filesByCommit[row.commit.hash];
-  const isDiffOpen =
-    fileDiff !== null && fileDiff.commit === row.commit.hash;
   return (
     <div
       className={cx(
@@ -256,7 +256,7 @@ const GraphRowView = memo(function GraphRowView({
         type="button"
         aria-expanded={open}
         aria-controls={`graph-files-${row.commit.hash}`}
-        aria-busy={loadingCommits.has(row.commit.hash) || undefined}
+        aria-busy={loading || undefined}
         onClick={() => onToggle(row.commit.hash)}
         className="flex w-full min-w-0 cursor-pointer select-text items-stretch gap-1 px-1 py-0 text-left hover:bg-surface-2"
         style={{ minHeight: ROW_H }}
@@ -349,7 +349,7 @@ const GraphRowView = memo(function GraphRowView({
             <div key={f.path} className="mb-0.5">
               <button
                 type="button"
-                disabled={fileBusy || loadingCommits.has(row.commit.hash)}
+                disabled={fileBusy || loading}
                 onClick={() => onOpenFileDiff(row.commit.hash, f.path)}
                 className="flex w-full cursor-pointer select-text items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-surface-2"
               >
@@ -365,9 +365,9 @@ const GraphRowView = memo(function GraphRowView({
                   {f.path}
                 </span>
               </button>
-              {isDiffOpen && fileDiff.path === f.path && (
+              {diff && diff.path === f.path && (
                 <pre className="mt-1 max-h-48 overflow-x-auto overflow-y-auto rounded-lg border border-border bg-bg p-2 font-mono text-[10px] leading-4 break-all whitespace-pre text-muted">
-                  {fileDiff.text || "(empty diff)"}
+                  {diff.text || "(empty diff)"}
                 </pre>
               )}
             </div>
@@ -747,10 +747,14 @@ export function GraphPanel({
             refs={refsByHash.get(row.commit.hash) ?? []}
             currentBranch={payload?.currentBranch ?? null}
             expanded={expanded === row.commit.hash}
-            loadingCommits={loadingCommits}
+            loading={loadingCommits.has(row.commit.hash)}
             fileBusy={fileBusy}
-            filesByCommit={filesByCommit}
-            fileDiff={fileDiff}
+            files={filesByCommit[row.commit.hash]}
+            diff={
+              fileDiff?.commit === row.commit.hash
+                ? { path: fileDiff.path, text: fileDiff.text }
+                : null
+            }
             onToggle={toggleExpand}
             onOpenFileDiff={openFileDiff}
           />
