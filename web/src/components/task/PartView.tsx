@@ -100,6 +100,69 @@ const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
   );
 });
 
+type SkillInvocation = {
+  name: string;
+  content: string;
+  userMessage?: string;
+};
+
+/** Pi expands /skill:name into this persisted user-message envelope. */
+function parseSkillInvocation(text: string): SkillInvocation | null {
+  const match = text.match(
+    /^<skill name="([^"]+)" location="([^"]+)">\r?\n([\s\S]*?)\r?\n<\/skill>(?:\r?\n\r?\n([\s\S]+))?$/,
+  );
+  if (!match) return null;
+  return {
+    name: match[1]!,
+    content: match[3]!,
+    userMessage: match[4]?.trim() || undefined,
+  };
+}
+
+function SkillInvocationCard({ invocation }: { invocation: SkillInvocation }) {
+  return (
+    <details className="ml-auto min-w-0 max-w-[88%] rounded-2xl rounded-br-md border border-border bg-surface-2 px-4 py-2.5 text-sm">
+      <summary className="cursor-pointer select-none text-accent marker:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+        <span className="font-medium">スキル:</span> {invocation.name}
+      </summary>
+      <div className="mt-2 border-t border-border pt-2 text-text">
+        <MarkdownBody text={invocation.content} />
+      </div>
+    </details>
+  );
+}
+
+function UserTextPart({
+  text,
+  references,
+}: {
+  text: string;
+  references?: ReferenceHighlightReferences;
+}) {
+  const invocation = parseSkillInvocation(text);
+  const renderText = (value: string) =>
+    references ? <ReferenceHighlight text={value} references={references} /> : value;
+
+  if (!invocation) {
+    return (
+      <div className="ml-auto min-w-0 max-w-[88%] rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5 text-[0.925rem] whitespace-pre-wrap break-words">
+        {renderText(text)}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <SkillInvocationCard invocation={invocation} />
+      {invocation.userMessage && (
+        <div className="ml-auto min-w-0 max-w-[88%] rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5 text-[0.925rem] whitespace-pre-wrap break-words">
+          {renderText(invocation.userMessage)}
+        </div>
+      )}
+    </>
+  );
+}
+
 export function toolIcon(tool: string, input?: Record<string, unknown>) {
   const t = tool.toLowerCase();
   if (isSkillRead(tool, input)) return Wrench;
@@ -837,12 +900,7 @@ export const PartView = memo(
         {message.parts.map((part) => {
           if (part.type === "text") {
             return isUser ? (
-              <div
-                key={part.id}
-                className="ml-auto min-w-0 max-w-[88%] rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5 text-[0.925rem] whitespace-pre-wrap break-words"
-              >
-                {references ? <ReferenceHighlight text={part.text} references={references} /> : part.text}
-              </div>
+              <UserTextPart key={part.id} text={part.text} references={references} />
             ) : (
               <MarkdownBody key={part.id} text={part.text} />
             );

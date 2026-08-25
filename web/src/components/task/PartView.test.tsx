@@ -26,6 +26,15 @@ function bashMessage(output: string): UiMessage {
   };
 }
 
+function userMessage(text: string): UiMessage {
+  return {
+    id: "user-1",
+    role: "user",
+    createdAt: 1,
+    parts: [{ id: "user-text", type: "text", text }],
+  };
+}
+
 function logScroller(): HTMLDivElement {
   const pre = document.querySelector("pre");
   const scroller = pre?.parentElement?.parentElement;
@@ -101,5 +110,31 @@ describe("PartView structured result", () => {
     expect(screen.getByText("テストを実行しました")).toBeTruthy();
     expect(screen.getByText("次のステップ")).toBeTruthy();
     expect(screen.queryByText(/"status"/)).toBeNull();
+  });
+});
+
+describe("PartView skill invocation", () => {
+  afterEach(() => cleanup());
+
+  it("collapses Pi's expanded skill envelope and keeps trailing instructions separate", () => {
+    render(
+      <PartView
+        message={userMessage(
+          `<skill name="insane-search" location="/skills/insane-search/SKILL.md">\nReferences are relative to /skills/insane-search.\n\n# Insane Search\n\n折りたたまれる本文\n</skill>\n\n追加の依頼`,
+        )}
+      />,
+    );
+
+    const details = document.querySelector("details");
+    const summary = details?.querySelector("summary");
+    expect(details).toBeTruthy();
+    expect((details as HTMLDetailsElement).open).toBe(false);
+    expect(summary?.textContent?.replace(/\s+/g, " ").trim()).toBe("スキル: insane-search");
+    expect(screen.queryByText(/^<skill name=/)).toBeNull();
+    expect(screen.getByText("追加の依頼")).toBeTruthy();
+
+    fireEvent.click(summary!);
+    expect((details as HTMLDetailsElement).open).toBe(true);
+    expect(screen.getByText("折りたたまれる本文")).toBeTruthy();
   });
 });
