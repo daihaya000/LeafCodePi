@@ -145,7 +145,7 @@ export function serializeLlamaServerSettings(value: LlamaServerSettings): string
 /** Recommended launch settings for a known local model family. */
 export type LlamaModelPreset = {
   /** Stable select value. */
-  key: "ornith" | "ornith-thinking" | "qwen38";
+  key: "ornith" | "ornith-thinking" | "huihui-qwen38" | "qwen38";
   /** Matches the model file path (case-insensitive). */
   match: RegExp;
   label: string;
@@ -174,6 +174,15 @@ export const LLAMA_MODEL_PRESETS: readonly LlamaModelPreset[] = [
     label: "Ornith-1.5 35B（思考つき・最適化）",
     description: "モデル既定の思考つき。128K コンテキスト。KV キャッシュを K/V とも q8_0 にして省メモリ化。",
     settings: { effort: "", specType: "", contextLength: 131_072, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
+  },
+  {
+    key: "huihui-qwen38",
+    // Huihui's abliterated model keeps the Qwen3.8 MTP tensors unchanged, so
+    // it can use the same speculative-decoding and KV-cache tuning.
+    match: /(?=.*huihui)(?=.*qwen3[._]?8)(?=.*abliterat)/i,
+    label: "Huihui-Qwen3.8 27B（abliterated・最適化）",
+    description: "MTP維持版。draft-mtp 推測デコード、effort low、KV キャッシュ K/V q8_0。131K コンテキスト。",
+    settings: { effort: "low", specType: "draft-mtp", contextLength: 131_072, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
   },
   {
     key: "qwen38",

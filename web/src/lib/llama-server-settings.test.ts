@@ -131,6 +131,21 @@ describe("llama-server-settings", () => {
     expect(qwen?.settings.specType).toBe("draft-mtp");
     expect(qwen?.settings.cacheTypeK).toBe("q8_0");
 
+    const huihui = findLlamaModelPreset(
+      "huihui-ai\\Huihui-Qwen3.8-27B-abliterated-GGUF\\Huihui-Qwen3.8-27B-abliterated-Q4_K.gguf",
+    );
+    expect(huihui?.key).toBe("huihui-qwen38");
+    expect(huihui?.settings).toEqual({
+      effort: "low",
+      specType: "draft-mtp",
+      contextLength: 131_072,
+      cacheTypeK: "q8_0",
+      cacheTypeV: "q8_0",
+    });
+    expect(findLlamaModelPreset("Qwen3.8-27B-huihui-abliterated-Q4_K.gguf")?.key).toBe(
+      "huihui-qwen38",
+    );
+
     expect(findLlamaModelPreset("unknown-model.gguf")).toBeNull();
     expect(findLlamaModelPreset("")).toBeNull();
   });
@@ -150,6 +165,10 @@ describe("llama-server-settings", () => {
     expect(isLlamaSpecComboBroken("Ornith-1.5-x.gguf", "")).toBe(false);
     // Qwen3.8 ships MTP tensors -> draft-mtp is fine.
     expect(isLlamaSpecComboBroken("Qwen3.8-27B-Q4_K_S.gguf", "draft-mtp")).toBe(false);
+    // Huihui keeps the Qwen3.8 MTP tensors unchanged.
+    expect(
+      isLlamaSpecComboBroken("Huihui-Qwen3.8-27B-abliterated-Q4_K.gguf", "draft-mtp"),
+    ).toBe(false);
     expect(isLlamaSpecComboBroken("", "draft-mtp")).toBe(true);
   });
 

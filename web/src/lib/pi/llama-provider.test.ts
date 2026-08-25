@@ -53,6 +53,7 @@ describe("isLlamaQwenReasoningModel", () => {
   it("detects Qwen3.8 GGUF aliases", () => {
     expect(isLlamaQwenReasoningModel("Qwen3.8-27B-Uncensored-GGUF")).toBe(true);
     expect(isLlamaQwenReasoningModel("Qwen3.8-27B-Uncensored-GGUF.gguf")).toBe(true);
+    expect(isLlamaQwenReasoningModel("Huihui-Qwen3.8-27B-abliterated-GGUF")).toBe(true);
     expect(isLlamaQwenReasoningModel("C:\\models\\Qwen3-32B-Q4_K_M.gguf")).toBe(true);
   });
 
