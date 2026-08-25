@@ -78,10 +78,7 @@ describe("createState", () => {
     const created = createState(null);
     expect(created.panes[0].tabs).toEqual([HOME_TAB_ID]);
     expect(created.panes[0].activeTabId).toBe(HOME_TAB_ID);
-    expect(retargetActiveTab(created, "task-a").panes[0].tabs).toEqual([
-      HOME_TAB_ID,
-      "task-a",
-    ]);
+    expect(retargetActiveTab(created, "task-a").panes[0].tabs).toEqual(["task-a"]);
   });
 });
 
@@ -507,6 +504,18 @@ describe("retargetActiveTab", () => {
   it("変更不要なら同一参照を返す", () => {
     const base = state(pane(P1, ["a"]));
     expect(retargetActiveTab(base, "a")).toBe(base);
+  });
+
+  it("Home タブから実タスクを開くと Home タブは自動クローズされる", () => {
+    const base = state(pane(P1, [HOME_TAB_ID]));
+    const next = retargetActiveTab(base, "fresh");
+    expect(next.panes[0].tabs).toEqual(["fresh"]);
+    expect(next.panes[0].activeTabId).toBe("fresh");
+  });
+
+  it("HOME_TAB_ID 自身への retarget は同一参照", () => {
+    const base = state(pane(P1, [HOME_TAB_ID]));
+    expect(retargetActiveTab(base, HOME_TAB_ID)).toBe(base);
   });
 });
 

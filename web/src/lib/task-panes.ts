@@ -463,6 +463,11 @@ export function retargetActiveTab(
   state: TaskPanesState,
   urlTaskId: string,
 ): TaskPanesState {
+  if (urlTaskId === HOME_TAB_ID) return state;
+  // 新規作成（Home）タブは入口であり、実タスクを開いたら自動クローズする
+  // （残ると非表示マウントの HomeView がポーリングし続け、URL/projectId も不整合になる）
+  const base = removeTaskEverywhere(state, HOME_TAB_ID);
+  state = base;
   const existing = state.panes.find((pane) => pane.tabs.includes(urlTaskId));
   if (existing && existing.activeTabId === urlTaskId && state.activePaneId === existing.id) {
     return state;
