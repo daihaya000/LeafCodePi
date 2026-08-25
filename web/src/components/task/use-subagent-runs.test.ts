@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { matchSubagentRuns, subagentAgentNames } from "./use-subagent-runs";
+import {
+  matchSubagentRuns,
+  sameSubagentRuns,
+  subagentAgentNames,
+} from "./use-subagent-runs";
 import type { SubagentRunDto } from "@/lib/types";
 
 function run(runId: string, agent: string): SubagentRunDto {
@@ -43,5 +47,32 @@ describe("matchSubagentRuns", () => {
 
   it("keeps every run in the time window when nothing matches", () => {
     expect(matchSubagentRuns(runs, [], ["other"]).map((r) => r.runId)).toEqual(["r1", "r2"]);
+  });
+});
+
+describe("sameSubagentRuns", () => {
+  it("detects identical content across polling responses", () => {
+    const messages = [{ id: "m1", role: "assistant" as const, createdAt: 1, parts: [] }];
+    const a = [
+      { ...run("r1", "programmer"), messages },
+      { ...run("r2", "reviewer"), messages },
+    ];
+    const b = [
+      { ...run("r1", "programmer"), messages },
+      { ...run("r2", "reviewer"), messages },
+    ];
+    expect(sameSubagentRuns(a, b)).toBe(true);
+  });
+
+  it("detects a status change", () => {
+    const a = [run("r1", "programmer")];
+    const b = [{ ...run("r1", "programmer"), status: "running" as const }];
+    expect(sameSubagentRuns(a, b)).toBe(false);
+  });
+
+  it("detects a message reference change", () => {
+    const a = [run("r1", "programmer")];
+    const b = [{ ...run("r1", "programmer"), messages: [{ id: "x", role: "user" as const, createdAt: 1, parts: [] }] }];
+    expect(sameSubagentRuns(a, b)).toBe(false);
   });
 });

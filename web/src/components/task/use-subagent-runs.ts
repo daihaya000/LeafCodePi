@@ -48,6 +48,31 @@ export function matchSubagentRuns(
   return [...runs];
 }
 
+/** 表示に影響するフィールドのみ比較（2 秒ポーリング毎の新配列で再レンダーさせない）。 */
+export function sameSubagentRuns(a: readonly SubagentRunDto[], b: readonly SubagentRunDto[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    const left = a[index]!;
+    const right = b[index]!;
+    if (
+      left.runId !== right.runId ||
+      left.agent !== right.agent ||
+      left.index !== right.index ||
+      left.status !== right.status ||
+      left.startedAtMs !== right.startedAtMs ||
+      left.lastActivityAtMs !== right.lastActivityAtMs ||
+      left.currentTool !== right.currentTool ||
+      left.provider !== right.provider ||
+      left.model !== right.model ||
+      left.truncated !== right.truncated ||
+      left.messages !== right.messages
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * サブエージェント子実行を BFF からポーリングする。
  * 実行中は 2 秒間隔、終了後は 1 回だけ取得する（本家 LeafCode の
@@ -83,7 +108,9 @@ export function useSubagentRuns(input: {
         );
         if (cancelled) return;
         loadedRef.current = true;
-        setRuns(result.runs ?? []);
+        const next = result.runs ?? [];
+        // 実質不変なら参照を維持し、入れ子パネルの不要な再レンダーを避ける。
+        setRuns((current) => (sameSubagentRuns(current, next) ? current : next));
         setError(null);
       } catch (err) {
         if (cancelled) return;
