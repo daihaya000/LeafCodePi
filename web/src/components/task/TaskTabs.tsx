@@ -127,7 +127,7 @@ export function TaskTabs({
             <button
               type="button"
               aria-label={`タブ ${label} を閉じる`}
-              className="-mr-1 hidden h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-surface-3 group-hover/tab:inline-flex aria-[current]:inline-flex focus-visible:inline-flex"
+              className="-mr-1 hidden h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-surface-3 group-hover/tab:inline-flex focus-visible:inline-flex [@media(hover:none)]:inline-flex"
               onClick={(event) => {
                 event.stopPropagation();
                 onCloseTab(taskId);
