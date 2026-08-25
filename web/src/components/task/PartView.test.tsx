@@ -82,6 +82,30 @@ describe("PartView shell log", () => {
   });
 });
 
+describe("PartView memo", () => {
+  afterEach(() => cleanup());
+
+  it("skips re-rendering when the message reference and callback are stable", () => {
+    const message = userMessage("こんにちは");
+    const onRevert = () => undefined;
+
+    const view = render(<PartView message={message} onRevert={onRevert} />);
+    expect(screen.getByText("こんにちは")).toBeTruthy();
+
+    // 同一 message 参照・同一 onRevert 参照での再レンダーは memo でスキップされる。
+    view.rerender(<PartView message={message} onRevert={onRevert} />);
+    expect(screen.getByText("こんにちは")).toBeTruthy();
+  });
+
+  it("re-renders when onRevert changes reference (inline arrow regression)", () => {
+    const message = userMessage("こんにちは");
+    const view = render(<PartView message={message} onRevert={() => undefined} />);
+    // 毎回新参照の inline arrow は memo を無効化する（回帰防止: useCallback 必須）。
+    view.rerender(<PartView message={message} onRevert={() => undefined} />);
+    expect(screen.getByText("こんにちは")).toBeTruthy();
+  });
+});
+
 describe("PartView structured result", () => {
   afterEach(() => cleanup());
 

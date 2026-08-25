@@ -643,6 +643,21 @@ export function TaskView({
 
   const compacting = isCompacting || compactingLocal;
   const working = Boolean(task?.status === "working" || task?.isStreaming);
+
+  // PartView は memo 化されており onRevert の参照比較でスキップ判定する。
+  // inline arrow のままだと毎レンダー新参照になり、stabilizeUiMessages の
+  // 参照安定化が無効化されるため useCallback で安定させる。
+  const requestRevert = useCallback(
+    (target: UiMessage) => {
+      if (working) {
+        setError("実行中は巻き戻せません。停止してからお試しください");
+        return;
+      }
+      revertEntryRef.current = { messageId: target.id, message: target };
+      setRevertConfirmOpen(true);
+    },
+    [working],
+  );
   const goalLoopLive = Boolean(
     task?.goalLoop && ["queued", "running", "verifying_completed"].includes(task.goalLoop.status),
   );
@@ -1402,18 +1417,7 @@ export function TaskView({
                     agent={message.role === "assistant" ? task?.agent ?? undefined : undefined}
                     references={messageReferences}
                     taskId={taskId}
-                    onRevert={
-                      message.role === "user"
-                        ? (target) => {
-                            if (working) {
-                              setError("実行中は巻き戻せません。停止してからお試しください");
-                              return;
-                            }
-                            revertEntryRef.current = { messageId: target.id, message: target };
-                            setRevertConfirmOpen(true);
-                          }
-                        : undefined
-                    }
+                    onRevert={message.role === "user" ? requestRevert : undefined}
                   />
                 )}
               </div>
