@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
   GitBranch,
@@ -204,6 +204,179 @@ function GraphCell({ row }: { row: GraphRow }) {
     </svg>
   );
 }
+
+/**
+ * One commit row. Memoized so unrelated GraphPanel state changes (busy,
+ * fileDiff, tab switches…) do not re-run pickBranchBadges/formatCommitDate or
+ * re-render the SVG for rows whose inputs are unchanged.
+ */
+const GraphRowView = memo(function GraphRowView({
+  row,
+  refs,
+  currentBranch,
+  expanded,
+  loadingCommits,
+  fileBusy,
+  filesByCommit,
+  fileDiff,
+  onToggle,
+  onOpenFileDiff,
+}: {
+  row: GraphRow;
+  refs: string[];
+  currentBranch: string | null;
+  expanded: boolean;
+  loadingCommits: ReadonlySet<string>;
+  fileBusy: boolean;
+  filesByCommit: Record<string, GraphFileChange[]>;
+  fileDiff: { commit: string; path: string; text: string } | null;
+  onToggle: (hash: string) => void;
+  onOpenFileDiff: (commit: string, path: string) => void;
+}) {
+  const { shown, more } = useMemo(
+    () => pickBranchBadges(refs, currentBranch, 2),
+    [refs, currentBranch],
+  );
+  const commitDate = useMemo(
+    () => formatCommitDate(row.commit.date),
+    [row.commit.date],
+  );
+  const open = expanded;
+  const files = filesByCommit[row.commit.hash];
+  const isDiffOpen =
+    fileDiff !== null && fileDiff.commit === row.commit.hash;
+  return (
+    <div
+      className={cx(
+        "border-b border-border/60",
+        open && "bg-surface-2/60",
+      )}
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={`graph-files-${row.commit.hash}`}
+        aria-busy={loadingCommits.has(row.commit.hash) || undefined}
+        onClick={() => onToggle(row.commit.hash)}
+        className="flex w-full min-w-0 cursor-pointer select-text items-stretch gap-1 px-1 py-0 text-left hover:bg-surface-2"
+        style={{ minHeight: ROW_H }}
+      >
+        <GraphCell row={row} />
+        <div className="flex min-w-0 flex-1 items-start gap-1 py-1.5 pr-2">
+          <ChevronRight
+            className={cx(
+              "mt-0.5 h-3 w-3 shrink-0 text-faint transition-transform",
+              open && "rotate-90",
+            )}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="min-w-0 break-words text-xs text-text">
+              {row.commit.subject || "(no subject)"}
+            </div>
+            <div className="mt-0.5 min-w-0 text-[10px] text-faint">
+              <div className="flex min-w-0 items-center gap-1">
+                <span
+                  className="min-w-0 flex-1 truncate"
+                  title={
+                    row.commit.authorEmail
+                      ? `作者: ${row.commit.author} <${row.commit.authorEmail}>`
+                      : `作者: ${row.commit.author}`
+                  }
+                >
+                  作者: {row.commit.author}
+                  {row.commit.authorEmail && ` <${row.commit.authorEmail}>`}
+                </span>
+                <span
+                  title={row.commit.hash}
+                  className="inline-flex max-w-full shrink-0 rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-faint"
+                >
+                  {row.commit.shortHash}
+                </span>
+              </div>
+              {commitDate && (
+                <time
+                  dateTime={row.commit.date}
+                  title={row.commit.date}
+                  className="mt-0.5 block truncate"
+                >
+                  {commitDate}
+                </time>
+              )}
+            </div>
+            <div className="mt-1 flex max-w-full flex-wrap items-center gap-1">
+              {shown.map((name) => (
+                <span
+                  key={name}
+                  title={name}
+                  className={cx(
+                    "inline-flex max-w-[7rem] shrink-0 items-center gap-0.5 truncate rounded-md border px-1.5 py-0.5 font-mono text-[10px]",
+                    name === currentBranch
+                      ? "border-accent/50 bg-accent/15 text-accent"
+                      : "border-border bg-surface-2 text-muted",
+                  )}
+                >
+                  <GitBranch className="h-2.5 w-2.5 shrink-0" />
+                  <span className="truncate">{name}</span>
+                </span>
+              ))}
+              {more > 0 && (
+                <span
+                  title={refs.join(", ")}
+                  className="shrink-0 rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-faint"
+                >
+                  +{more}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </button>
+
+      {open && (
+        <div
+          id={`graph-files-${row.commit.hash}`}
+          className="border-t border-border/40 bg-bg/40 px-2 py-1.5 pl-6 sm:pl-10"
+        >
+          {!files && (
+            <div className="flex justify-center py-3">
+              <Spinner />
+            </div>
+          )}
+          {files && files.length === 0 && (
+            <p className="py-2 text-[11px] text-faint">変更ファイルなし</p>
+          )}
+          {files?.map((f) => (
+            <div key={f.path} className="mb-0.5">
+              <button
+                type="button"
+                disabled={fileBusy || loadingCommits.has(row.commit.hash)}
+                onClick={() => onOpenFileDiff(row.commit.hash, f.path)}
+                className="flex w-full cursor-pointer select-text items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-surface-2"
+              >
+                <span
+                  className={cx(
+                    "w-4 shrink-0 text-center font-mono text-[10px] font-semibold rounded",
+                    statusTone(f.status),
+                  )}
+                >
+                  {f.status}
+                </span>
+                <span className="min-w-0 truncate font-mono text-[11px] text-muted">
+                  {f.path}
+                </span>
+              </button>
+              {isDiffOpen && fileDiff.path === f.path && (
+                <pre className="mt-1 max-h-48 overflow-x-auto overflow-y-auto rounded-lg border border-border bg-bg p-2 font-mono text-[10px] leading-4 break-all whitespace-pre text-muted">
+                  {fileDiff.text || "(empty diff)"}
+                </pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
 
 export function GraphPanel({
   directory,
@@ -412,21 +585,30 @@ export function GraphPanel({
     return map;
   }, [payload?.refs]);
 
-  const toggleExpand = async (hash: string) => {
-    if (expanded === hash) {
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
+  const filesByCommitRef = useRef(filesByCommit);
+  filesByCommitRef.current = filesByCommit;
+  const selectedDirectoryRef = useRef(selectedDirectory);
+  selectedDirectoryRef.current = selectedDirectory;
+  const fileDiffRef = useRef(fileDiff);
+  fileDiffRef.current = fileDiff;
+
+  const toggleExpand = useCallback(async (hash: string) => {
+    if (expandedRef.current === hash) {
       setExpanded(null);
       setFileDiff(null);
       return;
     }
     setExpanded(hash);
     setFileDiff(null);
-    if (filesByCommit[hash]) return;
-    if (!selectedDirectory) return;
-    const detailKey = `${selectedDirectory}\u0000${hash}`;
+    if (filesByCommitRef.current[hash]) return;
+    const dir = selectedDirectoryRef.current;
+    if (!dir) return;
+    const detailKey = `${dir}\u0000${hash}`;
     if (detailBusyRef.current.has(detailKey)) return;
     detailBusyRef.current.add(detailKey);
     setLoadingCommits((prev) => new Set(prev).add(hash));
-    const dir = selectedDirectory;
     try {
       const data = await getJson<GraphShowPayload>("/api/git/show", {
         directory: dir,
@@ -450,15 +632,16 @@ export function GraphPanel({
         });
       }
     }
-  };
+  }, []);
 
-  const openFileDiff = async (commit: string, path: string) => {
-    if (fileDiff?.commit === commit && fileDiff.path === path) {
+  const openFileDiff = useCallback(async (commit: string, path: string) => {
+    const current = fileDiffRef.current;
+    if (current?.commit === commit && current.path === path) {
       setFileDiff(null);
       return;
     }
-    if (!selectedDirectory) return;
-    const dir = selectedDirectory;
+    const dir = selectedDirectoryRef.current;
+    if (!dir) return;
     setFileBusy(true);
     try {
       const data = await getJson<GraphShowPayload>("/api/git/show", {
@@ -474,7 +657,7 @@ export function GraphPanel({
     } finally {
       if (mountedRef.current && directoryRef.current === dir) setFileBusy(false);
     }
-  };
+  }, []);
 
   return (
     <div className="flex h-full min-h-0 min-w-0 w-full flex-1 select-text flex-col border-border bg-surface lg:border-l">
@@ -557,152 +740,21 @@ export function GraphPanel({
             コミットがありません
           </p>
         )}
-        {rows.map((row) => {
-          const refs = refsByHash.get(row.commit.hash) ?? [];
-          const { shown, more } = pickBranchBadges(
-            refs,
-            payload?.currentBranch ?? null,
-            2,
-          );
-          const open = expanded === row.commit.hash;
-          const files = filesByCommit[row.commit.hash];
-          const commitDate = formatCommitDate(row.commit.date);
-          return (
-            <div
-              key={row.commit.hash}
-              className={cx(
-                "border-b border-border/60",
-                open && "bg-surface-2/60",
-              )}
-            >
-              <button
-                type="button"
-                aria-expanded={open}
-                aria-controls={`graph-files-${row.commit.hash}`}
-                aria-busy={loadingCommits.has(row.commit.hash) || undefined}
-                onClick={() => void toggleExpand(row.commit.hash)}
-                className="flex w-full min-w-0 cursor-pointer select-text items-stretch gap-1 px-1 py-0 text-left hover:bg-surface-2"
-                style={{ minHeight: ROW_H }}
-              >
-                <GraphCell row={row} />
-                <div className="flex min-w-0 flex-1 items-start gap-1 py-1.5 pr-2">
-                  <ChevronRight
-                    className={cx(
-                      "mt-0.5 h-3 w-3 shrink-0 text-faint transition-transform",
-                      open && "rotate-90",
-                    )}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="min-w-0 break-words text-xs text-text">
-                      {row.commit.subject || "(no subject)"}
-                    </div>
-                    <div className="mt-0.5 min-w-0 text-[10px] text-faint">
-                      <div className="flex min-w-0 items-center gap-1">
-                        <span
-                          className="min-w-0 flex-1 truncate"
-                          title={
-                            row.commit.authorEmail
-                              ? `作者: ${row.commit.author} <${row.commit.authorEmail}>`
-                              : `作者: ${row.commit.author}`
-                          }
-                        >
-                          作者: {row.commit.author}
-                          {row.commit.authorEmail && ` <${row.commit.authorEmail}>`}
-                        </span>
-                        <span
-                          title={row.commit.hash}
-                          className="inline-flex max-w-full shrink-0 rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-faint"
-                        >
-                          {row.commit.shortHash}
-                        </span>
-                      </div>
-                      {commitDate && (
-                        <time
-                          dateTime={row.commit.date}
-                          title={row.commit.date}
-                          className="mt-0.5 block truncate"
-                        >
-                          {commitDate}
-                        </time>
-                      )}
-                    </div>
-                    <div className="mt-1 flex max-w-full flex-wrap items-center gap-1">
-                      {shown.map((name) => (
-                        <span
-                          key={name}
-                          title={name}
-                          className={cx(
-                            "inline-flex max-w-[7rem] shrink-0 items-center gap-0.5 truncate rounded-md border px-1.5 py-0.5 font-mono text-[10px]",
-                            name === payload?.currentBranch
-                              ? "border-accent/50 bg-accent/15 text-accent"
-                              : "border-border bg-surface-2 text-muted",
-                          )}
-                        >
-                          <GitBranch className="h-2.5 w-2.5 shrink-0" />
-                          <span className="truncate">{name}</span>
-                        </span>
-                      ))}
-                      {more > 0 && (
-                        <span
-                          title={refs.join(", ")}
-                          className="shrink-0 rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-faint"
-                        >
-                          +{more}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </button>
-
-              {open && (
-                <div
-                  id={`graph-files-${row.commit.hash}`}
-                  className="border-t border-border/40 bg-bg/40 px-2 py-1.5 pl-6 sm:pl-10"
-                >
-                  {!files && (
-                    <div className="flex justify-center py-3">
-                      <Spinner />
-                    </div>
-                  )}
-                  {files && files.length === 0 && (
-                    <p className="py-2 text-[11px] text-faint">
-                      変更ファイルなし
-                    </p>
-                  )}
-                  {files?.map((f) => (
-                    <div key={f.path} className="mb-0.5">
-                      <button
-                        type="button"
-                        disabled={fileBusy || loadingCommits.has(row.commit.hash)}
-                        onClick={() => void openFileDiff(row.commit.hash, f.path)}
-                        className="flex w-full cursor-pointer select-text items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-surface-2"
-                      >
-                        <span
-                          className={cx(
-                            "w-4 shrink-0 text-center font-mono text-[10px] font-semibold rounded",
-                            statusTone(f.status),
-                          )}
-                        >
-                          {f.status}
-                        </span>
-                        <span className="min-w-0 truncate font-mono text-[11px] text-muted">
-                          {f.path}
-                        </span>
-                      </button>
-                      {fileDiff?.commit === row.commit.hash &&
-                        fileDiff.path === f.path && (
-                          <pre className="mt-1 max-h-48 overflow-x-auto overflow-y-auto rounded-lg border border-border bg-bg p-2 font-mono text-[10px] leading-4 break-all whitespace-pre text-muted">
-                            {fileDiff.text || "(empty diff)"}
-                          </pre>
-                        )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {rows.map((row) => (
+          <GraphRowView
+            key={row.commit.hash}
+            row={row}
+            refs={refsByHash.get(row.commit.hash) ?? []}
+            currentBranch={payload?.currentBranch ?? null}
+            expanded={expanded === row.commit.hash}
+            loadingCommits={loadingCommits}
+            fileBusy={fileBusy}
+            filesByCommit={filesByCommit}
+            fileDiff={fileDiff}
+            onToggle={toggleExpand}
+            onOpenFileDiff={openFileDiff}
+          />
+        ))}
         {payload?.hasMore && (
           <div className="flex justify-center py-3">
             <Button
