@@ -29,7 +29,8 @@ export function useCodexUsage(options?: {
     const quiet = opts?.quiet ?? false;
     if (inFlight.current && !force) return inFlight.current;
 
-    const run = (async () => {
+    let run: Promise<void> | null = null;
+    run = (async () => {
       if (!quiet) setRefreshing(true);
       try {
         const data = await getJson<CodexBarUsage>(
@@ -46,7 +47,7 @@ export function useCodexUsage(options?: {
         setLoadError(err instanceof Error ? err.message : "取得に失敗しました");
       } finally {
         if (mounted.current && !quiet) setRefreshing(false);
-        inFlight.current = null;
+        if (run !== null && inFlight.current === run) inFlight.current = null;
       }
     })();
 
@@ -67,6 +68,13 @@ export function useCodexUsage(options?: {
 
   useEffect(() => {
     if (!enabled) return;
+
+    // Expanding after being collapsed: polling was paused, so refetch when
+    // the snapshot is already older than CLIENT_STALE_MS (same contract as
+    // the visibility handler). Coalesces with the mount fetch via inFlight.
+    if (Date.now() - lastFetchAt.current >= CLIENT_STALE_MS) {
+      void refresh({ quiet: true });
+    }
 
     const poll = setInterval(() => {
       if (document.visibilityState !== "visible") return;
