@@ -513,9 +513,11 @@ describe("retargetActiveTab", () => {
     expect(next.panes[0].activeTabId).toBe("fresh");
   });
 
-  it("HOME_TAB_ID 自身への retarget は同一参照", () => {
-    const base = state(pane(P1, [HOME_TAB_ID]));
-    expect(retargetActiveTab(base, HOME_TAB_ID)).toBe(base);
+  it("実タスクから Home へ戻ると Home タブを開く", () => {
+    const base = state(pane(P1, ["task-a"]));
+    const next = retargetActiveTab(base, HOME_TAB_ID);
+    expect(next.panes[0].tabs).toEqual(["task-a", HOME_TAB_ID]);
+    expect(next.panes[0].activeTabId).toBe(HOME_TAB_ID);
   });
 });
 
