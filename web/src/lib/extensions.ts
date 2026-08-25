@@ -30,7 +30,6 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
 import {
-  LEAFCODE_COLLABORATION_EXTENSION_NAME,
   LEAFCODE_COLLABORATION_TOOL_NAMES,
   LEAFCODE_STRICT_BLOCKED_TOOL_NAMES,
 } from "@/lib/collaboration";
