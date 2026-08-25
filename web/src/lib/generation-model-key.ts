@@ -1,5 +1,8 @@
 export const GENERATION_MODEL_SETTING_KEY = "generation-model";
 export const GENERATION_MODEL_EFFORT_SETTING_KEY = "generation-model-effort";
+export const GENERATION_FALLBACK_MODEL_SETTING_KEY = "generation-fallback-model";
+export const GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY =
+  "generation-fallback-model-effort";
 export const GENERATION_MODEL_EFFORTS = [
   "",
   "off",

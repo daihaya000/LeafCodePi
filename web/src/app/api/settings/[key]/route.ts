@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSetting, MAX_SETTING_VALUE_CHARS, setSetting } from "@/lib/pi/web-settings";
 import {
+  GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY,
+  GENERATION_FALLBACK_MODEL_SETTING_KEY,
   GENERATION_MODEL_EFFORT_SETTING_KEY,
   GENERATION_MODEL_SETTING_KEY,
   isGenerationModelEffort,
@@ -20,6 +22,8 @@ export const dynamic = "force-dynamic";
 
 /** 本家 LeafCode の /api/settings/[key] 相当。許容キーを絞って任意上書きを防ぐ。 */
 const ALLOWED_KEYS = new Set<string>([
+  GENERATION_FALLBACK_MODEL_SETTING_KEY,
+  GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY,
   GENERATION_MODEL_SETTING_KEY,
   GENERATION_MODEL_EFFORT_SETTING_KEY,
   NOTIFICATION_SOUND_TYPE_SETTING_KEY,
@@ -27,6 +31,13 @@ const ALLOWED_KEYS = new Set<string>([
 ]);
 
 function validateValue(key: string, value: string): string | null {
+  if (key === GENERATION_FALLBACK_MODEL_SETTING_KEY) {
+    const model = splitGenerationModel(value);
+    return model ? `${model.providerID}::${model.modelID}` : null;
+  }
+  if (key === GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY) {
+    return isGenerationModelEffort(value) ? value : null;
+  }
   if (key === GENERATION_MODEL_SETTING_KEY) {
     const model = splitGenerationModel(value);
     return model ? `${model.providerID}::${model.modelID}` : null;

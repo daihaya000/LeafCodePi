@@ -1,12 +1,15 @@
 import { getTask, patchTask } from "@/lib/store";
 import { getSetting } from "@/lib/pi/web-settings";
 import {
+  GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY,
+  GENERATION_FALLBACK_MODEL_SETTING_KEY,
   GENERATION_MODEL_EFFORT_SETTING_KEY,
   GENERATION_MODEL_SETTING_KEY,
 } from "@/lib/generation-model-key";
 import {
+  buildDirectGenerationCandidates,
   DirectGenerationError,
-  generateDirectText,
+  generateDirectTextWithFallback,
   parseDirectModel,
   parseDirectModelKey,
   type DirectModel,
@@ -28,23 +31,30 @@ export async function refreshTaskTitleDirect(
   if (!prompt) throw new DirectGenerationError("タイトルを生成できる会話がありません", 422);
 
   const configuredModel = parseDirectModelKey(getSetting(GENERATION_MODEL_SETTING_KEY));
-  const model =
+  const primaryModel =
     configuredModel ??
     requestedModel ??
     parseDirectModel({ providerID: task.providerID, modelID: task.modelID });
-  if (!model) throw new DirectGenerationError("生成モデルが設定されていません", 400);
-  const effort = configuredModel
-    ? getSetting(GENERATION_MODEL_EFFORT_SETTING_KEY) || undefined
-    : undefined;
+  const fallbackModel = parseDirectModelKey(getSetting(GENERATION_FALLBACK_MODEL_SETTING_KEY));
+  const candidates = buildDirectGenerationCandidates({
+    primary: primaryModel,
+    primaryEffort: configuredModel
+      ? getSetting(GENERATION_MODEL_EFFORT_SETTING_KEY) || undefined
+      : undefined,
+    fallback: fallbackModel,
+    fallbackEffort: fallbackModel
+      ? getSetting(GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY) || undefined
+      : undefined,
+  });
+  if (candidates.length === 0) throw new DirectGenerationError("生成モデルが設定されていません", 400);
 
   const title = sanitizeTitle(
-    await generateDirectText({
-      model,
+    await generateDirectTextWithFallback({
+      candidates,
       system: TITLE_SYSTEM_INSTRUCTION,
       prompt,
       maxTokens: 80,
       temperature: 0.1,
-      effort,
       timeoutMs: 60_000,
     }),
   );

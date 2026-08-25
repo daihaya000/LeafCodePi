@@ -21,6 +21,11 @@ export type DirectModel = {
   modelID: string;
 };
 
+export type DirectGenerationCandidate = {
+  model: DirectModel;
+  effort?: string;
+};
+
 export class DirectGenerationError extends Error {
   readonly status?: number;
 
@@ -210,4 +215,46 @@ export async function generateDirectText(options: {
     clearTimeout(timeout);
     options.signal?.removeEventListener("abort", abort);
   }
+}
+
+export function sameDirectModel(a: DirectModel, b: DirectModel): boolean {
+  return a.providerID === b.providerID && a.modelID === b.modelID;
+}
+
+export function buildDirectGenerationCandidates(options: {
+  primary?: DirectModel;
+  primaryEffort?: string;
+  fallback?: DirectModel;
+  fallbackEffort?: string;
+}): DirectGenerationCandidate[] {
+  const candidates: DirectGenerationCandidate[] = [];
+  if (options.primary) {
+    candidates.push({ model: options.primary, effort: options.primaryEffort });
+  }
+  if (options.fallback && (!options.primary || !sameDirectModel(options.primary, options.fallback))) {
+    candidates.push({ model: options.fallback, effort: options.fallbackEffort });
+  }
+  return candidates;
+}
+
+export async function generateDirectTextWithFallback(
+  options: Omit<Parameters<typeof generateDirectText>[0], "model" | "effort"> & {
+    candidates: readonly DirectGenerationCandidate[];
+  },
+): Promise<string> {
+  const { candidates, ...base } = options;
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return await generateDirectText({
+        ...base,
+        model: candidate.model,
+        effort: candidate.effort,
+      });
+    } catch (error) {
+      lastError = error;
+      if (base.signal?.aborted) throw error;
+    }
+  }
+  throw lastError ?? new DirectGenerationError("生成モデルが設定されていません", 400);
 }

@@ -80,4 +80,38 @@ describe("/api/settings/[key]", () => {
     expect(response.status).toBe(400);
     expect(settings.setSetting).not.toHaveBeenCalled();
   });
+
+  it("accepts and persists the fallback model and effort", async () => {
+    const modelResponse = await PUT(
+      request("generation-fallback-model", { value: "ollama-cloud::qwen3" }),
+      { params: Promise.resolve({ key: "generation-fallback-model" }) },
+    );
+    const effortResponse = await PUT(
+      request("generation-fallback-model-effort", { value: "low" }),
+      { params: Promise.resolve({ key: "generation-fallback-model-effort" }) },
+    );
+
+    expect(modelResponse.status).toBe(200);
+    expect(effortResponse.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenNthCalledWith(
+      1,
+      "generation-fallback-model",
+      "ollama-cloud::qwen3",
+    );
+    expect(settings.setSetting).toHaveBeenNthCalledWith(
+      2,
+      "generation-fallback-model-effort",
+      "low",
+    );
+  });
+
+  it("rejects an invalid fallback effort", async () => {
+    const response = await PUT(
+      request("generation-fallback-model-effort", { value: "turbo" }),
+      { params: Promise.resolve({ key: "generation-fallback-model-effort" }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(settings.setSetting).not.toHaveBeenCalled();
+  });
 });

@@ -6,7 +6,12 @@ const { completeModelText } = vi.hoisted(() => ({
 
 vi.mock("@/lib/pi/harness", () => ({ completeModelText }));
 
-import { extractDirectText, generateDirectText } from "./direct-generation";
+import {
+  buildDirectGenerationCandidates,
+  extractDirectText,
+  generateDirectText,
+  generateDirectTextWithFallback,
+} from "./direct-generation";
 
 describe("direct-generation", () => {
   afterEach(() => {
@@ -132,5 +137,50 @@ describe("direct-generation", () => {
         prompt: "prompt",
       }),
     ).rejects.toMatchObject({ status: 400, message: "プロバイダー応答エラー (400)" });
+  });
+
+  it("builds distinct primary and fallback candidates", () => {
+    const primary = { providerID: "llama-server", modelID: "primary" };
+    const fallback = { providerID: "llama-server", modelID: "fallback" };
+    expect(
+      buildDirectGenerationCandidates({
+        primary,
+        primaryEffort: "low",
+        fallback,
+        fallbackEffort: "high",
+      }),
+    ).toEqual([
+      { model: primary, effort: "low" },
+      { model: fallback, effort: "high" },
+    ]);
+    expect(buildDirectGenerationCandidates({ primary, fallback: primary })).toEqual([
+      { model: primary },
+    ]);
+  });
+
+  it("tries the selected fallback model with its own effort", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("{}", { status: 503 }))
+      .mockImplementationOnce(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.model).toBe("Qwen3.8-27B-Uncensored-GGUF");
+        expect(body.chat_template_kwargs).toEqual({ reasoning_effort: "medium" });
+        return new Response(JSON.stringify({ choices: [{ message: { content: "fallback result" } }] }), {
+          status: 200,
+        });
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      generateDirectTextWithFallback({
+        candidates: [
+          { model: { providerID: "llama-server", modelID: "primary" }, effort: "low" },
+          { model: { providerID: "llama-server", modelID: "Qwen3.8-27B-Uncensored-GGUF" }, effort: "medium" },
+        ],
+        system: "system",
+        prompt: "prompt",
+      }),
+    ).resolves.toBe("fallback result");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

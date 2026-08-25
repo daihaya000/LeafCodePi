@@ -100,4 +100,30 @@ describe("/api/git/commit-message", () => {
         "AI生成に失敗したため、ファイル情報から生成しました: 直接生成に失敗しました: 429: temporarily rate-limited",
     });
   });
+
+  it("tries the configured fallback model and effort before the deterministic fallback", async () => {
+    mocks.getSetting.mockImplementation((key: string) => {
+      if (key === "generation-model") return "openrouter::primary";
+      if (key === "generation-model-effort") return "low";
+      if (key === "generation-fallback-model") return "ollama-cloud::fallback";
+      if (key === "generation-fallback-model-effort") return "high";
+      return null;
+    });
+    mocks.completeModelText
+      .mockRejectedValueOnce(new Error("primary failed"))
+      .mockResolvedValueOnce("フォールバックでコミット");
+
+    const response = await POST(request({ directory: "C:\\repo", files: [file] }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ message: "フォールバックでコミット", source: "direct" });
+    expect(mocks.completeModelText).toHaveBeenCalledTimes(2);
+    expect(mocks.completeModelText).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        providerID: "ollama-cloud",
+        modelID: "fallback",
+        reasoning: "high",
+      }),
+    );
+  });
 });

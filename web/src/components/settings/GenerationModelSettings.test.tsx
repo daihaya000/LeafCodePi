@@ -5,10 +5,18 @@ import { GenerationModelSettings } from "./GenerationModelSettings";
 
 const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
+  readGenerationFallbackModel: vi.fn(),
+  readGenerationFallbackModelEffort: vi.fn(),
+  readGenerationFallbackModelEffortFromServer: vi.fn(),
+  readGenerationFallbackModelFromServer: vi.fn(),
   readGenerationModel: vi.fn(),
   readGenerationModelFromServer: vi.fn(),
   readGenerationModelEffort: vi.fn(),
   readGenerationModelEffortFromServer: vi.fn(),
+  writeGenerationFallbackModel: vi.fn(),
+  writeGenerationFallbackModelEffort: vi.fn(),
+  writeGenerationFallbackModelEffortToServer: vi.fn(),
+  writeGenerationFallbackModelToServer: vi.fn(),
   writeGenerationModel: vi.fn(),
   writeGenerationModelToServer: vi.fn(),
   writeGenerationModelEffort: vi.fn(),
@@ -38,8 +46,14 @@ describe("GenerationModelSettings", () => {
     mocks.readGenerationModelFromServer.mockResolvedValue("anthropic::claude-sonnet");
     mocks.readGenerationModelEffort.mockReturnValue(null);
     mocks.readGenerationModelEffortFromServer.mockResolvedValue("low");
+    mocks.readGenerationFallbackModel.mockReturnValue(null);
+    mocks.readGenerationFallbackModelFromServer.mockResolvedValue(null);
+    mocks.readGenerationFallbackModelEffort.mockReturnValue(null);
+    mocks.readGenerationFallbackModelEffortFromServer.mockResolvedValue(null);
     mocks.writeGenerationModelToServer.mockResolvedValue(undefined);
     mocks.writeGenerationModelEffortToServer.mockResolvedValue(undefined);
+    mocks.writeGenerationFallbackModelToServer.mockResolvedValue(undefined);
+    mocks.writeGenerationFallbackModelEffortToServer.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -61,5 +75,15 @@ describe("GenerationModelSettings", () => {
       expect(mocks.writeGenerationModelEffort).toHaveBeenCalledWith("high");
       expect(mocks.writeGenerationModelEffortToServer).toHaveBeenCalledWith("high");
     });
+  });
+
+  it("restores the fallback model and its effort", async () => {
+    mocks.readGenerationFallbackModelFromServer.mockResolvedValue("anthropic::claude-sonnet");
+    mocks.readGenerationFallbackModelEffortFromServer.mockResolvedValue("high");
+
+    render(<GenerationModelSettings />);
+
+    const fallbackEffort = await screen.findByRole("button", { name: "フォールバック先のEffort" });
+    expect(fallbackEffort.textContent).toContain("high");
   });
 });

@@ -2,10 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTask } from "@/lib/store";
 import { getSetting } from "@/lib/pi/web-settings";
 import {
+  GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY,
+  GENERATION_FALLBACK_MODEL_SETTING_KEY,
   GENERATION_MODEL_EFFORT_SETTING_KEY,
   GENERATION_MODEL_SETTING_KEY,
 } from "@/lib/generation-model-key";
-import { generateDirectText, parseDirectModel, parseDirectModelKey } from "@/lib/direct-generation";
+import {
+  buildDirectGenerationCandidates,
+  generateDirectTextWithFallback,
+  parseDirectModel,
+  parseDirectModelKey,
+} from "@/lib/direct-generation";
 import { readSessionConversation } from "@/lib/direct-session";
 import {
   formatConversationForPrompt,
@@ -59,24 +66,31 @@ export async function POST(
     return NextResponse.json({ error: "会話に提案可能な内容がありません" }, { status: 400 });
   }
   const configuredModel = parseDirectModelKey(getSetting(GENERATION_MODEL_SETTING_KEY));
-  const model =
+  const primaryModel =
     configuredModel ??
     parseDirectModel(body.model) ??
     parseDirectModel({ providerID: task.providerID, modelID: task.modelID });
-  if (!model) return NextResponse.json({ error: "生成モデルが設定されていません" }, { status: 400 });
-  const effort = configuredModel
-    ? getSetting(GENERATION_MODEL_EFFORT_SETTING_KEY) || undefined
-    : undefined;
+  const fallbackModel = parseDirectModelKey(getSetting(GENERATION_FALLBACK_MODEL_SETTING_KEY));
+  const candidates = buildDirectGenerationCandidates({
+    primary: primaryModel,
+    primaryEffort: configuredModel
+      ? getSetting(GENERATION_MODEL_EFFORT_SETTING_KEY) || undefined
+      : undefined,
+    fallback: fallbackModel,
+    fallbackEffort: fallbackModel
+      ? getSetting(GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY) || undefined
+      : undefined,
+  });
+  if (candidates.length === 0) return NextResponse.json({ error: "生成モデルが設定されていません" }, { status: 400 });
 
   try {
     const suggestion = normalizeSuggestion(
-      await generateDirectText({
-        model,
+      await generateDirectTextWithFallback({
+        candidates,
         system: NEXT_ACTION_SYSTEM_INSTRUCTION,
         prompt,
         maxTokens: 180,
         temperature: 0.2,
-        effort,
         timeoutMs: 60_000,
       }),
     );

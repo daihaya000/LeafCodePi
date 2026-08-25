@@ -3,10 +3,17 @@ import { isAbsolutePath } from "@/lib/paths";
 import { suggestCommitMessage } from "@/lib/commit-message";
 import { getSetting } from "@/lib/pi/web-settings";
 import {
+  GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY,
+  GENERATION_FALLBACK_MODEL_SETTING_KEY,
   GENERATION_MODEL_EFFORT_SETTING_KEY,
   GENERATION_MODEL_SETTING_KEY,
 } from "@/lib/generation-model-key";
-import { generateDirectText, parseDirectModel, parseDirectModelKey } from "@/lib/direct-generation";
+import {
+  buildDirectGenerationCandidates,
+  generateDirectTextWithFallback,
+  parseDirectModel,
+  parseDirectModelKey,
+} from "@/lib/direct-generation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -126,22 +133,29 @@ export async function POST(req: NextRequest) {
   }
 
   const configuredModel = parseDirectModelKey(getSetting(GENERATION_MODEL_SETTING_KEY));
-  const model = configuredModel ?? parseDirectModel(body?.model);
-  const effort = configuredModel
-    ? getSetting(GENERATION_MODEL_EFFORT_SETTING_KEY) || undefined
-    : undefined;
+  const primaryModel = configuredModel ?? parseDirectModel(body?.model);
+  const fallbackModel = parseDirectModelKey(getSetting(GENERATION_FALLBACK_MODEL_SETTING_KEY));
+  const candidates = buildDirectGenerationCandidates({
+    primary: primaryModel,
+    primaryEffort: configuredModel
+      ? getSetting(GENERATION_MODEL_EFFORT_SETTING_KEY) || undefined
+      : undefined,
+    fallback: fallbackModel,
+    fallbackEffort: fallbackModel
+      ? getSetting(GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY) || undefined
+      : undefined,
+  });
   let warning: string | undefined;
-  if (model) {
+  if (candidates.length > 0) {
     try {
       const generated = generatedCommitLine(
-        await generateDirectText({
-          model,
+        await generateDirectTextWithFallback({
+          candidates,
           system:
             "あなたはGitコミットメッセージ作成者です。差分だけを根拠に、日本語の短い命令形コミットメッセージを1行だけ返してください。説明、引用符、コードブロック、接頭辞は不要です。",
           prompt: directPrompt(files),
           maxTokens: 120,
           temperature: 0.1,
-          effort,
           timeoutMs: 60_000,
         }),
       );

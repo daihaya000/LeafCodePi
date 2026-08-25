@@ -37,6 +37,7 @@ export function ModelSelect({
   onChange,
   className,
   title,
+  ariaLabel,
 }: {
   value: string;
   options: ModelOption[];
@@ -44,6 +45,7 @@ export function ModelSelect({
   onChange: (value: string) => void;
   className?: string;
   title?: string;
+  ariaLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{
@@ -166,7 +168,7 @@ export function ModelSelect({
       <div
         id={listboxId}
         role="listbox"
-        aria-label="モデル"
+        aria-label={ariaLabel ?? "モデル"}
         className="max-h-80 overflow-y-auto p-1"
       >
         {grouped.map(([provider, models]) => (
@@ -227,7 +229,7 @@ export function ModelSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
-        aria-label="モデル"
+        aria-label={ariaLabel ?? "モデル"}
         title={title ?? selected?.label ?? "モデル"}
         onClick={() => setOpen((current) => !current)}
         className={cx(

@@ -93,4 +93,37 @@ describe("/api/projects/[id]/next-task", () => {
 
     expect(response.status).toBe(200);
   });
+
+  it("tries the configured fallback model with its own effort", async () => {
+    getSetting.mockImplementation((key: string) => {
+      if (key === "generation-model") return "llama-server::primary-model";
+      if (key === "generation-model-effort") return "low";
+      if (key === "generation-fallback-model") return "llama-server::Qwen3.8-27B-Uncensored-GGUF";
+      if (key === "generation-fallback-model-effort") return "medium";
+      return null;
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("{}", { status: 503 }))
+      .mockImplementationOnce(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.model).toBe("Qwen3.8-27B-Uncensored-GGUF");
+        expect(body.chat_template_kwargs).toEqual({ reasoning_effort: "medium" });
+        return new Response(JSON.stringify({ choices: [{ message: { content: "フォールバックで次のタスク" } }] }), {
+          status: 200,
+        });
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(
+      request({}),
+      { params: Promise.resolve({ id: "project-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      suggestion: "フォールバックで次のタスク",
+      source: "direct",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
