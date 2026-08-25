@@ -53,12 +53,37 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "directory is required" }, { status: 400 });
   }
   const dir = directory;
+  const countOnly = req.nextUrl.searchParams.get("count") === "1";
 
   try {
     if (!fs.existsSync(dir)) {
       return NextResponse.json(
         emptyPayload({ error: `directory does not exist: ${dir}` }),
       );
+    }
+
+    // 件数のみ必要な呼び出し（TaskView の 4 秒ポーリング等）は diff パースや
+    // untracked ファイル読み込みをせず、status porcelain の行数だけで返す。
+    if (countOnly) {
+      const head = await runGit(dir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+      if (head.code !== 0) {
+        return NextResponse.json(
+          emptyPayload({ error: head.stderr.trim() || "not a git repository" }),
+        );
+      }
+      const status = await runGit(dir, ["status", "--porcelain", "-uall"]);
+      if (status.code !== 0) {
+        return NextResponse.json(emptyPayload({ error: status.stderr.trim() || "git status failed" }));
+      }
+      const count = status.stdout.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
+      return NextResponse.json({
+        git: true,
+        branch: head.stdout.trim() || null,
+        count,
+        files: [],
+        additions: 0,
+        deletions: 0,
+      });
     }
 
     const head = await runGit(dir, ["rev-parse", "--abbrev-ref", "HEAD"]);

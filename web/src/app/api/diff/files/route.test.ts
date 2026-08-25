@@ -26,6 +26,16 @@ async function getFiles(directory: string) {
   return (await res.json()) as { git?: boolean; files?: unknown[]; error?: string };
 }
 
+async function getFileCount(directory: string) {
+  const req = {
+    nextUrl: new URL(
+      `http://localhost/api/diff/files?directory=${encodeURIComponent(directory)}&count=1`,
+    ),
+  };
+  const res = await GET(req as never);
+  return (await res.json()) as { git?: boolean; count?: number; files?: unknown[]; error?: string };
+}
+
 function callsWith(args: string[]) {
   return mocks.runGit.mock.calls.filter((call) => {
     const [, argv] = call as [string, string[]];
@@ -52,7 +62,7 @@ describe("GET /api/diff/files", () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-diff-files-"));
     tempDirs.push(dir);
     mocks.runGit.mockImplementation(async (_cwd: string, args: string[]) => {
-      if (args[1] === "status") {
+      if (args[0] === "status") {
         return { code: 0, stdout: " M src/a.ts\n", stderr: "" };
       }
       return { code: 0, stdout: "diff --git a/src/a.ts b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n", stderr: "" };
@@ -62,6 +72,24 @@ describe("GET /api/diff/files", () => {
     expect(payload.git).toBe(true);
     expect(payload.files).toHaveLength(1);
     expect(callsWith(["diff"]).length).toBeGreaterThan(0);
+  });
+
+  it("count mode returns only the status line count without diff parsing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-diff-files-"));
+    tempDirs.push(dir);
+    mocks.runGit.mockImplementation(async (_cwd: string, args: string[]) => {
+      if (args[0] === "status") {
+        return { code: 0, stdout: " M src/a.ts\n?? new-file.ts\n", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    });
+
+    const payload = await getFileCount(dir);
+    expect(payload.git).toBe(true);
+    expect(payload.count).toBe(2);
+    expect(payload.files).toEqual([]);
+    // count モードでは git diff を一切実行しない。
+    expect(callsWith(["diff"]).length).toBe(0);
   });
 
   it("returns git:false for a non-repository directory", async () => {

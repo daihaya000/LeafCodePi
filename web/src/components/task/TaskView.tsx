@@ -704,13 +704,16 @@ export function TaskView({
       try {
         const payload = await getJson<DiffFilesPayload>("/api/diff/files", {
           directory: task.directory,
+          count: "1",
         });
         if (closed) return;
         if (payload.error) {
           setWorktreeStatus(null);
           return;
         }
-        const next = statusFromChangedFileCount(payload.files.length);
+        // count モードは git status の行数だけ返す（diff パース・untracked 読込なし）。
+        const changed = payload.count ?? payload.files.length;
+        const next = statusFromChangedFileCount(changed);
         setWorktreeStatus(next);
         onStatusRef.current?.(working ? "working" : task.status === "idle" ? next : task.status);
       } catch {

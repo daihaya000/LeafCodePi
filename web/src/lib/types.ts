@@ -293,6 +293,8 @@ export type DiffFilesPayload = {
   files: DiffFile[];
   additions: number;
   deletions: number;
+  /** count=1 モード時のみ: status porcelain の行数（files は空）。 */
+  count?: number;
   error?: string;
 };
 
