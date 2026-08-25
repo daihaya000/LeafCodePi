@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { buildHostRestartScript } from "./host-restart.js";
 import { dataDir, DEFAULT_WEBUI_PORT } from "./config.js";
 import { localLeafcodePiTempDir } from "./tray-temp.js";
 
@@ -40,6 +41,28 @@ test("desktop shortcut name is LeafCodePi.lnk", () => {
   assert.match(ps1, /LeafCodePi\.lnk/);
   assert.doesNotMatch(ps1, /LeafCode\.lnk/);
   assert.match(ps1, /leafcode-pi/);
+});
+
+test("host restart relaunches through LeafCodePi.exe when available", () => {
+  const lines = buildHostRestartScript({
+    lockFile: "C:\\Users\\Daichi\\AppData\\Roaming\\leafcode-pi\\host.lock",
+    launcherExe: "C:\\Users\\Daichi\\LeafCodePi\\LeafCodePi.exe",
+    startBat: "C:\\Users\\Daichi\\LeafCodePi\\scripts\\start-webui.bat",
+  });
+  const script = lines.join("\n");
+  assert.ok(
+    script.includes(String.raw`start "LeafCodePi" /min "C:\Users\Daichi\LeafCodePi\LeafCodePi.exe"`),
+  );
+  assert.doesNotMatch(script, /cmd\.exe/);
+});
+
+test("host restart falls back to start-webui.bat without the native launcher", () => {
+  const lines = buildHostRestartScript({
+    lockFile: "C:\\Users\\Daichi\\AppData\\Roaming\\leafcode-pi\\host.lock",
+    launcherExe: null,
+    startBat: "C:\\Users\\Daichi\\LeafCodePi\\scripts\\start-webui.bat",
+  });
+  assert.match(lines.join("\n"), /cmd\.exe \/c/);
 });
 
 test("host rebuilds stale production builds like LeafCode", () => {

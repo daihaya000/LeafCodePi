@@ -14,6 +14,7 @@ import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids } from "./port-scanner.js";
 import { stopProcessTreeGracefully } from "./process-stop.js";
+import { buildHostRestartScript } from "./host-restart.js";
 import { createTranslationService } from "./translation-service.js";
 import { withLocalLeafcodeTempEnv } from "./tray-temp.js";
 import { ensureWebUiAuth, webUiAuthPath } from "./webui-auth.js";
@@ -410,20 +411,13 @@ async function restartHost() {
   log("Host restart requested; spawning replacement…");
   const name = `leafcode-pi-restart-${randomBytes(6).toString("hex")}.bat`;
   const launcherPath = join(tmpdir(), name);
+  const launcherExePath = join(REPO_ROOT, "LeafCodePi.exe");
   const startBat = join(REPO_ROOT, "scripts", "start-webui.bat");
-  const lines = [
-    "@echo off",
-    "setlocal",
-    `set "LOCK=${LOCK_FILE}"`,
-    ":wait",
-    'if not exist "%LOCK%" goto :launch',
-    "ping -n 2 127.0.0.1 >nul",
-    "goto :wait",
-    ":launch",
-    `start "LeafCodePi" /min cmd.exe /c ""${startBat}" >nul 2>&1"`,
-    "endlocal",
-    'del "%~f0" >nul 2>&1',
-  ];
+  const lines = buildHostRestartScript({
+    lockFile: LOCK_FILE,
+    launcherExe: existsSync(launcherExePath) ? launcherExePath : null,
+    startBat,
+  });
   writeFileSync(launcherPath, `${lines.join("\r\n")}\r\n`, "utf8");
   const ps =
     `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create ` +
