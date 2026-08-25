@@ -79,4 +79,40 @@ describe("GlobalAttentionProvider", () => {
     });
     expect(detailCalls().length).toBe(1);
   });
+
+  it("refetches details when a new attention kind appears", async () => {
+    render(<GlobalAttentionProvider />);
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    await vi.advanceTimersByTimeAsync(0);
+    await act(async () => {
+      window.dispatchEvent(new Event("focusout"));
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    // Attention list grows with a new kind → state updates → details refetched.
+    mocks.getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/tasks") {
+        return {
+          attention: [
+            { taskId: "task-a", title: "タスクA", kinds: ["permission", "question"] },
+          ],
+        };
+      }
+      if (path === "/api/tasks/task-a") {
+        return { task: taskDetail("task-a") };
+      }
+      throw new Error(`unexpected: ${path}`);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    const detailCalls = mocks.getJson.mock.calls.filter(
+      ([path]) => path === "/api/tasks/task-a",
+    );
+    expect(detailCalls.length).toBe(2);
+  });
 });

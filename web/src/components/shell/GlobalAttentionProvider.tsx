@@ -52,7 +52,7 @@ export function GlobalAttentionProvider() {
   // 二重オープン防止（本家 autoOpenedRef と同じ）。
   const autoOpenedRef = useRef(true);
   const itemsRef = useRef<AttentionItemDto[]>([]);
-  const fetchedItemsKeyRef = useRef("");
+  const itemsKeyRef = useRef("");
 
   useEffect(() => {
     itemsRef.current = items;
@@ -82,7 +82,12 @@ export function GlobalAttentionProvider() {
         // 新規アイテム（種類の増分も含む）だけ検出して音を鳴らす。
         const fresh = next.filter((item) => !seenIdsRef.current.has(attentionItemKey(item)));
         for (const item of next) seenIdsRef.current.add(attentionItemKey(item));
-        setItems(next);
+        // 実質的な内容が変わらなければ state 参照を維持し、モーダルの再レンダーを避ける。
+        const key = next.map((item) => attentionItemKey(item)).join("|");
+        if (key !== itemsKeyRef.current) {
+          itemsKeyRef.current = key;
+          setItems(next);
+        }
 
         if (fresh.length > 0) {
           const activeTaskId = taskIdFromPathname(window.location.pathname);
@@ -125,8 +130,6 @@ export function GlobalAttentionProvider() {
 
   useEffect(() => {
     if (!open || items.length === 0) return;
-    const itemsKey = items.map((item) => `${item.taskId}:${item.kinds.join("+")}`).join("|");
-    if (itemsKey === fetchedItemsKeyRef.current) return;
     let cancelled = false;
     void Promise.all(
       items.map(async (item) => {
@@ -139,7 +142,6 @@ export function GlobalAttentionProvider() {
       }),
     ).then((entries) => {
       if (cancelled) return;
-      fetchedItemsKeyRef.current = itemsKey;
       setDetails((current) => ({
         ...current,
         ...Object.fromEntries(entries.filter((entry): entry is readonly [string, TaskDetail] => entry !== null)),
@@ -149,8 +151,8 @@ export function GlobalAttentionProvider() {
       cancelled = true;
     };
     // details を deps に含めると setDetails のたびに再実行され、/api/tasks/:id の
-    // 再フェッチループになるため除外する。items 参照はポーリング毎に変わるため、
-    // key で実質的な変更（タスク or 要求種別）を検出してからフェッチする。
+    // 再フェッチループになるため除外する。items は実質変更時のみ setItems される
+    // （poll 側の itemsKeyRef ガード）ので、この effect は変更時のみ走る。
   }, [items, open]);
 
   const close = () => {
