@@ -1,7 +1,7 @@
 ---
 name: critical-architect
 description: Critical architect subagent for the hardest design and quality escalation decisions. Use ONLY for highest-stakes architecture review, critical design trade-off analysis, or quality escalation when standard review is insufficient. Do NOT invoke for normal tasks — this is an escalation path reserved for critical decisions only. Prefer having the main agent handle the work directly unless the user explicitly requests escalation.
-tools: read, grep, find, ls, powershell, question, todowrite
+tools: read, grep, find, ls, powershell, bash, question, todowrite
 model: openai-codex/gpt-5.6-luna
 thinking: max
 systemPromptMode: replace

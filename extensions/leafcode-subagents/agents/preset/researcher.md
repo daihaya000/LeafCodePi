@@ -1,7 +1,7 @@
 ---
 name: researcher
 description: Autonomous web researcher — searches, evaluates, and synthesizes a focused research brief
-tools: read, powershell, write
+tools: read, powershell, bash, write
 thinking: medium
 systemPromptMode: replace
 inheritProjectContext: true

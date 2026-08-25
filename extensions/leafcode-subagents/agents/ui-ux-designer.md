@@ -1,7 +1,7 @@
 ---
 name: ui-ux-designer
 description: Designs UI/UX specifications before new screens, user flows, responsive behavior, or substantial UI changes. Use before implementation to define DESIGN.md-aligned requirements and acceptance criteria.
-tools: read, grep, find, ls, powershell, question, todowrite
+tools: read, grep, find, ls, powershell, bash, question, todowrite
 model: openai-codex/gpt-5.6-luna
 thinking: max
 systemPromptMode: replace

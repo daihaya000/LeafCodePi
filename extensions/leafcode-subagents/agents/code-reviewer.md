@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Reviews code for quality, security, and maintainability without making edits
-tools: read, grep, find, ls, powershell
+tools: read, grep, find, ls, powershell, bash
 model: openai-codex/gpt-5.6-luna
 thinking: max
 systemPromptMode: replace
