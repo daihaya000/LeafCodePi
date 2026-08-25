@@ -8,6 +8,9 @@ export class ApiError extends Error {
   }
 }
 
+// Coalesce concurrent reads only; completed requests are removed immediately.
+const inflightGets = new Map<string, Promise<unknown>>();
+
 export function apiUrl(path: string, params?: Record<string, string | undefined>) {
   const url = new URL(path, window.location.origin);
   for (const [key, value] of Object.entries(params ?? {})) {
@@ -27,9 +30,21 @@ async function parseError(res: Response): Promise<string> {
 }
 
 export async function getJson<T>(path: string, params?: Record<string, string | undefined>): Promise<T> {
-  const res = await fetch(apiUrl(path, params), { cache: "no-store" });
-  if (!res.ok) throw new ApiError(await parseError(res), res.status);
-  return (await res.json()) as T;
+  const url = apiUrl(path, params);
+  const existing = inflightGets.get(url);
+  if (existing) return existing as Promise<T>;
+
+  const request = (async () => {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new ApiError(await parseError(res), res.status);
+    return (await res.json()) as T;
+  })();
+  inflightGets.set(url, request);
+  try {
+    return await request;
+  } finally {
+    if (inflightGets.get(url) === request) inflightGets.delete(url);
+  }
 }
 
 export async function sendJson<T>(
