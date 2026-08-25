@@ -104,6 +104,43 @@ function sameProjectList(a: ProjectDto[], b: ProjectDto[]): boolean {
   return true;
 }
 
+function sameHealth(a: HealthDto | null, b: HealthDto): boolean {
+  if (!a) return false;
+  return (
+    a.ok === b.ok &&
+    a.engineOk === b.engineOk &&
+    a.version === b.version &&
+    a.modelCount === b.modelCount &&
+    a.error === b.error &&
+    JSON.stringify(a.warnings ?? null) === JSON.stringify(b.warnings ?? null)
+  );
+}
+
+function sameRooms(
+  a: Record<string, CollaborationRoomSummary>,
+  b: Record<string, CollaborationRoomSummary>,
+): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    const left = a[key];
+    const right = b[key];
+    if (!right) return false;
+    if (
+      left.ready !== right.ready ||
+      left.peers !== right.peers ||
+      left.leaseConflicts !== right.leaseConflicts ||
+      left.pendingAsks !== right.pendingAsks ||
+      JSON.stringify(left.sessionNames) !== JSON.stringify(right.sessionNames) ||
+      left.epoch !== right.epoch
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function projectIconTone(projectId: string): string {
   let hash = 0;
   for (const character of projectId) {
@@ -294,8 +331,14 @@ export function Sidebar({
         sameTaskList(current, nextArchivedTasks) ? current : nextArchivedTasks,
       );
     }
-    if (healthRes.status === "fulfilled") setHealth(healthRes.value);
-    if (collaborationRes.status === "fulfilled") setCollaborationRooms(collaborationRes.value.rooms);
+    if (healthRes.status === "fulfilled") {
+      setHealth((current) => (sameHealth(current, healthRes.value) ? current : healthRes.value));
+    }
+    if (collaborationRes.status === "fulfilled") {
+      setCollaborationRooms((current) =>
+        sameRooms(current, collaborationRes.value.rooms) ? current : collaborationRes.value.rooms,
+      );
+    }
   }, []);
 
   const hasWorking = useMemo(
