@@ -105,7 +105,8 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     const onChange = () => {
       void (async () => {
         try {
-          const { tasks } = await getJson<{ tasks: TaskSummary[] }>("/api/tasks");
+          // タブ名と存在確認にのみ使う。todoProgress 計算を伴う通常の一覧より軽い。
+          const { tasks } = await getJson<{ tasks: TaskSummary[] }>("/api/tasks", { titles: "1" });
           let titlesDirty = false;
           for (const task of tasks) {
             if (taskTitlesRef.current.get(task.id) !== task.title) {
