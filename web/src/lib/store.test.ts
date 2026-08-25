@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -44,6 +44,27 @@ describe("store", () => {
     // deleteProjectRecord
     store.deleteProjectRecord(project.id);
     expect(store.getProject(project.id)).toBeUndefined();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("skips the disk write when patching the same values", async () => {
+    const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const store = await import("./store");
+    const project = store.upsertProject({ name: "demo", rootPath: "C:\\tmp\\demo" });
+    const task = store.insertTask({ project, title: "t1" });
+
+    store.setTaskStatus(task.id, "working");
+    const first = statSync(join(dir, "store.json")).mtimeMs;
+
+    // 同一値への再パッチはディスクへ書き込まない。
+    store.setTaskStatus(task.id, "working");
+    expect(statSync(join(dir, "store.json")).mtimeMs).toBe(first);
+
+    // 実変更時は書き込む。
+    store.setTaskStatus(task.id, "idle");
+    expect(statSync(join(dir, "store.json")).mtimeMs).toBeGreaterThan(first);
     rmSync(dir, { recursive: true, force: true });
   });
 });

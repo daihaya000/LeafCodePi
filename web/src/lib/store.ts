@@ -189,7 +189,16 @@ export function patchTask(
   const store = readStore();
   const task = store.tasks.find((item) => item.id === id);
   if (!task) return undefined;
-  Object.assign(task, patch);
+  // 同一値への再パッチ（agent_start→working の繰り返し等）はディスク書き込みを
+  // 起こさない。updatedAt も不変のまま（実変更が無いため並び順は変わらない）。
+  let changed = false;
+  for (const [key, value] of Object.entries(patch)) {
+    if ((task as Record<string, unknown>)[key] !== value) {
+      (task as Record<string, unknown>)[key] = value;
+      changed = true;
+    }
+  }
+  if (!changed) return task;
   task.updatedAt = new Date().toISOString();
   writeStore(store);
   return task;
