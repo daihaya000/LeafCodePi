@@ -62,6 +62,11 @@ import {
 } from "@/lib/scroll-button-opacity";
 import { stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
 import {
+  loadTaskSessionCache,
+  saveTaskSessionCache,
+  type TaskSessionCacheSnapshot,
+} from "@/lib/task-session-cache";
+import {
   findResumableTurn,
   type ResumableTurn,
 } from "@/lib/aborted-resume";
@@ -305,12 +310,15 @@ export function TaskView({
   onAddPane?: () => void;
 }) {
   const { mdUp } = useTaskPanes();
-  const [task, setTask] = useState<TaskDetail | null>(null);
+  const [cachedSession] = useState(() => loadTaskSessionCache(taskId));
+  const [task, setTask] = useState<TaskDetail | null>(cachedSession);
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
-  const [messages, setMessages] = useState<UiMessage[]>([]);
+  const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
   const [models, setModels] = useState<ModelOption[]>([]);
-  const [contextUsage, setContextUsage] = useState<ContextUsageDto | undefined>();
-  const [isCompacting, setIsCompacting] = useState(false);
+  const [contextUsage, setContextUsage] = useState<ContextUsageDto | undefined>(
+    () => cachedSession?.contextUsage,
+  );
+  const [isCompacting, setIsCompacting] = useState(Boolean(cachedSession?.isCompacting));
   const [compactingLocal, setCompactingLocal] = useState(false);
   const [isReverted, setIsReverted] = useState(false);
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
@@ -343,7 +351,7 @@ export function TaskView({
   const autoResumeKeyRef = useRef<string | null>(null);
   const [hangRetryCount, setHangRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [sessionHydrating, setSessionHydrating] = useState(false);
+  const [sessionHydrating, setSessionHydrating] = useState(Boolean(cachedSession));
   const [sseReconnecting, setSseReconnecting] = useState(false);
   const [agents, setAgents] = useState<ComposerReference[]>([]);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
@@ -405,6 +413,55 @@ export function TaskView({
     [],
   );
   const sidebarNotifyKeyRef = useRef("");
+  const cacheSnapshotRef = useRef<TaskSessionCacheSnapshot | null>(null);
+  const cacheTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  cacheSnapshotRef.current = task
+    ? {
+        task,
+        messages,
+        isStreaming: task.isStreaming,
+        isCompacting,
+        ...(contextUsage ? { contextUsage } : {}),
+      }
+    : null;
+
+  useEffect(() => {
+    const snapshot = cacheSnapshotRef.current;
+    if (!snapshot || (sessionHydrating && snapshot.messages.length === 0)) return;
+    // Throttle rather than debounce so a long-running stream is still cached
+    // before the host is quit.
+    if (cacheTimerRef.current !== null) return;
+    cacheTimerRef.current = setTimeout(() => {
+      cacheTimerRef.current = null;
+      const latest = cacheSnapshotRef.current;
+      if (latest) saveTaskSessionCache(latest);
+    }, 500);
+  }, [contextUsage, isCompacting, messages, sessionHydrating, task, taskId]);
+
+  useEffect(() => {
+    const flush = () => {
+      if (cacheTimerRef.current !== null) {
+        clearTimeout(cacheTimerRef.current);
+        cacheTimerRef.current = null;
+      }
+      const latest = cacheSnapshotRef.current;
+      if (latest && !(sessionHydrating && latest.messages.length === 0)) {
+        saveTaskSessionCache(latest);
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      flush();
+    };
+  }, [sessionHydrating, taskId]);
 
   const applyDetail = useCallback((detail: TaskDetail) => {
     setTask(detail);
