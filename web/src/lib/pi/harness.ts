@@ -2399,7 +2399,9 @@ export function respondToQuestionPrompt(
 /** 注意喚起が必要なタスク一覧（GlobalAttentionProvider のポーリング応答）。 */
 export function listPendingAttention(): AttentionItemDto[] {
   const items: AttentionItemDto[] = [];
-  for (const task of getTaskSummaries(false)) {
+  // 必要なのは id/title のみ。toSummary はライブタスクでメッセージ走査を伴うため、
+  // store の生レコードを直接使う（4 秒間隔ポーリングのコスト削減）。
+  for (const task of listTasks(false)) {
     const kinds: AttentionItemDto["kinds"] = [];
     if (ensurePermissionPromptService().pendingForTask(task.id)) kinds.push("permission");
     if (ensureQuestionPromptService().pendingForTask(task.id)) kinds.push("question");
