@@ -26,29 +26,42 @@ async function getFiles(directory: string) {
   return (await res.json()) as { git?: boolean; files?: unknown[]; error?: string };
 }
 
+function callsWith(args: string[]) {
+  return mocks.runGit.mock.calls.filter((call) => {
+    const [, argv] = call as [string, string[]];
+    return (argv as string[]).some((arg) => args.includes(arg));
+  });
+}
+
 describe("GET /api/diff/files", () => {
   beforeEach(() => {
     mocks.runGit.mockResolvedValue({ code: 0, stdout: "", stderr: "" });
   });
 
-  it("reuses a clean result within the TTL instead of re-running git", async () => {
+  it("skips git diff for a clean worktree", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-diff-files-"));
     tempDirs.push(dir);
 
-    const first = await getFiles(dir);
-    expect(first).toEqual({ git: true, branch: null, files: [], additions: 0, deletions: 0 });
-    const callsAfterFirst = mocks.runGit.mock.calls.length;
-    expect(callsAfterFirst).toBeGreaterThan(0);
+    const payload = await getFiles(dir);
+    expect(payload).toEqual({ git: true, branch: null, files: [], additions: 0, deletions: 0 });
+    // Only rev-parse + status porcelain: no `git diff` subprocesses.
+    expect(callsWith(["diff"]).length).toBe(0);
+  });
 
-    // Same directory within TTL: served from cache, no new git processes.
-    await expect(getFiles(dir)).resolves.toEqual(first);
-    expect(mocks.runGit.mock.calls.length).toBe(callsAfterFirst);
+  it("runs git diff only when tracked changes exist", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-diff-files-"));
+    tempDirs.push(dir);
+    mocks.runGit.mockImplementation(async (_cwd: string, args: string[]) => {
+      if (args[1] === "status") {
+        return { code: 0, stdout: " M src/a.ts\n", stderr: "" };
+      }
+      return { code: 0, stdout: "diff --git a/src/a.ts b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n", stderr: "" };
+    });
 
-    // Different directory misses the cache and runs git again.
-    const other = mkdtempSync(join(tmpdir(), "llcode-diff-files-other-"));
-    tempDirs.push(other);
-    await getFiles(other);
-    expect(mocks.runGit.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+    const payload = await getFiles(dir);
+    expect(payload.git).toBe(true);
+    expect(payload.files).toHaveLength(1);
+    expect(callsWith(["diff"]).length).toBeGreaterThan(0);
   });
 
   it("returns git:false for a non-repository directory", async () => {

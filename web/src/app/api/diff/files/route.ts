@@ -11,10 +11,6 @@ export const dynamic = "force-dynamic";
 
 const MAX_UNTRACKED_BYTES = 200_000;
 
-/** Clean worktrees re-run the same git status every poll; reuse briefly. */
-const CLEAN_RESULT_TTL_MS = 2_000;
-const cleanResultCache = new Map<string, { at: number; payload: DiffFilesPayload }>();
-
 function normalizeWindowsNamespace(value: string): string {
   if (value.slice(0, 8).toLowerCase() === "\\\\?\\unc\\") {
     return `\\\\${value.slice(8)}`;
@@ -65,12 +61,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const cached = cleanResultCache.get(dir);
-    if (cached && Date.now() - cached.at < CLEAN_RESULT_TTL_MS) {
-      return NextResponse.json(cached.payload);
-    }
-    cleanResultCache.delete(dir);
-
     const head = await runGit(dir, ["rev-parse", "--abbrev-ref", "HEAD"]);
     if (head.code !== 0) {
       return NextResponse.json(
@@ -79,98 +69,105 @@ export async function GET(req: NextRequest) {
     }
     const branch = head.stdout.trim() || null;
 
-    // Tracked changes (staged + unstaged vs HEAD); fresh repos fall back.
-    let diff = await runGit(dir, [
-      "diff",
-      "HEAD",
-      "--no-color",
-      "--no-ext-diff",
-      "-M",
-    ]);
-    if (diff.code !== 0) {
-      const unstaged = await runGit(dir, [
+    // Untracked files as synthetic all-added entries. porcelain は untracked を
+    // 含む全変更の1行リストで、clean 時は空。まず status を実行し、diff より
+    // 軽い (diff は全ファイルの内容比較が必要なため)。変更がなければ
+    // そのまま空の files を返して git diff HEAD をスキップする。
+    const status = await runGit(dir, ["status", "--porcelain", "-uall"]);
+    if (status.code !== 0) {
+      return NextResponse.json(emptyPayload({ error: status.stderr.trim() || "git status failed" }));
+    }
+    const hasTrackedChanges = status.stdout.split(/\r?\n/).some((line) => line && !line.startsWith("??"));
+    const files: DiffFile[] = [];
+    if (hasTrackedChanges) {
+      // Tracked changes (staged + unstaged vs HEAD); fresh repos fall back.
+      let diff = await runGit(dir, [
         "diff",
+        "HEAD",
         "--no-color",
         "--no-ext-diff",
         "-M",
       ]);
-      const staged = await runGit(dir, [
-        "diff",
-        "--cached",
-        "--no-color",
-        "--no-ext-diff",
-        "-M",
-      ]);
-      diff = {
-        code: 0,
-        stdout: [staged.stdout, unstaged.stdout].filter(Boolean).join("\n"),
-        stderr: "",
-      };
+      if (diff.code !== 0) {
+        const unstaged = await runGit(dir, [
+          "diff",
+          "--no-color",
+          "--no-ext-diff",
+          "-M",
+        ]);
+        const staged = await runGit(dir, [
+          "diff",
+          "--cached",
+          "--no-color",
+          "--no-ext-diff",
+          "-M",
+        ]);
+        diff = {
+          code: 0,
+          stdout: [staged.stdout, unstaged.stdout].filter(Boolean).join("\n"),
+          stderr: "",
+        };
+      }
+      files.push(...parseUnifiedDiff(diff.stdout));
     }
 
-    const files: DiffFile[] = parseUnifiedDiff(diff.stdout);
-
-    // Untracked files as synthetic all-added entries
-    const status = await runGit(dir, ["status", "--porcelain", "-uall"]);
-    if (status.code === 0) {
-      for (const line of status.stdout.split(/\r?\n/)) {
-        if (!line.startsWith("??")) continue;
-        let rel = line.slice(3).trim();
-        if (rel.startsWith('"') && rel.endsWith('"')) rel = rel.slice(1, -1);
-        const norm = rel.replace(/\\/g, "/");
-        if (files.some((f) => f.path === norm)) continue;
-        if (rel.endsWith("/")) {
-          files.push({
-            path: norm,
-            additions: 0,
-            deletions: 0,
-            binary: false,
-            untracked: true,
-            hunks: [],
-          });
-          continue;
-        }
-        const abs = path.resolve(dir, rel);
-        const entry: DiffFile = {
+    for (const line of status.stdout.split(/\r?\n/)) {
+      if (!line.startsWith("??")) continue;
+      let rel = line.slice(3).trim();
+      if (rel.startsWith('"') && rel.endsWith('"')) rel = rel.slice(1, -1);
+      const norm = rel.replace(/\\/g, "/");
+      if (files.some((f) => f.path === norm)) continue;
+      if (rel.endsWith("/")) {
+        files.push({
           path: norm,
           additions: 0,
           deletions: 0,
           binary: false,
           untracked: true,
           hunks: [],
-        };
-        // Lexical escape (e.g. ?? ../outside) — list path only, never read.
-        if (!isUnder(dir, abs)) {
+        });
+        continue;
+      }
+      const abs = path.resolve(dir, rel);
+      const entry: DiffFile = {
+        path: norm,
+        additions: 0,
+        deletions: 0,
+        binary: false,
+        untracked: true,
+        hunks: [],
+      };
+      // Lexical escape (e.g. ?? ../outside) — list path only, never read.
+      if (!isUnder(dir, abs)) {
+        files.push(entry);
+        continue;
+      }
+      try {
+        const lst = fs.lstatSync(abs);
+        if (lst.isSymbolicLink() || lst.isDirectory()) {
           files.push(entry);
           continue;
         }
-        try {
-          const lst = fs.lstatSync(abs);
-          if (lst.isSymbolicLink() || lst.isDirectory()) {
-            files.push(entry);
-            continue;
-          }
-          const workspace = fs.realpathSync.native(dir);
-          const real = fs.realpathSync.native(abs);
-          if (!isUnder(workspace, real)) {
-            files.push(entry);
-            continue;
-          }
-          if (lst.size <= MAX_UNTRACKED_BYTES) {
-            const buf = fs.readFileSync(real);
-            if (isProbablyBinary(buf)) {
-              entry.binary = true;
-            } else {
-              const hunk = untrackedHunk(buf.toString("utf8"));
-              entry.hunks = [hunk];
-              entry.additions = hunk.lines.filter((l) => l.t === "+").length;
-            }
-          }
-        } catch {
-          /* unreadable — list path only */
+        const workspace = fs.realpathSync.native(dir);
+        const real = fs.realpathSync.native(abs);
+        if (!isUnder(workspace, real)) {
+          files.push(entry);
+          continue;
         }
-        files.push(entry);
+        if (lst.size <= MAX_UNTRACKED_BYTES) {
+          const buf = fs.readFileSync(real);
+          if (isProbablyBinary(buf)) {
+            entry.binary = true;
+          } else {
+            const hunk = untrackedHunk(buf.toString("utf8"));
+            entry.hunks = [hunk];
+            entry.additions = hunk.lines.filter((l) => l.t === "+").length;
+          }
+        }
+      } catch {
+        /* unreadable — list path only */
       }
+      files.push(entry);
     }
 
     const additions = files.reduce((n, f) => n + f.additions, 0);
@@ -194,9 +191,6 @@ export async function GET(req: NextRequest) {
       additions,
       deletions,
     };
-    if (files.length === 0) {
-      cleanResultCache.set(dir, { at: Date.now(), payload });
-    }
     return NextResponse.json(payload);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
