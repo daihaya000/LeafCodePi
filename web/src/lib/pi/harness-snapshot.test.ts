@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { sessionContextUsage, snapshotMessages } from "./harness";
+import { buildTaskBootstrap, sessionContextUsage, snapshotMessages } from "./harness";
+import type { TaskSummary } from "@/lib/types";
 
 describe("snapshotMessages", () => {
   it("reuses stable history while projecting a changing streaming suffix", () => {
@@ -87,5 +88,33 @@ describe("sessionContextUsage", () => {
     });
     expect(sessionContextUsage(session)?.tokens).toBe(200);
     expect(getContextUsage).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("buildTaskBootstrap", () => {
+  const task: TaskSummary = {
+    id: "task-1",
+    projectId: "project-1",
+    projectName: "Project",
+    title: "応答を速くする",
+    directory: "C:\\project",
+    isolation: "current_folder",
+    status: "working",
+    sessionId: "session-1",
+    sessionFile: "C:\\session.jsonl",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  it("returns immediately renderable metadata without session history", () => {
+    const bootstrap = buildTaskBootstrap(task);
+    expect(bootstrap.title).toBe(task.title);
+    expect(bootstrap.messages).toEqual([]);
+    expect(bootstrap.isStreaming).toBe(true);
+    expect(bootstrap.isCompacting).toBe(false);
+  });
+
+  it("uses the supplied streaming state for a cold idle task", () => {
+    expect(buildTaskBootstrap({ ...task, status: "idle" }, true).isStreaming).toBe(true);
   });
 });

@@ -60,7 +60,7 @@ import {
   readScrollButtonOpacity,
   subscribeScrollButtonOpacity,
 } from "@/lib/scroll-button-opacity";
-import { stabilizeUiMessages } from "@/lib/stabilize-messages";
+import { stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
 import {
   findResumableTurn,
   type ResumableTurn,
@@ -343,6 +343,8 @@ export function TaskView({
   const autoResumeKeyRef = useRef<string | null>(null);
   const [hangRetryCount, setHangRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [sessionHydrating, setSessionHydrating] = useState(false);
+  const [sseReconnecting, setSseReconnecting] = useState(false);
   const [agents, setAgents] = useState<ComposerReference[]>([]);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
   const messageReferences = useMemo(
@@ -409,6 +411,7 @@ export function TaskView({
     setMessages((prev) => stabilizeUiMessages(prev, detail.messages));
     setContextUsage(detail.contextUsage);
     setIsCompacting(Boolean(detail.isCompacting));
+    setSessionHydrating(false);
     setPermissionRequest(detail.permissionRequest ?? null);
     setQuestionRequest(detail.questionRequest ?? null);
     setSkillPermission(detail.skillPermission ?? readSkillPermission());
@@ -435,6 +438,8 @@ export function TaskView({
     setResumeTurnError(null);
     setPermissionRequest(null);
     setPermissionBusy(false);
+    setSessionHydrating(false);
+    setSseReconnecting(false);
 
     const connect = () => {
       if (closed) return;
@@ -442,6 +447,7 @@ export function TaskView({
       source.addEventListener("snapshot", (event) => {
         if (closed) return;
         if (retryCount > 0) setError(null);
+        setSseReconnecting(false);
         retryCount = 0;
         let payload: {
           task?: TaskDetail;
@@ -456,6 +462,7 @@ export function TaskView({
           hangRetryCount?: number;
           permissionRequest?: PermissionRequestDto | null;
           questionRequest?: QuestionRequestDto | null;
+          eventType?: string;
         };
         try {
           payload = JSON.parse((event as MessageEvent).data) as typeof payload;
@@ -464,14 +471,21 @@ export function TaskView({
           return;
         }
         const snapshotTask = payload.task;
+        const isBootstrap = payload.eventType === "bootstrap";
+        setSessionHydrating(isBootstrap);
         startTransition(() => {
           if (snapshotTask) {
             setTask((current) => {
               const base = current ?? snapshotTask;
+              const keepExistingMessages = isBootstrap &&
+                payload.messages?.length === 0 &&
+                base.messages.length > 0;
               const next: TaskDetail = {
                 ...base,
                 ...snapshotTask,
-                messages: payload.messages ?? base.messages ?? [],
+                messages: keepExistingMessages
+                  ? base.messages
+                  : payload.messages ?? base.messages ?? [],
                 isStreaming: payload.isStreaming ?? snapshotTask.isStreaming ?? base.isStreaming,
                 isCompacting: payload.isCompacting ?? snapshotTask.isCompacting ?? base.isCompacting,
                 contextUsage: payload.contextUsage ?? snapshotTask.contextUsage ?? base.contextUsage,
@@ -483,7 +497,7 @@ export function TaskView({
               return sameTaskDetail(current, next) ? current : next;
             });
           }
-          if (payload.messages) {
+          if (payload.messages && (!isBootstrap || payload.messages.length > 0)) {
             setMessages((prev) => stabilizeUiMessages(prev, payload.messages!));
           }
           if ("contextUsage" in payload) {
@@ -518,10 +532,60 @@ export function TaskView({
         const status = snapshotTask?.status;
         if (status) onStatusRef.current?.(status);
       });
+      source.addEventListener("delta", (event) => {
+        if (closed) return;
+        let payload: {
+          task?: TaskSummary;
+          message?: UiMessage | null;
+          isStreaming?: boolean;
+          isCompacting?: boolean;
+          contextUsage?: ContextUsageDto;
+        };
+        try {
+          payload = JSON.parse((event as MessageEvent).data) as typeof payload;
+        } catch {
+          setError("イベントデータの解析に失敗しました");
+          return;
+        }
+        startTransition(() => {
+          if (payload.task) {
+            setTask((current) => {
+              if (!current) {
+                return {
+                  ...payload.task!,
+                  messages: [],
+                  isStreaming: payload.isStreaming ?? payload.task!.status === "working",
+                  isCompacting: Boolean(payload.isCompacting),
+                };
+              }
+              const next: TaskDetail = {
+                ...current,
+                ...payload.task,
+                isStreaming: payload.isStreaming ?? current.isStreaming,
+                isCompacting: payload.isCompacting ?? current.isCompacting,
+                contextUsage: payload.contextUsage ?? current.contextUsage,
+              };
+              return sameTaskDetail(current, next) ? current : next;
+            });
+          }
+          if (payload.message) {
+            setMessages((prev) => upsertUiMessage(prev, payload.message!));
+          }
+          if ("contextUsage" in payload) {
+            setContextUsage((current) =>
+              current === payload.contextUsage ? current : payload.contextUsage,
+            );
+          }
+          if ("isCompacting" in payload) setIsCompacting(Boolean(payload.isCompacting));
+        });
+        notifySidebarIfNeeded(payload.task);
+        if (payload.task?.status) onStatusRef.current?.(payload.task.status);
+      });
       source.addEventListener("error", (event) => {
         if (closed) return;
         if (event instanceof MessageEvent && typeof event.data === "string") {
           closed = true;
+          setSseReconnecting(false);
           source?.close();
           source = null;
           if (retryTimer) clearTimeout(retryTimer);
@@ -533,7 +597,8 @@ export function TaskView({
           }
           return;
         }
-        setError((current) => current ?? "イベント接続に失敗しました");
+        setSseReconnecting(true);
+        setError(null);
         // Auto-reconnect: close the broken stream and retry with backoff.
         source?.close();
         source = null;
@@ -1513,7 +1578,13 @@ export function TaskView({
             {working && <WorkingRow messages={visibleMessages} />}
             {task?.todos && <TodoProgressPanel todos={task.todos} />}
             {visibleMessages.length === 0 && (
-              <p className="py-12 text-center text-sm text-muted">メッセージはまだありません</p>
+              <p
+                className="py-12 text-center text-sm text-muted"
+                role={sessionHydrating ? "status" : undefined}
+                aria-live={sessionHydrating ? "polite" : undefined}
+              >
+                {sessionHydrating ? "セッションを準備しています…" : "メッセージはまだありません"}
+              </p>
             )}
           </div>
         </div>
@@ -1758,6 +1829,11 @@ export function TaskView({
               キャンセル
             </Button>
           </div>
+        )}
+        {sseReconnecting && !error && (
+          <p role="status" className="mx-auto mb-2 max-w-5xl rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
+            イベント接続を再試行しています…
+          </p>
         )}
         {error && (
           <p role="alert" className="mx-auto mb-2 max-w-5xl rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger">

@@ -132,6 +132,8 @@ export type PromptImage = {
 /** High-frequency stream events — coalesce snapshot SSE instead of emitting every token. */
 const THROTTLED_SNAPSHOT_EVENTS = new Set(["message_update", "tool_execution_update"]);
 const SNAPSHOT_THROTTLE_MS = 100;
+/** These lifecycle events do not change anything rendered by TaskView. */
+const NON_RENDERING_SESSION_EVENTS = new Set(["turn_start", "turn_end", "entry_appended"]);
 
 type LiveRuntime = {
   taskId: string;
@@ -921,11 +923,40 @@ function emitTaskSnapshot(
   });
 }
 
+/**
+ * Stream only the newest projected message for token/tool updates.
+ * The server still projects the complete branch so the message keeps its
+ * merged tool state, but the wire payload no longer repeats the whole history.
+ */
+function emitTaskDelta(live: LiveRuntime, eventType: string): void {
+  if (state().events.listenerCount(live.taskId) === 0) return;
+  const task = getTask(live.taskId);
+  if (!task) return;
+  const messages = snapshotMessages(
+    live.session,
+    live.throughputByStartedAt,
+    live.toolStartedAt,
+    live.toolEndedAt,
+    live.toolPartialOutputByCallId,
+  );
+  const contextUsage = sessionContextUsage(live.session);
+  emit(live.taskId, {
+    type: "delta",
+    task: toSummary(task),
+    message: messages.at(-1) ?? null,
+    isStreaming: live.session.isStreaming,
+    isCompacting: live.session.isCompacting,
+    ...(contextUsage ? { contextUsage } : {}),
+    eventType,
+  });
+}
+
 function scheduleTaskSnapshot(
   live: LiveRuntime,
   eventType: string,
   extra?: Record<string, unknown>,
 ): void {
+  if (NON_RENDERING_SESSION_EVENTS.has(eventType)) return;
   if (!THROTTLED_SNAPSHOT_EVENTS.has(eventType)) {
     if (live.snapshotTimer) {
       clearTimeout(live.snapshotTimer);
@@ -941,7 +972,7 @@ function scheduleTaskSnapshot(
     live.snapshotTimer = null;
     const pendingType = live.pendingSnapshotEventType ?? eventType;
     live.pendingSnapshotEventType = null;
-    emitTaskSnapshot(live, pendingType);
+    emitTaskDelta(live, pendingType);
   }, SNAPSHOT_THROTTLE_MS);
 }
 
@@ -1066,7 +1097,7 @@ function attachSession(
       const pendingType = live.pendingSnapshotEventType;
       live.pendingSnapshotEventType = null;
       if (pendingType) {
-        emitTaskSnapshot(live, pendingType);
+        emitTaskDelta(live, pendingType);
       }
     }
     unsubscribe();
@@ -1730,6 +1761,23 @@ export async function getTaskSummariesWithTodoProgress(includeArchived = false):
     const todoProgress = progressByTaskId.get(task.id);
     return todoProgress ? { ...task, todoProgress } : task;
   });
+}
+
+/** Build the cheap first packet sent before a cold Pi session is hydrated. */
+export function buildTaskBootstrap(task: TaskSummary, isStreaming = task.status === "working"): TaskDetail {
+  return {
+    ...task,
+    messages: [],
+    isStreaming,
+    isCompacting: false,
+  };
+}
+
+export function getTaskBootstrap(id: string): TaskDetail {
+  const task = getTask(id);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const live = state().live.get(id);
+  return buildTaskBootstrap(task, live?.session.isStreaming ?? task.status === "working");
 }
 
 export async function getTaskDetail(id: string): Promise<TaskDetail> {

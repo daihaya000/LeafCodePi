@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stabilizeUiMessages } from "./stabilize-messages";
+import { stabilizeUiMessages, upsertUiMessage } from "./stabilize-messages";
 import type { UiMessage } from "./types";
 
 function textMessage(id: string, text: string, extra?: Partial<UiMessage>): UiMessage {
@@ -54,5 +54,25 @@ describe("stabilizeUiMessages", () => {
     const out = stabilizeUiMessages(prev, next);
     expect(out[0]).not.toBe(prev[0]);
     expect(out[0]?.parts[0]).toMatchObject({ state: { output: "second text" } });
+  });
+});
+
+describe("upsertUiMessage", () => {
+  it("updates only the delta message without fingerprinting the full history", () => {
+    const first = textMessage("a", "hello");
+    const second = textMessage("b", "world");
+    const previous = [first, second];
+    const next = upsertUiMessage(previous, textMessage("b", "world!"));
+
+    expect(next).not.toBe(previous);
+    expect(next[0]).toBe(first);
+    expect(next[1]).not.toBe(second);
+    expect(next[1]?.parts[0]).toMatchObject({ text: "world!" });
+  });
+
+  it("appends a new streamed message", () => {
+    const first = textMessage("a", "hello");
+    const next = upsertUiMessage([first], textMessage("b", "world"));
+    expect(next).toEqual([first, textMessage("b", "world")]);
   });
 });
