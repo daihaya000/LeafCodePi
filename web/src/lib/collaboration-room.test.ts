@@ -356,8 +356,8 @@ describe("LeafCode room coordinator", () => {
     dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-data-"));
     writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({
       mode: "strict",
-      heartbeatMs: 250,
-      leaseTtlMs: 1_000,
+      heartbeatMs: 100,
+      leaseTtlMs: 400,
     }), "utf8");
     git(repo, ["init"]);
     git(repo, ["config", "user.email", "leafcode@example.invalid"]);
@@ -369,7 +369,7 @@ describe("LeafCode room coordinator", () => {
     const client = await connectRoom(repo, { sessionId: "session-ttl", displayName: "TTL", pid: process.pid }, env);
     clients.push(client);
     await client.reserve(["src/a.ts"]);
-    await new Promise((resolve) => setTimeout(resolve, 1_600));
+    await new Promise((resolve) => setTimeout(resolve, 700));
     await client.snapshot();
     await client.edit("src/a.ts", "1", "2");
     assert.equal(readFileSync(join(repo, "src/a.ts"), "utf8"), "export const a = 2;\n");
