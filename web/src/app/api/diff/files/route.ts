@@ -11,6 +11,10 @@ export const dynamic = "force-dynamic";
 
 const MAX_UNTRACKED_BYTES = 200_000;
 
+/** Clean worktrees re-run the same git status every poll; reuse briefly. */
+const CLEAN_RESULT_TTL_MS = 2_000;
+const cleanResultCache = new Map<string, { at: number; payload: DiffFilesPayload }>();
+
 function normalizeWindowsNamespace(value: string): string {
   if (value.slice(0, 8).toLowerCase() === "\\\\?\\unc\\") {
     return `\\\\${value.slice(8)}`;
@@ -60,6 +64,12 @@ export async function GET(req: NextRequest) {
         emptyPayload({ error: `directory does not exist: ${dir}` }),
       );
     }
+
+    const cached = cleanResultCache.get(dir);
+    if (cached && Date.now() - cached.at < CLEAN_RESULT_TTL_MS) {
+      return NextResponse.json(cached.payload);
+    }
+    cleanResultCache.delete(dir);
 
     const head = await runGit(dir, ["rev-parse", "--abbrev-ref", "HEAD"]);
     if (head.code !== 0) {
@@ -184,6 +194,9 @@ export async function GET(req: NextRequest) {
       additions,
       deletions,
     };
+    if (files.length === 0) {
+      cleanResultCache.set(dir, { at: Date.now(), payload });
+    }
     return NextResponse.json(payload);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
