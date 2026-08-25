@@ -68,6 +68,7 @@ export function createQuestionPromptService(options: {
   ) => Promise<QuestionAnswer | null>;
   respond: (taskId: string, requestId: string, answer: QuestionAnswer | null) => boolean;
   pendingForTask: (taskId: string) => QuestionRequestDto | null;
+  pendingTaskIds: () => Set<string>;
   dispose: () => void;
 } {
   function pushSnapshot(taskId: string, questionRequest: QuestionRequestDto | null): void {
@@ -122,6 +123,10 @@ export function createQuestionPromptService(options: {
     return headPending(taskId)?.request ?? null;
   }
 
+  function pendingTaskIds(): Set<string> {
+    return new Set(queueByTask.keys());
+  }
+
   function dispose(): void {
     for (const taskId of [...queueByTask.keys()]) {
       const queue = queueByTask.get(taskId) ?? [];
@@ -133,5 +138,5 @@ export function createQuestionPromptService(options: {
     }
   }
 
-  return { handleRequest, respond, pendingForTask, dispose };
+  return { handleRequest, respond, pendingForTask, pendingTaskIds, dispose };
 }

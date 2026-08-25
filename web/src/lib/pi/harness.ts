@@ -2403,12 +2403,20 @@ export function respondToQuestionPrompt(
 /** 注意喚起が必要なタスク一覧（GlobalAttentionProvider のポーリング応答）。 */
 export function listPendingAttention(): AttentionItemDto[] {
   const items: AttentionItemDto[] = [];
+  // 待機中タスクはサービスが保持するキーのみで判別できる。全タスク走査は不要。
+  const permissionIds = ensurePermissionPromptService().pendingTaskIds();
+  const questionIds = ensureQuestionPromptService().pendingTaskIds();
+  const candidateIds = new Set<string>();
+  for (const id of permissionIds) candidateIds.add(id);
+  for (const id of questionIds) candidateIds.add(id);
+  if (candidateIds.size === 0) return items;
   // 必要なのは id/title のみ。toSummary はライブタスクでメッセージ走査を伴うため、
   // store の生レコードを直接使う（4 秒間隔ポーリングのコスト削減）。
   for (const task of listTasks(false)) {
+    if (!candidateIds.has(task.id)) continue;
     const kinds: AttentionItemDto["kinds"] = [];
-    if (ensurePermissionPromptService().pendingForTask(task.id)) kinds.push("permission");
-    if (ensureQuestionPromptService().pendingForTask(task.id)) kinds.push("question");
+    if (permissionIds.has(task.id)) kinds.push("permission");
+    if (questionIds.has(task.id)) kinds.push("question");
     if (kinds.length > 0) items.push({ taskId: task.id, title: task.title, kinds });
   }
   return items;

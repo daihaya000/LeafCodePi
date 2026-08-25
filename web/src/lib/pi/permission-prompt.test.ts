@@ -78,4 +78,25 @@ describe("createPermissionPromptService", () => {
     await expect(second).resolves.toBe(false);
     expect(service.pendingForTask("task-a")).toBeNull();
   });
+
+  it("lists only tasks with pending requests", async () => {
+    const service = createPermissionPromptService({
+      resolveTaskId: (sessionId) => (sessionId === "sess-1" ? "task-a" : "task-b"),
+      emit: vi.fn(),
+      snapshotExtras: () => ({}),
+    });
+    expect([...service.pendingTaskIds()]).toEqual([]);
+
+    void service.handleRequest({
+      id: "req-1",
+      sessionId: "sess-1",
+      command: "ls",
+      labels: ["ls"],
+      message: "allow?",
+    });
+    expect([...service.pendingTaskIds()]).toEqual(["task-a"]);
+
+    service.respond("task-a", "req-1", true);
+    expect([...service.pendingTaskIds()]).toEqual([]);
+  });
 });

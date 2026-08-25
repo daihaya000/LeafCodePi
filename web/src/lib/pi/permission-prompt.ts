@@ -73,6 +73,7 @@ export function createPermissionPromptService(options: {
   handleRequest: (input: Omit<PermissionRequestDto, "id"> & { id: string }) => Promise<boolean>;
   respond: (taskId: string, requestId: string, approved: boolean) => boolean;
   pendingForTask: (taskId: string) => PermissionRequestDto | null;
+  pendingTaskIds: () => Set<string>;
   dispose: () => void;
 } {
   function pushSnapshot(taskId: string, permissionRequest: PermissionRequestDto | null): void {
@@ -129,6 +130,10 @@ export function createPermissionPromptService(options: {
     return headPending(taskId)?.request ?? null;
   }
 
+  function pendingTaskIds(): Set<string> {
+    return new Set(queueByTask.keys());
+  }
+
   function dispose(): void {
     for (const taskId of [...queueByTask.keys()]) {
       const queue = queueByTask.get(taskId) ?? [];
@@ -140,5 +145,5 @@ export function createPermissionPromptService(options: {
     }
   }
 
-  return { handleRequest, respond, pendingForTask, dispose };
+  return { handleRequest, respond, pendingForTask, pendingTaskIds, dispose };
 }
