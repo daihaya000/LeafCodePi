@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { collaborationDataDir, readCollaborationConfig } from "./collaboration";
 
@@ -39,7 +39,12 @@ function projectKey(root: string): string {
     .digest("hex");
 }
 
+/** git rev-parse はプロジェクトごとに不変。ポーリング毎の子プロセス起動を避ける。 */
+const repositoryRootCache = new Map<string, string>();
+
 function repositoryRoot(rootPath: string): string {
+  const cached = repositoryRootCache.get(rootPath);
+  if (cached) return cached;
   const root = realpathSync.native(rootPath);
   const output = execFileSync("git", ["rev-parse", "--show-toplevel"], {
     cwd: root,
@@ -48,7 +53,9 @@ function repositoryRoot(rootPath: string): string {
     windowsHide: true,
     timeout: 1_500,
   });
-  return realpathSync.native(output.trim());
+  const resolved = realpathSync.native(output.trim());
+  repositoryRootCache.set(rootPath, resolved);
+  return resolved;
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -95,6 +102,15 @@ function leaseConflictsFrom(
   return conflicts;
 }
 
+type RoomSnapshotCacheEntry = {
+  mtimeMs: number;
+  size: number;
+  value: RoomSnapshotLike;
+};
+
+/** Sidebar ポーリングは同じ snapshot を繰り返し読む。ファイル不変時はパースを再利用。 */
+const roomSnapshotCache = new Map<string, RoomSnapshotCacheEntry>();
+
 export function readCollaborationRoom(rootPath: string, env: NodeJS.ProcessEnv = process.env): CollaborationRoomSummary {
   try {
     const root = repositoryRoot(rootPath);
@@ -102,7 +118,15 @@ export function readCollaborationRoom(rootPath: string, env: NodeJS.ProcessEnv =
     if (!existsSync(snapshotPath)) {
       return emptyRoom("Room snapshot is not available.");
     }
-    const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8")) as RoomSnapshotLike;
+    const stat = statSync(snapshotPath);
+    const cached = roomSnapshotCache.get(snapshotPath);
+    let snapshot: RoomSnapshotLike;
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+      snapshot = cached.value;
+    } else {
+      snapshot = JSON.parse(readFileSync(snapshotPath, "utf8")) as RoomSnapshotLike;
+      roomSnapshotCache.set(snapshotPath, { mtimeMs: stat.mtimeMs, size: stat.size, value: snapshot });
+    }
     const sessions = record(snapshot.sessions);
     const leases = record(snapshot.leases);
     const connectedSessions = Object.values(sessions).filter((session) => record(session).state !== "offline");

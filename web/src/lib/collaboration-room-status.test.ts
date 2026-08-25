@@ -7,6 +7,11 @@ import { join } from "node:path";
 import { afterEach, describe, it, vi } from "vitest";
 import { readCollaborationRoom } from "./collaboration-room";
 
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, execFileSync: vi.fn(actual.execFileSync) };
+});
+
 describe("readCollaborationRoom", () => {
   let repo = "";
   let dataDir = "";
@@ -85,5 +90,37 @@ describe("readCollaborationRoom", () => {
     } finally {
       stderrWrite.mockRestore();
     }
+  });
+
+  it("caches the repository root and reuses the snapshot while unchanged", () => {
+    repo = mkdtempSync(join(tmpdir(), "leafcode-room-status-repo-"));
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-room-status-data-"));
+    execFileSync("git", ["init"], { cwd: repo, stdio: "ignore", windowsHide: true });
+    const root = realpathSync.native(execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: repo, encoding: "utf8", windowsHide: true }).trim());
+    const key = createHash("sha256").update(process.platform === "win32" ? root.toLowerCase() : root).digest("hex");
+    const snapshotPath = join(dataDir, "rooms", key, "snapshot.json");
+    mkdirSync(join(dataDir, "rooms", key), { recursive: true });
+    const snapshot = (epoch: number) => JSON.stringify({
+      schema: 1,
+      projectKey: key,
+      epoch,
+      updatedAt: new Date().toISOString(),
+      sessions: {},
+      leases: {},
+      pendingAsks: [],
+    });
+    writeFileSync(snapshotPath, snapshot(1), "utf8");
+
+    const execMock = vi.mocked(execFileSync);
+    execMock.mockClear();
+    assert.equal(readCollaborationRoom(repo, { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir }).epoch, 1);
+    assert.equal(execMock.mock.calls.length, 1);
+    // 2回目: repositoryRoot キャッシュで git 子プロセスを起動しない
+    assert.equal(readCollaborationRoom(repo, { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir }).epoch, 1);
+    assert.equal(execMock.mock.calls.length, 1);
+
+    // snapshot 変更時は再読込される
+    writeFileSync(snapshotPath, snapshot(2), "utf8");
+    assert.equal(readCollaborationRoom(repo, { ...process.env, LEAFCODE_PI_DATA_DIR: dataDir }).epoch, 2);
   });
 });
