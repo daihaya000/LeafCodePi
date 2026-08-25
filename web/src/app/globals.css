@@ -142,7 +142,10 @@ select {
 }
 
 .md {
+  min-width: 0;
+  max-width: 100%;
   line-height: 1.7;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 .md > *:first-child {
