@@ -46,7 +46,10 @@ import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { writeStoredAgent } from "@/lib/default-agent";
-import { messageNavigationIds } from "@/lib/message-navigation";
+import {
+  messageNavigationIds,
+  messageNavigationIndex,
+} from "@/lib/message-navigation";
 import {
   normalizeTaskPanelState,
   toggleTaskPanel,
@@ -604,11 +607,12 @@ export function TaskView({
     const ids = navigationMessageIdsRef.current;
     if (ids.length > 0 && messageElsRef.current.size > 0) {
       const line = el.scrollTop + 4;
-      let idx = currentNavigationIdxRef.current;
-      const topOf = (i: number) => messageElsRef.current.get(ids[i])?.offsetTop ?? Number.POSITIVE_INFINITY;
-      while (idx < ids.length && topOf(idx) < line) idx += 1;
-      while (idx > 0 && topOf(idx - 1) >= line) idx -= 1;
-      currentNavigationIdxRef.current = Math.min(Math.max(idx, 0), ids.length - 1);
+      currentNavigationIdxRef.current = messageNavigationIndex(
+        ids.length,
+        currentNavigationIdxRef.current,
+        line,
+        (index) => messageElsRef.current.get(ids[index]!)?.offsetTop ?? Number.POSITIVE_INFINITY,
+      );
     }
   }, []);
 
@@ -1197,6 +1201,9 @@ export function TaskView({
   );
   const navigationTargetLabel = userMessageIds.length > 0 ? "ユーザーメッセージ" : "メッセージ";
   navigationMessageIdsRef.current = navigationMessageIds;
+  currentNavigationIdxRef.current = navigationMessageIds.length > 0
+    ? Math.min(Math.max(currentNavigationIdxRef.current, 0), navigationMessageIds.length - 1)
+    : 0;
 
   // ヘッダー表示用の会話統計: 合計出力 tok / 平均 tok/s / 合計生成時間。
   const stats = useMemo(() => {
@@ -1525,7 +1532,7 @@ export function TaskView({
                   },
                   <ChevronDown key="i" className="h-4 w-4" />,
                 ],
-                [`最新の${navigationTargetLabel}へ`, () => jumpToLatest(), <ChevronsDown key="i" className="h-4 w-4" />],
+                ["最新のメッセージへ", () => jumpToLatest(), <ChevronsDown key="i" className="h-4 w-4" />],
               ] as const
             ).map(([label, onClick, icon]) => (
               <Button

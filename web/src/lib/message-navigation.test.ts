@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { messageNavigationIds } from "./message-navigation";
+import { messageNavigationIds, messageNavigationIndex } from "./message-navigation";
 
 describe("messageNavigationIds", () => {
   it("uses user messages when the conversation has them", () => {
@@ -16,5 +16,24 @@ describe("messageNavigationIds", () => {
       { id: "summary", role: "compaction" },
       { id: "assistant-1", role: "assistant" },
     ])).toEqual(["assistant-1"]);
+  });
+});
+
+describe("messageNavigationIndex", () => {
+  const tops = [0, 200, 400];
+  const topOf = (index: number) => tops[index]!;
+
+  it("keeps the current target until the next target reaches the viewport line", () => {
+    expect(messageNavigationIndex(tops.length, 0, 100, topOf)).toBe(0);
+    expect(messageNavigationIndex(tops.length, 0, 200, topOf)).toBe(1);
+  });
+
+  it("moves backward to the target at or above the line", () => {
+    expect(messageNavigationIndex(tops.length, 2, 250, topOf)).toBe(1);
+    expect(messageNavigationIndex(tops.length, 2, 0, topOf)).toBe(0);
+  });
+
+  it("returns zero when there are no targets", () => {
+    expect(messageNavigationIndex(0, 3, 100, () => 0)).toBe(0);
   });
 });
