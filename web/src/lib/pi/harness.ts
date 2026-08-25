@@ -1459,6 +1459,35 @@ export async function listModels(): Promise<ModelOption[]> {
   return current.modelInflight;
 }
 
+const DIRECT_MAX_TOKENS = 16_384;
+const DIRECT_DEFAULT_REASONING_BUDGET = 8_192;
+const DIRECT_REASONING_BUDGETS: Record<Exclude<ThinkingLevel, "off">, number> = {
+  minimal: 1_024,
+  low: 2_048,
+  medium: 8_192,
+  high: 16_384,
+  xhigh: 16_384,
+  max: 16_384,
+};
+
+function directCompletionMaxTokens(
+  model: Model,
+  requested: number | undefined,
+  reasoning: Exclude<ThinkingLevel, "off"> | undefined,
+): number {
+  const answerTokens = Math.min(1_024, Math.max(1, Math.floor(requested ?? 256)));
+  if (!model.reasoning && !reasoning) return answerTokens;
+  const modelMaxTokens =
+    typeof model.maxTokens === "number" && Number.isFinite(model.maxTokens)
+      ? Math.max(1, Math.floor(model.maxTokens))
+      : DIRECT_MAX_TOKENS;
+  return Math.min(
+    DIRECT_MAX_TOKENS,
+    modelMaxTokens,
+    answerTokens + (reasoning ? DIRECT_REASONING_BUDGETS[reasoning] : DIRECT_DEFAULT_REASONING_BUDGET),
+  );
+}
+
 /** Complete a short prompt through Pi's registered provider, without tools or an agent session. */
 export async function completeModelText(options: {
   providerID: string;
@@ -1491,7 +1520,7 @@ export async function completeModelText(options: {
     {
       signal: options.signal,
       maxRetries: 0,
-      maxTokens: Math.min(1_024, Math.max(1, Math.floor(options.maxTokens ?? 256))),
+      maxTokens: directCompletionMaxTokens(model, options.maxTokens, options.reasoning),
       temperature: Math.min(2, Math.max(0, options.temperature ?? 0.2)),
       reasoning: options.reasoning,
     },

@@ -158,6 +158,23 @@ describe("direct-generation", () => {
     ]);
   });
 
+  it("retries a provider 5xx without the reasoning effort", async () => {
+    completeModelText
+      .mockRejectedValueOnce(new Error('500: {"type":"error","message":"Internal server error"}'))
+      .mockResolvedValueOnce("fallback result");
+
+    await expect(
+      generateDirectTextWithFallback({
+        candidates: [{ model: { providerID: "opencode-go", modelID: "mimo-v2.5" }, effort: "minimal" }],
+        system: "system",
+        prompt: "prompt",
+      }),
+    ).resolves.toBe("fallback result");
+    expect(completeModelText).toHaveBeenCalledTimes(2);
+    expect(completeModelText.mock.calls[0]?.[0]).toMatchObject({ reasoning: "minimal" });
+    expect(completeModelText.mock.calls[1]?.[0]).not.toHaveProperty("reasoning");
+  });
+
   it("tries the selected fallback model with its own effort", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response("{}", { status: 503 }))

@@ -217,6 +217,14 @@ export async function generateDirectText(options: {
   }
 }
 
+function isProviderInternalError(error: unknown): boolean {
+  if (error instanceof DirectGenerationError && typeof error.status === "number") {
+    return error.status === 500;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b500\s*:/.test(message);
+}
+
 export function sameDirectModel(a: DirectModel, b: DirectModel): boolean {
   return a.providerID === b.providerID && a.modelID === b.modelID;
 }
@@ -254,6 +262,14 @@ export async function generateDirectTextWithFallback(
     } catch (error) {
       lastError = error;
       if (base.signal?.aborted) throw error;
+      if (candidate.effort && candidate.effort !== "off" && isProviderInternalError(error)) {
+        try {
+          return await generateDirectText({ ...base, model: candidate.model });
+        } catch (retryError) {
+          lastError = retryError;
+          if (base.signal?.aborted) throw retryError;
+        }
+      }
     }
   }
   throw lastError ?? new DirectGenerationError("生成モデルが設定されていません", 400);

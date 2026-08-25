@@ -13,8 +13,8 @@ function installRuntime(response: AssistantMessage) {
   const runtime = {
     getProvider: () => ({ id: "stub" }),
     getModel: (providerID: string, modelID: string) =>
-      providerID === "anthropic" && modelID === "claude-sonnet"
-        ? { id: modelID, provider: providerID }
+      providerID === "anthropic" && (modelID === "claude-sonnet" || modelID === "reasoning-model")
+        ? { id: modelID, provider: providerID, reasoning: modelID === "reasoning-model", maxTokens: 32_768 }
         : undefined,
     completeSimple: (...args: unknown[]) => {
       calls.push(args);
@@ -65,6 +65,36 @@ describe("completeModelText", () => {
       }),
       "更新 foo",
     );
+  });
+
+  it("leaves room for an answer when a reasoning model is used", async () => {
+    const calls = installRuntime(
+      assistant({ content: [{ type: "text", text: "提案" }] }),
+    );
+    await completeModelText({
+      providerID: "anthropic",
+      modelID: "reasoning-model",
+      system: "system",
+      prompt: "prompt",
+      maxTokens: 180,
+      reasoning: "minimal",
+    });
+
+    const requestOptions = (calls[0] as unknown[] | undefined)?.[2] as { maxTokens?: number };
+    assert.equal(requestOptions.maxTokens, 1_204);
+
+    const defaultCalls = installRuntime(
+      assistant({ content: [{ type: "text", text: "提案" }] }),
+    );
+    await completeModelText({
+      providerID: "anthropic",
+      modelID: "reasoning-model",
+      system: "system",
+      prompt: "prompt",
+      maxTokens: 180,
+    });
+    const defaultOptions = (defaultCalls[0] as unknown[] | undefined)?.[2] as { maxTokens?: number };
+    assert.equal(defaultOptions.maxTokens, 8_372);
   });
 
   it("propagates the provider errorMessage instead of a generic no-text error", async () => {
