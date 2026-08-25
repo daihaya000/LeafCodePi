@@ -812,7 +812,6 @@ function sessionSnapshotFields(
 
 function emit(taskId: string, payload: { type: string; [key: string]: unknown }): void {
   state().events.emit(taskId, payload);
-  state().events.emit("*", { taskId, ...payload });
 }
 
 /** プロバイダが「思考オフ不可」の 400 を返したか。 */
