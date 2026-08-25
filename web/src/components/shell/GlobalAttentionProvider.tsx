@@ -52,6 +52,7 @@ export function GlobalAttentionProvider() {
   // 二重オープン防止（本家 autoOpenedRef と同じ）。
   const autoOpenedRef = useRef(true);
   const itemsRef = useRef<AttentionItemDto[]>([]);
+  const fetchedItemsKeyRef = useRef("");
 
   useEffect(() => {
     itemsRef.current = items;
@@ -124,6 +125,8 @@ export function GlobalAttentionProvider() {
 
   useEffect(() => {
     if (!open || items.length === 0) return;
+    const itemsKey = items.map((item) => `${item.taskId}:${item.kinds.join("+")}`).join("|");
+    if (itemsKey === fetchedItemsKeyRef.current) return;
     let cancelled = false;
     void Promise.all(
       items.map(async (item) => {
@@ -136,6 +139,7 @@ export function GlobalAttentionProvider() {
       }),
     ).then((entries) => {
       if (cancelled) return;
+      fetchedItemsKeyRef.current = itemsKey;
       setDetails((current) => ({
         ...current,
         ...Object.fromEntries(entries.filter((entry): entry is readonly [string, TaskDetail] => entry !== null)),
@@ -144,7 +148,10 @@ export function GlobalAttentionProvider() {
     return () => {
       cancelled = true;
     };
-  }, [details, items, open]);
+    // details を deps に含めると setDetails のたびに再実行され、/api/tasks/:id の
+    // 再フェッチループになるため除外する。items 参照はポーリング毎に変わるため、
+    // key で実質的な変更（タスク or 要求種別）を検出してからフェッチする。
+  }, [items, open]);
 
   const close = () => {
     setResponseError(null);
