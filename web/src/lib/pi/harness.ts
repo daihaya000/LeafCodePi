@@ -210,6 +210,15 @@ type ContextUsageCacheEntry = {
 /** getContextUsage() estimates tokens over all messages; skip it while messages are unchanged. */
 const contextUsageCache = new WeakMap<object, ContextUsageCacheEntry>();
 
+type TodoProgressCacheEntry = {
+  mtimeMs: number;
+  size: number;
+  value: TodoProgressDto | undefined;
+};
+
+/** Reopen archived task session files only when they actually changed on disk. */
+const todoProgressCache = new Map<string, TodoProgressCacheEntry>();
+
 type PermissionPromptService = ReturnType<typeof createPermissionPromptService>;
 let permissionPromptService: PermissionPromptService | null = null;
 
@@ -1576,12 +1585,23 @@ export function getTaskSummaries(includeArchived = false): TaskSummary[] {
   return listTasks(includeArchived).map(toSummary);
 }
 
-function readTodoProgress(pi: PiModule, task: TaskSummary): TodoProgressDto | undefined {
-  if (!task.sessionFile) return undefined;
+export function readTodoProgress(pi: PiModule, task: TaskSummary): TodoProgressDto | undefined {
+  const sessionFile = task.sessionFile;
+  if (!sessionFile) return undefined;
   try {
-    const sessionManager = pi.SessionManager.open(task.sessionFile);
-    return todoProgressFromTodos(todosFromPiMessages(sessionManager.buildSessionContext().messages));
+    const stat = statSync(sessionFile);
+    const cached = todoProgressCache.get(sessionFile);
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+      return cached.value;
+    }
+    const sessionManager = pi.SessionManager.open(sessionFile);
+    const progress = todoProgressFromTodos(
+      todosFromPiMessages(sessionManager.buildSessionContext().messages),
+    );
+    todoProgressCache.set(sessionFile, { mtimeMs: stat.mtimeMs, size: stat.size, value: progress });
+    return progress;
   } catch {
+    todoProgressCache.delete(sessionFile);
     return undefined;
   }
 }
