@@ -105,17 +105,9 @@ const emptyState = (): ExtensionsState => {
   return { disabled: {} };
 };
 
-/** WebUI / shared-checkout の動作に必須な同梱拡張。無効化禁止。 */
-export const WEBUI_REQUIRED_EXTENSIONS: ReadonlySet<string> = new Set([
-  "leafcode-goal-loop",
-  "leafcode-todowrite",
-  "leafcode-permission-gate",
-  "leafcode-subagents",
-  LEAFCODE_COLLABORATION_EXTENSION_NAME,
-]);
-
+/** LeafCodePi の WebUI が依存する拡張。無効化禁止。 */
 export function isWebUiRequiredExtension(name: string): boolean {
-  return WEBUI_REQUIRED_EXTENSIONS.has(name);
+  return name.startsWith("leafcode-");
 }
 
 function atomicWrite(filePath: string, content: string): void {

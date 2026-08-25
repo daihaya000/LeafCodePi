@@ -153,15 +153,18 @@ describe("listExtensions / setExtensionEnabled", () => {
     const { agentDir: agent } = fixture();
     writeExtension(join(agent, "extensions"), "leafcode-todowrite");
     writeExtension(join(agent, "extensions"), "leafcode-subagents");
+    writeExtension(join(agent, "extensions"), "leafcode-custom");
 
     const listed = listExtensions(agent);
     const required = listed.extensions.find((e) => e.name === "leafcode-todowrite");
     assert.equal(required?.required, true);
     assert.equal(listed.extensions.find((e) => e.name === "leafcode-subagents")?.required, true);
+    assert.equal(listed.extensions.find((e) => e.name === "leafcode-custom")?.required, true);
     assert.equal(listed.extensions.find((e) => e.name === "one")?.required, false);
 
     assert.throws(() => setExtensionEnabled("leafcode-todowrite", false, agent), /無効化できません/);
     assert.throws(() => setExtensionEnabled("leafcode-subagents", false, agent), /無効化できません/);
+    assert.throws(() => setExtensionEnabled("leafcode-custom", false, agent), /無効化できません/);
     // 無効化禁止の後も有効状態は維持される。
     assert.equal(listExtensions(agent).extensions.find((e) => e.name === "leafcode-todowrite")?.enabled, true);
   });
