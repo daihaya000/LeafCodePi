@@ -1607,7 +1607,11 @@ export function readTodoProgress(pi: PiModule, task: TaskSummary): TodoProgressD
 
 export async function getTaskSummariesWithTodoProgress(includeArchived = false): Promise<TaskSummary[]> {
   const summaries = getTaskSummaries(includeArchived);
-  const tasksToRead = summaries.filter((task) => !state().live.has(task.id) && !task.todoProgress && task.sessionFile);
+  // アーカイブタスクは Sidebar の進捗表示対象外（TodoProgressBar は active のみ）。
+  // 復元時は status が変わり再読込されるため、進捗の欠落は生じない。
+  const tasksToRead = summaries.filter(
+    (task) => task.status !== "archived" && !state().live.has(task.id) && !task.todoProgress && task.sessionFile,
+  );
   if (tasksToRead.length === 0) return summaries;
 
   let pi: PiModule;
