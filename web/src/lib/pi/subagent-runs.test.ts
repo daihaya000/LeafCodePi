@@ -188,6 +188,33 @@ describe("listSubagentRuns", () => {
   it("returns nothing without a session file", () => {
     expect(listSubagentRuns({ sessionFile: null, cwd: path.join(root, "missing") })).toEqual([]);
   });
+
+  it("reuses the parsed transcript while the file is unchanged", () => {
+    const first = listSubagentRuns({ sessionFile, cwd: root });
+    const run1 = first.find((run) => run.runId === "run-1");
+    expect(run1?.messages).toHaveLength(2);
+
+    // 同一ファイル（mtime/size 不変）→ パース結果の参照が再利用される。
+    const second = listSubagentRuns({ sessionFile, cwd: root });
+    const run1Again = second.find((run) => run.runId === "run-1");
+    expect(run1Again?.messages).toBe(run1?.messages);
+
+    // 追記でファイルが変わると再パースされる。
+    fs.appendFileSync(
+      path.join(artifactsDir, "run-1_programmer_transcript.jsonl"),
+      `\n${record({
+        recordType: "message",
+        role: "assistant",
+        ts: 3000,
+        message: { role: "assistant", content: [{ type: "text", text: "追記" }] },
+      })}\n`,
+      "utf-8",
+    );
+    const third = listSubagentRuns({ sessionFile, cwd: root });
+    const run1Final = third.find((run) => run.runId === "run-1");
+    expect(run1Final?.messages).not.toBe(run1?.messages);
+    expect(run1Final?.messages).toHaveLength(3);
+  });
 });
 
 describe("subagentArtifactDirs", () => {

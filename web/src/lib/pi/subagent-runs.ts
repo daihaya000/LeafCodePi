@@ -221,6 +221,21 @@ function readTranscriptTail(filePath: string, size: number): { text: string; tru
   }
 }
 
+type TranscriptCacheEntry = {
+  mtimeMs: number;
+  size: number;
+  parsed: ParsedTranscript;
+  /** projectPiMessages の射影結果（キャッシュヒット時に再計算しない）。 */
+  uiMessages: ReturnType<typeof projectPiMessages>;
+};
+
+/**
+ * 2 秒間隔ポーリングは同じ transcript を繰り返し読む。transcript は追記専用
+ * ファイルなので、mtime/size 不変時はパース（最大 1MB の行パース +
+ * projectPiMessages 相当）をスキップする。
+ */
+const transcriptCache = new Map<string, TranscriptCacheEntry>();
+
 /**
  * タスクのセッションに紐づくサブエージェント実行を新しい順に返す。
  * `since` はツール呼び出し開始時刻などの下限（ファイル更新時刻で判定）。
@@ -261,10 +276,25 @@ export function listSubagentRuns(input: {
   const runs: SubagentRunDto[] = [];
   for (const candidate of candidates.slice(0, limit)) {
     let parsed: ParsedTranscript;
+    let uiMessages: ReturnType<typeof projectPiMessages>;
     try {
-      const { text, truncated } = readTranscriptTail(candidate.filePath, candidate.size);
-      parsed = parseSubagentTranscript(text, { truncated });
+      const cached = transcriptCache.get(candidate.filePath);
+      if (cached && cached.mtimeMs === candidate.mtimeMs && cached.size === candidate.size) {
+        parsed = cached.parsed;
+        uiMessages = cached.uiMessages;
+      } else {
+        const { text, truncated } = readTranscriptTail(candidate.filePath, candidate.size);
+        parsed = parseSubagentTranscript(text, { truncated });
+        uiMessages = projectPiMessages(parsed.rawMessages);
+        transcriptCache.set(candidate.filePath, {
+          mtimeMs: candidate.mtimeMs,
+          size: candidate.size,
+          parsed,
+          uiMessages,
+        });
+      }
     } catch {
+      transcriptCache.delete(candidate.filePath);
       continue;
     }
     const { metaPath } = siblingArtifactPaths(candidate.filePath);
@@ -282,7 +312,7 @@ export function listSubagentRuns(input: {
       ...(parsed.model ? { model: parsed.model } : {}),
       ...(parsed.provider ? { provider: parsed.provider } : {}),
       truncated: parsed.truncated,
-      messages: projectPiMessages(parsed.rawMessages),
+      messages: uiMessages,
     });
   }
   return runs;
