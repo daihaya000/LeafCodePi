@@ -398,7 +398,7 @@ async function ensureRuntime(): Promise<void> {
           const turnAssistants = promptIndex >= 0
             ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant")
             : [];
-          live.manualAbortedAssistantId = turnAssistants.at(-1)?.id ?? null;
+          live.manualAbortedAssistantId = turnAssistants.at(-1)?.id ?? "";
           await stopSubagentRunsForTask(live, msgs);
           await live.session.abort();
         }
@@ -2093,7 +2093,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
     }
     const turnAssistants =
       promptIndex >= 0 ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant") : [];
-    live.manualAbortedAssistantId = turnAssistants.at(-1)?.id ?? null;
+    live.manualAbortedAssistantId = turnAssistants.at(-1)?.id ?? "";
     await stopSubagentRunsForTask(live, msgs);
     await live.session.abort();
     emitTaskSnapshot(live, "abort");

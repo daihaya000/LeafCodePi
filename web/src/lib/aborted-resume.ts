@@ -109,10 +109,24 @@ export function findResumableTurn(
 
   const prompt = messages[promptIndex];
   const turn = messages.slice(promptIndex + 1);
-  if (!prompt || turn.length === 0) return null;
+  if (!prompt) return null;
 
   const text = promptTextOf(prompt);
   if (!text) return null;
+
+  const manualRaw = options?.manualAbortedAssistantId;
+  // 手動停止が応答生成開始前だと assistant メッセージが 1 件も無い。harness は
+  // その場合 manualAbortedAssistantId に空文字を入れるので、それを目印に
+  // プロンプト自体を再開対象にする（aborted 扱いで自動再開はしない）。
+  if (manualRaw !== undefined && manualRaw !== null && !manualRaw.trim() && turn.length === 0) {
+    return {
+      reason: "aborted",
+      messageId: prompt.id,
+      text,
+      files: promptFilesOf(prompt),
+    };
+  }
+  if (turn.length === 0) return null;
 
   const build = (
     source: UiMessage,
@@ -127,7 +141,7 @@ export function findResumableTurn(
       : {}),
   });
 
-  const manualId = options?.manualAbortedAssistantId?.trim();
+  const manualId = manualRaw?.trim();
   if (manualId) {
     const manualIndex = turn.findIndex((message) => message.id === manualId);
     if (manualIndex >= 0) {

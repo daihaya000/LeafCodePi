@@ -88,6 +88,17 @@ describe("findResumableTurn", () => {
     });
   });
 
+  it("returns aborted resume for manual stop before any assistant output", () => {
+    expect(
+      findResumableTurn([userMessage("u1")], { manualAbortedAssistantId: "" }),
+    ).toEqual({
+      reason: "aborted",
+      messageId: "u1",
+      text: "元のプロンプト",
+      files: [],
+    });
+  });
+
   it("ignores recovered turns after abort", () => {
     expect(
       findResumableTurn([userMessage("u1"), abortedAssistant("a1"), reply("a2")]),
