@@ -452,13 +452,9 @@ export function TaskView({
       });
     };
 
+    // The SSE endpoint sends the initial full snapshot; avoid a duplicate task-detail request.
     connect();
 
-    void getJson<{ task: TaskDetail }>(`/api/tasks/${taskId}`).then((result) => {
-      if (!closed) applyDetail(result.task);
-    }).catch((err) => {
-      if (!closed) setError(err instanceof Error ? err.message : "タスクの読み込みに失敗しました");
-    });
     void getJson<{ models: ModelOption[] }>("/api/models").then((result) => {
       if (!closed) setModels(result.models);
     }).catch(() => {
