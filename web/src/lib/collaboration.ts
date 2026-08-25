@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -50,11 +50,34 @@ export function collaborationConfigPath(env: NodeJS.ProcessEnv = process.env): s
   return join(collaborationDataDir(env), "collaboration.json");
 }
 
+type ConfigCacheEntry = {
+  mtimeMs: number;
+  size: number;
+  result: CollaborationConfigResult;
+};
+
+/**
+ * Sidebar 4 秒ポーリング / TaskView・HomeView 5 秒ポーリングは設定を毎回
+ * ディスクから読む。mtime/size 不変時はパース結果を再利用する。
+ * （writeCollaborationConfig は実ファイルを置き換えるため変更が確実に検知される）
+ */
+const configCache = new Map<string, ConfigCacheEntry>();
+
 export function readCollaborationConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): CollaborationConfigResult {
+  const path = collaborationConfigPath(env);
   try {
-    return parseCollaborationConfig(JSON.parse(readFileSync(collaborationConfigPath(env), "utf8")) as unknown);
+    const stat = statSync(path);
+    const cached = configCache.get(path);
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+      return cached.result;
+    }
+    const result = parseCollaborationConfig(
+      JSON.parse(readFileSync(path, "utf8")) as unknown,
+    );
+    configCache.set(path, { mtimeMs: stat.mtimeMs, size: stat.size, result });
+    return result;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return { config: DEFAULT_COLLABORATION_CONFIG, valid: true };
