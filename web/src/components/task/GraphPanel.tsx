@@ -28,7 +28,7 @@ const POLL_IDLE_MS = 15000;
 type GraphRepository = { path: string; name: string };
 
 /** 表示に影響するフィールドのみ比較（ポーリング毎の新ペイロードで再描画させない）。 */
-function sameGraphPayload(
+export function sameGraphPayload(
   a: GraphLogPayload | null,
   b: GraphLogPayload,
 ): boolean {
