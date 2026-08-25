@@ -33,6 +33,7 @@ import { SkillPermissionSelect } from "@/components/SkillPermissionSelect";
 import { PermissionSelect } from "@/components/PermissionSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
+import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { PartView, WorkingRow } from "@/components/task/PartView";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import {
@@ -46,6 +47,11 @@ import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { writeStoredAgent } from "@/lib/default-agent";
 import { messageNavigationIds } from "@/lib/message-navigation";
+import {
+  normalizeTaskPanelState,
+  toggleTaskPanel,
+  type TaskPanelState,
+} from "@/lib/mobile-panel-state";
 import { clampScrollTop, isNearBottom, nextStickState } from "@/lib/scroll-stick";
 import {
   readScrollButtonOpacity,
@@ -174,7 +180,7 @@ function SidePanel({ storageKey, children }: { storageKey: string; children: Rea
   }, [storageKey]);
   return (
     <div
-      className="relative h-72 shrink-0 border-b border-border lg:h-auto lg:w-(--panel-width) lg:border-b-0 lg:border-l"
+      className="relative flex h-full min-h-0 shrink-0 flex-col border-b border-border md:h-72 lg:h-auto lg:w-(--panel-width) lg:border-b-0 lg:border-l"
       style={{ "--panel-width": `${width}px` } as React.CSSProperties}
     >
       {children}
@@ -294,6 +300,7 @@ export function TaskView({
   /** 1 ペイン時にも分割を開始できるよう空ペインを追加する。 */
   onAddPane?: () => void;
 }) {
+  const { mdUp } = useTaskPanes();
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>([]);
@@ -311,8 +318,14 @@ export function TaskView({
   const [goalLoopMaxTurns, setGoalLoopMaxTurns] = useState(10);
   const [goalLoopCooldownSeconds, setGoalLoopCooldownSeconds] = useState(0);
   const [goalLoopForceFullRun, setGoalLoopForceFullRun] = useState(false);
-  const [graphOpen, setGraphOpen] = useState(false);
-  const [diffOpen, setDiffOpen] = useState(false);
+  const [panelState, setPanelState] = useState<TaskPanelState>({
+    graphOpen: false,
+    diffOpen: false,
+  });
+  const { graphOpen, diffOpen } = panelState;
+  useEffect(() => {
+    setPanelState((current) => normalizeTaskPanelState(current, mdUp));
+  }, [mdUp]);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [deliveryMode, setDeliveryMode] = useState<"queue" | "steer">("queue");
   const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>([]);
@@ -1232,6 +1245,7 @@ export function TaskView({
         ? worktreeStatus
         : task.status
     : null;
+  const mobilePanelOpen = !mdUp && (graphOpen || diffOpen);
 
   return (
     // min-h-0 flex-1: ペイン section が TaskTabs を持つ場合でも残り高さに収める。
@@ -1380,7 +1394,9 @@ export function TaskView({
                 "h-11 w-11 md:h-9 md:w-9",
                 graphOpen && "bg-surface-2 text-text",
               )}
-              onClick={() => setGraphOpen((value) => !value)}
+              onClick={() =>
+                setPanelState((current) => toggleTaskPanel(current, "graph", mdUp))
+              }
             >
               <GitGraph className="h-4 w-4" />
             </Button>
@@ -1395,7 +1411,9 @@ export function TaskView({
                 "h-11 w-11 md:h-9 md:w-9",
                 diffOpen && "bg-surface-2 text-text",
               )}
-              onClick={() => setDiffOpen((value) => !value)}
+              onClick={() =>
+                setPanelState((current) => toggleTaskPanel(current, "diff", mdUp))
+              }
             >
               <PanelRight className="h-4 w-4" />
             </Button>
@@ -1403,7 +1421,12 @@ export function TaskView({
         </div>
       </header>
       {collaborationRoom && (collaborationRoom.leaseConflicts > 0 || collaborationRoom.pendingAsks > 0 || !collaborationRoom.ready) && (
-        <div className="shrink-0 border-b border-warning/40 bg-warning-bg px-3 py-2 md:px-4">
+        <div
+          className={cx(
+            "shrink-0 border-b border-warning/40 bg-warning-bg px-3 py-2 md:px-4",
+            mobilePanelOpen && "hidden",
+          )}
+        >
           <CollaborationNotice
             projectId={active ? task?.projectId : null}
             room={collaborationRoom}
@@ -1415,7 +1438,10 @@ export function TaskView({
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className="min-h-0 flex-1 overscroll-y-contain overflow-y-auto px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4"
+          className={cx(
+            "min-h-0 flex-1 overscroll-y-contain overflow-y-auto px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4",
+            mobilePanelOpen && "hidden",
+          )}
         >
           <div ref={contentRef} className="relative mx-auto flex max-w-5xl flex-col gap-4">
             {hangRetryNotice && (
@@ -1474,7 +1500,7 @@ export function TaskView({
         </div>
         {/* メッセージ間を移動するナビゲーター（本家 LeafCode と同じ）。
             設定した不透明度で常時表示し、ホバー・フォーカス時だけ不透明になる。 */}
-        {navigationMessageIds.length > 0 && (
+        {!mobilePanelOpen && navigationMessageIds.length > 0 && (
           <div className="absolute right-4 bottom-4 z-50 flex flex-col gap-2">
             {(
               [
@@ -1539,7 +1565,10 @@ export function TaskView({
           </SidePanel>
         )}
       </div>
-      <div className="shrink-0 border-t border-border bg-surface px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className={cx(
+        "shrink-0 border-t border-border bg-surface px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
+        mobilePanelOpen && "hidden",
+      )}>
         {permissionRequest && (
           <div
             role="alertdialog"
