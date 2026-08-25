@@ -1190,8 +1190,8 @@ async function createSession(options: {
   const configuredTools =
     agentOptions?.tools ??
     (options.subagentPermission === "allow"
-      ? ["read", "write", "edit", "bash", "grep", "find", "ls", "subagent", "todowrite"]
-      : ["read", "write", "edit", "bash", "grep", "find", "ls", "todowrite"]);
+      ? ["read", "write", "edit", "powershell", "grep", "find", "ls", "subagent", "todowrite"]
+      : ["read", "write", "edit", "powershell", "grep", "find", "ls", "todowrite"]);
   const tools = applyCollaborationToolPolicy(configuredTools, collaborationMode);
   const result = await pi.createAgentSession({
     cwd: options.cwd,

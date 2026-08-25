@@ -617,7 +617,7 @@ function MessageMetaHeader({
       aria-label="応答メタデータ"
       className="flex min-w-0 items-center gap-1.5 overflow-hidden text-[11px] whitespace-nowrap text-muted"
     >
-      {/* 合成メッセージ（bash 実行など）はプロバイダを持たないので汎用アイコンを出さない。 */}
+      {/* 合成メッセージ（シェル実行など）はプロバイダを持たないので汎用アイコンを出さない。 */}
       {message.provider && <ProviderIcon providerID={message.provider} size={14} />}
       {fields.map((field, index) => (
         <Fragment key={field.key}>

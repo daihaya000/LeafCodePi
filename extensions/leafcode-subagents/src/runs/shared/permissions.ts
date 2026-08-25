@@ -8,6 +8,7 @@ export interface PermissionConfig { rules?: PermissionRules }
 export const PERMISSION_POLICY_ENV = "PI_SUBAGENT_PERMISSION_POLICY";
 export const PERMISSION_AUDIT_PATH_ENV = "PI_SUBAGENT_PERMISSION_AUDIT_PATH";
 const INTERNAL_TOOLS = new Set(["contact_supervisor", "intercom", "subagent_wait", "structured_output"]);
+const SHELL_TOOLS = new Set(["bash", "powershell"]);
 const DECISIONS = new Set<PermissionDecision>(["allow", "ask", "deny"]);
 const MAX_POLICY_BYTES = 16 * 1024;
 const MAX_PREVIEW_BYTES = 2048;
@@ -24,7 +25,7 @@ export function validatePermissionRules(value: unknown, label: string): Permissi
 	const result: PermissionRules = {};
 	for (const [tool, decision] of Object.entries(value)) {
 		if (!tool.trim()) throw new Error(`${label} contains an empty tool name.`);
-		if (tool === "bash") throw new Error(`${label}.bash is unsupported; pi-subagents leaves bash policy to pi-guard.`);
+		if (SHELL_TOOLS.has(tool)) throw new Error(`${label}.${tool} is unsupported; the LeafCode permission gate owns shell policy.`);
 		if (INTERNAL_TOOLS.has(tool)) throw new Error(`${label}.${tool} is reserved for child coordination and cannot be gated.`);
 		if (!DECISIONS.has(decision as PermissionDecision)) throw new Error(`${label}.${tool} must be allow, ask, or deny.`);
 		result[tool] = decision as PermissionDecision;
@@ -48,7 +49,7 @@ export function resolvePermissionRules(globalConfig?: PermissionConfig, agentRul
 }
 
 export function permissionDecision(rules: PermissionRules | undefined, toolName: string): PermissionDecision {
-	if (toolName === "bash" || INTERNAL_TOOLS.has(toolName)) return "allow";
+	if (SHELL_TOOLS.has(toolName) || INTERNAL_TOOLS.has(toolName)) return "allow";
 	return rules?.[toolName] ?? "allow";
 }
 

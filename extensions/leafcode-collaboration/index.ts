@@ -41,7 +41,7 @@ const COLLABORATION_ACTIONS = [
 const POLICY = [
   "This is a shared LeafCodePi checkout.",
   'Call leafcode_collab({ action: "status" }) before editing.',
-  "Standard write, edit, and bash tools are unavailable in strict mode.",
+  "Standard write, edit, bash, and PowerShell tools are unavailable in strict mode.",
   "Use the leafcode_* tools; checks and commits run only through their fixed gates.",
   "Do not request worktree isolation. If a lease or commit is blocked, report the conflict instead of bypassing it.",
 ].join("\n");

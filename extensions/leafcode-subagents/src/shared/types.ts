@@ -2041,7 +2041,7 @@ export interface ExtensionConfig {
 	completionBatch?: CompletionBatchConfig;
 	turnBudget?: TurnBudgetConfig;
 	toolBudget?: ToolBudgetConfig;
-	/** Opt-in native tool permissions. Bash remains outside this policy. */
+	/** Opt-in native tool permissions. Bash and PowerShell remain outside this policy. */
 	permissions?: import("../runs/shared/permissions.ts").PermissionConfig;
 	usageBudget?: UsageBudgetConfig;
 	parallel?: TopLevelParallelConfig;

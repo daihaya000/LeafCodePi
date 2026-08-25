@@ -1,7 +1,7 @@
 /**
  * LeafCode Permission Gate for Pi
  *
- * - 危険な bash コマンド実行前に承認ダイアログを出す (permission-gate)
+ * - 危険なシェルコマンド実行前に承認ダイアログを出す (permission-gate)
  * - 保護パスへの write/edit をブロックする (protected-paths)
  * - WebUI の Composer から設定される「承認モード」に連動して動作を切り替える
  *
@@ -31,6 +31,10 @@ const DANGEROUS_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /\b(fdisk|parted)\b/i, label: "partition tool" },
   { pattern: /\bwget\s+.*\|\s*(ba)?sh/i, label: "pipe-to-shell" },
   { pattern: /\bcurl\s+.*\|\s*(ba)?sh/i, label: "pipe-to-shell" },
+  { pattern: /\b(?:Invoke-WebRequest|Invoke-RestMethod|iwr|curl\.exe|wget\.exe)\b[^\r\n]*\|\s*(?:Invoke-Expression|iex)\b/i, label: "pipe-to-powershell" },
+  { pattern: /\b(?:Remove-Item|ri)\b(?=[^\r\n]*(?:-Recurse|-r)\b)(?=[^\r\n]*(?:-Force|-f)\b)/i, label: "Remove-Item -Recurse -Force" },
+  { pattern: /\b(?:Set-ExecutionPolicy)\b[^\r\n]*(?:Bypass|Unrestricted)\b/i, label: "Set-ExecutionPolicy" },
+  { pattern: /\b(?:Invoke-Expression|iex)\b/i, label: "Invoke-Expression" },
   { pattern: /\bgit\s+push\s+--force\b/i, label: "git push --force" },
   { pattern: /\b(git\s+reset\s+--hard|git\s+clean\s+-fd)/i, label: "destructive git" },
 ];
@@ -119,10 +123,10 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("tool_call", async (event, ctx) => {
-    if (event.toolName === "bash") {
+    if (event.toolName === "bash" || event.toolName === "powershell") {
       const mode = sessionMode(ctx);
       if (mode === "deny") {
-        return { block: true, reason: "Bash execution blocked (permission mode: deny)" };
+        return { block: true, reason: "Shell execution blocked (permission mode: deny)" };
       }
       const command = (event.input as { command?: string }).command ?? "";
       const { dangerous, labels } = matchedDanger(command);

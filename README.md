@@ -51,7 +51,7 @@ Cursor は非公式拡張です。本機の Cursor IDE / CLI のトークンを�
 
 `extensions/leafcode-goal-loop` に LeafCode 互換の Pi 拡張を同梱しています。登録すると Home / Task の Composer に「ループ」「承認条件」「最大ターン」「クールタイム」「完走モード」が表示されます。
 
-```bash
+```powershell
 pi install ./extensions/leafcode-goal-loop
 ```
 
@@ -65,13 +65,13 @@ pi install ./extensions/leafcode-goal-loop
 `in_progress` は同時に1件だけ許可します。Pi セッションの tool result に状態を保存し、
 Task 画面には本家 LeafCode と同様の折りたたみ式 ToDo 進捗とプログレスバーを表示します。
 
-```bash
+```powershell
 pi install ./extensions/leafcode-todowrite
 ```
 
 ## まだないもの
 
-OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペイン、Caddy は未実装です。エージェントはプロジェクトフォルダ上で Pi の標準ツール（read / write / edit / bash / grep / find / ls）を直接実行します。
+OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペイン、Caddy は未実装です。エージェントはプロジェクトフォルダ上で Pi の標準ツール（read / write / edit / powershell / grep / find / ls）を直接実行します。Bash が必要な処理だけ `bash` を明示的に有効化します。
 
 ## 動作条件
 
@@ -80,7 +80,8 @@ OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペ
 | OS | Windows 10/11 x64（macOS / Linux でも WebUI 自体は動きます） |
 | Node.js | 20 以上 |
 | Pi 認証 | 設定画面のサブスクログイン（Claude Pro/Max / ChatGPT Plus/Pro）、環境変数、または `~/.pi/agent/auth.json` |
-| bash（Windows） | Git Bash など。Pi がツール実行に使います |
+| PowerShell（Windows） | Pi 0.84.3 の標準ツール。`pwsh.exe` を優先し、なければ Windows PowerShell を使います |
+| Bash（必要時のみ） | POSIX コマンドが必要な場合に Git Bash などを明示的に有効化します |
 
 ## 起動
 

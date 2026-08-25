@@ -2392,9 +2392,9 @@ function applySingleAgentLaunchDefaults(params: SubagentParamsLike, agents: Agen
 
 export const DEFAULT_FOREGROUND_TIMEOUT_MS = 30 * 60 * 1000;
 
-// Async single-agent runs also need a wall-clock backstop: a child whose bash
+// Async single-agent runs also need a wall-clock backstop: a child whose shell
 // tool blocks forever (e.g. a background process inheriting the terminal with
-// no bash `timeout` arg) would otherwise hang the parent indefinitely with
+// no tool `timeout` arg) would otherwise hang the parent indefinitely with
 // zero signal. Same generous default as foreground; explicit timeoutMs/
 // maxRuntimeMs and agent-level defaultTimeoutMs remain authoritative.
 //
@@ -4764,7 +4764,7 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 						async: false,
 						artifacts: false,
 						outputSchema,
-						toolBudget: { hard: 1, block: ["write", "edit", "bash"] },
+						toolBudget: { hard: 1, block: ["write", "edit", "bash", "powershell"] },
 					}, proposalSignal, undefined, ctx, true),
 				});
 			}

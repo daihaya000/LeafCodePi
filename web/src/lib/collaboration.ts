@@ -34,7 +34,7 @@ export const LEAFCODE_COLLABORATION_TOOL_NAMES = [
   "leafcode_check",
   "leafcode_commit",
 ] as const;
-export const LEAFCODE_STRICT_BLOCKED_TOOL_NAMES = ["bash", "write", "edit"] as const;
+export const LEAFCODE_STRICT_BLOCKED_TOOL_NAMES = ["bash", "powershell", "write", "edit"] as const;
 
 export function collaborationDataDir(env: NodeJS.ProcessEnv = process.env): string {
   const override = env.LEAFCODE_PI_DATA_DIR?.trim();

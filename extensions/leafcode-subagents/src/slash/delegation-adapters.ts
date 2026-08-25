@@ -217,6 +217,7 @@ function toolCallNameFromSummary(summary: { text?: string; expandedText?: string
 			? summary.text.trim()
 			: "";
 	if (!text) return undefined;
+	if (text.startsWith("PS> ")) return "powershell";
 	if (text.startsWith("$ ")) return "bash";
 	return text.match(/^[A-Za-z_][\w.-]*/)?.[0];
 }

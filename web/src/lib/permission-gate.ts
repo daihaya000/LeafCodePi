@@ -26,7 +26,7 @@ export const PERMISSION_OPTIONS: {
   {
     value: "deny",
     label: "拒否",
-    title: "bash ツールの実行をすべて拒否します（危険コマンドに限りません）",
+    title: "Bash / PowerShell ツールの実行をすべて拒否します（危険コマンドに限りません）",
   },
 ];
 

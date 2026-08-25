@@ -392,9 +392,10 @@ function renderExpandedTool(
 	const glyph = statusGlyph(event, theme);
 	const output = event.output ?? event.error;
 	const outputColor = event.status === "error" ? "error" : "toolOutput";
-	if (event.name === "bash") {
+	if (event.name === "bash" || event.name === "powershell") {
 		const command = jsonScalar(args?.command) ?? event.args ?? "(unknown command)";
-		lines.push(railLine(`${glyph} ${theme.fg("toolTitle", theme.bold(`$ ${command}`))}`, width, theme));
+		const prompt = event.name === "powershell" ? "PS> " : "$ ";
+		lines.push(railLine(`${glyph} ${theme.fg("toolTitle", theme.bold(`${prompt}${command}`))}`, width, theme));
 		if (output) {
 			for (const outputLine of output.replace(/\s+$/, "").split(/\r?\n/)) {
 				for (const wrapped of renderWrapped(theme.fg(outputColor, outputLine), Math.max(1, width - 4))) {
@@ -478,7 +479,7 @@ export function renderFleetTranscript(
 			const args = event.args ? ` ${theme.fg("dim", event.args)}` : "";
 			const suffix = event.status === "running" ? theme.fg("warning", " running") : "";
 			lines.push(bounded(`${theme.fg("borderMuted", "├─")} ${statusGlyph(event, theme)} ${title}${args}${suffix}`, width));
-			if (event.output && event.status !== "error" && event.name === "bash") {
+			if (event.output && event.status !== "error" && (event.name === "bash" || event.name === "powershell")) {
 				const outputLines = event.output.replace(/\s+$/, "").split(/\r?\n/);
 				const visible = outputLines.slice(-TOOL_PREVIEW_LINES);
 				const hidden = Math.max(0, outputLines.length - visible.length);

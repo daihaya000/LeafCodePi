@@ -16,7 +16,7 @@ export interface SingleOutputSnapshot {
  * path from disk, this cannot be polluted by a sibling run writing the same
  * path (#420); requiring the successful tool result keeps failed, cancelled,
  * or unanswered write calls from counting as authored output. Returns
- * undefined when no such write exists (e.g. bash or edit-based construction),
+ * undefined when no such write exists (e.g. shell or edit-based construction),
  * in which case callers must not assume file authorship.
  */
 export function extractChildWrittenOutput(

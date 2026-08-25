@@ -40,6 +40,12 @@ const MUTATING_BASH_PATTERNS = [
 	/\bopen\s*\([^)]*,\s*["'][wa]/,
 ];
 
+const MUTATING_POWERSHELL_PATTERNS = [
+	/(^|[;&|()\s])(?:Set-Content|Add-Content|Out-File|Clear-Content|Export-Csv|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item)\b/i,
+	/(^|[;&|()\s])(?:Invoke-WebRequest|Invoke-RestMethod)\b[^\n;&|]*(?:-OutFile\b|-OutFile:)/i,
+	/(^|[;&|()\s])(?:Set-ExecutionPolicy|Invoke-Expression|iex)\b/i,
+];
+
 const MUTATING_FAILURE_HINTS = [
 	"failed",
 	"error",
@@ -59,11 +65,15 @@ export function resolveCurrentPath(toolName: string | undefined, args: Record<st
 		const value = args[key];
 		if (typeof value === "string" && value.trim()) return value.trim();
 	}
-	if (toolName === "bash") {
+	if (toolName === "bash" || toolName === "powershell") {
 		const command = typeof args.command === "string" ? args.command : undefined;
 		if (!command) return undefined;
 		const redirect = command.match(/(?:>|>>|tee\s+)(\S+)/);
 		if (redirect?.[1]) return redirect[1];
+		if (toolName === "powershell") {
+			const powershellPath = command.match(/-(?:LiteralPath|FilePath|Destination|Path)\s+(?:"([^"]+)"|'([^']+)'|(\S+))/i);
+			if (powershellPath) return powershellPath[1] ?? powershellPath[2] ?? powershellPath[3];
+		}
 	}
 	return undefined;
 }
@@ -135,10 +145,18 @@ function hasMutatingGitCommand(command: string): boolean {
 	return false;
 }
 
-export function isMutatingBashCommand(command: string): boolean {
+function isMutatingShellCommand(command: string, patterns: readonly RegExp[]): boolean {
 	return hasUnquotedFileRedirection(command)
 		|| hasMutatingGitCommand(command)
-		|| MUTATING_BASH_PATTERNS.some((pattern) => pattern.test(command));
+		|| patterns.some((pattern) => pattern.test(command));
+}
+
+export function isMutatingBashCommand(command: string): boolean {
+	return isMutatingShellCommand(command, MUTATING_BASH_PATTERNS);
+}
+
+export function isMutatingPowerShellCommand(command: string): boolean {
+	return isMutatingShellCommand(command, MUTATING_POWERSHELL_PATTERNS);
 }
 
 export function isMutatingTool(toolName: string | undefined, args: Record<string, unknown> | undefined): boolean {
@@ -148,10 +166,10 @@ export function isMutatingTool(toolName: string | undefined, args: Record<string
 		const activityTitle = typeof args?.activityTitle === "string" ? args.activityTitle : "";
 		return /^Cursor (?:edit|write)\b/i.test(activityTitle);
 	}
-	if (toolName !== "bash") return false;
+	if (toolName !== "bash" && toolName !== "powershell") return false;
 	const command = typeof args?.command === "string" ? args.command : "";
 	if (!command.trim()) return false;
-	return isMutatingBashCommand(command);
+	return toolName === "powershell" ? isMutatingPowerShellCommand(command) : isMutatingBashCommand(command);
 }
 
 export function didMutatingToolFail(text: string): boolean {

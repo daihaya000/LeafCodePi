@@ -13,7 +13,7 @@ export interface ChildToolDiagnostic {
 	missingMcpDirectTools?: string[];
 }
 
-const PI_CORE_CHILD_TOOLS = new Set(["bash", "edit", "find", "grep", "ls", "read", "write"]);
+const PI_CORE_CHILD_TOOLS = new Set(["bash", "powershell", "edit", "find", "grep", "ls", "read", "write"]);
 
 export function writeChildToolDiagnostic(
 	filePath: string,

@@ -211,7 +211,7 @@ export function CollaborationSettings() {
         <div className="flex flex-wrap gap-2">
           {(
             [
-              ["strict", "厳格", "標準の write / edit / bash を隠し、leafcode_* だけを許可します。"],
+              ["strict", "厳格", "標準の write / edit / bash / PowerShell を隠し、leafcode_* だけを許可します。"],
               ["permissive", "緩和", "開発用。事故ゼロは主張しません。"],
               ["off", "OFF", "room接続、協調ツール、リース、commit gate、peer通信をすべて停止します。"],
             ] as const

@@ -63,6 +63,39 @@ describe("LeafCode collaboration extension", () => {
     }
   });
 
+  it("blocks Bash and PowerShell in strict mode", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "leafcode-collab-extension-repo-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-extension-data-"));
+    const handlers = new Map<string, Handler>();
+    const pi = {
+      on: (name: string, handler: Handler) => handlers.set(name, handler),
+      registerTool: () => undefined,
+    } as unknown as ExtensionAPI;
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    git(repo, ["init"]);
+    writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({ mode: "strict" }), "utf8");
+    process.env.LEAFCODE_PI_DATA_DIR = dataDir;
+    collaborationExtension(pi);
+    const ctx = {
+      cwd: repo,
+      hasUI: false,
+      sessionManager: { getSessionId: () => "strict-shell-session", getSessionName: () => "Strict shell session" },
+    } as ExtensionContext;
+
+    try {
+      const bash = await handlers.get("tool_call")?.({ toolName: "bash", input: { command: "echo ok" } }, ctx);
+      const powershell = await handlers.get("tool_call")?.({ toolName: "powershell", input: { command: "Write-Output ok" } }, ctx);
+      assert.equal((bash as { block?: boolean } | undefined)?.block, true);
+      assert.equal((powershell as { block?: boolean } | undefined)?.block, true);
+    } finally {
+      await handlers.get("session_shutdown")?.({}, ctx);
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it("joins lazily when an existing session calls status after extension reload", async () => {
     const repo = mkdtempSync(join(tmpdir(), "leafcode-collab-extension-repo-"));
     const dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-extension-data-"));

@@ -4,6 +4,7 @@ import { skillNameFromReadInput, toolInputFields, toolLabel, toolSummary } from 
 describe("toolLabel", () => {
   it("maps pi tools to Japanese labels", () => {
     expect(toolLabel("bash")).toBe("コマンド");
+    expect(toolLabel("powershell")).toBe("コマンド");
     expect(toolLabel("read")).toBe("読取");
     expect(toolLabel("edit")).toBe("編集");
     expect(toolLabel("todowrite")).toBe("ToDo");
@@ -28,6 +29,9 @@ describe("toolSummary", () => {
     expect(
       toolSummary("bash", { status: "running", title: "bash", input: { command: "ls -la" } }),
     ).toBe("ls -la");
+    expect(
+      toolSummary("powershell", { status: "running", title: "powershell", input: { command: "Get-ChildItem" } }),
+    ).toBe("Get-ChildItem");
   });
 
   it("prefers a real title", () => {

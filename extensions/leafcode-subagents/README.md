@@ -10,7 +10,7 @@
 
 ## Install
 
-```bash
+```powershell
 pi install npm:pi-subagents
 ```
 

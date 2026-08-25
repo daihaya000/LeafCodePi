@@ -99,9 +99,11 @@ export function buildChainSummary(
  */
 export function formatToolCall(name: string, args: Record<string, unknown>, expanded = false): string {
 	switch (name) {
-		case "bash": {
+		case "bash":
+		case "powershell": {
 			const command = typeof args.command === "string" ? args.command : "";
-			return `$ ${previewDisplayText(command, expanded ? 240 : 60)}`;
+			const prompt = name === "powershell" ? "PS> " : "$ ";
+			return `${prompt}${previewDisplayText(command, expanded ? 240 : 60)}`;
 		}
 		case "read":
 		case "write":

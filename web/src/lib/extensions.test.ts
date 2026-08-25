@@ -64,7 +64,7 @@ describe("filterExtensionsByState", () => {
 describe("applyCollaborationToolPolicy", () => {
   it("hides mutation-capable standard tools and adds mandatory custom tools in strict mode", () => {
     assert.deepEqual(
-      applyCollaborationToolPolicy(["read", "write", "edit", "bash", "read"], "strict"),
+      applyCollaborationToolPolicy(["read", "write", "edit", "bash", "powershell", "read"], "strict"),
       ["read", "leafcode_collab", "leafcode_write", "leafcode_edit", "leafcode_check", "leafcode_commit"],
     );
   });
@@ -78,8 +78,8 @@ describe("applyCollaborationToolPolicy", () => {
 
   it("keeps only the configured tools when collaboration is off", () => {
     assert.deepEqual(
-      applyCollaborationToolPolicy(["read", "write", "edit", "bash", "read"], "off"),
-      ["read", "write", "edit", "bash"],
+      applyCollaborationToolPolicy(["read", "write", "edit", "bash", "powershell", "read"], "off"),
+      ["read", "write", "edit", "bash", "powershell"],
     );
   });
 });

@@ -104,7 +104,7 @@ export function createWatchdogPermissionArbiter(options: WatchdogPermissionArbit
 				initialState: {
 					systemPrompt: [
 						"You are the pi-subagents watchdog permission arbiter.",
-						"Decide only whether this exact non-bash child tool call should proceed.",
+						"Decide only whether this exact non-shell child tool call should proceed.",
 						"Call watchdog_permission_decision exactly once with approve or deny and a concise reason.",
 						"Deny when uncertain. Do not produce freeform advice or ask the parent orchestrator.",
 					].join("\n"),

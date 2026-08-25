@@ -364,7 +364,7 @@ export function GraphPanel({
     });
   }, [refreshKey]);
 
-  // Poll in the background so commits made outside this UI (agent bash tool,
+  // Poll in the background so commits made outside this UI (agent shell tool,
   // another terminal, etc.) show up without a manual refresh. Poll faster
   // while the agent is actively working, since that's when a commit is most
   // likely to land.
