@@ -13,31 +13,35 @@ export function useCollaborationRoom(projectId?: string | null): {
 } {
   const [room, setRoom] = useState<CollaborationRoomSummary | null>(null);
 
+  const applyRoom = useCallback((next: CollaborationRoomSummary | null) => {
+    setRoom((current) => (sameRoomSummary(current, next) ? current : next));
+  }, []);
+
   const refresh = useCallback(async () => {
     if (!projectId) {
-      setRoom(null);
+      applyRoom(null);
       return;
     }
     try {
       const response = await getJson<{ room: CollaborationRoomSummary | null }>(`/api/collaboration?projectId=${encodeURIComponent(projectId)}`);
-      setRoom(response.room);
+      applyRoom(response.room);
     } catch {
-      setRoom(null);
+      applyRoom(null);
     }
-  }, [projectId]);
+  }, [projectId, applyRoom]);
 
   useEffect(() => {
     if (!projectId) {
-      setRoom(null);
+      applyRoom(null);
       return;
     }
     let closed = false;
     const tick = async () => {
       try {
         const response = await getJson<{ room: CollaborationRoomSummary | null }>(`/api/collaboration?projectId=${encodeURIComponent(projectId)}`);
-        if (!closed) setRoom(response.room);
+        if (!closed) applyRoom(response.room);
       } catch {
-        if (!closed) setRoom(null);
+        if (!closed) applyRoom(null);
       }
     };
     void tick();
@@ -48,9 +52,27 @@ export function useCollaborationRoom(projectId?: string | null): {
       closed = true;
       clearInterval(timer);
     };
-  }, [projectId]);
+  }, [projectId, applyRoom]);
 
   return { room, refresh };
+}
+
+/** 表示に影響するフィールドのみ比較（ポーリング毎の新オブジェクトで再レンダーさせない）。 */
+function sameRoomSummary(
+  a: CollaborationRoomSummary | null,
+  b: CollaborationRoomSummary | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.ready === b.ready &&
+    a.peers === b.peers &&
+    a.leaseConflicts === b.leaseConflicts &&
+    a.pendingAsks === b.pendingAsks &&
+    a.epoch === b.epoch &&
+    JSON.stringify(a.sessionNames) === JSON.stringify(b.sessionNames) &&
+    JSON.stringify(a.conflicts) === JSON.stringify(b.conflicts)
+  );
 }
 
 function collaborationLabel(room: CollaborationRoomSummary): string {
