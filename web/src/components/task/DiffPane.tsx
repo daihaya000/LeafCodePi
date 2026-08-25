@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
   ChevronsDownUp,
@@ -43,6 +43,21 @@ function formatModifiedAt(iso: string | undefined): string {
     minute: "2-digit",
   });
 }
+
+/**
+ * Memoized tinted diff line. Tinting is pure (text + path → HTML), so lines
+ * whose props did not change are never re-tinted on re-render (e.g. toggling
+ * 並列表示, busy state changes, or other files expanding/collapsing).
+ */
+const TintedLine = memo(function TintedLine({
+  text,
+  path,
+}: {
+  text: string;
+  path: string;
+}) {
+  return <span dangerouslySetInnerHTML={{ __html: tintCodeLine(text, path) }} />;
+});
 
 function FileDiffBlock({
   file,
@@ -189,11 +204,7 @@ function FileDiffBlock({
                     <span className="w-4 shrink-0 select-none">
                       {line.t === " " ? "" : line.t}
                     </span>
-                    <span
-                      dangerouslySetInnerHTML={{
-                        __html: tintCodeLine(line.text || " ", file.path),
-                      }}
-                    />
+                    <TintedLine text={line.text || " "} path={file.path} />
                   </div>
                 );
               })}
