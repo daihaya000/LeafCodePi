@@ -64,7 +64,7 @@ function projectInitial(name: string): string {
 }
 
 /** 表示に影響するフィールドのみ比較（未変更なら参照を維持して再レンダーを防ぐ）。 */
-function sameTaskList(a: TaskSummary[], b: TaskSummary[]): boolean {
+export function sameTaskList(a: TaskSummary[], b: TaskSummary[]): boolean {
   if (a.length !== b.length) return false;
   for (let index = 0; index < a.length; index += 1) {
     const left = a[index]!;
@@ -85,7 +85,7 @@ function sameTaskList(a: TaskSummary[], b: TaskSummary[]): boolean {
   return true;
 }
 
-function sameProjectList(a: ProjectDto[], b: ProjectDto[]): boolean {
+export function sameProjectList(a: ProjectDto[], b: ProjectDto[]): boolean {
   if (a.length !== b.length) return false;
   for (let index = 0; index < a.length; index += 1) {
     const left = a[index]!;
@@ -104,7 +104,7 @@ function sameProjectList(a: ProjectDto[], b: ProjectDto[]): boolean {
   return true;
 }
 
-function sameHealth(a: HealthDto | null, b: HealthDto): boolean {
+export function sameHealth(a: HealthDto | null, b: HealthDto): boolean {
   if (!a) return false;
   return (
     a.ok === b.ok &&
@@ -116,7 +116,7 @@ function sameHealth(a: HealthDto | null, b: HealthDto): boolean {
   );
 }
 
-function sameRooms(
+export function sameRooms(
   a: Record<string, CollaborationRoomSummary>,
   b: Record<string, CollaborationRoomSummary>,
 ): boolean {
