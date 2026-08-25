@@ -108,6 +108,34 @@ import { statusFromChangedFileCount, type WorktreeStatus } from "@/lib/worktree-
 /** Compaction LLM calls routinely exceed the default fetch budget. */
 const COMPACT_TIMEOUT_MS = 240_000;
 
+/**
+ * スナップショット毎に新オブジェクトが生成される setTask のマージ結果を、
+ * 表示影響フィールドの比較で安定化する。contextUsage / goalLoop / todos は
+ * サーバー側キャッシュにより不変時は同一参照になるため参照比較で済む。
+ */
+function sameTaskDetail(a: TaskDetail | null, b: TaskDetail): boolean {
+  if (!a) return false;
+  return (
+    a.status === b.status &&
+    a.title === b.title &&
+    a.providerID === b.providerID &&
+    a.modelID === b.modelID &&
+    a.thinkingLevel === b.thinkingLevel &&
+    a.error === b.error &&
+    a.agent === b.agent &&
+    a.sessionId === b.sessionId &&
+    a.sessionFile === b.sessionFile &&
+    a.updatedAt === b.updatedAt &&
+    a.isStreaming === b.isStreaming &&
+    a.isCompacting === b.isCompacting &&
+    a.contextUsage === b.contextUsage &&
+    a.goalLoop === b.goalLoop &&
+    a.todos === b.todos &&
+    a.permissionRequest?.id === b.permissionRequest?.id &&
+    a.questionRequest?.id === b.questionRequest?.id
+  );
+}
+
 const SIDE_PANEL_MIN_WIDTH = 240;
 const SIDE_PANEL_MAX_WIDTH = 640;
 
@@ -392,7 +420,7 @@ export function TaskView({
           if (snapshotTask) {
             setTask((current) => {
               const base = current ?? snapshotTask;
-              return {
+              const next: TaskDetail = {
                 ...base,
                 ...snapshotTask,
                 messages: payload.messages ?? base.messages ?? [],
@@ -402,12 +430,19 @@ export function TaskView({
                 goalLoop: payload.goalLoop ?? snapshotTask.goalLoop ?? base.goalLoop,
                 todos: payload.todos ?? snapshotTask.todos ?? base.todos,
               };
+              // 表示に影響しないスナップショット（tool実行中のメッセージ進捗等）は
+              // 参照を維持し、TaskView 全体の再レンダーを防ぐ。
+              return sameTaskDetail(current, next) ? current : next;
             });
           }
           if (payload.messages) {
             setMessages((prev) => stabilizeUiMessages(prev, payload.messages!));
           }
-          if ("contextUsage" in payload) setContextUsage(payload.contextUsage);
+          if ("contextUsage" in payload) {
+            setContextUsage((current) =>
+              current === payload.contextUsage ? current : payload.contextUsage,
+            );
+          }
           if ("isCompacting" in payload) setIsCompacting(Boolean(payload.isCompacting));
           if ("manualAbortedAssistantId" in payload) {
             setManualAbortedAssistantId(payload.manualAbortedAssistantId ?? null);
