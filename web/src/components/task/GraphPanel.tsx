@@ -83,16 +83,20 @@ function statusTone(s: GraphFileChange["status"]): string {
   return "bg-surface-3 text-muted";
 }
 
+// Reuse a single Intl.DateTimeFormat for all rows instead of constructing
+// one per commit row on every render.
+const COMMIT_DATE_FMT = new Intl.DateTimeFormat("ja-JP", {
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
 function formatCommitDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("ja-JP", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
+  return COMMIT_DATE_FMT.format(date);
 }
 
 function GraphCell({ row }: { row: GraphRow }) {
