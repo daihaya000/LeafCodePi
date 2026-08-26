@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { Badge, Button, cx } from "@/components/ui";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ApiError, apiUrl, getJson, sendJson } from "@/lib/client";
@@ -30,6 +30,10 @@ function authBadge(provider: ProviderAuthDto) {
   return { tone: "neutral" as const, label: "未設定" };
 }
 
+function isAccountProviderId(providerId: string): providerId is AccountProviderId {
+  return providerId === "openai-codex" || providerId === "anthropic";
+}
+
 function sourceHint(provider: ProviderAuthDto): string | null {
   if (!provider.authenticated) return null;
   if (provider.subscription) {
@@ -57,16 +61,14 @@ export function ProviderAuthPanel({
   // アカウント（docs/plans/multi-account.md）。null = 未取得、[] = 取得済みで空。
   const [accounts, setAccounts] = useState<AccountRecord[] | null>(null);
   const [accountsError, setAccountsError] = useState<string | null>(null);
-  const [creatingAccount, setCreatingAccount] = useState(false);
+  const [creatingFor, setCreatingFor] = useState<AccountProviderId | null>(null);
   const [newLabel, setNewLabel] = useState("");
-  const [newNote, setNewNote] = useState("");
-  const [newProviders, setNewProviders] = useState({ codex: false, anthropic: false });
   const [accountBusy, setAccountBusy] = useState(false);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState("");
   const [authStatuses, setAuthStatuses] = useState<Record<string, AccountProviderId[]>>({});
 
-  async function refreshAccounts() {
+  const refreshAccounts = useCallback(async () => {
     try {
       const res = await getJson<{ accounts: AccountRecord[] }>("/api/accounts");
       setAccounts(res.accounts);
@@ -88,11 +90,11 @@ export function ProviderAuthPanel({
     } catch (error) {
       setAccountsError(error instanceof ApiError ? error.message : String(error));
     }
-  }
+  }, []);
 
   useEffect(() => {
     void refreshAccounts();
-  }, []);
+  }, [refreshAccounts]);
 
   useEffect(() => {
     if (!login?.sessionId) return;
@@ -157,6 +159,7 @@ export function ProviderAuthPanel({
               }
             : prev,
         );
+        void refreshAccounts();
         onChanged();
         window.setTimeout(() => setLogin(null), 1500);
       } else {
@@ -173,7 +176,7 @@ export function ProviderAuthPanel({
       }
     });
     return () => es.close();
-  }, [login?.sessionId, login?.providerId, onChanged]);
+  }, [login?.sessionId, login?.providerId, onChanged, refreshAccounts]);
 
   async function stopLogin() {
     if (login) {
@@ -269,31 +272,17 @@ export function ProviderAuthPanel({
     }
   }
 
-  // --- アカウント管理（docs/plans/multi-account.md Phase 5）---
-
-  function providerLabel(providerId: string): string {
-    if (providerId === "openai-codex") return "ChatGPT (Codex)";
-    if (providerId === "anthropic") return "Claude";
-    return providerId;
-  }
-
-  async function submitCreateAccount() {
-    const providers = [
-      ...(newProviders.codex ? ["openai-codex"] : []),
-      ...(newProviders.anthropic ? ["anthropic"] : []),
-    ];
-    if (!newLabel.trim() || providers.length === 0) return;
+  /** 追加アカウントは、開いているプロバイダにだけ紐付ける。 */
+  async function submitCreateAccount(providerId: AccountProviderId) {
+    if (!newLabel.trim()) return;
     setAccountBusy(true);
     try {
       await sendJson("/api/accounts", {
         label: newLabel.trim(),
-        providers,
-        note: newNote.trim() || undefined,
+        providers: [providerId],
       });
-      setCreatingAccount(false);
+      setCreatingFor(null);
       setNewLabel("");
-      setNewNote("");
-      setNewProviders({ codex: false, anthropic: false });
       await refreshAccounts();
     } catch (error) {
       window.alert(error instanceof ApiError ? error.message : String(error));
@@ -339,10 +328,169 @@ export function ProviderAuthPanel({
         }),
         {},
       );
+      void refreshAccounts();
       onChanged();
     } catch (error) {
       window.alert(error instanceof ApiError ? error.message : String(error));
     }
+  }
+
+  function renderAccountControls(provider: ProviderAuthDto): ReactNode {
+    if (!isAccountProviderId(provider.id)) return null;
+    const providerId = provider.id;
+    const providerAccounts =
+      accounts?.filter((account) => account.providers.includes(providerId)) ?? [];
+    const isCreating = creatingFor === providerId;
+
+    return (
+      <section
+        aria-label={`${provider.name} の追加アカウント`}
+        className="mt-3 border-t border-border pt-3"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-xs font-semibold text-muted">追加ログイン</h3>
+            <p className="mt-0.5 text-xs text-muted">
+              このプロバイダだけに紐づく OAuth アカウントを管理します。
+            </p>
+          </div>
+          {!isCreating && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={Boolean(login) || accountBusy}
+              onClick={() => {
+                setCreatingFor(providerId);
+                setNewLabel("");
+              }}
+            >
+              アカウントを追加
+            </Button>
+          )}
+        </div>
+        {accountsError && <p className="mt-2 text-xs text-danger">{accountsError}</p>}
+        {accounts === null ? (
+          <p className="mt-2 text-xs text-muted">読み込み中…</p>
+        ) : (
+          <>
+            {providerAccounts.length === 0 && !isCreating && (
+              <p className="mt-2 text-xs text-muted">追加ログインはありません</p>
+            )}
+            {providerAccounts.length > 0 && (
+              <ul className="mt-2 space-y-1.5">
+                {providerAccounts.map((account) => {
+                  const authenticated = authStatuses[account.id]?.includes(providerId) === true;
+                  return (
+                    <li key={account.id} className="rounded-xl bg-surface-2 px-3 py-2">
+                      {editingAccountId === account.id ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-3 py-1.5 text-sm outline-none focus:border-accent"
+                            value={editLabel}
+                            onChange={(event) => setEditLabel(event.target.value)}
+                            aria-label={`${provider.name} のアカウント名`}
+                            autoFocus
+                          />
+                          <Button
+                            size="sm"
+                            disabled={accountBusy || !editLabel.trim()}
+                            onClick={() => void saveAccountLabel(account.id)}
+                          >
+                            保存
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditingAccountId(null)}>
+                            キャンセル
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium">{account.label}</span>
+                          {account.note && <span className="text-xs text-muted">{account.note}</span>}
+                          <Badge tone={authenticated ? "success" : "neutral"}>
+                            {authenticated ? "認証済" : "未ログイン"}
+                          </Badge>
+                        </div>
+                      )}
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        <Button
+                          size="sm"
+                          disabled={Boolean(login) || accountBusy}
+                          onClick={() => void beginLogin(provider, "oauth", account.id)}
+                        >
+                          {authenticated ? "再ログイン" : "ログイン"}
+                        </Button>
+                        {authenticated && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={Boolean(login) || accountBusy}
+                            onClick={() => void logoutFor(providerId, account.id)}
+                          >
+                            ログアウト
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={accountBusy}
+                          onClick={() => {
+                            setEditingAccountId(account.id);
+                            setEditLabel(account.label);
+                          }}
+                        >
+                          名前変更
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={accountBusy}
+                          onClick={() => void removeAccount(account)}
+                        >
+                          削除
+                        </Button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </>
+        )}
+        {isCreating && (
+          <div className="mt-2 rounded-xl bg-surface-2 p-3">
+            <label htmlFor={`new-account-label-${providerId}`} className="text-xs text-muted">
+              アカウント名
+            </label>
+            <input
+              id={`new-account-label-${providerId}`}
+              value={newLabel}
+              onChange={(event) => setNewLabel(event.target.value)}
+              placeholder="例: 仕事用"
+              className="mb-3 mt-1 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                busy={accountBusy}
+                disabled={!newLabel.trim()}
+                onClick={() => void submitCreateAccount(providerId)}
+              >
+                追加
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={accountBusy}
+                onClick={() => setCreatingFor(null)}
+              >
+                キャンセル
+              </Button>
+            </div>
+          </div>
+        )}
+      </section>
+    );
   }
 
   const highlighted = providers.filter((p) => p.highlighted);
@@ -350,176 +498,6 @@ export function ProviderAuthPanel({
 
   return (
     <div className="space-y-4">
-      <div>
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">アカウント</h2>
-          {!creatingAccount && (
-            <Button size="sm" variant="ghost" onClick={() => setCreatingAccount(true)}>
-              追加
-            </Button>
-          )}
-        </div>
-        <p className="mb-3 text-xs text-muted">
-          サブスクアカウントを複数登録してタスクごとに切り替えます。未登録のタスクは既定（~/.pi/agent/auth.json）を使います。
-          OAuth のログインは同時に 1 件のみです。
-        </p>
-        {accountsError && <p className="mb-2 text-xs text-danger">{accountsError}</p>}
-        {accounts === null ? (
-          <p className="text-xs text-muted">読み込み中…</p>
-        ) : (
-          <ul className="space-y-2">
-            {accounts.length === 0 && !creatingAccount && (
-              <li className="text-sm text-muted">追加アカウントはまだありません</li>
-            )}
-            {accounts.map((account) => (
-              <li key={account.id} className="rounded-xl border border-border bg-surface px-2 py-2">
-                {editingAccountId === account.id ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-3 py-1.5 text-sm outline-none focus:border-accent"
-                      value={editLabel}
-                      onChange={(event) => setEditLabel(event.target.value)}
-                      aria-label="アカウント名"
-                      autoFocus
-                    />
-                    <Button
-                      size="sm"
-                      disabled={accountBusy || !editLabel.trim()}
-                      onClick={() => void saveAccountLabel(account.id)}
-                    >
-                      保存
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setEditingAccountId(null)}>
-                      キャンセル
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium">{account.label}</span>
-                    {account.note && <span className="text-xs text-muted">{account.note}</span>}
-                    {account.providers.map((pid) => {
-                      const authenticated = authStatuses[account.id]?.includes(pid) === true;
-                      return (
-                        <Badge key={pid} tone={authenticated ? "success" : "neutral"}>
-                          {providerLabel(pid)}{authenticated ? " 認証済" : ""}
-                        </Badge>
-                      );
-                    })}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setEditingAccountId(account.id);
-                        setEditLabel(account.label);
-                      }}
-                    >
-                      編集
-                    </Button>
-                  </div>
-                )}
-                <div className="mt-1.5 flex flex-wrap gap-1">
-                  {account.providers.map((pid) => (
-                    <Button
-                      key={`in-${pid}`}
-                      size="sm"
-                      disabled={Boolean(login) || accountBusy}
-                      onClick={() =>
-                        void beginLogin(
-                          providers.find((p) => p.id === pid) ?? { id: pid, name: providerLabel(pid) },
-                          "oauth",
-                          account.id,
-                        )
-                      }
-                    >
-                      {providerLabel(pid)} でログイン
-                    </Button>
-                  ))}
-                  {account.providers.map((pid) => (
-                    <Button
-                      key={`out-${pid}`}
-                      size="sm"
-                      variant="ghost"
-                      disabled={Boolean(login) || accountBusy}
-                      onClick={() => void logoutFor(pid, account.id)}
-                    >
-                      {providerLabel(pid)} ログアウト
-                    </Button>
-                  ))}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={accountBusy}
-                    onClick={() => void removeAccount(account)}
-                  >
-                    削除
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-        {creatingAccount && (
-          <div className="mt-2 rounded-2xl border border-border bg-surface-2 p-4">
-            <h3 className="mb-2 text-sm font-semibold">アカウントを作成</h3>
-            <label htmlFor="new-account-label" className="text-xs text-muted">
-              表示名
-            </label>
-            <input
-              id="new-account-label"
-              value={newLabel}
-              onChange={(event) => setNewLabel(event.target.value)}
-              placeholder="例: 仕事用 ChatGPT"
-              className="mb-3 mt-1 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-            <fieldset className="mb-3">
-              <legend className="text-xs text-muted">使うプロバイダー（後から変更できません）</legend>
-              <label className="mr-4 inline-flex items-center gap-1.5 text-sm">
-                <input
-                  type="checkbox"
-                  checked={newProviders.codex}
-                  onChange={(event) =>
-                    setNewProviders((prev) => ({ ...prev, codex: event.target.checked }))
-                  }
-                />
-                ChatGPT (Codex)
-              </label>
-              <label className="inline-flex items-center gap-1.5 text-sm">
-                <input
-                  type="checkbox"
-                  checked={newProviders.anthropic}
-                  onChange={(event) =>
-                    setNewProviders((prev) => ({ ...prev, anthropic: event.target.checked }))
-                  }
-                />
-                Claude
-              </label>
-            </fieldset>
-            <label htmlFor="new-account-note" className="text-xs text-muted">
-              メモ（任意）
-            </label>
-            <input
-              id="new-account-note"
-              value={newNote}
-              onChange={(event) => setNewNote(event.target.value)}
-              className="mb-3 mt-1 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                busy={accountBusy}
-                disabled={!newLabel.trim() || (!newProviders.codex && !newProviders.anthropic)}
-                onClick={() => void submitCreateAccount()}
-              >
-                作成
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setCreatingAccount(false)}>
-                キャンセル
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-
       <div>
         <h2 className="mb-2 text-sm font-semibold">プロバイダ</h2>
         <p className="mb-3 text-xs text-muted">
@@ -543,6 +521,7 @@ export function ProviderAuthPanel({
                 provider.methods?.includes("api_key") ? () => void beginLogin(provider, "api_key") : undefined
               }
               onLogout={() => void logout(provider)}
+              accountControls={renderAccountControls(provider)}
             />
           ))}
         </ul>
@@ -565,6 +544,7 @@ export function ProviderAuthPanel({
                 provider.methods?.includes("api_key") ? () => void beginLogin(provider, "api_key") : undefined
               }
               onLogout={provider.authenticated ? () => void logout(provider) : undefined}
+              accountControls={renderAccountControls(provider)}
             />
           ))}
         </ul>
@@ -666,6 +646,7 @@ function ProviderRow({
   onOAuth,
   onApiKey,
   onLogout,
+  accountControls,
 }: {
   provider: ProviderAuthDto;
   compact?: boolean;
@@ -673,42 +654,46 @@ function ProviderRow({
   onOAuth?: () => void;
   onApiKey?: () => void;
   onLogout?: () => void;
+  accountControls?: ReactNode;
 }) {
   const badge = authBadge(provider);
   const hint = sourceHint(provider);
   return (
     <li
       className={cx(
-        "flex flex-col gap-2 rounded-xl px-2 py-2 sm:flex-row sm:items-center sm:justify-between",
+        "rounded-xl px-2 py-2",
         compact ? "" : "border border-border bg-surface",
       )}
     >
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <ProviderIcon providerID={provider.id} size={16} />
-          <span className="text-sm font-medium">{provider.name}</span>
-          <span className="font-mono text-xs text-muted">{provider.id}</span>
-          <Badge tone={badge.tone}>{badge.label}</Badge>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <ProviderIcon providerID={provider.id} size={16} />
+            <span className="text-sm font-medium">{provider.name}</span>
+            <span className="font-mono text-xs text-muted">{provider.id}</span>
+            <Badge tone={badge.tone}>{badge.label}</Badge>
+          </div>
+          {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
         </div>
-        {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
+        <div className="flex flex-wrap gap-1">
+          {onOAuth && (
+            <Button size="sm" disabled={disabled} onClick={onOAuth}>
+              ログイン
+            </Button>
+          )}
+          {onApiKey && (
+            <Button size="sm" variant="ghost" disabled={disabled} onClick={onApiKey}>
+              API キー
+            </Button>
+          )}
+          {onLogout && provider.authenticated && (
+            <Button size="sm" variant="ghost" disabled={disabled} onClick={onLogout}>
+              ログアウト
+            </Button>
+          )}
+        </div>
       </div>
-      <div className="flex flex-wrap gap-1">
-        {onOAuth && (
-          <Button size="sm" disabled={disabled} onClick={onOAuth}>
-            ログイン
-          </Button>
-        )}
-        {onApiKey && (
-          <Button size="sm" variant="ghost" disabled={disabled} onClick={onApiKey}>
-            API キー
-          </Button>
-        )}
-        {onLogout && provider.authenticated && (
-          <Button size="sm" variant="ghost" disabled={disabled} onClick={onLogout}>
-            ログアウト
-          </Button>
-        )}
-      </div>
+      {accountControls}
     </li>
   );
 }

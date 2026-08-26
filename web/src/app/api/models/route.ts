@@ -16,9 +16,10 @@ export const dynamic = "force-dynamic";
 const USAGE_MAX_AGE_MS = 30 * 60 * 1000;
 
 /**
- * モデル一覧。アカウントが登録されていれば既定 + 各アカウントのモデルをまとめて返し、
- * アカウントのモデルには accountId / accountLabel が付く（Home でアカウントを
- * プロバイダ枠として表示するため）。レガシーの `?accountId=` は互換のため受けるだけ。
+ * モデル一覧。アカウントが登録されていれば既定 + 各アカウントの対象プロバイダの
+ * モデルをまとめて返す。アカウントのモデルには accountId / accountLabel が付く
+ * （Home でアカウントをプロバイダ枠として表示するため）。レガシーの `?accountId=` は
+ * 互換のため受けるだけ。
  */
 export async function GET(req: NextRequest) {
   try {
@@ -28,7 +29,11 @@ export async function GET(req: NextRequest) {
       accounts.length === 0
         ? await listModels()
         : await listModelsForAccounts(
-            accounts.map((account) => ({ id: account.id, label: account.label })),
+            accounts.map((account) => ({
+              id: account.id,
+              label: account.label,
+              providers: account.providers,
+            })),
           );
     const providers = getCachedUsage(Date.now(), USAGE_MAX_AGE_MS)?.providers ?? [];
     return NextResponse.json({ models: attachCodexBarUsage(models, providers) });

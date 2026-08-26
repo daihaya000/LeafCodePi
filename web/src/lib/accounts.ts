@@ -137,6 +137,14 @@ function validateNote(note: unknown): string | undefined {
   return trimmed;
 }
 
+/** アカウントに紐づくプロバイダーだけを、そのアカウントのモデル枠へ出す。 */
+export function accountHasProvider(
+  account: Pick<AccountRecord, "providers">,
+  providerId: string,
+): boolean {
+  return Array.isArray(account.providers) && account.providers.includes(providerId as AccountProviderId);
+}
+
 function normalizeProviders(input: unknown): AccountProviderId[] {
   if (!Array.isArray(input)) throw badRequest("providers は配列で指定してください");
   const set = new Set<unknown>(input);

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import {
   accountAuthPath,
+  accountHasProvider,
   accountDir,
   accountModelsStorePath,
   accountStoredProviders,
@@ -95,6 +96,15 @@ describe("accountStoredProviders", () => {
 });
 
 describe("accounts store CRUD", () => {
+  it("allows only the account's registered provider", () => {
+    tempDataDir();
+    const account = createAccount({ label: "Codex", providers: ["openai-codex"] });
+
+    assert.equal(accountHasProvider(account, "openai-codex"), true);
+    assert.equal(accountHasProvider(account, "anthropic"), false);
+    assert.equal(accountHasProvider(account, "llama-server"), false);
+  });
+
   it("creates, lists and gets accounts with persistence", () => {
     const dir = tempDataDir();
     const created = createAccount({

@@ -71,8 +71,10 @@ import { registerWebUiPermissionHandler } from "@/lib/pi/webui-permission-bridge
 import { AccountRuntimeManager } from "@/lib/pi/account-runtime-manager";
 import {
   accountAuthPath,
+  accountHasProvider,
   accountModelsStorePath,
   resolvePiAgentDir,
+  type AccountRecord,
 } from "@/lib/accounts";
 import { createQuestionPromptService, type QuestionAnswer } from "@/lib/pi/question-prompt";
 import { registerWebUiQuestionHandler } from "@/lib/pi/webui-question-bridge";
@@ -1595,7 +1597,7 @@ export async function listModels(): Promise<ModelOption[]> {
  * アカウントのランタイム初期化に失敗したものはスキップする。
  */
 export async function listModelsForAccounts(
-  accounts: { id: string; label: string }[],
+  accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
 ): Promise<ModelOption[]> {
   const options: ModelOption[] = [...(await listModels().catch(() => []))];
   for (const account of accounts) {
@@ -1604,6 +1606,8 @@ export async function listModelsForAccounts(
       if (!runtime) continue;
       const built = await buildModelOptions(runtime);
       for (const option of built) {
+        // API キー等で構成された他プロバイダを、この OAuth アカウントの枠へ複製しない。
+        if (!accountHasProvider(account, option.providerID)) continue;
         options.push({
           ...option,
           value: `${account.id}::${option.value}`,

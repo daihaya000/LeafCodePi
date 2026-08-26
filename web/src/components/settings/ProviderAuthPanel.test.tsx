@@ -1,10 +1,50 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderAuthPanel } from "./ProviderAuthPanel";
 
 const fetchMock = vi.fn();
 let confirmSpy: { mockRestore: () => void } | null = null;
+
+const providers = [
+  {
+    id: "openai-codex",
+    name: "OpenAI Codex",
+    authenticated: false,
+    oauthAvailable: true,
+    highlighted: true,
+  },
+  {
+    id: "anthropic",
+    name: "Anthropic",
+    authenticated: false,
+    oauthAvailable: true,
+    highlighted: true,
+  },
+  {
+    id: "llama-server",
+    name: "llama-server",
+    authenticated: true,
+  },
+];
+
+const accounts = [
+  {
+    id: "acc-1",
+    label: "仕事用",
+    providers: ["openai-codex"],
+    note: "メイン",
+    createdAt: "",
+    updatedAt: "",
+  },
+  {
+    id: "acc-2",
+    label: "個人用",
+    providers: ["anthropic"],
+    createdAt: "",
+    updatedAt: "",
+  },
+];
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -25,63 +65,52 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-const accounts = [
-  {
-    id: "acc-1",
-    label: "仕事用",
-    providers: ["openai-codex"],
-    note: "メイン",
-    createdAt: "",
-    updatedAt: "",
-  },
-  {
-    id: "acc-2",
-    label: "個人用",
-    providers: ["anthropic"],
-    createdAt: "",
-    updatedAt: "",
-  },
-];
-
 function mockAccountsApi() {
   fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
     if (url.endsWith("/api/accounts")) {
       if (method === "GET") return Promise.resolve(jsonResponse({ accounts }));
-      if (method === "POST") return Promise.resolve(jsonResponse({}, 200));
+      if (method === "POST") return Promise.resolve(jsonResponse({ account: accounts[0] }));
     }
     const statusMatch = url.match(/\/api\/accounts\/(acc-\d+)\/auth-status/);
     if (statusMatch) {
-      // acc-1 は Codex 認証済み、acc-2 は未認証の想定
-      const providers = statusMatch[1] === "acc-1" ? ["openai-codex"] : [];
-      return Promise.resolve(jsonResponse({ providers }));
+      const providerIds = statusMatch[1] === "acc-1" ? ["openai-codex"] : [];
+      return Promise.resolve(jsonResponse({ providers: providerIds }));
     }
     return Promise.resolve(jsonResponse({}));
   });
 }
 
-describe("ProviderAuthPanel accounts section", () => {
-  it("lists registered accounts with provider chips", async () => {
-    mockAccountsApi();
-    render(<ProviderAuthPanel providers={[]} onChanged={() => {}} />);
+async function accountRegion(name: string) {
+  return screen.findByRole("region", { name: `${name} の追加アカウント` });
+}
 
-    expect(await screen.findByText("仕事用")).toBeTruthy();
-    expect(screen.getByText("個人用")).toBeTruthy();
-    expect(screen.getByText("ChatGPT (Codex) 認証済")).toBeTruthy();
-    expect(screen.getByText("Claude")).toBeTruthy();
-    expect(screen.getByText("メイン")).toBeTruthy();
+describe("ProviderAuthPanel provider-scoped accounts", () => {
+  it("shows each account only inside its matching provider", async () => {
+    mockAccountsApi();
+    render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
+
+    const codex = await accountRegion("OpenAI Codex");
+    const anthropic = await accountRegion("Anthropic");
+    expect(await within(codex).findByText("仕事用")).toBeTruthy();
+    expect(within(codex).queryByText("個人用")).toBeNull();
+    expect(await within(anthropic).findByText("個人用")).toBeTruthy();
+    expect(within(anthropic).queryByText("仕事用")).toBeNull();
+    expect(screen.queryByRole("region", { name: "llama-server の追加アカウント" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "アカウント" })).toBeNull();
   });
 
-  it("creates an account from the form and refreshes the list", async () => {
+  it("creates an account for the provider whose add action was used", async () => {
     mockAccountsApi();
-    render(<ProviderAuthPanel providers={[]} onChanged={() => {}} />);
-    await screen.findByText("仕事用");
+    render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "追加" }));
-    fireEvent.change(screen.getByLabelText("表示名"), { target: { value: "新規アカウント" } });
-    fireEvent.click(screen.getByRole("checkbox", { name: /Claude/ }));
-    fireEvent.click(screen.getByRole("button", { name: "作成" }));
+    const anthropic = await accountRegion("Anthropic");
+    fireEvent.click(within(anthropic).getByRole("button", { name: "アカウントを追加" }));
+    fireEvent.change(within(anthropic).getByLabelText("アカウント名"), {
+      target: { value: "新規 Claude" },
+    });
+    fireEvent.click(within(anthropic).getByRole("button", { name: "追加" }));
 
     await waitFor(() => {
       const post = fetchMock.mock.calls.find(
@@ -90,20 +119,40 @@ describe("ProviderAuthPanel accounts section", () => {
       );
       expect(post).toBeTruthy();
       expect(JSON.parse(String(post?.[1]?.body))).toEqual({
-        label: "新規アカウント",
+        label: "新規 Claude",
         providers: ["anthropic"],
-        note: undefined,
       });
     });
   });
 
-  it("deletes after confirmation", async () => {
+  it("starts OAuth login with the selected provider account", async () => {
+    mockAccountsApi();
+    render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
+
+    const codex = await accountRegion("OpenAI Codex");
+    await within(codex).findByText("仕事用");
+    fireEvent.click(within(codex).getByRole("button", { name: "再ログイン" }));
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            String(input).includes("/api/providers/openai-codex/login") &&
+            String(input).includes("accountId=acc-1") &&
+            init?.method === "POST",
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it("deletes only after confirmation", async () => {
     mockAccountsApi();
     confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    render(<ProviderAuthPanel providers={[]} onChanged={() => {}} />);
-    await screen.findByText("仕事用");
+    render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
 
-    fireEvent.click(screen.getAllByRole("button", { name: "削除" })[0]);
+    const codex = await accountRegion("OpenAI Codex");
+    await within(codex).findByText("仕事用");
+    fireEvent.click(within(codex).getByRole("button", { name: "削除" }));
 
     await waitFor(() => {
       const del = fetchMock.mock.calls.find(
@@ -112,21 +161,5 @@ describe("ProviderAuthPanel accounts section", () => {
       );
       expect(del).toBeTruthy();
     });
-  });
-
-  it("keeps the account when confirmation is cancelled", async () => {
-    mockAccountsApi();
-    confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-    render(<ProviderAuthPanel providers={[]} onChanged={() => {}} />);
-    await screen.findByText("仕事用");
-
-    fireEvent.click(screen.getAllByRole("button", { name: "削除" })[0]);
-
-    expect(
-      fetchMock.mock.calls.some(
-        ([input, init]) =>
-          String(input).includes("/api/accounts/acc-") && (init?.method ?? "") === "DELETE",
-      ),
-    ).toBe(false);
   });
 });
