@@ -195,6 +195,10 @@ export type ModelOption = {
   codexbarUsedPercent?: number | null;
   /** True when the provider hit its rate limit (usage >= 99.5%). */
   codexbarMaxed?: boolean;
+  /** Integrated account routing hides the backing account labels in the picker. */
+  routingMode?: "integrated";
+  /** Number of authenticated account candidates behind an integrated option. */
+  routingCandidateCount?: number;
 };
 
 export type HealthDto = {

@@ -18,6 +18,9 @@ export function attachCodexBarUsage<
     providers.map((provider) => [usageKey(provider.id, provider.accountId), provider]),
   );
   return options.map((option) => {
+    // Integrated options already carry the selected candidate's strict-TTL usage;
+    // never overwrite it with CodexBar's aggregate parent row.
+    if ("routingMode" in option && option.routingMode === "integrated") return option;
     const provider = byKey.get(usageKey(option.providerID, option.accountId));
     if (!provider) return option;
     return {

@@ -8,6 +8,7 @@ import {
   providerModelStatePath,
   readProviderModelState,
 } from "@/lib/provider-model-state";
+import { setAccountRoutingMode } from "@/lib/provider-routing";
 import { AccountRuntimeManager } from "./account-runtime-manager";
 import {
   getRuntimeFor,
@@ -107,6 +108,63 @@ describe("getRuntimeFor", () => {
         { providerID: "llama-server", accountId: undefined },
       ],
     );
+  });
+
+  it("merges account models into one option in integrated mode", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-routing-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const first = createAccount({ label: "仕事用", providers: ["openai-codex"] });
+    const second = createAccount({ label: "個人用", providers: ["openai-codex"] });
+    const makeRuntime = () => ({
+      registerProvider: () => {},
+      getProvider: () => undefined,
+      getProviders: () => [{ id: "openai-codex", name: "OpenAI Codex" }],
+      getModels: () => [{ id: "gpt-5", name: "GPT-5" }],
+      getModel: (providerID: string, modelID: string) =>
+        providerID === "openai-codex" && modelID === "gpt-5"
+          ? { provider: providerID, id: modelID, input: ["text"], reasoning: false }
+          : undefined,
+      hasConfiguredAuth: () => true,
+      getAvailable: async () => [
+        { provider: "openai-codex", id: "gpt-5", name: "GPT-5", input: ["text"], reasoning: false },
+      ],
+    });
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      modelRuntime: {
+        getProviders: () => [{ id: "openai-codex" }],
+        modelCache: null,
+      },
+      modelCache: {
+        at: Date.now(),
+        value: [],
+      },
+      modelInflight: null,
+      live: new Map(),
+      lastProviderSyncWarnings: [],
+      accountRuntimes: new AccountRuntimeManager(async () => makeRuntime() as never),
+    };
+    await setAccountRoutingMode("openai-codex", "integrated");
+
+    const models = await listModelsForAccounts([
+      { id: first.id, label: first.label, providers: first.providers },
+      { id: second.id, label: second.label, providers: second.providers },
+    ]);
+    const options = models.filter((model) => model.providerID === "openai-codex");
+    assert.equal(options.length, 1);
+    assert.deepEqual(options[0], {
+      value: "openai-codex::gpt-5",
+      label: "GPT-5",
+      providerID: "openai-codex",
+      modelID: "gpt-5",
+      input: ["text"],
+      reasoning: false,
+      thinkingLevels: [],
+      codexbarUsedPercent: null,
+      codexbarMaxed: false,
+      routingMode: "integrated",
+      routingCandidateCount: 2,
+    });
   });
 
   it("saves enabled state and order in the account namespace", async () => {

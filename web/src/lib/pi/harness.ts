@@ -86,13 +86,17 @@ import { createQuestionPromptService, type QuestionAnswer } from "@/lib/pi/quest
 import { registerWebUiQuestionHandler } from "@/lib/pi/webui-question-bridge";
 import { listSubagentRuns } from "@/lib/pi/subagent-runs";
 import { stopRunningSubagentRuns } from "@/lib/pi/stop-subagent-runs";
-import { invalidateCachedUsage } from "@/lib/codexbar/cache";
+import { getCachedUsage, invalidateCachedUsage } from "@/lib/codexbar/cache";
+import type { CodexBarProvider } from "@/lib/codexbar";
 import { clearProviderCache } from "@/lib/codexbar/provider-cache";
 import {
   accountRoutingMode,
+  chooseRoutingCandidate,
   isAccountRoutingProvider,
+  readProviderRouting,
   setAccountRoutingMode,
   type AccountRoutingMode,
+  type RoutingCandidate,
 } from "@/lib/provider-routing";
 
 /** True when a skill lives under the user's ~/.agents directory. */
@@ -218,6 +222,25 @@ const GLOBAL_KEY = "__leafcodePiHarness" as const;
 
 /** Coalesce concurrent ensureLive(taskId) so only one Pi session is created. */
 const ensureLiveInflight = new Map<string, Promise<LiveRuntime>>();
+/** Serialize selection + task insert for the same integrated provider/model. */
+const routeLocks = new Map<string, Promise<void>>();
+
+async function withRouteLock<T>(key: string, action: () => Promise<T>): Promise<T> {
+  const previous = routeLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const chain = previous.catch(() => undefined).then(() => current);
+  routeLocks.set(key, chain);
+  await previous.catch(() => undefined);
+  try {
+    return await action();
+  } finally {
+    release();
+    if (routeLocks.get(key) === chain) routeLocks.delete(key);
+  }
+}
 
 type SnapshotProjectionCache = {
   source: readonly unknown[];
@@ -1366,17 +1389,98 @@ async function createSession(options: {
   return { session: result.session, skillPermissionRef };
 }
 
-async function resolveModel(
+type ConcreteModelRoute = {
+  accountId: string | null;
+  runtime: ModelRuntime;
+  model: Model;
+};
+
+function routeLimitError(resetAt: string | null): Error {
+  return Object.assign(
+    new Error(
+      resetAt
+        ? `利用可能なアカウントがありません。次回リセット: ${resetAt}`
+        : "利用可能なアカウントがありません",
+    ),
+    { status: 429, ...(resetAt ? { resetAt } : {}) },
+  );
+}
+
+async function resolveIntegratedModelRoute(
+  providerID: string,
+  modelID: string,
+): Promise<ConcreteModelRoute | undefined> {
+  const accounts = listAccounts().filter((account) => accountHasProvider(account, providerID));
+  const records = (await collectAccountModelRecords(accounts)).filter(
+    (record) => record.option.providerID === providerID && record.option.modelID === modelID,
+  );
+  if (records.length === 0) return undefined;
+
+  const usageProviders = getCachedUsage()?.providers ?? [];
+  const workingCounts = workingTaskCounts([providerID]);
+  const candidates: RoutingCandidate<AccountModelRecord>[] = records.map((record) => ({
+    accountId: record.accountId,
+    accountIndex: record.accountIndex,
+    value: record,
+    usage:
+      usageProviders.find(
+        (provider) => provider.id === providerID && provider.accountId === record.accountId,
+      ) ?? null,
+    workingTaskCount: workingCounts.get(`${providerID}::${record.accountId}`) ?? 0,
+  }));
+  const decision = chooseRoutingCandidate(candidates);
+  if (!decision.candidate) {
+    if (decision.allMaxed) throw routeLimitError(decision.resetAt);
+    return undefined;
+  }
+
+  for (const candidate of decision.ranked) {
+    if (candidate.tier >= 3) continue;
+    const model = candidate.value.runtime.getModel(providerID, modelID);
+    if (model) {
+      return { accountId: candidate.accountId, runtime: candidate.value.runtime, model };
+    }
+  }
+  return undefined;
+}
+
+async function resolveConcreteModel(
   value: string | undefined,
-  accountId?: string | null,
-): Promise<Model | undefined> {
+  requestedAccountId?: string | null,
+): Promise<ConcreteModelRoute | undefined> {
   await ensureRuntime();
   const parsed = parseModelValue(value);
-  const runtime = await getRuntimeFor(accountId ?? parsed?.accountId);
-  if (!runtime) return undefined;
   if (!parsed) return undefined;
-  const found = runtime.getModel(parsed.providerID, parsed.modelID);
-  return found ?? undefined;
+
+  const requested = requestedAccountId?.trim() || parsed.accountId;
+  if (requested && isAccountRoutingProvider(parsed.providerID)) {
+    const account = getAccount(requested);
+    if (!account) throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
+    if (!accountHasProvider(account, parsed.providerID)) {
+      throw Object.assign(new Error("アカウントに紐づかないプロバイダーです"), { status: 400 });
+    }
+    const record = (await collectAccountModelRecords([account])).find(
+      (entry) => entry.option.providerID === parsed.providerID && entry.option.modelID === parsed.modelID,
+    );
+    if (!record) return undefined;
+    const model = record.runtime.getModel(parsed.providerID, parsed.modelID);
+    return model ? { accountId: requested, runtime: record.runtime, model } : undefined;
+  }
+
+  if (
+    !requested &&
+    isAccountRoutingProvider(parsed.providerID) &&
+    accountRoutingMode(parsed.providerID) === "integrated"
+  ) {
+    return resolveIntegratedModelRoute(parsed.providerID, parsed.modelID);
+  }
+
+  // Shared providers never use an account runtime, even when a caller carries
+  // a task account for a different provider.
+  const runtime = await getRuntimeFor();
+  if (!runtime) return undefined;
+  const model = runtime.getModel(parsed.providerID, parsed.modelID);
+  return model ? { accountId: null, runtime, model } : undefined;
 }
 
 function toGoalLoopSummary(loop: GoalLoopDto | null): GoalLoopSummaryDto | undefined {
@@ -1429,15 +1533,20 @@ async function ensureLive(taskId: string): Promise<LiveRuntime> {
     if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
     const project = getProject(task.projectId);
     const cwd = project?.rootPath ?? task.directory;
-    const model = await resolveModel(
+    const modelRoute = await resolveConcreteModel(
       task.providerID && task.modelID ? modelValue(task.providerID, task.modelID) : undefined,
       task.accountId ?? null,
     );
+    const model = modelRoute?.model;
+    if (task.providerID && task.modelID && !modelRoute) {
+      throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+    }
+    const sessionAccountId = modelRoute?.accountId ?? (!task.providerID ? task.accountId ?? null : null);
     const setup = await createSession({
       cwd,
       sessionFile: task.sessionFile,
       sessionName: task.title,
-      accountId: task.accountId ?? null,
+      accountId: sessionAccountId,
       model,
       thinkingLevel: task.thinkingLevel,
       skillPermission: task.skillPermission,
@@ -1636,14 +1745,104 @@ export async function listModels(): Promise<ModelOption[]> {
   return current.modelInflight;
 }
 
+type AccountModelRecord = {
+  accountId: string;
+  accountLabel: string;
+  accountIndex: number;
+  modelIndex: number;
+  runtime: ModelRuntime;
+  option: ModelOption;
+};
+
+async function collectAccountModelRecords(
+  accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
+): Promise<AccountModelRecord[]> {
+  const records: AccountModelRecord[] = [];
+  for (const [accountIndex, account] of accounts.entries()) {
+    try {
+      const runtime = await getRuntimeFor(account.id);
+      if (!runtime) continue;
+      const built = await buildModelOptions(runtime, account.id);
+      for (const [modelIndex, option] of built.entries()) {
+        // API キー等で構成された他プロバイダを、この OAuth アカウントの枠へ複製しない。
+        if (!accountHasProvider(account, option.providerID)) continue;
+        records.push({ accountId: account.id, accountLabel: account.label, accountIndex, modelIndex, runtime, option });
+      }
+    } catch {
+      // そのアカウントのランタイム初期化失敗は無視して残りの一覧を返す
+    }
+  }
+  return records;
+}
+
+function intersection<T extends string>(values: readonly (readonly T[] | undefined)[]): T[] | undefined {
+  const first = values[0];
+  if (!first) return undefined;
+  return first.filter((value) => values.every((items) => items?.includes(value)));
+}
+
+function accountRowRank(
+  providerID: string,
+  accountId: string,
+  accountIndex: number,
+  rowOrder: ReadonlyMap<string, number>,
+): number {
+  return rowOrder.get(accountProviderModelKey(providerID, accountId)) ??
+    rowOrder.get(providerID) ??
+    1_000_000 + accountIndex;
+}
+
+function integratedOption(
+  records: readonly AccountModelRecord[],
+  usageProviders: readonly CodexBarProvider[],
+  workingCounts: ReadonlyMap<string, number>,
+): ModelOption {
+  const first = records[0]!;
+  const providerID = first.option.providerID;
+  const modelID = first.option.modelID;
+  const candidates: RoutingCandidate<AccountModelRecord>[] = records.map((record) => ({
+    accountId: record.accountId,
+    accountIndex: record.accountIndex,
+    value: record,
+    usage:
+      usageProviders.find(
+        (provider) => provider.id === providerID && provider.accountId === record.accountId,
+      ) ?? null,
+    workingTaskCount: workingCounts.get(`${providerID}::${record.accountId}`) ?? 0,
+  }));
+  const decision = chooseRoutingCandidate(candidates);
+  const selectedUsage = decision.candidate?.usage;
+  const input = intersection(records.map((record) => record.option.input));
+  const thinkingLevels = intersection(records.map((record) => record.option.thinkingLevels));
+  return {
+    value: `${providerID}::${modelID}`,
+    label: first.option.label,
+    providerID,
+    modelID,
+    ...(input ? { input } : {}),
+    reasoning: records.every((record) => record.option.reasoning === true),
+    ...(thinkingLevels ? { thinkingLevels } : {}),
+    codexbarUsedPercent: selectedUsage?.usedPercent ?? null,
+    codexbarMaxed: decision.allMaxed,
+    routingMode: "integrated",
+    routingCandidateCount: records.length,
+  };
+}
+
+function workingTaskCounts(providerIds: readonly string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  const allowed = new Set(providerIds);
+  for (const task of listTasks(false)) {
+    if (task.status !== "working" || !task.accountId || !task.providerID || !allowed.has(task.providerID)) continue;
+    const key = `${task.providerID}::${task.accountId}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
 /**
- * 既定の非アカウントプロバイダ + 全アカウントのモデルを返す。Codex / Anthropic は
- * マルチアカウント前提のため、既定 auth.json 由来の候補を出さない。アカウントの
- * モデルは value にアカウントIDプレフィックスを持ち、accountId / accountLabel が付く。
- * アカウントのランタイム初期化に失敗したものはスキップする。
- *
- * 並び順は共有設定の providerOrder（未設定は既定カタログ順）に従う。設定画面で
- * アカウント行を並び替えた場合は、アカウントID付きの行キーを優先する。
+ * 既定の非アカウントプロバイダ + 全アカウントのモデルを返す。統合モードの
+ * Codex / Anthropic は provider/model ごとに 1 option へまとめる。
  */
 export async function listModelsForAccounts(
   accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
@@ -1651,45 +1850,70 @@ export async function listModelsForAccounts(
   const sharedOptions: ModelOption[] = (await listModels().catch(() => [])).filter(
     (option) => !isAccountProviderId(option.providerID),
   );
-  const accountOptions: ModelOption[] = [];
-  for (const account of accounts) {
-    try {
-      const runtime = await getRuntimeFor(account.id);
-      if (!runtime) continue;
-      const built = await buildModelOptions(runtime, account.id);
-      for (const option of built) {
-        // API キー等で構成された他プロバイダを、この OAuth アカウントの枠へ複製しない。
-        if (!accountHasProvider(account, option.providerID)) continue;
-        accountOptions.push({
-          ...option,
-          value: `${account.id}::${option.value}`,
-          accountId: account.id,
-          accountLabel: account.label,
-        });
-      }
-    } catch {
-      // そのアカウントのランタイム初期化失敗は無視して残りの一覧を返す
+  const records = await collectAccountModelRecords(accounts);
+  const routingState = readProviderRouting();
+  const rowOrder = new Map(readProviderModelState().providerOrder.map((key, index) => [key, index]));
+  const integrated = new Map<string, AccountModelRecord[]>();
+  const separate: ModelOption[] = [];
+  for (const record of records) {
+    const { providerID, modelID } = record.option;
+    if (isAccountRoutingProvider(providerID) && accountRoutingMode(providerID, routingState) === "integrated") {
+      const key = `${providerID}::${modelID}`;
+      const group = integrated.get(key) ?? [];
+      group.push(record);
+      integrated.set(key, group);
+    } else {
+      separate.push({
+        ...record.option,
+        value: `${record.accountId}::${record.option.value}`,
+        accountId: record.accountId,
+        accountLabel: record.accountLabel,
+      });
     }
   }
 
+  const usageProviders = getCachedUsage()?.providers ?? [];
+  const workingCounts = workingTaskCounts([...new Set(records.map((record) => record.option.providerID))]);
+  const integratedOptions = [...integrated.values()]
+    .map((group) => [...group].sort((a, b) =>
+      accountRowRank(a.option.providerID, a.accountId, a.accountIndex, rowOrder) -
+      accountRowRank(b.option.providerID, b.accountId, b.accountIndex, rowOrder) ||
+      a.modelIndex - b.modelIndex ||
+      a.accountIndex - b.accountIndex,
+    ))
+    .sort((a, b) => {
+      const firstA = a[0]!;
+      const firstB = b[0]!;
+      return accountRowRank(firstA.option.providerID, firstA.accountId, firstA.accountIndex, rowOrder) -
+        accountRowRank(firstB.option.providerID, firstB.accountId, firstB.accountIndex, rowOrder) ||
+        firstA.modelIndex - firstB.modelIndex ||
+        firstA.option.modelID.localeCompare(firstB.option.modelID, "en");
+    })
+    .map((group) => integratedOption(group, usageProviders, workingCounts));
+
   const providerRank = await resolveProviderDisplayRank();
   const accountIndex = new Map(accounts.map((account, index) => [account.id, index]));
-  const rowOrder = new Map(readProviderModelState().providerOrder.map((key, index) => [key, index]));
-  const rowKey = (option: ModelOption) =>
-    option.accountId
-      ? accountProviderModelKey(option.providerID, option.accountId)
-      : option.providerID;
-  return [...sharedOptions, ...accountOptions].sort((a, b) => {
-    const aRowRank = rowOrder.get(rowKey(a));
-    const bRowRank = rowOrder.get(rowKey(b));
-    if (aRowRank !== undefined || bRowRank !== undefined) {
-      const rowDiff =
-        (aRowRank ?? Number.MAX_SAFE_INTEGER) - (bRowRank ?? Number.MAX_SAFE_INTEGER);
+  const all = [...sharedOptions, ...separate, ...integratedOptions];
+  const rowRank = (option: ModelOption): number | undefined => {
+    if (option.routingMode === "integrated" && isAccountRoutingProvider(option.providerID)) {
+      const ranks = accounts
+        .filter((account) => accountHasProvider(account, option.providerID))
+        .map((account, index) => accountRowRank(option.providerID, account.id, index, rowOrder));
+      return ranks.length > 0 ? Math.min(...ranks) : rowOrder.get(option.providerID);
+    }
+    return rowOrder.get(
+      option.accountId ? accountProviderModelKey(option.providerID, option.accountId) : option.providerID,
+    );
+  };
+  return all.sort((a, b) => {
+    const aRank = rowRank(a);
+    const bRank = rowRank(b);
+    if (aRank !== undefined || bRank !== undefined) {
+      const rowDiff = (aRank ?? Number.MAX_SAFE_INTEGER) - (bRank ?? Number.MAX_SAFE_INTEGER);
       if (rowDiff !== 0) return rowDiff;
     }
     const providerDiff = providerRank(a.providerID) - providerRank(b.providerID);
     if (providerDiff !== 0) return providerDiff;
-    // 同一プロバイダ内は共有を先頭に、アカウントは台帳順。
     const aAccount = a.accountId ? accountIndex.get(a.accountId) ?? accounts.length : -1;
     const bAccount = b.accountId ? accountIndex.get(b.accountId) ?? accounts.length : -1;
     return aAccount - bAccount;
@@ -1744,6 +1968,8 @@ function directCompletionMaxTokens(
 export async function completeModelText(options: {
   providerID: string;
   modelID: string;
+  /** Optional concrete account; ignored for shared providers. */
+  accountId?: string | null;
   system: string;
   prompt: string;
   maxTokens?: number;
@@ -1755,13 +1981,12 @@ export async function completeModelText(options: {
   const prompt = options.prompt.trim();
   if (!system || !prompt) throw new Error("生成プロンプトが空です");
 
-  await ensureRuntime();
-  const runtime = await getRuntimeFor();
-  if (!runtime) throw new Error("Pi ランタイムを利用できません");
-  const model = runtime.getModel(options.providerID, options.modelID);
-  if (!model) {
-    throw new Error(`モデルが見つかりません: ${options.providerID}::${options.modelID}`);
-  }
+  const route = await resolveConcreteModel(
+    `${options.providerID}::${options.modelID}`,
+    options.accountId ?? null,
+  );
+  if (!route) throw new Error(`モデルが見つかりません: ${options.providerID}::${options.modelID}`);
+  const { runtime, model } = route;
 
   const response = await runtime.completeSimple(
     model,
@@ -2237,7 +2462,6 @@ export async function createTask(input: {
 }): Promise<TaskSummary> {
   const project = getProject(input.projectId);
   if (!project) throw Object.assign(new Error("プロジェクトが見つかりません"), { status: 404 });
-  patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
   const parsed = parseModelValue(input.model);
   const requestedAccountId = input.accountId?.trim() || parsed?.accountId;
   if (input.accountId && parsed?.accountId && input.accountId !== parsed.accountId) {
@@ -2246,17 +2470,31 @@ export async function createTask(input: {
   if (requestedAccountId && !getAccount(requestedAccountId)) {
     throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
   }
+  if (requestedAccountId && parsed && !isAccountRoutingProvider(parsed.providerID)) {
+    throw Object.assign(new Error("共有プロバイダーにはアカウントを指定できません"), { status: 400 });
+  }
+  const modelRoute = input.model
+    ? await withRouteLock(`${parsed?.providerID ?? "default"}::${parsed?.modelID ?? "default"}`, () =>
+        resolveConcreteModel(input.model, requestedAccountId ?? null),
+      )
+    : undefined;
+  if (input.model && !modelRoute) {
+    throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+  }
+  const model = modelRoute?.model;
+  const concreteAccountId = modelRoute?.accountId ?? (parsed ? null : requestedAccountId ?? null);
+  const selectedIds = modelId(model);
+  patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
   const task = insertTask({
     project,
     title: titleFromPrompt(input.prompt),
     thinkingLevel: input.thinkingLevel,
-    providerID: parsed?.providerID,
-    modelID: parsed?.modelID,
-    ...(requestedAccountId ? { accountId: requestedAccountId } : {}),
+    providerID: selectedIds.providerID ?? parsed?.providerID,
+    modelID: selectedIds.modelID ?? parsed?.modelID,
+    ...(concreteAccountId ? { accountId: concreteAccountId } : {}),
     ...(input.agent ? { agent: input.agent.trim() } : {}),
     ...(input.skillPermission ? { skillPermission: input.skillPermission } : {}),
   });
-  const model = await resolveModel(input.model, requestedAccountId ?? null);
   const requestedThinking = isThinkingLevel(input.thinkingLevel) ? input.thinkingLevel : "off";
   const thinkingLevel = model
     ? clampThinkingLevelForModel(model, requestedThinking)
@@ -2264,7 +2502,7 @@ export async function createTask(input: {
   const setup = await createSession({
     cwd: project.rootPath,
     sessionName: task.title,
-    accountId: requestedAccountId ?? null,
+    accountId: concreteAccountId,
     model,
     thinkingLevel,
     subagentPermission: input.subagentPermission,
@@ -2551,9 +2789,13 @@ export async function setTaskModel(id: string, modelValueRaw: string): Promise<T
   if (!task || !parsed) {
     throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
   }
-  const targetAccountId = parsed.accountId ?? null;
-  const model = await resolveModel(modelValueRaw, targetAccountId);
-  if (!model) throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+  const modelRoute = await withRouteLock(
+    `${parsed.providerID}::${parsed.modelID}`,
+    () => resolveConcreteModel(modelValueRaw, parsed.accountId ?? null),
+  );
+  if (!modelRoute) throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+  const targetAccountId = modelRoute.accountId;
+  const model = modelRoute.model;
   const levels = thinkingLevelsForModel(model);
 
   // アカウント切替はセッションの再作成が必要。実行中（ストリーミング中）は拒否し、
