@@ -5,6 +5,7 @@ import {
   sameRooms,
   sameTaskList,
   reorderProjectIds,
+  tasksForSidebar,
 } from "./Sidebar";
 import type { GoalLoopSummaryDto, HealthDto, ProjectDto, TaskSummary } from "@/lib/types";
 import type { CollaborationRoomSummary } from "@/lib/collaboration-room";
@@ -72,6 +73,27 @@ describe("sameTaskList", () => {
     const a = [{ ...task("t1", "working", "タスクA"), goalLoopSummary: loop }];
     const b = [{ ...a[0], goalLoopSummary: { ...loop, turnCount: 2 } }];
     expect(sameTaskList(a, b)).toBe(false);
+  });
+});
+
+describe("tasksForSidebar", () => {
+  it("places working tasks first while keeping relative order", () => {
+    const tasks: TaskSummary[] = [
+      task("t1", "idle", "アイドル"),
+      task("t2", "working", "進行中A"),
+      task("t3", "error", "エラー"),
+      task("t4", "working", "進行中B"),
+    ];
+    expect(tasksForSidebar(tasks).map((item) => item.title)).toEqual([
+      "進行中A",
+      "進行中B",
+      "アイドル",
+      "エラー",
+    ]);
+  });
+
+  it("returns empty list unchanged", () => {
+    expect(tasksForSidebar([])).toEqual([]);
   });
 });
 

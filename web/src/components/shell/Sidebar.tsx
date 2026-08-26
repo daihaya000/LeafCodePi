@@ -184,6 +184,16 @@ function countRunningTasks(tasks: TaskSummary[]): number {
   return tasks.filter((task) => task.status === "working").length;
 }
 
+/** 進行中のタスクを最上段に表示する（安定ソートで同順位は元の順序を保つ）。 */
+export function tasksForSidebar(tasks: TaskSummary[]): TaskSummary[] {
+  const working: TaskSummary[] = [];
+  const rest: TaskSummary[] = [];
+  for (const task of tasks) {
+    (task.status === "working" ? working : rest).push(task);
+  }
+  return [...working, ...rest];
+}
+
 const LIVE_GOAL_LOOP_STATUSES = new Set(["queued", "running", "verifying_completed"]);
 
 function TodoProgressBar({
@@ -484,6 +494,9 @@ export function Sidebar({
       const list = map.get(task.projectId) ?? [];
       list.push(task);
       map.set(task.projectId, list);
+    }
+    for (const [projectId, list] of map) {
+      map.set(projectId, tasksForSidebar(list));
     }
     return map;
   }, [tasks]);
