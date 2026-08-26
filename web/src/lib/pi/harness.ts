@@ -144,6 +144,8 @@ const NON_RENDERING_SESSION_EVENTS = new Set(["turn_start", "turn_end", "entry_a
 
 type LiveRuntime = {
   taskId: string;
+  /** セッション生成時に使ったアカウント（null = 既定）。破棄時の参照解放に使う。 */
+  accountId: string | null;
   session: AgentSession;
   skillPermission: SkillPermission;
   skillPermissionRef: { current: SkillPermission };
@@ -1054,6 +1056,11 @@ function attachSession(
   const current = state();
   const existing = current.live.get(taskId);
   existing?.unsubscribe();
+  // タスクの利用アカウント。セッション生存中はマネージャ参照で蒸発対象外にする。
+  const attachedAccountId = getTask(taskId)?.accountId ?? null;
+  if (existing && existing.accountId && existing.accountId !== attachedAccountId) {
+    accountRuntimeManager().release(existing.accountId);
+  }
   const replacedSession = existing?.session;
   if (replacedSession && replacedSession !== session) {
     replacedSession.dispose();
@@ -1069,6 +1076,7 @@ function attachSession(
 
   const live: LiveRuntime = {
     taskId,
+    accountId: attachedAccountId,
     session,
     skillPermission: skillPermissionRef.current,
     skillPermissionRef,
@@ -1153,7 +1161,25 @@ function attachSession(
     unsubscribe();
   };
   current.live.set(taskId, live);
+  if (attachedAccountId) {
+    // 参照を付けて evictIdle の対象外へ。解放は disposeLive()。
+    void accountRuntimeManager().acquire(attachedAccountId);
+  }
   return live;
+}
+
+/** live セッションを破棄し、保持していたアカウントランタイムの参照を解放する。 */
+function disposeLive(taskId: string): void {
+  const live = state().live.get(taskId);
+  if (!live) return;
+  live.unsubscribe();
+  live.session.dispose();
+  state().live.delete(taskId);
+  if (live.accountId) {
+    const manager = accountRuntimeManager();
+    manager.release(live.accountId);
+    manager.evictIdle();
+  }
 }
 
 export function syncSessionName(
@@ -1172,6 +1198,8 @@ async function createSession(options: {
   subagentPermission?: "allow" | "deny";
   permissionMode?: "allow" | "ask" | "deny";
   skillPermission?: SkillPermission;
+  /** 利用する認証アカウント（null = 既定）。 */
+  accountId?: string | null;
   /** pi-subagents agent running as the main session persona. */
   agentName?: string | null;
 }): Promise<SessionSetup> {
@@ -1281,7 +1309,7 @@ async function createSession(options: {
     thinkingLevel: options.thinkingLevel,
     sessionManager,
     resourceLoader,
-    modelRuntime: (await getRuntimeFor()) ?? undefined,
+    modelRuntime: (await getRuntimeFor(options.accountId)) ?? undefined,
     tools,
   });
   applyPermissionMode(result.session, options.cwd, permissionMode, {
@@ -1368,6 +1396,7 @@ async function ensureLive(taskId: string): Promise<LiveRuntime> {
       cwd,
       sessionFile: task.sessionFile,
       sessionName: task.title,
+      accountId: task.accountId ?? null,
       model,
       thinkingLevel: task.thinkingLevel,
       skillPermission: task.skillPermission,
@@ -1993,6 +2022,7 @@ export async function createTask(input: {
   const setup = await createSession({
     cwd: project.rootPath,
     sessionName: task.title,
+    accountId: input.accountId ?? null,
     model,
     thinkingLevel,
     subagentPermission: input.subagentPermission,
@@ -2512,12 +2542,7 @@ export async function setCompactionEnabled(enabled: boolean): Promise<Compaction
 }
 
 export function archiveTask(id: string): TaskSummary {
-  const live = state().live.get(id);
-  if (live) {
-    live.unsubscribe();
-    live.session.dispose();
-    state().live.delete(id);
-  }
+  disposeLive(id);
   const task = setTaskStatus(id, "archived");
   if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   return task;
@@ -2533,12 +2558,7 @@ export function restoreTask(id: string): TaskSummary {
 export function destroyTask(id: string): { ok: true } {
   const task = getTask(id);
   if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  const live = state().live.get(id);
-  if (live) {
-    live.unsubscribe();
-    live.session.dispose();
-    state().live.delete(id);
-  }
+  disposeLive(id);
   deleteTask(id);
   return { ok: true };
 }
@@ -2546,12 +2566,7 @@ export function destroyTask(id: string): { ok: true } {
 export function destroyArchivedTasksByProject(projectId: string): { ok: true; removed: number } {
   const tasks = listTasks(true).filter((task) => task.projectId === projectId && task.status === "archived");
   for (const task of tasks) {
-    const live = state().live.get(task.id);
-    if (live) {
-      live.unsubscribe();
-      live.session.dispose();
-      state().live.delete(task.id);
-    }
+    disposeLive(task.id);
     deleteTask(task.id);
   }
   return { ok: true, removed: tasks.length };
@@ -2568,12 +2583,7 @@ export function destroyProject(id: string): { ok: true } {
   if (!project) throw Object.assign(new Error("プロジェクトが見つかりません"), { status: 404 });
   const tasks = listTasks(true).filter((task) => task.projectId === id);
   for (const task of tasks) {
-    const live = state().live.get(task.id);
-    if (live) {
-      live.unsubscribe();
-      live.session.dispose();
-      state().live.delete(task.id);
-    }
+    disposeLive(task.id);
     deleteTask(task.id);
   }
   deleteProjectRecord(id);
