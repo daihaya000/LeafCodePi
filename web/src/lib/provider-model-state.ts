@@ -20,6 +20,19 @@ export function providerModelStatePath(dir = dataDir()): string {
   return join(dir, "provider-model-state.json");
 }
 
+/** アカウント別設定の provider / model キー。共有設定キーとは別名前空間にする。 */
+export function accountProviderModelKey(providerID: string, accountId?: string | null): string {
+  return accountId ? `${accountId}::${providerID}` : providerID;
+}
+
+export function accountModelKey(
+  providerID: string,
+  modelID: string,
+  accountId?: string | null,
+): string {
+  return `${accountProviderModelKey(providerID, accountId)}::${modelID}`;
+}
+
 function atomicWrite(filePath: string, content: string): void {
   const dir = dirname(filePath);
   mkdirSync(dir, { recursive: true });
@@ -94,22 +107,32 @@ function withStateLock<T>(mutate: (state: ProviderModelState) => T): Promise<T> 
   return run;
 }
 
-export function isProviderDisabled(providerID: string, state = readProviderModelState()): boolean {
-  return state.disabled[providerID] === true;
+export function isProviderDisabled(
+  providerID: string,
+  state = readProviderModelState(),
+  accountId?: string | null,
+): boolean {
+  return state.disabled[accountProviderModelKey(providerID, accountId)] === true;
 }
 
 export function isModelDisabled(
   providerID: string,
   modelID: string,
   state = readProviderModelState(),
+  accountId?: string | null,
 ): boolean {
-  return state.disabled[`${providerID}::${modelID}`] === true;
+  return state.disabled[accountModelKey(providerID, modelID, accountId)] === true;
 }
 
-export async function setProviderModelDisabled(key: string, disabled: boolean): Promise<void> {
+export async function setProviderModelDisabled(
+  key: string,
+  disabled: boolean,
+  accountId?: string | null,
+): Promise<void> {
+  const storageKey = accountId ? `${accountId}::${key}` : key;
   await withStateLock((state) => {
-    if (disabled) state.disabled[key] = true;
-    else delete state.disabled[key];
+    if (disabled) state.disabled[storageKey] = true;
+    else delete state.disabled[storageKey];
   });
 }
 

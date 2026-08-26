@@ -8,13 +8,18 @@ import { ApiError, getJson, sendJson } from "@/lib/client";
 import type { ProviderModelsRow } from "@/lib/provider-models";
 
 type DragState =
-  | { kind: "provider"; id: string }
-  | { kind: "model"; providerId: string; id: string };
+  | { kind: "provider"; rowKey: string }
+  | { kind: "model"; rowKey: string; id: string };
+
+function providerRowKey(provider: ProviderModelsRow): string {
+  return provider.accountId ? `${provider.accountId}::${provider.id}` : provider.id;
+}
 
 function moveItem<T>(items: T[], from: number, to: number): T[] {
   if (from < 0 || to < 0 || from === to) return items;
   const next = [...items];
   const [item] = next.splice(from, 1);
+  if (item === undefined) return items;
   next.splice(to, 0, item);
   return next;
 }
@@ -75,35 +80,47 @@ function ProviderRow({
   // 既定は折りたたみ。プロバイダーが増えると全展開では一覧が長くなるため。
   const [expanded, setExpanded] = useState(false);
   const panelId = useId();
-  const isBusy = busyId === provider.id;
+  const rowKey = providerRowKey(provider);
+  const displayName = provider.accountLabel
+    ? `${provider.name} · ${provider.accountLabel}`
+    : provider.name;
+  const isBusy = busyId === rowKey || busyId?.startsWith(`${rowKey}::`) === true;
   const hasModels = provider.models.length > 0;
 
   return (
     <li
       aria-busy={isBusy || undefined}
-      draggable
+      draggable={!provider.accountId}
       onDragStart={(event) => {
+        if (provider.accountId) return;
         event.dataTransfer.effectAllowed = "move";
         onDragStartProvider();
       }}
-      onDragOver={(event) => event.preventDefault()}
+      onDragOver={(event) => {
+        if (!provider.accountId) event.preventDefault();
+      }}
       onDrop={(event) => {
+        if (provider.accountId) return;
         event.preventDefault();
         onDropProvider();
       }}
       className="space-y-2"
     >
       <div className="flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3">
-        <GripVertical
-          aria-label={`${provider.name} をドラッグして並び替え`}
-          className="h-4 w-4 shrink-0 cursor-grab text-muted"
-        />
+        {!provider.accountId ? (
+          <GripVertical
+            aria-label={`${displayName} をドラッグして並び替え`}
+            className="h-4 w-4 shrink-0 cursor-grab text-muted"
+          />
+        ) : (
+          <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+        )}
         {hasModels && (
           <button
             type="button"
             aria-expanded={expanded}
             aria-controls={panelId}
-            aria-label={`${provider.name} のモデルを${expanded ? "折りたたむ" : "展開"}`}
+            aria-label={`${displayName} のモデルを${expanded ? "折りたたむ" : "展開"}`}
             onClick={() => setExpanded((value) => !value)}
             className="shrink-0 rounded-md p-1 text-muted transition-colors hover:bg-surface-2 hover:text-text"
           >
@@ -126,13 +143,16 @@ function ProviderRow({
             <ProviderIcon providerID={provider.id} size={16} />
             <p className="min-w-0 truncate text-sm font-medium">{provider.name}</p>
             <span className="font-mono text-xs text-muted">{provider.id}</span>
+            {provider.accountLabel && (
+              <span className="text-xs text-muted">アカウント: {provider.accountLabel}</span>
+            )}
             <Badge tone={provider.enabled ? "success" : "neutral"}>
               {provider.enabled ? "有効" : "無効"}
             </Badge>
           </div>
         </div>
         <ExtensionSwitch
-          name={provider.name}
+          name={displayName}
           enabled={provider.enabled}
           busy={isBusy}
           onToggle={() => onToggleProvider(!provider.enabled)}
@@ -141,7 +161,7 @@ function ProviderRow({
       {hasModels && expanded && (
         <ul id={panelId} className="space-y-2">
           {provider.models.map((model) => {
-            const modelKey = `${provider.id}::${model.id}`;
+            const modelKey = `${rowKey}::${model.id}`;
             const modelBusy = busyId === modelKey;
             const parentDisabled = !provider.enabled;
             return (
@@ -166,7 +186,7 @@ function ProviderRow({
                 )}
               >
                 <GripVertical
-                  aria-label={`${model.name} をドラッグして並び替え`}
+                  aria-label={`${displayName} の ${model.name} をドラッグして並び替え`}
                   className="h-4 w-4 shrink-0 cursor-grab text-muted"
                 />
                 <div className="min-w-0 flex-1">
@@ -178,7 +198,7 @@ function ProviderRow({
                   </div>
                 </div>
                 <ExtensionSwitch
-                  name={model.name}
+                  name={`${displayName} の ${model.name}`}
                   enabled={model.enabled}
                   busy={modelBusy || parentDisabled}
                   onToggle={() => onToggleModel(model.id, !model.enabled)}
@@ -233,30 +253,39 @@ export function ProviderModelsPanel() {
   }, [load]);
 
   const toggle = useCallback(
-    async (key: string, enabled: boolean) => {
-      setBusyId(key);
+    async (provider: ProviderModelsRow, modelId: string | undefined, enabled: boolean) => {
+      const rowKey = providerRowKey(provider);
+      const busyKey = modelId === undefined ? rowKey : `${rowKey}::${modelId}`;
+      setBusyId(busyKey);
       setActionError(null);
       setProviders((prev) =>
-        prev.map((provider) => {
-          if (provider.id === key) {
+        prev.map((current) => {
+          if (providerRowKey(current) !== rowKey) return current;
+          if (modelId === undefined) {
             return {
-              ...provider,
+              ...current,
               enabled,
-              models: provider.models.map((model) => ({ ...model, enabled })),
+              models: current.models.map((model) => ({ ...model, enabled })),
             };
           }
-          if (!key.startsWith(`${provider.id}::`)) return provider;
-          const modelId = key.slice(provider.id.length + 2);
           return {
-            ...provider,
-            models: provider.models.map((model) =>
+            ...current,
+            models: current.models.map((model) =>
               model.id === modelId ? { ...model, enabled } : model,
             ),
           };
         }),
       );
+      const key = modelId === undefined ? provider.id : `${provider.id}::${modelId}`;
       try {
-        await sendJson(`/api/provider-models/${encodeURIComponent(key)}`, { enabled }, "PATCH");
+        await sendJson(
+          `/api/provider-models/${encodeURIComponent(key)}`,
+          {
+            enabled,
+            ...(provider.accountId ? { accountId: provider.accountId } : {}),
+          },
+          "PATCH",
+        );
         if (!mountedRef.current) return;
         await load({ quiet: true });
       } catch (err) {
@@ -274,6 +303,13 @@ export function ProviderModelsPanel() {
   const saveOrder = useCallback((nextProviders: ProviderModelsRow[]) => {
     orderPendingRef.current += 1;
     setOrderSaving(true);
+    const accountModelOrder: Record<string, Record<string, string[]>> = {};
+    for (const provider of nextProviders) {
+      if (!provider.accountId) continue;
+      const byProvider = (accountModelOrder[provider.accountId] ??= {});
+      byProvider[provider.id] = provider.models.map((model) => model.id);
+    }
+    const sharedProviders = nextProviders.filter((provider) => !provider.accountId);
     const operation = orderQueueRef.current.then(async () => {
       if (!mountedRef.current) return;
       setActionError(null);
@@ -281,13 +317,14 @@ export function ProviderModelsPanel() {
         await sendJson(
           "/api/provider-models/order",
           {
-            providerOrder: nextProviders.map((provider) => provider.id),
+            providerOrder: sharedProviders.map((provider) => provider.id),
             modelOrder: Object.fromEntries(
-              nextProviders.map((provider) => [
+              sharedProviders.map((provider) => [
                 provider.id,
                 provider.models.map((model) => model.id),
               ]),
             ),
+            accountModelOrder,
           },
           "PATCH",
         );
@@ -307,12 +344,17 @@ export function ProviderModelsPanel() {
   }, [load]);
 
   const moveProvider = useCallback(
-    (targetId: string) => {
-      if (dragging?.kind !== "provider" || dragging.id === targetId) return;
+    (targetRowKey: string) => {
+      if (dragging?.kind !== "provider" || dragging.rowKey === targetRowKey) return;
       setProviders((prev) => {
-        const from = prev.findIndex((provider) => provider.id === dragging.id);
-        const to = prev.findIndex((provider) => provider.id === targetId);
-        const next = moveItem(prev, from, to);
+        const shared = prev.filter((provider) => !provider.accountId);
+        const from = shared.findIndex((provider) => providerRowKey(provider) === dragging.rowKey);
+        const to = shared.findIndex((provider) => providerRowKey(provider) === targetRowKey);
+        if (from < 0 || to < 0) return prev;
+        const next = [
+          ...moveItem(shared, from, to),
+          ...prev.filter((provider) => provider.accountId),
+        ];
         saveOrder(next);
         return next;
       });
@@ -322,17 +364,17 @@ export function ProviderModelsPanel() {
   );
 
   const moveModel = useCallback(
-    (providerId: string, targetId: string) => {
+    (rowKey: string, targetId: string) => {
       if (
         dragging?.kind !== "model" ||
-        dragging.providerId !== providerId ||
+        dragging.rowKey !== rowKey ||
         dragging.id === targetId
       ) {
         return;
       }
       setProviders((prev) => {
         const next = prev.map((provider) => {
-          if (provider.id !== providerId) return provider;
+          if (providerRowKey(provider) !== rowKey) return provider;
           const from = provider.models.findIndex((model) => model.id === dragging.id);
           const to = provider.models.findIndex((model) => model.id === targetId);
           return { ...provider, models: moveItem(provider.models, from, to) };
@@ -349,6 +391,24 @@ export function ProviderModelsPanel() {
     (n, p) => n + p.models.filter((m) => m.enabled).length,
     0,
   );
+  const sharedProviders = providers.filter((provider) => !provider.accountId);
+  const accountProviders = providers.filter((provider) => provider.accountId);
+  const renderProvider = (provider: ProviderModelsRow) => {
+    const rowKey = providerRowKey(provider);
+    return (
+      <ProviderRow
+        key={rowKey}
+        provider={provider}
+        busyId={busyId}
+        onDragStartProvider={() => setDragging({ kind: "provider", rowKey })}
+        onDropProvider={() => moveProvider(rowKey)}
+        onDragStartModel={(modelId) => setDragging({ kind: "model", rowKey, id: modelId })}
+        onDropModel={(modelId) => moveModel(rowKey, modelId)}
+        onToggleProvider={(enabled) => void toggle(provider, undefined, enabled)}
+        onToggleModel={(modelId, enabled) => void toggle(provider, modelId, enabled)}
+      />
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -357,8 +417,7 @@ export function ProviderModelsPanel() {
           <h2 className="mb-1 text-sm font-semibold">モデル</h2>
           <p className="text-xs text-muted">
             無効にしたモデルはホームとタスクの選択から外れます。ドラッグで並び替えできます。
-            {providers.length > 0 &&
-              `（${providers.length} プロバイダー・有効 ${enabledCount} モデル）`}
+            {providers.length > 0 && `（${providers.length} モデル枠・有効 ${enabledCount} モデル）`}
             {orderSaving ? " 並び順を保存中…" : ""}
           </p>
         </div>
@@ -371,29 +430,24 @@ export function ProviderModelsPanel() {
       {actionError && <p className="text-sm text-danger">{actionError}</p>}
       {status === "ready" && providers.length === 0 && (
         <p className="text-sm text-muted">
-          認証済みプロバイダーがありません。エンジンタブでサブスクまたは API キーを設定してください。
+          選択可能なプロバイダーまたはログインアカウントがありません。認証設定を確認してください。
         </p>
       )}
-      {providers.length > 0 && (
-        <ul className="space-y-3">
-          {providers.map((provider) => (
-            <ProviderRow
-              key={provider.id}
-              provider={provider}
-              busyId={busyId}
-              onDragStartProvider={() => setDragging({ kind: "provider", id: provider.id })}
-              onDropProvider={() => moveProvider(provider.id)}
-              onDragStartModel={(modelId) =>
-                setDragging({ kind: "model", providerId: provider.id, id: modelId })
-              }
-              onDropModel={(modelId) => moveModel(provider.id, modelId)}
-              onToggleProvider={(enabled) => void toggle(provider.id, enabled)}
-              onToggleModel={(modelId, enabled) =>
-                void toggle(`${provider.id}::${modelId}`, enabled)
-              }
-            />
-          ))}
-        </ul>
+      {sharedProviders.length > 0 && (
+        <ul className="space-y-3">{sharedProviders.map(renderProvider)}</ul>
+      )}
+      {accountProviders.length > 0 && (
+        <section aria-labelledby="account-models-heading" className="space-y-3">
+          <div>
+            <h3 id="account-models-heading" className="text-sm font-semibold">
+              アカウント別モデル
+            </h3>
+            <p className="mt-1 text-xs text-muted">
+              OpenAI Codex / Anthropic はアカウントごとに有効・無効と並び順を設定します。
+            </p>
+          </div>
+          <ul className="space-y-3">{accountProviders.map(renderProvider)}</ul>
+        </section>
       )}
     </div>
   );

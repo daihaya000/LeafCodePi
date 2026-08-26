@@ -1,12 +1,28 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
+import { createAccount } from "@/lib/accounts";
+import {
+  providerModelStatePath,
+  readProviderModelState,
+} from "@/lib/provider-model-state";
 import { AccountRuntimeManager } from "./account-runtime-manager";
-import { getRuntimeFor, listModelsForAccounts } from "./harness";
+import {
+  getRuntimeFor,
+  listModelsForAccounts,
+  saveProviderModelsOrder,
+  setProviderOrModelEnabled,
+} from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
+const tempDirs: string[] = [];
 
 afterEach(() => {
   delete (globalThis as Record<string, unknown>)[GLOBAL_KEY];
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  delete process.env.LEAFCODE_PI_DATA_DIR;
 });
 
 describe("getRuntimeFor", () => {
@@ -83,6 +99,35 @@ describe("getRuntimeFor", () => {
         { providerID: "llama-server", accountId: undefined },
         { providerID: "openai-codex", accountId: "acc-1" },
       ],
+    );
+  });
+
+  it("saves enabled state and order in the account namespace", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-models-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const account = createAccount({ label: "仕事用", providers: ["openai-codex"] });
+
+    await setProviderOrModelEnabled("openai-codex::gpt-5", false, account.id);
+    await saveProviderModelsOrder({
+      accountModelOrder: {
+        [account.id]: { "openai-codex": ["gpt-4", "gpt-5"] },
+      },
+    });
+
+    const state = readProviderModelState(providerModelStatePath(dir));
+    assert.equal(state.disabled[`${account.id}::openai-codex::gpt-5`], true);
+    assert.deepEqual(
+      state.modelOrder[`${account.id}::openai-codex`],
+      ["gpt-4", "gpt-5"],
+    );
+    await assert.rejects(
+      () => setProviderOrModelEnabled("anthropic", false, account.id),
+      (error) => (error as { status?: number }).status === 400,
+    );
+    await assert.rejects(
+      () => setProviderOrModelEnabled("openai-codex", false),
+      (error) => (error as { status?: number }).status === 400,
     );
   });
 

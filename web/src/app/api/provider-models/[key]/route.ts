@@ -10,11 +10,15 @@ export async function PATCH(
 ) {
   try {
     const { key } = await params;
-    const body = (await req.json()) as { enabled?: boolean };
+    const body = (await req.json()) as { enabled?: boolean; accountId?: string };
     if (typeof body.enabled !== "boolean") {
       return NextResponse.json({ error: "enabled が必要です" }, { status: 400 });
     }
-    await setProviderOrModelEnabled(decodeURIComponent(key), body.enabled);
+    await setProviderOrModelEnabled(
+      decodeURIComponent(key),
+      body.enabled,
+      typeof body.accountId === "string" ? body.accountId : undefined,
+    );
     return NextResponse.json({ ok: true });
   } catch (error) {
     const { error: message, status } = jsonError(error);

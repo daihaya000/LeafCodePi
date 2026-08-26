@@ -1,4 +1,5 @@
 import {
+  accountProviderModelKey,
   isModelDisabled,
   isProviderDisabled,
   readProviderModelState,
@@ -17,6 +18,9 @@ export type ProviderModelsRow = {
   name: string;
   enabled: boolean;
   models: ProviderModelRow[];
+  /** 設定対象のログインアカウント。未指定は共有プロバイダ設定。 */
+  accountId?: string;
+  accountLabel?: string;
 };
 
 type RuntimeLike = {
@@ -28,6 +32,7 @@ type RuntimeLike = {
 export function buildProviderModelsCatalog(
   runtime: RuntimeLike,
   state = readProviderModelState(),
+  accountId?: string,
 ): ProviderModelsRow[] {
   const rows: ProviderModelsRow[] = [];
   for (const provider of runtime.getProviders()) {
@@ -38,21 +43,23 @@ export function buildProviderModelsCatalog(
         id: modelID,
         name: model.name || modelID,
         enabled:
-          !isProviderDisabled(provider.id, state) &&
-          !isModelDisabled(provider.id, modelID, state),
+          !isProviderDisabled(provider.id, state, accountId) &&
+          !isModelDisabled(provider.id, modelID, state, accountId),
       };
     });
     if (models.length === 0) continue;
+    const scope = accountProviderModelKey(provider.id, accountId);
     const orderedModels = sortByPreferredOrder(
       models,
-      state.modelOrder[provider.id] ?? [],
+      state.modelOrder[scope] ?? [],
       (model) => model.id,
     );
     rows.push({
       id: provider.id,
       name: provider.name,
-      enabled: !isProviderDisabled(provider.id, state),
+      enabled: !isProviderDisabled(provider.id, state, accountId),
       models: orderedModels,
+      ...(accountId ? { accountId } : {}),
     });
   }
   return sortByPreferredOrder(rows, state.providerOrder, (provider) => provider.id);

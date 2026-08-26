@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import {
   __resetProviderModelStateQueueForTests,
+  accountModelKey,
+  accountProviderModelKey,
   isModelDisabled,
   isProviderDisabled,
   providerModelStatePath,
@@ -51,6 +53,29 @@ describe("provider-model-state", () => {
     assert.deepEqual(state.modelOrder.anthropic, ["claude-opus-4-5", "claude-sonnet-4-5"]);
     assert.equal(isProviderDisabled("anthropic", state), true);
     assert.equal(isModelDisabled("openai-codex", "gpt-5", state), true);
+  });
+
+  it("keeps account model settings independent from shared settings", async () => {
+    const dir = tempDataDir();
+    await setProviderModelDisabled("openai-codex", true, "acc-1");
+    await setProviderModelDisabled("openai-codex::gpt-5", true, "acc-1");
+    await setProviderModelOrder({
+      modelOrder: {
+        [accountProviderModelKey("openai-codex", "acc-1")]: ["gpt-4", "gpt-5"],
+      },
+    });
+
+    const state = readProviderModelState(providerModelStatePath(dir));
+    assert.equal(state.disabled[accountProviderModelKey("openai-codex", "acc-1")], true);
+    assert.equal(state.disabled[accountModelKey("openai-codex", "gpt-5", "acc-1")], true);
+    assert.equal(isProviderDisabled("openai-codex", state), false);
+    assert.equal(isProviderDisabled("openai-codex", state, "acc-1"), true);
+    assert.equal(isModelDisabled("openai-codex", "gpt-5", state), false);
+    assert.equal(isModelDisabled("openai-codex", "gpt-5", state, "acc-1"), true);
+    assert.deepEqual(
+      state.modelOrder[accountProviderModelKey("openai-codex", "acc-1")],
+      ["gpt-4", "gpt-5"],
+    );
   });
 
   it("sortByPreferredOrder keeps unknowns after preferred ids", () => {
@@ -107,6 +132,35 @@ describe("buildProviderModelsCatalog", () => {
     assert.deepEqual(
       enabled.map((option) => option.value),
       ["openai-codex::gpt-5", "anthropic::claude-opus"],
+    );
+  });
+
+  it("applies account-specific disabled and model order settings", () => {
+    const runtime = {
+      getProviders: () => [{ id: "openai-codex", name: "OpenAI Codex" }],
+      getModels: () => [
+        { id: "gpt-5", name: "GPT-5" },
+        { id: "gpt-4", name: "GPT-4" },
+      ],
+      hasConfiguredAuth: () => true,
+    };
+    const catalog = buildProviderModelsCatalog(
+      runtime,
+      {
+        disabled: { "acc-1::openai-codex::gpt-5": true },
+        providerOrder: [],
+        modelOrder: { "acc-1::openai-codex": ["gpt-4", "gpt-5"] },
+      },
+      "acc-1",
+    );
+
+    assert.equal(catalog[0].accountId, "acc-1");
+    assert.deepEqual(
+      catalog[0].models.map((model) => ({ id: model.id, enabled: model.enabled })),
+      [
+        { id: "gpt-4", enabled: true },
+        { id: "gpt-5", enabled: false },
+      ],
     );
   });
 });

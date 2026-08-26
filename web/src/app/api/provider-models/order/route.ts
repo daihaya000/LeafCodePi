@@ -9,10 +9,12 @@ export async function PATCH(req: Request) {
     const body = (await req.json()) as {
       providerOrder?: string[];
       modelOrder?: Record<string, string[]>;
+      accountModelOrder?: Record<string, Record<string, string[]>>;
     };
     await saveProviderModelsOrder({
       providerOrder: body.providerOrder,
       modelOrder: body.modelOrder,
+      accountModelOrder: body.accountModelOrder,
     });
     return NextResponse.json({ ok: true });
   } catch (error) {

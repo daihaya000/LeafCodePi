@@ -1,6 +1,6 @@
 # マルチアカウント対応 実装計画（LeafCodePi 版）
 
-**ゴール:** OpenAI（Codex/ChatGPT）と Anthropic（Claude）のサブスクアカウントを複数登録し、タスクごとに利用アカウントを切り替えられるようにする。既存の API キー・環境変数・default アカウントの運用は変更しない。
+**ゴール:** OpenAI（Codex/ChatGPT）と Anthropic（Claude）のサブスクアカウントを複数登録し、タスクごとに利用アカウントを切り替えられるようにする。既定 auth は互換のため保持するが、Codex / Anthropic の新規ログイン・モデル選択はマルチアカウント前提で扱う。既存の API キー・環境変数・既存タスクは壊さない。
 
 **技術:** Next.js（App Router）、React、TypeScript、Vitest（node 環境）。Pi SDK `@earendil-works/pi-coding-agent` の `ModelRuntime.create({ authPath, modelsStorePath })` による認証ストレージ差し替えを利用する。
 
@@ -121,19 +121,20 @@ function getRuntimeFor(accountId: string | null): ModelRuntime | null {
 - 多重度とメモリ: **優先は「選択中アカウントのキャッシュのみ保持」**。非アクティブ runtime は LRU 的に破棄（上限 2〜3）。ただし実行中タスクが使っている runtime は破棄しない（レビュー反映 2）
 - `getHealth` / `listModels` / `completeModelText` / `listProviderModelsCatalog` / セッション生成は、`getRuntimeFor(accountId)`（タスク・クエリ由来）で解決
 
-### モデル一覧とアカウントの連動（レビュー反映 2）
+### モデル一覧・設定とアカウントの連動（レビュー反映 2）
 
-Composer のアカウント選択 = **表示モデル一覧の source of truth** とする。
+Home のモデル選択 = **表示モデル一覧の source of truth** とする。
 
-- Home の Composer で選択された accountId が `GET /api/models` の解決キー
-- `current.modelCache` を accountId キーのキャッシュに拡張（default は従来キー）
-- アカウント変更時はそのアカウントの runtime を解決して一覧を再取得
-- タスク作成 `insertTask` に `accountId` を保存（`web/src/lib/store.ts:136` に追加）。タスク実行時は保存 accountId を使う
-- ログイン後の `invalidateHealthCache` は既存機構でアカウントのキャッシュも無効化
+- `GET /api/models` は非アカウントプロバイダの共有モデルと、Codex / Anthropic の登録アカウント別モデルを返す
+- Codex / Anthropic の既定 auth 由来モデルは新規候補に出さず、アカウントモデルの `value` に accountId を含める
+- タスク作成 `insertTask` に `accountId` を保存し、タスク実行時は保存 accountId の runtime を使う
+- モデルの有効/無効と並び順は、非アカウントプロバイダでは共有、Codex / Anthropic ではアカウント単位で保存する
+- 状態キーは `accountId::providerId` / `accountId::providerId::modelId`、モデル順は `accountId::providerId` を使う
+- ログイン後の `invalidateHealthCache` は既存機構でモデルキャッシュを無効化する
 
 ### login / logout / 認証一覧（レビュー反映 3）
 
-`setProviderOrModelEnabled` / `saveProviderModelsOrder` はプロバイダ共通設定なので default のまま（アカウントで分けない）。
+`setProviderOrModelEnabled` / `saveProviderModelsOrder` は、非アカウントプロバイダでは従来の共有設定を維持し、OpenAI Codex / Anthropic はアカウント単位で保存する。設定画面は各アカウントのモデル枠を表示し、Home の候補と同じ enabled/order を参照する。
 
 - `POST /api/providers/[id]/login?accountId=<id>` — ログイン先 runtime を accountId で解決（default は従来通り）
 - `POST /api/providers/[id]/logout?accountId=<id>` — ログアウト先も accountId で解決（**logout の accountId 対応を login と同時に実装**）
@@ -173,9 +174,9 @@ CodexBar（`web/src/lib/codexbar/providers/{openai-codex,anthropic}.ts`）は現
 - 既存 `GET /api/providers`（認証一覧。`listProviderAuth` を返す、`web/src/app/api/providers/route.ts`）に `?accountId=`（同上）
 
 **UI（設定 → モデル → プロバイダ / Home / TaskView）**
-- `ProviderAuthPanel.tsx` に「アカウント」セクション追加: 一覧・作成ダイアログ（label + プロバイダ選択）・「このアカウントでログイン」ボタン（既存 OAuth フロー UI を再利用）・編集・削除
-- 各アカウントの provider 認証状態（`openai-codex` / `anthropic`）を Badge 表示
-- Home の Composer にアカウント選択（右側にチェックアイコン付きドロップダウン）。選択 = モデル一覧の source of truth
+- `ProviderAuthPanel.tsx` の OpenAI Codex / Anthropic 各プロバイダ行で、アカウントの作成・ログイン・再ログイン・ログアウト・編集・削除を管理（独立アカウント欄は置かない）
+- 各プロバイダのアカウント別モデル枠を `ProviderModelsPanel.tsx` に表示し、有効/無効とモデル順をアカウント単位で保存
+- Home の Composer はモデルドロップダウン内でアカウント別モデルを選択する。選択 = モデル一覧の source of truth
 - TaskView ヘッダーに現在のアカウント表示（新規のみ設定可。実行中のタスクでは変更不可）
 
 ## 既存機能との関係

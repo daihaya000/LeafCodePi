@@ -36,6 +36,8 @@ import {
   type ProviderModelsRow,
 } from "@/lib/provider-models";
 import {
+  accountProviderModelKey,
+  readProviderModelState,
   setProviderModelDisabled,
   setProviderModelOrder,
 } from "@/lib/provider-model-state";
@@ -73,7 +75,9 @@ import {
   accountAuthPath,
   accountHasProvider,
   accountModelsStorePath,
+  getAccount,
   isAccountProviderId,
+  listAccounts,
   resolvePiAgentDir,
   type AccountRecord,
 } from "@/lib/accounts";
@@ -1524,7 +1528,9 @@ export async function getHealth(): Promise<HealthDto> {
     /* initError is set */
   }
   const current = state();
-  const models = (await getRuntimeFor()) ? await listModels().catch(() => []) : [];
+  const models = (await getRuntimeFor())
+    ? await listModelsForAccounts(listAccounts()).catch(() => [])
+    : [];
   const value: HealthDto = {
     ok: !current.initError,
     engine: "pi",
@@ -1542,9 +1548,14 @@ export async function getHealth(): Promise<HealthDto> {
 }
 
 /** ランタイムごとの有効モデル一覧を構築する（既定・アカウント共通の処理）。 */
-async function buildModelOptions(runtime: ModelRuntime): Promise<ModelOption[]> {
+async function buildModelOptions(
+  runtime: ModelRuntime,
+  accountId?: string,
+): Promise<ModelOption[]> {
   await syncProvidersBestEffort(runtime);
-  const catalog = buildProviderModelsCatalog(runtime);
+  const catalog = accountId
+    ? buildProviderModelsCatalog(runtime, readProviderModelState(), accountId)
+    : buildProviderModelsCatalog(runtime);
   const enabled = new Set(
     enabledModelOptionsFromCatalog(catalog).map((option) => option.value),
   );
@@ -1607,7 +1618,7 @@ export async function listModelsForAccounts(
     try {
       const runtime = await getRuntimeFor(account.id);
       if (!runtime) continue;
-      const built = await buildModelOptions(runtime);
+      const built = await buildModelOptions(runtime, account.id);
       for (const option of built) {
         // API キー等で構成された他プロバイダを、この OAuth アカウントの枠へ複製しない。
         if (!accountHasProvider(account, option.providerID)) continue;
@@ -1707,22 +1718,98 @@ export async function completeModelText(options: {
 
 export async function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> {
   await ensureRuntime();
+  const rows: ProviderModelsRow[] = [];
   const runtime = await getRuntimeFor();
-  if (!runtime) return [];
-  return buildProviderModelsCatalog(runtime);
+  if (runtime) {
+    // Codex / Anthropic はマルチアカウント専用。共有欄には出さない。
+    rows.push(...buildProviderModelsCatalog(runtime).filter((row) => !isAccountProviderId(row.id)));
+  }
+
+  for (const account of listAccounts()) {
+    try {
+      const accountRuntime = await getRuntimeFor(account.id);
+      if (!accountRuntime) continue;
+      const catalog = buildProviderModelsCatalog(
+        accountRuntime,
+        readProviderModelState(),
+        account.id,
+      );
+      rows.push(
+        ...catalog
+          .filter(
+            (row) =>
+              isAccountProviderId(row.id) && accountHasProvider(account, row.id),
+          )
+          .map((row) => ({
+            ...row,
+            accountId: account.id,
+            accountLabel: account.label,
+          })),
+      );
+    } catch {
+      // 認証未完了・ランタイム初期化失敗のアカウントは一覧から省略する
+    }
+  }
+  return rows;
 }
 
-export async function setProviderOrModelEnabled(key: string, enabled: boolean): Promise<void> {
+export async function setProviderOrModelEnabled(
+  key: string,
+  enabled: boolean,
+  accountId?: string | null,
+): Promise<void> {
   if (!key.trim()) throw Object.assign(new Error("key が必要です"), { status: 400 });
-  await setProviderModelDisabled(key, !enabled);
+  const normalizedAccountId = accountId?.trim() || undefined;
+  const providerId = key.split("::", 1)[0];
+  if (!normalizedAccountId && isAccountProviderId(providerId)) {
+    throw Object.assign(new Error("このプロバイダーはアカウントIDが必要です"), { status: 400 });
+  }
+  if (normalizedAccountId) {
+    const account = getAccount(normalizedAccountId);
+    if (!account) throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
+    if (!isAccountProviderId(providerId) || !accountHasProvider(account, providerId)) {
+      throw Object.assign(new Error("アカウントに紐づかないプロバイダーです"), { status: 400 });
+    }
+  }
+  await setProviderModelDisabled(key, !enabled, normalizedAccountId);
   invalidateHealthCache();
 }
 
 export async function saveProviderModelsOrder(input: {
   providerOrder?: string[];
   modelOrder?: Record<string, string[]>;
+  accountModelOrder?: Record<string, Record<string, string[]>>;
 }): Promise<void> {
-  await setProviderModelOrder(input);
+  const modelOrder = { ...(input.modelOrder ?? {}) };
+  if (input.accountModelOrder !== undefined) {
+    if (
+      typeof input.accountModelOrder !== "object" ||
+      input.accountModelOrder === null ||
+      Array.isArray(input.accountModelOrder)
+    ) {
+      throw Object.assign(new Error("accountModelOrder が不正です"), { status: 400 });
+    }
+    for (const [accountId, byProvider] of Object.entries(input.accountModelOrder)) {
+      const account = getAccount(accountId);
+      if (!account) throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
+      if (typeof byProvider !== "object" || byProvider === null || Array.isArray(byProvider)) {
+        throw Object.assign(new Error("accountModelOrder が不正です"), { status: 400 });
+      }
+      for (const [providerId, order] of Object.entries(byProvider)) {
+        if (!isAccountProviderId(providerId) || !accountHasProvider(account, providerId)) {
+          throw Object.assign(new Error("アカウントに紐づかないプロバイダーです"), { status: 400 });
+        }
+        if (!Array.isArray(order) || order.some((id) => typeof id !== "string")) {
+          throw Object.assign(new Error("モデルの並び順が不正です"), { status: 400 });
+        }
+        modelOrder[accountProviderModelKey(providerId, accountId)] = order;
+      }
+    }
+  }
+  await setProviderModelOrder({
+    providerOrder: input.providerOrder,
+    modelOrder,
+  });
   invalidateHealthCache();
 }
 
