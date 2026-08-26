@@ -46,6 +46,7 @@ import { Button, cx, GhostSelect } from "@/components/ui";
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { notifyTasksChanged } from "@/lib/events";
+import { taskSidebarNotifyKey } from "@/lib/task-sidebar-notify";
 import { getJson, sendJson } from "@/lib/client";
 import { writeStoredAgent } from "@/lib/default-agent";
 import {
@@ -484,7 +485,7 @@ export function TaskView({
 
   const notifySidebarIfNeeded = useCallback((snapshotTask?: TaskSummary | TaskDetail | null) => {
     if (!snapshotTask) return;
-    const key = `${snapshotTask.id}|${snapshotTask.status}|${snapshotTask.title}`;
+    const key = taskSidebarNotifyKey(snapshotTask);
     if (key === sidebarNotifyKeyRef.current) return;
     sidebarNotifyKeyRef.current = key;
     notifyTasksChanged();
