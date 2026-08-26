@@ -1,15 +1,26 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TASK_PANES_STORAGE_KEY } from "@/lib/task-panes";
 
 const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
+  retargetActiveTab: vi.fn(),
   usePathname: vi.fn(() => "/"),
 }));
 
 vi.mock("@/lib/client", () => ({ getJson: mocks.getJson }));
 vi.mock("next/navigation", () => ({ usePathname: mocks.usePathname }));
+vi.mock("@/lib/task-panes", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/task-panes")>("@/lib/task-panes");
+  return {
+    ...actual,
+    retargetActiveTab: (...args: Parameters<typeof actual.retargetActiveTab>) => {
+      mocks.retargetActiveTab(...args);
+      return actual.retargetActiveTab(...args);
+    },
+  };
+});
 
 import { TaskPanesProvider, useTaskPanes } from "./TaskPanesContext";
 
@@ -25,6 +36,20 @@ function Probe() {
 function ActivePaneProbe() {
   const { state } = useTaskPanes();
   return <output data-testid="active-pane">{state.activePaneId}</output>;
+}
+
+function ActiveTabProbe() {
+  const { state } = useTaskPanes();
+  return <output data-testid="active-tab">{state.panes[0]?.activeTabId}</output>;
+}
+
+function DispatchProbe() {
+  const { dispatch } = useTaskPanes();
+  return (
+    <button onClick={() => dispatch({ type: "activateTab", paneId: "first-pane", taskId: "second" })}>
+      activate second
+    </button>
+  );
 }
 
 describe("TaskPanesProvider", () => {
@@ -133,5 +158,43 @@ describe("TaskPanesProvider", () => {
       expect(screen.getByTestId("active-pane").textContent).toBe("second-pane");
     });
     expect(window.location.pathname).toBe("/task/second");
+  });
+
+  it("内部タブ切替後は外部retargetを二重適用しない", async () => {
+    matches = true;
+    mocks.usePathname.mockReturnValue("/task/first");
+    localStorage.setItem(
+      TASK_PANES_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        panes: [{ id: "first-pane", tabs: ["first", "second"], activeTabId: "first" }],
+        activePaneId: "first-pane",
+      }),
+    );
+
+    const renderView = () => (
+      <TaskPanesProvider>
+        <ActiveTabProbe />
+        <DispatchProbe />
+      </TaskPanesProvider>
+    );
+    const { rerender } = render(renderView());
+
+    await waitFor(() => {
+      expect(screen.getByTestId("active-tab").textContent).toBe("first");
+    });
+    mocks.retargetActiveTab.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "activate second" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("active-tab").textContent).toBe("second");
+    });
+
+    mocks.usePathname.mockReturnValue("/task/second");
+    rerender(renderView());
+    await waitFor(() => {
+      expect(screen.getByTestId("active-tab").textContent).toBe("second");
+    });
+    expect(mocks.retargetActiveTab).not.toHaveBeenCalled();
   });
 });
