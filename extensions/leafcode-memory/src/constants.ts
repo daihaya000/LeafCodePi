@@ -10,6 +10,7 @@ export const ENTRY_DELIMITER = "\n§\n";
 // ─── Directory names ───
 export const DEFAULT_GLOBAL_MEMORY_DIR = "leafcode-memory";
 export const LEGACY_GLOBAL_MEMORY_DIR = "pi-hermes-memory";
+export const LOCK_DATABASE_FILE = ".leafcode-memory-locks.sqlite";
 export const DEFAULT_PROJECTS_MEMORY_DIR = "projects-memory";
 
 // ─── Character limits (not tokens — model-independent) ───

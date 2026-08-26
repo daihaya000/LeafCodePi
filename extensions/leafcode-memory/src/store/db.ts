@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { SCHEMA_SQL } from './schema.js';
 import { AtomicLockCoordinator } from './atomic-lock-coordinator.js';
+import { LOCK_DATABASE_FILE } from '../constants.js';
 import { canonicalStoragePathSync } from './canonical-storage-path.js';
 import { isBunRuntime, loadBetterSqlite3 } from './sqlite-native.js';
 
@@ -424,7 +425,7 @@ export class DatabaseManager {
   }
 
   private recoverDatabaseFile(cause: unknown, verify: () => void): DatabaseRecoveryResult {
-    const coordinator = AtomicLockCoordinator.shared(path.join(path.dirname(this.dbPath), '.pi-hermes-locks.sqlite'));
+    const coordinator = AtomicLockCoordinator.shared(path.join(path.dirname(this.dbPath), LOCK_DATABASE_FILE));
     const lockKey = `recovery:${this.dbPath}`;
     const deadline = Date.now() + Math.max(0, this.recoveryOptions.recoveryLockWaitMs);
 

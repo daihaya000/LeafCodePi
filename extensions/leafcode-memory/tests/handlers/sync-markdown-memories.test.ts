@@ -215,7 +215,7 @@ describe('memory sqlite sync + markdown backfill', () => {
     addMemory(dbManager, 'stale memory');
 
     const identity = fs.realpathSync(memoryFile);
-    const coordinator = new AtomicLockCoordinator(path.join(path.dirname(path.dirname(identity)), '.pi-hermes-locks.sqlite'));
+    const coordinator = new AtomicLockCoordinator(path.join(path.dirname(path.dirname(identity)), '.leafcode-memory-locks.sqlite'));
     const lease = coordinator.tryAcquire(`mutation:${identity}`, { staleMs: 300_000 });
     assert.ok(lease);
 

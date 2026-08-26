@@ -311,6 +311,10 @@ export class AtomicLockCoordinator {
     return `${path.resolve(this.dbPath)}\0${key}\0${token}`;
   }
 
+  close(): void {
+    this.discardCachedDb();
+  }
+
   private discardCachedDb(): void {
     const db = this.cachedDb;
     this.cachedDb = null;

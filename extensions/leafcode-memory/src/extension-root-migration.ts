@@ -6,6 +6,7 @@ import { AtomicLockCoordinator, type AtomicLockLease } from "./store/atomic-lock
 import { canonicalStoragePathSync } from "./store/canonical-storage-path.js";
 import { createRequire } from "node:module";
 import { isBunRuntime, loadBetterSqlite3 } from "./store/sqlite-native.js";
+import { LOCK_DATABASE_FILE } from "./constants.js";
 
 type MigrationDatabase = {
   exec: (sql: string) => void;
@@ -225,20 +226,30 @@ function isDatabaseCorruption(error: unknown): boolean {
     || message.includes("failed integrity_check");
 }
 
-async function acquireMigrationLease(legacyRoot: string, targetRoot: string): Promise<AtomicLockLease> {
-  const coordinator = AtomicLockCoordinator.shared(path.join(targetRoot, ".pi-hermes-locks.sqlite"));
+interface MigrationLease {
+  lease: AtomicLockLease;
+  coordinator: AtomicLockCoordinator;
+}
+
+async function acquireMigrationLease(legacyRoot: string, targetRoot: string): Promise<MigrationLease> {
+  const coordinator = new AtomicLockCoordinator(path.join(targetRoot, LOCK_DATABASE_FILE));
   const sourceIdentity = canonicalStoragePathSync(path.join(legacyRoot, "sessions.db"));
   const targetIdentity = canonicalStoragePathSync(path.join(targetRoot, "sessions.db"));
   const key = `extension-root-migration:${sourceIdentity}:${targetIdentity}`;
   const deadline = Date.now() + MIGRATION_LOCK_WAIT_MS;
 
-  while (true) {
-    const lease = coordinator.tryAcquire(key, { staleMs: 300_000 });
-    if (lease) return lease;
-    if (Date.now() >= deadline) {
-      throw new Error(`SQLite extension-root migration already in progress for ${targetIdentity}`);
+  try {
+    while (true) {
+      const lease = coordinator.tryAcquire(key, { staleMs: 300_000 });
+      if (lease) return { lease, coordinator };
+      if (Date.now() >= deadline) {
+        throw new Error(`SQLite extension-root migration already in progress for ${targetIdentity}`);
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, MIGRATION_LOCK_POLL_MS));
     }
-    await new Promise<void>((resolve) => setTimeout(resolve, MIGRATION_LOCK_POLL_MS));
+  } catch (error) {
+    coordinator.close();
+    throw error;
   }
 }
 
@@ -387,9 +398,9 @@ async function migrateDatabaseGeneration(
   backup: (source: string, staged: string, onProgress?: () => void) => Promise<void>,
   onBackupProgress?: () => void,
 ): Promise<void> {
-  let lease: AtomicLockLease | null = null;
+  let migrationLease: MigrationLease | null = null;
   try {
-    lease = await acquireMigrationLease(legacyRoot, targetRoot);
+    migrationLease = await acquireMigrationLease(legacyRoot, targetRoot);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     result.warnings.push(`${path.join(legacyRoot, "sessions.db")}: ${message}`);
@@ -472,6 +483,13 @@ async function migrateDatabaseGeneration(
   } | null = null;
   let corruptGeneration = false;
   let generationNames = sourceNames;
+  const finishWriteLock = (sql: "COMMIT" | "ROLLBACK"): void => {
+    if (!writeLock) return;
+    const lock = writeLock;
+    writeLock = null;
+    try { lock.exec(sql); } catch {}
+    try { lock.close(); } catch {}
+  };
   try {
     await fs.writeFile(pendingMarker, `${process.pid}:${randomUUID()}\n`, { mode: 0o600 });
     await fs.mkdir(stagingDir, { mode: 0o700 });
@@ -508,6 +526,10 @@ async function migrateDatabaseGeneration(
           try { await fs.unlink(staged); } catch {}
         }
       }
+      if (process.platform === "win32") {
+        finishWriteLock("COMMIT");
+        generationNames = await databaseFilesAt(legacyRoot);
+      }
       if (corruptGeneration) {
         try {
           retired = await moveDatabaseGeneration(generationNames, legacyRoot, retirementDir, retire);
@@ -525,6 +547,10 @@ async function migrateDatabaseGeneration(
       throw new Error("sessions.db is not a regular file or symlink");
     }
 
+    if (process.platform === "win32" && writeLock) {
+      finishWriteLock("COMMIT");
+      generationNames = await databaseFilesAt(legacyRoot);
+    }
     if (!corruptGeneration) {
       try {
         retired = await moveDatabaseGeneration(generationNames, legacyRoot, retirementDir, retire);
@@ -532,20 +558,19 @@ async function migrateDatabaseGeneration(
         if (error instanceof DatabaseGenerationMoveError) retired = error.moved;
         throw error;
       }
+      if (process.platform === "win32" && sourceState.isFile()) {
+        await fs.unlink(staged);
+        await backup(path.join(retirementDir, "sessions.db"), staged);
+      }
       const target = path.join(targetRoot, "sessions.db");
       await publish(staged, target);
       published.set(target, await fileIdentity(target));
     }
 
-    if (writeLock) {
-      // Every generation file has already been moved out of legacyRoot, so this
-      // transaction can no longer guard anything and its database no longer
-      // exists at this path. bun:sqlite reports SQLITE_IOERR here where
-      // better-sqlite3 succeeds; either way a failed cleanup COMMIT must not
-      // roll back an otherwise completed migration.
-      // The connection is closed in `finally` either way.
-      try { writeLock.exec("COMMIT"); } catch {}
-    }
+    // On POSIX the transaction stays open through retirement. Windows cannot
+    // rename an open SQLite generation, so it was committed before retirement
+    // and the staged snapshot was refreshed from the retired generation.
+    finishWriteLock("COMMIT");
     result.moved += generationNames.length;
   } catch (error) {
     for (const [target, identity] of [...published.entries()].reverse()) {
@@ -559,9 +584,7 @@ async function migrateDatabaseGeneration(
     }
     const destinationPreserved = await pathEntryExists(path.join(targetRoot, "sessions.db"));
     if (destinationPreserved) keepPendingMarker = true;
-    if (writeLock) {
-      try { writeLock.exec("ROLLBACK"); } catch {}
-    }
+    finishWriteLock("ROLLBACK");
     const baseMessage = error instanceof Error ? error.message : String(error);
     let message = restoreFailures.length > 0
       ? `${baseMessage}; recovery artifacts preserved at ${retirementDir} (${restoreFailures.join("; ")})`
@@ -579,6 +602,7 @@ async function migrateDatabaseGeneration(
   } finally {
     if (writeLock) {
       try { writeLock.close(); } catch {}
+      writeLock = null;
     }
     try { await fs.rm(stagingDir, { recursive: true, force: true }); } catch {}
     if (!preserveRetirement) {
@@ -589,7 +613,8 @@ async function migrateDatabaseGeneration(
     }
   }
   } finally {
-    lease.release();
+    migrationLease.lease.release();
+    migrationLease.coordinator.close();
   }
 }
 

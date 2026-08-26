@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { AtomicLockCoordinator, type AtomicLockLease } from "./atomic-lock-coordinator.js";
 import { canonicalStoragePath } from "./canonical-storage-path.js";
+import { LOCK_DATABASE_FILE } from "../constants.js";
 
 const MUTATION_WAIT_MS = 5_000;
 const MUTATION_STALE_MS = 300_000;
@@ -12,7 +13,7 @@ export async function canonicalMarkdownIdentity(filePath: string): Promise<strin
 export async function acquireMarkdownMutationLock(filePath: string): Promise<AtomicLockLease> {
   const identity = await canonicalMarkdownIdentity(filePath);
   const coordinatorDir = path.dirname(path.dirname(identity));
-  const coordinator = AtomicLockCoordinator.shared(path.join(coordinatorDir, ".pi-hermes-locks.sqlite"));
+  const coordinator = AtomicLockCoordinator.shared(path.join(coordinatorDir, LOCK_DATABASE_FILE));
   const lockKey = `mutation:${identity}`;
   const deadline = Date.now() + MUTATION_WAIT_MS;
   let lease = coordinator.tryAcquire(lockKey, { staleMs: MUTATION_STALE_MS });

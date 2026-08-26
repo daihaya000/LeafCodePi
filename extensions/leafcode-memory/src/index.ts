@@ -205,8 +205,10 @@ export default function (pi: ExtensionAPI) {
           );
         }
         persistenceInitialized = true;
-      } catch {
-        // Best-effort only: migration or SQLite backfill must not block startup.
+      } catch (error) {
+        const message = `leafcode-memory initialization failed: ${error instanceof Error ? error.message : String(error)}`;
+        if (ctx.ui?.notify) ctx.ui.notify(message, "error");
+        else console.warn(message);
       }
     }
 
