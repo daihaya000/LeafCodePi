@@ -109,6 +109,36 @@ describe("TaskPanesProvider", () => {
     });
   });
 
+  it("デスクトップからモバイルを経由してもペインとURLを保持する", async () => {
+    matches = true;
+    mocks.usePathname.mockReturnValue("/task/saved-task");
+    window.history.replaceState(null, "", "/task/saved-task");
+
+    render(
+      <TaskPanesProvider>
+        <Probe />
+      </TaskPanesProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("state").textContent).toBe("true:saved-task");
+    });
+    expect(window.location.pathname).toBe("/task/saved-task");
+
+    matches = false;
+    for (const listener of mediaListeners) listener(new Event("change") as MediaQueryListEvent);
+    await waitFor(() => {
+      expect(screen.getByTestId("state").textContent).toBe("false:saved-task");
+    });
+    expect(window.location.pathname).toBe("/task/saved-task");
+
+    matches = true;
+    for (const listener of mediaListeners) listener(new Event("change") as MediaQueryListEvent);
+    await waitFor(() => {
+      expect(screen.getByTestId("state").textContent).toBe("true:saved-task");
+    });
+  });
+
   it("root URL から保存済みタスクを復元した場合はURLも追従する", async () => {
     matches = true;
 
