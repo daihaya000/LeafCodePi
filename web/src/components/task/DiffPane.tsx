@@ -6,6 +6,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   CloudUpload,
+  Columns2,
   ExternalLink,
   GitBranch,
   GitCommitHorizontal,
@@ -91,53 +92,60 @@ const FileDiffBlock = memo(function FileDiffBlock({
 
   return (
     <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-surface">
-      <div className="flex w-full min-w-0 items-center gap-2 px-2.5 py-2">
+      <div className="flex w-full min-w-0 items-start gap-2 px-2.5 py-2">
         <input
           type="checkbox"
           checked={selected}
           onChange={(e) => onSelect(file.path, e.target.checked)}
-          className="h-5 w-5 shrink-0 cursor-pointer"
+          className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer"
           style={{ accentColor: "var(--accent)" }}
           aria-label={`${file.path} をコミット対象にする`}
         />
-        <button
-          type="button"
-          onClick={() => onToggle(file.path)}
-          aria-expanded={expanded}
-          aria-label={`${file.path} の差分を${expanded ? "折りたたむ" : "展開"}`}
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
-        >
-          <ChevronRight
-            className={cx(
-              "h-3.5 w-3.5 shrink-0 text-faint transition-transform",
-              expanded && "rotate-90",
+        <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={() => onToggle(file.path)}
+            aria-expanded={expanded}
+            aria-label={`${file.path} の差分を${expanded ? "折りたたむ" : "展開"}`}
+            className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left"
+          >
+            <ChevronRight
+              className={cx(
+                "h-3.5 w-3.5 shrink-0 text-faint transition-transform",
+                expanded && "rotate-90",
+              )}
+            />
+            <span className="min-w-0 truncate font-mono text-xs">
+              <span className="text-faint">{dir}</span>
+              <span className="text-text">{base}</span>
+            </span>
+            {file.untracked && (
+              <span className="shrink-0 rounded-full bg-success-bg px-2 py-0.5 text-[10px] font-medium text-success">
+                新規
+              </span>
             )}
-          />
-          <span className="min-w-0 truncate font-mono text-xs">
-            <span className="text-faint">{dir}</span>
-            <span className="text-text">{base}</span>
-          </span>
-          {file.untracked && (
-            <span className="shrink-0 rounded-full bg-success-bg px-2 py-0.5 text-[10px] font-medium text-success">
-              新規
-            </span>
-          )}
-          {file.binary && (
-            <span className="shrink-0 rounded-full bg-surface-3 px-2 py-0.5 text-[10px] text-muted">
-              バイナリ
-            </span>
-          )}
-          {file.modifiedAt && (
-            <span
-              className="shrink-0 text-[10px] whitespace-nowrap text-faint"
-              title={`最終更新: ${new Date(file.modifiedAt).toLocaleString("ja-JP")}`}
-            >
-              更新 {formatModifiedAt(file.modifiedAt)}
-            </span>
-          )}
-          <span className="flex-1" />
-          <DiffStat additions={file.additions} deletions={file.deletions} className="shrink-0" />
-        </button>
+            {file.binary && (
+              <span className="shrink-0 rounded-full bg-surface-3 px-2 py-0.5 text-[10px] text-muted">
+                バイナリ
+              </span>
+            )}
+          </button>
+          <div className="mt-1 flex min-w-0 items-center gap-2 pl-5">
+            <DiffStat
+              additions={file.additions}
+              deletions={file.deletions}
+              className="shrink-0"
+            />
+            {file.modifiedAt && (
+              <span
+                className="min-w-0 truncate text-[10px] whitespace-nowrap text-faint"
+                title={`最終更新: ${new Date(file.modifiedAt).toLocaleString("ja-JP")}`}
+              >
+                更新 {formatModifiedAt(file.modifiedAt)}
+              </span>
+            )}
+          </div>
+        </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <Button
             variant="ghost"
@@ -167,7 +175,7 @@ const FileDiffBlock = memo(function FileDiffBlock({
                     return (
                       <div
                         key={li}
-                        className="grid grid-cols-1 bg-diff-del-bg text-diff-del-text sm:grid-cols-2"
+                        className="grid grid-cols-1 bg-diff-del-bg text-diff-del-text @sm:grid-cols-2"
                       >
                         <div className="border-r border-border px-2 whitespace-pre">
                           -{line.text || " "}
@@ -180,7 +188,7 @@ const FileDiffBlock = memo(function FileDiffBlock({
                     return (
                       <div
                         key={li}
-                        className="grid grid-cols-1 bg-diff-add-bg text-diff-add-text sm:grid-cols-2"
+                        className="grid grid-cols-1 bg-diff-add-bg text-diff-add-text @sm:grid-cols-2"
                       >
                         <div className="border-r border-border px-2" />
                         <div className="px-2 whitespace-pre">+{line.text || " "}</div>
@@ -188,7 +196,7 @@ const FileDiffBlock = memo(function FileDiffBlock({
                     );
                   }
                   return (
-                    <div key={li} className="grid grid-cols-1 text-muted sm:grid-cols-2">
+                    <div key={li} className="grid grid-cols-1 text-muted @sm:grid-cols-2">
                       <div className="border-r border-border px-2 whitespace-pre">
                         {line.text || " "}
                       </div>
@@ -365,6 +373,20 @@ export function DiffPane({
     [files, deselected],
   );
   const allExpanded = files.length > 0 && files.every((f) => expanded[f.path]);
+  const allSelected = files.length > 0 && selectedPaths.length === files.length;
+  const selectAllFiles = useCallback(
+    (checked: boolean) => {
+      setDeselected((prev) => {
+        const next = { ...prev };
+        for (const f of files) {
+          if (checked) delete next[f.path];
+          else next[f.path] = true;
+        }
+        return next;
+      });
+    },
+    [files],
+  );
 
   const run = useCallback(
     async (fn: () => Promise<string>) => {
@@ -488,120 +510,149 @@ export function DiffPane({
     });
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg @container">
       {/* Action bar */}
-      <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-1.5 border-b border-border bg-surface px-3 py-2">
-        <span className="mr-1 shrink-0 text-xs font-semibold text-muted">変更</span>
-        {payload && (
-          <DiffStat additions={payload.additions} deletions={payload.deletions} className="shrink-0" />
-        )}
-        <span className="min-w-2 flex-1" />
-        <select
-          value={filter}
-          onChange={(e) => setFilter(e.target.value as "all" | "tracked" | "untracked")}
-          title="表示する変更の種類"
-          aria-label="表示する変更の種類"
-          className="h-8 min-w-0 max-w-full flex-[1_1_8rem] cursor-pointer rounded-lg border border-border bg-surface-2 px-2 text-[11px] text-muted outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:max-w-[9.5rem]"
-        >
-          <option value="all">すべての変更</option>
-          <option value="tracked">既存の変更</option>
-          <option value="untracked">新規ファイル</option>
-        </select>
-        <Button
-          variant={sideBySide ? "secondary" : "ghost"}
-          size="sm"
-          className="inline-flex"
-          title="左右に並べて差分表示"
-          onClick={() => setSideBySide((v) => !v)}
-        >
-          並列表示
-        </Button>
-        <Button
-          variant={panel === "commit" ? "secondary" : "ghost"}
-          size="sm"
-          aria-label="Commit パネル"
-          disabled={!hasChanges}
-          onClick={() => setPanel(panel === "commit" ? null : "commit")}
-        >
-          <GitCommitHorizontal className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Commit</span>
-        </Button>
-        <Button
-          variant={panel === "merge" ? "secondary" : "ghost"}
-          size="sm"
-          className="inline-flex"
-          aria-label="Merge パネル"
-          onClick={() => setPanel(panel === "merge" ? null : "merge")}
-        >
-          <GitMerge className="h-3.5 w-3.5" />
-          Merge
-        </Button>
-        <Button
-          variant={panel === "pr" ? "secondary" : "ghost"}
-          size="sm"
-          className="inline-flex"
-          aria-label="PR パネル"
-          disabled={prAvailable === false}
-          title={prAvailable === false ? "gh CLI が必要です" : undefined}
-          onClick={() => setPanel(panel === "pr" ? null : "pr")}
-        >
-          <GitPullRequest className="h-3.5 w-3.5" />
-          PR
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="inline-flex"
-          aria-label="現在のブランチをプッシュ"
-          disabled={
-            !branches?.hasRemote ||
-            busy ||
-            hasChanges ||
-            (branches?.ahead !== undefined && branches.ahead <= 0)
-          }
-          title={
-            !branches?.hasRemote
-              ? "リモートが設定されていません"
-              : hasChanges
-                ? "先にコミットしてください"
-                : branches?.upstream
-                  ? branches.ahead && branches.ahead > 0
-                    ? `${branches.ahead} コミットをプッシュ`
-                    : "プッシュするコミットはありません"
-                  : "初回プッシュ（upstream を設定）"
-          }
-          onClick={() => void push()}
-        >
-          <CloudUpload className="h-3.5 w-3.5" />
-          Push
-          {branches?.ahead && branches.ahead > 0 ? ` (${branches.ahead})` : ""}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          title={allExpanded ? "すべて折りたたむ" : "すべて展開"}
-          aria-label={allExpanded ? "すべて折りたたむ" : "すべて展開"}
-          onClick={() =>
-            setExpanded(Object.fromEntries(files.map((f) => [f.path, !allExpanded])))
-          }
-        >
-          {allExpanded ? (
-            <ChevronsDownUp className="h-4 w-4" />
-          ) : (
-            <ChevronsUpDown className="h-4 w-4" />
+      <div className="flex shrink-0 flex-col border-b border-border bg-surface">
+        {/* 変更概要 + 表示中のファイル数 + フィルター */}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 pt-2 pb-1.5">
+          <span className="shrink-0 text-xs font-semibold text-muted">変更</span>
+          {payload && (
+            <DiffStat additions={payload.additions} deletions={payload.deletions} className="shrink-0" />
           )}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          title="更新"
-          aria-label="差分を更新"
-          busy={loading}
-          disabled={busy}
-          onClick={() => void load()}
-        >
-          <RefreshCw className={cx("h-4 w-4", loading && "animate-spin")} />
-        </Button>
+          {files.length > 0 && (
+            <span
+              className="shrink-0 text-[11px] text-faint"
+              title={`表示中のファイル ${files.length} 件（フィルター適用後）`}
+            >
+              {files.length} ファイル
+            </span>
+          )}
+          <span className="min-w-2 flex-1" />
+          <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-muted">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={(e) => selectAllFiles(e.target.checked)}
+              disabled={files.length === 0}
+              className="h-4 w-4 cursor-pointer"
+              style={{ accentColor: "var(--accent)" }}
+              aria-label="表示中のファイルをすべてコミット対象にする"
+            />
+            全選択（{selectedPaths.length}/{files.length}）
+          </label>
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as "all" | "tracked" | "untracked")}
+            title="表示する変更の種類"
+            aria-label="表示する変更の種類"
+            className="h-8 min-w-0 max-w-full flex-[1_1_8rem] cursor-pointer rounded-lg border border-border bg-surface-2 px-2 text-[11px] text-muted outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:max-w-[9.5rem]"
+          >
+            <option value="all">すべての変更</option>
+            <option value="tracked">既存の変更</option>
+            <option value="untracked">新規ファイル</option>
+          </select>
+        </div>
+        {/* 表示操作 / Git 操作 */}
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 px-3 pb-2">
+          <Button
+            variant={sideBySide ? "secondary" : "ghost"}
+            size="sm"
+            className="inline-flex"
+            aria-label="左右に並べて差分を表示"
+            title="左右に並べて差分表示"
+            onClick={() => setSideBySide((v) => !v)}
+          >
+            <Columns2 className="h-3.5 w-3.5" />
+            並列表示
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            title={allExpanded ? "すべて折りたたむ" : "すべて展開"}
+            aria-label={allExpanded ? "すべて折りたたむ" : "すべて展開"}
+            onClick={() =>
+              setExpanded(Object.fromEntries(files.map((f) => [f.path, !allExpanded])))
+            }
+          >
+            {allExpanded ? (
+              <ChevronsDownUp className="h-4 w-4" />
+            ) : (
+              <ChevronsUpDown className="h-4 w-4" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            title="更新"
+            aria-label="差分を更新"
+            busy={loading}
+            disabled={busy}
+            onClick={() => void load()}
+          >
+            <RefreshCw className={cx("h-4 w-4", loading && "animate-spin")} />
+          </Button>
+          <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+          <Button
+            variant={panel === "commit" ? "secondary" : "ghost"}
+            size="sm"
+            aria-label="Commit パネル"
+            disabled={!hasChanges}
+            onClick={() => setPanel(panel === "commit" ? null : "commit")}
+          >
+            <GitCommitHorizontal className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Commit</span>
+          </Button>
+          <Button
+            variant={panel === "merge" ? "secondary" : "ghost"}
+            size="sm"
+            className="inline-flex"
+            aria-label="Merge パネル"
+            onClick={() => setPanel(panel === "merge" ? null : "merge")}
+          >
+            <GitMerge className="h-3.5 w-3.5" />
+            Merge
+          </Button>
+          <Button
+            variant={panel === "pr" ? "secondary" : "ghost"}
+            size="sm"
+            className="inline-flex"
+            aria-label="PR パネル"
+            disabled={prAvailable === false}
+            title={prAvailable === false ? "gh CLI が必要です" : undefined}
+            onClick={() => setPanel(panel === "pr" ? null : "pr")}
+          >
+            <GitPullRequest className="h-3.5 w-3.5" />
+            PR
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="inline-flex"
+            aria-label="現在のブランチをプッシュ"
+            disabled={
+              !branches?.hasRemote ||
+              busy ||
+              hasChanges ||
+              (branches?.ahead !== undefined && branches.ahead <= 0)
+            }
+            title={
+              !branches?.hasRemote
+                ? "リモートが設定されていません"
+                : hasChanges
+                  ? "先にコミットしてください"
+                  : branches?.upstream
+                    ? branches.ahead && branches.ahead > 0
+                      ? `${branches.ahead} コミットをプッシュ`
+                      : "プッシュするコミットはありません"
+                    : "初回プッシュ（upstream を設定）"
+            }
+            onClick={() => void push()}
+          >
+            <CloudUpload className="h-3.5 w-3.5" />
+            Push
+            {branches?.ahead && branches.ahead > 0 ? ` (${branches.ahead})` : ""}
+          </Button>
+        </div>
       </div>
 
       {/* Inline action panels */}
