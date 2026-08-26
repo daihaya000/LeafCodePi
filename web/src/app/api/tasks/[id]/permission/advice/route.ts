@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSetting } from "@/lib/pi/web-settings";
 import {
-  GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY,
   GENERATION_FALLBACK_MODEL_SETTING_KEY,
-  GENERATION_MODEL_EFFORT_SETTING_KEY,
   GENERATION_MODEL_SETTING_KEY,
 } from "@/lib/generation-model-key";
 import {
@@ -17,7 +15,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_REQUEST_ID_CHARS = 200;
-const MAX_COMMAND_CHARS = 12_000;
+const MAX_COMMAND_CHARS = 6_000;
 
 const PERMISSION_ADVICE_SYSTEM_INSTRUCTION = [
   "あなたは危険なシェルコマンドに対する第三者レビュアーです。",
@@ -73,13 +71,7 @@ export async function POST(
   const fallbackModel = parseDirectModelKey(getSetting(GENERATION_FALLBACK_MODEL_SETTING_KEY));
   const candidates = buildDirectGenerationCandidates({
     primary: configuredModel,
-    primaryEffort: configuredModel
-      ? getSetting(GENERATION_MODEL_EFFORT_SETTING_KEY) || undefined
-      : undefined,
     fallback: fallbackModel,
-    fallbackEffort: fallbackModel
-      ? getSetting(GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY) || undefined
-      : undefined,
   });
   if (candidates.length === 0) {
     return NextResponse.json({ error: "生成モデルが設定されていません" }, { status: 400 });
@@ -90,7 +82,7 @@ export async function POST(
       candidates,
       system: PERMISSION_ADVICE_SYSTEM_INSTRUCTION,
       prompt: permissionAdvicePrompt(permission.command, permission.labels),
-      maxTokens: 240,
+      maxTokens: 160,
       temperature: 0.2,
       timeoutMs: 30_000,
     });

@@ -37,6 +37,8 @@ describe("/api/tasks/[id]/permission/advice", () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
       expect(body.model).toBe("advice-model");
+      expect(body.max_tokens).toBe(160);
+      expect(body.chat_template_kwargs).toBeUndefined();
       expect(body.messages[0].content).toContain("第三者レビュアー");
       expect(body.messages[1].content).toContain("rm -rf ./build");
       return new Response(JSON.stringify({ choices: [{ message: { content: "実行前に内容と対象を確認してください。" } }] }), {
