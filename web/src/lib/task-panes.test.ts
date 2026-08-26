@@ -156,6 +156,24 @@ describe("openInNewPane", () => {
     expect(next.panes[MAX_PANES - 1].tabs).toEqual(["t3", "extra"]);
     expect(next.activePaneId).toBe("p3");
   });
+
+  it("ペイン上限かつフォールバック先満杯でも既存タスクを失わない", () => {
+    const full = Array.from({ length: MAX_TABS_PER_PANE }, (_, i) => `full-${i}`);
+    const base = state(
+      pane(P1, ["keep", "moving"], "moving"),
+      pane(P2, ["target"]),
+      pane(P3, ["other"]),
+      pane("p4", full),
+    );
+    const next = reducer(base, {
+      type: "openInNewPane",
+      taskId: "moving",
+      anchorPaneId: P2,
+      direction: "right",
+    });
+    expect(next).toBe(base);
+    expect(next.panes[0].tabs).toContain("moving");
+  });
 });
 
 describe("openInNewPane with direction", () => {

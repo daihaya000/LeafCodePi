@@ -209,6 +209,8 @@ export function taskPanesReducer(
       }
       if (panes.length >= MAX_PANES) {
         const last = panes[panes.length - 1]!;
+        // 移動元を先に外しているため、フォールバック先が満杯なら元状態へ戻す。
+        if (last.tabs.length >= MAX_TABS_PER_PANE) return state;
         return taskPanesReducer(
           { ...state, panes },
           { type: "openTab", paneId: last.id, taskId: action.taskId },
