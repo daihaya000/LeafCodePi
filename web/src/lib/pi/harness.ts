@@ -33,6 +33,7 @@ import {
 import {
   buildProviderModelsCatalog,
   enabledModelOptionsFromCatalog,
+  mergeIntegratedProviderRows,
   type ProviderModelsRow,
 } from "@/lib/provider-models";
 import {
@@ -2055,23 +2056,26 @@ export async function completeModelText(options: {
 
 export async function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> {
   await ensureRuntime();
+  const state = readProviderModelState();
+  const routingState = readProviderRouting();
   const rows: ProviderModelsRow[] = [];
+  const accountRows: ProviderModelsRow[] = [];
   const runtime = await getRuntimeFor();
   if (runtime) {
     // Codex / Anthropic はマルチアカウント専用。共有欄には出さない。
-    rows.push(...buildProviderModelsCatalog(runtime).filter((row) => !isAccountProviderId(row.id)));
+    rows.push(
+      ...buildProviderModelsCatalog(runtime, state).filter(
+        (row) => !isAccountProviderId(row.id),
+      ),
+    );
   }
 
   for (const account of listAccounts()) {
     try {
       const accountRuntime = await getRuntimeFor(account.id);
       if (!accountRuntime) continue;
-      const catalog = buildProviderModelsCatalog(
-        accountRuntime,
-        readProviderModelState(),
-        account.id,
-      );
-      rows.push(
+      const catalog = buildProviderModelsCatalog(accountRuntime, state, account.id);
+      accountRows.push(
         ...catalog
           .filter(
             (row) =>
@@ -2087,15 +2091,71 @@ export async function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> 
       // 認証未完了・ランタイム初期化失敗のアカウントは一覧から省略する
     }
   }
-  const state = readProviderModelState();
+
+  const integratedRows = new Map<string, ProviderModelsRow[]>();
+  const accountEntries: Array<{ row: ProviderModelsRow } | { providerId: string }> = [];
+  for (const row of accountRows) {
+    if (
+      isAccountRoutingProvider(row.id) &&
+      accountRoutingMode(row.id, routingState) === "integrated"
+    ) {
+      const group = integratedRows.get(row.id) ?? [];
+      if (group.length === 0) accountEntries.push({ providerId: row.id });
+      group.push(row);
+      integratedRows.set(row.id, group);
+    } else {
+      accountEntries.push({ row });
+    }
+  }
+  for (const entry of accountEntries) {
+    if ("row" in entry) {
+      rows.push(entry.row);
+      continue;
+    }
+    const merged = mergeIntegratedProviderRows(integratedRows.get(entry.providerId) ?? [], state);
+    if (merged) rows.push(merged);
+  }
+
   const rowKey = (row: ProviderModelsRow) =>
     row.accountId ? accountProviderModelKey(row.id, row.accountId) : row.id;
-  const hasAccountRowOrder = rows.some(
+  const hasAccountRowOrder = accountRows.some(
     (row) => row.accountId && state.providerOrder.includes(rowKey(row)),
   );
-  return hasAccountRowOrder
-    ? sortByPreferredOrder(rows, state.providerOrder, rowKey)
-    : rows;
+  const hasIntegratedRowOrder = rows.some(
+    (row) =>
+      !row.accountId &&
+      isAccountRoutingProvider(row.id) &&
+      accountRoutingMode(row.id, routingState) === "integrated" &&
+      state.providerOrder.includes(row.id),
+  );
+  if (!hasAccountRowOrder && !hasIntegratedRowOrder) return rows;
+
+  const orderIndex = new Map(state.providerOrder.map((key, index) => [key, index]));
+  const integratedRowRank = new Map<string, number>();
+  for (const row of accountRows) {
+    if (!row.accountId) continue;
+    const rank = orderIndex.get(rowKey(row));
+    if (rank === undefined) continue;
+    const current = integratedRowRank.get(row.id);
+    integratedRowRank.set(row.id, current === undefined ? rank : Math.min(current, rank));
+  }
+  const rank = (row: ProviderModelsRow): number => {
+    if (row.accountId && hasAccountRowOrder) {
+      return orderIndex.get(rowKey(row)) ?? Number.MAX_SAFE_INTEGER;
+    }
+    if (!row.accountId) {
+      return (
+        orderIndex.get(row.id) ??
+        integratedRowRank.get(row.id) ??
+        Number.MAX_SAFE_INTEGER
+      );
+    }
+    return orderIndex.get(row.id) ?? Number.MAX_SAFE_INTEGER;
+  };
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => rank(a.row) - rank(b.row) || a.index - b.index)
+    .map(({ row }) => row);
 }
 
 export async function setProviderOrModelEnabled(
@@ -2107,7 +2167,18 @@ export async function setProviderOrModelEnabled(
   const normalizedAccountId = accountId?.trim() || undefined;
   const providerId = key.split("::", 1)[0];
   if (!normalizedAccountId && isAccountProviderId(providerId)) {
-    throw Object.assign(new Error("このプロバイダーはアカウントIDが必要です"), { status: 400 });
+    if (accountRoutingMode(providerId) !== "integrated") {
+      throw Object.assign(new Error("このプロバイダーはアカウントIDが必要です"), { status: 400 });
+    }
+    const accounts = listAccounts().filter((account) => accountHasProvider(account, providerId));
+    if (accounts.length === 0) {
+      throw Object.assign(new Error("ログインアカウントが見つかりません"), { status: 404 });
+    }
+    for (const account of accounts) {
+      await setProviderModelDisabled(key, !enabled, account.id);
+    }
+    invalidateHealthCache();
+    return;
   }
   if (normalizedAccountId) {
     const account = getAccount(normalizedAccountId);
@@ -2126,6 +2197,21 @@ export async function saveProviderModelsOrder(input: {
   accountModelOrder?: Record<string, Record<string, string[]>>;
 }): Promise<void> {
   const modelOrder = { ...(input.modelOrder ?? {}) };
+  const routingState = readProviderRouting();
+  for (const [providerId, order] of Object.entries(modelOrder)) {
+    if (
+      !isAccountRoutingProvider(providerId) ||
+      accountRoutingMode(providerId, routingState) !== "integrated"
+    ) {
+      continue;
+    }
+    delete modelOrder[providerId];
+    for (const account of listAccounts()) {
+      if (accountHasProvider(account, providerId)) {
+        modelOrder[accountProviderModelKey(providerId, account.id)] = order;
+      }
+    }
+  }
   if (input.accountModelOrder !== undefined) {
     if (
       typeof input.accountModelOrder !== "object" ||

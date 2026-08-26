@@ -65,6 +65,29 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe("ProviderModelsPanel account model settings", () => {
+  it("renders integrated providers without account-specific rows", async () => {
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve(
+        jsonResponse({
+          providers: [
+            {
+              id: "openai-codex",
+              name: "OpenAI Codex",
+              enabled: true,
+              models: [{ id: "gpt-5", name: "GPT-5", enabled: true }],
+            },
+          ],
+        }),
+      ),
+    );
+    render(<ProviderModelsPanel />);
+    await screen.findByRole("heading", { name: "モデル" });
+
+    expect(screen.getByLabelText("OpenAI Codex をドラッグして並び替え")).toBeTruthy();
+    expect(screen.queryByText("アカウント: 仕事用")).toBeNull();
+    expect(screen.queryByText("アカウント: 個人用")).toBeNull();
+  });
+
   it("updates only the selected account model", async () => {
     render(<ProviderModelsPanel />);
     await screen.findByRole("heading", { name: "モデル" });

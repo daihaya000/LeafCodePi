@@ -73,6 +73,47 @@ export function buildProviderModelsCatalog(
   );
 }
 
+/**
+ * 統合モード用に、同一プロバイダーのアカウント行を 1 行へまとめる。
+ * 有効状態は候補プールの和集合として扱い、無効化済みモデルも再有効化できるよう残す。
+ */
+export function mergeIntegratedProviderRows(
+  rows: ProviderModelsRow[],
+  state = readProviderModelState(),
+): ProviderModelsRow | null {
+  const first = rows[0];
+  if (!first) return null;
+  const hasAccountRowOrder = rows.some(
+    (row) =>
+      row.accountId !== undefined &&
+      state.providerOrder.includes(accountProviderModelKey(row.id, row.accountId)),
+  );
+  const orderedRows = hasAccountRowOrder
+    ? sortByPreferredOrder(
+        rows,
+        state.providerOrder,
+        (row) => accountProviderModelKey(row.id, row.accountId),
+      )
+    : rows;
+  const models = new Map<string, ProviderModelRow>();
+  for (const row of orderedRows) {
+    for (const model of row.models) {
+      const current = models.get(model.id);
+      if (!current) {
+        models.set(model.id, { ...model });
+      } else if (model.enabled) {
+        current.enabled = true;
+      }
+    }
+  }
+  return {
+    id: first.id,
+    name: first.name,
+    enabled: orderedRows.some((row) => row.enabled),
+    models: [...models.values()],
+  };
+}
+
 export function enabledModelOptionsFromCatalog(
   catalog: ProviderModelsRow[],
 ): ModelOption[] {

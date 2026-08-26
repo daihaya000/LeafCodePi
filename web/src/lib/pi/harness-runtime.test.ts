@@ -196,6 +196,32 @@ describe("getRuntimeFor", () => {
     );
   });
 
+  it("applies integrated model settings to every provider account", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-integrated-models-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const first = createAccount({ label: "仕事用", providers: ["openai-codex"] });
+    const second = createAccount({ label: "個人用", providers: ["openai-codex"] });
+
+    await setAccountRoutingMode("openai-codex", "integrated");
+    await setProviderOrModelEnabled("openai-codex::gpt-5", false);
+    await saveProviderModelsOrder({
+      modelOrder: { "openai-codex": ["gpt-4", "gpt-5"] },
+    });
+
+    const state = readProviderModelState(providerModelStatePath(dir));
+    assert.equal(state.disabled[`${first.id}::openai-codex::gpt-5`], true);
+    assert.equal(state.disabled[`${second.id}::openai-codex::gpt-5`], true);
+    assert.deepEqual(
+      state.modelOrder[`${first.id}::openai-codex`],
+      ["gpt-4", "gpt-5"],
+    );
+    assert.deepEqual(
+      state.modelOrder[`${second.id}::openai-codex`],
+      ["gpt-4", "gpt-5"],
+    );
+  });
+
   it("returns null before the runtime is initialized", async () => {
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
       modelRuntime: null,

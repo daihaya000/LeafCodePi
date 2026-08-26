@@ -83,14 +83,14 @@ type AccountRoutingMode = "integrated" | "separate";
 
 ### 2. 統合モードの見え方
 
-統合するのは利用側のモデルカタログであり、管理画面の物理アカウント行は残す。
+統合時は利用側と管理画面のモデルカタログを provider/model 単位へまとめる。アカウント別の有効状態と順序は内部に保持し、統合行の操作時は紐づく全アカウントへ反映する。
 
 - Home / TaskView / 生成モデル候補: `OpenAI Codex · 仕事用` 等を出さず、`openai-codex` のモデルを 1 組だけ表示
-- `ProviderModelsPanel`: 現行のアカウント別行を維持。各行の provider/model 有効状態が統合プールへの参加条件になる
+- `ProviderModelsPanel`: 統合時はプロバイダーごとに 1 行、アカウント別モードでは現行どおりアカウント行を表示する
 - TaskView: 実行後は既存 `TaskAccountBadge` で実際に選ばれたアカウント名を表示
 - CodexBar: 現行どおり親は平均、展開内はアカウント別。統合モードでも表示集計は変更しない
 
-これにより、仮想プロバイダーのための重複した enable/order ストアを新設せず、既存のアカウント別設定をそのまま候補フィルターとして再利用する。
+これにより、仮想プロバイダーのための別 enable/order ストアを新設せず、既存のアカウント別設定を統合行の初期値と実行候補へ再利用する。
 
 ### 3. 統合モデルの組み立て
 
@@ -217,9 +217,8 @@ PATCH /api/providers/:id
 ```text
 OpenAI Codex   openai-codex   アカウントで管理
 
-モデルの扱い   [ 統合 ] [ アカウント別 ]
-統合: 新規タスクを使用率の低い認証済みアカウントへ自動で割り当てます。
-既存タスクのアカウントは変更されません。
+[✓] 統合
+（オフの場合はアカウント別）
 
 ログインアカウント                              アカウントを追加
   仕事用  認証済
@@ -237,14 +236,12 @@ OpenAI Codex   openai-codex   アカウントで管理
 
 ### レスポンシブ・アクセシビリティ
 
-- 2 択は `fieldset` + native radio を使い、見た目だけ segmented control にする
-- `legend` は「モデルの扱い」、各 radio のラベルは「統合」「アカウント別」
-- mobile は横幅 100%、sm 以上は内容幅。44px 以上の操作領域を維持
-- focus ring は既存 `accent/primary` token、選択は色だけでなく文字・checked state で示す
-- success/danger 以外の新色を追加せず、既存 `surface-*`、`border`、`text-muted` を使う
-- モード説明は常時表示し、使用量不明時の fallback があることをツールチップだけに隠さない
+- モード切替は native checkbox 1 つで、checked は統合、unchecked はアカウント別を表す
+- checkbox は既存の `accent` token を使い、キーボードとスクリーンリーダーから操作できるようにする
+- mobile でもラベルを押せる操作領域を確保し、不要なカード・説明文・segmented control は追加しない
+- success/danger 以外の新色を追加せず、既存 `text-muted` を使う
 
-`ProviderModelsPanel` は物理アカウント行を維持し、説明へ「統合モードでは有効なアカウント行がルーティング候補になります」を追記する。
+`ProviderModelsPanel` は統合時に provider/model ごとの 1 行へまとめ、統合行の有効状態・モデル順の変更を紐づくアカウントへ反映する。アカウント別へ戻すとアカウント行を表示する。
 
 ## データフロー
 

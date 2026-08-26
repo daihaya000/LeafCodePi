@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, it } from "vitest";
+import { afterEach, beforeEach, describe, it } from "vitest";
 import { createAccount } from "@/lib/accounts";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
 import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
@@ -13,6 +13,12 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const tempDirs: string[] = [];
+
+beforeEach(() => {
+  const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-complete-test-"));
+  tempDirs.push(dir);
+  process.env.LEAFCODE_PI_DATA_DIR = dir;
+});
 
 /** completeModelText は state().modelRuntime 経由で Pi ランタイムを使うため、
  *  グローバル state にスタブを注入して実装を直接検証する。

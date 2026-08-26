@@ -18,6 +18,7 @@ import {
 import {
   buildProviderModelsCatalog,
   enabledModelOptionsFromCatalog,
+  mergeIntegratedProviderRows,
 } from "@/lib/provider-models";
 
 const dirs: string[] = [];
@@ -162,6 +163,51 @@ describe("buildProviderModelsCatalog", () => {
         { id: "gpt-5", enabled: false },
       ],
     );
+  });
+
+  it("merges account rows for integrated display", () => {
+    const merged = mergeIntegratedProviderRows(
+      [
+        {
+          id: "openai-codex",
+          name: "OpenAI Codex",
+          accountId: "acc-1",
+          accountLabel: "仕事用",
+          enabled: true,
+          models: [
+            { id: "gpt-5", name: "GPT-5", enabled: false },
+            { id: "gpt-4", name: "GPT-4", enabled: true },
+          ],
+        },
+        {
+          id: "openai-codex",
+          name: "OpenAI Codex",
+          accountId: "acc-2",
+          accountLabel: "個人用",
+          enabled: false,
+          models: [
+            { id: "gpt-5", name: "GPT-5", enabled: true },
+            { id: "gpt-3", name: "GPT-3", enabled: false },
+          ],
+        },
+      ],
+      {
+        disabled: {},
+        providerOrder: ["acc-2::openai-codex", "acc-1::openai-codex"],
+        modelOrder: {},
+      },
+    );
+
+    assert.deepEqual(merged, {
+      id: "openai-codex",
+      name: "OpenAI Codex",
+      enabled: true,
+      models: [
+        { id: "gpt-5", name: "GPT-5", enabled: true },
+        { id: "gpt-3", name: "GPT-3", enabled: false },
+        { id: "gpt-4", name: "GPT-4", enabled: true },
+      ],
+    });
   });
 
   it("uses account row order for the unified provider list", () => {
