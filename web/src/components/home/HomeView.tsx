@@ -20,10 +20,6 @@ import { Button, GhostSelect } from "@/components/ui";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { DEFAULT_AGENT, readStoredAgent, writeStoredAgent } from "@/lib/default-agent";
-import {
-  readSelectedAccountId,
-  writeSelectedAccountId,
-} from "@/lib/selected-account";
 import { defaultThinkingLevel, isThinkingLevel } from "@/lib/thinking-levels";
 import {
   readSubagentPermission,
@@ -58,7 +54,6 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const [projectId, setProjectId] = useState(initialProjectId ?? "");
   const [models, setModels] = useState<ModelOption[]>([]);
   const [model, setModel] = useState("");
-  const [accountId, setAccountId] = useState<string | null>(() => readSelectedAccountId());
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("off");
   const [prompt, setPrompt] = useState("");
   const [goalLoopEnabled, setGoalLoopEnabled] = useState(false);
@@ -204,7 +199,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
         thinkingLevel,
         images,
         ...(agent ? { agent } : {}),
-        ...(accountId ? { accountId } : {}),
+        ...(selectedModel?.accountId ? { accountId: selectedModel.accountId } : {}),
         subagentPermission,
         permissionMode,
         skillPermission,
@@ -364,12 +359,8 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                     disabled={submitting}
                     options={models}
                     onChange={(value) => {
-                      const option = models.find((o) => o.value === value);
                       setModel(value);
                       localStorage.setItem(MODEL_KEY, value);
-                      const nextAccount = option?.accountId ?? null;
-                      setAccountId(nextAccount);
-                      writeSelectedAccountId(nextAccount);
                     }}
                     className="min-w-0 max-w-[9rem] shrink sm:max-w-48"
                   />

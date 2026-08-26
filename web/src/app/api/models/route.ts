@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listAccounts } from "@/lib/accounts";
-import { listModels, listModelsForAccounts, jsonError } from "@/lib/pi/harness";
+import { listModelsForAccounts, jsonError } from "@/lib/pi/harness";
 import { getCachedUsage } from "@/lib/codexbar/cache";
 import { attachCodexBarUsage } from "./map";
 
@@ -16,25 +16,21 @@ export const dynamic = "force-dynamic";
 const USAGE_MAX_AGE_MS = 30 * 60 * 1000;
 
 /**
- * モデル一覧。アカウントが登録されていれば既定 + 各アカウントの対象プロバイダの
- * モデルをまとめて返す。アカウントのモデルには accountId / accountLabel が付く
- * （Home でアカウントをプロバイダ枠として表示するため）。レガシーの `?accountId=` は
- * 互換のため受けるだけ。
+ * モデル一覧。Codex / Anthropic はマルチアカウント前提のためアカウント由来だけを返す。
+ * 他プロバイダは既定 auth.json 由来の候補を維持する。アカウントのモデルには
+ * accountId / accountLabel が付く。レガシーの `?accountId=` は互換のため受けるだけ。
  */
 export async function GET(req: NextRequest) {
   try {
     void req.nextUrl.searchParams.get("accountId");
     const accounts = listAccounts();
-    const models =
-      accounts.length === 0
-        ? await listModels()
-        : await listModelsForAccounts(
-            accounts.map((account) => ({
-              id: account.id,
-              label: account.label,
-              providers: account.providers,
-            })),
-          );
+    const models = await listModelsForAccounts(
+      accounts.map((account) => ({
+        id: account.id,
+        label: account.label,
+        providers: account.providers,
+      })),
+    );
     const providers = getCachedUsage(Date.now(), USAGE_MAX_AGE_MS)?.providers ?? [];
     return NextResponse.json({ models: attachCodexBarUsage(models, providers) });
   } catch (error) {

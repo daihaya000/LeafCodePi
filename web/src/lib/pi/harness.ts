@@ -73,6 +73,7 @@ import {
   accountAuthPath,
   accountHasProvider,
   accountModelsStorePath,
+  isAccountProviderId,
   resolvePiAgentDir,
   type AccountRecord,
 } from "@/lib/accounts";
@@ -1591,15 +1592,17 @@ export async function listModels(): Promise<ModelOption[]> {
 }
 
 /**
- * 既定 + 全アカウントのモデルを 1 つのリストで返す（Home のモデルドロップダウンで
- * アカウントをプロバイダ枠として表示するための拡張）。アカウントのモデルは
- * value にアカウントIDプレフィックスを持ち、accountId / accountLabel が付く。
+ * 既定の非アカウントプロバイダ + 全アカウントのモデルを返す。Codex / Anthropic は
+ * マルチアカウント前提のため、既定 auth.json 由来の候補を出さない。アカウントの
+ * モデルは value にアカウントIDプレフィックスを持ち、accountId / accountLabel が付く。
  * アカウントのランタイム初期化に失敗したものはスキップする。
  */
 export async function listModelsForAccounts(
   accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
 ): Promise<ModelOption[]> {
-  const options: ModelOption[] = [...(await listModels().catch(() => []))];
+  const options: ModelOption[] = (await listModels().catch(() => [])).filter(
+    (option) => !isAccountProviderId(option.providerID),
+  );
   for (const account of accounts) {
     try {
       const runtime = await getRuntimeFor(account.id);

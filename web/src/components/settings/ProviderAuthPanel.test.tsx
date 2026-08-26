@@ -10,14 +10,16 @@ const providers = [
   {
     id: "openai-codex",
     name: "OpenAI Codex",
-    authenticated: false,
+    authenticated: true,
+    authSource: "stored",
     oauthAvailable: true,
     highlighted: true,
   },
   {
     id: "anthropic",
     name: "Anthropic",
-    authenticated: false,
+    authenticated: true,
+    authSource: "stored",
     oauthAvailable: true,
     highlighted: true,
   },
@@ -99,6 +101,18 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(within(anthropic).queryByText("仕事用")).toBeNull();
     expect(screen.queryByRole("region", { name: "llama-server の追加アカウント" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "アカウント" })).toBeNull();
+  });
+
+  it("uses account controls instead of default authentication", async () => {
+    mockAccountsApi();
+    render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
+
+    const anthropic = await accountRegion("Anthropic");
+    await within(anthropic).findByText("個人用");
+    expect(screen.getAllByText("アカウントで管理")).toHaveLength(2);
+    expect(screen.queryByText("~/.pi/agent/auth.json")).toBeNull();
+    expect(screen.getAllByRole("button", { name: /^ログイン$/ })).toHaveLength(1);
+    expect(within(anthropic).getByRole("button", { name: /^ログイン$/ })).toBeTruthy();
   });
 
   it("creates an account for the provider whose add action was used", async () => {

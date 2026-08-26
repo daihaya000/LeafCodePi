@@ -339,7 +339,9 @@ export function ProviderAuthPanel({
     if (!isAccountProviderId(provider.id)) return null;
     const providerId = provider.id;
     const providerAccounts =
-      accounts?.filter((account) => account.providers.includes(providerId)) ?? [];
+      accounts?.filter(
+        (account) => Array.isArray(account.providers) && account.providers.includes(providerId),
+      ) ?? [];
     const isCreating = creatingFor === providerId;
 
     return (
@@ -349,9 +351,9 @@ export function ProviderAuthPanel({
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h3 className="text-xs font-semibold text-muted">追加ログイン</h3>
+            <h3 className="text-xs font-semibold text-muted">ログインアカウント</h3>
             <p className="mt-0.5 text-xs text-muted">
-              このプロバイダだけに紐づく OAuth アカウントを管理します。
+              このプロバイダ用の OAuth アカウントを追加・管理します。
             </p>
           </div>
           {!isCreating && (
@@ -374,7 +376,7 @@ export function ProviderAuthPanel({
         ) : (
           <>
             {providerAccounts.length === 0 && !isCreating && (
-              <p className="mt-2 text-xs text-muted">追加ログインはありません</p>
+              <p className="mt-2 text-xs text-muted">アカウントを追加してログインしてください</p>
             )}
             {providerAccounts.length > 0 && (
               <ul className="mt-2 space-y-1.5">
@@ -656,8 +658,11 @@ function ProviderRow({
   onLogout?: () => void;
   accountControls?: ReactNode;
 }) {
-  const badge = authBadge(provider);
-  const hint = sourceHint(provider);
+  const accountManaged = isAccountProviderId(provider.id);
+  const badge = accountManaged
+    ? { tone: "neutral" as const, label: "アカウントで管理" }
+    : authBadge(provider);
+  const hint = accountManaged ? null : sourceHint(provider);
   return (
     <li
       className={cx(
@@ -676,17 +681,17 @@ function ProviderRow({
           {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
         </div>
         <div className="flex flex-wrap gap-1">
-          {onOAuth && (
+          {!accountManaged && onOAuth && (
             <Button size="sm" disabled={disabled} onClick={onOAuth}>
               ログイン
             </Button>
           )}
-          {onApiKey && (
+          {!accountManaged && onApiKey && (
             <Button size="sm" variant="ghost" disabled={disabled} onClick={onApiKey}>
               API キー
             </Button>
           )}
-          {onLogout && provider.authenticated && (
+          {!accountManaged && onLogout && provider.authenticated && (
             <Button size="sm" variant="ghost" disabled={disabled} onClick={onLogout}>
               ログアウト
             </Button>

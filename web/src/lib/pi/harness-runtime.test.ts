@@ -39,7 +39,7 @@ describe("getRuntimeFor", () => {
     assert.equal(await getRuntimeFor(), defaultStub);
   });
 
-  it("returns only the provider assigned to an account", async () => {
+  it("hides default subscription models while keeping account models", async () => {
     const accountRuntime = {
       registerProvider: () => {},
       getProvider: () => undefined,
@@ -59,7 +59,14 @@ describe("getRuntimeFor", () => {
     };
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
       modelRuntime: null,
-      modelCache: { at: Date.now(), value: [] },
+      modelCache: {
+        at: Date.now(),
+        value: [
+          { value: "openai-codex::gpt-5", label: "GPT-5", providerID: "openai-codex", modelID: "gpt-5" },
+          { value: "anthropic::claude", label: "Claude", providerID: "anthropic", modelID: "claude" },
+          { value: "llama-server::local", label: "Local", providerID: "llama-server", modelID: "local" },
+        ],
+      },
       modelInflight: null,
       live: new Map(),
       lastProviderSyncWarnings: [],
@@ -72,7 +79,10 @@ describe("getRuntimeFor", () => {
 
     assert.deepEqual(
       models.map((model) => ({ providerID: model.providerID, accountId: model.accountId })),
-      [{ providerID: "openai-codex", accountId: "acc-1" }],
+      [
+        { providerID: "llama-server", accountId: undefined },
+        { providerID: "openai-codex", accountId: "acc-1" },
+      ],
     );
   });
 

@@ -16,6 +16,10 @@ export type AccountProviderId = "openai-codex" | "anthropic";
 
 export const ACCOUNT_PROVIDER_IDS: readonly AccountProviderId[] = ["openai-codex", "anthropic"];
 
+export function isAccountProviderId(providerId: string): providerId is AccountProviderId {
+  return (ACCOUNT_PROVIDER_IDS as readonly string[]).includes(providerId);
+}
+
 export type AccountRecord = {
   id: string;
   label: string;
@@ -142,7 +146,11 @@ export function accountHasProvider(
   account: Pick<AccountRecord, "providers">,
   providerId: string,
 ): boolean {
-  return Array.isArray(account.providers) && account.providers.includes(providerId as AccountProviderId);
+  return (
+    isAccountProviderId(providerId) &&
+    Array.isArray(account.providers) &&
+    account.providers.includes(providerId)
+  );
 }
 
 function normalizeProviders(input: unknown): AccountProviderId[] {
