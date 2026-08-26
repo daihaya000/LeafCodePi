@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTask } from "@/lib/store";
 import { getSetting } from "@/lib/pi/web-settings";
 import {
-  GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY,
   GENERATION_FALLBACK_MODEL_SETTING_KEY,
-  GENERATION_MODEL_EFFORT_SETTING_KEY,
   GENERATION_MODEL_SETTING_KEY,
 } from "@/lib/generation-model-key";
 import {
@@ -73,13 +71,7 @@ export async function POST(
   const fallbackModel = parseDirectModelKey(getSetting(GENERATION_FALLBACK_MODEL_SETTING_KEY));
   const candidates = buildDirectGenerationCandidates({
     primary: primaryModel,
-    primaryEffort: configuredModel
-      ? getSetting(GENERATION_MODEL_EFFORT_SETTING_KEY) || undefined
-      : undefined,
     fallback: fallbackModel,
-    fallbackEffort: fallbackModel
-      ? getSetting(GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY) || undefined
-      : undefined,
   });
   if (candidates.length === 0) return NextResponse.json({ error: "生成モデルが設定されていません" }, { status: 400 });
 
@@ -88,7 +80,7 @@ export async function POST(
       candidates,
       system: NEXT_ACTION_SYSTEM_INSTRUCTION,
       prompt,
-      maxTokens: 180,
+      maxTokens: 96,
       temperature: 0.2,
       timeoutMs: 60_000,
     });
