@@ -152,15 +152,14 @@ Home のモデル選択 = **表示モデル一覧の source of truth** とする
 - リモート実行時は既存どおりデバイスコード / 認証 URL 手渡しの代替を許容
 - 認証フロー時にブラウザで「どの ChatGPT / Claude アカウントか」を選ぶのはユーザー。UI 文言で注意喚起（例: 「ブラウザでログインするアカウントがこのアカウントと一致することを確認してください」）
 
-### CodexBar 認証経路の統合（Phase 7・任意）
+### CodexBar マルチアカウント利用状況（Phase 7）
 
-CodexBar（`web/src/lib/codexbar/providers/{openai-codex,anthropic}.ts`）は現在、Pi の auth.json を読まず `~/.codex/auth.json` / `~/.claude/.credentials.json` を独自に参照している。マルチアカウントの仕組みが入った後、Pi の auth.json を読む実装に置換する。
+CodexBar の詳細な設計・実装順序・API/UI 契約は [`codexbar-multi-account.md`](./codexbar-multi-account.md) を正とする。
 
-- Pi auth.json の OAuth トークンはそのまま利用量 API（`chatgpt.com/backend-api/wham/usage` / `api.anthropic.com/api/oauth/usage`）の `Bearer` として使える
-- リフレッシュは Pi の `refresh` トークンで行い、保存先も Pi auth.json（`FileAuthStorageBackend` 経由）へ
-- Pi の auth.json スキーマ（`type/access/refresh/expires/accountId`）依存。**フィールド単位のガードを入れ**、スキーマ変更に耐える（レビュー反映 6）。`readStoredCredential`（`dist/core/auth-storage.d.ts:70`）の利用を検討
-- アカウント切替表示は CodexBarWidget に `selectedAccountId` を渡し、対応 provider エントリを表示
-- フォールバック: アカウント未登録時は従来どおり `~/.codex` / `~/.claude` を読む（後方互換）
+- Codex / Claude は登録アカウントごとに Pi auth を読み、利用量を `accountId` 付きの別行で表示する
+- アカウント登録後の通常 `all` 表示では既定 auth を混ぜず、既定 auth は互換用の `default` scope に限定する
+- アカウント未登録時だけ、従来の Pi auth 優先 → `~/.codex` / `~/.claude` fallback を維持する
+- 共有プロバイダー、cache、CodexBar provider 設定は従来の共有単位を維持する
 
 ## API / UI 変更点
 
@@ -199,7 +198,7 @@ Phase 1  accounts ストア（model 層・パス解決ユーティリティ + �
         ├─ Phase 5  UI（ProviderAuthPanel アカウントセクション + Composer アカウント選択 → モデル一覧連動 + TaskView 表示）
         ├─ Phase 6  harness 多重化本接続（Map 化 + モデル一覧・生成・一時セッションの accountId 解決）
         │            （Phase 2〜6 の間、default は従来挙動のまま。既存テスト全パス）
-        └─ Phase 7  [任意] CodexBar 認証経路の Pi 統合（上記「CodexBar 認証経路の統合」）
+        └─ Phase 7  CodexBar マルチアカウント利用状況（詳細は codexbar-multi-account.md）
    └─ Phase 8  統合・回帰（typecheck + vitest + 手動確認 OAuth を除く）
 ```
 
@@ -286,16 +285,11 @@ Phase 1  accounts ストア（model 層・パス解決ユーティリティ + �
 
 ---
 
-### Phase 7: [任意] CodexBar 認証経路の Pi 統合
+### Phase 7: CodexBar マルチアカウント利用状況
 
-**ファイル**: `web/src/lib/codexbar/providers/openai-codex.ts`、`web/src/lib/codexbar/providers/anthropic.ts`、`web/src/components/codexbar/CodexBarWidget.tsx`（selectedAccountId）
+詳細は [`codexbar-multi-account.md`](./codexbar-multi-account.md) を参照する。CodexBar は単なる認証経路の置換ではなく、provider factory、アカウント別 cache、利用量 API の scope、同一 provider の複数表示、モデル候補への account-aware な利用量付加までを一体で実装する。
 
-- `loadAuth` / `loadCredentials` を Pi auth.json（アカウント別）読みに置換。Pi auth.json スキーマ（`type/access/refresh/expires/accountId`）にフィールドガードを入れ、読めない場合はフォールバック（従来 `~/.codex` / `~/.claude`）へ
-- refresh 後は Pi auth.json へ書き戻し（`FileAuthStorageBackend` / `atomicWriteText` の auth 保存に置換）
-- CodexBarWidget: タスクの accountId で表示エントリを切替。Pi auth.json に `id_token` / email 情報は無いため `accountEmail` は `null`（email 表示なし）
-- **Claude のプラン表示は縮退（最終レビュー修正）**: Pi の auth.json `anthropic` エントリには `subscriptionType` が存在しない（実ファイル確認済み: `[type, refresh, access, expires]`）。プラン非表示、または CLI 認証（`~/.claude/.credentials.json`）が有る場合のみフォールバック表示。Codex のプランは利用量 API 応答 `plan_type` から取得できるため従来どおり表示可
-
-**検証**: codexbar の既存テスト（parse 系は変更なし）+ 新規「Pi auth.json 読み」テスト、typecheck
+**完了条件**: 登録アカウント A / B の利用量が別行で表示され、片方の refresh・401・429・logout がもう片方へ波及しない。既定 auth の fallback と共有プロバイダーの従来動作も維持する。
 
 ---
 
@@ -323,7 +317,7 @@ Phase 1  accounts ストア（model 層・パス解決ユーティリティ + �
 | 既存セッションへの影響 | Phase 2 で default = 従来シングルトンを保証し、Phase 6 で全置換。既存テスト全パスを各 Phase の完了条件にする |
 | OAuth の「どちらのアカウント」はブラウザ次第 | 認証フロー UI に注意文言 + アカウント名を手動登録する設計。フロー中のアカウント誤選択はユーザー操作で戻れる（再ログイン） |
 | 同時 OAuth フロー（コールバックポート共有） | 1 アカウント制（既存 startProviderLogin の 1 セッション制を流用）。UI で明示 |
-| CodexBar の Pi auth.json 依存（Phase 7） | Pi auth.json を読めない場合は従来 `~/.codex` / `~/.claude` へフォールバック。スキーマ変更はフィールドガードで検知 |
+| CodexBar のアカウント別利用量（Phase 7） | 詳細設計を [`codexbar-multi-account.md`](./codexbar-multi-account.md) に分離。account scope は厳密な Pi auth path のみ、default scope だけ従来の CLI fallback を許可し、cache key に scope を含める |
 | harness.ts が 2500 行超 | 対象 grep を Phase 1 で確定済み。関数の追加は `getRuntimeFor` 1 本に集約し、呼び出しの置換は Phase 6 に集中 |
 | 既存タスクに accountId 無し | 一律 default 扱い（従来挙動と同一）。`insertTask` のみ accountId を追記し、互換性を維持 |
 
