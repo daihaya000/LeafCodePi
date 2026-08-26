@@ -77,6 +77,27 @@ describe("GenerationModelSettings", () => {
     });
   });
 
+  it("normalizes an old account-specific setting after switching to integrated mode", async () => {
+    mocks.getJson.mockResolvedValue({
+      models: [
+        {
+          value: "anthropic::claude-sonnet",
+          label: "Claude Sonnet",
+          providerID: "anthropic",
+          modelID: "claude-sonnet",
+          routingMode: "integrated",
+        },
+      ],
+    });
+    mocks.readGenerationModelFromServer.mockResolvedValue("acc-1::anthropic::claude-sonnet");
+
+    render(<GenerationModelSettings />);
+
+    await waitFor(() => {
+      expect(mocks.writeGenerationModelToServer).toHaveBeenCalledWith("anthropic::claude-sonnet");
+    });
+  });
+
   it("restores the fallback model and its effort", async () => {
     mocks.readGenerationFallbackModelFromServer.mockResolvedValue("anthropic::claude-sonnet");
     mocks.readGenerationFallbackModelEffortFromServer.mockResolvedValue("high");

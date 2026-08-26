@@ -1904,7 +1904,9 @@ export async function listModelsForAccounts(
     }
   }
 
-  const usageProviders = getCachedUsage()?.providers ?? [];
+  // The picker may display the same 30-minute last-good window as /api/models;
+  // execution routing below deliberately uses getCachedUsage's strict 5-minute TTL.
+  const usageProviders = getCachedUsage(Date.now(), 30 * 60 * 1000)?.providers ?? [];
   const workingCounts = workingTaskCounts([...new Set(records.map((record) => record.option.providerID))]);
   const integratedOptions = [...integrated.values()]
     .map((group) => [...group].sort((a, b) =>

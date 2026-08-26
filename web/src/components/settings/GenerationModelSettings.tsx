@@ -115,6 +115,26 @@ export function GenerationModelSettings() {
         writeGenerationModelEffort(nextEffort || null);
         writeGenerationFallbackModel(nextFallbackValue || null);
         writeGenerationFallbackModelEffort(nextFallbackEffort || null);
+        if (
+          serverValue &&
+          nextValue &&
+          serverValue !== nextValue &&
+          modelOptionForValue(nextModels, serverValue)?.routingMode === "integrated"
+        ) {
+          void writeGenerationModelToServer(nextValue).catch(() => {
+            if (!cancelled) setError("生成モデル設定の移行に失敗しました");
+          });
+        }
+        if (
+          serverFallbackValue &&
+          nextFallbackValue &&
+          serverFallbackValue !== nextFallbackValue &&
+          modelOptionForValue(nextModels, serverFallbackValue)?.routingMode === "integrated"
+        ) {
+          void writeGenerationFallbackModelToServer(nextFallbackValue).catch(() => {
+            if (!cancelled) setError("フォールバック設定の移行に失敗しました");
+          });
+        }
         setError(null);
       } else {
         setError(modelsResult.reason instanceof ApiError ? modelsResult.reason.message : "モデル一覧を取得できません");
