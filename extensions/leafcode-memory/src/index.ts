@@ -108,7 +108,8 @@ export default function (pi: ExtensionAPI) {
   const globalDir = !configuredMemoryDir || pointsToLegacyMemoryDir
     ? defaultGlobalDir
     : configuredMemoryDir;
-  const legacyDirsToMigrate = (!configuredMemoryDir || pointsToLegacyMemoryDir)
+  const usesDefaultGlobalDir = path.resolve(globalDir) === path.resolve(defaultGlobalDir);
+  const legacyDirsToMigrate = usesDefaultGlobalDir
     ? legacyGlobalDirs.filter((legacyDir) => path.resolve(legacyDir) !== path.resolve(globalDir) && fs.existsSync(legacyDir))
     : [];
 
