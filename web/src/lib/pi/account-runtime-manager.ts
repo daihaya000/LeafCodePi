@@ -28,15 +28,12 @@ export class AccountRuntimeManager {
     private readonly maxIdleRuntimes = MAX_IDLE_RUNTIMES,
   ) {}
 
-  /** ランタイムを取得し、呼び出し元の参照を つ 加算する。対応する release() を必ず呼ぶこと。 */
-  async acquire(accountId: string): Promise<ModelRuntime> {
+  /** ランタイムを取得する（参照カウントなし。一時的な読み取り用）。なければ生成する。 */
+  async ensure(accountId: string): Promise<ModelRuntime> {
     const existing = this.entries.get(accountId);
-    if (existing) {
-      existing.refs += 1;
-      return existing.runtime;
-    }
+    if (existing) return existing.runtime;
 
-    // 同時 acquire を 1 生成に統合する。
+    // 同時呼び出しを 1 生成に統合する。
     let promise = this.inflight.get(accountId);
     if (!promise) {
       promise = this.create(accountId);
@@ -51,14 +48,18 @@ export class AccountRuntimeManager {
     }
     if (this.inflight.get(accountId) === promise) this.inflight.delete(accountId);
 
-    // await 中に別 waiter が登録済みならそれを再利用（二重登録の回避）。
+    // await 中に別呼び出しが登録済みならそれを使う（二重登録の回避）。
     const current = this.entries.get(accountId);
-    if (current && current.runtime === runtime) {
-      current.refs += 1;
-      return runtime;
-    }
+    if (current && current.runtime === runtime) return runtime;
     this.evictIdle();
-    this.entries.set(accountId, { runtime, refs: 1 });
+    this.entries.set(accountId, { runtime, refs: 0 });
+    return runtime;
+  }
+
+  /** ランタイムを取得し、呼び出し元の参照を 1 加算する（セッション保持用）。対応する release() を必ず呼ぶこと。 */
+  async acquire(accountId: string): Promise<ModelRuntime> {
+    const runtime = await this.ensure(accountId);
+    this.entries.get(accountId)!.refs += 1;
     return runtime;
   }
 

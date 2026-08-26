@@ -68,6 +68,12 @@ import {
 import { HANG_RETRY_PREFIX } from "@/lib/hang-retry";
 import { createPermissionPromptService, taskIdForSession } from "@/lib/pi/permission-prompt";
 import { registerWebUiPermissionHandler } from "@/lib/pi/webui-permission-bridge";
+import { AccountRuntimeManager } from "@/lib/pi/account-runtime-manager";
+import {
+  accountAuthPath,
+  accountModelsStorePath,
+  resolvePiAgentDir,
+} from "@/lib/accounts";
 import { createQuestionPromptService, type QuestionAnswer } from "@/lib/pi/question-prompt";
 import { registerWebUiQuestionHandler } from "@/lib/pi/webui-question-bridge";
 import { listSubagentRuns } from "@/lib/pi/subagent-runs";
@@ -176,6 +182,8 @@ type SessionSetup = {
 type HarnessState = {
   pi: PiModule | null;
   modelRuntime: ModelRuntime | null;
+  /** アカウント別ランタイム（accountId → runtime）。既定は上のシングルトン。 */
+  accountRuntimes: AccountRuntimeManager | null;
   initError: string | null;
   initPromise: Promise<void> | null;
   live: Map<string, LiveRuntime>;
@@ -293,6 +301,7 @@ function state(): HarnessState {
     globalRef[GLOBAL_KEY] = {
       pi: null,
       modelRuntime: null,
+      accountRuntimes: null,
       initError: null,
       initPromise: null,
       live: new Map(),
@@ -335,13 +344,42 @@ async function loadPi(): Promise<PiModule> {
 
 /**
  * タスク/クエリ由来の accountId に対応する ModelRuntime を解決する。
- * Phase 2（docs/plans/multi-account.md）時点は常に既定ランタイム（~/.pi/agent/auth.json の
- * シングルトン）を返す。Phase 6 で accountId ごとの認証ストレージ
- * （~/.pi/agent/accounts/<id>/auth.json）へ多重化する単一の差し替えポイント。
+ * - 未指定 = 既定ランタイム（~/.pi/agent/auth.json のシングルトン）
+ * - 指定時 = アカウント別認証ストレージ（~/.pi/agent/accounts/<id>/auth.json）の
+ *   ランタイムを遅延生成して再利用する（docs/plans/multi-account.md Phase 6）。
  */
-export function getRuntimeFor(accountId?: string | null): ModelRuntime | null {
-  void accountId;
-  return state().modelRuntime;
+export async function getRuntimeFor(accountId?: string | null): Promise<ModelRuntime | null> {
+  if (!accountId) return state().modelRuntime;
+  try {
+    return await accountRuntimeManager().ensure(accountId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw Object.assign(
+      new Error(`アカウントランタイムの初期化に失敗しました: ${message}`),
+      { status: 503 },
+    );
+  }
+}
+
+/** アカウント別ランタイムの生成ファクトリ（生成時にプロバイダー登録まで行う）。 */
+function accountRuntimeManager(): AccountRuntimeManager {
+  const current = state();
+  if (!current.accountRuntimes) {
+    current.accountRuntimes = new AccountRuntimeManager(async (id) => {
+      const pi = await loadPi();
+      const agentDir = await resolvePiAgentDir();
+      const runtime = await pi.ModelRuntime.create({
+        authPath: accountAuthPath(id, agentDir),
+        modelsStorePath: accountModelsStorePath(id, agentDir),
+        allowModelNetwork: true,
+        modelRefreshTimeoutMs: 8_000,
+      });
+      await registerLlamaProviders(runtime);
+      await ensureOptionalProviders(runtime);
+      return runtime;
+    });
+  }
+  return current.accountRuntimes;
 }
 
 async function ensureOptionalProviders(runtime: ModelRuntime): Promise<void> {
@@ -1243,7 +1281,7 @@ async function createSession(options: {
     thinkingLevel: options.thinkingLevel,
     sessionManager,
     resourceLoader,
-    modelRuntime: getRuntimeFor() ?? undefined,
+    modelRuntime: (await getRuntimeFor()) ?? undefined,
     tools,
   });
   applyPermissionMode(result.session, options.cwd, permissionMode, {
@@ -1265,7 +1303,7 @@ async function createSession(options: {
 
 async function resolveModel(value: string | undefined): Promise<Model | undefined> {
   await ensureRuntime();
-  const runtime = getRuntimeFor();
+  const runtime = await getRuntimeFor();
   if (!runtime) return undefined;
   const parsed = parseModelValue(value);
   if (!parsed) return undefined;
@@ -1454,7 +1492,7 @@ export async function getHealth(): Promise<HealthDto> {
     /* initError is set */
   }
   const current = state();
-  const models = getRuntimeFor() ? await listModels().catch(() => []) : [];
+  const models = (await getRuntimeFor()) ? await listModels().catch(() => []) : [];
   const value: HealthDto = {
     ok: !current.initError,
     engine: "pi",
@@ -1479,7 +1517,7 @@ export async function listModels(): Promise<ModelOption[]> {
 
   current.modelInflight = (async () => {
     await ensureRuntime();
-    const runtime = getRuntimeFor();
+    const runtime = await getRuntimeFor();
     if (!runtime) return [];
     await syncProvidersBestEffort(runtime);
     const catalog = buildProviderModelsCatalog(runtime);
@@ -1560,7 +1598,7 @@ export async function completeModelText(options: {
   if (!system || !prompt) throw new Error("生成プロンプトが空です");
 
   await ensureRuntime();
-  const runtime = getRuntimeFor();
+  const runtime = await getRuntimeFor();
   if (!runtime) throw new Error("Pi ランタイムを利用できません");
   const model = runtime.getModel(options.providerID, options.modelID);
   if (!model) {
@@ -1597,7 +1635,7 @@ export async function completeModelText(options: {
 
 export async function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> {
   await ensureRuntime();
-  const runtime = getRuntimeFor();
+  const runtime = await getRuntimeFor();
   if (!runtime) return [];
   return buildProviderModelsCatalog(runtime);
 }
@@ -1618,7 +1656,7 @@ export async function saveProviderModelsOrder(input: {
 
 export async function listProviderAuth(): Promise<ProviderAuthDto[]> {
   await ensureRuntime();
-  const runtime = getRuntimeFor();
+  const runtime = await getRuntimeFor();
   if (!runtime) return [];
   const providers = runtime.getProviders().map((provider) => {
     const status = runtime.getProviderAuthStatus(provider.id);
@@ -1650,7 +1688,7 @@ export async function startProviderLogin(
 ): Promise<{ sessionId: string }> {
   await ensureRuntime();
   const current = state();
-  const runtime = getRuntimeFor(accountId);
+  const runtime = await getRuntimeFor(accountId);
   if (!runtime) throw Object.assign(new Error("Pi runtime が初期化されていません"), { status: 503 });
   const provider = runtime.getProvider(providerId);
   if (!provider) throw Object.assign(new Error(`不明なプロバイダー: ${providerId}`), { status: 404 });
@@ -1717,7 +1755,7 @@ export function getActiveProviderLogin(): {
 
 export async function logoutProvider(providerId: string, accountId?: string | null): Promise<void> {
   await ensureRuntime();
-  const runtime = getRuntimeFor(accountId);
+  const runtime = await getRuntimeFor(accountId);
   if (!runtime) throw Object.assign(new Error("Pi runtime が初期化されていません"), { status: 503 });
   if (!runtime.getProvider(providerId)) {
     throw Object.assign(new Error(`不明なプロバイダー: ${providerId}`), { status: 404 });
