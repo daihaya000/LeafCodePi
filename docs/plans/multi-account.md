@@ -2,7 +2,7 @@
 
 **ゴール:** OpenAI（Codex/ChatGPT）と Anthropic（Claude）のサブスクアカウントを複数登録し、タスクごとに利用アカウントを切り替えられるようにする。既存の API キー・環境変数・default アカウントの運用は変更しない。
 
-**技術:** Next.js（App Router）、React、TypeScript、Vitest（node 環境）。Pi SDK `@earendil-works/pi-coding-agent` の `ModelRuntime.create({ authPath, modelsPath })` による認証ストレージ差し替えを利用する。
+**技術:** Next.js（App Router）、React、TypeScript、Vitest（node 環境）。Pi SDK `@earendil-works/pi-coding-agent` の `ModelRuntime.create({ authPath, modelsStorePath })` による認証ストレージ差し替えを利用する。
 
 ## 技術的背景
 
@@ -10,7 +10,8 @@ Pi の認証は `~/.pi/agent/auth.json`（プロバイダーID → クレデン�
 
 - `ModelRuntime.create({ credentials?, authPath?, modelsPath?, modelsStore?, allowModelNetwork?, modelRefreshTimeoutMs? })` — `core/model-runtime.d.ts:3-8`。authPath / credentials を差し替えると認証ストレージごと独立したランタイムを作れる
 - `AuthStorage`（FileAuthStorageBackend）— ロック付き JSON ファイルストア。`dist/core/auth-storage.d.ts`。書き込み競合に対して安全
-- `getAgentDir()` = `~/.pi/agent`（`process.env.PI_AGENT_DIR` で変更可）— `dist/config.js:420-426`。auth.json は `join(getAgentDir(), "auth.json")`
+- `getAgentDir()` = `~/.pi/agent`（`process.env.PI_CODING_AGENT_DIR` で変更可。`dist/config.js:405` `ENV_AGENT_DIR = "${APP_NAME.toUpperCase()}_CODING_AGENT_DIR"`、420-426）。auth.json は `join(getAgentDir(), "auth.json")`
+- `modelsPath`（既定 `~/.pi/agent/models.json`）は**ユーザーのカスタムモデル設定**で全アカウント共有。カタログキャッシュは別物の `modelsStorePath`（既定 `dirname(modelsPath)/models-store.json`、`model-runtime.js:76-80`）
 
 LeafCodePi は `web/src/lib/pi/harness.ts:348` で `ModelRuntime` を**プロセスシングルトン**として共有しており、これが唯一の認証経路:
 
@@ -52,11 +53,23 @@ Pi の組み込み OAuth（`openai-codex` / `anthropic`）が対象。Pi の認�
 ```
 
 理由:
-- Pi CLI は自身の `~/.pi/agent/auth.json`（`PI_AGENT_DIR` で切替）しか読まないため、WebUI と CLI が別ストアを持つと乖離する。`agent` 配下なら将来の Pi 複数アカウント対応 / `PI_AGENT_DIR` 切替と整合
+- Pi CLI は自身の `~/.pi/agent/auth.json`（`PI_CODING_AGENT_DIR` で切替）しか読まないため、WebUI と CLI が別ストアを持つと乖離する。`agent` 配下なら将来の Pi 複数アカウント対応 / `PI_CODING_AGENT_DIR` 切替と整合
 - Pi の既定パーミッション（0600）・ロック機構（FileAuthStorageBackend）の管理圏内
 - パス解決は `getAgentDir()` + `join` の 1 関数。`%APPDATA%` 経由の OS 依存パスを避ける
 
-`modelsPath`（`auth.json` と同居のモデルカタログキャッシュ）も同じアカウントディレクトリへ置く（`~/.pi/agent/accounts/<id>/models.json`。Pi 標準のモデルカタログファイル名に揃える。authPath と同時に `ModelRuntime.create` へ渡す）。
+**モデル設定とキャッシュの分離（最終レビュー修正）**: `ModelRuntime.create` の `modelsPath` はユーザーのカスタムモデル設定（既定 `~/.pi/agent/models.json`）であり、**触らない**（カスタムモデルは全アカウントで共有）。アカウントごとに分けるのは使い捨てのカタログキャッシュ `modelsStorePath` のみ:
+
+```ts
+// アカウント runtime の生成（Phase 6）
+await pi.ModelRuntime.create({
+  authPath: accountAuthPath(id),                              // accounts/<id>/auth.json
+  modelsStorePath: join(accountDir(id), "models-store.json"), // キャッシュだけ分離（再生成可）
+  allowModelNetwork: true,
+  modelRefreshTimeoutMs: 8_000,
+});
+```
+
+既定のままだと複数ランタイムが同一 `~/.pi/agent/models-store.json` に競合書き込みするため、キャッシュだけアカウント別にする（FileModelsStore に AuthStorage 相当のロックはない）。
 
 ### アカウント定義
 
@@ -124,7 +137,7 @@ Composer のアカウント選択 = **表示モデル一覧の source of truth**
 
 - `POST /api/providers/[id]/login?accountId=<id>` — ログイン先 runtime を accountId で解決（default は従来通り）
 - `POST /api/providers/[id]/logout?accountId=<id>` — ログアウト先も accountId で解決（**logout の accountId 対応を login と同時に実装**）
-- `GET /api/provider-auth?accountId=<id>` （認証一覧）も accountId 対応
+- 認証一覧も accountId 対応（`GET /api/providers`。`listProviderAuth` を返す既存ルート、`web/src/app/api/providers/route.ts`）
 - `ProviderLoginSession` は accountId を保持し（`providerId` と同列）、キャンセル・イベントをアカウント単位で行う
 
 ### サブエージェント / 生成モデル / 一時セッション（レビュー反映 5）
@@ -134,7 +147,7 @@ Composer のアカウント選択 = **表示モデル一覧の source of truth**
 
 ### OAuth フローの制約（レビュー反映 7）
 
-- コールバックポート（`localhost:1455` OpenAI Codex / `127.0.0.1:53692` Anthropic）は本機の WebUI（と Pi CLI）が専有。**同時に 1 アカウントの認証フローのみ**許可し、UI に明示（既存 `startProviderLogin` は 1 セッション制なので流用）
+- コールバックポート（`localhost:1455` OpenAI Codex / `127.0.0.1:53692` Anthropic）はログインフロー中のみバインドされ、Pi CLI のログインと取り合いになり得る。**同時に 1 アカウントの認証フローのみ**許可し、UI に明示（既存 `startProviderLogin` は 1 セッション制なので流用）
 - リモート実行時は既存どおりデバイスコード / 認証 URL 手渡しの代替を許容
 - 認証フロー時にブラウザで「どの ChatGPT / Claude アカウントか」を選ぶのはユーザー。UI 文言で注意喚起（例: 「ブラウザでログインするアカウントがこのアカウントと一致することを確認してください」）
 
@@ -159,7 +172,7 @@ CodexBar（`web/src/lib/codexbar/providers/{openai-codex,anthropic}.ts`）は現
 - `DELETE /api/accounts/[id]` — 削除。使用中タスクがあれば 409、参照中セッションが終わるまで runtime は保持
 - 既存 `POST /api/providers/[id]/login` に `?accountId=`（既定 = 従来挙動）
 - 既存 `POST /api/providers/[id]/logout` に `?accountId=`（同上）
-- 既存 `GET /api/provider-auth` に `?accountId=`（同上）
+- 既存 `GET /api/providers`（認証一覧。`listProviderAuth` を返す、`web/src/app/api/providers/route.ts`）に `?accountId=`（同上）
 
 **UI（設定 → モデル → プロバイダ / Home / TaskView）**
 - `ProviderAuthPanel.tsx` に「アカウント」セクション追加: 一覧・作成ダイアログ（label + プロバイダ選択）・「このアカウントでログイン」ボタン（既存 OAuth フロー UI を再利用）・編集・削除
@@ -252,7 +265,7 @@ Phase 1  accounts ストア（model 層・パス解決ユーティリティ + �
 - ProviderAuthPanel: 「アカウント」セクション。一覧（label・各 provider 認証 Badge・ログイン/ログアウト・編集・削除）
 - 作成ダイアログ: label 入力 + `openai-codex` / `anthropic` チェックボックス。ログインは既存の `beginLogin`（`?accountId=`）を再利用
 - Home Composer: アカウント選択ドロップダウン。選択に応じて `GET /api/models?accountId=` でモデル一覧を再取得（= モデル一覧と連動・レビュー反映 2）。選択は localStorage / 新規タスクに引き継ぎ
-- insertTask に `accountId` を保存（`web/src/lib/store.ts`）、task 一覧 API も accountId を返す
+- `insertTask` と `patchTask` の Pick 型に `accountId` を追加（`web/src/lib/store.ts:136,171`）、task 一覧・詳細 API も accountId を返す
 - TaskView ヘッダー: 現在のアカウント表示（実行中タスクでは変更不可・無効化）
 
 **検証**: 対象 component test（ProviderAuthPanel 相当）、models route test、typecheck。UI の動作は手動確認
@@ -264,7 +277,7 @@ Phase 1  accounts ストア（model 層・パス解決ユーティリティ + �
 **ファイル**: `web/src/lib/pi/harness.ts`、`web/src/lib/provider-model-state.ts`（キャッシュの accountId 化）
 
 - `state().modelRuntime` を `Map<accountId, ModelRuntime>` + default に拡張。全 10 箇所を `getRuntimeFor(taskAccountId)` へ置換
-- アカウント runtime は遅延生成（authPath + modelsPath を渡す）。`ensureOptionalProviders` / `registerLlamaProviders` を適用
+- アカウント runtime は遅延生成（authPath + modelsStorePath を渡す。「モデル設定とキャッシュの分離」参照）。`ensureOptionalProviders` / `registerLlamaProviders` を適用
 - `current.modelCache` を accountId キーのキャッシュへ（default = 従来キー）
 - 非アクティブ runtime の LRU 破棄（上限 2〜3、実行中タスク使用は破棄しない）。破棄後は次回 require 時に再生成
 - アカウント削除時: 参照中セッションが終わるまで runtime は保持（破棄タイミングは `live` の参照が尽きた時）
@@ -280,8 +293,8 @@ Phase 1  accounts ストア（model 層・パス解決ユーティリティ + �
 
 - `loadAuth` / `loadCredentials` を Pi auth.json（アカウント別）読みに置換。Pi auth.json スキーマ（`type/access/refresh/expires/accountId`）にフィールドガードを入れ、読めない場合はフォールバック（従来 `~/.codex` / `~/.claude`）へ
 - refresh 後は Pi auth.json へ書き戻し（`FileAuthStorageBackend` / `atomicWriteText` の auth 保存に置換）
-- CodexBarWidget: タスクの accountId で表示エントリを切替。`accountEmail` は Pi auth.json に無いため `null`（表示上は email を出さない）
-- Claude のプランは Pi auth.json `anthropic` の `subscriptionType` から（現状の `prettyPlan` を流用）。Codex のプランは API レスポンス `plan_type` / JWT（あれば）から
+- CodexBarWidget: タスクの accountId で表示エントリを切替。Pi auth.json に `id_token` / email 情報は無いため `accountEmail` は `null`（email 表示なし）
+- **Claude のプラン表示は縮退（最終レビュー修正）**: Pi の auth.json `anthropic` エントリには `subscriptionType` が存在しない（実ファイル確認済み: `[type, refresh, access, expires]`）。プラン非表示、または CLI 認証（`~/.claude/.credentials.json`）が有る場合のみフォールバック表示。Codex のプランは利用量 API 応答 `plan_type` から取得できるため従来どおり表示可
 
 **検証**: codexbar の既存テスト（parse 系は変更なし）+ 新規「Pi auth.json 読み」テスト、typecheck
 
