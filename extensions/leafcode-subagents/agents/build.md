@@ -1,7 +1,7 @@
 ---
 name: build
 description: Coordinates implementation work and delegates specialized tasks to the appropriate subagents.
-tools: read, grep, find, ls, powershell, bash, edit, write, subagent, todowrite
+tools: read, memory_search, grep, find, ls, powershell, bash, edit, write, subagent, todowrite
 model: openai-codex/gpt-5.6-luna
 thinking: max
 systemPromptMode: replace

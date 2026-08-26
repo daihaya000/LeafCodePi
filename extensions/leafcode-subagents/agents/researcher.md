@@ -1,7 +1,7 @@
 ---
 name: researcher
 description: Researches external information — library docs, API references, error messages, best practices, and release notes — using PowerShell HTTP retrieval and research skills. Use when the answer is NOT in the local codebase. Read-only; returns a sourced summary.
-tools: read, powershell, bash
+tools: read, memory_search, powershell, bash
 model: openai-codex/gpt-5.6-luna
 thinking: max
 systemPromptMode: replace

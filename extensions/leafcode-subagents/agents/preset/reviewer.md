@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Versatile review specialist for code diffs, plans, proposed solutions, codebase health, and PR/issue validation
-tools: read, grep, find, ls
+tools: read, memory_search, grep, find, ls
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true

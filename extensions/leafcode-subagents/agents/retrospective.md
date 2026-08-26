@@ -1,7 +1,7 @@
 ---
 name: retrospective
 description: "Session retrospective analyzer. Matches reported failures and successes against LESSONS.md, increments pain_count/success_count, and promotes entries with pain_count >= 3 into `prompts/build.md` as permanent rules. Invoked by the /retrospective command with a session summary; keeps heavy analysis out of the main agent's context."
-tools: read, grep, find, ls, edit, write
+tools: read, memory_search, grep, find, ls, edit, write
 model: openai-codex/gpt-5.6-luna
 thinking: max
 systemPromptMode: replace

@@ -1,7 +1,7 @@
 ---
 name: security-auditor
 description: Audits code and configuration for security vulnerabilities (injection, secrets exposure, authz flaws, unsafe deserialization, dependency risks) without making edits. Use for security reviews before release or after major changes.
-tools: read, grep, find, ls, powershell, bash
+tools: read, memory_search, grep, find, ls, powershell, bash
 model: openai-codex/gpt-5.6-luna
 thinking: max
 systemPromptMode: replace
