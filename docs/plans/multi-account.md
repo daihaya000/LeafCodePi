@@ -30,7 +30,7 @@ LeafCodePi は `web/src/lib/pi/harness.ts:348` で `ModelRuntime` を**プロセ
 
 アカウント対応はこの 10 箇所を `getRuntimeFor(accountId)` で解決するよう置換する。default は従来のシングルトンをそのまま返す（後方互換）。
 
-## 対象: Open AI Codex / Anthropic の「サブスク OAuth」
+## 対象: OpenAI Codex / Anthropic の「サブスク OAuth」
 
 Pi の組み込み OAuth（`openai-codex` / `anthropic`）が対象。Pi の認証フロー自体は「ブラウザで ChatGPT/Claude にログイン」だけでアカウント選択機能を持たないため、**アカウントの切替は WebUI 側で認証ストレージを複数持つことで実現**する。
 
@@ -91,7 +91,7 @@ type AccountRecord = {
 
 ### アカウントストア
 
-新規 `web/src/lib/accounts.ts`（store.ts と同形式の JSON ファイル永続化。`%APPDATA%\leafcode-pi\store.json` に `accounts: AccountRecord[]` を追加 or 別ファイル `accounts.json`）。
+新規 `web/src/lib/accounts.ts`。永続化は **dataDir 配下の別ファイル `%APPDATA%\leafcode-pi\accounts.json`**（再レビューで確定。store.json への追加は避ける — `StoreFile` は閉じた型 + 厳格バリデーション（`store.ts:8-11, 44-47`）のため型・バリデーション変更が波及し、500ms キャッシュとの干渉も避けたい。`collaboration.json` と同じ分離ファイル方式）。
 
 - `listAccounts()` / `getAccount(id)` / `createAccount(input)` / `patchAccount(id, patch)` / `deleteAccount(id)`
 - パス解決: `accountAuthPath(id)` = `join(getAgentDir(), "accounts", id, "auth.json")`（Pi の `getAgentDir` に合わせる）
@@ -163,8 +163,6 @@ CodexBar（`web/src/lib/codexbar/providers/{openai-codex,anthropic}.ts`）は現
 
 ## API / UI 変更点
 
-リスク表の後（「既存機能との関係」）に API・UI の一覧を追加する。
-
 **API（Next.js App Router）**
 - `POST /api/accounts` — 作成（label・providers）
 - `GET /api/accounts` — 一覧
@@ -211,8 +209,8 @@ Phase 1  accounts ストア（model 層・パス解決ユーティリティ + �
 新規 `web/src/lib/accounts.ts`（model 層）+ `web/src/lib/accounts.test.ts`。
 
 - `AccountRecord` 型、`listAccounts` / `getAccount` / `createAccount` / `patchAccount` / `deleteAccount`
-- 永続化: `%APPDATA%\leafcode-pi\store.json` に `accounts` 配列を追加（既存 store スキーマ v1 と共存。読み込み時に欠落していれば `[]` で耐性。既存 `version: 1` のまま配列追加のためマイグレーション不要）
-- パス解決: `accountAuthDir(id)` / `accountModelsPath(id)` = `join(getAgentDir(), "accounts", id)` 内。`getAgentDir` は Pi SDK の config から取得（`web/src/lib/pi/config.ts` 等に小さいラッパを新設 or harness 内 util）。default 判定: `id === null || id === undefined` は default、`"default"` という ID は取得しない仕様にする
+- 永続化: dataDir 配下の別ファイル `accounts.json`（store.json は触らない。理由は「アカウントストア」節）
+- パス解決ヘルパ: `accountDir(id)` = `join(getAgentDir(), "accounts", id)`、`accountAuthPath(id)` = その下の `auth.json`、`accountModelsStorePath(id)` = 同じく `models-store.json`。`getAgentDir` は Pi SDK の config から取得（`web/src/lib/pi/config.ts` 等に小さいラッパを新設 or harness 内 util）。default 判定: accountId 未指定（null/undefined）= default。ID 文字列 `"default"` は予約しない
 - `deleteAccount`: 実行中タスク（`status === "working"` 等）が accountId を参照していれば 409（`throw Object.assign(new Error(...), { status: 409 })`）。参照が終わるまで runtime は破棄しない（Phase 6 で実装）
 
 **検証**: `npm --prefix web test -- src/lib/accounts.test.ts`、`npm --prefix web run typecheck`
@@ -240,7 +238,7 @@ Phase 1  accounts ストア（model 層・パス解決ユーティリティ + �
 - `DELETE /api/accounts/[id]`（実行中タスク参照時 409。参考: `web/src/lib/store.ts` の既存 deleteTask と同じトランザクション）
 - 認証一覧 `GET /api/providers?accountId=`（Phase 6 までは default 互換。アカウント未指定 = 従来どおり）
 
-**検証**: 対象 route test（既存 `providers/route.test.ts` の形式に倣う）、typecheck
+**検証**: 対象 route test（既存 `codexbar/providers/route.test.ts` の形式に倣う）、typecheck
 
 ---
 
@@ -260,7 +258,7 @@ Phase 1  accounts ストア（model 層・パス解決ユーティリティ + �
 
 ### Phase 5: UI
 
-**ファイル**: `web/src/components/settings/ProviderAuthPanel.tsx`、`web/src/components/home/HomeComposer.tsx`（or 相当）、`web/src/components/task/TaskView.tsx`、`web/src/app/api/models/route.ts`（accountId 対応）
+**ファイル**: `web/src/components/settings/ProviderAuthPanel.tsx`、`web/src/components/Composer.tsx`（Home で使用中のコンポーザ）、`web/src/components/task/TaskView.tsx`、`web/src/app/api/models/route.ts`（accountId 対応）
 
 - ProviderAuthPanel: 「アカウント」セクション。一覧（label・各 provider 認証 Badge・ログイン/ログアウト・編集・削除）
 - 作成ダイアログ: label 入力 + `openai-codex` / `anthropic` チェックボックス。ログインは既存の `beginLogin`（`?accountId=`）を再利用
