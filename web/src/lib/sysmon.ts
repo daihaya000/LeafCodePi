@@ -14,6 +14,8 @@ export interface CpuMetric {
   cores: number;
   /** CPUモデル名 */
   model: string;
+  /** CPU温度 (℃)。取得できない場合は null */
+  tempC: number | null;
 }
 
 export interface MemoryMetric {
@@ -150,6 +152,33 @@ export function sampleFromOscpus(
       total: t.user + t.nice + t.sys + t.idle + t.irq,
     };
   });
+}
+
+/** PowerShell の CPU温度 JSON（複数センサー時は最も高い値）を解釈する。 */
+export function parseCpuTemperatureJson(text: string): number | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const values = Array.isArray(value) ? value : [value];
+  const temperatures = values
+    .map((item) => {
+      const raw =
+        typeof item === "number" || typeof item === "string"
+          ? item
+          : item && typeof item === "object" && !Array.isArray(item)
+            ? (item as Record<string, unknown>).tempC
+            : null;
+      if (typeof raw === "string" && !raw.trim()) return Number.NaN;
+      return typeof raw === "number" || typeof raw === "string" ? Number(raw) : Number.NaN;
+    })
+    .filter(
+      (temperature) =>
+        Number.isFinite(temperature) && temperature >= -50 && temperature <= 150,
+    );
+  return temperatures.length > 0 ? Math.max(...temperatures) : null;
 }
 
 /** nvidia-smi の CSV 出力（`name,utilization.gpu,memory.used,memory.total[,temperature.gpu]`）1行を解釈する。 */

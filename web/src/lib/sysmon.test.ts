@@ -3,6 +3,7 @@ import {
   clampPercent,
   cpuUsedPercent,
   formatBytes,
+  parseCpuTemperatureJson,
   parseAmdGpuJson,
   parseNvidiaSmiCsv,
   percentTone,
@@ -73,6 +74,21 @@ describe("cpuUsedPercent", () => {
     expect(
       cpuUsedPercent([{ idle: 1, total: 2 }], [{ idle: 1, total: 2 }, { idle: 1, total: 2 }]),
     ).toBeNull();
+  });
+});
+
+describe("parseCpuTemperatureJson", () => {
+  it("uses the hottest valid CPU sensor value", () => {
+    expect(
+      parseCpuTemperatureJson('[{"tempC": 48.4}, {"tempC": 61.2}, {"tempC": null}]'),
+    ).toBe(61.2);
+    expect(parseCpuTemperatureJson('{"tempC": 54.6}')).toBe(54.6);
+  });
+
+  it("returns null for invalid or out-of-range values", () => {
+    expect(parseCpuTemperatureJson("not json")).toBeNull();
+    expect(parseCpuTemperatureJson('{"tempC": 180}')).toBeNull();
+    expect(parseCpuTemperatureJson("[]")).toBeNull();
   });
 });
 

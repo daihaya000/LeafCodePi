@@ -17,6 +17,7 @@ import {
   clampPercent,
   formatBytes,
   percentTone,
+  type CpuMetric,
   type GpuMetric,
   type MemoryMetric,
   type SystemUsage,
@@ -132,6 +133,13 @@ function memoryDetail(memory: MemoryMetric): string {
   return `${formatBytes(memory.usedBytes)} / ${formatBytes(memory.totalBytes)}`;
 }
 
+function cpuDetail(cpu: CpuMetric): string {
+  const cores = `${cpu.cores} コア`;
+  return cpu.tempC === null || cpu.tempC === undefined
+    ? cores
+    : `${cores} · ${Math.round(cpu.tempC)}°C`;
+}
+
 function ToggleRow({
   label,
   checked,
@@ -213,7 +221,7 @@ function MetricRows({
           icon={<Cpu className="h-3.5 w-3.5" />}
           label="CPU"
           percent={usage.cpu?.usedPercent ?? null}
-          detail={usage.cpu ? `${usage.cpu.cores} コア` : "—"}
+          detail={usage.cpu ? cpuDetail(usage.cpu) : "—"}
         />
       )}
       {!hidden.has("ram") && (

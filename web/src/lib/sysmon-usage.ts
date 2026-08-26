@@ -3,6 +3,7 @@ import os from "node:os";
 import {
   cpuUsedPercent,
   parseAmdGpuJson,
+  parseCpuTemperatureJson,
   parseNvidiaSmiCsv,
   sampleFromOscpus,
   type GpuMetric,
@@ -33,6 +34,54 @@ function nvidiaSmiBin(): string {
 
 function powershellBin(): string {
   return process.env.LEAFCODE_SYSMON_POWERSHELL?.trim() || "powershell.exe";
+}
+
+/** Windows標準の温度情報と Open/LibreHardwareMonitor の CPU温度を読む。 */
+const CPU_TEMPERATURE_QUERY = String.raw`
+$ErrorActionPreference = 'SilentlyContinue'
+$temps = @()
+function Add-Temperature([double] $value) {
+  if ([double]::IsNaN($value) -or [double]::IsInfinity($value)) { return }
+  if ($value -ge -50 -and $value -le 150) { $script:temps += $value }
+}
+
+# OpenHardwareMonitor / LibreHardwareMonitor は値を℃で返す。
+foreach ($namespace in @('root\LibreHardwareMonitor', 'root\OpenHardwareMonitor')) {
+  foreach ($sensor in @(Get-CimInstance -Namespace $namespace -Class Sensor |
+      Where-Object { $_.SensorType -eq 'Temperature' -and $_.Name -match 'CPU|Package|Tctl|Tdie|Core' })) {
+    Add-Temperature ([double] $sensor.Value)
+  }
+}
+
+# ACPI / Windows thermal-zone の値は 1/10 K。
+foreach ($zone in @(Get-CimInstance -Namespace 'root\wmi' -Class MSAcpi_ThermalZoneTemperature)) {
+  Add-Temperature (([double] $zone.CurrentTemperature / 10) - 273.15)
+}
+foreach ($zone in @(Get-CimInstance -Namespace 'root\cimv2' -Class Win32_PerfFormattedData_Counters_ThermalZoneInformation)) {
+  $raw = [double] $zone.HighPrecisionTemperature
+  if ($raw -le 0) { $raw = [double] $zone.Temperature }
+  if ($raw -gt 0) { Add-Temperature (($raw / 10) - 273.15) }
+}
+
+if ($temps.Count -eq 0) {
+  [pscustomobject]@{ tempC = $null } | ConvertTo-Json -Compress
+} else {
+  [pscustomobject]@{ tempC = [Math]::Round([double](($temps | Measure-Object -Maximum).Maximum), 1) } | ConvertTo-Json -Compress
+}
+`.trim();
+
+async function collectCpuTemperature(): Promise<number | null> {
+  if (process.platform !== "win32") return null;
+  try {
+    const { stdout } = await execFileAsync(
+      powershellBin(),
+      ["-NoProfile", "-NonInteractive", "-Command", CPU_TEMPERATURE_QUERY],
+      { timeout: 4000, windowsHide: true },
+    );
+    return parseCpuTemperatureJson(stdout);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -400,7 +449,11 @@ export async function collectSystemUsage(): Promise<SystemUsage> {
   // CPU使用率は2サンプル間で定義される。GPU取得(子プロセス)と並行して
   // サンプル間隔を取り、追加コストを最小化する（NVidia外では待機のみで代替）。
   const prev = sampleFromOscpus(os.cpus());
-  const [gpus] = await Promise.all([collectGpus(), sleep(CPU_SAMPLE_GAP_MS)]);
+  const [gpus, tempC] = await Promise.all([
+    collectGpus(),
+    collectCpuTemperature(),
+    sleep(CPU_SAMPLE_GAP_MS),
+  ]);
   const curr = sampleFromOscpus(os.cpus());
 
   const totalMem = os.totalmem();
@@ -417,6 +470,7 @@ export async function collectSystemUsage(): Promise<SystemUsage> {
       usedPercent: cpuUsedPercent(prev, curr),
       cores: os.cpus().length,
       model: os.cpus()[0]?.model ?? "—",
+      tempC,
     },
     memory: {
       usedPercent: Math.round(usedPercent * 10) / 10,
