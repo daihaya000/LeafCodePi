@@ -1,0 +1,66 @@
+{
+  "name": "leafcode-memory",
+  "version": "0.9.6-leafcode.0",
+  "description": "LeafCode's persistent memory, session search, and procedural skills extension, forked from pi-hermes-memory.",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "files": [
+    "src",
+    "scripts",
+    "README.md",
+    "LICENSE",
+    "docs"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "check": "node scripts/ensure-dev.mjs check && tsc --noEmit",
+    "check:min-sdk": "node scripts/ensure-dev.mjs check && node scripts/check-min-sdk.mjs",
+    "test": "node scripts/ensure-dev.mjs test && tests/run-all.sh"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "memory",
+    "persistent-memory",
+    "session-search",
+    "sqlite",
+    "fts5",
+    "skills",
+    "learning-loop",
+    "agent",
+    "hermes",
+    "secret-scanning",
+    "content-scanner",
+    "correction-detection",
+    "auto-consolidation",
+    "memory-aging",
+    "context-fencing",
+    "two-tier-memory"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@earendil-works/pi-ai": ">=0.80.1",
+    "@earendil-works/pi-coding-agent": ">=0.80.1"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^0.80.2",
+    "@earendil-works/pi-coding-agent": "^0.80.2",
+    "@types/better-sqlite3": "^7.6.13",
+    "tsx": "^4.21.0",
+    "typebox": "^1.1.33",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@earendil-works/pi-tui": "^0.80.2",
+    "better-sqlite3": "^12.9.0",
+    "strip-ansi": "7.2.0"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.9.0": true
+  }
+}
