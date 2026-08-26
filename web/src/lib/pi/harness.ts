@@ -2473,28 +2473,40 @@ export async function createTask(input: {
   if (requestedAccountId && parsed && !isAccountRoutingProvider(parsed.providerID)) {
     throw Object.assign(new Error("共有プロバイダーにはアカウントを指定できません"), { status: 400 });
   }
-  const modelRoute = input.model
-    ? await withRouteLock(`${parsed?.providerID ?? "default"}::${parsed?.modelID ?? "default"}`, () =>
-        resolveConcreteModel(input.model, requestedAccountId ?? null),
-      )
-    : undefined;
-  if (input.model && !modelRoute) {
-    throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+  const insertStoredTask = (model: Model | undefined, accountId: string | null): TaskSummary => {
+    const selectedIds = modelId(model);
+    return insertTask({
+      project,
+      title: titleFromPrompt(input.prompt),
+      thinkingLevel: input.thinkingLevel,
+      providerID: selectedIds.providerID ?? parsed?.providerID,
+      modelID: selectedIds.modelID ?? parsed?.modelID,
+      ...(accountId ? { accountId } : {}),
+      ...(input.agent ? { agent: input.agent.trim() } : {}),
+      ...(input.skillPermission ? { skillPermission: input.skillPermission } : {}),
+    });
+  };
+  let modelRoute: ConcreteModelRoute | undefined;
+  let concreteAccountId = requestedAccountId ?? null;
+  let task: TaskSummary;
+  if (input.model) {
+    const routed = await withRouteLock(
+      `${parsed?.providerID ?? "default"}::${parsed?.modelID ?? "default"}`,
+      async () => {
+        const route = await resolveConcreteModel(input.model, requestedAccountId ?? null);
+        if (!route) throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+        patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
+        return { route, task: insertStoredTask(route.model, route.accountId) };
+      },
+    );
+    modelRoute = routed.route;
+    concreteAccountId = routed.route.accountId;
+    task = routed.task;
+  } else {
+    patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
+    task = insertStoredTask(undefined, concreteAccountId);
   }
   const model = modelRoute?.model;
-  const concreteAccountId = modelRoute?.accountId ?? (parsed ? null : requestedAccountId ?? null);
-  const selectedIds = modelId(model);
-  patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
-  const task = insertTask({
-    project,
-    title: titleFromPrompt(input.prompt),
-    thinkingLevel: input.thinkingLevel,
-    providerID: selectedIds.providerID ?? parsed?.providerID,
-    modelID: selectedIds.modelID ?? parsed?.modelID,
-    ...(concreteAccountId ? { accountId: concreteAccountId } : {}),
-    ...(input.agent ? { agent: input.agent.trim() } : {}),
-    ...(input.skillPermission ? { skillPermission: input.skillPermission } : {}),
-  });
   const requestedThinking = isThinkingLevel(input.thinkingLevel) ? input.thinkingLevel : "off";
   const thinkingLevel = model
     ? clampThinkingLevelForModel(model, requestedThinking)
