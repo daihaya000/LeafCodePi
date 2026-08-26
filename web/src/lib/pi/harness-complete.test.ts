@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
+import { createAccount } from "@/lib/accounts";
+import { parseCodexBarSnapshot } from "@/lib/codexbar";
+import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
+import { setAccountRoutingMode, __resetProviderRoutingQueueForTests } from "@/lib/provider-routing";
+import { AccountRuntimeManager } from "./account-runtime-manager";
 import { completeModelText } from "./harness";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
+const tempDirs: string[] = [];
 
 /** completeModelText は state().modelRuntime 経由で Pi ランタイムを使うため、
  *  グローバル state にスタブを注入して実装を直接検証する。
@@ -49,6 +58,10 @@ function assistant(overrides: Partial<AssistantMessage>): AssistantMessage {
 
 afterEach(() => {
   delete (globalThis as Record<string, unknown>)[GLOBAL_KEY];
+  clearCachedUsage();
+  __resetProviderRoutingQueueForTests();
+  delete process.env.LEAFCODE_PI_DATA_DIR;
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 describe("completeModelText", () => {
@@ -65,6 +78,78 @@ describe("completeModelText", () => {
       }),
       "更新 foo",
     );
+  });
+
+  it("routes an integrated model to the account with lower cached usage", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-complete-routing-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const high = createAccount({ label: "使用量大", providers: ["anthropic"] });
+    const low = createAccount({ label: "使用量小", providers: ["anthropic"] });
+    await setAccountRoutingMode("anthropic", "integrated");
+    setCachedUsage(
+      parseCodexBarSnapshot({
+        providers: [
+          { codexBarProviderId: "anthropic", accountId: high.id, usedPercent: 80 },
+          { codexBarProviderId: "anthropic", accountId: low.id, usedPercent: 20 },
+        ],
+      }),
+    );
+
+    const calls: string[] = [];
+    const response = assistant({ content: [{ type: "text", text: "提案" }] });
+    const makeRuntime = (accountId: string) => ({
+      getProvider: () => ({ id: "stub" }),
+      registerProvider: () => {},
+      getProviders: () => [{ id: "anthropic", name: "Anthropic" }],
+      getModels: () => [{ id: "claude-sonnet", name: "Claude Sonnet" }],
+      hasConfiguredAuth: () => true,
+      getAvailable: async () => [
+        {
+          provider: "anthropic",
+          id: "claude-sonnet",
+          name: "Claude Sonnet",
+          input: ["text"],
+          reasoning: false,
+          thinkingLevelMap: { off: "none" },
+        },
+      ],
+      getModel: (providerID: string, modelID: string) =>
+        providerID === "anthropic" && modelID === "claude-sonnet"
+          ? {
+              provider: providerID,
+              id: modelID,
+              reasoning: false,
+              thinkingLevelMap: { off: "none" },
+              maxTokens: 32_768,
+            }
+          : undefined,
+      completeSimple: () => {
+        calls.push(accountId);
+        return Promise.resolve(response);
+      },
+    });
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      pi: null,
+      modelRuntime: { getProvider: () => ({ id: "stub" }), registerProvider: () => {} },
+      accountRuntimes: new AccountRuntimeManager(async (accountId) => makeRuntime(accountId) as never),
+      initPromise: null,
+      initError: null,
+      live: new Map(),
+      watchdogRegistered: true,
+      lastProviderSyncWarnings: [],
+    };
+
+    await assert.equal(
+      await completeModelText({
+        providerID: "anthropic",
+        modelID: "claude-sonnet",
+        system: "system",
+        prompt: "prompt",
+      }),
+      "提案",
+    );
+    assert.deepEqual(calls, [low.id]);
   });
 
   it("leaves room for an answer when a reasoning model is used", async () => {

@@ -224,6 +224,23 @@ const GLOBAL_KEY = "__leafcodePiHarness" as const;
 const ensureLiveInflight = new Map<string, Promise<LiveRuntime>>();
 /** Serialize selection + task insert for the same integrated provider/model. */
 const routeLocks = new Map<string, Promise<void>>();
+/** Reserve selected accounts until the new task has a live session. */
+const routeReservations = new Map<string, Map<string, number>>();
+
+function reserveRoute(providerID: string, accountId: string): void {
+  const accounts = routeReservations.get(providerID) ?? new Map<string, number>();
+  accounts.set(accountId, (accounts.get(accountId) ?? 0) + 1);
+  routeReservations.set(providerID, accounts);
+}
+
+function releaseRoute(providerID: string, accountId: string): void {
+  const accounts = routeReservations.get(providerID);
+  if (!accounts) return;
+  const remaining = (accounts.get(accountId) ?? 0) - 1;
+  if (remaining > 0) accounts.set(accountId, remaining);
+  else accounts.delete(accountId);
+  if (accounts.size === 0) routeReservations.delete(providerID);
+}
 
 async function withRouteLock<T>(key: string, action: () => Promise<T>): Promise<T> {
   const previous = routeLocks.get(key) ?? Promise.resolve();
@@ -1837,6 +1854,13 @@ function workingTaskCounts(providerIds: readonly string[]): Map<string, number> 
     const key = `${task.providerID}::${task.accountId}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
+  for (const [providerID, accounts] of routeReservations) {
+    if (!allowed.has(providerID)) continue;
+    for (const [accountId, count] of accounts) {
+      const key = `${providerID}::${accountId}`;
+      counts.set(key, (counts.get(key) ?? 0) + count);
+    }
+  }
   return counts;
 }
 
@@ -2488,6 +2512,7 @@ export async function createTask(input: {
   };
   let modelRoute: ConcreteModelRoute | undefined;
   let concreteAccountId = requestedAccountId ?? null;
+  let reservedAccount: { providerID: string; accountId: string } | undefined;
   let task: TaskSummary;
   if (input.model) {
     const routed = await withRouteLock(
@@ -2495,12 +2520,25 @@ export async function createTask(input: {
       async () => {
         const route = await resolveConcreteModel(input.model, requestedAccountId ?? null);
         if (!route) throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
-        patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
-        return { route, task: insertStoredTask(route.model, route.accountId) };
+        if (route.accountId && parsed && isAccountRoutingProvider(parsed.providerID)) {
+          reserveRoute(parsed.providerID, route.accountId);
+        }
+        try {
+          patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
+          return { route, task: insertStoredTask(route.model, route.accountId) };
+        } catch (error) {
+          if (route.accountId && parsed && isAccountRoutingProvider(parsed.providerID)) {
+            releaseRoute(parsed.providerID, route.accountId);
+          }
+          throw error;
+        }
       },
     );
     modelRoute = routed.route;
     concreteAccountId = routed.route.accountId;
+    if (modelRoute.accountId && parsed && isAccountRoutingProvider(parsed.providerID)) {
+      reservedAccount = { providerID: parsed.providerID, accountId: modelRoute.accountId };
+    }
     task = routed.task;
   } else {
     patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
@@ -2511,44 +2549,50 @@ export async function createTask(input: {
   const thinkingLevel = model
     ? clampThinkingLevelForModel(model, requestedThinking)
     : requestedThinking;
-  const setup = await createSession({
-    cwd: project.rootPath,
-    sessionName: task.title,
-    accountId: concreteAccountId,
-    model,
-    thinkingLevel,
-    subagentPermission: input.subagentPermission,
-    permissionMode: input.permissionMode,
-    skillPermission: input.skillPermission,
-    // The selected agent talks as the main persona for this whole session.
-    agentName: input.agent ?? null,
-  });
-  patchTask(task.id, {
-    sessionId: setup.session.sessionId,
-    sessionFile: setup.session.sessionFile,
-    status: "working",
-    thinkingLevel:
-      isThinkingLevel(setup.session.thinkingLevel) ? setup.session.thinkingLevel : thinkingLevel,
-    ...modelId(setup.session.model),
-  });
-  const live = attachSession(task.id, setup.session, setup.skillPermissionRef);
-  if (input.goalLoop) {
-    await goalLoopCommand(task.id, {
-      action: "start",
-      goal: input.prompt,
-      acceptance: input.goalLoop.acceptance,
-      maxTurns: input.goalLoop.maxTurns,
-      cooldownSeconds: input.goalLoop.cooldownSeconds,
-      forceFullRun: input.goalLoop.forceFullRun,
-    });
-  } else {
-    queuePrompt(live, input.prompt, input.images, {
-      agent: input.agent,
+  try {
+    const setup = await createSession({
+      cwd: project.rootPath,
+      sessionName: task.title,
+      accountId: concreteAccountId,
+      model,
+      thinkingLevel,
       subagentPermission: input.subagentPermission,
       permissionMode: input.permissionMode,
+      skillPermission: input.skillPermission,
+      // The selected agent talks as the main persona for this whole session.
+      agentName: input.agent ?? null,
     });
+    patchTask(task.id, {
+      sessionId: setup.session.sessionId,
+      sessionFile: setup.session.sessionFile,
+      status: "working",
+      thinkingLevel:
+        isThinkingLevel(setup.session.thinkingLevel) ? setup.session.thinkingLevel : thinkingLevel,
+      ...modelId(setup.session.model),
+    });
+    const live = attachSession(task.id, setup.session, setup.skillPermissionRef);
+    if (input.goalLoop) {
+      await goalLoopCommand(task.id, {
+        action: "start",
+        goal: input.prompt,
+        acceptance: input.goalLoop.acceptance,
+        maxTurns: input.goalLoop.maxTurns,
+        cooldownSeconds: input.goalLoop.cooldownSeconds,
+        forceFullRun: input.goalLoop.forceFullRun,
+      });
+    } else {
+      queuePrompt(live, input.prompt, input.images, {
+        agent: input.agent,
+        subagentPermission: input.subagentPermission,
+        permissionMode: input.permissionMode,
+      });
+    }
+    return toSummary(getTask(task.id) ?? task);
+  } finally {
+    if (reservedAccount) {
+      releaseRoute(reservedAccount.providerID, reservedAccount.accountId);
+    }
   }
-  return toSummary(getTask(task.id) ?? task);
 }
 
 function queuePrompt(
