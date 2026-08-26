@@ -56,6 +56,17 @@ OpenAI Codex と Anthropic は独立してモードを保持する。既定値�
 
 現行 `completeModelText()` は呼び出し側が渡す `accountId` を型・runtime 解決へ反映していない。統合ルーティングを直接生成へ接続する前に、この経路を修正してテストで固定する。
 
+## レビュー・デバッグ結果（実装前に解消する事項）
+
+現行コードを実際の呼び出し経路まで追った結果、次を実装条件として追加する。
+
+1. **タスク作成順序**: 現在の `createTask()` は `insertTask()` の後に `resolveModel()` を呼ぶため、モデル解決失敗時に未接続タスクが残り得る。統合モードでは `resolveConcreteModel()` を insert 前に実行し、失敗時は task を作らない。既存の task 作成テストにこの回帰を追加する。
+2. **キャッシュ期限の混同**: `web/src/app/api/models/route.ts` は表示用に最大 30 分の CodexBar cache を読む一方、`web/src/lib/codexbar/cache.ts` の標準 TTL は 5 分である。表示用の `ModelOption.codexbar*` をルーティング判断へ流用せず、実行時は `getCachedUsage()` の標準 5 分 TTL と `provider.accountId` を使う。`provider.stale` は上流取得失敗による last-good 表示であり、外側 cache の経過時間とは別物として扱う。
+3. **直接生成のアカウント漏れ**: `direct-title`、task の next-action / permission advice は task の `accountId` を渡すが、project の next-task と git commit-message は context-free である。さらに task account を OpenRouter 等の共有 provider にそのまま渡すと、アカウント runtime に共有モデルが無く失敗し得る。解決関数は `accountId` を対象 provider がそのアカウントに属する場合だけ使い、それ以外は default runtime（統合対象 provider なら自動 route）を使う。
+4. **生成モデル設定のアカウント情報消失**: `GenerationModelSettings` は account-prefixed の `ModelOption.value` を選べるが、`settings/[key]` の `splitGenerationModel()` は `providerID::modelID` へ正規化するため、`accountId::providerID::modelID` を保存できない。共有 parser を account prefix 対応にし、先頭セグメントが実在する account の場合だけ `accountId::providerID::modelID` と解釈する（モデル ID 内の `::` を壊さない）。legacy の 2 セグメント値を維持しつつ、生成モデルと fallback の実行時に optional `accountId` を渡す。未知・削除済み account は実行前に再検証し、暗黙に別 account へ変換しない。
+5. **Agent 設定の境界**: `AgentsSettings` / `lib/agents.ts` は選択値を `provider/model` に変換し、accountId を保持しない。初期実装では agent の明示的な別 account pin を追加しない。Agent は親 task の concrete runtime/model を継承し、統合モデルの論理 provider/model だけを選択可能にする。アカウント別モデルを Agent 設定へ保存する機能は、subagent extension が runtime account context を受け取れる設計を先に確定してから別スコープにする。
+6. **同時作成**: 使用率読み取りと task insert の間には競合がある。provider/model 単位の in-process route lock 内で「候補再構築 → account 選択 → task insert」を直列化し、同率時の working task 数を同時作成にも反映する。ネットワーク呼び出し後の再送や分散ロックは初期実装に追加しない。
+
 ## 採用する動作
 
 ### 1. モードの単位
@@ -118,12 +129,13 @@ ModelOption & {
 | 0 | fresh、使用率既知、`maxed=false` | `usedPercent` 昇順 |
 | 1 | stale、使用率既知、`maxed=false` | `usedPercent` 昇順 |
 | 2 | 使用率不明、last-good なし、または stale maxed | 実行中タスク数 → アカウント台帳順 |
-| 3 | fresh maxed かつ reset が未来 | 通常候補から除外 |
+| 3 | fresh maxed、reset が未来または不明 | 通常候補から除外 |
 
 追加規則:
 
 - `resetsAt <= now` の maxed 値は失効済みとみなし tier 2 に戻す
 - 同一 tier・同一使用率では、その provider で `status=working` のタスクが少ないアカウントを優先
+- `resetsAt` が不正な値または不明な maxed は tier 3 とし、全候補 maxed の 429 には reset 時刻を含めない
 - 最後は `accounts.json` の順で決定し、結果を決定的にする
 - tier 0〜2 が無く、全候補が fresh maxed の場合は 429 と、取得できる場合は最も早い reset 時刻を返す
 - 使用量キャッシュが全く無い場合は、実行中タスク数 → 台帳順で選ぶ
@@ -142,12 +154,13 @@ ModelOption & {
   → タスク終了まで固定
 ```
 
-- `createTask`: task insert 前に具体的なアカウントを決め、`accountId` を保存する
+- `createTask`: provider/model 単位の route lock 内で候補を再構築し、task insert 前に具体的なアカウントを決めて `accountId` を保存する
 - `setTaskModel`: 統合モデルなら再選択する。別アカウントになる場合は現行どおり working 中を 409、idle 時だけ session を作り直す
 - `ensureLive` / resume: 保存済み `task.accountId` だけを使い、モードや最新使用率で再ルーティングしない
-- `completeModelText`: 明示 `accountId` があればそれを優先。無指定かつ provider が統合モードなら自動選択。別モードは現行 default runtime を維持
-- タスク配下の title / NextAction / permission advice / subagent は、明示された親 `task.accountId` を優先し、統合モードでも親タスクと別アカウントへ勝手に移さない
+- `completeModelText`: 対象 provider が親 account に属する場合だけ明示 `accountId` を使う。明示 account が無く provider が統合モードなら自動選択し、別モードの context-free 呼出しは従来の default runtime を維持する
+- タスク配下の title / NextAction / permission advice / subagent は、対象 provider が親 account に属する場合に限り親 `task.accountId` を優先する。共有 provider や別 provider のモデルまで親 account runtime へ送らない
 - コンテキストを持たない NextTask / commit message 等は、統合 provider が設定されていれば呼び出しごとに自動選択する
+- Agent のモデルは親セッションの `modelRuntime` で解決し、integrated の論理モデルでも concrete な親 task account を継承する。別 account の agent 設定値は初期実装で受理しない
 
 候補 runtime の初期化またはモデル解決が失敗した場合は、task 作成前に次候補を試す。プロバイダーへ送信した後の 401/429/応答失敗は自動再送せず、通常エラーとして扱う。
 
@@ -267,15 +280,17 @@ createTask / setTaskModel / completeModelText
 - 新規 `web/src/lib/provider-routing.ts`
 - 新規 `web/src/lib/provider-routing.test.ts`
 - `web/src/lib/types.ts`
+- `web/src/lib/generation-model-key.ts` と設定 route（account-prefixed 値の parse/validation）
 - `web/src/lib/pi/harness.ts` の provider DTO 組み立て・cache invalidation wrapper
 - 新規 `web/src/app/api/providers/[id]/route.ts`
-- API route test
+- routing API / generation setting route の関連 test
 
 作業:
 
 - `AccountRoutingMode`、version 1 ストア、default separate、atomic write、write queue
 - `ProviderAuthDto.accountRoutingMode`
 - PATCH の provider/mode validation
+- 既存 2 セグメント生成モデル値との後方互換を保った account-prefixed parser。保存値を勝手に provider/model へ潰さない
 
 検証:
 
@@ -345,15 +360,21 @@ createTask / setTaskModel / completeModelText
 
 - `web/src/lib/pi/harness.ts`
 - `web/src/lib/direct-generation.ts`
+- `web/src/lib/direct-title.ts`
 - `web/src/lib/pi/harness-runtime.test.ts`
 - `web/src/lib/pi/harness-complete.test.ts`
 - `web/src/lib/direct-generation.test.ts`
+- `web/src/app/api/tasks/[id]/next-action/route.ts`
+- `web/src/app/api/tasks/[id]/permission/advice/route.ts`
+- `web/src/app/api/projects/[id]/next-task/route.ts`
+- `web/src/app/api/git/commit-message/route.ts`
+- 上記 direct route の関連 test
 - task model route の関連 test
 
 作業:
 
-- concrete route を返す共通解決関数を追加
-- `createTask` は insert 前に route し、実 accountId を保存
+- concrete route（`accountId` + runtime + model）を返す共通解決関数を追加
+- `createTask` は provider/model 単位の route lock 内で候補再構築・route・insert を行い、実 accountId を保存。解決失敗時に orphan task を残さない
 - `setTaskModel` は integrated option を route し、idle のみ account 切替
 - `completeModelText` に `accountId` を正式追加し、明示 account または integrated route の runtime を使う
 - resume / ensureLive は保存済み accountId のみを使う
@@ -367,7 +388,10 @@ createTask / setTaskModel / completeModelText
 - mode 変更後も既存 task の resume 先が変わらないこと
 - working 中の account 切替が 409
 - 全 fresh maxed が 429、cache 無しでも deterministic に選べること
-- context-bound 直接生成が task account、context-free 生成が integrated route を使うこと
+- context-bound 直接生成が対象 provider のときだけ task account、共有 provider は default runtime、context-free 生成は integrated route を使うこと
+- `accountId` を task から受け取っても、対象 provider がその account に属さない場合に account runtime を選ばないこと
+- 生成モデル設定の account-prefixed 値が再読込後も保持され、削除済み account は候補から安全に除外されること
+- Agent の explicit account 値が保存・実行へ混入せず、親 task の runtime を継承すること
 
 コミット案: `タスク実行を低使用率アカウントへルーティング`
 
@@ -380,15 +404,19 @@ createTask / setTaskModel / completeModelText
 - `web/src/components/settings/SettingsView.tsx`
 - `web/src/components/settings/ProviderModelsPanel.tsx`
 - `web/src/components/settings/GenerationModelSettings.tsx`
+- `web/src/components/settings/AgentsSettings.tsx`
 - `web/src/components/home/HomeView.tsx`
+- `web/src/lib/generation-model-key.ts`
+- `web/src/lib/agents.ts`（親 task runtime 継承の validation のみ）
 - 必要な選択保持 test
 
 作業:
 
 - provider 項目へ accessible segmented radio を追加
 - optimistic 表示ではなく、保存成功後に mode を確定
-- Settings 内の生成モデル候補を revision で再取得
-- mode 切替後、同じ provider/model があれば Home と生成モデル設定の選択を可能な限り維持
+- Settings 内の生成モデル候補を revision で再取得（`SettingsView` が revision を増やして `ProviderModelsPanel` / `GenerationModelSettings` を再読込する）
+- mode 切替後、同じ provider/model があれば Home と生成モデル設定の選択を可能な限り維持。account-prefixed 値は prefix を保持して保存し、integrated 値との変換は既知 account に限定する。Home は次回 refresh 時に同じ論理 provider/model を復元する
+- Agent 設定では integrated の論理モデルを保存し、account-prefixed 値は保存せず親 task account 継承に限定する。separate モードの account-prefixed 候補は Agent picker から除外し、未設定（親モデル継承）を維持する
 - ProviderModelsPanel の候補説明を追加
 
 検証:
@@ -441,7 +469,7 @@ createTask / setTaskModel / completeModelText
 | リスク | 対策 |
 | --- | --- |
 | CodexBar cache が古く、実際の空きとずれる | fresh を優先、stale/unknown tier を分離。ルーティング時にネットワーク取得しない |
-| 同時作成が同じ低使用率アカウントへ寄る | 同率時に working task 数を使う。予測 reservation は実測で必要になってから追加 |
+| 同時作成が同じ低使用率アカウントへ寄る | provider/model 単位の route lock で選択と task insert を直列化し、同率時は working task 数を使う。分散 reservation は実測で必要になってから追加 |
 | アカウントごとにモデル catalog が違う | モデル単位の候補集合を保持し、実行直前に runtime.getModel を再確認 |
 | mode 切替で既存セッションが移動する | task.accountId を concrete な監査記録として固定し、resume で再ルートしない |
 | 全アカウント上限時に失敗を繰り返す | fresh maxed を除外し、全件 maxed は provider 呼び出し前に 429 |
@@ -455,6 +483,9 @@ createTask / setTaskModel / completeModelText
 
 - virtual provider の境界が `/api/models` と実行解決であり、管理用アカウント行を隠していない
 - explicit account > integrated auto route > existing default の優先順位が全入口で同じ
+- `/api/models` の表示用 30 分 TTL と、実行時 route の標準 5 分 TTL を混同していない
+- task account を共有 provider の runtime に渡さない
+- account-prefixed generation value を server 側で 2 セグメントへ潰していない
 - task insert より前に concrete account が決まる
 - `completeModelText` の account runtime 修正が回帰テスト付き
 - 429 / unknown / stale / reset 済みの期待値が純粋関数テストで固定される
