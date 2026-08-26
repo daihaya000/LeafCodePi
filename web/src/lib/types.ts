@@ -213,6 +213,7 @@ export type ProviderAuthDto = {
   id: string;
   name: string;
   authenticated: boolean;
+  accountRoutingMode?: "integrated" | "separate";
   methods?: ("api_key" | "oauth")[];
   authSource?: string;
   authLabel?: string;

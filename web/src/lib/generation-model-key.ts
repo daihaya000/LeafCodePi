@@ -25,21 +25,25 @@ export function isGenerationModelEffort(value: unknown): value is GenerationMode
 const MAX_PROVIDER_ID_CHARS = 100;
 const MAX_MODEL_ID_CHARS = 200;
 
-/** Parse the persisted providerID::modelID form without resolving a provider. */
-export function splitGenerationModel(value: unknown): { providerID: string; modelID: string } | undefined {
+/** Parse a legacy providerID::modelID or accountID::providerID::modelID value. */
+export function splitGenerationModel(
+  value: unknown,
+  knownAccountIds: readonly string[] = [],
+): { accountId?: string; providerID: string; modelID: string } | undefined {
   if (typeof value !== "string") return undefined;
-  const separator = value.indexOf("::");
-  if (separator <= 0 || separator !== value.lastIndexOf("::")) return undefined;
-  const providerID = value.slice(0, separator).trim();
-  const modelID = value.slice(separator + 2).trim();
+  const parts = value.split("::");
+  const accountId = parts.length >= 3 && knownAccountIds.includes(parts[0] ?? "") ? parts[0] : undefined;
+  const providerID = accountId ? parts[1] : parts[0];
+  const modelID = accountId ? parts.slice(2).join("::") : parts.slice(1).join("::");
   if (
     !providerID ||
     !modelID ||
     providerID.length > MAX_PROVIDER_ID_CHARS ||
     modelID.length > MAX_MODEL_ID_CHARS ||
-    /[\u0000-\u001f\u007f]/.test(providerID + modelID)
+    (accountId && accountId.length > MAX_MODEL_ID_CHARS) ||
+    /[\u0000-\u001f\u007f]/.test(`${accountId ?? ""}${providerID}${modelID}`)
   ) {
     return undefined;
   }
-  return { providerID, modelID };
+  return accountId ? { accountId, providerID, modelID } : { providerID, modelID };
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSetting, MAX_SETTING_VALUE_CHARS, setSetting } from "@/lib/pi/web-settings";
+import { listAccounts } from "@/lib/accounts";
 import {
   GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY,
   GENERATION_FALLBACK_MODEL_SETTING_KEY,
@@ -30,17 +31,22 @@ const ALLOWED_KEYS = new Set<string>([
   NOTIFICATION_SOUND_VOLUME_SETTING_KEY,
 ]);
 
+function normalizedGenerationModelValue(value: string): string | null {
+  const knownAccountIds = listAccounts().map((account) => account.id);
+  const model = splitGenerationModel(value, knownAccountIds);
+  if (!model) return null;
+  return `${model.accountId ? `${model.accountId}::` : ""}${model.providerID}::${model.modelID}`;
+}
+
 function validateValue(key: string, value: string): string | null {
   if (key === GENERATION_FALLBACK_MODEL_SETTING_KEY) {
-    const model = splitGenerationModel(value);
-    return model ? `${model.providerID}::${model.modelID}` : null;
+    return normalizedGenerationModelValue(value);
   }
   if (key === GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY) {
     return isGenerationModelEffort(value) ? value : null;
   }
   if (key === GENERATION_MODEL_SETTING_KEY) {
-    const model = splitGenerationModel(value);
-    return model ? `${model.providerID}::${model.modelID}` : null;
+    return normalizedGenerationModelValue(value);
   }
   if (key === GENERATION_MODEL_EFFORT_SETTING_KEY) {
     return isGenerationModelEffort(value) ? value : null;

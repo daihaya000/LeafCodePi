@@ -88,6 +88,12 @@ import { listSubagentRuns } from "@/lib/pi/subagent-runs";
 import { stopRunningSubagentRuns } from "@/lib/pi/stop-subagent-runs";
 import { invalidateCachedUsage } from "@/lib/codexbar/cache";
 import { clearProviderCache } from "@/lib/codexbar/provider-cache";
+import {
+  accountRoutingMode,
+  isAccountRoutingProvider,
+  setAccountRoutingMode,
+  type AccountRoutingMode,
+} from "@/lib/provider-routing";
 
 /** True when a skill lives under the user's ~/.agents directory. */
 function isAgentsSkill(skill: { baseDir?: string; filePath?: string }): boolean {
@@ -1907,6 +1913,9 @@ export async function listProviderAuth(): Promise<ProviderAuthDto[]> {
       subscription: runtime.isUsingSubscription(provider.id),
       oauthAvailable: methods.includes("oauth"),
       highlighted: isHighlightedProvider(provider.id),
+      ...(isAccountRoutingProvider(provider.id)
+        ? { accountRoutingMode: accountRoutingMode(provider.id) }
+        : {}),
     } satisfies ProviderAuthDto;
   });
   providers.sort((a, b) => {
@@ -1915,6 +1924,17 @@ export async function listProviderAuth(): Promise<ProviderAuthDto[]> {
     return score(b) - score(a) || a.name.localeCompare(b.name, "en");
   });
   return providers;
+}
+
+export async function setProviderAccountRoutingMode(
+  providerId: string,
+  mode: AccountRoutingMode,
+): Promise<void> {
+  if (!isAccountRoutingProvider(providerId)) {
+    throw Object.assign(new Error("このプロバイダーはアカウント統合に対応していません"), { status: 400 });
+  }
+  await setAccountRoutingMode(providerId, mode);
+  invalidateHealthCache();
 }
 
 export async function startProviderLogin(

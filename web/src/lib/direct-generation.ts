@@ -1,4 +1,6 @@
 import { completeModelText } from "@/lib/pi/harness";
+import { listAccounts } from "@/lib/accounts";
+import { splitGenerationModel } from "@/lib/generation-model-key";
 import {
   DEFAULT_LLAMA_SERVER_BASE,
   isLlamaOrnithModel,
@@ -19,6 +21,7 @@ const MAX_TIMEOUT_MS = 120_000;
 export type DirectModel = {
   providerID: string;
   modelID: string;
+  accountId?: string;
 };
 
 export type DirectGenerationCandidate = {
@@ -48,13 +51,8 @@ export function parseDirectModel(value: unknown): DirectModel | undefined {
 }
 
 export function parseDirectModelKey(value: unknown): DirectModel | undefined {
-  if (typeof value !== "string") return undefined;
-  const separator = value.indexOf("::");
-  if (separator <= 0 || separator !== value.lastIndexOf("::")) return undefined;
-  return parseDirectModel({
-    providerID: value.slice(0, separator),
-    modelID: value.slice(separator + 2),
-  });
+  const parsed = splitGenerationModel(value, listAccounts().map((account) => account.id));
+  return parsed ? { ...parsed } : undefined;
 }
 
 function safeProviderId(value: string): string {
@@ -136,6 +134,7 @@ export async function generateDirectText(options: {
   const model = {
     providerID: safeProviderId(options.model.providerID),
     modelID: safeModelId(options.model.modelID),
+    ...(options.model.accountId ? { accountId: options.model.accountId } : {}),
   };
   const timeoutMs = Math.min(
     MAX_TIMEOUT_MS,
@@ -154,7 +153,9 @@ export async function generateDirectText(options: {
       const reasoning = runtimeReasoningForEffort(options.effort);
       const text = await completeModelText({
         ...model,
-        ...(options.accountId ? { accountId: options.accountId } : {}),
+        ...(model.accountId ?? options.accountId
+          ? { accountId: model.accountId ?? options.accountId }
+          : {}),
         system,
         prompt,
         maxTokens: options.maxTokens,
@@ -229,7 +230,7 @@ function isProviderInternalError(error: unknown): boolean {
 }
 
 export function sameDirectModel(a: DirectModel, b: DirectModel): boolean {
-  return a.providerID === b.providerID && a.modelID === b.modelID;
+  return a.providerID === b.providerID && a.modelID === b.modelID && a.accountId === b.accountId;
 }
 
 export function buildDirectGenerationCandidates(options: {
