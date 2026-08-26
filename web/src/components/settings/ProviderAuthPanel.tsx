@@ -380,8 +380,8 @@ export function ProviderAuthPanel({
         aria-label={`${provider.name} の追加アカウント`}
         className="mt-3 border-t border-border pt-3"
       >
-        <div className="mb-3" aria-busy={savingMode || undefined}>
-          <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-muted">
+        <div className="mb-2" aria-busy={savingMode || undefined}>
+          <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-muted">
             <input
               type="checkbox"
               checked={mode === "integrated"}
