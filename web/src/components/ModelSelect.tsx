@@ -30,6 +30,16 @@ export function modelLimitReached(option: ModelOption | undefined): boolean {
   return Boolean(option?.codexbarMaxed);
 }
 
+/** モデルドロップダウンのグループ見出し（プロバイダ × アカウント）。 */
+function groupHeader(option: ModelOption, hasAccounts: boolean): string {
+  const account = option.accountLabel
+    ? ` · ${option.accountLabel}`
+    : hasAccounts
+      ? " · 既定"
+      : "";
+  return `${option.providerID}${account}`;
+}
+
 export function ModelSelect({
   value,
   options,
@@ -61,15 +71,23 @@ export function ModelSelect({
   const selected = options.find((option) => option.value === value);
   const selectedSupportsImage = modelSupportsImage(selected);
 
+  // アカウント指定があれば「プロバイダ × アカウント」で枠を分ける（既定グループは「・ 既定」）。
+  const hasAccounts = options.some((option) => option.accountId !== undefined);
   const grouped = useMemo(() => {
-    const map = new Map<string, ModelOption[]>();
+    const order: { key: string; header: string; options: ModelOption[] }[] = [];
+    const index = new Map<string, number>();
     for (const option of options) {
-      const list = map.get(option.providerID) ?? [];
-      list.push(option);
-      map.set(option.providerID, list);
+      const key = `${option.providerID}::${option.accountId ?? ""}`;
+      let team = index.get(key);
+      if (team === undefined) {
+        team = order.length;
+        index.set(key, team);
+        order.push({ key, header: groupHeader(option, hasAccounts), options: [] });
+      }
+      order[team].options.push(option);
     }
-    return [...map.entries()];
-  }, [options]);
+    return order;
+  }, [options, hasAccounts]);
 
   const chooseOption = useCallback(
     (option: ModelOption) => {
@@ -171,12 +189,12 @@ export function ModelSelect({
         aria-label={ariaLabel ?? "モデル"}
         className="max-h-80 overflow-y-auto p-1"
       >
-        {grouped.map(([provider, models]) => (
-          <div key={provider}>
+        {grouped.map((group) => (
+          <div key={group.key}>
             <div className="px-2 py-1 text-[11px] font-semibold text-faint">
-              {provider}
+              {group.header}
             </div>
-            {models.map((option) => {
+            {group.options.map((option) => {
               const image = modelSupportsImage(option);
               const maxed = modelLimitReached(option);
               const nearLimit = modelNearLimit(option);

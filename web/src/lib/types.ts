@@ -184,6 +184,10 @@ export type ModelOption = {
   label: string;
   providerID: string;
   modelID: string;
+  /** このモデルを利用する認証アカウント（既定 = undefined）。
+   *   Home のドロップダウンでアカウントをプロバイダ枠として分けるために使う。 */
+  accountId?: string;
+  accountLabel?: string;
   input?: string[];
   reasoning?: boolean;
   thinkingLevels?: ThinkingLevel[];

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listModels, jsonError } from "@/lib/pi/harness";
+import { listAccounts } from "@/lib/accounts";
+import { listModels, listModelsForAccounts, jsonError } from "@/lib/pi/harness";
 import { getCachedUsage } from "@/lib/codexbar/cache";
 import { attachCodexBarUsage } from "./map";
 
@@ -15,14 +16,20 @@ export const dynamic = "force-dynamic";
 const USAGE_MAX_AGE_MS = 30 * 60 * 1000;
 
 /**
- * モデル一覧。`?accountId=` でアカウント別のモデル解決を受け付ける
- * （docs/plans/multi-account.md）。Phase 6 で getRuntimeFor(accountId) に接続するまで
- * は従来どおり既定ランタイムの一覧を返す。
+ * モデル一覧。アカウントが登録されていれば既定 + 各アカウントのモデルをまとめて返し、
+ * アカウントのモデルには accountId / accountLabel が付く（Home でアカウントを
+ * プロバイダ枠として表示するため）。レガシーの `?accountId=` は互換のため受けるだけ。
  */
 export async function GET(req: NextRequest) {
   try {
     void req.nextUrl.searchParams.get("accountId");
-    const models = await listModels();
+    const accounts = listAccounts();
+    const models =
+      accounts.length === 0
+        ? await listModels()
+        : await listModelsForAccounts(
+            accounts.map((account) => ({ id: account.id, label: account.label })),
+          );
     const providers = getCachedUsage(Date.now(), USAGE_MAX_AGE_MS)?.providers ?? [];
     return NextResponse.json({ models: attachCodexBarUsage(models, providers) });
   } catch (error) {

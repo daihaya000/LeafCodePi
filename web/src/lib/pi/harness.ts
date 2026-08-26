@@ -1538,6 +1538,37 @@ export async function getHealth(): Promise<HealthDto> {
   return value;
 }
 
+/** ランタイムごとの有効モデル一覧を構築する（既定・アカウント共通の処理）。 */
+async function buildModelOptions(runtime: ModelRuntime): Promise<ModelOption[]> {
+  await syncProvidersBestEffort(runtime);
+  const catalog = buildProviderModelsCatalog(runtime);
+  const enabled = new Set(
+    enabledModelOptionsFromCatalog(catalog).map((option) => option.value),
+  );
+  const available = await runtime.getAvailable();
+  const options: ModelOption[] = [];
+  for (const model of available) {
+    const providerID = String(model.provider);
+    const modelID = model.id;
+    const value = modelValue(providerID, modelID);
+    if (!enabled.has(value)) continue;
+    options.push({
+      value,
+      label: model.name || modelID,
+      providerID,
+      modelID,
+      input: [...model.input],
+      reasoning: Boolean(model.reasoning),
+      thinkingLevels: thinkingLevelsForModel(model),
+    });
+  }
+  // Preserve settings order from the catalog.
+  const order = enabledModelOptionsFromCatalog(catalog).map((option) => option.value);
+  const rank = new Map(order.map((value, index) => [value, index]));
+  options.sort((a, b) => (rank.get(a.value) ?? 1e9) - (rank.get(b.value) ?? 1e9));
+  return options;
+}
+
 export async function listModels(): Promise<ModelOption[]> {
   const current = state();
   const cached = readModelCache(current.modelCache, Date.now());
@@ -1548,38 +1579,43 @@ export async function listModels(): Promise<ModelOption[]> {
     await ensureRuntime();
     const runtime = await getRuntimeFor();
     if (!runtime) return [];
-    await syncProvidersBestEffort(runtime);
-    const catalog = buildProviderModelsCatalog(runtime);
-    const enabled = new Set(
-      enabledModelOptionsFromCatalog(catalog).map((option) => option.value),
-    );
-    const available = await runtime.getAvailable();
-    const options: ModelOption[] = [];
-    for (const model of available) {
-      const providerID = String(model.provider);
-      const modelID = model.id;
-      const value = modelValue(providerID, modelID);
-      if (!enabled.has(value)) continue;
-      options.push({
-        value,
-        label: model.name || modelID,
-        providerID,
-        modelID,
-        input: [...model.input],
-        reasoning: Boolean(model.reasoning),
-        thinkingLevels: thinkingLevelsForModel(model),
-      });
-    }
-    // Preserve settings order from the catalog.
-    const order = enabledModelOptionsFromCatalog(catalog).map((option) => option.value);
-    const rank = new Map(order.map((value, index) => [value, index]));
-    options.sort((a, b) => (rank.get(a.value) ?? 1e9) - (rank.get(b.value) ?? 1e9));
+    const options = await buildModelOptions(runtime);
     current.modelCache = nextModelCache(options, Date.now());
     return options;
   })().finally(() => {
     current.modelInflight = null;
   });
   return current.modelInflight;
+}
+
+/**
+ * 既定 + 全アカウントのモデルを 1 つのリストで返す（Home のモデルドロップダウンで
+ * アカウントをプロバイダ枠として表示するための拡張）。アカウントのモデルは
+ * value にアカウントIDプレフィックスを持ち、accountId / accountLabel が付く。
+ * アカウントのランタイム初期化に失敗したものはスキップする。
+ */
+export async function listModelsForAccounts(
+  accounts: { id: string; label: string }[],
+): Promise<ModelOption[]> {
+  const options: ModelOption[] = [...(await listModels().catch(() => []))];
+  for (const account of accounts) {
+    try {
+      const runtime = await getRuntimeFor(account.id);
+      if (!runtime) continue;
+      const built = await buildModelOptions(runtime);
+      for (const option of built) {
+        options.push({
+          ...option,
+          value: `${account.id}::${option.value}`,
+          accountId: account.id,
+          accountLabel: account.label,
+        });
+      }
+    } catch {
+      // そのアカウントのランタイム初期化失敗は無視して残りの一覧を返す
+    }
+  }
+  return options;
 }
 
 const DIRECT_MAX_TOKENS = 16_384;

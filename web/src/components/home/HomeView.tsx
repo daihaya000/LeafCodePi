@@ -6,7 +6,6 @@ import { ArrowUp, FolderGit2, GitBranch } from "lucide-react";
 import { CollaborationNotice, useCollaborationRoom } from "@/components/CollaborationStatus";
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { AgentSelect } from "@/components/AgentSelect";
-import { AccountSelect } from "@/components/AccountSelect";
 import { Composer, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { NextTaskSuggest } from "@/components/home/NextTaskSuggest";
@@ -45,6 +44,13 @@ import type { HealthDto, ModelOption, ProjectDto, TaskSummary, ThinkingLevel } f
 
 const MODEL_KEY = "leafcodepi.defaultModel";
 const THINKING_KEY = "leafcodepi.thinkingLevel";
+
+/** アカウントタグ付きモデルの value を Pi が解釈できる「provider::model」へ戻す。 */
+function plainModelValue(modelValue: string, models: ModelOption[]): string {
+  const option = models.find((o) => o.value === modelValue);
+  if (!option?.accountId) return modelValue;
+  return `${option.providerID}::${option.modelID}`;
+}
 
 export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const router = useRouter();
@@ -143,30 +149,6 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
     void refresh();
   }, [refresh]);
 
-  // 選択アカウントの変更でモデル一覧を張り替える（選択 = モデル一覧の source of truth）。
-  // Phase 6 で /api/models がアカウント別ランタイムへ解決される。accountId 未指定時は
-  // URL が初期取得と一致するため getJson の統合で二重フェッチにならない。
-  useEffect(() => {
-    let cancelled = false;
-    getJson<{ models: ModelOption[] }>("/api/models", { accountId: accountId ?? undefined })
-      .then((res) => {
-        if (cancelled) return;
-        setModels(res.models);
-        setModel((current) => {
-          if (current && res.models.some((option) => option.value === current)) return current;
-          const stored = localStorage.getItem(MODEL_KEY) ?? "";
-          if (stored && res.models.some((option) => option.value === stored)) return stored;
-          return res.models[0]?.value ?? "";
-        });
-      })
-      .catch(() => {
-        /* 初期 refresh() の失敗表示に任せる */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [accountId]);
-
   useEffect(() => {
     if (initialProjectId !== undefined) setProjectId(initialProjectId);
   }, [initialProjectId]);
@@ -216,7 +198,9 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
       const result = await sendJson<{ task: TaskSummary }>("/api/tasks", {
         projectId,
         prompt,
-        model,
+        // アカウントタグ付きモデルの value は「accountId::provider::model」。送信時は
+        // Pi が解釈できる「provider::model」へ戻す（accountId は別フィールドで渡す）。
+        model: plainModelValue(model, models),
         thinkingLevel,
         images,
         ...(agent ? { agent } : {}),
@@ -375,22 +359,17 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
               }}
               toolbar={
                 <>
-                  <AccountSelect
-                    value={accountId}
-                    disabled={submitting}
-                    onChange={(next) => {
-                      setAccountId(next);
-                      writeSelectedAccountId(next);
-                    }}
-                    className="min-w-0 max-w-[9rem] shrink sm:max-w-[10rem]"
-                  />
                   <ModelSelect
                     value={model}
                     disabled={submitting}
                     options={models}
                     onChange={(value) => {
+                      const option = models.find((o) => o.value === value);
                       setModel(value);
                       localStorage.setItem(MODEL_KEY, value);
+                      const nextAccount = option?.accountId ?? null;
+                      setAccountId(nextAccount);
+                      writeSelectedAccountId(nextAccount);
                     }}
                     className="min-w-0 max-w-[9rem] shrink sm:max-w-48"
                   />
