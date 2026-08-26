@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TaskPane } from "@/lib/task-panes";
+import { TASK_DRAG_MIME } from "@/lib/task-drag";
 
 vi.mock("@/components/ui", () => ({
   cx: (...values: unknown[]) => values.filter(Boolean).join(" "),
@@ -34,6 +35,21 @@ function renderTabs(
 
 describe("TaskTabs actions", () => {
   afterEach(() => cleanup());
+
+  it("同一ペインのタブはドロップ先の前へ挿入する", () => {
+    const onReorderTabs = vi.fn();
+    renderTabs(
+      { id: "pane-1", tabs: ["task-a", "task-b", "task-c"], activeTabId: "task-a" },
+      { onReorderTabs },
+    );
+
+    const dataTransfer = {
+      getData: (type: string) => (type === TASK_DRAG_MIME ? "task-a" : ""),
+    } as unknown as DataTransfer;
+    fireEvent.drop(screen.getAllByRole("tab")[2], { dataTransfer });
+
+    expect(onReorderTabs).toHaveBeenCalledWith(["task-b", "task-a", "task-c"]);
+  });
 
   it("タブ追加と削除の操作を対応するコールバックへ渡す", () => {
     const onOpenHome = vi.fn();

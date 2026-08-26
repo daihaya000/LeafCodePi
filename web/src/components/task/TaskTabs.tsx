@@ -52,9 +52,11 @@ export function TaskTabs({
     const taskId = taskDragIdFrom(event.dataTransfer);
     if (!taskId) return;
     if (pane.tabs.includes(taskId)) {
-      // 同一ペイン内の並び替え（移動先 index へ挿入）
+      // 同一ペイン内の並び替え（ドロップ先の前へ挿入）
+      const sourceIndex = pane.tabs.indexOf(taskId);
       const without = pane.tabs.filter((id) => id !== taskId);
-      const at = Math.max(0, Math.min(index > without.length ? without.length : index, without.length));
+      const targetIndex = index > sourceIndex ? index - 1 : index;
+      const at = Math.max(0, Math.min(targetIndex, without.length));
       onReorderTabs([...without.slice(0, at), taskId, ...without.slice(at)]);
       return;
     }
