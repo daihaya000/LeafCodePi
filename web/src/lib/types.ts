@@ -48,6 +48,8 @@ export type TaskSummary = {
   updatedAt: string;
   error?: string | null;
   todoProgress?: TodoProgressDto;
+  /** 左メニューで使う軽量な Goal Loop 進捗。詳細状態は TaskDetail.goalLoop に保持する。 */
+  goalLoopSummary?: GoalLoopSummaryDto;
 };
 
 export type GoalLoopStatus =
@@ -94,6 +96,8 @@ export type GoalLoopDto = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type GoalLoopSummaryDto = Pick<GoalLoopDto, "status" | "maxTurns" | "turnCount">;
 
 export type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
 export type TodoPriority = "high" | "medium" | "low";

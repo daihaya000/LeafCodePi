@@ -78,7 +78,10 @@ export function sameTaskList(a: TaskSummary[], b: TaskSummary[]): boolean {
       left.projectName !== right.projectName ||
       left.updatedAt !== right.updatedAt ||
       left.todoProgress?.completed !== right.todoProgress?.completed ||
-      left.todoProgress?.total !== right.todoProgress?.total
+      left.todoProgress?.total !== right.todoProgress?.total ||
+      left.goalLoopSummary?.status !== right.goalLoopSummary?.status ||
+      left.goalLoopSummary?.maxTurns !== right.goalLoopSummary?.maxTurns ||
+      left.goalLoopSummary?.turnCount !== right.goalLoopSummary?.turnCount
     ) {
       return false;
     }
@@ -181,6 +184,8 @@ function countRunningTasks(tasks: TaskSummary[]): number {
   return tasks.filter((task) => task.status === "working").length;
 }
 
+const LIVE_GOAL_LOOP_STATUSES = new Set(["queued", "running", "verifying_completed"]);
+
 function TodoProgressBar({
   task,
   className,
@@ -217,6 +222,64 @@ function TodoProgressBar({
         />
       </div>
     </div>
+  );
+}
+
+function GoalLoopProgressBar({
+  task,
+  className,
+}: {
+  task: Pick<TaskSummary, "title" | "goalLoopSummary">;
+  className?: string;
+}) {
+  const loop = task.goalLoopSummary;
+  if (!loop || !LIVE_GOAL_LOOP_STATUSES.has(loop.status)) return null;
+
+  const turnCount = Number.isFinite(loop.turnCount) ? Math.max(0, Math.trunc(loop.turnCount)) : 0;
+  const total = Number.isFinite(loop.maxTurns) ? Math.max(0, Math.trunc(loop.maxTurns)) : 0;
+  const turn = loop.status === "queued" ? turnCount + 1 : turnCount;
+  const shownTurn = total > 0 ? Math.min(turn, total) : turn;
+  const percent = total > 0 ? Math.round((shownTurn / total) * 100) : null;
+  const valueText =
+    percent === null
+      ? `ループ ${shownTurn}ターン実行中（無制限）`
+      : `ループ ${shownTurn}/${total}ターン（${percent}%）`;
+
+  return (
+    <div className={cx("min-w-0", className)}>
+      <div
+        role="progressbar"
+        aria-label={`${task.title}のループ進捗`}
+        aria-valuemin={percent === null ? undefined : 0}
+        aria-valuemax={percent === null ? undefined : 100}
+        aria-valuenow={percent ?? undefined}
+        aria-valuetext={valueText}
+        title={valueText}
+        className="h-1 overflow-hidden rounded-full bg-surface-2"
+      >
+        <div
+          className={cx(
+            "h-full rounded-full bg-working transition-[width]",
+            percent === null && "animate-pulse",
+          )}
+          style={{ width: `${percent ?? 35}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+export function TaskProgressBar({
+  task,
+  className,
+}: {
+  task: Pick<TaskSummary, "title" | "todoProgress" | "goalLoopSummary">;
+  className?: string;
+}) {
+  return task.goalLoopSummary && LIVE_GOAL_LOOP_STATUSES.has(task.goalLoopSummary.status) ? (
+    <GoalLoopProgressBar task={task} className={className} />
+  ) : (
+    <TodoProgressBar task={task} className={className} />
   );
 }
 
@@ -939,7 +1002,7 @@ export function Sidebar({
                                 <Archive className="h-3 w-3" />
                               </button>
                             </div>
-                            <TodoProgressBar task={task} className="mx-8 pb-1.5 md:mx-7" />
+                            <TaskProgressBar task={task} className="mx-8 pb-1.5 md:mx-7" />
                           </li>
                         ))
                       )}
@@ -1382,7 +1445,7 @@ export function Sidebar({
                     <span className="min-w-0 flex-1 truncate font-medium">{task.title}</span>
                     <span className="shrink-0 text-[10px] text-faint">{timeAgo(task.updatedAt)}</span>
                   </button>
-                  <TodoProgressBar task={task} className="mx-3 mb-1" />
+                  <TaskProgressBar task={task} className="mx-3 mb-1" />
                 </div>
               ))}
             </div>

@@ -6,7 +6,7 @@ import {
   sameTaskList,
   reorderProjectIds,
 } from "./Sidebar";
-import type { HealthDto, ProjectDto, TaskSummary } from "@/lib/types";
+import type { GoalLoopSummaryDto, HealthDto, ProjectDto, TaskSummary } from "@/lib/types";
 import type { CollaborationRoomSummary } from "@/lib/collaboration-room";
 
 function task(id: string, status: TaskSummary["status"], title: string): TaskSummary {
@@ -64,6 +64,13 @@ describe("sameTaskList", () => {
   it("detects todo progress changes", () => {
     const a = [task("t1", "idle", "タスクA")];
     const b = [{ ...task("t1", "idle", "タスクA"), todoProgress: { completed: 1, total: 2 } }];
+    expect(sameTaskList(a, b)).toBe(false);
+  });
+
+  it("detects goal loop progress changes", () => {
+    const loop: GoalLoopSummaryDto = { status: "running", maxTurns: 10, turnCount: 1 };
+    const a = [{ ...task("t1", "working", "タスクA"), goalLoopSummary: loop }];
+    const b = [{ ...a[0], goalLoopSummary: { ...loop, turnCount: 2 } }];
     expect(sameTaskList(a, b)).toBe(false);
   });
 });

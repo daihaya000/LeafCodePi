@@ -103,6 +103,7 @@ import {
 import type {
   CompactionSettingsDto,
   GoalLoopDto,
+  GoalLoopSummaryDto,
   HealthDto,
   ModelOption,
   ProjectDto,
@@ -1272,11 +1273,23 @@ async function resolveModel(value: string | undefined): Promise<Model | undefine
   return found ?? undefined;
 }
 
+function toGoalLoopSummary(loop: GoalLoopDto | null): GoalLoopSummaryDto | undefined {
+  if (!loop) return undefined;
+  return {
+    status: loop.status,
+    maxTurns: loop.maxTurns,
+    turnCount: loop.turnCount,
+  };
+}
+
 function toSummary(task: TaskSummary): TaskSummary {
   const live = state().live.get(task.id);
   if (!live) return task;
   const ids = modelId(live.session.model);
   const todoProgress = todoProgressFromTodos(todosFromPiMessages(live.session.messages));
+  const goalLoopSummary = toGoalLoopSummary(
+    readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId),
+  );
   const thinking =
     typeof live.session.thinkingLevel === "string" && isThinkingLevel(live.session.thinkingLevel)
       ? live.session.thinkingLevel
@@ -1290,6 +1303,7 @@ function toSummary(task: TaskSummary): TaskSummary {
     modelID: ids.modelID ?? task.modelID,
     thinkingLevel: thinking,
     ...(todoProgress ? { todoProgress } : {}),
+    ...(goalLoopSummary ? { goalLoopSummary } : {}),
   };
 }
 
@@ -1762,26 +1776,42 @@ export async function getTaskSummariesWithTodoProgress(includeArchived = false):
   const summaries = getTaskSummaries(includeArchived);
   // アーカイブタスクは Sidebar の進捗表示対象外（TodoProgressBar は active のみ）。
   // 復元時は status が変わり再読込されるため、進捗の欠落は生じない。
-  const tasksToRead = summaries.filter(
-    (task) => task.status !== "archived" && !state().live.has(task.id) && !task.todoProgress && task.sessionFile,
+  const coldTasks = summaries.filter(
+    (task) => task.status !== "archived" && !state().live.has(task.id) && task.sessionId,
   );
-  if (tasksToRead.length === 0) return summaries;
-
-  let pi: PiModule;
-  try {
-    pi = await loadPi();
-  } catch {
-    return summaries;
-  }
-  const progressByTaskId = new Map(
-    tasksToRead.flatMap((task) => {
-      const progress = readTodoProgress(pi, task);
-      return progress ? [[task.id, progress] as const] : [];
+  const goalLoopByTaskId = new Map(
+    coldTasks.flatMap((task) => {
+      const goalLoopSummary = toGoalLoopSummary(readGoalLoopState(task.directory, task.sessionId));
+      return goalLoopSummary ? [[task.id, goalLoopSummary] as const] : [];
     }),
   );
+  const tasksToRead = coldTasks.filter((task) => !task.todoProgress && task.sessionFile);
+
+  let progressByTaskId = new Map<string, TodoProgressDto>();
+  if (tasksToRead.length > 0) {
+    try {
+      const pi = await loadPi();
+      progressByTaskId = new Map(
+        tasksToRead.flatMap((task) => {
+          const progress = readTodoProgress(pi, task);
+          return progress ? [[task.id, progress] as const] : [];
+        }),
+      );
+    } catch {
+      // Goal Loop の状態は Pi セッションを開かずに返せるため、ここでは継続する。
+    }
+  }
+
   return summaries.map((task) => {
     const todoProgress = progressByTaskId.get(task.id);
-    return todoProgress ? { ...task, todoProgress } : task;
+    const goalLoopSummary = goalLoopByTaskId.get(task.id);
+    return todoProgress || goalLoopSummary
+      ? {
+          ...task,
+          ...(todoProgress ? { todoProgress } : {}),
+          ...(goalLoopSummary ? { goalLoopSummary } : {}),
+        }
+      : task;
   });
 }
 
