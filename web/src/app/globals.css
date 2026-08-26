@@ -123,8 +123,8 @@
   --color-diff-del-bg: var(--diff-del-bg);
   --color-diff-del-text: var(--diff-del-text);
   --color-diff-hunk-bg: var(--diff-hunk-bg);
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, monospace;
 }
 
 html,
@@ -135,7 +135,7 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 input,
@@ -204,7 +204,7 @@ select {
   text-underline-offset: 2px;
 }
 .md code {
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
   background: var(--surface-3);
   border-radius: 4px;
