@@ -156,7 +156,7 @@ Home のモデル選択 = **表示モデル一覧の source of truth** とする
 
 CodexBar の詳細な設計・実装順序・API/UI 契約は [`codexbar-multi-account.md`](./codexbar-multi-account.md) を正とする。
 
-- Codex / Claude は登録アカウントごとに Pi auth を読み、利用量を `accountId` 付きの別行で表示する
+- Codex / Claude はプロバイダー親行の展開内に、登録アカウントごとの利用量を `accountId` 付きの子行として表示する
 - アカウント登録後の通常 `all` 表示では既定 auth を混ぜず、既定 auth は互換用の `default` scope に限定する
 - アカウント未登録時だけ、従来の Pi auth 優先 → `~/.codex` / `~/.claude` fallback を維持する
 - 共有プロバイダー、cache、CodexBar provider 設定は従来の共有単位を維持する

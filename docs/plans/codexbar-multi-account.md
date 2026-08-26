@@ -96,10 +96,11 @@ type CodexBarProvider = ExistingProviderFields & {
 };
 ```
 
-- `id` は従来どおり `openai-codex` や `anthropic`
-- `instanceId` は React key、折りたたみ状態、キャッシュ結果の表示単位に使う
-- `accountId` / `accountLabel` は登録アカウント行だけに設定し、既定・共有プロバイダーは `null`
+- `id` は従来どおり `openai-codex` や `anthropic` とし、同じ provider の親行をまとめるキーに使う
+- `instanceId` は React key、アカウント子行の折りたたみ状態、キャッシュ結果の表示単位に使う
+- `accountId` / `accountLabel` は登録アカウント子行だけに設定し、既定・共有プロバイダーは `null`
 - 旧 CodexBar snapshot に追加フィールドが無い場合は `instanceId=default:<id>`、`accountId=null` に正規化する
+- API の provider 配列は flat のままでもよいが、UI は `id` で親プロバイダーカードへまとめ、`instanceId` を子行にする
 - `codexbar.usage-snapshot/v1` は additive な拡張として維持し、未知の追加フィールドを無視できるようにする。外部の CodexBar ファイル形式を v2 に変更しない
 
 レスポンスには利用量行に加えて、認証情報を含まないアカウント概要を持たせる。
@@ -220,23 +221,38 @@ type CodexBarUsage = ExistingUsageFields & {
 
 ### 表示
 
-- 展開時のヘッダーに `全アカウント` / 各アカウントラベルの selector を置く
-- 初期値は `全アカウント`
-- `all` は次のグループで表示する
-  - 共通: Cursor、OpenRouter、API キー系など
-  - アカウント A: Codex / Claude
-  - アカウント B: Codex / Claude
-- provider 行には provider 名とアカウントラベルを表示する。同じ provider の重複行でも `instanceId` で key を分ける
-- account scope では選択アカウントの provider と共通 provider を表示する
-- 未ログインアカウントも selector には表示し、利用量行は追加せず「未ログイン」と状態表示する
+- 通常画面のトップレベルはプロバイダー単位にする。トップレベルのアカウント selector は置かない
+- Codex / Claude は親プロバイダー行を 1 つ表示し、展開するとその中にアカウント子行を並べる
+
+```text
+Codex                                      最大 72%  ▼
+  仕事用                                   32%
+    5時間                                  32%
+    週間                                   18%
+  個人用                                   72%
+    5時間                                  72%
+    週間                                   45%
+
+Claude                                     最大 58%  ▼
+  仕事用                                   58%
+  個人用                                   41%
+
+Cursor                                     18%
+```
+
+- 親プロバイダーの使用率は子アカウントの最大値、子行は各アカウントの利用枠・リセット時刻・エラーを表示する
+- 親行の折りたたみは canonical provider ID、子行の key と個別状態は `instanceId` を使う
+- 共通プロバイダーは子行を作らず、従来どおり単一の親行として表示する
+- `all` ではアカウント概要を使って未ログインアカウントも Codex/Claude 親行内に「未ログイン」と表示できる。利用量行自体は生成しない
+- `scope=account` は API / 将来の絞り込み用に残す。選択時は共通プロバイダー＋対象アカウントの子行だけを返す
 - 既定 auth は、アカウント未登録時の `all` で従来どおり表示する。アカウント登録後の通常 `all` では表示しない
 - provider enablement の設定は従来どおりグローバルであり、アカウントごとの切替とは別物と明示する
 
 ### Hook とローカル状態
 
-`useCodexUsage` に scope を渡し、`scope=account&accountId=...` を query に含める。scope 切替時は古いレスポンスを新しい選択へ適用しないため、request generation または AbortController で最新リクエストだけを反映する。
+`useCodexUsage` は通常 `scope=all` を取得し、必要な場合だけ `scope=account&accountId=...` を取得する。scope 切替時は古いレスポンスを新しい選択へ適用しないため、request generation または AbortController で最新リクエストだけを反映する。
 
-`webui:codexbar:providers` の折りたたみ map は provider ID ではなく `instanceId` をキーにする。旧 localStorage の `openai-codex` / `anthropic` キーは default instance にだけフォールバックし、既存の表示状態を一度だけ移行する。
+`webui:codexbar:providers` は親プロバイダーの折りたたみを canonical provider ID、アカウント子行の個別状態を `instanceId` で管理する。旧 localStorage の `openai-codex` / `anthropic` キーは親行の状態としてそのまま移行し、アカウント追加後も親行の表示状態を失わない。
 
 ### モデル候補への利用量付加
 
@@ -335,9 +351,9 @@ type CodexBarUsage = ExistingUsageFields & {
 - `web/src/components/codexbar/CodexBarWidget.test.tsx`
 - `use-codex-usage.test.tsx`
 
-**作業:** account selector、all のグループ表示、account label、未ログイン状態、instanceId key、scope 切替時の stale response 防止、集計表示を追加。
+**作業:** プロバイダー親行の展開、アカウント子行、account label、未ログイン状態、instanceId key、scope 切替時の stale response 防止、親行の最大値集計を追加。
 
-**検証:** A/B の同一 provider が別行・別折りたたみ状態になること、scope 切替、refresh、旧 localStorage 移行、keyboard/accessibility を確認。
+**検証:** 同じ provider の A/B が同じ親行の別子行になること、親/子の折りたたみ、scope filter、refresh、旧 localStorage 移行、keyboard/accessibility を確認。
 
 ### Phase 6: 回帰・手動確認
 
@@ -352,9 +368,9 @@ type CodexBarUsage = ExistingUsageFields & {
 **手動確認:**
 
 1. アカウント A / B を作成し、異なる ChatGPT / Claude OAuth でログインする
-2. CodexBar の全アカウント表示で A/B の利用量が別ラベル・別行になる
-3. A を選択しても B の行・モデル候補へ利用量が混ざらない
-4. A の refresh/401/429 と logout が B の表示に影響しない
+2. CodexBar の Codex/Claude 親行を展開すると、A/B の利用量が同じプロバイダー内の別子行になる
+3. A の利用量が B の子行・モデル候補へ混ざらない（必要なら account scope で A を絞り込む）
+4. A の refresh/401/429 と logout が B の子行・親行集計に影響しない
 5. account 登録後、通常表示に既定 Codex/Claude が混ざらない
 6. アカウント未登録時は既定 Pi auth と CLI fallback が従来どおり動く
 7. Cursor、OpenRouter、llama-server 等の共有プロバイダーは重複表示されない
