@@ -21,6 +21,10 @@ import {
   flexibleNumber,
   windowTitle,
 } from "@/lib/codexbar/utils";
+import {
+  readPiOAuthTokens,
+  writeBackPiOAuthTokens,
+} from "@/lib/codexbar/pi-auth";
 
 const USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const TOKEN_URL = "https://auth.openai.com/oauth/token";
@@ -317,6 +321,63 @@ function tryLoadFromSessionLogs(): UsageSnapshot | null {
   return null;
 }
 
+/**
+ * Pi の auth.json（既定ストア）から認証を組む。
+ * Pi は id_token / email / subscriptionType を保存しないため email・JWT プランは常に null
+ * （plan は利用量 API 応答の plan_type から取得する）。
+ */
+function loadAuthFromPi(): CodexAuth | null {
+  const tokens = readPiOAuthTokens("openai-codex");
+  if (!tokens) return null;
+  return {
+    accessToken: tokens.access,
+    refreshToken: tokens.refresh,
+    accountId: null,
+    emailFromJwt: null,
+    planFromJwt: null,
+  };
+}
+
+/** Pi ストア向けトークンリフレッシュ。成功時は Pi auth.json へマージ書き戻しする。 */
+async function tryRefreshTokensInPi(
+  auth: CodexAuth,
+  signal?: AbortSignal,
+): Promise<CodexAuth | null> {
+  if (!auth.refreshToken) return null;
+  try {
+    const { ok, body } = await fetchText(TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        client_id: CLIENT_ID,
+        grant_type: "refresh_token",
+        refresh_token: auth.refreshToken,
+        scope: "openid profile email",
+      }),
+      signal,
+    });
+    if (!ok) return null;
+    const root = asRecord(JSON.parse(body));
+    const accessToken = typeof root?.access_token === "string" ? root.access_token : null;
+    if (!accessToken) return null;
+    const refreshToken =
+      typeof root?.refresh_token === "string" ? root.refresh_token : auth.refreshToken;
+    writeBackPiOAuthTokens("openai-codex", {
+      access: accessToken,
+      refresh: refreshToken,
+    });
+    return {
+      accessToken,
+      refreshToken,
+      accountId: auth.accountId,
+      emailFromJwt: null,
+      planFromJwt: null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchFromApi(
   auth: CodexAuth,
   signal?: AbortSignal,
@@ -342,20 +403,27 @@ export const openaiCodexProvider: IUsageProvider = {
   id: "openai-codex",
   name: "Codex",
   isConfigured() {
-    return existsSync(authPath());
+    // Pi 既定ストアまたは Codex CLI ファイルのどちらかに認証があれば表示対象
+    return existsSync(authPath()) || readPiOAuthTokens("openai-codex") !== null;
   },
   async fetch(signal) {
-    const auth = loadAuth();
+    // docs/plans/multi-account.md Phase 7: Pi 認証を優先し、無ければ CLI ファイルへフォールバック。
+    // リフレッシュの書き戻し先も読み取り元に合わせる（片側だけトークンローテーションが進むのを防ぐ）。
+    const piAuth = loadAuthFromPi();
+    const usingPi = piAuth !== null;
+    const auth = piAuth ?? loadAuth();
     if (!auth) {
       throw new ProviderError(
-        "Codex の認証情報が見つかりません。先に Codex CLI（`codex`）でサインインしてください。",
+        "Codex の認証情報が見つかりません。WebUI の「サブスクでログイン」または `codex` CLI でサインインしてください。",
       );
     }
     try {
       return await fetchFromApi(auth, signal);
     } catch (err) {
       if (err instanceof ProviderError && err.message === "__unauthorized__") {
-        const refreshed = await tryRefreshTokens(auth, signal);
+        const refreshed = usingPi
+          ? await tryRefreshTokensInPi(auth, signal)
+          : await tryRefreshTokens(auth, signal);
         if (refreshed) {
           try {
             return await fetchFromApi(refreshed, signal);
