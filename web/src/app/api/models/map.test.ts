@@ -65,6 +65,17 @@ describe("attachCodexBarUsage", () => {
     expect(options.map((option) => option.codexbarUsedPercent)).toEqual([80, 20]);
   });
 
+  it("does not overwrite integrated candidate usage with an aggregate row", () => {
+    const option: ModelOption = {
+      ...model("openai-codex"),
+      routingMode: "integrated",
+      codexbarUsedPercent: 20,
+      codexbarMaxed: false,
+    };
+    const [mapped] = attachCodexBarUsage([option], [provider("openai-codex", 90, true)]);
+    expect(mapped).toMatchObject({ codexbarUsedPercent: 20, codexbarMaxed: false });
+  });
+
   it("returns options unchanged when usage is empty or unknown", () => {
     const options = [model("llama-server"), model("anthropic")];
     expect(attachCodexBarUsage(options, [])).toBe(options);
