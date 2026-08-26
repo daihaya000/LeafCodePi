@@ -83,6 +83,8 @@ export type CodexBarUsage = {
   scope?: CodexBarScope;
   /** Account labels/status without credentials. Old snapshots omit this field. */
   accounts?: CodexBarAccountSummary[];
+  /** Enabled provider order used to keep parent rows stable. */
+  providerOrder?: string[];
   providers: CodexBarProvider[];
 };
 
@@ -95,6 +97,7 @@ export function emptyUsage(reason: string): CodexBarUsage {
     subscriptionTotalMonthlyUsd: null,
     scope: { kind: "all", accountId: null },
     accounts: [],
+    providerOrder: [],
     providers: [],
   };
 }
@@ -134,6 +137,9 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
     kind: scopeKind,
     accountId: asString(scopeObject?.accountId),
   };
+  const providerOrder = Array.isArray(obj.providerOrder)
+    ? obj.providerOrder.filter((id): id is string => typeof id === "string" && id.length > 0)
+    : [];
   const accounts: CodexBarAccountSummary[] = Array.isArray(obj.accounts)
     ? obj.accounts.flatMap((raw) => {
         if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
@@ -248,6 +254,7 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
     subscriptionTotalMonthlyUsd,
     scope,
     accounts,
+    providerOrder,
     providers,
   };
 }
@@ -321,8 +328,13 @@ export function groupCodexBarProviders(
   }
 
   const summaries = usage.accounts ?? [];
+  const orderedIds = [
+    ...(usage.providerOrder ?? []).filter((id) => groups.has(id)),
+    ...[...groups.keys()].filter((id) => !(usage.providerOrder ?? []).includes(id)),
+  ];
   const result: CodexBarProviderGroup[] = [];
-  for (const [id, group] of groups) {
+  for (const id of orderedIds) {
+    const group = groups.get(id)!;
     const isSubscription = SUBSCRIPTION_PROVIDER_IDS.has(id);
     const usageByAccount = new Map(
       group.rows

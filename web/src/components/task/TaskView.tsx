@@ -1139,18 +1139,25 @@ export function TaskView({
     }
   }, [permissionMode, resumingTurn, subagentPermission, taskId, working]);
 
+  const selectableModels = useMemo(
+    () =>
+      models.filter(
+        (option) => !option.accountId || option.accountId === task?.accountId,
+      ),
+    [models, task?.accountId],
+  );
   const plainTaskModelValue =
     task?.providerID && task.modelID ? `${task.providerID}::${task.modelID}` : "";
   const accountTaskModel = task?.accountId
-    ? models.find(
+    ? selectableModels.find(
         (option) =>
           option.accountId === task.accountId &&
           option.providerID === task.providerID &&
           option.modelID === task.modelID,
       )
     : undefined;
-  const modelValue = accountTaskModel?.value ?? (plainTaskModelValue || models[0]?.value || "");
-  const selectedModel = models.find((option) => option.value === modelValue);
+  const modelValue = accountTaskModel?.value ?? (plainTaskModelValue || selectableModels[0]?.value || "");
+  const selectedModel = selectableModels.find((option) => option.value === modelValue);
   const thinkingLevels = useMemo(
     () => selectedModel?.thinkingLevels ?? (["off"] as ThinkingLevel[]),
     [selectedModel],
@@ -2021,7 +2028,7 @@ export function TaskView({
             <>
               <ModelSelect
                 value={modelValue}
-                options={models}
+                options={selectableModels}
                 disabled={working || compacting}
                 onChange={(value) => {
                   void (async () => {

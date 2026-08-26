@@ -63,6 +63,7 @@ export type SnapshotFile = {
   subscriptionTotalMonthlyUsd: number | null;
   scope?: ExportScope;
   accounts?: ExportAccountSummary[];
+  providerOrder?: string[];
   providers: ExportEntry[];
 };
 
@@ -173,6 +174,7 @@ export function buildSnapshotFile(
   metadata?: {
     scope?: ExportScope;
     accounts?: ExportAccountSummary[];
+    providerOrder?: string[];
   },
 ): SnapshotFile {
   let total: number | null = null;
@@ -186,6 +188,7 @@ export function buildSnapshotFile(
     subscriptionTotalMonthlyUsd: total,
     ...(metadata?.scope ? { scope: metadata.scope } : {}),
     ...(metadata?.accounts ? { accounts: metadata.accounts } : {}),
+    ...(metadata?.providerOrder ? { providerOrder: metadata.providerOrder } : {}),
     providers: entries,
   };
 }
@@ -196,6 +199,7 @@ export function buildUsageFromEntries(
   metadata?: {
     scope?: ExportScope;
     accounts?: ExportAccountSummary[];
+    providerOrder?: string[];
   },
 ): CodexBarUsage {
   return parseCodexBarSnapshot(buildSnapshotFile(entries, metadata));

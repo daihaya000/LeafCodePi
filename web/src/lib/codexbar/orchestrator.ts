@@ -67,6 +67,7 @@ type FetchPlan = {
   metadata: {
     scope: ExportScope;
     accounts: ExportAccountSummary[];
+    providerOrder: string[];
   };
 };
 
@@ -197,7 +198,11 @@ async function buildFetchPlan(requestScope: UsageRequestScope): Promise<FetchPla
     enabledIds,
     providers,
     cacheKey,
-    metadata: { scope, accounts: summaries },
+    metadata: {
+      scope,
+      accounts: summaries,
+      providerOrder: enabledIds,
+    },
   };
 }
 
