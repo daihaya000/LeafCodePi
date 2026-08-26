@@ -86,6 +86,7 @@ describe("completeModelText", () => {
     process.env.LEAFCODE_PI_DATA_DIR = dir;
     const high = createAccount({ label: "使用量大", providers: ["anthropic"] });
     const low = createAccount({ label: "使用量小", providers: ["anthropic"] });
+    const unrelated = createAccount({ label: "別プロバイダー", providers: ["openai-codex"] });
     await setAccountRoutingMode("anthropic", "integrated");
     setCachedUsage(
       parseCodexBarSnapshot({
@@ -149,6 +150,16 @@ describe("completeModelText", () => {
       }),
       "提案",
     );
+    assert.deepEqual(calls, [low.id]);
+
+    calls.length = 0;
+    await completeModelText({
+      providerID: "anthropic",
+      modelID: "claude-sonnet",
+      accountId: unrelated.id,
+      system: "system",
+      prompt: "prompt",
+    });
     assert.deepEqual(calls, [low.id]);
   });
 

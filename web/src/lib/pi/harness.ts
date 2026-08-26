@@ -1464,28 +1464,35 @@ async function resolveIntegratedModelRoute(
 async function resolveConcreteModel(
   value: string | undefined,
   requestedAccountId?: string | null,
+  options?: { strictAccountId?: boolean },
 ): Promise<ConcreteModelRoute | undefined> {
   await ensureRuntime();
   const parsed = parseModelValue(value);
   if (!parsed) return undefined;
 
-  const requested = requestedAccountId?.trim() || parsed.accountId;
+  const explicitAccountId = parsed.accountId;
+  const requested = requestedAccountId?.trim() || explicitAccountId;
+  const strictAccountId = options?.strictAccountId === true || Boolean(explicitAccountId);
   if (requested && isAccountRoutingProvider(parsed.providerID)) {
     const account = getAccount(requested);
-    if (!account) throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
-    if (!accountHasProvider(account, parsed.providerID)) {
-      throw Object.assign(new Error("アカウントに紐づかないプロバイダーです"), { status: 400 });
+    if (!account) {
+      if (strictAccountId) throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
+    } else if (!accountHasProvider(account, parsed.providerID)) {
+      if (strictAccountId) {
+        throw Object.assign(new Error("アカウントに紐づかないプロバイダーです"), { status: 400 });
+      }
+    } else {
+      const record = (await collectAccountModelRecords([account])).find(
+        (entry) => entry.option.providerID === parsed.providerID && entry.option.modelID === parsed.modelID,
+      );
+      if (!record) return undefined;
+      const model = record.runtime.getModel(parsed.providerID, parsed.modelID);
+      return model ? { accountId: requested, runtime: record.runtime, model } : undefined;
     }
-    const record = (await collectAccountModelRecords([account])).find(
-      (entry) => entry.option.providerID === parsed.providerID && entry.option.modelID === parsed.modelID,
-    );
-    if (!record) return undefined;
-    const model = record.runtime.getModel(parsed.providerID, parsed.modelID);
-    return model ? { accountId: requested, runtime: record.runtime, model } : undefined;
   }
 
   if (
-    !requested &&
+    !explicitAccountId &&
     isAccountRoutingProvider(parsed.providerID) &&
     accountRoutingMode(parsed.providerID) === "integrated"
   ) {
@@ -1553,6 +1560,7 @@ async function ensureLive(taskId: string): Promise<LiveRuntime> {
     const modelRoute = await resolveConcreteModel(
       task.providerID && task.modelID ? modelValue(task.providerID, task.modelID) : undefined,
       task.accountId ?? null,
+      { strictAccountId: true },
     );
     const model = modelRoute?.model;
     if (task.providerID && task.modelID && !modelRoute) {
@@ -1994,6 +2002,8 @@ export async function completeModelText(options: {
   modelID: string;
   /** Optional concrete account; ignored for shared providers. */
   accountId?: string | null;
+  /** Set only when accountId came from an explicit model setting, not task context. */
+  accountIdExplicit?: boolean;
   system: string;
   prompt: string;
   maxTokens?: number;
@@ -2008,6 +2018,7 @@ export async function completeModelText(options: {
   const route = await resolveConcreteModel(
     `${options.providerID}::${options.modelID}`,
     options.accountId ?? null,
+    { strictAccountId: options.accountIdExplicit === true },
   );
   if (!route) throw new Error(`モデルが見つかりません: ${options.providerID}::${options.modelID}`);
   const { runtime, model } = route;
@@ -2518,7 +2529,9 @@ export async function createTask(input: {
     const routed = await withRouteLock(
       `${parsed?.providerID ?? "default"}::${parsed?.modelID ?? "default"}`,
       async () => {
-        const route = await resolveConcreteModel(input.model, requestedAccountId ?? null);
+        const route = await resolveConcreteModel(input.model, requestedAccountId ?? null, {
+          strictAccountId: true,
+        });
         if (!route) throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
         if (route.accountId && parsed && isAccountRoutingProvider(parsed.providerID)) {
           reserveRoute(parsed.providerID, route.accountId);

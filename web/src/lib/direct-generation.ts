@@ -156,6 +156,7 @@ export async function generateDirectText(options: {
         ...(model.accountId ?? options.accountId
           ? { accountId: model.accountId ?? options.accountId }
           : {}),
+        ...(model.accountId ? { accountIdExplicit: true } : {}),
         system,
         prompt,
         maxTokens: options.maxTokens,
