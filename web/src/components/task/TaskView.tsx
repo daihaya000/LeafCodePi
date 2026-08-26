@@ -837,6 +837,12 @@ export function TaskView({
   const goalLoopLive = Boolean(
     task?.goalLoop && ["queued", "running", "verifying_completed"].includes(task.goalLoop.status),
   );
+  // 実行中・一時停止中のみパネルを表示。completed / blocked / stopped は
+  // チャット側に結果が残るため閉じる（Sidebar の LIVE 判定と整合）。
+  const goalLoopVisible = Boolean(
+    task?.goalLoop &&
+      ["queued", "running", "verifying_completed", "paused"].includes(task.goalLoop.status),
+  );
 
   useEffect(() => {
     if (!active || !task?.directory) return;
@@ -1901,12 +1907,14 @@ export function TaskView({
             {error}
           </p>
         )}
-        <GoalLoopPanel
-          loop={task?.goalLoop}
-          busy={submitting}
-          onAction={(action) => void goalLoopAction(action)}
-          onResume={(maxTurns) => void goalLoopAction("resume", maxTurns)}
-        />
+        {goalLoopVisible && (
+          <GoalLoopPanel
+            loop={task?.goalLoop}
+            busy={submitting}
+            onAction={(action) => void goalLoopAction(action)}
+            onResume={(maxTurns) => void goalLoopAction("resume", maxTurns)}
+          />
+        )}
         {goalLoopEnabled && (
           <div className="mx-auto max-w-5xl">
             <GoalLoopOptions
