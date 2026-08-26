@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
       thinkingLevel?: ThinkingLevel;
       images?: { mimeType: string; data: string }[];
       agent?: string;
+      accountId?: string;
       subagentPermission?: "allow" | "deny";
       permissionMode?: "allow" | "ask" | "deny";
       skillPermission?: "allow" | "deny";
@@ -99,6 +100,10 @@ export async function POST(req: NextRequest) {
       thinkingLevel: body.thinkingLevel,
       images: body.images,
       agent: body.agent,
+      accountId:
+        typeof body.accountId === "string" && body.accountId.trim()
+          ? body.accountId.trim()
+          : undefined,
       subagentPermission: body.subagentPermission,
       permissionMode: body.permissionMode,
       skillPermission: body.skillPermission,

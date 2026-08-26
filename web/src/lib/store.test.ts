@@ -47,6 +47,33 @@ describe("store", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("persists and patches the task account", async () => {
+    const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const store = await import("./store");
+    const project = store.upsertProject({ name: "demo", rootPath: "C:\\tmp\\demo" });
+
+    // accountId 無し = 既定（~/.pi/agent/auth.json）
+    const plain = store.insertTask({ project, title: "default" });
+    expect(plain.accountId).toBeUndefined();
+
+    const withAccount = store.insertTask({
+      project,
+      title: "with account",
+      accountId: "acc-1",
+    });
+    expect(store.getTask(withAccount.id)?.accountId).toBe("acc-1");
+
+    // patch で切替・既定への復帰ができる
+    store.patchTask(withAccount.id, { accountId: "acc-2" });
+    expect(store.getTask(withAccount.id)?.accountId).toBe("acc-2");
+    store.patchTask(withAccount.id, { accountId: undefined });
+    expect(store.getTask(withAccount.id)?.accountId).toBeUndefined();
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("skips the disk write when patching the same values", async () => {
     const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}`);
     mkdirSync(dir, { recursive: true });

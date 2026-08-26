@@ -1894,6 +1894,8 @@ export async function createTask(input: {
   subagentPermission?: "allow" | "deny";
   permissionMode?: "allow" | "ask" | "deny";
   skillPermission?: SkillPermission;
+  /** 利用する認証アカウント（docs/plans/multi-account.md）。未指定 = 既定。 */
+  accountId?: string;
   goalLoop?: {
     acceptance?: string[];
     maxTurns?: number;
@@ -1911,6 +1913,7 @@ export async function createTask(input: {
     thinkingLevel: input.thinkingLevel,
     providerID: parsed?.providerID,
     modelID: parsed?.modelID,
+    ...(input.accountId ? { accountId: input.accountId } : {}),
     ...(input.agent ? { agent: input.agent.trim() } : {}),
     ...(input.skillPermission ? { skillPermission: input.skillPermission } : {}),
   });

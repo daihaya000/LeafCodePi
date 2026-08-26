@@ -139,6 +139,7 @@ export function insertTask(input: {
   thinkingLevel?: ThinkingLevel;
   providerID?: string;
   modelID?: string;
+  accountId?: string;
   agent?: string;
   skillPermission?: "allow" | "deny";
 }): TaskSummary {
@@ -157,6 +158,7 @@ export function insertTask(input: {
     providerID: input.providerID,
     modelID: input.modelID,
     thinkingLevel: input.thinkingLevel,
+    ...(input.accountId ? { accountId: input.accountId } : {}),
     ...(input.skillPermission ? { skillPermission: input.skillPermission } : {}),
     ...(input.agent ? { agent: input.agent } : {}),
     createdAt: now,
@@ -180,6 +182,7 @@ export function patchTask(
       | "providerID"
       | "modelID"
       | "thinkingLevel"
+      | "accountId"
       | "skillPermission"
       | "agent"
       | "error"
