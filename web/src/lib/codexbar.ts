@@ -385,6 +385,7 @@ export function groupCodexBarProviders(
         usedPercent,
         limited: limitedCount > 0,
         maxed: maxedCount > 0,
+        stale: rowProviders.some((provider) => provider.stale === true),
         windows: isSubscription && accountRows.length > 0 ? [] : base.windows,
         credits: isSubscription && accountRows.length > 0 ? null : base.credits,
         error: null,
