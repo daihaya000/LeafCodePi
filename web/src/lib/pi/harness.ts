@@ -332,6 +332,17 @@ async function loadPi(): Promise<PiModule> {
   return current.pi;
 }
 
+/**
+ * タスク/クエリ由来の accountId に対応する ModelRuntime を解決する。
+ * Phase 2（docs/plans/multi-account.md）時点は常に既定ランタイム（~/.pi/agent/auth.json の
+ * シングルトン）を返す。Phase 6 で accountId ごとの認証ストレージ
+ * （~/.pi/agent/accounts/<id>/auth.json）へ多重化する単一の差し替えポイント。
+ */
+export function getRuntimeFor(accountId?: string | null): ModelRuntime | null {
+  void accountId;
+  return state().modelRuntime;
+}
+
 async function ensureOptionalProviders(runtime: ModelRuntime): Promise<void> {
   // Idempotent: skip when already registered. Safe after HMR / late wiring.
   await registerCursorProvider(runtime);
@@ -1231,7 +1242,7 @@ async function createSession(options: {
     thinkingLevel: options.thinkingLevel,
     sessionManager,
     resourceLoader,
-    modelRuntime: state().modelRuntime ?? undefined,
+    modelRuntime: getRuntimeFor() ?? undefined,
     tools,
   });
   applyPermissionMode(result.session, options.cwd, permissionMode, {
@@ -1253,7 +1264,7 @@ async function createSession(options: {
 
 async function resolveModel(value: string | undefined): Promise<Model | undefined> {
   await ensureRuntime();
-  const runtime = state().modelRuntime;
+  const runtime = getRuntimeFor();
   if (!runtime) return undefined;
   const parsed = parseModelValue(value);
   if (!parsed) return undefined;
@@ -1429,7 +1440,7 @@ export async function getHealth(): Promise<HealthDto> {
     /* initError is set */
   }
   const current = state();
-  const models = current.modelRuntime ? await listModels().catch(() => []) : [];
+  const models = getRuntimeFor() ? await listModels().catch(() => []) : [];
   const value: HealthDto = {
     ok: !current.initError,
     engine: "pi",
@@ -1454,7 +1465,7 @@ export async function listModels(): Promise<ModelOption[]> {
 
   current.modelInflight = (async () => {
     await ensureRuntime();
-    const runtime = state().modelRuntime;
+    const runtime = getRuntimeFor();
     if (!runtime) return [];
     await syncProvidersBestEffort(runtime);
     const catalog = buildProviderModelsCatalog(runtime);
@@ -1535,7 +1546,7 @@ export async function completeModelText(options: {
   if (!system || !prompt) throw new Error("生成プロンプトが空です");
 
   await ensureRuntime();
-  const runtime = state().modelRuntime;
+  const runtime = getRuntimeFor();
   if (!runtime) throw new Error("Pi ランタイムを利用できません");
   const model = runtime.getModel(options.providerID, options.modelID);
   if (!model) {
@@ -1572,7 +1583,7 @@ export async function completeModelText(options: {
 
 export async function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> {
   await ensureRuntime();
-  const runtime = state().modelRuntime;
+  const runtime = getRuntimeFor();
   if (!runtime) return [];
   return buildProviderModelsCatalog(runtime);
 }
@@ -1593,7 +1604,7 @@ export async function saveProviderModelsOrder(input: {
 
 export async function listProviderAuth(): Promise<ProviderAuthDto[]> {
   await ensureRuntime();
-  const runtime = state().modelRuntime;
+  const runtime = getRuntimeFor();
   if (!runtime) return [];
   const providers = runtime.getProviders().map((provider) => {
     const status = runtime.getProviderAuthStatus(provider.id);
@@ -1624,7 +1635,7 @@ export async function startProviderLogin(
 ): Promise<{ sessionId: string }> {
   await ensureRuntime();
   const current = state();
-  const runtime = current.modelRuntime;
+  const runtime = getRuntimeFor();
   if (!runtime) throw Object.assign(new Error("Pi runtime が初期化されていません"), { status: 503 });
   const provider = runtime.getProvider(providerId);
   if (!provider) throw Object.assign(new Error(`不明なプロバイダー: ${providerId}`), { status: 404 });
@@ -1681,7 +1692,7 @@ export function getActiveProviderLogin(): { sessionId: string; providerId: strin
 
 export async function logoutProvider(providerId: string): Promise<void> {
   await ensureRuntime();
-  const runtime = state().modelRuntime;
+  const runtime = getRuntimeFor();
   if (!runtime) throw Object.assign(new Error("Pi runtime が初期化されていません"), { status: 503 });
   if (!runtime.getProvider(providerId)) {
     throw Object.assign(new Error(`不明なプロバイダー: ${providerId}`), { status: 404 });
