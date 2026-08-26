@@ -28,6 +28,9 @@ export type ExportCredits = {
 
 export type ExportEntry = {
   opencodeProviderId: string;
+  instanceId: string;
+  accountId: string | null;
+  accountLabel: string | null;
   codexBarProviderId: string;
   plan: string | null;
   planMonthlyUsd: number | null;
@@ -36,15 +39,30 @@ export type ExportEntry = {
   maxed: boolean;
   resetsAt: string | null;
   updatedAt: string;
+  stale: boolean;
   error: string | null;
   windows: ExportWindow[];
   credits: ExportCredits | null;
+};
+
+export type ExportScope = {
+  kind: "all" | "default" | "account";
+  accountId: string | null;
+};
+
+export type ExportAccountSummary = {
+  id: string;
+  label: string;
+  providers: Array<"openai-codex" | "anthropic">;
+  configuredProviders: Array<"openai-codex" | "anthropic">;
 };
 
 export type SnapshotFile = {
   schema: string;
   generatedAt: string;
   subscriptionTotalMonthlyUsd: number | null;
+  scope?: ExportScope;
+  accounts?: ExportAccountSummary[];
   providers: ExportEntry[];
 };
 
@@ -82,6 +100,11 @@ export function buildEntry(
   codexBarProviderId: string,
   snapshot: UsageSnapshot | null,
   error: string | null,
+  metadata?: {
+    instanceId?: string;
+    accountId?: string | null;
+    accountLabel?: string | null;
+  },
 ): ExportEntry | null {
   const opencodeId = toOpencodeProviderId(codexBarProviderId);
   if (!opencodeId) return null;
@@ -116,6 +139,13 @@ export function buildEntry(
 
   return {
     opencodeProviderId: opencodeId,
+    instanceId:
+      metadata?.instanceId ??
+      (metadata?.accountId
+        ? `account:${metadata.accountId}:${codexBarProviderId}`
+        : `default:${codexBarProviderId}`),
+    accountId: metadata?.accountId ?? null,
+    accountLabel: metadata?.accountLabel ?? null,
     codexBarProviderId,
     plan,
     planMonthlyUsd: tryGetMonthlyUsd(codexBarProviderId, plan),
@@ -124,6 +154,7 @@ export function buildEntry(
     maxed: usedPercent !== null && isMaxed(usedPercent),
     resetsAt: toIso(soonestReset),
     updatedAt: toIso(snapshot?.updatedAt ?? new Date())!,
+    stale: snapshot?.isStale === true,
     error: hasUsableSnapshot ? null : error,
     windows,
     credits: snapshot?.creditsEnabled
@@ -137,7 +168,13 @@ export function buildEntry(
   };
 }
 
-export function buildSnapshotFile(entries: ExportEntry[]): SnapshotFile {
+export function buildSnapshotFile(
+  entries: ExportEntry[],
+  metadata?: {
+    scope?: ExportScope;
+    accounts?: ExportAccountSummary[];
+  },
+): SnapshotFile {
   let total: number | null = null;
   for (const e of entries) {
     if (e.planMonthlyUsd === null) continue;
@@ -147,11 +184,19 @@ export function buildSnapshotFile(entries: ExportEntry[]): SnapshotFile {
     schema: CODEXBAR_SCHEMA,
     generatedAt: new Date().toISOString(),
     subscriptionTotalMonthlyUsd: total,
+    ...(metadata?.scope ? { scope: metadata.scope } : {}),
+    ...(metadata?.accounts ? { accounts: metadata.accounts } : {}),
     providers: entries,
   };
 }
 
 /** Convert assembled snapshot into the widget-facing CodexBarUsage shape. */
-export function buildUsageFromEntries(entries: ExportEntry[]): CodexBarUsage {
-  return parseCodexBarSnapshot(buildSnapshotFile(entries));
+export function buildUsageFromEntries(
+  entries: ExportEntry[],
+  metadata?: {
+    scope?: ExportScope;
+    accounts?: ExportAccountSummary[];
+  },
+): CodexBarUsage {
+  return parseCodexBarSnapshot(buildSnapshotFile(entries, metadata));
 }

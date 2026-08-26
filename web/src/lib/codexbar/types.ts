@@ -16,6 +16,29 @@ export type RateWindow = {
   countsTowardLimit: boolean;
 };
 
+export type UsageScope = {
+  key: string;
+  kind: "default" | "account";
+  accountId: string | null;
+  accountLabel: string | null;
+  /** Server-only resolved Pi auth path. Never serialize this. */
+  authPath: string | null;
+};
+
+export type UsageProviderDefinition = {
+  id: string;
+  name: string;
+  kind: "shared" | "subscription";
+  create(scope: UsageScope): IUsageProvider;
+};
+
+export type UsageProviderInstance = IUsageProvider & {
+  instanceId: string;
+  accountId: string | null;
+  accountLabel: string | null;
+  scope: UsageScope;
+};
+
 export type UsageSnapshot = {
   providerId: string;
   providerName: string;
@@ -36,6 +59,9 @@ export type UsageSnapshot = {
 export type ProviderFetchResult = {
   id: string;
   name: string;
+  instanceId: string;
+  accountId: string | null;
+  accountLabel: string | null;
   configured: boolean;
   snapshot: UsageSnapshot | null;
   error: string | null;

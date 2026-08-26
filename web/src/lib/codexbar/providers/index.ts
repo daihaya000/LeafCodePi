@@ -3,9 +3,13 @@
  * Fully native: no CodexBarWin process required at runtime.
  */
 
-import type { IUsageProvider } from "@/lib/codexbar/types";
-import { anthropicProvider } from "@/lib/codexbar/providers/anthropic";
-import { openaiCodexProvider } from "@/lib/codexbar/providers/openai-codex";
+import type {
+  IUsageProvider,
+  UsageProviderDefinition,
+  UsageScope,
+} from "@/lib/codexbar/types";
+import { anthropicProvider, createAnthropicProvider } from "@/lib/codexbar/providers/anthropic";
+import { openaiCodexProvider, createOpenaiCodexProvider } from "@/lib/codexbar/providers/openai-codex";
 import { commandcodeProvider } from "@/lib/codexbar/providers/commandcode";
 import { cursorProvider } from "@/lib/codexbar/providers/cursor";
 import { ollamaCloudProvider } from "@/lib/codexbar/providers/ollama-cloud";
@@ -25,3 +29,20 @@ export const NATIVE_PROVIDERS: IUsageProvider[] = [
   ollamaCloudProvider,
   qwenCloudProvider,
 ];
+
+const SUBSCRIPTION_FACTORIES: Record<
+  string,
+  (scope: UsageScope) => IUsageProvider
+> = {
+  "openai-codex": createOpenaiCodexProvider,
+  anthropic: createAnthropicProvider,
+};
+
+/** Provider definitions used to create one isolated instance per usage scope. */
+export const NATIVE_PROVIDER_DEFINITIONS: UsageProviderDefinition[] =
+  NATIVE_PROVIDERS.map((provider) => ({
+    id: provider.id,
+    name: provider.name,
+    kind: provider.id in SUBSCRIPTION_FACTORIES ? "subscription" : "shared",
+    create: SUBSCRIPTION_FACTORIES[provider.id] ?? (() => provider),
+  }));

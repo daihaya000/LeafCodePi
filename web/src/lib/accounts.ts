@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { dataDir } from "./paths";
+import { invalidateCachedUsage } from "./codexbar/cache";
+import { clearProviderCache } from "./codexbar/provider-cache";
 import { listTasks } from "./store";
 
 /**
@@ -193,6 +195,7 @@ export function createAccount(input: {
   const file = readAccountsFile();
   file.accounts.push(record);
   writeAccountsFile(file);
+  invalidateCachedUsage();
   return { ...record };
 }
 
@@ -211,6 +214,7 @@ export function patchAccount(
   }
   record.updatedAt = new Date().toISOString();
   writeAccountsFile(file);
+  invalidateCachedUsage();
   return { ...record };
 }
 
@@ -237,4 +241,8 @@ export function deleteAccount(id: string): void {
   if (index === -1) throw notFound();
   file.accounts.splice(index, 1);
   writeAccountsFile(file);
+  for (const provider of ACCOUNT_PROVIDER_IDS) {
+    clearProviderCache(`account:${id}:${provider}`);
+  }
+  invalidateCachedUsage();
 }

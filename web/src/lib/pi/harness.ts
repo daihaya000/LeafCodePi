@@ -85,6 +85,8 @@ import { createQuestionPromptService, type QuestionAnswer } from "@/lib/pi/quest
 import { registerWebUiQuestionHandler } from "@/lib/pi/webui-question-bridge";
 import { listSubagentRuns } from "@/lib/pi/subagent-runs";
 import { stopRunningSubagentRuns } from "@/lib/pi/stop-subagent-runs";
+import { invalidateCachedUsage } from "@/lib/codexbar/cache";
+import { clearProviderCache } from "@/lib/codexbar/provider-cache";
 
 /** True when a skill lives under the user's ~/.agents directory. */
 function isAgentsSkill(skill: { baseDir?: string; filePath?: string }): boolean {
@@ -1867,8 +1869,12 @@ export async function startProviderLogin(
   // Let the SSE client attach before the OAuth flow emits prompts.
   queueMicrotask(() => {
     void session.run(runtime).finally(() => {
-      // A successful login usually adds models, so drop the cached health snapshot.
+      // A login can change both models and account-scoped usage.
       invalidateHealthCache();
+      invalidateCachedUsage();
+      clearProviderCache(
+        `${session.accountId ? `account:${session.accountId}` : "default"}:${session.providerId}`,
+      );
       // Keep the finished session briefly so a late EventSource can replay history.
       setTimeout(() => {
         if (current.loginSession === session) current.loginSession = null;
@@ -1921,6 +1927,10 @@ export async function logoutProvider(providerId: string, accountId?: string | nu
   }
   await runtime.logout(providerId);
   invalidateHealthCache();
+  invalidateCachedUsage();
+  clearProviderCache(
+    `${accountId ? `account:${accountId}` : "default"}:${providerId}`,
+  );
 }
 
 export { patchProject };

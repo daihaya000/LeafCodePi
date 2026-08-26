@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdir, rmdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { setTimeout as delay } from "node:timers/promises";
 import { accountAuthPath } from "@/lib/accounts";
 
 /**
@@ -19,6 +21,8 @@ export type PiOAuthTokens = {
   refresh: string | null;
   /** ms epoch。未保存の場合は null。 */
   expires: number | null;
+  /** ChatGPT 側のアカウント ID。LeafCode の accountId とは別物。 */
+  accountId: string | null;
 };
 
 /** 既定（accountId 未指定）の Pi 認証ファイル。SDK の getAgentDir と同じ解決規則。 */
@@ -63,37 +67,93 @@ export function readPiOAuthTokens(
     if (!access) return null;
     const refresh = typeof node.refresh === "string" && node.refresh ? node.refresh : null;
     const expires = typeof node.expires === "number" ? node.expires : null;
-    return { access, refresh, expires };
+    const accountId =
+      typeof node.accountId === "string" && node.accountId.trim()
+        ? node.accountId
+        : typeof node.account_id === "string" && node.account_id.trim()
+          ? node.account_id
+          : null;
+    return { access, refresh, expires, accountId };
   } catch {
     return null;
   }
 }
 
+const AUTH_LOCK_STALE_MS = 30_000;
+const AUTH_LOCK_RETRY_MS = 25;
+const AUTH_LOCK_MAX_WAIT_MS = 30_000;
+
+async function acquireAuthFileLock(path: string): Promise<() => Promise<void>> {
+  // FileAuthStorageBackend uses the same `${authPath}.lock` directory.
+  const lockPath = `${path}.lock`;
+  await mkdir(dirname(path), { recursive: true });
+  const deadline = Date.now() + AUTH_LOCK_MAX_WAIT_MS;
+
+  while (true) {
+    try {
+      await mkdir(lockPath, { mode: 0o700 });
+      return async () => {
+        await rmdir(lockPath).catch(() => undefined);
+      };
+    } catch (error) {
+      const code =
+        error && typeof error === "object" && "code" in error
+          ? (error as { code?: unknown }).code
+          : undefined;
+      if (code !== "EEXIST") throw error;
+      if (Date.now() >= deadline) {
+        throw new Error("Pi auth.json のロックを取得できません");
+      }
+      try {
+        const lockStat = await stat(lockPath);
+        if (Date.now() - lockStat.mtimeMs > AUTH_LOCK_STALE_MS) {
+          await rmdir(lockPath).catch(() => undefined);
+          continue;
+        }
+      } catch {
+        // The competing lock may have been released between open/stat.
+      }
+      await delay(AUTH_LOCK_RETRY_MS);
+    }
+  }
+}
+
+async function withAuthFileLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
+  const release = await acquireAuthFileLock(path);
+  try {
+    return await fn();
+  } finally {
+    await release();
+  }
+}
+
 /**
  * リフレッシュ結果を Pi auth.json へマージ書き込みする。
- * 他プロバイダーや未知のキーは保持する（CodexBar 単独で壊さない）。
+ * 他プロバイダーや未知のキーは保持し、ファイルロックで login/logout と直列化する。
  */
-export function writeBackPiOAuthTokens(
+export async function writeBackPiOAuthTokens(
   providerId: PiAuthProviderId,
   tokens: { access: string; refresh?: string | null; expires?: number | null },
   options?: { authPath?: string },
-): void {
+): Promise<void> {
   const path = options?.authPath ?? piAuthPathFor(providerId);
-  let root: Record<string, unknown> = {};
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    if (parsed && typeof parsed === "object") root = parsed as Record<string, unknown>;
-  } catch {
-    /* 新規作成扱い */
-  }
-  const previous = (root[providerId] as Record<string, unknown> | undefined) ?? {};
-  root[providerId] = {
-    ...previous,
-    type: "oauth",
-    access: tokens.access,
-    ...(tokens.refresh ? { refresh: tokens.refresh } : {}),
-    expires: tokens.expires ?? Date.now() + 3_600_000,
-  };
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(root, null, 2)}\n`, "utf8");
+  await withAuthFileLock(path, async () => {
+    let root: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+      if (parsed && typeof parsed === "object") root = parsed as Record<string, unknown>;
+    } catch {
+      /* 新規作成扱い */
+    }
+    const previous = (root[providerId] as Record<string, unknown> | undefined) ?? {};
+    root[providerId] = {
+      ...previous,
+      type: "oauth",
+      access: tokens.access,
+      ...(tokens.refresh ? { refresh: tokens.refresh } : {}),
+      expires: tokens.expires ?? Date.now() + 3_600_000,
+    };
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${JSON.stringify(root, null, 2)}\n`, "utf8");
+  });
 }

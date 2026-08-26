@@ -10,6 +10,7 @@ const SUCCESS_TTL_MS = 5 * 60 * 1000;
 const ERROR_TTL_MS = 2 * 60 * 1000;
 /** Claude usage API is strict; back off longer after 429. */
 const RATE_LIMIT_TTL_MS = 15 * 60 * 1000;
+const CACHE_KEY = "__leafcodeCodexbarProviderCache";
 
 export type CachedProviderKind = "ok" | "error" | "rate_limit";
 
@@ -23,7 +24,15 @@ export type CachedProviderResult = {
   ttlMs: number;
 };
 
-const store = new Map<string, CachedProviderResult>();
+type GlobalCache = typeof globalThis & {
+  [CACHE_KEY]?: Map<string, CachedProviderResult>;
+};
+
+function cacheStore(): Map<string, CachedProviderResult> {
+  const globalRef = globalThis as GlobalCache;
+  if (!globalRef[CACHE_KEY]) globalRef[CACHE_KEY] = new Map();
+  return globalRef[CACHE_KEY]!;
+}
 
 export function providerCacheTtlMs(kind: CachedProviderKind): number {
   switch (kind) {
@@ -44,6 +53,7 @@ export function getProviderCache(
   id: string,
   nowMs = Date.now(),
 ): CachedProviderResult | null {
+  const store = cacheStore();
   const entry = store.get(id);
   if (!entry) return null;
   if (!isFresh(entry, nowMs)) return null;
@@ -51,7 +61,7 @@ export function getProviderCache(
 }
 
 export function peekLastGood(id: string): UsageSnapshot | null {
-  return store.get(id)?.lastGood ?? null;
+  return cacheStore().get(id)?.lastGood ?? null;
 }
 
 /**
@@ -75,7 +85,7 @@ export function setProviderCacheOk(
   snapshot: UsageSnapshot,
   nowMs = Date.now(),
 ): void {
-  store.set(id, {
+  cacheStore().set(id, {
     kind: "ok",
     snapshot,
     lastGood: snapshot,
@@ -91,6 +101,7 @@ export function setProviderCacheError(
   rateLimited: boolean,
   nowMs = Date.now(),
 ): void {
+  const store = cacheStore();
   const prev = store.get(id);
   const lastGood = prev?.lastGood ?? null;
   store.set(id, {
@@ -104,11 +115,12 @@ export function setProviderCacheError(
 }
 
 export function clearProviderCache(id?: string): void {
+  const store = cacheStore();
   if (id) store.delete(id);
   else store.clear();
 }
 
 /** Test helper. */
 export function _providerCacheSizeForTest(): number {
-  return store.size;
+  return cacheStore().size;
 }

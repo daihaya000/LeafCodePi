@@ -26,9 +26,28 @@ export type CodexBarCredits = {
   balance: number | null;
 };
 
+export type CodexBarAccountProviderId = "openai-codex" | "anthropic";
+
+export type CodexBarAccountSummary = {
+  id: string;
+  label: string;
+  providers: CodexBarAccountProviderId[];
+  configuredProviders: CodexBarAccountProviderId[];
+};
+
+export type CodexBarScope = {
+  kind: "all" | "default" | "account";
+  accountId: string | null;
+};
+
 export type CodexBarProvider = {
   /** codexBarProviderId (codex/claude/cursor/opencode-go/ollama/synthetic), falls back to opencode id. */
   id: string;
+  /** Stable instance key. Optional only for old snapshots supplied by callers. */
+  instanceId?: string;
+  /** LeafCode account metadata; null/undefined means default or shared. */
+  accountId?: string | null;
+  accountLabel?: string | null;
   opencodeId: string | null;
   /** Subscription/plan label (e.g. Pro/Max/Go), or null when unknown. */
   plan: string | null;
@@ -42,6 +61,8 @@ export type CodexBarProvider = {
   resetsAt: string | null;
   /** ISO-8601 timestamp this provider was fetched, or null. */
   updatedAt: string | null;
+  /** True when the displayed value is a last-good snapshot. */
+  stale?: boolean;
   /** Present only when the fetch failed. */
   error: string | null;
   /** Per-window detail (5時間/週間/…). Empty for older snapshots. */
@@ -58,6 +79,10 @@ export type CodexBarUsage = {
   generatedAt: string | null;
   /** Sum of known planMonthlyUsd across providers (from CodexBar export). */
   subscriptionTotalMonthlyUsd: number | null;
+  /** Usage request scope. Old snapshots omit this field. */
+  scope?: CodexBarScope;
+  /** Account labels/status without credentials. Old snapshots omit this field. */
+  accounts?: CodexBarAccountSummary[];
   providers: CodexBarProvider[];
 };
 
@@ -68,6 +93,8 @@ export function emptyUsage(reason: string): CodexBarUsage {
     schema: null,
     generatedAt: null,
     subscriptionTotalMonthlyUsd: null,
+    scope: { kind: "all", accountId: null },
+    accounts: [],
     providers: [],
   };
 }
@@ -93,6 +120,42 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
   if (!Array.isArray(list)) {
     return emptyUsage("providers 配列がありません");
   }
+
+  const rawScope = obj.scope;
+  const scopeObject =
+    rawScope && typeof rawScope === "object" && !Array.isArray(rawScope)
+      ? (rawScope as Record<string, unknown>)
+      : null;
+  const scopeKind =
+    scopeObject?.kind === "default" || scopeObject?.kind === "account"
+      ? scopeObject.kind
+      : "all";
+  const scope: CodexBarScope = {
+    kind: scopeKind,
+    accountId: asString(scopeObject?.accountId),
+  };
+  const accounts: CodexBarAccountSummary[] = Array.isArray(obj.accounts)
+    ? obj.accounts.flatMap((raw) => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+        const account = raw as Record<string, unknown>;
+        const id = asString(account.id);
+        const label = asString(account.label);
+        if (!id || !label) return [];
+        const providers = Array.isArray(account.providers)
+          ? account.providers.filter(
+              (provider): provider is CodexBarAccountProviderId =>
+                provider === "openai-codex" || provider === "anthropic",
+            )
+          : [];
+        const configuredProviders = Array.isArray(account.configuredProviders)
+          ? account.configuredProviders.filter(
+              (provider): provider is CodexBarAccountProviderId =>
+                provider === "openai-codex" || provider === "anthropic",
+            )
+          : [];
+        return [{ id, label, providers, configuredProviders }];
+      })
+    : [];
 
   const providers: CodexBarProvider[] = list
     .filter(
@@ -144,8 +207,14 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
           : creditPercent === null
             ? usedPercent
             : Math.max(usedPercent, creditPercent);
+      const accountId = asString(p.accountId);
       return {
         id,
+        instanceId:
+          asString(p.instanceId) ??
+          (accountId ? `account:${accountId}:${id}` : `default:${id}`),
+        accountId,
+        accountLabel: asString(p.accountLabel),
         opencodeId: asString(p.opencodeProviderId),
         plan: asString(p.plan),
         planMonthlyUsd: asNumber(p.planMonthlyUsd),
@@ -154,6 +223,7 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
         maxed: p.maxed === true || (representative !== null && representative >= 99.5),
         resetsAt: asString(p.resetsAt),
         updatedAt: asString(p.updatedAt),
+        stale: p.stale === true,
         error: asString(p.error),
         windows,
         credits,
@@ -176,8 +246,156 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
     schema: asString(obj.schema),
     generatedAt: asString(obj.generatedAt),
     subscriptionTotalMonthlyUsd,
+    scope,
+    accounts,
     providers,
   };
+}
+
+const SUBSCRIPTION_PROVIDER_IDS = new Set(["openai-codex", "anthropic"]);
+
+export type CodexBarProviderGroupAccount = {
+  id: string;
+  label: string;
+  provider: CodexBarProvider | null;
+  configured: boolean;
+};
+
+export type CodexBarProviderGroup = {
+  id: string;
+  provider: CodexBarProvider;
+  accountRows: CodexBarProviderGroupAccount[];
+  limitedCount: number;
+  maxedCount: number;
+};
+
+function emptyProvider(id: string): CodexBarProvider {
+  return {
+    id,
+    instanceId: `default:${id}`,
+    accountId: null,
+    accountLabel: null,
+    opencodeId: null,
+    plan: null,
+    planMonthlyUsd: null,
+    usedPercent: null,
+    limited: false,
+    maxed: false,
+    resetsAt: null,
+    updatedAt: null,
+    stale: false,
+    error: null,
+    windows: [],
+    credits: null,
+  };
+}
+
+function accountProviderKey(accountId: string, providerId: string): string {
+  return `${accountId}::${providerId}`;
+}
+
+/** Group flat usage rows into provider parents and account children. */
+export function groupCodexBarProviders(
+  usage: CodexBarUsage,
+): CodexBarProviderGroup[] {
+  const groups = new Map<
+    string,
+    { rows: CodexBarProvider[]; representative: CodexBarProvider | null }
+  >();
+  const ensureGroup = (id: string) => {
+    let group = groups.get(id);
+    if (!group) {
+      group = { rows: [], representative: null };
+      groups.set(id, group);
+    }
+    return group;
+  };
+
+  for (const row of usage.providers) {
+    const group = ensureGroup(row.id);
+    group.rows.push(row);
+    if (!row.accountId && !group.representative) group.representative = row;
+  }
+  for (const account of usage.accounts ?? []) {
+    for (const providerId of account.providers) ensureGroup(providerId);
+  }
+
+  const summaries = usage.accounts ?? [];
+  const result: CodexBarProviderGroup[] = [];
+  for (const [id, group] of groups) {
+    const isSubscription = SUBSCRIPTION_PROVIDER_IDS.has(id);
+    const usageByAccount = new Map(
+      group.rows
+        .filter((row) => row.accountId)
+        .map((row) => [row.accountId!, row] as const),
+    );
+    const accountRows: CodexBarProviderGroupAccount[] = [];
+    const seen = new Set<string>();
+
+    if (isSubscription) {
+      for (const account of summaries) {
+        if (!account.providers.includes(id as CodexBarAccountProviderId)) continue;
+        const key = accountProviderKey(account.id, id);
+        accountRows.push({
+          id: key,
+          label: account.label,
+          provider: usageByAccount.get(account.id) ?? null,
+          configured: account.configuredProviders.includes(id as CodexBarAccountProviderId),
+        });
+        seen.add(key);
+      }
+      for (const row of group.rows) {
+        if (!row.accountId) continue;
+        const key = accountProviderKey(row.accountId, id);
+        if (seen.has(key)) continue;
+        accountRows.push({
+          id: key,
+          label: row.accountLabel ?? row.accountId,
+          provider: row,
+          configured: true,
+        });
+      }
+    }
+
+    const base = group.representative ?? group.rows[0] ?? emptyProvider(id);
+    const rowProviders =
+      isSubscription && accountRows.length > 0
+        ? accountRows.flatMap((entry) => (entry.provider ? [entry.provider] : []))
+        : [base];
+    const validRows = rowProviders.filter(
+      (provider) => hasLastGoodUsage(provider) && provider.usedPercent !== null,
+    );
+    const usedPercent =
+      isSubscription && accountRows.length > 0
+        ? validRows.length > 0
+          ? validRows.reduce((sum, provider) => sum + provider.usedPercent!, 0) /
+            validRows.length
+          : null
+        : base.usedPercent;
+    const limitedCount = rowProviders.filter((provider) => provider.limited || provider.maxed).length;
+    const maxedCount = rowProviders.filter((provider) => provider.maxed).length;
+
+    result.push({
+      id,
+      provider: {
+        ...base,
+        instanceId: `default:${id}`,
+        accountId: null,
+        accountLabel: null,
+        usedPercent,
+        limited: limitedCount > 0,
+        maxed: maxedCount > 0,
+        windows: isSubscription && accountRows.length > 0 ? [] : base.windows,
+        credits: isSubscription && accountRows.length > 0 ? null : base.credits,
+        error: null,
+      },
+      accountRows,
+      limitedCount,
+      maxedCount,
+    });
+  }
+
+  return result;
 }
 
 const PROVIDER_LABELS: Record<string, string> = {

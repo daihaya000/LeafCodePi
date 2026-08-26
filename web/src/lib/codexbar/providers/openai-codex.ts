@@ -10,6 +10,7 @@ import {
   ProviderError,
   type IUsageProvider,
   type RateWindow,
+  type UsageScope,
   type UsageSnapshot,
 } from "@/lib/codexbar/types";
 import {
@@ -83,9 +84,9 @@ function parseJwtClaims(jwt: string): { email: string | null; plan: string | nul
   return { email, plan };
 }
 
-function loadAuth(): CodexAuth | null {
+function loadAuth(path = authPath()): CodexAuth | null {
   try {
-    const root = asRecord(JSON.parse(readFileSync(authPath(), "utf8")));
+    const root = asRecord(JSON.parse(readFileSync(path, "utf8")));
     const tokens = asRecord(root?.tokens);
     if (!tokens) return null;
     const accessToken =
@@ -326,13 +327,16 @@ function tryLoadFromSessionLogs(): UsageSnapshot | null {
  * Pi は id_token / email / subscriptionType を保存しないため email・JWT プランは常に null
  * （plan は利用量 API 応答の plan_type から取得する）。
  */
-function loadAuthFromPi(): CodexAuth | null {
-  const tokens = readPiOAuthTokens("openai-codex");
+function loadAuthFromPi(path?: string): CodexAuth | null {
+  const tokens = readPiOAuthTokens(
+    "openai-codex",
+    path ? { authPath: path } : undefined,
+  );
   if (!tokens) return null;
   return {
     accessToken: tokens.access,
     refreshToken: tokens.refresh,
-    accountId: null,
+    accountId: tokens.accountId,
     emailFromJwt: null,
     planFromJwt: null,
   };
@@ -342,6 +346,7 @@ function loadAuthFromPi(): CodexAuth | null {
 async function tryRefreshTokensInPi(
   auth: CodexAuth,
   signal?: AbortSignal,
+  authPathOverride?: string,
 ): Promise<CodexAuth | null> {
   if (!auth.refreshToken) return null;
   try {
@@ -362,10 +367,14 @@ async function tryRefreshTokensInPi(
     if (!accessToken) return null;
     const refreshToken =
       typeof root?.refresh_token === "string" ? root.refresh_token : auth.refreshToken;
-    writeBackPiOAuthTokens("openai-codex", {
-      access: accessToken,
-      refresh: refreshToken,
-    });
+    await writeBackPiOAuthTokens(
+      "openai-codex",
+      {
+        access: accessToken,
+        refresh: refreshToken,
+      },
+      authPathOverride ? { authPath: authPathOverride } : undefined,
+    );
     return {
       accessToken,
       refreshToken,
@@ -399,55 +408,72 @@ async function fetchFromApi(
   return parseUsageBody(root, auth);
 }
 
-export const openaiCodexProvider: IUsageProvider = {
-  id: "openai-codex",
-  name: "Codex",
-  isConfigured() {
-    // Pi 既定ストアまたは Codex CLI ファイルのどちらかに認証があれば表示対象
-    return existsSync(authPath()) || readPiOAuthTokens("openai-codex") !== null;
-  },
-  async fetch(signal) {
-    // docs/plans/multi-account.md Phase 7: Pi 認証を優先し、無ければ CLI ファイルへフォールバック。
-    // リフレッシュの書き戻し先も読み取り元に合わせる（片側だけトークンローテーションが進むのを防ぐ）。
-    const piAuth = loadAuthFromPi();
-    const usingPi = piAuth !== null;
-    const auth = piAuth ?? loadAuth();
-    if (!auth) {
-      throw new ProviderError(
-        "Codex の認証情報が見つかりません。WebUI の「サブスクでログイン」または `codex` CLI でサインインしてください。",
-      );
-    }
-    try {
-      return await fetchFromApi(auth, signal);
-    } catch (err) {
-      if (err instanceof ProviderError && err.message === "__unauthorized__") {
-        const refreshed = usingPi
-          ? await tryRefreshTokensInPi(auth, signal)
-          : await tryRefreshTokens(auth, signal);
-        if (refreshed) {
-          try {
-            return await fetchFromApi(refreshed, signal);
-          } catch (e2) {
-            if (!(e2 instanceof ProviderError && e2.message === "__unauthorized__")) {
-              throw e2;
-            }
-          }
-        }
-        const local = tryLoadFromSessionLogs();
-        if (local) return local;
+export function createOpenaiCodexProvider(scope: UsageScope): IUsageProvider {
+  const strictAccount = scope.kind === "account";
+  const piPath = scope.authPath ?? undefined;
+
+  return {
+    id: "openai-codex",
+    name: "Codex",
+    isConfigured() {
+      if (strictAccount) return piPath !== undefined && loadAuthFromPi(piPath) !== null;
+      return loadAuthFromPi() !== null || loadAuth() !== null;
+    },
+    async fetch(signal) {
+      // Account scope is deliberately Pi-only. Default scope preserves the
+      // existing Pi → Codex CLI fallback for compatibility.
+      const piAuth = loadAuthFromPi(piPath);
+      const usingPi = piAuth !== null;
+      const auth = strictAccount ? piAuth : piAuth ?? loadAuth();
+      if (!auth) {
         throw new ProviderError(
-          "Codex の OAuth トークンが無効か期限切れです。`codex` を実行して再認証してください。",
+          strictAccount
+            ? "このアカウントの Codex 認証情報がありません。先に WebUI でログインしてください。"
+            : "Codex の認証情報が見つかりません。WebUI の「サブスクでログイン」または `codex` CLI でサインインしてください。",
         );
       }
-      if (err instanceof ProviderError) throw err;
-      const local = tryLoadFromSessionLogs();
-      if (local) return local;
-      throw new ProviderError(
-        `Codex の使用状況取得に失敗しました: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  },
-};
+      try {
+        return await fetchFromApi(auth, signal);
+      } catch (err) {
+        if (err instanceof ProviderError && err.message === "__unauthorized__") {
+          const refreshed = usingPi
+            ? await tryRefreshTokensInPi(auth, signal, piPath)
+            : await tryRefreshTokens(auth, signal);
+          if (refreshed) {
+            try {
+              return await fetchFromApi(refreshed, signal);
+            } catch (e2) {
+              if (!(e2 instanceof ProviderError && e2.message === "__unauthorized__")) {
+                throw e2;
+              }
+            }
+          }
+          const local = strictAccount ? null : tryLoadFromSessionLogs();
+          if (local) return local;
+          throw new ProviderError(
+            strictAccount
+              ? "このアカウントの Codex OAuth トークンが無効か期限切れです。WebUI で再ログインしてください。"
+              : "Codex の OAuth トークンが無効か期限切れです。`codex` を実行して再認証してください。",
+          );
+        }
+        if (err instanceof ProviderError) throw err;
+        const local = strictAccount ? null : tryLoadFromSessionLogs();
+        if (local) return local;
+        throw new ProviderError(
+          `Codex の使用状況取得に失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    },
+  };
+}
+
+export const openaiCodexProvider = createOpenaiCodexProvider({
+  key: "default",
+  kind: "default",
+  accountId: null,
+  accountLabel: null,
+  authPath: null,
+});
 
 /** Exported for unit tests. */
 export function parseCodexUsageJson(json: string, auth?: Partial<CodexAuth>): UsageSnapshot {

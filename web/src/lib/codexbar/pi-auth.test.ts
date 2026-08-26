@@ -81,9 +81,9 @@ describe("readPiOAuthTokens", () => {
     assert.equal(readPiOAuthTokens("anthropic"), null);
   });
 
-  it("reads back tokens written by writeBackPiOAuthTokens", () => {
+  it("reads back tokens written by writeBackPiOAuthTokens", async () => {
     tempAgentDir();
-    writeBackPiOAuthTokens("anthropic", { access: "a1", refresh: "r1" });
+    await writeBackPiOAuthTokens("anthropic", { access: "a1", refresh: "r1" });
     const tokens = readPiOAuthTokens("anthropic");
     assert.equal(tokens?.access, "a1");
     assert.equal(tokens?.refresh, "r1");
@@ -92,7 +92,7 @@ describe("readPiOAuthTokens", () => {
 });
 
 describe("writeBackPiOAuthTokens", () => {
-  it("merges without dropping sibling providers or unknown keys", () => {
+  it("merges without dropping sibling providers or unknown keys", async () => {
     const dir = tempAgentDir();
     const path = defaultPiAuthPath();
     writeFileSync(
@@ -102,8 +102,8 @@ describe("writeBackPiOAuthTokens", () => {
     );
     void dir;
 
-    writeBackPiOAuthTokens("openai-codex", { access: "c1", refresh: "cr1" });
-    writeBackPiOAuthTokens("anthropic", { access: "a1" });
+    await writeBackPiOAuthTokens("openai-codex", { access: "c1", refresh: "cr1" });
+    await writeBackPiOAuthTokens("anthropic", { access: "a1" });
 
     const raw = JSON.parse(readFileSync(path, "utf8")) as {
       customKey?: unknown;
@@ -118,5 +118,16 @@ describe("writeBackPiOAuthTokens", () => {
     assert.equal(raw["openai-codex"]?.type, "oauth");
     assert.equal(raw.anthropic?.access, "a1");
     assert.ok(typeof raw.anthropic?.expires === "number");
+  });
+
+  it("serializes concurrent provider merges through the shared auth lock", async () => {
+    tempAgentDir();
+    await Promise.all([
+      writeBackPiOAuthTokens("openai-codex", { access: "c1" }),
+      writeBackPiOAuthTokens("anthropic", { access: "a1" }),
+    ]);
+    const raw = JSON.parse(readFileSync(defaultPiAuthPath(), "utf8")) as Record<string, Record<string, unknown>>;
+    assert.equal(raw["openai-codex"]?.access, "c1");
+    assert.equal(raw.anthropic?.access, "a1");
   });
 });

@@ -10,6 +10,7 @@ import {
   ProviderError,
   type IUsageProvider,
   type RateWindow,
+  type UsageScope,
   type UsageSnapshot,
 } from "@/lib/codexbar/types";
 import {
@@ -63,9 +64,9 @@ function prettyPlan(raw: string | null | undefined): string | null {
   }
 }
 
-function loadCredentials(): ClaudeCredentials | null {
+function loadCredentials(path = credentialsPath()): ClaudeCredentials | null {
   try {
-    const root = asRecord(JSON.parse(readFileSync(credentialsPath(), "utf8")));
+    const root = asRecord(JSON.parse(readFileSync(path, "utf8")));
     const oauth = asRecord(root?.claudeAiOauth);
     if (!oauth) return null;
     const accessToken =
@@ -89,8 +90,8 @@ function persistTokens(
   accessToken: string,
   refreshToken: string,
   expiresAt: Date,
+  path = credentialsPath(),
 ): void {
-  const path = credentialsPath();
   try {
     const node = asRecord(JSON.parse(readFileSync(path, "utf8"))) ?? {};
     const oauth = asRecord(node.claudeAiOauth) ?? {};
@@ -107,6 +108,7 @@ function persistTokens(
 async function tryRefreshTokens(
   creds: ClaudeCredentials,
   signal?: AbortSignal,
+  credentialsPathOverride?: string,
 ): Promise<ClaudeCredentials | null> {
   if (!creds.refreshToken) return null;
   try {
@@ -132,8 +134,13 @@ async function tryRefreshTokens(
     const expiresIn =
       typeof root?.expires_in === "number" ? root.expires_in : 3600;
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
-    persistTokens(accessToken, refreshToken, expiresAt);
-    return loadCredentials();
+    persistTokens(
+      accessToken,
+      refreshToken,
+      expiresAt,
+      credentialsPathOverride ?? credentialsPath(),
+    );
+    return loadCredentials(credentialsPathOverride ?? credentialsPath());
   } catch {
     return null;
   }
@@ -328,8 +335,11 @@ export function parseClaudeUsageJson(
  * Pi の auth.json（既定ストア）から認証を組む。Pi は subscriptionType を保存しないため
  * プラン表示は縮退（null）。email も ~/.claude.json 由来のため Pi 経由では出さない。
  */
-function loadCredentialsFromPi(): ClaudeCredentials | null {
-  const tokens = readPiOAuthTokens("anthropic");
+function loadCredentialsFromPi(path?: string): ClaudeCredentials | null {
+  const tokens = readPiOAuthTokens(
+    "anthropic",
+    path ? { authPath: path } : undefined,
+  );
   if (!tokens) return null;
   return {
     accessToken: tokens.access,
@@ -343,6 +353,7 @@ function loadCredentialsFromPi(): ClaudeCredentials | null {
 async function tryRefreshTokensInPi(
   creds: ClaudeCredentials,
   signal?: AbortSignal,
+  authPathOverride?: string,
 ): Promise<ClaudeCredentials | null> {
   if (!creds.refreshToken) return null;
   try {
@@ -363,11 +374,15 @@ async function tryRefreshTokensInPi(
     const refreshToken =
       typeof root?.refresh_token === "string" ? root.refresh_token : creds.refreshToken;
     const expiresIn = typeof root?.expires_in === "number" ? root.expires_in : 3600;
-    writeBackPiOAuthTokens("anthropic", {
-      access: accessToken,
-      refresh: refreshToken,
-      expires: Date.now() + expiresIn * 1000,
-    });
+    await writeBackPiOAuthTokens(
+      "anthropic",
+      {
+        access: accessToken,
+        refresh: refreshToken,
+        expires: Date.now() + expiresIn * 1000,
+      },
+      authPathOverride ? { authPath: authPathOverride } : undefined,
+    );
     return {
       accessToken,
       refreshToken,
@@ -406,55 +421,74 @@ async function fetchFromApi(
   return { ...snap, accountEmail: options?.piSource ? null : readAccountEmail() };
 }
 
-export const anthropicProvider: IUsageProvider = {
-  id: "anthropic",
-  name: "Claude",
-  isConfigured() {
-    // docs/plans/multi-account.md Phase 7: Pi 既定ストアを優先し、無ければ CLI へフォールバック。
-    return existsSync(credentialsPath()) || readPiOAuthTokens("anthropic") !== null;
-  },
-  async fetch(signal) {
-    const piCreds = loadCredentialsFromPi();
-    const usingPi = piCreds !== null;
-    let creds = piCreds ?? loadCredentials();
-    if (!creds) {
-      throw new ProviderError(
-        "Claude の認証情報が見つかりません。WebUI の「サブスクでログイン」または `claude` CLI でサインインしてください。",
-      );
-    }
-    if (
-      creds.expiresAt &&
-      creds.expiresAt.getTime() <= Date.now() + 60_000 &&
-      creds.refreshToken
-    ) {
-      creds =
-        (usingPi
-          ? await tryRefreshTokensInPi(creds, signal)
-          : await tryRefreshTokens(creds, signal)) ?? creds;
-    }
-    try {
-      return await fetchFromApi(creds, signal, { piSource: usingPi });
-    } catch (err) {
-      if (err instanceof ProviderError && err.message === "__unauthorized__") {
-        const refreshed = usingPi
-          ? await tryRefreshTokensInPi(creds, signal)
-          : await tryRefreshTokens(creds, signal);
-        if (refreshed) {
-          try {
-            return await fetchFromApi(refreshed, signal, { piSource: usingPi });
-          } catch (e2) {
-            if (!(e2 instanceof ProviderError && e2.message === "__unauthorized__")) {
-              throw e2;
-            }
-          }
-        }
+export function createAnthropicProvider(scope: UsageScope): IUsageProvider {
+  const strictAccount = scope.kind === "account";
+  const piPath = scope.authPath ?? undefined;
+
+  return {
+    id: "anthropic",
+    name: "Claude",
+    isConfigured() {
+      if (strictAccount) return piPath !== undefined && loadCredentialsFromPi(piPath) !== null;
+      return loadCredentialsFromPi() !== null || loadCredentials() !== null;
+    },
+    async fetch(signal) {
+      // Account scope is deliberately Pi-only. Default scope preserves the
+      // existing Pi → Claude CLI fallback for compatibility.
+      const piCreds = loadCredentialsFromPi(piPath);
+      const usingPi = piCreds !== null;
+      let creds = strictAccount ? piCreds : piCreds ?? loadCredentials();
+      if (!creds) {
         throw new ProviderError(
-          usingPi
-            ? "Claude の OAuth トークンが無効か期限切れです。WebUI で再ログインしてください。"
-            : "Claude の OAuth トークンが無効か期限切れです。`claude` を実行して再認証してください。",
+          strictAccount
+            ? "このアカウントの Claude 認証情報がありません。先に WebUI でログインしてください。"
+            : "Claude の認証情報が見つかりません。WebUI の「サブスクでログイン」または `claude` CLI でサインインしてください。",
         );
       }
-      throw err;
-    }
-  },
-};
+      if (
+        creds.expiresAt &&
+        creds.expiresAt.getTime() <= Date.now() + 60_000 &&
+        creds.refreshToken
+      ) {
+        creds =
+          (usingPi
+            ? await tryRefreshTokensInPi(creds, signal, piPath)
+            : await tryRefreshTokens(creds, signal)) ?? creds;
+      }
+      try {
+        return await fetchFromApi(creds, signal, { piSource: usingPi });
+      } catch (err) {
+        if (err instanceof ProviderError && err.message === "__unauthorized__") {
+          const refreshed = usingPi
+            ? await tryRefreshTokensInPi(creds, signal, piPath)
+            : await tryRefreshTokens(creds, signal);
+          if (refreshed) {
+            try {
+              return await fetchFromApi(refreshed, signal, { piSource: usingPi });
+            } catch (e2) {
+              if (!(e2 instanceof ProviderError && e2.message === "__unauthorized__")) {
+                throw e2;
+              }
+            }
+          }
+          throw new ProviderError(
+            strictAccount
+              ? "このアカウントの Claude OAuth トークンが無効か期限切れです。WebUI で再ログインしてください。"
+              : usingPi
+                ? "Claude の OAuth トークンが無効か期限切れです。WebUI で再ログインしてください。"
+                : "Claude の OAuth トークンが無効か期限切れです。`claude` を実行して再認証してください。",
+          );
+        }
+        throw err;
+      }
+    },
+  };
+}
+
+export const anthropicProvider = createAnthropicProvider({
+  key: "default",
+  kind: "default",
+  accountId: null,
+  accountLabel: null,
+  authPath: null,
+});
