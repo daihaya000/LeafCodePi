@@ -424,18 +424,27 @@ async function fetchFromApi(
 export function createAnthropicProvider(scope: UsageScope): IUsageProvider {
   const strictAccount = scope.kind === "account";
   const piPath = scope.authPath ?? undefined;
+  let accountCredentials: ClaudeCredentials | null | undefined;
+  const loadPiCredentials = () => {
+    if (!strictAccount) return loadCredentialsFromPi();
+    if (!piPath) return null;
+    if (accountCredentials === undefined) {
+      accountCredentials = loadCredentialsFromPi(piPath);
+    }
+    return accountCredentials;
+  };
 
   return {
     id: "anthropic",
     name: "Claude",
     isConfigured() {
-      if (strictAccount) return piPath !== undefined && loadCredentialsFromPi(piPath) !== null;
-      return loadCredentialsFromPi() !== null || loadCredentials() !== null;
+      if (strictAccount) return loadPiCredentials() !== null;
+      return loadPiCredentials() !== null || loadCredentials() !== null;
     },
     async fetch(signal) {
       // Account scope is deliberately Pi-only. Default scope preserves the
       // existing Pi → Claude CLI fallback for compatibility.
-      const piCreds = loadCredentialsFromPi(piPath);
+      const piCreds = loadPiCredentials();
       const usingPi = piCreds !== null;
       let creds = strictAccount ? piCreds : piCreds ?? loadCredentials();
       if (!creds) {

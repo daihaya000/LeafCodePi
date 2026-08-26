@@ -411,18 +411,25 @@ async function fetchFromApi(
 export function createOpenaiCodexProvider(scope: UsageScope): IUsageProvider {
   const strictAccount = scope.kind === "account";
   const piPath = scope.authPath ?? undefined;
+  let accountAuth: CodexAuth | null | undefined;
+  const loadPiAuth = () => {
+    if (!strictAccount) return loadAuthFromPi();
+    if (!piPath) return null;
+    if (accountAuth === undefined) accountAuth = loadAuthFromPi(piPath);
+    return accountAuth;
+  };
 
   return {
     id: "openai-codex",
     name: "Codex",
     isConfigured() {
-      if (strictAccount) return piPath !== undefined && loadAuthFromPi(piPath) !== null;
-      return loadAuthFromPi() !== null || loadAuth() !== null;
+      if (strictAccount) return loadPiAuth() !== null;
+      return loadPiAuth() !== null || loadAuth() !== null;
     },
     async fetch(signal) {
       // Account scope is deliberately Pi-only. Default scope preserves the
       // existing Pi → Codex CLI fallback for compatibility.
-      const piAuth = loadAuthFromPi(piPath);
+      const piAuth = loadPiAuth();
       const usingPi = piAuth !== null;
       const auth = strictAccount ? piAuth : piAuth ?? loadAuth();
       if (!auth) {
