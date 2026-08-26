@@ -118,7 +118,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     );
 
     const codex = await accountRegion("OpenAI Codex");
-    fireEvent.click(within(codex).getByRole("radio", { name: "統合" }));
+    fireEvent.click(within(codex).getByRole("checkbox", { name: "統合" }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(
         ([input, init]) =>

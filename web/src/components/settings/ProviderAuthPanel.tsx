@@ -380,43 +380,25 @@ export function ProviderAuthPanel({
         aria-label={`${provider.name} の追加アカウント`}
         className="mt-3 border-t border-border pt-3"
       >
-        <fieldset
-          disabled={modeDisabled}
-          aria-busy={savingMode || undefined}
-          className="mb-3 rounded-xl bg-surface-2 p-3"
-        >
-          <legend className="px-1 text-xs font-semibold text-muted">モデルの扱い</legend>
-          <div className="mt-1 flex w-full flex-col gap-1 sm:w-fit sm:flex-row">
-            {(["integrated", "separate"] as const).map((nextMode) => (
-              <label
-                key={nextMode}
-                className="flex min-h-11 cursor-pointer items-center rounded-lg border border-transparent px-3 py-2 text-sm hover:bg-surface"
-              >
-                <input
-                  type="radio"
-                  name={`routing-mode-${providerId}`}
-                  value={nextMode}
-                  checked={mode === nextMode}
-                  onChange={() => void changeRoutingMode(providerId, nextMode)}
-                  className="sr-only peer"
-                />
-                <span className="rounded-lg px-3 py-1.5 text-muted peer-checked:bg-surface peer-checked:text-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent">
-                  {nextMode === "integrated" ? "統合" : "アカウント別"}
-                </span>
-              </label>
-            ))}
-          </div>
-          <p className="mt-2 text-xs text-muted">
-            {mode === "integrated"
-              ? "新規タスクを使用率の低い認証済みアカウントへ自動で割り当てます。既存タスクのアカウントは変更されません。"
-              : "アカウントごとのモデルを表示し、利用するアカウントを明示的に選択します。"}
-          </p>
+        <div className="mb-3" aria-busy={savingMode || undefined}>
+          <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-muted">
+            <input
+              type="checkbox"
+              checked={mode === "integrated"}
+              disabled={modeDisabled}
+              onChange={(event) =>
+                void changeRoutingMode(providerId, event.target.checked ? "integrated" : "separate")
+              }
+              className="h-4 w-4 accent-accent"
+            />
+            <span>統合</span>
+          </label>
           {routingErrors[providerId] && (
-            <p className="mt-2 text-xs text-danger" role="alert">
+            <p className="text-xs text-danger" role="alert">
               {routingErrors[providerId]}
             </p>
           )}
-        </fieldset>
+        </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="text-xs font-semibold text-muted">ログインアカウント</h3>
