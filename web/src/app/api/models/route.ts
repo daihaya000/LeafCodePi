@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { listModels, jsonError } from "@/lib/pi/harness";
 import { getCachedUsage } from "@/lib/codexbar/cache";
 import { attachCodexBarUsage } from "./map";
@@ -14,8 +14,14 @@ export const dynamic = "force-dynamic";
  */
 const USAGE_MAX_AGE_MS = 30 * 60 * 1000;
 
-export async function GET() {
+/**
+ * モデル一覧。`?accountId=` でアカウント別のモデル解決を受け付ける
+ * （docs/plans/multi-account.md）。Phase 6 で getRuntimeFor(accountId) に接続するまで
+ * は従来どおり既定ランタイムの一覧を返す。
+ */
+export async function GET(req: NextRequest) {
   try {
+    void req.nextUrl.searchParams.get("accountId");
     const models = await listModels();
     const providers = getCachedUsage(Date.now(), USAGE_MAX_AGE_MS)?.providers ?? [];
     return NextResponse.json({ models: attachCodexBarUsage(models, providers) });

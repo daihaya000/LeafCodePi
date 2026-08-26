@@ -6,6 +6,7 @@ import { ArrowUp, FolderGit2, GitBranch } from "lucide-react";
 import { CollaborationNotice, useCollaborationRoom } from "@/components/CollaborationStatus";
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { AgentSelect } from "@/components/AgentSelect";
+import { AccountSelect } from "@/components/AccountSelect";
 import { Composer, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { NextTaskSuggest } from "@/components/home/NextTaskSuggest";
@@ -20,6 +21,10 @@ import { Button, GhostSelect } from "@/components/ui";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { DEFAULT_AGENT, readStoredAgent, writeStoredAgent } from "@/lib/default-agent";
+import {
+  readSelectedAccountId,
+  writeSelectedAccountId,
+} from "@/lib/selected-account";
 import { defaultThinkingLevel, isThinkingLevel } from "@/lib/thinking-levels";
 import {
   readSubagentPermission,
@@ -47,6 +52,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const [projectId, setProjectId] = useState(initialProjectId ?? "");
   const [models, setModels] = useState<ModelOption[]>([]);
   const [model, setModel] = useState("");
+  const [accountId, setAccountId] = useState<string | null>(() => readSelectedAccountId());
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("off");
   const [prompt, setPrompt] = useState("");
   const [goalLoopEnabled, setGoalLoopEnabled] = useState(false);
@@ -137,6 +143,30 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
     void refresh();
   }, [refresh]);
 
+  // 選択アカウントの変更でモデル一覧を張り替える（選択 = モデル一覧の source of truth）。
+  // Phase 6 で /api/models がアカウント別ランタイムへ解決される。accountId 未指定時は
+  // URL が初期取得と一致するため getJson の統合で二重フェッチにならない。
+  useEffect(() => {
+    let cancelled = false;
+    getJson<{ models: ModelOption[] }>("/api/models", { accountId: accountId ?? undefined })
+      .then((res) => {
+        if (cancelled) return;
+        setModels(res.models);
+        setModel((current) => {
+          if (current && res.models.some((option) => option.value === current)) return current;
+          const stored = localStorage.getItem(MODEL_KEY) ?? "";
+          if (stored && res.models.some((option) => option.value === stored)) return stored;
+          return res.models[0]?.value ?? "";
+        });
+      })
+      .catch(() => {
+        /* 初期 refresh() の失敗表示に任せる */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId]);
+
   useEffect(() => {
     if (initialProjectId !== undefined) setProjectId(initialProjectId);
   }, [initialProjectId]);
@@ -190,6 +220,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
         thinkingLevel,
         images,
         ...(agent ? { agent } : {}),
+        ...(accountId ? { accountId } : {}),
         subagentPermission,
         permissionMode,
         skillPermission,
@@ -344,6 +375,15 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
               }}
               toolbar={
                 <>
+                  <AccountSelect
+                    value={accountId}
+                    disabled={submitting}
+                    onChange={(next) => {
+                      setAccountId(next);
+                      writeSelectedAccountId(next);
+                    }}
+                    className="min-w-0 max-w-[9rem] shrink sm:max-w-[10rem]"
+                  />
                   <ModelSelect
                     value={model}
                     disabled={submitting}
