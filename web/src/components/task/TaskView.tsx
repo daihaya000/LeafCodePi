@@ -60,7 +60,11 @@ import {
   readScrollButtonOpacity,
   subscribeScrollButtonOpacity,
 } from "@/lib/scroll-button-opacity";
-import { stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
+import {
+  messageRenderKey,
+  stabilizeUiMessages,
+  upsertUiMessage,
+} from "@/lib/stabilize-messages";
 import {
   loadTaskSessionCache,
   saveTaskSessionCache,
@@ -1592,7 +1596,7 @@ export function TaskView({
             )}
             {visibleMessages.map((message) => (
               <div
-                key={message.id}
+                key={messageRenderKey(message)}
                 ref={(el) => {
                   if (el) messageElsRef.current.set(message.id, el);
                   else messageElsRef.current.delete(message.id);

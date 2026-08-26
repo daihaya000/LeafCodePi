@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { stabilizeUiMessages, upsertUiMessage } from "./stabilize-messages";
+import {
+  messageRenderKey,
+  stabilizeUiMessages,
+  upsertUiMessage,
+} from "./stabilize-messages";
 import type { UiMessage } from "./types";
 
 function textMessage(id: string, text: string, extra?: Partial<UiMessage>): UiMessage {
@@ -28,6 +32,15 @@ function toolMessage(id: string, output: string): UiMessage {
     ],
   };
 }
+
+describe("messageRenderKey", () => {
+  it("keeps a streamed row mounted after its persisted id is assigned", () => {
+    const streamed = textMessage("msg-3", "実行します");
+    const persisted = { ...streamed, id: "entry-42" };
+
+    expect(messageRenderKey(persisted)).toBe(messageRenderKey(streamed));
+  });
+});
 
 describe("stabilizeUiMessages", () => {
   it("reuses references when content is unchanged", () => {

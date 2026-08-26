@@ -24,6 +24,15 @@ function messageFingerprint(message: UiMessage): string {
 }
 
 /**
+ * Keep a timeline row mounted while a streamed message receives its persisted
+ * entry id. Part ids are derived before that id is assigned and remain stable.
+ */
+export function messageRenderKey(message: UiMessage): string {
+  const firstPartId = message.parts[0]?.id;
+  return firstPartId ? `part:${firstPartId}` : `message:${message.id}`;
+}
+
+/**
  * Reuse previous message object references when content is unchanged so
  * memoized PartView rows skip re-render during SSE floods.
  */
