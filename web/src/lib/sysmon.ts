@@ -155,7 +155,7 @@ export function sampleFromOscpus(
 }
 
 /** AMD CPUMetricsServer v1.1 の共有メモリレイアウト番号。未知の番号は読まない。 */
-export const AMD_CPU_METRICS_LAYOUT_VERSION = 0x00000101;
+const AMD_CPU_METRICS_LAYOUT_VERSION = 0x00000101;
 
 /** PowerShell の CPU温度 JSON（複数センサー時は最も高い値）を解釈する。 */
 export function parseCpuTemperatureJson(text: string): number | null {

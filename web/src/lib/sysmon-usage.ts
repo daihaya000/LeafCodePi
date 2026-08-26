@@ -98,10 +98,10 @@ public static class LeafAmdCpuMetricsV11
   # AMDソフトウェアが無い、または未知のレイアウトなら従来の取得経路を使う。
 }
 
-function Add-Temperature([double] $value, [string] $provider = 'os') {
+function Add-Temperature([double] $value) {
   if ([double]::IsNaN($value) -or [double]::IsInfinity($value)) { return }
   if ($value -ge -50 -and $value -le 150) {
-    $script:temperatureRecords += [pscustomobject]@{ tempC = $value; provider = $provider }
+    $script:temperatureRecords += [pscustomobject]@{ tempC = $value }
   }
 }
 
