@@ -40,6 +40,7 @@ import {
   readProviderModelState,
   setProviderModelDisabled,
   setProviderModelOrder,
+  sortByPreferredOrder,
 } from "@/lib/provider-model-state";
 import { registerLlamaProviders, syncLlamaServerProvider } from "@/lib/pi/llama-provider";
 import { registerCursorProvider } from "@/lib/pi/cursor-provider";
@@ -502,17 +503,23 @@ type ParsedModelValue = {
 function parseModelValue(value: string | undefined): ParsedModelValue | null {
   if (!value) return null;
   const parts = value.split("::");
-  if (parts.length === 2 && parts[0] && parts[1]) {
-    return { providerID: parts[0], modelID: parts[1] };
-  }
+  // 先頭セグメントが登録済みアカウントIDのときだけアカウント付き値として扱う。
+  // モデルID側に "::" が含まれる共有値を誤って分割しないためのガード。
   if (parts.length >= 3 && parts[0] && parts[1] && parts.slice(2).join("::")) {
-    return {
-      accountId: parts[0],
-      providerID: parts[1],
-      modelID: parts.slice(2).join("::"),
-    };
+    if (getAccount(parts[0])) {
+      return {
+        accountId: parts[0],
+        providerID: parts[1],
+        modelID: parts.slice(2).join("::"),
+      };
+    }
   }
-  return null;
+  const separator = value.indexOf("::");
+  if (separator <= 0) return null;
+  const providerID = value.slice(0, separator);
+  const modelID = value.slice(separator + 2);
+  if (!providerID || !modelID) return null;
+  return { providerID, modelID };
 }
 
 function modelId(model: Model | undefined): { providerID?: string; modelID?: string } {
@@ -1628,13 +1635,17 @@ export async function listModels(): Promise<ModelOption[]> {
  * マルチアカウント前提のため、既定 auth.json 由来の候補を出さない。アカウントの
  * モデルは value にアカウントIDプレフィックスを持ち、accountId / accountLabel が付く。
  * アカウントのランタイム初期化に失敗したものはスキップする。
+ *
+ * 並び順は共有設定の providerOrder（未設定は既定カタログ順）に従う。アカウント別
+ * モデルも同じプロバイダ位置へ挟むため、末尾へ寄らない。
  */
 export async function listModelsForAccounts(
   accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
 ): Promise<ModelOption[]> {
-  const options: ModelOption[] = (await listModels().catch(() => [])).filter(
+  const sharedOptions: ModelOption[] = (await listModels().catch(() => [])).filter(
     (option) => !isAccountProviderId(option.providerID),
   );
+  const accountOptions: ModelOption[] = [];
   for (const account of accounts) {
     try {
       const runtime = await getRuntimeFor(account.id);
@@ -1643,7 +1654,7 @@ export async function listModelsForAccounts(
       for (const option of built) {
         // API キー等で構成された他プロバイダを、この OAuth アカウントの枠へ複製しない。
         if (!accountHasProvider(account, option.providerID)) continue;
-        options.push({
+        accountOptions.push({
           ...option,
           value: `${account.id}::${option.value}`,
           accountId: account.id,
@@ -1654,7 +1665,32 @@ export async function listModelsForAccounts(
       // そのアカウントのランタイム初期化失敗は無視して残りの一覧を返す
     }
   }
-  return options;
+
+  const providerRank = await resolveProviderDisplayRank();
+  const accountIndex = new Map(accounts.map((account, index) => [account.id, index]));
+  return [...sharedOptions, ...accountOptions].sort((a, b) => {
+    const providerDiff = providerRank(a.providerID) - providerRank(b.providerID);
+    if (providerDiff !== 0) return providerDiff;
+    // 同一プロバイダ内は共有を先頭に、アカウントは台帳順。
+    const aAccount = a.accountId ? accountIndex.get(a.accountId) ?? accounts.length : -1;
+    const bAccount = b.accountId ? accountIndex.get(b.accountId) ?? accounts.length : -1;
+    return aAccount - bAccount;
+  });
+}
+
+/** モデル一覧のプロバイダ表示順。providerOrder で未指定のプロバイダは既定カタログ順の末尾。 */
+async function resolveProviderDisplayRank(): Promise<(providerID: string) => number> {
+  const rank = new Map<string, number>();
+  const runtime = await getRuntimeFor();
+  if (runtime) {
+    const ordered = sortByPreferredOrder(
+      runtime.getProviders().map((provider) => provider.id),
+      readProviderModelState().providerOrder,
+      (id) => id,
+    );
+    ordered.forEach((id, index) => rank.set(id, index));
+  }
+  return (providerID: string) => rank.get(providerID) ?? Number.MAX_SAFE_INTEGER;
 }
 
 const DIRECT_MAX_TOKENS = 16_384;
@@ -2475,18 +2511,40 @@ export async function setTaskModel(id: string, modelValueRaw: string): Promise<T
   if (!task || !parsed) {
     throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
   }
-  if (parsed.accountId && parsed.accountId !== (task.accountId ?? null)) {
-    throw Object.assign(new Error("実行中タスクのアカウントは変更できません"), { status: 400 });
-  }
-  const live = await ensureLive(id);
-  const model = await resolveModel(modelValueRaw, task.accountId ?? null);
+  const targetAccountId = parsed.accountId ?? null;
+  const model = await resolveModel(modelValueRaw, targetAccountId);
   if (!model) throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+  const levels = thinkingLevelsForModel(model);
+
+  // アカウント切替はセッションの再作成が必要。実行中（ストリーミング中）は拒否し、
+  // それ以外は live セッションを破棄して次回 ensureLive で新しいランタイムから作る。
+  // 先に ensureLive を待って作成中セッションとの競合をなくす。
+  if (targetAccountId !== (task.accountId ?? null)) {
+    const live = await ensureLive(id);
+    if (live.session.isStreaming) {
+      throw Object.assign(new Error("実行中タスクのアカウントは変更できません"), { status: 409 });
+    }
+    disposeLive(id);
+    const current = isThinkingLevel(task.thinkingLevel) ? task.thinkingLevel : "off";
+    const thinkingLevel = levels.includes(current) ? current : defaultThinkingLevel(levels);
+    const updatedTask = patchTask(id, {
+      providerID: parsed.providerID,
+      modelID: parsed.modelID,
+      thinkingLevel,
+      accountId: targetAccountId ?? undefined,
+    });
+    if (!updatedTask) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+    const summary = toSummary(updatedTask);
+    emit(id, { type: "snapshot", task: summary });
+    return summary;
+  }
+
+  const live = await ensureLive(id);
   await live.session.setModel(model);
   const ids = modelId(live.session.model ?? model);
   const current = isThinkingLevel(live.session.thinkingLevel)
     ? live.session.thinkingLevel
     : getTask(id)?.thinkingLevel;
-  const levels = thinkingLevelsForModel(model);
   // 現レベルが新モデルでも有効なら維持、無ければ既定（medium 相当）へ。
   // clampThinkingLevel は上位レベルへ昇格するため使わない。
   const thinkingLevel = current && levels.includes(current) ? current : defaultThinkingLevel(levels);

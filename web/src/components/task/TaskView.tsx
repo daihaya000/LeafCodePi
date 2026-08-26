@@ -1139,25 +1139,20 @@ export function TaskView({
     }
   }, [permissionMode, resumingTurn, subagentPermission, taskId, working]);
 
-  const selectableModels = useMemo(
-    () =>
-      models.filter(
-        (option) => !option.accountId || option.accountId === task?.accountId,
-      ),
-    [models, task?.accountId],
-  );
+  // タスクのアカウントを切替えるモデルも選べる（setTaskModel が再作成を担う）ため
+  // 他アカウントのモデルも含めて全候補を出す。並び順は /api/models の providerOrder 準拠。
   const plainTaskModelValue =
     task?.providerID && task.modelID ? `${task.providerID}::${task.modelID}` : "";
   const accountTaskModel = task?.accountId
-    ? selectableModels.find(
+    ? models.find(
         (option) =>
           option.accountId === task.accountId &&
           option.providerID === task.providerID &&
           option.modelID === task.modelID,
       )
     : undefined;
-  const modelValue = accountTaskModel?.value ?? (plainTaskModelValue || selectableModels[0]?.value || "");
-  const selectedModel = selectableModels.find((option) => option.value === modelValue);
+  const modelValue = accountTaskModel?.value ?? (plainTaskModelValue || models[0]?.value || "");
+  const selectedModel = models.find((option) => option.value === modelValue);
   const thinkingLevels = useMemo(
     () => selectedModel?.thinkingLevels ?? (["off"] as ThinkingLevel[]),
     [selectedModel],
@@ -2028,7 +2023,7 @@ export function TaskView({
             <>
               <ModelSelect
                 value={modelValue}
-                options={selectableModels}
+                options={models}
                 disabled={working || compacting}
                 onChange={(value) => {
                   void (async () => {

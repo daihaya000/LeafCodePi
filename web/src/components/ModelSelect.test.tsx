@@ -43,16 +43,16 @@ describe("modelLimitReached", () => {
 });
 
 describe("ModelSelect grouping by account", () => {
-  it("splits providers into per-account groups with 既定 label", () => {
+  it("splits providers into per-account groups and keeps shared providers plain", () => {
     render(
       <ModelSelect
         value="acc-1::openai-codex::gpt-5"
         options={[
           option({
-            value: "openai-codex::gpt-5",
-            label: "GPT-5",
-            providerID: "openai-codex",
-            modelID: "gpt-5",
+            value: "llama-server::local",
+            label: "Local",
+            providerID: "llama-server",
+            modelID: "local",
           }),
           option({
             value: "acc-1::openai-codex::gpt-5",
@@ -68,7 +68,7 @@ describe("ModelSelect grouping by account", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "モデル" }));
-    expect(screen.getByText("openai-codex · 既定")).toBeTruthy();
+    expect(screen.getByText("llama-server")).toBeTruthy();
     expect(screen.getByText("openai-codex · 仕事用")).toBeTruthy();
   });
 

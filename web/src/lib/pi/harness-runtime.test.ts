@@ -56,6 +56,9 @@ describe("getRuntimeFor", () => {
   });
 
   it("hides default subscription models while keeping account models", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-models-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
     const accountRuntime = {
       registerProvider: () => {},
       getProvider: () => undefined,
@@ -74,7 +77,11 @@ describe("getRuntimeFor", () => {
       ],
     };
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      modelRuntime: null,
+      modelRuntime: {
+        // 既定ランタイムのプロバイダ順: openai-codex を先頭に置き、アカウント別
+        // モデルが他プロバイダと同じ位置へ挟まることを検証する。
+        getProviders: () => [{ id: "openai-codex" }, { id: "llama-server" }],
+      },
       modelCache: {
         at: Date.now(),
         value: [
@@ -96,8 +103,8 @@ describe("getRuntimeFor", () => {
     assert.deepEqual(
       models.map((model) => ({ providerID: model.providerID, accountId: model.accountId })),
       [
-        { providerID: "llama-server", accountId: undefined },
         { providerID: "openai-codex", accountId: "acc-1" },
+        { providerID: "llama-server", accountId: undefined },
       ],
     );
   });

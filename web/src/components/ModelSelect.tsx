@@ -31,13 +31,8 @@ export function modelLimitReached(option: ModelOption | undefined): boolean {
 }
 
 /** モデルドロップダウンのグループ見出し（プロバイダ × アカウント）。 */
-function groupHeader(option: ModelOption, hasAccounts: boolean): string {
-  const account = option.accountLabel
-    ? ` · ${option.accountLabel}`
-    : hasAccounts
-      ? " · 既定"
-      : "";
-  return `${option.providerID}${account}`;
+function groupHeader(option: ModelOption): string {
+  return option.accountLabel ? `${option.providerID} · ${option.accountLabel}` : option.providerID;
 }
 
 export function ModelSelect({
@@ -71,8 +66,7 @@ export function ModelSelect({
   const selected = options.find((option) => option.value === value);
   const selectedSupportsImage = modelSupportsImage(selected);
 
-  // アカウント指定があれば「プロバイダ × アカウント」で枠を分ける（既定グループは「・ 既定」）。
-  const hasAccounts = options.some((option) => option.accountId !== undefined);
+  // アカウント指定があれば「プロバイダ × アカウント」で枠を分ける。
   const grouped = useMemo(() => {
     const order: { key: string; header: string; options: ModelOption[] }[] = [];
     const index = new Map<string, number>();
@@ -82,12 +76,12 @@ export function ModelSelect({
       if (team === undefined) {
         team = order.length;
         index.set(key, team);
-        order.push({ key, header: groupHeader(option, hasAccounts), options: [] });
+        order.push({ key, header: groupHeader(option), options: [] });
       }
       order[team].options.push(option);
     }
     return order;
-  }, [options, hasAccounts]);
+  }, [options]);
 
   const chooseOption = useCallback(
     (option: ModelOption) => {
