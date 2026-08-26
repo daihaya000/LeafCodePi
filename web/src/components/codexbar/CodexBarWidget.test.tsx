@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CodexBarUsage } from "@/lib/codexbar";
 import { CodexBarWidget } from "./CodexBarWidget";
@@ -33,6 +33,28 @@ const usage: CodexBarUsage = {
       windows: [],
       credits: null,
     },
+  ],
+};
+
+const accountUsage: CodexBarUsage = {
+  ...usage,
+  accounts: [
+    {
+      id: "acc-a",
+      label: "仕事用",
+      providers: ["openai-codex"],
+      configuredProviders: ["openai-codex"],
+    },
+    {
+      id: "acc-b",
+      label: "個人用",
+      providers: ["openai-codex"],
+      configuredProviders: ["openai-codex"],
+    },
+  ],
+  providers: [
+    { ...usage.providers[0], accountId: "acc-a", accountLabel: "仕事用", usedPercent: 100 },
+    { ...usage.providers[0], accountId: "acc-b", accountLabel: "個人用", usedPercent: 20 },
   ],
 };
 
@@ -71,6 +93,24 @@ describe("CodexBarWidget", () => {
 
     expect(screen.getByRole("button", { name: "CodexBar 利用状況を開く" })).toBeTruthy();
     expect(screen.queryByText("CodexBar 利用状況")).toBeNull();
+  });
+
+  it("groups accounts under one provider and displays their average", async () => {
+    localStorage.setItem("webui:codexbar:collapsed", "0");
+    useCodexUsage.mockReturnValue({
+      usage: accountUsage,
+      loadError: null,
+      refreshing: false,
+      refresh: vi.fn().mockResolvedValue(undefined),
+      now: Date.now(),
+    });
+
+    render(<CodexBarWidget />);
+
+    await waitFor(() => expect(screen.getByText("平均 60%")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Codex を展開" }));
+    expect(screen.getByText("仕事用")).toBeTruthy();
+    expect(screen.getByText("個人用")).toBeTruthy();
   });
 
   it("keeps the saved expanded view compact with two columns and inline update status", async () => {

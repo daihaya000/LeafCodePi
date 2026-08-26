@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -26,16 +26,15 @@ import {
   formatResetsIn,
   hasLastGoodUsage,
   isStale,
-  limitedCount,
-  overallUsedPercent,
+  groupCodexBarProviders,
   percentTone,
   providerIconSrc,
   providerIconSrcForOpencodeId,
   providerLabel,
   usageTone,
-  worstProvider,
   type CodexBarCredits,
   type CodexBarProvider,
+  type CodexBarProviderGroup,
   type UsageTone,
 } from "@/lib/codexbar";
 
@@ -117,35 +116,6 @@ function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
   const [item] = next.splice(from, 1);
   next.splice(to, 0, item);
   return next;
-}
-
-function OverallRow({
-  percent,
-  subscriptionTotalMonthlyUsd,
-}: {
-  percent: number;
-  subscriptionTotalMonthlyUsd: number | null;
-}) {
-  const tone = percentTone(percent);
-  return (
-    <div className="mb-2.5 border-b border-border pb-2.5">
-      <div className="flex items-center gap-2 text-xs">
-        <span className="font-semibold text-text">全体</span>
-        {subscriptionTotalMonthlyUsd !== null && subscriptionTotalMonthlyUsd > 0 && (
-          <span
-            className="shrink-0 rounded border border-border bg-surface-3 px-1.5 py-0.5 text-[10px] font-medium text-muted"
-            title="サブスク合計（公開定価の概算）"
-          >
-            {formatMonthlyTotal(subscriptionTotalMonthlyUsd)}
-          </span>
-        )}
-        <span className={cx("ml-auto font-mono", textClass[tone])}>
-          {Math.round(percent)}%
-        </span>
-      </div>
-      <UsageBar tone={tone} percent={percent} />
-    </div>
-  );
 }
 
 function ProviderIcon({ p, tone }: { p: CodexBarProvider; tone: UsageTone }) {
@@ -383,19 +353,23 @@ function ProviderRow({
   collapsed,
   onToggle,
   compact,
+  labelOverride,
+  unconfigured = false,
 }: {
   p: CodexBarProvider;
   now: number;
   collapsed: boolean;
   onToggle: () => void;
   compact?: boolean;
+  labelOverride?: string;
+  unconfigured?: boolean;
 }) {
   const tone = usageTone(p);
   const resets = formatResetsIn(p.resetsAt, now);
   const hasWindows = p.windows.length > 0;
-  const showErrorOnly = !!p.error && !hasLastGoodUsage(p);
-  const canExpand = showErrorOnly || hasLastGoodUsage(p);
-  const label = providerLabel(p.id);
+  const showErrorOnly = !unconfigured && !!p.error && !hasLastGoodUsage(p);
+  const canExpand = !unconfigured && (showErrorOnly || hasLastGoodUsage(p));
+  const label = labelOverride ?? providerLabel(p.id);
   const planBadge = formatPlanBadge(p.plan, p.planMonthlyUsd);
 
   return (
@@ -420,12 +394,21 @@ function ProviderRow({
             {planBadge}
           </span>
         )}
-        {showErrorOnly ? (
+        {unconfigured ? (
+          <span className="ml-auto shrink-0 text-muted">未ログイン</span>
+        ) : showErrorOnly ? (
           <span className="ml-auto flex shrink-0 items-center gap-1 text-danger">
             <AlertTriangle className="h-3 w-3" /> エラー
           </span>
         ) : (
-          <span className={cx("ml-auto shrink-0 font-mono", textClass[tone])}>
+          <span
+            className={cx(
+              "ml-auto shrink-0 font-mono",
+              p.stale && tone === "ok" ? "text-warning" : textClass[tone],
+            )}
+            title={p.stale ? "直近の取得値（stale）" : undefined}
+          >
+            {p.stale && "古い "}
             {p.usedPercent === null ? "—" : `${Math.round(p.usedPercent)}%`}
           </span>
         )}
@@ -438,7 +421,7 @@ function ProviderRow({
       </button>
 
       {collapsed ? (
-        showErrorOnly ? null : (
+        showErrorOnly || unconfigured ? null : (
           <div className="pl-6">
             <UsageBar tone={tone} percent={p.usedPercent} />
           </div>
@@ -475,6 +458,96 @@ function ProviderRow({
   );
 }
 
+function ProviderGroupRow({
+  group,
+  now,
+  collapsed,
+  compact,
+  onToggle,
+  childCollapsed,
+  onToggleChild,
+}: {
+  group: CodexBarProviderGroup;
+  now: number;
+  collapsed: boolean;
+  compact: boolean;
+  onToggle: () => void;
+  childCollapsed: (key: string) => boolean;
+  onToggleChild: (key: string) => void;
+}) {
+  const p = group.provider;
+  const tone = usageTone(p);
+  const label = providerLabel(group.id);
+  const planBadge = group.accountRows.length === 0
+    ? formatPlanBadge(p.plan, p.planMonthlyUsd)
+    : null;
+  return (
+    <li className="flex min-w-0 flex-col gap-1 rounded-lg border border-border bg-surface-2/40 p-1.5">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        aria-label={`${label} を${collapsed ? "展開" : "最小化"}`}
+        className="-mx-1 flex w-full cursor-pointer items-center gap-2 rounded-md px-1 py-0 text-xs hover:bg-surface-3"
+      >
+        <ProviderIcon p={p} tone={tone} />
+        <span className="min-w-0 flex-1 truncate font-semibold text-text">{label}</span>
+        {!compact && planBadge && (
+          <span
+            className="max-w-28 shrink truncate rounded border border-border bg-surface-3 px-1 text-[10px] font-medium text-muted"
+            title={`プラン: ${planBadge}`}
+          >
+            {planBadge}
+          </span>
+        )}
+        {group.limitedCount > 0 && (
+          <span className="shrink-0 text-[10px] text-danger">
+            {group.limitedCount}/{group.accountRows.length} 上限
+          </span>
+        )}
+        <span
+          className={cx(
+            "ml-auto shrink-0 font-mono",
+            p.stale && tone === "ok" ? "text-warning" : textClass[tone],
+          )}
+          title={p.stale ? "直近の取得値（stale）" : undefined}
+        >
+          {p.stale && "古い "}
+          {p.usedPercent === null ? "—" : `平均 ${Math.round(p.usedPercent)}%`}
+        </span>
+        {collapsed ? (
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-faint" />
+        )}
+      </button>
+      {collapsed ? (
+        <div className="pl-6">
+          <UsageBar tone={tone} percent={p.usedPercent} />
+        </div>
+      ) : (
+        <ul className="flex flex-col gap-1.5 pl-6">
+          {group.accountRows.map((row) => {
+            const key = row.provider?.instanceId ?? row.id;
+            return (
+              <ProviderRow
+                key={row.id}
+                p={row.provider ?? p}
+                now={now}
+                collapsed={childCollapsed(key)}
+                onToggle={() => onToggleChild(key)}
+                compact={compact}
+                labelOverride={row.label}
+                unconfigured={!row.configured || row.provider === null}
+              />
+            );
+          })}
+        </ul>
+      )}
+    </li>
+  );
+}
+
 export function CodexBarWidget({
   initialCollapsed,
 }: {
@@ -501,9 +574,13 @@ export function CodexBarWidget({
     reorderProviderSettings,
     loadProviderSettings,
   } = useCodexProviders({ refresh });
+  const providerGroups = useMemo(
+    () => (usage ? groupCodexBarProviders(usage) : []),
+    [usage],
+  );
 
   useEffect(() => {
-    if (!usage || usage.providers.length === 0) return;
+    if (providerGroups.length === 0) return;
     setProviderCollapsed((prev) => {
       let saved: string | null = null;
       try {
@@ -514,11 +591,11 @@ export function CodexBarWidget({
       if (saved !== null) return prev;
 
       const next = { ...prev };
-      for (const provider of usage.providers) next[provider.id] = true;
+      for (const group of providerGroups) next[group.id] = true;
       saveProviderCollapsed(next);
       return next;
     });
-  }, [usage]);
+  }, [providerGroups]);
 
   useEffect(() => {
     setCollapsed(initialCollapsed ?? loadCollapsed());
@@ -584,10 +661,16 @@ export function CodexBarWidget({
     [draggingProviderId, moveProviderTo, providerSettings, savingProviderOrder],
   );
 
-  const worst = usage ? worstProvider(usage) : null;
-  const summaryTone: UsageTone = worst ? usageTone(worst) : "ok";
-  const overall = usage ? overallUsedPercent(usage) : null;
-  const limited = usage ? limitedCount(usage) : 0;
+  const summaryTone = providerGroups.reduce<UsageTone>((current, group) => {
+    const tone = usageTone(group.provider);
+    const rank: Record<UsageTone, number> = { ok: 0, warn: 1, danger: 2 };
+    return rank[tone] > rank[current] ? tone : current;
+  }, "ok");
+  const compactPercent = providerGroups
+    .filter((group) => group.provider.usedPercent !== null)
+    .map((group) => `${providerLabel(group.id)} ${Math.round(group.provider.usedPercent!)}%`)
+    .join(" · ");
+  const limited = providerGroups.reduce((sum, group) => sum + group.limitedCount, 0);
 
   if (collapsed) {
     return (
@@ -600,8 +683,8 @@ export function CodexBarWidget({
       >
         <Activity className={cx("h-3.5 w-3.5", textClass[summaryTone])} />
         <span className="font-medium text-text">CodexBar</span>
-        {overall !== null && (
-          <span className="font-mono text-muted">全体 {Math.round(overall)}%</span>
+        {compactPercent && (
+          <span className="min-w-0 truncate font-mono text-muted">{compactPercent}</span>
         )}
         {limited > 0 && (
           <span className="rounded-full bg-danger-bg px-1.5 font-mono text-danger">
@@ -619,6 +702,16 @@ export function CodexBarWidget({
         <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text">
           CodexBar 利用状況
         </span>
+        {usage?.subscriptionTotalMonthlyUsd !== null &&
+          usage?.subscriptionTotalMonthlyUsd !== undefined &&
+          usage.subscriptionTotalMonthlyUsd > 0 && (
+            <span
+              className="shrink-0 rounded border border-border bg-surface-3 px-1.5 py-0.5 text-[10px] font-medium text-muted"
+              title="表示中のサブスク合計（公開定価の概算）"
+            >
+              表示中の合計 {formatMonthlyTotal(usage.subscriptionTotalMonthlyUsd)}
+            </span>
+          )}
         {usage?.available && usage.generatedAt && (
           <span
             className={cx(
@@ -752,12 +845,6 @@ export function CodexBarWidget({
       )}
 
       <div className="min-h-0 px-3 py-2.5">
-        {usage?.available && overall !== null && (
-          <OverallRow
-            percent={overall}
-            subscriptionTotalMonthlyUsd={usage.subscriptionTotalMonthlyUsd}
-          />
-        )}
         {loadError && (
           <p role="alert" className="text-[11px] text-danger">
             読み込みエラー: {loadError}
@@ -767,25 +854,38 @@ export function CodexBarWidget({
         {!loadError && usage && !usage.available && (
           <p className="text-[11px] text-faint">{usage.reason ?? "利用できません"}</p>
         )}
-        {!loadError && usage && usage.available && usage.providers.length === 0 && (
+        {!loadError && usage && usage.available && providerGroups.length === 0 && (
           <p className="text-[11px] text-faint">プロバイダー情報がありません</p>
         )}
-        {!loadError && usage && usage.available && usage.providers.length > 0 && (
+        {!loadError && usage && usage.available && providerGroups.length > 0 && (
           <ul
             className={cx(
               twoColumn ? "grid grid-cols-2 items-start gap-2" : "space-y-2.5",
             )}
           >
-            {usage.providers.map((p) => (
-              <ProviderRow
-                key={p.id}
-                p={p}
-                now={now}
-                collapsed={!!providerCollapsed[p.id]}
-                onToggle={() => toggleProvider(p.id)}
-                compact={twoColumn}
-              />
-            ))}
+            {providerGroups.map((group) =>
+              group.accountRows.length > 0 ? (
+                <ProviderGroupRow
+                  key={group.id}
+                  group={group}
+                  now={now}
+                  collapsed={!!providerCollapsed[group.id]}
+                  compact={twoColumn}
+                  onToggle={() => toggleProvider(group.id)}
+                  childCollapsed={(key) => !!providerCollapsed[key]}
+                  onToggleChild={toggleProvider}
+                />
+              ) : (
+                <ProviderRow
+                  key={group.id}
+                  p={group.provider}
+                  now={now}
+                  collapsed={!!providerCollapsed[group.id]}
+                  onToggle={() => toggleProvider(group.id)}
+                  compact={twoColumn}
+                />
+              ),
+            )}
           </ul>
         )}
       </div>

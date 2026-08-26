@@ -3,9 +3,15 @@ import { attachCodexBarUsage } from "./map";
 import type { CodexBarProvider } from "@/lib/codexbar";
 import type { ModelOption } from "@/lib/types";
 
-function provider(id: string, usedPercent: number | null, maxed = false): CodexBarProvider {
+function provider(
+  id: string,
+  usedPercent: number | null,
+  maxed = false,
+  accountId?: string,
+): CodexBarProvider {
   return {
     id,
+    accountId,
     opencodeId: null,
     plan: null,
     planMonthlyUsd: null,
@@ -20,8 +26,14 @@ function provider(id: string, usedPercent: number | null, maxed = false): CodexB
   };
 }
 
-function model(providerID: string): ModelOption {
-  return { value: `${providerID}::m`, label: "m", providerID, modelID: "m" };
+function model(providerID: string, accountId?: string): ModelOption {
+  return {
+    value: `${accountId ? `${accountId}::` : ""}${providerID}::m`,
+    label: "m",
+    providerID,
+    modelID: "m",
+    ...(accountId ? { accountId } : {}),
+  };
 }
 
 describe("attachCodexBarUsage", () => {
@@ -38,6 +50,19 @@ describe("attachCodexBarUsage", () => {
     expect(codexOptions[0].codexbarMaxed).toBe(true);
     expect(codexOptions[1].codexbarUsedPercent).toBeUndefined();
     expect(codexOptions[0].value).toBe("openai-codex::m");
+  });
+
+  it("does not mix usage between accounts of the same provider", () => {
+    const providers = [
+      provider("openai-codex", 10),
+      provider("openai-codex", 80, false, "acc-a"),
+      provider("openai-codex", 20, false, "acc-b"),
+    ];
+    const options = attachCodexBarUsage(
+      [model("openai-codex", "acc-a"), model("openai-codex", "acc-b")],
+      providers,
+    );
+    expect(options.map((option) => option.codexbarUsedPercent)).toEqual([80, 20]);
   });
 
   it("returns options unchanged when usage is empty or unknown", () => {

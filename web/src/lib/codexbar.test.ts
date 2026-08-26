@@ -6,6 +6,7 @@ import {
   formatMonthlyUsd,
   formatPlanBadge,
   formatResetsIn,
+  groupCodexBarProviders,
   hasLastGoodUsage,
   isStale,
   limitedCount,
@@ -270,6 +271,59 @@ describe("parseCodexBarSnapshot credits", () => {
 
     expect(u.providers[1].usedPercent).toBeNull();
     expect(overallUsedPercent(u)).toBe(50);
+  });
+});
+
+describe("groupCodexBarProviders", () => {
+  it("averages account usage per provider instead of taking the maximum", () => {
+    const usage = parseCodexBarSnapshot({
+      scope: { kind: "all", accountId: null },
+      accounts: [
+        {
+          id: "acc-a",
+          label: "仕事用",
+          providers: ["openai-codex"],
+          configuredProviders: ["openai-codex"],
+        },
+        {
+          id: "acc-b",
+          label: "個人用",
+          providers: ["openai-codex"],
+          configuredProviders: ["openai-codex"],
+        },
+      ],
+      providers: [
+        { codexBarProviderId: "openai-codex", accountId: "acc-a", usedPercent: 100 },
+        { codexBarProviderId: "openai-codex", accountId: "acc-b", usedPercent: 20 },
+      ],
+    });
+
+    const [group] = groupCodexBarProviders(usage);
+    expect(group.provider.usedPercent).toBe(60);
+    expect(group.accountRows.map((row) => row.label)).toEqual(["仕事用", "個人用"]);
+    expect(group.accountRows.every((row) => row.configured)).toBe(true);
+  });
+
+  it("keeps an unconfigured account as a child without inventing usage", () => {
+    const usage = parseCodexBarSnapshot({
+      accounts: [
+        {
+          id: "acc-a",
+          label: "仕事用",
+          providers: ["anthropic"],
+          configuredProviders: [],
+        },
+      ],
+      providers: [],
+    });
+
+    const [group] = groupCodexBarProviders(usage);
+    expect(group.provider.usedPercent).toBeNull();
+    expect(group.accountRows[0]).toMatchObject({
+      label: "仕事用",
+      configured: false,
+      provider: null,
+    });
   });
 });
 
