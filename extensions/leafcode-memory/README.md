@@ -43,8 +43,8 @@ pi install ./extensions/leafcode-memory
 
 If you’re upgrading from older versions, startup now auto-migrates extension data safely:
 
-- legacy extension root: `~/.pi/agent/memory` → `~/.pi/agent/pi-hermes-memory`
-- legacy flat skills: `~/.pi/agent/pi-hermes-memory/skills/*.md` → `~/.pi/agent/pi-hermes-memory/skills/<slug>/SKILL.md`
+- legacy extension root: `~/.pi/agent/memory` or `~/.pi/agent/pi-hermes-memory` → `~/.pi/agent/leafcode-memory`
+- legacy flat skills: `~/.pi/agent/leafcode-memory/skills/*.md` → `~/.pi/agent/leafcode-memory/skills/<slug>/SKILL.md`
 
 This resolves Pi skill index conflicts like:
 
@@ -99,8 +99,7 @@ Every write — memory and skills — passes through a scanner before being acce
 `npm run check` and `npm test` only work from a **full git checkout** after `npm install`. The published npm package intentionally omits `tests/`, TypeScript, and `tsconfig.json` (production install for Pi). Validate from source or rely on CI before publish.
 
 ```bash
-git clone https://github.com/chandra447/pi-hermes-memory.git
-cd pi-hermes-memory
+cd /path/to/LeafCodePi/extensions/leafcode-memory
 npm install
 npm run check
 npm test
@@ -108,20 +107,10 @@ npm test
 
 ## Installation
 
-```bash
-pi install npm:pi-hermes-memory
-```
-
-Or install from GitHub:
+The LeafCode settings use this local extension directly. To test it without changing settings:
 
 ```bash
-pi install git:github.com/chandra447/pi-hermes-memory
-```
-
-Or test locally without installing:
-
-```bash
-pi -e /path/to/pi-hermes-memory/src/index.ts
+pi -e /path/to/LeafCodePi/extensions/leafcode-memory/src/index.ts
 ```
 
 ### Homebrew / Node ABI mismatches
@@ -147,7 +136,7 @@ The extension stores memory at two levels:
 
 | Tier | Location | What goes here | Available when |
 |---|---|---|---|
-| **Global** | `~/.pi/agent/pi-hermes-memory/` | Facts that apply everywhere — your name, preferences, OS, tools | Searchable via `memory_search` |
+| **Global** | `~/.pi/agent/leafcode-memory/` | Facts that apply everywhere — your name, preferences, OS, tools | Searchable via `memory_search` |
 | **Project** | `~/.pi/agent/projects-memory/<project>/` | Facts scoped to one codebase — architecture decisions, API quirks, team norms | Searchable when cwd matches the project |
 
 By default, full Markdown memories are **not** injected into the system prompt. The system prompt gets a full-detail `<memory-policy>` that tells the agent when to call `memory_search` and how to treat memory results. This keeps first-turn token usage low while preserving access to user, project, failure, correction, insight, preference, convention, and tool-quirk memories.
@@ -182,7 +171,7 @@ They land in a `<standing-instructions>` block placed after the memory policy, s
 
 | Property | Behavior |
 |---|---|
-| **Provenance** | Stored in `~/.pi/agent/pi-hermes-memory/STANDING.md`. Background review, consolidation, and the correction detector never write there — only your editor or `/memory-pin` can. The agent cannot promote its own memory into this block. |
+| **Provenance** | Stored in `~/.pi/agent/leafcode-memory/STANDING.md`. Background review, consolidation, and the correction detector never write there — only your editor or `/memory-pin` can. The agent cannot promote its own memory into this block. |
 | **Budget** | Hard cap of 20 entries / 2,000 characters, separate from `memoryCharLimit` and `userCharLimit`. `/memory-pin` refuses a write past the cap; a hand-edited file over the cap is truncated at injection and the omission is stated loudly inside the block. |
 | **Safety** | Every pin goes through the same `scanContent()` injection/exfiltration scan as any memory write, and the block is fenced. |
 | **Disabling** | Set `"standingInstructionsEnabled": false` to drop the store and the command entirely. |
@@ -257,7 +246,7 @@ The agent also gets a `skill_manage` tool for saving reusable procedures. The ex
 
 Skills are stored in Pi-native locations:
 
-- Global skills: `~/.pi/agent/pi-hermes-memory/skills/<slug>/SKILL.md`
+- Global skills: `~/.pi/agent/leafcode-memory/skills/<slug>/SKILL.md`
 - Project skills: `~/.pi/agent/projects-memory/<project>/skills/<slug>/SKILL.md`
 
 New skills must choose scope explicitly:
@@ -324,7 +313,7 @@ This lets Pi discover project skills as native skills without copying them into 
 |---|---|---|---|
 | **memory** | `MEMORY.md` | Agent's notes — env facts, project conventions, tool quirks, lessons learned | 5,000 chars |
 | **user** | `USER.md` | User profile — name, preferences, communication style, habits | 5,000 chars |
-| **skills** | `~/.pi/agent/pi-hermes-memory/skills/<slug>/SKILL.md` or `projects-memory/<project>/skills/<slug>/SKILL.md` | Procedures — *how* to debug, deploy, test, or fix something | Unlimited |
+| **skills** | `~/.pi/agent/leafcode-memory/skills/<slug>/SKILL.md` or `projects-memory/<project>/skills/<slug>/SKILL.md` | Procedures — *how* to debug, deploy, test, or fix something | Unlimited |
 | **extended** | `sessions.db` | Searchable memories beyond the core limit | Unlimited |
 | **sessions** | `sessions.db` | Past conversation history (searchable via FTS5) | Unlimited |
 
@@ -485,7 +474,7 @@ Move behavior:
 
 ## Configuration
 
-Create `~/.pi/agent/hermes-memory-config.json`:
+Create `~/.pi/agent/leafcode-memory-config.json`:
 
 ```json
 {
@@ -494,7 +483,7 @@ Create `~/.pi/agent/hermes-memory-config.json`:
   "memoryCharLimit": 5000,
   "userCharLimit": 5000,
   "projectCharLimit": 5000,
-  "memoryDir": "~/.pi/agent/pi-hermes-memory",
+  "memoryDir": "~/.pi/agent/leafcode-memory",
   "projectsMemoryDir": "projects-memory",
   "sessionSearch": { "variant": "legacy" },
   "llmModelOverride": "openrouter/deepseek/deepseek-v4-flash",
@@ -530,7 +519,7 @@ Create `~/.pi/agent/hermes-memory-config.json`:
 | `memoryCharLimit` | `5000` | Max characters in MEMORY.md |
 | `userCharLimit` | `5000` | Max characters in USER.md |
 | `projectCharLimit` | `5000` | Max characters in project-scoped MEMORY.md |
-| `memoryDir` | `~/.pi/agent/pi-hermes-memory` | Custom directory for extension storage files |
+| `memoryDir` | `~/.pi/agent/leafcode-memory` | Custom directory for extension storage files |
 | `projectsMemoryDir` | `projects-memory` | Subdirectory under `~/.pi/agent/` for project-scoped memory |
 | `sessionSearch` | `{ "variant": "legacy" }` | Session search implementation: `legacy` keeps the existing SQLite/FTS snippet search; `anchors` uses the opt-in Markdown request surface and returns compact JSONL line-range anchors from `~/.pi/agent/sessions/` |
 | `llmModelOverride` | unset | Optional model override for background review (direct and subprocess), correction save, session flush, and consolidation |
@@ -563,7 +552,7 @@ Create `~/.pi/agent/hermes-memory-config.json`:
 
 ```
 ~/.pi/agent/
-├── pi-hermes-memory/      ← Global extension storage root
+├── leafcode-memory/       ← Global extension storage root
 │   ├── MEMORY.md          ← Agent's personal notes (env facts, patterns, lessons)
 │   ├── USER.md            ← User profile (name, preferences, habits)
 │   ├── sessions.db        ← SQLite database (session history + extended memory)
@@ -581,7 +570,7 @@ Create `~/.pi/agent/hermes-memory-config.json`:
 │   │           └── SKILL.md
 │   └── another-project/
 │       └── MEMORY.md
-├── hermes-memory-config.json
+├── leafcode-memory-config.json
 └── ...
 ```
 
@@ -602,7 +591,7 @@ The `sessions.db` SQLite database stores session history and extended memory ent
 - **System prompts are invisible**: Pi's TUI does not display the system prompt. Use `/memory-preview-context` to inspect whether policy-only or legacy memory injection is active.
 - **Project skill visibility depends on Pi discovery cycles**: project skills are exposed through `resources_discover` using the active project's `skills/` path. If a moved or newly created project skill doesn't show up immediately in a running session, trigger a reload/new session so Pi refreshes discovered resources.
 - **Project move requires active project context**: in `/memory-skills`, the `p` hotkey is disabled when Pi is not currently in a detected project directory.
-- **Skills still need curation**: Skills are saved by the agent through the `skill_manage` tool when it decides a reusable procedure is worth keeping. They may still need review. You can move, delete, or edit them directly in `~/.pi/agent/pi-hermes-memory/skills/` or the active project's `skills/` folder.
+- **Skills still need curation**: Skills are saved by the agent through the `skill_manage` tool when it decides a reusable procedure is worth keeping. They may still need review. You can move, delete, or edit them directly in `~/.pi/agent/leafcode-memory/skills/` or the active project's `skills/` folder.
 
 ## Architecture
 

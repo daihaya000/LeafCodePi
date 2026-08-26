@@ -1,5 +1,5 @@
 /**
- * SQLite schema for pi-hermes-memory v0.4
+ * SQLite schema for leafcode-memory v0.4-compatible storage
  *
  * Tables:
  * - sessions — Pi session metadata

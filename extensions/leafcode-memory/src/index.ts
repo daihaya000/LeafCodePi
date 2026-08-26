@@ -1,5 +1,5 @@
 /**
- * Pi Hermes Memory Extension
+ * LeafCode Memory Extension
  *
  * Brings Hermes-style persistent memory and a learning loop to any Pi user.
  * After `pi install`, users get:
@@ -50,7 +50,11 @@ import { migrateThenSyncMarkdownMemories, registerSyncMarkdownMemoriesCommand } 
 import { registerPreviewContextCommand } from "./handlers/preview-context.js";
 import { registerStandingPinCommand } from "./handlers/standing-pin.js";
 import { StandingInstructions } from "./store/standing-instructions.js";
-import { STANDING_FILE } from "./constants.js";
+import {
+  DEFAULT_GLOBAL_MEMORY_DIR,
+  LEGACY_GLOBAL_MEMORY_DIR,
+  STANDING_FILE,
+} from "./constants.js";
 import { loadConfig } from "./config.js";
 import { shouldWarnAutoConsolidationFailure } from "./auto-consolidation-warning.js";
 import { detectProject, detectProjectSkills } from "./project.js";
@@ -90,19 +94,24 @@ export default function (pi: ExtensionAPI) {
   const config = loadConfig();
 
   const agentRoot = AGENT_ROOT;
-  const legacyGlobalDir = path.join(agentRoot, "memory");
-  const defaultGlobalDir = path.join(agentRoot, "pi-hermes-memory");
+  const legacyGlobalDirs = [
+    path.join(agentRoot, LEGACY_GLOBAL_MEMORY_DIR),
+    path.join(agentRoot, "memory"),
+  ];
+  const defaultGlobalDir = path.join(agentRoot, DEFAULT_GLOBAL_MEMORY_DIR);
 
   const configuredMemoryDir = config.memoryDir?.trim();
   const pointsToLegacyMemoryDir = configuredMemoryDir
-    ? path.resolve(configuredMemoryDir) === path.resolve(legacyGlobalDir)
+    ? legacyGlobalDirs.some((legacyDir) => path.resolve(configuredMemoryDir) === path.resolve(legacyDir))
     : false;
 
   const globalDir = !configuredMemoryDir || pointsToLegacyMemoryDir
     ? defaultGlobalDir
     : configuredMemoryDir;
+  const legacyDirsToMigrate = (!configuredMemoryDir || pointsToLegacyMemoryDir)
+    ? legacyGlobalDirs.filter((legacyDir) => path.resolve(legacyDir) !== path.resolve(globalDir) && fs.existsSync(legacyDir))
+    : [];
 
-  const shouldMigrateExtensionRoot = !configuredMemoryDir || pointsToLegacyMemoryDir;
   let persistenceInitialized = false;
 
   const store = new MemoryStore({ ...config, memoryDir: globalDir });
@@ -113,12 +122,13 @@ export default function (pi: ExtensionAPI) {
     piGlobalSkillsDir: path.join(agentRoot, "skills"),
     projectSkillsDir: project.memoryDir ? path.join(project.memoryDir, "skills") : null,
     projectName: project.name,
-    legacySkillsDir: path.join(legacyGlobalDir, "skills"),
+    legacySkillsDir: path.join(agentRoot, "memory", "skills"),
     migrationSentinelPath: path.join(globalDir, ".skills-migrated-to-extension-storage"),
   });
   const dbManager = new DatabaseManager(globalDir);
-  let databaseMigrationPending = shouldMigrateExtensionRoot
-    && isDatabaseMigrationPending(legacyGlobalDir, globalDir);
+  let databaseMigrationPending = legacyDirsToMigrate.some((legacyDir) => (
+    isDatabaseMigrationPending(legacyDir, globalDir)
+  ));
   if (databaseMigrationPending) {
     dbManager.setOpenGuard(() => {
       if (databaseMigrationPending) {
@@ -167,19 +177,32 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     if (!persistenceInitialized) {
       try {
-        await migrateThenSyncMarkdownMemories(
-          dbManager,
-          shouldMigrateExtensionRoot ? legacyGlobalDir : null,
-          globalDir,
-          config.projectsMemoryDir,
-          agentRoot,
-          {
-            onMigrationSucceeded: () => {
-              databaseMigrationPending = false;
-              dbManager.setOpenGuard(null);
+        for (const legacyDir of legacyDirsToMigrate) {
+          await migrateThenSyncMarkdownMemories(
+            dbManager,
+            legacyDir,
+            globalDir,
+            config.projectsMemoryDir,
+            agentRoot,
+            {
+              onMigrationSucceeded: () => {
+                databaseMigrationPending = false;
+                dbManager.setOpenGuard(null);
+              },
             },
-          },
-        );
+          );
+        }
+        databaseMigrationPending = false;
+        dbManager.setOpenGuard(null);
+        if (legacyDirsToMigrate.length === 0) {
+          await migrateThenSyncMarkdownMemories(
+            dbManager,
+            null,
+            globalDir,
+            config.projectsMemoryDir,
+            agentRoot,
+          );
+        }
         persistenceInitialized = true;
       } catch {
         // Best-effort only: migration or SQLite backfill must not block startup.

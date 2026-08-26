@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { ENTRY_DELIMITER, MEMORY_FILE } from "./constants.js";
+import {
+  DEFAULT_GLOBAL_MEMORY_DIR,
+  ENTRY_DELIMITER,
+  LEGACY_GLOBAL_MEMORY_DIR,
+  MEMORY_FILE,
+} from "./constants.js";
 
 export interface ProjectMemoryMigrationResult {
   scanned: number;
@@ -23,7 +28,13 @@ function writeEntries(filePath: string, entries: string[]): void {
 }
 
 function isLegacyProjectDir(agentRoot: string, projectsMemoryDir: string, name: string): boolean {
-  if (name === "memory" || name === "pi-hermes-memory" || name === "skills" || name === projectsMemoryDir) return false;
+  if (
+    name === "memory"
+    || name === LEGACY_GLOBAL_MEMORY_DIR
+    || name === DEFAULT_GLOBAL_MEMORY_DIR
+    || name === "skills"
+    || name === projectsMemoryDir
+  ) return false;
   if (name.startsWith(".")) return false;
 
   const dir = path.join(agentRoot, name);

@@ -6,7 +6,7 @@ import * as os from "node:os";
 import { loadConfig } from "../src/config.js";
 import { AGENT_ROOT } from "../src/paths.js";
 
-const TEST_CONFIG_PATH = path.join(os.tmpdir(), `hermes-memory-config-test-${process.pid}.json`);
+const TEST_CONFIG_PATH = path.join(os.tmpdir(), `leafcode-memory-config-test-${process.pid}.json`);
 
 afterEach(() => {
   fs.rmSync(TEST_CONFIG_PATH, { force: true });
@@ -142,11 +142,11 @@ describe("loadConfig", () => {
   it("expands ~/ memoryDir into an absolute home path", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
     fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      memoryDir: "~/.pi/agent/pi-hermes-memory",
+      memoryDir: "~/.pi/agent/leafcode-memory",
     }));
 
     const config = loadConfig(TEST_CONFIG_PATH);
-    assert.strictEqual(config.memoryDir, path.join(os.homedir(), ".pi", "agent", "pi-hermes-memory"));
+    assert.strictEqual(config.memoryDir, path.join(os.homedir(), ".pi", "agent", "leafcode-memory"));
   });
 
   it("resolves relative memoryDir values against the agent root instead of cwd", () => {

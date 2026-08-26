@@ -20,7 +20,7 @@ describe("session project memory rebinding", () => {
     const previousCwd = process.cwd();
     try {
       await fs.writeFile(
-        path.join(agentRoot, "hermes-memory-config.json"),
+        path.join(agentRoot, "leafcode-memory-config.json"),
         JSON.stringify({
           memoryMode: "legacy-inject",
           reviewEnabled: false,

@@ -171,8 +171,8 @@ Before any write, content is scanned for:
 ## File Structure
 
 ```
-pi-hermes-memory/
-├── package.json              # For pi install
+leafcode-memory/
+├── package.json              # For local Pi loading
 ├── src/
 │   ├── index.ts              # Extension entry point — wires everything together
 │   ├── types.ts              # Shared TypeScript interfaces + getMessageText helper
@@ -917,7 +917,7 @@ export default function (pi: ExtensionAPI) {
 
 ```json
 {
-  "name": "pi-hermes-memory",
+  "name": "leafcode-memory",
   "version": "1.0.0",
   "description": "Hermes-style persistent memory and learning loop for Pi coding agent",
   "main": "src/index.ts",

@@ -11,6 +11,7 @@ import {
 } from "../../src/store/sqlite-native.js";
 
 const require = createRequire(import.meta.url);
+const FAKE_PACKAGE_ROOT = path.normalize("/tmp/fake-npm/node_modules/better-sqlite3");
 
 type RequireCache = Record<string, unknown>;
 
@@ -85,7 +86,7 @@ describe("sqlite-native loader", () => {
       requireImpl: req,
       rebuild: (packageRoot) => {
         rebuilt = true;
-        assert.equal(packageRoot, "/tmp/fake-npm/node_modules/better-sqlite3");
+        assert.equal(packageRoot, FAKE_PACKAGE_ROOT);
         return { ok: true, detail: "rebuilt" };
       },
     });
@@ -114,11 +115,11 @@ describe("sqlite-native loader", () => {
       (error: unknown) => {
         assert.ok(error instanceof BetterSqlite3LoadError);
         const message = error.message;
-        assert.match(message, /pi-hermes-memory could not load the native better-sqlite3 module/);
+        assert.match(message, /leafcode-memory could not load the native better-sqlite3 module/);
         assert.match(message, /npm rebuild better-sqlite3/);
         assert.match(message, /Homebrew/);
         assert.match(message, /npm missing/);
-        assert.equal(error.packageRoot, "/tmp/fake-npm/node_modules/better-sqlite3");
+        assert.equal(error.packageRoot, FAKE_PACKAGE_ROOT);
         return true;
       },
     );

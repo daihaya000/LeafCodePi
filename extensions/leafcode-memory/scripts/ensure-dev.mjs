@@ -15,14 +15,11 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const mode = process.argv[2];
-const REPO = "https://github.com/chandra447/pi-hermes-memory";
-
 function fail(message) {
-  console.error(`\n[pi-hermes-memory] ${message}`);
+  console.error(`\n[leafcode-memory] ${message}`);
   console.error("");
   console.error("These scripts only work from a full source checkout:");
-  console.error(`  git clone ${REPO}.git`);
-  console.error("  cd pi-hermes-memory && npm install");
+  console.error("  cd extensions/leafcode-memory && npm install");
   console.error("  npm run check   # or: npm test");
   console.error("");
   console.error(

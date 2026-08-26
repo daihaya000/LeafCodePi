@@ -70,13 +70,22 @@ const DEFAULT_CONFIG: MemoryConfig = {
 
 export const DEFAULT_CONFIG_PATH = path.join(
   AGENT_ROOT,
+  "leafcode-memory-config.json",
+);
+export const LEGACY_CONFIG_PATH = path.join(
+  AGENT_ROOT,
   "hermes-memory-config.json",
 );
 
 export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
+  const effectiveConfigPath = configPath === DEFAULT_CONFIG_PATH
+    && !fs.existsSync(configPath)
+    && fs.existsSync(LEGACY_CONFIG_PATH)
+    ? LEGACY_CONFIG_PATH
+    : configPath;
   try {
-    if (fs.existsSync(configPath)) {
-      const raw = fs.readFileSync(configPath, "utf-8");
+    if (fs.existsSync(effectiveConfigPath)) {
+      const raw = fs.readFileSync(effectiveConfigPath, "utf-8");
       const parsed = JSON.parse(raw);
       // Merge: override defaults with user config
       const config: MemoryConfig = { ...DEFAULT_CONFIG };

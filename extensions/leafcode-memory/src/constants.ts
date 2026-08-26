@@ -8,6 +8,8 @@
 export const ENTRY_DELIMITER = "\n§\n";
 
 // ─── Directory names ───
+export const DEFAULT_GLOBAL_MEMORY_DIR = "leafcode-memory";
+export const LEGACY_GLOBAL_MEMORY_DIR = "pi-hermes-memory";
 export const DEFAULT_PROJECTS_MEMORY_DIR = "projects-memory";
 
 // ─── Character limits (not tokens — model-independent) ───
@@ -359,7 +361,7 @@ WHEN TO CREATE A SKILL:
 - When the user teaches you a specific workflow or procedure
 
 SCOPE:
-- 'global': transferable procedures that can be reused across repositories. Written to ~/.pi/agent/pi-hermes-memory/skills/<slug>/SKILL.md, this extension's own directory, kept separate from skills the user installed themselves. Pi also loads its own ~/.pi/agent/skills/ first, so a name already used there is rejected rather than silently shadowed.
+- 'global': transferable procedures that can be reused across repositories. Written to ~/.pi/agent/leafcode-memory/skills/<slug>/SKILL.md, this extension's own directory, kept separate from skills the user installed themselves. Pi also loads its own ~/.pi/agent/skills/ first, so a name already used there is rejected rather than silently shadowed.
 - 'project': procedures tied to this repo's paths, scripts, architecture, deploy flow, or conventions. Written to ~/.pi/agent/projects-memory/<project>/skills/<slug>/SKILL.md.
 
 WHEN TO UPDATE A SKILL:

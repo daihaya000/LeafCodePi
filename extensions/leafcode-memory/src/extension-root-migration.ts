@@ -594,8 +594,9 @@ async function migrateDatabaseGeneration(
 }
 
 /**
- * Move legacy extension assets from ~/.pi/agent/memory into
- * ~/.pi/agent/pi-hermes-memory. Existing destination files win.
+ * Move legacy extension assets into ~/.pi/agent/leafcode-memory.
+ * Existing destination files win; the old roots include both `memory` and
+ * the pre-fork `pi-hermes-memory` directory.
  */
 export async function migrateExtensionRoot(
   legacyRoot: string,

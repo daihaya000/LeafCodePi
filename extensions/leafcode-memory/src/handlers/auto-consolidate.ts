@@ -24,6 +24,7 @@ import { DatabaseManager } from "../store/db.js";
 import {
   CONSOLIDATION_PROMPT,
   DEFAULT_CONSOLIDATION_TIMEOUT_MS,
+  DEFAULT_GLOBAL_MEMORY_DIR,
   DIRECT_CONSOLIDATION_SYSTEM_PROMPT,
   ENTRY_DELIMITER,
 } from "../constants.js";
@@ -65,7 +66,7 @@ interface ConsolidationLockAttempt {
 
 function consolidationLockRoot(): string {
   return process.env[CONSOLIDATION_LOCK_ENV]?.trim()
-    || path.join(AGENT_ROOT, "pi-hermes-memory", ".consolidation-locks");
+    || path.join(AGENT_ROOT, DEFAULT_GLOBAL_MEMORY_DIR, ".consolidation-locks");
 }
 
 function sanitizeLockPart(value: string): string {

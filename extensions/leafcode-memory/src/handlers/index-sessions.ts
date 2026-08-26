@@ -8,6 +8,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { DatabaseManager } from '../store/db.js';
 import { indexAllSessions, getSessionStats } from '../store/session-indexer.js';
 import { AGENT_ROOT } from '../paths.js';
+import { DEFAULT_GLOBAL_MEMORY_DIR } from '../constants.js';
 
 const SESSIONS_DIR = process.env.PI_CODING_AGENT_SESSION_DIR || path.join(AGENT_ROOT, 'sessions');
 
@@ -34,7 +35,7 @@ export function registerIndexSessionsCommand(pi: ExtensionAPI): void {
 
         ctx.ui.notify(`📁 Found ${totalFiles} session files across ${projectDirs.length} projects\n⏳ Indexing...`, 'info');
 
-        const memoryDir = path.join(AGENT_ROOT, 'pi-hermes-memory');
+        const memoryDir = path.join(AGENT_ROOT, DEFAULT_GLOBAL_MEMORY_DIR);
         const dbManager = new DatabaseManager(memoryDir);
 
         try {

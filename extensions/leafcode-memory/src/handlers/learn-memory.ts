@@ -6,10 +6,10 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 
 export function registerLearnMemoryCommand(pi: ExtensionAPI): void {
   pi.registerCommand("learn-memory-tool", {
-    description: "Learn how to use the pi-hermes-memory extension effectively",
+    description: "Learn how to use the leafcode-memory extension effectively",
     handler: async (_args, ctx: ExtensionCommandContext) => {
       // Show main menu first
-      const section = await ctx.ui.select("Pi Hermes Memory Guide", [
+      const section = await ctx.ui.select("LeafCode Memory Guide", [
         "📦 What Gets Saved",
         "🔧 Tools Available",
         "📋 Commands",

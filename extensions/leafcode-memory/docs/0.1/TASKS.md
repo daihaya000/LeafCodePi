@@ -121,8 +121,8 @@ _Done when: `/memory-insights` shows formatted output and the extension is polis
 
 ## Epic 8: Configuration & Settings
 
-_Done when: users can customize behavior via `~/.pi/agent/hermes-memory-config.json`._
-- [x] Read config from `~/.pi/agent/hermes-memory-config.json` — `src/config.ts`
+_Done when: users can customize behavior via `~/.pi/agent/leafcode-memory-config.json`._
+- [x] Read config from `~/.pi/agent/leafcode-memory-config.json` — `src/config.ts`
 - [x] All `MemoryConfig` fields are configurable with type validation
 - [x] Missing keys fall back to defaults
 - [x] Documented in README.md

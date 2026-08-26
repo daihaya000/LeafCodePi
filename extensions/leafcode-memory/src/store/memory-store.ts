@@ -18,6 +18,7 @@ import { scanContent } from "./content-scanner.js";
 import { normalizeMemoryLookupText } from "./memory-lookup.js";
 import {
   ENTRY_DELIMITER,
+  DEFAULT_GLOBAL_MEMORY_DIR,
   DEFAULT_MEMORY_CHAR_LIMIT,
   DEFAULT_USER_CHAR_LIMIT,
   DEFAULT_OVERFLOW_GRACE_MS,
@@ -82,7 +83,7 @@ export class MemoryStore {
   // ─── Path helpers ───
 
   private get memoryDir(): string {
-    return this.config.memoryDir ?? path.join(AGENT_ROOT, "pi-hermes-memory");
+    return this.config.memoryDir ?? path.join(AGENT_ROOT, DEFAULT_GLOBAL_MEMORY_DIR);
   }
 
   private pathFor(target: "memory" | "user" | "failure"): string {

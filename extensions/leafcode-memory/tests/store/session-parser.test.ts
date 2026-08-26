@@ -272,7 +272,7 @@ describe('session-parser', () => {
 
   describe('decodeProjectDir', () => {
     it('should decode project name from directory format', () => {
-      assert.strictEqual(decodeProjectDir('--Users-chandrateja-Documents-pi-hermes-memory--'), 'memory');
+      assert.strictEqual(decodeProjectDir('--Users-chandrateja-Documents-leafcode-memory--'), 'memory');
     });
 
     it('should handle simple directory names', () => {
