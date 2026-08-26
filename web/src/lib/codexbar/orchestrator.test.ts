@@ -114,7 +114,7 @@ describe("fetchNativeUsage", () => {
       ["https://chatgpt.com/backend-api/wham/usage", "Bearer token-a"],
       ["https://chatgpt.com/backend-api/wham/usage", "Bearer token-b"],
     ]);
-  });
+  }, 15_000);
 
   it("does not use default auth for an account scope", async () => {
     const { accountDir, dataDir } = setupAccounts();

@@ -15,7 +15,7 @@ import {
   resolvePiAgentDir,
   type AccountRecord,
 } from "@/lib/accounts";
-import { emptyUsage, type CodexBarAccountSummary, type CodexBarUsage } from "@/lib/codexbar";
+import { emptyUsage, type CodexBarUsage } from "@/lib/codexbar";
 import {
   clearCachedUsage,
   getCachedUsageForKey,
