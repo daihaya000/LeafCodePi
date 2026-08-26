@@ -22,6 +22,11 @@ function Probe() {
   );
 }
 
+function ActivePaneProbe() {
+  const { state } = useTaskPanes();
+  return <output data-testid="active-pane">{state.activePaneId}</output>;
+}
+
 describe("TaskPanesProvider", () => {
   let matches = false;
   let mediaListeners: Array<(event: MediaQueryListEvent) => void>;
@@ -92,5 +97,41 @@ describe("TaskPanesProvider", () => {
       expect(screen.getByTestId("state").textContent).toBe("true:saved-task");
     });
     expect(window.location.pathname).toBe("/task/saved-task");
+  });
+
+  it("外部URL変更時は対象タスクのあるペインをアクティブにする", async () => {
+    matches = true;
+    mocks.usePathname.mockReturnValue("/task/first");
+    localStorage.setItem(
+      TASK_PANES_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        panes: [
+          { id: "first-pane", tabs: ["first"], activeTabId: "first" },
+          { id: "second-pane", tabs: ["second"], activeTabId: "second" },
+        ],
+        activePaneId: "first-pane",
+      }),
+    );
+
+    const renderView = () => (
+      <TaskPanesProvider>
+        <Probe />
+        <ActivePaneProbe />
+      </TaskPanesProvider>
+    );
+    const { rerender } = render(renderView());
+
+    await waitFor(() => {
+      expect(screen.getByTestId("active-pane").textContent).toBe("first-pane");
+    });
+
+    mocks.usePathname.mockReturnValue("/task/second");
+    rerender(renderView());
+
+    await waitFor(() => {
+      expect(screen.getByTestId("active-pane").textContent).toBe("second-pane");
+    });
+    expect(window.location.pathname).toBe("/task/second");
   });
 });
