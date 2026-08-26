@@ -391,6 +391,65 @@ test("pauses after two rejected verification claims", () => {
   }
 });
 
+test("retries queued work when agent_settled is delayed", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-delayed-settled-"));
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "delayed-settled-session",
+      getBranch: () => [],
+    },
+    ui: {
+      setStatus: () => {},
+      setWidget: () => {},
+      notify: () => {},
+    },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand(name, options) { commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage() {
+      sendCount += 1;
+      if (sendCount !== 1) return;
+      busy = true;
+      void (async () => {
+        busy = false;
+        await handlers.get("agent_end")?.({
+          type: "agent_end",
+          messages: [{
+            role: "assistant",
+            content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "first turn" }) }],
+          }],
+        }, ctx);
+      })();
+    },
+  };
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 2 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    assert.equal(sendCount, 2);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("waits for agent_end so tool turns do not stop the loop before the result JSON", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-live-"));
   const handlers = new Map();

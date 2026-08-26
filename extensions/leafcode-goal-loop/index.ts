@@ -1239,7 +1239,11 @@ export default function (pi: ExtensionAPI): void {
     }
     const updated = currentLoop(current);
     updateUI(current, updated);
-    if (updated) appendSnapshot(current, updated);
+    if (updated) {
+      appendSnapshot(current, updated);
+      // agent_settled can be delayed; keep queued work armed from its state transition.
+      if (updated.status === "queued" || updated.status === "verifying_completed") schedule(current);
+    }
   });
 
   pi.on("agent_settled", async (_event, _ctx) => {
