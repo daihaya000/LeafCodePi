@@ -165,7 +165,9 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     rawDispatch({ type: "replace", state: saved });
     const savedActive =
       saved.panes.find((pane) => pane.id === saved.activePaneId)?.activeTabId ?? null;
-    lastUrlSyncRef.current = savedActive; // 復元構成に合わせたので以後は panes 観測で同期
+    if (urlTaskId != null) {
+      lastUrlSyncRef.current = savedActive;
+    } // ルート復元時は保存済み activeTask を URL へ同期させる
   }, [mdUp, urlTaskId]);
   // md 幅の追跡
   useEffect(() => {
@@ -216,6 +218,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     if (activeTaskId == null) return;
     if (activeTaskId === lastUrlSyncRef.current) return;
     lastUrlSyncRef.current = activeTaskId;
+    externalUrlRef.current = activeTaskId;
     syncUrl(activeTaskId);
   }, [splitHostEnabled, mdUp, activeTaskId]);
 

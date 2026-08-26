@@ -29,6 +29,7 @@ describe("TaskPanesProvider", () => {
   beforeEach(() => {
     matches = false;
     mediaListeners = [];
+    window.history.replaceState(null, "", "/");
     mocks.getJson.mockReset().mockRejectedValue(new Error("not used"));
     mocks.usePathname.mockReturnValue("/");
     localStorage.clear();
@@ -76,5 +77,20 @@ describe("TaskPanesProvider", () => {
     await waitFor(() => {
       expect(screen.getByTestId("state").textContent).toBe("true:saved-task");
     });
+  });
+
+  it("root URL から保存済みタスクを復元した場合はURLも追従する", async () => {
+    matches = true;
+
+    render(
+      <TaskPanesProvider>
+        <Probe />
+      </TaskPanesProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("state").textContent).toBe("true:saved-task");
+    });
+    expect(window.location.pathname).toBe("/task/saved-task");
   });
 });
