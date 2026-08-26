@@ -69,4 +69,29 @@ describe("TaskPanesHost lazy tab mounting", () => {
     });
     expect(screen.getByTestId("dynamic-pane").getAttribute("data-task-id")).toBe("active");
   });
+
+  it("モバイルではURLタスクだけを表示し、デスクトップ復帰後はアクティブタブを表示する", async () => {
+    const contextValue = {
+      state: createState(),
+      statusFor: () => null,
+      reportStatus: vi.fn(),
+      dispatch: vi.fn(),
+      retargetToUrl: vi.fn(),
+      activeTaskId: "active",
+      titleFor: () => null,
+      mdUp: false,
+    };
+    mocks.useTaskPanes.mockReturnValue(contextValue);
+
+    const { rerender } = render(<TaskPanesHost />);
+    expect(screen.getAllByTestId("dynamic-pane")).toHaveLength(1);
+    expect(screen.getByTestId("dynamic-pane").getAttribute("data-task-id")).toBe("active");
+
+    mocks.useTaskPanes.mockReturnValue({ ...contextValue, mdUp: true });
+    rerender(<TaskPanesHost />);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("dynamic-pane")).toHaveLength(1);
+    });
+    expect(screen.getByTestId("dynamic-pane").getAttribute("data-task-id")).toBe("active");
+  });
 });
