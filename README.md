@@ -47,6 +47,15 @@ Cursor は非公式拡張です。本機の Cursor IDE / CLI のトークンを�
 
 トークンは `%USERPROFILE%\.pi\agent\auth.json` に保存されます。コールバックは本機の `127.0.0.1:53692`（Anthropic）と `localhost:1455`（OpenAI Codex）を使います。通常の API キー（`ANTHROPIC_API_KEY` など）も併用できます。
 
+## マルチアカウント（ChatGPT / Claude の複数アカウント）
+
+設定 → モデル → 「アカウント」から、ChatGPT (Codex) と Claude のサブスクアカウントを複数登録してタスクごとに切り替えられます（[計画](docs/plans/multi-account.md)）。
+
+- 追加アカウントのトークンは `%USERPROFILE%\.pi\agent\accounts\<accountId>\auth.json` に保存されます（既定の auth.json は不変）
+- Home の Composer でアカウントを選ぶと、そのタスクとモデル一覧がそのアカウントに紐づきます。未選択 = 既定
+- アカウントが無い場合は選択 UI 自体が非表示になります。OAuth のログインフローは同時に 1 件のみです
+- 実行中のタスクから参照されているアカウントは削除できません。認証ファイルは削除後も残ります（手動削除は `%USERPROFILE%\.pi\agent\accounts\` 配下）
+
 ## Goal Loop
 
 `extensions/leafcode-goal-loop` に LeafCode 互換の Pi 拡張を同梱しています。登録すると Home / Task の Composer に「ループ」「承認条件」「最大ターン」「クールタイム」「完走モード」が表示されます。
