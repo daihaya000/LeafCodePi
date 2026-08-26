@@ -223,9 +223,12 @@ export function TaskPanesHost() {
   // reducer は変更時のみ新参照を返すため state を deps にできる。
   useEffect(() => {
     const allTabIds = state.panes.flatMap((pane) => pane.tabs);
+    const activeTabIds = state.panes.flatMap((pane) =>
+      pane.activeTabId && pane.tabs.includes(pane.activeTabId) ? [pane.activeTabId] : [],
+    );
     setOpenedTabs((current) => {
       let next = current;
-      for (const taskId of allTabIds) {
+      for (const taskId of activeTabIds) {
         if (!next.has(taskId)) {
           next = new Set(next);
           next.add(taskId);

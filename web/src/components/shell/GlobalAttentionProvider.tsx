@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BellRing } from "lucide-react";
 import { Button, cx } from "@/components/ui";
+import { PermissionAdvice } from "@/components/task/PermissionAdvice";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { getJson, sendJson } from "@/lib/client";
 import { taskIdFromPathname } from "@/lib/task-panes";
@@ -258,6 +259,7 @@ export function GlobalAttentionProvider() {
                     <pre className="mt-2 max-h-32 overflow-auto rounded border border-border bg-surface px-2 py-1.5 font-mono text-xs text-text">
                       {permission.command}
                     </pre>
+                    <PermissionAdvice taskId={item.taskId} requestId={permission.id} />
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Button
                         variant="primary"

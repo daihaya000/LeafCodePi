@@ -35,6 +35,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { PartView, WorkingRow } from "@/components/task/PartView";
+import { PermissionAdvice } from "@/components/task/PermissionAdvice";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import {
   QueuedFollowUpsNotice,
@@ -1735,6 +1736,7 @@ export function TaskView({
             <pre className="mt-2 max-h-32 overflow-auto rounded border border-border bg-surface px-2 py-1.5 font-mono text-xs text-foreground">
               {permissionRequest.command}
             </pre>
+            <PermissionAdvice taskId={taskId} requestId={permissionRequest.id} />
             <div className="mt-2 flex flex-wrap gap-2">
               <Button
                 variant="primary"
