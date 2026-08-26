@@ -36,13 +36,73 @@ function powershellBin(): string {
   return process.env.LEAFCODE_SYSMON_POWERSHELL?.trim() || "powershell.exe";
 }
 
-/** Windows標準の温度情報と Open/LibreHardwareMonitor の CPU温度を読む。 */
+/** Windows標準・既存モニター・AMD CPUMetricsServer v1.1 の CPU温度を読む。 */
 const CPU_TEMPERATURE_QUERY = String.raw`
 $ErrorActionPreference = 'SilentlyContinue'
-$temps = @()
-function Add-Temperature([double] $value) {
+$temperatureRecords = @()
+
+# AMD CPUMetricsServer が公開する既知の v1.1 レイアウトだけを読み取る。
+# 共有メモリが無い、番号が未知、温度が範囲外なら空文字を返す。
+try {
+  Add-Type -TypeDefinition @'
+using System;
+using System.Globalization;
+using System.Runtime.InteropServices;
+
+public static class LeafAmdCpuMetricsV11
+{
+  private const uint FileMapRead = 0x0004;
+  private const int LayoutVersionOffset = 0x08;
+  private const int TemperatureOffset = 0x1d8;
+  private const int LayoutVersion = 0x00000101;
+  private const string MappingName = "954b280e-5529-4492-bab2-bb7a502552f8";
+
+  [DllImport("kernel32.dll", EntryPoint = "OpenFileMappingW", CharSet = CharSet.Unicode, SetLastError = true)]
+  private static extern IntPtr OpenFileMapping(uint desiredAccess, bool inheritHandle, string name);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern IntPtr MapViewOfFile(IntPtr mapping, uint desiredAccess, uint offsetHigh, uint offsetLow, UIntPtr bytesToMap);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern bool UnmapViewOfFile(IntPtr view);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern bool CloseHandle(IntPtr handle);
+
+  public static string Read()
+  {
+    IntPtr mapping = OpenFileMapping(FileMapRead, false, MappingName);
+    if (mapping == IntPtr.Zero) return "";
+    IntPtr view = IntPtr.Zero;
+    try
+    {
+      view = MapViewOfFile(mapping, FileMapRead, 0, 0, UIntPtr.Zero);
+      if (view == IntPtr.Zero) return "";
+      if (Marshal.ReadInt32(view, LayoutVersionOffset) != LayoutVersion) return "";
+      double temperature = BitConverter.Int64BitsToDouble(Marshal.ReadInt64(view, TemperatureOffset));
+      if (Double.IsNaN(temperature) || Double.IsInfinity(temperature) || temperature < -50 || temperature > 150) return "";
+      return "{\"provider\":\"amd-cpumetrics\",\"version\":" +
+        LayoutVersion.ToString(CultureInfo.InvariantCulture) +
+        ",\"tempC\":" + temperature.ToString("R", CultureInfo.InvariantCulture) + "}";
+    }
+    finally
+    {
+      if (view != IntPtr.Zero) UnmapViewOfFile(view);
+      CloseHandle(mapping);
+    }
+  }
+}
+'@
+  $amdRecord = [LeafAmdCpuMetricsV11]::Read()
+  if (-not [string]::IsNullOrWhiteSpace($amdRecord)) {
+    $temperatureRecords += ConvertFrom-Json -InputObject $amdRecord
+  }
+} catch {
+  # AMDソフトウェアが無い、または未知のレイアウトなら従来の取得経路を使う。
+}
+
+function Add-Temperature([double] $value, [string] $provider = 'os') {
   if ([double]::IsNaN($value) -or [double]::IsInfinity($value)) { return }
-  if ($value -ge -50 -and $value -le 150) { $script:temps += $value }
+  if ($value -ge -50 -and $value -le 150) {
+    $script:temperatureRecords += [pscustomobject]@{ tempC = $value; provider = $provider }
+  }
 }
 
 # OpenHardwareMonitor / LibreHardwareMonitor は値を℃で返す。
@@ -63,10 +123,10 @@ foreach ($zone in @(Get-CimInstance -Namespace 'root\cimv2' -Class Win32_PerfFor
   if ($raw -gt 0) { Add-Temperature (($raw / 10) - 273.15) }
 }
 
-if ($temps.Count -eq 0) {
+if ($temperatureRecords.Count -eq 0) {
   [pscustomobject]@{ tempC = $null } | ConvertTo-Json -Compress
 } else {
-  [pscustomobject]@{ tempC = [Math]::Round([double](($temps | Measure-Object -Maximum).Maximum), 1) } | ConvertTo-Json -Compress
+  ConvertTo-Json -InputObject $temperatureRecords -Compress
 }
 `.trim();
 

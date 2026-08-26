@@ -154,6 +154,9 @@ export function sampleFromOscpus(
   });
 }
 
+/** AMD CPUMetricsServer v1.1 の共有メモリレイアウト番号。未知の番号は読まない。 */
+export const AMD_CPU_METRICS_LAYOUT_VERSION = 0x00000101;
+
 /** PowerShell の CPU温度 JSON（複数センサー時は最も高い値）を解釈する。 */
 export function parseCpuTemperatureJson(text: string): number | null {
   let value: unknown;
@@ -165,12 +168,18 @@ export function parseCpuTemperatureJson(text: string): number | null {
   const values = Array.isArray(value) ? value : [value];
   const temperatures = values
     .map((item) => {
-      const raw =
-        typeof item === "number" || typeof item === "string"
-          ? item
-          : item && typeof item === "object" && !Array.isArray(item)
-            ? (item as Record<string, unknown>).tempC
-            : null;
+      if (typeof item === "number" || typeof item === "string") return item;
+      if (!item || typeof item !== "object" || Array.isArray(item)) return Number.NaN;
+      const record = item as Record<string, unknown>;
+      if (
+        record.provider === "amd-cpumetrics" &&
+        Number(record.version) !== AMD_CPU_METRICS_LAYOUT_VERSION
+      ) {
+        return Number.NaN;
+      }
+      return record.tempC;
+    })
+    .map((raw) => {
       if (typeof raw === "string" && !raw.trim()) return Number.NaN;
       return typeof raw === "number" || typeof raw === "string" ? Number(raw) : Number.NaN;
     })

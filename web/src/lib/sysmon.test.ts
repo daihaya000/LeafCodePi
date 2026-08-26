@@ -85,6 +85,19 @@ describe("parseCpuTemperatureJson", () => {
     expect(parseCpuTemperatureJson('{"tempC": 54.6}')).toBe(54.6);
   });
 
+  it("accepts the verified AMD CPUMetricsServer layout only", () => {
+    expect(
+      parseCpuTemperatureJson(
+        '{"provider":"amd-cpumetrics","version":257,"tempC":50}',
+      ),
+    ).toBe(50);
+    expect(
+      parseCpuTemperatureJson(
+        '{"provider":"amd-cpumetrics","version":256,"tempC":90}',
+      ),
+    ).toBeNull();
+  });
+
   it("returns null for invalid or out-of-range values", () => {
     expect(parseCpuTemperatureJson("not json")).toBeNull();
     expect(parseCpuTemperatureJson('{"tempC": 180}')).toBeNull();
