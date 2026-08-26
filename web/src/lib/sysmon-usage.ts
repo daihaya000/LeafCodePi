@@ -113,6 +113,13 @@ foreach ($namespace in @('root\LibreHardwareMonitor', 'root\OpenHardwareMonitor'
   }
 }
 
+# Intel/BIOS の標準 CIM 温度センサーは CurrentReading が 1/10℃。
+foreach ($sensor in @(Get-CimInstance -Namespace 'root\cimv2' -ClassName CIM_TemperatureSensor |
+    Where-Object { $_.Name -match 'CPU|Package|Processor|Core|Socket|Die|Tctl|Tdie' })) {
+  $raw = [double] $sensor.CurrentReading
+  if ($raw -gt 0) { Add-Temperature ($raw / 10) }
+}
+
 # ACPI / Windows thermal-zone の値は 1/10 K。
 foreach ($zone in @(Get-CimInstance -Namespace 'root\wmi' -Class MSAcpi_ThermalZoneTemperature)) {
   Add-Temperature (([double] $zone.CurrentTemperature / 10) - 273.15)
