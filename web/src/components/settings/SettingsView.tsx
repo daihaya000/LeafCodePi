@@ -8,6 +8,7 @@ import { GenerationModelSettings } from "@/components/settings/GenerationModelSe
 import { LlamaServerSettings } from "@/components/settings/LlamaServerSettings";
 import { HostRestartPanel } from "@/components/settings/HostRestartPanel";
 import { AgentsMdSettings } from "@/components/settings/AgentsMdSettings";
+import { MemorySettings } from "@/components/settings/MemorySettings";
 import { CompactionSettings } from "@/components/settings/CompactionSettings";
 import { NavigatorSettings } from "@/components/settings/NavigatorSettings";
 import { SkillsSettings } from "@/components/settings/SkillsSettings";
@@ -33,7 +34,7 @@ const GENERAL_SECTIONS: readonly {
 }[] = [
   { id: "basic", label: "基本", description: "表示・通知に関する設定" },
   { id: "response", label: "応答", description: "翻訳・圧縮・自動再開に関する設定" },
-  { id: "agents", label: "エージェント環境", description: "AGENTS.md・スキル・エージェントの管理" },
+  { id: "agents", label: "エージェント環境", description: "AGENTS.md・メモリ・スキル・エージェントの管理" },
   { id: "integrations", label: "拡張・連携", description: "拡張機能・MCP・協調の設定" },
 ];
 
@@ -47,16 +48,9 @@ function readGeneralSection(): GeneralSection {
   return isGeneralSection(value) ? value : "basic";
 }
 
-function readInitialTab(): Tab {
-  if (typeof window !== "undefined" && window.location.hash.startsWith("#general-")) {
-    return "general";
-  }
-  return "engine";
-}
-
 export function SettingsView() {
-  const [tab, setTab] = useState<Tab>(readInitialTab);
-  const [generalSection, setGeneralSection] = useState<GeneralSection>(readGeneralSection);
+  const [tab, setTab] = useState<Tab>("engine");
+  const [generalSection, setGeneralSection] = useState<GeneralSection>("basic");
 
   const [health, setHealth] = useState<HealthDto | null>(null);
   const [providers, setProviders] = useState<ProviderAuthDto[]>([]);
@@ -82,6 +76,7 @@ export function SettingsView() {
       setGeneralSection(readGeneralSection());
       if (window.location.hash.startsWith("#general-")) setTab("general");
     };
+    syncGeneralSection();
     window.addEventListener("hashchange", syncGeneralSection);
     window.addEventListener("popstate", syncGeneralSection);
     return () => {
@@ -227,6 +222,7 @@ export function SettingsView() {
                     {id === "agents" && (
                       <div className="space-y-4">
                         <AgentsMdSettings />
+                        <MemorySettings />
                         <SkillsSettings />
                         <AgentsSettings />
                       </div>

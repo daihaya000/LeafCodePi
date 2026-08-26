@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 
 export default defineConfig({
@@ -23,5 +23,10 @@ export default defineConfig({
       NODE_ENV: "test",
     },
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "../extensions/**/*.test.ts"],
+    exclude: [
+      ...configDefaults.exclude,
+      "../extensions/**/node_modules/**",
+      "../extensions/leafcode-memory/tests/**",
+    ],
   },
 });

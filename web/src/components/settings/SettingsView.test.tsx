@@ -39,6 +39,9 @@ vi.mock("@/components/settings/HangTimeoutSettings", () => ({
 vi.mock("@/components/settings/AgentsMdSettings", () => ({
   AgentsMdSettings: () => <h2>AGENTS.md</h2>,
 }));
+vi.mock("@/components/settings/MemorySettings", () => ({
+  MemorySettings: () => <h2>メモリ</h2>,
+}));
 vi.mock("@/components/settings/SkillsSettings", () => ({
   SkillsSettings: () => <h2>スキル</h2>,
 }));
@@ -101,6 +104,7 @@ describe("SettingsView", () => {
     expect(screen.getByRole("button", { name: "一般" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("heading", { name: "エージェント環境" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "AGENTS.md" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "メモリ" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "ブラウザ設定" })).toBeNull();
   });
 });
