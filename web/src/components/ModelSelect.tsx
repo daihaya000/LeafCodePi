@@ -19,6 +19,22 @@ export function modelSupportsImage(option: ModelOption | undefined): boolean {
   return Boolean(option?.input?.includes("image"));
 }
 
+/** Match a stored logical model to an integrated option without choosing another account. */
+export function modelOptionForValue(
+  options: readonly ModelOption[],
+  value: string | null | undefined,
+): ModelOption | undefined {
+  if (!value) return undefined;
+  const exact = options.find((option) => option.value === value);
+  if (exact) return exact;
+  return options.find(
+    (option) =>
+      option.routingMode === "integrated" &&
+      (value === `${option.providerID}::${option.modelID}` ||
+        value.endsWith(`::${option.providerID}::${option.modelID}`)),
+  );
+}
+
 /** Provider rate limit is close (>=75%): render the option in orange. */
 export function modelNearLimit(option: ModelOption | undefined): boolean {
   if (!option || option.codexbarMaxed) return false;

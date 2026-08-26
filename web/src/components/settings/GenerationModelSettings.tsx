@@ -2,7 +2,7 @@
 
 import { Brain } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { ModelSelect } from "@/components/ModelSelect";
+import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { Button, GhostSelect } from "@/components/ui";
 import { ApiError, getJson } from "@/lib/client";
 import {
@@ -91,21 +91,19 @@ export function GenerationModelSettings() {
         setModels(nextModels);
         const serverValue = settingResult.status === "fulfilled" ? settingResult.value : null;
         const localValue = readGenerationModel();
-        const nextValue = serverValue && nextModels.some((model) => model.value === serverValue)
-          ? serverValue
-          : localValue && nextModels.some((model) => model.value === localValue)
-            ? localValue
-            : "";
+        const nextValue =
+          modelOptionForValue(nextModels, serverValue)?.value ??
+          modelOptionForValue(nextModels, localValue)?.value ??
+          "";
         const serverEffort = effortResult.status === "fulfilled" ? effortResult.value : null;
         const localEffort = readGenerationModelEffort();
         const nextEffort = serverEffort ?? localEffort ?? "";
         const serverFallbackValue = fallbackResult.status === "fulfilled" ? fallbackResult.value : null;
         const localFallbackValue = readGenerationFallbackModel();
-        const nextFallbackValue = serverFallbackValue && nextModels.some((model) => model.value === serverFallbackValue)
-          ? serverFallbackValue
-          : localFallbackValue && nextModels.some((model) => model.value === localFallbackValue)
-            ? localFallbackValue
-            : "";
+        const nextFallbackValue =
+          modelOptionForValue(nextModels, serverFallbackValue)?.value ??
+          modelOptionForValue(nextModels, localFallbackValue)?.value ??
+          "";
         const serverFallbackEffort = fallbackEffortResult.status === "fulfilled" ? fallbackEffortResult.value : null;
         const localFallbackEffort = readGenerationFallbackModelEffort();
         const nextFallbackEffort = serverFallbackEffort ?? localFallbackEffort ?? "";
@@ -128,9 +126,9 @@ export function GenerationModelSettings() {
     };
   }, []);
 
-  const selected = useMemo(() => models.find((model) => model.value === value), [models, value]);
+  const selected = useMemo(() => modelOptionForValue(models, value), [models, value]);
   const fallbackSelected = useMemo(
-    () => models.find((model) => model.value === fallbackValue),
+    () => modelOptionForValue(models, fallbackValue),
     [fallbackValue, models],
   );
 

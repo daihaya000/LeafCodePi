@@ -54,6 +54,7 @@ export function SettingsView() {
 
   const [health, setHealth] = useState<HealthDto | null>(null);
   const [providers, setProviders] = useState<ProviderAuthDto[]>([]);
+  const [modelsRevision, setModelsRevision] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
@@ -66,6 +67,11 @@ export function SettingsView() {
       if (providerRes.status === "fulfilled") setProviders(providerRes.value.providers);
     });
   }, []);
+
+  const onProviderChanged = useCallback(() => {
+    setModelsRevision((revision) => revision + 1);
+    reload();
+  }, [reload]);
 
   useEffect(() => {
     reload();
@@ -154,12 +160,12 @@ export function SettingsView() {
           {tab === "models" && (
             <section className="space-y-4">
               <div className="rounded-2xl border border-border bg-surface p-4">
-                <ProviderAuthPanel providers={providers} onChanged={reload} />
+                <ProviderAuthPanel providers={providers} onChanged={onProviderChanged} />
               </div>
               <div className="rounded-2xl border border-border bg-surface p-4">
-                <ProviderModelsPanel />
+                <ProviderModelsPanel key={`provider-models-${modelsRevision}`} />
               </div>
-              <GenerationModelSettings />
+              <GenerationModelSettings key={`generation-model-${modelsRevision}`} />
             </section>
           )}
 

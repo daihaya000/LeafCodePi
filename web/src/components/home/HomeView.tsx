@@ -10,7 +10,7 @@ import { Composer, type ComposerAttachment, type ComposerReference } from "@/com
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { NextTaskSuggest } from "@/components/home/NextTaskSuggest";
 import { pasteImage } from "@/lib/clipboard-image";
-import { ModelSelect } from "@/components/ModelSelect";
+import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
 import { SkillPermissionSelect } from "@/components/SkillPermissionSelect";
@@ -79,6 +79,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
+  const modelsRef = useRef<ModelOption[]>([]);
 
   const { room: collaborationRoom, refresh: refreshCollaborationRoom } = useCollaborationRoom(projectId || null);
   const selectedProject = projects.find((project) => project.id === projectId);
@@ -104,12 +105,18 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
       });
     }
     if (modelRes.status === "fulfilled") {
-      setModels(modelRes.value.models);
+      const nextModels = modelRes.value.models;
+      const previousModels = modelsRef.current;
+      modelsRef.current = nextModels;
+      setModels(nextModels);
       setModel((current) => {
-        if (current && modelRes.value.models.some((option) => option.value === current)) return current;
+        const preserved = modelOptionForValue(nextModels, current);
+        if (preserved) return preserved.value;
+        const previous = modelOptionForValue(previousModels, current);
+        const migrated = previous && modelOptionForValue(nextModels, previous.value);
+        if (migrated) return migrated.value;
         const stored = localStorage.getItem(MODEL_KEY) ?? "";
-        if (stored && modelRes.value.models.some((option) => option.value === stored)) return stored;
-        return modelRes.value.models[0]?.value ?? "";
+        return modelOptionForValue(nextModels, stored)?.value ?? nextModels[0]?.value ?? "";
       });
     }
     if (healthRes.status === "fulfilled") setHealth(healthRes.value);

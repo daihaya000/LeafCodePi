@@ -289,7 +289,9 @@ export function AgentsSettings() {
           );
         }
         if (modelsResult.status === "fulfilled") {
-          setModels(modelsResult.value.models);
+          // Agent settings cannot pin a different account; separate-mode physical
+          // account options must not be silently flattened into provider/model.
+          setModels(modelsResult.value.models.filter((model) => !model.accountId));
         } else {
           errors.push("モデル一覧の取得に失敗しました");
         }

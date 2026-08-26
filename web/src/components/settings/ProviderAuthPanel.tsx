@@ -7,6 +7,7 @@ import { ApiError, apiUrl, getJson, sendJson } from "@/lib/client";
 import type { AccountProviderId, AccountRecord } from "@/lib/accounts";
 import type { LoginNotifyDto, LoginPromptDto, LoginSessionEvent } from "@/lib/pi/auth-login";
 import type { ProviderAuthDto } from "@/lib/types";
+import type { AccountRoutingMode } from "@/lib/provider-routing";
 
 type LoginUiState = {
   providerId: string;
@@ -64,6 +65,8 @@ export function ProviderAuthPanel({
   const [creatingFor, setCreatingFor] = useState<AccountProviderId | null>(null);
   const [newLabel, setNewLabel] = useState("");
   const [accountBusy, setAccountBusy] = useState(false);
+  const [routingBusy, setRoutingBusy] = useState<string | null>(null);
+  const [routingErrors, setRoutingErrors] = useState<Record<string, string>>({});
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState("");
   const [authStatuses, setAuthStatuses] = useState<Record<string, AccountProviderId[]>>({});
@@ -272,6 +275,31 @@ export function ProviderAuthPanel({
     }
   }
 
+  async function changeRoutingMode(providerId: AccountProviderId, mode: AccountRoutingMode) {
+    if (routingBusy) return;
+    setRoutingBusy(providerId);
+    setRoutingErrors((current) => {
+      const next = { ...current };
+      delete next[providerId];
+      return next;
+    });
+    try {
+      await sendJson(
+        `/api/providers/${encodeURIComponent(providerId)}`,
+        { accountRoutingMode: mode },
+        "PATCH",
+      );
+      onChanged();
+    } catch (error) {
+      setRoutingErrors((current) => ({
+        ...current,
+        [providerId]: error instanceof ApiError ? error.message : String(error),
+      }));
+    } finally {
+      setRoutingBusy(null);
+    }
+  }
+
   /** 追加アカウントは、開いているプロバイダにだけ紐付ける。 */
   async function submitCreateAccount(providerId: AccountProviderId) {
     if (!newLabel.trim()) return;
@@ -343,12 +371,52 @@ export function ProviderAuthPanel({
         (account) => Array.isArray(account.providers) && account.providers.includes(providerId),
       ) ?? [];
     const isCreating = creatingFor === providerId;
+    const mode = provider.accountRoutingMode ?? "separate";
+    const savingMode = routingBusy === providerId;
+    const modeDisabled = Boolean(login) || accountBusy || Boolean(routingBusy);
 
     return (
       <section
         aria-label={`${provider.name} の追加アカウント`}
         className="mt-3 border-t border-border pt-3"
       >
+        <fieldset
+          disabled={modeDisabled}
+          aria-busy={savingMode || undefined}
+          className="mb-3 rounded-xl bg-surface-2 p-3"
+        >
+          <legend className="px-1 text-xs font-semibold text-muted">モデルの扱い</legend>
+          <div className="mt-1 flex w-full flex-col gap-1 sm:w-fit sm:flex-row">
+            {(["integrated", "separate"] as const).map((nextMode) => (
+              <label
+                key={nextMode}
+                className="flex min-h-11 cursor-pointer items-center rounded-lg border border-transparent px-3 py-2 text-sm hover:bg-surface"
+              >
+                <input
+                  type="radio"
+                  name={`routing-mode-${providerId}`}
+                  value={nextMode}
+                  checked={mode === nextMode}
+                  onChange={() => void changeRoutingMode(providerId, nextMode)}
+                  className="sr-only peer"
+                />
+                <span className="rounded-lg px-3 py-1.5 text-muted peer-checked:bg-surface peer-checked:text-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent">
+                  {nextMode === "integrated" ? "統合" : "アカウント別"}
+                </span>
+              </label>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-muted">
+            {mode === "integrated"
+              ? "新規タスクを使用率の低い認証済みアカウントへ自動で割り当てます。既存タスクのアカウントは変更されません。"
+              : "アカウントごとのモデルを表示し、利用するアカウントを明示的に選択します。"}
+          </p>
+          {routingErrors[providerId] && (
+            <p className="mt-2 text-xs text-danger" role="alert">
+              {routingErrors[providerId]}
+            </p>
+          )}
+        </fieldset>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="text-xs font-semibold text-muted">ログインアカウント</h3>

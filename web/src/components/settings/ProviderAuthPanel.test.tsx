@@ -103,6 +103,33 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(screen.queryByRole("heading", { name: "アカウント" })).toBeNull();
   });
 
+  it("changes the routing mode from the provider section", async () => {
+    mockAccountsApi();
+    const onChanged = vi.fn();
+    render(
+      <ProviderAuthPanel
+        providers={providers.map((provider) =>
+          provider.id === "openai-codex"
+            ? { ...provider, accountRoutingMode: "separate" as const }
+            : provider,
+        )}
+        onChanged={onChanged}
+      />,
+    );
+
+    const codex = await accountRegion("OpenAI Codex");
+    fireEvent.click(within(codex).getByRole("radio", { name: "統合" }));
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).endsWith("/api/providers/openai-codex") && init?.method === "PATCH",
+      );
+      expect(patch).toBeTruthy();
+      expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ accountRoutingMode: "integrated" });
+      expect(onChanged).toHaveBeenCalled();
+    });
+  });
+
   it("uses account controls instead of default authentication", async () => {
     mockAccountsApi();
     render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
