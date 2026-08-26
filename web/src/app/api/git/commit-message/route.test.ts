@@ -20,7 +20,7 @@ function request(body: unknown): NextRequest {
 
 const file = {
   path: "src/app.ts",
-  additions: 1,
+  additions: 4,
   deletions: 0,
   hunks: [{ header: "@@", lines: [{ t: "+", text: "added" }] }],
 };
@@ -35,6 +35,22 @@ describe("/api/git/commit-message", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("skips AI for a simple single-file change", async () => {
+    const response = await POST(
+      request({ directory: "C:\\repo-simple", model: { providerID: "llama-server", modelID: "local-model" }, files: [
+        { ...file, additions: 1 },
+      ] }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      message: "更新 app.ts",
+      source: "fallback",
+      model: null,
+    });
+    expect(mocks.completeModelText).not.toHaveBeenCalled();
   });
 
   it("uses direct generation when the selected model is supported", async () => {
@@ -64,7 +80,7 @@ describe("/api/git/commit-message", () => {
     });
   });
 
-  it("uses the persisted generation model and effort", async () => {
+  it("uses the persisted generation model without reasoning", async () => {
     mocks.getSetting.mockImplementation((key: string) => {
       if (key === "generation-model") return "openrouter::stealth/ox-alpha";
       if (key === "generation-model-effort") return "low";
@@ -84,8 +100,7 @@ describe("/api/git/commit-message", () => {
       expect.objectContaining({
         providerID: "openrouter",
         modelID: "stealth/ox-alpha",
-        maxTokens: 120,
-        reasoning: "low",
+        maxTokens: 64,
         signal: expect.any(AbortSignal),
       }),
     );
@@ -98,7 +113,7 @@ describe("/api/git/commit-message", () => {
     mocks.completeModelText.mockRejectedValue(new Error("429: temporarily rate-limited"));
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
-    const response = await POST(request({ directory: "C:\\repo", files: [file] }));
+    const response = await POST(request({ directory: "C:\\repo-failure", files: [file] }));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
@@ -110,7 +125,7 @@ describe("/api/git/commit-message", () => {
     });
   });
 
-  it("tries the configured fallback model and effort before the deterministic fallback", async () => {
+  it("tries the configured fallback model without reasoning before the deterministic fallback", async () => {
     mocks.getSetting.mockImplementation((key: string) => {
       if (key === "generation-model") return "openrouter::primary";
       if (key === "generation-model-effort") return "low";
@@ -122,7 +137,7 @@ describe("/api/git/commit-message", () => {
       .mockRejectedValueOnce(new Error("primary failed"))
       .mockResolvedValueOnce("フォールバックでコミット");
 
-    const response = await POST(request({ directory: "C:\\repo", files: [file] }));
+    const response = await POST(request({ directory: "C:\\repo-fallback", files: [file] }));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
@@ -135,7 +150,7 @@ describe("/api/git/commit-message", () => {
       expect.objectContaining({
         providerID: "ollama-cloud",
         modelID: "fallback",
-        reasoning: "high",
+        maxTokens: 64,
       }),
     );
   });

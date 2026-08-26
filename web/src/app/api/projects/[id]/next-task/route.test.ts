@@ -73,14 +73,16 @@ describe("/api/projects/[id]/next-task", () => {
     });
   });
 
-  it("forwards the configured generation effort", async () => {
+  it("disables reasoning and limits the output for fast task suggestions", async () => {
     getSetting.mockImplementation((key: string) => {
       if (key === "generation-model") return "llama-server::Qwen3.8-27B-Uncensored-GGUF";
       if (key === "generation-model-effort") return "medium";
       return null;
     });
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      expect(JSON.parse(String(init?.body)).chat_template_kwargs).toEqual({ reasoning_effort: "medium" });
+      const body = JSON.parse(String(init?.body));
+      expect(body.max_tokens).toBe(96);
+      expect(body.chat_template_kwargs).toBeUndefined();
       return new Response(JSON.stringify({ choices: [{ message: { content: "次のタスクを作る" } }] }), {
         status: 200,
       });
@@ -95,7 +97,7 @@ describe("/api/projects/[id]/next-task", () => {
     expect(response.status).toBe(200);
   });
 
-  it("tries the configured fallback model with its own effort", async () => {
+  it("tries the configured fallback model without reasoning", async () => {
     getSetting.mockImplementation((key: string) => {
       if (key === "generation-model") return "llama-server::primary-model";
       if (key === "generation-model-effort") return "low";
@@ -108,7 +110,7 @@ describe("/api/projects/[id]/next-task", () => {
       .mockImplementationOnce(async (_input: RequestInfo | URL, init?: RequestInit) => {
         const body = JSON.parse(String(init?.body));
         expect(body.model).toBe("Qwen3.8-27B-Uncensored-GGUF");
-        expect(body.chat_template_kwargs).toEqual({ reasoning_effort: "medium" });
+        expect(body.chat_template_kwargs).toBeUndefined();
         return new Response(JSON.stringify({ choices: [{ message: { content: "フォールバックで次のタスク" } }] }), {
           status: 200,
         });

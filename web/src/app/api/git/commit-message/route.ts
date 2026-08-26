@@ -3,9 +3,7 @@ import { isAbsolutePath } from "@/lib/paths";
 import { suggestCommitMessage } from "@/lib/commit-message";
 import { getSetting } from "@/lib/pi/web-settings";
 import {
-  GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY,
   GENERATION_FALLBACK_MODEL_SETTING_KEY,
-  GENERATION_MODEL_EFFORT_SETTING_KEY,
   GENERATION_MODEL_SETTING_KEY,
 } from "@/lib/generation-model-key";
 import {
@@ -19,7 +17,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_REQUEST_CHARS = 300_000;
-const MAX_DIFF_CHARS_PER_FILE = 8_000;
+const MAX_DIFF_CHARS_PER_FILE = 4_000;
+const MAX_FILES = 50;
+const DIRECT_CACHE_TTL_MS = 10_000;
+
+type CachedMessage = {
+  expiresAt: number;
+  message: string;
+  model: { providerID: string; modelID: string };
+};
+
+const directMessageCache = new Map<string, CachedMessage>();
 
 type NormalizedFile = {
   path: string;
@@ -68,7 +76,7 @@ function normalizeHunks(value: unknown): string {
 function normalizeFiles(value: unknown): NormalizedFile[] {
   if (!Array.isArray(value)) return [];
   const files: NormalizedFile[] = [];
-  for (const file of value.slice(0, 100)) {
+  for (const file of value.slice(0, MAX_FILES)) {
     if (!file || typeof file !== "object") continue;
     const input = file as InputFile;
     if (
@@ -111,6 +119,12 @@ function directPrompt(files: NormalizedFile[]): string {
     .join("\n\n");
 }
 
+function isSimpleChange(files: NormalizedFile[]): boolean {
+  if (files.length !== 1) return false;
+  const [file] = files;
+  return !file.binary && file.additions + file.deletions <= 3 && file.diff.length <= 1_000;
+}
+
 export async function POST(req: NextRequest) {
   const raw = await req.text().catch(() => "");
   if (raw.length > MAX_REQUEST_CHARS) {
@@ -132,19 +146,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "files are required" }, { status: 400 });
   }
 
+  if (isSimpleChange(files)) {
+    const message = suggestCommitMessage(files);
+    if (message) return NextResponse.json({ message, source: "fallback", model: null });
+  }
+
   const configuredModel = parseDirectModelKey(getSetting(GENERATION_MODEL_SETTING_KEY));
   const primaryModel = configuredModel ?? parseDirectModel(body?.model);
   const fallbackModel = parseDirectModelKey(getSetting(GENERATION_FALLBACK_MODEL_SETTING_KEY));
   const candidates = buildDirectGenerationCandidates({
     primary: primaryModel,
-    primaryEffort: configuredModel
-      ? getSetting(GENERATION_MODEL_EFFORT_SETTING_KEY) || undefined
-      : undefined,
     fallback: fallbackModel,
-    fallbackEffort: fallbackModel
-      ? getSetting(GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY) || undefined
-      : undefined,
   });
+  const cacheKey = JSON.stringify({ directory, files, candidates });
+  const cached = directMessageCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return NextResponse.json({ message: cached.message, source: "direct", model: cached.model });
+  }
+  if (cached) directMessageCache.delete(cacheKey);
+
   let warning: string | undefined;
   if (candidates.length > 0) {
     try {
@@ -153,12 +173,20 @@ export async function POST(req: NextRequest) {
         system:
           "あなたはGitコミットメッセージ作成者です。差分だけを根拠に、日本語の短い命令形コミットメッセージを1行だけ返してください。説明、引用符、コードブロック、接頭辞は不要です。",
         prompt: directPrompt(files),
-        maxTokens: 120,
+        maxTokens: 64,
         temperature: 0.1,
-        timeoutMs: 60_000,
+        timeoutMs: candidates[0].model.providerID === "llama-server" ? 30_000 : 60_000,
       });
       const message = generatedCommitLine(generated.text);
-      if (message) return NextResponse.json({ message, source: "direct", model: generated.model });
+      if (message) {
+        if (directMessageCache.size >= 100) directMessageCache.clear();
+        directMessageCache.set(cacheKey, {
+          expiresAt: Date.now() + DIRECT_CACHE_TTL_MS,
+          message,
+          model: generated.model,
+        });
+        return NextResponse.json({ message, source: "direct", model: generated.model });
+      }
       warning = "AI生成の応答が空だったため、ファイル情報から生成しました";
     } catch (error) {
       const reason = error instanceof Error ? error.message : "直接生成に失敗しました";
