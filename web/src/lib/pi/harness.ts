@@ -1636,8 +1636,8 @@ export async function listModels(): Promise<ModelOption[]> {
  * モデルは value にアカウントIDプレフィックスを持ち、accountId / accountLabel が付く。
  * アカウントのランタイム初期化に失敗したものはスキップする。
  *
- * 並び順は共有設定の providerOrder（未設定は既定カタログ順）に従う。アカウント別
- * モデルも同じプロバイダ位置へ挟むため、末尾へ寄らない。
+ * 並び順は共有設定の providerOrder（未設定は既定カタログ順）に従う。設定画面で
+ * アカウント行を並び替えた場合は、アカウントID付きの行キーを優先する。
  */
 export async function listModelsForAccounts(
   accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
@@ -1668,7 +1668,19 @@ export async function listModelsForAccounts(
 
   const providerRank = await resolveProviderDisplayRank();
   const accountIndex = new Map(accounts.map((account, index) => [account.id, index]));
+  const rowOrder = new Map(readProviderModelState().providerOrder.map((key, index) => [key, index]));
+  const rowKey = (option: ModelOption) =>
+    option.accountId
+      ? accountProviderModelKey(option.providerID, option.accountId)
+      : option.providerID;
   return [...sharedOptions, ...accountOptions].sort((a, b) => {
+    const aRowRank = rowOrder.get(rowKey(a));
+    const bRowRank = rowOrder.get(rowKey(b));
+    if (aRowRank !== undefined || bRowRank !== undefined) {
+      const rowDiff =
+        (aRowRank ?? Number.MAX_SAFE_INTEGER) - (bRowRank ?? Number.MAX_SAFE_INTEGER);
+      if (rowDiff !== 0) return rowDiff;
+    }
     const providerDiff = providerRank(a.providerID) - providerRank(b.providerID);
     if (providerDiff !== 0) return providerDiff;
     // 同一プロバイダ内は共有を先頭に、アカウントは台帳順。
@@ -1807,7 +1819,15 @@ export async function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> 
       // 認証未完了・ランタイム初期化失敗のアカウントは一覧から省略する
     }
   }
-  return rows;
+  const state = readProviderModelState();
+  const rowKey = (row: ProviderModelsRow) =>
+    row.accountId ? accountProviderModelKey(row.id, row.accountId) : row.id;
+  const hasAccountRowOrder = rows.some(
+    (row) => row.accountId && state.providerOrder.includes(rowKey(row)),
+  );
+  return hasAccountRowOrder
+    ? sortByPreferredOrder(rows, state.providerOrder, rowKey)
+    : rows;
 }
 
 export async function setProviderOrModelEnabled(

@@ -90,31 +90,23 @@ function ProviderRow({
   return (
     <li
       aria-busy={isBusy || undefined}
-      draggable={!provider.accountId}
+      draggable
       onDragStart={(event) => {
-        if (provider.accountId) return;
         event.dataTransfer.effectAllowed = "move";
         onDragStartProvider();
       }}
-      onDragOver={(event) => {
-        if (!provider.accountId) event.preventDefault();
-      }}
+      onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
-        if (provider.accountId) return;
         event.preventDefault();
         onDropProvider();
       }}
       className="space-y-2"
     >
       <div className="flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3">
-        {!provider.accountId ? (
-          <GripVertical
-            aria-label={`${displayName} をドラッグして並び替え`}
-            className="h-4 w-4 shrink-0 cursor-grab text-muted"
-          />
-        ) : (
-          <span className="h-4 w-4 shrink-0" aria-hidden="true" />
-        )}
+        <GripVertical
+          aria-label={`${displayName} をドラッグして並び替え`}
+          className="h-4 w-4 shrink-0 cursor-grab text-muted"
+        />
         {hasModels && (
           <button
             type="button"
@@ -309,7 +301,6 @@ export function ProviderModelsPanel() {
       const byProvider = (accountModelOrder[provider.accountId] ??= {});
       byProvider[provider.id] = provider.models.map((model) => model.id);
     }
-    const sharedProviders = nextProviders.filter((provider) => !provider.accountId);
     const operation = orderQueueRef.current.then(async () => {
       if (!mountedRef.current) return;
       setActionError(null);
@@ -317,12 +308,14 @@ export function ProviderModelsPanel() {
         await sendJson(
           "/api/provider-models/order",
           {
-            providerOrder: sharedProviders.map((provider) => provider.id),
+            providerOrder: nextProviders.map(providerRowKey),
             modelOrder: Object.fromEntries(
-              sharedProviders.map((provider) => [
-                provider.id,
-                provider.models.map((model) => model.id),
-              ]),
+              nextProviders
+                .filter((provider) => !provider.accountId)
+                .map((provider) => [
+                  provider.id,
+                  provider.models.map((model) => model.id),
+                ]),
             ),
             accountModelOrder,
           },
@@ -347,14 +340,10 @@ export function ProviderModelsPanel() {
     (targetRowKey: string) => {
       if (dragging?.kind !== "provider" || dragging.rowKey === targetRowKey) return;
       setProviders((prev) => {
-        const shared = prev.filter((provider) => !provider.accountId);
-        const from = shared.findIndex((provider) => providerRowKey(provider) === dragging.rowKey);
-        const to = shared.findIndex((provider) => providerRowKey(provider) === targetRowKey);
+        const from = prev.findIndex((provider) => providerRowKey(provider) === dragging.rowKey);
+        const to = prev.findIndex((provider) => providerRowKey(provider) === targetRowKey);
         if (from < 0 || to < 0) return prev;
-        const next = [
-          ...moveItem(shared, from, to),
-          ...prev.filter((provider) => provider.accountId),
-        ];
+        const next = moveItem(prev, from, to);
         saveOrder(next);
         return next;
       });
@@ -391,8 +380,6 @@ export function ProviderModelsPanel() {
     (n, p) => n + p.models.filter((m) => m.enabled).length,
     0,
   );
-  const sharedProviders = providers.filter((provider) => !provider.accountId);
-  const accountProviders = providers.filter((provider) => provider.accountId);
   const renderProvider = (provider: ProviderModelsRow) => {
     const rowKey = providerRowKey(provider);
     return (
@@ -433,22 +420,7 @@ export function ProviderModelsPanel() {
           選択可能なプロバイダーまたはログインアカウントがありません。認証設定を確認してください。
         </p>
       )}
-      {sharedProviders.length > 0 && (
-        <ul className="space-y-3">{sharedProviders.map(renderProvider)}</ul>
-      )}
-      {accountProviders.length > 0 && (
-        <section aria-labelledby="account-models-heading" className="space-y-3">
-          <div>
-            <h3 id="account-models-heading" className="text-sm font-semibold">
-              アカウント別モデル
-            </h3>
-            <p className="mt-1 text-xs text-muted">
-              OpenAI Codex / Anthropic はアカウントごとに有効・無効と並び順を設定します。
-            </p>
-          </div>
-          <ul className="space-y-3">{accountProviders.map(renderProvider)}</ul>
-        </section>
-      )}
+      {providers.length > 0 && <ul className="space-y-3">{providers.map(renderProvider)}</ul>}
     </div>
   );
 }

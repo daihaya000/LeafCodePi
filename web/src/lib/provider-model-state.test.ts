@@ -163,4 +163,31 @@ describe("buildProviderModelsCatalog", () => {
       ],
     );
   });
+
+  it("uses account row order for the unified provider list", () => {
+    const runtime = {
+      getProviders: () => [
+        { id: "openai-codex", name: "OpenAI Codex" },
+        { id: "anthropic", name: "Anthropic" },
+      ],
+      getModels: (providerId?: string) => [
+        { id: providerId === "anthropic" ? "claude" : "gpt", name: "Model" },
+      ],
+      hasConfiguredAuth: () => true,
+    };
+    const catalog = buildProviderModelsCatalog(
+      runtime,
+      {
+        disabled: {},
+        providerOrder: ["acc-1::anthropic", "acc-1::openai-codex"],
+        modelOrder: {},
+      },
+      "acc-1",
+    );
+
+    assert.deepEqual(
+      catalog.map((provider) => provider.id),
+      ["anthropic", "openai-codex"],
+    );
+  });
 });

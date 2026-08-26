@@ -7,6 +7,12 @@ const fetchMock = vi.fn();
 
 const providers = [
   {
+    id: "ollama-cloud",
+    name: "Ollama Cloud",
+    enabled: true,
+    models: [{ id: "llama-3", name: "Llama 3", enabled: true }],
+  },
+  {
     id: "openai-codex",
     name: "OpenAI Codex",
     accountId: "acc-1",
@@ -61,7 +67,8 @@ function jsonResponse(body: unknown, status = 200) {
 describe("ProviderModelsPanel account model settings", () => {
   it("updates only the selected account model", async () => {
     render(<ProviderModelsPanel />);
-    await screen.findByRole("heading", { name: "アカウント別モデル" });
+    await screen.findByRole("heading", { name: "モデル" });
+    expect(screen.queryByRole("heading", { name: "アカウント別モデル" })).toBeNull();
     fireEvent.click(
       screen.getByRole("button", { name: "OpenAI Codex · 仕事用 のモデルを展開" }),
     );
@@ -83,9 +90,38 @@ describe("ProviderModelsPanel account model settings", () => {
     });
   });
 
+  it("moves account rows in the same list as shared providers", async () => {
+    render(<ProviderModelsPanel />);
+    await screen.findByRole("heading", { name: "モデル" });
+
+    const source = screen
+      .getByLabelText("OpenAI Codex · 仕事用 をドラッグして並び替え")
+      .closest("li");
+    const target = screen
+      .getByLabelText("Ollama Cloud をドラッグして並び替え")
+      .closest("li");
+    expect(source).toBeTruthy();
+    expect(target).toBeTruthy();
+    const dataTransfer = { effectAllowed: "", setData: vi.fn(), getData: vi.fn() };
+    fireEvent.dragStart(source!, { dataTransfer });
+    fireEvent.dragOver(target!, { dataTransfer });
+    fireEvent.drop(target!, { dataTransfer });
+
+    await waitFor(() => {
+      const orderPatch = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).endsWith("/api/provider-models/order") && init?.method === "PATCH",
+      );
+      expect(orderPatch).toBeTruthy();
+      expect(JSON.parse(String(orderPatch?.[1]?.body))).toMatchObject({
+        providerOrder: ["acc-1::openai-codex", "ollama-cloud", "acc-2::openai-codex"],
+      });
+    });
+  });
+
   it("saves model order under the selected account", async () => {
     render(<ProviderModelsPanel />);
-    await screen.findByRole("heading", { name: "アカウント別モデル" });
+    await screen.findByRole("heading", { name: "モデル" });
     fireEvent.click(
       screen.getByRole("button", { name: "OpenAI Codex · 仕事用 のモデルを展開" }),
     );

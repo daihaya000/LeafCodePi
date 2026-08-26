@@ -62,7 +62,15 @@ export function buildProviderModelsCatalog(
       ...(accountId ? { accountId } : {}),
     });
   }
-  return sortByPreferredOrder(rows, state.providerOrder, (provider) => provider.id);
+  const hasAccountRowOrder =
+    accountId !== undefined &&
+    state.providerOrder.some((key) => key.startsWith(`${accountId}::`));
+  return sortByPreferredOrder(
+    rows,
+    state.providerOrder,
+    (provider) =>
+      hasAccountRowOrder ? accountProviderModelKey(provider.id, accountId) : provider.id,
+  );
 }
 
 export function enabledModelOptionsFromCatalog(
