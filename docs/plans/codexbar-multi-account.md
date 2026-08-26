@@ -6,7 +6,8 @@ OpenAI Codex / Anthropic の登録アカウントごとに、CodexBar の利用�
 
 ### 完了条件
 
-- アカウント A / B の Codex または Claude の利用量が、ラベル付きの別行として表示される
+- アカウント A / B の Codex または Claude の利用量が、同じプロバイダ親行のラベル付き子行として表示される
+- 親プロバイダの%は子アカウントの平均使用率とし、A=100%・B=20%なら親は60%になる（最大値100%にはしない）
 - A の refresh、401、429、API エラーが B や既定 auth の表示・キャッシュに影響しない
 - アカウント登録後の通常表示では、Codex / Claude の既定 auth をアカウント行として表示しない
 - アカウント未登録時は現在の既定 Pi auth → CLI auth フォールバックを維持する
@@ -40,7 +41,7 @@ LeafCodePi 側にはすでに次のアカウント基盤がある。
 | スコープ | Codex / Claude | その他のプロバイダー | 通常 UI での扱い |
 | --- | --- | --- | --- |
 | `all` | 登録アカウントごと。該当プロバイダーのアカウントが 1 件も無い場合だけ既定/CLI を 1 行表示 | 既存どおり 1 行 | CodexBar の既定表示 |
-| `account` | 指定アカウントの Pi auth のみ | 共有プロバイダーを 1 行 | アカウント選択時 |
+| `account` | 指定アカウントの Pi auth のみ | 共有プロバイダーを 1 行 | API / 必要時の絞り込み |
 | `default` | 既定 `~/.pi/agent/auth.json` → CLI auth | 既存どおり | 互換・診断用。新しいアカウント UI からは選ばせない |
 
 重要なルール:
@@ -98,6 +99,7 @@ type CodexBarProvider = ExistingProviderFields & {
 
 - `id` は従来どおり `openai-codex` や `anthropic` とし、同じ provider の親行をまとめるキーに使う
 - `instanceId` は React key、アカウント子行の折りたたみ状態、キャッシュ結果の表示単位に使う
+- 親行の%と上限件数は、flat な provider 配列から `id` ごとに集約する純粋関数（例: `groupCodexBarProviders`）で計算し、API・モデル候補と同じ account metadata を使う
 - `accountId` / `accountLabel` は登録アカウント子行だけに設定し、既定・共有プロバイダーは `null`
 - 旧 CodexBar snapshot に追加フィールドが無い場合は `instanceId=default:<id>`、`accountId=null` に正規化する
 - API の provider 配列は flat のままでもよいが、UI は `id` で親プロバイダーカードへまとめ、`instanceId` を子行にする
@@ -118,10 +120,14 @@ type CodexBarAccountSummary = {
 
 ### 集計値
 
-複数アカウントの利用率を単純平均すると、制限枠の異なるアカウントの危険度を隠す。そのため:
+利用率は各アカウントの quota を分母にした比率であり、quota の絶対値が無いまま最大値を親へ引き上げると、片側の上限到達だけで全体が100%に見える。そのため、親プロバイダの表示値を次のように固定する。
 
-- `account` / `default` は現在の `overallUsedPercent` の平均を維持し、ラベルを「全体」とする
-- `all` は平均を「全体」として表示しない。最大利用率を「最大」として表示し、制限件数とアカウント数を併記する
+- subscription provider（Codex / Claude）の `all` は、利用可能な子アカウントの代表 `usedPercent` の算術平均を `平均 XX%` として表示する。A=100%、B=20%なら60%
+- provider API が同一種類の quota 重みを返せるようになった場合だけ加重平均 `Σ(usedPercent × quota) / Σquota` を使う。現行 API は%中心のため、初期実装で勝手にquotaを推定しない
+- 未ログイン、last-good の無いエラー、利用率不明の子アカウントは平均の分母から除外する。last-good を表示する子はその値を平均へ含め、stale と明示する
+- `default` と単一 `account` の subscription provider は子が1件なので、その値をそのまま表示する。shared provider は従来の provider 値を表示する
+- プロバイダをまたぐ「全体%」は quota の意味が異なるため表示しない。折りたたみ時も provider ごとの%、または%を省略した状態件数だけを表示し、`overallUsedPercent` の全体平均を使わない
+- `limited` / `maxed` は子アカウントごとに判定する。親は `平均 XX%` と別に `1/2 上限` のような件数を併記できるが、件数だけで親の%を100%にはしない
 - `subscriptionTotalMonthlyUsd` は選択スコープに含まれる provider instance の合計であり、アカウント間の重複排除はしない。UI のラベルを「表示中の合計」にする
 
 ## バックエンド設計
@@ -223,27 +229,28 @@ type CodexBarUsage = ExistingUsageFields & {
 
 - 通常画面のトップレベルはプロバイダー単位にする。トップレベルのアカウント selector は置かない
 - Codex / Claude は親プロバイダー行を 1 つ表示し、展開するとその中にアカウント子行を並べる
+- 親行は `平均 XX%` を表示し、片方の子が100%でも他の子に余力があれば親を100%にしない
 
 ```text
-Codex                                      最大 72%  ▼
-  仕事用                                   32%
-    5時間                                  32%
-    週間                                   18%
-  個人用                                   72%
-    5時間                                  72%
-    週間                                   45%
+Codex                                      平均 60%  ▼
+  仕事用                                  100%
+    5時間                                 100%
+    週間                                  70%
+  個人用                                   20%
+    5時間                                  20%
+    週間                                  15%
 
-Claude                                     最大 58%  ▼
+Claude                                     平均 58%  ▼
   仕事用                                   58%
   個人用                                   41%
 
 Cursor                                     18%
 ```
 
-- 親プロバイダーの使用率は子アカウントの最大値、子行は各アカウントの利用枠・リセット時刻・エラーを表示する
+- 親プロバイダーの使用率は有効な子アカウントの算術平均（quota 重みが取得できる場合は加重平均）、子行は各アカウントの利用枠・リセット時刻・エラーを表示する
 - 親行の折りたたみは canonical provider ID、子行の key と個別状態は `instanceId` を使う
 - 共通プロバイダーは子行を作らず、従来どおり単一の親行として表示する
-- `all` ではアカウント概要を使って未ログインアカウントも Codex/Claude 親行内に「未ログイン」と表示できる。利用量行自体は生成しない
+- `all` ではアカウント概要を使って未ログインアカウントも Codex/Claude 親行内に「未ログイン」と表示できる。利用量行自体は生成しない。親行生成は利用量配列だけでなく account summary と provider catalog の union を使う
 - `scope=account` は API / 将来の絞り込み用に残す。選択時は共通プロバイダー＋対象アカウントの子行だけを返す
 - 既定 auth は、アカウント未登録時の `all` で従来どおり表示する。アカウント登録後の通常 `all` では表示しない
 - provider enablement の設定は従来どおりグローバルであり、アカウントごとの切替とは別物と明示する
@@ -252,17 +259,24 @@ Cursor                                     18%
 
 `useCodexUsage` は通常 `scope=all` を取得し、必要な場合だけ `scope=account&accountId=...` を取得する。scope 切替時は古いレスポンスを新しい選択へ適用しないため、request generation または AbortController で最新リクエストだけを反映する。
 
+`all` の親行ではプロバイダ間の `overallUsedPercent` を使わず、各 provider group の平均%を表示する。折りたたみチップも複数 provider の平均を作らず、表示可能な provider の%を短縮表示する。
+
 `webui:codexbar:providers` は親プロバイダーの折りたたみを canonical provider ID、アカウント子行の個別状態を `instanceId` で管理する。旧 localStorage の `openai-codex` / `anthropic` キーは親行の状態としてそのまま移行し、アカウント追加後も親行の表示状態を失わない。
 
 ### モデル候補への利用量付加
 
 対象: `web/src/app/api/models/map.ts`、`web/src/app/api/models/route.ts`
 
-現在の provider ID だけの一致を、次の優先順位に変更する。
+現在の provider ID だけの一致を、`accountId` を含む型へ変更する。
+
+```ts
+T extends { providerID: string; accountId?: string | null }
+```
 
 1. account model (`option.accountId` あり) は `providerId + accountId` の利用量行だけを参照する
-2. shared model (`option.accountId` なし) は shared/default の利用量行だけを参照する
-3. 一致しない場合は利用量フィールドを追加しない
+2. shared model (`option.accountId` なし) は shared provider の利用量行だけを参照する
+3. default の Codex/Claude 行は新規モデル候補へ使わない
+4. 一致しない場合は利用量フィールドを追加しない
 
 これにより、アカウント A の Codex 使用率がアカウント B のモデル候補へ表示されない。既定 auth の Codex/Claude を新規モデル候補へ戻すことはしない。
 
@@ -351,9 +365,9 @@ Cursor                                     18%
 - `web/src/components/codexbar/CodexBarWidget.test.tsx`
 - `use-codex-usage.test.tsx`
 
-**作業:** プロバイダー親行の展開、アカウント子行、account label、未ログイン状態、instanceId key、scope 切替時の stale response 防止、親行の最大値集計を追加。
+**作業:** プロバイダー親行の展開、アカウント子行、account label、未ログイン状態、instanceId key、scope 切替時の stale response 防止、子アカウントの平均%集計、親/子の上限件数表示を追加。
 
-**検証:** 同じ provider の A/B が同じ親行の別子行になること、親/子の折りたたみ、scope filter、refresh、旧 localStorage 移行、keyboard/accessibility を確認。
+**検証:** 同じ provider の A/B が同じ親行の別子行になること、A=100%・B=20%で親が平均60%になること、親/子の折りたたみ、未ログイン除外、scope filter、refresh、旧 localStorage 移行、keyboard/accessibility を確認。
 
 ### Phase 6: 回帰・手動確認
 
@@ -369,14 +383,15 @@ Cursor                                     18%
 
 1. アカウント A / B を作成し、異なる ChatGPT / Claude OAuth でログインする
 2. CodexBar の Codex/Claude 親行を展開すると、A/B の利用量が同じプロバイダー内の別子行になる
-3. A の利用量が B の子行・モデル候補へ混ざらない（必要なら account scope で A を絞り込む）
-4. A の refresh/401/429 と logout が B の子行・親行集計に影響しない
-5. account 登録後、通常表示に既定 Codex/Claude が混ざらない
-6. アカウント未登録時は既定 Pi auth と CLI fallback が従来どおり動く
-7. Cursor、OpenRouter、llama-server 等の共有プロバイダーは重複表示されない
-8. provider のグローバル enable/disable が全アカウントへ一貫して反映される
-9. アカウント rename 後も usage cache の内容と表示ラベルが一致する
-10. 稼働中タスクの runtime と CodexBar の refresh が auth file lock で競合しない
+3. A=100%・B=20%のとき、親は `平均 60%` であり100%にならない
+4. A の利用量が B の子行・モデル候補へ混ざらない（必要なら account scope で A を絞り込む）
+5. A の refresh/401/429 と logout が B の子行・親行集計に影響しない
+6. account 登録後、通常表示に既定 Codex/Claude が混ざらない
+7. アカウント未登録時は既定 Pi auth と CLI fallback が従来どおり動く
+8. Cursor、OpenRouter、llama-server 等の共有プロバイダーは重複表示されない
+9. provider のグローバル enable/disable が全アカウントへ一貫して反映される
+10. アカウント rename 後も usage cache の内容と表示ラベルが一致する
+11. 稼働中タスクの runtime と CodexBar の refresh が auth file lock で競合しない
 
 ## 非目標
 
