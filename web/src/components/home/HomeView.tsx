@@ -67,7 +67,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const [loaded, setLoaded] = useState(false);
   const [agents, setAgents] = useState<ComposerReference[]>([]);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
-  const [agent, setAgent] = useState("");
+  const [agent, setAgent] = useState(() => readStoredAgent() || DEFAULT_AGENT);
   const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
     () => readSubagentPermission(),
   );
