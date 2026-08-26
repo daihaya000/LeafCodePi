@@ -51,6 +51,12 @@ function mockAccountsApi() {
       if (method === "GET") return Promise.resolve(jsonResponse({ accounts }));
       if (method === "POST") return Promise.resolve(jsonResponse({}, 200));
     }
+    const statusMatch = url.match(/\/api\/accounts\/(acc-\d+)\/auth-status/);
+    if (statusMatch) {
+      // acc-1 は Codex 認証済み、acc-2 は未認証の想定
+      const providers = statusMatch[1] === "acc-1" ? ["openai-codex"] : [];
+      return Promise.resolve(jsonResponse({ providers }));
+    }
     return Promise.resolve(jsonResponse({}));
   });
 }
@@ -62,7 +68,7 @@ describe("ProviderAuthPanel accounts section", () => {
 
     expect(await screen.findByText("仕事用")).toBeTruthy();
     expect(screen.getByText("個人用")).toBeTruthy();
-    expect(screen.getByText("ChatGPT (Codex)")).toBeTruthy();
+    expect(screen.getByText("ChatGPT (Codex) 認証済")).toBeTruthy();
     expect(screen.getByText("Claude")).toBeTruthy();
     expect(screen.getByText("メイン")).toBeTruthy();
   });

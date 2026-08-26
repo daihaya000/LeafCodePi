@@ -68,6 +68,20 @@ export function accountModelsStorePath(id: string, agentDir: string): string {
   return join(accountDir(id, agentDir), "models-store.json");
 }
 
+/** アカウントの auth.json に保存済みのサブスクプロバイダー。SDK を介さない軽量ファイル読み。
+ *  読めない（未ログイン・破損・書込中）場合は空配列。 */
+export function accountStoredProviders(id: string, agentDir: string): AccountProviderId[] {
+  try {
+    const parsed = JSON.parse(readFileSync(accountAuthPath(id, agentDir), "utf8")) as
+      | Record<string, unknown>
+      | null;
+    if (!parsed || typeof parsed !== "object") return [];
+    return ACCOUNT_PROVIDER_IDS.filter((provider) => provider in parsed);
+  } catch {
+    return [];
+  }
+}
+
 function accountsPath(): string {
   return join(dataDir(), "accounts.json");
 }

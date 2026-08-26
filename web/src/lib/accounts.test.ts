@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
@@ -7,6 +7,7 @@ import {
   accountAuthPath,
   accountDir,
   accountModelsStorePath,
+  accountStoredProviders,
   createAccount,
   deleteAccount,
   getAccount,
@@ -57,6 +58,39 @@ describe("accounts path helpers", () => {
       accountModelsStorePath("a1", agentDir),
       join(agentDir, "accounts", "a1", "models-store.json"),
     );
+  });
+});
+
+describe("accountStoredProviders", () => {
+  it("reads known provider keys from the account auth file", () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "leafcode-pi-agentdir-"));
+    dirs.push(agentDir);
+    const dir = accountDir("acc-9", agentDir);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      accountAuthPath("acc-9", agentDir),
+      JSON.stringify({
+        "openai-codex": { type: "oauth" },
+        anthropic: { type: "oauth" },
+        cursor: { type: "oauth" },
+      }),
+      "utf8",
+    );
+    // 既知の2プロバイダーのみ（cursor等は対象外）、既定順で返す
+    assert.deepEqual(accountStoredProviders("acc-9", agentDir), [
+      "openai-codex",
+      "anthropic",
+    ]);
+  });
+
+  it("returns empty when auth file is missing or broken", () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "leafcode-pi-agentdir-"));
+    dirs.push(agentDir);
+    assert.deepEqual(accountStoredProviders("none", agentDir), []);
+    const broken = accountDir("broken", agentDir);
+    mkdirSync(broken, { recursive: true });
+    writeFileSync(accountAuthPath("broken", agentDir), "{oops", "utf8");
+    assert.deepEqual(accountStoredProviders("broken", agentDir), []);
   });
 });
 

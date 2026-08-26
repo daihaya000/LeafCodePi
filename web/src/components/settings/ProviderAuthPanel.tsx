@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Badge, Button, cx } from "@/components/ui";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ApiError, apiUrl, getJson, sendJson } from "@/lib/client";
-import type { AccountRecord } from "@/lib/accounts";
+import type { AccountProviderId, AccountRecord } from "@/lib/accounts";
 import type { LoginNotifyDto, LoginPromptDto, LoginSessionEvent } from "@/lib/pi/auth-login";
 import type { ProviderAuthDto } from "@/lib/types";
 
@@ -64,12 +64,27 @@ export function ProviderAuthPanel({
   const [accountBusy, setAccountBusy] = useState(false);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState("");
+  const [authStatuses, setAuthStatuses] = useState<Record<string, AccountProviderId[]>>({});
 
   async function refreshAccounts() {
     try {
       const res = await getJson<{ accounts: AccountRecord[] }>("/api/accounts");
       setAccounts(res.accounts);
       setAccountsError(null);
+      // 各アカウントの保存済みプロバイダー（軽量ファイル読み）を取得してバッジへ反映。
+      const statuses = await Promise.all(
+        res.accounts.map(async (account) => {
+          try {
+            const status = await getJson<{ providers: AccountProviderId[] }>(
+              `/api/accounts/${encodeURIComponent(account.id)}/auth-status`,
+            );
+            return [account.id, status.providers] as const;
+          } catch {
+            return [account.id, [] as AccountProviderId[]] as const;
+          }
+        }),
+      );
+      setAuthStatuses(Object.fromEntries(statuses));
     } catch (error) {
       setAccountsError(error instanceof ApiError ? error.message : String(error));
     }
@@ -382,9 +397,14 @@ export function ProviderAuthPanel({
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-medium">{account.label}</span>
                     {account.note && <span className="text-xs text-muted">{account.note}</span>}
-                    {account.providers.map((pid) => (
-                      <Badge key={pid}>{providerLabel(pid)}</Badge>
-                    ))}
+                    {account.providers.map((pid) => {
+                      const authenticated = authStatuses[account.id]?.includes(pid) === true;
+                      return (
+                        <Badge key={pid} tone={authenticated ? "success" : "neutral"}>
+                          {providerLabel(pid)}{authenticated ? " 認証済" : ""}
+                        </Badge>
+                      );
+                    })}
                     <Button
                       size="sm"
                       variant="ghost"
