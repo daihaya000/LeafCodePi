@@ -2,7 +2,12 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelOption } from "@/lib/types";
-import { ModelSelect, modelLimitReached, modelNearLimit } from "./ModelSelect";
+import {
+  ModelSelect,
+  modelLimitReached,
+  modelNearLimit,
+  modelOptionForValue,
+} from "./ModelSelect";
 
 function option(overrides: Partial<ModelOption> = {}): ModelOption {
   return {
@@ -39,6 +44,17 @@ describe("modelLimitReached", () => {
 
   it("is false when usage unknown", () => {
     expect(modelLimitReached(option())).toBe(false);
+  });
+});
+
+describe("modelOptionForValue", () => {
+  it("maps an old account-prefixed value to an integrated option only", () => {
+    const integrated = option({
+      value: "anthropic::claude",
+      routingMode: "integrated",
+    });
+    expect(modelOptionForValue([integrated], "acc-1::anthropic::claude")).toBe(integrated);
+    expect(modelOptionForValue([option({ value: "acc-2::anthropic::claude", accountId: "acc-2" })], "anthropic::claude")).toBeUndefined();
   });
 });
 

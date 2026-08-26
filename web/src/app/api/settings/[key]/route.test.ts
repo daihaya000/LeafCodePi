@@ -5,12 +5,14 @@ const settings = vi.hoisted(() => ({
   getSetting: vi.fn(),
   setSetting: vi.fn(),
 }));
+const accounts = vi.hoisted(() => ({ listAccounts: vi.fn() }));
 
 vi.mock("@/lib/pi/web-settings", () => ({
   MAX_SETTING_VALUE_CHARS: 4096,
   getSetting: settings.getSetting,
   setSetting: settings.setSetting,
 }));
+vi.mock("@/lib/accounts", () => ({ listAccounts: accounts.listAccounts }));
 
 import { GET, PUT } from "./route";
 
@@ -25,6 +27,7 @@ function request(key: string, body: unknown): NextRequest {
 describe("/api/settings/[key]", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    accounts.listAccounts.mockReturnValue([]);
     settings.getSetting.mockReturnValue("llama-server::local-model");
   });
 
@@ -60,6 +63,19 @@ describe("/api/settings/[key]", () => {
     expect(settings.setSetting).toHaveBeenCalledWith(
       "generation-model",
       "anthropic::claude-sonnet",
+    );
+  });
+
+  it("preserves a known account prefix when persisting a generation model", async () => {
+    accounts.listAccounts.mockReturnValue([{ id: "acc-1" }]);
+    const response = await PUT(
+      request("generation-model", { value: "acc-1::anthropic::claude-sonnet" }),
+      { params: Promise.resolve({ key: "generation-model" }) },
+    );
+    expect(response.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith(
+      "generation-model",
+      "acc-1::anthropic::claude-sonnet",
     );
   });
 
