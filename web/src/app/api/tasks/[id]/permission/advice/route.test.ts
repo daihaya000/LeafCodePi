@@ -4,9 +4,11 @@ import { POST } from "./route";
 
 const mocks = vi.hoisted(() => ({
   getSetting: vi.fn(),
+  getTask: vi.fn(),
   pendingPermissionForTask: vi.fn(),
 }));
 
+vi.mock("@/lib/store", () => ({ getTask: mocks.getTask }));
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 vi.mock("@/lib/pi/harness", () => ({ pendingPermissionForTask: mocks.pendingPermissionForTask }));
 
@@ -21,9 +23,11 @@ function request(body: unknown): NextRequest {
 describe("/api/tasks/[id]/permission/advice", () => {
   beforeEach(() => {
     mocks.getSetting.mockReset();
+    mocks.getTask.mockReset();
     mocks.pendingPermissionForTask.mockReset();
     vi.unstubAllGlobals();
     mocks.getSetting.mockReturnValue("llama-server::advice-model");
+    mocks.getTask.mockReturnValue({ id: "task-1", accountId: undefined });
     mocks.pendingPermissionForTask.mockReturnValue({
       id: "request-1",
       sessionId: "session-1",

@@ -116,6 +116,8 @@ export function extractDirectText(body: unknown): string {
 
 export async function generateDirectText(options: {
   model: DirectModel;
+  /** Account runtime for subscription models; null/undefined uses default. */
+  accountId?: string | null;
   system: string;
   prompt: string;
   maxTokens?: number;
@@ -152,6 +154,7 @@ export async function generateDirectText(options: {
       const reasoning = runtimeReasoningForEffort(options.effort);
       const text = await completeModelText({
         ...model,
+        ...(options.accountId ? { accountId: options.accountId } : {}),
         system,
         prompt,
         maxTokens: options.maxTokens,

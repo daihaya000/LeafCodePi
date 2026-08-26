@@ -1139,8 +1139,17 @@ export function TaskView({
     }
   }, [permissionMode, resumingTurn, subagentPermission, taskId, working]);
 
-  const modelValue =
-    task?.providerID && task.modelID ? `${task.providerID}::${task.modelID}` : models[0]?.value ?? "";
+  const plainTaskModelValue =
+    task?.providerID && task.modelID ? `${task.providerID}::${task.modelID}` : "";
+  const accountTaskModel = task?.accountId
+    ? models.find(
+        (option) =>
+          option.accountId === task.accountId &&
+          option.providerID === task.providerID &&
+          option.modelID === task.modelID,
+      )
+    : undefined;
+  const modelValue = accountTaskModel?.value ?? (plainTaskModelValue || models[0]?.value || "");
   const selectedModel = models.find((option) => option.value === modelValue);
   const thinkingLevels = useMemo(
     () => selectedModel?.thinkingLevels ?? (["off"] as ThinkingLevel[]),

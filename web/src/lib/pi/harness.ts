@@ -493,11 +493,26 @@ function modelValue(providerID: string, modelID: string): string {
   return `${providerID}::${modelID}`;
 }
 
-function parseModelValue(value: string | undefined): { providerID: string; modelID: string } | null {
+type ParsedModelValue = {
+  accountId?: string;
+  providerID: string;
+  modelID: string;
+};
+
+function parseModelValue(value: string | undefined): ParsedModelValue | null {
   if (!value) return null;
-  const separator = value.indexOf("::");
-  if (separator <= 0) return null;
-  return { providerID: value.slice(0, separator), modelID: value.slice(separator + 2) };
+  const parts = value.split("::");
+  if (parts.length === 2 && parts[0] && parts[1]) {
+    return { providerID: parts[0], modelID: parts[1] };
+  }
+  if (parts.length >= 3 && parts[0] && parts[1] && parts.slice(2).join("::")) {
+    return {
+      accountId: parts[0],
+      providerID: parts[1],
+      modelID: parts.slice(2).join("::"),
+    };
+  }
+  return null;
 }
 
 function modelId(model: Model | undefined): { providerID?: string; modelID?: string } {
@@ -1338,11 +1353,14 @@ async function createSession(options: {
   return { session: result.session, skillPermissionRef };
 }
 
-async function resolveModel(value: string | undefined): Promise<Model | undefined> {
+async function resolveModel(
+  value: string | undefined,
+  accountId?: string | null,
+): Promise<Model | undefined> {
   await ensureRuntime();
-  const runtime = await getRuntimeFor();
-  if (!runtime) return undefined;
   const parsed = parseModelValue(value);
+  const runtime = await getRuntimeFor(accountId ?? parsed?.accountId);
+  if (!runtime) return undefined;
   if (!parsed) return undefined;
   const found = runtime.getModel(parsed.providerID, parsed.modelID);
   return found ?? undefined;
@@ -1400,6 +1418,7 @@ async function ensureLive(taskId: string): Promise<LiveRuntime> {
     const cwd = project?.rootPath ?? task.directory;
     const model = await resolveModel(
       task.providerID && task.modelID ? modelValue(task.providerID, task.modelID) : undefined,
+      task.accountId ?? null,
     );
     const setup = await createSession({
       cwd,
@@ -2144,17 +2163,24 @@ export async function createTask(input: {
   if (!project) throw Object.assign(new Error("プロジェクトが見つかりません"), { status: 404 });
   patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
   const parsed = parseModelValue(input.model);
+  const requestedAccountId = input.accountId?.trim() || parsed?.accountId;
+  if (input.accountId && parsed?.accountId && input.accountId !== parsed.accountId) {
+    throw Object.assign(new Error("モデルとアカウントの指定が一致しません"), { status: 400 });
+  }
+  if (requestedAccountId && !getAccount(requestedAccountId)) {
+    throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
+  }
   const task = insertTask({
     project,
     title: titleFromPrompt(input.prompt),
     thinkingLevel: input.thinkingLevel,
     providerID: parsed?.providerID,
     modelID: parsed?.modelID,
-    ...(input.accountId ? { accountId: input.accountId } : {}),
+    ...(requestedAccountId ? { accountId: requestedAccountId } : {}),
     ...(input.agent ? { agent: input.agent.trim() } : {}),
     ...(input.skillPermission ? { skillPermission: input.skillPermission } : {}),
   });
-  const model = await resolveModel(input.model);
+  const model = await resolveModel(input.model, requestedAccountId ?? null);
   const requestedThinking = isThinkingLevel(input.thinkingLevel) ? input.thinkingLevel : "off";
   const thinkingLevel = model
     ? clampThinkingLevelForModel(model, requestedThinking)
@@ -2162,7 +2188,7 @@ export async function createTask(input: {
   const setup = await createSession({
     cwd: project.rootPath,
     sessionName: task.title,
-    accountId: input.accountId ?? null,
+    accountId: requestedAccountId ?? null,
     model,
     thinkingLevel,
     subagentPermission: input.subagentPermission,
@@ -2444,10 +2470,17 @@ export async function abortTask(id: string): Promise<TaskSummary> {
 }
 
 export async function setTaskModel(id: string, modelValueRaw: string): Promise<TaskSummary> {
-  const live = await ensureLive(id);
+  const task = getTask(id);
   const parsed = parseModelValue(modelValueRaw);
-  const model = await resolveModel(modelValueRaw);
-  if (!model || !parsed) throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+  if (!task || !parsed) {
+    throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+  }
+  if (parsed.accountId && parsed.accountId !== (task.accountId ?? null)) {
+    throw Object.assign(new Error("実行中タスクのアカウントは変更できません"), { status: 400 });
+  }
+  const live = await ensureLive(id);
+  const model = await resolveModel(modelValueRaw, task.accountId ?? null);
+  if (!model) throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
   await live.session.setModel(model);
   const ids = modelId(live.session.model ?? model);
   const current = isThinkingLevel(live.session.thinkingLevel)
@@ -2460,13 +2493,13 @@ export async function setTaskModel(id: string, modelValueRaw: string): Promise<T
   if (live.session.thinkingLevel !== thinkingLevel) {
     live.session.setThinkingLevel(thinkingLevel);
   }
-  const task = patchTask(id, {
+  const updatedTask = patchTask(id, {
     providerID: ids.providerID ?? parsed.providerID,
     modelID: ids.modelID ?? parsed.modelID,
     thinkingLevel,
   });
-  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  const summary = toSummary(task);
+  if (!updatedTask) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const summary = toSummary(updatedTask);
   emit(id, {
     type: "snapshot",
     task: summary,

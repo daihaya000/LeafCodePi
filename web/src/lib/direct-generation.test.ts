@@ -38,6 +38,7 @@ describe("direct-generation", () => {
     await expect(
       generateDirectText({
         model: { providerID: "ollama-cloud", modelID: "qwen3" },
+        accountId: "acc-1",
         system: "system",
         prompt: "prompt",
         maxTokens: 64,
@@ -48,6 +49,7 @@ describe("direct-generation", () => {
       expect.objectContaining({
         providerID: "ollama-cloud",
         modelID: "qwen3",
+        accountId: "acc-1",
         system: "system",
         prompt: "prompt",
         maxTokens: 64,

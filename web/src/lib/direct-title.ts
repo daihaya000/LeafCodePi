@@ -50,6 +50,7 @@ export async function refreshTaskTitleDirect(
 
   const generated = await generateDirectTextWithFallbackResult({
     candidates,
+    accountId: task.accountId,
     system: TITLE_SYSTEM_INSTRUCTION,
     prompt,
     maxTokens: 80,

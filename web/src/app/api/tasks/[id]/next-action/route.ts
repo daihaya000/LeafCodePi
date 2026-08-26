@@ -78,6 +78,7 @@ export async function POST(
   try {
     const generated = await generateDirectTextWithFallbackResult({
       candidates,
+      accountId: task.accountId,
       system: NEXT_ACTION_SYSTEM_INSTRUCTION,
       prompt,
       maxTokens: 96,

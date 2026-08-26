@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getTask } from "@/lib/store";
 import { getSetting } from "@/lib/pi/web-settings";
 import {
   GENERATION_FALLBACK_MODEL_SETTING_KEY,
@@ -63,7 +64,8 @@ export async function POST(
 
   const { id } = await params;
   const permission = pendingPermissionForTask(id);
-  if (!permission || permission.id !== requestId) {
+  const task = getTask(id);
+  if (!permission || permission.id !== requestId || !task) {
     return NextResponse.json({ error: "permission request not found" }, { status: 404 });
   }
 
@@ -80,6 +82,7 @@ export async function POST(
   try {
     const generated = await generateDirectTextWithFallbackResult({
       candidates,
+      accountId: task.accountId,
       system: PERMISSION_ADVICE_SYSTEM_INSTRUCTION,
       prompt: permissionAdvicePrompt(permission.command, permission.labels),
       maxTokens: 160,
