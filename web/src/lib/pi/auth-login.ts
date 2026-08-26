@@ -28,7 +28,12 @@ export type LoginNotifyDto =
   | { type: "progress"; message: string };
 
 export type LoginSessionEvent =
-  | { type: "started"; providerId: string; authType: AuthTypeDto }
+  | {
+      type: "started";
+      providerId: string;
+      authType: AuthTypeDto;
+      accountId?: string | null;
+    }
   | { type: "notify"; event: LoginNotifyDto }
   | { type: "prompt"; id: string; prompt: LoginPromptDto }
   | { type: "done"; ok: true; warning?: string }
@@ -52,6 +57,8 @@ export class ProviderLoginSession {
   constructor(
     readonly providerId: string,
     readonly authType: AuthTypeDto,
+    /** 対象アカウント（null = 既定の ~/.pi/agent/auth.json）。 */
+    readonly accountId: string | null = null,
   ) {
     this.events.setMaxListeners(20);
   }
@@ -68,7 +75,12 @@ export class ProviderLoginSession {
   }
 
   async run(runtime: ModelRuntime): Promise<void> {
-    this.emit({ type: "started", providerId: this.providerId, authType: this.authType });
+    this.emit({
+      type: "started",
+      providerId: this.providerId,
+      authType: this.authType,
+      accountId: this.accountId,
+    });
     try {
       await runtime.login(this.providerId, this.authType, {
         signal: this.abort.signal,

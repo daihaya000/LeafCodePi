@@ -28,6 +28,7 @@ export async function GET(
         providerId: active.providerId,
         authType: active.authType,
         sessionId: active.sessionId,
+        accountId: active.accountId,
       });
       try {
         unsubscribe = subscribeProviderLogin((payload) => {

@@ -13,7 +13,9 @@ export async function POST(
     const { id } = await params;
     const body = (await req.json().catch(() => ({}))) as { type?: string };
     const authType = (body.type === "api_key" ? "api_key" : "oauth") as AuthTypeDto;
-    const result = await startProviderLogin(id, authType);
+    // docs/plans/multi-account.md Phase 4。null = 既定（~/.pi/agent/auth.json）。
+    const accountId = new URL(req.url).searchParams.get("accountId");
+    const result = await startProviderLogin(id, authType, accountId);
     return NextResponse.json(result);
   } catch (error) {
     const { error: message, status } = jsonError(error);

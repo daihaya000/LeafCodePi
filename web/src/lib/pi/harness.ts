@@ -1632,10 +1632,11 @@ export async function listProviderAuth(): Promise<ProviderAuthDto[]> {
 export async function startProviderLogin(
   providerId: string,
   authType: AuthTypeDto,
+  accountId?: string | null,
 ): Promise<{ sessionId: string }> {
   await ensureRuntime();
   const current = state();
-  const runtime = getRuntimeFor();
+  const runtime = getRuntimeFor(accountId);
   if (!runtime) throw Object.assign(new Error("Pi runtime が初期化されていません"), { status: 503 });
   const provider = runtime.getProvider(providerId);
   if (!provider) throw Object.assign(new Error(`不明なプロバイダー: ${providerId}`), { status: 404 });
@@ -1650,7 +1651,7 @@ export async function startProviderLogin(
     current.loginSession.cancel();
     current.loginSession = null;
   }
-  const session = new ProviderLoginSession(providerId, authType);
+  const session = new ProviderLoginSession(providerId, authType, accountId ?? null);
   current.loginSession = session;
   // Let the SSE client attach before the OAuth flow emits prompts.
   queueMicrotask(() => {
@@ -1684,15 +1685,25 @@ export function subscribeProviderLogin(listener: (event: LoginSessionEvent) => v
   return session.subscribe(listener);
 }
 
-export function getActiveProviderLogin(): { sessionId: string; providerId: string; authType: AuthTypeDto } | null {
+export function getActiveProviderLogin(): {
+  sessionId: string;
+  providerId: string;
+  authType: AuthTypeDto;
+  accountId: string | null;
+} | null {
   const session = state().loginSession;
   if (!session) return null;
-  return { sessionId: session.id, providerId: session.providerId, authType: session.authType };
+  return {
+    sessionId: session.id,
+    providerId: session.providerId,
+    authType: session.authType,
+    accountId: session.accountId,
+  };
 }
 
-export async function logoutProvider(providerId: string): Promise<void> {
+export async function logoutProvider(providerId: string, accountId?: string | null): Promise<void> {
   await ensureRuntime();
-  const runtime = getRuntimeFor();
+  const runtime = getRuntimeFor(accountId);
   if (!runtime) throw Object.assign(new Error("Pi runtime が初期化されていません"), { status: 503 });
   if (!runtime.getProvider(providerId)) {
     throw Object.assign(new Error(`不明なプロバイダー: ${providerId}`), { status: 404 });
