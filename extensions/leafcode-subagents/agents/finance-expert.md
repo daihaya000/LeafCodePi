@@ -1,7 +1,7 @@
 ---
 name: finance-expert
 description: Japanese finance expert subagent. Answers questions about 為替/FX/NISA/投資信託/株式/債券/税制/資産運用/日本の金融制度. Use when the user asks about Japanese financial topics, currency markets, tax-advantaged accounts, or personal investing in Japan. Returns sourced, up-to-date information; does not modify project files.
-tools: read, memory_search, powershell, bash
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, powershell, bash
 model: openai-codex/gpt-5.6-luna
 thinking: max
 systemPromptMode: replace

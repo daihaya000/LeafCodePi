@@ -6,7 +6,7 @@ thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: true
-tools: read, memory_search, grep, find, ls, powershell, bash, edit, write, contact_supervisor
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, grep, find, ls, powershell, bash, edit, write, contact_supervisor
 defaultContext: fork
 defaultReads: context.md, plan.md
 defaultProgress: true

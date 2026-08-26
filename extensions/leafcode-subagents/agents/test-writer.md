@@ -1,7 +1,7 @@
 ---
 name: test-writer
 description: Writes and runs automated tests (unit, integration, regression). Use when the task is adding test coverage, reproducing a bug as a failing test, or fixing broken tests — without changing production code.
-tools: read, memory_search, grep, find, ls, powershell, bash, edit, write
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, grep, find, ls, powershell, bash, edit, write
 model: openai-codex/gpt-5.6-luna
 thinking: max
 systemPromptMode: replace

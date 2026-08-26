@@ -1,7 +1,7 @@
 ---
 name: docs-writer
 description: "Writes and updates project documentation (README, API docs, guides, changelogs). Use when the task is documentation-only work with no code changes."
-tools: read, memory_search, grep, find, ls, powershell, bash, edit, write
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, grep, find, ls, powershell, bash, edit, write
 model: openai-codex/gpt-5.6-luna
 thinking: max
 systemPromptMode: replace
