@@ -531,6 +531,17 @@ describe("retargetActiveTab", () => {
     expect(next.panes[0].activeTabId).toBe("fresh");
   });
 
+  it("HomeView と同じペインで実タスクを開く", () => {
+    const base = state(pane(P1, ["existing"]), pane(P2, [HOME_TAB_ID]), pane(P3, ["other"]));
+    const next = retargetActiveTab(base, "fresh");
+    expect(next.activePaneId).toBe(P2);
+    expect(next.panes).toEqual([
+      pane(P1, ["existing"]),
+      pane(P2, ["fresh"]),
+      pane(P3, ["other"]),
+    ]);
+  });
+
   it("実タスクから Home へ戻ると Home タブを開く", () => {
     const base = state(pane(P1, ["task-a"]));
     const next = retargetActiveTab(base, HOME_TAB_ID);

@@ -468,7 +468,25 @@ export function retargetActiveTab(
   // 新規作成（Home）タブは入口であり、実タスクを開いたら自動クローズする。
   // Home へ戻る遷移では既存タブを活性化、または通常どおり追加する。
   if (urlTaskId !== HOME_TAB_ID) {
+    // HomeView から開始したタスクは、Home タブのあるペインで置き換える。
     // 残ると非表示マウントの HomeView がポーリングし続け、URL/projectId も不整合になる
+    const homePane = state.panes.find((pane) => pane.tabs.includes(HOME_TAB_ID));
+    const existing = state.panes.find((pane) => pane.tabs.includes(urlTaskId));
+    if (homePane && !existing) {
+      return {
+        ...state,
+        activePaneId: homePane.id,
+        panes: state.panes.map((pane) =>
+          pane.id === homePane.id
+            ? {
+                ...pane,
+                tabs: pane.tabs.map((tabId) => (tabId === HOME_TAB_ID ? urlTaskId : tabId)),
+                activeTabId: urlTaskId,
+              }
+            : pane,
+        ),
+      };
+    }
     state = removeTaskEverywhere(state, HOME_TAB_ID);
   }
   const existing = state.panes.find((pane) => pane.tabs.includes(urlTaskId));
