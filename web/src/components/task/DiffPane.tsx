@@ -70,6 +70,7 @@ const FileDiffBlock = memo(function FileDiffBlock({
   expanded,
   selected,
   sideBySide,
+  changesOnly,
   busy,
   onToggle,
   onSelect,
@@ -79,6 +80,7 @@ const FileDiffBlock = memo(function FileDiffBlock({
   expanded: boolean;
   selected: boolean;
   sideBySide: boolean;
+  changesOnly: boolean;
   busy: boolean;
   onToggle: (path: string) => void;
   onSelect: (path: string, v: boolean) => void;
@@ -168,6 +170,7 @@ const FileDiffBlock = memo(function FileDiffBlock({
                 {hunk.header}
               </div>
               {hunk.lines.map((line, li) => {
+                if (changesOnly && line.t === " ") return null;
                 if (rendered >= MAX_LINES_PER_FILE) return null;
                 rendered += 1;
                 if (sideBySide) {
@@ -262,6 +265,7 @@ export function DiffPane({
   const [prTitle, setPrTitle] = useState("");
   const [prAvailable, setPrAvailable] = useState<boolean | null>(null);
   const [sideBySide, setSideBySide] = useState(false);
+  const [changesOnly, setChangesOnly] = useState(false);
   const [filter, setFilter] = useState<"all" | "tracked" | "untracked">("all");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -591,6 +595,16 @@ export function DiffPane({
           >
             <RefreshCw className={cx("h-4 w-4", loading && "animate-spin")} />
           </Button>
+          <Button
+            variant={changesOnly ? "secondary" : "ghost"}
+            size="sm"
+            className="inline-flex"
+            aria-label="コンテキスト行を隠して変更行のみ表示"
+            title="コンテキスト行を隠して変更行のみ表示"
+            onClick={() => setChangesOnly((v) => !v)}
+          >
+            変更のみ
+          </Button>
           <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
           <Button
             variant={panel === "commit" ? "secondary" : "ghost"}
@@ -875,6 +889,7 @@ export function DiffPane({
             expanded={Boolean(expanded[f.path])}
             selected={!deselected[f.path]}
             sideBySide={sideBySide}
+            changesOnly={changesOnly}
             busy={busy}
             onToggle={toggleFile}
             onSelect={selectFile}

@@ -86,6 +86,11 @@
   --terminal-text: #f4f4f5;
   --terminal-muted: #a1a1aa;
   --terminal-border: #27272a;
+  --diff-add-bg: #0f2e1d;
+  --diff-add-text: #4ade80;
+  --diff-del-bg: #2c1618;
+  --diff-del-text: #f87171;
+  --diff-hunk-bg: #20242c;
 }
 
 @theme inline {
@@ -113,6 +118,11 @@
   --color-terminal-text: var(--terminal-text);
   --color-terminal-muted: var(--terminal-muted);
   --color-terminal-border: var(--terminal-border);
+  --color-diff-add-bg: var(--diff-add-bg);
+  --color-diff-add-text: var(--diff-add-text);
+  --color-diff-del-bg: var(--diff-del-bg);
+  --color-diff-del-text: var(--diff-del-text);
+  --color-diff-hunk-bg: var(--diff-hunk-bg);
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }

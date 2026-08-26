@@ -126,4 +126,61 @@ describe("DiffPane 全選択", () => {
     fireEvent.click(screen.getByRole("button", { name: "Commit パネル" }));
     expect(screen.getByRole("button", { name: "コミット (1)" })).toBeTruthy();
   });
+
+  it("変更のみ表示でコンテキスト行が隠れ、変更行は残る", async () => {
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/diff/files") {
+        return Promise.resolve({
+          git: true,
+          branch: "master",
+          files: [
+            {
+              path: "src/a.ts",
+              additions: 1,
+              deletions: 1,
+              binary: false,
+              untracked: false,
+              hunks: [
+                {
+                  header: "@@ -1,3 +1,3 @@",
+                  lines: [
+                    { t: " ", text: "const a = 1;" },
+                    { t: "-", text: "const b = 2;" },
+                    { t: "+", text: "const b = 3;" },
+                  ],
+                },
+              ],
+            },
+          ],
+          additions: 1,
+          deletions: 1,
+        });
+      }
+      if (path === "/api/git/branches") {
+        return Promise.resolve({
+          current: "master",
+          branches: ["master"],
+          defaultTarget: null,
+          hasRemote: false,
+        });
+      }
+      if (path === "/api/git/pr") return Promise.resolve({ available: false });
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+    render(<DiffPane directory="C:\\repo" />);
+    await screen.findByText("a.ts");
+
+    fireEvent.click(screen.getByRole("button", { name: "src/a.ts の差分を展開" }));
+    const card = screen.getByRole("button", { name: "src/a.ts の差分を折りたたむ" }).closest(
+      ".rounded-xl",
+    );
+    const diffArea = card?.querySelector(".overflow-x-auto");
+    expect(diffArea?.textContent).toContain("const a = 1;");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "コンテキスト行を隠して変更行のみ表示" }),
+    );
+    expect(diffArea?.textContent).not.toContain("const a = 1;");
+    expect(diffArea?.textContent).toContain("const b = 3;");
+  });
 });
