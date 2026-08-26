@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
   ChevronDown,
@@ -388,7 +388,6 @@ export function TaskView({
   const contentRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const lastScrollTopRef = useRef(0);
-  const scrollRafRef = useRef<number | null>(null);
   const previousWorkingRef = useRef(false);
   const titleTaskRef = useRef(taskId);
   // メッセージ間をジャンプするナビゲーター（本家 LeafCode と同じ）。
@@ -707,10 +706,6 @@ export function TaskView({
       closed = true;
       if (retryTimer) clearTimeout(retryTimer);
       source?.close();
-      if (scrollRafRef.current != null) {
-        cancelAnimationFrame(scrollRafRef.current);
-        scrollRafRef.current = null;
-      }
     };
   }, [taskId, applyDetail, notifySidebarIfNeeded]);
 
@@ -723,13 +718,8 @@ export function TaskView({
 
   const scheduleScrollToBottom = useCallback(() => {
     if (!stickRef.current) return;
-    if (scrollRafRef.current != null) return;
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = null;
-      const el = scrollRef.current;
-      if (!el || !stickRef.current) return;
-      scrollToBottom(el);
-    });
+    const el = scrollRef.current;
+    if (el) scrollToBottom(el);
   }, [scrollToBottom]);
 
   const onScroll = useCallback(() => {
@@ -781,7 +771,7 @@ export function TaskView({
     stickRef.current = true;
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     stickRef.current = true;
     lastScrollTopRef.current = 0;
     setIsReverted(false);
@@ -791,7 +781,7 @@ export function TaskView({
     setQueuedAutoSend(false);
   }, [taskId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     scheduleScrollToBottom();
   }, [messages, task?.isStreaming, isCompacting, scheduleScrollToBottom]);
 
