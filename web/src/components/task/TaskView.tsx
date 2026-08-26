@@ -36,6 +36,7 @@ import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { PartView, WorkingRow } from "@/components/task/PartView";
 import { PermissionAdvice } from "@/components/task/PermissionAdvice";
+import { TaskAccountBadge } from "@/components/task/TaskAccountBadge";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import {
   QueuedFollowUpsNotice,
@@ -1422,6 +1423,12 @@ export function TaskView({
               <>
                 <span className="mx-1 shrink-0">·</span>
                 <span className="truncate">{task.projectName}</span>
+              </>
+            )}
+            {task?.accountId && (
+              <>
+                <span className="mx-1 shrink-0">·</span>
+                <TaskAccountBadge accountId={task.accountId} className="truncate" />
               </>
             )}
             {contextUsage && (
