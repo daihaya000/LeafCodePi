@@ -248,6 +248,7 @@ export function DiffPane({
   const [panel, setPanel] = useState<null | "commit" | "merge" | "pr">(null);
   const [commitMsg, setCommitMsg] = useState("");
   const [commitModel, setCommitModel] = useState<DirectGenerationModel | null>(null);
+  const [generatingCommitMessage, setGeneratingCommitMessage] = useState(false);
   const [branches, setBranches] = useState<BranchInfo | null>(null);
   const [mergeTarget, setMergeTarget] = useState("");
   const [prTitle, setPrTitle] = useState("");
@@ -309,6 +310,7 @@ export function DiffPane({
     setNotice(null);
     setCommitMsg("");
     setCommitModel(null);
+    setGeneratingCommitMessage(false);
     setPrTitle("");
     setMergeTarget("");
     setPanel(null);
@@ -608,6 +610,7 @@ export function DiffPane({
           <input
             value={commitMsg}
             onChange={(e) => setCommitMsg(e.target.value)}
+            disabled={generatingCommitMessage || busy}
             aria-label="コミットメッセージ"
             placeholder="コミットメッセージ"
             className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong"
@@ -634,10 +637,14 @@ export function DiffPane({
             variant="ghost"
             size="md"
             className="w-full shrink-0 sm:w-auto"
-            disabled={selectedPaths.length === 0}
+            busy={generatingCommitMessage}
+            disabled={busy || selectedPaths.length === 0}
             title="選択したファイルからメッセージ案を生成"
             onClick={async () => {
+              if (generatingCommitMessage || busy) return;
               const selectedFiles = files.filter((f) => !deselected[f.path]);
+              setGeneratingCommitMessage(true);
+              setError(null);
               try {
                 const result = await sendJson<{ message: string; warning?: string; model?: unknown }>(
                   "/api/git/commit-message",
@@ -655,17 +662,24 @@ export function DiffPane({
                   ),
                 );
                 setError(error instanceof Error ? error.message : "コミットメッセージの生成に失敗しました");
+              } finally {
+                if (mountedRef.current) setGeneratingCommitMessage(false);
               }
             }}
           >
-            生成
+            {generatingCommitMessage ? "生成中…" : "生成"}
           </Button>
+          {generatingCommitMessage && (
+            <span role="status" aria-live="polite" className="text-xs text-muted">
+              コミットメッセージを生成中…
+            </span>
+          )}
           <Button
             variant="primary"
             size="md"
             className="w-full shrink-0 sm:w-auto"
             busy={busy}
-            disabled={!commitMsg.trim() || selectedPaths.length === 0}
+            disabled={generatingCommitMessage || !commitMsg.trim() || selectedPaths.length === 0}
             onClick={() => void commit()}
           >
             コミット ({selectedPaths.length})
