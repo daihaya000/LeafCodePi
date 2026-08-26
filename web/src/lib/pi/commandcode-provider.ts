@@ -113,24 +113,32 @@ export function syncCommandCodeApiKeyEnv(): void {
   if (alt) process.env.COMMANDCODE_API_KEY = alt;
 }
 
-/**
- * Load pi-commandcode-provider (patlux).
- *
- * Transport selection (in-package):
- * - Provider API (`/provider/v1/...`) when the account allows it
- * - `/alpha/generate` only after Provider API returns `403 upgrade_required` (Go plan)
- *
- * Unofficial community extension; Command Code terms apply.
- */
-export async function registerCommandCodeProvider(runtime: ModelRuntime): Promise<void> {
-  if (runtime.getProvider(COMMANDCODE_PROVIDER_ID)) return;
+type CommandCodeRegistration =
+  | { kind: "provider"; name: string; config: Record<string, unknown> }
+  | { kind: "native"; provider: { id: string } };
 
-  syncCommandCodeApiKeyEnv();
+const REGISTRATION_KEY = "__leafcodeCommandCodeRegistration" as const;
 
+function registrationPromise(): Promise<CommandCodeRegistration[] | null> {
+  const globalRef = globalThis as typeof globalThis & {
+    [REGISTRATION_KEY]?: Promise<CommandCodeRegistration[] | null>;
+  };
+  if (!globalRef[REGISTRATION_KEY]) {
+    globalRef[REGISTRATION_KEY] = loadCommandCodeRegistrations();
+  }
+  return globalRef[REGISTRATION_KEY];
+}
+
+/** @internal テスト用。プロセス共有の拡張ロード結果を破棄する。 */
+export function __resetCommandCodeProviderCacheForTests(): void {
+  delete (globalThis as typeof globalThis & { [REGISTRATION_KEY]?: unknown })[REGISTRATION_KEY];
+}
+
+async function loadCommandCodeRegistrations(): Promise<CommandCodeRegistration[] | null> {
   const entry = resolveCommandCodeExtensionEntry();
   if (!entry) {
     console.warn("[LeafCodePi] pi-commandcode-provider is not installed");
-    return;
+    return null;
   }
 
   let factory: ((api: ExtensionApiStub) => void | Promise<void>) | null = null;
@@ -145,20 +153,21 @@ export async function registerCommandCodeProvider(runtime: ModelRuntime): Promis
       "[LeafCodePi] pi-commandcode-provider could not be loaded:",
       error instanceof Error ? error.message : error,
     );
-    return;
+    return null;
   }
   if (!factory) {
     console.warn("[LeafCodePi] pi-commandcode-provider has no default factory export");
-    return;
+    return null;
   }
 
+  const registrations: CommandCodeRegistration[] = [];
   const api: ExtensionApiStub = {
     registerProvider(nameOrProvider, config) {
-      if (typeof nameOrProvider === "string") {
-        runtime.registerProvider(nameOrProvider, withImageDowngrade(config ?? {}) as never);
-        return;
-      }
-      runtime.registerNativeProvider(nameOrProvider as never);
+      registrations.push(
+        typeof nameOrProvider === "string"
+          ? { kind: "provider", name: nameOrProvider, config: config ?? {} }
+          : { kind: "native", provider: nameOrProvider },
+      );
     },
     on() {
       /* message_end overflow hook is optional in the WebUI BFF */
@@ -170,12 +179,40 @@ export async function registerCommandCodeProvider(runtime: ModelRuntime): Promis
 
   try {
     await factory(api);
+    return registrations;
   } catch (error) {
     console.warn(
       "[LeafCodePi] commandcode provider registration failed:",
       error instanceof Error ? error.message : error,
     );
-    return;
+    return null;
+  }
+}
+
+/**
+ * Load pi-commandcode-provider (patlux).
+ *
+ * Transport selection (in-package):
+ * - Provider API (`/provider/v1/...`) when the account allows it
+ * - `/alpha/generate` only after Provider API returns `403 upgrade_required` (Go plan)
+ *
+ * Unofficial community extension; Command Code terms apply.
+ */
+export async function registerCommandCodeProvider(runtime: ModelRuntime): Promise<void> {
+  if (runtime.getProvider(COMMANDCODE_PROVIDER_ID)) return;
+
+  syncCommandCodeApiKeyEnv();
+  const registrations = await registrationPromise();
+  if (!registrations || runtime.getProvider(COMMANDCODE_PROVIDER_ID)) return;
+  for (const registration of registrations) {
+    if (registration.kind === "provider") {
+      runtime.registerProvider(
+        registration.name,
+        withImageDowngrade(registration.config) as never,
+      );
+    } else {
+      runtime.registerNativeProvider(registration.provider as never);
+    }
   }
 
   if (!runtime.getProvider(COMMANDCODE_PROVIDER_ID)) {

@@ -77,6 +77,7 @@ import {
   accountAuthPath,
   accountHasProvider,
   accountModelsStorePath,
+  accountStoredProviders,
   getAccount,
   isAccountProviderId,
   listAccounts,
@@ -215,6 +216,8 @@ type HarnessState = {
   healthCache: HealthCacheEntry | null;
   modelCache: ModelCacheEntry | null;
   modelInflight: Promise<ModelOption[]> | null;
+  accountModelCache: AccountModelCacheEntry | null;
+  accountModelInflight: AccountModelInflight | null;
   watchdogRegistered: boolean;
   lastProviderSyncWarnings: string[];
 };
@@ -369,6 +372,8 @@ function state(): HarnessState {
       healthCache: null,
       modelCache: null,
       modelInflight: null,
+      accountModelCache: null,
+      accountModelInflight: null,
       watchdogRegistered: false,
       lastProviderSyncWarnings: [],
     };
@@ -441,11 +446,26 @@ function accountRuntimeManager(): AccountRuntimeManager {
   return current.accountRuntimes;
 }
 
+const OPTIONAL_PROVIDERS_KEY = "__leafcodePiOptionalProviders" as const;
+
 async function ensureOptionalProviders(runtime: ModelRuntime): Promise<void> {
-  // Idempotent: skip when already registered. Safe after HMR / late wiring.
-  await registerCursorProvider(runtime);
-  await registerCommandCodeProvider(runtime);
-  await registerOllamaCloudProvider(runtime);
+  const globalRef = globalThis as typeof globalThis & {
+    [OPTIONAL_PROVIDERS_KEY]?: WeakMap<object, Promise<void>>;
+  };
+  const promises = globalRef[OPTIONAL_PROVIDERS_KEY] ??= new WeakMap();
+  const existing = promises.get(runtime);
+  if (existing) return existing;
+  const promise = (async () => {
+    await registerCursorProvider(runtime);
+    await registerCommandCodeProvider(runtime);
+    await registerOllamaCloudProvider(runtime);
+  })();
+  promises.set(runtime, promise);
+  try {
+    await promise;
+  } finally {
+    if (promises.get(runtime) === promise) promises.delete(runtime);
+  }
 }
 
 async function ensureRuntime(): Promise<void> {
@@ -1643,6 +1663,8 @@ const MODEL_TTL_MS = 15_000;
 
 type HealthCacheEntry = { at: number; value: HealthDto };
 type ModelCacheEntry = { at: number; value: ModelOption[] };
+type AccountModelCacheEntry = ModelCacheEntry & { key: string };
+type AccountModelInflight = { key: string; promise: Promise<ModelOption[]> };
 
 /** Fresh cache entries only; unhealthy snapshots are never cached (see below). */
 export function readHealthCache(
@@ -1685,6 +1707,31 @@ export function invalidateHealthCache(): void {
   const current = state();
   current.healthCache = null;
   current.modelCache = null;
+  current.accountModelCache = null;
+}
+
+function accountModelsKey(
+  accounts: readonly Pick<AccountRecord, "id" | "label" | "providers">[],
+): string {
+  return JSON.stringify(
+    accounts.map((account) => [account.id, account.label, account.providers]),
+  );
+}
+
+async function hasStoredAccountProvider(
+  accounts: readonly Pick<AccountRecord, "id" | "providers">[],
+): Promise<boolean> {
+  if (accounts.length === 0) return false;
+  try {
+    const agentDir = await resolvePiAgentDir();
+    return accounts.some((account) =>
+      accountStoredProviders(account.id, agentDir).some((provider) =>
+        accountHasProvider(account, provider),
+      ),
+    );
+  } catch {
+    return false;
+  }
 }
 
 export async function getHealth(): Promise<HealthDto> {
@@ -1697,15 +1744,25 @@ export async function getHealth(): Promise<HealthDto> {
     /* initError is set */
   }
   const current = state();
-  const models = (await getRuntimeFor())
-    ? await listModelsForAccounts(listAccounts()).catch(() => [])
+  const accounts = listAccounts();
+  const sharedModels = (await getRuntimeFor())
+    ? (await listModels().catch(() => [])).filter(
+        (model) => !isAccountProviderId(model.providerID),
+      )
     : [];
+  const accountSnapshot = current.accountModelCache?.key === accountModelsKey(accounts)
+    ? current.accountModelCache.value
+    : null;
+  // ponytail: cold health reads auth files instead of constructing every account runtime;
+  // /api/models replaces the count with an exact combined snapshot.
+  const accountReady = accountSnapshot ? false : await hasStoredAccountProvider(accounts);
+  const modelCount = accountSnapshot?.length ?? sharedModels.length;
   const value: HealthDto = {
     ok: !current.initError,
     engine: "pi",
-    engineOk: !current.initError && models.length > 0,
+    engineOk: !current.initError && (modelCount > 0 || accountReady),
     version: packageVersion(),
-    modelCount: models.length,
+    modelCount,
     dataDir: dataDir(),
     error: current.initError,
     ...(current.lastProviderSyncWarnings.length > 0
@@ -1720,15 +1777,18 @@ export async function getHealth(): Promise<HealthDto> {
 async function buildModelOptions(
   runtime: ModelRuntime,
   accountId?: string,
+  providerIds?: readonly string[],
 ): Promise<ModelOption[]> {
-  await syncProvidersBestEffort(runtime);
+  if (!accountId) await syncProvidersBestEffort(runtime);
   const catalog = accountId
     ? buildProviderModelsCatalog(runtime, readProviderModelState(), accountId)
     : buildProviderModelsCatalog(runtime);
   const enabled = new Set(
     enabledModelOptionsFromCatalog(catalog).map((option) => option.value),
   );
-  const available = await runtime.getAvailable();
+  const available = providerIds
+    ? (await Promise.all(providerIds.map((providerId) => runtime.getAvailable(providerId)))).flat()
+    : await runtime.getAvailable();
   const options: ModelOption[] = [];
   for (const model of available) {
     const providerID = String(model.provider);
@@ -1788,7 +1848,7 @@ async function collectAccountModelRecords(
     try {
       const runtime = await getRuntimeFor(account.id);
       if (!runtime) continue;
-      const built = await buildModelOptions(runtime, account.id);
+      const built = await buildModelOptions(runtime, account.id, account.providers);
       for (const [modelIndex, option] of built.entries()) {
         // API キー等で構成された他プロバイダを、この OAuth アカウントの枠へ複製しない。
         if (!accountHasProvider(account, option.providerID)) continue;
@@ -1877,7 +1937,7 @@ function workingTaskCounts(providerIds: readonly string[]): Map<string, number> 
  * 既定の非アカウントプロバイダ + 全アカウントのモデルを返す。統合モードの
  * Codex / Anthropic は provider/model ごとに 1 option へまとめる。
  */
-export async function listModelsForAccounts(
+async function buildModelsForAccounts(
   accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
 ): Promise<ModelOption[]> {
   const sharedOptions: ModelOption[] = (await listModels().catch(() => [])).filter(
@@ -1953,6 +2013,34 @@ export async function listModelsForAccounts(
     const bAccount = b.accountId ? accountIndex.get(b.accountId) ?? accounts.length : -1;
     return aAccount - bAccount;
   });
+}
+
+export async function listModelsForAccounts(
+  accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
+): Promise<ModelOption[]> {
+  const current = state();
+  const key = accountModelsKey(accounts);
+  const cached = current.accountModelCache;
+  if (cached?.key === key) {
+    const value = readModelCache(cached, Date.now());
+    if (value) return value;
+  }
+  if (current.accountModelInflight?.key === key) {
+    return current.accountModelInflight.promise;
+  }
+
+  const promise = buildModelsForAccounts(accounts);
+  current.accountModelInflight = { key, promise };
+  try {
+    const value = await promise;
+    current.accountModelCache = { key, at: Date.now(), value };
+    current.healthCache = null;
+    return value;
+  } finally {
+    if (current.accountModelInflight?.promise === promise) {
+      current.accountModelInflight = null;
+    }
+  }
 }
 
 /** モデル一覧のプロバイダ表示順。providerOrder で未指定のプロバイダは既定カタログ順の末尾。 */

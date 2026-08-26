@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import {
+  __resetCommandCodeProviderCacheForTests,
   downgradeUnsupportedImages,
+  registerCommandCodeProvider,
   resolveCommandCodeExtensionEntry,
   syncCommandCodeApiKeyEnv,
   withImageDowngrade,
@@ -30,6 +35,69 @@ describe("syncCommandCodeApiKeyEnv", () => {
     process.env.COMMAND_CODE_API_KEY = "user_alt";
     syncCommandCodeApiKeyEnv();
     assert.equal(process.env.COMMANDCODE_API_KEY, "user_primary");
+  });
+});
+
+describe("registerCommandCodeProvider", () => {
+  const previousFetch = globalThis.fetch;
+  const previousModelsUrl = process.env.COMMANDCODE_MODELS_URL;
+  const previousModelsCache = process.env.COMMANDCODE_MODELS_CACHE;
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    __resetCommandCodeProviderCacheForTests();
+    globalThis.fetch = previousFetch;
+    if (previousModelsUrl === undefined) delete process.env.COMMANDCODE_MODELS_URL;
+    else process.env.COMMANDCODE_MODELS_URL = previousModelsUrl;
+    if (previousModelsCache === undefined) delete process.env.COMMANDCODE_MODELS_CACHE;
+    else process.env.COMMANDCODE_MODELS_CACHE = previousModelsCache;
+    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("loads one catalog for concurrent registrations and registers each runtime once", async () => {
+    __resetCommandCodeProviderCacheForTests();
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-commandcode-"));
+    tempDirs.push(dir);
+    process.env.COMMANDCODE_MODELS_URL = "https://commandcode.test/models";
+    process.env.COMMANDCODE_MODELS_CACHE = join(dir, "models.json");
+    let fetches = 0;
+    globalThis.fetch = (async () => {
+      fetches += 1;
+      return new Response(JSON.stringify({
+        object: "list",
+        data: [{ id: "test-model", name: "Test Model", context_length: 32_000 }],
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+
+    function fakeRuntime() {
+      let configured = false;
+      let registrations = 0;
+      return {
+        runtime: {
+          getProvider: (id: string) => id === "commandcode" && configured ? { id } : undefined,
+          registerProvider: (id: string) => {
+            if (id === "commandcode") {
+              configured = true;
+              registrations += 1;
+            }
+          },
+          registerNativeProvider: () => {},
+        } as never,
+        registrations: () => registrations,
+      };
+    }
+
+    const first = fakeRuntime();
+    const second = fakeRuntime();
+    await Promise.all([
+      registerCommandCodeProvider(first.runtime),
+      registerCommandCodeProvider(first.runtime),
+      registerCommandCodeProvider(second.runtime),
+    ]);
+
+    assert.equal(fetches, 1);
+    assert.equal(first.registrations(), 1);
+    assert.equal(second.registrations(), 1);
   });
 });
 
