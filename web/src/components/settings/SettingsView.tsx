@@ -160,12 +160,12 @@ export function SettingsView() {
           {tab === "models" && (
             <section className="space-y-4">
               <div className="rounded-2xl border border-border bg-surface p-4">
-                <ProviderAuthPanel providers={providers} onChanged={onProviderChanged} />
-              </div>
-              <div className="rounded-2xl border border-border bg-surface p-4">
                 <ProviderModelsPanel key={`provider-models-${modelsRevision}`} />
               </div>
               <GenerationModelSettings key={`generation-model-${modelsRevision}`} />
+              <div className="rounded-2xl border border-border bg-surface p-4">
+                <ProviderAuthPanel providers={providers} onChanged={onProviderChanged} />
+              </div>
             </section>
           )}
 

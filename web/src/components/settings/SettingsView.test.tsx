@@ -69,14 +69,14 @@ describe("SettingsView", () => {
     getJson.mockReset();
   });
 
-  it("モデルタブをプロバイダー、モデル、生成モデルの順に表示する", () => {
+  it("モデルタブをモデル、生成モデル、プロバイダーの順に表示する", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("button", { name: /^モデル$/ }));
 
     expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
-      "プロバイダー",
       "モデル",
       "生成モデル",
+      "プロバイダー",
     ]);
   });
 
