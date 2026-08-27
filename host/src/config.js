@@ -56,6 +56,7 @@ export function findTailscaleIPv4(interfaces = networkInterfaces()) {
       if (info.internal) continue;
       const family = String(info.family);
       if (family !== "IPv4" && family !== "4") continue;
+      if (!isTailscaleCgnatIPv4(info.address)) continue;
       return info.address;
     }
   }

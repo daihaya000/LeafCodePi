@@ -61,6 +61,13 @@ test("isTailscaleCgnatIPv4 and findTailscaleIPv4", () => {
     }),
     "100.64.9.9",
   );
+  assert.equal(
+    findTailscaleIPv4({
+      Tailscale: [{ address: "169.254.83.107", family: "IPv4", internal: false }],
+      Ethernet: [{ address: "100.98.131.68", family: "IPv4", internal: false }],
+    }),
+    "100.98.131.68",
+  );
 });
 
 test("publicHost never exposes 0.0.0.0", () => {
