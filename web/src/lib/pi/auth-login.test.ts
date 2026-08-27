@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "vitest";
+import { describe, it, vi } from "vitest";
 import {
   ProviderLoginSession,
   SUBSCRIPTION_PROVIDER_IDS,
@@ -28,6 +28,42 @@ describe("ProviderLoginSession", () => {
   it("defaults accountId to null for the default auth store", async () => {
     const session = new ProviderLoginSession("anthropic", "oauth");
     assert.equal(session.accountId, null);
+  });
+
+  it("cleans up the prompt abort listener after an answer", async () => {
+    const session = new ProviderLoginSession("anthropic", "oauth");
+    const promptAbort = new AbortController();
+    const remove = vi.spyOn(promptAbort.signal, "removeEventListener");
+    session.subscribe((event) => {
+      if (event.type === "prompt") session.answer(event.id, "ok");
+    });
+    const runtime = {
+      login: async (
+        _providerId: string,
+        _authType: string,
+        interaction: {
+          prompt: (prompt: {
+            type: "text";
+            message: string;
+            signal: AbortSignal;
+          }) => Promise<string>;
+        },
+      ) => {
+        await interaction.prompt({
+          type: "text",
+          message: "入力",
+          signal: promptAbort.signal,
+        });
+      },
+    } as unknown as Parameters<typeof session.run>[0];
+
+    await session.run(runtime);
+
+    assert.ok(
+      remove.mock.calls.some(
+        ([type, listener]) => type === "abort" && typeof listener === "function",
+      ),
+    );
   });
 });
 

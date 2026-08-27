@@ -116,7 +116,9 @@ export function resolveCommandCodeApiKey(options?: {
       cleanApiKey(readPiApiKey("commandcode", { authPath: options.authPath }))
     );
   }
-  const fromEnv = cleanApiKey(process.env.COMMAND_CODE_API_KEY);
+  const fromEnv =
+    cleanApiKey(process.env.COMMANDCODE_API_KEY) ??
+    cleanApiKey(process.env.COMMAND_CODE_API_KEY);
   if (fromEnv) return fromEnv;
   const fromPi = cleanApiKey(readPiOAuthTokens("commandcode")?.access);
   if (fromPi) return fromPi;

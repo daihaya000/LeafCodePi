@@ -204,9 +204,10 @@ export async function fetchText(
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   const parent = rest.signal;
+  const abortFromParent = () => ctrl.abort();
   if (parent) {
     if (parent.aborted) ctrl.abort();
-    else parent.addEventListener("abort", () => ctrl.abort(), { once: true });
+    else parent.addEventListener("abort", abortFromParent, { once: true });
   }
   try {
     const res = await undiciFetch(url, {
@@ -218,5 +219,6 @@ export async function fetchText(
     return { status: res.status, body, ok: res.ok };
   } finally {
     clearTimeout(timer);
+    if (parent) parent.removeEventListener("abort", abortFromParent);
   }
 }

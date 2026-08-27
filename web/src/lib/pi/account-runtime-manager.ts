@@ -31,7 +31,12 @@ export class AccountRuntimeManager {
   /** ランタイムを取得する（参照カウントなし。一時的な読み取り用）。なければ生成する。 */
   async ensure(accountId: string): Promise<ModelRuntime> {
     const existing = this.entries.get(accountId);
-    if (existing) return existing.runtime;
+    if (existing) {
+      // Map の末尾を最終利用位置として、アイドル eviction を LRU にする。
+      this.entries.delete(accountId);
+      this.entries.set(accountId, existing);
+      return existing.runtime;
+    }
 
     // 同時呼び出しを 1 生成に統合する。
     let promise = this.inflight.get(accountId);
@@ -50,7 +55,11 @@ export class AccountRuntimeManager {
 
     // await 中に別呼び出しが登録済みならそれを使う（二重登録の回避）。
     const current = this.entries.get(accountId);
-    if (current && current.runtime === runtime) return runtime;
+    if (current && current.runtime === runtime) {
+      this.entries.delete(accountId);
+      this.entries.set(accountId, current);
+      return runtime;
+    }
     this.evictIdle();
     this.entries.set(accountId, { runtime, refs: 0 });
     return runtime;
@@ -58,9 +67,15 @@ export class AccountRuntimeManager {
 
   /** ランタイムを取得し、呼び出し元の参照を 1 加算する（セッション保持用）。対応する release() を必ず呼ぶこと。 */
   async acquire(accountId: string): Promise<ModelRuntime> {
-    const runtime = await this.ensure(accountId);
-    this.entries.get(accountId)!.refs += 1;
-    return runtime;
+    // ensure() の await 中に別の解放・evict が走る可能性があるため、
+    // 参照を加算できるエントリを確認するまで再取得する。
+    while (true) {
+      const runtime = await this.ensure(accountId);
+      const entry = this.entries.get(accountId);
+      if (!entry || entry.runtime !== runtime) continue;
+      entry.refs += 1;
+      return runtime;
+    }
   }
 
   /** acquire に対応する参照を 1 減らす。0 になっても即座には破棄しない。 */

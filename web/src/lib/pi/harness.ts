@@ -1301,16 +1301,21 @@ function openSettingsManager() {
   return pi.SettingsManager.create(homedir(), pi.getAgentDir());
 }
 
-function attachSession(
+async function attachSession(
   taskId: string,
   session: AgentSession,
   skillPermissionRef: { current: SkillPermission },
-): LiveRuntime {
+): Promise<LiveRuntime> {
   const current = state();
   const existing = current.live.get(taskId);
-  existing?.unsubscribe();
   // タスクの利用アカウント。セッション生存中はマネージャ参照で蒸発対象外にする。
   const attachedAccountId = getTask(taskId)?.accountId ?? null;
+  const keepsExistingAccountRef =
+    Boolean(attachedAccountId && existing?.accountId === attachedAccountId);
+  if (attachedAccountId && !keepsExistingAccountRef) {
+    await accountRuntimeManager().acquire(attachedAccountId);
+  }
+  existing?.unsubscribe();
   if (
     existing &&
     existing.accountId &&
@@ -1423,10 +1428,6 @@ function attachSession(
     unsubscribe();
   };
   current.live.set(taskId, live);
-  if (attachedAccountId) {
-    // 参照を付けて evictIdle の対象外へ。解放は disposeLive()。
-    void accountRuntimeManager().acquire(attachedAccountId);
-  }
   return live;
 }
 
@@ -1874,7 +1875,7 @@ async function ensureLive(taskId: string): Promise<LiveRuntime> {
       sessionFile: setup.session.sessionFile,
       ...modelId(setup.session.model),
     });
-    return attachSession(taskId, setup.session, setup.skillPermissionRef);
+    return await attachSession(taskId, setup.session, setup.skillPermissionRef);
   })().finally(() => {
     if (ensureLiveInflight.get(taskId) === promise) {
       ensureLiveInflight.delete(taskId);
@@ -2517,39 +2518,54 @@ export async function completeModelText(options: {
     throw new Error(
       `モデルが見つかりません: ${options.providerID}::${options.modelID}`,
     );
-  const { runtime, model } = route;
+  const heldAccountId = route.accountId;
+  const manager = heldAccountId ? accountRuntimeManager() : null;
+  const runtime = manager
+    ? await manager.acquire(heldAccountId!)
+    : route.runtime;
+  try {
+    const model = manager
+      ? runtime.getModel(options.providerID, options.modelID)
+      : route.model;
+    if (!model)
+      throw new Error(
+        `モデルが見つかりません: ${options.providerID}::${options.modelID}`,
+      );
 
-  const response = await runtime.completeSimple(
-    model,
-    {
-      systemPrompt: system,
-      messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
-    },
-    {
-      signal: options.signal,
-      maxRetries: 0,
-      maxTokens: directCompletionMaxTokens(
-        model,
-        options.maxTokens,
-        options.reasoning,
-      ),
-      temperature: Math.min(2, Math.max(0, options.temperature ?? 0.2)),
-      reasoning: options.reasoning,
-    },
-  );
-  if (response.stopReason === "error" || response.stopReason === "aborted") {
-    throw new Error(
-      response.errorMessage ||
-        `生成が${response.stopReason === "aborted" ? "中断" : "失敗"}しました`,
+    const response = await runtime.completeSimple(
+      model,
+      {
+        systemPrompt: system,
+        messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
+      },
+      {
+        signal: options.signal,
+        maxRetries: 0,
+        maxTokens: directCompletionMaxTokens(
+          model,
+          options.maxTokens,
+          options.reasoning,
+        ),
+        temperature: Math.min(2, Math.max(0, options.temperature ?? 0.2)),
+        reasoning: options.reasoning,
+      },
     );
+    if (response.stopReason === "error" || response.stopReason === "aborted") {
+      throw new Error(
+        response.errorMessage ||
+          `生成が${response.stopReason === "aborted" ? "中断" : "失敗"}しました`,
+      );
+    }
+    let text = "";
+    for (const part of response.content) {
+      if (part.type === "text") text += part.text;
+    }
+    text = text.trim();
+    if (!text) throw new Error("プロバイダーの応答にテキストがありません");
+    return text;
+  } finally {
+    if (manager) manager.release(heldAccountId!);
   }
-  let text = "";
-  for (const part of response.content) {
-    if (part.type === "text") text += part.text;
-  }
-  text = text.trim();
-  if (!text) throw new Error("プロバイダーの応答にテキストがありません");
-  return text;
 }
 
 export async function listProviderModelsCatalog(): Promise<
@@ -3402,7 +3418,7 @@ export async function createTask(input: {
         : thinkingLevel,
       ...modelId(setup.session.model),
     });
-    const live = attachSession(
+    const live = await attachSession(
       task.id,
       setup.session,
       setup.skillPermissionRef,

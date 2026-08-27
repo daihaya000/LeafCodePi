@@ -32,7 +32,10 @@ vi.mock("undici", async (importOriginal) => ({
 }));
 
 import { createAnthropicProvider } from "./providers/anthropic";
-import { createCommandCodeProvider } from "./providers/commandcode";
+import {
+  createCommandCodeProvider,
+  resolveCommandCodeApiKey,
+} from "./providers/commandcode";
 import { createCursorProvider } from "./providers/cursor";
 import { createOpenaiCodexProvider } from "./providers/openai-codex";
 
@@ -81,6 +84,22 @@ describe.each([
 });
 
 describe("account-scoped API credentials", () => {
+  it("reads the extension's canonical env key for the default scope", () => {
+    const previousPrimary = process.env.COMMANDCODE_API_KEY;
+    const previousAlternative = process.env.COMMAND_CODE_API_KEY;
+    process.env.COMMANDCODE_API_KEY = "canonical-key";
+    delete process.env.COMMAND_CODE_API_KEY;
+    try {
+      expect(resolveCommandCodeApiKey()).toBe("canonical-key");
+    } finally {
+      if (previousPrimary === undefined) delete process.env.COMMANDCODE_API_KEY;
+      else process.env.COMMANDCODE_API_KEY = previousPrimary;
+      if (previousAlternative === undefined)
+        delete process.env.COMMAND_CODE_API_KEY;
+      else process.env.COMMAND_CODE_API_KEY = previousAlternative;
+    }
+  });
+
   it("uses the account Command Code credential without ambient env fallback", () => {
     const previous = process.env.COMMAND_CODE_API_KEY;
     process.env.COMMAND_CODE_API_KEY = "ambient-key";

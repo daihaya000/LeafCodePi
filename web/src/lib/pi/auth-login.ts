@@ -44,6 +44,7 @@ type PendingPrompt = {
   prompt: LoginPromptDto;
   resolve: (value: string) => void;
   reject: (error: Error) => void;
+  cleanup: () => void;
 };
 
 export class ProviderLoginSession {
@@ -98,6 +99,7 @@ export class ProviderLoginSession {
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
+      this.clearPending(error instanceof Error ? error : new Error(message));
       if (this.abort.signal.aborted || /cancel/i.test(message)) {
         this.finishError("ログインをキャンセルしました");
         return;
@@ -116,31 +118,38 @@ export class ProviderLoginSession {
     if (this.abort.signal.aborted) {
       return Promise.reject(new Error("Login cancelled"));
     }
+    if (prompt.signal?.aborted) {
+      return Promise.reject(new Error("Login cancelled"));
+    }
     const dto = serializePrompt(prompt);
     const id = randomUUID();
     return new Promise<string>((resolve, reject) => {
       if (this.pending) {
+        this.pending.cleanup();
         this.pending.reject(new Error("Replaced by a newer prompt"));
       }
-      this.pending = { id, prompt: dto, resolve, reject };
-      this.emit({ type: "prompt", id, prompt: dto });
       const onAbort = () => {
         if (this.pending?.id === id) {
           this.pending = null;
+          cleanup();
           reject(new Error("Login cancelled"));
         }
       };
+      const onPromptAbort = () => {
+        if (this.pending?.id === id) {
+          this.pending = null;
+          cleanup();
+          reject(new Error("Login cancelled"));
+        }
+      };
+      const cleanup = () => {
+        this.abort.signal.removeEventListener("abort", onAbort);
+        prompt.signal?.removeEventListener("abort", onPromptAbort);
+      };
+      this.pending = { id, prompt: dto, resolve, reject, cleanup };
       this.abort.signal.addEventListener("abort", onAbort, { once: true });
-      prompt.signal?.addEventListener(
-        "abort",
-        () => {
-          if (this.pending?.id === id) {
-            this.pending = null;
-            reject(new Error("Login cancelled"));
-          }
-        },
-        { once: true },
-      );
+      prompt.signal?.addEventListener("abort", onPromptAbort, { once: true });
+      this.emit({ type: "prompt", id, prompt: dto });
     });
   }
 
@@ -152,16 +161,21 @@ export class ProviderLoginSession {
     }
     const pending = this.pending;
     this.pending = null;
+    pending.cleanup();
     pending.resolve(value);
   }
 
   cancel() {
-    if (this.pending) {
-      const pending = this.pending;
-      this.pending = null;
-      pending.reject(new Error("Login cancelled"));
-    }
+    this.clearPending(new Error("Login cancelled"));
     if (!this.abort.signal.aborted) this.abort.abort();
+  }
+
+  private clearPending(error: Error): void {
+    const pending = this.pending;
+    if (!pending) return;
+    this.pending = null;
+    pending.cleanup();
+    pending.reject(error);
   }
 
   private finishOk(warning?: string) {

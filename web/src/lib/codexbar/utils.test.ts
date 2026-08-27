@@ -60,6 +60,20 @@ describe("fetchText", () => {
 
     await expect(fetchText("https://example.test")).rejects.toBe(error);
   });
+
+  it("removes the parent abort listener after the request settles", async () => {
+    undiciFetch.mockResolvedValue(new Response("payload", { status: 200 }));
+    const controller = new AbortController();
+    const add = vi.spyOn(controller.signal, "addEventListener");
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+
+    await fetchText("https://example.test", { signal: controller.signal });
+
+    expect(add).toHaveBeenCalledWith("abort", expect.any(Function), {
+      once: true,
+    });
+    expect(remove).toHaveBeenCalledWith("abort", add.mock.calls[0]?.[1]);
+  });
 });
 
 describe("racingLookup", () => {

@@ -75,6 +75,23 @@ describe("AccountRuntimeManager", () => {
     assert.equal(attempts, 2);
   });
 
+  it("does not lose an acquire when an idle runtime is evicted during creation", async () => {
+    const gate = deferred<FakeRuntime>();
+    const manager = new AccountRuntimeManager(
+      async () => gate.promise as Promise<never>,
+      0,
+    );
+
+    const acquired = manager.acquire("a");
+    gate.resolve(fakeRuntime("rt-a"));
+    // Run between ensure() registering its entry and acquire() incrementing refs.
+    await Promise.resolve();
+    manager.evictIdle();
+
+    assert.equal(await acquired, fakeRuntime("rt-a"));
+    manager.release("a");
+  });
+
   it("evicts oldest idle runtimes beyond the cap but keeps referenced ones", async () => {
     const manager = new AccountRuntimeManager(async (id) => fakeRuntime(`rt-${id}`));
 
@@ -90,5 +107,23 @@ describe("AccountRuntimeManager", () => {
     assert.ok(manager.peek("i3"));
     assert.equal(manager.peek("held"), held);
     assert.equal(manager.size(), 3);
+  });
+
+  it("keeps the most recently used idle runtime", async () => {
+    const manager = new AccountRuntimeManager(async (id) => fakeRuntime(`rt-${id}`));
+
+    for (const id of ["i1", "i2"]) {
+      await manager.acquire(id);
+      manager.release(id);
+    }
+    await manager.acquire("i1");
+    manager.release("i1");
+    await manager.acquire("i3");
+    manager.release("i3");
+    manager.evictIdle();
+
+    assert.ok(manager.peek("i1"));
+    assert.equal(manager.peek("i2"), undefined);
+    assert.ok(manager.peek("i3"));
   });
 });

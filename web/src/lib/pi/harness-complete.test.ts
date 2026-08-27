@@ -169,6 +169,63 @@ describe("completeModelText", () => {
     assert.deepEqual(calls, [low.id]);
   });
 
+  it("holds an account runtime while direct completion is in flight", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-complete-lease-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const account = createAccount({ label: "専用", providers: ["anthropic"] });
+    const response = assistant({ content: [{ type: "text", text: "提案" }] });
+    const manager = new AccountRuntimeManager(async () => runtime as never, 0);
+    const runtime = {
+      getProvider: () => ({ id: "stub" }),
+      getProviders: () => [{ id: "anthropic", name: "Anthropic" }],
+      getModels: () => [{ id: "claude-sonnet", name: "Claude Sonnet" }],
+      hasConfiguredAuth: () => true,
+      getAvailable: async () => [
+        {
+          provider: "anthropic",
+          id: "claude-sonnet",
+          name: "Claude Sonnet",
+          input: ["text"],
+          reasoning: false,
+          thinkingLevelMap: { off: "none" },
+        },
+      ],
+      getModel: (providerID: string, modelID: string) =>
+        providerID === "anthropic" && modelID === "claude-sonnet"
+          ? { provider: providerID, id: modelID, reasoning: false, maxTokens: 32_768 }
+          : undefined,
+      completeSimple: async () => {
+        manager.evictIdle();
+        assert.ok(manager.peek(account.id));
+        return response;
+      },
+    };
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      pi: null,
+      modelRuntime: { getProvider: () => ({ id: "stub" }), registerProvider: () => {} },
+      accountRuntimes: manager,
+      initPromise: null,
+      initError: null,
+      live: new Map(),
+      watchdogRegistered: true,
+      lastProviderSyncWarnings: [],
+    };
+
+    await assert.equal(
+      await completeModelText({
+        providerID: "anthropic",
+        modelID: "claude-sonnet",
+        accountId: account.id,
+        system: "system",
+        prompt: "prompt",
+      }),
+      "提案",
+    );
+    manager.evictIdle();
+    assert.equal(manager.peek(account.id), undefined);
+  });
+
   it("leaves room for an answer when a reasoning model is used", async () => {
     const calls = installRuntime(
       assistant({ content: [{ type: "text", text: "提案" }] }),
