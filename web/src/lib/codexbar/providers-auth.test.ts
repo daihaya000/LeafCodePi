@@ -115,6 +115,19 @@ describe("account-scoped API credentials", () => {
     }
   });
 
+  it("does not use ambient Command Code auth for an account without auth path", () => {
+    const previous = process.env.COMMAND_CODE_API_KEY;
+    process.env.COMMAND_CODE_API_KEY = "ambient-key";
+    try {
+      const accountWithoutAuthPath = { ...scope, authPath: null };
+      expect(createCommandCodeProvider(accountWithoutAuthPath).isConfigured()).toBe(false);
+      expect(auth.read).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env.COMMAND_CODE_API_KEY;
+      else process.env.COMMAND_CODE_API_KEY = previous;
+    }
+  });
+
   it("reads Cursor OAuth from the account auth path", () => {
     auth.read.mockReturnValue({
       access: "token",
@@ -127,5 +140,18 @@ describe("account-scoped API credentials", () => {
     expect(auth.read).toHaveBeenCalledWith("cursor", {
       authPath: scope.authPath,
     });
+  });
+
+  it("does not use default Cursor auth for an account without auth path", () => {
+    const previousAppData = process.env.APPDATA;
+    const accountWithoutAuthPath = { ...scope, authPath: null };
+    process.env.APPDATA = "/tmp/leafcode-cursor-no-account-auth";
+    try {
+      expect(createCursorProvider(accountWithoutAuthPath).isConfigured()).toBe(false);
+      expect(auth.read).not.toHaveBeenCalled();
+    } finally {
+      if (previousAppData === undefined) delete process.env.APPDATA;
+      else process.env.APPDATA = previousAppData;
+    }
   });
 });

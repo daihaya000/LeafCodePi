@@ -180,15 +180,21 @@ export function parseOllamaHtml(html: string): {
 }
 
 export function createOllamaCloudProvider(scope: UsageScope): IUsageProvider {
-  const accountId = scope.kind === "account" ? scope.accountId : null;
+  const accountScoped = scope.kind === "account";
+  const accountId = accountScoped ? scope.accountId?.trim() || null : null;
   return {
     id: "ollama-cloud",
     name: "Ollama Cloud",
     isConfigured() {
-      return isOllamaCookieConfigured(accountId);
+      return accountScoped
+        ? accountId !== null && isOllamaCookieConfigured(accountId)
+        : isOllamaCookieConfigured(null);
     },
     async fetch(signal) {
-      const cookiePath = ollamaCookieFilePath(accountId);
+      const cookiePath =
+        accountScoped && accountId === null
+          ? null
+          : ollamaCookieFilePath(accountId);
       if (!cookiePath) {
         throw new ProviderError(
           accountId

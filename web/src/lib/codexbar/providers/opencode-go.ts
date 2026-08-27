@@ -91,8 +91,12 @@ function persistWorkspaceId(
   }
 }
 
-function loadCredentials(authPath: string | null): OpenCodeCredentials | null {
-  if (authPath) {
+function loadCredentials(
+  authPath: string | null,
+  accountScoped: boolean,
+): OpenCodeCredentials | null {
+  if (accountScoped) {
+    if (!authPath) return null;
     const cookieHeader = extractOpenCodeCookieHeader({ authPath });
     if (!cookieHeader) return null;
     return {
@@ -235,21 +239,24 @@ async function autoDetectWorkspaceId(
 }
 
 export function createOpenCodeGoProvider(scope: UsageScope): IUsageProvider {
-  const authPath = scope.authPath;
+  const accountScoped = scope.kind === "account";
+  const authPath = accountScoped ? scope.authPath : null;
   return {
     id: "opencode-go",
     name: "OpenCode",
     isConfigured() {
-      if (authPath) return extractOpenCodeCookieHeader({ authPath }) !== null;
+      if (accountScoped) {
+        return authPath !== null && extractOpenCodeCookieHeader({ authPath }) !== null;
+      }
       if (hasOpenCodeTrayCredentialsFile()) return true;
       if (findOpenCodeNetscapeCookieFile()) return true;
       return extractOpenCodeCookieHeader() !== null;
     },
     async fetch(signal) {
-      const credentials = loadCredentials(authPath);
+      const credentials = loadCredentials(authPath, accountScoped);
       if (!credentials) {
         throw new ProviderError(
-          authPath
+          accountScoped
             ? "このアカウントの OpenCode Go Cookie が見つかりません。"
             : "OpenCode Go の認証情報が見つかりません。\n" +
                 "1. Chrome/Edge で opencode.ai にログインし、Netscape cookie をエクスポート\n" +

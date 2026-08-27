@@ -111,6 +111,15 @@ describe("ollama cookie scope", () => {
         authPath: null,
       }).isConfigured(),
     ).toBe(false);
+    expect(
+      createOllamaCloudProvider({
+        key: "account:missing-path",
+        kind: "account",
+        accountId: null,
+        accountLabel: "不正なスコープ",
+        authPath: null,
+      }).isConfigured(),
+    ).toBe(false);
 
     // アカウント別 cookie を置くと、そのアカウントだけが設定済みになる
     const perAccount = join(configDir, "ollama_cookies.acc-1.txt");
@@ -194,6 +203,15 @@ describe("OpenCode Go account cookie scope", () => {
       ".opencode.ai\tTRUE\t/\tTRUE\t4102444800\tsession\tshared\n",
       "utf8",
     );
+    expect(
+      createOpenCodeGoProvider({
+        key: "account:missing-path",
+        kind: "account",
+        accountId: null,
+        accountLabel: "不正なスコープ",
+        authPath: null,
+      }).isConfigured(),
+    ).toBe(false);
     expect(extractOpenCodeCookieHeader({ authPath })).toBeNull();
 
     const cookieText =

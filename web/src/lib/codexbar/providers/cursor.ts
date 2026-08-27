@@ -327,14 +327,15 @@ export function parseCursorUsageSummary(
 }
 
 function scopedAccessTokens(scope: UsageScope): string[] {
+  if (!scope.authPath) return [];
   const access = readPiOAuthTokens("cursor", {
-    authPath: scope.authPath ?? undefined,
+    authPath: scope.authPath,
   })?.access;
   return access ? [access] : [];
 }
 
 export function createCursorProvider(scope: UsageScope): IUsageProvider {
-  const accountScoped = scope.authPath !== null;
+  const accountScoped = scope.kind === "account";
   const loadTokens = () =>
     accountScoped ? scopedAccessTokens(scope) : loadCandidateAccessTokens();
 

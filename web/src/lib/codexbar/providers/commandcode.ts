@@ -107,7 +107,8 @@ function addWindow(
 export function resolveCommandCodeApiKey(options?: {
   authPath?: string | null;
 }): string | null {
-  if (options?.authPath) {
+  if (options !== undefined) {
+    if (!options.authPath) return null;
     return (
       cleanApiKey(
         readPiOAuthTokens("commandcode", { authPath: options.authPath })
@@ -137,15 +138,21 @@ export function resolveCommandCodeApiKey(options?: {
   }
 }
 
+function resolveCommandCodeApiKeyForScope(scope: UsageScope): string | null {
+  return scope.kind === "account"
+    ? resolveCommandCodeApiKey({ authPath: scope.authPath })
+    : resolveCommandCodeApiKey();
+}
+
 export function createCommandCodeProvider(scope: UsageScope): IUsageProvider {
   return {
     id: "commandcode",
     name: "Command Code",
     isConfigured() {
-      return resolveCommandCodeApiKey({ authPath: scope.authPath }) !== null;
+      return resolveCommandCodeApiKeyForScope(scope) !== null;
     },
     async fetch(signal) {
-      const apiKey = resolveCommandCodeApiKey({ authPath: scope.authPath });
+      const apiKey = resolveCommandCodeApiKeyForScope(scope);
       if (!apiKey) {
         throw new ProviderError(
           "Command Code の API キーが見つかりません。COMMAND_CODE_API_KEY またはアカウントの認証を設定してください。",
