@@ -8,6 +8,11 @@ let confirmSpy: { mockRestore: () => void } | null = null;
 
 const providers = [
   {
+    id: "llama-server",
+    name: "llama-server",
+    authenticated: false,
+  },
+  {
     id: "openai-codex",
     name: "OpenAI Codex",
     authenticated: true,
@@ -22,11 +27,6 @@ const providers = [
     authSource: "stored",
     oauthAvailable: true,
     highlighted: true,
-  },
-  {
-    id: "llama-server",
-    name: "llama-server",
-    authenticated: true,
   },
 ];
 
@@ -160,6 +160,17 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(within(anthropic).getByRole("button", { name: /^ログイン$/ })).toBeTruthy();
   });
 
+  it("shows registered providers first without an other-providers section", () => {
+    mockAccountsApi();
+    render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
+
+    expect(screen.getByRole("heading", { name: "プロバイダー" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "その他のプロバイダー" })).toBeNull();
+    const registered = screen.getByText("OpenAI Codex");
+    const unregistered = screen.getByText("llama-server", { selector: "span.text-sm.font-medium" });
+    expect(Boolean(registered.compareDocumentPosition(unregistered) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+  });
+
   it("creates an account for the provider whose add action was used", async () => {
     mockAccountsApi();
     render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
@@ -190,7 +201,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
 
     const codex = await accountRegion("OpenAI Codex");
     await within(codex).findByText("仕事用");
-    fireEvent.click(within(codex).getByRole("button", { name: "再ログイン" }));
+    fireEvent.click(await within(codex).findByRole("button", { name: "再ログイン" }));
 
     await waitFor(() => {
       expect(

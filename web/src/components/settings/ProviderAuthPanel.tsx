@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode, useCallback, useEffect, useState } from "react";
-import { Badge, Button, cx } from "@/components/ui";
+import { Badge, Button } from "@/components/ui";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ApiError, apiUrl, getJson, sendJson } from "@/lib/client";
 import type { AccountProviderId, AccountRecord } from "@/lib/accounts";
@@ -319,7 +319,7 @@ export function ProviderAuthPanel({
     }
   }
 
-  /** 追加アカウントは、開いているプロバイダにだけ紐付ける。 */
+  /** 追加アカウントは、開いているプロバイダーにだけ紐付ける。 */
   async function submitCreateAccount(providerId: AccountProviderId) {
     if (!newLabel.trim()) return;
     setAccountBusy(true);
@@ -487,7 +487,7 @@ export function ProviderAuthPanel({
           <div>
             <h3 className="text-xs font-semibold text-muted">ログインアカウント</h3>
             <p className="mt-0.5 text-xs text-muted">
-              このプロバイダ用のアカウントを追加・管理します。
+              このプロバイダー用のアカウントを追加・管理します。
             </p>
           </div>
           {!isCreating && (
@@ -726,26 +726,26 @@ export function ProviderAuthPanel({
     );
   }
 
-  const highlighted = providers.filter((p) => p.highlighted);
-  const others = providers.filter((p) => !p.highlighted);
+  const orderedProviders = [...providers].sort(
+    (a, b) => Number(b.authenticated) - Number(a.authenticated),
+  );
 
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="mb-2 text-sm font-semibold">プロバイダ</h2>
+        <h2 className="mb-2 text-sm font-semibold">プロバイダー</h2>
         <p className="mb-3 text-xs text-muted">
           Claude Pro/Max（Anthropic）、ChatGPT Plus/Pro（OpenAI Codex）、Cursor、Command Code（Go プラン可）、および
-          Ollama Cloud / OpenRouter に対応しています。Command Code は{" "}
+          Ollama Cloud / OpenRouter に対応しています。環境変数（ANTHROPIC_API_KEY / OPENCODE_API_KEY など）または{" "}
+          ~/.pi/agent/auth.json も引き続き使えます。Command Code は{" "}
           <span className="font-mono">COMMANDCODE_API_KEY</span> /{" "}
           <span className="font-mono">~/.commandcode/auth.json</span>、Ollama Cloud は{" "}
           <span className="font-mono">OLLAMA_API_KEY</span> でも設定できます。Ollama Cloud はアカウントごとに
           cookie も登録できます。
         </p>
-        <ul className="space-y-2">
-          {highlighted.length === 0 && (
-            <li className="text-sm text-muted">サブスク対応プロバイダーが見つかりません</li>
-          )}
-          {highlighted.map((provider) => (
+        <ul className="max-h-72 space-y-1.5 overflow-y-auto">
+          {orderedProviders.length === 0 && <li className="text-sm text-muted">プロバイダーが見つかりません</li>}
+          {orderedProviders.map((provider) => (
             <ProviderRow
               key={provider.id}
               provider={provider}
@@ -755,29 +755,6 @@ export function ProviderAuthPanel({
                 provider.methods?.includes("api_key") ? () => void beginLogin(provider, "api_key") : undefined
               }
               onLogout={() => void logout(provider)}
-              accountControls={renderAccountControls(provider)}
-            />
-          ))}
-        </ul>
-      </div>
-
-      <div>
-        <h2 className="mb-2 text-sm font-semibold">その他のプロバイダー</h2>
-        <p className="mb-3 text-xs text-muted">
-          環境変数（ANTHROPIC_API_KEY / OPENCODE_API_KEY など）または ~/.pi/agent/auth.json も引き続き使えます。
-        </p>
-        <ul className="max-h-72 space-y-1 overflow-y-auto">
-          {others.map((provider) => (
-            <ProviderRow
-              key={provider.id}
-              provider={provider}
-              compact
-              disabled={Boolean(login)}
-              onOAuth={provider.oauthAvailable ? () => void beginLogin(provider, "oauth") : undefined}
-              onApiKey={
-                provider.methods?.includes("api_key") ? () => void beginLogin(provider, "api_key") : undefined
-              }
-              onLogout={provider.authenticated ? () => void logout(provider) : undefined}
               accountControls={renderAccountControls(provider)}
             />
           ))}
@@ -875,7 +852,6 @@ export function ProviderAuthPanel({
 
 function ProviderRow({
   provider,
-  compact,
   disabled,
   onOAuth,
   onApiKey,
@@ -883,7 +859,6 @@ function ProviderRow({
   accountControls,
 }: {
   provider: ProviderAuthDto;
-  compact?: boolean;
   disabled?: boolean;
   onOAuth?: () => void;
   onApiKey?: () => void;
@@ -896,12 +871,7 @@ function ProviderRow({
     : authBadge(provider);
   const hint = accountManaged ? null : sourceHint(provider);
   return (
-    <li
-      className={cx(
-        "rounded-xl px-2 py-2",
-        compact ? "" : "border border-border bg-surface",
-      )}
-    >
+    <li className="rounded-xl border border-border bg-surface px-2 py-2">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
