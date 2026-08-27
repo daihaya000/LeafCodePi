@@ -79,6 +79,7 @@ import {
   accountModelsStorePath,
   accountStoredProviders,
   getAccount,
+  isAccountOnlyProvider,
   isAccountProviderId,
   listAccounts,
   resolvePiAgentDir,
@@ -1515,6 +1516,7 @@ async function resolveConcreteModel(
   if (
     !explicitAccountId &&
     isAccountRoutingProvider(parsed.providerID) &&
+    runsThroughAccounts(parsed.providerID, listAccounts()) &&
     accountRoutingMode(parsed.providerID) === "integrated"
   ) {
     return resolveIntegratedModelRoute(parsed.providerID, parsed.modelID);
@@ -1734,6 +1736,20 @@ async function hasStoredAccountProvider(
   }
 }
 
+/**
+ * このプロバイダーが今アカウント経由で動くか。true なら既定（非アカウント）認証の
+ * モデルを隠し、統合ルーティングの対象にする。アカウント必須のサブスクは常に true、
+ * API キー系はアカウントが 1 つ以上ある場合だけ true（単一キー運用を壊さない）。
+ */
+function runsThroughAccounts(
+  providerId: string,
+  accounts: readonly Pick<AccountRecord, "id" | "providers">[],
+): boolean {
+  if (!isAccountProviderId(providerId)) return false;
+  if (isAccountOnlyProvider(providerId)) return true;
+  return accounts.some((account) => accountHasProvider(account, providerId));
+}
+
 export async function getHealth(): Promise<HealthDto> {
   const cached = readHealthCache(state().healthCache, Date.now());
   if (cached) return cached;
@@ -1747,7 +1763,7 @@ export async function getHealth(): Promise<HealthDto> {
   const accounts = listAccounts();
   const sharedModels = (await getRuntimeFor())
     ? (await listModels().catch(() => [])).filter(
-        (model) => !isAccountProviderId(model.providerID),
+        (model) => !runsThroughAccounts(model.providerID, accounts),
       )
     : [];
   const accountSnapshot = current.accountModelCache?.key === accountModelsKey(accounts)
@@ -1941,7 +1957,7 @@ async function buildModelsForAccounts(
   accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
 ): Promise<ModelOption[]> {
   const sharedOptions: ModelOption[] = (await listModels().catch(() => [])).filter(
-    (option) => !isAccountProviderId(option.providerID),
+    (option) => !runsThroughAccounts(option.providerID, accounts),
   );
   const records = await collectAccountModelRecords(accounts);
   const routingState = readProviderRouting();
@@ -2152,17 +2168,18 @@ export async function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> 
   const routingState = readProviderRouting();
   const rows: ProviderModelsRow[] = [];
   const accountRows: ProviderModelsRow[] = [];
+  const accounts = listAccounts();
   const runtime = await getRuntimeFor();
   if (runtime) {
-    // Codex / Anthropic はマルチアカウント専用。共有欄には出さない。
+    // Codex / Anthropic はマルチアカウント専用。API キー系はアカウント作成後だけ共有欄から外す。
     rows.push(
       ...buildProviderModelsCatalog(runtime, state).filter(
-        (row) => !isAccountProviderId(row.id),
+        (row) => !runsThroughAccounts(row.id, accounts),
       ),
     );
   }
 
-  for (const account of listAccounts()) {
+  for (const account of accounts) {
     try {
       const accountRuntime = await getRuntimeFor(account.id);
       if (!accountRuntime) continue;
@@ -2258,7 +2275,7 @@ export async function setProviderOrModelEnabled(
   if (!key.trim()) throw Object.assign(new Error("key が必要です"), { status: 400 });
   const normalizedAccountId = accountId?.trim() || undefined;
   const providerId = key.split("::", 1)[0];
-  if (!normalizedAccountId && isAccountProviderId(providerId)) {
+  if (!normalizedAccountId && runsThroughAccounts(providerId, listAccounts())) {
     if (accountRoutingMode(providerId) !== "integrated") {
       throw Object.assign(new Error("このプロバイダーはアカウントIDが必要です"), { status: 400 });
     }

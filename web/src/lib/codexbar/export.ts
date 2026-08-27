@@ -2,7 +2,12 @@
  * Assembles `codexbar.usage-snapshot/v1` entries (port of CodexBarWin UsageExporter).
  */
 
-import { CODEXBAR_SCHEMA, type CodexBarUsage, parseCodexBarSnapshot } from "@/lib/codexbar";
+import {
+  CODEXBAR_SCHEMA,
+  type CodexBarAccountProviderId,
+  type CodexBarUsage,
+  parseCodexBarSnapshot,
+} from "@/lib/codexbar";
 import { tryGetMonthlyUsd } from "@/lib/codexbar/plan-pricing";
 import type { UsageSnapshot } from "@/lib/codexbar/types";
 import {
@@ -53,8 +58,8 @@ export type ExportScope = {
 export type ExportAccountSummary = {
   id: string;
   label: string;
-  providers: Array<"openai-codex" | "anthropic">;
-  configuredProviders: Array<"openai-codex" | "anthropic">;
+  providers: CodexBarAccountProviderId[];
+  configuredProviders: CodexBarAccountProviderId[];
 };
 
 export type SnapshotFile = {

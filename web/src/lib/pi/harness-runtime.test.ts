@@ -170,6 +170,112 @@ describe("getRuntimeFor", () => {
     );
   });
 
+  it("keeps default api-key models while that provider has no account", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-keydefault-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const accountRuntime = {
+      registerProvider: () => {},
+      getProvider: () => undefined,
+      getProviders: () => [{ id: "openai-codex", name: "OpenAI Codex" }],
+      getModels: () => [{ id: "gpt-5", name: "GPT-5" }],
+      hasConfiguredAuth: () => true,
+      getAvailable: async () => [
+        { provider: "openai-codex", id: "gpt-5", name: "GPT-5", input: ["text"], reasoning: false },
+      ],
+    };
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      modelRuntime: { getProviders: () => [{ id: "openai-codex" }, { id: "ollama-cloud" }] },
+      modelCache: {
+        at: Date.now(),
+        value: [
+          { value: "openai-codex::gpt-5", label: "GPT-5", providerID: "openai-codex", modelID: "gpt-5" },
+          {
+            value: "ollama-cloud::glm-4.6",
+            label: "GLM",
+            providerID: "ollama-cloud",
+            modelID: "glm-4.6",
+          },
+        ],
+      },
+      modelInflight: null,
+      live: new Map(),
+      lastProviderSyncWarnings: [],
+      accountRuntimes: new AccountRuntimeManager(async () => accountRuntime as never),
+    };
+
+    const models = await listModelsForAccounts([
+      { id: "acc-1", label: "仕事用", providers: ["openai-codex"] },
+    ]);
+
+    // 単一 API キー運用（既定 auth.json / env）はアカウント未作成なら従来どおり残す
+    assert.deepEqual(
+      models.map((model) => ({ providerID: model.providerID, accountId: model.accountId })),
+      [
+        { providerID: "openai-codex", accountId: "acc-1" },
+        { providerID: "ollama-cloud", accountId: undefined },
+      ],
+    );
+  });
+
+  it("hides default api-key models once that provider has an account", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-keyaccount-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const requested: (string | undefined)[] = [];
+    const accountRuntime = {
+      registerProvider: () => {},
+      getProvider: () => undefined,
+      getProviders: () => [{ id: "ollama-cloud", name: "Ollama Cloud" }],
+      getModels: () => [{ id: "glm-4.6", name: "GLM" }],
+      hasConfiguredAuth: () => true,
+      getAvailable: async (providerId?: string) => {
+        requested.push(providerId);
+        return [
+          {
+            provider: "ollama-cloud",
+            id: "glm-4.6",
+            name: "GLM",
+            input: ["text"],
+            reasoning: false,
+          },
+        ];
+      },
+    };
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      modelRuntime: { getProviders: () => [{ id: "ollama-cloud" }, { id: "llama-server" }] },
+      modelCache: {
+        at: Date.now(),
+        value: [
+          {
+            value: "ollama-cloud::glm-4.6",
+            label: "GLM",
+            providerID: "ollama-cloud",
+            modelID: "glm-4.6",
+          },
+          { value: "llama-server::local", label: "Local", providerID: "llama-server", modelID: "local" },
+        ],
+      },
+      modelInflight: null,
+      live: new Map(),
+      lastProviderSyncWarnings: [],
+      accountRuntimes: new AccountRuntimeManager(async () => accountRuntime as never),
+    };
+
+    const models = await listModelsForAccounts([
+      { id: "acc-1", label: "個人用", providers: ["ollama-cloud"] },
+    ]);
+
+    assert.deepEqual(requested, ["ollama-cloud"]);
+    assert.deepEqual(
+      models.map((model) => ({ providerID: model.providerID, accountId: model.accountId })),
+      [
+        { providerID: "ollama-cloud", accountId: "acc-1" },
+        { providerID: "llama-server", accountId: undefined },
+      ],
+    );
+  });
+
   it("merges account models into one option in integrated mode", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-routing-"));
     tempDirs.push(dir);

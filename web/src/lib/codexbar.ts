@@ -26,7 +26,12 @@ export type CodexBarCredits = {
   balance: number | null;
 };
 
-export type CodexBarAccountProviderId = "openai-codex" | "anthropic";
+/** accounts.ts の AccountProviderId と同期。client bundle へ node 依存を持ち込まないため別定義。 */
+export type CodexBarAccountProviderId =
+  | "openai-codex"
+  | "anthropic"
+  | "ollama-cloud"
+  | "openrouter";
 
 export type CodexBarAccountSummary = {
   id: string;

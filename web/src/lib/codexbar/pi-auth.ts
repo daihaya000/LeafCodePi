@@ -14,7 +14,11 @@ import { accountAuthPath } from "@/lib/accounts";
  * - アカウント別 auth.json を使う場合は呼び出し側が解決済み agentDir を渡す
  */
 
-export type PiAuthProviderId = "openai-codex" | "anthropic";
+export type PiAuthProviderId =
+  | "openai-codex"
+  | "anthropic"
+  | "ollama-cloud"
+  | "openrouter";
 
 export type PiOAuthTokens = {
   access: string;
@@ -74,6 +78,27 @@ export function readPiOAuthTokens(
           ? node.account_id
           : null;
     return { access, refresh, expires, accountId };
+  } catch {
+    return null;
+  }
+}
+
+/** Pi auth.json から API キーを読む（`{ type: "api_key", key }`）。未ログイン・破損時は null。 */
+export function readPiApiKey(
+  providerId: PiAuthProviderId,
+  options?: { authPath?: string },
+): string | null {
+  const path = options?.authPath ?? piAuthPathFor(providerId);
+  try {
+    if (!existsSync(path)) return null;
+    const root = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown> | null;
+    if (!root || typeof root !== "object") return null;
+    const entry = root[providerId];
+    if (!entry || typeof entry !== "object") return null;
+    const node = entry as Record<string, unknown>;
+    if (node.type !== "api_key") return null;
+    const key = typeof node.key === "string" ? node.key.trim() : "";
+    return key || null;
   } catch {
     return null;
   }

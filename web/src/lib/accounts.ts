@@ -14,12 +14,34 @@ import { listTasks } from "./store";
  * （store.json は閉じた型のため触らない）。
  */
 
-export type AccountProviderId = "openai-codex" | "anthropic";
+export type AccountProviderId =
+  | "openai-codex"
+  | "anthropic"
+  | "ollama-cloud"
+  | "openrouter";
 
-export const ACCOUNT_PROVIDER_IDS: readonly AccountProviderId[] = ["openai-codex", "anthropic"];
+export const ACCOUNT_PROVIDER_IDS: readonly AccountProviderId[] = [
+  "openai-codex",
+  "anthropic",
+  "ollama-cloud",
+  "openrouter",
+];
+
+/**
+ * アカウントが必須で、既定認証（~/.pi/agent/auth.json）からはモデルを出さない
+ * プロバイダー。API キー系は従来の単一キー運用を壊さないためここに含めない。
+ */
+export const ACCOUNT_ONLY_PROVIDER_IDS: readonly AccountProviderId[] = [
+  "openai-codex",
+  "anthropic",
+];
 
 export function isAccountProviderId(providerId: string): providerId is AccountProviderId {
   return (ACCOUNT_PROVIDER_IDS as readonly string[]).includes(providerId);
+}
+
+export function isAccountOnlyProvider(providerId: string): providerId is AccountProviderId {
+  return (ACCOUNT_ONLY_PROVIDER_IDS as readonly string[]).includes(providerId);
 }
 
 export type AccountRecord = {
@@ -159,7 +181,7 @@ function normalizeProviders(input: unknown): AccountProviderId[] {
   if (!Array.isArray(input)) throw badRequest("providers は配列で指定してください");
   const set = new Set<unknown>(input);
   for (const item of set) {
-    if (item !== "openai-codex" && item !== "anthropic") {
+    if (typeof item !== "string" || !isAccountProviderId(item)) {
       throw badRequest(`対応していないプロバイダー: ${String(item)}`);
     }
   }

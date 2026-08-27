@@ -43,7 +43,7 @@ import {
   type UsageScope,
   type ProviderFetchResult,
 } from "@/lib/codexbar/types";
-import { readPiOAuthTokens } from "@/lib/codexbar/pi-auth";
+import { readPiApiKey, readPiOAuthTokens } from "@/lib/codexbar/pi-auth";
 
 const MAX_CONCURRENT_FETCHES = 4;
 
@@ -97,11 +97,11 @@ function accountSummary(
   enabledIds: readonly string[],
 ): ExportAccountSummary {
   const providers = account.providers.filter((provider) => enabledIds.includes(provider));
+  const authPath = accountAuthPath(account.id, agentDir);
   const configuredProviders = providers.filter(
     (provider) =>
-      readPiOAuthTokens(provider, {
-        authPath: accountAuthPath(account.id, agentDir),
-      }) !== null,
+      readPiOAuthTokens(provider, { authPath }) !== null ||
+      readPiApiKey(provider, { authPath }) !== null,
   );
   return {
     id: account.id,

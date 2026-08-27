@@ -371,6 +371,8 @@ export function ProviderAuthPanel({
         (account) => Array.isArray(account.providers) && account.providers.includes(providerId),
       ) ?? [];
     const isCreating = creatingFor === providerId;
+    // OAuth 対応なら OAuth、API キー専用プロバイダーは API キー入力へ
+    const accountAuthType: "api_key" | "oauth" = provider.oauthAvailable ? "oauth" : "api_key";
     const mode = provider.accountRoutingMode ?? "separate";
     const savingMode = routingBusy === providerId;
     const modeDisabled = Boolean(login) || accountBusy || Boolean(routingBusy);
@@ -403,7 +405,7 @@ export function ProviderAuthPanel({
           <div>
             <h3 className="text-xs font-semibold text-muted">ログインアカウント</h3>
             <p className="mt-0.5 text-xs text-muted">
-              このプロバイダ用の OAuth アカウントを追加・管理します。
+              このプロバイダ用のアカウントを追加・管理します。
             </p>
           </div>
           {!isCreating && (
@@ -467,7 +469,7 @@ export function ProviderAuthPanel({
                         <Button
                           size="sm"
                           disabled={Boolean(login) || accountBusy}
-                          onClick={() => void beginLogin(provider, "oauth", account.id)}
+                          onClick={() => void beginLogin(provider, accountAuthType, account.id)}
                         >
                           {authenticated ? "再ログイン" : "ログイン"}
                         </Button>
