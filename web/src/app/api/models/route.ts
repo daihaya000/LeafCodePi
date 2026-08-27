@@ -16,8 +16,8 @@ export const dynamic = "force-dynamic";
 const USAGE_MAX_AGE_MS = 30 * 60 * 1000;
 
 /**
- * モデル一覧。Codex / Anthropic はマルチアカウント前提のためアカウント由来だけを返す。
- * 他プロバイダは既定 auth.json 由来の候補を維持する。アカウントのモデルには
+ * モデル一覧。マルチアカウント対応プロバイダーはアカウント由来だけを返す。
+ * 共有プロバイダーは既定 auth.json 由来の候補を維持する。アカウントのモデルには
  * accountId / accountLabel が付く。レガシーの `?accountId=` は互換のため受けるだけ。
  */
 export async function GET(req: NextRequest) {

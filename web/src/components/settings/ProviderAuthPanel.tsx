@@ -52,10 +52,6 @@ function isAccountProviderId(
   );
 }
 
-function isAccountOnlyProviderId(providerId: string): boolean {
-  return providerId === "openai-codex" || providerId === "anthropic";
-}
-
 function sourceHint(provider: ProviderAuthDto): string | null {
   if (!provider.authenticated) return null;
   if (provider.subscription) {
@@ -942,9 +938,9 @@ export function ProviderAuthPanel({
         <p className="mb-3 text-xs text-muted">
           Claude Pro/Max（Anthropic）、ChatGPT Plus/Pro（OpenAI
           Codex）、Cursor、OpenCode、Command Code（Go プラン可）、および Ollama
-          Cloud / OpenRouter に対応しています。環境変数（ANTHROPIC_API_KEY /
-          OPENCODE_API_KEY など）または ~/.pi/agent/auth.json
-          も引き続き使えます。Command Code は{" "}
+          Cloud / OpenRouter に対応しています。マルチアカウント対応プロバイダーは
+          アカウントごとに管理します。共有プロバイダーでは環境変数または
+          ~/.pi/agent/auth.json を引き続き使えます。Command Code は{" "}
           <span className="font-mono">COMMANDCODE_API_KEY</span> /{" "}
           <span className="font-mono">~/.commandcode/auth.json</span>、Ollama
           Cloud は <span className="font-mono">OLLAMA_API_KEY</span>{" "}
@@ -1111,7 +1107,7 @@ function ProviderRow({
   onLogout?: () => void;
   accountControls?: ReactNode;
 }) {
-  const accountManaged = isAccountOnlyProviderId(provider.id);
+  const accountManaged = isAccountProviderId(provider.id);
   const badge = accountManaged
     ? { tone: "neutral" as const, label: "アカウントで管理" }
     : authBadge(provider);

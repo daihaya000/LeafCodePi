@@ -210,7 +210,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     ).toBeTruthy();
   });
 
-  it("keeps default authentication controls for API-key account providers", async () => {
+  it("uses account controls instead of default authentication for API-key providers", async () => {
     mockAccountsApi();
     render(
       <ProviderAuthPanel
@@ -223,11 +223,10 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(
       within(openrouter).getByRole("button", { name: "アカウントを追加" }),
     ).toBeTruthy();
-    expect(screen.getByText("環境変数 OPENROUTER_API_KEY")).toBeTruthy();
-    expect(screen.getByText("認証済")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "API キー" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "ログアウト" })).toBeTruthy();
-    expect(screen.queryByText("アカウントで管理")).toBeNull();
+    expect(screen.queryByText("環境変数 OPENROUTER_API_KEY")).toBeNull();
+    expect(screen.getByText("アカウントで管理")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "API キー" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "ログアウト" })).toBeNull();
   });
 
   it("shows OpenCode Go cookie controls without an unsupported login action", async () => {

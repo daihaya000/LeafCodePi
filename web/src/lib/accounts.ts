@@ -37,12 +37,10 @@ export const ACCOUNT_PROVIDER_IDS: readonly AccountProviderId[] = [
 
 /**
  * アカウントが必須で、既定認証（~/.pi/agent/auth.json）からはモデルを出さない
- * プロバイダー。API キー系は従来の単一キー運用を壊さないためここに含めない。
+ * プロバイダー。マルチアカウント対応プロバイダーはすべて対象にする。
  */
-export const ACCOUNT_ONLY_PROVIDER_IDS: readonly AccountProviderId[] = [
-  "openai-codex",
-  "anthropic",
-];
+export const ACCOUNT_ONLY_PROVIDER_IDS: readonly AccountProviderId[] =
+  ACCOUNT_PROVIDER_IDS;
 
 export function isAccountProviderId(
   providerId: string,

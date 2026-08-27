@@ -1,6 +1,6 @@
 # マルチアカウント対応 実装計画（LeafCodePi 版）
 
-**ゴール:** OpenAI（Codex/ChatGPT）と Anthropic（Claude）のサブスクアカウントを複数登録し、タスクごとに利用アカウントを切り替えられるようにする。既定 auth は互換のため保持するが、Codex / Anthropic の新規ログイン・モデル選択はマルチアカウント前提で扱う。既存の API キー・環境変数・既存タスクは壊さない。
+**ゴール:** マルチアカウント対応プロバイダーのアカウントを複数登録し、タスクごとに利用アカウントを切り替えられるようにする。既定 auth は既存タスク互換のため保持するが、新規ログイン・モデル選択ではマルチアカウント対応プロバイダーをアカウント前提で扱う。既存の API キー・環境変数・既存タスクは壊さない。
 
 **技術:** Next.js（App Router）、React、TypeScript、Vitest（node 環境）。Pi SDK `@earendil-works/pi-coding-agent` の `ModelRuntime.create({ authPath, modelsStorePath })` による認証ストレージ差し替えを利用する。
 
@@ -30,11 +30,11 @@ LeafCodePi は `web/src/lib/pi/harness.ts:348` で `ModelRuntime` を**プロセ
 
 アカウント対応はこの 10 箇所を `getRuntimeFor(accountId)` で解決するよう置換する。default は従来のシングルトンをそのまま返す（後方互換）。
 
-## 対象: OpenAI Codex / Anthropic の「サブスク OAuth」
+## 対象: マルチアカウント対応プロバイダー
 
-Pi の組み込み OAuth（`openai-codex` / `anthropic`）が対象。Pi の認証フロー自体は「ブラウザで ChatGPT/Claude にログイン」だけでアカウント選択機能を持たないため、**アカウントの切替は WebUI 側で認証ストレージを複数持つことで実現**する。
+Pi の組み込み OAuth（`openai-codex` / `anthropic`）および API キー・サブスク対応プロバイダーが対象。Pi の認証フロー自体はプロバイダーごとのログイン手段を提供するだけでアカウント選択機能を持たないため、**アカウントの切替は WebUI 側で認証ストレージを複数持つことで実現**する。
 
-- 既存 `~/.pi/agent/auth.json` = **default アカウント**（従来どおり）。全既存機能・既存タスクはこのままで動く
+- 既存 `~/.pi/agent/auth.json` = **default アカウント**（従来どおり）。全既存機能・既存タスクはこのままで動くが、マルチアカウント対応プロバイダーの新規モデル候補には使わない
 - 追加アカウント = `~/.pi/agent/accounts/<accountId>/auth.json`（後述の「認証ファイルの場所」）
 - アカウントは「追加の認証レイヤー」。実ファイル・環境変数・default OAuth を奪わない
 
@@ -77,15 +77,15 @@ await pi.ModelRuntime.create({
 type AccountRecord = {
   id: string;                  // UUID
   label: string;               // 表示名（例: "仕事用 ChatGPT"）
-  providers: ("openai-codex" | "anthropic")[];  // このアカウントでログイン可能な provider
+  providers: AccountProviderId[];  // このアカウントでログイン可能な provider
   note?: string;
   createdAt: string;
   updatedAt: string;
 };
 ```
 
-- アカウントは「**1 つで複数 provider（OpenAI と Anthropic）をまとめて持てる**」。各 provider の認証状態は別プロパティ（authDir 内の auth.json の provider キー）で判定
-- アカウント選択 UI では、フォーカス中のプロバイダ（OpenAI/Anthropic）の認証状態を表示
+- アカウントは「**1 つで複数 provider をまとめて持てる**」。各 provider の認証状態は別プロパティ（authDir 内の auth.json の provider キー）で判定
+- アカウント選択 UI では、フォーカス中のプロバイダの認証状態を表示
 - `providers` 配列はアカウント作成時に指定。後から変更不可（シンプル化。要れば Phase 後半で追加編集を検討）
 - アカウントを増やしても default の `~/.pi/agent/auth.json` は不変（レビュー反映 8）
 
@@ -125,16 +125,16 @@ function getRuntimeFor(accountId: string | null): ModelRuntime | null {
 
 Home のモデル選択 = **表示モデル一覧の source of truth** とする。
 
-- `GET /api/models` は非アカウントプロバイダの共有モデルと、Codex / Anthropic の登録アカウント別モデルを返す
-- Codex / Anthropic の既定 auth 由来モデルは新規候補に出さず、アカウントモデルの `value` に accountId を含める
+- `GET /api/models` は非アカウントプロバイダの共有モデルと、マルチアカウント対応プロバイダーの登録アカウント別モデルを返す
+- マルチアカウント対応プロバイダーの既定 auth 由来モデルは新規候補に出さず、アカウントモデルの `value` に accountId を含める
 - タスク作成 `insertTask` に `accountId` を保存し、タスク実行時は保存 accountId の runtime を使う
-- モデルの有効/無効と並び順は、非アカウントプロバイダでは共有、Codex / Anthropic ではアカウント単位で保存する
+- モデルの有効/無効と並び順は、非アカウントプロバイダでは共有、マルチアカウント対応プロバイダーではアカウント単位で保存する
 - 状態キーは `accountId::providerId` / `accountId::providerId::modelId`、モデル順は `accountId::providerId` を使う
 - ログイン後の `invalidateHealthCache` は既存機構でモデルキャッシュを無効化する
 
 ### login / logout / 認証一覧（レビュー反映 3）
 
-`setProviderOrModelEnabled` / `saveProviderModelsOrder` は、非アカウントプロバイダでは従来の共有設定を維持し、OpenAI Codex / Anthropic はアカウント単位で保存する。設定画面は各アカウントのモデル枠を表示し、Home の候補と同じ enabled/order を参照する。
+`setProviderOrModelEnabled` / `saveProviderModelsOrder` は、非アカウントプロバイダでは従来の共有設定を維持し、マルチアカウント対応プロバイダーはアカウント単位で保存する。設定画面は各アカウントのモデル枠を表示し、Home の候補と同じ enabled/order を参照する。
 
 - `POST /api/providers/[id]/login?accountId=<id>` — ログイン先 runtime を accountId で解決（default は従来通り）
 - `POST /api/providers/[id]/logout?accountId=<id>` — ログアウト先も accountId で解決（**logout の accountId 対応を login と同時に実装**）
@@ -174,17 +174,17 @@ CodexBar の詳細な設計・実装順序・API/UI 契約は [`codexbar-multi-a
 - 既存 `GET /api/providers`（認証一覧。`listProviderAuth` を返す、`web/src/app/api/providers/route.ts`）に `?accountId=`（同上）
 
 **UI（設定 → モデル → プロバイダ / Home / TaskView）**
-- `ProviderAuthPanel.tsx` の OpenAI Codex / Anthropic 各プロバイダ行で、アカウントの作成・ログイン・再ログイン・ログアウト・編集・削除を管理（独立アカウント欄は置かない）
+- `ProviderAuthPanel.tsx` の各マルチアカウント対応プロバイダ行で、アカウントの作成・ログイン・再ログイン・ログアウト・編集・削除を管理（独立アカウント欄は置かない）
 - 各プロバイダのアカウント別モデル枠を `ProviderModelsPanel.tsx` に表示し、有効/無効とモデル順をアカウント単位で保存
 - Home の Composer はモデルドロップダウン内でアカウント別モデルを選択する。選択 = モデル一覧の source of truth
 - TaskView ヘッダーに現在のアカウント表示（新規のみ設定可。実行中のタスクでは変更不可）
 
 ## 既存機能との関係
 
-- **API キー / 環境変数 / default OAuth / 拡張（subagents・goal-loop・todowrite・permission-gate・collaboration・question）/ llama-server / Ollama Cloud はそのまま**
+- **共有プロバイダーの API キー / 環境変数 / default OAuth / 拡張（subagents・goal-loop・todowrite・permission-gate・collaboration・question）/ llama-server はそのまま**。マルチアカウント対応プロバイダーの認証・モデル候補はアカウント単位で扱う
 - CodexBar の利用量表示は CLI の `~/.codex/auth.json` / `~/.claude/.credentials.json` 由来で、Pi の auth.json に依存しないため、アカウント切替と干渉しない（別ブラウザプロファイルではなく「別認証トークン」の概念）。Phase 7 で Pi 統合するまでは現状のまま
 - Pi CLI と WebUI のログインは同居可（default の auth.json を共有するだけ）
-- Pi メインセッションツール（read/think/powershell 等）・llama-server / Ollama Cloud（API キー）はアカウント外（従来どおり shared）
+- Pi メインセッションツール（read/think/powershell 等）・llama-server はアカウント外（従来どおり shared）
 
 ## フェーズ構成（レビューで改訂・後方互換を先に保つ順序）
 
@@ -234,7 +234,7 @@ Phase 1  accounts ストア（model 層・パス解決ユーティリティ + �
 
 **ファイル**: 新規 `web/src/app/api/accounts/route.ts`、新規 `web/src/app/api/accounts/[id]/route.ts`、`web/src/app/api/providers/route.ts`（認証一覧に accountId 対応）
 
-- `GET /api/accounts` / `POST /api/accounts`（バリデーション: label 必須・providers は `openai-codex` / `anthropic` の部分集合・空でない）
+- `GET /api/accounts` / `POST /api/accounts`（バリデーション: label 必須・providers は `ACCOUNT_PROVIDER_IDS` の部分集合・空でない）
 - `PATCH /api/accounts/[id]`（label・note。providers は変更不可）
 - `DELETE /api/accounts/[id]`（実行中タスク参照時 409。参考: `web/src/lib/store.ts` の既存 deleteTask と同じトランザクション）
 - 認証一覧 `GET /api/providers?accountId=`（Phase 6 までは default 互換。アカウント未指定 = 従来どおり）
@@ -262,7 +262,7 @@ Phase 1  accounts ストア（model 層・パス解決ユーティリティ + �
 **ファイル**: `web/src/components/settings/ProviderAuthPanel.tsx`、`web/src/components/Composer.tsx`（Home で使用中のコンポーザ）、`web/src/components/task/TaskView.tsx`、`web/src/app/api/models/route.ts`（accountId 対応）
 
 - ProviderAuthPanel: 「アカウント」セクション。一覧（label・各 provider 認証 Badge・ログイン/ログアウト・編集・削除）
-- 作成ダイアログ: label 入力 + `openai-codex` / `anthropic` チェックボックス。ログインは既存の `beginLogin`（`?accountId=`）を再利用
+- アカウント追加は各プロバイダー行から行い、対象プロバイダーを `providers` に登録する。ログインは既存の `beginLogin`（`?accountId=`）を再利用
 - Home Composer: アカウント選択ドロップダウン。選択に応じて `GET /api/models?accountId=` でモデル一覧を再取得（= モデル一覧と連動・レビュー反映 2）。選択は localStorage / 新規タスクに引き継ぎ
 - `insertTask` と `patchTask` の Pick 型に `accountId` を追加（`web/src/lib/store.ts:136,171`）、task 一覧・詳細 API も accountId を返す
 - TaskView ヘッダー: 現在のアカウント表示（実行中タスクでは変更不可・無効化）

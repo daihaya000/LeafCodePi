@@ -114,7 +114,7 @@ export function extractDirectText(body: unknown): string {
 
 export async function generateDirectText(options: {
   model: DirectModel;
-  /** Account runtime for subscription models; null/undefined uses default. */
+  /** Account runtime for account-scoped models; null/undefined uses default. */
   accountId?: string | null;
   system: string;
   prompt: string;

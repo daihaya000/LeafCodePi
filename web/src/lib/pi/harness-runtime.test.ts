@@ -292,7 +292,7 @@ describe("getRuntimeFor", () => {
     );
   });
 
-  it("keeps default api-key models while that provider has no account", async () => {
+  it("hides default account-provider models without a matching account", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-keydefault-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
@@ -347,20 +347,17 @@ describe("getRuntimeFor", () => {
     });
     const models = await listModelsForAccounts([account]);
 
-    // 単一 API キー運用（既定 auth.json / env）はアカウント未作成なら従来どおり残す
+    // アカウント対応プロバイダーは、該当アカウントが無い場合も既定候補を出さない。
     assert.deepEqual(
       models.map((model) => ({
         providerID: model.providerID,
         accountId: model.accountId,
       })),
-      [
-        { providerID: "openai-codex", accountId: account.id },
-        { providerID: "ollama-cloud", accountId: undefined },
-      ],
+      [{ providerID: "openai-codex", accountId: account.id }],
     );
   });
 
-  it("hides default api-key models once that provider has an account", async () => {
+  it("hides default account-provider models once that provider has an account", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-keyaccount-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;

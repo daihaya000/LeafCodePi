@@ -2018,8 +2018,8 @@ async function hasStoredAccountProvider(
 
 /**
  * このプロバイダーが今アカウント経由で動くか。true なら既定（非アカウント）認証の
- * モデルを隠し、統合ルーティングの対象にする。アカウント必須のサブスクは常に true、
- * API キー系はアカウントが 1 つ以上ある場合だけ true（単一キー運用を壊さない）。
+ * モデルを隠し、統合ルーティングの対象にする。マルチアカウント対応プロバイダーは
+ * 常に true とし、既定モデルを新規候補へ出さない。
  */
 function runsThroughAccounts(
   providerId: string,
@@ -2274,7 +2274,7 @@ function workingTaskCounts(
 
 /**
  * 既定の非アカウントプロバイダ + 全アカウントのモデルを返す。統合モードの
- * Codex / Anthropic は provider/model ごとに 1 option へまとめる。
+ * 統合モードのアカウント対応プロバイダーは provider/model ごとに 1 option へまとめる。
  */
 async function buildModelsForAccounts(
   accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
@@ -2579,7 +2579,7 @@ export async function listProviderModelsCatalog(): Promise<
   const accounts = listAccounts();
   const runtime = await getRuntimeFor();
   if (runtime) {
-    // Codex / Anthropic はマルチアカウント専用。API キー系はアカウント作成後だけ共有欄から外す。
+    // マルチアカウント対応プロバイダーはアカウント専用。既定欄には出さない。
     rows.push(
       ...buildProviderModelsCatalog(runtime, state).filter(
         (row) => !runsThroughAccounts(row.id, accounts),
