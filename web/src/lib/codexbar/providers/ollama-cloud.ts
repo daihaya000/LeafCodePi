@@ -2,15 +2,10 @@
  * Ollama Cloud usage scraped from https://ollama.com/settings (Netscape cookies).
  */
 
-import {
-  ProviderError,
-  type IUsageProvider,
-  type RateWindow,
-  type UsageScope,
-  type UsageSnapshot,
-} from "@/lib/codexbar/types";
 import { chmodSync, unlinkSync } from "node:fs";
-import { clamp, atomicWriteText, fetchText } from "@/lib/codexbar/utils";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { atomicWriteText, clamp, fetchText } from "@/lib/codexbar/utils";
 import {
   cookieHeaderFromNetscapeFile,
   cookieHeaderFromNetscapeText,
@@ -18,8 +13,13 @@ import {
   netscapeCookieCandidates,
   codexBarConfigDir,
 } from "@/lib/codexbar/netscape-cookies";
-import { join } from "node:path";
-import { homedir } from "node:os";
+import {
+  ProviderError,
+  type IUsageProvider,
+  type RateWindow,
+  type UsageScope,
+  type UsageSnapshot,
+} from "@/lib/codexbar/types";
 
 const SETTINGS_URL = "https://ollama.com/settings";
 const USER_AGENT =

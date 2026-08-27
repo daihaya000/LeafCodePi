@@ -394,7 +394,7 @@ export function groupCodexBarProviders(
       (provider) => hasLastGoodUsage(provider) && provider.usedPercent !== null,
     );
     const usedPercent =
-        isAccountManaged && accountRows.length > 0
+      isAccountManaged && accountRows.length > 0
         ? validRows.length > 0
           ? validRows.reduce((sum, provider) => sum + provider.usedPercent!, 0) /
             validRows.length
