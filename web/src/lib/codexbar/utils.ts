@@ -1,11 +1,84 @@
 import { copyFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
+import { lookup as osLookup, promises as dnsPromises } from "node:dns";
 import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from "undici";
 
-/** Node's built-in fetch can give up before slow Windows network paths respond. */
-const slowNetworkAgent = new Agent({
-  connectTimeout: 30_000,
+type LookupAddress = { address: string; family: number };
+
+/** Head start that keeps hosts-file / MagicDNS answers ahead of the direct query. */
+const OS_RESOLVER_HEAD_START_MS = 50;
+
+/**
+ * On some Windows setups `getaddrinfo` stalls ~12s for individual hosts while a direct
+ * DNS query answers in well under a second, which starves every request budget. Race the
+ * OS resolver against a c-ares query and use the first usable answer.
+ *
+ * ponytail: two lookups per connection; drop the c-ares leg once getaddrinfo behaves.
+ */
+export function racingLookup(
+  hostname: string,
+  options: { family?: number | "IPv4" | "IPv6"; hints?: number; all?: boolean },
+  callback: (
+    err: NodeJS.ErrnoException | null,
+    address: string | LookupAddress[],
+    family?: number,
+  ) => void,
+): void {
+  const wanted =
+    options.family === 4 || options.family === "IPv4"
+      ? 4
+      : options.family === 6 || options.family === "IPv6"
+        ? 6
+        : 0;
+  const viaOs = new Promise<LookupAddress[]>((resolve, reject) => {
+    osLookup(hostname, { ...options, all: true }, (err, addresses) =>
+      err ? reject(err) : resolve(addresses),
+    );
+  });
+  const query = async (family: 4 | 6): Promise<LookupAddress[]> => {
+    const addresses =
+      family === 4
+        ? await dnsPromises.resolve4(hostname)
+        : await dnsPromises.resolve6(hostname);
+    return addresses.map((address) => ({ address, family }));
+  };
+  const viaDns = new Promise<void>((resolve) =>
+    setTimeout(resolve, OS_RESOLVER_HEAD_START_MS),
+  ).then(async () => {
+    if (wanted !== 0) return query(wanted);
+    const settled = await Promise.allSettled([query(6), query(4)]);
+    const found = settled.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+    if (found.length === 0) throw new Error(`DNS query returned no records: ${hostname}`);
+    return found;
+  });
+
+  let done = false;
+  let pending = 2;
+  const fail = (err: NodeJS.ErrnoException) => {
+    pending -= 1;
+    if (done || pending > 0) return;
+    done = true;
+    (callback as (err: NodeJS.ErrnoException) => void)(err);
+  };
+  const succeed = (addresses: LookupAddress[]) => {
+    if (done) return;
+    if (addresses.length === 0) {
+      fail(Object.assign(new Error(`No address found: ${hostname}`), { code: "ENOTFOUND" }));
+      return;
+    }
+    done = true;
+    if (options.all) callback(null, addresses);
+    else callback(null, addresses[0].address, addresses[0].family);
+  };
+  void viaOs.then(succeed, fail);
+  void viaDns.then(succeed, fail);
+}
+
+/** Shared connection pool: fast name resolution plus room for slow network paths. */
+const usageAgent = new Agent({
+  connect: { lookup: racingLookup },
+  connectTimeout: 20_000,
   autoSelectFamily: true,
   autoSelectFamilyAttemptTimeout: 1_000,
 });
@@ -123,19 +196,6 @@ export function cleanApiKey(raw: string | null | undefined): string | null {
   return value.length > 0 ? value : null;
 }
 
-function isConnectTimeout(error: unknown): boolean {
-  if (!error || typeof error !== "object" || !("cause" in error)) return false;
-  const cause = (error as { cause?: unknown }).cause;
-  return (
-    !!cause &&
-    typeof cause === "object" &&
-    "code" in cause &&
-    (cause as { code?: unknown }).code === "UND_ERR_CONNECT_TIMEOUT"
-  );
-}
-
-type TextResponse = Pick<Response, "status" | "ok" | "text">;
-
 export async function fetchText(
   url: string,
   init: RequestInit & { timeoutMs?: number } = {},
@@ -149,18 +209,11 @@ export async function fetchText(
     else parent.addEventListener("abort", () => ctrl.abort(), { once: true });
   }
   try {
-    let res: TextResponse;
-    try {
-      res = await fetch(url, { ...rest, signal: ctrl.signal });
-    } catch (error) {
-      if (!isConnectTimeout(error)) throw error;
-      const fallbackInit: UndiciRequestInit = {
-        ...(rest as UndiciRequestInit),
-        signal: ctrl.signal,
-        dispatcher: slowNetworkAgent,
-      };
-      res = await undiciFetch(url, fallbackInit);
-    }
+    const res = await undiciFetch(url, {
+      ...(rest as UndiciRequestInit),
+      signal: ctrl.signal,
+      dispatcher: usageAgent,
+    });
     const body = await res.text();
     return { status: res.status, body, ok: res.ok };
   } finally {

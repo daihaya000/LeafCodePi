@@ -12,6 +12,13 @@ vi.mock("@/lib/codexbar/provider-catalog", () => ({
   resolveEnabledProviderIds: () => ["openai-codex"],
 }));
 
+const undiciFetch = vi.hoisted(() => vi.fn());
+
+vi.mock("undici", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("undici")>()),
+  fetch: undiciFetch,
+}));
+
 const tempDirs: string[] = [];
 
 function writeJson(path: string, value: unknown): void {
@@ -64,7 +71,7 @@ function setupAccounts(): { accountDir: string; dataDir: string } {
 }
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  undiciFetch.mockReset();
   clearCachedUsage();
   clearProviderCache();
   __resetPiAgentDirCacheForTests();
@@ -76,7 +83,7 @@ afterEach(() => {
 describe("fetchNativeUsage", () => {
   it("fetches Codex usage independently for each registered account", async () => {
     setupAccounts();
-    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    undiciFetch.mockImplementation(async (_url: string, init?: RequestInit) => {
       const headers = (init?.headers ?? {}) as Record<string, string>;
       const token = headers.Authorization?.replace("Bearer ", "");
       const percent = token === "token-a" ? 100 : 20;
@@ -94,7 +101,6 @@ describe("fetchNativeUsage", () => {
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     });
-    vi.stubGlobal("fetch", fetchMock);
 
     const usage = await fetchNativeUsage({
       forceRefresh: true,
@@ -102,12 +108,12 @@ describe("fetchNativeUsage", () => {
     });
     const group = groupCodexBarProviders(usage)[0];
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(undiciFetch).toHaveBeenCalledTimes(2);
     expect(group.provider.usedPercent).toBe(60);
     expect(group.accountRows.map((row) => row.label)).toEqual(["仕事用", "個人用"]);
     expect(group.accountRows.map((row) => row.provider?.usedPercent)).toEqual([100, 20]);
     expect(
-      (fetchMock.mock.calls as unknown as [string, RequestInit][]).map(
+      (undiciFetch.mock.calls as unknown as [string, RequestInit][]).map(
         ([url, init]) => [url, (init.headers as Record<string, string>).Authorization],
       ),
     ).toEqual([
@@ -132,15 +138,13 @@ describe("fetchNativeUsage", () => {
       },
     ];
     writeJson(join(dataDir, "accounts.json"), { version: 1, accounts: accountData.accounts });
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
 
     const usage = await fetchNativeUsage({
       forceRefresh: true,
       scope: { kind: "account", accountId: "acc-empty" },
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(undiciFetch).not.toHaveBeenCalled();
     expect(usage.accounts?.[0]).toMatchObject({
       id: "acc-empty",
       configuredProviders: [],

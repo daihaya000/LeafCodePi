@@ -15,6 +15,13 @@ vi.mock("./pi-auth", () => ({
   writeBackPiOAuthTokens: vi.fn(),
 }));
 
+const undiciFetch = vi.hoisted(() => vi.fn());
+
+vi.mock("undici", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("undici")>()),
+  fetch: undiciFetch,
+}));
+
 import { createAnthropicProvider } from "./providers/anthropic";
 import { createOpenaiCodexProvider } from "./providers/openai-codex";
 
@@ -28,20 +35,17 @@ const scope: UsageScope = {
 
 beforeEach(() => {
   auth.read.mockClear();
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url: string) =>
-      new Response(
-        url.includes("anthropic")
-          ? JSON.stringify({ five_hour: { utilization: 10 } })
-          : JSON.stringify({ rate_limit: {} }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+  undiciFetch.mockImplementation(async (url: string) =>
+    new Response(
+      url.includes("anthropic")
+        ? JSON.stringify({ five_hour: { utilization: 10 } })
+        : JSON.stringify({ rate_limit: {} }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
     ),
   );
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => undiciFetch.mockReset());
 
 describe.each([
   ["Codex", createOpenaiCodexProvider],

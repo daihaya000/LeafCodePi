@@ -1,4 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const undiciFetch = vi.hoisted(() => vi.fn());
+
+vi.mock("undici", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("undici")>()),
+  fetch: undiciFetch,
+}));
+
 import { parseOpenRouterKeyJson, openrouterProvider } from "./providers/openrouter";
 import { parseClaudeUsageJson } from "./providers/anthropic";
 import { parseCodexUsageJson } from "./providers/openai-codex";
@@ -37,24 +45,23 @@ describe("parseOpenRouterKeyJson", () => {
 
 describe("openrouterProvider.fetch (mock)", () => {
   afterEach(() => {
-    vi.unstubAllGlobals();
+    undiciFetch.mockReset();
     delete process.env.OPENROUTER_API_KEY;
   });
 
   it("calls the key API with the bearer token", async () => {
     process.env.OPENROUTER_API_KEY = "sk-test";
-    const fetchMock = vi.fn(async () =>
+    undiciFetch.mockImplementation(async () =>
       new Response(
         JSON.stringify({ data: { usage: 2, limit: 5, limit_remaining: 3 } }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
     );
-    vi.stubGlobal("fetch", fetchMock);
 
     const snap = await openrouterProvider.fetch();
     expect(snap.creditsUsed).toBe(2);
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const call = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(undiciFetch).toHaveBeenCalledOnce();
+    const call = undiciFetch.mock.calls[0] as unknown as [string, RequestInit];
     expect(call[0]).toBe("https://openrouter.ai/api/v1/key");
     expect((call[1].headers as Record<string, string>).Authorization).toBe(
       "Bearer sk-test",
