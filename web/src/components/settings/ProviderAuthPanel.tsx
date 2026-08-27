@@ -32,7 +32,12 @@ function authBadge(provider: ProviderAuthDto) {
 }
 
 function isAccountProviderId(providerId: string): providerId is AccountProviderId {
-  return providerId === "openai-codex" || providerId === "anthropic";
+  return (
+    providerId === "openai-codex" ||
+    providerId === "anthropic" ||
+    providerId === "ollama-cloud" ||
+    providerId === "openrouter"
+  );
 }
 
 function sourceHint(provider: ProviderAuthDto): string | null {
@@ -70,6 +75,11 @@ export function ProviderAuthPanel({
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState("");
   const [authStatuses, setAuthStatuses] = useState<Record<string, AccountProviderId[]>>({});
+  const [ollamaCookieStatuses, setOllamaCookieStatuses] = useState<Record<string, boolean>>({});
+  const [cookieEditingAccountId, setCookieEditingAccountId] = useState<string | null>(null);
+  const [ollamaCookieInput, setOllamaCookieInput] = useState("");
+  const [cookieBusy, setCookieBusy] = useState<string | null>(null);
+  const [cookieErrors, setCookieErrors] = useState<Record<string, string>>({});
 
   const refreshAccounts = useCallback(async () => {
     try {
@@ -80,16 +90,25 @@ export function ProviderAuthPanel({
       const statuses = await Promise.all(
         res.accounts.map(async (account) => {
           try {
-            const status = await getJson<{ providers: AccountProviderId[] }>(
+            const status = await getJson<{
+              providers: AccountProviderId[];
+              ollamaCookieConfigured?: boolean;
+            }>(
               `/api/accounts/${encodeURIComponent(account.id)}/auth-status`,
             );
-            return [account.id, status.providers] as const;
+            return [account.id, status] as const;
           } catch {
-            return [account.id, [] as AccountProviderId[]] as const;
+            return [
+              account.id,
+              { providers: [] as AccountProviderId[], ollamaCookieConfigured: false },
+            ] as const;
           }
         }),
       );
-      setAuthStatuses(Object.fromEntries(statuses));
+      setAuthStatuses(Object.fromEntries(statuses.map(([id, status]) => [id, status.providers])));
+      setOllamaCookieStatuses(
+        Object.fromEntries(statuses.map(([id, status]) => [id, status.ollamaCookieConfigured === true])),
+      );
     } catch (error) {
       setAccountsError(error instanceof ApiError ? error.message : String(error));
     }
@@ -363,6 +382,66 @@ export function ProviderAuthPanel({
     }
   }
 
+  function openOllamaCookieEditor(accountId: string) {
+    setCookieEditingAccountId(accountId);
+    setOllamaCookieInput("");
+    setCookieErrors((current) => {
+      const next = { ...current };
+      delete next[accountId];
+      return next;
+    });
+  }
+
+  async function saveOllamaCookie(accountId: string) {
+    if (!ollamaCookieInput.trim() || cookieBusy) return;
+    setCookieBusy(accountId);
+    setCookieErrors((current) => {
+      const next = { ...current };
+      delete next[accountId];
+      return next;
+    });
+    try {
+      await sendJson(`/api/accounts/${encodeURIComponent(accountId)}/ollama-cookie`, {
+        cookies: ollamaCookieInput,
+      });
+      setOllamaCookieInput("");
+      setCookieEditingAccountId(null);
+      await refreshAccounts();
+      onChanged();
+    } catch (error) {
+      setCookieErrors((current) => ({
+        ...current,
+        [accountId]: error instanceof ApiError ? error.message : String(error),
+      }));
+    } finally {
+      setCookieBusy(null);
+    }
+  }
+
+  async function removeOllamaCookie(accountId: string, label: string) {
+    if (cookieBusy || !window.confirm(`「${label}」の Ollama cookie を削除しますか？`)) return;
+    setCookieBusy(accountId);
+    setCookieErrors((current) => {
+      const next = { ...current };
+      delete next[accountId];
+      return next;
+    });
+    try {
+      await sendJson(`/api/accounts/${encodeURIComponent(accountId)}/ollama-cookie`, {}, "DELETE");
+      setCookieEditingAccountId(null);
+      setOllamaCookieInput("");
+      await refreshAccounts();
+      onChanged();
+    } catch (error) {
+      setCookieErrors((current) => ({
+        ...current,
+        [accountId]: error instanceof ApiError ? error.message : String(error),
+      }));
+    } finally {
+      setCookieBusy(null);
+    }
+  }
+
   function renderAccountControls(provider: ProviderAuthDto): ReactNode {
     if (!isAccountProviderId(provider.id)) return null;
     const providerId = provider.id;
@@ -372,7 +451,10 @@ export function ProviderAuthPanel({
       ) ?? [];
     const isCreating = creatingFor === providerId;
     // OAuth 対応なら OAuth、API キー専用プロバイダーは API キー入力へ
-    const accountAuthType: "api_key" | "oauth" = provider.oauthAvailable ? "oauth" : "api_key";
+    const accountAuthType: "api_key" | "oauth" =
+      provider.oauthAvailable === true || provider.methods?.includes("oauth")
+        ? "oauth"
+        : "api_key";
     const mode = provider.accountRoutingMode ?? "separate";
     const savingMode = routingBusy === providerId;
     const modeDisabled = Boolean(login) || accountBusy || Boolean(routingBusy);
@@ -434,6 +516,9 @@ export function ProviderAuthPanel({
               <ul className="mt-2 space-y-1.5">
                 {providerAccounts.map((account) => {
                   const authenticated = authStatuses[account.id]?.includes(providerId) === true;
+                  const cookieConfigured = ollamaCookieStatuses[account.id] === true;
+                  const cookieEditing = cookieEditingAccountId === account.id;
+                  const cookieAccountBusy = cookieBusy === account.id;
                   return (
                     <li key={account.id} className="rounded-xl bg-surface-2 px-3 py-2">
                       {editingAccountId === account.id ? (
@@ -503,6 +588,100 @@ export function ProviderAuthPanel({
                           削除
                         </Button>
                       </div>
+                      {providerId === "ollama-cloud" && (
+                        <div className="mt-2 border-t border-border pt-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-xs font-semibold text-muted">Ollama cookie</p>
+                              <p className="mt-0.5 text-xs text-muted" role="status">
+                                {cookieConfigured ? "このアカウントの cookie を登録済み" : "利用量表示には cookie が必要です"}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1">
+                              <Badge tone={cookieConfigured ? "success" : "neutral"}>
+                                {cookieConfigured ? "登録済み" : "未登録"}
+                              </Badge>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={Boolean(login) || accountBusy || Boolean(cookieBusy)}
+                                onClick={() => openOllamaCookieEditor(account.id)}
+                              >
+                                {cookieConfigured ? "更新" : "登録"}
+                              </Button>
+                              {cookieConfigured && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={Boolean(login) || accountBusy || Boolean(cookieBusy)}
+                                  onClick={() => void removeOllamaCookie(account.id, account.label)}
+                                >
+                                  削除
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                          {cookieEditing && (
+                            <form
+                              className="mt-2 flex flex-col gap-2"
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                void saveOllamaCookie(account.id);
+                              }}
+                            >
+                              <label
+                                htmlFor={`ollama-cookie-${account.id}`}
+                                className="text-xs text-muted"
+                              >
+                                Netscape 形式の cookie
+                              </label>
+                              <textarea
+                                id={`ollama-cookie-${account.id}`}
+                                rows={5}
+                                value={ollamaCookieInput}
+                                onChange={(event) => setOllamaCookieInput(event.target.value)}
+                                placeholder="# Netscape HTTP Cookie File"
+                                spellCheck={false}
+                                autoComplete="off"
+                                className="w-full resize-y rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs outline-none focus:border-accent"
+                                aria-describedby={`ollama-cookie-help-${account.id}`}
+                                disabled={cookieAccountBusy}
+                                autoFocus
+                              />
+                              <p id={`ollama-cookie-help-${account.id}`} className="text-xs text-muted">
+                                ollama.com の cookie を貼り付けてください。保存後、本文は画面に表示しません。
+                              </p>
+                              {cookieErrors[account.id] && (
+                                <p className="text-xs text-danger" role="alert">
+                                  {cookieErrors[account.id]}
+                                </p>
+                              )}
+                              <div className="flex gap-2">
+                                <Button
+                                  type="submit"
+                                  size="sm"
+                                  busy={cookieAccountBusy}
+                                  disabled={!ollamaCookieInput.trim() || Boolean(cookieBusy && !cookieAccountBusy)}
+                                >
+                                  保存
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={cookieAccountBusy}
+                                  onClick={() => {
+                                    setCookieEditingAccountId(null);
+                                    setOllamaCookieInput("");
+                                  }}
+                                >
+                                  キャンセル
+                                </Button>
+                              </div>
+                            </form>
+                          )}
+                        </div>
+                      )}
                     </li>
                   );
                 })}
@@ -556,10 +735,10 @@ export function ProviderAuthPanel({
         <h2 className="mb-2 text-sm font-semibold">プロバイダ</h2>
         <p className="mb-3 text-xs text-muted">
           Claude Pro/Max（Anthropic）、ChatGPT Plus/Pro（OpenAI Codex）、Cursor、Command Code（Go プラン可）、および
-          Ollama Cloud に対応しています。Command Code は{" "}
+           Ollama Cloud / OpenRouter に対応しています。Command Code は{" "}
           <span className="font-mono">COMMANDCODE_API_KEY</span> /{" "}
           <span className="font-mono">~/.commandcode/auth.json</span>、Ollama Cloud は{" "}
-          <span className="font-mono">OLLAMA_API_KEY</span> でも設定できます。
+          <span className="font-mono">OLLAMA_API_KEY</span> でも設定できます。Ollama Cloud はアカウントごとに cookie も登録できます。
         </p>
         <ul className="space-y-2">
           {highlighted.length === 0 && (

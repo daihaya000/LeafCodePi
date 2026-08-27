@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { accountStoredProviders, getAccount, resolvePiAgentDir } from "@/lib/accounts";
+import { isOllamaCookieConfigured } from "@/lib/codexbar/providers/ollama-cloud";
 import { jsonError } from "@/lib/pi/harness";
 
 export const runtime = "nodejs";
@@ -18,7 +19,10 @@ export async function GET(_req: NextRequest, context: Context) {
       return NextResponse.json({ error: "アカウントが見つかりません" }, { status: 404 });
     }
     const agentDir = await resolvePiAgentDir();
-    return NextResponse.json({ providers: accountStoredProviders(id, agentDir) });
+    return NextResponse.json({
+      providers: accountStoredProviders(id, agentDir),
+      ollamaCookieConfigured: isOllamaCookieConfigured(id),
+    });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

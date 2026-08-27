@@ -325,6 +325,55 @@ describe("groupCodexBarProviders", () => {
       provider: null,
     });
   });
+
+  it("keeps API-key account providers in parsed account metadata", () => {
+    const usage = parseCodexBarSnapshot({
+      accounts: [
+        {
+          id: "acc-a",
+          label: "クラウド用",
+          providers: ["ollama-cloud", "openrouter"],
+          configuredProviders: ["ollama-cloud", "openrouter"],
+        },
+      ],
+      providers: [],
+    });
+
+    expect(usage.accounts?.[0]).toMatchObject({
+      providers: ["ollama-cloud", "openrouter"],
+      configuredProviders: ["ollama-cloud", "openrouter"],
+    });
+  });
+
+  it("groups API-key provider usage into account rows", () => {
+    const usage = parseCodexBarSnapshot({
+      accounts: [
+        {
+          id: "acc-a",
+          label: "クラウド用",
+          providers: ["openrouter"],
+          configuredProviders: ["openrouter"],
+        },
+      ],
+      providers: [
+        {
+          codexBarProviderId: "openrouter",
+          accountId: "acc-a",
+          usedPercent: 25,
+          credits: { used: 2.5, limit: 10, balance: 7.5 },
+        },
+      ],
+    });
+
+    const [group] = groupCodexBarProviders(usage);
+    expect(group.accountRows).toHaveLength(1);
+    expect(group.accountRows[0]).toMatchObject({
+      label: "クラウド用",
+      configured: true,
+      provider: { accountId: "acc-a", usedPercent: 25 },
+    });
+    expect(group.provider.usedPercent).toBe(25);
+  });
 });
 
 describe("percentTone", () => {

@@ -155,13 +155,19 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
         const providers = Array.isArray(account.providers)
           ? account.providers.filter(
               (provider): provider is CodexBarAccountProviderId =>
-                provider === "openai-codex" || provider === "anthropic",
+                provider === "openai-codex" ||
+                provider === "anthropic" ||
+                provider === "ollama-cloud" ||
+                provider === "openrouter",
             )
           : [];
         const configuredProviders = Array.isArray(account.configuredProviders)
           ? account.configuredProviders.filter(
               (provider): provider is CodexBarAccountProviderId =>
-                provider === "openai-codex" || provider === "anthropic",
+                provider === "openai-codex" ||
+                provider === "anthropic" ||
+                provider === "ollama-cloud" ||
+                provider === "openrouter",
             )
           : [];
         return [{ id, label, providers, configuredProviders }];
@@ -264,7 +270,12 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
   };
 }
 
-const SUBSCRIPTION_PROVIDER_IDS = new Set(["openai-codex", "anthropic"]);
+const ACCOUNT_MANAGED_PROVIDER_IDS = new Set([
+  "openai-codex",
+  "anthropic",
+  "ollama-cloud",
+  "openrouter",
+]);
 
 export type CodexBarProviderGroupAccount = {
   id: string;
@@ -340,7 +351,7 @@ export function groupCodexBarProviders(
   const result: CodexBarProviderGroup[] = [];
   for (const id of orderedIds) {
     const group = groups.get(id)!;
-    const isSubscription = SUBSCRIPTION_PROVIDER_IDS.has(id);
+    const isAccountManaged = ACCOUNT_MANAGED_PROVIDER_IDS.has(id);
     const usageByAccount = new Map(
       group.rows
         .filter((row) => row.accountId)
@@ -349,7 +360,7 @@ export function groupCodexBarProviders(
     const accountRows: CodexBarProviderGroupAccount[] = [];
     const seen = new Set<string>();
 
-    if (isSubscription) {
+    if (isAccountManaged) {
       for (const account of summaries) {
         if (!account.providers.includes(id as CodexBarAccountProviderId)) continue;
         const key = accountProviderKey(account.id, id);
@@ -376,14 +387,14 @@ export function groupCodexBarProviders(
 
     const base = group.representative ?? group.rows[0] ?? emptyProvider(id);
     const rowProviders =
-      isSubscription && accountRows.length > 0
+      isAccountManaged && accountRows.length > 0
         ? accountRows.flatMap((entry) => (entry.provider ? [entry.provider] : []))
         : [base];
     const validRows = rowProviders.filter(
       (provider) => hasLastGoodUsage(provider) && provider.usedPercent !== null,
     );
     const usedPercent =
-      isSubscription && accountRows.length > 0
+        isAccountManaged && accountRows.length > 0
         ? validRows.length > 0
           ? validRows.reduce((sum, provider) => sum + provider.usedPercent!, 0) /
             validRows.length
@@ -403,8 +414,8 @@ export function groupCodexBarProviders(
         limited: limitedCount > 0,
         maxed: maxedCount > 0,
         stale: rowProviders.some((provider) => provider.stale === true),
-        windows: isSubscription && accountRows.length > 0 ? [] : base.windows,
-        credits: isSubscription && accountRows.length > 0 ? null : base.credits,
+        windows: isAccountManaged && accountRows.length > 0 ? [] : base.windows,
+        credits: isAccountManaged && accountRows.length > 0 ? null : base.credits,
         error: null,
       },
       accountRows,

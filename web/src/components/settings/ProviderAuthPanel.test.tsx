@@ -48,6 +48,24 @@ const accounts = [
   },
 ];
 
+const ollamaProvider = {
+  id: "ollama-cloud",
+  name: "Ollama Cloud",
+  authenticated: false,
+  methods: ["api_key"] as ("api_key" | "oauth")[],
+  oauthAvailable: false,
+  highlighted: true,
+  accountRoutingMode: "separate" as const,
+};
+
+const ollamaAccount = {
+  id: "ollama-acc-1",
+  label: "Ollama 個人用",
+  providers: ["ollama-cloud"],
+  createdAt: "",
+  updatedAt: "",
+};
+
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
@@ -201,6 +219,74 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
           String(input).includes("/api/accounts/acc-1") && (init?.method ?? "") === "DELETE",
       );
       expect(del).toBeTruthy();
+    });
+  });
+
+  it("registers an Ollama cookie for the selected account", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url.endsWith("/api/accounts") && method === "GET") {
+        return Promise.resolve(jsonResponse({ accounts: [ollamaAccount] }));
+      }
+      if (url.endsWith(`/api/accounts/${ollamaAccount.id}/auth-status`)) {
+        return Promise.resolve(jsonResponse({ providers: [], ollamaCookieConfigured: false }));
+      }
+      if (url.endsWith(`/api/accounts/${ollamaAccount.id}/ollama-cookie`) && method === "POST") {
+        return Promise.resolve(jsonResponse({ ok: true, configured: true }));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    render(<ProviderAuthPanel providers={[ollamaProvider]} onChanged={() => {}} />);
+
+    const ollama = await accountRegion("Ollama Cloud");
+    expect(within(ollama).getByText("未登録")).toBeTruthy();
+    fireEvent.click(within(ollama).getByRole("button", { name: "登録" }));
+    const cookieInput = within(ollama).getByLabelText("Netscape 形式の cookie");
+    fireEvent.change(cookieInput, { target: { value: "# Netscape HTTP Cookie File\n" } });
+    fireEvent.click(within(ollama).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => {
+      const save = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).endsWith(`/api/accounts/${ollamaAccount.id}/ollama-cookie`) &&
+          init?.method === "POST",
+      );
+      expect(save).toBeTruthy();
+      expect(JSON.parse(String(save?.[1]?.body))).toEqual({
+        cookies: "# Netscape HTTP Cookie File\n",
+      });
+    });
+  });
+
+  it("starts API-key login for an Ollama account", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url.endsWith("/api/accounts") && method === "GET") {
+        return Promise.resolve(jsonResponse({ accounts: [ollamaAccount] }));
+      }
+      if (url.endsWith(`/api/accounts/${ollamaAccount.id}/auth-status`)) {
+        return Promise.resolve(jsonResponse({ providers: [], ollamaCookieConfigured: false }));
+      }
+      if (url.includes(`/api/providers/ollama-cloud/login`) && method === "POST") {
+        return Promise.resolve(jsonResponse({}));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    render(<ProviderAuthPanel providers={[ollamaProvider]} onChanged={() => {}} />);
+
+    const ollama = await accountRegion("Ollama Cloud");
+    fireEvent.click(within(ollama).getByRole("button", { name: "ログイン" }));
+
+    await waitFor(() => {
+      const login = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).includes(`/api/providers/ollama-cloud/login`) && init?.method === "POST",
+      );
+      expect(login).toBeTruthy();
+      expect(String(login?.[0])).toContain("accountId=ollama-acc-1");
+      expect(JSON.parse(String(login?.[1]?.body))).toEqual({ type: "api_key" });
     });
   });
 });

@@ -9,9 +9,11 @@ import {
   type UsageScope,
   type UsageSnapshot,
 } from "@/lib/codexbar/types";
-import { clamp, fetchText } from "@/lib/codexbar/utils";
+import { chmodSync, unlinkSync } from "node:fs";
+import { clamp, atomicWriteText, fetchText } from "@/lib/codexbar/utils";
 import {
   cookieHeaderFromNetscapeFile,
+  cookieHeaderFromNetscapeText,
   findFirstExistingCookieFile,
   netscapeCookieCandidates,
   codexBarConfigDir,
@@ -51,6 +53,53 @@ export function defaultOllamaCookiePath(): string {
 export function accountOllamaCookiePath(accountId: string): string | null {
   if (!SAFE_ACCOUNT_ID.test(accountId)) return null;
   return join(codexBarConfigDir(), `ollama_cookies.${accountId}.txt`);
+}
+
+const MAX_COOKIE_TEXT_LENGTH = 1_000_000;
+
+function cookieInputError(message: string): Error {
+  return Object.assign(new Error(message), { status: 400 });
+}
+
+/** API ルートから保存する Netscape cookie。cookie 本文は返さず、入力もログへ出さない。 */
+export function saveOllamaCookieFile(accountId: string, text: string): void {
+  const path = accountOllamaCookiePath(accountId);
+  if (!path) throw cookieInputError("アカウントIDが不正です");
+  if (typeof text !== "string" || !text.trim()) {
+    throw cookieInputError("cookie を入力してください");
+  }
+  if (text.length > MAX_COOKIE_TEXT_LENGTH) {
+    throw cookieInputError("cookie のサイズが大きすぎます");
+  }
+  if (!cookieHeaderFromNetscapeText(text, "ollama.com")) {
+    throw cookieInputError("有効な ollama.com の Netscape cookie が見つかりません");
+  }
+
+  atomicWriteText(path, `${text.trim()}\n`);
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    // Windows では ACL が権限を管理するため chmod が失敗しても保存自体は有効。
+  }
+}
+
+export function deleteOllamaCookieFile(accountId: string): void {
+  const path = accountOllamaCookiePath(accountId);
+  if (!path) throw cookieInputError("アカウントIDが不正です");
+  try {
+    unlinkSync(path);
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? (error as { code?: unknown }).code
+        : undefined;
+    if (code !== "ENOENT") throw error;
+  }
+}
+
+export function isOllamaCookieConfigured(accountId?: string | null): boolean {
+  const path = ollamaCookieFilePath(accountId);
+  return path ? cookieHeaderFromNetscapeFile(path, "ollama.com") !== null : false;
 }
 
 export function ollamaCookieFilePath(accountId?: string | null): string | null {
@@ -136,7 +185,7 @@ export function createOllamaCloudProvider(scope: UsageScope): IUsageProvider {
     id: "ollama-cloud",
     name: "Ollama Cloud",
     isConfigured() {
-      return ollamaCookieFilePath(accountId) !== null;
+      return isOllamaCookieConfigured(accountId);
     },
     async fetch(signal) {
       const cookiePath = ollamaCookieFilePath(accountId);

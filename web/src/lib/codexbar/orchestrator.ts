@@ -44,6 +44,7 @@ import {
   type ProviderFetchResult,
 } from "@/lib/codexbar/types";
 import { readPiApiKey, readPiOAuthTokens } from "@/lib/codexbar/pi-auth";
+import { isOllamaCookieConfigured } from "@/lib/codexbar/providers/ollama-cloud";
 
 const MAX_CONCURRENT_FETCHES = 4;
 
@@ -101,7 +102,8 @@ function accountSummary(
   const configuredProviders = providers.filter(
     (provider) =>
       readPiOAuthTokens(provider, { authPath }) !== null ||
-      readPiApiKey(provider, { authPath }) !== null,
+      readPiApiKey(provider, { authPath }) !== null ||
+      (provider === "ollama-cloud" && isOllamaCookieConfigured(account.id)),
   );
   return {
     id: account.id,
