@@ -7,7 +7,6 @@ describe("providerIconSrc", () => {
     expect(providerIconSrc("openai-codex")).toBe("/icons/codex.png");
     expect(providerIconSrc("cursor")).toBe("/icons/cursor.png");
     expect(providerIconSrc("llama-server")).toBe("/icons/llama-server.png");
-    expect(providerIconSrc("llama.cpp")).toBe("/icons/llama-server.png");
     expect(providerIconSrc("ollama-cloud")).toBe("/icons/ollama.png");
     expect(providerIconSrc("openrouter")).toBe("/icons/openrouter.svg");
   });

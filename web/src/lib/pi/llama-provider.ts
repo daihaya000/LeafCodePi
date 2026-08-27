@@ -1,5 +1,4 @@
-import { basename, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { basename } from "node:path";
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { readSettingValue } from "@/lib/host-control";
@@ -43,8 +42,6 @@ export const LLAMA_ORNITH_THINKING_LEVEL_MAP = {
 } as const;
 
 type RuntimeLike = {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  registerNativeProvider: (provider: any) => void;
   registerProvider: (id: string, config: Record<string, unknown>) => void;
 };
 
@@ -300,29 +297,6 @@ function providerConfig(models: OpenAiModelRow[]) {
   };
 }
 
-async function loadCreateLlamaProvider(): Promise<(() => { provider: unknown }) | null> {
-  try {
-    const candidates = [
-      join(process.cwd(), "node_modules", "@earendil-works", "pi-coding-agent", "dist", "extensions", "llama", "provider.js"),
-      join(process.cwd(), "..", "node_modules", "@earendil-works", "pi-coding-agent", "dist", "extensions", "llama", "provider.js"),
-    ];
-    for (const file of candidates) {
-      try {
-        // Absolute file URL resolved at runtime; webpack must not try to bundle it.
-        const mod = (await import(/* webpackIgnore: true */ pathToFileURL(file).href)) as {
-          createLlamaProvider?: () => { provider: unknown };
-        };
-        if (typeof mod.createLlamaProvider === "function") return mod.createLlamaProvider;
-      } catch {
-        /* try next */
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return null;
-}
-
 /** Re-read /v1/models and update the registered openai-compatible provider. */
 export async function syncLlamaServerProvider(runtime: RuntimeLike): Promise<void> {
   const settings = parseLlamaServerSettings(readSettingValue(LLAMA_SERVER_SETTINGS_KEY));
@@ -330,23 +304,7 @@ export async function syncLlamaServerProvider(runtime: RuntimeLike): Promise<voi
   runtime.registerProvider(LLAMA_SERVER_PROVIDER_ID, providerConfig(models));
 }
 
-/**
- * Register Pi's built-in llama.cpp (router) + OpenAI-compatible `llama-server`
- * whose model ids come from the live `/v1/models` catalog.
- */
+/** Register the OpenAI-compatible `llama-server` provider. */
 export async function registerLlamaProviders(runtime: RuntimeLike): Promise<void> {
-  if (!process.env.LLAMA_BASE_URL?.trim()) {
-    process.env.LLAMA_BASE_URL = DEFAULT_LLAMA_SERVER_BASE;
-  }
-
-  const createLlama = await loadCreateLlamaProvider();
-  if (createLlama) {
-    try {
-      runtime.registerNativeProvider(createLlama().provider);
-    } catch {
-      /* already registered or incompatible */
-    }
-  }
-
   await syncLlamaServerProvider(runtime);
 }

@@ -3,20 +3,20 @@ import {
   fetchLlamaServerModelIds,
   isLlamaOrnithModel,
   isLlamaQwenReasoningModel,
+  registerLlamaProviders,
   rewriteLlamaServerEffortPayload,
-} from "@/lib/pi/llama-provider";
-import { thinkingLevelsForModel } from "@/lib/thinking-levels";
-import type { Api, Model } from "@earendil-works/pi-ai";
-import {
   LLAMA_ORNITH_THINKING_LEVEL_MAP,
   LLAMA_QWEN_THINKING_LEVEL_MAP,
 } from "@/lib/pi/llama-provider";
+import { thinkingLevelsForModel } from "@/lib/thinking-levels";
+import type { Api, Model } from "@earendil-works/pi-ai";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 describe("fetchLlamaServerModelIds", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it("reads ids from /models and prefers loaded", async () => {
     vi.stubGlobal(
       "fetch",
@@ -46,6 +46,35 @@ describe("fetchLlamaServerModelIds", () => {
       }),
     );
     await expect(fetchLlamaServerModelIds()).resolves.toEqual([]);
+  });
+});
+
+describe("registerLlamaProviders", () => {
+  it("registers llama-server without the built-in llama.cpp provider", async () => {
+    vi.stubEnv("LLAMA_BASE_URL", "http://example.invalid");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            data: [{ id: "local-model", status: { value: "loaded" } }],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    const registerNativeProvider = vi.fn();
+    const registerProvider = vi.fn();
+    const runtime = { registerNativeProvider, registerProvider };
+
+    await registerLlamaProviders(runtime);
+
+    expect(registerNativeProvider).not.toHaveBeenCalled();
+    expect(registerProvider).toHaveBeenCalledWith(
+      "llama-server",
+      expect.objectContaining({ name: "llama-server" }),
+    );
+    expect(process.env.LLAMA_BASE_URL).toBe("http://example.invalid");
   });
 });
 

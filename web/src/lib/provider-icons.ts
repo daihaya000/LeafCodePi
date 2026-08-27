@@ -39,7 +39,6 @@ const PROVIDER_ID_TO_ICON: Record<string, string> = {
   synthetic: "synthetic",
   lmstudio: "lmstudio",
   "llama-server": "llama-server",
-  "llama.cpp": "llama-server",
   commandcode: "commandcode",
   "command-code": "commandcode",
 };

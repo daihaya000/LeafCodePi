@@ -15,12 +15,12 @@
 
 設定 → 一般 → 「カスタム指示（AGENTS.md）」から `~/.pi/agent/AGENTS.md` を編集できます（全プロジェクト共通）。保存時に開いているセッションへ即時反映します。プロジェクト単位の AGENTS.md 編集は未対応です。
 
-## ローカル LLM（llama.cpp / llama-server）
+## ローカル LLM（llama-server）
 
 `start.bat` 起動後、設定 → エンジン → 「ローカル LLM (llama-server)」から起動・停止できます。
 
 - ポート **8081**（LeafCode の llama-server と同じ。片方を起動すれば共有可）。
-- `MODEL_FILE` 未指定 → ルーター（`--models-dir`）。Pi の `llama.cpp` ログイン向け。
+- `MODEL_FILE` 未指定 → ルーター（`--models-dir`）でモデルを切り替え。
 - `MODEL_FILE` 指定 → 単体 GGUF（`-m`）。プロバイダー ID `llama-server`。
 - バイナリ既定: `C:\tools\llama.cpp\llama-server.exe`
 
@@ -159,7 +159,6 @@ npm run dev
 | `LEAFCODE_PI_HOST` | WebUI 待ち受け。既定 `tailscale`（Tailscale IPv4。未検出時は 127.0.0.1）。`0.0.0.0` / 明示 IP も可 |
 | `LEAFCODE_PI_HOST_CONTROL_PORT` | ホスト制御（llama-server 起動など）。既定 **18775**（LeafCode の 18765 と別） |
 | `LEAFCODE_PI_LLAMA_PORT` | llama-server ポート。既定 **8081** |
-| `LLAMA_BASE_URL` / `LLAMA_API_KEY` | Pi の llama.cpp プロバイダー用（未設定時は `http://127.0.0.1:8081`） |
 | `LEAFCODE_PI_MODE` | `prod`（既定・start.bat）または `dev` |
 | `LEAFCODE_PI_BUILD_DIR` | production build のミラー先（未設定時は `%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>`） |
 | `LEAFCODE_PI_USE_WEBPACK` | `1` で `next build` を Turbopack でなく webpack で行う（切り分け用） |

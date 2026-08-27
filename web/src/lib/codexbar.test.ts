@@ -514,7 +514,7 @@ describe("providerIconSrc", () => {
     expect(providerIconSrc("lmstudio")).toBe("/icons/lmstudio.png");
   });
 
-  it("maps the llama-server brand key to the bundled llama.cpp icon", () => {
+  it("maps the llama-server brand key to the bundled llama-server icon", () => {
     expect(providerIconSrc("llama-server")).toBe("/icons/llama-server.png");
   });
 });
