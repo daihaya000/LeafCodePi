@@ -128,11 +128,17 @@ export async function setProviderModelDisabled(
   key: string,
   disabled: boolean,
   accountId?: string | null,
+  modelIdsToDisableOnEnable?: readonly string[],
 ): Promise<void> {
   const storageKey = accountId ? `${accountId}::${key}` : key;
   await withStateLock((state) => {
     if (disabled) state.disabled[storageKey] = true;
-    else delete state.disabled[storageKey];
+    else {
+      delete state.disabled[storageKey];
+      for (const modelID of modelIdsToDisableOnEnable ?? []) {
+        state.disabled[accountModelKey(key, modelID, accountId)] = true;
+      }
+    }
   });
 }
 

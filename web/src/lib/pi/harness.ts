@@ -2716,11 +2716,14 @@ export async function setProviderOrModelEnabled(
   key: string,
   enabled: boolean,
   accountId?: string | null,
+  modelIdsToDisableOnEnable?: readonly string[],
 ): Promise<void> {
   if (!key.trim())
     throw Object.assign(new Error("key が必要です"), { status: 400 });
   const normalizedAccountId = accountId?.trim() || undefined;
   const providerId = key.split("::", 1)[0];
+  const childModelIds =
+    enabled && !key.includes("::") ? modelIdsToDisableOnEnable : undefined;
   if (!normalizedAccountId && runsThroughAccounts(providerId)) {
     if (accountRoutingMode(providerId) !== "integrated") {
       throw Object.assign(
@@ -2737,7 +2740,7 @@ export async function setProviderOrModelEnabled(
       });
     }
     for (const account of accounts) {
-      await setProviderModelDisabled(key, !enabled, account.id);
+      await setProviderModelDisabled(key, !enabled, account.id, childModelIds);
     }
     invalidateHealthCache();
     return;
@@ -2757,7 +2760,12 @@ export async function setProviderOrModelEnabled(
       });
     }
   }
-  await setProviderModelDisabled(key, !enabled, normalizedAccountId);
+  await setProviderModelDisabled(
+    key,
+    !enabled,
+    normalizedAccountId,
+    childModelIds,
+  );
   invalidateHealthCache();
 }
 

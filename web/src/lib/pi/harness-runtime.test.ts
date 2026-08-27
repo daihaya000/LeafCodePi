@@ -757,6 +757,28 @@ describe("getRuntimeFor", () => {
     );
   });
 
+  it("starts all child models disabled when enabling an account provider", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-provider-enable-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const account = createAccount({
+      label: "仕事用",
+      providers: ["openai-codex"],
+    });
+
+    await setProviderOrModelEnabled(
+      "openai-codex",
+      true,
+      account.id,
+      ["gpt-5", "gpt-4"],
+    );
+
+    const state = readProviderModelState(providerModelStatePath(dir));
+    assert.equal(state.disabled[`${account.id}::openai-codex`], undefined);
+    assert.equal(state.disabled[`${account.id}::openai-codex::gpt-5`], true);
+    assert.equal(state.disabled[`${account.id}::openai-codex::gpt-4`], true);
+  });
+
   it("applies integrated model settings to every provider account", async () => {
     const dir = mkdtempSync(
       join(tmpdir(), "leafcode-pi-harness-integrated-models-"),
@@ -773,6 +795,12 @@ describe("getRuntimeFor", () => {
     });
 
     await setAccountRoutingMode("openai-codex", "integrated");
+    await setProviderOrModelEnabled(
+      "openai-codex",
+      true,
+      undefined,
+      ["gpt-5", "gpt-4"],
+    );
     await setProviderOrModelEnabled("openai-codex::gpt-5", false);
     await saveProviderModelsOrder({
       modelOrder: { "openai-codex": ["gpt-4", "gpt-5"] },
@@ -781,6 +809,8 @@ describe("getRuntimeFor", () => {
     const state = readProviderModelState(providerModelStatePath(dir));
     assert.equal(state.disabled[`${first.id}::openai-codex::gpt-5`], true);
     assert.equal(state.disabled[`${second.id}::openai-codex::gpt-5`], true);
+    assert.equal(state.disabled[`${first.id}::openai-codex::gpt-4`], true);
+    assert.equal(state.disabled[`${second.id}::openai-codex::gpt-4`], true);
     assert.deepEqual(state.modelOrder[`${first.id}::openai-codex`], [
       "gpt-4",
       "gpt-5",

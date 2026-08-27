@@ -257,7 +257,7 @@ export function ProviderModelsPanel() {
             return {
               ...current,
               enabled,
-              models: current.models.map((model) => ({ ...model, enabled })),
+              models: current.models.map((model) => ({ ...model, enabled: false })),
             };
           }
           return {
@@ -274,6 +274,9 @@ export function ProviderModelsPanel() {
           `/api/provider-models/${encodeURIComponent(key)}`,
           {
             enabled,
+            ...(modelId === undefined && enabled
+              ? { modelIds: provider.models.map((model) => model.id) }
+              : {}),
             ...(provider.accountId ? { accountId: provider.accountId } : {}),
           },
           "PATCH",

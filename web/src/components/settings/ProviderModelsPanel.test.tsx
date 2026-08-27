@@ -113,6 +113,53 @@ describe("ProviderModelsPanel account model settings", () => {
     });
   });
 
+  it("sends all child models as disabled when enabling a provider", async () => {
+    let provider = {
+      id: "ollama-cloud",
+      name: "Ollama Cloud",
+      enabled: false,
+      models: [
+        { id: "llama-3", name: "Llama 3", enabled: false },
+        { id: "llama-2", name: "Llama 2", enabled: false },
+      ],
+    };
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url.endsWith("/api/provider-models") && method === "GET") {
+        return Promise.resolve(jsonResponse({ providers: [provider] }));
+      }
+      if (url.endsWith("/api/provider-models/ollama-cloud") && method === "PATCH") {
+        const body = JSON.parse(String(init?.body)) as { enabled: boolean };
+        provider = {
+          ...provider,
+          enabled: body.enabled,
+          models: provider.models.map((model) => ({ ...model, enabled: false })),
+        };
+        return Promise.resolve(jsonResponse({ ok: true }));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+
+    render(<ProviderModelsPanel />);
+    await screen.findByRole("heading", { name: "モデル" });
+    fireEvent.click(screen.getByRole("button", { name: "Ollama Cloud のモデルを展開" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Ollama Cloud を有効化" }));
+
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).endsWith("/api/provider-models/ollama-cloud") &&
+          init?.method === "PATCH",
+      );
+      expect(patch).toBeTruthy();
+      expect(JSON.parse(String(patch?.[1]?.body))).toEqual({
+        enabled: true,
+        modelIds: ["llama-3", "llama-2"],
+      });
+    });
+  });
+
   it("moves account rows in the same list as shared providers", async () => {
     render(<ProviderModelsPanel />);
     await screen.findByRole("heading", { name: "モデル" });
