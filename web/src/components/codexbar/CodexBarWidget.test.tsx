@@ -112,6 +112,7 @@ describe("CodexBarWidget", () => {
     fireEvent.click(screen.getByRole("button", { name: "Codex を展開" }));
     expect(screen.getByText("仕事用")).toBeTruthy();
     expect(screen.getByText("個人用")).toBeTruthy();
+    expect(screen.getByText("仕事用").closest("ul")?.className).not.toContain("pl-6");
   });
 
   it("keeps the saved expanded view compact with two columns and inline update status", async () => {

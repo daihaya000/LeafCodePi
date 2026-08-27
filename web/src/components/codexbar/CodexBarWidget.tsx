@@ -516,11 +516,11 @@ function ProviderGroupRow({
         )}
       </button>
       {collapsed ? (
-        <div className="pl-6">
+        <div>
           <UsageBar tone={tone} percent={p.usedPercent} />
         </div>
       ) : (
-        <ul className="flex flex-col gap-1.5 pl-6">
+        <ul className="flex flex-col gap-1.5">
           {group.accountRows.map((row) => {
             const key = row.provider?.instanceId ?? row.id;
             return (
