@@ -723,6 +723,7 @@ export function snapshotMessages(
   toolStartedAt?: Map<string, number>,
   toolEndedAt?: Map<string, number>,
   toolPartialOutputByCallId?: Map<string, string>,
+  latestOnly = false,
 ): UiMessage[] {
   const stored: unknown[] = Array.isArray(session.messages)
     ? session.messages
@@ -821,9 +822,12 @@ export function snapshotMessages(
       }
     }
     if (canAppendStreaming) {
-      projected = projected.concat(
-        projectPiMessages([streaming], historyRaw.length),
-      );
+      const streamingProjection = projectPiMessages([streaming], historyRaw.length);
+      if (latestOnly) {
+        if (streamingProjection.length > 0) projected = streamingProjection;
+      } else {
+        projected = projected.concat(streamingProjection);
+      }
     }
   } else {
     const raw = streamingInHistory ? historyRaw : [...historyRaw, streaming];
@@ -845,6 +849,9 @@ export function snapshotMessages(
         });
       }
     }
+  }
+  if (latestOnly && projected.length > 1) {
+    projected = [projected[projected.length - 1]!];
   }
   if (throughputByStartedAt)
     projected = applyThroughput(projected, throughputByStartedAt);
@@ -1221,25 +1228,26 @@ function emitTaskSnapshot(
 
 /**
  * Stream only the newest projected message for token/tool updates.
- * The server still projects the complete branch so the message keeps its
- * merged tool state, but the wire payload no longer repeats the whole history.
+ * Reuse the cached branch and project the streaming suffix alone through the
+ * latestOnly snapshot path.
  */
 function emitTaskDelta(live: LiveRuntime, eventType: string): void {
   if (state().events.listenerCount(live.taskId) === 0) return;
   const task = getTask(live.taskId);
   if (!task) return;
-  const messages = snapshotMessages(
+  const message = snapshotMessages(
     live.session,
     live.throughputByStartedAt,
     live.toolStartedAt,
     live.toolEndedAt,
     live.toolPartialOutputByCallId,
-  );
+    true,
+  ).at(-1) ?? null;
   const contextUsage = sessionContextUsage(live.session);
   emit(live.taskId, {
     type: "delta",
     task: toSummary(task),
-    message: messages.at(-1) ?? null,
+    message,
     isStreaming: live.session.isStreaming,
     isCompacting: live.session.isCompacting,
     ...(contextUsage ? { contextUsage } : {}),

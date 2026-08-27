@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildTaskBootstrap, sessionContextUsage, snapshotMessages } from "./harness";
+import {
+  buildTaskBootstrap,
+  sessionContextUsage,
+  snapshotMessages,
+} from "./harness";
 import type { TaskSummary } from "@/lib/types";
 
 describe("snapshotMessages", () => {
@@ -58,6 +62,49 @@ describe("snapshotMessages", () => {
 
     expect(snapshotMessages(session).map((message) => message.id)).toEqual(["u1", "a1", "c1", "u2"]);
     expect(snapshotMessages(session)[0]?.parts[0]).toMatchObject({ text: "圧縮前" });
+  });
+
+  it("projects a streaming delta without rereading the cached branch", () => {
+    const stored: unknown[] = [{ role: "user", content: "確認して" }];
+    const branch = [{ type: "message", id: "u1", message: stored[0] }];
+    const streaming = {
+      role: "assistant",
+      timestamp: 2,
+      content: [{ type: "text", text: "一" }],
+    };
+    let branchReads = 0;
+    const fake = {
+      messages: stored,
+      agent: { state: { streamingMessage: streaming as unknown } },
+      sessionManager: {
+        getLeafId: () => "u1",
+        getBranch: () => {
+          branchReads += 1;
+          return branch;
+        },
+      },
+    };
+    const session = fake as unknown as Parameters<typeof snapshotMessages>[0];
+
+    snapshotMessages(session);
+    branchReads = 0;
+    streaming.content[0]!.text = "二";
+    const latest = snapshotMessages(
+      session,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    ).at(-1);
+
+    expect(branchReads).toBe(0);
+    expect(latest).toMatchObject({
+      id: "msg-1",
+      role: "assistant",
+      parts: [{ type: "text", text: "二" }],
+    });
+    expect(latest).toEqual(snapshotMessages(session).at(-1));
   });
 });
 
