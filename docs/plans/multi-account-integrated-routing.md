@@ -2,7 +2,7 @@
 
 ## 目的
 
-OpenAI Codex / Anthropic の複数アカウントを、モデル選択上は仮想的な 1 プロバイダーとして扱う「統合モード」を追加する。新規タスクまたは統合モデルへの切替時に、同じモデルを利用できるアカウントのうち利用率が低いものを選び、以後そのタスクを具体的なアカウントへ固定する。
+OpenAI Codex / Anthropic の複数アカウントを、モデル選択上は仮想的な 1 プロバイダーとして扱う「統合モード」を追加する。新規タスクまたは次のユーザーターン開始前に、同じモデルを利用できるアカウントのうち利用率が低いものを選び、各応答ターンを具体的なアカウントで実行する。
 
 プロバイダーごとに、設定 → モデル → プロバイダー項目から次のモードを変更できるようにする。
 
@@ -17,7 +17,7 @@ OpenAI Codex と Anthropic は独立してモードを保持する。既定値�
 
 - 2 件以上の同一プロバイダーアカウントがある統合モードで、Home / TaskView のモデル候補がプロバイダー × モデルごとに 1 件になる
 - 同じモデルを利用できるアカウント A=20%、B=80% なら、新規タスクは A の `accountId` で作成される
-- 実際に選ばれた `accountId` はタスクへ保存され、既存セッション・再開・サブエージェントは途中で別アカウントへ移らない
+- 実際に選ばれた `accountId` はタスクへ保存され、同一応答ターン中はアカウントを固定する。アイドル中に次のターンを開始する場合だけ、必要なら同じ transcript を引き継いで別アカウントへ切り替える
 - アカウント別モードへ戻すと、現在のアカウント別候補・有効設定・モデル順が復元される
 - プロバイダーごとのモード変更は `ProviderAuthPanel` の当該プロバイダー項目から行える
 - 利用量取得失敗、古いキャッシュ、上限到達、モデル差異、未ログインを安全に扱い、別アカウントの認証へ暗黙フォールバックしない
@@ -29,26 +29,26 @@ OpenAI Codex と Anthropic は独立してモードを保持する。既定値�
 
 - `openai-codex` / `anthropic` のプロバイダー別モード設定
 - `/api/models` の統合モデル候補
-- 新規タスク、アイドル中のモデル切替、コンテキストを持たない直接生成のアカウント解決
+- 新規タスク、アイドル中のモデル切替・次ターン開始前、コンテキストを持たない直接生成のアカウント解決
 - CodexBar のアカウント別キャッシュを使った決定的な候補順位
-- 選択された具体的アカウントへのタスク固定
+- 各応答ターンで選択された具体的アカウントへのタスク反映
 
 ### 非対象
 
-- 応答ターンごと、ストリーミング途中、ツール実行後のアカウント切替
+- 同一応答ターン中、ストリーミング途中、ツール実行中のアカウント切替
 - プロバイダーをまたぐ自動フォールバック
 - 将来消費トークンの予測や quota の加重推定
 - 既定 `~/.pi/agent/auth.json` を統合プールへ混ぜること
 - 429 後に会話ターンを自動再送すること
 
-途中切替や自動再送は、重複応答・ツール副作用・監査不能を招くため初期実装に含めない。
+応答ターン途中の切替や自動再送は、重複応答・ツール副作用・監査不能を招くため初期実装に含めない。
 
 ## 現状の接続点
 
 - アカウント台帳と認証パス: `web/src/lib/accounts.ts`
 - アカウント別 runtime: `web/src/lib/pi/account-runtime-manager.ts` と `getRuntimeFor(accountId)`
 - モデル候補の source of truth: `listModelsForAccounts()` → `GET /api/models`
-- タスク作成と固定先: `createTask()` / `TaskSummary.accountId`
+- タスク作成と選択先: `createTask()` / `TaskSummary.accountId`
 - タスクモデル切替: `setTaskModel()`
 - 使用量: `getCachedUsage()` の `CodexBarProvider`（`accountId`、`usedPercent`、`stale`、`maxed`、`resetsAt`）
 - モード UI の配置先: `ProviderAuthPanel` の OpenAI Codex / Anthropic 親項目
@@ -79,7 +79,7 @@ type AccountRoutingMode = "integrated" | "separate";
 - 対象は `openai-codex` / `anthropic` のみ
 - 設定が無い、壊れている、未知値の場合は `separate`
 - モード変更は新規タスクと次回のモデル切替・直接生成から有効
-- 既存タスクの `accountId` と live session は変更しない
+- 既存タスクは実行中の応答ターンでは変更せず、アイドル中に次の prompt を開始する前だけ必要に応じて `accountId` と live session を更新する
 
 ### 2. 統合モードの見え方
 
@@ -151,12 +151,13 @@ ModelOption & {
   → 利用率で具体的 accountId を 1 件選択
   → task.accountId へ保存
   → getRuntimeFor(accountId) で session 作成
-  → タスク終了まで固定
+  → 同一応答ターン中は固定
+  → 次の prompt 開始前に必要なら再ルーティング
 ```
 
 - `createTask`: provider/model 単位の route lock 内で候補を再構築し、task insert 前に具体的なアカウントを決めて `accountId` を保存する
 - `setTaskModel`: 統合モデルなら再選択する。別アカウントになる場合は現行どおり working 中を 409、idle 時だけ session を作り直す
-- `ensureLive` / resume: 保存済み `task.accountId` だけを使い、モードや最新使用率で再ルーティングしない
+- `ensureLive` / resume: セッションは保存済み `task.accountId` で開き、モードや最新使用率では開き先を変えない。後続 prompt の実行直前だけ統合モードの再ルーティングを行う
 - `completeModelText`: 対象 provider が親 account に属する場合だけ明示 `accountId` を使う。明示 account が無く provider が統合モードなら自動選択し、別モードの context-free 呼出しは従来の default runtime を維持する
 - タスク配下の title / NextAction / permission advice / subagent は、対象 provider が親 account に属する場合に限り親 `task.accountId` を優先する。共有 provider や別 provider のモデルまで親 account runtime へ送らない
 - コンテキストを持たない NextTask / commit message 等は、統合 provider が設定されていれば呼び出しごとに自動選択する
@@ -263,7 +264,7 @@ createTask / setTaskModel / completeModelText
   → 実在する候補を再構築
   → cached usage で rank
   → concrete accountId + runtime + model
-  → task は concrete accountId へ固定
+  → task は当該ターンの concrete accountId を保持
 ```
 
 ## 実装フェーズ
@@ -351,7 +352,7 @@ createTask / setTaskModel / completeModelText
 
 コミット案: `アカウントモデルを仮想プロバイダーへ統合`
 
-### Phase 4: 実行時ルーティングとタスク固定
+### Phase 4: 実行時ルーティングとタスクアカウント反映
 
 対象:
 
@@ -444,8 +445,8 @@ createTask / setTaskModel / completeModelText
 4. usage cache 無し → working 数・台帳順で作成可能
 5. A だけが持つモデル → virtual option は A へ route
 6. Codex=統合、Anthropic=アカウント別を同時利用
-7. mode を切り替えても既存 working/idle task の accountId は変化しない
-8. idle task で統合モデルへ変更すると必要時だけ session を再作成
+7. mode を切り替えても実行中ターンの accountId は変化せず、idle task の次ターン開始前だけ必要時に更新される
+8. idle task で統合モデルへ変更、または次の prompt を開始すると必要時だけ session を再作成する
 9. account logout/delete/rename 後に候補・ラベル・route が更新される
 10. light/dark、mobile、keyboard、screen reader で provider mode control を確認
 
@@ -468,7 +469,7 @@ createTask / setTaskModel / completeModelText
 | CodexBar cache が古く、実際の空きとずれる | fresh を優先、stale/unknown tier を分離。ルーティング時にネットワーク取得しない |
 | 同時作成が同じ低使用率アカウントへ寄る | provider/model 単位の route lock で選択と task insert を直列化し、同率時は working task 数を使う。分散 reservation は実測で必要になってから追加 |
 | アカウントごとにモデル catalog が違う | モデル単位の候補集合を保持し、実行直前に runtime.getModel を再確認 |
-| mode 切替で既存セッションが移動する | task.accountId を concrete な監査記録として固定し、resume で再ルートしない |
+| mode 切替や resume で実行中ターンが移動する | 同一応答ターン中は固定し、次の prompt 開始前だけ必要に応じて再ルートする |
 | 全アカウント上限時に失敗を繰り返す | fresh maxed を除外し、全件 maxed は provider 呼び出し前に 429 |
 | 自動 retry でツール副作用が重複する | provider 送信後の透過 retry・mid-turn 切替を行わない |
 | global 生成モデルに account context が無い | integrated mode だけ自動 route。task context があれば親 account を優先 |

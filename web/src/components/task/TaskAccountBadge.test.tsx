@@ -37,4 +37,24 @@ describe("TaskAccountBadge", () => {
     render(<TaskAccountBadge accountId="acc-9" />);
     await waitFor(() => expect(screen.getByText("acc-9")).toBeTruthy());
   });
+
+  it("refreshes the label when the routed account changes", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ accounts: [{ id: "acc-1", label: "仕事用" }] }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ accounts: [{ id: "acc-2", label: "個人用" }] }), {
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const view = render(<TaskAccountBadge accountId="acc-1" />);
+    expect(await screen.findByText("仕事用")).toBeTruthy();
+
+    view.rerender(<TaskAccountBadge accountId="acc-2" />);
+    expect(await screen.findByText("個人用")).toBeTruthy();
+    expect(screen.queryByText("仕事用")).toBeNull();
+  });
 });

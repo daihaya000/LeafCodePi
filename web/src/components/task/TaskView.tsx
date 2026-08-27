@@ -142,6 +142,7 @@ function sameTaskDetail(a: TaskDetail | null, b: TaskDetail): boolean {
     a.title === b.title &&
     a.providerID === b.providerID &&
     a.modelID === b.modelID &&
+    a.accountId === b.accountId &&
     a.thinkingLevel === b.thinkingLevel &&
     a.error === b.error &&
     a.agent === b.agent &&

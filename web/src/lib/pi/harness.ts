@@ -1342,8 +1342,11 @@ async function attachSession(
     skillPermission: skillPermissionRef.current,
     skillPermissionRef,
     unsubscribe: () => undefined,
-    promptChain: Promise.resolve(),
-    promptActive: false,
+    // Keep a queued prompt chain when an idle session is replaced for the
+    // next turn. The current run owns this promise, so follow-ups submitted
+    // during session creation still wait for it.
+    promptChain: existing?.promptChain ?? Promise.resolve(),
+    promptActive: existing?.promptActive ?? false,
     throughputByStartedAt:
       existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
     persistedThroughputKeys:
@@ -3476,6 +3479,127 @@ export async function createTask(input: {
   }
 }
 
+/**
+ * Open the same transcript with a newly selected account. Pi binds the model
+ * runtime to AgentSession, so changing accounts between turns requires a
+ * session replacement rather than an in-place model mutation.
+ */
+async function replaceLiveForRoute(
+  live: LiveRuntime,
+  task: TaskSummary,
+  route: ConcreteModelRoute,
+): Promise<LiveRuntime> {
+  const project = getProject(task.projectId);
+  const sessionFile = live.session.sessionFile ?? task.sessionFile;
+  if (!sessionFile) {
+    throw new Error("セッションを別アカウントへ切り替えられません");
+  }
+  const thinkingLevel = clampThinkingLevelForModel(
+    route.model,
+    isThinkingLevel(live.session.thinkingLevel)
+      ? live.session.thinkingLevel
+      : task.thinkingLevel,
+  );
+  const setup = await createSession({
+    cwd: project?.rootPath ?? task.directory,
+    sessionFile,
+    sessionName: task.title,
+    accountId: route.accountId,
+    model: route.model,
+    thinkingLevel,
+    skillPermission: live.skillPermission,
+    agentName: task.agent ?? null,
+  });
+
+  const updatedTask = patchTask(task.id, {
+    accountId: route.accountId ?? undefined,
+    providerID: task.providerID,
+    modelID: task.modelID,
+    thinkingLevel,
+  });
+  if (!updatedTask) {
+    setup.session.dispose();
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  }
+
+  try {
+    return await attachSession(task.id, setup.session, setup.skillPermissionRef);
+  } catch (error) {
+    setup.session.dispose();
+    // attachSession acquires the new runtime before replacing the old live
+    // session. Restore the persisted identity if acquisition failed.
+    patchTask(task.id, {
+      accountId: task.accountId,
+      providerID: task.providerID,
+      modelID: task.modelID,
+      thinkingLevel: task.thinkingLevel,
+    });
+    throw error;
+  }
+}
+
+/** Select a fresh integrated account before a queued/next user turn. */
+async function prepareLiveForPrompt(
+  live: LiveRuntime,
+  reroute: boolean,
+): Promise<LiveRuntime> {
+  const currentLive = state().live.get(live.taskId) ?? live;
+  const task = getTask(currentLive.taskId);
+  const canRoute = Boolean(
+    reroute &&
+      task?.providerID &&
+      task.modelID &&
+      isAccountRoutingProvider(task.providerID) &&
+      accountRoutingMode(task.providerID) === "integrated" &&
+      !currentLive.session.isStreaming &&
+      currentLive.session.messages.some((message) => message.role === "user"),
+  );
+  if (!canRoute || !task?.providerID || !task.modelID) {
+    setTaskStatus(currentLive.taskId, "working");
+    return currentLive;
+  }
+
+  return withRouteLock(
+    `${task.providerID}::${task.modelID}`,
+    async () => {
+      const latestLive = state().live.get(task.id) ?? currentLive;
+      const latestTask = getTask(task.id);
+      if (!latestTask) {
+        throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+      }
+      if (
+        !latestTask.providerID ||
+        !latestTask.modelID ||
+        !isAccountRoutingProvider(latestTask.providerID) ||
+        accountRoutingMode(latestTask.providerID) !== "integrated" ||
+        latestLive.session.isStreaming ||
+        !latestLive.session.messages.some((message) => message.role === "user")
+      ) {
+        setTaskStatus(latestTask.id, "working");
+        return latestLive;
+      }
+
+      const route = await resolveIntegratedModelRoute(
+        latestTask.providerID,
+        latestTask.modelID,
+      );
+      if (!route) {
+        throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+      }
+
+      const nextLive =
+        route.accountId === (latestTask.accountId ?? null)
+          ? latestLive
+          : await replaceLiveForRoute(latestLive, latestTask, route);
+      setTaskStatus(latestTask.id, "working");
+      if (nextLive !== latestLive) {
+        emitTaskSnapshot(nextLive, "account_routed");
+      }
+      return nextLive;
+    },
+  );
+}
+
 function queuePrompt(
   live: LiveRuntime,
   prompt: string,
@@ -3503,8 +3627,19 @@ function queuePrompt(
     ...(meta?.permissionMode ? { permissionMode: meta.permissionMode } : {}),
     isHangRetry,
   });
+  let activeLive = live;
   const runPrompt = async () => {
-    setTaskStatus(live.taskId, "working");
+    activeLive = await prepareLiveForPrompt(live, !meta?.streamingBehavior);
+    applySubagentPermission(activeLive.session, meta?.subagentPermission);
+    if (meta?.permissionMode) {
+      const task = getTask(activeLive.taskId);
+      const project = task ? getProject(task.projectId) : undefined;
+      applyPermissionMode(
+        activeLive.session,
+        project?.rootPath ?? activeLive.session.sessionManager.getCwd(),
+        meta.permissionMode,
+      );
+    }
     const options: {
       images?: Array<{ type: "image"; data: string; mimeType: string }>;
       streamingBehavior?: "steer" | "followUp";
@@ -3522,35 +3657,36 @@ function queuePrompt(
       options.streamingBehavior = "followUp";
     }
     try {
-      await live.session.prompt(prompt, options);
+      await activeLive.session.prompt(prompt, options);
     } catch (error) {
       // 一部モデル（o系/gpt-5-pro 等）は思考オフ不可の 400 を返す。
       // 思考レベルを引き上げて同じプロンプトを一度だけ再試行する。
-      if (!isReasoningMandatoryError(error) || live.reasoningFallbackTried)
+      if (!isReasoningMandatoryError(error) || activeLive.reasoningFallbackTried)
         throw error;
-      live.reasoningFallbackTried = true;
-      const level = reasoningFallbackLevel(live.session.model);
-      if (live.session.thinkingLevel !== level)
-        live.session.setThinkingLevel(level);
-      patchTask(live.taskId, { thinkingLevel: level });
-      emitTaskSnapshot(live, "thinking_level_changed", {
+      activeLive.reasoningFallbackTried = true;
+      const level = reasoningFallbackLevel(activeLive.session.model);
+      if (activeLive.session.thinkingLevel !== level)
+        activeLive.session.setThinkingLevel(level);
+      patchTask(activeLive.taskId, { thinkingLevel: level });
+      emitTaskSnapshot(activeLive, "thinking_level_changed", {
         thinkingLevel: level,
       });
-      await live.session.prompt(prompt, options);
+      await activeLive.session.prompt(prompt, options);
     }
   };
   const handlePromptError = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
+    const currentLive = state().live.get(live.taskId) ?? activeLive;
     setTaskStatus(live.taskId, "error", message);
     emit(live.taskId, {
       type: "snapshot",
       task: toSummary(getTask(live.taskId)!),
       ...sessionSnapshotFields(
-        live.session,
-        live.throughputByStartedAt,
-        live.toolStartedAt,
-        live.toolEndedAt,
-        live.toolPartialOutputByCallId,
+        currentLive.session,
+        currentLive.throughputByStartedAt,
+        currentLive.toolStartedAt,
+        currentLive.toolEndedAt,
+        currentLive.toolPartialOutputByCallId,
       ),
       isStreaming: false,
       eventType: "error",
@@ -3568,12 +3704,20 @@ function queuePrompt(
     return;
   }
   live.promptActive = true;
-  live.promptChain = live.promptChain
+  const promptChain = live.promptChain
     .then(runPrompt)
     .catch(handlePromptError)
     .finally(() => {
-      live.promptActive = false;
+      // A queued prompt or a route switch may replace this live object's
+      // prompt chain while the current promise is running.
+      if (live.promptChain === promptChain) {
+        live.promptActive = false;
+      }
+      if (activeLive !== live && activeLive.promptChain === promptChain) {
+        activeLive.promptActive = false;
+      }
     });
+  live.promptChain = promptChain;
 }
 
 export async function promptTask(

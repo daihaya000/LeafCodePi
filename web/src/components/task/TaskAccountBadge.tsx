@@ -18,6 +18,7 @@ export function TaskAccountBadge({
   const [label, setLabel] = useState<string | null>(null);
 
   useEffect(() => {
+    setLabel(null);
     if (!accountId) return;
     let cancelled = false;
     getJson<{ accounts: { id: string; label: string }[] }>("/api/accounts")
