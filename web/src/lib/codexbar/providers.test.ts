@@ -1,4 +1,8 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { UsageScope } from "./types";
 
 const undiciFetch = vi.hoisted(() => vi.fn());
 
@@ -7,7 +11,11 @@ vi.mock("undici", async (importOriginal) => ({
   fetch: undiciFetch,
 }));
 
-import { parseOpenRouterKeyJson, openrouterProvider } from "./providers/openrouter";
+import {
+  createOpenRouterProvider,
+  parseOpenRouterKeyJson,
+  openrouterProvider,
+} from "./providers/openrouter";
 import { parseClaudeUsageJson } from "./providers/anthropic";
 import { parseCodexUsageJson } from "./providers/openai-codex";
 import { parseCursorUsageSummary } from "./providers/cursor";
@@ -44,28 +52,83 @@ describe("parseOpenRouterKeyJson", () => {
 });
 
 describe("openrouterProvider.fetch (mock)", () => {
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  const tempDirs: string[] = [];
+
   afterEach(() => {
     undiciFetch.mockReset();
     delete process.env.OPENROUTER_API_KEY;
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  it("calls the key API with the bearer token", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-test";
+  function tempDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-openrouter-"));
+    tempDirs.push(dir);
+    return dir;
+  }
+
+  function mockKeyResponse(): void {
     undiciFetch.mockImplementation(async () =>
       new Response(
         JSON.stringify({ data: { usage: 2, limit: 5, limit_remaining: 3 } }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
     );
+  }
+
+  function authorizationHeader(index = 0): string | undefined {
+    const call = undiciFetch.mock.calls[index] as unknown as [string, RequestInit];
+    return (call[1].headers as Record<string, string>).Authorization;
+  }
+
+  it("calls the key API with the bearer token", async () => {
+    // 実利用者の ~/.pi/agent/auth.json を読まないよう既定 auth パスを隔離する
+    process.env.PI_CODING_AGENT_DIR = tempDir();
+    process.env.OPENROUTER_API_KEY = "sk-test";
+    mockKeyResponse();
 
     const snap = await openrouterProvider.fetch();
     expect(snap.creditsUsed).toBe(2);
     expect(undiciFetch).toHaveBeenCalledOnce();
     const call = undiciFetch.mock.calls[0] as unknown as [string, RequestInit];
     expect(call[0]).toBe("https://openrouter.ai/api/v1/key");
-    expect((call[1].headers as Record<string, string>).Authorization).toBe(
-      "Bearer sk-test",
+    expect(authorizationHeader()).toBe("Bearer sk-test");
+  });
+
+  it("uses the account api key and never falls back to env", async () => {
+    process.env.PI_CODING_AGENT_DIR = tempDir();
+    process.env.OPENROUTER_API_KEY = "sk-env";
+    const dir = tempDir();
+    const authPath = join(dir, "auth.json");
+    writeFileSync(
+      authPath,
+      JSON.stringify({ openrouter: { type: "api_key", key: "sk-account" } }),
+      "utf8",
     );
+    const scope: UsageScope = {
+      key: "account:acc-1",
+      kind: "account",
+      accountId: "acc-1",
+      accountLabel: "個人用",
+      authPath,
+    };
+    mockKeyResponse();
+
+    const provider = createOpenRouterProvider(scope);
+    expect(provider.isConfigured()).toBe(true);
+    await provider.fetch();
+    expect(authorizationHeader()).toBe("Bearer sk-account");
+
+    // キー未登録のアカウントは env の共有キーを流用しない
+    const unconfigured = createOpenRouterProvider({
+      ...scope,
+      authPath: join(dir, "missing.json"),
+    });
+    expect(unconfigured.isConfigured()).toBe(false);
+    await expect(unconfigured.fetch()).rejects.toThrow("API キーが未設定です");
+    expect(undiciFetch).toHaveBeenCalledOnce();
   });
 });
 

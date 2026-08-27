@@ -1,11 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   buildCookieHeader,
   cookieHeaderFromNetscapeText,
   filterCookiesForDomain,
   parseNetscapeCookieText,
 } from "./netscape-cookies";
-import { parseOllamaHtml } from "./providers/ollama-cloud";
+import {
+  accountOllamaCookiePath,
+  createOllamaCloudProvider,
+  ollamaCookieFilePath,
+  parseOllamaHtml,
+} from "./providers/ollama-cloud";
 import { parseOpenCodeGoHtml } from "./providers/opencode-go";
 import {
   buildQwenCloudForm,
@@ -42,6 +50,57 @@ describe("netscape cookies", () => {
 
   it("returns null when no matching cookies", () => {
     expect(cookieHeaderFromNetscapeText(fixture, "other.com")).toBeNull();
+  });
+});
+
+describe("ollama cookie scope", () => {
+  const previousAppData = process.env.APPDATA;
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    if (previousAppData === undefined) delete process.env.APPDATA;
+    else process.env.APPDATA = previousAppData;
+    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function isolateConfigDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-ollama-cookie-"));
+    tempDirs.push(dir);
+    process.env.APPDATA = dir;
+    return join(dir, "CodexBar");
+  }
+
+  it("rejects account ids that could escape the cookie directory", () => {
+    isolateConfigDir();
+    expect(accountOllamaCookiePath("../../evil")).toBeNull();
+    expect(accountOllamaCookiePath("acc/1")).toBeNull();
+    expect(accountOllamaCookiePath("")).toBeNull();
+    expect(accountOllamaCookiePath("acc-1")).toContain("ollama_cookies.acc-1.txt");
+  });
+
+  it("keeps account cookies separate and never falls back to the shared file", () => {
+    const configDir = isolateConfigDir();
+    mkdirSync(configDir, { recursive: true });
+    // 共有 cookie だけが存在する状態
+    const shared = join(configDir, "ollama_cookies.txt");
+    writeFileSync(shared, "# Netscape HTTP Cookie File\n", "utf8");
+    expect(ollamaCookieFilePath()).toBe(shared);
+    expect(ollamaCookieFilePath("acc-1")).toBeNull();
+    expect(
+      createOllamaCloudProvider({
+        key: "account:acc-1",
+        kind: "account",
+        accountId: "acc-1",
+        accountLabel: "個人用",
+        authPath: null,
+      }).isConfigured(),
+    ).toBe(false);
+
+    // アカウント別 cookie を置くと、そのアカウントだけが設定済みになる
+    const perAccount = join(configDir, "ollama_cookies.acc-1.txt");
+    writeFileSync(perAccount, "# Netscape HTTP Cookie File\n", "utf8");
+    expect(ollamaCookieFilePath("acc-1")).toBe(perAccount);
+    expect(ollamaCookieFilePath("acc-2")).toBeNull();
   });
 });
 

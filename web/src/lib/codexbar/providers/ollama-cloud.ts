@@ -6,6 +6,7 @@ import {
   ProviderError,
   type IUsageProvider,
   type RateWindow,
+  type UsageScope,
   type UsageSnapshot,
 } from "@/lib/codexbar/types";
 import { clamp, fetchText } from "@/lib/codexbar/utils";
@@ -31,11 +32,34 @@ const PLAN_BADGE_RE =
 const HEADER_EMAIL_RE =
   /id="header-email"[^>]*>\s*([^\s<]+@[^\s<]+)/i;
 
+const DEFAULT_SCOPE: UsageScope = {
+  key: "default",
+  kind: "default",
+  accountId: null,
+  accountLabel: null,
+  authPath: null,
+};
+
+/** アカウント ID をファイル名へ埋め込む前の検証（パストラバーサル防止）。 */
+const SAFE_ACCOUNT_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
 export function defaultOllamaCookiePath(): string {
   return join(codexBarConfigDir(), "ollama_cookies.txt");
 }
 
-export function ollamaCookieFilePath(): string | null {
+/** アカウント別 cookie の保存先。ID が不正なら null（呼び出し側で 400 扱い）。 */
+export function accountOllamaCookiePath(accountId: string): string | null {
+  if (!SAFE_ACCOUNT_ID.test(accountId)) return null;
+  return join(codexBarConfigDir(), `ollama_cookies.${accountId}.txt`);
+}
+
+export function ollamaCookieFilePath(accountId?: string | null): string | null {
+  if (accountId) {
+    const path = accountOllamaCookiePath(accountId);
+    // アカウント指定時は共有 cookie へフォールバックしない
+    // （別アカウントの利用量を自分の残量として表示してしまう）
+    return path ? findFirstExistingCookieFile([path]) : null;
+  }
   const home = homedir();
   return findFirstExistingCookieFile([
     defaultOllamaCookiePath(),
@@ -106,76 +130,83 @@ export function parseOllamaHtml(html: string): {
   return { windows, plan, accountEmail };
 }
 
-export const ollamaCloudProvider: IUsageProvider = {
-  id: "ollama-cloud",
-  name: "Ollama Cloud",
-  isConfigured() {
-    return ollamaCookieFilePath() !== null;
-  },
-  async fetch(signal) {
-    const cookiePath = ollamaCookieFilePath();
-    if (!cookiePath) {
-      throw new ProviderError(
-        `Ollama の cookie ファイルが見つかりません。ollama.com の cookie（Netscape形式）を ${defaultOllamaCookiePath()} にエクスポートしてください。`,
-      );
-    }
+export function createOllamaCloudProvider(scope: UsageScope): IUsageProvider {
+  const accountId = scope.kind === "account" ? scope.accountId : null;
+  return {
+    id: "ollama-cloud",
+    name: "Ollama Cloud",
+    isConfigured() {
+      return ollamaCookieFilePath(accountId) !== null;
+    },
+    async fetch(signal) {
+      const cookiePath = ollamaCookieFilePath(accountId);
+      if (!cookiePath) {
+        throw new ProviderError(
+          accountId
+            ? "このアカウントの Ollama cookie が未登録です。設定画面から ollama.com の cookie（Netscape形式）を登録してください。"
+            : `Ollama の cookie ファイルが見つかりません。ollama.com の cookie（Netscape形式）を ${defaultOllamaCookiePath()} にエクスポートしてください。`,
+        );
+      }
 
-    const cookieHeader = cookieHeaderFromNetscapeFile(cookiePath, "ollama.com");
-    if (!cookieHeader) {
-      throw new ProviderError(
-        "Ollama の cookie ファイルに有効な ollama.com の cookie がありません。再エクスポートしてください。",
-      );
-    }
+      const cookieHeader = cookieHeaderFromNetscapeFile(cookiePath, "ollama.com");
+      if (!cookieHeader) {
+        throw new ProviderError(
+          "Ollama の cookie ファイルに有効な ollama.com の cookie がありません。再エクスポートしてください。",
+        );
+      }
 
-    const { status, body, ok } = await fetchText(SETTINGS_URL, {
-      headers: {
-        Accept: "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": USER_AGENT,
-        Cookie: cookieHeader,
-      },
-      signal,
-    });
+      const { status, body, ok } = await fetchText(SETTINGS_URL, {
+        headers: {
+          Accept: "text/html,application/xhtml+xml",
+          "Accept-Language": "en-US,en;q=0.9",
+          "User-Agent": USER_AGENT,
+          Cookie: cookieHeader,
+        },
+        signal,
+      });
 
-    if (status === 401 || status === 403) {
-      throw new ProviderError(
-        "Ollama のセッションが期限切れです。ollama.com の cookie を再エクスポートしてください。",
-      );
-    }
-    if (!ok) {
-      throw new ProviderError(`ollama.com が HTTP ${status} を返しました。`);
-    }
-
-    const { windows, plan, accountEmail } = parseOllamaHtml(body);
-    if (windows.length === 0) {
-      if (
-        /\/signin/i.test(body) &&
-        !/Cloud usage/i.test(body)
-      ) {
+      if (status === 401 || status === 403) {
         throw new ProviderError(
           "Ollama のセッションが期限切れです。ollama.com の cookie を再エクスポートしてください。",
         );
       }
-      throw new ProviderError(
-        "Ollama の使用状況を読み取れませんでした。設定ページの構造が変わった可能性があります。",
-      );
-    }
+      if (!ok) {
+        throw new ProviderError(`ollama.com が HTTP ${status} を返しました。`);
+      }
 
-    return {
-      providerId: "ollama-cloud",
-      providerName: "Ollama Cloud",
-      plan,
-      accountEmail,
-      windows,
-      creditsBalance: null,
-      creditsLabel: null,
-      creditsEnabled: false,
-      creditsTitle: null,
-      creditsUsed: null,
-      creditsLimit: null,
-      sourceLabel: "ollama.com/settings",
-      updatedAt: new Date(),
-      isStale: false,
-    } satisfies UsageSnapshot;
-  },
-};
+      const { windows, plan, accountEmail } = parseOllamaHtml(body);
+      if (windows.length === 0) {
+        if (
+          /\/signin/i.test(body) &&
+          !/Cloud usage/i.test(body)
+        ) {
+          throw new ProviderError(
+            "Ollama のセッションが期限切れです。ollama.com の cookie を再エクスポートしてください。",
+          );
+        }
+        throw new ProviderError(
+          "Ollama の使用状況を読み取れませんでした。設定ページの構造が変わった可能性があります。",
+        );
+      }
+
+      return {
+        providerId: "ollama-cloud",
+        providerName: "Ollama Cloud",
+        plan,
+        accountEmail,
+        windows,
+        creditsBalance: null,
+        creditsLabel: null,
+        creditsEnabled: false,
+        creditsTitle: null,
+        creditsUsed: null,
+        creditsLimit: null,
+        sourceLabel: "ollama.com/settings",
+        updatedAt: new Date(),
+        isStale: false,
+      } satisfies UsageSnapshot;
+    },
+  };
+}
+
+export const ollamaCloudProvider: IUsageProvider = createOllamaCloudProvider(DEFAULT_SCOPE);
