@@ -21,7 +21,6 @@ import {
 } from "@/components/codexbar/use-codex-providers";
 import {
   clampPercent,
-  formatMonthlyTotal,
   formatPlanBadge,
   formatResetsIn,
   hasLastGoodUsage,
@@ -697,16 +696,6 @@ export function CodexBarWidget({
         <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text">
           CodexBar 利用状況
         </span>
-        {usage?.subscriptionTotalMonthlyUsd !== null &&
-          usage?.subscriptionTotalMonthlyUsd !== undefined &&
-          usage.subscriptionTotalMonthlyUsd > 0 && (
-            <span
-              className="shrink-0 rounded border border-border bg-surface-3 px-1.5 py-0.5 text-[10px] font-medium text-muted"
-              title="表示中のサブスク合計（公開定価の概算）"
-            >
-              表示中の合計 {formatMonthlyTotal(usage.subscriptionTotalMonthlyUsd)}
-            </span>
-          )}
         {usage?.available && usage.generatedAt && (
           <span
             className={cx(

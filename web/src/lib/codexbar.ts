@@ -454,8 +454,9 @@ export function groupCodexBarProviders(
         accountId: null,
         accountLabel: null,
         usedPercent,
-        limited: limitedCount > 0,
-        maxed: maxedCount > 0,
+        // Account children expose individual limits; the parent summarizes usage only.
+        limited: isAccountManaged && accountRows.length > 0 ? false : limitedCount > 0,
+        maxed: isAccountManaged && accountRows.length > 0 ? false : maxedCount > 0,
         stale: rowProviders.some((provider) => provider.stale === true),
         windows: isAccountManaged && accountRows.length > 0 ? [] : base.windows,
         credits:

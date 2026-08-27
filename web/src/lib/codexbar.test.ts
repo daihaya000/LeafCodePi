@@ -300,6 +300,9 @@ describe("groupCodexBarProviders", () => {
 
     const [group] = groupCodexBarProviders(usage);
     expect(group.provider.usedPercent).toBe(60);
+    expect(group.provider.limited).toBe(false);
+    expect(group.provider.maxed).toBe(false);
+    expect(group.limitedCount).toBe(1);
     expect(group.accountRows.map((row) => row.label)).toEqual(["仕事用", "個人用"]);
     expect(group.accountRows.every((row) => row.configured)).toBe(true);
   });

@@ -17,7 +17,7 @@ const usage: CodexBarUsage = {
   reason: null,
   schema: "codexbar.usage-snapshot/v1",
   generatedAt: new Date(Date.now() - 7 * 60_000).toISOString(),
-  subscriptionTotalMonthlyUsd: null,
+  subscriptionTotalMonthlyUsd: 106,
   providers: [
     {
       id: "openai-codex",
@@ -108,6 +108,7 @@ describe("CodexBarWidget", () => {
     render(<CodexBarWidget />);
 
     await waitFor(() => expect(screen.getByText("60%")).toBeTruthy());
+    expect(screen.queryByText(/表示中の合計/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Codex を展開" }));
     expect(screen.getByText("仕事用")).toBeTruthy();
     expect(screen.getByText("個人用")).toBeTruthy();
