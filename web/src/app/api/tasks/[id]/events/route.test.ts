@@ -88,6 +88,11 @@ describe("/api/tasks/[id]/events", () => {
       task: task({ status: "working" }),
       message: { id: "live", role: "assistant", createdAt: 2, parts: [] },
     });
+    listener({
+      type: "delta",
+      task: task({ status: "working" }),
+      message: { id: "live-latest", role: "assistant", createdAt: 3, parts: [] },
+    });
     resolveDetail(detail);
 
     const readyChunk = await readChunk(reader);
@@ -96,7 +101,7 @@ describe("/api/tasks/[id]/events", () => {
     expect(deltaChunk).toContain("event: delta\n");
     const deltaPayload = eventData(deltaChunk);
     expect(deltaPayload.type).toBe("delta");
-    expect(deltaPayload.message).toMatchObject({ id: "live", role: "assistant" });
+    expect(deltaPayload.message).toMatchObject({ id: "live-latest", role: "assistant" });
     expect(deltaPayload).not.toHaveProperty("messages");
 
     await reader.cancel();
