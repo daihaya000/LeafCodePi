@@ -94,7 +94,10 @@ describe("/api/tasks/[id]/events", () => {
     expect(eventData(readyChunk).eventType).toBe("ready");
     const deltaChunk = await readChunk(reader);
     expect(deltaChunk).toContain("event: delta\n");
-    expect(eventData(deltaChunk).type).toBe("delta");
+    const deltaPayload = eventData(deltaChunk);
+    expect(deltaPayload.type).toBe("delta");
+    expect(deltaPayload.message).toMatchObject({ id: "live", role: "assistant" });
+    expect(deltaPayload).not.toHaveProperty("messages");
 
     await reader.cancel();
   });
