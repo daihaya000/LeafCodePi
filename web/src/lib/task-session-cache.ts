@@ -195,18 +195,15 @@ export function loadTaskSessionCache(taskId: string): TaskDetail | null {
 export function saveTaskSessionCache(snapshot: TaskSessionCacheSnapshot): void {
   if (typeof localStorage === "undefined" || !isTaskSummary(snapshot.task)) return;
   if (!Array.isArray(snapshot.messages) || !snapshot.messages.every(isUiMessage)) return;
-  const task = snapshot.task as TaskDetail;
-  const {
-    messages: _messages,
-    isStreaming: _isStreaming,
-    isCompacting: _isCompacting,
-    contextUsage: _contextUsage,
-    goalLoop: _goalLoop,
-    todos: _todos,
-    permissionRequest: _permissionRequest,
-    questionRequest: _questionRequest,
-    ...summary
-  } = task;
+  const summary = { ...snapshot.task } as TaskSummary & Partial<TaskDetail>;
+  delete summary.messages;
+  delete summary.isStreaming;
+  delete summary.isCompacting;
+  delete summary.contextUsage;
+  delete summary.goalLoop;
+  delete summary.todos;
+  delete summary.permissionRequest;
+  delete summary.questionRequest;
   const entries = loadEntries();
   entries[summary.id] = {
     ...snapshot,
