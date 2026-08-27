@@ -747,7 +747,7 @@ export function ProviderAuthPanel({
           <span className="font-mono">OLLAMA_API_KEY</span> でも設定できます。Ollama Cloud はアカウントごとに
           cookie も登録できます。
         </p>
-        <ul className="max-h-72 space-y-1.5 overflow-y-auto">
+        <ul className="space-y-1.5">
           {orderedProviders.length === 0 && <li className="text-sm text-muted">プロバイダーが見つかりません</li>}
           {orderedProviders.map((provider) => (
             <ProviderRow

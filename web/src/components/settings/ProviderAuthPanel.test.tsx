@@ -189,7 +189,11 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     mockAccountsApi();
     render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
 
-    expect(screen.getByRole("heading", { name: "プロバイダー" })).toBeTruthy();
+    const heading = screen.getByRole("heading", { name: "プロバイダー" });
+    const providerList = heading.parentElement?.querySelector("ul");
+    expect(providerList).toBeTruthy();
+    expect(providerList?.className).not.toContain("overflow-y-auto");
+    expect(providerList?.className).not.toContain("max-h-72");
     expect(screen.queryByRole("heading", { name: "その他のプロバイダー" })).toBeNull();
     const registered = screen.getByText("OpenAI Codex");
     const unregistered = screen.getByText("llama-server", { selector: "span.text-sm.font-medium" });
