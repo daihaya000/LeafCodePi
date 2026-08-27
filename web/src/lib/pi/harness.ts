@@ -3588,6 +3588,16 @@ export async function promptTask(
     streamingBehavior?: "steer" | "followUp";
   },
 ): Promise<TaskSummary> {
+  if (options?.agent !== undefined) {
+    const task = getTask(id);
+    if (!task)
+      throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+    const requestedAgent = options.agent.trim();
+    const currentAgent = task.agent?.trim() ?? "";
+    if (requestedAgent !== currentAgent) {
+      await setTaskAgent(id, options.agent);
+    }
+  }
   const live = await ensureLive(id);
   applySubagentPermission(live.session, options?.subagentPermission);
   if (options?.skillPermission)
@@ -3744,6 +3754,40 @@ export async function abortTask(id: string): Promise<TaskSummary> {
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   return toSummary(task);
+}
+
+export async function setTaskAgent(
+  id: string,
+  agentName: string,
+): Promise<TaskSummary> {
+  const task = getTask(id);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+
+  const normalized = agentName.trim();
+  if (normalized && !loadAgentDefinition(normalized)) {
+    throw Object.assign(new Error("エージェントが見つかりません"), {
+      status: 400,
+    });
+  }
+  if (normalized === (task.agent?.trim() ?? "")) return toSummary(task);
+
+  const live = await ensureLive(id);
+  if (live.session.isStreaming) {
+    throw Object.assign(new Error("実行中タスクのエージェントは変更できません"), {
+      status: 409,
+    });
+  }
+
+  // Agent resource options are fixed when a session is created. Reopen the
+  // same transcript with the new persona on the next prompt.
+  disposeLive(id);
+  const updatedTask = patchTask(id, { agent: normalized || null });
+  if (!updatedTask)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const summary = toSummary(updatedTask);
+  emit(id, { type: "snapshot", task: summary, eventType: "agent_changed" });
+  return summary;
 }
 
 export async function setTaskModel(

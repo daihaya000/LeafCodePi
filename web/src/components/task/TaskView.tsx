@@ -370,6 +370,7 @@ export function TaskView({
     [agents, skills],
   );
   const [agent, setAgent] = useState("");
+  const [agentChanging, setAgentChanging] = useState(false);
   const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
     () => readSubagentPermission(),
   );
@@ -964,7 +965,7 @@ export function TaskView({
   }
 
   async function submit() {
-    if ((!prompt.trim() && attachments.length === 0) || submitting || compacting) return;
+    if ((!prompt.trim() && attachments.length === 0) || submitting || compacting || agentChanging) return;
     if (working && deliveryMode === "queue") {
       setQueuedFollowUps((current) => [
         ...current,
@@ -2065,10 +2066,23 @@ export function TaskView({
                 <AgentSelect
                   value={agent}
                   agents={agents.map(({ name }) => name)}
-                  disabled={working || compacting}
+                  disabled={working || compacting || agentChanging}
                   onChange={(value) => {
+                    const previous = agent;
                     setAgent(value);
                     writeStoredAgent(value);
+                    setAgentChanging(true);
+                    void sendJson<{ task: TaskSummary }>(`/api/tasks/${taskId}/agent`, { agent: value })
+                      .then(({ task: updatedTask }) => {
+                        setTask((current) => (current ? { ...current, ...updatedTask } : current));
+                        setError(null);
+                      })
+                      .catch((err) => {
+                        setAgent(previous);
+                        writeStoredAgent(previous);
+                        setError(err instanceof Error ? err.message : "エージェントの切替に失敗しました");
+                      })
+                      .finally(() => setAgentChanging(false));
                   }}
                   className="min-w-0 max-w-[8rem] sm:max-w-40"
                 />
@@ -2120,7 +2134,7 @@ export function TaskView({
               />
               <GoalLoopToggle
                 enabled={goalLoopEnabled}
-                disabled={submitting || working || Boolean(task?.goalLoop && !["completed", "blocked", "stopped"].includes(task.goalLoop.status))}
+                disabled={submitting || working || agentChanging || Boolean(task?.goalLoop && !["completed", "blocked", "stopped"].includes(task.goalLoop.status))}
                 onToggle={() => setGoalLoopEnabled((value) => !value)}
               />
               <GhostSelect
@@ -2168,7 +2182,7 @@ export function TaskView({
                 type="submit"
                 aria-label="送信"
                 busy={submitting}
-                disabled={compacting || (!prompt.trim() && attachments.length === 0)}
+                disabled={compacting || agentChanging || (!prompt.trim() && attachments.length === 0)}
               >
                 {!submitting && <ArrowUp className="h-4.5 w-4.5" />}
               </Button>
