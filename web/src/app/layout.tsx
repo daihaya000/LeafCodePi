@@ -1,6 +1,17 @@
 import type { Metadata, Viewport } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import "./globals.css";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
 
 export const metadata: Metadata = {
   title: "LeafCodePi",
@@ -28,7 +39,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja" suppressHydrationWarning>
-      <body className="min-h-dvh antialiased">
+      <body className={`${geistSans.variable} ${geistMono.variable} min-h-dvh antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem themes={["light", "dark", "oyster", "system"]}>
           {children}
         </ThemeProvider>
