@@ -6,6 +6,17 @@ export const DEFAULT_AGENT = "build";
 
 const AGENT_KEY = "leafcodepi.defaultAgent";
 
+/** Keep Composer's controlled value on the build default or an available agent. */
+export function resolveAgentSelection(
+  preferred: string | null | undefined,
+  available: readonly string[],
+): string {
+  const normalized = preferred?.trim() ?? "";
+  if (normalized && available.includes(normalized)) return normalized;
+  if (available.includes(DEFAULT_AGENT)) return DEFAULT_AGENT;
+  return available[0] ?? DEFAULT_AGENT;
+}
+
 export function readStoredAgent(): string {
   try {
     return localStorage.getItem(AGENT_KEY) ?? "";

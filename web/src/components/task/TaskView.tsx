@@ -48,7 +48,7 @@ import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { notifyTasksChanged } from "@/lib/events";
 import { taskSidebarNotifyKey } from "@/lib/task-sidebar-notify";
 import { getJson, sendJson } from "@/lib/client";
-import { writeStoredAgent } from "@/lib/default-agent";
+import { DEFAULT_AGENT, resolveAgentSelection, writeStoredAgent } from "@/lib/default-agent";
 import {
   messageNavigationIds,
   messageNavigationIndex,
@@ -369,7 +369,9 @@ export function TaskView({
     }),
     [agents, skills],
   );
-  const [agent, setAgent] = useState("");
+  const [agent, setAgent] = useState(
+    () => cachedSession?.agent?.trim() || DEFAULT_AGENT,
+  );
   const [agentChanging, setAgentChanging] = useState(false);
   const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
     () => readSubagentPermission(),
@@ -480,7 +482,7 @@ export function TaskView({
     setQuestionRequest(detail.questionRequest ?? null);
     setSkillPermission(detail.skillPermission ?? readSkillPermission());
     // セッション人格は作成時固定。タスクに紐づくエージェントを選択状態へ反映する。
-    setAgent((current) => current || detail.agent || "");
+    setAgent(detail.agent?.trim() || DEFAULT_AGENT);
   }, []);
 
   const notifySidebarIfNeeded = useCallback((snapshotTask?: TaskSummary | TaskDetail | null) => {
@@ -539,6 +541,7 @@ export function TaskView({
         setSessionHydrating(isBootstrap);
         startTransition(() => {
           if (snapshotTask) {
+            setAgent(snapshotTask.agent?.trim() || DEFAULT_AGENT);
             setTask((current) => {
               const base = current ?? snapshotTask;
               const keepExistingMessages = isBootstrap &&
@@ -613,6 +616,7 @@ export function TaskView({
         }
         startTransition(() => {
           if (payload.task) {
+            setAgent(payload.task.agent?.trim() || DEFAULT_AGENT);
             setTask((current) => {
               if (!current) {
                 return {
@@ -687,7 +691,7 @@ export function TaskView({
           .map(({ name, description }) => ({ name, description }));
         const enabledAgentNames = enabledAgents.map(({ name }) => name);
         setAgents(enabledAgents);
-        setAgent((current) => (current && enabledAgentNames.includes(current) ? current : ""));
+        setAgent((current) => resolveAgentSelection(current, enabledAgentNames));
       }
     }).catch(() => {
       /* agents are optional for the composer */

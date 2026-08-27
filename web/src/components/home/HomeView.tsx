@@ -19,7 +19,7 @@ import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { Button, GhostSelect } from "@/components/ui";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
-import { DEFAULT_AGENT, readStoredAgent, writeStoredAgent } from "@/lib/default-agent";
+import { DEFAULT_AGENT, readStoredAgent, resolveAgentSelection, writeStoredAgent } from "@/lib/default-agent";
 import { defaultThinkingLevel, isThinkingLevel } from "@/lib/thinking-levels";
 import {
   readSubagentPermission,
@@ -126,14 +126,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
         .map(({ name, description }) => ({ name, description }));
       const enabledAgentNames = enabledAgents.map(({ name }) => name);
       setAgents(enabledAgents);
-      setAgent((current) => {
-        if (current && enabledAgentNames.includes(current)) return current;
-        const stored = readStoredAgent();
-        if (stored && enabledAgentNames.includes(stored)) return stored;
-        // 本家 LeafCode と同じく build を既定対話者にする。
-        if (enabledAgentNames.includes(DEFAULT_AGENT)) return DEFAULT_AGENT;
-        return "";
-      });
+      setAgent((current) => resolveAgentSelection(current || readStoredAgent(), enabledAgentNames));
     }
     if (skillRes.status === "fulfilled") {
       setSkills(

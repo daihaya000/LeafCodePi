@@ -17,4 +17,16 @@ describe("AgentSelect", () => {
     ]);
     expect(screen.queryByRole("option", { name: "エージェント" })).toBeNull();
   });
+
+  it("uses build instead of an empty or placeholder value", () => {
+    const view = render(<AgentSelect value="" agents={["build", "programmer"]} onChange={() => {}} />);
+
+    const button = screen.getByRole("button", { name: "エージェント" });
+    expect(button.textContent).toContain("build");
+    fireEvent.click(button);
+    expect(screen.queryByRole("option", { name: "エージェント" })).toBeNull();
+
+    view.rerender(<AgentSelect value="エージェント" agents={["build", "programmer"]} onChange={() => {}} />);
+    expect(screen.getByRole("button", { name: "エージェント" }).textContent).toContain("build");
+  });
 });
