@@ -1991,10 +1991,14 @@ async function buildModelsForAccounts(
   const all = [...sharedOptions, ...separate, ...integratedOptions];
   const rowRank = (option: ModelOption): number | undefined => {
     if (option.routingMode === "integrated" && isAccountRoutingProvider(option.providerID)) {
+      // 統合モードの設定行はプロバイダキーで保存される。providerOrder に旧アカウント別
+      // キーが残っていても、表示中の行の順（プロバイダキー）を優先する。
+      const own = rowOrder.get(option.providerID);
+      if (own !== undefined) return own;
       const ranks = accounts
         .filter((account) => accountHasProvider(account, option.providerID))
         .map((account, index) => accountRowRank(option.providerID, account.id, index, rowOrder));
-      return ranks.length > 0 ? Math.min(...ranks) : rowOrder.get(option.providerID);
+      return ranks.length > 0 ? Math.min(...ranks) : undefined;
     }
     return rowOrder.get(
       option.accountId ? accountProviderModelKey(option.providerID, option.accountId) : option.providerID,

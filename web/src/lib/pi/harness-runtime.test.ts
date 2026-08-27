@@ -227,6 +227,56 @@ describe("getRuntimeFor", () => {
     });
   });
 
+  it("orders integrated providers by the settings row order", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-row-order-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const account = createAccount({ label: "仕事用", providers: ["openai-codex"] });
+    const accountRuntime = {
+      registerProvider: () => {},
+      getProvider: () => undefined,
+      getProviders: () => [{ id: "openai-codex", name: "OpenAI Codex" }],
+      getModels: () => [{ id: "gpt-5", name: "GPT-5" }],
+      getModel: () => undefined,
+      hasConfiguredAuth: () => true,
+      getAvailable: async () => [
+        { provider: "openai-codex", id: "gpt-5", name: "GPT-5", input: ["text"], reasoning: false },
+      ],
+    };
+    const harness: Record<string, unknown> = {
+      modelRuntime: {
+        getProviders: () => [{ id: "openai-codex" }, { id: "llama-server" }],
+      },
+      modelCache: null,
+      modelInflight: null,
+      live: new Map(),
+      lastProviderSyncWarnings: [],
+      accountRuntimes: new AccountRuntimeManager(async () => accountRuntime as never),
+    };
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = harness;
+    await setAccountRoutingMode("openai-codex", "integrated");
+    // 設定画面は統合行をプロバイダキーで保存し、過去のアカウント別キーは末尾に残る。
+    await saveProviderModelsOrder({
+      providerOrder: ["openai-codex", "llama-server", `${account.id}::openai-codex`],
+    });
+    // 上の保存は modelCache を破棄するため、共有プロバイダはこの後に seed する。
+    harness.modelCache = {
+      at: Date.now(),
+      value: [
+        { value: "llama-server::local", label: "Local", providerID: "llama-server", modelID: "local" },
+      ],
+    };
+
+    const models = await listModelsForAccounts([
+      { id: account.id, label: account.label, providers: account.providers },
+    ]);
+
+    assert.deepEqual(
+      models.map((model) => model.providerID),
+      ["openai-codex", "llama-server"],
+    );
+  });
+
   it("saves enabled state and order in the account namespace", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-models-"));
     tempDirs.push(dir);
