@@ -353,6 +353,7 @@ function ProviderRow({
   onToggle,
   compact,
   labelOverride,
+  hideIcon = false,
   unconfigured = false,
 }: {
   p: CodexBarProvider;
@@ -361,9 +362,11 @@ function ProviderRow({
   onToggle: () => void;
   compact?: boolean;
   labelOverride?: string;
+  hideIcon?: boolean;
   unconfigured?: boolean;
 }) {
   const tone = usageTone(p);
+  const contentIndent = hideIcon ? undefined : "pl-6";
   const resets = formatResetsIn(p.resetsAt, now);
   const hasWindows = p.windows.length > 0;
   const showErrorOnly = !unconfigured && !!p.error && !hasLastGoodUsage(p);
@@ -383,7 +386,7 @@ function ProviderRow({
           canExpand && "cursor-pointer rounded-md -mx-1 px-1 py-0 hover:bg-surface-3",
         )}
       >
-        <ProviderIcon p={p} tone={showErrorOnly ? "danger" : tone} />
+        {!hideIcon && <ProviderIcon p={p} tone={showErrorOnly ? "danger" : tone} />}
         <span className="min-w-0 flex-1 truncate font-semibold text-text">{label}</span>
         {!compact && planBadge && (
           <span
@@ -421,14 +424,14 @@ function ProviderRow({
 
       {collapsed ? (
         showErrorOnly || unconfigured ? null : (
-          <div className="pl-6">
+          <div className={contentIndent}>
             <UsageBar tone={tone} percent={p.usedPercent} />
           </div>
         )
       ) : showErrorOnly ? (
-        <p className="pl-6 text-[10px] text-faint">{p.error}</p>
+        <p className={cx(contentIndent, "text-[10px] text-faint")}>{p.error}</p>
       ) : canExpand ? (
-        <div className="flex flex-col gap-1.5 pl-6">
+        <div className={cx("flex flex-col gap-1.5", contentIndent)}>
           {p.windows.map((w) => (
             <WindowRow
               key={w.id || w.title}
@@ -449,7 +452,7 @@ function ProviderRow({
           {p.credits && <CreditsRow credits={p.credits} />}
         </div>
       ) : (
-        <div className="pl-6">
+        <div className={contentIndent}>
           <UsageBar tone={tone} percent={p.usedPercent} />
         </div>
       )}
@@ -532,6 +535,7 @@ function ProviderGroupRow({
                 onToggle={() => onToggleChild(key)}
                 compact={compact}
                 labelOverride={row.label}
+                hideIcon
                 unconfigured={!row.configured || row.provider === null}
               />
             );
