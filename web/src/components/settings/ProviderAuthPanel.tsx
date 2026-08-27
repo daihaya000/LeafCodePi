@@ -40,6 +40,10 @@ function isAccountProviderId(providerId: string): providerId is AccountProviderI
   );
 }
 
+function isAccountOnlyProviderId(providerId: string): boolean {
+  return providerId === "openai-codex" || providerId === "anthropic";
+}
+
 function sourceHint(provider: ProviderAuthDto): string | null {
   if (!provider.authenticated) return null;
   if (provider.subscription) {
@@ -865,7 +869,7 @@ function ProviderRow({
   onLogout?: () => void;
   accountControls?: ReactNode;
 }) {
-  const accountManaged = isAccountProviderId(provider.id);
+  const accountManaged = isAccountOnlyProviderId(provider.id);
   const badge = accountManaged
     ? { tone: "neutral" as const, label: "アカウントで管理" }
     : authBadge(provider);

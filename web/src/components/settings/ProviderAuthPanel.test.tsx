@@ -66,6 +66,18 @@ const ollamaAccount = {
   updatedAt: "",
 };
 
+const openrouterProvider = {
+  id: "openrouter",
+  name: "OpenRouter",
+  authenticated: true,
+  authSource: "environment",
+  authLabel: "OPENROUTER_API_KEY",
+  methods: ["api_key"] as ("api_key" | "oauth")[],
+  oauthAvailable: false,
+  highlighted: true,
+  accountRoutingMode: "separate" as const,
+};
+
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
@@ -158,6 +170,19 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(screen.queryByText("~/.pi/agent/auth.json")).toBeNull();
     expect(screen.getAllByRole("button", { name: /^ログイン$/ })).toHaveLength(1);
     expect(within(anthropic).getByRole("button", { name: /^ログイン$/ })).toBeTruthy();
+  });
+
+  it("keeps default authentication controls for API-key account providers", async () => {
+    mockAccountsApi();
+    render(<ProviderAuthPanel providers={[openrouterProvider]} onChanged={() => {}} />);
+
+    const openrouter = await accountRegion("OpenRouter");
+    expect(within(openrouter).getByRole("button", { name: "アカウントを追加" })).toBeTruthy();
+    expect(screen.getByText("環境変数 OPENROUTER_API_KEY")).toBeTruthy();
+    expect(screen.getByText("認証済")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "API キー" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "ログアウト" })).toBeTruthy();
+    expect(screen.queryByText("アカウントで管理")).toBeNull();
   });
 
   it("shows registered providers first without an other-providers section", () => {
