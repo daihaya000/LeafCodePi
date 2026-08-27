@@ -500,11 +500,6 @@ function ProviderGroupRow({
             {planBadge}
           </span>
         )}
-        {group.limitedCount > 0 && (
-          <span className="shrink-0 text-[10px] text-danger">
-            {group.limitedCount}/{group.accountRows.length} 上限
-          </span>
-        )}
         <span
           className={cx(
             "ml-auto shrink-0 font-mono",
@@ -513,7 +508,7 @@ function ProviderGroupRow({
           title={p.stale ? "直近の取得値（stale）" : undefined}
         >
           {p.stale && "古い "}
-          {p.usedPercent === null ? "—" : `平均 ${Math.round(p.usedPercent)}%`}
+          {p.usedPercent === null ? "—" : `${Math.round(p.usedPercent)}%`}
         </span>
         {collapsed ? (
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" />

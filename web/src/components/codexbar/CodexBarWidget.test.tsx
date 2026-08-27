@@ -95,7 +95,7 @@ describe("CodexBarWidget", () => {
     expect(screen.queryByText("CodexBar 利用状況")).toBeNull();
   });
 
-  it("groups accounts under one provider and displays their average", async () => {
+  it("groups accounts under one provider and displays their percentage", async () => {
     localStorage.setItem("webui:codexbar:collapsed", "0");
     useCodexUsage.mockReturnValue({
       usage: accountUsage,
@@ -107,7 +107,7 @@ describe("CodexBarWidget", () => {
 
     render(<CodexBarWidget />);
 
-    await waitFor(() => expect(screen.getByText("平均 60%")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("60%")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Codex を展開" }));
     expect(screen.getByText("仕事用")).toBeTruthy();
     expect(screen.getByText("個人用")).toBeTruthy();
