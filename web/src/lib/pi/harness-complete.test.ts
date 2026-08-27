@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "vitest";
-import { createAccount } from "@/lib/accounts";
+import {
+  __resetPiAgentDirCacheForTests,
+  accountAuthPath,
+  createAccount,
+} from "@/lib/accounts";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
 import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { setAccountRoutingMode, __resetProviderRoutingQueueForTests } from "@/lib/provider-routing";
@@ -13,11 +17,30 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const tempDirs: string[] = [];
+const previousPiAgentDir = process.env.PI_CODING_AGENT_DIR;
+
+function useTestAgentDir(dir: string): string {
+  const agentDir = join(dir, "agent");
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  __resetPiAgentDirCacheForTests();
+  return agentDir;
+}
+
+function storeAccountProviderAuth(accountId: string, agentDir: string): void {
+  const authPath = accountAuthPath(accountId, agentDir);
+  mkdirSync(dirname(authPath), { recursive: true });
+  writeFileSync(
+    authPath,
+    JSON.stringify({ anthropic: { type: "api_key", key: "test-key" } }),
+    "utf8",
+  );
+}
 
 beforeEach(() => {
   const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-complete-test-"));
   tempDirs.push(dir);
   process.env.LEAFCODE_PI_DATA_DIR = dir;
+  useTestAgentDir(dir);
 });
 
 /** completeModelText は state().modelRuntime 経由で Pi ランタイムを使うため、
@@ -67,6 +90,9 @@ afterEach(() => {
   clearCachedUsage();
   __resetProviderRoutingQueueForTests();
   delete process.env.LEAFCODE_PI_DATA_DIR;
+  if (previousPiAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = previousPiAgentDir;
+  __resetPiAgentDirCacheForTests();
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -90,9 +116,12 @@ describe("completeModelText", () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-complete-routing-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = useTestAgentDir(dir);
     const high = createAccount({ label: "使用量大", providers: ["anthropic"] });
     const low = createAccount({ label: "使用量小", providers: ["anthropic"] });
     const unrelated = createAccount({ label: "別プロバイダー", providers: ["openai-codex"] });
+    storeAccountProviderAuth(high.id, agentDir);
+    storeAccountProviderAuth(low.id, agentDir);
     await setAccountRoutingMode("anthropic", "integrated");
     setCachedUsage(
       parseCodexBarSnapshot({
@@ -173,7 +202,9 @@ describe("completeModelText", () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-complete-lease-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = useTestAgentDir(dir);
     const account = createAccount({ label: "専用", providers: ["anthropic"] });
+    storeAccountProviderAuth(account.id, agentDir);
     const response = assistant({ content: [{ type: "text", text: "提案" }] });
     const manager = new AccountRuntimeManager(async () => runtime as never, 0);
     const runtime = {

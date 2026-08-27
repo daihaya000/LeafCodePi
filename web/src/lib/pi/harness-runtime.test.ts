@@ -19,6 +19,7 @@ import {
   getHealth,
   getRuntimeFor,
   listProviderAuth,
+  listProviderModelsCatalog,
   listModelsForAccounts,
   saveProviderModelsOrder,
   setProviderOrModelEnabled,
@@ -27,6 +28,27 @@ import {
 const GLOBAL_KEY = "__leafcodePiHarness";
 const tempDirs: string[] = [];
 const previousPiAgentDir = process.env.PI_CODING_AGENT_DIR;
+
+function useTestAgentDir(dir: string): string {
+  const agentDir = join(dir, "agent");
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  __resetPiAgentDirCacheForTests();
+  return agentDir;
+}
+
+function storeAccountProviderAuth(
+  account: Pick<AccountRecord, "id">,
+  agentDir: string,
+  providerId: string,
+): void {
+  const authPath = accountAuthPath(account.id, agentDir);
+  mkdirSync(dirname(authPath), { recursive: true });
+  writeFileSync(
+    authPath,
+    JSON.stringify({ [providerId]: { type: "api_key", key: "test-key" } }),
+    "utf8",
+  );
+}
 
 afterEach(() => {
   delete (globalThis as Record<string, unknown>)[GLOBAL_KEY];
@@ -186,6 +208,7 @@ describe("getRuntimeFor", () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-models-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = useTestAgentDir(dir);
     const availableProviders: (string | undefined)[] = [];
     const accountRuntime = {
       registerProvider: () => {},
@@ -270,6 +293,7 @@ describe("getRuntimeFor", () => {
       label: "仕事用",
       providers: ["openai-codex"],
     });
+    storeAccountProviderAuth(account, agentDir, "openai-codex");
     const accounts: Pick<AccountRecord, "id" | "label" | "providers">[] = [
       account,
     ];
@@ -296,6 +320,7 @@ describe("getRuntimeFor", () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-keydefault-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = useTestAgentDir(dir);
     const accountRuntime = {
       registerProvider: () => {},
       getProvider: () => undefined,
@@ -345,6 +370,7 @@ describe("getRuntimeFor", () => {
       label: "仕事用",
       providers: ["openai-codex"],
     });
+    storeAccountProviderAuth(account, agentDir, "openai-codex");
     const models = await listModelsForAccounts([account]);
 
     // アカウント対応プロバイダーは、該当アカウントが無い場合も既定候補を出さない。
@@ -361,6 +387,7 @@ describe("getRuntimeFor", () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-keyaccount-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = useTestAgentDir(dir);
     const requested: (string | undefined)[] = [];
     const accountRuntime = {
       registerProvider: () => {},
@@ -414,6 +441,7 @@ describe("getRuntimeFor", () => {
       label: "個人用",
       providers: ["ollama-cloud"],
     });
+    storeAccountProviderAuth(account, agentDir, "ollama-cloud");
     const models = await listModelsForAccounts([account]);
 
     assert.deepEqual(requested, ["ollama-cloud"]);
@@ -429,10 +457,126 @@ describe("getRuntimeFor", () => {
     );
   });
 
+  it("does not expose ambient API-key models in an account without stored auth", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-ambient-key-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    useTestAgentDir(dir);
+    const accountRuntime = {
+      registerProvider: () => {},
+      getProvider: () => undefined,
+      getProviders: () => [{ id: "openrouter", name: "OpenRouter" }],
+      getModels: () => [{ id: "openrouter-model", name: "OpenRouter model" }],
+      hasConfiguredAuth: () => true,
+      // ModelRuntime can report an env-backed API-key model even when the
+      // account's auth.json has no credential for that provider.
+      getAvailable: async () => [
+        {
+          provider: "openrouter",
+          id: "openrouter-model",
+          name: "OpenRouter model",
+          input: ["text"],
+          reasoning: false,
+        },
+      ],
+    };
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      modelRuntime: {
+        getProvider: (id: string) => ({ id }),
+        getProviders: () => [{ id: "openrouter" }],
+        getModels: () => [],
+        hasConfiguredAuth: () => false,
+      },
+      modelCache: {
+        at: Date.now(),
+        value: [
+          {
+            value: "openrouter::openrouter-model",
+            label: "OpenRouter model",
+            providerID: "openrouter",
+            modelID: "openrouter-model",
+          },
+        ],
+      },
+      modelInflight: null,
+      live: new Map(),
+      lastProviderSyncWarnings: [],
+      accountRuntimes: new AccountRuntimeManager(
+        async () => accountRuntime as never,
+      ),
+    };
+
+    const account = createAccount({
+      label: "未認証",
+      providers: ["openrouter"],
+    });
+
+    const models = await listModelsForAccounts([account]);
+
+    assert.deepEqual(models, []);
+    assert.deepEqual(await listProviderModelsCatalog(), []);
+  });
+
+  it("does not report ambient API-key auth for an account", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-account-auth-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    useTestAgentDir(dir);
+    const account = createAccount({
+      label: "未認証",
+      providers: ["openrouter"],
+    });
+    const accountRuntime = {
+      getProviders: () => [
+        {
+          id: "openrouter",
+          name: "OpenRouter",
+          auth: { apiKey: {}, oauth: undefined },
+        },
+      ],
+      getProviderAuthStatus: () => ({
+        configured: true,
+        source: "environment",
+        label: "OPENROUTER_API_KEY",
+      }),
+      isUsingSubscription: () => false,
+    };
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      modelRuntime: {
+        getProvider: (id: string) => ({ id }),
+      },
+      initPromise: null,
+      watchdogRegistered: true,
+      live: new Map(),
+      lastProviderSyncWarnings: [],
+      accountRuntimes: new AccountRuntimeManager(
+        async () => accountRuntime as never,
+      ),
+    };
+
+    const provider = (await listProviderAuth(account.id)).find(
+      (item) => item.id === "openrouter",
+    );
+
+    assert.deepEqual(provider, {
+      id: "openrouter",
+      name: "OpenRouter",
+      authenticated: false,
+      methods: ["api_key"],
+      authSource: undefined,
+      authLabel: undefined,
+      subscription: false,
+      oauthAvailable: false,
+      highlighted: false,
+      accountRoutingMode: "separate",
+    });
+  });
+
   it("merges account models into one option in integrated mode", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-routing-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = useTestAgentDir(dir);
     const first = createAccount({
       label: "仕事用",
       providers: ["openai-codex"],
@@ -441,6 +585,8 @@ describe("getRuntimeFor", () => {
       label: "個人用",
       providers: ["openai-codex"],
     });
+    storeAccountProviderAuth(first, agentDir, "openai-codex");
+    storeAccountProviderAuth(second, agentDir, "openai-codex");
     const makeRuntime = () => ({
       registerProvider: () => {},
       getProvider: () => undefined,
@@ -511,10 +657,12 @@ describe("getRuntimeFor", () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-row-order-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = useTestAgentDir(dir);
     const account = createAccount({
       label: "仕事用",
       providers: ["openai-codex"],
     });
+    storeAccountProviderAuth(account, agentDir, "openai-codex");
     const accountRuntime = {
       registerProvider: () => {},
       getProvider: () => undefined,

@@ -98,6 +98,7 @@ import {
   isAccountProviderId,
   listAccounts,
   resolvePiAgentDir,
+  type AccountProviderId,
   type AccountRecord,
 } from "@/lib/accounts";
 import {
@@ -1773,7 +1774,7 @@ async function resolveConcreteModel(
   if (
     !explicitAccountId &&
     isAccountRoutingProvider(parsed.providerID) &&
-    runsThroughAccounts(parsed.providerID, listAccounts()) &&
+    runsThroughAccounts(parsed.providerID) &&
     accountRoutingMode(parsed.providerID) === "integrated"
   ) {
     return resolveIntegratedModelRoute(parsed.providerID, parsed.modelID);
@@ -2006,14 +2007,21 @@ async function hasStoredAccountProvider(
   if (accounts.length === 0) return false;
   try {
     const agentDir = await resolvePiAgentDir();
-    return accounts.some((account) =>
-      accountStoredProviders(account.id, agentDir).some((provider) =>
-        accountHasProvider(account, provider),
-      ),
+    return accounts.some(
+      (account) => storedAccountProviderIds(account, agentDir).length > 0,
     );
   } catch {
     return false;
   }
+}
+
+/** Credentials that belong to this account, excluding ambient environment auth. */
+function storedAccountProviderIds(
+  account: Pick<AccountRecord, "id" | "providers">,
+  agentDir: string,
+): AccountProviderId[] {
+  const stored = new Set(accountStoredProviders(account.id, agentDir));
+  return account.providers.filter((provider) => stored.has(provider));
 }
 
 /**
@@ -2021,13 +2029,8 @@ async function hasStoredAccountProvider(
  * モデルを隠し、統合ルーティングの対象にする。マルチアカウント対応プロバイダーは
  * 常に true とし、既定モデルを新規候補へ出さない。
  */
-function runsThroughAccounts(
-  providerId: string,
-  accounts: readonly Pick<AccountRecord, "id" | "providers">[],
-): boolean {
-  if (!isAccountProviderId(providerId)) return false;
-  if (isAccountOnlyProvider(providerId)) return true;
-  return accounts.some((account) => accountHasProvider(account, providerId));
+function runsThroughAccounts(providerId: string): boolean {
+  return isAccountOnlyProvider(providerId);
 }
 
 export async function getHealth(): Promise<HealthDto> {
@@ -2043,7 +2046,7 @@ export async function getHealth(): Promise<HealthDto> {
   const accounts = listAccounts();
   const sharedModels = (await getRuntimeFor())
     ? (await listModels().catch(() => [])).filter(
-        (model) => !runsThroughAccounts(model.providerID, accounts),
+        (model) => !runsThroughAccounts(model.providerID),
       )
     : [];
   const accountSnapshot =
@@ -2151,14 +2154,23 @@ async function collectAccountModelRecords(
   accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
 ): Promise<AccountModelRecord[]> {
   const records: AccountModelRecord[] = [];
+  if (accounts.length === 0) return records;
+  let agentDir: string;
+  try {
+    agentDir = await resolvePiAgentDir();
+  } catch {
+    return records;
+  }
   for (const [accountIndex, account] of accounts.entries()) {
+    const providerIds = storedAccountProviderIds(account, agentDir);
+    if (providerIds.length === 0) continue;
     try {
       const runtime = await getRuntimeFor(account.id);
       if (!runtime) continue;
       const built = await buildModelOptions(
         runtime,
         account.id,
-        account.providers,
+        providerIds,
       );
       for (const [modelIndex, option] of built.entries()) {
         // API キー等で構成された他プロバイダを、この OAuth アカウントの枠へ複製しない。
@@ -2281,7 +2293,7 @@ async function buildModelsForAccounts(
 ): Promise<ModelOption[]> {
   const sharedOptions: ModelOption[] = (
     await listModels().catch(() => [])
-  ).filter((option) => !runsThroughAccounts(option.providerID, accounts));
+  ).filter((option) => !runsThroughAccounts(option.providerID));
   const records = await collectAccountModelRecords(accounts);
   const routingState = readProviderRouting();
   const rowOrder = new Map(
@@ -2578,16 +2590,27 @@ export async function listProviderModelsCatalog(): Promise<
   const accountRows: ProviderModelsRow[] = [];
   const accounts = listAccounts();
   const runtime = await getRuntimeFor();
+  let agentDir: string | null = null;
+  if (accounts.length > 0) {
+    try {
+      agentDir = await resolvePiAgentDir();
+    } catch {
+      // アカウント用認証ディレクトリを解決できない場合は共有行だけ返す
+    }
+  }
   if (runtime) {
     // マルチアカウント対応プロバイダーはアカウント専用。既定欄には出さない。
     rows.push(
       ...buildProviderModelsCatalog(runtime, state).filter(
-        (row) => !runsThroughAccounts(row.id, accounts),
+        (row) => !runsThroughAccounts(row.id),
       ),
     );
   }
 
   for (const account of accounts) {
+    if (!agentDir) continue;
+    const providerIds = storedAccountProviderIds(account, agentDir);
+    if (providerIds.length === 0) continue;
     try {
       const accountRuntime = await getRuntimeFor(account.id);
       if (!accountRuntime) continue;
@@ -2598,11 +2621,7 @@ export async function listProviderModelsCatalog(): Promise<
       );
       accountRows.push(
         ...catalog
-          .filter(
-            (row) =>
-              isAccountProviderId(row.id) &&
-              accountHasProvider(account, row.id),
-          )
+          .filter((row) => providerIds.includes(row.id as AccountProviderId))
           .map((row) => ({
             ...row,
             accountId: account.id,
@@ -2699,7 +2718,7 @@ export async function setProviderOrModelEnabled(
     throw Object.assign(new Error("key が必要です"), { status: 400 });
   const normalizedAccountId = accountId?.trim() || undefined;
   const providerId = key.split("::", 1)[0];
-  if (!normalizedAccountId && runsThroughAccounts(providerId, listAccounts())) {
+  if (!normalizedAccountId && runsThroughAccounts(providerId)) {
     if (accountRoutingMode(providerId) !== "integrated") {
       throw Object.assign(
         new Error("このプロバイダーはアカウントIDが必要です"),
@@ -2820,24 +2839,34 @@ export async function listProviderAuth(
   accountId?: string | null,
 ): Promise<ProviderAuthDto[]> {
   await ensureRuntime();
-  if (accountId && !getAccount(accountId)) {
+  const account = accountId ? getAccount(accountId) : undefined;
+  if (accountId && !account) {
     throw Object.assign(new Error("アカウントが見つかりません"), {
       status: 404,
     });
   }
   const runtime = await getRuntimeFor(accountId);
   if (!runtime) return [];
+  const storedAccountProviders = account
+    ? new Set(
+        storedAccountProviderIds(account, await resolvePiAgentDir()),
+      )
+    : null;
   const providers = runtime.getProviders().map((provider) => {
     const status = runtime.getProviderAuthStatus(provider.id);
     const methods = providerAuthMethods(provider);
+    const accountScoped = Boolean(accountId) && isAccountProviderId(provider.id);
+    const authenticated =
+      status.configured &&
+      (!accountScoped || storedAccountProviders?.has(provider.id) === true);
     return {
       id: provider.id,
       name: provider.name,
-      authenticated: status.configured,
+      authenticated,
       methods,
-      authSource: status.source,
-      authLabel: status.label,
-      subscription: runtime.isUsingSubscription(provider.id),
+      authSource: authenticated ? status.source : undefined,
+      authLabel: authenticated ? status.label : undefined,
+      subscription: authenticated && runtime.isUsingSubscription(provider.id),
       oauthAvailable: methods.includes("oauth"),
       highlighted: isHighlightedProvider(provider.id),
       ...(isAccountRoutingProvider(provider.id)
