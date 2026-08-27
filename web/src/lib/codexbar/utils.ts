@@ -1,6 +1,14 @@
 import { copyFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
+import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from "undici";
+
+/** Node's built-in fetch can give up before slow Windows network paths respond. */
+const slowNetworkAgent = new Agent({
+  connectTimeout: 30_000,
+  autoSelectFamily: true,
+  autoSelectFamilyAttemptTimeout: 1_000,
+});
 
 export function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
@@ -115,6 +123,19 @@ export function cleanApiKey(raw: string | null | undefined): string | null {
   return value.length > 0 ? value : null;
 }
 
+function isConnectTimeout(error: unknown): boolean {
+  if (!error || typeof error !== "object" || !("cause" in error)) return false;
+  const cause = (error as { cause?: unknown }).cause;
+  return (
+    !!cause &&
+    typeof cause === "object" &&
+    "code" in cause &&
+    (cause as { code?: unknown }).code === "UND_ERR_CONNECT_TIMEOUT"
+  );
+}
+
+type TextResponse = Pick<Response, "status" | "ok" | "text">;
+
 export async function fetchText(
   url: string,
   init: RequestInit & { timeoutMs?: number } = {},
@@ -128,7 +149,18 @@ export async function fetchText(
     else parent.addEventListener("abort", () => ctrl.abort(), { once: true });
   }
   try {
-    const res = await fetch(url, { ...rest, signal: ctrl.signal });
+    let res: TextResponse;
+    try {
+      res = await fetch(url, { ...rest, signal: ctrl.signal });
+    } catch (error) {
+      if (!isConnectTimeout(error)) throw error;
+      const fallbackInit: UndiciRequestInit = {
+        ...(rest as UndiciRequestInit),
+        signal: ctrl.signal,
+        dispatcher: slowNetworkAgent,
+      };
+      res = await undiciFetch(url, fallbackInit);
+    }
     const body = await res.text();
     return { status: res.status, body, ok: res.ok };
   } finally {
