@@ -96,7 +96,10 @@ describe("/api/tasks/[id]/events", () => {
     resolveDetail(detail);
 
     const readyChunk = await readChunk(reader);
-    expect(eventData(readyChunk).eventType).toBe("ready");
+    const readyPayload = eventData(readyChunk);
+    expect(readyPayload.eventType).toBe("ready");
+    expect(readyPayload.task).not.toHaveProperty("messages");
+    expect(readyPayload.task).not.toHaveProperty("isStreaming");
     const deltaChunk = await readChunk(reader);
     expect(deltaChunk).toContain("event: delta\n");
     const deltaPayload = eventData(deltaChunk);

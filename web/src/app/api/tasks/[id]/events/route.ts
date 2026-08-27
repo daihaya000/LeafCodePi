@@ -53,9 +53,22 @@ export async function GET(
         if (sse.closed) return;
         const detail = await getTaskDetail(id);
         if (sse.closed) return;
+        const taskSummary = { ...detail };
+        for (const key of [
+          "messages",
+          "isStreaming",
+          "isCompacting",
+          "contextUsage",
+          "goalLoop",
+          "todos",
+          "permissionRequest",
+          "questionRequest",
+        ]) {
+          delete (taskSummary as Record<string, unknown>)[key];
+        }
         sse.send("snapshot", {
           type: "snapshot",
-          task: detail,
+          task: taskSummary,
           messages: detail.messages,
           isStreaming: detail.isStreaming,
           isCompacting: detail.isCompacting,

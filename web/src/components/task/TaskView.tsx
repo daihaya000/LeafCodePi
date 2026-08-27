@@ -517,7 +517,7 @@ export function TaskView({
         setSseReconnecting(false);
         retryCount = 0;
         let payload: {
-          task?: TaskDetail;
+          task?: TaskSummary;
           messages?: UiMessage[];
           isStreaming?: boolean;
           isCompacting?: boolean;
@@ -544,7 +544,12 @@ export function TaskView({
           if (snapshotTask) {
             setAgent(snapshotTask.agent?.trim() || DEFAULT_AGENT);
             setTask((current) => {
-              const base = current ?? snapshotTask;
+              const base: TaskDetail = current ?? {
+                ...snapshotTask,
+                messages: [],
+                isStreaming: payload.isStreaming ?? snapshotTask.status === "working",
+                isCompacting: Boolean(payload.isCompacting),
+              };
               const keepExistingMessages = isBootstrap &&
                 payload.messages?.length === 0 &&
                 base.messages.length > 0;
@@ -554,11 +559,11 @@ export function TaskView({
                 messages: keepExistingMessages
                   ? base.messages
                   : payload.messages ?? base.messages ?? [],
-                isStreaming: payload.isStreaming ?? snapshotTask.isStreaming ?? base.isStreaming,
-                isCompacting: payload.isCompacting ?? snapshotTask.isCompacting ?? base.isCompacting,
-                contextUsage: payload.contextUsage ?? snapshotTask.contextUsage ?? base.contextUsage,
-                goalLoop: payload.goalLoop ?? snapshotTask.goalLoop ?? base.goalLoop,
-                todos: payload.todos ?? snapshotTask.todos ?? base.todos,
+                isStreaming: payload.isStreaming ?? base.isStreaming,
+                isCompacting: payload.isCompacting ?? base.isCompacting,
+                contextUsage: payload.contextUsage ?? base.contextUsage,
+                goalLoop: payload.goalLoop ?? base.goalLoop,
+                todos: payload.todos ?? base.todos,
               };
               // 表示に影響しないスナップショット（tool実行中のメッセージ進捗等）は
               // 参照を維持し、TaskView 全体の再レンダーを防ぐ。
