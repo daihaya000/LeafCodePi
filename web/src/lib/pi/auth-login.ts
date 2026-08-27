@@ -146,7 +146,9 @@ export class ProviderLoginSession {
 
   answer(promptId: string, value: string) {
     if (!this.pending || this.pending.id !== promptId) {
-      throw Object.assign(new Error("該当する入力待ちがありません"), { status: 409 });
+      throw Object.assign(new Error("該当する入力待ちがありません"), {
+        status: 409,
+      });
     }
     const pending = this.pending;
     this.pending = null;
@@ -193,22 +195,46 @@ function serializePrompt(prompt: {
     };
   }
   if (prompt.type === "secret") {
-    return { type: "secret", message: prompt.message, placeholder: prompt.placeholder };
+    return {
+      type: "secret",
+      message: prompt.message,
+      placeholder: prompt.placeholder,
+    };
   }
   if (prompt.type === "manual_code") {
-    return { type: "manual_code", message: prompt.message, placeholder: prompt.placeholder };
+    return {
+      type: "manual_code",
+      message: prompt.message,
+      placeholder: prompt.placeholder,
+    };
   }
-  return { type: "text", message: prompt.message, placeholder: prompt.placeholder };
+  return {
+    type: "text",
+    message: prompt.message,
+    placeholder: prompt.placeholder,
+  };
 }
 
 /** Providers that expose Claude / ChatGPT / Cursor subscription OAuth. */
-export const SUBSCRIPTION_PROVIDER_IDS = new Set(["anthropic", "openai-codex", "cursor"]);
+export const SUBSCRIPTION_PROVIDER_IDS = new Set([
+  "anthropic",
+  "openai-codex",
+  "cursor",
+]);
 
 /** Cloud API providers surfaced near subscription logins in settings. */
-export const HIGHLIGHTED_API_PROVIDER_IDS = new Set(["ollama-cloud", "commandcode"]);
+export const HIGHLIGHTED_API_PROVIDER_IDS = new Set([
+  "ollama-cloud",
+  "commandcode",
+  "opencode",
+  "opencode-go",
+]);
 
 export function isHighlightedProvider(providerId: string): boolean {
-  return SUBSCRIPTION_PROVIDER_IDS.has(providerId) || HIGHLIGHTED_API_PROVIDER_IDS.has(providerId);
+  return (
+    SUBSCRIPTION_PROVIDER_IDS.has(providerId) ||
+    HIGHLIGHTED_API_PROVIDER_IDS.has(providerId)
+  );
 }
 
 export function providerAuthMethods(provider: {

@@ -8,15 +8,30 @@ import type {
   UsageProviderDefinition,
   UsageScope,
 } from "@/lib/codexbar/types";
-import { anthropicProvider, createAnthropicProvider } from "@/lib/codexbar/providers/anthropic";
-import { openaiCodexProvider, createOpenaiCodexProvider } from "@/lib/codexbar/providers/openai-codex";
-import { commandcodeProvider } from "@/lib/codexbar/providers/commandcode";
-import { cursorProvider } from "@/lib/codexbar/providers/cursor";
+import {
+  anthropicProvider,
+  createAnthropicProvider,
+} from "@/lib/codexbar/providers/anthropic";
+import {
+  openaiCodexProvider,
+  createOpenaiCodexProvider,
+} from "@/lib/codexbar/providers/openai-codex";
+import {
+  commandcodeProvider,
+  createCommandCodeProvider,
+} from "@/lib/codexbar/providers/commandcode";
+import {
+  createCursorProvider,
+  cursorProvider,
+} from "@/lib/codexbar/providers/cursor";
 import {
   createOllamaCloudProvider,
   ollamaCloudProvider,
 } from "@/lib/codexbar/providers/ollama-cloud";
-import { opencodeGoProvider } from "@/lib/codexbar/providers/opencode-go";
+import {
+  createOpenCodeGoProvider,
+  opencodeGoProvider,
+} from "@/lib/codexbar/providers/opencode-go";
 import {
   createOpenRouterProvider,
   openrouterProvider,
@@ -37,15 +52,16 @@ export const NATIVE_PROVIDERS: IUsageProvider[] = [
 ];
 
 /** アカウントごとに 1 インスタンス作る（= scope 展開する）プロバイダー。 */
-const SCOPED_FACTORIES: Record<
-  string,
-  (scope: UsageScope) => IUsageProvider
-> = {
-  "openai-codex": createOpenaiCodexProvider,
-  anthropic: createAnthropicProvider,
-  "ollama-cloud": createOllamaCloudProvider,
-  openrouter: createOpenRouterProvider,
-};
+const SCOPED_FACTORIES: Record<string, (scope: UsageScope) => IUsageProvider> =
+  {
+    "openai-codex": createOpenaiCodexProvider,
+    anthropic: createAnthropicProvider,
+    "ollama-cloud": createOllamaCloudProvider,
+    openrouter: createOpenRouterProvider,
+    commandcode: createCommandCodeProvider,
+    cursor: createCursorProvider,
+    "opencode-go": createOpenCodeGoProvider,
+  };
 
 /** Provider definitions used to create one isolated instance per usage scope. */
 export const NATIVE_PROVIDER_DEFINITIONS: UsageProviderDefinition[] =

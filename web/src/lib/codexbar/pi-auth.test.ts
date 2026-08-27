@@ -51,7 +51,11 @@ describe("readPiOAuthTokens", () => {
     // ファイル無し
     assert.equal(readPiOAuthTokens("openai-codex"), null);
     // provider エントリ無し / access 欠落
-    writeFileSync(defaultPiAuthPath(), JSON.stringify({ anthropic: {} }), "utf8");
+    writeFileSync(
+      defaultPiAuthPath(),
+      JSON.stringify({ anthropic: {} }),
+      "utf8",
+    );
     assert.equal(readPiOAuthTokens("openai-codex"), null);
     assert.equal(readPiOAuthTokens("anthropic"), null);
   });
@@ -77,7 +81,7 @@ describe("readPiOAuthTokens", () => {
     assert.deepEqual(codex?.access, "acc");
     assert.equal(codex?.refresh, "ref");
     assert.equal(typeof codex?.expires, "number");
-    // 対象外プロバイダーは読まない
+    // API キー専用の既知プロバイダーには OAuth token を返さない
     assert.equal(readPiOAuthTokens("anthropic"), null);
   });
 
@@ -97,12 +101,18 @@ describe("writeBackPiOAuthTokens", () => {
     const path = defaultPiAuthPath();
     writeFileSync(
       path,
-      JSON.stringify({ customKey: { keep: true }, openai: { type: "api_key" } }),
+      JSON.stringify({
+        customKey: { keep: true },
+        openai: { type: "api_key" },
+      }),
       "utf8",
     );
     void dir;
 
-    await writeBackPiOAuthTokens("openai-codex", { access: "c1", refresh: "cr1" });
+    await writeBackPiOAuthTokens("openai-codex", {
+      access: "c1",
+      refresh: "cr1",
+    });
     await writeBackPiOAuthTokens("anthropic", { access: "a1" });
 
     const raw = JSON.parse(readFileSync(path, "utf8")) as {
@@ -126,7 +136,10 @@ describe("writeBackPiOAuthTokens", () => {
       writeBackPiOAuthTokens("openai-codex", { access: "c1" }),
       writeBackPiOAuthTokens("anthropic", { access: "a1" }),
     ]);
-    const raw = JSON.parse(readFileSync(defaultPiAuthPath(), "utf8")) as Record<string, Record<string, unknown>>;
+    const raw = JSON.parse(readFileSync(defaultPiAuthPath(), "utf8")) as Record<
+      string,
+      Record<string, unknown>
+    >;
     assert.equal(raw["openai-codex"]?.access, "c1");
     assert.equal(raw.anthropic?.access, "a1");
   });

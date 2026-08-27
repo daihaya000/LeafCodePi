@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
@@ -39,7 +46,10 @@ function httpStatus(error: unknown): unknown {
 }
 
 /** accountId を Phase 5 まで TaskSummary 型に載せないため、実行時だけ緩く付与する。 */
-function patchLoose(taskId: string, patch: Record<string, unknown>): TaskSummary | undefined {
+function patchLoose(
+  taskId: string,
+  patch: Record<string, unknown>,
+): TaskSummary | undefined {
   const fn = patchTask as unknown as (
     id: string,
     patch: Record<string, unknown>,
@@ -74,13 +84,20 @@ describe("accountStoredProviders", () => {
         "openai-codex": { type: "oauth" },
         anthropic: { type: "oauth" },
         cursor: { type: "oauth" },
+        commandcode: { type: "oauth" },
+        opencode: { type: "api_key" },
+        "opencode-go": { type: "api_key" },
       }),
       "utf8",
     );
-    // 既知の2プロバイダーのみ（cursor等は対象外）、既定順で返す
+    // 既知のプロバイダーだけを既定順で返す
     assert.deepEqual(accountStoredProviders("acc-9", agentDir), [
       "openai-codex",
       "anthropic",
+      "commandcode",
+      "cursor",
+      "opencode",
+      "opencode-go",
     ]);
   });
 
@@ -98,7 +115,10 @@ describe("accountStoredProviders", () => {
 describe("accounts store CRUD", () => {
   it("allows only the account's registered provider", () => {
     tempDataDir();
-    const account = createAccount({ label: "Codex", providers: ["openai-codex"] });
+    const account = createAccount({
+      label: "Codex",
+      providers: ["openai-codex"],
+    });
 
     assert.equal(accountHasProvider(account, "openai-codex"), true);
     assert.equal(accountHasProvider(account, "anthropic"), false);
@@ -117,12 +137,17 @@ describe("accounts store CRUD", () => {
     assert.deepEqual(created.providers, ["openai-codex", "anthropic"]);
     assert.equal(created.note, "メイン");
 
-    assert.deepEqual(listAccounts().map((account) => account.id), [created.id]);
+    assert.deepEqual(
+      listAccounts().map((account) => account.id),
+      [created.id],
+    );
     assert.deepEqual(getAccount(created.id), created);
 
     // accounts.json へ永続化されている
     assert.ok(existsSync(join(dir, "accounts.json")));
-    const raw = JSON.parse(readFileSync(join(dir, "accounts.json"), "utf8")) as {
+    const raw = JSON.parse(
+      readFileSync(join(dir, "accounts.json"), "utf8"),
+    ) as {
       version: number;
       accounts: AccountRecordLike[];
     };
@@ -141,7 +166,7 @@ describe("accounts store CRUD", () => {
       (error) => httpStatus(error) === 400,
     );
     assert.throws(
-      () => createAccount({ label: "x", providers: ["cursor"] }),
+      () => createAccount({ label: "x", providers: ["not-a-provider"] }),
       (error) => httpStatus(error) === 400,
     );
     assert.throws(
@@ -180,7 +205,10 @@ describe("accounts store CRUD", () => {
 
   it("deletes an account and returns 404 afterwards", () => {
     tempDataDir();
-    const created = createAccount({ label: "tmp", providers: ["openai-codex"] });
+    const created = createAccount({
+      label: "tmp",
+      providers: ["openai-codex"],
+    });
     deleteAccount(created.id);
     assert.equal(getAccount(created.id), undefined);
     assert.deepEqual(listAccounts(), []);
@@ -197,14 +225,20 @@ describe("accounts store CRUD", () => {
       rootPath: join(tmpdir(), "demo-root"),
     });
     const task = insertTask({ project, title: "running task" });
-    const account = createAccount({ label: "busy", providers: ["openai-codex"] });
+    const account = createAccount({
+      label: "busy",
+      providers: ["openai-codex"],
+    });
 
     // 実行中タスクからの参照が無ければ削除できる
     deleteAccount(account.id);
     assert.equal(getAccount(account.id), undefined);
 
     const busy = createAccount({ label: "busy2", providers: ["openai-codex"] });
-    const patched = patchLoose(task.id, { status: "working", accountId: busy.id });
+    const patched = patchLoose(task.id, {
+      status: "working",
+      accountId: busy.id,
+    });
     assert.ok(patched);
     assert.throws(
       () => deleteAccount(busy.id),

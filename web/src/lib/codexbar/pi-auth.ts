@@ -18,7 +18,11 @@ export type PiAuthProviderId =
   | "openai-codex"
   | "anthropic"
   | "ollama-cloud"
-  | "openrouter";
+  | "openrouter"
+  | "commandcode"
+  | "cursor"
+  | "opencode"
+  | "opencode-go";
 
 export type PiOAuthTokens = {
   access: string;
@@ -32,9 +36,7 @@ export type PiOAuthTokens = {
 /** 既定（accountId 未指定）の Pi 認証ファイル。SDK の getAgentDir と同じ解決規則。 */
 export function defaultPiAuthPath(agentDirOverride?: string): string {
   const override =
-    agentDirOverride?.trim() ||
-    process.env.PI_CODING_AGENT_DIR?.trim() ||
-    "";
+    agentDirOverride?.trim() || process.env.PI_CODING_AGENT_DIR?.trim() || "";
   const agentDir = override || join(homedir(), ".pi", "agent");
   return join(agentDir, "auth.json");
 }
@@ -47,7 +49,9 @@ export function piAuthPathFor(
   const accountId = options?.accountId;
   if (accountId) {
     if (!options?.agentDir) {
-      throw new Error("アカウント指定の認証ファイルには agentDir の解決が必要です");
+      throw new Error(
+        "アカウント指定の認証ファイルには agentDir の解決が必要です",
+      );
     }
     return accountAuthPath(accountId, options.agentDir);
   }
@@ -61,15 +65,22 @@ export function readPiOAuthTokens(
 ): PiOAuthTokens | null {
   const path = options?.authPath ?? piAuthPathFor(providerId);
   try {
-    if (!existsSync(path)) return null;
-    const root = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown> | null;
+    if (!existsSync(/* turbopackIgnore: true */ path)) return null;
+    const root = JSON.parse(
+      readFileSync(/* turbopackIgnore: true */ path, "utf8"),
+    ) as Record<
+      string,
+      unknown
+    > | null;
     if (!root || typeof root !== "object") return null;
     const entry = root[providerId];
     if (!entry || typeof entry !== "object") return null;
     const node = entry as Record<string, unknown>;
-    const access = typeof node.access === "string" && node.access ? node.access : null;
+    const access =
+      typeof node.access === "string" && node.access ? node.access : null;
     if (!access) return null;
-    const refresh = typeof node.refresh === "string" && node.refresh ? node.refresh : null;
+    const refresh =
+      typeof node.refresh === "string" && node.refresh ? node.refresh : null;
     const expires = typeof node.expires === "number" ? node.expires : null;
     const accountId =
       typeof node.accountId === "string" && node.accountId.trim()
@@ -90,8 +101,13 @@ export function readPiApiKey(
 ): string | null {
   const path = options?.authPath ?? piAuthPathFor(providerId);
   try {
-    if (!existsSync(path)) return null;
-    const root = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown> | null;
+    if (!existsSync(/* turbopackIgnore: true */ path)) return null;
+    const root = JSON.parse(
+      readFileSync(/* turbopackIgnore: true */ path, "utf8"),
+    ) as Record<
+      string,
+      unknown
+    > | null;
     if (!root || typeof root !== "object") return null;
     const entry = root[providerId];
     if (!entry || typeof entry !== "object") return null;
@@ -143,7 +159,10 @@ async function acquireAuthFileLock(path: string): Promise<() => Promise<void>> {
   }
 }
 
-async function withAuthFileLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
+async function withAuthFileLock<T>(
+  path: string,
+  fn: () => Promise<T>,
+): Promise<T> {
   const release = await acquireAuthFileLock(path);
   try {
     return await fn();
@@ -165,12 +184,16 @@ export async function writeBackPiOAuthTokens(
   await withAuthFileLock(path, async () => {
     let root: Record<string, unknown> = {};
     try {
-      const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-      if (parsed && typeof parsed === "object") root = parsed as Record<string, unknown>;
+      const parsed = JSON.parse(
+        readFileSync(/* turbopackIgnore: true */ path, "utf8"),
+      ) as unknown;
+      if (parsed && typeof parsed === "object")
+        root = parsed as Record<string, unknown>;
     } catch {
       /* 新規作成扱い */
     }
-    const previous = (root[providerId] as Record<string, unknown> | undefined) ?? {};
+    const previous =
+      (root[providerId] as Record<string, unknown> | undefined) ?? {};
     root[providerId] = {
       ...previous,
       type: "oauth",

@@ -1,4 +1,10 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { dataDir } from "@/lib/paths";
 import { hasLastGoodUsage, type CodexBarProvider } from "@/lib/codexbar";
@@ -11,10 +17,18 @@ export const ACCOUNT_ROUTING_PROVIDER_IDS: readonly AccountProviderId[] = [
   "anthropic",
   "ollama-cloud",
   "openrouter",
+  "commandcode",
+  "cursor",
+  "opencode",
+  "opencode-go",
 ];
 
-export function isAccountRoutingProvider(providerId: string): providerId is AccountProviderId {
-  return (ACCOUNT_ROUTING_PROVIDER_IDS as readonly string[]).includes(providerId);
+export function isAccountRoutingProvider(
+  providerId: string,
+): providerId is AccountProviderId {
+  return (ACCOUNT_ROUTING_PROVIDER_IDS as readonly string[]).includes(
+    providerId,
+  );
 }
 
 export type ProviderRoutingState = {
@@ -30,16 +44,25 @@ export function providerRoutingPath(dir = dataDir()): string {
   return join(dir, "provider-routing.json");
 }
 
-export function readProviderRouting(path = providerRoutingPath()): ProviderRoutingState {
+export function readProviderRouting(
+  path = providerRoutingPath(),
+): ProviderRoutingState {
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<ProviderRoutingState>;
-    if (parsed.version !== 1 || !parsed.modes || typeof parsed.modes !== "object") {
+    const parsed = JSON.parse(
+      readFileSync(path, "utf8"),
+    ) as Partial<ProviderRoutingState>;
+    if (
+      parsed.version !== 1 ||
+      !parsed.modes ||
+      typeof parsed.modes !== "object"
+    ) {
       return emptyState();
     }
     const modes: ProviderRoutingState["modes"] = {};
     for (const providerId of ACCOUNT_ROUTING_PROVIDER_IDS) {
       const mode = parsed.modes[providerId];
-      if (mode === "integrated" || mode === "separate") modes[providerId] = mode;
+      if (mode === "integrated" || mode === "separate")
+        modes[providerId] = mode;
     }
     return { version: 1, modes };
   } catch {
@@ -51,7 +74,8 @@ export function accountRoutingMode(
   providerId: string,
   state = readProviderRouting(),
 ): AccountRoutingMode {
-  return isAccountRoutingProvider(providerId) && state.modes[providerId] === "integrated"
+  return isAccountRoutingProvider(providerId) &&
+    state.modes[providerId] === "integrated"
     ? "integrated"
     : "separate";
 }
@@ -59,7 +83,10 @@ export function accountRoutingMode(
 function atomicWrite(path: string, content: string): void {
   const dir = dirname(path);
   mkdirSync(dir, { recursive: true });
-  const temp = join(dir, `.${Date.now()}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`);
+  const temp = join(
+    dir,
+    `.${Date.now()}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`,
+  );
   try {
     writeFileSync(temp, content, "utf8");
     renameSync(temp, path);
@@ -98,7 +125,13 @@ export function setAccountRoutingMode(
 
 export type RoutingUsage = Pick<
   CodexBarProvider,
-  "usedPercent" | "maxed" | "stale" | "resetsAt" | "error" | "windows" | "credits"
+  | "usedPercent"
+  | "maxed"
+  | "stale"
+  | "resetsAt"
+  | "error"
+  | "windows"
+  | "credits"
 >;
 
 export type RoutingCandidate<T = unknown> = {
@@ -119,8 +152,12 @@ function resetTime(usage: RoutingUsage | null | undefined): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-function usageIsKnown(usage: RoutingUsage | null | undefined): usage is RoutingUsage {
-  return Boolean(usage && usage.usedPercent !== null && hasLastGoodUsage(usage));
+function usageIsKnown(
+  usage: RoutingUsage | null | undefined,
+): usage is RoutingUsage {
+  return Boolean(
+    usage && usage.usedPercent !== null && hasLastGoodUsage(usage),
+  );
 }
 
 function candidateTier(
@@ -142,7 +179,10 @@ export function rankRoutingCandidates<T>(
   nowMs = Date.now(),
 ): RankedRoutingCandidate<T>[] {
   return candidates
-    .map((candidate) => ({ ...candidate, tier: candidateTier(candidate, nowMs) }))
+    .map((candidate) => ({
+      ...candidate,
+      tier: candidateTier(candidate, nowMs),
+    }))
     .sort((a, b) => {
       if (a.tier !== b.tier) return a.tier - b.tier;
       if (a.tier <= 1) {
@@ -159,7 +199,10 @@ export function rankRoutingCandidates<T>(
       if (a.workingTaskCount !== b.workingTaskCount) {
         return a.workingTaskCount - b.workingTaskCount;
       }
-      return a.accountIndex - b.accountIndex || a.accountId.localeCompare(b.accountId, "en");
+      return (
+        a.accountIndex - b.accountIndex ||
+        a.accountId.localeCompare(b.accountId, "en")
+      );
     });
 }
 
@@ -177,14 +220,15 @@ export function chooseRoutingCandidate<T>(
   const ranked = rankRoutingCandidates(candidates, nowMs);
   const candidate = ranked.find((entry) => entry.tier < 3);
   if (candidate) return { candidate, allMaxed: false, resetAt: null, ranked };
-  const reset = ranked
-    .map((entry) => entry.usage?.resetsAt)
-    .filter((value): value is string => {
-      if (!value) return false;
-      const parsed = Date.parse(value);
-      return Number.isFinite(parsed) && parsed > nowMs;
-    })
-    .sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null;
+  const reset =
+    ranked
+      .map((entry) => entry.usage?.resetsAt)
+      .filter((value): value is string => {
+        if (!value) return false;
+        const parsed = Date.parse(value);
+        return Number.isFinite(parsed) && parsed > nowMs;
+      })
+      .sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null;
   return {
     allMaxed: ranked.length > 0 && ranked.every((entry) => entry.tier === 3),
     resetAt: reset,

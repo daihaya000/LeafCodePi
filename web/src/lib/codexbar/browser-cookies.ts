@@ -7,9 +7,16 @@
  * 3. Chrome/Edge Cookies SQLite + AES-GCM (Windows, node:sqlite)
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import {
   buildCookieHeader,
@@ -103,9 +110,7 @@ function cookieMatchesRequest(
   const path = cookie.path || "/";
   if (!requestPath.startsWith(path)) return false;
   if (path.endsWith("/")) return true;
-  return (
-    requestPath.length === path.length || requestPath[path.length] === "/"
-  );
+  return requestPath.length === path.length || requestPath[path.length] === "/";
 }
 
 /** Select cookies for an HTTPS request URI (scoped Cookie header). */
@@ -165,8 +170,7 @@ export function parseQwenCloudNetscapeText(
 
 function qwenNetscapePaths(): string[] {
   const home = homedir();
-  const appData =
-    process.env.APPDATA || join(home, "AppData", "Roaming");
+  const appData = process.env.APPDATA || join(home, "AppData", "Roaming");
   return [
     join(home, "OneDrive", "AI", "CodexBarWin", "cokkie", QWEN_COOKIE_FILE),
     join(appData, "CodexBar", "qwencloud_cookies.txt"),
@@ -235,12 +239,25 @@ function extractOpenCodeCookieFromChromium(): string | null {
 }
 
 export function defaultOpenCodeCookiePath(): string {
-  const appData =
-    process.env.APPDATA || join(homedir(), "AppData", "Roaming");
+  const appData = process.env.APPDATA || join(homedir(), "AppData", "Roaming");
   return join(appData, "CodexBar", "opencode_cookies.txt");
 }
 
 export function findOpenCodeNetscapeCookieFile(): string | null {
+  return findOpenCodeNetscapeCookieFileForPath();
+}
+
+export function accountOpenCodeCookiePath(authPath: string): string {
+  return join(dirname(authPath), "opencode-cookies.txt");
+}
+
+function findOpenCodeNetscapeCookieFileForPath(
+  authPath?: string,
+): string | null {
+  if (authPath) {
+    const path = accountOpenCodeCookiePath(authPath);
+    return existsSync(path) ? path : null;
+  }
   return findFirstExistingCookieFile([
     defaultOpenCodeCookiePath(),
     ...netscapeCookieCandidates("opencode.ai_cookies.txt"),
@@ -248,30 +265,66 @@ export function findOpenCodeNetscapeCookieFile(): string | null {
   ]);
 }
 
-export function extractOpenCodeCookieFromNetscape(
-  path: string,
-): string | null {
+export function extractOpenCodeCookieFromNetscape(path: string): string | null {
   if (!existsSync(path)) return null;
   try {
-    const cookies = parseNetscapeCookieText(readFileSync(path, "utf8"));
-    const now = Math.floor(Date.now() / 1000);
-    const filtered = cookies.filter((c) => {
-      if (c.expiresUtc > 0 && c.expiresUtc < now) return false;
-      const d = c.domain.replace(/^\./, "").toLowerCase();
-      return (
-        d === OPENCODE_DOMAIN || d.endsWith(`.${OPENCODE_DOMAIN}`)
-      );
-    });
-    if (filtered.length === 0) return null;
-    return buildCookieHeader(filtered);
+    return parseOpenCodeNetscapeText(readFileSync(path, "utf8"));
   } catch {
     return null;
   }
 }
 
+export function parseOpenCodeNetscapeText(text: string): string | null {
+  const cookies = parseNetscapeCookieText(text);
+  const now = Math.floor(Date.now() / 1000);
+  const filtered = cookies.filter((c) => {
+    if (c.expiresUtc > 0 && c.expiresUtc < now) return false;
+    const d = c.domain.replace(/^\./, "").toLowerCase();
+    return d === OPENCODE_DOMAIN || d.endsWith(`.${OPENCODE_DOMAIN}`);
+  });
+  return filtered.length > 0 ? buildCookieHeader(filtered) : null;
+}
+
+export function saveAccountOpenCodeCookieFile(
+  authPath: string,
+  text: string,
+): void {
+  if (!text.trim()) {
+    throw Object.assign(new Error("cookie を入力してください"), {
+      status: 400,
+    });
+  }
+  if (text.length > 1_000_000) {
+    throw Object.assign(new Error("cookie のサイズが大きすぎます"), {
+      status: 400,
+    });
+  }
+  if (!parseOpenCodeNetscapeText(text)) {
+    throw Object.assign(
+      new Error("有効な opencode.ai の Netscape cookie が見つかりません"),
+      { status: 400 },
+    );
+  }
+  const path = accountOpenCodeCookiePath(authPath);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${text.trim()}\n`, "utf8");
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    // Windows ACL が権限を管理するため、chmod 失敗は保存エラーにしない。
+  }
+}
+
+export function deleteAccountOpenCodeCookieFile(authPath: string): void {
+  try {
+    unlinkSync(accountOpenCodeCookiePath(authPath));
+  } catch {
+    /* already absent */
+  }
+}
+
 function openCodeTrayCredentialsPath(): string {
-  const appData =
-    process.env.APPDATA || join(homedir(), "AppData", "Roaming");
+  const appData = process.env.APPDATA || join(homedir(), "AppData", "Roaming");
   return join(appData, "OpenCodeTray", "credentials.dpapi");
 }
 
@@ -279,8 +332,7 @@ function appliesToOpenCode(domain: string | null | undefined): boolean {
   if (!domain?.trim()) return true;
   const normalized = domain.trim().replace(/^\./, "").toLowerCase();
   return (
-    normalized === OPENCODE_DOMAIN ||
-    normalized.endsWith(`.${OPENCODE_DOMAIN}`)
+    normalized === OPENCODE_DOMAIN || normalized.endsWith(`.${OPENCODE_DOMAIN}`)
   );
 }
 
@@ -341,7 +393,13 @@ $plain = [Security.Cryptography.ProtectedData]::Unprotect(
 }
 
 /** OpenCode cookie: OpenCodeTray DPAPI → Netscape → Chrome/Edge Cookies DB. */
-export function extractOpenCodeCookieHeader(): string | null {
+export function extractOpenCodeCookieHeader(options?: {
+  authPath?: string | null;
+}): string | null {
+  if (options?.authPath) {
+    const file = findOpenCodeNetscapeCookieFileForPath(options.authPath);
+    return file ? extractOpenCodeCookieFromNetscape(file) : null;
+  }
   const tray = loadOpenCodeTrayCredentials();
   if (tray?.cookieHeader) return tray.cookieHeader;
 

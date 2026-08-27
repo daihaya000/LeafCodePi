@@ -5,7 +5,11 @@ import { Badge, Button } from "@/components/ui";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ApiError, apiUrl, getJson, sendJson } from "@/lib/client";
 import type { AccountProviderId, AccountRecord } from "@/lib/accounts";
-import type { LoginNotifyDto, LoginPromptDto, LoginSessionEvent } from "@/lib/pi/auth-login";
+import type {
+  LoginNotifyDto,
+  LoginPromptDto,
+  LoginSessionEvent,
+} from "@/lib/pi/auth-login";
 import type { ProviderAuthDto } from "@/lib/types";
 import type { AccountRoutingMode } from "@/lib/provider-routing";
 
@@ -26,17 +30,25 @@ type LoginUiState = {
 };
 
 function authBadge(provider: ProviderAuthDto) {
-  if (provider.subscription) return { tone: "success" as const, label: "サブスク認証済" };
-  if (provider.authenticated) return { tone: "success" as const, label: "認証済" };
+  if (provider.subscription)
+    return { tone: "success" as const, label: "サブスク認証済" };
+  if (provider.authenticated)
+    return { tone: "success" as const, label: "認証済" };
   return { tone: "neutral" as const, label: "未設定" };
 }
 
-function isAccountProviderId(providerId: string): providerId is AccountProviderId {
+function isAccountProviderId(
+  providerId: string,
+): providerId is AccountProviderId {
   return (
     providerId === "openai-codex" ||
     providerId === "anthropic" ||
     providerId === "ollama-cloud" ||
-    providerId === "openrouter"
+    providerId === "openrouter" ||
+    providerId === "commandcode" ||
+    providerId === "cursor" ||
+    providerId === "opencode" ||
+    providerId === "opencode-go"
   );
 }
 
@@ -71,17 +83,28 @@ export function ProviderAuthPanel({
   // アカウント（docs/plans/multi-account.md）。null = 未取得、[] = 取得済みで空。
   const [accounts, setAccounts] = useState<AccountRecord[] | null>(null);
   const [accountsError, setAccountsError] = useState<string | null>(null);
-  const [creatingFor, setCreatingFor] = useState<AccountProviderId | null>(null);
+  const [creatingFor, setCreatingFor] = useState<AccountProviderId | null>(
+    null,
+  );
   const [newLabel, setNewLabel] = useState("");
   const [accountBusy, setAccountBusy] = useState(false);
   const [routingBusy, setRoutingBusy] = useState<string | null>(null);
-  const [routingErrors, setRoutingErrors] = useState<Record<string, string>>({});
+  const [routingErrors, setRoutingErrors] = useState<Record<string, string>>(
+    {},
+  );
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState("");
-  const [authStatuses, setAuthStatuses] = useState<Record<string, AccountProviderId[]>>({});
-  const [ollamaCookieStatuses, setOllamaCookieStatuses] = useState<Record<string, boolean>>({});
-  const [cookieEditingAccountId, setCookieEditingAccountId] = useState<string | null>(null);
-  const [ollamaCookieInput, setOllamaCookieInput] = useState("");
+  const [authStatuses, setAuthStatuses] = useState<
+    Record<string, AccountProviderId[]>
+  >({});
+  const [ollamaCookieStatuses, setOllamaCookieStatuses] = useState<
+    Record<string, boolean>
+  >({});
+  const [opencodeGoCookieStatuses, setOpencodeGoCookieStatuses] = useState<
+    Record<string, boolean>
+  >({});
+  const [cookieEditingKey, setCookieEditingKey] = useState<string | null>(null);
+  const [cookieInput, setCookieInput] = useState("");
   const [cookieBusy, setCookieBusy] = useState<string | null>(null);
   const [cookieErrors, setCookieErrors] = useState<Record<string, string>>({});
 
@@ -97,24 +120,46 @@ export function ProviderAuthPanel({
             const status = await getJson<{
               providers: AccountProviderId[];
               ollamaCookieConfigured?: boolean;
-            }>(
-              `/api/accounts/${encodeURIComponent(account.id)}/auth-status`,
-            );
+              opencodeGoCookieConfigured?: boolean;
+            }>(`/api/accounts/${encodeURIComponent(account.id)}/auth-status`);
             return [account.id, status] as const;
           } catch {
             return [
               account.id,
-              { providers: [] as AccountProviderId[], ollamaCookieConfigured: false },
+              {
+                providers: [] as AccountProviderId[],
+                ollamaCookieConfigured: false,
+                opencodeGoCookieConfigured: false,
+              },
             ] as const;
           }
         }),
       );
-      setAuthStatuses(Object.fromEntries(statuses.map(([id, status]) => [id, status.providers])));
+      setAuthStatuses(
+        Object.fromEntries(
+          statuses.map(([id, status]) => [id, status.providers]),
+        ),
+      );
       setOllamaCookieStatuses(
-        Object.fromEntries(statuses.map(([id, status]) => [id, status.ollamaCookieConfigured === true])),
+        Object.fromEntries(
+          statuses.map(([id, status]) => [
+            id,
+            status.ollamaCookieConfigured === true,
+          ]),
+        ),
+      );
+      setOpencodeGoCookieStatuses(
+        Object.fromEntries(
+          statuses.map(([id, status]) => [
+            id,
+            status.opencodeGoCookieConfigured === true,
+          ]),
+        ),
       );
     } catch (error) {
-      setAccountsError(error instanceof ApiError ? error.message : String(error));
+      setAccountsError(
+        error instanceof ApiError ? error.message : String(error),
+      );
     }
   }, []);
 
@@ -125,9 +170,14 @@ export function ProviderAuthPanel({
   useEffect(() => {
     if (!login?.sessionId) return;
     const providerId = login.providerId;
-    const es = new EventSource(apiUrl(`/api/providers/${encodeURIComponent(providerId)}/login/events`));
+    const es = new EventSource(
+      apiUrl(`/api/providers/${encodeURIComponent(providerId)}/login/events`),
+    );
     es.addEventListener("notify", (raw) => {
-      const payload = JSON.parse((raw as MessageEvent).data) as Extract<LoginSessionEvent, { type: "notify" }>;
+      const payload = JSON.parse((raw as MessageEvent).data) as Extract<
+        LoginSessionEvent,
+        { type: "notify" }
+      >;
       const event = payload.event;
       if (event.type === "auth_url") {
         setLogin((prev) =>
@@ -156,7 +206,10 @@ export function ProviderAuthPanel({
       }
     });
     es.addEventListener("prompt", (raw) => {
-      const payload = JSON.parse((raw as MessageEvent).data) as Extract<LoginSessionEvent, { type: "prompt" }>;
+      const payload = JSON.parse((raw as MessageEvent).data) as Extract<
+        LoginSessionEvent,
+        { type: "prompt" }
+      >;
       setLogin((prev) =>
         prev
           ? {
@@ -170,7 +223,10 @@ export function ProviderAuthPanel({
       );
     });
     es.addEventListener("done", (raw) => {
-      const payload = JSON.parse((raw as MessageEvent).data) as Extract<LoginSessionEvent, { type: "done" }>;
+      const payload = JSON.parse((raw as MessageEvent).data) as Extract<
+        LoginSessionEvent,
+        { type: "done" }
+      >;
       es.close();
       if (payload.ok) {
         setLogin((prev) =>
@@ -180,7 +236,8 @@ export function ProviderAuthPanel({
                 busy: false,
                 prompt: null,
                 status: "ログイン完了",
-                warning: "warning" in payload ? payload.warning ?? null : null,
+                warning:
+                  "warning" in payload ? (payload.warning ?? null) : null,
                 error: null,
               }
             : prev,
@@ -207,9 +264,14 @@ export function ProviderAuthPanel({
   async function stopLogin() {
     if (login) {
       try {
-        await fetch(apiUrl(`/api/providers/${encodeURIComponent(login.providerId)}/login/answer`), {
-          method: "DELETE",
-        });
+        await fetch(
+          apiUrl(
+            `/api/providers/${encodeURIComponent(login.providerId)}/login/answer`,
+          ),
+          {
+            method: "DELETE",
+          },
+        );
       } catch {
         /* ignore */
       }
@@ -271,11 +333,18 @@ export function ProviderAuthPanel({
     if (!login?.prompt) return;
     setLogin((prev) => (prev ? { ...prev, busy: true, error: null } : prev));
     try {
-      await sendJson(`/api/providers/${encodeURIComponent(login.providerId)}/login/answer`, {
-        promptId: login.prompt.id,
-        value,
-      });
-      setLogin((prev) => (prev ? { ...prev, prompt: null, input: "", busy: false, status: "続行中…" } : prev));
+      await sendJson(
+        `/api/providers/${encodeURIComponent(login.providerId)}/login/answer`,
+        {
+          promptId: login.prompt.id,
+          value,
+        },
+      );
+      setLogin((prev) =>
+        prev
+          ? { ...prev, prompt: null, input: "", busy: false, status: "続行中…" }
+          : prev,
+      );
     } catch (error) {
       setLogin((prev) =>
         prev
@@ -291,14 +360,20 @@ export function ProviderAuthPanel({
 
   async function logout(provider: ProviderAuthDto) {
     try {
-      await sendJson(`/api/providers/${encodeURIComponent(provider.id)}/logout`, {});
+      await sendJson(
+        `/api/providers/${encodeURIComponent(provider.id)}/logout`,
+        {},
+      );
       onChanged();
     } catch (error) {
       window.alert(error instanceof ApiError ? error.message : String(error));
     }
   }
 
-  async function changeRoutingMode(providerId: AccountProviderId, mode: AccountRoutingMode) {
+  async function changeRoutingMode(
+    providerId: AccountProviderId,
+    mode: AccountRoutingMode,
+  ) {
     if (routingBusy) return;
     setRoutingBusy(providerId);
     setRoutingErrors((current) => {
@@ -346,7 +421,11 @@ export function ProviderAuthPanel({
     if (!editLabel.trim()) return;
     setAccountBusy(true);
     try {
-      await sendJson(`/api/accounts/${encodeURIComponent(id)}`, { label: editLabel.trim() }, "PATCH");
+      await sendJson(
+        `/api/accounts/${encodeURIComponent(id)}`,
+        { label: editLabel.trim() },
+        "PATCH",
+      );
       setEditingAccountId(null);
       await refreshAccounts();
     } catch (error) {
@@ -357,10 +436,15 @@ export function ProviderAuthPanel({
   }
 
   async function removeAccount(account: AccountRecord) {
-    if (!window.confirm(`アカウント「${account.label}」を削除しますか？`)) return;
+    if (!window.confirm(`アカウント「${account.label}」を削除しますか？`))
+      return;
     setAccountBusy(true);
     try {
-      await sendJson(`/api/accounts/${encodeURIComponent(account.id)}`, {}, "DELETE");
+      await sendJson(
+        `/api/accounts/${encodeURIComponent(account.id)}`,
+        {},
+        "DELETE",
+      );
       if (login?.accountId === account.id) stopLogin();
       await refreshAccounts();
       onChanged();
@@ -386,60 +470,86 @@ export function ProviderAuthPanel({
     }
   }
 
-  function openOllamaCookieEditor(accountId: string) {
-    setCookieEditingAccountId(accountId);
-    setOllamaCookieInput("");
+  function cookieKey(providerId: string, accountId: string): string {
+    return `${providerId}:${accountId}`;
+  }
+
+  function openCookieEditor(providerId: string, accountId: string) {
+    setCookieEditingKey(cookieKey(providerId, accountId));
+    setCookieInput("");
     setCookieErrors((current) => {
       const next = { ...current };
-      delete next[accountId];
+      delete next[cookieKey(providerId, accountId)];
       return next;
     });
   }
 
-  async function saveOllamaCookie(accountId: string) {
-    if (!ollamaCookieInput.trim() || cookieBusy) return;
-    setCookieBusy(accountId);
+  async function saveCookie(providerId: string, accountId: string) {
+    if (!cookieInput.trim() || cookieBusy) return;
+    const key = cookieKey(providerId, accountId);
+    setCookieBusy(key);
     setCookieErrors((current) => {
       const next = { ...current };
-      delete next[accountId];
+      delete next[key];
       return next;
     });
     try {
-      await sendJson(`/api/accounts/${encodeURIComponent(accountId)}/ollama-cookie`, {
-        cookies: ollamaCookieInput,
-      });
-      setOllamaCookieInput("");
-      setCookieEditingAccountId(null);
+      await sendJson(
+        `/api/accounts/${encodeURIComponent(accountId)}/${
+          providerId === "ollama-cloud" ? "ollama-cookie" : "opencode-go-cookie"
+        }`,
+        {
+          cookies: cookieInput,
+        },
+      );
+      setCookieInput("");
+      setCookieEditingKey(null);
       await refreshAccounts();
       onChanged();
     } catch (error) {
       setCookieErrors((current) => ({
         ...current,
-        [accountId]: error instanceof ApiError ? error.message : String(error),
+        [key]: error instanceof ApiError ? error.message : String(error),
       }));
     } finally {
       setCookieBusy(null);
     }
   }
 
-  async function removeOllamaCookie(accountId: string, label: string) {
-    if (cookieBusy || !window.confirm(`「${label}」の Ollama cookie を削除しますか？`)) return;
-    setCookieBusy(accountId);
+  async function removeCookie(
+    providerId: string,
+    accountId: string,
+    label: string,
+  ) {
+    const name = providerId === "ollama-cloud" ? "Ollama" : "OpenCode Go";
+    if (
+      cookieBusy ||
+      !window.confirm(`「${label}」の ${name} cookie を削除しますか？`)
+    )
+      return;
+    const key = cookieKey(providerId, accountId);
+    setCookieBusy(key);
     setCookieErrors((current) => {
       const next = { ...current };
-      delete next[accountId];
+      delete next[key];
       return next;
     });
     try {
-      await sendJson(`/api/accounts/${encodeURIComponent(accountId)}/ollama-cookie`, {}, "DELETE");
-      setCookieEditingAccountId(null);
-      setOllamaCookieInput("");
+      await sendJson(
+        `/api/accounts/${encodeURIComponent(accountId)}/${
+          providerId === "ollama-cloud" ? "ollama-cookie" : "opencode-go-cookie"
+        }`,
+        {},
+        "DELETE",
+      );
+      setCookieEditingKey(null);
+      setCookieInput("");
       await refreshAccounts();
       onChanged();
     } catch (error) {
       setCookieErrors((current) => ({
         ...current,
-        [accountId]: error instanceof ApiError ? error.message : String(error),
+        [key]: error instanceof ApiError ? error.message : String(error),
       }));
     } finally {
       setCookieBusy(null);
@@ -451,14 +561,18 @@ export function ProviderAuthPanel({
     const providerId = provider.id;
     const providerAccounts =
       accounts?.filter(
-        (account) => Array.isArray(account.providers) && account.providers.includes(providerId),
+        (account) =>
+          Array.isArray(account.providers) &&
+          account.providers.includes(providerId),
       ) ?? [];
     const isCreating = creatingFor === providerId;
     // OAuth 対応なら OAuth、API キー専用プロバイダーは API キー入力へ
-    const accountAuthType: "api_key" | "oauth" =
+    const accountAuthType: "api_key" | "oauth" | null =
       provider.oauthAvailable === true || provider.methods?.includes("oauth")
         ? "oauth"
-        : "api_key";
+        : provider.methods?.includes("api_key")
+          ? "api_key"
+          : null;
     const mode = provider.accountRoutingMode ?? "separate";
     const savingMode = routingBusy === providerId;
     const modeDisabled = Boolean(login) || accountBusy || Boolean(routingBusy);
@@ -475,7 +589,10 @@ export function ProviderAuthPanel({
               checked={mode === "integrated"}
               disabled={modeDisabled}
               onChange={(event) =>
-                void changeRoutingMode(providerId, event.target.checked ? "integrated" : "separate")
+                void changeRoutingMode(
+                  providerId,
+                  event.target.checked ? "integrated" : "separate",
+                )
               }
               className="h-4 w-4 accent-accent"
             />
@@ -489,7 +606,9 @@ export function ProviderAuthPanel({
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h3 className="text-xs font-semibold text-muted">ログインアカウント</h3>
+            <h3 className="text-xs font-semibold text-muted">
+              ログインアカウント
+            </h3>
             <p className="mt-0.5 text-xs text-muted">
               このプロバイダー用のアカウントを追加・管理します。
             </p>
@@ -508,29 +627,48 @@ export function ProviderAuthPanel({
             </Button>
           )}
         </div>
-        {accountsError && <p className="mt-2 text-xs text-danger">{accountsError}</p>}
+        {accountsError && (
+          <p className="mt-2 text-xs text-danger">{accountsError}</p>
+        )}
         {accounts === null ? (
           <p className="mt-2 text-xs text-muted">読み込み中…</p>
         ) : (
           <>
             {providerAccounts.length === 0 && !isCreating && (
-              <p className="mt-2 text-xs text-muted">アカウントを追加してログインしてください</p>
+              <p className="mt-2 text-xs text-muted">
+                アカウントを追加してログインしてください
+              </p>
             )}
             {providerAccounts.length > 0 && (
               <ul className="mt-2 space-y-1.5">
                 {providerAccounts.map((account) => {
-                  const authenticated = authStatuses[account.id]?.includes(providerId) === true;
-                  const cookieConfigured = ollamaCookieStatuses[account.id] === true;
-                  const cookieEditing = cookieEditingAccountId === account.id;
-                  const cookieAccountBusy = cookieBusy === account.id;
+                  const cookieConfigured =
+                    providerId === "ollama-cloud"
+                      ? ollamaCookieStatuses[account.id] === true
+                      : providerId === "opencode-go"
+                        ? opencodeGoCookieStatuses[account.id] === true
+                        : false;
+                  const piAuthenticated =
+                    authStatuses[account.id]?.includes(providerId) === true;
+                  const authenticated =
+                    piAuthenticated ||
+                    (providerId === "opencode-go" && cookieConfigured);
+                  const currentCookieKey = cookieKey(providerId, account.id);
+                  const cookieEditing = cookieEditingKey === currentCookieKey;
+                  const cookieAccountBusy = cookieBusy === currentCookieKey;
                   return (
-                    <li key={account.id} className="rounded-xl bg-surface-2 px-3 py-2">
+                    <li
+                      key={account.id}
+                      className="rounded-xl bg-surface-2 px-3 py-2"
+                    >
                       {editingAccountId === account.id ? (
                         <div className="flex flex-wrap items-center gap-2">
                           <input
                             className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-3 py-1.5 text-sm outline-none focus:border-accent"
                             value={editLabel}
-                            onChange={(event) => setEditLabel(event.target.value)}
+                            onChange={(event) =>
+                              setEditLabel(event.target.value)
+                            }
                             aria-label={`${provider.name} のアカウント名`}
                             autoFocus
                           />
@@ -541,33 +679,53 @@ export function ProviderAuthPanel({
                           >
                             保存
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setEditingAccountId(null)}>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setEditingAccountId(null)}
+                          >
                             キャンセル
                           </Button>
                         </div>
                       ) : (
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium">{account.label}</span>
-                          {account.note && <span className="text-xs text-muted">{account.note}</span>}
+                          <span className="text-sm font-medium">
+                            {account.label}
+                          </span>
+                          {account.note && (
+                            <span className="text-xs text-muted">
+                              {account.note}
+                            </span>
+                          )}
                           <Badge tone={authenticated ? "success" : "neutral"}>
                             {authenticated ? "認証済" : "未ログイン"}
                           </Badge>
                         </div>
                       )}
                       <div className="mt-1.5 flex flex-wrap gap-1">
-                        <Button
-                          size="sm"
-                          disabled={Boolean(login) || accountBusy}
-                          onClick={() => void beginLogin(provider, accountAuthType, account.id)}
-                        >
-                          {authenticated ? "再ログイン" : "ログイン"}
-                        </Button>
-                        {authenticated && (
+                        {accountAuthType && (
+                          <Button
+                            size="sm"
+                            disabled={Boolean(login) || accountBusy}
+                            onClick={() =>
+                              void beginLogin(
+                                provider,
+                                accountAuthType,
+                                account.id,
+                              )
+                            }
+                          >
+                            {authenticated ? "再ログイン" : "ログイン"}
+                          </Button>
+                        )}
+                        {piAuthenticated && (
                           <Button
                             size="sm"
                             variant="ghost"
                             disabled={Boolean(login) || accountBusy}
-                            onClick={() => void logoutFor(providerId, account.id)}
+                            onClick={() =>
+                              void logoutFor(providerId, account.id)
+                            }
                           >
                             ログアウト
                           </Button>
@@ -592,24 +750,42 @@ export function ProviderAuthPanel({
                           削除
                         </Button>
                       </div>
-                      {providerId === "ollama-cloud" && (
+                      {(providerId === "ollama-cloud" ||
+                        providerId === "opencode-go") && (
                         <div className="mt-2 border-t border-border pt-2">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
-                              <p className="text-xs font-semibold text-muted">Ollama cookie</p>
-                              <p className="mt-0.5 text-xs text-muted" role="status">
-                                {cookieConfigured ? "このアカウントの cookie を登録済み" : "利用量表示には cookie が必要です"}
+                              <p className="text-xs font-semibold text-muted">
+                                {providerId === "ollama-cloud"
+                                  ? "Ollama cookie"
+                                  : "OpenCode Go cookie"}
+                              </p>
+                              <p
+                                className="mt-0.5 text-xs text-muted"
+                                role="status"
+                              >
+                                {cookieConfigured
+                                  ? "このアカウントの cookie を登録済み"
+                                  : "利用量表示には cookie が必要です"}
                               </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-1">
-                              <Badge tone={cookieConfigured ? "success" : "neutral"}>
+                              <Badge
+                                tone={cookieConfigured ? "success" : "neutral"}
+                              >
                                 {cookieConfigured ? "登録済み" : "未登録"}
                               </Badge>
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                disabled={Boolean(login) || accountBusy || Boolean(cookieBusy)}
-                                onClick={() => openOllamaCookieEditor(account.id)}
+                                disabled={
+                                  Boolean(login) ||
+                                  accountBusy ||
+                                  Boolean(cookieBusy)
+                                }
+                                onClick={() =>
+                                  openCookieEditor(providerId, account.id)
+                                }
                               >
                                 {cookieConfigured ? "更新" : "登録"}
                               </Button>
@@ -617,8 +793,18 @@ export function ProviderAuthPanel({
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  disabled={Boolean(login) || accountBusy || Boolean(cookieBusy)}
-                                  onClick={() => void removeOllamaCookie(account.id, account.label)}
+                                  disabled={
+                                    Boolean(login) ||
+                                    accountBusy ||
+                                    Boolean(cookieBusy)
+                                  }
+                                  onClick={() =>
+                                    void removeCookie(
+                                      providerId,
+                                      account.id,
+                                      account.label,
+                                    )
+                                  }
                                 >
                                   削除
                                 </Button>
@@ -630,34 +816,43 @@ export function ProviderAuthPanel({
                               className="mt-2 flex flex-col gap-2"
                               onSubmit={(event) => {
                                 event.preventDefault();
-                                void saveOllamaCookie(account.id);
+                                void saveCookie(providerId, account.id);
                               }}
                             >
                               <label
-                                htmlFor={`ollama-cookie-${account.id}`}
+                                htmlFor={`${providerId}-cookie-${account.id}`}
                                 className="text-xs text-muted"
                               >
                                 Netscape 形式の cookie
                               </label>
                               <textarea
-                                id={`ollama-cookie-${account.id}`}
+                                id={`${providerId}-cookie-${account.id}`}
                                 rows={5}
-                                value={ollamaCookieInput}
-                                onChange={(event) => setOllamaCookieInput(event.target.value)}
+                                value={cookieInput}
+                                onChange={(event) =>
+                                  setCookieInput(event.target.value)
+                                }
                                 placeholder="# Netscape HTTP Cookie File"
                                 spellCheck={false}
                                 autoComplete="off"
                                 className="w-full resize-y rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs outline-none focus:border-accent"
-                                aria-describedby={`ollama-cookie-help-${account.id}`}
+                                aria-describedby={`${providerId}-cookie-help-${account.id}`}
                                 disabled={cookieAccountBusy}
                                 autoFocus
                               />
-                              <p id={`ollama-cookie-help-${account.id}`} className="text-xs text-muted">
-                                ollama.com の cookie を貼り付けてください。保存後、本文は画面に表示しません。
+                              <p
+                                id={`${providerId}-cookie-help-${account.id}`}
+                                className="text-xs text-muted"
+                              >
+                                {providerId === "ollama-cloud"
+                                  ? "ollama.com"
+                                  : "opencode.ai"}{" "}
+                                の cookie
+                                を貼り付けてください。保存後、本文は画面に表示しません。
                               </p>
-                              {cookieErrors[account.id] && (
+                              {cookieErrors[currentCookieKey] && (
                                 <p className="text-xs text-danger" role="alert">
-                                  {cookieErrors[account.id]}
+                                  {cookieErrors[currentCookieKey]}
                                 </p>
                               )}
                               <div className="flex gap-2">
@@ -665,7 +860,10 @@ export function ProviderAuthPanel({
                                   type="submit"
                                   size="sm"
                                   busy={cookieAccountBusy}
-                                  disabled={!ollamaCookieInput.trim() || Boolean(cookieBusy && !cookieAccountBusy)}
+                                  disabled={
+                                    !cookieInput.trim() ||
+                                    Boolean(cookieBusy && !cookieAccountBusy)
+                                  }
                                 >
                                   保存
                                 </Button>
@@ -675,8 +873,8 @@ export function ProviderAuthPanel({
                                   variant="ghost"
                                   disabled={cookieAccountBusy}
                                   onClick={() => {
-                                    setCookieEditingAccountId(null);
-                                    setOllamaCookieInput("");
+                                    setCookieEditingKey(null);
+                                    setCookieInput("");
                                   }}
                                 >
                                   キャンセル
@@ -695,7 +893,10 @@ export function ProviderAuthPanel({
         )}
         {isCreating && (
           <div className="mt-2 rounded-xl bg-surface-2 p-3">
-            <label htmlFor={`new-account-label-${providerId}`} className="text-xs text-muted">
+            <label
+              htmlFor={`new-account-label-${providerId}`}
+              className="text-xs text-muted"
+            >
               アカウント名
             </label>
             <input
@@ -739,24 +940,36 @@ export function ProviderAuthPanel({
       <div>
         <h2 className="mb-2 text-sm font-semibold">プロバイダー</h2>
         <p className="mb-3 text-xs text-muted">
-          Claude Pro/Max（Anthropic）、ChatGPT Plus/Pro（OpenAI Codex）、Cursor、Command Code（Go プラン可）、および
-          Ollama Cloud / OpenRouter に対応しています。環境変数（ANTHROPIC_API_KEY / OPENCODE_API_KEY など）または{" "}
-          ~/.pi/agent/auth.json も引き続き使えます。Command Code は{" "}
+          Claude Pro/Max（Anthropic）、ChatGPT Plus/Pro（OpenAI
+          Codex）、Cursor、OpenCode、Command Code（Go プラン可）、および Ollama
+          Cloud / OpenRouter に対応しています。環境変数（ANTHROPIC_API_KEY /
+          OPENCODE_API_KEY など）または ~/.pi/agent/auth.json
+          も引き続き使えます。Command Code は{" "}
           <span className="font-mono">COMMANDCODE_API_KEY</span> /{" "}
-          <span className="font-mono">~/.commandcode/auth.json</span>、Ollama Cloud は{" "}
-          <span className="font-mono">OLLAMA_API_KEY</span> でも設定できます。Ollama Cloud はアカウントごとに
-          cookie も登録できます。
+          <span className="font-mono">~/.commandcode/auth.json</span>、Ollama
+          Cloud は <span className="font-mono">OLLAMA_API_KEY</span>{" "}
+          でも設定できます。Ollama Cloud はアカウントごとに cookie
+          も登録できます。OpenCode Go の利用量にもアカウント別 cookie
+          を登録できます。
         </p>
         <ul className="space-y-1.5">
-          {orderedProviders.length === 0 && <li className="text-sm text-muted">プロバイダーが見つかりません</li>}
+          {orderedProviders.length === 0 && (
+            <li className="text-sm text-muted">プロバイダーが見つかりません</li>
+          )}
           {orderedProviders.map((provider) => (
             <ProviderRow
               key={provider.id}
               provider={provider}
               disabled={Boolean(login)}
-              onOAuth={provider.oauthAvailable ? () => void beginLogin(provider, "oauth") : undefined}
+              onOAuth={
+                provider.oauthAvailable
+                  ? () => void beginLogin(provider, "oauth")
+                  : undefined
+              }
               onApiKey={
-                provider.methods?.includes("api_key") ? () => void beginLogin(provider, "api_key") : undefined
+                provider.methods?.includes("api_key")
+                  ? () => void beginLogin(provider, "api_key")
+                  : undefined
               }
               onLogout={() => void logout(provider)}
               accountControls={renderAccountControls(provider)}
@@ -769,10 +982,14 @@ export function ProviderAuthPanel({
         <div className="rounded-2xl border border-border bg-surface-2 p-4">
           <div className="mb-2 flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">
-              {login.providerName} — {login.authType === "oauth" ? "サブスクログイン" : "API キー"}
+              {login.providerName} —{" "}
+              {login.authType === "oauth" ? "サブスクログイン" : "API キー"}
               {login.accountId && (
                 <span className="ml-1 text-xs font-normal text-muted">
-                  （アカウント: {accounts?.find((a) => a.id === login.accountId)?.label ?? login.accountId}）
+                  （アカウント:{" "}
+                  {accounts?.find((a) => a.id === login.accountId)?.label ??
+                    login.accountId}
+                  ）
                 </span>
               )}
             </h3>
@@ -784,7 +1001,12 @@ export function ProviderAuthPanel({
           {login.authUrl && (
             <p className="mt-2 break-all text-xs">
               ブラウザが開かない場合:{" "}
-              <a className="text-accent underline" href={login.authUrl} target="_blank" rel="noreferrer">
+              <a
+                className="text-accent underline"
+                href={login.authUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
                 {login.authUrl}
               </a>
             </p>
@@ -792,7 +1014,10 @@ export function ProviderAuthPanel({
           {login.deviceCode && (
             <div className="mt-3 rounded-xl border border-border bg-surface p-3 text-sm">
               <p>
-                コード: <span className="font-mono text-base font-semibold">{login.deviceCode.userCode}</span>
+                コード:{" "}
+                <span className="font-mono text-base font-semibold">
+                  {login.deviceCode.userCode}
+                </span>
               </p>
               <a
                 className="mt-1 inline-block text-accent underline"
@@ -816,7 +1041,9 @@ export function ProviderAuthPanel({
                   <span>
                     {option.label}
                     {option.description ? (
-                      <span className="ml-2 text-xs text-muted">{option.description}</span>
+                      <span className="ml-2 text-xs text-muted">
+                        {option.description}
+                      </span>
                     ) : null}
                   </span>
                 </Button>
@@ -831,23 +1058,38 @@ export function ProviderAuthPanel({
                 void submitAnswer(login.input);
               }}
             >
-              <label className="text-xs text-muted">{login.prompt.prompt.message}</label>
+              <label className="text-xs text-muted">
+                {login.prompt.prompt.message}
+              </label>
               <input
                 className="rounded-xl border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
-                type={login.prompt.prompt.type === "secret" ? "password" : "text"}
+                type={
+                  login.prompt.prompt.type === "secret" ? "password" : "text"
+                }
                 value={login.input}
                 placeholder={login.prompt.prompt.placeholder}
                 disabled={login.busy}
-                onChange={(event) => setLogin((prev) => (prev ? { ...prev, input: event.target.value } : prev))}
+                onChange={(event) =>
+                  setLogin((prev) =>
+                    prev ? { ...prev, input: event.target.value } : prev,
+                  )
+                }
                 autoFocus
               />
-              <Button type="submit" disabled={login.busy || !login.input.trim()}>
+              <Button
+                type="submit"
+                disabled={login.busy || !login.input.trim()}
+              >
                 送信
               </Button>
             </form>
           )}
-          {login.warning && <p className="mt-2 text-sm text-warning">{login.warning}</p>}
-          {login.error && <p className="mt-2 text-sm text-danger">{login.error}</p>}
+          {login.warning && (
+            <p className="mt-2 text-sm text-warning">{login.warning}</p>
+          )}
+          {login.error && (
+            <p className="mt-2 text-sm text-danger">{login.error}</p>
+          )}
         </div>
       )}
     </div>
@@ -893,12 +1135,22 @@ function ProviderRow({
             </Button>
           )}
           {!accountManaged && onApiKey && (
-            <Button size="sm" variant="ghost" disabled={disabled} onClick={onApiKey}>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={disabled}
+              onClick={onApiKey}
+            >
               API キー
             </Button>
           )}
           {!accountManaged && onLogout && provider.authenticated && (
-            <Button size="sm" variant="ghost" disabled={disabled} onClick={onLogout}>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={disabled}
+              onClick={onLogout}
+            >
               ログアウト
             </Button>
           )}

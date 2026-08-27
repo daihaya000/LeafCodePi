@@ -25,9 +25,18 @@ import {
   parseQwenUsage,
 } from "./providers/qwen-cloud";
 import {
+  accountOpenCodeCookiePath,
   createCookieHeaderForUrl,
+  deleteAccountOpenCodeCookieFile,
+  extractOpenCodeCookieHeader,
   parseQwenCloudNetscapeText,
+  saveAccountOpenCodeCookieFile,
 } from "./browser-cookies";
+import {
+  createOpenCodeGoProvider,
+  readAccountOpenCodeGoWorkspace,
+  writeAccountOpenCodeGoWorkspace,
+} from "./providers/opencode-go";
 
 describe("netscape cookies", () => {
   const fixture = `# Netscape HTTP Cookie File
@@ -40,7 +49,11 @@ describe("netscape cookies", () => {
   it("parses HttpOnly lines and builds domain-filtered header", () => {
     const cookies = parseNetscapeCookieText(fixture);
     expect(cookies).toHaveLength(4);
-    const filtered = filterCookiesForDomain(cookies, "ollama.com", 1_700_000_000);
+    const filtered = filterCookiesForDomain(
+      cookies,
+      "ollama.com",
+      1_700_000_000,
+    );
     expect(filtered.map((c) => c.name).sort()).toEqual(["session", "token"]);
     const header = buildCookieHeader(filtered);
     expect(header).toContain("session=abc");
@@ -60,7 +73,8 @@ describe("ollama cookie scope", () => {
   afterEach(() => {
     if (previousAppData === undefined) delete process.env.APPDATA;
     else process.env.APPDATA = previousAppData;
-    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+    for (const dir of tempDirs.splice(0))
+      rmSync(dir, { recursive: true, force: true });
   });
 
   function isolateConfigDir(): string {
@@ -75,7 +89,9 @@ describe("ollama cookie scope", () => {
     expect(accountOllamaCookiePath("../../evil")).toBeNull();
     expect(accountOllamaCookiePath("acc/1")).toBeNull();
     expect(accountOllamaCookiePath("")).toBeNull();
-    expect(accountOllamaCookiePath("acc-1")).toContain("ollama_cookies.acc-1.txt");
+    expect(accountOllamaCookiePath("acc-1")).toContain(
+      "ollama_cookies.acc-1.txt",
+    );
   });
 
   it("keeps account cookies separate and never falls back to the shared file", () => {
@@ -155,6 +171,55 @@ describe("parseOpenCodeGoHtml", () => {
   });
 });
 
+describe("OpenCode Go account cookie scope", () => {
+  const previousAppData = process.env.APPDATA;
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    if (previousAppData === undefined) delete process.env.APPDATA;
+    else process.env.APPDATA = previousAppData;
+    for (const dir of tempDirs.splice(0))
+      rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("keeps cookies and workspace IDs under the account auth directory", () => {
+    const appData = mkdtempSync(join(tmpdir(), "leafcode-opencode-cookie-"));
+    tempDirs.push(appData);
+    process.env.APPDATA = appData;
+    const authPath = join(appData, "agent", "accounts", "acc-1", "auth.json");
+    const shared = join(appData, "CodexBar", "opencode_cookies.txt");
+    mkdirSync(join(appData, "CodexBar"), { recursive: true });
+    writeFileSync(
+      shared,
+      ".opencode.ai\tTRUE\t/\tTRUE\t4102444800\tsession\tshared\n",
+      "utf8",
+    );
+    expect(extractOpenCodeCookieHeader({ authPath })).toBeNull();
+
+    const cookieText =
+      ".opencode.ai\tTRUE\t/\tTRUE\t4102444800\tsession\taccount\n";
+    saveAccountOpenCodeCookieFile(authPath, cookieText);
+    expect(accountOpenCodeCookiePath(authPath)).toContain(
+      "opencode-cookies.txt",
+    );
+    expect(extractOpenCodeCookieHeader({ authPath })).toBe("session=account");
+    expect(
+      createOpenCodeGoProvider({
+        key: "account:acc-1",
+        kind: "account",
+        accountId: "acc-1",
+        accountLabel: "仕事用",
+        authPath,
+      }).isConfigured(),
+    ).toBe(true);
+
+    writeAccountOpenCodeGoWorkspace(authPath, "workspace-1");
+    expect(readAccountOpenCodeGoWorkspace(authPath)).toBe("workspace-1");
+    deleteAccountOpenCodeCookieFile(authPath);
+    expect(extractOpenCodeCookieHeader({ authPath })).toBeNull();
+  });
+});
+
 describe("qwen cloud parsers", () => {
   it("parses console DataV2 usage", () => {
     const subscriptionResponse = `{
@@ -219,7 +284,9 @@ describe("qwen cloud parsers", () => {
       .split("&")
       .find((p) => p.startsWith("params="))!
       .slice("params=".length);
-    const params = JSON.parse(decodeURIComponent(paramsPart.replace(/\+/g, " ")));
+    const params = JSON.parse(
+      decodeURIComponent(paramsPart.replace(/\+/g, " ")),
+    );
     expect(params.Api).toBe(
       "zeldaHttp.apikeyMgr./tokenplan/personal/api/v2/subscription",
     );

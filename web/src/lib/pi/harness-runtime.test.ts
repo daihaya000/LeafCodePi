@@ -18,6 +18,7 @@ import { AccountRuntimeManager } from "./account-runtime-manager";
 import {
   getHealth,
   getRuntimeFor,
+  listProviderAuth,
   listModelsForAccounts,
   saveProviderModelsOrder,
   setProviderOrModelEnabled,
@@ -29,7 +30,8 @@ const previousPiAgentDir = process.env.PI_CODING_AGENT_DIR;
 
 afterEach(() => {
   delete (globalThis as Record<string, unknown>)[GLOBAL_KEY];
-  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  for (const dir of tempDirs.splice(0))
+    rmSync(dir, { recursive: true, force: true });
   delete process.env.LEAFCODE_PI_DATA_DIR;
   if (previousPiAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
   else process.env.PI_CODING_AGENT_DIR = previousPiAgentDir;
@@ -49,21 +51,90 @@ describe("getRuntimeFor", () => {
     assert.equal(await getRuntimeFor(null), stub);
   });
 
+  it("exposes usage-only OpenCode Go in the provider list", async () => {
+    const optionalProviderIds = new Set([
+      "cursor",
+      "commandcode",
+      "ollama-cloud",
+    ]);
+    const runtime = {
+      getProvider: (id: string) =>
+        optionalProviderIds.has(id) ? { id } : undefined,
+      getProviders: () => [],
+    };
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      modelRuntime: runtime,
+      initPromise: null,
+      watchdogRegistered: true,
+      live: new Map(),
+      lastProviderSyncWarnings: [],
+    };
+
+    const provider = (await listProviderAuth()).find(
+      (item) => item.id === "opencode-go",
+    );
+    assert.deepEqual(provider, {
+      id: "opencode-go",
+      name: "OpenCode Go",
+      authenticated: false,
+      methods: [],
+      authSource: undefined,
+      authLabel: undefined,
+      subscription: false,
+      oauthAvailable: false,
+      highlighted: true,
+      accountRoutingMode: "separate",
+    });
+  });
+
   it("resolves account runtimes through the manager", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-runtime-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const account = createAccount({
+      label: "テスト",
+      providers: ["openai-codex"],
+    });
     const defaultStub = { id: "default-runtime" };
     const accountStub = { id: "account-runtime" };
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
       modelRuntime: defaultStub,
       live: new Map(),
       lastProviderSyncWarnings: [],
-      accountRuntimes: new AccountRuntimeManager(async () => accountStub as never),
+      accountRuntimes: new AccountRuntimeManager(
+        async () => accountStub as never,
+      ),
     };
     // 既定と分離され、同一アカウントはマネージャ経由で再利用される
-    assert.equal(await getRuntimeFor("acc-1"), accountStub);
-    assert.equal(await getRuntimeFor("acc-1"), accountStub);
-    assert.notEqual(await getRuntimeFor("acc-1"), defaultStub);
+    assert.equal(await getRuntimeFor(account.id), accountStub);
+    assert.equal(await getRuntimeFor(account.id), accountStub);
+    assert.notEqual(await getRuntimeFor(account.id), defaultStub);
     // accountId 未指定は既定のまま
     assert.equal(await getRuntimeFor(), defaultStub);
+  });
+
+  it("rejects unknown account ids before creating a runtime", async () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "leafcode-pi-harness-missing-account-"),
+    );
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    let creations = 0;
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      modelRuntime: { id: "default-runtime" },
+      live: new Map(),
+      lastProviderSyncWarnings: [],
+      accountRuntimes: new AccountRuntimeManager(async () => {
+        creations += 1;
+        return { id: "account-runtime" } as never;
+      }),
+    };
+
+    await assert.rejects(
+      () => getRuntimeFor("missing"),
+      (error) => (error as { status?: number }).status === 404,
+    );
+    assert.equal(creations, 0);
   });
 
   it("uses stored account auth for cold health without creating account runtimes", async () => {
@@ -73,10 +144,17 @@ describe("getRuntimeFor", () => {
     const agentDir = join(dir, "agent");
     process.env.PI_CODING_AGENT_DIR = agentDir;
     __resetPiAgentDirCacheForTests();
-    const account = createAccount({ label: "仕事用", providers: ["openai-codex"] });
+    const account = createAccount({
+      label: "仕事用",
+      providers: ["openai-codex"],
+    });
     const authPath = accountAuthPath(account.id, agentDir);
     mkdirSync(dirname(authPath), { recursive: true });
-    writeFileSync(authPath, JSON.stringify({ "openai-codex": { type: "oauth" } }), "utf8");
+    writeFileSync(
+      authPath,
+      JSON.stringify({ "openai-codex": { type: "oauth" } }),
+      "utf8",
+    );
     let creations = 0;
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
       pi: null,
@@ -124,10 +202,30 @@ describe("getRuntimeFor", () => {
       getAvailable: async (providerId?: string) => {
         availableProviders.push(providerId);
         return providerId === "openai-codex"
-          ? [{ provider: "openai-codex", id: "gpt-5", name: "GPT-5", input: ["text"], reasoning: false }]
+          ? [
+              {
+                provider: "openai-codex",
+                id: "gpt-5",
+                name: "GPT-5",
+                input: ["text"],
+                reasoning: false,
+              },
+            ]
           : [
-              { provider: "openai-codex", id: "gpt-5", name: "GPT-5", input: ["text"], reasoning: false },
-              { provider: "llama-server", id: "local", name: "Local", input: ["text"], reasoning: false },
+              {
+                provider: "openai-codex",
+                id: "gpt-5",
+                name: "GPT-5",
+                input: ["text"],
+                reasoning: false,
+              },
+              {
+                provider: "llama-server",
+                id: "local",
+                name: "Local",
+                input: ["text"],
+                reasoning: false,
+              },
             ];
       },
     };
@@ -140,19 +238,40 @@ describe("getRuntimeFor", () => {
       modelCache: {
         at: Date.now(),
         value: [
-          { value: "openai-codex::gpt-5", label: "GPT-5", providerID: "openai-codex", modelID: "gpt-5" },
-          { value: "anthropic::claude", label: "Claude", providerID: "anthropic", modelID: "claude" },
-          { value: "llama-server::local", label: "Local", providerID: "llama-server", modelID: "local" },
+          {
+            value: "openai-codex::gpt-5",
+            label: "GPT-5",
+            providerID: "openai-codex",
+            modelID: "gpt-5",
+          },
+          {
+            value: "anthropic::claude",
+            label: "Claude",
+            providerID: "anthropic",
+            modelID: "claude",
+          },
+          {
+            value: "llama-server::local",
+            label: "Local",
+            providerID: "llama-server",
+            modelID: "local",
+          },
         ],
       },
       modelInflight: null,
       live: new Map(),
       lastProviderSyncWarnings: [],
-      accountRuntimes: new AccountRuntimeManager(async () => accountRuntime as never),
+      accountRuntimes: new AccountRuntimeManager(
+        async () => accountRuntime as never,
+      ),
     };
 
+    const account = createAccount({
+      label: "仕事用",
+      providers: ["openai-codex"],
+    });
     const accounts: Pick<AccountRecord, "id" | "label" | "providers">[] = [
-      { id: "acc-1", label: "仕事用", providers: ["openai-codex"] },
+      account,
     ];
     const [models, duplicate] = await Promise.all([
       listModelsForAccounts(accounts),
@@ -162,9 +281,12 @@ describe("getRuntimeFor", () => {
     assert.deepEqual(duplicate, models);
     assert.deepEqual(availableProviders, ["openai-codex"]);
     assert.deepEqual(
-      models.map((model) => ({ providerID: model.providerID, accountId: model.accountId })),
+      models.map((model) => ({
+        providerID: model.providerID,
+        accountId: model.accountId,
+      })),
       [
-        { providerID: "openai-codex", accountId: "acc-1" },
+        { providerID: "openai-codex", accountId: account.id },
         { providerID: "llama-server", accountId: undefined },
       ],
     );
@@ -181,15 +303,28 @@ describe("getRuntimeFor", () => {
       getModels: () => [{ id: "gpt-5", name: "GPT-5" }],
       hasConfiguredAuth: () => true,
       getAvailable: async () => [
-        { provider: "openai-codex", id: "gpt-5", name: "GPT-5", input: ["text"], reasoning: false },
+        {
+          provider: "openai-codex",
+          id: "gpt-5",
+          name: "GPT-5",
+          input: ["text"],
+          reasoning: false,
+        },
       ],
     };
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      modelRuntime: { getProviders: () => [{ id: "openai-codex" }, { id: "ollama-cloud" }] },
+      modelRuntime: {
+        getProviders: () => [{ id: "openai-codex" }, { id: "ollama-cloud" }],
+      },
       modelCache: {
         at: Date.now(),
         value: [
-          { value: "openai-codex::gpt-5", label: "GPT-5", providerID: "openai-codex", modelID: "gpt-5" },
+          {
+            value: "openai-codex::gpt-5",
+            label: "GPT-5",
+            providerID: "openai-codex",
+            modelID: "gpt-5",
+          },
           {
             value: "ollama-cloud::glm-4.6",
             label: "GLM",
@@ -201,18 +336,25 @@ describe("getRuntimeFor", () => {
       modelInflight: null,
       live: new Map(),
       lastProviderSyncWarnings: [],
-      accountRuntimes: new AccountRuntimeManager(async () => accountRuntime as never),
+      accountRuntimes: new AccountRuntimeManager(
+        async () => accountRuntime as never,
+      ),
     };
 
-    const models = await listModelsForAccounts([
-      { id: "acc-1", label: "仕事用", providers: ["openai-codex"] },
-    ]);
+    const account = createAccount({
+      label: "仕事用",
+      providers: ["openai-codex"],
+    });
+    const models = await listModelsForAccounts([account]);
 
     // 単一 API キー運用（既定 auth.json / env）はアカウント未作成なら従来どおり残す
     assert.deepEqual(
-      models.map((model) => ({ providerID: model.providerID, accountId: model.accountId })),
+      models.map((model) => ({
+        providerID: model.providerID,
+        accountId: model.accountId,
+      })),
       [
-        { providerID: "openai-codex", accountId: "acc-1" },
+        { providerID: "openai-codex", accountId: account.id },
         { providerID: "ollama-cloud", accountId: undefined },
       ],
     );
@@ -243,7 +385,9 @@ describe("getRuntimeFor", () => {
       },
     };
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      modelRuntime: { getProviders: () => [{ id: "ollama-cloud" }, { id: "llama-server" }] },
+      modelRuntime: {
+        getProviders: () => [{ id: "ollama-cloud" }, { id: "llama-server" }],
+      },
       modelCache: {
         at: Date.now(),
         value: [
@@ -253,24 +397,36 @@ describe("getRuntimeFor", () => {
             providerID: "ollama-cloud",
             modelID: "glm-4.6",
           },
-          { value: "llama-server::local", label: "Local", providerID: "llama-server", modelID: "local" },
+          {
+            value: "llama-server::local",
+            label: "Local",
+            providerID: "llama-server",
+            modelID: "local",
+          },
         ],
       },
       modelInflight: null,
       live: new Map(),
       lastProviderSyncWarnings: [],
-      accountRuntimes: new AccountRuntimeManager(async () => accountRuntime as never),
+      accountRuntimes: new AccountRuntimeManager(
+        async () => accountRuntime as never,
+      ),
     };
 
-    const models = await listModelsForAccounts([
-      { id: "acc-1", label: "個人用", providers: ["ollama-cloud"] },
-    ]);
+    const account = createAccount({
+      label: "個人用",
+      providers: ["ollama-cloud"],
+    });
+    const models = await listModelsForAccounts([account]);
 
     assert.deepEqual(requested, ["ollama-cloud"]);
     assert.deepEqual(
-      models.map((model) => ({ providerID: model.providerID, accountId: model.accountId })),
+      models.map((model) => ({
+        providerID: model.providerID,
+        accountId: model.accountId,
+      })),
       [
-        { providerID: "ollama-cloud", accountId: "acc-1" },
+        { providerID: "ollama-cloud", accountId: account.id },
         { providerID: "llama-server", accountId: undefined },
       ],
     );
@@ -280,8 +436,14 @@ describe("getRuntimeFor", () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-routing-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
-    const first = createAccount({ label: "仕事用", providers: ["openai-codex"] });
-    const second = createAccount({ label: "個人用", providers: ["openai-codex"] });
+    const first = createAccount({
+      label: "仕事用",
+      providers: ["openai-codex"],
+    });
+    const second = createAccount({
+      label: "個人用",
+      providers: ["openai-codex"],
+    });
     const makeRuntime = () => ({
       registerProvider: () => {},
       getProvider: () => undefined,
@@ -289,11 +451,22 @@ describe("getRuntimeFor", () => {
       getModels: () => [{ id: "gpt-5", name: "GPT-5" }],
       getModel: (providerID: string, modelID: string) =>
         providerID === "openai-codex" && modelID === "gpt-5"
-          ? { provider: providerID, id: modelID, input: ["text"], reasoning: false }
+          ? {
+              provider: providerID,
+              id: modelID,
+              input: ["text"],
+              reasoning: false,
+            }
           : undefined,
       hasConfiguredAuth: () => true,
       getAvailable: async () => [
-        { provider: "openai-codex", id: "gpt-5", name: "GPT-5", input: ["text"], reasoning: false },
+        {
+          provider: "openai-codex",
+          id: "gpt-5",
+          name: "GPT-5",
+          input: ["text"],
+          reasoning: false,
+        },
       ],
     });
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
@@ -308,7 +481,9 @@ describe("getRuntimeFor", () => {
       modelInflight: null,
       live: new Map(),
       lastProviderSyncWarnings: [],
-      accountRuntimes: new AccountRuntimeManager(async () => makeRuntime() as never),
+      accountRuntimes: new AccountRuntimeManager(
+        async () => makeRuntime() as never,
+      ),
     };
     await setAccountRoutingMode("openai-codex", "integrated");
 
@@ -316,7 +491,9 @@ describe("getRuntimeFor", () => {
       { id: first.id, label: first.label, providers: first.providers },
       { id: second.id, label: second.label, providers: second.providers },
     ]);
-    const options = models.filter((model) => model.providerID === "openai-codex");
+    const options = models.filter(
+      (model) => model.providerID === "openai-codex",
+    );
     assert.equal(options.length, 1);
     assert.deepEqual(options[0], {
       value: "openai-codex::gpt-5",
@@ -337,7 +514,10 @@ describe("getRuntimeFor", () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-row-order-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
-    const account = createAccount({ label: "仕事用", providers: ["openai-codex"] });
+    const account = createAccount({
+      label: "仕事用",
+      providers: ["openai-codex"],
+    });
     const accountRuntime = {
       registerProvider: () => {},
       getProvider: () => undefined,
@@ -346,7 +526,13 @@ describe("getRuntimeFor", () => {
       getModel: () => undefined,
       hasConfiguredAuth: () => true,
       getAvailable: async () => [
-        { provider: "openai-codex", id: "gpt-5", name: "GPT-5", input: ["text"], reasoning: false },
+        {
+          provider: "openai-codex",
+          id: "gpt-5",
+          name: "GPT-5",
+          input: ["text"],
+          reasoning: false,
+        },
       ],
     };
     const harness: Record<string, unknown> = {
@@ -357,19 +543,30 @@ describe("getRuntimeFor", () => {
       modelInflight: null,
       live: new Map(),
       lastProviderSyncWarnings: [],
-      accountRuntimes: new AccountRuntimeManager(async () => accountRuntime as never),
+      accountRuntimes: new AccountRuntimeManager(
+        async () => accountRuntime as never,
+      ),
     };
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = harness;
     await setAccountRoutingMode("openai-codex", "integrated");
     // 設定画面は統合行をプロバイダキーで保存し、過去のアカウント別キーは末尾に残る。
     await saveProviderModelsOrder({
-      providerOrder: ["openai-codex", "llama-server", `${account.id}::openai-codex`],
+      providerOrder: [
+        "openai-codex",
+        "llama-server",
+        `${account.id}::openai-codex`,
+      ],
     });
     // 上の保存は modelCache を破棄するため、共有プロバイダはこの後に seed する。
     harness.modelCache = {
       at: Date.now(),
       value: [
-        { value: "llama-server::local", label: "Local", providerID: "llama-server", modelID: "local" },
+        {
+          value: "llama-server::local",
+          label: "Local",
+          providerID: "llama-server",
+          modelID: "local",
+        },
       ],
     };
 
@@ -387,7 +584,10 @@ describe("getRuntimeFor", () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-models-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
-    const account = createAccount({ label: "仕事用", providers: ["openai-codex"] });
+    const account = createAccount({
+      label: "仕事用",
+      providers: ["openai-codex"],
+    });
 
     await setProviderOrModelEnabled("openai-codex::gpt-5", false, account.id);
     await saveProviderModelsOrder({
@@ -398,10 +598,10 @@ describe("getRuntimeFor", () => {
 
     const state = readProviderModelState(providerModelStatePath(dir));
     assert.equal(state.disabled[`${account.id}::openai-codex::gpt-5`], true);
-    assert.deepEqual(
-      state.modelOrder[`${account.id}::openai-codex`],
-      ["gpt-4", "gpt-5"],
-    );
+    assert.deepEqual(state.modelOrder[`${account.id}::openai-codex`], [
+      "gpt-4",
+      "gpt-5",
+    ]);
     await assert.rejects(
       () => setProviderOrModelEnabled("anthropic", false, account.id),
       (error) => (error as { status?: number }).status === 400,
@@ -413,11 +613,19 @@ describe("getRuntimeFor", () => {
   });
 
   it("applies integrated model settings to every provider account", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-integrated-models-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "leafcode-pi-harness-integrated-models-"),
+    );
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
-    const first = createAccount({ label: "仕事用", providers: ["openai-codex"] });
-    const second = createAccount({ label: "個人用", providers: ["openai-codex"] });
+    const first = createAccount({
+      label: "仕事用",
+      providers: ["openai-codex"],
+    });
+    const second = createAccount({
+      label: "個人用",
+      providers: ["openai-codex"],
+    });
 
     await setAccountRoutingMode("openai-codex", "integrated");
     await setProviderOrModelEnabled("openai-codex::gpt-5", false);
@@ -428,14 +636,14 @@ describe("getRuntimeFor", () => {
     const state = readProviderModelState(providerModelStatePath(dir));
     assert.equal(state.disabled[`${first.id}::openai-codex::gpt-5`], true);
     assert.equal(state.disabled[`${second.id}::openai-codex::gpt-5`], true);
-    assert.deepEqual(
-      state.modelOrder[`${first.id}::openai-codex`],
-      ["gpt-4", "gpt-5"],
-    );
-    assert.deepEqual(
-      state.modelOrder[`${second.id}::openai-codex`],
-      ["gpt-4", "gpt-5"],
-    );
+    assert.deepEqual(state.modelOrder[`${first.id}::openai-codex`], [
+      "gpt-4",
+      "gpt-5",
+    ]);
+    assert.deepEqual(state.modelOrder[`${second.id}::openai-codex`], [
+      "gpt-4",
+      "gpt-5",
+    ]);
   });
 
   it("returns null before the runtime is initialized", async () => {

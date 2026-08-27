@@ -18,13 +18,21 @@ export type AccountProviderId =
   | "openai-codex"
   | "anthropic"
   | "ollama-cloud"
-  | "openrouter";
+  | "openrouter"
+  | "commandcode"
+  | "cursor"
+  | "opencode"
+  | "opencode-go";
 
 export const ACCOUNT_PROVIDER_IDS: readonly AccountProviderId[] = [
   "openai-codex",
   "anthropic",
   "ollama-cloud",
   "openrouter",
+  "commandcode",
+  "cursor",
+  "opencode",
+  "opencode-go",
 ];
 
 /**
@@ -36,11 +44,15 @@ export const ACCOUNT_ONLY_PROVIDER_IDS: readonly AccountProviderId[] = [
   "anthropic",
 ];
 
-export function isAccountProviderId(providerId: string): providerId is AccountProviderId {
+export function isAccountProviderId(
+  providerId: string,
+): providerId is AccountProviderId {
   return (ACCOUNT_PROVIDER_IDS as readonly string[]).includes(providerId);
 }
 
-export function isAccountOnlyProvider(providerId: string): providerId is AccountProviderId {
+export function isAccountOnlyProvider(
+  providerId: string,
+): providerId is AccountProviderId {
   return (ACCOUNT_ONLY_PROVIDER_IDS as readonly string[]).includes(providerId);
 }
 
@@ -98,11 +110,14 @@ export function accountModelsStorePath(id: string, agentDir: string): string {
 
 /** アカウントの auth.json に保存済みのサブスクプロバイダー。SDK を介さない軽量ファイル読み。
  *  読めない（未ログイン・破損・書込中）場合は空配列。 */
-export function accountStoredProviders(id: string, agentDir: string): AccountProviderId[] {
+export function accountStoredProviders(
+  id: string,
+  agentDir: string,
+): AccountProviderId[] {
   try {
-    const parsed = JSON.parse(readFileSync(accountAuthPath(id, agentDir), "utf8")) as
-      | Record<string, unknown>
-      | null;
+    const parsed = JSON.parse(
+      readFileSync(accountAuthPath(id, agentDir), "utf8"),
+    ) as Record<string, unknown> | null;
     if (!parsed || typeof parsed !== "object") return [];
     return ACCOUNT_PROVIDER_IDS.filter((provider) => provider in parsed);
   } catch {
@@ -120,7 +135,9 @@ function emptyAccountsFile(): AccountsFile {
 
 function readAccountsFile(): AccountsFile {
   try {
-    const parsed = JSON.parse(readFileSync(accountsPath(), "utf8")) as AccountsFile | null;
+    const parsed = JSON.parse(
+      readFileSync(accountsPath(), "utf8"),
+    ) as AccountsFile | null;
     if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.accounts)) {
       return emptyAccountsFile();
     }
@@ -141,11 +158,14 @@ function badRequest(message: string): Error {
 }
 
 function notFound(): Error {
-  return Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
+  return Object.assign(new Error("アカウントが見つかりません"), {
+    status: 404,
+  });
 }
 
 function validateLabel(label: unknown): string {
-  if (typeof label !== "string") throw badRequest("label は文字列で指定してください");
+  if (typeof label !== "string")
+    throw badRequest("label は文字列で指定してください");
   const trimmed = label.trim();
   if (!trimmed) throw badRequest("label は必須です");
   if (trimmed.length > LABEL_MAX) {
@@ -156,7 +176,8 @@ function validateLabel(label: unknown): string {
 
 function validateNote(note: unknown): string | undefined {
   if (note === undefined || note === null) return undefined;
-  if (typeof note !== "string") throw badRequest("note は文字列で指定してください");
+  if (typeof note !== "string")
+    throw badRequest("note は文字列で指定してください");
   const trimmed = note.trim();
   if (!trimmed) return undefined;
   if (trimmed.length > NOTE_MAX) {
@@ -178,7 +199,8 @@ export function accountHasProvider(
 }
 
 function normalizeProviders(input: unknown): AccountProviderId[] {
-  if (!Array.isArray(input)) throw badRequest("providers は配列で指定してください");
+  if (!Array.isArray(input))
+    throw badRequest("providers は配列で指定してください");
   const set = new Set<unknown>(input);
   for (const item of set) {
     if (typeof item !== "string" || !isAccountProviderId(item)) {
@@ -195,7 +217,9 @@ export function listAccounts(): AccountRecord[] {
 }
 
 export function getAccount(id: string): AccountRecord | undefined {
-  const found = readAccountsFile().accounts.find((account) => account.id === id);
+  const found = readAccountsFile().accounts.find(
+    (account) => account.id === id,
+  );
   return found ? { ...found } : undefined;
 }
 

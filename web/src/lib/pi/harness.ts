@@ -43,12 +43,21 @@ import {
   setProviderModelOrder,
   sortByPreferredOrder,
 } from "@/lib/provider-model-state";
-import { registerLlamaProviders, syncLlamaServerProvider } from "@/lib/pi/llama-provider";
+import {
+  registerLlamaProviders,
+  syncLlamaServerProvider,
+} from "@/lib/pi/llama-provider";
 import { registerCursorProvider } from "@/lib/pi/cursor-provider";
 import { registerCommandCodeProvider } from "@/lib/pi/commandcode-provider";
-import { registerOllamaCloudProvider, syncOllamaCloudProvider } from "@/lib/pi/ollama-cloud-provider";
+import {
+  registerOllamaCloudProvider,
+  syncOllamaCloudProvider,
+} from "@/lib/pi/ollama-cloud-provider";
 import { readGoalLoopState } from "@/lib/pi/goal-loop-state";
-import { todoProgressFromTodos, todosFromPiMessages } from "@/lib/pi/todowrite-state";
+import {
+  todoProgressFromTodos,
+  todosFromPiMessages,
+} from "@/lib/pi/todowrite-state";
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
 import { filterSkillsByState } from "@/lib/skills";
 import type { SkillPermission } from "@/lib/skill-permission";
@@ -62,7 +71,10 @@ import {
   LEAFCODE_COLLABORATION_TOOL_NAMES,
 } from "@/lib/extensions";
 import { readCollaborationConfig } from "@/lib/collaboration";
-import { applyPermissionMode, readPermissionGateConfig } from "@/lib/permission-gate-config";
+import {
+  applyPermissionMode,
+  readPermissionGateConfig,
+} from "@/lib/permission-gate-config";
 import { buildAgentResourceOptions, loadAgentDefinition } from "@/lib/agents";
 import {
   armTaskHangWatch,
@@ -70,7 +82,10 @@ import {
   startHangWatchdog,
 } from "@/lib/pi/hang-watchdog";
 import { HANG_RETRY_PREFIX } from "@/lib/hang-retry";
-import { createPermissionPromptService, taskIdForSession } from "@/lib/pi/permission-prompt";
+import {
+  createPermissionPromptService,
+  taskIdForSession,
+} from "@/lib/pi/permission-prompt";
 import { registerWebUiPermissionHandler } from "@/lib/pi/webui-permission-bridge";
 import { AccountRuntimeManager } from "@/lib/pi/account-runtime-manager";
 import {
@@ -85,7 +100,10 @@ import {
   resolvePiAgentDir,
   type AccountRecord,
 } from "@/lib/accounts";
-import { createQuestionPromptService, type QuestionAnswer } from "@/lib/pi/question-prompt";
+import {
+  createQuestionPromptService,
+  type QuestionAnswer,
+} from "@/lib/pi/question-prompt";
 import { registerWebUiQuestionHandler } from "@/lib/pi/webui-question-bridge";
 import { listSubagentRuns } from "@/lib/pi/subagent-runs";
 import { stopRunningSubagentRuns } from "@/lib/pi/stop-subagent-runs";
@@ -103,7 +121,10 @@ import {
 } from "@/lib/provider-routing";
 
 /** True when a skill lives under the user's ~/.agents directory. */
-function isAgentsSkill(skill: { baseDir?: string; filePath?: string }): boolean {
+function isAgentsSkill(skill: {
+  baseDir?: string;
+  filePath?: string;
+}): boolean {
   const agentsRoot = join(homedir(), ".agents");
   const lower = agentsRoot.toLowerCase();
   return (
@@ -150,7 +171,9 @@ import type {
 
 type PiModule = typeof import("@earendil-works/pi-coding-agent");
 
-type AgentSession = Awaited<ReturnType<PiModule["createAgentSession"]>>["session"];
+type AgentSession = Awaited<
+  ReturnType<PiModule["createAgentSession"]>
+>["session"];
 type ModelRuntime = Awaited<ReturnType<PiModule["ModelRuntime"]["create"]>>;
 type Model = NonNullable<AgentSession["model"]>;
 
@@ -160,10 +183,17 @@ export type PromptImage = {
 };
 
 /** High-frequency stream events — coalesce snapshot SSE instead of emitting every token. */
-const THROTTLED_SNAPSHOT_EVENTS = new Set(["message_update", "tool_execution_update"]);
+const THROTTLED_SNAPSHOT_EVENTS = new Set([
+  "message_update",
+  "tool_execution_update",
+]);
 const SNAPSHOT_THROTTLE_MS = 100;
 /** These lifecycle events do not change anything rendered by TaskView. */
-const NON_RENDERING_SESSION_EVENTS = new Set(["turn_start", "turn_end", "entry_appended"]);
+const NON_RENDERING_SESSION_EVENTS = new Set([
+  "turn_start",
+  "turn_end",
+  "entry_appended",
+]);
 
 type LiveRuntime = {
   taskId: string;
@@ -233,7 +263,8 @@ const routeLocks = new Map<string, Promise<void>>();
 const routeReservations = new Map<string, Map<string, number>>();
 
 function reserveRoute(providerID: string, accountId: string): void {
-  const accounts = routeReservations.get(providerID) ?? new Map<string, number>();
+  const accounts =
+    routeReservations.get(providerID) ?? new Map<string, number>();
   accounts.set(accountId, (accounts.get(accountId) ?? 0) + 1);
   routeReservations.set(providerID, accounts);
 }
@@ -247,7 +278,10 @@ function releaseRoute(providerID: string, accountId: string): void {
   if (accounts.size === 0) routeReservations.delete(providerID);
 }
 
-async function withRouteLock<T>(key: string, action: () => Promise<T>): Promise<T> {
+async function withRouteLock<T>(
+  key: string,
+  action: () => Promise<T>,
+): Promise<T> {
   const previous = routeLocks.get(key) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>((resolve) => {
@@ -340,7 +374,9 @@ function ensurePermissionPromptService(): PermissionPromptService {
     emit: (taskId, payload) => emit(taskId, payload),
     snapshotExtras: permissionSnapshotExtras,
   });
-  registerWebUiPermissionHandler((request) => permissionPromptService!.handleRequest(request));
+  registerWebUiPermissionHandler((request) =>
+    permissionPromptService!.handleRequest(request),
+  );
   return permissionPromptService;
 }
 
@@ -354,12 +390,16 @@ function ensureQuestionPromptService(): QuestionPromptService {
     emit: (taskId, payload) => emit(taskId, payload),
     snapshotExtras: permissionSnapshotExtras,
   });
-  registerWebUiQuestionHandler((request) => questionPromptService!.handleRequest(request));
+  registerWebUiQuestionHandler((request) =>
+    questionPromptService!.handleRequest(request),
+  );
   return questionPromptService;
 }
 
 function state(): HarnessState {
-  const globalRef = globalThis as typeof globalThis & { [GLOBAL_KEY]?: HarnessState };
+  const globalRef = globalThis as typeof globalThis & {
+    [GLOBAL_KEY]?: HarnessState;
+  };
   if (!globalRef[GLOBAL_KEY]) {
     globalRef[GLOBAL_KEY] = {
       pi: null,
@@ -386,12 +426,29 @@ function state(): HarnessState {
 function packageVersion(): string | null {
   try {
     const candidates = [
-      join(process.cwd(), "node_modules", "@earendil-works", "pi-coding-agent", "package.json"),
-      join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "node_modules", "@earendil-works", "pi-coding-agent", "package.json"),
+      join(
+        process.cwd(),
+        "node_modules",
+        "@earendil-works",
+        "pi-coding-agent",
+        "package.json",
+      ),
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        "..",
+        "..",
+        "..",
+        "node_modules",
+        "@earendil-works",
+        "pi-coding-agent",
+        "package.json",
+      ),
     ];
     for (const pkgPath of candidates) {
       if (!existsSync(/* turbopackIgnore: true */ pkgPath)) continue;
-      const pkg = JSON.parse(readFileSync(/* turbopackIgnore: true */ pkgPath, "utf8")) as { version?: string };
+      const pkg = JSON.parse(
+        readFileSync(/* turbopackIgnore: true */ pkgPath, "utf8"),
+      ) as { version?: string };
       if (pkg.version) return pkg.version;
     }
     return null;
@@ -413,8 +470,15 @@ async function loadPi(): Promise<PiModule> {
  * - 指定時 = アカウント別認証ストレージ（~/.pi/agent/accounts/<id>/auth.json）の
  *   ランタイムを遅延生成して再利用する（docs/plans/multi-account.md Phase 6）。
  */
-export async function getRuntimeFor(accountId?: string | null): Promise<ModelRuntime | null> {
+export async function getRuntimeFor(
+  accountId?: string | null,
+): Promise<ModelRuntime | null> {
   if (!accountId) return state().modelRuntime;
+  if (!getAccount(accountId)) {
+    throw Object.assign(new Error("アカウントが見つかりません"), {
+      status: 404,
+    });
+  }
   try {
     return await accountRuntimeManager().ensure(accountId);
   } catch (error) {
@@ -433,14 +497,21 @@ function accountRuntimeManager(): AccountRuntimeManager {
     current.accountRuntimes = new AccountRuntimeManager(async (id) => {
       const pi = await loadPi();
       const agentDir = await resolvePiAgentDir();
+      const authPath = accountAuthPath(id, agentDir);
       const runtime = await pi.ModelRuntime.create({
-        authPath: accountAuthPath(id, agentDir),
+        authPath,
         modelsStorePath: accountModelsStorePath(id, agentDir),
         allowModelNetwork: true,
         modelRefreshTimeoutMs: 8_000,
       });
       await registerLlamaProviders(runtime);
-      await ensureOptionalProviders(runtime);
+      await ensureOptionalProviders(runtime, {
+        key: `account:${id}`,
+        kind: "account",
+        accountId: id,
+        accountLabel: getAccount(id)?.label ?? null,
+        authPath,
+      });
       return runtime;
     });
   }
@@ -449,16 +520,19 @@ function accountRuntimeManager(): AccountRuntimeManager {
 
 const OPTIONAL_PROVIDERS_KEY = "__leafcodePiOptionalProviders" as const;
 
-async function ensureOptionalProviders(runtime: ModelRuntime): Promise<void> {
+async function ensureOptionalProviders(
+  runtime: ModelRuntime,
+  scope?: import("@/lib/codexbar/types").UsageScope,
+): Promise<void> {
   const globalRef = globalThis as typeof globalThis & {
     [OPTIONAL_PROVIDERS_KEY]?: WeakMap<object, Promise<void>>;
   };
-  const promises = globalRef[OPTIONAL_PROVIDERS_KEY] ??= new WeakMap();
+  const promises = (globalRef[OPTIONAL_PROVIDERS_KEY] ??= new WeakMap());
   const existing = promises.get(runtime);
   if (existing) return existing;
   const promise = (async () => {
-    await registerCursorProvider(runtime);
-    await registerCommandCodeProvider(runtime);
+    await registerCursorProvider(runtime, scope);
+    await registerCommandCodeProvider(runtime, scope);
     await registerOllamaCloudProvider(runtime);
   })();
   promises.set(runtime, promise);
@@ -482,7 +556,8 @@ async function ensureRuntime(): Promise<void> {
         await registerLlamaProviders(current.modelRuntime);
         current.initError = null;
       } catch (error) {
-        current.initError = error instanceof Error ? error.message : String(error);
+        current.initError =
+          error instanceof Error ? error.message : String(error);
         current.initPromise = null;
         throw error;
       }
@@ -527,9 +602,12 @@ async function ensureRuntime(): Promise<void> {
               break;
             }
           }
-          const turnAssistants = promptIndex >= 0
-            ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant")
-            : [];
+          const turnAssistants =
+            promptIndex >= 0
+              ? msgs
+                  .slice(promptIndex + 1)
+                  .filter((m) => m.role === "assistant")
+              : [];
           live.manualAbortedAssistantId = turnAssistants.at(-1)?.id ?? "";
           await stopSubagentRunsForTask(live, msgs);
           await live.session.abort();
@@ -590,7 +668,10 @@ function parseModelValue(value: string | undefined): ParsedModelValue | null {
   return { providerID, modelID };
 }
 
-function modelId(model: Model | undefined): { providerID?: string; modelID?: string } {
+function modelId(model: Model | undefined): {
+  providerID?: string;
+  modelID?: string;
+} {
   if (!model) return {};
   const record = model as unknown as Record<string, unknown>;
   const providerID = String(record.provider ?? record.providerID ?? "");
@@ -615,10 +696,15 @@ export function applyThroughput(
     // 応答全体の所要時間（思考＋生成、TTFT 込み）。Pi の assistant timestamp は
     // 生成「開始」時刻のため、直前レコードとの差分では常に 0s になる —
     // 実測 lastToken を使う（応答完了後は永続化された値で復元）。
-    const responseDurationMs = Math.max(0, (timing.lastTokenAtMs ?? nowMs) - timing.startedAtMs);
+    const responseDurationMs = Math.max(
+      0,
+      (timing.lastTokenAtMs ?? nowMs) - timing.startedAtMs,
+    );
     const snap = snapshotThroughput(timing, nowMs);
     if (!snap || snap.tokensPerSecond === null) {
-      return responseDurationMs > 0 ? { ...message, responseDurationMs } : message;
+      return responseDurationMs > 0
+        ? { ...message, responseDurationMs }
+        : message;
     }
     return {
       ...message,
@@ -637,7 +723,9 @@ export function snapshotMessages(
   toolEndedAt?: Map<string, number>,
   toolPartialOutputByCallId?: Map<string, string>,
 ): UiMessage[] {
-  const stored: unknown[] = Array.isArray(session.messages) ? session.messages : [];
+  const stored: unknown[] = Array.isArray(session.messages)
+    ? session.messages
+    : [];
   const branchLeafId = session.sessionManager.getLeafId();
   const cachedBranch = branchProjectionCache.get(session);
   let useBranchHistory = false;
@@ -662,13 +750,15 @@ export function snapshotMessages(
         }
         if (entry.type !== "compaction") return [];
         const timestamp = Date.parse(entry.timestamp);
-        return [{
-          id: entry.id,
-          role: "compactionSummary" as const,
-          timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
-          summary: entry.summary,
-          tokensBefore: entry.tokensBefore,
-        }];
+        return [
+          {
+            id: entry.id,
+            role: "compactionSummary" as const,
+            timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+            summary: entry.summary,
+            tokensBefore: entry.tokensBefore,
+          },
+        ];
       });
     }
   }
@@ -713,7 +803,11 @@ export function snapshotMessages(
     } else {
       const cached = snapshotProjectionCache.get(session);
       const last = stored[stored.length - 1];
-      if (cached?.source === stored && cached.length === stored.length && cached.last === last) {
+      if (
+        cached?.source === stored &&
+        cached.length === stored.length &&
+        cached.last === last
+      ) {
         projected = cached.projected;
       } else {
         projected = projectWithEntryIds(historyRaw);
@@ -726,7 +820,9 @@ export function snapshotMessages(
       }
     }
     if (canAppendStreaming) {
-      projected = projected.concat(projectPiMessages([streaming], historyRaw.length));
+      projected = projected.concat(
+        projectPiMessages([streaming], historyRaw.length),
+      );
     }
   } else {
     const raw = streamingInHistory ? historyRaw : [...historyRaw, streaming];
@@ -749,7 +845,8 @@ export function snapshotMessages(
       }
     }
   }
-  if (throughputByStartedAt) projected = applyThroughput(projected, throughputByStartedAt);
+  if (throughputByStartedAt)
+    projected = applyThroughput(projected, throughputByStartedAt);
   if (toolPartialOutputByCallId && toolPartialOutputByCallId.size > 0) {
     projected = applyToolOutput(projected, toolPartialOutputByCallId);
   }
@@ -770,7 +867,10 @@ export function applyToolOutput(
     const parts = message.parts.map((part) => {
       if (part.type !== "tool") return part;
       const output = partialOutputByCallId.get(part.callID);
-      if (output === undefined || (part.state.status !== "running" && part.state.status !== "pending")) {
+      if (
+        output === undefined ||
+        (part.state.status !== "running" && part.state.status !== "pending")
+      ) {
         return part;
       }
       changed = true;
@@ -835,7 +935,10 @@ function loadThroughputFromSession(session: AgentSession): {
   return { timings, persistedKeys };
 }
 
-function persistThroughputSample(live: LiveRuntime, timing: ThroughputTiming): void {
+function persistThroughputSample(
+  live: LiveRuntime,
+  timing: ThroughputTiming,
+): void {
   if (live.persistedThroughputKeys.has(timing.startedAtMs)) return;
   const payload = toPersistedThroughput(timing);
   if (!payload) return;
@@ -843,7 +946,10 @@ function persistThroughputSample(live: LiveRuntime, timing: ThroughputTiming): v
   queueMicrotask(() => {
     if (live.persistedThroughputKeys.has(timing.startedAtMs)) return;
     try {
-      live.session.sessionManager.appendCustomEntry(THROUGHPUT_CUSTOM_TYPE, payload);
+      live.session.sessionManager.appendCustomEntry(
+        THROUGHPUT_CUSTOM_TYPE,
+        payload,
+      );
       live.persistedThroughputKeys.add(timing.startedAtMs);
       live.throughputByStartedAt.set(timing.startedAtMs, {
         ...timing,
@@ -859,7 +965,12 @@ function persistThroughputSample(live: LiveRuntime, timing: ThroughputTiming): v
 function assistantUsageOutput(message: unknown): number | null {
   if (!message || typeof message !== "object") return null;
   const usage = (message as { usage?: { output?: unknown } }).usage;
-  if (!usage || typeof usage.output !== "number" || !Number.isFinite(usage.output)) return null;
+  if (
+    !usage ||
+    typeof usage.output !== "number" ||
+    !Number.isFinite(usage.output)
+  )
+    return null;
   return Math.max(0, Math.round(usage.output));
 }
 
@@ -886,7 +997,10 @@ function trackThroughputEvent(
           ? event.toolCallID
           : "";
     if (toolCallId) {
-      live.toolPartialOutputByCallId.set(toolCallId, toolResultText(event.partialResult));
+      live.toolPartialOutputByCallId.set(
+        toolCallId,
+        toolResultText(event.partialResult),
+      );
     }
     return;
   }
@@ -914,7 +1028,9 @@ function trackThroughputEvent(
       (message as { role?: unknown }).role === "toolResult" &&
       typeof (message as { toolCallId?: unknown }).toolCallId === "string"
     ) {
-      live.toolPartialOutputByCallId.delete((message as { toolCallId: string }).toolCallId);
+      live.toolPartialOutputByCallId.delete(
+        (message as { toolCallId: string }).toolCallId,
+      );
     }
     return;
   }
@@ -928,7 +1044,10 @@ function trackThroughputEvent(
         ? (message as { timestamp: number }).timestamp
         : Date.now();
     if (!live.throughputByStartedAt.has(startedAt)) {
-      live.throughputByStartedAt.set(startedAt, createThroughputTiming(startedAt));
+      live.throughputByStartedAt.set(
+        startedAt,
+        createThroughputTiming(startedAt),
+      );
     }
     return;
   }
@@ -973,7 +1092,9 @@ function trackThroughputEvent(
         ? (message as { timestamp: number }).timestamp
         : null;
     if (startedAt === null) return;
-    let timing = live.throughputByStartedAt.get(startedAt) ?? createThroughputTiming(startedAt);
+    let timing =
+      live.throughputByStartedAt.get(startedAt) ??
+      createThroughputTiming(startedAt);
     timing = noteReportedOutputTokens(timing, assistantUsageOutput(message));
     if (timing.lastTokenAtMs === null) {
       timing = { ...timing, lastTokenAtMs: Date.now() };
@@ -983,11 +1104,19 @@ function trackThroughputEvent(
   }
 }
 
-export function sessionContextUsage(session: AgentSession): ContextUsageDto | undefined {
-  const stored: unknown[] = Array.isArray(session.messages) ? session.messages : [];
+export function sessionContextUsage(
+  session: AgentSession,
+): ContextUsageDto | undefined {
+  const stored: unknown[] = Array.isArray(session.messages)
+    ? session.messages
+    : [];
   const last = stored[stored.length - 1];
   const cached = contextUsageCache.get(session);
-  if (cached?.source === stored && cached.length === stored.length && cached.last === last) {
+  if (
+    cached?.source === stored &&
+    cached.length === stored.length &&
+    cached.last === last
+  ) {
     return cached.value;
   }
   let value: ContextUsageDto | undefined;
@@ -996,7 +1125,12 @@ export function sessionContextUsage(session: AgentSession): ContextUsageDto | un
   } catch {
     value = undefined;
   }
-  contextUsageCache.set(session, { source: stored, length: stored.length, last, value });
+  contextUsageCache.set(session, {
+    source: stored,
+    length: stored.length,
+    last,
+    value,
+  });
   return value;
 }
 
@@ -1025,12 +1159,18 @@ function sessionSnapshotFields(
     isStreaming: session.isStreaming,
     isCompacting: session.isCompacting,
     contextUsage: sessionContextUsage(session),
-    goalLoop: readGoalLoopState(session.sessionManager.getCwd(), session.sessionId),
+    goalLoop: readGoalLoopState(
+      session.sessionManager.getCwd(),
+      session.sessionId,
+    ),
     todos: todosFromPiMessages(session.messages),
   };
 }
 
-function emit(taskId: string, payload: { type: string; [key: string]: unknown }): void {
+function emit(
+  taskId: string,
+  payload: { type: string; [key: string]: unknown },
+): void {
   state().events.emit(taskId, payload);
 }
 
@@ -1041,8 +1181,12 @@ export function isReasoningMandatoryError(error: unknown): boolean {
 }
 
 /** 思考必須モデル向けのフォールバックレベル（対応する最下位、なければ minimal）。 */
-export function reasoningFallbackLevel(model: Model | null | undefined): ThinkingLevel {
-  const levels = model ? thinkingLevelsForModel(model).filter((l) => l !== "off") : [];
+export function reasoningFallbackLevel(
+  model: Model | null | undefined,
+): ThinkingLevel {
+  const levels = model
+    ? thinkingLevelsForModel(model).filter((l) => l !== "off")
+    : [];
   return levels[0] ?? "minimal";
 }
 
@@ -1130,20 +1274,30 @@ function scheduleTaskSnapshot(
 function mapCompactionError(error: unknown): Error {
   const message = error instanceof Error ? error.message : String(error);
   if (/Nothing to compact/i.test(message)) {
-    return Object.assign(new Error("圧縮するほど履歴がありません"), { status: 400 });
+    return Object.assign(new Error("圧縮するほど履歴がありません"), {
+      status: 400,
+    });
   }
   if (/Already compacted/i.test(message)) {
     return Object.assign(new Error("すでに圧縮済みです"), { status: 400 });
   }
-  if (/Compaction cancelled/i.test(message) || (error instanceof Error && error.name === "AbortError")) {
-    return Object.assign(new Error("圧縮をキャンセルしました"), { status: 400 });
+  if (
+    /Compaction cancelled/i.test(message) ||
+    (error instanceof Error && error.name === "AbortError")
+  ) {
+    return Object.assign(new Error("圧縮をキャンセルしました"), {
+      status: 400,
+    });
   }
   return error instanceof Error ? error : new Error(message);
 }
 
 function openSettingsManager() {
   const pi = state().pi;
-  if (!pi) throw Object.assign(new Error("Pi ランタイムが初期化されていません"), { status: 503 });
+  if (!pi)
+    throw Object.assign(new Error("Pi ランタイムが初期化されていません"), {
+      status: 503,
+    });
   return pi.SettingsManager.create(homedir(), pi.getAgentDir());
 }
 
@@ -1157,7 +1311,11 @@ function attachSession(
   existing?.unsubscribe();
   // タスクの利用アカウント。セッション生存中はマネージャ参照で蒸発対象外にする。
   const attachedAccountId = getTask(taskId)?.accountId ?? null;
-  if (existing && existing.accountId && existing.accountId !== attachedAccountId) {
+  if (
+    existing &&
+    existing.accountId &&
+    existing.accountId !== attachedAccountId
+  ) {
     accountRuntimeManager().release(existing.accountId);
   }
   const replacedSession = existing?.session;
@@ -1165,9 +1323,7 @@ function attachSession(
     replacedSession.dispose();
   }
 
-  const loaded = existing
-    ? null
-    : loadThroughputFromSession(session);
+  const loaded = existing ? null : loadThroughputFromSession(session);
 
   if (existing?.snapshotTimer) {
     clearTimeout(existing.snapshotTimer);
@@ -1182,7 +1338,8 @@ function attachSession(
     unsubscribe: () => undefined,
     promptChain: Promise.resolve(),
     promptActive: false,
-    throughputByStartedAt: existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
+    throughputByStartedAt:
+      existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
     persistedThroughputKeys:
       existing?.persistedThroughputKeys ?? loaded?.persistedKeys ?? new Set(),
     toolStartedAt: existing?.toolStartedAt ?? new Map(),
@@ -1210,11 +1367,17 @@ function attachSession(
     // still use the existing path below.
     const task = syncTask ? getTask(taskId) : undefined;
     if (syncTask && !task) return;
-    trackThroughputEvent(live, event as { type: string; [key: string]: unknown });
+    trackThroughputEvent(
+      live,
+      event as { type: string; [key: string]: unknown },
+    );
     if (event.type === "agent_start") {
       setTaskStatus(taskId, "working");
     }
-    if (event.type === "agent_settled" || (event.type === "agent_end" && !event.willRetry)) {
+    if (
+      event.type === "agent_settled" ||
+      (event.type === "agent_end" && !event.willRetry)
+    ) {
       const error = session.agent.state.errorMessage ?? null;
       setTaskStatus(taskId, error ? "error" : "idle", error);
     }
@@ -1282,10 +1445,14 @@ function disposeLive(taskId: string): void {
 }
 
 export function syncSessionName(
-  sessionManager: { getSessionName(): string | undefined; appendSessionInfo(name: string): unknown },
+  sessionManager: {
+    getSessionName(): string | undefined;
+    appendSessionInfo(name: string): unknown;
+  },
   sessionName: string | undefined,
 ): void {
-  if (sessionName && sessionManager.getSessionName() !== sessionName) sessionManager.appendSessionInfo(sessionName);
+  if (sessionName && sessionManager.getSessionName() !== sessionName)
+    sessionManager.appendSessionInfo(sessionName);
 }
 
 async function createSession(options: {
@@ -1309,7 +1476,9 @@ async function createSession(options: {
     ? pi.SessionManager.open(options.sessionFile)
     : pi.SessionManager.create(options.cwd);
   syncSessionName(sessionManager, options.sessionName);
-  const skillPermissionRef = { current: options.skillPermission ?? ("allow" as SkillPermission) };
+  const skillPermissionRef = {
+    current: options.skillPermission ?? ("allow" as SkillPermission),
+  };
   // Filter disabled skills via state file (skills-state.json), not folder moves.
   // skillsOverride re-reads state on every resourceLoader.reload() / session.reload().
   // Also drop any ~/.agents skills Pi loads internally: this harness must not
@@ -1322,12 +1491,18 @@ async function createSession(options: {
   const bundled = bundledExtensionEntries();
   const bundledNames = new Set(bundled.map((entry) => entry.name));
   const activeBundled = bundled.filter(
-    (entry) => collaborationEnabled || entry.name !== LEAFCODE_COLLABORATION_EXTENSION_NAME,
+    (entry) =>
+      collaborationEnabled ||
+      entry.name !== LEAFCODE_COLLABORATION_EXTENSION_NAME,
   );
   const bundledPaths = new Set(activeBundled.map((entry) => entry.filePath));
-  const collaborationEntry = activeBundled.find((entry) => entry.name === LEAFCODE_COLLABORATION_EXTENSION_NAME);
+  const collaborationEntry = activeBundled.find(
+    (entry) => entry.name === LEAFCODE_COLLABORATION_EXTENSION_NAME,
+  );
   if (collaborationEnabled && !collaborationEntry) {
-    throw new Error(`Required bundled extension '${LEAFCODE_COLLABORATION_EXTENSION_NAME}' is missing; refusing to start a mutable session.`);
+    throw new Error(
+      `Required bundled extension '${LEAFCODE_COLLABORATION_EXTENSION_NAME}' is missing; refusing to start a mutable session.`,
+    );
   }
   // The bundled leafcode-subagents fork replaces the npm pi-subagents package:
   // drop the npm extension so the `subagent` tool is never registered twice.
@@ -1338,7 +1513,9 @@ async function createSession(options: {
   const agentDefinition = options.agentName
     ? loadAgentDefinition(options.agentName, agentDir)
     : undefined;
-  const agentOptions = agentDefinition ? buildAgentResourceOptions(agentDefinition) : undefined;
+  const agentOptions = agentDefinition
+    ? buildAgentResourceOptions(agentDefinition)
+    : undefined;
   const resourceLoader = new pi.DefaultResourceLoader({
     cwd: options.cwd,
     agentDir,
@@ -1348,7 +1525,9 @@ async function createSession(options: {
         return { skills: [], diagnostics: base.diagnostics };
       }
       return {
-        skills: filterSkillsByState(base.skills).filter((skill) => !isAgentsSkill(skill)),
+        skills: filterSkillsByState(base.skills).filter(
+          (skill) => !isAgentsSkill(skill),
+        ),
         diagnostics: base.diagnostics,
       };
     },
@@ -1357,50 +1536,100 @@ async function createSession(options: {
       extensions: filterExtensionsByState(
         base.extensions.filter(
           (extension) =>
-            !(forkOwnsSubagents && basenameKey(extension.path) === "pi-subagents") &&
-            (!bundledNames.has(basenameKey(extension.path)) || bundledPaths.has(resolve(extension.path))),
+            !(
+              forkOwnsSubagents &&
+              basenameKey(extension.path) === "pi-subagents"
+            ) &&
+            (!bundledNames.has(basenameKey(extension.path)) ||
+              bundledPaths.has(resolve(extension.path))),
         ),
       ),
     }),
-    ...(agentOptions?.systemPrompt ? { systemPrompt: agentOptions.systemPrompt } : {}),
-    ...(agentOptions?.appendSystemPrompt ? { appendSystemPrompt: agentOptions.appendSystemPrompt } : {}),
+    ...(agentOptions?.systemPrompt
+      ? { systemPrompt: agentOptions.systemPrompt }
+      : {}),
+    ...(agentOptions?.appendSystemPrompt
+      ? { appendSystemPrompt: agentOptions.appendSystemPrompt }
+      : {}),
     ...(agentOptions?.noContextFiles ? { noContextFiles: true } : {}),
   });
   await resourceLoader.reload();
   const loadedExtensions = resourceLoader.getExtensions();
-  const collaborationExtension = collaborationEntry && loadedExtensions.extensions.find(
-    (extension) =>
-      basenameKey(extension.resolvedPath) === LEAFCODE_COLLABORATION_EXTENSION_NAME &&
-      resolve(extension.resolvedPath) === resolve(collaborationEntry.filePath),
-  );
+  const collaborationExtension =
+    collaborationEntry &&
+    loadedExtensions.extensions.find(
+      (extension) =>
+        basenameKey(extension.resolvedPath) ===
+          LEAFCODE_COLLABORATION_EXTENSION_NAME &&
+        resolve(extension.resolvedPath) ===
+          resolve(collaborationEntry.filePath),
+    );
   const missingCollaborationTools = LEAFCODE_COLLABORATION_TOOL_NAMES.filter(
     (name) => !collaborationExtension?.tools.has(name),
   );
-  if (collaborationEnabled && (!collaborationExtension || missingCollaborationTools.length > 0)) {
+  if (
+    collaborationEnabled &&
+    (!collaborationExtension || missingCollaborationTools.length > 0)
+  ) {
     const loadError = loadedExtensions.errors
-      .filter((entry) => basenameKey(entry.path) === LEAFCODE_COLLABORATION_EXTENSION_NAME)
+      .filter(
+        (entry) =>
+          basenameKey(entry.path) === LEAFCODE_COLLABORATION_EXTENSION_NAME,
+      )
       .map((entry) => entry.error)
       .join("; ");
     throw new Error(
       `Required collaboration extension failed to load; refusing to start a mutable session.${
-        missingCollaborationTools.length > 0 ? ` Missing tools: ${missingCollaborationTools.join(", ")}.` : ""
+        missingCollaborationTools.length > 0
+          ? ` Missing tools: ${missingCollaborationTools.join(", ")}.`
+          : ""
       }${loadError ? ` ${loadError}` : ""}`,
     );
   }
-  const permissionMode = options.permissionMode ?? readPermissionGateConfig(options.cwd);
+  const permissionMode =
+    options.permissionMode ?? readPermissionGateConfig(options.cwd);
   const persistPermission = options.permissionMode !== undefined;
-  applyPermissionMode({ extensionRunner: undefined }, options.cwd, permissionMode, {
-    persist: persistPermission,
-  });
+  applyPermissionMode(
+    { extensionRunner: undefined },
+    options.cwd,
+    permissionMode,
+    {
+      persist: persistPermission,
+    },
+  );
   // Agent-defined tool allowlist wins; otherwise default tools. The `subagent`
   // tool is only exposed when subagent permission is "allow" (delegation stays
   // independent from running an agent as the main persona).
   const configuredTools =
     agentOptions?.tools ??
     (options.subagentPermission === "allow"
-      ? ["read", "write", "edit", "powershell", "question", "grep", "find", "ls", "subagent", "todowrite"]
-      : ["read", "write", "edit", "powershell", "question", "grep", "find", "ls", "todowrite"]);
-  const tools = applyCollaborationToolPolicy(configuredTools, collaborationMode);
+      ? [
+          "read",
+          "write",
+          "edit",
+          "powershell",
+          "question",
+          "grep",
+          "find",
+          "ls",
+          "subagent",
+          "todowrite",
+        ]
+      : [
+          "read",
+          "write",
+          "edit",
+          "powershell",
+          "question",
+          "grep",
+          "find",
+          "ls",
+          "todowrite",
+        ]);
+  const tools = applyCollaborationToolPolicy(
+    configuredTools,
+    collaborationMode,
+  );
   const result = await pi.createAgentSession({
     cwd: options.cwd,
     agentDir,
@@ -1419,7 +1648,10 @@ async function createSession(options: {
   // no-ops because the extension never sees a runtime.
   await result.session.bindExtensions({
     onError: (error) => {
-      console.error(`[extension] ${error.extensionPath} (${error.event}):`, error.error);
+      console.error(
+        `[extension] ${error.extensionPath} (${error.event}):`,
+        error.error,
+      );
     },
   });
   // Agent-defined tools may include `subagent`; enforce the user choice after
@@ -1449,24 +1681,33 @@ async function resolveIntegratedModelRoute(
   providerID: string,
   modelID: string,
 ): Promise<ConcreteModelRoute | undefined> {
-  const accounts = listAccounts().filter((account) => accountHasProvider(account, providerID));
+  const accounts = listAccounts().filter((account) =>
+    accountHasProvider(account, providerID),
+  );
   const records = (await collectAccountModelRecords(accounts)).filter(
-    (record) => record.option.providerID === providerID && record.option.modelID === modelID,
+    (record) =>
+      record.option.providerID === providerID &&
+      record.option.modelID === modelID,
   );
   if (records.length === 0) return undefined;
 
   const usageProviders = getCachedUsage()?.providers ?? [];
   const workingCounts = workingTaskCounts([providerID]);
-  const candidates: RoutingCandidate<AccountModelRecord>[] = records.map((record) => ({
-    accountId: record.accountId,
-    accountIndex: record.accountIndex,
-    value: record,
-    usage:
-      usageProviders.find(
-        (provider) => provider.id === providerID && provider.accountId === record.accountId,
-      ) ?? null,
-    workingTaskCount: workingCounts.get(`${providerID}::${record.accountId}`) ?? 0,
-  }));
+  const candidates: RoutingCandidate<AccountModelRecord>[] = records.map(
+    (record) => ({
+      accountId: record.accountId,
+      accountIndex: record.accountIndex,
+      value: record,
+      usage:
+        usageProviders.find(
+          (provider) =>
+            provider.id === providerID &&
+            provider.accountId === record.accountId,
+        ) ?? null,
+      workingTaskCount:
+        workingCounts.get(`${providerID}::${record.accountId}`) ?? 0,
+    }),
+  );
   const decision = chooseRoutingCandidate(candidates);
   if (!decision.candidate) {
     if (decision.allMaxed) throw routeLimitError(decision.resetAt);
@@ -1477,7 +1718,11 @@ async function resolveIntegratedModelRoute(
     if (candidate.tier >= 3) continue;
     const model = candidate.value.runtime.getModel(providerID, modelID);
     if (model) {
-      return { accountId: candidate.accountId, runtime: candidate.value.runtime, model };
+      return {
+        accountId: candidate.accountId,
+        runtime: candidate.value.runtime,
+        model,
+      };
     }
   }
   return undefined;
@@ -1494,22 +1739,33 @@ async function resolveConcreteModel(
 
   const explicitAccountId = parsed.accountId;
   const requested = requestedAccountId?.trim() || explicitAccountId;
-  const strictAccountId = options?.strictAccountId === true || Boolean(explicitAccountId);
+  const strictAccountId =
+    options?.strictAccountId === true || Boolean(explicitAccountId);
   if (requested && isAccountRoutingProvider(parsed.providerID)) {
     const account = getAccount(requested);
     if (!account) {
-      if (strictAccountId) throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
+      if (strictAccountId)
+        throw Object.assign(new Error("アカウントが見つかりません"), {
+          status: 404,
+        });
     } else if (!accountHasProvider(account, parsed.providerID)) {
       if (strictAccountId) {
-        throw Object.assign(new Error("アカウントに紐づかないプロバイダーです"), { status: 400 });
+        throw Object.assign(
+          new Error("アカウントに紐づかないプロバイダーです"),
+          { status: 400 },
+        );
       }
     } else {
       const record = (await collectAccountModelRecords([account])).find(
-        (entry) => entry.option.providerID === parsed.providerID && entry.option.modelID === parsed.modelID,
+        (entry) =>
+          entry.option.providerID === parsed.providerID &&
+          entry.option.modelID === parsed.modelID,
       );
       if (!record) return undefined;
       const model = record.runtime.getModel(parsed.providerID, parsed.modelID);
-      return model ? { accountId: requested, runtime: record.runtime, model } : undefined;
+      return model
+        ? { accountId: requested, runtime: record.runtime, model }
+        : undefined;
     }
   }
 
@@ -1530,7 +1786,9 @@ async function resolveConcreteModel(
   return model ? { accountId: null, runtime, model } : undefined;
 }
 
-function toGoalLoopSummary(loop: GoalLoopDto | null): GoalLoopSummaryDto | undefined {
+function toGoalLoopSummary(
+  loop: GoalLoopDto | null,
+): GoalLoopSummaryDto | undefined {
   if (!loop) return undefined;
   return {
     status: loop.status,
@@ -1543,12 +1801,18 @@ function toSummary(task: TaskSummary): TaskSummary {
   const live = state().live.get(task.id);
   if (!live) return task;
   const ids = modelId(live.session.model);
-  const todoProgress = todoProgressFromTodos(todosFromPiMessages(live.session.messages));
+  const todoProgress = todoProgressFromTodos(
+    todosFromPiMessages(live.session.messages),
+  );
   const goalLoopSummary = toGoalLoopSummary(
-    readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId),
+    readGoalLoopState(
+      live.session.sessionManager.getCwd(),
+      live.session.sessionId,
+    ),
   );
   const thinking =
-    typeof live.session.thinkingLevel === "string" && isThinkingLevel(live.session.thinkingLevel)
+    typeof live.session.thinkingLevel === "string" &&
+    isThinkingLevel(live.session.thinkingLevel)
       ? live.session.thinkingLevel
       : task.thinkingLevel;
   return {
@@ -1577,11 +1841,14 @@ async function ensureLive(taskId: string): Promise<LiveRuntime> {
     if (again) return again;
 
     const task = getTask(taskId);
-    if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+    if (!task)
+      throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
     const project = getProject(task.projectId);
     const cwd = project?.rootPath ?? task.directory;
     const modelRoute = await resolveConcreteModel(
-      task.providerID && task.modelID ? modelValue(task.providerID, task.modelID) : undefined,
+      task.providerID && task.modelID
+        ? modelValue(task.providerID, task.modelID)
+        : undefined,
       task.accountId ?? null,
       { strictAccountId: true },
     );
@@ -1589,7 +1856,9 @@ async function ensureLive(taskId: string): Promise<LiveRuntime> {
     if (task.providerID && task.modelID && !modelRoute) {
       throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
     }
-    const sessionAccountId = modelRoute?.accountId ?? (!task.providerID ? task.accountId ?? null : null);
+    const sessionAccountId =
+      modelRoute?.accountId ??
+      (!task.providerID ? (task.accountId ?? null) : null);
     const setup = await createSession({
       cwd,
       sessionFile: task.sessionFile,
@@ -1616,7 +1885,9 @@ async function ensureLive(taskId: string): Promise<LiveRuntime> {
   return promise;
 }
 
-function validateProjectPath(rootPath: string): { ok: true; path: string } | { ok: false; error: string } {
+function validateProjectPath(
+  rootPath: string,
+): { ok: true; path: string } | { ok: false; error: string } {
   if (!isAbsolutePath(rootPath)) {
     return { ok: false, error: "絶対パスを指定してください" };
   }
@@ -1634,7 +1905,9 @@ function validateProjectPath(rootPath: string): { ok: true; path: string } | { o
   return { ok: true, path: canonical };
 }
 
-async function syncProvidersBestEffort(runtime: ModelRuntime): Promise<string[]> {
+async function syncProvidersBestEffort(
+  runtime: ModelRuntime,
+): Promise<string[]> {
   const warnings: string[] = [];
   try {
     await syncLlamaServerProvider(runtime);
@@ -1684,7 +1957,10 @@ export function readHealthCache(
  * Never cache a broken engine: HomeView polls every 3s waiting for `engineOk`
  * to flip true, so caching the failure would delay recovery by up to the TTL.
  */
-export function nextHealthCache(value: HealthDto, now: number): HealthCacheEntry | null {
+export function nextHealthCache(
+  value: HealthDto,
+  now: number,
+): HealthCacheEntry | null {
   return value.engineOk ? { at: now, value } : null;
 }
 
@@ -1699,7 +1975,10 @@ export function readModelCache(
   return entry.value;
 }
 
-export function nextModelCache(value: ModelOption[], now: number): ModelCacheEntry | null {
+export function nextModelCache(
+  value: ModelOption[],
+  now: number,
+): ModelCacheEntry | null {
   // Do not hide recovery from the model picker while the engine has no models.
   return value.length > 0 ? { at: now, value } : null;
 }
@@ -1766,12 +2045,15 @@ export async function getHealth(): Promise<HealthDto> {
         (model) => !runsThroughAccounts(model.providerID, accounts),
       )
     : [];
-  const accountSnapshot = current.accountModelCache?.key === accountModelsKey(accounts)
-    ? current.accountModelCache.value
-    : null;
+  const accountSnapshot =
+    current.accountModelCache?.key === accountModelsKey(accounts)
+      ? current.accountModelCache.value
+      : null;
   // ponytail: cold health reads auth files instead of constructing every account runtime;
   // /api/models replaces the count with an exact combined snapshot.
-  const accountReady = accountSnapshot ? false : await hasStoredAccountProvider(accounts);
+  const accountReady = accountSnapshot
+    ? false
+    : await hasStoredAccountProvider(accounts);
   const modelCount = accountSnapshot?.length ?? sharedModels.length;
   const value: HealthDto = {
     ok: !current.initError,
@@ -1803,7 +2085,11 @@ async function buildModelOptions(
     enabledModelOptionsFromCatalog(catalog).map((option) => option.value),
   );
   const available = providerIds
-    ? (await Promise.all(providerIds.map((providerId) => runtime.getAvailable(providerId)))).flat()
+    ? (
+        await Promise.all(
+          providerIds.map((providerId) => runtime.getAvailable(providerId)),
+        )
+      ).flat()
     : await runtime.getAvailable();
   const options: ModelOption[] = [];
   for (const model of available) {
@@ -1822,9 +2108,13 @@ async function buildModelOptions(
     });
   }
   // Preserve settings order from the catalog.
-  const order = enabledModelOptionsFromCatalog(catalog).map((option) => option.value);
+  const order = enabledModelOptionsFromCatalog(catalog).map(
+    (option) => option.value,
+  );
   const rank = new Map(order.map((value, index) => [value, index]));
-  options.sort((a, b) => (rank.get(a.value) ?? 1e9) - (rank.get(b.value) ?? 1e9));
+  options.sort(
+    (a, b) => (rank.get(a.value) ?? 1e9) - (rank.get(b.value) ?? 1e9),
+  );
   return options;
 }
 
@@ -1864,11 +2154,22 @@ async function collectAccountModelRecords(
     try {
       const runtime = await getRuntimeFor(account.id);
       if (!runtime) continue;
-      const built = await buildModelOptions(runtime, account.id, account.providers);
+      const built = await buildModelOptions(
+        runtime,
+        account.id,
+        account.providers,
+      );
       for (const [modelIndex, option] of built.entries()) {
         // API キー等で構成された他プロバイダを、この OAuth アカウントの枠へ複製しない。
         if (!accountHasProvider(account, option.providerID)) continue;
-        records.push({ accountId: account.id, accountLabel: account.label, accountIndex, modelIndex, runtime, option });
+        records.push({
+          accountId: account.id,
+          accountLabel: account.label,
+          accountIndex,
+          modelIndex,
+          runtime,
+          option,
+        });
       }
     } catch {
       // そのアカウントのランタイム初期化失敗は無視して残りの一覧を返す
@@ -1877,10 +2178,14 @@ async function collectAccountModelRecords(
   return records;
 }
 
-function intersection<T extends string>(values: readonly (readonly T[] | undefined)[]): T[] | undefined {
+function intersection<T extends string>(
+  values: readonly (readonly T[] | undefined)[],
+): T[] | undefined {
   const first = values[0];
   if (!first) return undefined;
-  return first.filter((value) => values.every((items) => items?.includes(value)));
+  return first.filter((value) =>
+    values.every((items) => items?.includes(value)),
+  );
 }
 
 function accountRowRank(
@@ -1889,9 +2194,11 @@ function accountRowRank(
   accountIndex: number,
   rowOrder: ReadonlyMap<string, number>,
 ): number {
-  return rowOrder.get(accountProviderModelKey(providerID, accountId)) ??
+  return (
+    rowOrder.get(accountProviderModelKey(providerID, accountId)) ??
     rowOrder.get(providerID) ??
-    1_000_000 + accountIndex;
+    1_000_000 + accountIndex
+  );
 }
 
 function integratedOption(
@@ -1902,20 +2209,27 @@ function integratedOption(
   const first = records[0]!;
   const providerID = first.option.providerID;
   const modelID = first.option.modelID;
-  const candidates: RoutingCandidate<AccountModelRecord>[] = records.map((record) => ({
-    accountId: record.accountId,
-    accountIndex: record.accountIndex,
-    value: record,
-    usage:
-      usageProviders.find(
-        (provider) => provider.id === providerID && provider.accountId === record.accountId,
-      ) ?? null,
-    workingTaskCount: workingCounts.get(`${providerID}::${record.accountId}`) ?? 0,
-  }));
+  const candidates: RoutingCandidate<AccountModelRecord>[] = records.map(
+    (record) => ({
+      accountId: record.accountId,
+      accountIndex: record.accountIndex,
+      value: record,
+      usage:
+        usageProviders.find(
+          (provider) =>
+            provider.id === providerID &&
+            provider.accountId === record.accountId,
+        ) ?? null,
+      workingTaskCount:
+        workingCounts.get(`${providerID}::${record.accountId}`) ?? 0,
+    }),
+  );
   const decision = chooseRoutingCandidate(candidates);
   const selectedUsage = decision.candidate?.usage;
   const input = intersection(records.map((record) => record.option.input));
-  const thinkingLevels = intersection(records.map((record) => record.option.thinkingLevels));
+  const thinkingLevels = intersection(
+    records.map((record) => record.option.thinkingLevels),
+  );
   return {
     value: `${providerID}::${modelID}`,
     label: first.option.label,
@@ -1931,11 +2245,19 @@ function integratedOption(
   };
 }
 
-function workingTaskCounts(providerIds: readonly string[]): Map<string, number> {
+function workingTaskCounts(
+  providerIds: readonly string[],
+): Map<string, number> {
   const counts = new Map<string, number>();
   const allowed = new Set(providerIds);
   for (const task of listTasks(false)) {
-    if (task.status !== "working" || !task.accountId || !task.providerID || !allowed.has(task.providerID)) continue;
+    if (
+      task.status !== "working" ||
+      !task.accountId ||
+      !task.providerID ||
+      !allowed.has(task.providerID)
+    )
+      continue;
     const key = `${task.providerID}::${task.accountId}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
@@ -1956,17 +2278,22 @@ function workingTaskCounts(providerIds: readonly string[]): Map<string, number> 
 async function buildModelsForAccounts(
   accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
 ): Promise<ModelOption[]> {
-  const sharedOptions: ModelOption[] = (await listModels().catch(() => [])).filter(
-    (option) => !runsThroughAccounts(option.providerID, accounts),
-  );
+  const sharedOptions: ModelOption[] = (
+    await listModels().catch(() => [])
+  ).filter((option) => !runsThroughAccounts(option.providerID, accounts));
   const records = await collectAccountModelRecords(accounts);
   const routingState = readProviderRouting();
-  const rowOrder = new Map(readProviderModelState().providerOrder.map((key, index) => [key, index]));
+  const rowOrder = new Map(
+    readProviderModelState().providerOrder.map((key, index) => [key, index]),
+  );
   const integrated = new Map<string, AccountModelRecord[]>();
   const separate: ModelOption[] = [];
   for (const record of records) {
     const { providerID, modelID } = record.option;
-    if (isAccountRoutingProvider(providerID) && accountRoutingMode(providerID, routingState) === "integrated") {
+    if (
+      isAccountRoutingProvider(providerID) &&
+      accountRoutingMode(providerID, routingState) === "integrated"
+    ) {
       const key = `${providerID}::${modelID}`;
       const group = integrated.get(key) ?? [];
       group.push(record);
@@ -1983,54 +2310,97 @@ async function buildModelsForAccounts(
 
   // The picker may display the same 30-minute last-good window as /api/models;
   // execution routing below deliberately uses getCachedUsage's strict 5-minute TTL.
-  const usageProviders = getCachedUsage(Date.now(), 30 * 60 * 1000)?.providers ?? [];
-  const workingCounts = workingTaskCounts([...new Set(records.map((record) => record.option.providerID))]);
+  const usageProviders =
+    getCachedUsage(Date.now(), 30 * 60 * 1000)?.providers ?? [];
+  const workingCounts = workingTaskCounts([
+    ...new Set(records.map((record) => record.option.providerID)),
+  ]);
   const integratedOptions = [...integrated.values()]
-    .map((group) => [...group].sort((a, b) =>
-      accountRowRank(a.option.providerID, a.accountId, a.accountIndex, rowOrder) -
-      accountRowRank(b.option.providerID, b.accountId, b.accountIndex, rowOrder) ||
-      a.modelIndex - b.modelIndex ||
-      a.accountIndex - b.accountIndex,
-    ))
+    .map((group) =>
+      [...group].sort(
+        (a, b) =>
+          accountRowRank(
+            a.option.providerID,
+            a.accountId,
+            a.accountIndex,
+            rowOrder,
+          ) -
+            accountRowRank(
+              b.option.providerID,
+              b.accountId,
+              b.accountIndex,
+              rowOrder,
+            ) ||
+          a.modelIndex - b.modelIndex ||
+          a.accountIndex - b.accountIndex,
+      ),
+    )
     .sort((a, b) => {
       const firstA = a[0]!;
       const firstB = b[0]!;
-      return accountRowRank(firstA.option.providerID, firstA.accountId, firstA.accountIndex, rowOrder) -
-        accountRowRank(firstB.option.providerID, firstB.accountId, firstB.accountIndex, rowOrder) ||
+      return (
+        accountRowRank(
+          firstA.option.providerID,
+          firstA.accountId,
+          firstA.accountIndex,
+          rowOrder,
+        ) -
+          accountRowRank(
+            firstB.option.providerID,
+            firstB.accountId,
+            firstB.accountIndex,
+            rowOrder,
+          ) ||
         firstA.modelIndex - firstB.modelIndex ||
-        firstA.option.modelID.localeCompare(firstB.option.modelID, "en");
+        firstA.option.modelID.localeCompare(firstB.option.modelID, "en")
+      );
     })
     .map((group) => integratedOption(group, usageProviders, workingCounts));
 
   const providerRank = await resolveProviderDisplayRank();
-  const accountIndex = new Map(accounts.map((account, index) => [account.id, index]));
+  const accountIndex = new Map(
+    accounts.map((account, index) => [account.id, index]),
+  );
   const all = [...sharedOptions, ...separate, ...integratedOptions];
   const rowRank = (option: ModelOption): number | undefined => {
-    if (option.routingMode === "integrated" && isAccountRoutingProvider(option.providerID)) {
+    if (
+      option.routingMode === "integrated" &&
+      isAccountRoutingProvider(option.providerID)
+    ) {
       // 統合モードの設定行はプロバイダキーで保存される。providerOrder に旧アカウント別
       // キーが残っていても、表示中の行の順（プロバイダキー）を優先する。
       const own = rowOrder.get(option.providerID);
       if (own !== undefined) return own;
       const ranks = accounts
         .filter((account) => accountHasProvider(account, option.providerID))
-        .map((account, index) => accountRowRank(option.providerID, account.id, index, rowOrder));
+        .map((account, index) =>
+          accountRowRank(option.providerID, account.id, index, rowOrder),
+        );
       return ranks.length > 0 ? Math.min(...ranks) : undefined;
     }
     return rowOrder.get(
-      option.accountId ? accountProviderModelKey(option.providerID, option.accountId) : option.providerID,
+      option.accountId
+        ? accountProviderModelKey(option.providerID, option.accountId)
+        : option.providerID,
     );
   };
   return all.sort((a, b) => {
     const aRank = rowRank(a);
     const bRank = rowRank(b);
     if (aRank !== undefined || bRank !== undefined) {
-      const rowDiff = (aRank ?? Number.MAX_SAFE_INTEGER) - (bRank ?? Number.MAX_SAFE_INTEGER);
+      const rowDiff =
+        (aRank ?? Number.MAX_SAFE_INTEGER) - (bRank ?? Number.MAX_SAFE_INTEGER);
       if (rowDiff !== 0) return rowDiff;
     }
-    const providerDiff = providerRank(a.providerID) - providerRank(b.providerID);
+    const providerDiff =
+      providerRank(a.providerID) - providerRank(b.providerID);
     if (providerDiff !== 0) return providerDiff;
-    const aAccount = a.accountId ? accountIndex.get(a.accountId) ?? accounts.length : -1;
-    const bAccount = b.accountId ? accountIndex.get(b.accountId) ?? accounts.length : -1;
+    const aAccount = a.accountId
+      ? (accountIndex.get(a.accountId) ?? accounts.length)
+      : -1;
+    const bAccount = b.accountId
+      ? (accountIndex.get(b.accountId) ?? accounts.length)
+      : -1;
     return aAccount - bAccount;
   });
 }
@@ -2064,7 +2434,9 @@ export async function listModelsForAccounts(
 }
 
 /** モデル一覧のプロバイダ表示順。providerOrder で未指定のプロバイダは既定カタログ順の末尾。 */
-async function resolveProviderDisplayRank(): Promise<(providerID: string) => number> {
+async function resolveProviderDisplayRank(): Promise<
+  (providerID: string) => number
+> {
   const rank = new Map<string, number>();
   const runtime = await getRuntimeFor();
   if (runtime) {
@@ -2075,12 +2447,16 @@ async function resolveProviderDisplayRank(): Promise<(providerID: string) => num
     );
     ordered.forEach((id, index) => rank.set(id, index));
   }
-  return (providerID: string) => rank.get(providerID) ?? Number.MAX_SAFE_INTEGER;
+  return (providerID: string) =>
+    rank.get(providerID) ?? Number.MAX_SAFE_INTEGER;
 }
 
 const DIRECT_MAX_TOKENS = 16_384;
 const DIRECT_DEFAULT_REASONING_BUDGET = 8_192;
-const DIRECT_REASONING_BUDGETS: Record<Exclude<ThinkingLevel, "off">, number> = {
+const DIRECT_REASONING_BUDGETS: Record<
+  Exclude<ThinkingLevel, "off">,
+  number
+> = {
   minimal: 1_024,
   low: 2_048,
   medium: 8_192,
@@ -2094,7 +2470,10 @@ function directCompletionMaxTokens(
   requested: number | undefined,
   reasoning: Exclude<ThinkingLevel, "off"> | undefined,
 ): number {
-  const answerTokens = Math.min(1_024, Math.max(1, Math.floor(requested ?? 256)));
+  const answerTokens = Math.min(
+    1_024,
+    Math.max(1, Math.floor(requested ?? 256)),
+  );
   if (!model.reasoning && !reasoning) return answerTokens;
   const modelMaxTokens =
     typeof model.maxTokens === "number" && Number.isFinite(model.maxTokens)
@@ -2103,7 +2482,10 @@ function directCompletionMaxTokens(
   return Math.min(
     DIRECT_MAX_TOKENS,
     modelMaxTokens,
-    answerTokens + (reasoning ? DIRECT_REASONING_BUDGETS[reasoning] : DIRECT_DEFAULT_REASONING_BUDGET),
+    answerTokens +
+      (reasoning
+        ? DIRECT_REASONING_BUDGETS[reasoning]
+        : DIRECT_DEFAULT_REASONING_BUDGET),
   );
 }
 
@@ -2131,7 +2513,10 @@ export async function completeModelText(options: {
     options.accountId ?? null,
     { strictAccountId: options.accountIdExplicit === true },
   );
-  if (!route) throw new Error(`モデルが見つかりません: ${options.providerID}::${options.modelID}`);
+  if (!route)
+    throw new Error(
+      `モデルが見つかりません: ${options.providerID}::${options.modelID}`,
+    );
   const { runtime, model } = route;
 
   const response = await runtime.completeSimple(
@@ -2143,14 +2528,19 @@ export async function completeModelText(options: {
     {
       signal: options.signal,
       maxRetries: 0,
-      maxTokens: directCompletionMaxTokens(model, options.maxTokens, options.reasoning),
+      maxTokens: directCompletionMaxTokens(
+        model,
+        options.maxTokens,
+        options.reasoning,
+      ),
       temperature: Math.min(2, Math.max(0, options.temperature ?? 0.2)),
       reasoning: options.reasoning,
     },
   );
   if (response.stopReason === "error" || response.stopReason === "aborted") {
     throw new Error(
-      response.errorMessage || `生成が${response.stopReason === "aborted" ? "中断" : "失敗"}しました`,
+      response.errorMessage ||
+        `生成が${response.stopReason === "aborted" ? "中断" : "失敗"}しました`,
     );
   }
   let text = "";
@@ -2162,7 +2552,9 @@ export async function completeModelText(options: {
   return text;
 }
 
-export async function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> {
+export async function listProviderModelsCatalog(): Promise<
+  ProviderModelsRow[]
+> {
   await ensureRuntime();
   const state = readProviderModelState();
   const routingState = readProviderRouting();
@@ -2183,12 +2575,17 @@ export async function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> 
     try {
       const accountRuntime = await getRuntimeFor(account.id);
       if (!accountRuntime) continue;
-      const catalog = buildProviderModelsCatalog(accountRuntime, state, account.id);
+      const catalog = buildProviderModelsCatalog(
+        accountRuntime,
+        state,
+        account.id,
+      );
       accountRows.push(
         ...catalog
           .filter(
             (row) =>
-              isAccountProviderId(row.id) && accountHasProvider(account, row.id),
+              isAccountProviderId(row.id) &&
+              accountHasProvider(account, row.id),
           )
           .map((row) => ({
             ...row,
@@ -2202,7 +2599,9 @@ export async function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> 
   }
 
   const integratedRows = new Map<string, ProviderModelsRow[]>();
-  const accountEntries: Array<{ row: ProviderModelsRow } | { providerId: string }> = [];
+  const accountEntries: Array<
+    { row: ProviderModelsRow } | { providerId: string }
+  > = [];
   for (const row of accountRows) {
     if (
       isAccountRoutingProvider(row.id) &&
@@ -2221,7 +2620,10 @@ export async function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> 
       rows.push(entry.row);
       continue;
     }
-    const merged = mergeIntegratedProviderRows(integratedRows.get(entry.providerId) ?? [], state);
+    const merged = mergeIntegratedProviderRows(
+      integratedRows.get(entry.providerId) ?? [],
+      state,
+    );
     if (merged) rows.push(merged);
   }
 
@@ -2239,14 +2641,19 @@ export async function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> 
   );
   if (!hasAccountRowOrder && !hasIntegratedRowOrder) return rows;
 
-  const orderIndex = new Map(state.providerOrder.map((key, index) => [key, index]));
+  const orderIndex = new Map(
+    state.providerOrder.map((key, index) => [key, index]),
+  );
   const integratedRowRank = new Map<string, number>();
   for (const row of accountRows) {
     if (!row.accountId) continue;
     const rank = orderIndex.get(rowKey(row));
     if (rank === undefined) continue;
     const current = integratedRowRank.get(row.id);
-    integratedRowRank.set(row.id, current === undefined ? rank : Math.min(current, rank));
+    integratedRowRank.set(
+      row.id,
+      current === undefined ? rank : Math.min(current, rank),
+    );
   }
   const rank = (row: ProviderModelsRow): number => {
     if (row.accountId && hasAccountRowOrder) {
@@ -2272,16 +2679,24 @@ export async function setProviderOrModelEnabled(
   enabled: boolean,
   accountId?: string | null,
 ): Promise<void> {
-  if (!key.trim()) throw Object.assign(new Error("key が必要です"), { status: 400 });
+  if (!key.trim())
+    throw Object.assign(new Error("key が必要です"), { status: 400 });
   const normalizedAccountId = accountId?.trim() || undefined;
   const providerId = key.split("::", 1)[0];
   if (!normalizedAccountId && runsThroughAccounts(providerId, listAccounts())) {
     if (accountRoutingMode(providerId) !== "integrated") {
-      throw Object.assign(new Error("このプロバイダーはアカウントIDが必要です"), { status: 400 });
+      throw Object.assign(
+        new Error("このプロバイダーはアカウントIDが必要です"),
+        { status: 400 },
+      );
     }
-    const accounts = listAccounts().filter((account) => accountHasProvider(account, providerId));
+    const accounts = listAccounts().filter((account) =>
+      accountHasProvider(account, providerId),
+    );
     if (accounts.length === 0) {
-      throw Object.assign(new Error("ログインアカウントが見つかりません"), { status: 404 });
+      throw Object.assign(new Error("ログインアカウントが見つかりません"), {
+        status: 404,
+      });
     }
     for (const account of accounts) {
       await setProviderModelDisabled(key, !enabled, account.id);
@@ -2291,9 +2706,17 @@ export async function setProviderOrModelEnabled(
   }
   if (normalizedAccountId) {
     const account = getAccount(normalizedAccountId);
-    if (!account) throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
-    if (!isAccountProviderId(providerId) || !accountHasProvider(account, providerId)) {
-      throw Object.assign(new Error("アカウントに紐づかないプロバイダーです"), { status: 400 });
+    if (!account)
+      throw Object.assign(new Error("アカウントが見つかりません"), {
+        status: 404,
+      });
+    if (
+      !isAccountProviderId(providerId) ||
+      !accountHasProvider(account, providerId)
+    ) {
+      throw Object.assign(new Error("アカウントに紐づかないプロバイダーです"), {
+        status: 400,
+      });
     }
   }
   await setProviderModelDisabled(key, !enabled, normalizedAccountId);
@@ -2327,20 +2750,44 @@ export async function saveProviderModelsOrder(input: {
       input.accountModelOrder === null ||
       Array.isArray(input.accountModelOrder)
     ) {
-      throw Object.assign(new Error("accountModelOrder が不正です"), { status: 400 });
+      throw Object.assign(new Error("accountModelOrder が不正です"), {
+        status: 400,
+      });
     }
-    for (const [accountId, byProvider] of Object.entries(input.accountModelOrder)) {
+    for (const [accountId, byProvider] of Object.entries(
+      input.accountModelOrder,
+    )) {
       const account = getAccount(accountId);
-      if (!account) throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
-      if (typeof byProvider !== "object" || byProvider === null || Array.isArray(byProvider)) {
-        throw Object.assign(new Error("accountModelOrder が不正です"), { status: 400 });
+      if (!account)
+        throw Object.assign(new Error("アカウントが見つかりません"), {
+          status: 404,
+        });
+      if (
+        typeof byProvider !== "object" ||
+        byProvider === null ||
+        Array.isArray(byProvider)
+      ) {
+        throw Object.assign(new Error("accountModelOrder が不正です"), {
+          status: 400,
+        });
       }
       for (const [providerId, order] of Object.entries(byProvider)) {
-        if (!isAccountProviderId(providerId) || !accountHasProvider(account, providerId)) {
-          throw Object.assign(new Error("アカウントに紐づかないプロバイダーです"), { status: 400 });
+        if (
+          !isAccountProviderId(providerId) ||
+          !accountHasProvider(account, providerId)
+        ) {
+          throw Object.assign(
+            new Error("アカウントに紐づかないプロバイダーです"),
+            { status: 400 },
+          );
         }
-        if (!Array.isArray(order) || order.some((id) => typeof id !== "string")) {
-          throw Object.assign(new Error("モデルの並び順が不正です"), { status: 400 });
+        if (
+          !Array.isArray(order) ||
+          order.some((id) => typeof id !== "string")
+        ) {
+          throw Object.assign(new Error("モデルの並び順が不正です"), {
+            status: 400,
+          });
         }
         modelOrder[accountProviderModelKey(providerId, accountId)] = order;
       }
@@ -2353,9 +2800,16 @@ export async function saveProviderModelsOrder(input: {
   invalidateHealthCache();
 }
 
-export async function listProviderAuth(): Promise<ProviderAuthDto[]> {
+export async function listProviderAuth(
+  accountId?: string | null,
+): Promise<ProviderAuthDto[]> {
   await ensureRuntime();
-  const runtime = await getRuntimeFor();
+  if (accountId && !getAccount(accountId)) {
+    throw Object.assign(new Error("アカウントが見つかりません"), {
+      status: 404,
+    });
+  }
+  const runtime = await getRuntimeFor(accountId);
   if (!runtime) return [];
   const providers = runtime.getProviders().map((provider) => {
     const status = runtime.getProviderAuthStatus(provider.id);
@@ -2375,9 +2829,26 @@ export async function listProviderAuth(): Promise<ProviderAuthDto[]> {
         : {}),
     } satisfies ProviderAuthDto;
   });
+  if (!providers.some((provider) => provider.id === "opencode-go")) {
+    // OpenCode Go is usage-only here; its account cookie is managed by the account panel.
+    providers.push({
+      id: "opencode-go",
+      name: "OpenCode Go",
+      authenticated: false,
+      methods: [],
+      authSource: undefined,
+      authLabel: undefined,
+      subscription: false,
+      oauthAvailable: false,
+      highlighted: true,
+      accountRoutingMode: accountRoutingMode("opencode-go"),
+    });
+  }
   providers.sort((a, b) => {
     const score = (p: ProviderAuthDto) =>
-      (p.highlighted ? 4 : 0) + (p.oauthAvailable ? 2 : 0) + (p.authenticated ? 1 : 0);
+      (p.highlighted ? 4 : 0) +
+      (p.oauthAvailable ? 2 : 0) +
+      (p.authenticated ? 1 : 0);
     return score(b) - score(a) || a.name.localeCompare(b.name, "en");
   });
   return providers;
@@ -2388,7 +2859,10 @@ export async function setProviderAccountRoutingMode(
   mode: AccountRoutingMode,
 ): Promise<void> {
   if (!isAccountRoutingProvider(providerId)) {
-    throw Object.assign(new Error("このプロバイダーはアカウント統合に対応していません"), { status: 400 });
+    throw Object.assign(
+      new Error("このプロバイダーはアカウント統合に対応していません"),
+      { status: 400 },
+    );
   }
   await setAccountRoutingMode(providerId, mode);
   invalidateHealthCache();
@@ -2400,15 +2874,36 @@ export async function startProviderLogin(
   accountId?: string | null,
 ): Promise<{ sessionId: string }> {
   await ensureRuntime();
+  if (accountId) {
+    const account = getAccount(accountId);
+    if (!account) {
+      throw Object.assign(new Error("アカウントが見つかりません"), {
+        status: 404,
+      });
+    }
+    if (!accountHasProvider(account, providerId)) {
+      throw Object.assign(new Error("アカウントに紐づかないプロバイダーです"), {
+        status: 400,
+      });
+    }
+  }
   const current = state();
   const runtime = await getRuntimeFor(accountId);
-  if (!runtime) throw Object.assign(new Error("Pi runtime が初期化されていません"), { status: 503 });
+  if (!runtime)
+    throw Object.assign(new Error("Pi runtime が初期化されていません"), {
+      status: 503,
+    });
   const provider = runtime.getProvider(providerId);
-  if (!provider) throw Object.assign(new Error(`不明なプロバイダー: ${providerId}`), { status: 404 });
+  if (!provider)
+    throw Object.assign(new Error(`不明なプロバイダー: ${providerId}`), {
+      status: 404,
+    });
   const methods = providerAuthMethods(provider);
   if (!methods.includes(authType)) {
     throw Object.assign(
-      new Error(`${provider.name} は ${authType === "oauth" ? "サブスクログイン" : "API キー"} に対応していません`),
+      new Error(
+        `${provider.name} は ${authType === "oauth" ? "サブスクログイン" : "API キー"} に対応していません`,
+      ),
       { status: 400 },
     );
   }
@@ -2416,7 +2911,11 @@ export async function startProviderLogin(
     current.loginSession.cancel();
     current.loginSession = null;
   }
-  const session = new ProviderLoginSession(providerId, authType, accountId ?? null);
+  const session = new ProviderLoginSession(
+    providerId,
+    authType,
+    accountId ?? null,
+  );
   current.loginSession = session;
   // Let the SSE client attach before the OAuth flow emits prompts.
   queueMicrotask(() => {
@@ -2438,7 +2937,10 @@ export async function startProviderLogin(
 
 export function answerProviderLogin(promptId: string, value: string): void {
   const session = state().loginSession;
-  if (!session) throw Object.assign(new Error("ログインセッションがありません"), { status: 409 });
+  if (!session)
+    throw Object.assign(new Error("ログインセッションがありません"), {
+      status: 409,
+    });
   session.answer(promptId, value);
 }
 
@@ -2448,9 +2950,14 @@ export function cancelProviderLogin(): void {
   current.loginSession = null;
 }
 
-export function subscribeProviderLogin(listener: (event: LoginSessionEvent) => void): () => void {
+export function subscribeProviderLogin(
+  listener: (event: LoginSessionEvent) => void,
+): () => void {
   const session = state().loginSession;
-  if (!session) throw Object.assign(new Error("ログインセッションがありません"), { status: 409 });
+  if (!session)
+    throw Object.assign(new Error("ログインセッションがありません"), {
+      status: 409,
+    });
   return session.subscribe(listener);
 }
 
@@ -2470,12 +2977,33 @@ export function getActiveProviderLogin(): {
   };
 }
 
-export async function logoutProvider(providerId: string, accountId?: string | null): Promise<void> {
+export async function logoutProvider(
+  providerId: string,
+  accountId?: string | null,
+): Promise<void> {
   await ensureRuntime();
+  if (accountId) {
+    const account = getAccount(accountId);
+    if (!account) {
+      throw Object.assign(new Error("アカウントが見つかりません"), {
+        status: 404,
+      });
+    }
+    if (!accountHasProvider(account, providerId)) {
+      throw Object.assign(new Error("アカウントに紐づかないプロバイダーです"), {
+        status: 400,
+      });
+    }
+  }
   const runtime = await getRuntimeFor(accountId);
-  if (!runtime) throw Object.assign(new Error("Pi runtime が初期化されていません"), { status: 503 });
+  if (!runtime)
+    throw Object.assign(new Error("Pi runtime が初期化されていません"), {
+      status: 503,
+    });
   if (!runtime.getProvider(providerId)) {
-    throw Object.assign(new Error(`不明なプロバイダー: ${providerId}`), { status: 404 });
+    throw Object.assign(new Error(`不明なプロバイダー: ${providerId}`), {
+      status: 404,
+    });
   }
   await runtime.logout(providerId);
   invalidateHealthCache();
@@ -2493,7 +3021,8 @@ export function getProjects(includeArchived = false): ProjectDto[] {
 
 export function addProject(rootPath: string): ProjectDto {
   const validated = validateProjectPath(rootPath);
-  if (!validated.ok) throw Object.assign(new Error(validated.error), { status: 400 });
+  if (!validated.ok)
+    throw Object.assign(new Error(validated.error), { status: 400 });
   return upsertProject({
     name: basename(validated.path) || "Untitled",
     rootPath: validated.path,
@@ -2502,7 +3031,10 @@ export function addProject(rootPath: string): ProjectDto {
 
 export function archiveProject(id: string): ProjectDto {
   const project = patchProject(id, { archived: true });
-  if (!project) throw Object.assign(new Error("プロジェクトが見つかりません"), { status: 404 });
+  if (!project)
+    throw Object.assign(new Error("プロジェクトが見つかりません"), {
+      status: 404,
+    });
   return project;
 }
 
@@ -2510,20 +3042,31 @@ export function getTaskSummaries(includeArchived = false): TaskSummary[] {
   return listTasks(includeArchived).map(toSummary);
 }
 
-export function readTodoProgress(pi: PiModule, task: TaskSummary): TodoProgressDto | undefined {
+export function readTodoProgress(
+  pi: PiModule,
+  task: TaskSummary,
+): TodoProgressDto | undefined {
   const sessionFile = task.sessionFile;
   if (!sessionFile) return undefined;
   try {
     const stat = statSync(sessionFile);
     const cached = todoProgressCache.get(sessionFile);
-    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    if (
+      cached &&
+      cached.mtimeMs === stat.mtimeMs &&
+      cached.size === stat.size
+    ) {
       return cached.value;
     }
     const sessionManager = pi.SessionManager.open(sessionFile);
     const progress = todoProgressFromTodos(
       todosFromPiMessages(sessionManager.buildSessionContext().messages),
     );
-    todoProgressCache.set(sessionFile, { mtimeMs: stat.mtimeMs, size: stat.size, value: progress });
+    todoProgressCache.set(sessionFile, {
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      value: progress,
+    });
     return progress;
   } catch {
     todoProgressCache.delete(sessionFile);
@@ -2531,20 +3074,29 @@ export function readTodoProgress(pi: PiModule, task: TaskSummary): TodoProgressD
   }
 }
 
-export async function getTaskSummariesWithTodoProgress(includeArchived = false): Promise<TaskSummary[]> {
+export async function getTaskSummariesWithTodoProgress(
+  includeArchived = false,
+): Promise<TaskSummary[]> {
   const summaries = getTaskSummaries(includeArchived);
   // アーカイブタスクは Sidebar の進捗表示対象外（TodoProgressBar は active のみ）。
   // 復元時は status が変わり再読込されるため、進捗の欠落は生じない。
   const coldTasks = summaries.filter(
-    (task) => task.status !== "archived" && !state().live.has(task.id) && task.sessionId,
+    (task) =>
+      task.status !== "archived" &&
+      !state().live.has(task.id) &&
+      task.sessionId,
   );
   const goalLoopByTaskId = new Map(
     coldTasks.flatMap((task) => {
-      const goalLoopSummary = toGoalLoopSummary(readGoalLoopState(task.directory, task.sessionId));
+      const goalLoopSummary = toGoalLoopSummary(
+        readGoalLoopState(task.directory, task.sessionId),
+      );
       return goalLoopSummary ? [[task.id, goalLoopSummary] as const] : [];
     }),
   );
-  const tasksToRead = coldTasks.filter((task) => !task.todoProgress && task.sessionFile);
+  const tasksToRead = coldTasks.filter(
+    (task) => !task.todoProgress && task.sessionFile,
+  );
 
   let progressByTaskId = new Map<string, TodoProgressDto>();
   if (tasksToRead.length > 0) {
@@ -2575,7 +3127,10 @@ export async function getTaskSummariesWithTodoProgress(includeArchived = false):
 }
 
 /** Build the cheap first packet sent before a cold Pi session is hydrated. */
-export function buildTaskBootstrap(task: TaskSummary, isStreaming = task.status === "working"): TaskDetail {
+export function buildTaskBootstrap(
+  task: TaskSummary,
+  isStreaming = task.status === "working",
+): TaskDetail {
   return {
     ...task,
     messages: [],
@@ -2586,14 +3141,19 @@ export function buildTaskBootstrap(task: TaskSummary, isStreaming = task.status 
 
 export function getTaskBootstrap(id: string): TaskDetail {
   const task = getTask(id);
-  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   const live = state().live.get(id);
-  return buildTaskBootstrap(task, live?.session.isStreaming ?? task.status === "working");
+  return buildTaskBootstrap(
+    task,
+    live?.session.isStreaming ?? task.status === "working",
+  );
 }
 
 export async function getTaskDetail(id: string): Promise<TaskDetail> {
   const task = getTask(id);
-  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   let messages: UiMessage[] = [];
   let isStreaming = false;
   let isCompacting = false;
@@ -2617,7 +3177,10 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
     todos = fields.todos;
   } catch (error) {
     if (error && typeof error === "object" && "status" in error) throw error;
-    throw Object.assign(error instanceof Error ? error : new Error(String(error)), { status: 503 });
+    throw Object.assign(
+      error instanceof Error ? error : new Error(String(error)),
+      { status: 503 },
+    );
   }
   return {
     ...toSummary(getTask(id) ?? task),
@@ -2632,9 +3195,14 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
   };
 }
 
-export async function goalLoopState(taskId: string): Promise<GoalLoopDto | null> {
+export async function goalLoopState(
+  taskId: string,
+): Promise<GoalLoopDto | null> {
   const live = await ensureLive(taskId);
-  return readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId);
+  return readGoalLoopState(
+    live.session.sessionManager.getCwd(),
+    live.session.sessionId,
+  );
 }
 
 export async function goalLoopCommand(
@@ -2670,7 +3238,10 @@ export async function goalLoopCommand(
     command = `/goal-${input.action}`;
   }
   await live.session.prompt(command);
-  return readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId);
+  return readGoalLoopState(
+    live.session.sessionManager.getCwd(),
+    live.session.sessionId,
+  );
 }
 
 export async function createTask(input: {
@@ -2693,19 +3264,40 @@ export async function createTask(input: {
   };
 }): Promise<TaskSummary> {
   const project = getProject(input.projectId);
-  if (!project) throw Object.assign(new Error("プロジェクトが見つかりません"), { status: 404 });
+  if (!project)
+    throw Object.assign(new Error("プロジェクトが見つかりません"), {
+      status: 404,
+    });
   const parsed = parseModelValue(input.model);
   const requestedAccountId = input.accountId?.trim() || parsed?.accountId;
-  if (input.accountId && parsed?.accountId && input.accountId !== parsed.accountId) {
-    throw Object.assign(new Error("モデルとアカウントの指定が一致しません"), { status: 400 });
+  if (
+    input.accountId &&
+    parsed?.accountId &&
+    input.accountId !== parsed.accountId
+  ) {
+    throw Object.assign(new Error("モデルとアカウントの指定が一致しません"), {
+      status: 400,
+    });
   }
   if (requestedAccountId && !getAccount(requestedAccountId)) {
-    throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
+    throw Object.assign(new Error("アカウントが見つかりません"), {
+      status: 404,
+    });
   }
-  if (requestedAccountId && parsed && !isAccountRoutingProvider(parsed.providerID)) {
-    throw Object.assign(new Error("共有プロバイダーにはアカウントを指定できません"), { status: 400 });
+  if (
+    requestedAccountId &&
+    parsed &&
+    !isAccountRoutingProvider(parsed.providerID)
+  ) {
+    throw Object.assign(
+      new Error("共有プロバイダーにはアカウントを指定できません"),
+      { status: 400 },
+    );
   }
-  const insertStoredTask = (model: Model | undefined, accountId: string | null): TaskSummary => {
+  const insertStoredTask = (
+    model: Model | undefined,
+    accountId: string | null,
+  ): TaskSummary => {
     const selectedIds = modelId(model);
     return insertTask({
       project,
@@ -2715,7 +3307,9 @@ export async function createTask(input: {
       modelID: selectedIds.modelID ?? parsed?.modelID,
       ...(accountId ? { accountId } : {}),
       ...(input.agent ? { agent: input.agent.trim() } : {}),
-      ...(input.skillPermission ? { skillPermission: input.skillPermission } : {}),
+      ...(input.skillPermission
+        ? { skillPermission: input.skillPermission }
+        : {}),
     });
   };
   let modelRoute: ConcreteModelRoute | undefined;
@@ -2726,18 +3320,36 @@ export async function createTask(input: {
     const routed = await withRouteLock(
       `${parsed?.providerID ?? "default"}::${parsed?.modelID ?? "default"}`,
       async () => {
-        const route = await resolveConcreteModel(input.model, requestedAccountId ?? null, {
-          strictAccountId: true,
-        });
-        if (!route) throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
-        if (route.accountId && parsed && isAccountRoutingProvider(parsed.providerID)) {
+        const route = await resolveConcreteModel(
+          input.model,
+          requestedAccountId ?? null,
+          {
+            strictAccountId: true,
+          },
+        );
+        if (!route)
+          throw Object.assign(new Error("モデルが見つかりません"), {
+            status: 400,
+          });
+        if (
+          route.accountId &&
+          parsed &&
+          isAccountRoutingProvider(parsed.providerID)
+        ) {
           reserveRoute(parsed.providerID, route.accountId);
         }
         try {
           patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
-          return { route, task: insertStoredTask(route.model, route.accountId) };
+          return {
+            route,
+            task: insertStoredTask(route.model, route.accountId),
+          };
         } catch (error) {
-          if (route.accountId && parsed && isAccountRoutingProvider(parsed.providerID)) {
+          if (
+            route.accountId &&
+            parsed &&
+            isAccountRoutingProvider(parsed.providerID)
+          ) {
             releaseRoute(parsed.providerID, route.accountId);
           }
           throw error;
@@ -2746,8 +3358,15 @@ export async function createTask(input: {
     );
     modelRoute = routed.route;
     concreteAccountId = routed.route.accountId;
-    if (modelRoute.accountId && parsed && isAccountRoutingProvider(parsed.providerID)) {
-      reservedAccount = { providerID: parsed.providerID, accountId: modelRoute.accountId };
+    if (
+      modelRoute.accountId &&
+      parsed &&
+      isAccountRoutingProvider(parsed.providerID)
+    ) {
+      reservedAccount = {
+        providerID: parsed.providerID,
+        accountId: modelRoute.accountId,
+      };
     }
     task = routed.task;
   } else {
@@ -2755,7 +3374,9 @@ export async function createTask(input: {
     task = insertStoredTask(undefined, concreteAccountId);
   }
   const model = modelRoute?.model;
-  const requestedThinking = isThinkingLevel(input.thinkingLevel) ? input.thinkingLevel : "off";
+  const requestedThinking = isThinkingLevel(input.thinkingLevel)
+    ? input.thinkingLevel
+    : "off";
   const thinkingLevel = model
     ? clampThinkingLevelForModel(model, requestedThinking)
     : requestedThinking;
@@ -2776,11 +3397,16 @@ export async function createTask(input: {
       sessionId: setup.session.sessionId,
       sessionFile: setup.session.sessionFile,
       status: "working",
-      thinkingLevel:
-        isThinkingLevel(setup.session.thinkingLevel) ? setup.session.thinkingLevel : thinkingLevel,
+      thinkingLevel: isThinkingLevel(setup.session.thinkingLevel)
+        ? setup.session.thinkingLevel
+        : thinkingLevel,
       ...modelId(setup.session.model),
     });
-    const live = attachSession(task.id, setup.session, setup.skillPermissionRef);
+    const live = attachSession(
+      task.id,
+      setup.session,
+      setup.skillPermissionRef,
+    );
     if (input.goalLoop) {
       await goalLoopCommand(task.id, {
         action: "start",
@@ -2818,49 +3444,56 @@ function queuePrompt(
   },
 ): void {
   applySubagentPermission(live.session, meta?.subagentPermission);
-  const isHangRetry = meta?.isHangRetry === true || prompt.startsWith(HANG_RETRY_PREFIX);
+  const isHangRetry =
+    meta?.isHangRetry === true || prompt.startsWith(HANG_RETRY_PREFIX);
   live.manualAbortedAssistantId = null;
   armTaskHangWatch({
     taskId: live.taskId,
     prompt,
     images,
     ...(meta?.agent ? { agent: meta.agent } : {}),
-    ...(meta?.subagentPermission ? { subagentPermission: meta.subagentPermission } : {}),
+    ...(meta?.subagentPermission
+      ? { subagentPermission: meta.subagentPermission }
+      : {}),
     ...(meta?.permissionMode ? { permissionMode: meta.permissionMode } : {}),
     isHangRetry,
   });
   const runPrompt = async () => {
-      setTaskStatus(live.taskId, "working");
-      const options: {
-        images?: Array<{ type: "image"; data: string; mimeType: string }>;
-        streamingBehavior?: "steer" | "followUp";
-      } = {};
-      if (images && images.length > 0) {
-        options.images = images.map((image) => ({
-          type: "image" as const,
-          data: image.data,
-          mimeType: image.mimeType,
-        }));
-      }
-      if (meta?.streamingBehavior) {
-        options.streamingBehavior = meta.streamingBehavior;
-      } else if (live.session.isStreaming) {
-        options.streamingBehavior = "followUp";
-      }
-      try {
-        await live.session.prompt(prompt, options);
-      } catch (error) {
-        // 一部モデル（o系/gpt-5-pro 等）は思考オフ不可の 400 を返す。
-        // 思考レベルを引き上げて同じプロンプトを一度だけ再試行する。
-        if (!isReasoningMandatoryError(error) || live.reasoningFallbackTried) throw error;
-        live.reasoningFallbackTried = true;
-        const level = reasoningFallbackLevel(live.session.model);
-        if (live.session.thinkingLevel !== level) live.session.setThinkingLevel(level);
-        patchTask(live.taskId, { thinkingLevel: level });
-        emitTaskSnapshot(live, "thinking_level_changed", { thinkingLevel: level });
-        await live.session.prompt(prompt, options);
-      }
-    };
+    setTaskStatus(live.taskId, "working");
+    const options: {
+      images?: Array<{ type: "image"; data: string; mimeType: string }>;
+      streamingBehavior?: "steer" | "followUp";
+    } = {};
+    if (images && images.length > 0) {
+      options.images = images.map((image) => ({
+        type: "image" as const,
+        data: image.data,
+        mimeType: image.mimeType,
+      }));
+    }
+    if (meta?.streamingBehavior) {
+      options.streamingBehavior = meta.streamingBehavior;
+    } else if (live.session.isStreaming) {
+      options.streamingBehavior = "followUp";
+    }
+    try {
+      await live.session.prompt(prompt, options);
+    } catch (error) {
+      // 一部モデル（o系/gpt-5-pro 等）は思考オフ不可の 400 を返す。
+      // 思考レベルを引き上げて同じプロンプトを一度だけ再試行する。
+      if (!isReasoningMandatoryError(error) || live.reasoningFallbackTried)
+        throw error;
+      live.reasoningFallbackTried = true;
+      const level = reasoningFallbackLevel(live.session.model);
+      if (live.session.thinkingLevel !== level)
+        live.session.setThinkingLevel(level);
+      patchTask(live.taskId, { thinkingLevel: level });
+      emitTaskSnapshot(live, "thinking_level_changed", {
+        thinkingLevel: level,
+      });
+      await live.session.prompt(prompt, options);
+    }
+  };
   const handlePromptError = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     setTaskStatus(live.taskId, "error", message);
@@ -2882,7 +3515,10 @@ function queuePrompt(
   // A steering request must reach the SDK while the current turn is still
   // running. The normal prompt chain is retained for idle submissions so two
   // simultaneous starts cannot race each other.
-  if (meta?.streamingBehavior && (live.session.isStreaming || live.promptActive)) {
+  if (
+    meta?.streamingBehavior &&
+    (live.session.isStreaming || live.promptActive)
+  ) {
     void runPrompt().catch(handlePromptError);
     return;
   }
@@ -2909,7 +3545,8 @@ export async function promptTask(
 ): Promise<TaskSummary> {
   const live = await ensureLive(id);
   applySubagentPermission(live.session, options?.subagentPermission);
-  if (options?.skillPermission) await applyLiveSkillPermission(live, options.skillPermission);
+  if (options?.skillPermission)
+    await applyLiveSkillPermission(live, options.skillPermission);
   if (options?.permissionMode) {
     const task = getTask(id);
     const project = task ? getProject(task.projectId) : undefined;
@@ -2948,7 +3585,8 @@ export async function setTaskSkillPermission(
 ): Promise<TaskSummary> {
   const live = await ensureLive(id);
   const task = getTask(id);
-  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   await applyLiveSkillPermission(live, permission);
   return patchTask(id, { skillPermission: permission }) ?? task;
 }
@@ -2959,7 +3597,8 @@ export async function setTaskPermissionMode(
 ): Promise<TaskSummary> {
   const live = await ensureLive(id);
   const task = getTask(id);
-  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   const project = getProject(task.projectId);
   const cwd = project?.rootPath ?? live.session.sessionManager.getCwd();
   applyPermissionMode(live.session, cwd, mode);
@@ -2975,7 +3614,10 @@ export function applySubagentPermission(
   permission: "allow" | "deny" | undefined,
 ): void {
   const effective = permission ?? "deny";
-  if (typeof session.setActiveToolsByName !== "function" || typeof session.getActiveToolNames !== "function") {
+  if (
+    typeof session.setActiveToolsByName !== "function" ||
+    typeof session.getActiveToolNames !== "function"
+  ) {
     return;
   }
   const current = session.getActiveToolNames();
@@ -2988,7 +3630,10 @@ export function applySubagentPermission(
 }
 
 /** Stop detached async children before aborting the parent Pi turn. */
-async function stopSubagentRunsForTask(live: LiveRuntime, messages: UiMessage[]): Promise<void> {
+async function stopSubagentRunsForTask(
+  live: LiveRuntime,
+  messages: UiMessage[],
+): Promise<void> {
   const command = live.session.extensionRunner.getCommand("subagents-stop");
   if (!command) return;
   let sinceMs: number | undefined;
@@ -3006,12 +3651,16 @@ async function stopSubagentRunsForTask(live: LiveRuntime, messages: UiMessage[])
       cwd: live.session.sessionManager.getCwd(),
       ...(sinceMs !== undefined ? { sinceMs } : {}),
     });
-    const result = await stopRunningSubagentRuns(
-      runs,
-      async (runId) => command.handler(runId, live.session.extensionRunner.createCommandContext()),
+    const result = await stopRunningSubagentRuns(runs, async (runId) =>
+      command.handler(
+        runId,
+        live.session.extensionRunner.createCommandContext(),
+      ),
     );
     if (result.failed.length > 0) {
-      console.warn(`[subagent] failed to stop runs: ${result.failed.join(", ")}`);
+      console.warn(
+        `[subagent] failed to stop runs: ${result.failed.join(", ")}`,
+      );
     }
   } catch (error) {
     // Parent abort must remain available even when an artifact or extension is unavailable.
@@ -3038,18 +3687,24 @@ export async function abortTask(id: string): Promise<TaskSummary> {
       }
     }
     const turnAssistants =
-      promptIndex >= 0 ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant") : [];
+      promptIndex >= 0
+        ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant")
+        : [];
     live.manualAbortedAssistantId = turnAssistants.at(-1)?.id ?? "";
     await stopSubagentRunsForTask(live, msgs);
     await live.session.abort();
     emitTaskSnapshot(live, "abort");
   }
   const task = setTaskStatus(id, "idle");
-  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   return toSummary(task);
 }
 
-export async function setTaskModel(id: string, modelValueRaw: string): Promise<TaskSummary> {
+export async function setTaskModel(
+  id: string,
+  modelValueRaw: string,
+): Promise<TaskSummary> {
   const task = getTask(id);
   const parsed = parseModelValue(modelValueRaw);
   if (!task || !parsed) {
@@ -3059,7 +3714,8 @@ export async function setTaskModel(id: string, modelValueRaw: string): Promise<T
     `${parsed.providerID}::${parsed.modelID}`,
     () => resolveConcreteModel(modelValueRaw, parsed.accountId ?? null),
   );
-  if (!modelRoute) throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+  if (!modelRoute)
+    throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
   const targetAccountId = modelRoute.accountId;
   const model = modelRoute.model;
   const levels = thinkingLevelsForModel(model);
@@ -3070,18 +3726,26 @@ export async function setTaskModel(id: string, modelValueRaw: string): Promise<T
   if (targetAccountId !== (task.accountId ?? null)) {
     const live = await ensureLive(id);
     if (live.session.isStreaming) {
-      throw Object.assign(new Error("実行中タスクのアカウントは変更できません"), { status: 409 });
+      throw Object.assign(
+        new Error("実行中タスクのアカウントは変更できません"),
+        { status: 409 },
+      );
     }
     disposeLive(id);
-    const current = isThinkingLevel(task.thinkingLevel) ? task.thinkingLevel : "off";
-    const thinkingLevel = levels.includes(current) ? current : defaultThinkingLevel(levels);
+    const current = isThinkingLevel(task.thinkingLevel)
+      ? task.thinkingLevel
+      : "off";
+    const thinkingLevel = levels.includes(current)
+      ? current
+      : defaultThinkingLevel(levels);
     const updatedTask = patchTask(id, {
       providerID: parsed.providerID,
       modelID: parsed.modelID,
       thinkingLevel,
       accountId: targetAccountId ?? undefined,
     });
-    if (!updatedTask) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+    if (!updatedTask)
+      throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
     const summary = toSummary(updatedTask);
     emit(id, { type: "snapshot", task: summary });
     return summary;
@@ -3095,7 +3759,10 @@ export async function setTaskModel(id: string, modelValueRaw: string): Promise<T
     : getTask(id)?.thinkingLevel;
   // 現レベルが新モデルでも有効なら維持、無ければ既定（medium 相当）へ。
   // clampThinkingLevel は上位レベルへ昇格するため使わない。
-  const thinkingLevel = current && levels.includes(current) ? current : defaultThinkingLevel(levels);
+  const thinkingLevel =
+    current && levels.includes(current)
+      ? current
+      : defaultThinkingLevel(levels);
   if (live.session.thinkingLevel !== thinkingLevel) {
     live.session.setThinkingLevel(thinkingLevel);
   }
@@ -3104,18 +3771,19 @@ export async function setTaskModel(id: string, modelValueRaw: string): Promise<T
     modelID: ids.modelID ?? parsed.modelID,
     thinkingLevel,
   });
-  if (!updatedTask) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (!updatedTask)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   const summary = toSummary(updatedTask);
   emit(id, {
     type: "snapshot",
     task: summary,
     ...sessionSnapshotFields(
-        live.session,
-        live.throughputByStartedAt,
-        live.toolStartedAt,
-        live.toolEndedAt,
-        live.toolPartialOutputByCallId,
-      ),
+      live.session,
+      live.throughputByStartedAt,
+      live.toolStartedAt,
+      live.toolEndedAt,
+      live.toolPartialOutputByCallId,
+    ),
   });
   return summary;
 }
@@ -3133,18 +3801,19 @@ export async function setTaskThinkingLevel(
     ? live.session.thinkingLevel
     : levelRaw;
   const task = patchTask(id, { thinkingLevel });
-  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   const summary = toSummary(task);
   emit(id, {
     type: "snapshot",
     task: summary,
     ...sessionSnapshotFields(
-        live.session,
-        live.throughputByStartedAt,
-        live.toolStartedAt,
-        live.toolEndedAt,
-        live.toolPartialOutputByCallId,
-      ),
+      live.session,
+      live.throughputByStartedAt,
+      live.toolStartedAt,
+      live.toolEndedAt,
+      live.toolPartialOutputByCallId,
+    ),
   });
   return summary;
 }
@@ -3155,7 +3824,9 @@ export async function compactTask(
 ): Promise<TaskDetail> {
   const live = await ensureLive(id);
   if (live.session.isCompacting) {
-    throw Object.assign(new Error("コンテキスト圧縮は既に実行中です"), { status: 409 });
+    throw Object.assign(new Error("コンテキスト圧縮は既に実行中です"), {
+      status: 409,
+    });
   }
   const instructions = customInstructions?.trim();
   try {
@@ -3168,7 +3839,8 @@ export async function compactTask(
 
 export async function abortTaskCompaction(id: string): Promise<TaskDetail> {
   const live = state().live.get(id);
-  if (!live) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (!live)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   live.session.abortCompaction();
   return getTaskDetail(id);
 }
@@ -3179,28 +3851,40 @@ export async function abortTaskCompaction(id: string): Promise<TaskDetail> {
  * Pi コアの navigateTree は user メッセージをターゲットにすると leaf を親へ
  * 移し、破棄した分の入力を editorText として返す。
  */
-export async function revertTask(id: string, messageId: string): Promise<{
+export async function revertTask(
+  id: string,
+  messageId: string,
+): Promise<{
   task: TaskDetail;
   text: string;
   images: { uri: string; mime: string; name?: string }[];
 }> {
   const live = await ensureLive(id);
   if (live.session.isStreaming) {
-    throw Object.assign(new Error("応答中は巻き戻せません。停止してからお試しください"), {
-      status: 409,
-    });
+    throw Object.assign(
+      new Error("応答中は巻き戻せません。停止してからお試しください"),
+      {
+        status: 409,
+      },
+    );
   }
   const entry = messageEntryById(live.session, messageId);
   if (!entry) {
-    throw Object.assign(new Error("対象メッセージが見つかりません"), { status: 404 });
+    throw Object.assign(new Error("対象メッセージが見つかりません"), {
+      status: 404,
+    });
   }
   if (entry.message.role !== "user") {
-    throw Object.assign(new Error("ユーザーメッセージのみ入力欄に戻せます"), { status: 400 });
+    throw Object.assign(new Error("ユーザーメッセージのみ入力欄に戻せます"), {
+      status: 400,
+    });
   }
   const previousLeafId = live.session.sessionManager.getLeafId();
   const result = await live.session.navigateTree(entry.id);
   if (result.cancelled) {
-    throw Object.assign(new Error("巻き戻しがキャンセルされました"), { status: 400 });
+    throw Object.assign(new Error("巻き戻しがキャンセルされました"), {
+      status: 400,
+    });
   }
   live.revertLeafId = captureRevertLeafId(previousLeafId);
   const taskDetail = await getTaskDetail(id);
@@ -3216,7 +3900,11 @@ export async function revertTask(id: string, messageId: string): Promise<{
     ),
     eventType: "revert",
   });
-  return { task: taskDetail, text: result.editorText ?? "", images: imagesFromEntry(entry) };
+  return {
+    task: taskDetail,
+    text: result.editorText ?? "",
+    images: imagesFromEntry(entry),
+  };
 }
 
 /** UI のメッセージ id からセッションエントリを取り出す。 */
@@ -3231,16 +3919,24 @@ export function messageEntryById(
       if (entry.type !== "message" || entry.id !== messageId) continue;
       const message = (entry as { message?: unknown }).message;
       if (!message || typeof message !== "object") continue;
-      return { id: entry.id, message: message as { role: string; content: unknown } };
+      return {
+        id: entry.id,
+        message: message as { role: string; content: unknown },
+      };
     }
     // フォールバック: 旧スナップショットの仮 id `msg-N`（ブランチ上のメッセージ順）
     const fallback = /^msg-(\d+)$/.exec(messageId);
     if (fallback) {
       const branch = entries.filter((entry) => entry.type === "message");
       const entry = branch[Number(fallback[1])];
-      const message = entry ? (entry as { message?: unknown }).message : undefined;
+      const message = entry
+        ? (entry as { message?: unknown }).message
+        : undefined;
       if (entry && message && typeof message === "object") {
-        return { id: entry.id, message: message as { role: string; content: unknown } };
+        return {
+          id: entry.id,
+          message: message as { role: string; content: unknown },
+        };
       }
     }
   } catch {
@@ -3253,15 +3949,25 @@ export function messageEntryById(
 export function imagesFromEntry(entry: {
   message: { role: string; content: unknown };
 }): { uri: string; mime: string; name?: string }[] {
-  const content = Array.isArray(entry.message.content) ? entry.message.content : [];
+  const content = Array.isArray(entry.message.content)
+    ? entry.message.content
+    : [];
   const images: { uri: string; mime: string; name?: string }[] = [];
   content.forEach((block, index) => {
     if (!block || typeof block !== "object") return;
-    const record = block as { type?: unknown; mimeType?: unknown; data?: unknown; filename?: unknown };
+    const record = block as {
+      type?: unknown;
+      mimeType?: unknown;
+      data?: unknown;
+      filename?: unknown;
+    };
     if (record.type !== "image") return;
     const data = typeof record.data === "string" ? record.data : "";
     if (!data) return;
-    const mime = typeof record.mimeType === "string" && record.mimeType ? record.mimeType : "image/png";
+    const mime =
+      typeof record.mimeType === "string" && record.mimeType
+        ? record.mimeType
+        : "image/png";
     images.push({
       uri: `data:${mime};base64,${data}`,
       mime,
@@ -3274,17 +3980,22 @@ export function imagesFromEntry(entry: {
 }
 
 /** unrevert 用: navigateTree の前に leaf id を保存する（後だと巻き戻し後の位置になる）。 */
-export function captureRevertLeafId(leafIdBeforeNavigate: string | null): string | null {
+export function captureRevertLeafId(
+  leafIdBeforeNavigate: string | null,
+): string | null {
   return leafIdBeforeNavigate;
 }
 
 /** 巻き戻し取消: revert 前の leaf へ戻す。 */
 export async function unrevertTask(id: string): Promise<TaskDetail> {
   const live = state().live.get(id);
-  if (!live) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (!live)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   const target = live.revertLeafId;
   if (!target) {
-    throw Object.assign(new Error("巻き戻しの対象がありません"), { status: 400 });
+    throw Object.assign(new Error("巻き戻しの対象がありません"), {
+      status: 400,
+    });
   }
   live.revertLeafId = null;
   await live.session.navigateTree(target);
@@ -3309,7 +4020,9 @@ export async function getCompactionSettings(): Promise<CompactionSettingsDto> {
   return openSettingsManager().getCompactionSettings();
 }
 
-export async function setCompactionEnabled(enabled: boolean): Promise<CompactionSettingsDto> {
+export async function setCompactionEnabled(
+  enabled: boolean,
+): Promise<CompactionSettingsDto> {
   await ensureRuntime();
   const settings = openSettingsManager();
   settings.setCompactionEnabled(enabled);
@@ -3323,27 +4036,38 @@ export async function setCompactionEnabled(enabled: boolean): Promise<Compaction
 export function archiveTask(id: string): TaskSummary {
   disposeLive(id);
   const task = setTaskStatus(id, "archived");
-  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   return task;
 }
 
 export function restoreTask(id: string): TaskSummary {
   const task = getTask(id);
-  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  if (task.status !== "archived") throw Object.assign(new Error("アーカイブされたタスクのみ復元できます"), { status: 400 });
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (task.status !== "archived")
+    throw Object.assign(new Error("アーカイブされたタスクのみ復元できます"), {
+      status: 400,
+    });
   return patchTask(id, { status: "idle" }) ?? task;
 }
 
 export function destroyTask(id: string): { ok: true } {
   const task = getTask(id);
-  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   disposeLive(id);
   deleteTask(id);
   return { ok: true };
 }
 
-export function destroyArchivedTasksByProject(projectId: string): { ok: true; removed: number } {
-  const tasks = listTasks(true).filter((task) => task.projectId === projectId && task.status === "archived");
+export function destroyArchivedTasksByProject(projectId: string): {
+  ok: true;
+  removed: number;
+} {
+  const tasks = listTasks(true).filter(
+    (task) => task.projectId === projectId && task.status === "archived",
+  );
   for (const task of tasks) {
     disposeLive(task.id);
     deleteTask(task.id);
@@ -3353,13 +4077,19 @@ export function destroyArchivedTasksByProject(projectId: string): { ok: true; re
 
 export function restoreProject(id: string): ProjectDto {
   const project = patchProject(id, { archived: false });
-  if (!project) throw Object.assign(new Error("プロジェクトが見つかりません"), { status: 404 });
+  if (!project)
+    throw Object.assign(new Error("プロジェクトが見つかりません"), {
+      status: 404,
+    });
   return project;
 }
 
 export function destroyProject(id: string): { ok: true } {
   const project = getProject(id);
-  if (!project) throw Object.assign(new Error("プロジェクトが見つかりません"), { status: 404 });
+  if (!project)
+    throw Object.assign(new Error("プロジェクトが見つかりません"), {
+      status: 404,
+    });
   const tasks = listTasks(true).filter((task) => task.projectId === id);
   for (const task of tasks) {
     disposeLive(task.id);
@@ -3406,7 +4136,9 @@ export function subscribeTask(
   };
 }
 
-export function pendingPermissionForTask(taskId: string): PermissionRequestDto | null {
+export function pendingPermissionForTask(
+  taskId: string,
+): PermissionRequestDto | null {
   return ensurePermissionPromptService().pendingForTask(taskId);
 }
 
@@ -3418,7 +4150,9 @@ export function respondToPermissionPrompt(
   return ensurePermissionPromptService().respond(taskId, requestId, approved);
 }
 
-export function pendingQuestionForTask(taskId: string): QuestionRequestDto | null {
+export function pendingQuestionForTask(
+  taskId: string,
+): QuestionRequestDto | null {
   return ensureQuestionPromptService().pendingForTask(taskId);
 }
 
@@ -3447,14 +4181,21 @@ export function listPendingAttention(): AttentionItemDto[] {
     const kinds: AttentionItemDto["kinds"] = [];
     if (permissionIds.has(task.id)) kinds.push("permission");
     if (questionIds.has(task.id)) kinds.push("question");
-    if (kinds.length > 0) items.push({ taskId: task.id, title: task.title, kinds });
+    if (kinds.length > 0)
+      items.push({ taskId: task.id, title: task.title, kinds });
   }
   return items;
 }
 
-export function jsonError(error: unknown, fallbackStatus = 500): { error: string; status: number } {
+export function jsonError(
+  error: unknown,
+  fallbackStatus = 500,
+): { error: string; status: number } {
   const status =
-    typeof error === "object" && error && "status" in error && typeof error.status === "number"
+    typeof error === "object" &&
+    error &&
+    "status" in error &&
+    typeof error.status === "number"
       ? error.status
       : fallbackStatus;
   return {

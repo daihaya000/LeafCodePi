@@ -1,9 +1,13 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { UsageScope } from "@/lib/codexbar/types";
 
 export const CURSOR_PROVIDER_ID = "cursor";
 
 type ExtensionApiStub = {
-  registerProvider: (nameOrProvider: string | { id: string }, config?: Record<string, unknown>) => void;
+  registerProvider: (
+    nameOrProvider: string | { id: string },
+    config?: Record<string, unknown>,
+  ) => void;
   on: (...args: unknown[]) => void;
   registerCommand: (...args: unknown[]) => void;
 };
@@ -12,7 +16,31 @@ type ExtensionApiStub = {
  * Load @rahularya01/pi-cursor so Cursor subscription OAuth + models appear in Pi.
  * Unofficial community extension; uses Cursor account tokens (IDE / CLI / /login).
  */
-export async function registerCursorProvider(runtime: ModelRuntime): Promise<void> {
+function withCursorScope(
+  config: Record<string, unknown>,
+  scope: UsageScope | undefined,
+): Record<string, unknown> {
+  if (!scope?.authPath || typeof config.refreshModels !== "function")
+    return config;
+  const refreshModels = config.refreshModels as (
+    context: unknown,
+  ) => Promise<unknown>;
+  const oauth = config.oauth as
+    { getApiKey?: (credentials: unknown) => string } | undefined;
+  return {
+    ...config,
+    refreshModels: async (context: unknown) => {
+      const credential = (context as { credential?: unknown })?.credential;
+      if (credential && oauth?.getApiKey) oauth.getApiKey(credential);
+      return refreshModels(context);
+    },
+  };
+}
+
+export async function registerCursorProvider(
+  runtime: ModelRuntime,
+  scope?: UsageScope,
+): Promise<void> {
   if (runtime.getProvider(CURSOR_PROVIDER_ID)) return;
 
   let factory: ((api: ExtensionApiStub) => void | Promise<void>) | null = null;
@@ -33,7 +61,10 @@ export async function registerCursorProvider(runtime: ModelRuntime): Promise<voi
   const api: ExtensionApiStub = {
     registerProvider(nameOrProvider, config) {
       if (typeof nameOrProvider === "string") {
-        runtime.registerProvider(nameOrProvider, (config ?? {}) as never);
+        runtime.registerProvider(
+          nameOrProvider,
+          withCursorScope(config ?? {}, scope) as never,
+        );
         return;
       }
       runtime.registerNativeProvider(nameOrProvider as never);

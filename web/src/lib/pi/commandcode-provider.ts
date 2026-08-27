@@ -4,11 +4,15 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createJiti } from "jiti/static";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { UsageScope } from "@/lib/codexbar/types";
 
 export const COMMANDCODE_PROVIDER_ID = "commandcode";
 
 type ExtensionApiStub = {
-  registerProvider: (nameOrProvider: string | { id: string }, config?: Record<string, unknown>) => void;
+  registerProvider: (
+    nameOrProvider: string | { id: string },
+    config?: Record<string, unknown>,
+  ) => void;
   on: (...args: unknown[]) => void;
   registerCommand: (...args: unknown[]) => void;
 };
@@ -36,17 +40,22 @@ export function resolveCommandCodeExtensionEntry(
 
 /** pi-ai transform-messages.ts uses these exact strings; keep them identical. */
 const USER_IMAGE_PLACEHOLDER = "(image omitted: model does not support images)";
-const TOOL_IMAGE_PLACEHOLDER = "(tool image omitted: model does not support images)";
+const TOOL_IMAGE_PLACEHOLDER =
+  "(tool image omitted: model does not support images)";
 
 type ContentBlock = { type: string; text?: string };
 type MessageLike = { role?: string; content?: unknown };
 
-function replaceImages(content: ContentBlock[], placeholder: string): ContentBlock[] {
+function replaceImages(
+  content: ContentBlock[],
+  placeholder: string,
+): ContentBlock[] {
   const result: ContentBlock[] = [];
   let previousWasPlaceholder = false;
   for (const block of content) {
     if (block.type === "image") {
-      if (!previousWasPlaceholder) result.push({ type: "text", text: placeholder });
+      if (!previousWasPlaceholder)
+        result.push({ type: "text", text: placeholder });
       previousWasPlaceholder = true;
       continue;
     }
@@ -77,7 +86,9 @@ export function downgradeUnsupportedImages<T extends { messages?: unknown }>(
     const content = message.content as ContentBlock[];
     if (!content.some((block) => block?.type === "image")) return message;
     const placeholder =
-      message.role === "toolResult" ? TOOL_IMAGE_PLACEHOLDER : USER_IMAGE_PLACEHOLDER;
+      message.role === "toolResult"
+        ? TOOL_IMAGE_PLACEHOLDER
+        : USER_IMAGE_PLACEHOLDER;
     changed = true;
     return { ...message, content: replaceImages(content, placeholder) };
   });
@@ -92,14 +103,19 @@ type StreamSimple = (
 ) => unknown;
 
 /** Wrap the extension's `streamSimple` so text-only models never receive image blocks. */
-export function withImageDowngrade(config: Record<string, unknown>): Record<string, unknown> {
+export function withImageDowngrade(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
   const stream = config.streamSimple;
   if (typeof stream !== "function") return config;
   const inner = stream as StreamSimple;
   return {
     ...config,
-    streamSimple: (model: Parameters<StreamSimple>[0], context: Parameters<StreamSimple>[1], options?: unknown) =>
-      inner(model, downgradeUnsupportedImages(model, context), options),
+    streamSimple: (
+      model: Parameters<StreamSimple>[0],
+      context: Parameters<StreamSimple>[1],
+      options?: unknown,
+    ) => inner(model, downgradeUnsupportedImages(model, context), options),
   };
 }
 
@@ -111,6 +127,14 @@ export function syncCommandCodeApiKeyEnv(): void {
   if (primary) return;
   const alt = process.env.COMMAND_CODE_API_KEY?.trim();
   if (alt) process.env.COMMANDCODE_API_KEY = alt;
+}
+
+function withAccountScope(
+  config: Record<string, unknown>,
+  scope: UsageScope | undefined,
+): Record<string, unknown> {
+  // Account runtimes must use their stored OAuth credential, never the process env key.
+  return scope?.authPath ? { ...config, apiKey: undefined } : config;
 }
 
 type CommandCodeRegistration =
@@ -131,10 +155,14 @@ function registrationPromise(): Promise<CommandCodeRegistration[] | null> {
 
 /** @internal テスト用。プロセス共有の拡張ロード結果を破棄する。 */
 export function __resetCommandCodeProviderCacheForTests(): void {
-  delete (globalThis as typeof globalThis & { [REGISTRATION_KEY]?: unknown })[REGISTRATION_KEY];
+  delete (globalThis as typeof globalThis & { [REGISTRATION_KEY]?: unknown })[
+    REGISTRATION_KEY
+  ];
 }
 
-async function loadCommandCodeRegistrations(): Promise<CommandCodeRegistration[] | null> {
+async function loadCommandCodeRegistrations(): Promise<
+  CommandCodeRegistration[] | null
+> {
   const entry = resolveCommandCodeExtensionEntry();
   if (!entry) {
     console.warn("[LeafCodePi] pi-commandcode-provider is not installed");
@@ -144,7 +172,9 @@ async function loadCommandCodeRegistrations(): Promise<CommandCodeRegistration[]
   let factory: ((api: ExtensionApiStub) => void | Promise<void>) | null = null;
   try {
     const jiti = createJiti(import.meta.url, { moduleCache: false });
-    const mod = (await jiti.import(pathToFileURL(entry).href, { default: true })) as unknown;
+    const mod = (await jiti.import(pathToFileURL(entry).href, {
+      default: true,
+    })) as unknown;
     if (typeof mod === "function") {
       factory = mod as (api: ExtensionApiStub) => void | Promise<void>;
     }
@@ -156,7 +186,9 @@ async function loadCommandCodeRegistrations(): Promise<CommandCodeRegistration[]
     return null;
   }
   if (!factory) {
-    console.warn("[LeafCodePi] pi-commandcode-provider has no default factory export");
+    console.warn(
+      "[LeafCodePi] pi-commandcode-provider has no default factory export",
+    );
     return null;
   }
 
@@ -198,17 +230,23 @@ async function loadCommandCodeRegistrations(): Promise<CommandCodeRegistration[]
  *
  * Unofficial community extension; Command Code terms apply.
  */
-export async function registerCommandCodeProvider(runtime: ModelRuntime): Promise<void> {
+export async function registerCommandCodeProvider(
+  runtime: ModelRuntime,
+  scope?: UsageScope,
+): Promise<void> {
   if (runtime.getProvider(COMMANDCODE_PROVIDER_ID)) return;
 
-  syncCommandCodeApiKeyEnv();
+  if (!scope?.authPath) syncCommandCodeApiKeyEnv();
   const registrations = await registrationPromise();
   if (!registrations || runtime.getProvider(COMMANDCODE_PROVIDER_ID)) return;
   for (const registration of registrations) {
     if (registration.kind === "provider") {
       runtime.registerProvider(
         registration.name,
-        withImageDowngrade(registration.config) as never,
+        withAccountScope(
+          withImageDowngrade(registration.config),
+          scope,
+        ) as never,
       );
     } else {
       runtime.registerNativeProvider(registration.provider as never);

@@ -19,6 +19,8 @@ import {
   fetchText,
   flexibleNumber,
 } from "@/lib/codexbar/utils";
+import { readPiOAuthTokens, readPiApiKey } from "@/lib/codexbar/pi-auth";
+import type { UsageScope } from "@/lib/codexbar/types";
 
 const API_BASE = "https://api.commandcode.ai";
 
@@ -102,9 +104,24 @@ function addWindow(
   });
 }
 
-export function resolveCommandCodeApiKey(): string | null {
+export function resolveCommandCodeApiKey(options?: {
+  authPath?: string | null;
+}): string | null {
+  if (options?.authPath) {
+    return (
+      cleanApiKey(
+        readPiOAuthTokens("commandcode", { authPath: options.authPath })
+          ?.access ?? null,
+      ) ??
+      cleanApiKey(readPiApiKey("commandcode", { authPath: options.authPath }))
+    );
+  }
   const fromEnv = cleanApiKey(process.env.COMMAND_CODE_API_KEY);
   if (fromEnv) return fromEnv;
+  const fromPi = cleanApiKey(readPiOAuthTokens("commandcode")?.access);
+  if (fromPi) return fromPi;
+  const fromPiApiKey = cleanApiKey(readPiApiKey("commandcode"));
+  if (fromPiApiKey) return fromPiApiKey;
   try {
     const path = join(homedir(), ".commandcode", "auth.json");
     if (!existsSync(path)) return null;
@@ -116,6 +133,38 @@ export function resolveCommandCodeApiKey(): string | null {
   } catch {
     return null;
   }
+}
+
+export function createCommandCodeProvider(scope: UsageScope): IUsageProvider {
+  return {
+    id: "commandcode",
+    name: "Command Code",
+    isConfigured() {
+      return resolveCommandCodeApiKey({ authPath: scope.authPath }) !== null;
+    },
+    async fetch(signal) {
+      const apiKey = resolveCommandCodeApiKey({ authPath: scope.authPath });
+      if (!apiKey) {
+        throw new ProviderError(
+          "Command Code の API キーが見つかりません。COMMAND_CODE_API_KEY またはアカウントの認証を設定してください。",
+        );
+      }
+      const whoami = await getJson("/alpha/whoami", apiKey, signal);
+      const orgId = readString(whoami, "org", "id");
+      const query = orgId ? `?orgId=${encodeURIComponent(orgId)}` : "";
+      const credits = await getJson(
+        `/alpha/billing/credits${query}`,
+        apiKey,
+        signal,
+      );
+      const subscription = await getJson(
+        `/alpha/billing/subscriptions${query}`,
+        apiKey,
+        signal,
+      );
+      return parseCommandCodeSnapshot(whoami, credits, subscription);
+    },
+  };
 }
 
 /** Exported for unit tests. */
@@ -209,32 +258,10 @@ async function getJson(
   }
 }
 
-export const commandcodeProvider: IUsageProvider = {
-  id: "commandcode",
-  name: "Command Code",
-  isConfigured() {
-    return resolveCommandCodeApiKey() !== null;
-  },
-  async fetch(signal) {
-    const apiKey = resolveCommandCodeApiKey();
-    if (!apiKey) {
-      throw new ProviderError(
-        "Command Code の API キーが見つかりません。COMMAND_CODE_API_KEY または %USERPROFILE%\\.commandcode\\auth.json を設定してください。",
-      );
-    }
-    const whoami = await getJson("/alpha/whoami", apiKey, signal);
-    const orgId = readString(whoami, "org", "id");
-    const query = orgId ? `?orgId=${encodeURIComponent(orgId)}` : "";
-    const credits = await getJson(
-      `/alpha/billing/credits${query}`,
-      apiKey,
-      signal,
-    );
-    const subscription = await getJson(
-      `/alpha/billing/subscriptions${query}`,
-      apiKey,
-      signal,
-    );
-    return parseCommandCodeSnapshot(whoami, credits, subscription);
-  },
-};
+export const commandcodeProvider: IUsageProvider = createCommandCodeProvider({
+  key: "default",
+  kind: "default",
+  accountId: null,
+  accountLabel: null,
+  authPath: null,
+});

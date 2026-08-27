@@ -31,7 +31,11 @@ export type CodexBarAccountProviderId =
   | "openai-codex"
   | "anthropic"
   | "ollama-cloud"
-  | "openrouter";
+  | "openrouter"
+  | "commandcode"
+  | "cursor"
+  | "opencode"
+  | "opencode-go";
 
 export type CodexBarAccountSummary = {
   id: string;
@@ -143,7 +147,9 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
     accountId: asString(scopeObject?.accountId),
   };
   const providerOrder = Array.isArray(obj.providerOrder)
-    ? obj.providerOrder.filter((id): id is string => typeof id === "string" && id.length > 0)
+    ? obj.providerOrder.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      )
     : [];
   const accounts: CodexBarAccountSummary[] = Array.isArray(obj.accounts)
     ? obj.accounts.flatMap((raw) => {
@@ -158,7 +164,11 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
                 provider === "openai-codex" ||
                 provider === "anthropic" ||
                 provider === "ollama-cloud" ||
-                provider === "openrouter",
+                provider === "openrouter" ||
+                provider === "commandcode" ||
+                provider === "cursor" ||
+                provider === "opencode" ||
+                provider === "opencode-go",
             )
           : [];
         const configuredProviders = Array.isArray(account.configuredProviders)
@@ -167,7 +177,11 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
                 provider === "openai-codex" ||
                 provider === "anthropic" ||
                 provider === "ollama-cloud" ||
-                provider === "openrouter",
+                provider === "openrouter" ||
+                provider === "commandcode" ||
+                provider === "cursor" ||
+                provider === "opencode" ||
+                provider === "opencode-go",
             )
           : [];
         return [{ id, label, providers, configuredProviders }];
@@ -180,7 +194,10 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
         !!p && typeof p === "object" && !Array.isArray(p),
     )
     .map((p) => {
-      const id = asString(p.codexBarProviderId) ?? asString(p.opencodeProviderId) ?? "unknown";
+      const id =
+        asString(p.codexBarProviderId) ??
+        asString(p.opencodeProviderId) ??
+        "unknown";
       const rawUsedPercent = asNumber(p.usedPercent);
       const windows: CodexBarWindow[] = Array.isArray(p.windows)
         ? p.windows
@@ -198,16 +215,23 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
         : [];
       const creditValue = p.credits;
       const credits: CodexBarCredits | null =
-        creditValue && typeof creditValue === "object" && !Array.isArray(creditValue)
+        creditValue &&
+        typeof creditValue === "object" &&
+        !Array.isArray(creditValue)
           ? {
               title: asString((creditValue as Record<string, unknown>).title),
               used: asNumber((creditValue as Record<string, unknown>).used),
               limit: asNumber((creditValue as Record<string, unknown>).limit),
-              balance: asNumber((creditValue as Record<string, unknown>).balance),
+              balance: asNumber(
+                (creditValue as Record<string, unknown>).balance,
+              ),
             }
           : null;
       const creditPercent =
-        credits !== null && credits.used !== null && credits.limit !== null && credits.limit > 0
+        credits !== null &&
+        credits.used !== null &&
+        credits.limit !== null &&
+        credits.limit > 0
           ? (credits.used / credits.limit) * 100
           : null;
       const usedPercent =
@@ -236,8 +260,12 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
         plan: asString(p.plan),
         planMonthlyUsd: asNumber(p.planMonthlyUsd),
         usedPercent: representative,
-        limited: p.limited === true || (representative !== null && representative >= 90),
-        maxed: p.maxed === true || (representative !== null && representative >= 99.5),
+        limited:
+          p.limited === true ||
+          (representative !== null && representative >= 90),
+        maxed:
+          p.maxed === true ||
+          (representative !== null && representative >= 99.5),
         resetsAt: asString(p.resetsAt),
         updatedAt: asString(p.updatedAt),
         stale: p.stale === true,
@@ -275,6 +303,10 @@ const ACCOUNT_MANAGED_PROVIDER_IDS = new Set([
   "anthropic",
   "ollama-cloud",
   "openrouter",
+  "commandcode",
+  "cursor",
+  "opencode",
+  "opencode-go",
 ]);
 
 export type CodexBarProviderGroupAccount = {
@@ -346,7 +378,9 @@ export function groupCodexBarProviders(
   const summaries = usage.accounts ?? [];
   const orderedIds = [
     ...(usage.providerOrder ?? []).filter((id) => groups.has(id)),
-    ...[...groups.keys()].filter((id) => !(usage.providerOrder ?? []).includes(id)),
+    ...[...groups.keys()].filter(
+      (id) => !(usage.providerOrder ?? []).includes(id),
+    ),
   ];
   const result: CodexBarProviderGroup[] = [];
   for (const id of orderedIds) {
@@ -362,13 +396,16 @@ export function groupCodexBarProviders(
 
     if (isAccountManaged) {
       for (const account of summaries) {
-        if (!account.providers.includes(id as CodexBarAccountProviderId)) continue;
+        if (!account.providers.includes(id as CodexBarAccountProviderId))
+          continue;
         const key = accountProviderKey(account.id, id);
         accountRows.push({
           id: key,
           label: account.label,
           provider: usageByAccount.get(account.id) ?? null,
-          configured: account.configuredProviders.includes(id as CodexBarAccountProviderId),
+          configured: account.configuredProviders.includes(
+            id as CodexBarAccountProviderId,
+          ),
         });
         seen.add(key);
       }
@@ -388,7 +425,9 @@ export function groupCodexBarProviders(
     const base = group.representative ?? group.rows[0] ?? emptyProvider(id);
     const rowProviders =
       isAccountManaged && accountRows.length > 0
-        ? accountRows.flatMap((entry) => (entry.provider ? [entry.provider] : []))
+        ? accountRows.flatMap((entry) =>
+            entry.provider ? [entry.provider] : [],
+          )
         : [base];
     const validRows = rowProviders.filter(
       (provider) => hasLastGoodUsage(provider) && provider.usedPercent !== null,
@@ -396,11 +435,15 @@ export function groupCodexBarProviders(
     const usedPercent =
       isAccountManaged && accountRows.length > 0
         ? validRows.length > 0
-          ? validRows.reduce((sum, provider) => sum + provider.usedPercent!, 0) /
-            validRows.length
+          ? validRows.reduce(
+              (sum, provider) => sum + provider.usedPercent!,
+              0,
+            ) / validRows.length
           : null
         : base.usedPercent;
-    const limitedCount = rowProviders.filter((provider) => provider.limited || provider.maxed).length;
+    const limitedCount = rowProviders.filter(
+      (provider) => provider.limited || provider.maxed,
+    ).length;
     const maxedCount = rowProviders.filter((provider) => provider.maxed).length;
 
     result.push({
@@ -415,7 +458,8 @@ export function groupCodexBarProviders(
         maxed: maxedCount > 0,
         stale: rowProviders.some((provider) => provider.stale === true),
         windows: isAccountManaged && accountRows.length > 0 ? [] : base.windows,
-        credits: isAccountManaged && accountRows.length > 0 ? null : base.credits,
+        credits:
+          isAccountManaged && accountRows.length > 0 ? null : base.credits,
         error: null,
       },
       accountRows,
@@ -434,6 +478,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   "command-code": "CommandCode",
   cursor: "Cursor",
   "opencode-go": "OpenCode",
+  opencode: "OpenCode Zen",
   "ollama-cloud": "Ollama",
   synthetic: "Synthetic",
   "qwen-cloud": "Qwen Cloud",
@@ -456,7 +501,9 @@ export function providerIconSrc(id: string): string | null {
 }
 
 /** Public path of a brand icon for an OpenCode/Pi provider id, or null. */
-export function providerIconSrcForOpencodeId(opencodeId: string): string | null {
+export function providerIconSrcForOpencodeId(
+  opencodeId: string,
+): string | null {
   return piProviderIconSrc(opencodeId);
 }
 
@@ -505,7 +552,10 @@ export function hasLastGoodUsage(
 }
 
 export function usageTone(
-  p: Pick<CodexBarProvider, "usedPercent" | "limited" | "maxed" | "error" | "windows" | "credits">,
+  p: Pick<
+    CodexBarProvider,
+    "usedPercent" | "limited" | "maxed" | "error" | "windows" | "credits"
+  >,
 ): UsageTone {
   if (p.error && !hasLastGoodUsage(p)) return "danger";
   if (p.maxed || p.limited) return "danger";
@@ -540,7 +590,10 @@ export function clampPercent(v: number | null): number {
   return v;
 }
 
-export function formatResetsIn(iso: string | null, nowMs: number): string | null {
+export function formatResetsIn(
+  iso: string | null,
+  nowMs: number,
+): string | null {
   if (!iso) return null;
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return null;

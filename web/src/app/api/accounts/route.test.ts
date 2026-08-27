@@ -42,7 +42,10 @@ async function responseJson(response: Response) {
 }
 
 /** accountId を Phase 5 まで TaskSummary 型に載せないため、実行時だけ緩く付与する。 */
-function patchLoose(taskId: string, patch: Record<string, unknown>): TaskSummary | undefined {
+function patchLoose(
+  taskId: string,
+  patch: Record<string, unknown>,
+): TaskSummary | undefined {
   const fn = patchTask as unknown as (
     id: string,
     patch: Record<string, unknown>,
@@ -63,7 +66,11 @@ describe("/api/accounts", () => {
         }),
       ),
     );
-    const account = created.account as { id: string; label: string; providers: string[] };
+    const account = created.account as {
+      id: string;
+      label: string;
+      providers: string[];
+    };
     assert.equal(account.label, "仕事用");
     assert.deepEqual(account.providers, ["openai-codex", "anthropic"]);
 
@@ -74,12 +81,16 @@ describe("/api/accounts", () => {
   it("returns 400 on invalid body or validation failure", async () => {
     tempDataDir();
 
-    const emptyBody = await POST(jsonRequest("http://localhost/api/accounts", "POST"));
+    const emptyBody = await POST(
+      jsonRequest("http://localhost/api/accounts", "POST"),
+    );
     assert.equal(emptyBody.status, 400);
 
     const noLabel = await responseJson(
       await POST(
-        jsonRequest("http://localhost/api/accounts", "POST", { providers: ["openai-codex"] }),
+        jsonRequest("http://localhost/api/accounts", "POST", {
+          providers: ["openai-codex"],
+        }),
       ),
     );
     assert.ok(typeof noLabel.error === "string");
@@ -87,7 +98,7 @@ describe("/api/accounts", () => {
     const badProvider = await POST(
       jsonRequest("http://localhost/api/accounts", "POST", {
         label: "x",
-        providers: ["cursor"],
+        providers: ["not-a-provider"],
       }),
     );
     assert.equal(badProvider.status, 400);
@@ -107,7 +118,9 @@ describe("/api/accounts", () => {
 
     const patched = await responseJson(
       await PATCH(
-        jsonRequest(`http://localhost/api/accounts/${id}`, "PATCH", { label: "after" }),
+        jsonRequest(`http://localhost/api/accounts/${id}`, "PATCH", {
+          label: "after",
+        }),
         idContext(id),
       ),
     );
@@ -128,7 +141,9 @@ describe("/api/accounts", () => {
     assert.equal(emptyPatch.status, 400);
 
     const missing = await PATCH(
-      jsonRequest("http://localhost/api/accounts/missing", "PATCH", { label: "x" }),
+      jsonRequest("http://localhost/api/accounts/missing", "PATCH", {
+        label: "x",
+      }),
       idContext("missing"),
     );
     assert.equal(missing.status, 404);
@@ -153,7 +168,10 @@ describe("/api/accounts", () => {
     const id = (created.account as { id: string }).id;
 
     // 実行中タスクからの参照が無ければ削除できる
-    const first = await DELETE(new NextRequest(`http://localhost/api/accounts/${id}`), idContext(id));
+    const first = await DELETE(
+      new NextRequest(`http://localhost/api/accounts/${id}`),
+      idContext(id),
+    );
     assert.equal(first.status, 200);
 
     const busy = await responseJson(

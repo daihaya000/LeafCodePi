@@ -3,12 +3,7 @@
  * Token: auth.json first, then state.vscdb via node:sqlite (Node 22+).
  */
 
-import {
-  copyFileSync,
-  existsSync,
-  readFileSync,
-  unlinkSync,
-} from "node:fs";
+import { copyFileSync, existsSync, readFileSync, unlinkSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -25,6 +20,8 @@ import {
   fetchText,
   flexibleNumber,
 } from "@/lib/codexbar/utils";
+import { readPiOAuthTokens } from "@/lib/codexbar/pi-auth";
+import type { UsageScope } from "@/lib/codexbar/types";
 
 const USAGE_SUMMARY_URL = "https://cursor.com/api/usage-summary";
 const AUTH_ME_URL = "https://cursor.com/api/auth/me";
@@ -202,7 +199,10 @@ function parseIso(root: Record<string, unknown>, key: string): Date | null {
   return Number.isNaN(t) ? null : new Date(t);
 }
 
-function flexField(obj: Record<string, unknown> | null, key: string): number | null {
+function flexField(
+  obj: Record<string, unknown> | null,
+  key: string,
+): number | null {
   if (!obj) return null;
   return flexibleNumber(obj[key]);
 }
@@ -211,6 +211,7 @@ function flexField(obj: Record<string, unknown> | null, key: string): number | n
 export function parseCursorUsageSummary(
   root: Record<string, unknown>,
   email: string | null = null,
+  useLocalMembership = true,
 ): UsageSnapshot {
   const cycleStart = parseIso(root, "billingCycleStart");
   const cycleEnd = parseIso(root, "billingCycleEnd");
@@ -222,7 +223,9 @@ export function parseCursorUsageSummary(
   const membership =
     typeof root.membershipType === "string"
       ? prettyPlan(root.membershipType)
-      : prettyPlan(readItem("cursorAuth/stripeMembershipType"));
+      : useLocalMembership
+        ? prettyPlan(readItem("cursorAuth/stripeMembershipType"))
+        : null;
 
   const individual = asRecord(root.individualUsage);
   const team = asRecord(root.teamUsage);
@@ -323,86 +326,113 @@ export function parseCursorUsageSummary(
   };
 }
 
-export const cursorProvider: IUsageProvider = {
-  id: "cursor",
-  name: "Cursor",
-  isConfigured() {
-    try {
-      return loadCandidateAccessTokens().length > 0;
-    } catch {
-      return existsSync(/* turbopackIgnore: true */ stateDbPath()) || existsSync(/* turbopackIgnore: true */ authJsonPath());
-    }
-  },
-  async fetch(signal) {
-    const accessTokens = loadCandidateAccessTokens();
-    if (accessTokens.length === 0) {
-      throw new ProviderError(
-        "Cursor の認証情報が見つかりません。この PC で Cursor アプリにサインインしてください。",
-      );
-    }
+function scopedAccessTokens(scope: UsageScope): string[] {
+  const access = readPiOAuthTokens("cursor", {
+    authPath: scope.authPath ?? undefined,
+  })?.access;
+  return access ? [access] : [];
+}
 
-    let cookie: string | null = null;
-    let summaryBody: string | null = null;
-    let sawAuthRejection = false;
+export function createCursorProvider(scope: UsageScope): IUsageProvider {
+  const accountScoped = scope.authPath !== null;
+  const loadTokens = () =>
+    accountScoped ? scopedAccessTokens(scope) : loadCandidateAccessTokens();
 
-    for (const accessToken of accessTokens) {
-      let userId: string;
+  return {
+    id: "cursor",
+    name: "Cursor",
+    isConfigured() {
       try {
-        userId = extractUserId(accessToken);
+        return loadTokens().length > 0;
       } catch {
-        continue;
-      }
-      const candidateCookie = `WorkosCursorSessionToken=${userId}%3A%3A${accessToken}`;
-      const { status, body, ok } = await fetchText(USAGE_SUMMARY_URL, {
-        headers: {
-          Accept: "application/json",
-          Cookie: candidateCookie,
-          "User-Agent": "CodexBar",
-        },
-        signal,
-      });
-      if (status === 401 || status === 403) {
-        sawAuthRejection = true;
-        continue;
-      }
-      if (!ok) throw new ProviderError(`Cursor API エラー ${status}。`);
-      cookie = candidateCookie;
-      summaryBody = body;
-      break;
-    }
-
-    if (!summaryBody || !cookie) {
-      if (sawAuthRejection) {
-        throw new ProviderError(
-          "Cursor のセッションが拒否されました。Cursor アプリに再サインインしてください。",
+        return (
+          !accountScoped &&
+          (existsSync(/* turbopackIgnore: true */ stateDbPath()) ||
+            existsSync(/* turbopackIgnore: true */ authJsonPath()))
         );
       }
-      throw new ProviderError(
-        "Cursor のアクセストークンが無効か期限切れです。Cursor に再サインインしてください。",
-      );
-    }
-
-    let email: string | null = null;
-    try {
-      const me = await fetchText(AUTH_ME_URL, {
-        headers: {
-          Accept: "application/json",
-          Cookie: cookie,
-          "User-Agent": "CodexBar",
-        },
-        signal,
-      });
-      if (me.ok) {
-        const root = asRecord(JSON.parse(me.body));
-        if (typeof root?.email === "string") email = root.email;
+    },
+    async fetch(signal) {
+      const accessTokens = loadTokens();
+      if (accessTokens.length === 0) {
+        throw new ProviderError(
+          accountScoped
+            ? "このアカウントの Cursor 認証情報が見つかりません。"
+            : "Cursor の認証情報が見つかりません。この PC で Cursor アプリにサインインしてください。",
+        );
       }
-    } catch {
-      /* optional */
-    }
-    email ??= readItem("cursorAuth/cachedEmail");
 
-    const root = asRecord(JSON.parse(summaryBody));
-    if (!root) throw new ProviderError("Cursor の応答形式が不正です。");
-    return parseCursorUsageSummary(root, email);
-  },
-};
+      let cookie: string | null = null;
+      let summaryBody: string | null = null;
+      let sawAuthRejection = false;
+
+      for (const accessToken of accessTokens) {
+        let userId: string;
+        try {
+          userId = extractUserId(accessToken);
+        } catch {
+          continue;
+        }
+        const candidateCookie = `WorkosCursorSessionToken=${userId}%3A%3A${accessToken}`;
+        const { status, body, ok } = await fetchText(USAGE_SUMMARY_URL, {
+          headers: {
+            Accept: "application/json",
+            Cookie: candidateCookie,
+            "User-Agent": "CodexBar",
+          },
+          signal,
+        });
+        if (status === 401 || status === 403) {
+          sawAuthRejection = true;
+          continue;
+        }
+        if (!ok) throw new ProviderError(`Cursor API エラー ${status}。`);
+        cookie = candidateCookie;
+        summaryBody = body;
+        break;
+      }
+
+      if (!summaryBody || !cookie) {
+        if (sawAuthRejection) {
+          throw new ProviderError(
+            "Cursor のセッションが拒否されました。Cursor アプリに再サインインしてください。",
+          );
+        }
+        throw new ProviderError(
+          "Cursor のアクセストークンが無効か期限切れです。Cursor に再サインインしてください。",
+        );
+      }
+
+      let email: string | null = null;
+      try {
+        const me = await fetchText(AUTH_ME_URL, {
+          headers: {
+            Accept: "application/json",
+            Cookie: cookie,
+            "User-Agent": "CodexBar",
+          },
+          signal,
+        });
+        if (me.ok) {
+          const root = asRecord(JSON.parse(me.body));
+          if (typeof root?.email === "string") email = root.email;
+        }
+      } catch {
+        /* optional */
+      }
+      if (!accountScoped) email ??= readItem("cursorAuth/cachedEmail");
+
+      const root = asRecord(JSON.parse(summaryBody));
+      if (!root) throw new ProviderError("Cursor の応答形式が不正です。");
+      return parseCursorUsageSummary(root, email, !accountScoped);
+    },
+  };
+}
+
+export const cursorProvider: IUsageProvider = createCursorProvider({
+  key: "default",
+  kind: "default",
+  accountId: null,
+  accountLabel: null,
+  authPath: null,
+});

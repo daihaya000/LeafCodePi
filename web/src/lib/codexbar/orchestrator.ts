@@ -45,6 +45,7 @@ import {
 } from "@/lib/codexbar/types";
 import { readPiApiKey, readPiOAuthTokens } from "@/lib/codexbar/pi-auth";
 import { isOllamaCookieConfigured } from "@/lib/codexbar/providers/ollama-cloud";
+import { extractOpenCodeCookieHeader } from "@/lib/codexbar/browser-cookies";
 
 const MAX_CONCURRENT_FETCHES = 4;
 
@@ -97,13 +98,17 @@ function accountSummary(
   agentDir: string,
   enabledIds: readonly string[],
 ): ExportAccountSummary {
-  const providers = account.providers.filter((provider) => enabledIds.includes(provider));
+  const providers = account.providers.filter((provider) =>
+    enabledIds.includes(provider),
+  );
   const authPath = accountAuthPath(account.id, agentDir);
   const configuredProviders = providers.filter(
     (provider) =>
       readPiOAuthTokens(provider, { authPath }) !== null ||
       readPiApiKey(provider, { authPath }) !== null ||
-      (provider === "ollama-cloud" && isOllamaCookieConfigured(account.id)),
+      (provider === "ollama-cloud" && isOllamaCookieConfigured(account.id)) ||
+      (provider === "opencode-go" &&
+        extractOpenCodeCookieHeader({ authPath }) !== null),
   );
   return {
     id: account.id,
@@ -117,10 +122,15 @@ function rosterKey(accounts: readonly ExportAccountSummary[]): string {
   return JSON.stringify(accounts);
 }
 
-async function buildFetchPlan(requestScope: UsageRequestScope): Promise<FetchPlan> {
+async function buildFetchPlan(
+  requestScope: UsageRequestScope,
+): Promise<FetchPlan> {
   const enabledIds = resolveEnabledProviderIds();
   const definitionsById = new Map(
-    NATIVE_PROVIDER_DEFINITIONS.map((definition) => [definition.id, definition]),
+    NATIVE_PROVIDER_DEFINITIONS.map((definition) => [
+      definition.id,
+      definition,
+    ]),
   );
   const definitions = enabledIds.flatMap((id) => {
     const definition = definitionsById.get(id);
@@ -134,7 +144,9 @@ async function buildFetchPlan(requestScope: UsageRequestScope): Promise<FetchPla
   } else if (requestScope.kind === "account") {
     const account = getAccount(requestScope.accountId);
     if (!account) {
-      throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
+      throw Object.assign(new Error("アカウントが見つかりません"), {
+        status: 404,
+      });
     }
     accounts = [account];
   }
@@ -172,7 +184,8 @@ async function buildFetchPlan(requestScope: UsageRequestScope): Promise<FetchPla
       }
       continue;
     }
-    if (!agentDir) throw new Error("アカウント認証ディレクトリを解決できません");
+    if (!agentDir)
+      throw new Error("アカウント認証ディレクトリを解決できません");
     for (const account of matchingAccounts) {
       const scope: UsageScope = {
         key: `account:${account.id}`,
@@ -185,7 +198,8 @@ async function buildFetchPlan(requestScope: UsageRequestScope): Promise<FetchPla
     }
   }
 
-  const accountId = requestScope.kind === "account" ? requestScope.accountId : null;
+  const accountId =
+    requestScope.kind === "account" ? requestScope.accountId : null;
   const scope: ExportScope = { kind: requestScope.kind, accountId };
   const roster = rosterKey(summaries);
   const cacheKey =
@@ -277,7 +291,8 @@ async function fetchOne(
     const rateLimited =
       err instanceof ProviderError
         ? err.isRateLimit
-        : err instanceof Error && /レート制限|rate.?limit|429/i.test(err.message);
+        : err instanceof Error &&
+          /レート制限|rate.?limit|429/i.test(err.message);
     const message =
       err instanceof ProviderError
         ? err.message
@@ -361,7 +376,9 @@ async function fetchNativeUsageUncached(
   );
   const { usage, anyConfigured } = assembleFromResults(results, plan.metadata);
 
-  const hasAccountRows = plan.metadata.accounts.some((account) => account.providers.length > 0);
+  const hasAccountRows = plan.metadata.accounts.some(
+    (account) => account.providers.length > 0,
+  );
   if (anyConfigured || hasAccountRows) {
     setCachedUsage(usage, Date.now(), plan.cacheKey);
     return usage;
