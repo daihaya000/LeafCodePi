@@ -31,14 +31,14 @@ export const PERMISSION_OPTIONS: {
 ];
 
 export function readPermissionMode(): PermissionMode {
-  if (typeof window === "undefined") return "ask";
+  if (typeof window === "undefined") return "allow";
   try {
     const raw = localStorage.getItem(PERMISSION_STORAGE_KEY);
     if (raw === "allow" || raw === "ask" || raw === "deny") return raw;
   } catch {
     /* ignore */
   }
-  return "ask";
+  return "allow";
 }
 
 export function writePermissionMode(mode: PermissionMode): void {

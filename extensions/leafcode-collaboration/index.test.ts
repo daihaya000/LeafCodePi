@@ -119,6 +119,7 @@ describe("LeafCode collaboration extension", () => {
 
     try {
       process.env.LEAFCODE_PI_DATA_DIR = dataDir;
+      writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({ mode: "strict" }), "utf8");
       const result = await tools.get("leafcode_collab")!.execute("call", { action: "status" }, new AbortController().signal, () => undefined, ctx);
       assert.equal(result.details?.ready, true);
       const snapshot = result.details?.snapshot as { sessions: Record<string, { displayName: string }> };
@@ -166,6 +167,7 @@ describe("LeafCode collaboration extension", () => {
 
     try {
       process.env.LEAFCODE_PI_DATA_DIR = dataDir;
+      writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({ mode: "strict" }), "utf8");
       await handlers.get("session_start")?.({}, ctxStart);
       const reserved = await tools.get("leafcode_collab")!.execute(
         "reserve",
@@ -219,6 +221,7 @@ describe("LeafCode collaboration extension", () => {
 
     try {
       process.env.LEAFCODE_PI_DATA_DIR = dataDir;
+      writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({ mode: "strict" }), "utf8");
       await handlers.get("session_start")?.({}, ctx);
       const reserved = await tools.get("leafcode_collab")!.execute(
         "reserve",
@@ -294,6 +297,7 @@ describe("LeafCode collaboration extension", () => {
 
     try {
       process.env.LEAFCODE_PI_DATA_DIR = dataDir;
+      writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({ mode: "strict" }), "utf8");
       await handlers.get("session_start")?.({}, ctxStart);
       await tools.get("leafcode_collab")!.execute(
         "reserve",

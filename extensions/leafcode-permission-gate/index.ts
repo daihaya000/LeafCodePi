@@ -6,7 +6,7 @@
  * - WebUI の Composer から設定される「承認モード」に連動して動作を切り替える
  *
  * WebUI からは `/api/tasks/:id/permission` で承認モードを設定する。
- * 未設定時は "ask"（確認）。
+ * 未設定時は "allow"（許可）。
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -53,7 +53,7 @@ function readConfig(cwd: string): StoredConfig {
   } catch {
     /* ignore */
   }
-  return { mode: "ask" };
+  return { mode: "allow" };
 }
 
 function sessionMode(ctx: ExtensionContext): PermissionMode {
@@ -63,7 +63,7 @@ function sessionMode(ctx: ExtensionContext): PermissionMode {
   } catch {
     /* ignore */
   }
-  return "ask";
+  return "allow";
 }
 
 function setSessionMode(ctx: ExtensionContext, mode: PermissionMode): void {
@@ -118,7 +118,7 @@ export default function (pi: ExtensionAPI): void {
       const config = readConfig(ctx.cwd);
       setSessionMode(ctx, config.mode);
     } catch {
-      setSessionMode(ctx, "ask");
+      setSessionMode(ctx, "allow");
     }
   });
 

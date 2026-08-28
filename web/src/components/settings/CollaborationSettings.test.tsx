@@ -12,7 +12,7 @@ const { getJson, sendJson } = vi.hoisted(() => ({
 vi.mock("@/lib/client", () => ({ getJson, sendJson }));
 
 const snapshot = {
-  config: DEFAULT_COLLABORATION_CONFIG,
+  config: { ...DEFAULT_COLLABORATION_CONFIG, mode: "strict" as const },
   valid: true,
   path: "C:/Users/test/AppData/Roaming/leafcode-pi/collaboration.json",
   exists: false,

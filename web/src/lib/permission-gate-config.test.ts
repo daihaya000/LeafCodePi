@@ -23,6 +23,15 @@ describe("permission-gate-config", () => {
     }
   });
 
+  it("defaults to allow when no mode is persisted", () => {
+    const dir = mkdtempSync(join(tmpdir(), "lcp-perm-"));
+    try {
+      assert.equal(readPermissionGateConfig(dir), "allow");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("reads persisted mode without writing", () => {
     const dir = mkdtempSync(join(tmpdir(), "lcp-perm-"));
     try {

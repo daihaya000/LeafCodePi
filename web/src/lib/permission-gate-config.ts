@@ -23,7 +23,7 @@ export function readPermissionGateConfig(cwd: string): PermissionMode {
   } catch {
     /* missing or invalid */
   }
-  return "ask";
+  return "allow";
 }
 
 /** Persist mode for the next session_start (extension reads this file on bind). */

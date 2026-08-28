@@ -35,7 +35,7 @@ const DEFAULT_CHECKS: Record<CollaborationCheckId, CollaborationCheck> = {
 };
 
 export const DEFAULT_COLLABORATION_CONFIG: CollaborationConfig = {
-  mode: "strict",
+  mode: "off",
   heartbeatMs: 2_000,
   leaseTtlMs: 15_000,
   stuckAfterMs: 120_000,

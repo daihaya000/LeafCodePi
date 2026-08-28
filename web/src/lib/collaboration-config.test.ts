@@ -12,7 +12,7 @@ describe("readCollaborationConfig", () => {
     for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  it("defaults to strict when the user-owned config is absent", () => {
+  it("defaults to off when the user-owned config is absent", () => {
     const dataDir = mkdtempSync(join(tmpdir(), "leafcode-collab-config-"));
     tempDirs.push(dataDir);
     assert.deepEqual(readCollaborationConfig({ ...process.env, LEAFCODE_PI_DATA_DIR: dataDir }), {
@@ -27,7 +27,7 @@ describe("readCollaborationConfig", () => {
     writeFileSync(join(dataDir, "collaboration.json"), JSON.stringify({ mode: "unsafe" }), "utf8");
     const result = readCollaborationConfig({ ...process.env, LEAFCODE_PI_DATA_DIR: dataDir });
     assert.equal(result.valid, false);
-    assert.equal(result.config.mode, "strict");
+    assert.equal(result.config.mode, "off");
     assert.equal(result.config.heartbeatMs, 2_000);
   });
 
