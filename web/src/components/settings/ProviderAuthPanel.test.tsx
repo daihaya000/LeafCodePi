@@ -148,6 +148,12 @@ async function accountRegion(name: string) {
 }
 
 describe("ProviderAuthPanel provider-scoped accounts", () => {
+  it("skips account loading when no account-managed provider is available", () => {
+    render(<ProviderAuthPanel providers={providers.slice(0, 1)} onChanged={() => {}} />);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("shows each account only inside its matching provider", async () => {
     mockAccountsApi();
     render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);

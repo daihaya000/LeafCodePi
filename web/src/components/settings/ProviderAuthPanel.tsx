@@ -160,8 +160,12 @@ export function ProviderAuthPanel({
   }, []);
 
   useEffect(() => {
+    if (!providers.some((provider) => isAccountProviderId(provider.id))) {
+      setAccounts([]);
+      return;
+    }
     void refreshAccounts();
-  }, [refreshAccounts]);
+  }, [providers, refreshAccounts]);
 
   useEffect(() => {
     if (!login?.sessionId) return;
