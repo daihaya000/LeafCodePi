@@ -127,6 +127,8 @@ Pi AgentSession
   - 初回接続、状態、再配布、解除
 - `web/src/components/task/ChatGptAdvisoryPanel.tsx`
   - 短いcontrol messageの生成、コピー、外部提案の取り込み
+- `web/src/components/task/PartView.tsx` / `web/src/lib/tool-labels.ts`
+  - `chatgpt` / `c2c` / `mcp__c2c__*` tool messageを、読取・スキルと同じ既存カード経路で専用の「ChatGPT」カードとして表示
 
 ### 6.2 プロセス寿命
 
@@ -341,6 +343,15 @@ Task画面は`EXECUTED`メッセージを1KB以内で生成できること。
 - `LEAFCODE_PI_C2C_DISABLED=1`または`enabled=false`のとき、HostはBridge/Tunnelをspawnせず、BFFとUIはdisabledを返すこと。
 - C2C導入時に`~/.pi/agent/mcp.json`、`collaboration.json`、provider routing、既存Task/Session schemaを変更しないこと。
 - collaboration mode（off/permissive/strict）とprovider account routingはC2Cの有無で変えないこと。
+
+### FR-20 ChatGPTメッセージカード
+
+- `chatgpt`、`chat-gpt`、`chat_gpt`、`c2c`、`mcp__c2c__*`、`mcp__chatgpt__*`のtool messageを専用カードとして表示すること。
+- カード見出しは「ChatGPT」とし、既存カードの会話アイコン、状態表示、経過時間、折りたたみ、keyboard操作、`aria-expanded`を再利用すること。
+- 見出し要約は`action`と`prompt`/`message`/`request`/`task`/`instruction`の許可フィールドから生成し、長文を切り詰めること。
+- 展開時は「操作」「依頼」などの許可フィールドと結果だけを表示し、入力JSON全体、token、資格情報、未知フィールドを表示しないこと。
+- active/error/cancelledの状態と結果previewは読取・スキル等の既存tool cardと同じ規則で扱うこと。
+- 通常の`openai-codex` provider応答や未知のMCP tool名をChatGPTカードへ誤分類しないこと。
 
 ## 8. 非機能要件
 
@@ -657,6 +668,13 @@ ChatGPTプラン・レビュー連携
 - `LEAFCODE_PI_C2C_DISABLED=1`でBridge/Tunnelがspawnされない。
 - collaboration modeとprovider account routingの設定・挙動がC2C導入前後で変わらない。
 
+### AC-11 ChatGPTメッセージカード
+
+- ChatGPT/C2C tool messageが「ChatGPT」ラベルと会話アイコンの既存カードとして表示される。
+- collapsed状態では結果preview、expanded状態では許可された操作・依頼・結果だけが表示される。
+- ChatGPT/C2C以外のtool label（読取、スキル、未知MCP）が回帰しない。
+- keyboard操作、`aria-expanded`、error/cancelled/running表示、mobile横溢れなしを満たす。
+
 ## 12.1 LeafCodePi向け追加最適化（採用）
 
 | 領域 | 採用する最小構成 | 作らないもの |
@@ -773,6 +791,8 @@ ChatGPTプラン・レビュー連携
 
 - 新規`ChatGptBridgeSettings.tsx`とtest
 - `SettingsView.tsx`とtest
+- `PartView.tsx` / `PartView.test.tsx`
+- `web/src/lib/tool-labels.ts` / `tool-labels.test.ts`
 - client types
 
 作業:
@@ -784,7 +804,8 @@ ChatGPTプラン・レビュー連携
 5. client-safe type以外からBridge/Node専用moduleをvalue importしない。
 6. state machineに従いloading/error/repair/expiredを表示する。
 7. workspace_info観測によるverified表示を追加する。
-8. pairing codeを失効時に伏せ、copy通知をaccessibleにする。
+8. ChatGPT/C2C tool messageを「ChatGPT」専用カードへ分類し、依頼要約・許可フィールド・結果previewを既存ToolCardへ接続する。
+9. pairing codeを失効時に伏せ、copy通知をaccessibleにする。
 
 検証:
 
@@ -793,6 +814,7 @@ ChatGPTプラン・レビュー連携
 - mobile、desktop、200% zoom
 - light/dark/Oyster
 - pairing expiry、URL change、error recovery
+- ChatGPT/C2C toolのlabel、icon、collapsed/expanded、allowlist、未知tool回帰
 - UI/UX review
 
 コミット案: `設定にChatGPTプラン・レビュー連携を追加`
