@@ -97,6 +97,8 @@ type Runtime = {
   pi: ExtensionAPI;
   awaitingTurn: boolean;
   pausedTurnPending: boolean;
+  pendingAgentMessages?: unknown[];
+  pendingAgentAborted: boolean;
   awaitingTurnIndex?: number;
   pausedTurnIndex?: number;
   timer?: ReturnType<typeof setTimeout>;
@@ -663,11 +665,81 @@ export function applyMissingResult(loop: GoalLoop, assistantText: string): void 
   writeLoop(loop);
 }
 
+function clearPendingAgentRun(runtime: Runtime): void {
+  runtime.pendingAgentMessages = undefined;
+  runtime.pendingAgentAborted = false;
+}
+
+function assistantErrorMessage(message: unknown): string | null {
+  const record = asRecord(message);
+  if (!record || record.role !== "assistant" || record.stopReason !== "error") return null;
+  const detail = typeof record.errorMessage === "string" ? record.errorMessage.trim() : "";
+  return detail || "生成が失敗しました。";
+}
+
+function errorFromAgentMessages(messages: unknown[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const error = assistantErrorMessage(messages[index]);
+    if (error) return error;
+  }
+  return null;
+}
+
+function settleAwaitingTurn(runtime: Runtime): void {
+  if (!runtime.awaitingTurn) {
+    clearPendingAgentRun(runtime);
+    return;
+  }
+  const loop = currentLoop(runtime);
+  if (!loop || loop.status !== "running") {
+    clearPendingAgentRun(runtime);
+    return;
+  }
+
+  const messages = runtime.pendingAgentMessages ?? [];
+  const aborted = runtime.pendingAgentAborted;
+  const error = errorFromAgentMessages(messages);
+  const result = extractGoalResultFromMessages(messages);
+  if (aborted) {
+    pauseLoop(runtime, "user", "実行が中断されたため一時停止しました。");
+    clearPendingAgentRun(runtime);
+    return;
+  }
+  if (error) {
+    pauseLoop(runtime, "scheduler_error", error);
+    clearPendingAgentRun(runtime);
+    return;
+  }
+
+  runtime.awaitingTurn = false;
+  runtime.awaitingTurnIndex = undefined;
+  runtime.pausedTurnIndex = undefined;
+  if (runtime.timeoutTimer) clearTimeout(runtime.timeoutTimer);
+  runtime.timeoutTimer = undefined;
+  clearPendingAgentRun(runtime);
+  if (result) applyResult(loop, result);
+  else {
+    const text = [...messages]
+      .reverse()
+      .map((message) => assistantText(message))
+      .find((value) => value.trim()) ?? "";
+    applyMissingResult(loop, text);
+  }
+  const updated = currentLoop(runtime);
+  updateUI(runtime, updated);
+  if (updated) {
+    appendSnapshot(runtime, updated);
+    // Keep queued work armed even when agent_settled is emitted after this handler.
+    if (updated.status === "queued" || updated.status === "verifying_completed") schedule(runtime);
+  }
+}
+
 function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error = "ユーザーが一時停止しました。"): void {
   const loop = currentLoop(runtime);
   if (!loop || TERMINAL.has(loop.status)) return;
   runtime.pausedTurnPending = runtime.awaitingTurn;
   runtime.pausedTurnIndex = runtime.awaitingTurnIndex;
+  clearPendingAgentRun(runtime);
   clearTimer(runtime);
   runtime.awaitingTurn = false;
   runtime.awaitingTurnIndex = undefined;
@@ -688,6 +760,7 @@ function stopLoop(runtime: Runtime): void {
   runtime.pausedTurnPending = false;
   runtime.awaitingTurnIndex = undefined;
   runtime.pausedTurnIndex = undefined;
+  clearPendingAgentRun(runtime);
   loop.status = "stopped";
   loop.pauseReason = "";
   loop.error = "";
@@ -710,6 +783,7 @@ function completeLoop(runtime: Runtime): boolean {
   runtime.pausedTurnPending = false;
   runtime.awaitingTurnIndex = undefined;
   runtime.pausedTurnIndex = undefined;
+  clearPendingAgentRun(runtime);
   loop.status = "completed";
   loop.pauseReason = "";
   loop.error = "";
@@ -783,6 +857,8 @@ function sendTurn(runtime: Runtime): void {
   appendSnapshot(runtime, loop);
   runtime.awaitingTurn = true;
   runtime.pausedTurnPending = false;
+  runtime.pendingAgentMessages = undefined;
+  runtime.pendingAgentAborted = false;
   runtime.awaitingTurnIndex = undefined;
   runtime.pausedTurnIndex = undefined;
   runtime.timeoutTimer = setTimeout(() => {
@@ -1139,6 +1215,7 @@ export default function (pi: ExtensionAPI): void {
       pausedTurnPending: false,
       pausedTurnIndex: undefined,
       disposed: false,
+      pendingAgentAborted: false,
     };
     runtimes.set(key, runtime);
 
@@ -1208,53 +1285,32 @@ export default function (pi: ExtensionAPI): void {
       return;
     }
     // `turn_end` fires once per assistant/tool iteration. A tool call normally
-    // has no Goal JSON yet, so wait for `agent_end`, which contains the whole
-    // run and its final assistant messages.
+    // has no Goal JSON yet; agent_end records the latest run result and
+    // agent_settled applies it after retries and compaction have finished.
   });
 
   pi.on("agent_end", async (event, ctx) => {
     const current = getRuntime();
     if (!current || !current.awaitingTurn) return;
-    if (event.messages.some(isAbortedAssistant) || ctx.signal?.aborted) {
-      pauseLoop(current, "user", "実行が中断されたため一時停止しました。/goal-resume で再開できます。");
-      return;
-    }
-
-    const loop = currentLoop(current);
-    if (!loop || loop.status !== "running") return;
-    current.awaitingTurn = false;
-    current.awaitingTurnIndex = undefined;
-    current.pausedTurnIndex = undefined;
-    if (current.timeoutTimer) clearTimeout(current.timeoutTimer);
-    current.timeoutTimer = undefined;
-    const result = extractGoalResultFromMessages(event.messages);
-    if (result) {
-      applyResult(loop, result);
-    } else {
-      const text = [...event.messages]
-        .reverse()
-        .map((message) => assistantText(message))
-        .find((value) => value.trim()) ?? "";
-      applyMissingResult(loop, text);
-    }
-    const updated = currentLoop(current);
-    updateUI(current, updated);
-    if (updated) {
-      appendSnapshot(current, updated);
-      // agent_settled can be delayed; keep queued work armed from its state transition.
-      if (updated.status === "queued" || updated.status === "verifying_completed") schedule(current);
-    }
+    // agent_end is emitted before Pi performs automatic retry/compaction. Keep
+    // the latest messages only as evidence and finalize at agent_settled.
+    current.pendingAgentMessages = event.messages;
+    current.pendingAgentAborted = event.messages.some(isAbortedAssistant) || Boolean(ctx.signal?.aborted);
   });
 
   pi.on("agent_settled", async (_event, _ctx) => {
     const current = getRuntime();
     if (!current) return;
     const loop = currentLoop(current);
-    if (!loop) return;
-    if (current.awaitingTurn && loop.status === "running") {
-      pauseLoop(current, "unreadable_result", "応答から結果JSONを読み取れなかったため一時停止しました。");
+    if (!loop) {
+      clearPendingAgentRun(current);
       return;
     }
+    if (current.awaitingTurn && loop.status === "running") {
+      settleAwaitingTurn(current);
+      return;
+    }
+    clearPendingAgentRun(current);
     if (loop.status === "queued" || loop.status === "verifying_completed") schedule(current);
   });
 
@@ -1271,6 +1327,7 @@ export default function (pi: ExtensionAPI): void {
       writeLoop(loop);
     }
     current.disposed = true;
+    clearPendingAgentRun(current);
     clearTimer(current);
     runtimes.delete(current.key);
   });

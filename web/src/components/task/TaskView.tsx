@@ -67,6 +67,7 @@ import {
 import {
   loadTaskSessionCache,
   saveTaskSessionCache,
+  shouldKeepCachedBootstrapMessages,
   type TaskSessionCacheSnapshot,
 } from "@/lib/task-session-cache";
 import {
@@ -560,8 +561,11 @@ export function TaskView({
         }
         const snapshotTask = payload.task;
         const isBootstrap = payload.eventType === "bootstrap";
+        // Bootstrap marks a new hydration epoch. Set this urgently so a
+        // reconnect cannot clear its gate and auto-resume cached state first.
+        if (isBootstrap) setSessionHydrating(true);
         startTransition(() => {
-          setSessionHydrating(isBootstrap);
+          if (!isBootstrap) setSessionHydrating(false);
           if (snapshotTask) {
             setAgent(snapshotTask.agent?.trim() || DEFAULT_AGENT);
             setTask((current) => {
@@ -571,9 +575,13 @@ export function TaskView({
                 isStreaming: payload.isStreaming ?? snapshotTask.status === "working",
                 isCompacting: Boolean(payload.isCompacting),
               };
-              const keepExistingMessages = isBootstrap &&
-                payload.messages?.length === 0 &&
-                base.messages.length > 0;
+              const keepExistingMessages = shouldKeepCachedBootstrapMessages({
+                currentTaskId: base.id,
+                snapshotTaskId: snapshotTask.id,
+                isBootstrap,
+                snapshotMessages: payload.messages,
+                currentMessageCount: base.messages.length,
+              });
               const next: TaskDetail = {
                 ...base,
                 ...snapshotTask,
@@ -810,14 +818,43 @@ export function TaskView({
   useLayoutEffect(() => {
     // A reused pane must not evaluate the previous task's messages as a
     // resumable turn while its first server snapshot is still pending.
+    const cached = loadTaskSessionCache(taskId);
+    setTask(cached);
+    setMessages(cached?.messages ?? []);
+    setContextUsage(cached?.contextUsage);
+    setIsCompacting(Boolean(cached?.isCompacting));
+    setCompactingLocal(false);
+    setWorktreeStatus(null);
+    setPrompt("");
+    setAttachments([]);
+    setGoalLoopEnabled(false);
+    setGoalLoopAcceptance("");
+    setGoalLoopMaxTurns(10);
+    setGoalLoopCooldownSeconds(0);
+    setGoalLoopForceFullRun(false);
     setSessionHydrating(true);
-    stickRef.current = true;
-    lastScrollTopRef.current = 0;
     setIsReverted(false);
     setRevertConfirmOpen(false);
+    setRevertBusy(false);
     revertEntryRef.current = null;
     setQueuedFollowUps([]);
     setQueuedAutoSend(false);
+    setSubmitting(false);
+    setResumingTurn(false);
+    setResumeTurnError(null);
+    setManualAbortedAssistantId(null);
+    setHangRetryCount(0);
+    setError(null);
+    setPermissionRequest(null);
+    setQuestionRequest(null);
+    setPermissionBusy(false);
+    setAgent(cached?.agent?.trim() || DEFAULT_AGENT);
+    autoResumeKeyRef.current = null;
+    messageElsRef.current.clear();
+    navigationMessageIdsRef.current = [];
+    currentNavigationIdxRef.current = 0;
+    stickRef.current = true;
+    lastScrollTopRef.current = 0;
   }, [taskId]);
 
   useLayoutEffect(() => {
@@ -1311,12 +1348,16 @@ export function TaskView({
     !!resumeTarget &&
     !!task &&
     !sessionHydrating &&
+    !compacting &&
+    !sseReconnecting &&
     !working &&
     !goalLoopLive;
   const autoResumeSilentTurn = shouldAutoResumeSilentTurn({
     target: resumeTarget,
     showResume,
     sessionHydrating,
+    compacting,
+    sseReconnecting,
     taskStatus: task?.status,
     resumingTurn,
     currentPromptIsHangRetry,

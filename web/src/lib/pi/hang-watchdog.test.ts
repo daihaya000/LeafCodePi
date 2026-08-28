@@ -138,6 +138,57 @@ describe("hang-watchdog helpers", () => {
     }
   });
 
+  it("does not resolve a watch while context compaction is running", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-compacting-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    let compacting = true;
+    let abortCount = 0;
+    let resumeCount = 0;
+    const messages: UiMessage[] = [
+      {
+        id: "prompt",
+        role: "user",
+        createdAt: 1_000_000,
+        parts: [{ id: "prompt-text", type: "text", text: "作業" }],
+      },
+    ];
+    registerHangWatchdogHooks({
+      getLive: () => ({ isStreaming: false, isCompacting: compacting, messages }),
+      abortTask: async () => {
+        abortCount += 1;
+        compacting = false;
+      },
+      resumePrompt: () => {
+        resumeCount += 1;
+      },
+      notifyHangRetry: () => undefined,
+    });
+    try {
+      fs.writeFileSync(
+        path.join(root, "web-settings.json"),
+        JSON.stringify({ version: 1, "hang-timeout": 60_000 }),
+        "utf8",
+      );
+      armTaskHangWatch({ taskId: "compacting-task", prompt: "作業", startedAt: 1_000_000 });
+      vi.setSystemTime(1_100_000);
+      await runHangWatchdogTick();
+      vi.setSystemTime(1_200_000);
+      await runHangWatchdogTick();
+
+      expect(abortCount).toBe(0);
+      expect(resumeCount).toBe(0);
+      expect(getTaskHangWatch("compacting-task")?.state).toBe("armed");
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not revive a watch that was explicitly disarmed while abort was in flight", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-cancelled-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;

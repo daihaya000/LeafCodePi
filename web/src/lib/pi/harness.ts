@@ -4179,6 +4179,9 @@ export async function compactTask(
       status: 409,
     });
   }
+  // Manual compaction aborts the current operation by design. Do not let the
+  // hang watchdog replay that operation after compaction succeeds or fails.
+  disarmTaskHangWatch(id);
   const instructions = customInstructions?.trim();
   try {
     await live.session.compact(instructions || undefined);
@@ -4192,6 +4195,7 @@ export async function abortTaskCompaction(id: string): Promise<TaskDetail> {
   const live = state().live.get(id);
   if (!live)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  disarmTaskHangWatch(id);
   live.session.abortCompaction();
   return getTaskDetail(id);
 }

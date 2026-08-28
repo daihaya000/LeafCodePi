@@ -23,6 +23,21 @@ export type TaskSessionCacheSnapshot = Omit<CachedTaskSession, "cachedAt" | "tas
   task: TaskSummary;
 };
 
+export function shouldKeepCachedBootstrapMessages(input: {
+  currentTaskId: string | undefined;
+  snapshotTaskId: string;
+  isBootstrap: boolean;
+  snapshotMessages: UiMessage[] | undefined;
+  currentMessageCount: number;
+}): boolean {
+  return Boolean(
+    input.isBootstrap &&
+      input.currentTaskId === input.snapshotTaskId &&
+      input.snapshotMessages?.length === 0 &&
+      input.currentMessageCount > 0,
+  );
+}
+
 const TASK_STATUSES = new Set<TaskStatus>([
   "working",
   "ready",

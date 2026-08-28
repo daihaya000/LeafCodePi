@@ -38,6 +38,8 @@ export function shouldAutoResumeSilentTurn(input: {
   target: ResumableTurn | null;
   showResume: boolean;
   sessionHydrating: boolean;
+  compacting: boolean;
+  sseReconnecting: boolean;
   taskStatus?: string;
   resumingTurn: boolean;
   currentPromptIsHangRetry: boolean;
@@ -45,6 +47,8 @@ export function shouldAutoResumeSilentTurn(input: {
   return Boolean(
     input.showResume &&
       !input.sessionHydrating &&
+      !input.compacting &&
+      !input.sseReconnecting &&
       input.target?.reason === "silent" &&
       input.taskStatus === "idle" &&
       !input.resumingTurn &&

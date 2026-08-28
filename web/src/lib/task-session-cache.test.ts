@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   loadTaskSessionCache,
   saveTaskSessionCache,
+  shouldKeepCachedBootstrapMessages,
   TASK_SESSION_CACHE_MAX_AGE_MS,
   TASK_SESSION_CACHE_STORAGE_KEY,
 } from "./task-session-cache";
@@ -55,6 +56,30 @@ afterEach(() => {
 });
 
 describe("task session cache", () => {
+  it("only keeps cached messages for the same task's empty bootstrap", () => {
+    expect(shouldKeepCachedBootstrapMessages({
+      currentTaskId: "task-1",
+      snapshotTaskId: "task-1",
+      isBootstrap: true,
+      snapshotMessages: [],
+      currentMessageCount: 1,
+    })).toBe(true);
+    expect(shouldKeepCachedBootstrapMessages({
+      currentTaskId: "task-1",
+      snapshotTaskId: "task-2",
+      isBootstrap: true,
+      snapshotMessages: [],
+      currentMessageCount: 1,
+    })).toBe(false);
+    expect(shouldKeepCachedBootstrapMessages({
+      currentTaskId: "task-1",
+      snapshotTaskId: "task-1",
+      isBootstrap: true,
+      snapshotMessages: [messages[0]!],
+      currentMessageCount: 1,
+    })).toBe(false);
+  });
+
   it("round-trips a task snapshot without storing duplicate TaskDetail fields", () => {
     saveTaskSessionCache({
       task,

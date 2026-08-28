@@ -361,6 +361,10 @@ async function evaluateWatch(row: TaskHangWatchRow, timeoutMs: number): Promise<
   }
 
   const { messages, isStreaming, isCompacting } = live;
+  // Compaction temporarily makes the session idle-looking while the previous
+  // turn is being rewritten. Never abort or resume against that intermediate
+  // transcript; the next tick will evaluate the compacted branch.
+  if (isCompacting) return;
   if (turnHasOnlyActiveSubagentTool(messages, row.startedAt)) return;
 
   const fingerprint = progressFingerprint(messages);

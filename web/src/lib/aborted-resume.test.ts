@@ -60,12 +60,16 @@ function assertAutoResume(
   target: ReturnType<typeof findResumableTurn>,
   sessionHydrating: boolean,
   expected: boolean,
+  compacting = false,
+  sseReconnecting = false,
 ): void {
   expect(
     shouldAutoResumeSilentTurn({
       target,
       showResume: true,
       sessionHydrating,
+      compacting,
+      sseReconnecting,
       taskStatus: "idle",
       resumingTurn: false,
       currentPromptIsHangRetry: false,
@@ -100,6 +104,16 @@ describe("findResumableTurn", () => {
       text: "元のプロンプト",
       files: [],
     });
+  });
+
+  it("does not auto-resume while context compaction is running", () => {
+    const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")]);
+    assertAutoResume(target, false, false, true);
+  });
+
+  it("does not auto-resume while SSE is reconnecting", () => {
+    const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")]);
+    assertAutoResume(target, false, false, false, true);
   });
 
   it("returns silent resume for thinking-only assistant turn", () => {
