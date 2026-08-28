@@ -3010,6 +3010,16 @@ export async function setProviderAccountRoutingMode(
       { status: 400 },
     );
   }
+  if (
+    mode === "integrated" &&
+    listAccounts().filter((account) => accountHasProvider(account, providerId))
+      .length < 2
+  ) {
+    throw Object.assign(
+      new Error("アカウント統合には2つ以上のアカウントが必要です"),
+      { status: 400 },
+    );
+  }
   await setAccountRoutingMode(providerId, mode);
   invalidateHealthCache();
 }

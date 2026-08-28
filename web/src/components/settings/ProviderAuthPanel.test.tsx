@@ -122,18 +122,18 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function mockAccountsApi() {
+function mockAccountsApi(accountList = accounts) {
   fetchMock.mockImplementation(
     (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
       if (url.endsWith("/api/accounts")) {
         if (method === "GET")
-          return Promise.resolve(jsonResponse({ accounts }));
+          return Promise.resolve(jsonResponse({ accounts: accountList }));
         if (method === "POST")
           return Promise.resolve(jsonResponse({ account: accounts[0] }));
       }
-      const statusMatch = url.match(/\/api\/accounts\/(acc-\d+)\/auth-status/);
+      const statusMatch = url.match(/\/api\/accounts\/([^/]+)\/auth-status/);
       if (statusMatch) {
         const providerIds = statusMatch[1] === "acc-1" ? ["openai-codex"] : [];
         return Promise.resolve(jsonResponse({ providers: providerIds }));
@@ -162,8 +162,10 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     const anthropic = await accountRegion("Anthropic");
     expect(await within(codex).findByText("仕事用")).toBeTruthy();
     expect(within(codex).queryByText("個人用")).toBeNull();
+    expect(within(codex).queryByRole("checkbox", { name: "統合" })).toBeNull();
     expect(await within(anthropic).findByText("個人用")).toBeTruthy();
     expect(within(anthropic).queryByText("仕事用")).toBeNull();
+    expect(within(anthropic).queryByRole("checkbox", { name: "統合" })).toBeNull();
     expect(
       screen.queryByRole("region", { name: "llama-server の追加アカウント" }),
     ).toBeNull();
@@ -171,7 +173,16 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
   });
 
   it("changes the routing mode from the provider section", async () => {
-    mockAccountsApi();
+    mockAccountsApi([
+      ...accounts,
+      {
+        id: "acc-3",
+        label: "予備用",
+        providers: ["openai-codex"],
+        createdAt: "",
+        updatedAt: "",
+      },
+    ]);
     const onChanged = vi.fn();
     render(
       <ProviderAuthPanel

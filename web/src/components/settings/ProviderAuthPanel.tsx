@@ -582,28 +582,30 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         aria-label={`${provider.name} の追加アカウント`}
         className="mt-3 border-t border-border pt-3"
       >
-        <div className="mb-2" aria-busy={savingMode || undefined}>
-          <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-muted">
-            <input
-              type="checkbox"
-              checked={mode === "integrated"}
-              disabled={modeDisabled}
-              onChange={(event) =>
-                void changeRoutingMode(
-                  providerId,
-                  event.target.checked ? "integrated" : "separate",
-                )
-              }
-              className="h-4 w-4 accent-accent"
-            />
-            <span>統合</span>
-          </label>
-          {routingErrors[providerId] && (
-            <p className="text-xs text-danger" role="alert">
-              {routingErrors[providerId]}
-            </p>
-          )}
-        </div>
+        {providerAccounts.length >= 2 && (
+          <div className="mb-2" aria-busy={savingMode || undefined}>
+            <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-muted">
+              <input
+                type="checkbox"
+                checked={mode === "integrated"}
+                disabled={modeDisabled}
+                onChange={(event) =>
+                  void changeRoutingMode(
+                    providerId,
+                    event.target.checked ? "integrated" : "separate",
+                  )
+                }
+                className="h-4 w-4 accent-accent"
+              />
+              <span>統合</span>
+            </label>
+            {routingErrors[providerId] && (
+              <p className="text-xs text-danger" role="alert">
+                {routingErrors[providerId]}
+              </p>
+            )}
+          </div>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="text-xs font-semibold text-muted">
