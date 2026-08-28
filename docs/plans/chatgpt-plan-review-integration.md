@@ -114,8 +114,11 @@ Pi AgentSession
   - TypeScript sourceと専用テストを保持
   - `npm`と固定lockfileを使用し、`latest`依存を禁止
 - `host/src/chatgpt-bridge-service.js`
-  - Bridgeのinstall/build/start/stop/statusを管理
+  - 配布済みBridge artifactの検査、start/stop/statusを管理
+  - build/installは明示的な開発・配布工程だけで行い、実行時に依存を取得しない
   - raw admin tokenをHostプロセス外へ返さない
+- `host/src/llama-control-server.js`
+  - 既存Host controlへC2C handlerを追加し、C2C専用のHTTP server/portを作らない
 - `web/src/app/api/chatgpt-bridge/`
   - 認証済みWebUIからHostへのBFF
   - ブラウザ入力のパスを受け取らず、`projectId` / `taskId`だけをHostへ転送
@@ -128,8 +131,8 @@ Pi AgentSession
 ### 6.2 プロセス寿命
 
 - 初期版でアクティブにできるワークスペースは同時に1件だけとする。
-- Bridgeはユーザー操作で起動し、WebUIの再起動では停止しない。
-- LeafCodePi Host再起動時は既存runtime stateを検査し、同じBridgeが生存していれば再利用する。
+- Bridge/TunnelはHostが所有するchild processとしてユーザー操作で起動し、WebUIだけの再起動では停止しない。
+- LeafCodePi Host再起動時はMVPではBridge/Tunnelを再利用しない。旧runtimeのPID・portをprobeして孤児processなら停止し、必要ならユーザー操作で再起動する（Host再起動をまたぐ秘密情報のhandoffを作らない）。
 - PC再起動やBridge停止でQuick Tunnel URLが変わった場合は、Connector URLの更新と再配布を案内する。
 - 接続解除ではtoken全失効、Tunnel停止、Bridge停止をこの順で行う。
 - 別ワークスペースへ切り替える場合は、既存接続の解除確認を必須とする。
@@ -137,9 +140,10 @@ Pi AgentSession
 ### 6.3 更新方針
 
 - 起動時・日次の`git pull`を行わない。
+- LeafCodePi rootのnpm構成へ上流のpnpm workspaceを混在させない。Bridgeのlockfileと依存はintegration package内へ閉じ込める。
 - 上流更新は基準commitを明示した専用PRで取り込む。
 - 更新PRでは上流差分、LeafCodePi patch、ライセンス、全テスト、Windows PoCを再確認する。
-- production起動中に依存インストールやsource更新を行わない。
+- production起動中に依存インストール、source transpile、source更新を行わない。Hostは配布済みartifactだけを起動する。
 
 ## 7. 機能要件
 
@@ -167,8 +171,8 @@ Pi AgentSession
 
 - Bridgeは`127.0.0.1`または`::1`以外へbindできないこと。
 - 既定ポート競合時は空きポートへ移り、公開URL以外のポート情報を通常UIへ出さないこと。
-- 同一workspaceの生存Bridgeがある場合は重複起動せず再利用すること。
-- 異なるworkspaceの生存Bridgeを誤って再利用しないこと。
+- 同一Host instance内で同一workspaceの生存Bridgeがある場合は重複起動せず再利用すること。
+- 異なるworkspaceの生存Bridge、またはHost再起動をまたぐ旧Bridgeを誤って再利用しないこと。
 
 ### FR-05 Tunnel
 
@@ -184,7 +188,8 @@ Pi AgentSession
 - PKCEはS256だけを許可すること。
 - redirect URIはHTTPS、または開発用loopback HTTPだけを許可すること。
 - access tokenは1時間、refresh tokenは30日以内とし、refresh時にrotationすること。
-- raw tokenを永続化せず、SHA-256 hashだけを保存すること。
+- access token、authorization code、pairing codeはrawで永続化せず、access tokenはSHA-256 hashだけを保存すること。
+- refresh tokenを使う場合だけ、Host専用のOS保護auth storeへ保存する。Windowsでは既存`host/src/secure-file.js`のACL制限を必須とし、保護を確認できない環境では`offline_access`を発行せず再ペアリングを要求すること。
 - `offline_access`は明示要求された場合だけ許可し、未知scopeだけの要求を全scopeへ拡張しないこと。
 - dynamic client登録はIP単位10回/分、最大50件とし、上限時はunexpired tokenを持たない最古のclientだけを削除できること。
 - pending authorizationは最大20件、10分以内とし、上限超過を429で拒否すること。
@@ -250,6 +255,7 @@ Pi AgentSession
 - `.pi/`
 - ルートの`MEMORY.md`と`LESSONS.md`
 - `.c2c-secrets*`
+- `dataDir()/c2c`（workspace root配下に存在する場合）と、その実体へ到達するreparse point
 
 追加拒否はworkspace rootの`.c2cignore`で指定できること。`.c2cignore`自身は読み取り不可とする。
 
@@ -260,7 +266,7 @@ Pi AgentSession
 - 公開`/health`はservice、version、statusだけを返すこと。
 - workspace path、workspace name、workspace ID、port、PID、token countを公開しないこと。
 - workspace IDはlocal admin APIだけで使用し、「salt付き」と事実でない説明をしないこと。
-- admin APIはloopback、admin token、proxy header拒否の3条件を満たすこと。
+- Bridge admin APIはloopback、admin token、proxy header拒否の3条件を満たすこと。Web BFFは既存Host controlのloopback + exact Host header guardを使い、Bridge admin tokenを保持・転送しないこと。
 
 ### FR-13 計画依頼
 
@@ -330,6 +336,12 @@ Task画面は`EXECUTED`メッセージを1KB以内で生成できること。
 - 解除は確認後にtoken失効、Tunnel停止、Bridge停止を実行すること。
 - 状態ファイル削除は別の「接続データを削除」操作とし、通常の停止と分けること。
 
+### FR-19 緊急停止と既存機能互換
+
+- `LEAFCODE_PI_C2C_DISABLED=1`または`enabled=false`のとき、HostはBridge/Tunnelをspawnせず、BFFとUIはdisabledを返すこと。
+- C2C導入時に`~/.pi/agent/mcp.json`、`collaboration.json`、provider routing、既存Task/Session schemaを変更しないこと。
+- collaboration mode（off/permissive/strict）とprovider account routingはC2Cの有無で変えないこと。
+
 ## 8. 非機能要件
 
 ### NFR-01 セキュリティ
@@ -356,6 +368,8 @@ Task画面は`EXECUTED`メッセージを1KB以内で生成できること。
 - ファイル読取は1回256KB、最大1MB、既定400行、最大2000行とする。
 - Git diffは1回64KB、最大256KBでページングする。
 - searchは既定50件、最大200件、対象ファイル2MB以下とする。
+- 設定UIは既存`getJson`/`sendJson`のcoalescing・timeoutを再利用し、非表示または折りたたみ中にpollingしないこと。
+- Git status/diffとchanged file数はTaskViewの各renderや定期pollingでは計算せず、明示的なreview操作またはMCP request時だけ取得すること。
 
 ### NFR-04 互換性
 
@@ -364,13 +378,15 @@ Task画面は`EXECUTED`メッセージを1KB以内で生成できること。
 - Windows ESM importは`pathToFileURL()`を使用すること。
 - PowerShell 5.1 / 7のどちらから起動してもUTF-8設定ファイルを破損しないこと。
 - 既存LeafCodePi、LeafCode、llama-server、Host controlの既定ポートと衝突しないこと。
+- 状態パスは既存`dataDir()`と`LEAFCODE_PI_DATA_DIR`を使い、C2C専用の別data rootを既定追加しないこと。
+- shortcut、different cwd、OneDrive配下から起動しても`REPO_ROOT`基準でartifactを解決すること。
 
 ### NFR-05 データ形式
 
 - JSON、JSONL、MarkdownはUTF-8 without BOM、LF、末尾改行ありとする。
 - 状態書込みはtemp + renameでatomicにする。
 - state schemaへversionを持たせ、未知versionは書き換えずエラーとして扱う。
-- raw tokenを永続化しない。
+- access token、authorization code、pairing codeはrawで永続化しない。refresh tokenを保存する場合はOS保護auth storeに限定する。
 
 ### NFR-06 ログ・監査
 
@@ -378,6 +394,7 @@ Task画面は`EXECUTED`メッセージを1KB以内で生成できること。
 - pairing code形式、bearer、admin token、authorization codeをloggerでredactする。
 - MCPで取得した本文・diff・検索結果をBridge logへ保存しない。
 - 接続、配布、token失効、Tunnel URL変化をsafe eventとして記録する。
+- C2Cの外部送信先はConnector/MCPと必要なOAuth endpointだけとし、利用状況・リポジトリ内容のanalytics/telemetryを追加しないこと。
 
 ### NFR-07 保守性
 
@@ -386,29 +403,34 @@ Task画面は`EXECUTED`メッセージを1KB以内で生成できること。
 - Host/Webの表示文言へMCP、PKCE、port等を必要以上に露出しない。
 - 新しい抽象化は上流差分管理またはテスト分離に必要なものだけに限定する。
 
+### NFR-08 LeafCodePi固有の再利用境界
+
+- Web BFFは既存`resolveHostControlUrl`、Host handlerは既存`createLlamaControlServer`、状態は既存`dataDir()`、UI通信は既存`getJson`/`sendJson`を優先して再利用すること。
+- C2C公開MCPをLeafCodePiのglobal `mcp.json`へ登録しないこと。C2Cは外部ChatGPTだけのMCP clientとして扱う。
+- client componentからBridge/Node専用moduleをvalue importしない。Bridge型はtype-onlyのclient-safe moduleへ分離すること。
+- C2Cは既存`leafcode-collaboration`のlease/write gateを置き換えず、read-only advisoryとして独立させること。
+
 ## 9. 永続化
 
 ### 9.1 保存先
 
-既定:
+既定は既存`dataDir()`配下とする。Windowsの既定は`%APPDATA%\leafcode-pi`であり、build mirror / tempの`%LOCALAPPDATA%`とは分ける。
 
 ```text
-%LOCALAPPDATA%\leafcode-pi\c2c\
+dataDir()\c2c\
   config.json
   runtime\active.json
-  auth\<workspaceId>.json
-  execution\<workspaceId>.jsonl
-  sessions\<workspaceId>.json
+  auth.json
+  execution.jsonl
+  sessions.json
   logs\bridge.log
 ```
 
-テスト・移植用override:
+MVPは同時1workspaceのためworkspaceId別directoryを作らない。将来複数workspaceへ拡張する場合はschema migrationを別計画にする。
 
-```text
-LEAFCODE_PI_C2C_STATE_DIR
-```
+テスト・移植時は既存`LEAFCODE_PI_DATA_DIR`でdataDir全体を差し替え、C2C専用の別state root環境変数は追加しない。
 
-ワークスペース配下へ状態・資格情報・ログを作成しない。プロジェクト内`.pi`も使用しない。
+ワークスペース配下へ状態・資格情報・ログを作成しない。プロジェクト内`.pi`も使用しない。workspace rootと`dataDir()/c2c`が重なる場合はFR-11の保護対象として扱う。
 
 ### 9.2 config schema
 
@@ -424,6 +446,8 @@ LEAFCODE_PI_C2C_STATE_DIR
 - `activeProjectId`はLeafCodePi storeとのlocal参照であり、公開MCPへ返さない。
 - workspace rootはHostがProject storeから再解決し、configへ重複保存しない。
 - conversation URLは任意であり、ChatGPT資格情報を含めない。
+- `auth.json`はrefresh tokenを保存する場合だけHost専用ACLで保護し、`execution.jsonl`/`sessions.json`は本文を保存せず、30日/90日でbounded cleanupする。
+- `runtime/active.json`はPIDだけで生存判定せず、Bridge instance nonceとhealth challengeを照合する。
 
 ## 10. API契約
 
@@ -444,7 +468,8 @@ POST   /api/chatgpt-bridge/record      { taskId, iteration, tests, exitStatus }
 共通規則:
 
 - raw workspace pathをrequest body/queryで受けない。
-- Web BFFはrequest schemaを検証し、Hostが`projectId` / `taskId`をLeafCodePi storeで照合する。
+- Web BFFは既存WebUI auth/proxyを通過したrequest schemaだけを受け、Hostが`projectId` / `taskId`をLeafCodePi storeで照合する。
+- BFFからBridgeへ直接fetchせず、既存Host control経由のtyped handlerだけを呼ぶ。
 - taskのprojectとactive Bridge workspaceが一致しない場合は409。
 - pairing responseへ`Cache-Control: no-store`を付ける。
 - status responseへtoken、admin token、auth path、PIDを含めない。
@@ -569,12 +594,14 @@ ChatGPTプラン・レビュー連携
 
 - 機能無効状態でLeafCodePiの起動、タスク、モデル、subagent、MCP設定が従来どおり動く。
 - Bridge/Tunnel processが起動しない。
+- `~/.pi/agent/mcp.json`、`collaboration.json`、provider routing、既存Task/Session schemaが変更されない。
 
 ### AC-02 Windows導入
 
-- 空白、日本語、OneDriveを含むpathでinstall/build/start/status/stopが成功する。
+- 空白、日本語、OneDriveを含むpathでartifact check/start/status/stopが成功する。
+- shortcutやdifferent cwdから起動しても`REPO_ROOT`基準でBridge artifactを解決する。
 - `node bin/c2c.js --version`相当がWindowsでESM URL errorを出さない。
-- 非対話installがbuild approval待ちで停止しない。
+- 実行時のnpm installやbuild approval待ちが発生しない。
 
 ### AC-03 OAuth/MCP
 
@@ -621,6 +648,29 @@ ChatGPTプラン・レビュー連携
 - mobileで横overflowがなく、44px操作領域を満たす。
 - light/dark/Oyster、200% zoom、reduced motionで操作できる。
 
+### AC-10 LeafCodePi最適化・互換性
+
+- C2Cは既存Host control portだけを使用し、二つ目のadmin server/portを開かない。
+- C2C公開MCPはLeafCodePiの`mcp.json`へ登録されず、機能無効時に追加polling・network・processがない。
+- stateは既存`dataDir()`配下の固定ファイルへ保存され、同時1workspaceの範囲でworkspaceId別の不要なdirectoryを作らない。
+- WebUI再起動ではBridgeを停止せず、Host再起動では旧Bridgeを安全に再利用しない。
+- `LEAFCODE_PI_C2C_DISABLED=1`でBridge/Tunnelがspawnされない。
+- collaboration modeとprovider account routingの設定・挙動がC2C導入前後で変わらない。
+
+## 12.1 LeafCodePi向け追加最適化（採用）
+
+| 領域 | 採用する最小構成 | 作らないもの |
+| --- | --- | --- |
+| Host接続 | 既存`createLlamaControlServer` / `resolveHostControlUrl`へtyped handlerを追加 | C2C専用control server、専用port、別daemon |
+| 状態 | 既存`dataDir()` + `LEAFCODE_PI_DATA_DIR`、同時1workspaceの固定file | store.json schema変更、workspace別の複雑なregistry |
+| UI通信 | 既存`getJson` / `sendJson`、SettingsViewのlazy mount、TaskViewの既存SSE | C2C専用SSE/WebSocket、常時polling |
+| MCP | 外部ChatGPTだけがC2C Bridgeをclientとして利用 | LeafCodePi global `mcp.json`への自己登録 |
+| 実行 | 配布済みartifactをHost childとして起動 | production中のnpm install、source transpile、自動update |
+| 記録 | 明示record + bounded metadata | command/stdout全文の収集、常時監視、推測によるtest判定 |
+| 依存 | Node標準APIと既存Host helperを優先 | web/hostへの新規依存、重複したauth/path helper |
+
+この表の「作らないもの」はYAGNIではなく、既存LeafCodePiの責務境界・更新安全性・通常タスク性能を守るための固定条件である。
+
 ## 13. 実装計画
 
 各Phaseは「変更 → 対象検証 → ToDo完了 → 即コミット」で閉じる。同一Phaseを未コミットのまま次へ持ち越さない。
@@ -630,18 +680,21 @@ ChatGPTプラン・レビュー連携
 対象:
 
 - 新規`integrations/codex-with-chatgpt/`
-- root install/build script
+- integration packageのbuild/release artifact
 - license / `UPSTREAM.md`
+- root packageはartifactの組み込みに必要な最小変更だけ
 
 作業:
 
 1. 上流`b4e0b147...`を基準に必要ファイルだけ取り込む。
 2. package名とstate namespaceをLeafCodePi向けに分離する。
 3. dynamic importとtsx fallbackを`pathToFileURL()`対応にする。
-4. `latest`依存を実測versionへ固定し、npm lockfileを作る。
-5. 日次update-checkとSkillのCodex固有処理をproduction経路から外す。
-6. UTF-8 without BOM / LFを維持する。
-7. 上流76テストを維持し、Windows launcher回帰テストを追加する。
+4. `latest`依存を実測versionへ固定し、integration package内にnpm lockfileを作る。
+5. LeafCodePi rootへ上流のpnpm workspaceを取り込まず、web/hostの依存と混在させない。
+6. 日次update-checkとSkillのCodex固有処理をproduction経路から外す。
+7. productionでは配布済みartifactだけを起動し、Hostからnpm install/build/source transpileを実行しない。
+8. UTF-8 without BOM / LFを維持する。
+9. 上流76テストを維持し、Windows launcher回帰テストを追加する。
 
 検証:
 
@@ -664,13 +717,14 @@ ChatGPTプラン・レビュー連携
 
 1. 公開healthからworkspace情報を削除する。
 2. 機密ポリシーを1か所へ統合し、diff pathspecも同じ定義から生成する。
-3. `MEMORY.md`、`LESSONS.md`、`.pi/`、`.c2cignore`を拒否へ追加する。
+3. `MEMORY.md`、`LESSONS.md`、`.pi/`、`.c2cignore`、workspace内のC2C stateを拒否へ追加する。
 4. Windows junction、UNC、case variationの回帰テストを追加する。
 5. admin APIのloopback + token + proxy header拒否を固定する。
 6. authorization pageの情報最小化、HTML escape、security headersを追加する。
 7. DCR/pending authorization/body sizeのrate・件数上限を追加する。
 8. MCP tool schema、scope、body size、本文非ログ化を固定する。
-9. state dirを`LEAFCODE_PI_C2C_STATE_DIR`対応にする。
+9. 既存`host/src/secure-file.js`をauth state保護へ再利用し、access/refresh token保存方針を実装と一致させる。
+10. C2C policyのtest vectorを`leafcode-permission-gate` / `leafcode-collaboration`と共有し、runtimeの重複importは避ける。
 
 検証:
 
@@ -695,19 +749,20 @@ ChatGPTプラン・レビュー連携
 
 作業:
 
-1. prerequisites、build、start、status、pair、verify、disconnectをHost serviceへ実装する。
-2. raw admin tokenをHost内に閉じ込める。
-3. Web BFFはrequest schemaだけを検証し、HostがprojectId/taskIdをstoreで解決してcanonical workspaceを得る。
-4. 同時1workspaceと切替409を実装する。
-5. no-store、safe error、timeout、idempotencyを実装する。
-6. stale runtimeと生存processの照合を実装する。
+1. 既存`createLlamaControlServer`へtyped C2C handlersを追加し、二つ目のHTTP server/portを作らない。
+2. prerequisitesはartifact/cloudflaredの存在確認だけとし、productionのruntime install/buildを禁止する。
+3. raw admin tokenをHost service内に閉じ込め、Host childのspawn/stopと`stopProcessTreeGracefully`を再利用する。
+4. Web BFFは既存WebUI auth/proxyとrequest schemaだけを使い、HostがprojectId/taskIdをstoreで解決してcanonical workspaceを得る。
+5. 同時1workspaceと切替409を実装する。
+6. no-store、safe error、timeout、idempotencyを実装する。
+7. stale runtimeはPIDだけでなくinstance nonce/health challengeで判定し、Host再起動をまたぐBridge再利用を行わない。
 
 検証:
 
 - Host controlのloopback/Host header tests
 - 不正projectId/taskId/raw path拒否
 - 二重start/stop/pair/unpair
-- Host/WebUI再起動後の再利用
+- WebUI再起動後もBridgeが継続すること、Host再起動後は旧Bridgeを再利用せずrepairになること
 - Bridge障害が通常task APIへ影響しないこと
 
 コミット案: `HostにChatGPT連携Bridge管理を追加`
@@ -722,11 +777,14 @@ ChatGPTプラン・レビュー連携
 
 作業:
 
-1. 「一般 → 拡張・連携」へcardを追加する。
+1. 「一般 → 拡張・連携」へ既存card surfaceを追加する。
 2. Project選択、前提確認、開始、copy、再配布、会話URL、解除を実装する。
-3. state machineに従いloading/error/repair/expiredを表示する。
-4. workspace_info観測によるverified表示を追加する。
-5. pairing codeを失効時に伏せ、copy通知をaccessibleにする。
+3. SettingsViewのlazy mountを維持し、非表示カテゴリではstatus fetch/pollingを行わない。
+4. 既存`getJson`/`sendJson`のtimeoutとin-flight coalescingを再利用する。
+5. client-safe type以外からBridge/Node専用moduleをvalue importしない。
+6. state machineに従いloading/error/repair/expiredを表示する。
+7. workspace_info観測によるverified表示を追加する。
+8. pairing codeを失効時に伏せ、copy通知をaccessibleにする。
 
 検証:
 
@@ -747,7 +805,7 @@ ChatGPTプラン・レビュー連携
 - TaskView / SidePanel接続点
 - control message generator/parser
 - execution record API
-- 必要最小限のPi extension tool
+- 必要な場合だけ、recordを呼ぶ単一の薄いPi extension tool
 
 作業:
 
@@ -755,8 +813,10 @@ ChatGPTプラン・レビュー連携
 2. INIT/EXECUTEDを1KB以内で決定的に生成する。
 3. PLAN/REVIEWへuntrusted guardを付けて通常promptとして送る。
 4. explicit execution recordを追加し、test_status/execution_summaryへ接続する。
-5. active workspace不一致時にpanelを出さない。
-6. DONEをtask/ToDoへ自動反映しない。
+5. changed file数・Git statusはcopy/MCP request時だけ取得し、TaskView renderや常時pollingでは計算しない。
+6. C2CをLeafCodePiの`mcp.json`へ登録しない。record toolを追加する場合も既存Task/session identityを使う薄い連携に限定する。
+7. active workspace不一致時にpanelを出さない。
+8. DONEをtask/ToDoへ自動反映しない。
 
 検証:
 
@@ -778,7 +838,9 @@ ChatGPTプラン・レビュー連携
 - `web`をcwdにした対象Vitestと全Vitest
 - `npm --prefix host test`
 - `web`をcwdにしたESLint
+- 全Web/APIテストでは`LEAFCODE_PI_DATA_DIR`と`PI_CODING_AGENT_DIR`を一時directoryへ分離し、実ユーザー設定を混入させない
 - production buildは稼働WebUIを停止または正規build scriptで切り替えて確認
+- 機能無効時のprocess/network/mcp.json非変更回帰
 
 手動E2E:
 
@@ -850,10 +912,10 @@ ChatGPTプラン・レビュー連携
 | リポジトリ内prompt injection | contentをuntrusted dataと明記、MCPはread-only、PLANも未検証扱い |
 | 機密情報がdiff経由で漏れる | read/list/search/diffで単一機密ポリシーを使用 |
 | upstream 0.1.0の変更が大きい | commit固定、自動更新禁止、専用取り込みPR |
-| Bridgeが孤児processになる | runtime probe、Host再利用、明示stop、stale state cleanup |
+| Bridgeが孤児processになる | Host child ownership、instance challenge、明示stop、stale state cleanup。Host再起動をまたぐ再利用はしない |
 | PLANをPiが盲従する | guard prefix、通常prompt、Piの判断と検証を必須化 |
 | WebUI remote accessから接続操作される | 既存WebUI authを必須、projectId照合、no-store、safe response |
-| Windows file permissionがPOSIX modeと異なる | user-local state、公開禁止、token hashのみ保存、必要ならACL強化を別評価 |
+| Windows file permissionがPOSIX modeと異なる | 既存`secure-file.js`のACLをauth stateへ適用し、refresh tokenの保存可否を保護成否で分岐 |
 | 実行記録がモデルの自己申告になる | ChatGPTはdiffを独立確認し、test recordは要約として扱う |
 
 ## 17. 実装着手前チェック
@@ -862,10 +924,16 @@ ChatGPTプラン・レビュー連携
 - [ ] ChatGPT Connectorが対象アカウントで利用可能
 - [ ] `cloudflared`導入はユーザーの明示操作で行う
 - [ ] one active workspace制約がUI/API/Hostで一致している
+- [ ] 既存Host control portだけを使い、C2C専用server/portを追加していない
+- [ ] `dataDir()` / `LEAFCODE_PI_DATA_DIR`と既存`secure-file.js`を使う
 - [ ] public healthからworkspace識別情報が除去されている
 - [ ] 機密ポリシーがdiffを含む全経路で共通化されている
 - [ ] raw admin tokenがHost外へ出ない
+- [ ] access token raw、authorization code、pairing codeを保存せず、refresh tokenの保護方針が実装と一致している
+- [ ] `~/.pi/agent/mcp.json`、`collaboration.json`、provider routingを変更していない
 - [ ] ブラウザ自動操作・Cookie取得を実装していない
 - [ ] control messageに本文・diff・log・local pathを含めない
 - [ ] 外部PLAN/REVIEWをuntrusted dataとして扱う
 - [ ] 各Phaseの検証コマンドとcommit境界が確定している
+- [ ] `LEAFCODE_PI_C2C_DISABLED=1`の緊急停止を確認している
+- [ ] WebテストのdataDir/agentDirを一時directoryへ分離している
