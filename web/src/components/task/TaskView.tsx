@@ -1298,7 +1298,7 @@ export function TaskView({
     !!resumeTarget &&
     resumeTarget.reason === "aborted" &&
     !!resumeErrorText &&
-    visibleMessages.some((message) => message.id === resumeTarget.messageId);
+    !!resumeMessage;
   const resumeBannerText =
     resumeTarget?.reason === "silent"
       ? "応答がありませんでした"
