@@ -113,6 +113,36 @@ describe("ProviderModelsPanel account model settings", () => {
     });
   });
 
+  it("re-enables a switch without waiting for catalog refresh", async () => {
+    let getCount = 0;
+    const pendingRefresh = new Promise<Response>(() => {});
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url.endsWith("/api/provider-models") && method === "GET") {
+        getCount += 1;
+        return getCount === 1
+          ? Promise.resolve(jsonResponse({ providers }))
+          : pendingRefresh;
+      }
+      if (url.endsWith("/api/provider-models/ollama-cloud") && method === "PATCH") {
+        return Promise.resolve(jsonResponse({ ok: true }));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+
+    render(<ProviderModelsPanel />);
+    await screen.findByRole("heading", { name: "モデル" });
+    fireEvent.click(screen.getByRole("switch", { name: "Ollama Cloud を無効化" }));
+
+    await waitFor(() => {
+      const toggle = screen.getByRole("switch", { name: "Ollama Cloud を有効化" });
+      expect(toggle).toBeTruthy();
+      expect((toggle as HTMLButtonElement).disabled).toBe(false);
+    });
+    expect(getCount).toBe(1);
+  });
+
   it("sends all child models as disabled when enabling a provider", async () => {
     let provider = {
       id: "ollama-cloud",

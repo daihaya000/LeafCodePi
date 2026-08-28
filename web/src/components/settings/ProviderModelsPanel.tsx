@@ -281,8 +281,6 @@ export function ProviderModelsPanel() {
           },
           "PATCH",
         );
-        if (!mountedRef.current) return;
-        await load({ quiet: true });
       } catch (err) {
         if (mountedRef.current) {
           setActionError(err instanceof ApiError ? err.message : String(err));
