@@ -1251,8 +1251,9 @@ function emitTaskSnapshot(
  */
 function emitTaskDelta(live: LiveRuntime, eventType: string): void {
   if (state().events.listenerCount(live.taskId) === 0) return;
-  const task = getTask(live.taskId);
-  if (!task) return;
+  // High-frequency events only change the message and session flags. Task
+  // metadata is refreshed by the non-throttled lifecycle snapshots, so avoid
+  // the store read and session-file scans performed by toSummary() here.
   const message = snapshotMessages(
     live.session,
     live.throughputByStartedAt,
@@ -1264,7 +1265,6 @@ function emitTaskDelta(live: LiveRuntime, eventType: string): void {
   const contextUsage = sessionContextUsage(live.session);
   emit(live.taskId, {
     type: "delta",
-    task: toSummary(task),
     message,
     isStreaming: live.session.isStreaming,
     isCompacting: live.session.isCompacting,

@@ -90,7 +90,6 @@ describe("/api/tasks/[id]/events", () => {
     });
     listener({
       type: "delta",
-      task: task({ status: "working" }),
       message: { id: "live-latest", role: "assistant", createdAt: 3, parts: [] },
     });
     resolveDetail(detail);
@@ -106,6 +105,7 @@ describe("/api/tasks/[id]/events", () => {
     expect(deltaPayload.type).toBe("delta");
     expect(deltaPayload.message).toMatchObject({ id: "live-latest", role: "assistant" });
     expect(deltaPayload).not.toHaveProperty("messages");
+    expect(deltaPayload).not.toHaveProperty("task");
 
     await reader.cancel();
   });
