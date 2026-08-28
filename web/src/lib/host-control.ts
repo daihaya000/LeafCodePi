@@ -32,6 +32,10 @@ export function hostRestartPath(target: HostRestartTarget): string {
   return "/restart/webui";
 }
 
+export function hostWebUiAuthPath(): string {
+  return "/webui/auth";
+}
+
 export function isLoopbackControlUrl(url: string): boolean {
   try {
     const parsed = new URL(url);

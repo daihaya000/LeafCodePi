@@ -6,8 +6,10 @@ import { test } from "node:test";
 import {
   ensureWebUiAuth,
   isLoopbackBind,
+  readWebUiAuthConfig,
   readWebUiAuthFile,
   webUiAuthPath,
+  writeWebUiAuthConfig,
   writeWebUiAuthFile,
 } from "./webui-auth.js";
 
@@ -50,6 +52,36 @@ test("ensureWebUiAuth prefers env token", () => {
     writeWebUiAuthFile(dir, "stored-token-1234567890");
     const result = ensureWebUiAuth({ LEAFCODE_PI_WEBUI_TOKEN: "env-token-1234567890" }, "0.0.0.0", dir);
     assert.equal(result.token, "env-token-1234567890");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("user can change the token and disable remote auth", () => {
+  const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-auth-"));
+  try {
+    const initial = ensureWebUiAuth({}, "100.64.1.2", dir);
+    const changed = writeWebUiAuthConfig(dir, { token: "user-token-1234567890" });
+    assert.deepEqual(changed, { token: "user-token-1234567890", enabled: true });
+    assert.deepEqual(readWebUiAuthConfig(dir), { token: "user-token-1234567890", enabled: true });
+    assert.equal(initial.token === changed.token, false);
+
+    const disabled = writeWebUiAuthConfig(dir, { enabled: false });
+    assert.deepEqual(disabled, { token: "user-token-1234567890", enabled: false });
+    assert.deepEqual(ensureWebUiAuth({}, "100.64.1.2", dir), {
+      authRequired: false,
+      token: "user-token-1234567890",
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeWebUiAuthConfig rejects invalid tokens when enabling auth", () => {
+  const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-auth-"));
+  try {
+    assert.throws(() => writeWebUiAuthConfig(dir, { token: "short" }), /token must be/);
+    assert.throws(() => writeWebUiAuthConfig(dir, { enabled: true }), /token is required/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

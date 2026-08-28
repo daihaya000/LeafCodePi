@@ -47,6 +47,8 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onRestartHost?: () => Promise<unknown> | unknown,
  *   onBrowserConfigRead?: () => { autoOpenBrowser: boolean },
  *   onBrowserConfigWrite?: (patch: { autoOpenBrowser: boolean }) => { autoOpenBrowser: boolean },
+ *   onWebUiAuthRead?: () => object,
+ *   onWebUiAuthWrite?: (patch: { token?: string, enabled?: boolean }) => Promise<object> | object,
  *   onTranslationStatus?: () => Promise<object> | object,
  *   onTranslationStart?: () => Promise<object> | object,
  *   onTranslationStop?: () => Promise<unknown> | unknown,
@@ -175,6 +177,66 @@ export function createLlamaControlServer(handlers) {
             .then(() => handlers.onRestartHost())
             .catch(() => {});
         });
+        return;
+      }
+
+      if (pathname === "/webui/auth") {
+        if (typeof handlers.onWebUiAuthRead !== "function" || typeof handlers.onWebUiAuthWrite !== "function") {
+          res.writeHead(501, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "WebUI auth config is not supported by this host" }));
+          return;
+        }
+        if (method === "GET") {
+          res.writeHead(200, JSON_HEADERS);
+          res.end(JSON.stringify(await handlers.onWebUiAuthRead()));
+          return;
+        }
+        if (method === "POST") {
+          const body = await readJsonBody(req).catch(() => ({}));
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            res.writeHead(400, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: "auth config must be an object" }));
+            return;
+          }
+          const patch = {};
+          if (Object.prototype.hasOwnProperty.call(body, "token")) {
+            if (typeof body.token !== "string") {
+              res.writeHead(400, JSON_HEADERS);
+              res.end(JSON.stringify({ ok: false, error: "token must be a string" }));
+              return;
+            }
+            patch.token = body.token;
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "enabled")) {
+            if (typeof body.enabled !== "boolean") {
+              res.writeHead(400, JSON_HEADERS);
+              res.end(JSON.stringify({ ok: false, error: "enabled must be a boolean" }));
+              return;
+            }
+            patch.enabled = body.enabled;
+          }
+          if (Object.keys(patch).length === 0) {
+            res.writeHead(400, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: "token or enabled is required" }));
+            return;
+          }
+          try {
+            const saved = await handlers.onWebUiAuthWrite(patch);
+            res.writeHead(202, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: true, accepted: true, ...saved }));
+          } catch (err) {
+            const status =
+              typeof err === "object" && err && "status" in err &&
+              typeof err.status === "number" && err.status >= 400 && err.status < 500
+                ? err.status
+                : 500;
+            res.writeHead(status, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+          }
+          return;
+        }
+        res.writeHead(405, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
         return;
       }
 

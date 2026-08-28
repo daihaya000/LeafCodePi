@@ -90,3 +90,45 @@ test("POST /restart/host without handler returns 501", async () => {
   assert.equal(res.status, 501);
   await closeControlServer(server);
 });
+
+test("GET and POST /webui/auth expose safe status and validate updates", async () => {
+  let patch = null;
+  const port = await freePort();
+  const server = createLlamaControlServer({
+    controlPort: port,
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async () => ({ ok: true }),
+    onLlamaServerStop: () => {},
+    onWebUiAuthRead: () => ({ enabled: true, remote: true, authRequired: true, tokenConfigured: true }),
+    onWebUiAuthWrite: (next) => {
+      patch = next;
+      return { enabled: next.enabled ?? true, remote: true, authRequired: false, tokenConfigured: true };
+    },
+  });
+  await listenControlServer(server, port);
+  try {
+    const get = await fetch(`http://127.0.0.1:${port}/webui/auth`, {
+      headers: { host: `127.0.0.1:${port}` },
+    });
+    assert.equal(get.status, 200);
+    assert.deepEqual(await get.json(), { enabled: true, remote: true, authRequired: true, tokenConfigured: true });
+
+    const post = await fetch(`http://127.0.0.1:${port}/webui/auth`, {
+      method: "POST",
+      headers: { host: `127.0.0.1:${port}`, "content-type": "application/json" },
+      body: JSON.stringify({ token: "user-token-1234567890", enabled: false }),
+    });
+    assert.equal(post.status, 202);
+    assert.deepEqual(patch, { token: "user-token-1234567890", enabled: false });
+    assert.equal((await post.json()).ok, true);
+
+    const invalid = await fetch(`http://127.0.0.1:${port}/webui/auth`, {
+      method: "POST",
+      headers: { host: `127.0.0.1:${port}`, "content-type": "application/json" },
+      body: JSON.stringify({ enabled: "false" }),
+    });
+    assert.equal(invalid.status, 400);
+  } finally {
+    await closeControlServer(server);
+  }
+});

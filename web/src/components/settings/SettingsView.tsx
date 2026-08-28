@@ -17,6 +17,7 @@ import { ExtensionsSettings } from "@/components/settings/ExtensionsSettings";
 import { McpSettings } from "@/components/settings/McpSettings";
 import { AgentsSettings } from "@/components/settings/AgentsSettings";
 import { BrowserSettings } from "@/components/settings/BrowserSettings";
+import { WebUiAuthSettings } from "@/components/settings/WebUiAuthSettings";
 import { ReasoningTranslationSettings } from "@/components/settings/ReasoningTranslationSettings";
 import { HangTimeoutSettings } from "@/components/settings/HangTimeoutSettings";
 import { NotificationSoundSettings } from "@/components/settings/NotificationSoundSettings";
@@ -208,6 +209,7 @@ export function SettingsView() {
                     {id === "basic" && (
                       <div className="space-y-4">
                         <BrowserSettings />
+                        <WebUiAuthSettings />
                         <NotificationSoundSettings />
                         <NavigatorSettings />
                         <div className="rounded-2xl border border-border bg-surface p-4 text-sm text-muted">

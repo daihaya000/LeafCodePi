@@ -17,7 +17,13 @@ import { stopProcessTreeGracefully } from "./process-stop.js";
 import { buildHostRestartScript } from "./host-restart.js";
 import { createTranslationService } from "./translation-service.js";
 import { withLocalLeafcodeTempEnv } from "./tray-temp.js";
-import { ensureWebUiAuth, webUiAuthPath } from "./webui-auth.js";
+import {
+  ensureWebUiAuth,
+  isLoopbackBind,
+  readWebUiAuthConfig,
+  webUiAuthPath,
+  writeWebUiAuthConfig,
+} from "./webui-auth.js";
 import {
   formatWebStatus,
   getPostBuildLaunchPlan,
@@ -76,6 +82,19 @@ const LLAMA_SERVER_PORT = readPort(process.env.LEAFCODE_PI_LLAMA_PORT, DEFAULT_L
 const CONTROL_FILE = join(DATA_DIR, "host-control.json");
 const MAX_WEB_RESTARTS = 3;
 const MAX_TRAY_RESTARTS = 3;
+
+function webUiAuthSettings() {
+  const config = readWebUiAuthConfig(DATA_DIR);
+  const envToken = process.env.LEAFCODE_PI_WEBUI_TOKEN?.trim() || null;
+  const remote = !isLoopbackBind(WEBUI_HOST);
+  return {
+    enabled: config.enabled,
+    remote,
+    authRequired: remote && config.enabled && Boolean(envToken || config.token),
+    tokenConfigured: Boolean(envToken || config.token),
+    envManaged: Boolean(envToken),
+  };
+}
 
 const llamaServerService = createLlamaServerService({
   batPath: join(REPO_ROOT, "scripts", "llama-server-load.bat"),
@@ -332,6 +351,7 @@ async function spawnWeb() {
   const args = useProd
     ? [nextBin(projectDir), "start", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)]
     : [nextBin(projectDir), "dev", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)];
+  const webUiAuth = ensureWebUiAuth(process.env, WEBUI_HOST, DATA_DIR);
   log(`Starting LeafCodePi (${useProd ? "production" : "dev"}) on ${WEBUI_URL}`);
   const child = runNodeScript(args, {
     cwd: projectDir,
@@ -341,8 +361,8 @@ async function spawnWeb() {
       LEAFCODE_PI_HOST: WEBUI_HOST,
       LEAFCODE_PI_PORT: String(WEBUI_PORT),
       LEAFCODE_PI_BIND_HOST: WEBUI_HOST,
-      LEAFCODE_PI_WEBUI_AUTH: WEBUI_AUTH.authRequired ? "required" : "",
-      LEAFCODE_PI_WEBUI_TOKEN: WEBUI_AUTH.token ?? "",
+      LEAFCODE_PI_WEBUI_AUTH: webUiAuth.authRequired ? "required" : "",
+      LEAFCODE_PI_WEBUI_TOKEN: webUiAuth.token ?? "",
       // Bundled WebUI extensions live in the repo (prod runs from the web/ mirror).
       LEAFCODE_PI_EXTENSIONS_DIR: join(REPO_ROOT, "extensions"),
     },
@@ -592,6 +612,22 @@ async function startControlServer() {
     onRestartHost: () => restartHost(),
     onBrowserConfigRead: () => readBrowserConfig(),
     onBrowserConfigWrite: (patch) => writeBrowserConfig(patch),
+    onWebUiAuthRead: () => webUiAuthSettings(),
+    onWebUiAuthWrite: (patch) => {
+      if (patch.token !== undefined && process.env.LEAFCODE_PI_WEBUI_TOKEN?.trim()) {
+        throw Object.assign(
+          new Error("LEAFCODE_PI_WEBUI_TOKEN is managed by the environment"),
+          { status: 409 },
+        );
+      }
+      const saved = writeWebUiAuthConfig(DATA_DIR, patch);
+      setTimeout(() => {
+        restartWeb().catch((err) => {
+          error(`WebUI auth config restart failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      }, 500);
+      return { ...webUiAuthSettings(), restartAccepted: true, enabled: saved.enabled };
+    },
     onTranslationStatus: () => translationService.status(),
     onTranslationStart: () => {
       translationService.start();
