@@ -163,7 +163,7 @@ export function findResumableTurn(
     return build(turn[lastAbort]!, "aborted");
   }
 
-  if (turn.some(hasTurnOutput) || turn.some(hasPendingTool)) return null;
+  if (turn.some((message) => hasTurnOutput(message) || hasPendingTool(message))) return null;
   return build(turn.at(-1)!, "silent");
 }
 
