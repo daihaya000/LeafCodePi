@@ -2227,42 +2227,45 @@ type AccountModelRecord = {
 async function collectAccountModelRecords(
   accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
 ): Promise<AccountModelRecord[]> {
-  const records: AccountModelRecord[] = [];
-  if (accounts.length === 0) return records;
+  if (accounts.length === 0) return [];
   let agentDir: string;
   try {
     agentDir = await resolvePiAgentDir();
   } catch {
-    return records;
+    return [];
   }
-  for (const [accountIndex, account] of accounts.entries()) {
-    const providerIds = storedAccountProviderIds(account, agentDir);
-    if (providerIds.length === 0) continue;
-    try {
-      const runtime = await getRuntimeFor(account.id);
-      if (!runtime) continue;
-      const built = await buildModelOptions(
-        runtime,
-        account.id,
-        providerIds,
-      );
-      for (const [modelIndex, option] of built.entries()) {
-        // API キー等で構成された他プロバイダを、この OAuth アカウントの枠へ複製しない。
-        if (!accountHasProvider(account, option.providerID)) continue;
-        records.push({
-          accountId: account.id,
-          accountLabel: account.label,
-          accountIndex,
-          modelIndex,
+  const recordsByAccount = await Promise.all(
+    accounts.map(async (account, accountIndex) => {
+      const records: AccountModelRecord[] = [];
+      const providerIds = storedAccountProviderIds(account, agentDir);
+      if (providerIds.length === 0) return records;
+      try {
+        const runtime = await getRuntimeFor(account.id);
+        if (!runtime) return records;
+        const built = await buildModelOptions(
           runtime,
-          option,
-        });
+          account.id,
+          providerIds,
+        );
+        for (const [modelIndex, option] of built.entries()) {
+          // API キー等で構成された他プロバイダを、この OAuth アカウントの枠へ複製しない。
+          if (!accountHasProvider(account, option.providerID)) continue;
+          records.push({
+            accountId: account.id,
+            accountLabel: account.label,
+            accountIndex,
+            modelIndex,
+            runtime,
+            option,
+          });
+        }
+      } catch {
+        // そのアカウントのランタイム初期化失敗は無視して残りの一覧を返す
       }
-    } catch {
-      // そのアカウントのランタイム初期化失敗は無視して残りの一覧を返す
-    }
-  }
-  return records;
+      return records;
+    }),
+  );
+  return recordsByAccount.flat();
 }
 
 function intersection<T extends string>(
@@ -2681,30 +2684,33 @@ export async function listProviderModelsCatalog(): Promise<
     );
   }
 
-  for (const account of accounts) {
-    if (!agentDir) continue;
-    const providerIds = storedAccountProviderIds(account, agentDir);
-    if (providerIds.length === 0) continue;
-    try {
-      const accountRuntime = await getRuntimeFor(account.id);
-      if (!accountRuntime) continue;
-      const catalog = buildProviderModelsCatalog(
-        accountRuntime,
-        state,
-        account.id,
-      );
-      accountRows.push(
-        ...catalog
-          .filter((row) => providerIds.includes(row.id as AccountProviderId))
-          .map((row) => ({
-            ...row,
-            accountId: account.id,
-            accountLabel: account.label,
-          })),
-      );
-    } catch {
-      // 認証未完了・ランタイム初期化失敗のアカウントは一覧から省略する
-    }
+  if (agentDir) {
+    const accountRowGroups = await Promise.all(
+      accounts.map(async (account) => {
+        const providerIds = storedAccountProviderIds(account, agentDir);
+        if (providerIds.length === 0) return [];
+        try {
+          const accountRuntime = await getRuntimeFor(account.id);
+          if (!accountRuntime) return [];
+          const catalog = buildProviderModelsCatalog(
+            accountRuntime,
+            state,
+            account.id,
+          );
+          return catalog
+            .filter((row) => providerIds.includes(row.id as AccountProviderId))
+            .map((row) => ({
+              ...row,
+              accountId: account.id,
+              accountLabel: account.label,
+            }));
+        } catch {
+          // 認証未完了・ランタイム初期化失敗のアカウントは一覧から省略する
+          return [];
+        }
+      }),
+    );
+    accountRows.push(...accountRowGroups.flat());
   }
 
   const integratedRows = new Map<string, ProviderModelsRow[]>();
