@@ -74,10 +74,7 @@ import {
   findResumableTurn,
   type ResumableTurn,
 } from "@/lib/aborted-resume";
-import {
-  countHangRetryUserMessages,
-  isHangRetryUserMessage,
-} from "@/lib/hang-retry";
+import { isHangRetryUserMessage } from "@/lib/hang-retry";
 import {
   autoResumePrompt,
   formatHangTimeout,
@@ -1259,10 +1256,18 @@ export function TaskView({
     documentHidden,
     permissionTick,
   ]);
-  const visibleMessages = useMemo(
-    () => messages.filter((message) => !isHangRetryUserMessage(message)),
-    [messages],
-  );
+  const { visibleMessages, detectedHangRetryCount } = useMemo(() => {
+    const visible: UiMessage[] = [];
+    let detectedHangRetryCount = 0;
+    for (const message of messages) {
+      if (isHangRetryUserMessage(message)) {
+        detectedHangRetryCount += 1;
+      } else {
+        visible.push(message);
+      }
+    }
+    return { visibleMessages: visible, detectedHangRetryCount };
+  }, [messages]);
   const resumeTarget = useMemo(
     () =>
       findResumableTurn(visibleMessages, {
@@ -1327,10 +1332,7 @@ export function TaskView({
         {resumingTurn ? "再開中…" : "再開"}
       </Button>
     ) : null;
-  const autoHangRetryCount = useMemo(
-    () => Math.max(hangRetryCount, countHangRetryUserMessages(messages)),
-    [hangRetryCount, messages],
-  );
+  const autoHangRetryCount = Math.max(hangRetryCount, detectedHangRetryCount);
   const hangRetryNotice =
     autoHangRetryCount > 0
       ? `応答が${formatHangTimeout(readHangTimeoutMs())}間止まったため自動的に停止し、設定した方法で再開しました${
