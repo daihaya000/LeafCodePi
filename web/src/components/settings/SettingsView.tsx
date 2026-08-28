@@ -194,10 +194,9 @@ export function SettingsView() {
               </nav>
 
               <div className="min-w-0">
-                {GENERAL_SECTIONS.map(({ id, label, description }) => (
+                {GENERAL_SECTIONS.map(({ id, label, description }) => generalSection === id && (
                   <section
                     key={id}
-                    hidden={generalSection !== id}
                     aria-labelledby={`general-${id}-heading`}
                     className="space-y-4"
                   >

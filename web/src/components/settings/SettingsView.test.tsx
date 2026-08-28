@@ -3,7 +3,10 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsView } from "./SettingsView";
 
-const { getJson } = vi.hoisted(() => ({ getJson: vi.fn() }));
+const { getJson, mountCounts } = vi.hoisted(() => ({
+  getJson: vi.fn(),
+  mountCounts: { basic: 0, response: 0 },
+}));
 
 vi.mock("@/lib/client", () => ({ getJson }));
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuHeader: () => null }));
@@ -19,7 +22,10 @@ vi.mock("@/components/settings/GenerationModelSettings", () => ({
   GenerationModelSettings: () => <h2>生成モデル</h2>,
 }));
 vi.mock("@/components/settings/BrowserSettings", () => ({
-  BrowserSettings: () => <h2>ブラウザ設定</h2>,
+  BrowserSettings: () => {
+    mountCounts.basic += 1;
+    return <h2>ブラウザ設定</h2>;
+  },
 }));
 vi.mock("@/components/settings/NotificationSoundSettings", () => ({
   NotificationSoundSettings: () => <h2>通知音</h2>,
@@ -28,7 +34,10 @@ vi.mock("@/components/settings/NavigatorSettings", () => ({
   NavigatorSettings: () => <h2>ナビゲーター</h2>,
 }));
 vi.mock("@/components/settings/ReasoningTranslationSettings", () => ({
-  ReasoningTranslationSettings: () => <h2>思考要約の翻訳</h2>,
+  ReasoningTranslationSettings: () => {
+    mountCounts.response += 1;
+    return <h2>思考要約の翻訳</h2>;
+  },
 }));
 vi.mock("@/components/settings/CompactionSettings", () => ({
   CompactionSettings: () => <h2>コンテキスト圧縮</h2>,
@@ -61,6 +70,8 @@ vi.mock("@/components/settings/McpSettings", () => ({
 describe("SettingsView", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/settings");
+    mountCounts.basic = 0;
+    mountCounts.response = 0;
     getJson.mockResolvedValue({ providers: [] });
   });
 
@@ -95,6 +106,19 @@ describe("SettingsView", () => {
     expect(screen.getByRole("heading", { name: "応答" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "ブラウザ設定" })).toBeNull();
+  });
+
+  it("一般設定では選択中カテゴリだけをマウントする", () => {
+    render(<SettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: /^一般$/ }));
+
+    expect(mountCounts.basic).toBe(1);
+    expect(mountCounts.response).toBe(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "応答" }));
+
+    expect(mountCounts.basic).toBe(1);
+    expect(mountCounts.response).toBe(1);
   });
 
   it("一般カテゴリのハッシュから直接開ける", () => {
