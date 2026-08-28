@@ -36,15 +36,15 @@ describe("WebUiAuthSettings", () => {
     const gate = await screen.findByRole("switch", { name: "WebUIアクセスゲート" });
     const input = screen.getByLabelText("新しいアクセストークン");
     fireEvent.click(gate);
-    fireEvent.change(input, { target: { value: "user-token-1234567890" } });
+    fireEvent.change(input, { target: { value: "abcd" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(sendJson).toHaveBeenCalledWith(
       "/api/host/webui-auth",
-      { enabled: false, token: "user-token-1234567890" },
+      { enabled: false, token: "abcd" },
       "POST",
     ));
-    expect(screen.queryByText("user-token-1234567890")).toBeNull();
+    expect(screen.queryByText("abcd")).toBeNull();
     expect((await screen.findByRole("status")).textContent).toContain("WebUIを再起動");
   });
 

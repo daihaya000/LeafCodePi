@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Badge, Button, cx } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 
-const TOKEN_MIN_LENGTH = 16;
+const TOKEN_MIN_LENGTH = 4;
 const TOKEN_MAX_LENGTH = 512;
 const TOKEN_PATTERN = /^[A-Za-z0-9._~-]+$/;
 

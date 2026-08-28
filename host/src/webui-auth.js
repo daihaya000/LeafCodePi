@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-export const WEBUI_TOKEN_MIN_LENGTH = 16;
+export const WEBUI_TOKEN_MIN_LENGTH = 4;
 export const WEBUI_TOKEN_MAX_LENGTH = 512;
 const WEBUI_TOKEN_PATTERN = /^[A-Za-z0-9._~-]+$/;
 
