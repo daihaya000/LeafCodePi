@@ -26,6 +26,7 @@ import {
 } from "@/lib/pi/auth-login";
 import {
   entryIdsForProjectedMessages,
+  piRawMessageProjectsToUi,
   projectPiMessages,
   toolResultText,
   titleFromPrompt,
@@ -776,8 +777,11 @@ export function snapshotMessages(
     streaming && !streamingInHistory && streamingRole !== "toolResult",
   );
 
-  const projectWithEntryIds = (raw: unknown[]): UiMessage[] => {
-    let result = projectPiMessages(raw);
+  const projectWithEntryIds = (
+    raw: unknown[],
+    indexOffset = 0,
+  ): UiMessage[] => {
+    let result = projectPiMessages(raw, indexOffset);
     // Pi のメッセージ本体には id が無いため、projectPiMessages は `msg-N` を仮 id
     // にする。「入力欄に戻す」はエントリ id 必須なので、参照一致するエントリの id で上書き
     const entryIds = entryIdsForProjectedMessages(raw, entryIdByMessage);
@@ -786,6 +790,13 @@ export function snapshotMessages(
       return entryId ? { ...message, id: entryId } : message;
     });
     return result;
+  };
+
+  const projectLatestWithEntryIds = (raw: unknown[]): UiMessage[] => {
+    const latestIndex = raw.findLastIndex(piRawMessageProjectsToUi);
+    return latestIndex < 0
+      ? []
+      : projectWithEntryIds(raw.slice(latestIndex), latestIndex);
   };
 
   let projected: UiMessage[];
@@ -829,6 +840,13 @@ export function snapshotMessages(
         projected = projected.concat(streamingProjection);
       }
     }
+  } else if (latestOnly && streamingInHistory) {
+    // The streaming object can be present in session.messages while it is
+    // mutated. Project only the final independent message and its trailing
+    // tool results; reprojecting the whole branch defeats delta throttling.
+    projected = projectLatestWithEntryIds(historyRaw);
+    if (useBranchHistory) branchProjectionCache.delete(session);
+    else snapshotProjectionCache.delete(session);
   } else {
     const raw = streamingInHistory ? historyRaw : [...historyRaw, streaming];
     projected = projectWithEntryIds(raw);

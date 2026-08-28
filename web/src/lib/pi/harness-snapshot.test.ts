@@ -106,6 +106,40 @@ describe("snapshotMessages", () => {
     });
     expect(latest).toEqual(snapshotMessages(session).at(-1));
   });
+
+  it("does not project older stored messages for an in-history delta", () => {
+    const older = new Proxy<Record<string, unknown>>(
+      {},
+      {
+        get(_target, property) {
+          if (property === "role") throw new Error("older message projected");
+          return undefined;
+        },
+      },
+    );
+    const streaming = {
+      role: "assistant",
+      timestamp: 2,
+      content: [{ type: "text", text: "最新" }],
+    };
+    const stored: unknown[] = [older, streaming];
+    const fake = {
+      messages: stored,
+      agent: { state: { streamingMessage: streaming as unknown } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [] },
+    };
+    const session = fake as unknown as Parameters<typeof snapshotMessages>[0];
+
+    expect(
+      snapshotMessages(session, undefined, undefined, undefined, undefined, true),
+    ).toMatchObject([
+      {
+        id: "msg-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "最新" }],
+      },
+    ]);
+  });
 });
 
 describe("sessionContextUsage", () => {
