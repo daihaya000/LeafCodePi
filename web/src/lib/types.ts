@@ -153,6 +153,24 @@ export type UiPart =
     }
   | { id: string; type: "image"; url: string; mime: string; filename?: string };
 
+export type UiDiagnostic = {
+  type: string;
+  timestamp?: number;
+  error?: {
+    name?: string;
+    message: string;
+    code?: string | number;
+  };
+  /** Provider transport details only; secrets, headers, and stacks are omitted. */
+  details?: {
+    configuredTransport?: string;
+    fallbackTransport?: string;
+    phase?: string;
+    eventsEmitted?: boolean;
+    requestBytes?: number;
+  };
+};
+
 export type UiMessage = {
   id: string;
   role: "user" | "assistant" | "compaction";
@@ -163,6 +181,7 @@ export type UiMessage = {
   model?: string;
   provider?: string;
   error?: string;
+  diagnostics?: UiDiagnostic[];
   /** Tokens estimated before this compaction (compaction role only). */
   tokensBefore?: number;
   /** Assistant output tokens used for tok/s (provider usage or live estimate). */

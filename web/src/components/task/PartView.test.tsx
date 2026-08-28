@@ -137,6 +137,37 @@ describe("PartView structured result", () => {
   });
 });
 
+describe("PartView diagnostics", () => {
+  afterEach(() => cleanup());
+
+  it("keeps provider diagnostics collapsed until requested", () => {
+    render(
+      <PartView
+        message={{
+          id: "assistant-diagnostic",
+          role: "assistant",
+          createdAt: 1,
+          parts: [],
+          error: "fetch failed",
+          diagnostics: [
+            {
+              type: "provider_transport_failure",
+              error: { name: "TypeError", message: "fetch failed", code: "E_CONN" },
+              details: { configuredTransport: "auto", fallbackTransport: "sse" },
+            },
+          ],
+        }}
+      />,
+    );
+
+    const details = screen.getByText("診断情報 (1)").closest("details");
+    expect(details?.hasAttribute("open")).toBe(false);
+    expect(screen.getByText("fetch failed")).toBeTruthy();
+    expect(screen.getByText("provider_transport_failure")).toBeTruthy();
+    expect(screen.getByText("transport: auto")).toBeTruthy();
+  });
+});
+
 describe("PartView skill invocation", () => {
   afterEach(() => cleanup());
 

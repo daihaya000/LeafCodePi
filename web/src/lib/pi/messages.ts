@@ -1,5 +1,5 @@
 import { HANG_RETRY_PREFIX, stripHangRetryPrefix } from "../hang-retry";
-import type { ToolState, UiMessage, UiPart } from "../types";
+import type { ToolState, UiDiagnostic, UiMessage, UiPart } from "../types";
 
 export function titleFromPrompt(prompt: string): string {
   const line = prompt
@@ -16,6 +16,54 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function diagnosticFromRaw(value: unknown): UiDiagnostic | null {
+  if (!isRecord(value)) return null;
+  const type = asString(value.type).trim();
+  if (!type) return null;
+
+  const rawError = isRecord(value.error) ? value.error : undefined;
+  const errorMessage = rawError ? asString(rawError.message).trim() : "";
+  const error = errorMessage
+    ? {
+        message: errorMessage.slice(0, 4000),
+        ...(asString(rawError?.name).trim()
+          ? { name: asString(rawError?.name).trim().slice(0, 120) }
+          : {}),
+        ...(typeof rawError?.code === "string" ||
+        (typeof rawError?.code === "number" && Number.isFinite(rawError.code))
+          ? { code: rawError.code }
+          : {}),
+      }
+    : undefined;
+
+  const rawDetails = isRecord(value.details) ? value.details : undefined;
+  const details: NonNullable<UiDiagnostic["details"]> = {};
+  for (const key of ["configuredTransport", "fallbackTransport", "phase"] as const) {
+    const detail = asString(rawDetails?.[key]).trim();
+    if (detail) details[key] = detail.slice(0, 120);
+  }
+  if (typeof rawDetails?.eventsEmitted === "boolean") {
+    details.eventsEmitted = rawDetails.eventsEmitted;
+  }
+  if (typeof rawDetails?.requestBytes === "number" && Number.isFinite(rawDetails.requestBytes)) {
+    details.requestBytes = Math.max(0, Math.round(rawDetails.requestBytes));
+  }
+
+  return {
+    type: type.slice(0, 120),
+    ...(typeof value.timestamp === "number" && Number.isFinite(value.timestamp)
+      ? { timestamp: value.timestamp }
+      : {}),
+    ...(error ? { error } : {}),
+    ...(Object.keys(details).length > 0 ? { details } : {}),
+  };
+}
+
+function diagnosticsFromRaw(value: unknown): UiDiagnostic[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(diagnosticFromRaw).filter((item): item is UiDiagnostic => item !== null);
 }
 
 const ANSI_ESCAPE_PATTERN =
@@ -210,6 +258,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
           ? Math.round(item.usage.output)
           : undefined;
       const errorMessage = asString(item.errorMessage);
+      const diagnostics = diagnosticsFromRaw(item.diagnostics);
       messages.push({
         id,
         role: "assistant",
@@ -221,6 +270,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
         // stopReason as a stable marker so resume remains available after a
         // session reload, not only immediately after clicking Stop.
         error: errorMessage || (asString(item.stopReason) === "aborted" ? "Aborted" : undefined),
+        ...(diagnostics.length > 0 ? { diagnostics } : {}),
         ...(usageOutput !== undefined ? { outputTokens: usageOutput } : {}),
       });
       return;

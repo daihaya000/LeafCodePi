@@ -16,6 +16,7 @@ function messageFingerprint(message: UiMessage): string {
     message.id,
     message.role,
     message.error ?? "",
+    message.diagnostics ? JSON.stringify(message.diagnostics) : "",
     message.outputTokens ?? "",
     message.tokensPerSecond ?? "",
     message.tokensPerSecondDecode ? "1" : "0",

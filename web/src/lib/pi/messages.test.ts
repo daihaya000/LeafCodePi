@@ -162,6 +162,61 @@ describe("projectPiMessages", () => {
       text: "続けて",
     });
   });
+
+  it("projects provider diagnostics without stacks or arbitrary details", () => {
+    const messages = projectPiMessages([
+      {
+        role: "assistant",
+        id: "a-diagnostic",
+        timestamp: 3,
+        content: [],
+        errorMessage: "fetch failed",
+        diagnostics: [
+          {
+            type: "provider_transport_failure",
+            timestamp: 4,
+            error: {
+              name: "TypeError",
+              message: "fetch failed",
+              code: "UND_ERR_CONNECT_TIMEOUT",
+              stack: "Bearer secret-must-not-be-forwarded",
+            },
+            details: {
+              configuredTransport: "auto",
+              fallbackTransport: "sse",
+              phase: "before_message_stream_start",
+              eventsEmitted: false,
+              requestBytes: 123,
+              authorization: "secret-must-not-be-forwarded",
+            },
+          },
+        ],
+      },
+    ]);
+
+    expect(messages[0]).toMatchObject({
+      error: "fetch failed",
+      diagnostics: [
+        {
+          type: "provider_transport_failure",
+          timestamp: 4,
+          error: {
+            name: "TypeError",
+            message: "fetch failed",
+            code: "UND_ERR_CONNECT_TIMEOUT",
+          },
+          details: {
+            configuredTransport: "auto",
+            fallbackTransport: "sse",
+            phase: "before_message_stream_start",
+            eventsEmitted: false,
+            requestBytes: 123,
+          },
+        },
+      ],
+    });
+    expect(JSON.stringify(messages[0]?.diagnostics)).not.toContain("secret-must-not-be-forwarded");
+  });
 });
 
 describe("entryIdsForProjectedMessages", () => {

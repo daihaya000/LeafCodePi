@@ -68,6 +68,15 @@ describe("stabilizeUiMessages", () => {
     expect(out[0]).not.toBe(prev[0]);
     expect(out[0]?.parts[0]).toMatchObject({ state: { output: "second text" } });
   });
+
+  it("updates when provider diagnostics change", () => {
+    const prev = [textMessage("a", "", { diagnostics: [{ type: "transport" }] })];
+    const next = [textMessage("a", "", { diagnostics: [{ type: "transport", details: { phase: "sse" } }] })];
+
+    const out = stabilizeUiMessages(prev, next);
+    expect(out[0]).not.toBe(prev[0]);
+    expect(out[0]?.diagnostics?.[0]?.details?.phase).toBe("sse");
+  });
 });
 
 describe("upsertUiMessage", () => {

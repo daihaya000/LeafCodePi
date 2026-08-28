@@ -37,7 +37,7 @@ import {
   saveReasoningTranslationOverride,
   useReasoningTranslation,
 } from "@/lib/reasoning-translation";
-import type { SubagentRunDto, UiMessage, UiPart } from "@/lib/types";
+import type { SubagentRunDto, UiDiagnostic, UiMessage, UiPart } from "@/lib/types";
 
 const structuredResultLabels: Record<StructuredResultStatus, string> = {
   progress: "進行中",
@@ -87,6 +87,46 @@ function StructuredResultCard({ result }: { result: StructuredResult }) {
         </details>
       )}
     </section>
+  );
+}
+
+function DiagnosticDetails({ diagnostics }: { diagnostics: UiDiagnostic[] }) {
+  return (
+    <details className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs">
+      <summary className="cursor-pointer select-none font-medium text-muted">
+        診断情報 ({diagnostics.length})
+      </summary>
+      <div className="mt-2 space-y-2 text-faint">
+        {diagnostics.map((diagnostic, index) => (
+          <div
+            key={`${diagnostic.type}-${diagnostic.timestamp ?? index}`}
+            className="border-t border-border pt-2 first:border-0 first:pt-0"
+          >
+            <p className="font-medium text-muted">{diagnostic.type}</p>
+            {diagnostic.error && (
+              <p className="mt-1 whitespace-pre-wrap break-words">
+                {diagnostic.error.name ? `${diagnostic.error.name}: ` : ""}
+                {diagnostic.error.message}
+                {diagnostic.error.code !== undefined ? ` (code: ${diagnostic.error.code})` : ""}
+              </p>
+            )}
+            {diagnostic.details?.configuredTransport && (
+              <p className="mt-1">transport: {diagnostic.details.configuredTransport}</p>
+            )}
+            {diagnostic.details?.fallbackTransport && (
+              <p>fallback: {diagnostic.details.fallbackTransport}</p>
+            )}
+            {diagnostic.details?.phase && <p>phase: {diagnostic.details.phase}</p>}
+            {diagnostic.details?.eventsEmitted !== undefined && (
+              <p>events emitted: {diagnostic.details.eventsEmitted ? "yes" : "no"}</p>
+            )}
+            {diagnostic.details?.requestBytes !== undefined && (
+              <p>request bytes: {diagnostic.details.requestBytes.toLocaleString()}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -929,6 +969,9 @@ export const PartView = memo(
           >
             {message.error}
           </p>
+        )}
+        {message.diagnostics && message.diagnostics.length > 0 && (
+          <DiagnosticDetails diagnostics={message.diagnostics} />
         )}
       </article>
     );
