@@ -108,7 +108,8 @@ export function findResumableTurn(
   if (promptIndex < 0) return null;
 
   const prompt = messages[promptIndex];
-  const turn = messages.slice(promptIndex + 1);
+  const turnStart = promptIndex + 1;
+  const turnLength = messages.length - turnStart;
   if (!prompt) return null;
 
   const text = promptTextOf(prompt);
@@ -118,7 +119,7 @@ export function findResumableTurn(
   // 手動停止が応答生成開始前だと assistant メッセージが 1 件も無い。harness は
   // その場合 manualAbortedAssistantId に空文字を入れるので、それを目印に
   // プロンプト自体を再開対象にする（aborted 扱いで自動再開はしない）。
-  if (manualRaw !== undefined && manualRaw !== null && !manualRaw.trim() && turn.length === 0) {
+  if (manualRaw !== undefined && manualRaw !== null && !manualRaw.trim() && turnLength === 0) {
     return {
       reason: "aborted",
       messageId: prompt.id,
@@ -126,7 +127,7 @@ export function findResumableTurn(
       files: promptFilesOf(prompt),
     };
   }
-  if (turn.length === 0) return null;
+  if (turnLength === 0) return null;
 
   const build = (
     source: UiMessage,
@@ -143,28 +144,43 @@ export function findResumableTurn(
 
   const manualId = manualRaw?.trim();
   if (manualId) {
-    const manualIndex = turn.findIndex((message) => message.id === manualId);
+    let manualIndex = -1;
+    for (let i = turnStart; i < messages.length; i += 1) {
+      if (messages[i]?.id === manualId) {
+        manualIndex = i;
+        break;
+      }
+    }
     if (manualIndex >= 0) {
-      if (turn.slice(manualIndex + 1).some(hasTurnOutput)) return null;
-      return build(turn[manualIndex]!, "aborted");
+      for (let i = manualIndex + 1; i < messages.length; i += 1) {
+        const message = messages[i];
+        if (message && hasTurnOutput(message)) return null;
+      }
+      return build(messages[manualIndex]!, "aborted");
     }
   }
 
   let lastAbort = -1;
-  for (let i = turn.length - 1; i >= 0; i -= 1) {
-    const message = turn[i];
+  for (let i = messages.length - 1; i >= turnStart; i -= 1) {
+    const message = messages[i];
     if (message && isAbortedAssistantMessage(message)) {
       lastAbort = i;
       break;
     }
   }
   if (lastAbort >= 0) {
-    if (turn.slice(lastAbort + 1).some(hasTurnOutput)) return null;
-    return build(turn[lastAbort]!, "aborted");
+    for (let i = lastAbort + 1; i < messages.length; i += 1) {
+      const message = messages[i];
+      if (message && hasTurnOutput(message)) return null;
+    }
+    return build(messages[lastAbort]!, "aborted");
   }
 
-  if (turn.some((message) => hasTurnOutput(message) || hasPendingTool(message))) return null;
-  return build(turn.at(-1)!, "silent");
+  for (let i = turnStart; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (message && (hasTurnOutput(message) || hasPendingTool(message))) return null;
+  }
+  return build(messages[messages.length - 1]!, "silent");
 }
 
 /** ターンにユーザー可視の応答があるか（watchdog 用）。 */
