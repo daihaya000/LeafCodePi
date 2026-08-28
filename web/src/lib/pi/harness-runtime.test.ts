@@ -139,6 +139,38 @@ describe("getRuntimeFor", () => {
     assert.equal(await getRuntimeFor(), defaultStub);
   });
 
+  it("coalesces concurrent provider catalog reads", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-provider-catalog-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    let modelReads = 0;
+    const runtime = {
+      getProvider: (id: string) => ({ id }),
+      getProviders: () => [{ id: "llama-server", name: "llama-server" }],
+      getModels: () => {
+        modelReads += 1;
+        return [{ id: "local", name: "Local" }];
+      },
+      hasConfiguredAuth: () => true,
+    };
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      modelRuntime: runtime,
+      initPromise: null,
+      initError: null,
+      live: new Map(),
+      watchdogRegistered: true,
+      lastProviderSyncWarnings: [],
+    };
+
+    const [first, second] = await Promise.all([
+      listProviderModelsCatalog(),
+      listProviderModelsCatalog(),
+    ]);
+
+    assert.deepEqual(second, first);
+    assert.equal(modelReads, 1);
+  });
+
   it("rejects unknown account ids before creating a runtime", async () => {
     const dir = mkdtempSync(
       join(tmpdir(), "leafcode-pi-harness-missing-account-"),

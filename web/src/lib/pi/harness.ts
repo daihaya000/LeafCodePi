@@ -2657,9 +2657,20 @@ export async function completeModelText(options: {
   }
 }
 
-export async function listProviderModelsCatalog(): Promise<
-  ProviderModelsRow[]
-> {
+let providerModelsCatalogInflight: Promise<ProviderModelsRow[]> | null = null;
+
+export function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> {
+  if (providerModelsCatalogInflight) return providerModelsCatalogInflight;
+  const promise = listProviderModelsCatalogUncached();
+  providerModelsCatalogInflight = promise;
+  return promise.finally(() => {
+    if (providerModelsCatalogInflight === promise) {
+      providerModelsCatalogInflight = null;
+    }
+  });
+}
+
+async function listProviderModelsCatalogUncached(): Promise<ProviderModelsRow[]> {
   await ensureRuntime();
   const state = readProviderModelState();
   const routingState = readProviderRouting();
