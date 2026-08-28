@@ -1347,32 +1347,18 @@ export function TaskView({
 
   // ナビゲーターのジャンプ対象: ユーザーメッセージを優先し、Goal Loop の
   // hidden custom message しかない履歴では投影済みメッセージへフォールバックする。
-  const { userMessageIds, navigationMessageIds } = useMemo(() => {
+  // ヘッダー統計も同じ走査で集計し、deltaごとの履歴再走査を1回に抑える。
+  const { userMessageIds, navigationMessageIds, stats } = useMemo(() => {
     const userIds: string[] = [];
     const fallbackIds: string[] = [];
-    for (const message of visibleMessages) {
-      if (message.role === "user") userIds.push(message.id);
-      else if (message.role !== "compaction") fallbackIds.push(message.id);
-    }
-    return {
-      userMessageIds: userIds,
-      navigationMessageIds: userIds.length > 0 ? userIds : fallbackIds,
-    };
-  }, [visibleMessages]);
-  const navigationTargetLabel = userMessageIds.length > 0 ? "ユーザーメッセージ" : "メッセージ";
-  navigationMessageIdsRef.current = navigationMessageIds;
-  currentNavigationIdxRef.current = navigationMessageIds.length > 0
-    ? Math.min(Math.max(currentNavigationIdxRef.current, 0), navigationMessageIds.length - 1)
-    : 0;
-
-  // ヘッダー表示用の会話統計: 合計出力 tok / 平均 tok/s / 合計生成時間。
-  const stats = useMemo(() => {
     let totalTokens = 0;
     let rateSum = 0;
     let rateCount = 0;
     let durationMs = 0;
     let prevCreatedAt: number | null = null;
-    for (const message of messages) {
+    for (const message of visibleMessages) {
+      if (message.role === "user") userIds.push(message.id);
+      else if (message.role !== "compaction") fallbackIds.push(message.id);
       if (message.role === "user" || message.role === "compaction") continue;
       if (typeof message.outputTokens === "number" && message.outputTokens > 0) {
         totalTokens += message.outputTokens;
@@ -1388,11 +1374,20 @@ export function TaskView({
     }
     const avgRate = rateCount > 0 ? rateSum / rateCount : null;
     return {
-      totalTokens,
-      avgRate,
-      durationMs: messages.length > 1 ? durationMs : 0,
+      userMessageIds: userIds,
+      navigationMessageIds: userIds.length > 0 ? userIds : fallbackIds,
+      stats: {
+        totalTokens,
+        avgRate,
+        durationMs: messages.length > 1 ? durationMs : 0,
+      },
     };
-  }, [messages]);
+  }, [messages, visibleMessages]);
+  const navigationTargetLabel = userMessageIds.length > 0 ? "ユーザーメッセージ" : "メッセージ";
+  navigationMessageIdsRef.current = navigationMessageIds;
+  currentNavigationIdxRef.current = navigationMessageIds.length > 0
+    ? Math.min(Math.max(currentNavigationIdxRef.current, 0), navigationMessageIds.length - 1)
+    : 0;
 
   function formatDuration(ms: number): string {
     if (!Number.isFinite(ms) || ms <= 0) return "—";
