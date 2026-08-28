@@ -906,14 +906,21 @@ export function TaskView({
     }).catch(() => undefined);
   }, [task?.sessionId, taskId, working]);
 
-  // 巻き戻し対象候補: 末尾のユーザーメッセージ。末尾が user なら直前の user へ
-  // フォールバック（最後まで巻き戻せる状態を保つ）。
-  const lastUserMessage = useMemo(() => {
+  // 末尾のユーザーメッセージを共有し、deltaごとの後方走査を1回に抑える。
+  const { lastUserMessage, currentPromptIsHangRetry } = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
-      if (message && message.role === "user") return message;
+      if (message?.role === "user") {
+        return {
+          lastUserMessage: message,
+          currentPromptIsHangRetry: isHangRetryUserMessage(message),
+        };
+      }
     }
-    return undefined;
+    return {
+      lastUserMessage: undefined,
+      currentPromptIsHangRetry: false,
+    };
   }, [messages]);
 
   async function revert() {
@@ -1263,13 +1270,6 @@ export function TaskView({
       }),
     [visibleMessages, manualAbortedAssistantId],
   );
-  const currentPromptIsHangRetry = useMemo(() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (message?.role === "user") return isHangRetryUserMessage(message);
-    }
-    return false;
-  }, [messages]);
   const showResume =
     !!resumeTarget &&
     !!task &&
