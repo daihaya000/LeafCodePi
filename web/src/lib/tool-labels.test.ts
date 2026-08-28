@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { skillNameFromReadInput, toolInputFields, toolLabel, toolSummary } from "./tool-labels";
+import {
+  isChatGPTTool,
+  skillNameFromReadInput,
+  toolInputFields,
+  toolLabel,
+  toolSummary,
+} from "./tool-labels";
 
 describe("toolLabel", () => {
   it("maps pi tools to Japanese labels", () => {
@@ -17,6 +23,13 @@ describe("toolLabel", () => {
     const input = { path: "C:\\Users\\Daichi\\.pi\\agent\\skills\\bug-hunt\\SKILL.md" };
     expect(skillNameFromReadInput("read", input)).toBe("bug-hunt");
     expect(toolLabel("read", input)).toBe("スキル");
+  });
+
+  it("maps ChatGPT and C2C tool namespaces to one dedicated label", () => {
+    expect(isChatGPTTool("chatgpt")).toBe(true);
+    expect(toolLabel("chatgpt")).toBe("ChatGPT");
+    expect(toolLabel("mcp__c2c__workspace_info")).toBe("ChatGPT");
+    expect(toolLabel("mcp__x__y")).toBe("mcp__x__y");
   });
 
   it("keeps unknown tool names as-is", () => {
@@ -64,6 +77,15 @@ describe("toolSummary", () => {
     ).toBe("1/2 件");
   });
 
+  it("summarizes a ChatGPT request without dumping the whole input", () => {
+    expect(
+      toolSummary("chatgpt", {
+        status: "running",
+        input: { prompt: "差分をレビューして、改善案をまとめてください" },
+      }),
+    ).toBe("差分をレビューして、改善案をまとめてください");
+  });
+
   it("falls back to the tool name", () => {
     expect(toolSummary("weird", { status: "completed" })).toBe("weird");
   });
@@ -106,6 +128,19 @@ describe("toolInputFields", () => {
     ).toEqual([
       { label: "スキル", value: "bug-hunt" },
       { label: "パス", value: "/home/user/.pi/agent/skills/bug-hunt/SKILL.md" },
+    ]);
+  });
+
+  it("shows only allowlisted ChatGPT request fields", () => {
+    expect(
+      toolInputFields("mcp__c2c__review", {
+        action: "review",
+        prompt: "変更内容をレビューしてください",
+        accessToken: "must not render",
+      }),
+    ).toEqual([
+      { label: "操作", value: "review" },
+      { label: "依頼", value: "変更内容をレビューしてください" },
     ]);
   });
 

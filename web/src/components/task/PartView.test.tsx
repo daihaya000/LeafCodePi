@@ -35,6 +35,28 @@ function userMessage(text: string): UiMessage {
   };
 }
 
+function chatGPTMessage(): UiMessage {
+  return {
+    id: "chatgpt-1",
+    role: "assistant",
+    createdAt: 1,
+    parts: [
+      {
+        id: "chatgpt-tool-1",
+        type: "tool",
+        tool: "mcp__c2c__review",
+        callID: "call-chatgpt-1",
+        state: {
+          status: "completed",
+          input: { action: "review", prompt: "変更内容をレビューしてください" },
+          output: "レビュー結果です。",
+          title: "mcp__c2c__review",
+        },
+      },
+    ],
+  };
+}
+
 function logScroller(): HTMLDivElement {
   const pre = document.querySelector("pre");
   const scroller = pre?.parentElement?.parentElement;
@@ -79,6 +101,24 @@ describe("PartView shell log", () => {
     setScrollMetrics(scroller, 1100, 1400);
     view.rerender(<PartView message={bashMessage("line 1\nline 2\nline 3\nline 4")} />);
     expect(scroller.scrollTop).toBe(1300);
+  });
+});
+
+describe("PartView ChatGPT card", () => {
+  afterEach(() => cleanup());
+
+  it("uses the dedicated ChatGPT label and keeps the result collapsible", () => {
+    render(<PartView message={chatGPTMessage()} />);
+
+    const card = screen.getByRole("button", { name: /ChatGPT/ });
+    expect(card.textContent).toContain("変更内容をレビューしてください");
+    expect(screen.getByText("レビュー結果です。").className).toContain("truncate");
+    expect(card.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(card);
+    expect(screen.getByText("操作")).toBeTruthy();
+    expect(screen.getByText("依頼")).toBeTruthy();
+    expect(screen.getByText("レビュー結果です。")).toBeTruthy();
   });
 });
 

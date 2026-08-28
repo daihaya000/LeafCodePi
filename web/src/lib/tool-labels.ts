@@ -48,9 +48,25 @@ export function isSkillRead(
   return skillNameFromReadInput(tool, input) !== null;
 }
 
+/** ChatGPT/C2C tool and MCP namespace names shown as one dedicated card. */
+export function isChatGPTTool(tool: string): boolean {
+  const normalized = tool.trim().toLowerCase().replace(/-/g, "_");
+  return /^(?:chatgpt|chat_gpt|c2c)(?:$|[_:])/.test(normalized)
+    || /^mcp__(?:chatgpt|chat_gpt|c2c)(?:__|$)/.test(normalized);
+}
+
+function chatGPTInstruction(input: Record<string, unknown>): string | null {
+  for (const key of ["prompt", "message", "request", "task", "instruction"]) {
+    const value = asString(input[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
 /** 本家 LeafCode のタイムラインと同じ日本語ラベル・要約規則。 */
 export function toolLabel(tool: string, input?: Record<string, unknown>): string {
   const t = tool.toLowerCase();
+  if (isChatGPTTool(tool)) return "ChatGPT";
   if (isSkillRead(tool, input)) return "スキル";
   if (t.includes("subagent") || t === "task") return "サブエージェント";
   if (t === "question") return "確認";
@@ -86,6 +102,10 @@ export function toolSummary(tool: string, state: ToolState | undefined): string 
 
   const title = state?.title?.trim();
   if (title && title.toLowerCase() !== tool.toLowerCase()) return title;
+  if (isChatGPTTool(tool)) {
+    const instruction = chatGPTInstruction(input);
+    return instruction ? clip(instruction.replace(/\s+/g, " "), 120) : toolLabel(tool, input);
+  }
   if (t.includes("todo")) {
     return todoSummary(input) ?? toolLabel(tool, input);
   }
@@ -133,6 +153,13 @@ export function toolInputFields(
     const value = asString(input[key]);
     if (value) fields.push({ label, value: transform ? transform(value) : value });
   };
+
+  if (isChatGPTTool(tool)) {
+    add("操作", "action");
+    const instruction = chatGPTInstruction(input);
+    if (instruction) fields.push({ label: "依頼", value: clip(instruction, 2_000) });
+    return fields;
+  }
 
   if (t.includes("todo")) {
     if (Array.isArray(input.todos)) {
