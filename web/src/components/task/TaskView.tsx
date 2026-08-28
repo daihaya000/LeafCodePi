@@ -49,10 +49,7 @@ import { notifyTasksChanged } from "@/lib/events";
 import { taskSidebarNotifyKey } from "@/lib/task-sidebar-notify";
 import { getJson, sendJson } from "@/lib/client";
 import { DEFAULT_AGENT, resolveAgentSelection, writeStoredAgent } from "@/lib/default-agent";
-import {
-  messageNavigationIds,
-  messageNavigationIndex,
-} from "@/lib/message-navigation";
+import { messageNavigationIndex } from "@/lib/message-navigation";
 import {
   normalizeTaskPanelState,
   toggleTaskPanel,
@@ -1350,14 +1347,18 @@ export function TaskView({
 
   // ナビゲーターのジャンプ対象: ユーザーメッセージを優先し、Goal Loop の
   // hidden custom message しかない履歴では投影済みメッセージへフォールバックする。
-  const userMessageIds = useMemo(
-    () => visibleMessages.filter((message) => message.role === "user").map((message) => message.id),
-    [visibleMessages],
-  );
-  const navigationMessageIds = useMemo(
-    () => messageNavigationIds(visibleMessages),
-    [visibleMessages],
-  );
+  const { userMessageIds, navigationMessageIds } = useMemo(() => {
+    const userIds: string[] = [];
+    const fallbackIds: string[] = [];
+    for (const message of visibleMessages) {
+      if (message.role === "user") userIds.push(message.id);
+      else if (message.role !== "compaction") fallbackIds.push(message.id);
+    }
+    return {
+      userMessageIds: userIds,
+      navigationMessageIds: userIds.length > 0 ? userIds : fallbackIds,
+    };
+  }, [visibleMessages]);
   const navigationTargetLabel = userMessageIds.length > 0 ? "ユーザーメッセージ" : "メッセージ";
   navigationMessageIdsRef.current = navigationMessageIds;
   currentNavigationIdxRef.current = navigationMessageIds.length > 0
