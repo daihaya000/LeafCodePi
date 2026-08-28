@@ -1,10 +1,10 @@
 # ChatGPTプラン・レビュー連携 要件定義・実装計画
 
-**状態:** 確定  
-**対象:** LeafCodePi / Windows 10・11  
-**上流基準:** [`XiaoDuoYa/codex-with-chatgpt`](https://github.com/XiaoDuoYa/codex-with-chatgpt) `b4e0b14782519bae60236ffaa6120673887fecaa`（0.1.0）  
-**内部識別子:** `c2c`  
-**ユーザー向け名称:** ChatGPTプラン・レビュー連携
+- **状態:** 確定
+- **対象:** LeafCodePi / Windows 10・11
+- **上流基準:** [`XiaoDuoYa/codex-with-chatgpt`](https://github.com/XiaoDuoYa/codex-with-chatgpt) `b4e0b14782519bae60236ffaa6120673887fecaa`（0.1.0）
+- **内部識別子:** `c2c`
+- **ユーザー向け名称:** ChatGPTプラン・レビュー連携
 
 ## 1. 決定概要
 
