@@ -43,7 +43,6 @@ export function clearRuntimeState(workspaceId: string): void {
 export interface HealthPayload {
   service: string;
   version: string;
-  workspaceId: string;
   status: string;
 }
 
@@ -70,8 +69,19 @@ export async function findLiveBridge(workspaceId: string): Promise<RuntimeState 
   const state = readRuntimeState(workspaceId);
   if (!state) return null;
   const health = await probeBridge(state.port);
-  if (health && health.workspaceId === workspaceId) return state;
-  return null;
+  if (!health) return null;
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${state.port}/admin/info`, {
+      headers: { Authorization: `Bearer ${state.adminToken}` },
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!response.ok) return null;
+    const info = (await response.json()) as { workspaceId?: unknown };
+    return info.workspaceId === workspaceId ? state : null;
+  } catch {
+    return null;
+  }
 }
 
 export { SERVICE_NAME, VERSION };

@@ -26,6 +26,10 @@ beforeAll(async () => {
   makeGitRepo(root);
   write(root, "package.json", JSON.stringify({ name: "demo", scripts: { test: "vitest run" }, dependencies: { react: "^19.0.0" } }));
   write(root, ".env", "API_KEY=supersecret\n");
+  write(root, "MEMORY.md", "private memory\n");
+  write(root, "auth.json", "{\"token\":\"private\"}\n");
+  write(root, ".pi/secret.txt", "private state\n");
+  git(root, "add", "MEMORY.md", "auth.json", ".pi/secret.txt");
   // an uncommitted change so git_diff has content
   write(root, "src/index.ts", "export const answer = 43; // changed\n");
 
@@ -74,10 +78,11 @@ describe("MCP tools over Streamable HTTP", () => {
     }
   });
 
-  it("workspace_info returns identity and project detection", async () => {
+  it("workspace_info returns safe identity and project detection", async () => {
     const result = await client.callTool({ name: "workspace_info", arguments: {} });
-    const info = jsonOf<{ workspaceId: string; projectType: string; frameworks: string[]; git: { isRepo: boolean; branch: string } }>(result);
-    expect(info.workspaceId).toBe(bridge.workspace.id);
+    const info = jsonOf<{ workspaceId?: string; workspaceName: string; projectType: string; frameworks: string[]; git: { isRepo: boolean; branch: string } }>(result);
+    expect(info).not.toHaveProperty("workspaceId");
+    expect(info.workspaceName).toContain("mcp-ws");
     expect(info.projectType).toBe("node");
     expect(info.frameworks).toContain("React");
     expect(info.git.isRepo).toBe(true);
@@ -110,6 +115,9 @@ describe("MCP tools over Streamable HTTP", () => {
     expect(paths).toContain("hello.txt");
     expect(paths).toContain("src/index.ts");
     expect(paths).not.toContain(".env");
+    expect(paths).not.toContain("MEMORY.md");
+    expect(paths).not.toContain("auth.json");
+    expect(paths.some((entry) => entry.startsWith(".pi"))).toBe(false);
   });
 
   it("search_workspace finds matches", async () => {
@@ -118,18 +126,31 @@ describe("MCP tools over Streamable HTTP", () => {
     expect(search.matches.some((match) => match.path === "src/index.ts")).toBe(true);
   });
 
-  it("git_status reports the dirty file", async () => {
+  it("git_status reports the dirty file without sensitive paths", async () => {
     const result = await client.callTool({ name: "git_status", arguments: {} });
-    const status = jsonOf<{ isRepo: boolean; unstaged: { path: string }[] }>(result);
+    const status = jsonOf<{ isRepo: boolean; staged: { path: string }[]; unstaged: { path: string }[]; untracked: string[] }>(result);
+    const paths = [
+      ...status.staged.map((entry) => entry.path),
+      ...status.unstaged.map((entry) => entry.path),
+      ...status.untracked,
+    ];
     expect(status.isRepo).toBe(true);
-    expect(status.unstaged.some((entry) => entry.path === "src/index.ts")).toBe(true);
+    expect(paths).toContain("src/index.ts");
+    expect(paths.some((entry) => /(?:MEMORY\.md|auth\.json|\.env|\.pi)/i.test(entry))).toBe(false);
   });
 
-  it("git_diff shows the change", async () => {
+  it("git_diff shows allowed changes and omits sensitive staged files", async () => {
     const result = await client.callTool({ name: "git_diff", arguments: { mode: "unstaged" } });
     const diff = jsonOf<{ diff: string; hasMore: boolean }>(result);
     expect(diff.diff).toContain("answer = 43");
+    expect(diff.diff).not.toContain("private");
     expect(diff.hasMore).toBe(false);
+
+    const staged = jsonOf<{ diff: string }>(
+      await client.callTool({ name: "git_diff", arguments: { mode: "staged" } }),
+    );
+    expect(staged.diff).not.toContain("private");
+    expect(staged.diff).not.toContain("MEMORY.md");
   });
 
   it("git_diff paginates large diffs", async () => {

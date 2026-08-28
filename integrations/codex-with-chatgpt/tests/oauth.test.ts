@@ -18,6 +18,7 @@ beforeAll(async () => {
     port: 0,
     persistRuntime: false,
     authStoreFile: path.join(makeTmpDir("auth"), "store.json"),
+    allowOfflineAccess: true,
   });
   base = bridge.localBaseUrl();
 });
@@ -92,9 +93,32 @@ async function exchangeToken(
 }
 
 describe("discovery metadata", () => {
+  it("does not advertise offline access without an explicit secure-store grant", async () => {
+    const localRoot = makeTmpDir("oauth-no-refresh-ws");
+    const authDir = makeTmpDir("oauth-no-refresh-auth");
+    write(localRoot, "hello.txt", "hello\n");
+    const localBridge = await startBridge({
+      workspaceRoot: localRoot,
+      port: 0,
+      persistRuntime: false,
+      authStoreFile: path.join(authDir, "store.json"),
+    });
+    try {
+      const response = await fetch(`${localBridge.localBaseUrl()}/.well-known/oauth-authorization-server`);
+      const body = await response.json() as { scopes_supported: string[]; grant_types_supported: string[] };
+      expect(body.scopes_supported).not.toContain("offline_access");
+      expect(body.grant_types_supported).toEqual(["authorization_code"]);
+    } finally {
+      await localBridge.close();
+      cleanup(localRoot);
+      cleanup(authDir);
+    }
+  });
+
   it("serves protected resource metadata", async () => {
     const response = await fetch(`${base}/.well-known/oauth-protected-resource/mcp`);
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toContain("no-store");
     const body = (await response.json()) as { resource: string; authorization_servers: string[] };
     expect(body.resource).toContain("/mcp");
     expect(body.authorization_servers.length).toBe(1);
@@ -110,6 +134,44 @@ describe("discovery metadata", () => {
 });
 
 describe("authorization + token flow", () => {
+  it("keeps the authorization page safe and non-identifying", async () => {
+    const clientId = await registerClient();
+    const { challenge } = pkceVerifierAndChallenge();
+    const authorizeUrl = new URL(`${base}/oauth/authorize`);
+    authorizeUrl.searchParams.set("client_id", clientId);
+    authorizeUrl.searchParams.set("redirect_uri", REDIRECT_URI);
+    authorizeUrl.searchParams.set("response_type", "code");
+    authorizeUrl.searchParams.set("code_challenge", challenge);
+    authorizeUrl.searchParams.set("code_challenge_method", "S256");
+    authorizeUrl.searchParams.set("scope", "workspace.read");
+
+    const response = await fetch(authorizeUrl, { redirect: "manual" });
+    const html = await response.text();
+    expect(response.status).toBe(200);
+    expect(html).not.toContain("oauth-ws");
+    expect(html).not.toContain(root);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  });
+
+  it("rejects unknown scopes instead of expanding them", async () => {
+    const clientId = await registerClient();
+    const { challenge } = pkceVerifierAndChallenge();
+    const authorizeUrl = new URL(`${base}/oauth/authorize`);
+    authorizeUrl.searchParams.set("client_id", clientId);
+    authorizeUrl.searchParams.set("redirect_uri", REDIRECT_URI);
+    authorizeUrl.searchParams.set("response_type", "code");
+    authorizeUrl.searchParams.set("code_challenge", challenge);
+    authorizeUrl.searchParams.set("code_challenge_method", "S256");
+    authorizeUrl.searchParams.set("scope", "not-a-supported-scope");
+
+    const response = await fetch(authorizeUrl, { redirect: "manual" });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toContain("error=invalid_scope");
+  });
+
   it("completes the full pairing + PKCE flow and calls MCP", async () => {
     const clientId = await registerClient();
     const { verifier, challenge } = pkceVerifierAndChallenge();

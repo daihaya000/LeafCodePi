@@ -260,6 +260,27 @@ export class AuthStore {
     return this.tokens.size;
   }
 
+  clientCount(): number {
+    return this.clients.size;
+  }
+
+  /** Evict the oldest client that has no live token. */
+  evictOldestInactiveClient(): boolean {
+    const now = Date.now();
+    const activeClientIds = new Set(
+      [...this.tokens.values()]
+        .filter((token) => !token.revoked && token.expiresAt > now)
+        .map((token) => token.clientId),
+    );
+    const candidate = [...this.clients.values()]
+      .filter((client) => !activeClientIds.has(client.clientId))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+    if (!candidate) return false;
+    this.clients.delete(candidate.clientId);
+    this.save();
+    return true;
+  }
+
   static deleteStateFile(workspaceId: string): void {
     const file = path.join(getStateDir(), "auth", `${workspaceId}.json`);
     try {
@@ -270,9 +291,13 @@ export class AuthStore {
   }
 }
 
-export function filterScopes(requested: string | undefined): string[] {
-  if (!requested || requested.trim() === "") return [...SUPPORTED_SCOPES];
-  const asked = requested.split(/[\s+]+/).filter(Boolean);
-  const granted = asked.filter((scope) => (SUPPORTED_SCOPES as readonly string[]).includes(scope));
-  return granted.length > 0 ? granted : [...SUPPORTED_SCOPES];
+export function filterScopes(
+  requested: string | undefined,
+  opts: { allowOfflineAccess?: boolean } = {},
+): string[] {
+  const allowOfflineAccess = opts.allowOfflineAccess ?? true;
+  const supported = new Set<string>(SUPPORTED_SCOPES);
+  if (!allowOfflineAccess) supported.delete("offline_access");
+  if (!requested || requested.trim() === "") return [...supported];
+  return [...new Set(requested.split(/[\s+]+/).filter((scope) => supported.has(scope)))];
 }

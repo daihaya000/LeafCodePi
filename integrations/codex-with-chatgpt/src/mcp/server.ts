@@ -71,7 +71,6 @@ export function createMcpServer(ctx: McpContext): McpServer {
         const project = workspace.detectProject();
         const git = gitInfo(workspace.root);
         return ok({
-          workspaceId: workspace.id,
           workspaceName: workspace.name,
           rootAlias: "workspace:/",
           ...project,

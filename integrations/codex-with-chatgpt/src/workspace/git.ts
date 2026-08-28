@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { IgnoreRules } from "./ignore.js";
 
 export interface GitCommandResult {
   ok: boolean;
@@ -73,6 +74,11 @@ export function gitStatus(root: string): GitStatusResult {
   };
   const result = runGit(root, ["status", "--porcelain=v2", "--branch", "--", "."]);
   if (!result.ok) return empty;
+  const rules = new IgnoreRules(root);
+  const isAllowedPath = (value: string): boolean => {
+    const normalized = value.trim().replace(/^"(.*)"$/, "$1").replace(/\\/g, "/");
+    return normalized.split(" -> ").every((part) => !rules.isSensitive(part));
+  };
   const out: GitStatusResult = { ...empty, isRepo: true };
   for (const line of result.stdout.split("\n")) {
     if (line.startsWith("# branch.head ")) {
@@ -93,13 +99,16 @@ export function gitStatus(root: string): GitStatusResult {
         : parts.slice(8).join(" ");
       const x = xy[0];
       const y = xy[1];
+      if (!isAllowedPath(filePath)) continue;
       if (x !== ".") out.staged.push({ path: filePath, change: x });
       if (y !== ".") out.unstaged.push({ path: filePath, change: y });
     } else if (line.startsWith("? ")) {
-      out.untracked.push(line.slice(2));
+      const filePath = line.slice(2);
+      if (isAllowedPath(filePath)) out.untracked.push(filePath);
     } else if (line.startsWith("u ")) {
       const parts = line.split(" ");
-      out.conflicted.push(parts.slice(10).join(" "));
+      const filePath = parts.slice(10).join(" ");
+      if (isAllowedPath(filePath)) out.conflicted.push(filePath);
     }
   }
   return out;
@@ -125,43 +134,74 @@ export interface GitDiffResult {
   diff: string;
 }
 
-const SENSITIVE_DIFF_EXCLUDES = [
-  ":(exclude,glob)**/.env",
-  ":(exclude,glob)**/.env.*",
-  ":(exclude,glob)**/*.pem",
-  ":(exclude,glob)**/*.key",
-  ":(exclude,glob)**/id_rsa*",
-  ":(exclude,glob)**/id_ed25519*",
-];
+function emptyDiff(mode: DiffMode, offset: number, isRepo: boolean): GitDiffResult {
+  return {
+    isRepo,
+    mode,
+    totalBytes: 0,
+    offset,
+    returnedBytes: 0,
+    hasMore: false,
+    nextOffset: null,
+    diff: "",
+  };
+}
+
+function gitDiffBase(mode: DiffMode): string[] {
+  const base = ["diff", "--no-color"];
+  if (mode === "staged") base.push("--cached");
+  if (mode === "head") base.push("HEAD");
+  return base;
+}
 
 export function gitDiff(root: string, opts: GitDiffOptions = {}, relPath?: string): GitDiffResult {
   const mode = opts.mode ?? "unstaged";
   const offset = Math.max(0, Math.floor(opts.offset ?? 0));
   const maxBytes = Math.min(256 * 1024, Math.max(1024, Math.floor(opts.maxBytes ?? 64 * 1024)));
+  const rules = new IgnoreRules(root);
+  const base = gitDiffBase(mode);
+  let result: GitCommandResult;
 
-  const base: string[] = ["diff", "--no-color"];
-  if (mode === "staged") base.push("--cached");
-  if (mode === "head") base.push("HEAD");
-  base.push("--");
   if (relPath) {
-    base.push(relPath);
+    if (rules.isSensitive(relPath)) return emptyDiff(mode, offset, true);
+    result = runGit(root, [...base, "--", relPath]);
   } else {
-    base.push(".", ...SENSITIVE_DIFF_EXCLUDES);
+    const names = runGit(root, [...base, "--name-only", "-z", "--", "."]);
+    if (!names.ok && /not a git repository/i.test(names.stderr)) return emptyDiff(mode, offset, false);
+    if (!names.ok) return emptyDiff(mode, offset, false);
+    const allowed = names.stdout
+      .split(String.fromCharCode(0))
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0 && !rules.isSensitive(value));
+    if (allowed.length === 0) return emptyDiff(mode, offset, true);
+    const chunks: string[][] = [];
+    let chunk: string[] = [];
+    let chunkBytes = 0;
+    const maxPathspecBytes = process.platform === "win32" ? 8 * 1024 : 32 * 1024;
+    for (const value of allowed) {
+      const valueBytes = Buffer.byteLength(value, "utf8") + 1;
+      if (chunk.length > 0 && chunkBytes + valueBytes > maxPathspecBytes) {
+        chunks.push(chunk);
+        chunk = [];
+        chunkBytes = 0;
+      }
+      chunk.push(value);
+      chunkBytes += valueBytes;
+    }
+    if (chunk.length > 0) chunks.push(chunk);
+
+    const outputs: string[] = [];
+    for (const paths of chunks) {
+      const part = runGit(root, [...base, "--", ...paths]);
+      if (!part.ok) return emptyDiff(mode, offset, true);
+      outputs.push(part.stdout);
+    }
+    result = { ok: true, stdout: outputs.join(""), stderr: "", code: 0 };
   }
 
-  const result = runGit(root, base);
-  if (!result.ok && /not a git repository/i.test(result.stderr)) {
-    return {
-      isRepo: false,
-      mode,
-      totalBytes: 0,
-      offset: 0,
-      returnedBytes: 0,
-      hasMore: false,
-      nextOffset: null,
-      diff: "",
-    };
-  }
+  if (!result.ok && /not a git repository/i.test(result.stderr)) return emptyDiff(mode, offset, false);
+  if (!result.ok) return emptyDiff(mode, offset, true);
+
   const full = Buffer.from(result.stdout, "utf8");
   const slice = full.subarray(offset, offset + maxBytes);
   let text = slice.toString("utf8");

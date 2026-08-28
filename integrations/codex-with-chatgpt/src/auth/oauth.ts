@@ -8,9 +8,9 @@ import { PRODUCT_NAME } from "../version.js";
 export interface OAuthDeps {
   store: AuthStore;
   pairing: PairingManager;
-  workspaceName: string;
   getBaseUrl: (req: Request) => string;
   logger: Logger;
+  allowOfflineAccess: boolean;
 }
 
 interface PendingAuthRequest {
@@ -38,7 +38,11 @@ function isAllowedRedirectUri(uri: string): boolean {
   return false;
 }
 
-function authorizationServerMetadata(base: string): Record<string, unknown> {
+function availableScopes(allowOfflineAccess: boolean): string[] {
+  return SUPPORTED_SCOPES.filter((scope) => allowOfflineAccess || scope !== "offline_access");
+}
+
+function authorizationServerMetadata(base: string, allowOfflineAccess: boolean): Record<string, unknown> {
   return {
     issuer: base,
     authorization_endpoint: `${base}/oauth/authorize`,
@@ -47,26 +51,47 @@ function authorizationServerMetadata(base: string): Record<string, unknown> {
     revocation_endpoint: `${base}/oauth/revoke`,
     response_types_supported: ["code"],
     response_modes_supported: ["query"],
-    grant_types_supported: ["authorization_code", "refresh_token"],
+    grant_types_supported: allowOfflineAccess
+      ? ["authorization_code", "refresh_token"]
+      : ["authorization_code"],
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
-    scopes_supported: [...SUPPORTED_SCOPES],
+    scopes_supported: availableScopes(allowOfflineAccess),
   };
 }
 
-function protectedResourceMetadata(base: string): Record<string, unknown> {
+function protectedResourceMetadata(base: string, allowOfflineAccess: boolean): Record<string, unknown> {
   return {
     resource: `${base}/mcp`,
     authorization_servers: [base],
-    scopes_supported: [...SUPPORTED_SCOPES],
+    scopes_supported: availableScopes(allowOfflineAccess),
     bearer_methods_supported: ["header"],
     resource_name: PRODUCT_NAME,
   };
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "'": "&#39;",
+    '"': "&quot;",
+  })[character] ?? character);
+}
+
+function setSecurityHeaders(res: Response): void {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  );
+}
+
 function pairingPage(opts: {
   requestId: string;
-  workspaceName: string;
   scopes: string[];
   error?: string;
 }): string {
@@ -78,17 +103,17 @@ function pairingPage(opts: {
     offline_access: "Stay connected between sessions",
   };
   const scopeList = opts.scopes
-    .map((scope) => `<li>${scopeLabels[scope] ?? scope}</li>`)
+    .map((scope) => `<li>${escapeHtml(scopeLabels[scope] ?? "Read-only workspace access")}</li>`)
     .join("");
   const errorHtml = opts.error
-    ? `<p class="error" role="alert">${opts.error}</p>`
+    ? `<p class="error" role="alert">${escapeHtml(opts.error)}</p>`
     : "";
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${PRODUCT_NAME}</title>
+<title>${escapeHtml(PRODUCT_NAME)}</title>
 <style>
   :root { color-scheme: light dark; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -114,11 +139,11 @@ function pairingPage(opts: {
 </head>
 <body>
 <div class="card">
-  <h1>${PRODUCT_NAME}</h1>
-  <p class="sub">ChatGPT is requesting access to workspace <strong>${opts.workspaceName}</strong> (read-only):</p>
+  <h1>${escapeHtml(PRODUCT_NAME)}</h1>
+  <p class="sub">ChatGPT is requesting read-only access to the selected LeafCodePi workspace:</p>
   <ul>${scopeList}</ul>
   <form method="POST" action="authorize">
-    <input type="hidden" name="request_id" value="${opts.requestId}">
+    <input type="hidden" name="request_id" value="${escapeHtml(opts.requestId)}">
     <input type="text" name="pairing_code" id="pairing_code" placeholder="XXXX-XXXX"
            autocomplete="one-time-code" autofocus maxlength="9" required>
     ${errorHtml}
@@ -133,6 +158,31 @@ function pairingPage(opts: {
 export function createOAuthRouter(deps: OAuthDeps): Router {
   const router = Router();
   const pendingRequests = new Map<string, PendingAuthRequest>();
+  const registrationHits = new Map<string, number[]>();
+  const maxPendingRequests = 20;
+  const maxClients = 50;
+  const registrationWindowMs = 60_000;
+  const registrationLimit = 10;
+
+  router.use((_req, res, next) => {
+    setSecurityHeaders(res);
+    next();
+  });
+
+  const requestAddress = (req: Request): string => req.ip || req.socket.remoteAddress || "unknown";
+
+  const allowRegistration = (req: Request): boolean => {
+    const now = Date.now();
+    const address = requestAddress(req);
+    const recent = (registrationHits.get(address) ?? []).filter((timestamp) => now - timestamp < registrationWindowMs);
+    if (recent.length >= registrationLimit) {
+      registrationHits.set(address, recent);
+      return false;
+    }
+    recent.push(now);
+    registrationHits.set(address, recent);
+    return true;
+  };
 
   const prunePending = (): void => {
     const now = Date.now();
@@ -144,10 +194,10 @@ export function createOAuthRouter(deps: OAuthDeps): Router {
   // ---- Discovery metadata -------------------------------------------------
 
   const asMetadataHandler = (req: Request, res: Response): void => {
-    res.json(authorizationServerMetadata(deps.getBaseUrl(req)));
+    res.json(authorizationServerMetadata(deps.getBaseUrl(req), deps.allowOfflineAccess));
   };
   const prMetadataHandler = (req: Request, res: Response): void => {
-    res.json(protectedResourceMetadata(deps.getBaseUrl(req)));
+    res.json(protectedResourceMetadata(deps.getBaseUrl(req), deps.allowOfflineAccess));
   };
   router.get("/.well-known/oauth-authorization-server", asMetadataHandler);
   router.get("/.well-known/oauth-authorization-server/mcp", asMetadataHandler);
@@ -157,7 +207,11 @@ export function createOAuthRouter(deps: OAuthDeps): Router {
 
   // ---- Dynamic Client Registration (RFC 7591) ------------------------------
 
-  router.post("/oauth/register", json(), (req, res) => {
+  router.post("/oauth/register", json({ limit: "16kb" }), (req, res) => {
+    if (!allowRegistration(req)) {
+      res.status(429).json({ error: "rate_limited" });
+      return;
+    }
     const body = req.body as { client_name?: string; redirect_uris?: unknown };
     const redirectUris = Array.isArray(body.redirect_uris) ? body.redirect_uris : [];
     if (
@@ -168,6 +222,10 @@ export function createOAuthRouter(deps: OAuthDeps): Router {
         error: "invalid_redirect_uri",
         error_description: "redirect_uris must be https URLs (or http://localhost for development)",
       });
+      return;
+    }
+    if (deps.store.clientCount() >= maxClients && !deps.store.evictOldestInactiveClient()) {
+      res.status(429).json({ error: "client_limit_reached" });
       return;
     }
     const client = deps.store.registerClient({
@@ -215,7 +273,23 @@ export function createOAuthRouter(deps: OAuthDeps): Router {
       fail("invalid_request", "PKCE with S256 is required");
       return;
     }
-    const scopes = filterScopes(query.scope);
+    const requestedScopes = query.scope?.split(/[\s+]+/).filter(Boolean) ?? [];
+    const unknownScopes = requestedScopes.filter(
+      (scope) => !(SUPPORTED_SCOPES as readonly string[]).includes(scope),
+    );
+    if (unknownScopes.length > 0) {
+      fail("invalid_scope", "One or more requested scopes are not supported");
+      return;
+    }
+    const scopes = filterScopes(query.scope, { allowOfflineAccess: deps.allowOfflineAccess });
+    if (requestedScopes.length > 0 && scopes.length === 0) {
+      fail("invalid_scope", "No requested scope is available");
+      return;
+    }
+    if (pendingRequests.size >= maxPendingRequests) {
+      res.status(429).send("Too many pending authorization requests. Try again later.");
+      return;
+    }
     const request: PendingAuthRequest = {
       id: randomBytes(16).toString("hex"),
       clientId: client.clientId,
@@ -230,10 +304,10 @@ export function createOAuthRouter(deps: OAuthDeps): Router {
     res
       .status(200)
       .type("html")
-      .send(pairingPage({ requestId: request.id, workspaceName: deps.workspaceName, scopes }));
+      .send(pairingPage({ requestId: request.id, scopes }));
   });
 
-  router.post("/oauth/authorize", urlencoded({ extended: false }), (req, res) => {
+  router.post("/oauth/authorize", urlencoded({ extended: false, limit: "16kb" }), (req, res) => {
     prunePending();
     const body = req.body as { request_id?: string; pairing_code?: string };
     const request = body.request_id ? pendingRequests.get(body.request_id) : undefined;
@@ -257,7 +331,6 @@ export function createOAuthRouter(deps: OAuthDeps): Router {
         .send(
           pairingPage({
             requestId: request.id,
-            workspaceName: deps.workspaceName,
             scopes: request.scopes,
             error: messages[verdict.reason] ?? "Verification failed.",
           })
@@ -282,7 +355,11 @@ export function createOAuthRouter(deps: OAuthDeps): Router {
 
   // ---- Token endpoint --------------------------------------------------------
 
-  router.post("/oauth/token", urlencoded({ extended: false }), json(), (req, res) => {
+  router.post(
+    "/oauth/token",
+    urlencoded({ extended: false, limit: "16kb" }),
+    json({ limit: "16kb" }),
+    (req, res) => {
     const body = req.body as Record<string, string | undefined>;
     const grantType = body.grant_type;
 
@@ -344,7 +421,7 @@ export function createOAuthRouter(deps: OAuthDeps): Router {
 
   // ---- Revocation (RFC 7009) ---------------------------------------------------
 
-  router.post("/oauth/revoke", urlencoded({ extended: false }), (req, res) => {
+  router.post("/oauth/revoke", urlencoded({ extended: false, limit: "16kb" }), (req, res) => {
     const body = req.body as { token?: string };
     if (body.token) deps.store.revokeToken(body.token);
     res.status(200).json({});

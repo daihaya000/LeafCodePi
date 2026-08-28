@@ -1,6 +1,7 @@
 import ignore, { type Ignore } from "ignore";
 import fs from "node:fs";
 import path from "node:path";
+import { getStateDir } from "../config/paths.js";
 
 /**
  * Files that must never be readable through MCP, regardless of user config.
@@ -40,6 +41,13 @@ export const SENSITIVE_PATTERNS: string[] = [
   "cookies.sqlite",
   "Cookies",
   ".c2c-secrets*",
+  ".c2cignore",
+  ".pi/",
+  "MEMORY.md",
+  "LESSONS.md",
+  "auth.json",
+  "accounts.json",
+  ".leafcode-pi/",
 ];
 
 /** High-noise directories excluded from listing/search by default. */
@@ -81,6 +89,11 @@ export class IgnoreRules {
     this.sensitive = ignore().add(SENSITIVE_PATTERNS);
     this.noise = ignore().add(NOISE_PATTERNS);
     this.custom = ignore();
+    const stateRoot = path.resolve(getStateDir());
+    const stateRelative = path.relative(path.resolve(workspaceRoot), stateRoot).split(path.sep).join("/");
+    if (stateRelative && stateRelative !== "." && !stateRelative.startsWith("..") && !path.isAbsolute(stateRelative)) {
+      this.sensitive.add(`${stateRelative}/`);
+    }
     const c2cignore = path.join(workspaceRoot, ".c2cignore");
     try {
       if (fs.existsSync(c2cignore)) {

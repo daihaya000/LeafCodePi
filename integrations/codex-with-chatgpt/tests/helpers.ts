@@ -57,10 +57,10 @@ export function makeGitRepo(dir: string): void {
   git(dir, "commit", "-m", "initial commit");
 }
 
-/** Point the persistent state dir at an isolated temp location. */
+/** Point the existing LeafCodePi data dir at an isolated temp location. */
 export function isolateStateDir(): string {
   const dir = makeTmpDir("state");
-  process.env.C2C_STATE_DIR = dir;
+  process.env.LEAFCODE_PI_DATA_DIR = dir;
   return dir;
 }
 

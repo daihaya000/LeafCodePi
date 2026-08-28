@@ -26,6 +26,8 @@ export interface BridgeOptions {
   authStoreFile?: string;
   pairingTtlMs?: number;
   accessTokenTtlMs?: number;
+  /** Offline refresh tokens require a host-verified secure storage path. */
+  allowOfflineAccess?: boolean;
 }
 
 export interface Bridge {
@@ -81,7 +83,7 @@ export async function startBridge(opts: BridgeOptions): Promise<Bridge> {
   let publicBaseUrl: string | null = null;
 
   const app = express();
-  app.set("trust proxy", true);
+  app.set("trust proxy", false);
   app.disable("x-powered-by");
 
   const getBaseUrl = (req: Request): string => {
@@ -94,7 +96,7 @@ export async function startBridge(opts: BridgeOptions): Promise<Bridge> {
   // ---- Health (public but minimal) ---------------------------------------
 
   app.get("/health", (_req, res) => {
-    res.json({ service: SERVICE_NAME, version: VERSION, workspaceId: workspace.id, status: "ok" });
+    res.json({ service: SERVICE_NAME, version: VERSION, status: "ok" });
   });
 
   // ---- OAuth + discovery ---------------------------------------------------
@@ -103,9 +105,9 @@ export async function startBridge(opts: BridgeOptions): Promise<Bridge> {
     createOAuthRouter({
       store: authStore,
       pairing,
-      workspaceName: workspace.name,
       getBaseUrl,
       logger,
+      allowOfflineAccess: opts.allowOfflineAccess === true,
     })
   );
 
@@ -114,7 +116,7 @@ export async function startBridge(opts: BridgeOptions): Promise<Bridge> {
   const mcpHandler = createMcpHttpHandler(() => createMcpServer({ workspace, logger }), logger);
   app.all(
     "/mcp",
-    express.json({ limit: "8mb" }),
+    express.json({ limit: "1mb" }),
     bearerAuth({ store: authStore, workspaceId: workspace.id, getBaseUrl, logger }),
     (req: Request, res: Response) => {
       void mcpHandler(req, res);
