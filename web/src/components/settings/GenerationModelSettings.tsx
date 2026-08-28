@@ -1,7 +1,7 @@
 "use client";
 
 import { Brain } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { Button, GhostSelect } from "@/components/ui";
 import { ApiError, getJson } from "@/lib/client";
@@ -63,7 +63,7 @@ function GenerationEffortSelect({
   );
 }
 
-export function GenerationModelSettings() {
+export const GenerationModelSettings = memo(function GenerationModelSettings() {
   const [models, setModels] = useState<ModelOption[]>([]);
   const [value, setValue] = useState(() => readGenerationModel() ?? "");
   const [effort, setEffort] = useState(() => readGenerationModelEffort() ?? "");
@@ -297,4 +297,4 @@ export function GenerationModelSettings() {
       {error && <p role="alert" className="mt-2 text-xs text-danger">{error}</p>}
     </section>
   );
-}
+});
