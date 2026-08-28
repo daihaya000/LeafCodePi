@@ -30,13 +30,19 @@ export async function GET(
         const bootstrap = getTaskBootstrap(id);
         unsubscribe = subscribeTask(id, (payload) => {
           if (!ready) {
-            // Keep the ready snapshot before live updates; coalesce only adjacent
-            // deltas while the cold session is still hydrating.
-            const previous = pendingPayloads.at(-1);
-            if (payload.type === "delta" && previous?.type === "delta") {
-              pendingPayloads[pendingPayloads.length - 1] = payload;
-            } else {
+            // Keep the ready snapshot before live updates. A full snapshot
+            // supersedes every buffered update; only the latest delta after it
+            // can still add information before the stream becomes ready.
+            if (payload.type !== "delta") {
+              pendingPayloads.length = 0;
               pendingPayloads.push(payload);
+            } else {
+              const previous = pendingPayloads.at(-1);
+              if (previous?.type === "delta") {
+                pendingPayloads[pendingPayloads.length - 1] = payload;
+              } else {
+                pendingPayloads.push(payload);
+              }
             }
             return;
           }

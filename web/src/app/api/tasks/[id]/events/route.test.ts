@@ -89,6 +89,12 @@ describe("/api/tasks/[id]/events", () => {
       message: { id: "live", role: "assistant", createdAt: 2, parts: [] },
     });
     listener({
+      type: "snapshot",
+      task: task({ status: "working" }),
+      messages: [{ id: "intermediate", role: "user", createdAt: 2, parts: [] }],
+      eventType: "intermediate",
+    });
+    listener({
       type: "delta",
       message: { id: "live-latest", role: "assistant", createdAt: 3, parts: [] },
     });
@@ -99,6 +105,9 @@ describe("/api/tasks/[id]/events", () => {
     expect(readyPayload.eventType).toBe("ready");
     expect(readyPayload.task).not.toHaveProperty("messages");
     expect(readyPayload.task).not.toHaveProperty("isStreaming");
+    const pendingSnapshotChunk = await readChunk(reader);
+    expect(pendingSnapshotChunk).toContain("event: snapshot\n");
+    expect(eventData(pendingSnapshotChunk).eventType).toBe("intermediate");
     const deltaChunk = await readChunk(reader);
     expect(deltaChunk).toContain("event: delta\n");
     const deltaPayload = eventData(deltaChunk);
