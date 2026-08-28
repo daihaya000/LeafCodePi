@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { memo, type ReactNode, useCallback, useEffect, useState } from "react";
 import { Badge, Button } from "@/components/ui";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ApiError, apiUrl, getJson, sendJson } from "@/lib/client";
@@ -68,7 +68,7 @@ function sourceHint(provider: ProviderAuthDto): string | null {
   return provider.authSource ?? null;
 }
 
-export function ProviderAuthPanel({
+export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   providers,
   onChanged,
 }: {
@@ -1094,7 +1094,7 @@ export function ProviderAuthPanel({
       )}
     </div>
   );
-}
+});
 
 function ProviderRow({
   provider,
