@@ -36,7 +36,6 @@ import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { PartView, WorkingRow } from "@/components/task/PartView";
 import { PermissionAdvice } from "@/components/task/PermissionAdvice";
-import { useTaskAccountLabel } from "@/components/task/TaskAccountBadge";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import {
   QueuedFollowUpsNotice,
@@ -368,7 +367,25 @@ export function TaskView({
     () => cachedSession?.agent?.trim() || DEFAULT_AGENT,
   );
   const [agentChanging, setAgentChanging] = useState(false);
-  const taskAccountLabel = useTaskAccountLabel(task?.accountId);
+  const [accountLabels, setAccountLabels] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    getJson<{ accounts: { id: string; label: string }[] }>("/api/accounts")
+      .then((res) => {
+        if (!cancelled) {
+          setAccountLabels(new Map(res.accounts.map((account) => [account.id, account.label])));
+        }
+      })
+      .catch(() => {
+        // 取得失敗時は ID をそのまま表示する（TaskAccountBadge と同じ契約）。
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const taskAccountLabel = task?.accountId
+    ? accountLabels.get(task.accountId) ?? task.accountId
+    : null;
   const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
     () => readSubagentPermission(),
   );
@@ -1641,7 +1658,13 @@ export function TaskView({
                     }
                     effort={message.role === "assistant" ? effortLabel : undefined}
                     agent={message.role === "assistant" ? task?.agent ?? undefined : undefined}
-                    accountLabel={message.role === "assistant" ? taskAccountLabel ?? undefined : undefined}
+                    accountLabel={
+                      message.role === "assistant"
+                        ? message.accountId
+                          ? (accountLabels.get(message.accountId) ?? message.accountId)
+                          : (taskAccountLabel ?? undefined)
+                        : undefined
+                    }
                     references={messageReferences}
                     taskId={taskId}
                     onRevert={message.role === "user" ? requestRevert : undefined}

@@ -74,6 +74,10 @@ describe("getRuntimeFor", () => {
   });
 
   it("exposes usage-only OpenCode Go in the provider list", async () => {
+    // 実環境の provider-routing.json（統合モード設定）に依存しないよう分離する。
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-provider-list-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
     const optionalProviderIds = new Set([
       "cursor",
       "commandcode",

@@ -201,6 +201,8 @@ type LiveRuntime = {
   taskId: string;
   /** セッション生成時に使ったアカウント（null = 既定）。破棄時の参照解放に使う。 */
   accountId: string | null;
+  /** メッセージID → 生成時の認証アカウント。セッション置き換え後も保持して過去の表示を守る。 */
+  accountByMessageId: Map<string, string>;
   session: AgentSession;
   skillPermission: SkillPermission;
   skillPermissionRef: { current: SkillPermission };
@@ -363,6 +365,7 @@ function permissionSnapshotExtras(taskId: string): Record<string, unknown> {
       live.toolStartedAt,
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
+      { accountId: live.accountId, byMessageId: live.accountByMessageId },
     ),
     manualAbortedAssistantId: live.manualAbortedAssistantId,
     hangRetryCount: live.hangRetryCount,
@@ -584,6 +587,8 @@ async function ensureRuntime(): Promise<void> {
             live.toolStartedAt,
             live.toolEndedAt,
             live.toolPartialOutputByCallId,
+            false,
+            { accountId: live.accountId, byMessageId: live.accountByMessageId },
           ),
         };
       },
@@ -596,6 +601,8 @@ async function ensureRuntime(): Promise<void> {
             live.toolStartedAt,
             live.toolEndedAt,
             live.toolPartialOutputByCallId,
+            false,
+            { accountId: live.accountId, byMessageId: live.accountByMessageId },
           );
           let promptIndex = -1;
           for (let i = msgs.length - 1; i >= 0; i -= 1) {
@@ -718,6 +725,34 @@ export function applyThroughput(
   });
 }
 
+export type MessageAccountContext = {
+  /** 現在のセッションアカウント（null = 既定）。 */
+  accountId: string | null;
+  /** 一度記録したメッセージのアカウント。セッション置き換え後も過去の値を保持する。 */
+  byMessageId: Map<string, string>;
+};
+
+/** アシスタントメッセージへ生成時のアカウントを記録する（初回のみ記録、以降は保持）。 */
+export function applyMessageAccountIds(
+  messages: UiMessage[],
+  context: MessageAccountContext,
+): UiMessage[] {
+  const { accountId, byMessageId } = context;
+  let changed = false;
+  const result = messages.map((message) => {
+    if (message.role !== "assistant") return message;
+    let recorded = byMessageId.get(message.id);
+    if (recorded === undefined && accountId) {
+      recorded = accountId;
+      byMessageId.set(message.id, recorded);
+    }
+    if (!recorded || message.accountId === recorded) return message;
+    changed = true;
+    return { ...message, accountId: recorded };
+  });
+  return changed ? result : messages;
+}
+
 export function snapshotMessages(
   session: AgentSession,
   throughputByStartedAt?: Map<number, ThroughputTiming>,
@@ -725,6 +760,7 @@ export function snapshotMessages(
   toolEndedAt?: Map<string, number>,
   toolPartialOutputByCallId?: Map<string, string>,
   latestOnly = false,
+  accountContext?: MessageAccountContext,
 ): UiMessage[] {
   const stored: unknown[] = Array.isArray(session.messages)
     ? session.messages
@@ -878,6 +914,9 @@ export function snapshotMessages(
   }
   if (toolStartedAt && toolStartedAt.size > 0 && toolEndedAt) {
     projected = applyToolTiming(projected, toolStartedAt, toolEndedAt);
+  }
+  if (accountContext) {
+    projected = applyMessageAccountIds(projected, accountContext);
   }
   return projected;
 }
@@ -1166,6 +1205,7 @@ function sessionSnapshotFields(
   toolStartedAt?: Map<string, number>,
   toolEndedAt?: Map<string, number>,
   toolPartialOutputByCallId?: Map<string, string>,
+  accountContext?: MessageAccountContext,
 ): {
   messages: UiMessage[];
   isStreaming: boolean;
@@ -1181,6 +1221,8 @@ function sessionSnapshotFields(
       toolStartedAt,
       toolEndedAt,
       toolPartialOutputByCallId,
+      false,
+      accountContext,
     ),
     isStreaming: session.isStreaming,
     isCompacting: session.isCompacting,
@@ -1236,6 +1278,7 @@ function emitTaskSnapshot(
       live.toolStartedAt,
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
+      { accountId: live.accountId, byMessageId: live.accountByMessageId },
     ),
     manualAbortedAssistantId: live.manualAbortedAssistantId,
     hangRetryCount: live.hangRetryCount,
@@ -1261,6 +1304,7 @@ function emitTaskDelta(live: LiveRuntime, eventType: string): void {
     live.toolEndedAt,
     live.toolPartialOutputByCallId,
     true,
+    { accountId: live.accountId, byMessageId: live.accountByMessageId },
   ).at(-1) ?? null;
   const contextUsage = sessionContextUsage(live.session);
   emit(live.taskId, {
@@ -1364,6 +1408,7 @@ async function attachSession(
   const live: LiveRuntime = {
     taskId,
     accountId: attachedAccountId,
+    accountByMessageId: existing?.accountByMessageId ?? new Map(),
     session,
     skillPermission: skillPermissionRef.current,
     skillPermissionRef,
@@ -3250,6 +3295,7 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
       live.toolStartedAt,
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
+      { accountId: live.accountId, byMessageId: live.accountByMessageId },
     );
     messages = fields.messages;
     isStreaming = fields.isStreaming;
@@ -3721,6 +3767,7 @@ function queuePrompt(
         currentLive.toolStartedAt,
         currentLive.toolEndedAt,
         currentLive.toolPartialOutputByCallId,
+        { accountId: currentLive.accountId, byMessageId: currentLive.accountByMessageId },
       ),
       isStreaming: false,
       eventType: "error",
@@ -4050,6 +4097,7 @@ export async function setTaskModel(
       live.toolStartedAt,
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
+      { accountId: live.accountId, byMessageId: live.accountByMessageId },
     ),
   });
   return summary;
@@ -4080,6 +4128,7 @@ export async function setTaskThinkingLevel(
       live.toolStartedAt,
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
+      { accountId: live.accountId, byMessageId: live.accountByMessageId },
     ),
   });
   return summary;
@@ -4164,6 +4213,7 @@ export async function revertTask(
       live.toolStartedAt,
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
+      { accountId: live.accountId, byMessageId: live.accountByMessageId },
     ),
     eventType: "revert",
   });
@@ -4276,6 +4326,7 @@ export async function unrevertTask(id: string): Promise<TaskDetail> {
       live.toolStartedAt,
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
+      { accountId: live.accountId, byMessageId: live.accountByMessageId },
     ),
     eventType: "unrevert",
   });

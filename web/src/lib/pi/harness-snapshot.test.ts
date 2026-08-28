@@ -30,6 +30,81 @@ describe("snapshotMessages", () => {
     expect(snapshotMessages(session).at(-1)?.parts[0]).toMatchObject({ text: "二" });
   });
 
+  it("records the generating account and keeps it after rerouting", () => {
+    const stored: unknown[] = [
+      { role: "user", content: "確認して" },
+      { role: "assistant", content: [{ type: "text", text: "回答" }] },
+    ];
+    const fake = {
+      messages: stored,
+      agent: { state: { streamingMessage: undefined as unknown } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [] },
+    };
+    const session = fake as unknown as Parameters<typeof snapshotMessages>[0];
+    const byMessageId = new Map<string, string>();
+
+    const first = snapshotMessages(
+      session,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      { accountId: "acc-1", byMessageId },
+    );
+    expect(first.find((message) => message.role === "assistant")?.accountId).toBe("acc-1");
+
+    // アカウント切替（セッション置き換え）後の再射影でも過去メッセージは保持する。
+    const second = snapshotMessages(
+      session,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      { accountId: "acc-2", byMessageId },
+    );
+    expect(second.find((message) => message.role === "assistant")?.accountId).toBe("acc-1");
+  });
+
+  it("assigns the new account to messages added after rerouting", () => {
+    const stored: unknown[] = [
+      { role: "user", content: "確認して" },
+      { role: "assistant", content: [{ type: "text", text: "回答" }] },
+    ];
+    const fake = {
+      messages: stored,
+      agent: { state: { streamingMessage: undefined as unknown } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [] },
+    };
+    const session = fake as unknown as Parameters<typeof snapshotMessages>[0];
+    const byMessageId = new Map<string, string>();
+    snapshotMessages(
+      session,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      { accountId: "acc-1", byMessageId },
+    );
+
+    stored.push({ role: "user", content: "続き" });
+    stored.push({ role: "assistant", content: [{ type: "text", text: "次の回答" }] });
+    const second = snapshotMessages(
+      session,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      { accountId: "acc-2", byMessageId },
+    );
+    const assistants = second.filter((message) => message.role === "assistant");
+    expect(assistants[0]?.accountId).toBe("acc-1");
+    expect(assistants[1]?.accountId).toBe("acc-2");
+  });
+
   it("keeps messages before a compaction entry visible", () => {
     const before = { role: "user", content: "圧縮前" };
     const beforeAnswer = {
