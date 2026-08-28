@@ -58,14 +58,12 @@ export function SettingsView() {
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
-    void Promise.allSettled([
-      getJson<HealthDto>("/api/health"),
-      getJson<{ providers: ProviderAuthDto[] }>("/api/providers"),
-    ]).then(([healthRes, providerRes]) => {
-      if (healthRes.status === "fulfilled") setHealth(healthRes.value);
-      else setError("ヘルスの取得に失敗しました");
-      if (providerRes.status === "fulfilled") setProviders(providerRes.value.providers);
-    });
+    void getJson<HealthDto>("/api/health")
+      .then(setHealth)
+      .catch(() => setError("ヘルスの取得に失敗しました"));
+    void getJson<{ providers: ProviderAuthDto[] }>("/api/providers")
+      .then((result) => setProviders(result.providers))
+      .catch(() => undefined);
   }, []);
 
   const onProviderChanged = useCallback(() => {

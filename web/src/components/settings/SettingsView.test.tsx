@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsView } from "./SettingsView";
 
@@ -16,7 +16,12 @@ vi.mock("@/components/settings/ProviderModelsPanel", () => ({
   ProviderModelsPanel: () => <h2>モデル</h2>,
 }));
 vi.mock("@/components/settings/ProviderAuthPanel", () => ({
-  ProviderAuthPanel: () => <h2>プロバイダー</h2>,
+  ProviderAuthPanel: ({ providers }: { providers: unknown[] }) => (
+    <>
+      <h2>プロバイダー</h2>
+      <span data-testid="provider-count">{providers.length}</span>
+    </>
+  ),
 }));
 vi.mock("@/components/settings/GenerationModelSettings", () => ({
   GenerationModelSettings: () => <h2>生成モデル</h2>,
@@ -89,6 +94,22 @@ describe("SettingsView", () => {
       "生成モデル",
       "プロバイダー",
     ]);
+  });
+
+  it("ヘルス取得が遅くてもプロバイダー一覧を先に反映する", async () => {
+    const health = new Promise<never>(() => {});
+    getJson.mockImplementation((path: string) =>
+      path === "/api/health"
+        ? health
+        : Promise.resolve({ providers: [{ id: "anthropic" }] }),
+    );
+
+    render(<SettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: /^モデル$/ }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("provider-count").textContent).toBe("1");
+    });
   });
 
   it("一般タブをカテゴリごとに切り替え、選択したカテゴリをハッシュに反映する", () => {
