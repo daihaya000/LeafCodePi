@@ -252,6 +252,10 @@ export function getTaskHangWatch(taskId: string): TaskHangWatchRow | null {
   return memoryWatches.get(taskId.trim()) ?? null;
 }
 
+function isCurrentWatch(row: TaskHangWatchRow): boolean {
+  return memoryWatches.get(row.taskId) === row;
+}
+
 function markResolving(taskId: string): boolean {
   const row = memoryWatches.get(taskId);
   if (!row || row.state === "resolving") return false;
@@ -300,8 +304,17 @@ async function resolveHang(row: TaskHangWatchRow): Promise<void> {
   }
 
   if (!(await waitForIdle(row.taskId))) {
-    markArmed(row.taskId);
-    logWatchdog("still busy after abort — will retry on a later tick", row);
+    if (isCurrentWatch(row)) {
+      markArmed(row.taskId);
+      logWatchdog("still busy after abort — will retry on a later tick", row);
+    }
+    return;
+  }
+
+  // A manual stop or a newer prompt can replace this watch while abort is
+  // settling. Never revive a request that is no longer the current watch.
+  if (!isCurrentWatch(row)) {
+    logWatchdog("watch was cancelled while aborting — not resuming", row);
     return;
   }
 

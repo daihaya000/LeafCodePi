@@ -3,6 +3,7 @@ import {
   findResumableTurn,
   isAbortedAssistantMessage,
   MESSAGE_ABORTED_ERROR,
+  shouldAutoResumeSilentTurn,
 } from "./aborted-resume";
 import type { UiMessage } from "./types";
 
@@ -38,6 +39,40 @@ function emptyAssistant(id: string): UiMessage {
   return { id, role: "assistant", createdAt: 2, parts: [] };
 }
 
+function completedToolAssistant(id: string): UiMessage {
+  return {
+    id,
+    role: "assistant",
+    createdAt: 2,
+    parts: [
+      {
+        id: `${id}-tool`,
+        type: "tool",
+        tool: "powershell",
+        callID: `${id}-call`,
+        state: { status: "completed", output: "ok" },
+      },
+    ],
+  };
+}
+
+function assertAutoResume(
+  target: ReturnType<typeof findResumableTurn>,
+  sessionHydrating: boolean,
+  expected: boolean,
+): void {
+  expect(
+    shouldAutoResumeSilentTurn({
+      target,
+      showResume: true,
+      sessionHydrating,
+      taskStatus: "idle",
+      resumingTurn: false,
+      currentPromptIsHangRetry: false,
+    }),
+  ).toBe(expected);
+}
+
 describe("isAbortedAssistantMessage", () => {
   it("detects MessageAbortedError and abort-like strings", () => {
     expect(isAbortedAssistantMessage(abortedAssistant("a1"))).toBe(true);
@@ -52,6 +87,12 @@ describe("isAbortedAssistantMessage", () => {
 });
 
 describe("findResumableTurn", () => {
+  it("does not auto-resume cached state before server hydration", () => {
+    const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")]);
+    assertAutoResume(target, true, false);
+    assertAutoResume(target, false, true);
+  });
+
   it("returns silent resume for empty assistant turn", () => {
     expect(findResumableTurn([userMessage("u1"), emptyAssistant("a1")])).toEqual({
       reason: "silent",
@@ -73,6 +114,10 @@ describe("findResumableTurn", () => {
         },
       ]),
     ).toMatchObject({ reason: "silent", messageId: "a1" });
+  });
+
+  it("does not resume after a completed tool-only turn", () => {
+    expect(findResumableTurn([userMessage("u1"), completedToolAssistant("a1")])).toBeNull();
   });
 
   it("returns aborted resume from manual abort id", () => {

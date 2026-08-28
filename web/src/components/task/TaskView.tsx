@@ -71,6 +71,7 @@ import {
 } from "@/lib/task-session-cache";
 import {
   findResumableTurn,
+  shouldAutoResumeSilentTurn,
   type ResumableTurn,
 } from "@/lib/aborted-resume";
 import { isHangRetryUserMessage } from "@/lib/hang-retry";
@@ -523,7 +524,9 @@ export function TaskView({
     setResumeTurnError(null);
     setPermissionRequest(null);
     setPermissionBusy(false);
-    setSessionHydrating(false);
+    // Do not evaluate cached messages as authoritative until the SSE ready
+    // snapshot replaces them with the server session state.
+    setSessionHydrating(true);
     setSseReconnecting(false);
 
     const connect = () => {
@@ -557,8 +560,8 @@ export function TaskView({
         }
         const snapshotTask = payload.task;
         const isBootstrap = payload.eventType === "bootstrap";
-        setSessionHydrating(isBootstrap);
         startTransition(() => {
+          setSessionHydrating(isBootstrap);
           if (snapshotTask) {
             setAgent(snapshotTask.agent?.trim() || DEFAULT_AGENT);
             setTask((current) => {
@@ -805,6 +808,9 @@ export function TaskView({
   }, []);
 
   useLayoutEffect(() => {
+    // A reused pane must not evaluate the previous task's messages as a
+    // resumable turn while its first server snapshot is still pending.
+    setSessionHydrating(true);
     stickRef.current = true;
     lastScrollTopRef.current = 0;
     setIsReverted(false);
@@ -1304,23 +1310,24 @@ export function TaskView({
   const showResume =
     !!resumeTarget &&
     !!task &&
+    !sessionHydrating &&
     !working &&
     !goalLoopLive;
+  const autoResumeSilentTurn = shouldAutoResumeSilentTurn({
+    target: resumeTarget,
+    showResume,
+    sessionHydrating,
+    taskStatus: task?.status,
+    resumingTurn,
+    currentPromptIsHangRetry,
+  });
   useEffect(() => {
-    if (
-      !showResume ||
-      resumeTarget?.reason !== "silent" ||
-      task?.status !== "idle" ||
-      resumingTurn ||
-      currentPromptIsHangRetry
-    ) {
-      return;
-    }
+    if (!autoResumeSilentTurn || !resumeTarget) return;
     const key = `${taskId}:${resumeTarget.messageId}`;
     if (autoResumeKeyRef.current === key) return;
     autoResumeKeyRef.current = key;
     void resumeTurn(resumeTarget);
-  }, [currentPromptIsHangRetry, resumeTarget, resumeTurn, resumingTurn, showResume, task?.status, taskId]);
+  }, [autoResumeSilentTurn, currentPromptIsHangRetry, resumeTarget, resumeTurn, resumingTurn, showResume, task?.status, taskId]);
   const resumeMessage = resumeTarget
     ? visibleMessages.find((message) => message.id === resumeTarget.messageId)
     : undefined;

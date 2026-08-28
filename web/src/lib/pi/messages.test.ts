@@ -163,6 +163,22 @@ describe("projectPiMessages", () => {
     });
   });
 
+  it("does not classify an error without errorMessage as a silent turn", () => {
+    const messages = projectPiMessages([
+      { role: "user", id: "u1", timestamp: 1, content: "作業" },
+      {
+        role: "assistant",
+        id: "a1",
+        timestamp: 2,
+        stopReason: "error",
+        content: [],
+      },
+    ]);
+
+    expect(messages[1]?.error).toBe("生成が失敗しました");
+    expect(findResumableTurn(messages)).toBeNull();
+  });
+
   it("projects provider diagnostics without stacks or arbitrary details", () => {
     const messages = projectPiMessages([
       {

@@ -34,6 +34,24 @@ export type FindResumableTurnOptions = {
   manualAbortedAssistantId?: string | null;
 };
 
+export function shouldAutoResumeSilentTurn(input: {
+  target: ResumableTurn | null;
+  showResume: boolean;
+  sessionHydrating: boolean;
+  taskStatus?: string;
+  resumingTurn: boolean;
+  currentPromptIsHangRetry: boolean;
+}): boolean {
+  return Boolean(
+    input.showResume &&
+      !input.sessionHydrating &&
+      input.target?.reason === "silent" &&
+      input.taskStatus === "idle" &&
+      !input.resumingTurn &&
+      !input.currentPromptIsHangRetry,
+  );
+}
+
 const ABORT_ERROR_PATTERN =
   /abort|cancelled|canceled|messageabortederror/i;
 
@@ -49,9 +67,12 @@ export function isAbortedAssistantMessage(message: UiMessage): boolean {
 function hasTurnOutput(message: UiMessage): boolean {
   if (message.role !== "assistant") return false;
   if (message.error) return true;
-  return message.parts.some(
-    (part) => part.type === "text" && part.text.trim() !== "",
-  );
+  return message.parts.some((part) => {
+    if (part.type === "text") return part.text.trim() !== "";
+    return part.type === "tool" &&
+      part.state.status !== "pending" &&
+      part.state.status !== "running";
+  });
 }
 
 /** まだ動いているツールがある（idle 誤報の隙間）。 */

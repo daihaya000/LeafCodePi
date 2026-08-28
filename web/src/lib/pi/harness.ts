@@ -79,6 +79,7 @@ import {
 import { buildAgentResourceOptions, loadAgentDefinition } from "@/lib/agents";
 import {
   armTaskHangWatch,
+  disarmTaskHangWatch,
   registerHangWatchdogHooks,
   startHangWatchdog,
 } from "@/lib/pi/hang-watchdog";
@@ -1508,6 +1509,7 @@ async function attachSession(
 
 /** live セッションを破棄し、保持していたアカウントランタイムの参照を解放する。 */
 function disposeLive(taskId: string): void {
+  disarmTaskHangWatch(taskId);
   const live = state().live.get(taskId);
   if (!live) return;
   live.unsubscribe();
@@ -3980,6 +3982,9 @@ async function stopSubagentRunsForTask(
 }
 
 export async function abortTask(id: string): Promise<TaskSummary> {
+  // An explicit stop is terminal for the current request; do not leave the
+  // persisted watchdog armed to wake it up later.
+  disarmTaskHangWatch(id);
   const live = state().live.get(id);
   if (live) {
     const msgs = snapshotMessages(

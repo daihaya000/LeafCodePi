@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import { getTask, insertTask, upsertProject } from "@/lib/store";
-import { setTaskAgent } from "./harness";
+import {
+  armTaskHangWatch,
+  getTaskHangWatch,
+  stopHangWatchdogForTests,
+} from "./hang-watchdog";
+import { abortTask, setTaskAgent } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const previousHarness = (globalThis as Record<string, unknown>)[GLOBAL_KEY];
@@ -14,6 +19,7 @@ const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
 const tempDirs: string[] = [];
 
 afterEach(() => {
+  stopHangWatchdogForTests();
   if (previousHarness === undefined) delete (globalThis as Record<string, unknown>)[GLOBAL_KEY];
   else (globalThis as Record<string, unknown>)[GLOBAL_KEY] = previousHarness;
   if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
@@ -62,6 +68,7 @@ function fixture() {
 describe("setTaskAgent", () => {
   it("persists the selected persona and disposes the idle session for restart", async () => {
     const state = fixture();
+    armTaskHangWatch({ taskId: state.task.id, prompt: "作業" });
 
     const updated = await setTaskAgent(state.task.id, "reviewer");
 
@@ -70,5 +77,64 @@ describe("setTaskAgent", () => {
     assert.equal(state.live.has(state.task.id), false);
     assert.equal(state.disposed, true);
     assert.equal(state.unsubscribed, true);
+    assert.equal(getTaskHangWatch(state.task.id), null);
+  });
+});
+
+describe("abortTask", () => {
+  it("disarms hang retry after an explicit user stop", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-abort-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "demo", rootPath: root });
+    const task = insertTask({ project, title: "abort task" });
+    let abortCount = 0;
+    const session = {
+      messages: [{ role: "user", content: "作業", timestamp: 1 }],
+      agent: { state: { streamingMessage: undefined } },
+      isStreaming: true,
+      sessionManager: {
+        getLeafId: () => null,
+        getBranch: () => [],
+        getCwd: () => root,
+      },
+      extensionRunner: { getCommand: () => undefined },
+      abort: async () => {
+        abortCount += 1;
+      },
+    };
+    const live = new Map([[task.id, {
+      accountId: null,
+      session,
+      skillPermission: "allow",
+      skillPermissionRef: { current: "allow" },
+      unsubscribe: () => {},
+      promptChain: Promise.resolve(),
+      promptActive: true,
+      throughputByStartedAt: new Map(),
+      persistedThroughputKeys: new Set(),
+      toolStartedAt: new Map(),
+      toolEndedAt: new Map(),
+      toolPartialOutputByCallId: new Map(),
+      snapshotTimer: null,
+      pendingSnapshotEventType: null,
+      revertLeafId: null,
+      manualAbortedAssistantId: null,
+      hangRetryCount: 0,
+      reasoningFallbackTried: false,
+    }]]);
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      live,
+      events: new EventEmitter(),
+    };
+
+    armTaskHangWatch({ taskId: task.id, prompt: "作業" });
+    assert.ok(getTaskHangWatch(task.id));
+
+    await abortTask(task.id);
+
+    assert.equal(abortCount, 1);
+    assert.equal(getTaskHangWatch(task.id), null);
+    assert.equal(getTask(task.id)?.status, "idle");
   });
 });

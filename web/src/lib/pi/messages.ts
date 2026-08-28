@@ -258,6 +258,14 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
           ? Math.round(item.usage.output)
           : undefined;
       const errorMessage = asString(item.errorMessage);
+      const stopReason = asString(item.stopReason);
+      const error =
+        errorMessage ||
+        (stopReason === "aborted"
+          ? "Aborted"
+          : stopReason === "error"
+            ? "生成が失敗しました"
+            : undefined);
       const diagnostics = diagnosticsFromRaw(item.diagnostics);
       messages.push({
         id,
@@ -269,7 +277,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
         // Pi intentionally omits errorMessage for user aborts. Keep the
         // stopReason as a stable marker so resume remains available after a
         // session reload, not only immediately after clicking Stop.
-        error: errorMessage || (asString(item.stopReason) === "aborted" ? "Aborted" : undefined),
+        ...(error ? { error } : {}),
         ...(diagnostics.length > 0 ? { diagnostics } : {}),
         ...(usageOutput !== undefined ? { outputTokens: usageOutput } : {}),
       });
