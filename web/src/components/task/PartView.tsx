@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Search,
   Terminal,
+  UserRound,
   Wrench,
 } from "lucide-react";
 import { ProviderIcon } from "@/components/ProviderIcon";
@@ -620,12 +621,15 @@ function MessageMetaHeader({
   modelLabel,
   effort,
   agent,
+  accountLabel,
 }: {
   message: UiMessage;
   modelLabel?: string;
   effort?: string;
   /** 本家同様、担当エージェント名をバッジ表示（セッションのメインペルソナ）。 */
   agent?: string;
+  /** タスクに紐づく利用アカウントの表示名。 */
+  accountLabel?: string;
 }) {
   const model = modelLabel?.trim() || message.model?.trim() || "";
   const tokens =
@@ -646,6 +650,7 @@ function MessageMetaHeader({
     model ? { key: "model", text: model } : null,
     effort?.trim() ? { key: "effort", text: effort.trim() } : null,
     agent?.trim() ? { key: "agent", text: agent.trim() } : null,
+    accountLabel?.trim() ? { key: "account", text: accountLabel.trim() } : null,
     { key: "time", text: formatMessageTime(message.createdAt) },
     tokens ? { key: "tokens", text: tokens } : null,
     rate ? { key: "rate", text: rate } : null,
@@ -664,7 +669,9 @@ function MessageMetaHeader({
           {index > 0 && <span aria-hidden="true">·</span>}
           <span
             className={cx(
-              field.key === "model" ? "min-w-0 max-w-64 truncate" : "shrink-0",
+              field.key === "model" || field.key === "account"
+                ? "min-w-0 max-w-64 truncate"
+                : "shrink-0",
               field.key === "rate" && "tabular-nums",
             )}
             title={
@@ -679,6 +686,9 @@ function MessageMetaHeader({
                       : undefined
             }
           >
+            {field.key === "account" && (
+              <UserRound className="mr-0.5 inline h-3 w-3 align-[-1px]" aria-hidden />
+            )}
             {field.text}
           </span>
         </Fragment>
@@ -890,6 +900,7 @@ export const PartView = memo(
     modelLabel,
     effort,
     agent,
+    accountLabel,
     taskId,
     nested = false,
     onRevert,
@@ -899,6 +910,7 @@ export const PartView = memo(
     modelLabel?: string;
     effort?: string;
     agent?: string;
+    accountLabel?: string;
     /** サブエージェント入れ子パネルの取得に使う（トップレベルのみ）。 */
     taskId?: string;
     /** 入れ子タイムライン内での描画（さらに入れ子にはしない）。 */
@@ -921,7 +933,13 @@ export const PartView = memo(
               <span className="text-[10px] text-faint">{formatMessageTime(message.createdAt)}</span>
             )
           ) : (
-            <MessageMetaHeader message={message} modelLabel={modelLabel} effort={effort} agent={agent} />
+            <MessageMetaHeader
+              message={message}
+              modelLabel={modelLabel}
+              effort={effort}
+              agent={agent}
+              accountLabel={accountLabel}
+            />
           )}
         </div>
         {message.parts.map((part) => {
@@ -981,6 +999,7 @@ export const PartView = memo(
     prev.modelLabel === next.modelLabel &&
     prev.effort === next.effort &&
     prev.agent === next.agent &&
+    prev.accountLabel === next.accountLabel &&
     prev.taskId === next.taskId &&
     prev.nested === next.nested &&
     prev.onRevert === next.onRevert,

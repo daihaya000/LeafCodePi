@@ -82,6 +82,23 @@ describe("PartView shell log", () => {
   });
 });
 
+describe("PartView response metadata", () => {
+  afterEach(() => cleanup());
+
+  it("shows the account label beside the agent", () => {
+    render(
+      <PartView
+        message={{ id: "assistant-meta", role: "assistant", createdAt: 1, parts: [] }}
+        agent="build"
+        accountLabel="仕事用"
+      />,
+    );
+
+    expect(screen.getByText("build")).toBeTruthy();
+    expect(screen.getByText("仕事用")).toBeTruthy();
+  });
+});
+
 describe("PartView memo", () => {
   afterEach(() => cleanup());
 

@@ -4,17 +4,8 @@ import { useEffect, useState } from "react";
 import { UserRound } from "lucide-react";
 import { getJson } from "@/lib/client";
 
-/**
- * タスクヘッダー用の利用アカウント表示（docs/plans/multi-account.md）。
- * accountId 未設定 = 既定のため何も表示しない。一覧取得に失敗した場合は ID をそのまま出す。
- */
-export function TaskAccountBadge({
-  accountId,
-  className,
-}: {
-  accountId?: string | null;
-  className?: string;
-}) {
+/** アカウントIDから表示用ラベルを取得する。未設定は既定アカウントとして null を返す。 */
+export function useTaskAccountLabel(accountId?: string | null): string | null {
   const [label, setLabel] = useState<string | null>(null);
 
   useEffect(() => {
@@ -34,6 +25,18 @@ export function TaskAccountBadge({
     };
   }, [accountId]);
 
+  return label;
+}
+
+/** タスクに紐づく利用アカウント表示（docs/plans/multi-account.md）。 */
+export function TaskAccountBadge({
+  accountId,
+  className,
+}: {
+  accountId?: string | null;
+  className?: string;
+}) {
+  const label = useTaskAccountLabel(accountId);
   if (!accountId || !label) return null;
   return (
     <span className={className}>
