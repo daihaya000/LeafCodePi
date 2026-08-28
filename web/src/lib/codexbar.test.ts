@@ -578,6 +578,7 @@ describe("usageTone", () => {
     ).toBe("ok");
     expect(usageTone({ usedPercent: 10, limited: true, maxed: false, error: null, windows: [], credits: null })).toBe("danger");
     expect(usageTone({ usedPercent: 80, limited: false, maxed: false, error: null, windows: [], credits: null })).toBe("warn");
+    expect(usageTone({ usedPercent: 100, limited: false, maxed: false, error: null, windows: [], credits: null })).toBe("danger");
     expect(usageTone({ usedPercent: 20, limited: false, maxed: false, error: null, windows: [], credits: null })).toBe("ok");
     expect(usageTone({ usedPercent: null, limited: false, maxed: false, error: null, windows: [], credits: null })).toBe("ok");
   });

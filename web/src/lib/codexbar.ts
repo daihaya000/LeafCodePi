@@ -561,6 +561,7 @@ export function usageTone(
   if (p.error && !hasLastGoodUsage(p)) return "danger";
   if (p.maxed || p.limited) return "danger";
   const u = p.usedPercent ?? 0;
+  if (u >= 90) return "danger";
   if (u >= 75) return "warn";
   return "ok";
 }
