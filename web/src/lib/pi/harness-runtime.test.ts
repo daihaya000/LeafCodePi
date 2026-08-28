@@ -240,6 +240,52 @@ describe("getRuntimeFor", () => {
     assert.equal(creations, 0);
   });
 
+  it("uses the combined model cache for health without rereading runtime models", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-health-cache-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    let availableReads = 0;
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      pi: null,
+      modelRuntime: {
+        getAvailable: async () => {
+          availableReads += 1;
+          return [];
+        },
+      },
+      accountRuntimes: null,
+      initError: null,
+      initPromise: null,
+      live: new Map(),
+      healthCache: null,
+      modelCache: null,
+      modelInflight: null,
+      accountModelCache: {
+        key: "[]",
+        at: Date.now(),
+        value: [
+          {
+            value: "openai/gpt-5",
+            label: "GPT-5",
+            providerID: "openai",
+            modelID: "gpt-5",
+            input: ["text"],
+            reasoning: false,
+            thinkingLevels: [],
+          },
+        ],
+      },
+      accountModelInflight: null,
+      watchdogRegistered: true,
+      lastProviderSyncWarnings: [],
+    };
+
+    const health = await getHealth();
+
+    assert.equal(health.modelCount, 1);
+    assert.equal(availableReads, 0);
+  });
+
   it("hides default subscription models while keeping account models", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-models-"));
     tempDirs.push(dir);

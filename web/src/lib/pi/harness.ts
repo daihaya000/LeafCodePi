@@ -2118,15 +2118,17 @@ export async function getHealth(): Promise<HealthDto> {
   }
   const current = state();
   const accounts = listAccounts();
-  const sharedModels = (await getRuntimeFor())
-    ? (await listModels().catch(() => [])).filter(
-        (model) => !runsThroughAccounts(model.providerID),
-      )
-    : [];
   const accountSnapshot =
     current.accountModelCache?.key === accountModelsKey(accounts)
       ? current.accountModelCache.value
       : null;
+  const sharedModels = accountSnapshot
+    ? []
+    : (await getRuntimeFor())
+      ? (await listModels().catch(() => [])).filter(
+          (model) => !runsThroughAccounts(model.providerID),
+        )
+      : [];
   // ponytail: cold health reads auth files instead of constructing every account runtime;
   // /api/models replaces the count with an exact combined snapshot.
   const accountReady = accountSnapshot
