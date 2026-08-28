@@ -88,6 +88,39 @@ describe("ProviderModelsPanel account model settings", () => {
     expect(screen.queryByText("アカウント: 個人用")).toBeNull();
   });
 
+  it("refreshes the catalog without losing expanded state", async () => {
+    const { rerender } = render(<ProviderModelsPanel refreshToken={0} />);
+    await screen.findByRole("button", {
+      name: "OpenAI Codex · 仕事用 のモデルを展開",
+    });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "OpenAI Codex · 仕事用 のモデルを展開",
+      }),
+    );
+    expect(
+      screen.getByRole("switch", {
+        name: "OpenAI Codex · 仕事用 の GPT-5 を無効化",
+      }),
+    ).toBeTruthy();
+
+    rerender(<ProviderModelsPanel refreshToken={1} />);
+
+    await waitFor(() => {
+      const catalogCalls = fetchMock.mock.calls.filter(
+        ([input, init]) =>
+          String(input).endsWith("/api/provider-models") &&
+          (init?.method ?? "GET").toUpperCase() === "GET",
+      );
+      expect(catalogCalls).toHaveLength(2);
+    });
+    expect(
+      screen.getByRole("switch", {
+        name: "OpenAI Codex · 仕事用 の GPT-5 を無効化",
+      }),
+    ).toBeTruthy();
+  });
+
   it("updates only the selected account model", async () => {
     render(<ProviderModelsPanel />);
     await screen.findByRole("heading", { name: "モデル" });

@@ -204,7 +204,11 @@ function ProviderRow({
   );
 }
 
-export function ProviderModelsPanel() {
+export function ProviderModelsPanel({
+  refreshToken = 0,
+}: {
+  refreshToken?: number;
+}) {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [providers, setProviders] = useState<ProviderModelsRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -242,7 +246,7 @@ export function ProviderModelsPanel() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshToken]);
 
   const toggle = useCallback(
     async (provider: ProviderModelsRow, modelId: string | undefined, enabled: boolean) => {

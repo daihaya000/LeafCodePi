@@ -159,7 +159,7 @@ export function SettingsView() {
           {tab === "models" && (
             <section className="space-y-4">
               <div className="rounded-2xl border border-border bg-surface p-4">
-                <ProviderModelsPanel key={`provider-models-${modelsRevision}`} />
+                <ProviderModelsPanel refreshToken={modelsRevision} />
               </div>
               <GenerationModelSettings key={`generation-model-${modelsRevision}`} />
               <div className="rounded-2xl border border-border bg-surface p-4">
