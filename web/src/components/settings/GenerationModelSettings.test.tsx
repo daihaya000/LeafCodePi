@@ -88,6 +88,22 @@ describe("GenerationModelSettings", () => {
     await waitFor(() => expect(modelSelect.disabled).toBe(false));
   });
 
+  it("refreshes models without resetting the selected model", async () => {
+    const { rerender } = render(<GenerationModelSettings refreshToken={0} />);
+    const modelSelect = await screen.findByRole("button", { name: "生成モデル" });
+    fireEvent.click(modelSelect);
+    fireEvent.click(screen.getByRole("option", { name: "Claude Sonnet" }));
+    expect(modelSelect.textContent).toContain("Claude Sonnet");
+    const initialRequestCount = mocks.getJson.mock.calls.length;
+
+    rerender(<GenerationModelSettings refreshToken={1} />);
+
+    await waitFor(() => {
+      expect(mocks.getJson).toHaveBeenCalledTimes(initialRequestCount + 1);
+    });
+    expect(modelSelect.textContent).toContain("Claude Sonnet");
+  });
+
   it("restores and persists the selected generation effort", async () => {
     render(<GenerationModelSettings />);
 

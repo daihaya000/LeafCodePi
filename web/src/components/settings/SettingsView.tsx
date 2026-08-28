@@ -161,7 +161,7 @@ export function SettingsView() {
               <div className="rounded-2xl border border-border bg-surface p-4">
                 <ProviderModelsPanel refreshToken={modelsRevision} />
               </div>
-              <GenerationModelSettings key={`generation-model-${modelsRevision}`} />
+              <GenerationModelSettings refreshToken={modelsRevision} />
               <div className="rounded-2xl border border-border bg-surface p-4">
                 <ProviderAuthPanel providers={providers} onChanged={onProviderChanged} />
               </div>

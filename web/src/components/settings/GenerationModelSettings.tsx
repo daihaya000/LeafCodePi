@@ -63,7 +63,11 @@ function GenerationEffortSelect({
   );
 }
 
-export const GenerationModelSettings = memo(function GenerationModelSettings() {
+export const GenerationModelSettings = memo(function GenerationModelSettings({
+  refreshToken = 0,
+}: {
+  refreshToken?: number;
+}) {
   const [models, setModels] = useState<ModelOption[]>([]);
   const [value, setValue] = useState(() => readGenerationModel() ?? "");
   const [effort, setEffort] = useState(() => readGenerationModelEffort() ?? "");
@@ -81,9 +85,13 @@ export const GenerationModelSettings = memo(function GenerationModelSettings() {
     fallbackValue: false,
     fallbackEffort: false,
   });
+  const valueRef = useRef(value);
+  const fallbackValueRef = useRef(fallbackValue);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setError(null);
     const modelRequest = getJson<{ models: ModelOption[] }>("/api/models");
     void modelRequest
       .then((result) => {
@@ -121,10 +129,17 @@ export const GenerationModelSettings = memo(function GenerationModelSettings() {
           modelOptionForValue(nextModels, serverFallbackValue)?.value ??
           modelOptionForValue(nextModels, localFallbackValue)?.value ??
           "";
+        const preserveValue =
+          changedRef.current.value &&
+          (valueRef.current === "" || modelOptionForValue(nextModels, valueRef.current) !== undefined);
+        const preserveFallbackValue =
+          changedRef.current.fallbackValue &&
+          (fallbackValueRef.current === "" || modelOptionForValue(nextModels, fallbackValueRef.current) !== undefined);
         const serverFallbackEffort = fallbackEffortResult.status === "fulfilled" ? fallbackEffortResult.value : null;
         const localFallbackEffort = readGenerationFallbackModelEffort();
         const nextFallbackEffort = serverFallbackEffort ?? localFallbackEffort ?? "";
-        if (!changedRef.current.value) {
+        if (!preserveValue) {
+          valueRef.current = nextValue;
           setValue(nextValue);
           writeGenerationModel(nextValue || null);
         }
@@ -132,7 +147,8 @@ export const GenerationModelSettings = memo(function GenerationModelSettings() {
           setEffort(nextEffort);
           writeGenerationModelEffort(nextEffort || null);
         }
-        if (!changedRef.current.fallbackValue) {
+        if (!preserveFallbackValue) {
+          fallbackValueRef.current = nextFallbackValue;
           setFallbackValue(nextFallbackValue);
           writeGenerationFallbackModel(nextFallbackValue || null);
         }
@@ -141,7 +157,7 @@ export const GenerationModelSettings = memo(function GenerationModelSettings() {
           writeGenerationFallbackModelEffort(nextFallbackEffort || null);
         }
         if (
-          !changedRef.current.value &&
+          !preserveValue &&
           serverValue &&
           nextValue &&
           serverValue !== nextValue &&
@@ -152,7 +168,7 @@ export const GenerationModelSettings = memo(function GenerationModelSettings() {
           });
         }
         if (
-          !changedRef.current.fallbackValue &&
+          !preserveFallbackValue &&
           serverFallbackValue &&
           nextFallbackValue &&
           serverFallbackValue !== nextFallbackValue &&
@@ -171,7 +187,7 @@ export const GenerationModelSettings = memo(function GenerationModelSettings() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshToken]);
 
   const selected = useMemo(() => modelOptionForValue(models, value), [models, value]);
   const fallbackSelected = useMemo(
@@ -199,6 +215,7 @@ export const GenerationModelSettings = memo(function GenerationModelSettings() {
 
   function change(next: string) {
     changedRef.current.value = true;
+    valueRef.current = next;
     setValue(next);
     writeGenerationModel(next || null);
     void writeGenerationModelToServer(next || null).catch(() => {
@@ -217,6 +234,7 @@ export const GenerationModelSettings = memo(function GenerationModelSettings() {
 
   function changeFallback(next: string) {
     changedRef.current.fallbackValue = true;
+    fallbackValueRef.current = next;
     setFallbackValue(next);
     writeGenerationFallbackModel(next || null);
     void writeGenerationFallbackModelToServer(next || null).catch(() => {
