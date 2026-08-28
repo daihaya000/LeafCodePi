@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import SysTrayImport from "systray2";
-import { bindHost, dataDir, DEFAULT_HOST_CONTROL_PORT, DEFAULT_LLAMA_SERVER_PORT, DEFAULT_WEBUI_PORT, isHeadless, isTailscaleCgnatIPv4, readPort, saveBind, shouldOpenBrowser as envAllowsBrowser, webUiUrl } from "./config.js";
+import { bindHost, dataDir, DEFAULT_HOST_CONTROL_PORT, DEFAULT_LLAMA_SERVER_PORT, DEFAULT_WEBUI_PORT, isHeadless, readPort, shouldOpenBrowser as envAllowsBrowser, webUiUrl } from "./config.js";
 import { readBrowserConfig, writeBrowserConfig } from "./browser-config.js";
 import { isThisModuleEntrypoint } from "./entry.js";
 import { createLlamaControlServer, closeControlServer, listenControlServer } from "./llama-control-server.js";
@@ -70,13 +70,10 @@ const HOST_VERSION = (() => {
   }
 })();
 
-const WEBUI_HOST = bindHost();
-// Tailscale アドレスでバインドできたときだけ保存し、次回 Tailscale 未起動でも
-// 同じ origin で起動できるようにする（localStorage の設定消失防止）。
-if (isTailscaleCgnatIPv4(WEBUI_HOST)) saveBind(DATA_DIR, WEBUI_HOST);
+let WEBUI_HOST = bindHost();
 const WEBUI_PORT = readPort(process.env.LEAFCODE_PI_PORT, DEFAULT_WEBUI_PORT);
-const WEBUI_URL = webUiUrl(WEBUI_HOST, WEBUI_PORT);
-const WEBUI_AUTH = ensureWebUiAuth(process.env, WEBUI_HOST, DATA_DIR);
+let WEBUI_URL = webUiUrl(WEBUI_HOST, WEBUI_PORT);
+let WEBUI_AUTH = ensureWebUiAuth(process.env, WEBUI_HOST, DATA_DIR);
 const CONTROL_PORT = readPort(process.env.LEAFCODE_PI_HOST_CONTROL_PORT, DEFAULT_HOST_CONTROL_PORT);
 const LLAMA_SERVER_PORT = readPort(process.env.LEAFCODE_PI_LLAMA_PORT, DEFAULT_LLAMA_SERVER_PORT);
 const CONTROL_FILE = join(DATA_DIR, "host-control.json");
@@ -136,6 +133,17 @@ const statusWebItem = {
   tooltip: WEBUI_URL,
   enabled: false,
 };
+
+function refreshWebUiBinding() {
+  const nextHost = bindHost();
+  if (nextHost === WEBUI_HOST) return;
+  const previousHost = WEBUI_HOST;
+  WEBUI_HOST = nextHost;
+  WEBUI_URL = webUiUrl(WEBUI_HOST, WEBUI_PORT);
+  WEBUI_AUTH = ensureWebUiAuth(process.env, WEBUI_HOST, DATA_DIR);
+  statusWebItem.tooltip = WEBUI_URL;
+  log(`WebUI bind address changed from ${previousHost} to ${WEBUI_HOST}`);
+}
 
 function log(text) {
   const line = formatLogLine({ ts: Date.now(), source: "host", level: "log", text });
@@ -346,12 +354,16 @@ async function spawnWeb() {
       useProd = false;
     }
   }
+  // Tailscale can disappear or change while a production build is running.
+  // Resolve the automatic bind again immediately before launching Next.js.
+  refreshWebUiBinding();
   // Production serves the mirrored project; dev keeps running from the repo.
   const projectDir = useProd ? WEB_MIRROR_DIR : WEB_DIR;
   const args = useProd
     ? [nextBin(projectDir), "start", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)]
     : [nextBin(projectDir), "dev", "--hostname", WEBUI_HOST, "--port", String(WEBUI_PORT)];
-  const webUiAuth = ensureWebUiAuth(process.env, WEBUI_HOST, DATA_DIR);
+  WEBUI_AUTH = ensureWebUiAuth(process.env, WEBUI_HOST, DATA_DIR);
+  const webUiAuth = WEBUI_AUTH;
   log(`Starting LeafCodePi (${useProd ? "production" : "dev"}) on ${WEBUI_URL}`);
   const child = runNodeScript(args, {
     cwd: projectDir,

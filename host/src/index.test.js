@@ -43,6 +43,16 @@ test("bindHost resolves tailscale or falls back to loopback", () => {
   assert.equal(bindHost({ LEAFCODE_PI_HOST: "192.168.1.10" }), "192.168.1.10");
 });
 
+test("bindHost does not reuse a stale Tailscale address", () => {
+  assert.equal(
+    bindHost(
+      { LEAFCODE_PI_HOST: "tailscale" },
+      { findTailscale: () => null, readSavedBind: () => "100.64.1.2" },
+    ),
+    "127.0.0.1",
+  );
+});
+
 test("isTailscaleCgnatIPv4 and findTailscaleIPv4", () => {
   assert.equal(isTailscaleCgnatIPv4("100.64.0.1"), true);
   assert.equal(isTailscaleCgnatIPv4("100.127.255.255"), true);
