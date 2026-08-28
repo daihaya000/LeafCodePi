@@ -89,7 +89,12 @@ import {
   decideNotification,
   notificationText,
 } from "@/lib/notify";
-import { defaultThinkingLevel, isThinkingLevel, thinkingLevelLabel } from "@/lib/thinking-levels";
+import {
+  isThinkingLevel,
+  resolveThinkingLevel,
+  thinkingLevelLabel,
+  writeStoredThinkingLevel,
+} from "@/lib/thinking-levels";
 import {
   readSubagentPermission,
   writeSubagentPermission,
@@ -316,6 +321,7 @@ export function TaskView({
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
   const [models, setModels] = useState<ModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
   const [contextUsage, setContextUsage] = useState<ContextUsageDto | undefined>(
     () => cachedSession?.contextUsage,
   );
@@ -698,8 +704,12 @@ export function TaskView({
     connect();
 
     void getJson<{ models: ModelOption[] }>("/api/models").then((result) => {
-      if (!closed) setModels(result.models);
+      if (!closed) {
+        setModels(result.models);
+        setModelsLoading(false);
+      }
     }).catch(() => {
+      if (!closed) setModelsLoading(false);
       /* models are optional for the timeline */
     });
     void getJson<{ agents: { name: string; description?: string; enabled: boolean }[] }>("/api/agents").then((result) => {
@@ -1184,12 +1194,10 @@ export function TaskView({
   const modelValue = accountTaskModel?.value ?? (plainTaskModelValue || models[0]?.value || "");
   const selectedModel = models.find((option) => option.value === modelValue);
   const thinkingLevels = useMemo(
-    () => selectedModel?.thinkingLevels ?? (["off"] as ThinkingLevel[]),
+    () => selectedModel?.thinkingLevels ?? [],
     [selectedModel],
   );
-  const thinkingValue: ThinkingLevel = isThinkingLevel(task?.thinkingLevel) && thinkingLevels.includes(task.thinkingLevel)
-    ? task.thinkingLevel
-    : defaultThinkingLevel(thinkingLevels);
+  const thinkingValue: ThinkingLevel = resolveThinkingLevel(thinkingLevels, task?.thinkingLevel);
   // --- 通知音・デスクトップ通知（本家 LeafCode から移植） ---
   const attention = permissionRequest !== null || questionRequest !== null;
   // 完了音：working → idle の立下りエッジ。初回マウント時の既定値は実状で
@@ -2053,6 +2061,7 @@ export function TaskView({
                 value={modelValue}
                 options={models}
                 disabled={working || compacting}
+                loading={modelsLoading}
                 onChange={(value) => {
                   void (async () => {
                     try {
@@ -2062,6 +2071,9 @@ export function TaskView({
                         { model: value },
                       );
                       setTask((current) => (current ? { ...current, ...result.task } : current));
+                      if (isThinkingLevel(result.task.thinkingLevel)) {
+                        writeStoredThinkingLevel(result.task.thinkingLevel);
+                      }
                       notifyTasksChanged();
                     } catch (err) {
                       setError(err instanceof Error ? err.message : "モデルの切替に失敗しました");
@@ -2083,6 +2095,9 @@ export function TaskView({
                         { thinkingLevel: value },
                       );
                       setTask((current) => (current ? { ...current, ...result.task } : current));
+                      writeStoredThinkingLevel(
+                        isThinkingLevel(result.task.thinkingLevel) ? result.task.thinkingLevel : value,
+                      );
                     } catch (err) {
                       setError(err instanceof Error ? err.message : "思考レベルの切替に失敗しました");
                     }

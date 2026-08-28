@@ -5,6 +5,7 @@ import {
   clampThinkingLevelForModel,
   defaultThinkingLevel,
   isThinkingLevel,
+  resolveThinkingLevel,
   thinkingLevelLabel,
   thinkingLevelsForModel,
 } from "./thinking-levels";
@@ -88,6 +89,12 @@ describe("thinking-levels", () => {
     const levels = thinkingLevelsForModel(qwen);
     expect(levels).toEqual(["off"]);
     expect(clampThinkingLevelForModel(qwen, "minimal")).toBe("off");
+  });
+
+  it("keeps a supported persisted level and defaults only when unsupported", () => {
+    expect(resolveThinkingLevel(["low", "medium", "high"], "low")).toBe("low");
+    expect(resolveThinkingLevel(["low", "medium", "high"], "xhigh")).toBe("medium");
+    expect(resolveThinkingLevel([], "high")).toBe("off");
   });
 
   it("labels levels with model-baseline English names", () => {

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUp, FolderGit2, GitBranch } from "lucide-react";
+import { ArrowUp, FolderGit2 } from "lucide-react";
 import { CollaborationNotice, useCollaborationRoom } from "@/components/CollaborationStatus";
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { AgentSelect } from "@/components/AgentSelect";
@@ -20,7 +20,11 @@ import { Button, GhostSelect } from "@/components/ui";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { DEFAULT_AGENT, readStoredAgent, resolveAgentSelection, writeStoredAgent } from "@/lib/default-agent";
-import { defaultThinkingLevel, isThinkingLevel } from "@/lib/thinking-levels";
+import {
+  readStoredThinkingLevel,
+  resolveThinkingLevel,
+  writeStoredThinkingLevel,
+} from "@/lib/thinking-levels";
 import {
   readSubagentPermission,
   writeSubagentPermission,
@@ -39,7 +43,6 @@ import {
 import type { HealthDto, ModelOption, ProjectDto, TaskSummary, ThinkingLevel } from "@/lib/types";
 
 const MODEL_KEY = "leafcodepi.defaultModel";
-const THINKING_KEY = "leafcodepi.thinkingLevel";
 
 /** アカウントタグ付きモデルの value を Pi が解釈できる「provider::model」へ戻す。 */
 function plainModelValue(modelValue: string, models: ModelOption[]): string {
@@ -53,8 +56,11 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [projectId, setProjectId] = useState(initialProjectId ?? "");
   const [models, setModels] = useState<ModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
   const [model, setModel] = useState("");
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("off");
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
+    () => readStoredThinkingLevel() ?? "off",
+  );
   const [prompt, setPrompt] = useState("");
   const [goalLoopEnabled, setGoalLoopEnabled] = useState(false);
   const [goalLoopAcceptance, setGoalLoopAcceptance] = useState("");
@@ -85,14 +91,34 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const selectedProject = projects.find((project) => project.id === projectId);
   const selectedModel = models.find((option) => option.value === model);
   const thinkingLevels = useMemo(
-    () => selectedModel?.thinkingLevels ?? (["off"] as ThinkingLevel[]),
+    () => selectedModel?.thinkingLevels ?? [],
     [selectedModel],
   );
 
   const refresh = useCallback(async () => {
-    const [projectRes, modelRes, healthRes, agentRes, skillRes] = await Promise.allSettled([
+    if (modelsRef.current.length === 0) setModelsLoading(true);
+    const modelRequest = getJson<{ models: ModelOption[] }>("/api/models");
+    void modelRequest
+      .then((result) => {
+        const nextModels = result.models;
+        const previousModels = modelsRef.current;
+        modelsRef.current = nextModels;
+        setModels(nextModels);
+        setModel((current) => {
+          const preserved = modelOptionForValue(nextModels, current);
+          if (preserved) return preserved.value;
+          const previous = modelOptionForValue(previousModels, current);
+          const migrated = previous && modelOptionForValue(nextModels, previous.value);
+          if (migrated) return migrated.value;
+          const stored = localStorage.getItem(MODEL_KEY) ?? "";
+          return modelOptionForValue(nextModels, stored)?.value ?? nextModels[0]?.value ?? "";
+        });
+        setModelsLoading(false);
+      })
+      .catch(() => setModelsLoading(false));
+
+    const [projectRes, healthRes, agentRes, skillRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects"),
-      getJson<{ models: ModelOption[] }>("/api/models"),
       getJson<HealthDto>("/api/health"),
       getJson<{ agents: { name: string; description?: string; enabled: boolean }[] }>("/api/agents"),
       getJson<{ skills: { name: string; description?: string; enabled: boolean }[] }>("/api/skills"),
@@ -102,21 +128,6 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
       setProjectId((current) => {
         if (current && projectRes.value.projects.some((project) => project.id === current)) return current;
         return projectRes.value.projects[0]?.id ?? "";
-      });
-    }
-    if (modelRes.status === "fulfilled") {
-      const nextModels = modelRes.value.models;
-      const previousModels = modelsRef.current;
-      modelsRef.current = nextModels;
-      setModels(nextModels);
-      setModel((current) => {
-        const preserved = modelOptionForValue(nextModels, current);
-        if (preserved) return preserved.value;
-        const previous = modelOptionForValue(previousModels, current);
-        const migrated = previous && modelOptionForValue(nextModels, previous.value);
-        if (migrated) return migrated.value;
-        const stored = localStorage.getItem(MODEL_KEY) ?? "";
-        return modelOptionForValue(nextModels, stored)?.value ?? nextModels[0]?.value ?? "";
       });
     }
     if (healthRes.status === "fulfilled") setHealth(healthRes.value);
@@ -139,8 +150,6 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   }, []);
 
   useEffect(() => {
-    const storedThinking = localStorage.getItem(THINKING_KEY);
-    if (isThinkingLevel(storedThinking)) setThinkingLevel(storedThinking);
     void refresh();
   }, [refresh]);
 
@@ -149,13 +158,14 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   }, [initialProjectId]);
 
   useEffect(() => {
-    if (thinkingLevels.includes(thinkingLevel)) return;
+    if (!selectedModel) return;
+    const safeLevel = resolveThinkingLevel(thinkingLevels, thinkingLevel);
+    if (safeLevel === thinkingLevel) return;
     // 現レベルが新モデルに無ければ既定（medium 相当）へ。最高レベルへの
     // 暗黙昇格は Qwen 切替で長ループを招いたためしない。
-    const safeLevel = defaultThinkingLevel(thinkingLevels);
     setThinkingLevel(safeLevel);
-    localStorage.setItem(THINKING_KEY, safeLevel);
-  }, [thinkingLevels, thinkingLevel]);
+    writeStoredThinkingLevel(safeLevel);
+  }, [selectedModel, thinkingLevel, thinkingLevels]);
 
   useEffect(() => {
     if (health?.engineOk !== false) return;
@@ -216,7 +226,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
           : {}),
       });
       localStorage.setItem(MODEL_KEY, model);
-      localStorage.setItem(THINKING_KEY, thinkingLevel);
+      writeStoredThinkingLevel(thinkingLevel);
       notifyTasksChanged();
       router.push(`/task/${result.task.id}`);
     } catch (err) {
@@ -263,18 +273,6 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                     {project.name}
                   </option>
                 ))}
-              </GhostSelect>
-              <GhostSelect
-                value="current_folder"
-                disabled
-                aria-label="作業場所"
-                icon={<GitBranch className="h-3.5 w-3.5" />}
-                valueLabel="そのまま"
-                onChange={() => {}}
-                className="min-w-0 max-w-[9rem] shrink sm:max-w-40"
-                title="MVP はプロジェクトフォルダを直接使います"
-              >
-                <option value="current_folder">そのまま</option>
               </GhostSelect>
             </div>
             {collaborationRoom && (collaborationRoom.leaseConflicts > 0 || collaborationRoom.pendingAsks > 0 || !collaborationRoom.ready) && (
@@ -357,6 +355,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                   <ModelSelect
                     value={model}
                     disabled={submitting}
+                    loading={modelsLoading}
                     options={models}
                     onChange={(value) => {
                       setModel(value);
@@ -370,7 +369,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                     disabled={submitting}
                     onChange={(value) => {
                       setThinkingLevel(value);
-                      localStorage.setItem(THINKING_KEY, value);
+                      writeStoredThinkingLevel(value);
                     }}
                     className="min-w-0 max-w-[7rem] shrink sm:max-w-[8rem]"
                   />

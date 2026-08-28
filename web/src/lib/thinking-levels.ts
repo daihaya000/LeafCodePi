@@ -27,8 +27,29 @@ export const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
   max: "max",
 };
 
+export const THINKING_LEVEL_STORAGE_KEY = "leafcodepi.thinkingLevel";
+
 export function isThinkingLevel(value: unknown): value is ThinkingLevel {
   return typeof value === "string" && (ALL_THINKING_LEVELS as readonly string[]).includes(value);
+}
+
+export function readStoredThinkingLevel(): ThinkingLevel | undefined {
+  if (typeof localStorage === "undefined") return undefined;
+  try {
+    const value = localStorage.getItem(THINKING_LEVEL_STORAGE_KEY);
+    return isThinkingLevel(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function writeStoredThinkingLevel(level: ThinkingLevel): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(THINKING_LEVEL_STORAGE_KEY, level);
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
@@ -46,6 +67,15 @@ export function defaultThinkingLevel(levels: readonly ThinkingLevel[]): Thinking
   const mid = ALL_THINKING_LEVELS.indexOf("medium");
   const rank = (level: ThinkingLevel) => Math.abs(ALL_THINKING_LEVELS.indexOf(level) - mid);
   return [...levels].sort((a, b) => rank(a) - rank(b) || ALL_THINKING_LEVELS.indexOf(a) - ALL_THINKING_LEVELS.indexOf(b))[0] ?? "off";
+}
+
+export function resolveThinkingLevel(
+  levels: readonly ThinkingLevel[],
+  preferred: unknown,
+): ThinkingLevel {
+  return isThinkingLevel(preferred) && levels.includes(preferred)
+    ? preferred
+    : defaultThinkingLevel(levels);
 }
 
 export function clampThinkingLevelForModel(

@@ -535,11 +535,11 @@ async function ensureOptionalProviders(
   const promises = (globalRef[OPTIONAL_PROVIDERS_KEY] ??= new WeakMap());
   const existing = promises.get(runtime);
   if (existing) return existing;
-  const promise = (async () => {
-    await registerCursorProvider(runtime, scope);
-    await registerCommandCodeProvider(runtime, scope);
-    await registerOllamaCloudProvider(runtime);
-  })();
+  const promise = Promise.all([
+    registerCursorProvider(runtime, scope),
+    registerCommandCodeProvider(runtime, scope),
+    registerOllamaCloudProvider(runtime),
+  ]).then(() => undefined);
   promises.set(runtime, promise);
   try {
     await promise;
@@ -1984,21 +1984,20 @@ function validateProjectPath(
 async function syncProvidersBestEffort(
   runtime: ModelRuntime,
 ): Promise<string[]> {
-  const warnings: string[] = [];
-  try {
-    await syncLlamaServerProvider(runtime);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    warnings.push(`llama-server: ${message}`);
-    console.warn("[leafcode-pi] llama-server provider sync failed:", message);
-  }
-  try {
-    await syncOllamaCloudProvider(runtime);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    warnings.push(`ollama-cloud: ${message}`);
-    console.warn("[leafcode-pi] ollama-cloud provider sync failed:", message);
-  }
+  const warnings = (
+    await Promise.all([
+      syncLlamaServerProvider(runtime).then(() => null).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[leafcode-pi] llama-server provider sync failed:", message);
+        return `llama-server: ${message}`;
+      }),
+      syncOllamaCloudProvider(runtime).then(() => null).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[leafcode-pi] ollama-cloud provider sync failed:", message);
+        return `ollama-cloud: ${message}`;
+      }),
+    ])
+  ).filter((warning): warning is string => warning !== null);
   state().lastProviderSyncWarnings = warnings;
   return warnings;
 }
@@ -2370,10 +2369,12 @@ function workingTaskCounts(
 async function buildModelsForAccounts(
   accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
 ): Promise<ModelOption[]> {
-  const sharedOptions: ModelOption[] = (
-    await listModels().catch(() => [])
-  ).filter((option) => !runsThroughAccounts(option.providerID));
-  const records = await collectAccountModelRecords(accounts);
+  const [sharedOptions, records] = await Promise.all([
+    listModels()
+      .catch(() => [])
+      .then((options) => options.filter((option) => !runsThroughAccounts(option.providerID))),
+    collectAccountModelRecords(accounts),
+  ]);
   const routingState = readProviderRouting();
   const rowOrder = new Map(
     readProviderModelState().providerOrder.map((key, index) => [key, index]),

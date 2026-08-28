@@ -55,6 +55,7 @@ export function ModelSelect({
   value,
   options,
   disabled,
+  loading = false,
   onChange,
   className,
   title,
@@ -63,6 +64,7 @@ export function ModelSelect({
   value: string;
   options: ModelOption[];
   disabled?: boolean;
+  loading?: boolean;
   onChange: (value: string) => void;
   className?: string;
   title?: string;
@@ -257,8 +259,9 @@ export function ModelSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
+        aria-busy={loading || undefined}
         aria-label={ariaLabel ?? "モデル"}
-        title={title ?? selected?.label ?? "モデル"}
+        title={title ?? selected?.label ?? (loading ? "モデルを読み込み中…" : "モデル")}
         onClick={() => setOpen((current) => !current)}
         className={cx(
           "group inline-flex h-full w-full min-w-0 items-center gap-1.5 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs font-medium text-muted shadow-sm transition-colors hover:bg-surface-2 hover:text-text",
@@ -273,7 +276,7 @@ export function ModelSelect({
             selectedMaxed && "text-danger",
           )}
         >
-          {selected?.label ?? (options.length === 0 ? "モデルなし" : "モデル")}
+          {selected?.label ?? (loading ? "モデルを読み込み中…" : options.length === 0 ? "モデルなし" : "モデル")}
         </span>
         {selectedSupportsImage && (
           <span title="画像入力対応" className="inline-flex shrink-0">

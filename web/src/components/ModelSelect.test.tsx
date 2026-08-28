@@ -58,6 +58,14 @@ describe("modelOptionForValue", () => {
   });
 });
 
+describe("ModelSelect loading state", () => {
+  it("does not show modelなし while models are loading", () => {
+    render(<ModelSelect value="" options={[]} loading onChange={() => {}} />);
+
+    expect(screen.getByText("モデルを読み込み中…")).toBeTruthy();
+  });
+});
+
 describe("ModelSelect grouping by account", () => {
   it("splits providers into per-account groups and keeps shared providers plain", () => {
     render(
