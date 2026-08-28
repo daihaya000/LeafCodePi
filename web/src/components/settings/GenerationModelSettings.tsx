@@ -1,7 +1,7 @@
 "use client";
 
 import { Brain } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { Button, GhostSelect } from "@/components/ui";
 import { ApiError, getJson } from "@/lib/client";
@@ -75,11 +75,29 @@ export function GenerationModelSettings() {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const changedRef = useRef({
+    value: false,
+    effort: false,
+    fallbackValue: false,
+    fallbackEffort: false,
+  });
 
   useEffect(() => {
     let cancelled = false;
+    const modelRequest = getJson<{ models: ModelOption[] }>("/api/models");
+    void modelRequest
+      .then((result) => {
+        if (cancelled) return;
+        setModels(result.models);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof ApiError ? err.message : "モデル一覧を取得できません");
+        setLoading(false);
+      });
     void Promise.allSettled([
-      getJson<{ models: ModelOption[] }>("/api/models"),
+      modelRequest,
       readGenerationModelFromServer(),
       readGenerationModelEffortFromServer(),
       readGenerationFallbackModelFromServer(),
@@ -88,7 +106,6 @@ export function GenerationModelSettings() {
       if (cancelled) return;
       if (modelsResult.status === "fulfilled") {
         const nextModels = modelsResult.value.models;
-        setModels(nextModels);
         const serverValue = settingResult.status === "fulfilled" ? settingResult.value : null;
         const localValue = readGenerationModel();
         const nextValue =
@@ -107,15 +124,24 @@ export function GenerationModelSettings() {
         const serverFallbackEffort = fallbackEffortResult.status === "fulfilled" ? fallbackEffortResult.value : null;
         const localFallbackEffort = readGenerationFallbackModelEffort();
         const nextFallbackEffort = serverFallbackEffort ?? localFallbackEffort ?? "";
-        setValue(nextValue);
-        setEffort(nextEffort);
-        setFallbackValue(nextFallbackValue);
-        setFallbackEffort(nextFallbackEffort);
-        writeGenerationModel(nextValue || null);
-        writeGenerationModelEffort(nextEffort || null);
-        writeGenerationFallbackModel(nextFallbackValue || null);
-        writeGenerationFallbackModelEffort(nextFallbackEffort || null);
+        if (!changedRef.current.value) {
+          setValue(nextValue);
+          writeGenerationModel(nextValue || null);
+        }
+        if (!changedRef.current.effort) {
+          setEffort(nextEffort);
+          writeGenerationModelEffort(nextEffort || null);
+        }
+        if (!changedRef.current.fallbackValue) {
+          setFallbackValue(nextFallbackValue);
+          writeGenerationFallbackModel(nextFallbackValue || null);
+        }
+        if (!changedRef.current.fallbackEffort) {
+          setFallbackEffort(nextFallbackEffort);
+          writeGenerationFallbackModelEffort(nextFallbackEffort || null);
+        }
         if (
+          !changedRef.current.value &&
           serverValue &&
           nextValue &&
           serverValue !== nextValue &&
@@ -126,6 +152,7 @@ export function GenerationModelSettings() {
           });
         }
         if (
+          !changedRef.current.fallbackValue &&
           serverFallbackValue &&
           nextFallbackValue &&
           serverFallbackValue !== nextFallbackValue &&
@@ -155,6 +182,7 @@ export function GenerationModelSettings() {
   useEffect(() => {
     if (loading || !value || !selected || !effort) return;
     if ((selected.thinkingLevels ?? []).includes(effort as ThinkingLevel)) return;
+    changedRef.current.effort = true;
     setEffort("");
     writeGenerationModelEffort(null);
     void writeGenerationModelEffortToServer(null).catch(() => undefined);
@@ -163,12 +191,14 @@ export function GenerationModelSettings() {
   useEffect(() => {
     if (loading || !fallbackValue || !fallbackSelected || !fallbackEffort) return;
     if ((fallbackSelected.thinkingLevels ?? []).includes(fallbackEffort as ThinkingLevel)) return;
+    changedRef.current.fallbackEffort = true;
     setFallbackEffort("");
     writeGenerationFallbackModelEffort(null);
     void writeGenerationFallbackModelEffortToServer(null).catch(() => undefined);
   }, [fallbackEffort, fallbackSelected, fallbackValue, loading]);
 
   function change(next: string) {
+    changedRef.current.value = true;
     setValue(next);
     writeGenerationModel(next || null);
     void writeGenerationModelToServer(next || null).catch(() => {
@@ -177,6 +207,7 @@ export function GenerationModelSettings() {
   }
 
   function changeEffort(next: string) {
+    changedRef.current.effort = true;
     setEffort(next);
     writeGenerationModelEffort(next || null);
     void writeGenerationModelEffortToServer(next || null).catch(() => {
@@ -185,6 +216,7 @@ export function GenerationModelSettings() {
   }
 
   function changeFallback(next: string) {
+    changedRef.current.fallbackValue = true;
     setFallbackValue(next);
     writeGenerationFallbackModel(next || null);
     void writeGenerationFallbackModelToServer(next || null).catch(() => {
@@ -193,6 +225,7 @@ export function GenerationModelSettings() {
   }
 
   function changeFallbackEffort(next: string) {
+    changedRef.current.fallbackEffort = true;
     setFallbackEffort(next);
     writeGenerationFallbackModelEffort(next || null);
     void writeGenerationFallbackModelEffortToServer(next || null).catch(() => {

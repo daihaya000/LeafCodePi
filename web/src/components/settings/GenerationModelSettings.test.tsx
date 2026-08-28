@@ -61,6 +61,33 @@ describe("GenerationModelSettings", () => {
     Object.values(mocks).forEach((mock) => mock.mockReset());
   });
 
+  it("モデル一覧取得後に選択UIを有効化する", async () => {
+    let resolveModels!: (result: { models: unknown[] }) => void;
+    const modelRequest = new Promise<{ models: unknown[] }>((resolve) => {
+      resolveModels = resolve;
+    });
+    mocks.getJson.mockImplementation((path: string) =>
+      path === "/api/models" ? modelRequest : Promise.resolve({}),
+    );
+
+    render(<GenerationModelSettings />);
+    const modelSelect = screen.getByRole("button", { name: "生成モデル" }) as HTMLButtonElement;
+    expect(modelSelect.disabled).toBe(true);
+
+    resolveModels({
+      models: [
+        {
+          value: "anthropic::claude-sonnet",
+          label: "Claude Sonnet",
+          providerID: "anthropic",
+          modelID: "claude-sonnet",
+        },
+      ],
+    });
+
+    await waitFor(() => expect(modelSelect.disabled).toBe(false));
+  });
+
   it("restores and persists the selected generation effort", async () => {
     render(<GenerationModelSettings />);
 
