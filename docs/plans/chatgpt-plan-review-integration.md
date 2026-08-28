@@ -12,8 +12,8 @@ LeafCodePiに、ChatGPT Webを計画・レビュー担当、Piを実装担当と
 
 初期版は上流の安全な部分だけを採用する。
 
-- ChatGPTは、OAuthで保護された公開MCPを通じて、選択した1ワークスペースを読み取る。
-- MCPはリポジトリを変更せず、ファイル参照・検索・Git差分参照だけを提供する。
+- ChatGPTは、Piのsubagentに近い委譲先だが、外部・読み取り専用アドバイザーとしてOAuthで保護された公開MCPから選択した1ワークスペースを読む。
+- MCPはリポジトリを変更せず、ファイル参照・検索・Git差分参照だけを提供する。ChatGPTからのMCP tool実行はChatGPT/Bridge側で完結し、Piの子Sessionや`SubagentRunDto`へ自動ミラーしない。
 - Piは従来どおり編集、コマンド、テスト、コミットを担当する。
 - ChatGPTとの制御メッセージは、初期版ではユーザーがコピーして送受信する。
 - LeafCodePiはChatGPT Webを自動操作せず、Cookie、セッションストレージ、ChatGPT OAuth資格情報を取得しない。
@@ -68,6 +68,7 @@ LeafCodePiに、ChatGPT Webを計画・レビュー担当、Piを実装担当と
 - ChatGPT Cookie、アクセストークン、セッションストレージの読み取り
 - OpenAI APIへの置換、ChatGPT Webの非公式API利用、リバースプロキシ
 - ChatGPTからのファイル編集、削除、コマンド実行、コミット
+- ChatGPTを`leafcode-subagents`のPi child sessionまたは`external-job`として自動実行すること
 - ChatGPTのPLANを無審査でPiへ自動実行させること
 - 複数ワークスペースBridgeの同時公開
 - Cloudflareアカウントを必要とするNamed Tunnel
@@ -86,6 +87,7 @@ LeafCodePiに、ChatGPT Webを計画・レビュー担当、Piを実装担当と
 | Host | Bridgeプロセスの起動・停止・状態取得。管理資格情報を保持 |
 | Web BFF | WebUI認証とrequest schemaを検証し、`projectId` / `taskId`だけをHostへ転送。管理資格情報は保持しない |
 | Connector | ChatGPT設定にユーザーが登録するMCP接続 |
+| 外部アドバイザー実行 | ChatGPTへ手動で委譲する1回の計画・レビュー単位。`公開TASK_ID + iteration`でPi側と対応付けるが、Pi child sessionではない |
 | Control message | `INIT / PLAN / EXECUTED / DONE / BLOCKED`の短い連携メッセージ |
 
 ## 6. 採用アーキテクチャ
@@ -128,7 +130,7 @@ Pi AgentSession
 - `web/src/components/task/ChatGptAdvisoryPanel.tsx`
   - 短いcontrol messageの生成、コピー、外部提案の取り込み
 - `web/src/components/task/PartView.tsx` / `web/src/lib/tool-labels.ts`
-  - `chatgpt` / `c2c` / `mcp__c2c__*` tool messageを、読取・スキルと同じ既存カード経路で専用の「ChatGPT」カードとして表示
+  - Pi側に明示的な`chatgpt` / `c2c` tool messageが生成された場合、読取・スキルと同じ既存カード経路で専用の「ChatGPT」カードとして表示
 
 ### 6.2 プロセス寿命
 
@@ -146,6 +148,14 @@ Pi AgentSession
 - 上流更新は基準commitを明示した専用PRで取り込む。
 - 更新PRでは上流差分、LeafCodePi patch、ライセンス、全テスト、Windows PoCを再確認する。
 - production起動中に依存インストール、source transpile、source更新を行わない。Hostは配布済みartifactだけを起動する。
+
+### 6.4 native subagentとの境界
+
+- ChatGPTはUX上は「外部サブエージェント相当」として、依頼・観測可能な状態・結果を1つのadvisory exchangeとして扱う。観測できないremote進捗は表示しない。
+- 実行基盤は`leafcode-subagents`、`SubagentRunDto`、Pi child session、`external-job` providerを再利用しない。これらはPi内部で権限・session・leaseを管理する別責務である。
+- 初期版の送受信経路は`ChatGptAdvisoryPanel`と手動control messageとし、ChatGPT側のMCP呼出し・会話履歴・進捗をPiへ自動ミラーしない。
+- Pi側で明示的なtool messageまたはrecordを生成する場合だけ、Task timelineへ「ChatGPT」カードを表示する。remote MCPのtool callを捏造して表示しない。
+- C2C OAuth/Connector資格情報はPiのprovider account、Codex auth、既存subagent認証と共有しない。
 
 ## 7. 機能要件
 
@@ -344,9 +354,18 @@ Task画面は`EXECUTED`メッセージを1KB以内で生成できること。
 - C2C導入時に`~/.pi/agent/mcp.json`、`collaboration.json`、provider routing、既存Task/Session schemaを変更しないこと。
 - collaboration mode（off/permissive/strict）とprovider account routingはC2Cの有無で変えないこと。
 
-### FR-20 ChatGPTメッセージカード
+### FR-20 外部アドバイザー実行
 
-- `chatgpt`、`chat-gpt`、`chat_gpt`、`c2c`、`mcp__c2c__*`、`mcp__chatgpt__*`のtool messageを専用カードとして表示すること。
+- ChatGPTとの1回の計画・レビュー交換を、Pi subagentに似た委譲単位として`公開TASK_ID + iteration`へ対応付けること。内部task UUIDは外部へ出さないこと。
+- ただしPiのchild session、`SubagentRunDto`、subagent permission、file lease、`external-job` providerとして登録・実行しないこと。
+- 初期版はユーザーがINIT/EXECUTEDをコピーし、PLAN/REVIEWを貼り付ける手動経路とすること。ChatGPT WebのMCP callや会話履歴をPiメッセージへ自動生成しないこと。
+- 手動経路のadvisory状態は`ready_to_copy`、`waiting_for_user`、`proposal_received`、`recorded`など、Piが確認できる状態だけを表示すること。remote側の未観測な`running`や進捗を推測しないこと。
+- ChatGPT側の失敗・切断・未応答はPiの通常task/subagentを停止させず、advisory exchangeの状態だけを未接続・未確認・未記録として扱うこと。
+- C2CのConnector OAuthはPi providerの`~/.pi/agent/auth.json`、CodexBar、provider account routingと共有しないこと。
+
+### FR-21 ChatGPTメッセージカード
+
+- Pi側に存在する`chatgpt`、`chat-gpt`、`chat_gpt`、`c2c`、`mcp__c2c__*`、`mcp__chatgpt__*`のtool messageを専用カードとして表示すること。ChatGPT側だけで実行されたremote MCP callは対象外とする。
 - カード見出しは「ChatGPT」とし、既存カードの会話アイコン、状態表示、経過時間、折りたたみ、keyboard操作、`aria-expanded`を再利用すること。
 - 見出し要約は`action`と`prompt`/`message`/`request`/`task`/`instruction`の許可フィールドから生成し、長文を切り詰めること。
 - 展開時は「操作」「依頼」などの許可フィールドと結果だけを表示し、入力JSON全体、token、資格情報、未知フィールドを表示しないこと。
@@ -420,6 +439,7 @@ Task画面は`EXECUTED`メッセージを1KB以内で生成できること。
 - C2C公開MCPをLeafCodePiのglobal `mcp.json`へ登録しないこと。C2Cは外部ChatGPTだけのMCP clientとして扱う。
 - client componentからBridge/Node専用moduleをvalue importしない。Bridge型はtype-onlyのclient-safe moduleへ分離すること。
 - C2Cは既存`leafcode-collaboration`のlease/write gateを置き換えず、read-only advisoryとして独立させること。
+- C2Cは`leafcode-subagents`のnative child session / `external-job` registryへ登録しないこと。ChatGPT側remote MCP callをPiのtranscriptへ自動追加しないこと。
 
 ## 9. 永続化
 
@@ -560,6 +580,7 @@ ChatGPTプラン・レビュー連携
 
 ### 11.3 状態
 
+- Bridge接続状態とadvisory exchange状態を分離する。前者はBridge status API、後者はTask UIの一時状態として扱い、remote進捗をBridge stateへ混ぜない。
 - loading: skeletonを増やさず、短い`role=status`を表示
 - starting/pairing: 対象操作をdisabled、cardへ`aria-busy=true`
 - connected未確認: neutral badgeと確認手順
@@ -670,10 +691,12 @@ ChatGPTプラン・レビュー連携
 
 ### AC-11 ChatGPTメッセージカード
 
-- ChatGPT/C2C tool messageが「ChatGPT」ラベルと会話アイコンの既存カードとして表示される。
+- Pi側のChatGPT/C2C tool messageが「ChatGPT」ラベルと会話アイコンの既存カードとして表示される。
 - collapsed状態では結果preview、expanded状態では許可された操作・依頼・結果だけが表示される。
 - ChatGPT/C2C以外のtool label（読取、スキル、未知MCP）が回帰しない。
 - keyboard操作、`aria-expanded`、error/cancelled/running表示、mobile横溢れなしを満たす。
+- Bridge接続状態とadvisory exchange状態を混同せず、未観測のremote running/進捗を表示しない。
+- ChatGPT側remote MCP callをPiのメッセージとして表示・記録しない。
 
 ## 12.1 LeafCodePi向け追加最適化（採用）
 
@@ -791,8 +814,6 @@ ChatGPTプラン・レビュー連携
 
 - 新規`ChatGptBridgeSettings.tsx`とtest
 - `SettingsView.tsx`とtest
-- `PartView.tsx` / `PartView.test.tsx`
-- `web/src/lib/tool-labels.ts` / `tool-labels.test.ts`
 - client types
 
 作業:
@@ -804,8 +825,7 @@ ChatGPTプラン・レビュー連携
 5. client-safe type以外からBridge/Node専用moduleをvalue importしない。
 6. state machineに従いloading/error/repair/expiredを表示する。
 7. workspace_info観測によるverified表示を追加する。
-8. ChatGPT/C2C tool messageを「ChatGPT」専用カードへ分類し、依頼要約・許可フィールド・結果previewを既存ToolCardへ接続する。
-9. pairing codeを失効時に伏せ、copy通知をaccessibleにする。
+8. pairing codeを失効時に伏せ、copy通知をaccessibleにする。
 
 検証:
 
@@ -814,7 +834,6 @@ ChatGPTプラン・レビュー連携
 - mobile、desktop、200% zoom
 - light/dark/Oyster
 - pairing expiry、URL change、error recovery
-- ChatGPT/C2C toolのlabel、icon、collapsed/expanded、allowlist、未知tool回帰
 - UI/UX review
 
 コミット案: `設定にChatGPTプラン・レビュー連携を追加`
@@ -825,6 +844,8 @@ ChatGPTプラン・レビュー連携
 
 - 新規`ChatGptAdvisoryPanel.tsx`とtest
 - TaskView / SidePanel接続点
+- `PartView.tsx` / `PartView.test.tsx`
+- `web/src/lib/tool-labels.ts` / `tool-labels.test.ts`
 - control message generator/parser
 - execution record API
 - 必要な場合だけ、recordを呼ぶ単一の薄いPi extension tool
@@ -835,15 +856,18 @@ ChatGPTプラン・レビュー連携
 2. INIT/EXECUTEDを1KB以内で決定的に生成する。
 3. PLAN/REVIEWへuntrusted guardを付けて通常promptとして送る。
 4. explicit execution recordを追加し、test_status/execution_summaryへ接続する。
-5. changed file数・Git statusはcopy/MCP request時だけ取得し、TaskView renderや常時pollingでは計算しない。
-6. C2CをLeafCodePiの`mcp.json`へ登録しない。record toolを追加する場合も既存Task/session identityを使う薄い連携に限定する。
-7. active workspace不一致時にpanelを出さない。
-8. DONEをtask/ToDoへ自動反映しない。
+5. Pi側の明示的なChatGPT/C2C tool messageを「ChatGPT」専用カードへ分類し、依頼要約・許可フィールド・結果previewを既存ToolCardへ接続する。ChatGPT側remote MCP callはミラーしない。
+6. changed file数・Git statusはcopy/MCP request時だけ取得し、TaskView renderや常時pollingでは計算しない。
+7. C2CをLeafCodePiの`mcp.json`へ登録しない。record toolを追加する場合も既存Task/session identityを使う薄い連携に限定する。
+8. active workspace不一致時にpanelを出さない。
+9. DONEをtask/ToDoへ自動反映しない。
 
 検証:
 
 - message size、禁止情報、改行、長文truncate
 - PLAN/REVIEW prompt guard
+- Pi側ChatGPT/C2C toolのlabel、icon、collapsed/expanded、allowlist、未知tool回帰
+- ChatGPT側remote MCP callをPiへ自動ミラーしないこと
 - record無し/有り/失敗
 - task project mismatch
 - SidePanel responsive behavior
@@ -939,6 +963,8 @@ ChatGPTプラン・レビュー連携
 | WebUI remote accessから接続操作される | 既存WebUI authを必須、projectId照合、no-store、safe response |
 | Windows file permissionがPOSIX modeと異なる | 既存`secure-file.js`のACLをauth stateへ適用し、refresh tokenの保存可否を保護成否で分岐 |
 | 実行記録がモデルの自己申告になる | ChatGPTはdiffを独立確認し、test recordは要約として扱う |
+| ChatGPTをnative subagentと誤認する | 外部advisory exchangeとして扱い、Pi child session / `SubagentRunDto` / `external-job`と分離 |
+| ChatGPT側MCP callをPiの進捗と誤認する | remote call・会話履歴を自動ミラーせず、Pi側の明示record/tool messageだけを表示 |
 
 ## 17. 実装着手前チェック
 
@@ -956,6 +982,20 @@ ChatGPTプラン・レビュー連携
 - [ ] ブラウザ自動操作・Cookie取得を実装していない
 - [ ] control messageに本文・diff・log・local pathを含めない
 - [ ] 外部PLAN/REVIEWをuntrusted dataとして扱う
+- [ ] ChatGPTを`leafcode-subagents` / `external-job`のnative childとして登録していない
+- [ ] ChatGPT側remote MCP callをPiのmessage/transcriptへ自動ミラーしていない
 - [ ] 各Phaseの検証コマンドとcommit境界が確定している
 - [ ] `LEAFCODE_PI_C2C_DISABLED=1`の緊急停止を確認している
 - [ ] WebテストのdataDir/agentDirを一時directoryへ分離している
+
+## 18. 最終レビュー判定
+
+### 結論: 条件付きGo（設計・実装着手可、リリース不可）
+
+- **役割:** ChatGPTはPiのnative subagentではなく、外部サブエージェント相当のread-only advisory exchangeとする。Piのchild session、`SubagentRunDto`、`external-job`、permission、leaseを共有しない。
+- **UI:** 依頼・状態・結果をTask上で追えるようにするが、表示は既存`ToolCard`のカード族を再利用する。Pi側で明示的に生成されたmessage/recordだけを「ChatGPT」カードへ表示し、ChatGPT側remote MCP callを捏造・ミラーしない。
+- **安全性:** ChatGPTは読み取り・計画・レビューだけ、Piは編集・コマンド・テスト・Git・最終判断を担当する。外部PLAN/REVIEWはuntrusted dataとして扱う。
+- **既存機能:** `leafcode-collaboration`、provider account routing、Pi auth、global `mcp.json`、Task/Session schemaとは責務・資格情報・設定を分離する。
+- **先行実装の扱い:** `b1259e6`はFR-21のChatGPTカード表示分類だけを先行実装したものとし、Bridge、BFF、手動advisory panel、実Connector E2Eの完了とは扱わない。
+- **リリース条件:** cloudflaredの明示導入、Windows実機、OAuth/MCP security audit、UI/UX review、全回帰テスト、実ChatGPT Connector E2Eを通過するまでTechnical Previewのままとする。
+- **ロールバック:** C2C専用stateとHost管理境界を削除・無効化しても、通常のPi task、session、provider認証、subagentを継続できることを最終条件とする。
