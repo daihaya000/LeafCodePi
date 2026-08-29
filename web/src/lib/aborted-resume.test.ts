@@ -62,11 +62,13 @@ function assertAutoResume(
   expected: boolean,
   compacting = false,
   sseReconnecting = false,
+  active = true,
 ): void {
   expect(
     shouldAutoResumeSilentTurn({
       target,
       showResume: true,
+      active,
       sessionHydrating,
       compacting,
       sseReconnecting,
@@ -109,6 +111,11 @@ describe("findResumableTurn", () => {
   it("does not auto-resume while context compaction is running", () => {
     const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")]);
     assertAutoResume(target, false, false, true);
+  });
+
+  it("does not auto-resume an inactive hidden task", () => {
+    const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")]);
+    assertAutoResume(target, false, false, false, false, false);
   });
 
   it("does not auto-resume while SSE is reconnecting", () => {

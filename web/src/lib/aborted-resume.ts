@@ -37,6 +37,7 @@ export type FindResumableTurnOptions = {
 export function shouldAutoResumeSilentTurn(input: {
   target: ResumableTurn | null;
   showResume: boolean;
+  active: boolean;
   sessionHydrating: boolean;
   compacting: boolean;
   sseReconnecting: boolean;
@@ -46,6 +47,7 @@ export function shouldAutoResumeSilentTurn(input: {
 }): boolean {
   return Boolean(
     input.showResume &&
+      input.active &&
       !input.sessionHydrating &&
       !input.compacting &&
       !input.sseReconnecting &&

@@ -1345,6 +1345,7 @@ export function TaskView({
     [visibleMessages, manualAbortedAssistantId],
   );
   const showResume =
+    active &&
     !!resumeTarget &&
     !!task &&
     !sessionHydrating &&
@@ -1355,6 +1356,7 @@ export function TaskView({
   const autoResumeSilentTurn = shouldAutoResumeSilentTurn({
     target: resumeTarget,
     showResume,
+    active,
     sessionHydrating,
     compacting,
     sseReconnecting,
