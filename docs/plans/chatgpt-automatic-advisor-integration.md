@@ -71,7 +71,8 @@ Phase 0で次を実機確認できなければ、ブラウザ自動化経路を�
 - ChatGPT Web操作は、専用profile内の監査済みOracle操作だけを許可する。
 - `chatgpt-advisor`はPi child sessionではないが、external-jobを持つsubagent runとして扱う。
 - ChatGPT側MCP callの詳細は引き続きPi transcriptへ捏造・ミラーしない。
-- C2Cのread-only、1 workspace、OAuth、機密ファイル拒否、kill switchは維持する。
+- v1の手動Task panel、手動会話URL、専用tool card分類、手動送受信APIはcutover時に撤去し、fallbackとして残さない。
+- C2Cのread-only、1 workspace、OAuth、機密ファイル拒否、kill switchはdata planeとして維持する。
 
 ## 4. アーキテクチャ
 
@@ -313,7 +314,7 @@ DESIGN.mdの既存tokenとcomponentを使い、新しい視覚言語を作らな
 
 ### 7.1 Settings
 
-既存ChatGPT Bridge設定内に「自動アドバイザー」を追加する。
+既存`ChatGptBridgeSettings`へ追記せず、新しい`ChatGptAdvisorSettings`へ置き換える。
 
 - master toggle
 - readiness 4項目
@@ -331,7 +332,7 @@ DESIGN.mdの既存tokenとcomponentを使い、新しい視覚言語を作らな
 - 完了結果は既存Markdown表示と折りたたみを再利用する。
 - 検証済みconversation URLだけを「ChatGPTで開く」linkにする。
 - local stopの注意をcard内に表示する。
-- manual `ChatGptAdvisoryPanel`は移行期間だけ「手動fallback」として折りたたむ。
+- v1の`ChatGptAdvisoryPanel`を表示せず、旧manual stateとの互換表示も作らない。
 
 ### 7.3 Accessibility・responsive
 
@@ -340,6 +341,21 @@ DESIGN.mdの既存tokenとcomponentを使い、新しい視覚言語を作らな
 - 色だけで状態を伝えない。
 - 320px幅で横scrollを発生させず、長いjob ID、URL、結果をwrap/truncateする。
 - light/dark双方で既存tokenだけを使用し、WCAG AAを確認する。
+
+### 7.4 v1 UI撤去契約
+
+後継版のcutoverと同じreleaseで、次を削除する。非表示化・feature flag残置・折りたたみfallbackにはしない。
+
+- `web/src/components/task/ChatGptAdvisoryPanel.tsx`とtest
+- `web/src/lib/chatgpt-advisory.ts`
+- `TaskView.tsx`の旧panel import・常時表示block
+- `ChatGptBridgeSettings.tsx`と旧test。新しい`ChatGptAdvisorSettings`で置換する
+- `tool-labels.ts`の`isChatGPTTool`、ChatGPT専用要約・入力field、および対応test
+- `PartView.tsx`のChatGPT専用`MessageCircle`分岐と対応test
+- 手動の会話URL入力・保存、INIT/EXECUTED生成、clipboard搬送、iteration、PLAN/REVIEW取込、手動実行記録UI
+- `leafcode-pi.chatgpt-advisory.*` localStorage。cutover時にprefix一致keyを一度だけ削除する
+
+Connector URLと配布codeのcopyは初回setup・URL修復のため新Settingsに残せるが、task本文やadvisor応答のcopy/paste機能は作らない。
 
 ## 8. API・型の変更案
 
@@ -357,6 +373,8 @@ POST /chatgpt-advisor/cleanup
 ```
 
 Web BFFは既存Host control guardを使い、任意path、Cookie、token、raw Surf stateを受け取らない。
+
+v1の`/api/chatgpt-bridge/message`、`/session`、Web向け`/record` actionと対応type/Host handlerを削除する。execution metadataがC2C reviewに必要な場合は、UI入力を持たないAdvisor内部contractとして新規に定義し、旧actionを再利用しない。
 
 ### 8.2 Subagent projection
 
@@ -440,7 +458,7 @@ type ExternalAdvisorProjection = {
 ### AC-11 Kill switch
 
 - `LEAFCODE_PI_CHATGPT_ADVISOR_DISABLED=1`でproviderとagentが登録されず、新規外部通信が起きない。
-- C2C manual fallbackと通常subagentは利用できる。
+- 旧ChatGPT UIは復活せず、通常Piと通常subagentだけを利用できる。
 
 ### AC-12 Windows E2E
 
@@ -457,6 +475,14 @@ type ExternalAdvisorProjection = {
 - security-auditorがChrome権限、native messaging、prompt境界、C2C trust boundary、保存データを承認する。
 - ui-ux-reviewerがDESIGN.md、responsive、keyboard、WCAGを承認する。
 - 実ChatGPT Connector E2Eの証跡が無ければTechnical Previewにも昇格しない。
+
+### AC-15 旧UI撤去
+
+- `ChatGptAdvisoryPanel`、`chatgpt-advisory.ts`、旧`ChatGptBridgeSettings`、ChatGPT専用tool-label分岐がsourceとtestから無くなる。
+- production UIに「INITを生成」「EXECUTEDを生成」「メッセージをコピー」「PLAN / REVIEWを取り込む」「ChatGPT会話URL（任意）」が存在しない。
+- `/api/chatgpt-bridge/message`、`/session`、Web向け`/record`は404となり、旧request typeも削除される。
+- `leafcode-pi.chatgpt-advisory.*` localStorageと旧conversation URL stateがcutover cleanupで削除される。
+- Advisorを無効化・rollbackしても旧UIは再表示されない。
 
 ## 10. 実装配置案
 
@@ -486,13 +512,13 @@ extensions/leafcode-subagents/
 
 web/src/
   app/api/chatgpt-advisor/
-  components/settings/ChatGptBridgeSettings.tsx
+  components/settings/ChatGptAdvisorSettings.tsx
   components/task/*subagent*
   lib/pi/subagent-runs.ts
   lib/types.ts
 ```
 
-既存C2C fork、Bridge、OAuth、MCP、機密file policyを複製しない。
+既存C2C fork、Bridge、OAuth、MCP、機密file policyを複製しない。v1 UIとそのmanual APIは削除対象であり、新componentからimportしない。
 
 ## 11. Phase別実装計画
 
@@ -523,7 +549,7 @@ web/src/
 1. Surfのnamed provider APIだけを使うadapterを追加し、default Surf extensionをloadしない。
 2. opt-in、C2C verified、prompt policy、option allowlist、URL allowlistを実装する。
 3. `chatgpt-advisor` runtime agentをready時だけ登録する。
-4. `build.md`へAR-03の自動委譲policyとfallbackを追加する。
+4. `build.md`へAR-03の自動委譲policyと利用不能時の通常Pi継続policyを追加する。
 5. provider unavailable、blocked、reattach、malformed resultのtestを追加する。
 
 **Gate:** primary tool registryに汎用Surf toolが無く、external-job contract testが通る。
@@ -533,20 +559,22 @@ web/src/
 1. public task IDとphaseを既存taskへ対応付ける。
 2. 最小prompt builderを追加し、C2Cで必要情報を読むよう指示する。
 3. planは必要時同期、reviewは可能なら非同期で起動する。
-4. resultをuntrusted advisor outputとしてprimaryへ返す。
-5. 失敗時の継続、call上限、重複防止、restart/reattachをE2E testする。
+4. test/execution metadataが必要な場合、実測task stateからAdvisor内部recordを自動生成し、旧Web `/record`を使わない。
+5. resultをuntrusted advisor outputとしてprimaryへ返す。
+6. 失敗時の継続、call上限、重複防止、restart/reattachをE2E testする。
 
 **Gate:** AC-03、AC-04、AC-07〜09をcopy/pasteなしで満たす。
 
-### Phase 4: Settings・Task UI
+### Phase 4: Settings・Task UI cutover
 
 1. 実装前にui-ux-designerのDESIGN.md準拠contractを確定する。
-2. 既存Bridge settingsへreadiness、toggle、open/verify/stop/cleanupを追加する。
+2. 新しい`ChatGptAdvisorSettings`へreadiness、toggle、open/verify/stop/cleanupを実装する。
 3. safe external advisor projectionを既存subagent cardへ表示する。
-4. manual panelを折りたたみfallbackへ移す。
-5. component/API/type test、keyboard、responsive、light/darkを確認する。
+4. 新UI検証後、7.4のv1 UI・manual API・localStorage stateをrollback対象外の独立commitで削除する。両commit間をreleaseしない。
+5. 旧button/label/routeがproduction bundleとtestから消えたことをnegative testで固定する。
+6. component/API/type test、keyboard、responsive、light/darkを確認する。
 
-**Gate:** AC-10と既存Task/Settings回帰testを満たす。
+**Gate:** AC-10、AC-15、既存Task/Settings回帰testを満たす。新旧UIを同時にreleaseしない。
 
 ### Phase 5: Security・障害・cleanup
 
@@ -556,14 +584,14 @@ web/src/
 4. crash、logout、quota、Connector URL変更、Tunnel切断を検証する。
 5. security-auditor、code-reviewer、ui-ux-reviewerの独立reviewを行う。
 
-**Gate:** high/critical findingが0件で、AC-11〜14を満たす。
+**Gate:** high/critical findingが0件で、AC-11〜15を満たす。
 
 ### Phase 6: Technical Preview rollout
 
 1. default off、1 workspace、同時1job、plan/review各1回上限で配布する。
-2. manual fallbackを残し、自動経路失敗時に明示案内する。
+2. 自動経路失敗時は通常Piで継続し、旧ChatGPT UIへfallbackしない。
 3. release E2E手順とrollback手順を文書化する。
-4. 1 release以上の安定確認後にだけmanual import API/panel削除を別PRで判断する。
+4. production artifactにv1 UI/manual routeが残っていないことをrelease gateで確認する。
 
 ## 12. 検証matrix
 
@@ -574,19 +602,19 @@ web/src/
 | external-job | start/status/result/reattach、digest mismatch、capacity、no redispatch |
 | Host | path/ACL/profile/native manifest/lifecycle/kill switch/cleanup |
 | C2C | 既存全test、tool schema、secret policy、OAuth、Connector E2E |
-| Web | API schema、SubagentRunDto、card states、settings、keyboard、responsive |
+| Web | API schema、SubagentRunDto、card states、settings、旧label/route不在、keyboard、responsive |
 | Root | typecheck、lint、affected suites、production build、artifact E2E |
 
 常駐processを検証ツールでforeground起動しない。起動はHostまたは非block手段を使い、短いhealth checkで確認する。
 
 ## 13. Migration
 
-1. 現行C2C Bridge/Connectorと保存済みconversation URLを維持する。
+1. 現行C2C Bridge/Connectorのread-only data planeは維持するが、保存済み手動conversation URLは移行せず削除する。
 2. Advisorは新configで既定offとし、既存`enabled`を自動的にadvisor opt-inへ昇格しない。
 3. ユーザーが専用profile setupと追加同意を完了した場合だけ自動agentを登録する。
-4. 自動経路ready後もmanual panelをfallbackとして残す。
-5. `b1259e6`のChatGPT tool card分類は互換表示として維持する。自動runの主表示はsubagent cardへ移す。
-6. manual API削除は別migrationとし、本計画の初回releaseでは行わない。
+4. `ChatGptAdvisoryPanel`、`chatgpt-advisory` localStorage、手動message/session/record route、`b1259e6`由来の専用tool card分岐をcutoverで削除する。
+5. 自動jobのconversation URLはexternal-job stateから取得し、ユーザー入力欄へ移行しない。
+6. 新旧UIを併存させず、rollback時も旧UIを復活させない。
 
 ## 14. Rollback
 
@@ -595,14 +623,14 @@ web/src/
 1. `LEAFCODE_PI_CHATGPT_ADVISOR_DISABLED=1`を設定する。
 2. 新規provider/agent登録を止める。
 3. LeafCodePiのlocal waitと専用Chromeを停止する。
-4. C2C manual fallbackまたは通常Piだけで継続する。
+4. 通常Piだけで継続する。旧ChatGPT UIは復活させない。
 
 remote ChatGPT生成の停止は保証しない。conversation URLがある場合はユーザーがChatGPT側で確認・停止する。
 
 ### 14.2 Code rollback
 
-- Phase単位のcommitを逆順にrevertする。
-- C2C fork/Bridgeはmanual fallbackに必要なため同時に削除しない。
+- Phase単位のcommitを逆順にrevertするが、v1 UI削除commitは戻さない。
+- C2C fork/Bridgeは再導入時のdata planeとして停止状態で残せるが、旧manual UIへ再接続しない。
 - Surf native messaging manifestはLeafCodePi専用originだけを削除し、他originを破壊しない。
 - 専用profileとlogin stateはユーザー確認なしに削除しない。
 
@@ -617,7 +645,7 @@ remote ChatGPT生成の停止は保証しない。conversation URLがある場�
 | Risk | 対策・受容条件 |
 | --- | --- |
 | ChatGPT DOM変更 | fail closed、model選択確認、重複retry禁止、Technical Preview |
-| ChatGPT利用条件・bot検出 | 回避しない。ユーザーopt-in。問題時はmanual fallback |
+| ChatGPT利用条件・bot検出 | 回避しない。ユーザーopt-in。問題時はChatGPT連携を停止して通常Piで継続 |
 | 広いextension権限 | restricted fork。縮小不能なら出荷中止 |
 | login Cookie窃取 | 専用profile、cookie API削除、ACL、Piへgeneric Surf tool非公開 |
 | local prompt/response残留 | secure state、24時間cleanup、明示profile削除 |
@@ -634,6 +662,7 @@ remote ChatGPT生成の停止は保証しない。conversation URLがある場�
 - Surf固定forkのlicense/integrity/source reviewが完了している。
 - restricted manifestとC2C Connectorの実機E2E手順が用意されている。
 - security-auditorとui-ux-designerを各該当Phaseへ割り当てている。
-- rollback用kill switchとmanual fallbackを先に保持できる。
+- rollback用kill switchと通常Piへの縮退動作を先に保持できる。
+- cutover releaseで7.4の旧UI・manual APIを全て削除できる。
 
-条件未達時は現行のmanual C2C連携を維持し、自動実装へ進まない。
+条件未達時は自動版をreleaseせず、実装branch上で止める。後継版release後に旧manual UIへ戻さない。
