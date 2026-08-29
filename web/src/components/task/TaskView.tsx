@@ -25,7 +25,6 @@ import { DiffPane } from "@/components/task/DiffPane";
 import { NextAction } from "@/components/task/NextAction";
 import { GraphPanel } from "@/components/task/GraphPanel";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
-import { ChatGptAdvisoryPanel } from "@/components/task/ChatGptAdvisoryPanel";
 import { ModelSelect } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { AgentSelect } from "@/components/AgentSelect";
@@ -1673,22 +1672,6 @@ export function TaskView({
             room={collaborationRoom}
             onResolved={() => void refreshCollaborationRoom()}
           />
-        </div>
-      )}
-      {task && (
-        <div
-          className={cx(
-            "shrink-0 border-b border-border bg-surface px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4",
-            mobilePanelOpen && "hidden",
-          )}
-        >
-          <div className="mx-auto w-full min-w-0 max-w-5xl">
-            <ChatGptAdvisoryPanel
-              taskId={task.id}
-              projectId={task.projectId}
-              taskTitle={task.title}
-            />
-          </div>
         </div>
       )}
       <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
