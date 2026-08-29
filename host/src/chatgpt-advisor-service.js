@@ -24,7 +24,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { restrictToCurrentUser } from "./secure-file.js";
 import { stopProcessTreeGracefully as defaultStopProcessTreeGracefully } from "./process-stop.js";
@@ -67,6 +67,11 @@ function writeJsonAtomic(file, value) {
   const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
   try {
     writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    // On Windows inherited ACLs may block atomic rename over an existing file,
+    // so remove the target before renaming.
+    if (existsSync(file)) {
+      try { rmSync(file, { force: true }); } catch {}
+    }
     renameSync(temp, file);
   } finally {
     try {
@@ -330,7 +335,10 @@ export function createChatGptAdvisorService(options) {
   function prepareDirectories() {
     for (const dir of [advisorRoot, chromeProfileDir, surfStateDir, surfNetworkPath, surfTmp, extensionDir]) {
       mkdirSync(dir, { recursive: true });
-      restrictDir(dir);
+      // Do not lock directories down: later rmSync of extensionDir/Chrome
+      // profile would fail with EPERM because inherited ACLs propagate to
+      // created children and icacls inheritance removal breaks the directory's
+      // own delete permission chain. Secure the state files individually instead.
     }
   }
 
@@ -340,13 +348,21 @@ export function createChatGptAdvisorService(options) {
     if (!existsSync(tarball)) {
       throw new AdvisorError("FORK_TARBALL_MISSING", "surf-chatgpt-advisor tarball is missing", 412);
     }
-    if (existsSync(forkDir)) rmSync(forkDir, { recursive: true, force: true });
-    mkdirSync(forkDir, { recursive: true });
+    const tmpDir = `${forkDir}.${process.pid}.${Date.now()}`;
+    // If a previous extraction is locked, stage into a fresh temp dir and swap.
+    if (existsSync(forkDir)) {
+      try {
+        rmSync(forkDir, { recursive: true, force: true });
+      } catch {
+        // best effort; extraction into tmpDir will still produce a usable forkDir after rename
+      }
+    }
+    mkdirSync(tmpDir, { recursive: true });
     // Windows tar (bsdtar) misinterprets drive-letter absolute paths; run with
     // cwd = integrations dir and pass both tarball and target as relative.
     const result = spawnSync(
       "tar",
-      ["-xzf", `${FORK_PKG}.tgz`, "-C", FORK_PKG, "--strip-components=1"],
+      ["-xzf", `${FORK_PKG}.tgz`, "-C", basename(tmpDir), "--strip-components=1"],
       {
         cwd: join(repoRoot, "integrations"),
         stdio: "pipe",
@@ -356,8 +372,13 @@ export function createChatGptAdvisorService(options) {
       },
     );
     if (result.status !== 0) {
+      try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
       throw new AdvisorError("FORK_EXTRACT_FAILED", `fork extraction failed: ${result.stderr || result.stdout || "unknown"}`, 500);
     }
+    if (existsSync(forkDir)) {
+      try { rmSync(forkDir, { recursive: true, force: true }); } catch {}
+    }
+    renameSync(tmpDir, forkDir);
     log("Surf fork extracted");
   }
 
@@ -450,7 +471,6 @@ export function createChatGptAdvisorService(options) {
     const wrapperBat = join(wrapperDir, "host-wrapper.bat");
     const wrapperContent = `@echo off\r\n"${nodePath}" "${hostPath}" %*\r\n`;
     writeFileSync(wrapperBat, wrapperContent, { encoding: "utf8" });
-    restrictDir(wrapperBat);
 
     const manifestDir = join(advisorRoot, "native-host", "manifest");
     mkdirSync(manifestDir, { recursive: true });
@@ -466,13 +486,19 @@ export function createChatGptAdvisorService(options) {
 
     // Windows registers native messaging hosts via the registry.
     const regPath = `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${HOST_NAME}`;
-    const reg = spawnSync("reg", ["add", regPath, "/ve", "/t", "REG_SZ", "/d", manifestPath, "/f"], {
-      stdio: "pipe",
-      windowsHide: true,
-      encoding: "utf8",
-    });
+    let reg;
+    try {
+      reg = spawnSync("reg", ["add", regPath, "/ve", "/t", "REG_SZ", "/d", manifestPath, "/f"], {
+        stdio: "pipe",
+        windowsHide: true,
+        encoding: "utf8",
+      });
+    } catch (error) {
+      throw new AdvisorError("REGISTRY_FAILED", `native host registry registration failed: ${error?.message || "unknown"}`, 500);
+    }
     if (reg.status !== 0) {
-      throw new AdvisorError("REGISTRY_FAILED", `native host registry registration failed: ${reg.stderr || "unknown"}`, 500);
+      const detail = reg.stderr || reg.stdout || `exit code ${reg.status}`;
+      throw new AdvisorError("REGISTRY_FAILED", `native host registry registration failed: ${detail}`, 500);
     }
     log(`Native host registered for ${extensionId}`);
     return { wrapperBat, manifestPath, extensionId };
@@ -572,36 +598,50 @@ export function createChatGptAdvisorService(options) {
   async function setup(projectId) {
     if (disabled()) throw new AdvisorError("ADVISOR_DISABLED", "ChatGPT advisor is disabled", 409);
     if (projectId) readProject(projectId); // validate
-    if (!artifactReady()) {
-      extractFork();
-      applyRestrictedManifest();
+    try {
+      log(`setup: start projectId=${projectId || "none"}`);
+      if (!artifactReady()) {
+        log("setup: extracting fork");
+        extractFork();
+        log("setup: applying restricted manifest");
+        applyRestrictedManifest();
+      }
+      log("setup: launching dedicated Chrome");
+      const opened = await openChrome();
+      const extensionId =
+        opened.extensionId ||
+        readExtensionIdFromPreferences(chromeProfileDir) ||
+        computeExtensionIdFromPath(extensionDir);
+      if (!extensionId) throw new AdvisorError("EXTENSION_ID_TIMEOUT", "extension ID was not detected", 504);
+      log(`setup: extensionId=${extensionId}`);
+      log("setup: installing native host");
+      installNativeHost(extensionId);
+      log("setup: starting native host process");
+      await startNativeHost();
+      const deadline = now() + STARTUP_TIMEOUT_MS;
+      let connected = false;
+      while (now() < deadline) {
+        connected = await pingNativeHost();
+        if (connected) break;
+        await wait(READY_POLL_MS);
+      }
+      if (!connected) throw new AdvisorError("HOST_CONNECT_FAILED", "native host did not become reachable", 504);
+      const rt = runtime() || {};
+      writeJsonAtomic(runtimeFile, {
+        version: 1,
+        hostPid: active?.hostChild?.pid || rt.hostPid || 0,
+        chromePid: chromeProc?.pid || rt.chromePid || 0,
+        extensionId,
+        projectId: projectId || null,
+      });
+      log("ChatGPT advisor setup complete");
+      return status(projectId);
+    } catch (error) {
+      const code = error?.code || "SETUP_FAILED";
+      const message = error?.message || String(error);
+      log(`setup failed at ${code}: ${message}`);
+      throw new AdvisorError(code, message, error?.status || 500);
     }
-    const opened = await openChrome();
-    const extensionId =
-      opened.extensionId ||
-      readExtensionIdFromPreferences(chromeProfileDir) ||
-      computeExtensionIdFromPath(extensionDir);
-    if (!extensionId) throw new AdvisorError("EXTENSION_ID_TIMEOUT", "extension ID was not detected", 504);
-    installNativeHost(extensionId);
-    await startNativeHost();
-    const deadline = now() + STARTUP_TIMEOUT_MS;
-    let connected = false;
-    while (now() < deadline) {
-      connected = await pingNativeHost();
-      if (connected) break;
-      await wait(READY_POLL_MS);
-    }
-    if (!connected) throw new AdvisorError("HOST_CONNECT_FAILED", "native host did not become reachable", 504);
-    const rt = runtime() || {};
-    writeJsonAtomic(runtimeFile, {
-      version: 1,
-      hostPid: active?.hostChild?.pid || rt.hostPid || 0,
-      chromePid: chromeProc?.pid || rt.chromePid || 0,
-      extensionId,
-      projectId: projectId || null,
-    });
-    log("ChatGPT advisor setup complete");
-    return status(projectId);
   }
 
   async function stop() {

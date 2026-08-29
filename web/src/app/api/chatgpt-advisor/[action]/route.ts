@@ -67,8 +67,9 @@ async function handle(
     });
     const data = await response.json().catch(() => ({ ok: false, error: "invalid host response" }));
     return noStore(NextResponse.json(data, { status: response.status || 502 }));
-  } catch {
-    return noStore(NextResponse.json({ ok: false, state: "unavailable", error: "ホストに接続できません" }, { status: 503 }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return noStore(NextResponse.json({ ok: false, state: "unavailable", error: message }, { status: 503 }));
   }
 }
 

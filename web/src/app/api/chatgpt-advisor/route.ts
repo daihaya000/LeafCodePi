@@ -23,7 +23,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     });
     const body = await response.json().catch(() => ({ ok: false, state: "unavailable" }));
     return noStore(NextResponse.json(body, { status: response.ok ? response.status : response.status || 503 }));
-  } catch {
-    return noStore(NextResponse.json({ ok: false, state: "unavailable", error: "ホストに接続できません" }, { status: 503 }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return noStore(NextResponse.json({ ok: false, state: "unavailable", error: message }, { status: 503 }));
   }
 }
