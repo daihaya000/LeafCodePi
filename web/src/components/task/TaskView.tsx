@@ -17,7 +17,6 @@ import {
   Zap,
 } from "lucide-react";
 import { Composer, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
-import { CollaborationBadge, CollaborationNotice, useCollaborationRoom } from "@/components/CollaborationStatus";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { pasteImage } from "@/lib/clipboard-image";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
@@ -405,7 +404,6 @@ export function TaskView({
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequestDto | null>(null);
   const [questionRequest, setQuestionRequest] = useState<QuestionRequestDto | null>(null);
   const [permissionBusy, setPermissionBusy] = useState(false);
-  const { room: collaborationRoom, refresh: refreshCollaborationRoom } = useCollaborationRoom(active ? task?.projectId : null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
@@ -1485,12 +1483,6 @@ export function TaskView({
           <div className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-[11px] text-faint sm:hidden">
             {displayedStatus && <StatusBadge status={displayedStatus} />}
             {contextUsage && <ContextUsageMeter usage={contextUsage} />}
-            <CollaborationBadge
-              projectId={task?.projectId}
-              room={collaborationRoom ?? undefined}
-              className="sm:hidden"
-              onResolved={() => void refreshCollaborationRoom()}
-            />
           </div>
           <div className="mt-0.5 hidden min-w-0 items-center gap-1 text-xs text-faint sm:flex">
             {displayedStatus && <StatusBadge status={displayedStatus} />}
@@ -1542,12 +1534,6 @@ export function TaskView({
           </div>
         </div>
         <div className="relative flex min-w-0 shrink-0 items-center gap-1">
-          <CollaborationBadge
-            projectId={task?.projectId}
-            room={collaborationRoom ?? undefined}
-            className="hidden sm:inline-flex"
-            onResolved={() => void refreshCollaborationRoom()}
-          />
           {onAddPane && (
             <Button
               variant="ghost"
@@ -1642,20 +1628,6 @@ export function TaskView({
           </div>
         </div>
       </header>
-      {collaborationRoom && (collaborationRoom.leaseConflicts > 0 || collaborationRoom.pendingAsks > 0 || !collaborationRoom.ready) && (
-        <div
-          className={cx(
-            "shrink-0 border-b border-warning/40 bg-warning-bg px-3 py-2 md:px-4",
-            mobilePanelOpen && "hidden",
-          )}
-        >
-          <CollaborationNotice
-            projectId={active ? task?.projectId : null}
-            room={collaborationRoom}
-            onResolved={() => void refreshCollaborationRoom()}
-          />
-        </div>
-      )}
       <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
         <div
           ref={scrollRef}

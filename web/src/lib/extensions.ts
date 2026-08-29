@@ -29,16 +29,6 @@ import {
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
-import {
-  LEAFCODE_COLLABORATION_TOOL_NAMES,
-  LEAFCODE_STRICT_BLOCKED_TOOL_NAMES,
-} from "@/lib/collaboration";
-
-export {
-  LEAFCODE_COLLABORATION_EXTENSION_NAME,
-  LEAFCODE_COLLABORATION_TOOL_NAMES,
-  LEAFCODE_STRICT_BLOCKED_TOOL_NAMES,
-} from "@/lib/collaboration";
 
 export type ExtensionDto = {
   id: string;
@@ -104,6 +94,9 @@ const emptyState = (): ExtensionsState => {
   return { disabled: {} };
 };
 
+// Prevent a removed bundled extension from being revived by a stale global copy.
+const RETIRED_EXTENSION_NAMES = new Set(["leafcode-collaboration"]);
+
 /** LeafCodePi の WebUI が依存する拡張。無効化禁止。 */
 export function isWebUiRequiredExtension(name: string): boolean {
   return name.startsWith("leafcode-");
@@ -156,22 +149,11 @@ export function filterExtensionsByState<T extends { path: string }>(
   extensions: readonly T[],
   state = readExtensionsState(),
 ): T[] {
-  if (Object.keys(state.disabled).length === 0) return [...extensions];
   return extensions.filter((extension) => {
     const name = basenameKey(extension.path);
-    return isWebUiRequiredExtension(name) || state.disabled[name] !== true;
+    return !RETIRED_EXTENSION_NAMES.has(name) &&
+      (isWebUiRequiredExtension(name) || state.disabled[name] !== true);
   });
-}
-
-export function applyCollaborationToolPolicy(
-  tools: readonly string[],
-  mode: "strict" | "permissive" | "off",
-): string[] {
-  if (mode === "off") return [...new Set(tools)];
-  const filtered = mode === "strict"
-    ? tools.filter((tool) => !(LEAFCODE_STRICT_BLOCKED_TOOL_NAMES as readonly string[]).includes(tool))
-    : [...tools];
-  return [...new Set([...filtered, ...LEAFCODE_COLLABORATION_TOOL_NAMES])];
 }
 
 /**
@@ -369,6 +351,7 @@ export function listExtensions(
   }
 
   const extensions = [...byName.values()]
+    .filter((entry) => !RETIRED_EXTENSION_NAMES.has(entry.name))
     .map(
       (entry): ExtensionDto => ({
         id: entry.name,

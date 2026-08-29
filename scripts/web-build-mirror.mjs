@@ -37,8 +37,8 @@ import { fileURLToPath } from "node:url";
  * Hazard: a hard link shares its contents with the source, so anything the
  * build writes in place would also rewrite the repository's file. Only ignored
  * dependencies under `node_modules/` are linked. Repository-owned files are
- * copied so leafcode-collaboration can mutate them (hard-linked files are
- * rejected at nlink > 1).
+ * copied so build tooling can mutate them (hard-linked files are rejected at
+ * nlink > 1).
  *
  * Unlike LeafCode this mirrors only `web/`, not the whole installation:
  * next.config.ts here imports nothing above `web/` and pins

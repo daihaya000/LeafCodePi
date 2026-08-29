@@ -2,13 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   sameHealth,
   sameProjectList,
-  sameRooms,
   sameTaskList,
   reorderProjectIds,
   tasksForSidebar,
 } from "./Sidebar";
 import type { GoalLoopSummaryDto, HealthDto, ProjectDto, TaskSummary } from "@/lib/types";
-import type { CollaborationRoomSummary } from "@/lib/collaboration-room";
 
 function task(id: string, status: TaskSummary["status"], title: string): TaskSummary {
   return {
@@ -135,28 +133,5 @@ describe("sameHealth", () => {
 
   it("detects an engineOk change", () => {
     expect(sameHealth(healthy, { ...healthy, engineOk: false })).toBe(false);
-  });
-});
-
-describe("sameRooms", () => {
-  const room: CollaborationRoomSummary = {
-    ready: true,
-    peers: 1,
-    sessionNames: ["A"],
-    leaseConflicts: 0,
-    pendingAsks: 0,
-    epoch: 3,
-  };
-
-  it("detects identical rooms", () => {
-    expect(sameRooms({ p1: room }, { p1: { ...room } })).toBe(true);
-  });
-
-  it("detects a peer change", () => {
-    expect(sameRooms({ p1: room }, { p1: { ...room, peers: 2 } })).toBe(false);
-  });
-
-  it("detects a removed room", () => {
-    expect(sameRooms({ p1: room }, {})).toBe(false);
   });
 });

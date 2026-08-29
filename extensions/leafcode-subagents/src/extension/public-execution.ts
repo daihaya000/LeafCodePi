@@ -1,5 +1,3 @@
-import { readCollaborationConfig } from "../../../leafcode-collaboration/config.ts";
-
 export interface PublicSubagentExecutionParams {
 	action?: unknown;
 	agent?: unknown;
@@ -34,13 +32,6 @@ export type PublicSubagentExecutionNormalization<T> =
  * Internal runs.run children and structured owned delegation bypass this boundary.
  */
 export function normalizePublicSubagentExecution<T extends PublicSubagentExecutionParams>(params: T, options: { asyncByDefault?: boolean } = {}): PublicSubagentExecutionNormalization<T> {
-  const strictCollaboration = readCollaborationConfig().config.mode === "strict";
-  if (strictCollaboration && (params.worktree === true || params.isolation === "worktree")) {
-		return { ok: false, error: "LeafCode collaboration strict mode does not support worktree isolation.", mode: params.workflowScript !== undefined ? "workflow" : "management" };
-  }
-  if (strictCollaboration && typeof params.workflowScript === "string" && params.workflowScript.trim()) {
-		return { ok: false, error: "LeafCode collaboration strict mode does not accept unverified workflow scripts; use structured child execution.", mode: "workflow" };
-  }
   if (params.isolation !== undefined) {
 		if (params.isolation !== "none" && params.isolation !== "worktree") {
 			return { ok: false, error: "isolation must be 'none' or 'worktree'.", mode: params.workflowScript !== undefined ? "workflow" : "management" };

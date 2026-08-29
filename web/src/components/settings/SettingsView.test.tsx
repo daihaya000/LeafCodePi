@@ -62,9 +62,6 @@ vi.mock("@/components/settings/SkillsSettings", () => ({
 vi.mock("@/components/settings/AgentsSettings", () => ({
   AgentsSettings: () => <h2>エージェント</h2>,
 }));
-vi.mock("@/components/settings/CollaborationSettings", () => ({
-  CollaborationSettings: () => <h2>協調</h2>,
-}));
 vi.mock("@/components/settings/ExtensionsSettings", () => ({
   ExtensionsSettings: () => <h2>拡張機能</h2>,
 }));

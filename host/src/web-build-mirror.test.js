@@ -103,7 +103,7 @@ test("tsconfig.json is copied, not hard-linked, so a build cannot rewrite the re
   }
 });
 
-test("repository-owned web files are copied so collaboration can mutate them", () => {
+test("repository-owned web files are copied so build tooling can mutate them", () => {
   const { root, source, mirror } = sandbox();
   try {
     mkdirSync(join(source, "src"), { recursive: true });

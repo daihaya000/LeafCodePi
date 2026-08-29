@@ -48,11 +48,6 @@ import {
 	getAgentDir,
 } from "../../shared/utils.ts";
 import {
-	LEAFCODE_COLLABORATION_TOOL_NAMES,
-	LEAFCODE_STRICT_BLOCKED_TOOL_NAMES,
-} from "../../../../leafcode-collaboration/contract.ts";
-import { readCollaborationConfig } from "../../../../leafcode-collaboration/config.ts";
-import {
 	encodePermissionRules,
 	PERMISSION_AUDIT_PATH_ENV,
 	PERMISSION_POLICY_ENV,
@@ -107,15 +102,6 @@ const FANOUT_CHILD_EXTENSION_PATH = path.join(
 	"..",
 	"extension",
 	"fanout-child.ts",
-);
-export const LEAFCODE_COLLABORATION_EXTENSION_PATH = path.join(
-	path.dirname(fileURLToPath(import.meta.url)),
-	"..",
-	"..",
-	"..",
-	"..",
-	"leafcode-collaboration",
-	"index.ts",
 );
 export const SUBAGENT_CHILD_ENV = "PI_SUBAGENT_CHILD";
 export const SUBAGENT_ORCHESTRATOR_TARGET_ENV =
@@ -401,14 +387,6 @@ export function resolvePiLaunchToolPlan(
 			(tool) =>
 				!(tool.includes("/") || tool.endsWith(".ts") || tool.endsWith(".js")),
 		) ?? [];
-	const collaborationMode = readCollaborationConfig().config.mode;
-	const collaborationEnabled = collaborationMode !== "off";
-	const strictMode = collaborationMode === "strict";
-	const strictBlockedTools = LEAFCODE_STRICT_BLOCKED_TOOL_NAMES as readonly string[];
-	const effectiveRequestedBuiltinTools = strictMode
-		? requestedBuiltinTools.filter((tool) => !strictBlockedTools.includes(tool))
-		: requestedBuiltinTools;
-	const defaultStrictBuiltinTools = ["read", "grep", "find", "ls"];
 	if (input.requireReadTool && allowedToolSet && !allowedToolSet.has("read")) {
 		throw new Error(
 			`Capability ceiling from ${capabilityCeiling?.sources.join(", ") || "unknown source"} excludes required tool 'read' for lazy skill loading.`,
@@ -417,16 +395,14 @@ export function resolvePiLaunchToolPlan(
 	const declaredBuiltinTools =
 		input.tools === undefined
 			? allowedToolSet
-				? [...allowedToolSet].filter((tool) => !strictMode || !strictBlockedTools.includes(tool))
-				: strictMode
-					? defaultStrictBuiltinTools
-					: []
+				? [...allowedToolSet]
+				: []
 			: (input.requireReadTool &&
-				effectiveRequestedBuiltinTools.length > 0 &&
-				!effectiveRequestedBuiltinTools.includes("read") &&
+				requestedBuiltinTools.length > 0 &&
+				!requestedBuiltinTools.includes("read") &&
 				!allowedToolSet
-					? ["read", ...effectiveRequestedBuiltinTools]
-					: effectiveRequestedBuiltinTools
+					? ["read", ...requestedBuiltinTools]
+					: requestedBuiltinTools
 				).filter((tool) => !allowedToolSet || allowedToolSet.has(tool));
 	const fanoutAuthorized = declaredBuiltinTools.includes("subagent");
 	const toolExtensionPaths: string[] = capabilityCeiling?.denyExtensions
@@ -446,18 +422,15 @@ export function resolvePiLaunchToolPlan(
 		(selection) => selection.name,
 	);
 	const explicitToolAllowlist =
-		strictMode ||
 		input.tools !== undefined ||
 		(input.mcpDirectTools?.length ?? 0) > 0 ||
 		allowedToolSet !== undefined;
 	const internalTools = input.structuredOutput ? ["structured_output"] : [];
-	const mandatoryChildTools = collaborationEnabled ? [...LEAFCODE_COLLABORATION_TOOL_NAMES] : [];
 	const effectiveToolAllowlist = [
 		...new Set([
 			...declaredBuiltinTools,
 			...effectiveMcpTools,
 			...internalTools,
-			...mandatoryChildTools,
 		]),
 	];
 	// Supervisor-coordination names stay in the --tools allowlist but are never
@@ -467,19 +440,19 @@ export function resolvePiLaunchToolPlan(
 	// legacy plumbing, not a user demand for an external intercom provider;
 	// a lone intercom entry stays strictly required (#1207).
 	const legacySupervisorPairing = declaredBuiltinTools.includes("contact_supervisor");
-	const requiredChildTools = [
-		...new Set([
-			...mandatoryChildTools,
-			...(input.tools !== undefined ? declaredBuiltinTools : []),
-			...(input.mcpDirectTools?.length ? effectiveMcpTools : []),
-			...internalTools,
-		].filter((tool) => tool !== "contact_supervisor" && (!legacySupervisorPairing || tool !== "intercom"))),
-	];
+	const requiredChildTools = explicitToolAllowlist
+		? [
+				...new Set([
+					...(input.tools !== undefined ? declaredBuiltinTools : []),
+					...(input.mcpDirectTools?.length ? effectiveMcpTools : []),
+					...internalTools,
+				].filter((tool) => tool !== "contact_supervisor" && (!legacySupervisorPairing || tool !== "intercom"))),
+			]
+		: [];
 	const permSystemExt = capabilityCeiling?.denyExtensions
 		? undefined
 		: resolvePermissionSystemExtension();
 	const runtimeExtensions = [
-		...(collaborationEnabled ? [LEAFCODE_COLLABORATION_EXTENSION_PATH] : []),
 		PROMPT_RUNTIME_EXTENSION_PATH,
 		...(fanoutAuthorized ? [FANOUT_CHILD_EXTENSION_PATH] : []),
 		...(permSystemExt ? [permSystemExt] : []),

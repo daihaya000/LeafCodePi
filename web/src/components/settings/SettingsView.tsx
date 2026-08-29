@@ -12,7 +12,6 @@ import { MemorySettings } from "@/components/settings/MemorySettings";
 import { CompactionSettings } from "@/components/settings/CompactionSettings";
 import { NavigatorSettings } from "@/components/settings/NavigatorSettings";
 import { SkillsSettings } from "@/components/settings/SkillsSettings";
-import { CollaborationSettings } from "@/components/settings/CollaborationSettings";
 import { ExtensionsSettings } from "@/components/settings/ExtensionsSettings";
 import { McpSettings } from "@/components/settings/McpSettings";
 import { AgentsSettings } from "@/components/settings/AgentsSettings";
@@ -36,7 +35,7 @@ const GENERAL_SECTIONS: readonly {
   { id: "basic", label: "基本", description: "表示・通知に関する設定" },
   { id: "response", label: "応答", description: "翻訳・圧縮・自動再開に関する設定" },
   { id: "agents", label: "エージェント環境", description: "AGENTS.md・メモリ・スキル・エージェントの管理" },
-  { id: "integrations", label: "拡張・連携", description: "拡張機能・MCP・協調の設定" },
+  { id: "integrations", label: "拡張・連携", description: "拡張機能・MCPの設定" },
 ];
 
 function isGeneralSection(value: string): value is GeneralSection {
@@ -234,7 +233,6 @@ export function SettingsView() {
                     )}
                     {id === "integrations" && (
                       <div className="space-y-4">
-                        <CollaborationSettings />
                         <ExtensionsSettings />
                         <McpSettings />
                       </div>

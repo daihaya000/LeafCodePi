@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLlamaServerService } from './llama-server-service.js';
 
-/** @returns {any} deps with every collaborator stubbed. */
+/** @returns {any} deps with every dependency stubbed. */
 function makeDeps(overrides = {}) {
   return {
     batPath: 'C:\\fake\\llama-server-load.bat',

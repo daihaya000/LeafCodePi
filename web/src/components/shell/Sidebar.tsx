@@ -19,7 +19,6 @@ import {
   X,
 } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
-import { CollaborationBadge } from "@/components/CollaborationStatus";
 import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
@@ -29,7 +28,6 @@ import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { HOME_TAB_ID } from "@/lib/task-panes";
 import type { HealthDto, ProjectDto, TaskSummary } from "@/lib/types";
-import type { CollaborationRoomSummary } from "@/lib/collaboration-room";
 
 type ProjectTaskMenuState = {
   projectId: string;
@@ -137,31 +135,6 @@ export function sameHealth(a: HealthDto | null, b: HealthDto): boolean {
     a.error === b.error &&
     JSON.stringify(a.warnings ?? null) === JSON.stringify(b.warnings ?? null)
   );
-}
-
-export function sameRooms(
-  a: Record<string, CollaborationRoomSummary>,
-  b: Record<string, CollaborationRoomSummary>,
-): boolean {
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) return false;
-  for (const key of aKeys) {
-    const left = a[key];
-    const right = b[key];
-    if (!right) return false;
-    if (
-      left.ready !== right.ready ||
-      left.peers !== right.peers ||
-      left.leaseConflicts !== right.leaseConflicts ||
-      left.pendingAsks !== right.pendingAsks ||
-      JSON.stringify(left.sessionNames) !== JSON.stringify(right.sessionNames) ||
-      left.epoch !== right.epoch
-    ) {
-      return false;
-    }
-  }
-  return true;
 }
 
 function projectIconTone(projectId: string): string {
@@ -371,7 +344,6 @@ export function Sidebar({
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [archivedTasks, setArchivedTasks] = useState<TaskSummary[]>([]);
   const [health, setHealth] = useState<HealthDto | null>(null);
-  const [collaborationRooms, setCollaborationRooms] = useState<Record<string, CollaborationRoomSummary>>({});
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [hoverCapable, setHoverCapable] = useState(
@@ -398,11 +370,10 @@ export function Sidebar({
   const railWidgetRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async () => {
-    const [projectRes, taskRes, healthRes, collaborationRes] = await Promise.allSettled([
+    const [projectRes, taskRes, healthRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects?archived=1"),
       getJson<{ tasks: TaskSummary[] }>("/api/tasks?archived=1"),
       getJson<HealthDto>("/api/health"),
-      getJson<{ rooms: Record<string, CollaborationRoomSummary> }>("/api/collaboration"),
     ]);
     if (taskDragActiveRef.current) return;
     if (projectRes.status === "fulfilled") {
@@ -426,11 +397,6 @@ export function Sidebar({
     }
     if (healthRes.status === "fulfilled") {
       setHealth((current) => (sameHealth(current, healthRes.value) ? current : healthRes.value));
-    }
-    if (collaborationRes.status === "fulfilled") {
-      setCollaborationRooms((current) =>
-        sameRooms(current, collaborationRes.value.rooms) ? current : collaborationRes.value.rooms,
-      );
     }
   }, []);
 
@@ -972,11 +938,6 @@ export function Sidebar({
                         </span>
                       )}
                     </button>
-                    <CollaborationBadge
-                      projectId={project.id}
-                      room={collaborationRooms[project.id]}
-                      onResolved={() => void refresh()}
-                    />
                     <button
                       type="button"
                       aria-label={`${project.name}に新規タスクを作成`}

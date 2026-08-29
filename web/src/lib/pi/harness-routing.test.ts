@@ -205,7 +205,6 @@ describe("integrated session routing", () => {
     const agentDir = join(dir, "agent");
     process.env.PI_CODING_AGENT_DIR = agentDir;
     __resetPiAgentDirCacheForTests();
-    writeFileSync(join(dir, "collaboration.json"), JSON.stringify({ mode: "off" }), "utf8");
 
     const high = createAccount({ label: "使用量大", providers: ["anthropic"] });
     const low = createAccount({ label: "使用量小", providers: ["anthropic"] });

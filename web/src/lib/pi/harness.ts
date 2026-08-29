@@ -65,14 +65,10 @@ import { filterSkillsByState } from "@/lib/skills";
 import type { SkillPermission } from "@/lib/skill-permission";
 import { sessionIdentityPatch } from "@/lib/pi/session-identity";
 import {
-  applyCollaborationToolPolicy,
   basenameKey,
   bundledExtensionEntries,
   filterExtensionsByState,
-  LEAFCODE_COLLABORATION_EXTENSION_NAME,
-  LEAFCODE_COLLABORATION_TOOL_NAMES,
 } from "@/lib/extensions";
-import { readCollaborationConfig } from "@/lib/collaboration";
 import {
   applyPermissionMode,
   readPermissionGateConfig,
@@ -1566,24 +1562,9 @@ async function createSession(options: {
   // Bundled WebUI extensions (goal-loop / todowrite / permission-gate) load
   // straight from this repository's extensions/ dir; stale same-name copies
   // under ~/.pi are dropped so they never register duplicate tools.
-  const collaborationMode = readCollaborationConfig().config.mode;
-  const collaborationEnabled = collaborationMode !== "off";
   const bundled = bundledExtensionEntries();
   const bundledNames = new Set(bundled.map((entry) => entry.name));
-  const activeBundled = bundled.filter(
-    (entry) =>
-      collaborationEnabled ||
-      entry.name !== LEAFCODE_COLLABORATION_EXTENSION_NAME,
-  );
-  const bundledPaths = new Set(activeBundled.map((entry) => entry.filePath));
-  const collaborationEntry = activeBundled.find(
-    (entry) => entry.name === LEAFCODE_COLLABORATION_EXTENSION_NAME,
-  );
-  if (collaborationEnabled && !collaborationEntry) {
-    throw new Error(
-      `Required bundled extension '${LEAFCODE_COLLABORATION_EXTENSION_NAME}' is missing; refusing to start a mutable session.`,
-    );
-  }
+  const bundledPaths = new Set(bundled.map((entry) => entry.filePath));
   // The bundled leafcode-subagents fork replaces the npm pi-subagents package:
   // drop the npm extension so the `subagent` tool is never registered twice.
   const forkOwnsSubagents = bundledNames.has("leafcode-subagents");
@@ -1599,7 +1580,7 @@ async function createSession(options: {
   const resourceLoader = new pi.DefaultResourceLoader({
     cwd: options.cwd,
     agentDir,
-    additionalExtensionPaths: activeBundled.map((entry) => entry.filePath),
+    additionalExtensionPaths: bundled.map((entry) => entry.filePath),
     skillsOverride: (base) => {
       if (agentOptions?.noSkills || skillPermissionRef.current === "deny") {
         return { skills: [], diagnostics: base.diagnostics };
@@ -1634,38 +1615,6 @@ async function createSession(options: {
     ...(agentOptions?.noContextFiles ? { noContextFiles: true } : {}),
   });
   await resourceLoader.reload();
-  const loadedExtensions = resourceLoader.getExtensions();
-  const collaborationExtension =
-    collaborationEntry &&
-    loadedExtensions.extensions.find(
-      (extension) =>
-        basenameKey(extension.resolvedPath) ===
-          LEAFCODE_COLLABORATION_EXTENSION_NAME &&
-        resolve(extension.resolvedPath) ===
-          resolve(collaborationEntry.filePath),
-    );
-  const missingCollaborationTools = LEAFCODE_COLLABORATION_TOOL_NAMES.filter(
-    (name) => !collaborationExtension?.tools.has(name),
-  );
-  if (
-    collaborationEnabled &&
-    (!collaborationExtension || missingCollaborationTools.length > 0)
-  ) {
-    const loadError = loadedExtensions.errors
-      .filter(
-        (entry) =>
-          basenameKey(entry.path) === LEAFCODE_COLLABORATION_EXTENSION_NAME,
-      )
-      .map((entry) => entry.error)
-      .join("; ");
-    throw new Error(
-      `Required collaboration extension failed to load; refusing to start a mutable session.${
-        missingCollaborationTools.length > 0
-          ? ` Missing tools: ${missingCollaborationTools.join(", ")}.`
-          : ""
-      }${loadError ? ` ${loadError}` : ""}`,
-    );
-  }
   const permissionMode =
     options.permissionMode ?? readPermissionGateConfig(options.cwd);
   const persistPermission = options.permissionMode !== undefined;
@@ -1706,10 +1655,7 @@ async function createSession(options: {
           "ls",
           "todowrite",
         ]);
-  const tools = applyCollaborationToolPolicy(
-    configuredTools,
-    collaborationMode,
-  );
+  const tools = configuredTools;
   const result = await pi.createAgentSession({
     cwd: options.cwd,
     agentDir,

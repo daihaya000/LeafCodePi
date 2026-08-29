@@ -91,7 +91,7 @@ type AccountRecord = {
 
 ### アカウントストア
 
-新規 `web/src/lib/accounts.ts`。永続化は **dataDir 配下の別ファイル `%APPDATA%\leafcode-pi\accounts.json`**（再レビューで確定。store.json への追加は避ける — `StoreFile` は閉じた型 + 厳格バリデーション（`store.ts:8-11, 44-47`）のため型・バリデーション変更が波及し、500ms キャッシュとの干渉も避けたい。`collaboration.json` と同じ分離ファイル方式）。
+新規 `web/src/lib/accounts.ts`。永続化は **dataDir 配下の別ファイル `%APPDATA%\leafcode-pi\accounts.json`**（再レビューで確定。store.json への追加は避ける — `StoreFile` は閉じた型 + 厳格バリデーション（`store.ts:8-11, 44-47`）のため型・バリデーション変更が波及し、500ms キャッシュとの干渉も避けたい。分離ファイル方式）。
 
 - `listAccounts()` / `getAccount(id)` / `createAccount(input)` / `patchAccount(id, patch)` / `deleteAccount(id)`
 - パス解決: `accountAuthPath(id)` = `join(getAgentDir(), "accounts", id, "auth.json")`（Pi の `getAgentDir` に合わせる）
@@ -181,7 +181,7 @@ CodexBar の詳細な設計・実装順序・API/UI 契約は [`codexbar-multi-a
 
 ## 既存機能との関係
 
-- **共有プロバイダーの API キー / 環境変数 / default OAuth / 拡張（subagents・goal-loop・todowrite・permission-gate・collaboration・question）/ llama-server はそのまま**。マルチアカウント対応プロバイダーの認証・モデル候補はアカウント単位で扱う
+- **共有プロバイダーの API キー / 環境変数 / default OAuth / 拡張（subagents・goal-loop・todowrite・permission-gate・question）/ llama-server はそのまま**。マルチアカウント対応プロバイダーの認証・モデル候補はアカウント単位で扱う
 - CodexBar の利用量表示は CLI の `~/.codex/auth.json` / `~/.claude/.credentials.json` 由来で、Pi の auth.json に依存しないため、アカウント切替と干渉しない（別ブラウザプロファイルではなく「別認証トークン」の概念）。Phase 7 で Pi 統合するまでは現状のまま
 - Pi CLI と WebUI のログインは同居可（default の auth.json を共有するだけ）
 - Pi メインセッションツール（read/think/powershell 等）・llama-server はアカウント外（従来どおり shared）

@@ -13,10 +13,6 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    // 24コア機でもテスト全体の実行時間は worker 数に応じて頭打ちになる
-    // （collaboration-room が協調処理で subprocess を多用し CPU 競合を起こす）。
-    // 実測: デフォルト(24) 27.5s → 8 で 24.9s（約9%改善）。
-    maxWorkers: 8,
     // シェル環境の NODE_ENV=production 継承で production react ビルドが読まれ、
     // React.act が未定義になるためテストでは強制上書きする。
     env: {

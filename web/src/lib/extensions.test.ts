@@ -2,9 +2,8 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, describe, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
-  applyCollaborationToolPolicy,
   basenameKey,
   extensionsStatePath,
   filterExtensionsByState,
@@ -52,35 +51,23 @@ describe("filterExtensionsByState", () => {
   it("keeps required extensions even if stale state tries to disable them", () => {
     const filtered = filterExtensionsByState(
       [
+        { path: "C:\\pi\\extensions\\leafcode-goal-loop\\index.ts" },
+        { path: "C:\\pi\\extensions\\other.js" },
+      ],
+      { disabled: { "leafcode-goal-loop": true, other: true } },
+    );
+    assert.deepEqual(filtered.map((entry) => entry.path), ["C:\\pi\\extensions\\leafcode-goal-loop\\index.ts"]);
+  });
+
+  it("drops retired extensions even when no state disables them", () => {
+    const filtered = filterExtensionsByState(
+      [
         { path: "C:\\pi\\extensions\\leafcode-collaboration\\index.ts" },
         { path: "C:\\pi\\extensions\\other.js" },
       ],
-      { disabled: { "leafcode-collaboration": true, other: true } },
+      { disabled: {} },
     );
-    assert.deepEqual(filtered.map((entry) => entry.path), ["C:\\pi\\extensions\\leafcode-collaboration\\index.ts"]);
-  });
-});
-
-describe("applyCollaborationToolPolicy", () => {
-  it("hides mutation-capable standard tools and adds mandatory custom tools in strict mode", () => {
-    assert.deepEqual(
-      applyCollaborationToolPolicy(["read", "write", "edit", "bash", "powershell", "read"], "strict"),
-      ["read", "leafcode_collab", "leafcode_write", "leafcode_edit", "leafcode_check", "leafcode_commit"],
-    );
-  });
-
-  it("keeps standard tools in permissive mode while still loading collaboration tools", () => {
-    assert.deepEqual(
-      applyCollaborationToolPolicy(["read", "write"], "permissive"),
-      ["read", "write", "leafcode_collab", "leafcode_write", "leafcode_edit", "leafcode_check", "leafcode_commit"],
-    );
-  });
-
-  it("keeps only the configured tools when collaboration is off", () => {
-    assert.deepEqual(
-      applyCollaborationToolPolicy(["read", "write", "edit", "bash", "powershell", "read"], "off"),
-      ["read", "write", "edit", "bash", "powershell"],
-    );
+    assert.deepEqual(filtered.map((entry) => entry.path), ["C:\\pi\\extensions\\other.js"]);
   });
 });
 
@@ -130,6 +117,13 @@ describe("listExtensions / setExtensionEnabled", () => {
     expectNames(listed.extensions, ["one", "ponytail"]);
     assert.equal(listed.extensions.every((e) => e.enabled), true);
     assert.equal(listed.extensionsDir, join(agent, "extensions"));
+  });
+
+  it("hides a retired extension from the extension list", () => {
+    const { agentDir: agent } = fixture();
+    writeExtension(join(agent, "extensions"), "leafcode-collaboration");
+
+    expect(listExtensions(agent).extensions.map((entry) => entry.name)).not.toContain("leafcode-collaboration");
   });
 
   it("toggles extensions via extensions-state.json", () => {
