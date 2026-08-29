@@ -591,12 +591,14 @@ export function Sidebar({
 
   const handleProjectDrop = useCallback(
     (event: React.DragEvent<HTMLElement>, targetId: string) => {
-      event.preventDefault();
       const sourceId = projectDragIdFromDataTransfer(event.dataTransfer) || draggedProjectId;
+      // Do not consume task/external drops that bubble through the project row.
+      if (!sourceId) return;
+      event.preventDefault();
       const rect = event.currentTarget.getBoundingClientRect();
       const placement: ProjectDropPlacement =
         event.clientY >= rect.top + rect.height / 2 ? "after" : "before";
-      if (sourceId && reorderProjects(sourceId, targetId, placement)) {
+      if (reorderProjects(sourceId, targetId, placement)) {
         const source = orderedProjects.find((project) => project.id === sourceId);
         const target = orderedProjects.find((project) => project.id === targetId);
         if (source && target) {
@@ -899,17 +901,26 @@ export function Sidebar({
               return (
                 <li key={project.id}>
                   <div
+                    data-project-row={project.id}
                     className={cx(
                       "flex items-center gap-0.5 rounded-lg",
+                      draggedProjectId === project.id && "opacity-50",
                       dragOverProjectId === project.id && draggedProjectId !== project.id && "bg-surface-3",
                     )}
                     onDragOver={(event) => handleProjectDragOver(event, project.id)}
+                    onDragLeave={(event) => {
+                      const relatedTarget = event.relatedTarget;
+                      if (!(relatedTarget instanceof Node) || !event.currentTarget.contains(relatedTarget)) {
+                        setDragOverProjectId((current) => (current === project.id ? null : current));
+                      }
+                    }}
                     onDrop={(event) => handleProjectDrop(event, project.id)}
                   >
                     <button
                       type="button"
                       aria-expanded={open}
                       aria-label={`${project.name}を${open ? "折りたたむ" : "展開"}`}
+                      aria-grabbed={draggedProjectId === project.id || keyboardDraggedProjectId === project.id}
                       draggable={orderedProjects.length > 1}
                       onDragStart={(event) => handleProjectDragStart(event, project.id)}
                       onDragEnd={handleProjectDragEnd}
