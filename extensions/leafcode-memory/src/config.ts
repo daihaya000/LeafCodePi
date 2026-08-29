@@ -49,7 +49,7 @@ const DEFAULT_CONFIG: MemoryConfig = {
   reviewRecentMessages: DEFAULT_REVIEW_RECENT_MESSAGES,
   reviewEnabled: true,
   reviewTransport: "direct",
-  flushOnCompact: true,
+  flushOnCompact: false,
   flushOnShutdown: true,
   flushMinTurns: DEFAULT_FLUSH_MIN_TURNS,
   flushRecentMessages: DEFAULT_FLUSH_RECENT_MESSAGES,

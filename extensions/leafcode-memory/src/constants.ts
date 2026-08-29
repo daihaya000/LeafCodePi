@@ -29,8 +29,8 @@ export const DEFAULT_MAX_MESSAGE_CONTENT_LENGTH = 100 * 1024;
 export const DEFAULT_NUDGE_INTERVAL = 10;
 export const DEFAULT_FLUSH_MIN_TURNS = 6;
 export const DEFAULT_NUDGE_TOOL_CALLS = 15;
-export const DEFAULT_REVIEW_RECENT_MESSAGES = 0;
-export const DEFAULT_FLUSH_RECENT_MESSAGES = 0;
+export const DEFAULT_REVIEW_RECENT_MESSAGES = 50;
+export const DEFAULT_FLUSH_RECENT_MESSAGES = 50;
 /**
  * A consolidation run pays child-process boot plus a full LLM turn, which
  * routinely exceeds 60s — at the old 60s default the auto path was killed

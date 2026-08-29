@@ -21,13 +21,13 @@ describe("loadConfig", () => {
     assert.strictEqual(config.memoryCharLimit, 5000);
     assert.strictEqual(config.userCharLimit, 5000);
     assert.strictEqual(config.nudgeInterval, 10);
-    assert.strictEqual(config.reviewRecentMessages, 0);
+    assert.strictEqual(config.reviewRecentMessages, 50);
     assert.strictEqual(config.reviewEnabled, true);
     assert.strictEqual(config.reviewTransport, "direct");
-    assert.strictEqual(config.flushOnCompact, true);
+    assert.strictEqual(config.flushOnCompact, false);
     assert.strictEqual(config.flushOnShutdown, true);
     assert.strictEqual(config.flushMinTurns, 6);
-    assert.strictEqual(config.flushRecentMessages, 0);
+    assert.strictEqual(config.flushRecentMessages, 50);
     assert.strictEqual(config.memoryOverflowStrategy, "auto-consolidate");
     assert.strictEqual(config.autoConsolidate, true);
     assert.strictEqual(config.consolidationTimeoutMs, 180000);
@@ -114,8 +114,8 @@ describe("loadConfig", () => {
     assert.strictEqual(config.memoryMode, "policy-only");
     assert.strictEqual(config.memoryPolicyStyle, "full");
     assert.strictEqual(config.memoryCharLimit, 5000); // default
-    assert.strictEqual(config.reviewRecentMessages, 0);
-    assert.strictEqual(config.flushRecentMessages, 0);
+    assert.strictEqual(config.reviewRecentMessages, 50);
+    assert.strictEqual(config.flushRecentMessages, 50);
     assert.strictEqual(config.failureInjectionEnabled, true);
     assert.strictEqual(config.failureInjectionMaxAgeDays, 7);
     assert.strictEqual(config.failureInjectionMaxEntries, 5);
@@ -217,8 +217,8 @@ describe("loadConfig", () => {
       flushRecentMessages: "5",
     }));
     const config = loadConfig(TEST_CONFIG_PATH);
-    assert.strictEqual(config.reviewRecentMessages, 0);
-    assert.strictEqual(config.flushRecentMessages, 0);
+    assert.strictEqual(config.reviewRecentMessages, 50);
+    assert.strictEqual(config.flushRecentMessages, 50);
   });
 
   it("handles empty file gracefully (falls back to defaults)", () => {

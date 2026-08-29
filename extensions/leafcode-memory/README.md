@@ -490,7 +490,7 @@ Create `~/.pi/agent/leafcode-memory-config.json`:
   "llmThinkingOverride": "off",
   "nudgeInterval": 10,
   "nudgeToolCalls": 15,
-  "reviewRecentMessages": 0,
+  "reviewRecentMessages": 50,
   "reviewEnabled": true,
   "reviewTransport": "direct",
   "memoryOverflowStrategy": "auto-consolidate",
@@ -502,10 +502,10 @@ Create `~/.pi/agent/leafcode-memory-config.json`:
   "consolidationTimeoutMs": 180000,
   "overflowGraceMs": 180000,
   "autoConsolidationWarnOnFailure": true,
-  "flushOnCompact": true,
+  "flushOnCompact": false,
   "flushOnShutdown": true,
   "flushMinTurns": 6,
-  "flushRecentMessages": 0,
+  "flushRecentMessages": 50,
   "standingInstructionsEnabled": true
 }
 ```
@@ -527,7 +527,7 @@ Create `~/.pi/agent/leafcode-memory-config.json`:
 | `childExtensionPaths` | unset | Trusted provider/auth adapter entry paths explicitly allowed in isolated child Pi processes; sibling packages matching the `*-oauth-adapter`/`*-auth-adapter` naming convention (including scoped packages, via their `package.json` `pi.extensions` manifest) are detected automatically — this setting is only needed for adapters that don't match that convention. In-process direct transport (the default for review/flush/correction/consolidation) doesn't need this at all, since it reads whatever provider auth is already registered |
 | `nudgeInterval` | `10` | Turns between auto-reviews |
 | `nudgeToolCalls` | `15` | Tool calls between auto-reviews (OR with turns) |
-| `reviewRecentMessages` | `0` | Recent messages included in background review (`0` = all) |
+| `reviewRecentMessages` | `50` | Recent messages included in background review (`0` = all) |
 | `reviewEnabled` | `true` | Enable/disable background learning loop |
 | `reviewTransport` | `direct` | LLM transport for background review, session flush, correction save, and manual consolidation: `direct` uses in-process `completeSimple()` with subprocess fallback; `subprocess` forces legacy `pi -p` only |
 | `memoryOverflowStrategy` | `auto-consolidate` | Behavior when MEMORY.md, USER.md, failures.md, or project-scoped memory reaches its character limit: `auto-consolidate` runs the existing consolidation flow; `reject` returns an error; `fifo-evict` rotates older entries in file order until the new entry fits |
@@ -543,10 +543,10 @@ Create `~/.pi/agent/leafcode-memory-config.json`:
 | `failureInjectionEnabled` | `true` | Legacy mode only: enable/disable injecting recent failure memories into the system prompt |
 | `failureInjectionMaxAgeDays` | `7` | Legacy mode only: maximum age in days for injected failure memories |
 | `failureInjectionMaxEntries` | `5` | Legacy mode only: maximum number of failure memories to inject |
-| `flushOnCompact` | `true` | Flush memories before Pi compacts context |
+| `flushOnCompact` | `false` | Flush memories before Pi compacts context; disabled by default to avoid an extra LLM request |
 | `flushOnShutdown` | `true` | Flush memories when session ends |
 | `flushMinTurns` | `6` | Minimum turns before flush triggers |
-| `flushRecentMessages` | `0` | Recent messages included in session flush (`0` = all) |
+| `flushRecentMessages` | `50` | Recent messages included in session flush (`0` = all) |
 
 ## Where Data Lives
 

@@ -38,6 +38,7 @@ import { registerSessionSearchTool } from "./tools/session-search-tool.js";
 import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
 import { setupBackgroundReview } from "./handlers/background-review.js";
 import { setupSessionFlush } from "./handlers/session-flush.js";
+import { setupFastCompaction } from "./handlers/fast-compaction.js";
 import { registerInsightsCommand } from "./handlers/insights.js";
 import { triggerConsolidation, registerConsolidateCommand } from "./handlers/auto-consolidate.js";
 import { setupCorrectionDetector } from "./handlers/correction-detector.js";
@@ -271,7 +272,10 @@ export default function (pi: ExtensionAPI) {
   // ── 6. Setup session-end flush ──
   setupSessionFlush(pi, store, projectStoreRef, config, dbManager, projectNameRef);
 
-  // ── 7. Setup auto-consolidation (inject consolidator into stores) ──
+  // ── 7. Use one summary request even when a turn is split at compaction. ──
+  setupFastCompaction(pi);
+
+  // ── 8. Setup auto-consolidation (inject consolidator into stores) ──
   // Keep the failure in the tool result regardless; session-console logging is
   // separately configurable for users who already monitor tool results (#135).
   const runAutoConsolidation = async (
@@ -307,10 +311,10 @@ export default function (pi: ExtensionAPI) {
   configureProjectStore(projectStore);
   registerConsolidateCommand(pi, store, config.consolidationTimeoutMs, projectStoreRef, projectNameRef, config, dbManager);
 
-  // ── 8. Setup correction detection ──
+  // ── 9. Setup correction detection ──
   setupCorrectionDetector(pi, store, projectStoreRef, config, dbManager, projectNameRef);
 
-  // ── 9. Register commands ──
+  // ── 10. Register commands ──
   registerInsightsCommand(pi, store, projectStoreRef, projectNameRef);
   registerSkillsCommand(pi, skillStore);
   registerInterviewCommand(pi, store);
@@ -320,19 +324,19 @@ export default function (pi: ExtensionAPI) {
   registerPreviewContextCommand(pi, store, projectStoreRef, projectNameRef, config, standingStore);
   if (standingStore) registerStandingPinCommand(pi, standingStore);
 
-  // ── 10. Live session indexing ──
+  // ── 11. Live session indexing ──
   pi.on("message_end", async (_event, ctx) => {
     scheduleLiveSessionIndex(dbManager, ctx.sessionManager, {
       onError: (err) => console.warn(`⚠️ Live session indexing failed: ${err instanceof Error ? err.message : String(err)}`),
     });
   });
 
-  // ── 11. SQLite session search + extended memory ──
+  // ── 12. SQLite session search + extended memory ──
   registerSessionSearchTool(pi, dbManager, config.sessionSearch ?? { variant: "legacy" });
   registerMemorySearchTool(pi, dbManager);
   registerIndexSessionsCommand(pi);
 
-  // ── 12. Auto-index session on shutdown ──
+  // ── 13. Auto-index session on shutdown ──
   // Registered last, so this runs after the session-flush shutdown handler and
   // is the final DB activity. Closing here truncates the WAL via
   // PRAGMA wal_checkpoint(TRUNCATE); without it the WAL only grows to its

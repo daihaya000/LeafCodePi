@@ -32,19 +32,19 @@ export interface MemoryConfig {
   projectCharLimit: number;
   /** Turns between background auto-reviews. Default: 10 */
   nudgeInterval: number;
-  /** Recent conversation messages included in background review. 0 = all. Default: 0 */
+  /** Recent conversation messages included in background review. 0 = all. Default: 50 */
   reviewRecentMessages?: number;
   /** Enable background learning loop. Default: true */
   reviewEnabled: boolean;
   /** How background review invokes the LLM. Default: direct */
   reviewTransport?: ReviewTransport;
-  /** Flush memories before compaction. Default: true */
+  /** Flush memories before compaction. Default: false */
   flushOnCompact: boolean;
   /** Flush memories on session shutdown. Default: true */
   flushOnShutdown: boolean;
   /** Minimum user turns before flush triggers. Default: 6 */
   flushMinTurns: number;
-  /** Recent conversation messages included in session flush. 0 = all. Default: 0 */
+  /** Recent conversation messages included in session flush. 0 = all. Default: 50 */
   flushRecentMessages?: number;
   /** Override extension storage directory. Default: ~/.pi/agent/leafcode-memory */
   memoryDir?: string;
