@@ -50,7 +50,10 @@ import {
 } from "@/lib/pi/llama-provider";
 import { registerCursorProvider } from "@/lib/pi/cursor-provider";
 import { registerCommandCodeProvider } from "@/lib/pi/commandcode-provider";
-import { registerRemoteProvider } from "@/lib/pi/remote-provider";
+import {
+  registerRemoteProvider,
+  syncRemoteProvider,
+} from "@/lib/pi/remote-provider";
 import {
   registerOllamaCloudProvider,
   syncOllamaCloudProvider,
@@ -1945,6 +1948,11 @@ async function syncProvidersBestEffort(
         const message = error instanceof Error ? error.message : String(error);
         console.warn("[leafcode-pi] ollama-cloud provider sync failed:", message);
         return `ollama-cloud: ${message}`;
+      }),
+      syncRemoteProvider(runtime).then(() => null).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[leafcode-pi] remote-vllm provider sync failed:", message);
+        return `remote-vllm: ${message}`;
       }),
     ])
   ).filter((warning): warning is string => warning !== null);

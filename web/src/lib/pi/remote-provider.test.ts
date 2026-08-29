@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   modelRows,
   registerRemoteProvider,
+  syncRemoteProvider,
   REMOTE_PROVIDER_BASE,
 } from "./remote-provider";
 
@@ -19,6 +20,28 @@ describe("remote-provider", () => {
       contextWindow: 65_536,
       reasoning: true,
     });
+  });
+
+  it("refreshes the registered catalog", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ data: [{ id: "updated-model" }] }), {
+          status: 200,
+        }),
+      ),
+    );
+    const registerProvider = vi.fn();
+    await syncRemoteProvider({
+      getProvider: () => undefined,
+      registerProvider,
+    });
+    expect(registerProvider).toHaveBeenCalledWith(
+      "remote-vllm",
+      expect.objectContaining({
+        models: [expect.objectContaining({ id: "updated-model" })],
+      }),
+    );
   });
 
   it("registers the endpoint and discovered models", async () => {

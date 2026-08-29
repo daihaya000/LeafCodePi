@@ -72,13 +72,22 @@ async function fetchModels(): Promise<ModelRow[]> {
   }
 }
 
-export async function registerRemoteProvider(runtime: RuntimeLike): Promise<void> {
-  if (runtime.getProvider(REMOTE_PROVIDER_ID)) return;
-  runtime.registerProvider(REMOTE_PROVIDER_ID, {
+function providerConfig(models: ModelRow[]): Record<string, unknown> {
+  return {
     name: "Remote vLLM",
     baseUrl: REMOTE_PROVIDER_BASE,
     api: openAICompletionsApi(),
     apiKey: "local",
-    models: await fetchModels(),
-  });
+    models,
+  };
+}
+
+/** Re-fetch `/v1/models` and replace the registered provider catalog. */
+export async function syncRemoteProvider(runtime: RuntimeLike): Promise<void> {
+  runtime.registerProvider(REMOTE_PROVIDER_ID, providerConfig(await fetchModels()));
+}
+
+export async function registerRemoteProvider(runtime: RuntimeLike): Promise<void> {
+  if (runtime.getProvider(REMOTE_PROVIDER_ID)) return;
+  await syncRemoteProvider(runtime);
 }
