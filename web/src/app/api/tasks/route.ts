@@ -1,12 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
+import { listAccounts } from "@/lib/accounts";
 import { listTasks } from "@/lib/store";
 import {
   createTask,
   destroyArchivedTasksByProject,
   getTaskSummariesWithTodoProgress,
+  listModelsForAccounts,
   jsonError,
   listPendingAttention,
 } from "@/lib/pi/harness";
+import {
+  autoModelValue,
+  autoVariantToThinkingLevel,
+  chooseAutoModel,
+  classifyPrompt,
+  AUTO_MODEL_VALUE,
+  type AutoDecision,
+} from "@/lib/auto-model";
+import { loadAgentDefinition } from "@/lib/agents";
 import {
   clampGoalLoopCooldownSeconds,
   clampGoalLoopMaxTurns,
@@ -51,6 +62,8 @@ export async function POST(req: NextRequest) {
       prompt?: string;
       model?: string;
       thinkingLevel?: ThinkingLevel;
+      auto?: unknown;
+      variant?: unknown;
       images?: { mimeType: string; data: string }[];
       agent?: string;
       accountId?: string;
@@ -67,6 +80,25 @@ export async function POST(req: NextRequest) {
     } | null;
     if (!body?.projectId || !body.prompt?.trim()) {
       return NextResponse.json({ error: "projectId と prompt が必要です" }, { status: 400 });
+    }
+    if (body.auto !== undefined && typeof body.auto !== "boolean") {
+      return NextResponse.json({ error: "invalid auto" }, { status: 400 });
+    }
+    if (body.auto === true && body.model?.trim()) {
+      return NextResponse.json(
+        { error: "auto and model are mutually exclusive" },
+        { status: 400 },
+      );
+    }
+    if (
+      body.auto === true &&
+      typeof body.variant === "string" &&
+      body.variant.trim()
+    ) {
+      return NextResponse.json(
+        { error: "variant cannot be set with auto" },
+        { status: 400 },
+      );
     }
     if (body.goalLoop?.enabled === true && body.images?.length) {
       return NextResponse.json({ error: "Goal loop の開始では画像添付は使えません" }, { status: 400 });
@@ -93,23 +125,58 @@ export async function POST(req: NextRequest) {
         forceFullRun: body.goalLoop.forceFullRun === true,
       };
     }
+    let model = body.model;
+    let thinkingLevel = body.thinkingLevel;
+    let accountId =
+      typeof body.accountId === "string" && body.accountId.trim()
+        ? body.accountId.trim()
+        : undefined;
+    let autoDecision: AutoDecision | undefined;
+    if (body.auto === true) {
+      const agentModel = body.agent ? loadAgentDefinition(body.agent)?.model : undefined;
+      if (!agentModel) {
+        const accounts = listAccounts();
+        const models = await listModelsForAccounts(
+          accounts.map((account) => ({
+            id: account.id,
+            label: account.label,
+            providers: account.providers,
+          })),
+        );
+        const hasImages = Boolean(body.images?.length);
+        autoDecision =
+          chooseAutoModel({
+            models,
+            tier: classifyPrompt(body.prompt, { hasImages }),
+            hasImages,
+          }) ?? undefined;
+        if (!autoDecision) {
+          throw Object.assign(
+            new Error(
+              "Auto で選択可能なモデルがありません。プロバイダ接続とモデル有効化を確認してください。",
+            ),
+            { status: 400 },
+          );
+        }
+        model = autoModelValue(autoDecision);
+        thinkingLevel = autoVariantToThinkingLevel(autoDecision.variant);
+        accountId = autoDecision.accountId;
+      }
+    }
     const task = await createTask({
       projectId: body.projectId,
       prompt: body.prompt,
-      model: body.model,
-      thinkingLevel: body.thinkingLevel,
+      ...(model && model !== AUTO_MODEL_VALUE ? { model } : {}),
+      ...(thinkingLevel ? { thinkingLevel } : {}),
       images: body.images,
       agent: body.agent,
-      accountId:
-        typeof body.accountId === "string" && body.accountId.trim()
-          ? body.accountId.trim()
-          : undefined,
+      accountId,
       subagentPermission: body.subagentPermission,
       permissionMode: body.permissionMode,
       skillPermission: body.skillPermission,
       goalLoop,
     });
-    return NextResponse.json({ task });
+    return NextResponse.json({ task, ...(autoDecision ? { autoDecision } : {}) });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

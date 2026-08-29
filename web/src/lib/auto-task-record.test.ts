@@ -1,0 +1,77 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  autoTaskStorageKey,
+  readAutoTaskRecord,
+  writeAutoTaskRecord,
+} from "@/lib/auto-task-record";
+import type { AutoTaskRecord } from "@/lib/auto-task-record";
+
+class MemorySessionStorage {
+  private values = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.values.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.values.set(key, String(value));
+  }
+}
+
+const record: AutoTaskRecord = {
+  decision: {
+    providerID: "anthropic",
+    modelID: "claude-haiku-4-5",
+    accountId: "account-1",
+    variant: "minimal",
+    tier: "light",
+    mode: "cost",
+    reason: "短い質問タスクのため低コストモデルを選択しました",
+    escalation: {
+      providerID: "anthropic",
+      modelID: "claude-opus-5",
+      accountId: "account-1",
+      variant: "high",
+    },
+  },
+  prompt: "なぜこうなるの",
+  agent: "build",
+  retried: true,
+  dismissed: true,
+};
+
+beforeEach(() => {
+  (globalThis as unknown as { sessionStorage?: MemorySessionStorage }).sessionStorage =
+    new MemorySessionStorage();
+});
+
+afterEach(() => {
+  delete (globalThis as unknown as { sessionStorage?: MemorySessionStorage }).sessionStorage;
+});
+
+describe("auto-task-record", () => {
+  it("round-trips the decision and one-shot retry flags", () => {
+    expect(writeAutoTaskRecord("task-1", record)).toBe(true);
+    expect(readAutoTaskRecord("task-1")).toEqual(record);
+  });
+
+  it("ignores malformed records instead of blocking the task view", () => {
+    sessionStorage.setItem(autoTaskStorageKey("task-1"), JSON.stringify({ decision: {} }));
+    expect(readAutoTaskRecord("task-1")).toBeNull();
+
+    sessionStorage.setItem(
+      autoTaskStorageKey("task-1"),
+      JSON.stringify({
+        decision: {
+          providerID: "anthropic",
+          modelID: "claude-haiku-4-5",
+          variant: "not-a-variant",
+          tier: "light",
+          mode: "cost",
+          reason: "reason",
+        },
+      }),
+    );
+    expect(readAutoTaskRecord("task-1")).toBeNull();
+  });
+});

@@ -41,6 +41,20 @@ import {
   type QueuedFollowUp,
 } from "@/components/task/QueuedFollowUpsNotice";
 import { Button, cx, GhostSelect } from "@/components/ui";
+import {
+  AUTO_MODEL_OPTION,
+  AUTO_MODEL_VALUE,
+  autoModelValue,
+  autoVariantToThinkingLevel,
+  chooseAutoModel,
+  classifyPrompt,
+  formatAutoDecisionNotice,
+} from "@/lib/auto-model";
+import {
+  readAutoTaskRecord,
+  writeAutoTaskRecord,
+  type AutoTaskRecord,
+} from "@/lib/auto-task-record";
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { notifyTasksChanged } from "@/lib/events";
@@ -324,6 +338,11 @@ export function TaskView({
   const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelSelection, setModelSelection] = useState("");
+  const [autoRecord, setAutoRecord] = useState<AutoTaskRecord | null>(null);
+  const [autoFollowUpNotice, setAutoFollowUpNotice] = useState<string | null>(null);
+  const [autoRetrying, setAutoRetrying] = useState(false);
+  const autoRetryStatusRef = useRef<TaskStatus | undefined>(cachedSession?.status);
   const [contextUsage, setContextUsage] = useState<ContextUsageDto | undefined>(
     () => cachedSession?.contextUsage,
   );
@@ -364,6 +383,7 @@ export function TaskView({
   const [sseReconnecting, setSseReconnecting] = useState(false);
   const [agents, setAgents] = useState<ComposerReference[]>([]);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
+  const [agentModels, setAgentModels] = useState<Map<string, string>>(new Map());
   const messageReferences = useMemo(
     () => ({
       skills,
@@ -703,13 +723,20 @@ export function TaskView({
       if (!closed) setModelsLoading(false);
       /* models are optional for the timeline */
     });
-    void getJson<{ agents: { name: string; description?: string; enabled: boolean }[] }>("/api/agents").then((result) => {
+    void getJson<{ agents: { name: string; description?: string; enabled: boolean; model?: string }[] }>("/api/agents").then((result) => {
       if (!closed) {
         const enabledAgents = result.agents
           .filter((a) => a.enabled)
           .map(({ name, description }) => ({ name, description }));
         const enabledAgentNames = enabledAgents.map(({ name }) => name);
         setAgents(enabledAgents);
+        setAgentModels(
+          new Map(
+            result.agents
+              .filter((a) => a.enabled && a.model?.trim())
+              .map((a) => [a.name, a.model!.trim()]),
+          ),
+        );
         setAgent((current) => resolveAgentSelection(current, enabledAgentNames));
       }
     }).catch(() => {
@@ -807,6 +834,11 @@ export function TaskView({
     setWorktreeStatus(null);
     setPrompt("");
     setAttachments([]);
+    setModelSelection("");
+    setAutoRecord(readAutoTaskRecord(taskId));
+    setAutoFollowUpNotice(null);
+    setAutoRetrying(false);
+    autoRetryStatusRef.current = cached?.status;
     setGoalLoopEnabled(false);
     setGoalLoopAcceptance("");
     setGoalLoopMaxTurns(10);
@@ -1052,6 +1084,25 @@ export function TaskView({
           return { mimeType: attachment.mime, data: attachment.uri.slice(comma + 1) };
         })
         .filter((item): item is { mimeType: string; data: string } => item !== null);
+      const isAuto = modelValue === AUTO_MODEL_VALUE;
+      const fixedAgentModel = agent ? agentModels.get(agent)?.trim() : undefined;
+      const autoDecision =
+        isAuto && !fixedAgentModel
+          ? chooseAutoModel({
+              models,
+              tier: classifyPrompt(prompt, {
+                hasImages: images.length > 0,
+                attachmentCount: images.length,
+                historyMessageCount: messages.length,
+              }),
+              hasImages: images.length > 0,
+            })
+          : undefined;
+      if (isAuto && !fixedAgentModel && !autoDecision) {
+        throw new Error(
+          "Auto で選択可能なモデルがありません。プロバイダ接続とモデル有効化を確認してください。",
+        );
+      }
       if (goalLoopEnabled) {
         if (images.length > 0) throw new Error("Goal loop の開始では画像添付は使えません");
         await sendJson(`/api/tasks/${taskId}/goal-loop`, {
@@ -1061,12 +1112,30 @@ export function TaskView({
           maxTurns: goalLoopMaxTurns,
           cooldownSeconds: goalLoopCooldownSeconds,
           forceFullRun: goalLoopForceFullRun,
+          ...(agent ? { agent } : {}),
+          ...(autoDecision ? { auto: true } : {}),
+          ...(autoDecision
+            ? {
+                model: autoModelValue(autoDecision),
+                ...(autoVariantToThinkingLevel(autoDecision.variant)
+                  ? { thinkingLevel: autoVariantToThinkingLevel(autoDecision.variant) }
+                  : {}),
+              }
+            : {}),
         });
         setGoalLoopEnabled(false);
       } else {
         await sendJson(`/api/tasks/${taskId}/prompt`, {
           prompt,
           images,
+          ...(autoDecision
+            ? {
+                model: autoModelValue(autoDecision),
+                ...(autoVariantToThinkingLevel(autoDecision.variant)
+                  ? { thinkingLevel: autoVariantToThinkingLevel(autoDecision.variant) }
+                  : {}),
+              }
+            : {}),
           ...(agent ? { agent } : {}),
           subagentPermission,
           permissionMode,
@@ -1074,6 +1143,7 @@ export function TaskView({
           ...(working && deliveryMode === "steer" ? { streamingBehavior: "steer" } : {}),
         });
       }
+      if (autoDecision) setAutoFollowUpNotice(formatAutoDecisionNotice(autoDecision));
       setPrompt("");
       setAttachments([]);
       setIsReverted(false);
@@ -1085,6 +1155,66 @@ export function TaskView({
     }
   }
   submitRef.current = submit;
+
+  useEffect(() => {
+    const previousStatus = autoRetryStatusRef.current;
+    const currentStatus = task?.status;
+    autoRetryStatusRef.current = currentStatus;
+    const escalation = autoRecord?.decision.escalation;
+    if (
+      previousStatus === undefined ||
+      previousStatus === "error" ||
+      currentStatus !== "error" ||
+      !escalation ||
+      autoRecord?.retried ||
+      !autoRecord.prompt ||
+      autoRetrying
+    ) {
+      return;
+    }
+    const userMessages = messages.filter((message) => message.role === "user");
+    const hasCompletedAssistant = messages.some(
+      (message) =>
+        message.role === "assistant" &&
+        message.parts.some((part) => part.type === "text" && part.text.trim()),
+    );
+    if (userMessages.length > 1 || hasCompletedAssistant) return;
+
+    const nextRecord: AutoTaskRecord = { ...autoRecord, retried: true };
+    if (!writeAutoTaskRecord(taskId, nextRecord)) return;
+    setAutoRecord(nextRecord);
+    setAutoRetrying(true);
+    const retryNotice =
+      `低コストモデルでエラーが発生したため ${escalation.providerID}/${escalation.modelID} で再試行しました`;
+    const retryThinkingLevel = autoVariantToThinkingLevel(escalation.variant);
+    void sendJson(`/api/tasks/${taskId}/prompt`, {
+      prompt: autoRecord.prompt,
+      model: autoModelValue(escalation),
+      ...(retryThinkingLevel ? { thinkingLevel: retryThinkingLevel } : {}),
+      ...(autoRecord.agent ? { agent: autoRecord.agent } : {}),
+      subagentPermission,
+      permissionMode,
+      skillPermission,
+    })
+      .then(() => {
+        setAutoFollowUpNotice(retryNotice);
+        setError(null);
+        notifyTasksChanged();
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Auto 再試行に失敗しました");
+      })
+      .finally(() => setAutoRetrying(false));
+  }, [
+    autoRecord,
+    autoRetrying,
+    messages,
+    permissionMode,
+    skillPermission,
+    subagentPermission,
+    task?.status,
+    taskId,
+  ]);
 
   useEffect(() => {
     if (working || submitting || queuedAutoSend || goalLoopEnabled || goalLoopLive) return;
@@ -1211,11 +1341,17 @@ export function TaskView({
         (option) =>
           option.accountId === task.accountId &&
           option.providerID === task.providerID &&
-          option.modelID === task.modelID,
-      )
-    : undefined;
-  const modelValue = accountTaskModel?.value ?? (plainTaskModelValue || models[0]?.value || "");
-  const selectedModel = models.find((option) => option.value === modelValue);
+           option.modelID === task.modelID,
+       )
+     : undefined;
+  const modelOptions = useMemo(() => [AUTO_MODEL_OPTION, ...models], [models]);
+  const modelValue =
+    modelSelection ||
+    (autoRecord ? AUTO_MODEL_VALUE : accountTaskModel?.value ?? (plainTaskModelValue || models[0]?.value || ""));
+  const selectedModel =
+    modelValue === AUTO_MODEL_VALUE
+      ? AUTO_MODEL_OPTION
+      : models.find((option) => option.value === modelValue);
   const thinkingLevels = useMemo(
     () => selectedModel?.thinkingLevels ?? [],
     [selectedModel],
@@ -1395,6 +1531,25 @@ export function TaskView({
           autoHangRetryCount > 1 ? `（${autoHangRetryCount}回）` : ""
         }`
       : null;
+  const autoNotice =
+    autoFollowUpNotice ??
+    (autoRecord && !autoRecord.dismissed
+      ? formatAutoDecisionNotice(autoRecord.decision)
+      : null);
+  function dismissAutoNotice() {
+    if (autoFollowUpNotice) {
+      if (autoRecord?.retried) {
+        const nextRecord = { ...autoRecord, dismissed: true };
+        if (!writeAutoTaskRecord(taskId, nextRecord)) return;
+        setAutoRecord(nextRecord);
+      }
+      setAutoFollowUpNotice(null);
+      return;
+    }
+    if (!autoRecord) return;
+    const nextRecord = { ...autoRecord, dismissed: true };
+    if (writeAutoTaskRecord(taskId, nextRecord)) setAutoRecord(nextRecord);
+  }
   const modelLabels = useMemo(
     () => Object.fromEntries(models.map((option) => [option.value, option.label])),
     [models],
@@ -1642,6 +1797,22 @@ export function TaskView({
               <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
                 {hangRetryNotice}
               </p>
+            )}
+            {autoNotice && (
+              <TurnNoticeBanner
+                message={autoNotice}
+                action={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label="Auto選定通知を閉じる"
+                    onClick={dismissAutoNotice}
+                  >
+                    閉じる
+                  </Button>
+                }
+                tone="neutral"
+              />
             )}
             {visibleMessages.map((message) => (
               <div
@@ -1993,7 +2164,7 @@ export function TaskView({
           <NextAction
             taskId={taskId}
             sessionId={task.sessionId}
-            model={selectedModel}
+            model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
             invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
             disabled={compacting}
             onApply={(suggestion) => {
@@ -2063,10 +2234,17 @@ export function TaskView({
             <>
               <ModelSelect
                 value={modelValue}
-                options={models}
+                options={modelOptions}
                 disabled={working || compacting}
                 loading={modelsLoading}
                 onChange={(value) => {
+                  if (value === AUTO_MODEL_VALUE) {
+                    setModelSelection(AUTO_MODEL_VALUE);
+                    setAutoFollowUpNotice(null);
+                    return;
+                  }
+                  const previous = modelValue;
+                  setModelSelection(value);
                   void (async () => {
                     try {
                       setError(null);
@@ -2080,6 +2258,9 @@ export function TaskView({
                       }
                       notifyTasksChanged();
                     } catch (err) {
+                      setModelSelection(
+                        previous === plainTaskModelValue ? "" : previous,
+                      );
                       setError(err instanceof Error ? err.message : "モデルの切替に失敗しました");
                     }
                   })();

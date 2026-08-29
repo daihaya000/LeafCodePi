@@ -16,6 +16,12 @@ import { SkillPermissionSelect } from "@/components/SkillPermissionSelect";
 import { PermissionSelect } from "@/components/PermissionSelect";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { Button, GhostSelect } from "@/components/ui";
+import {
+  AUTO_MODEL_OPTION,
+  AUTO_MODEL_VALUE,
+  type AutoDecision,
+} from "@/lib/auto-model";
+import { AUTO_TASK_PROMPT_MAX, writeAutoTaskRecord } from "@/lib/auto-task-record";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { DEFAULT_AGENT, readStoredAgent, resolveAgentSelection, writeStoredAgent } from "@/lib/default-agent";
@@ -87,7 +93,8 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const modelsRef = useRef<ModelOption[]>([]);
 
   const selectedProject = projects.find((project) => project.id === projectId);
-  const selectedModel = models.find((option) => option.value === model);
+  const modelOptions = useMemo(() => [AUTO_MODEL_OPTION, ...models], [models]);
+  const selectedModel = modelOptions.find((option) => option.value === model);
   const thinkingLevels = useMemo(
     () => selectedModel?.thinkingLevels ?? [],
     [selectedModel],
@@ -102,14 +109,15 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
         const previousModels = modelsRef.current;
         modelsRef.current = nextModels;
         setModels(nextModels);
+        const nextOptions = [AUTO_MODEL_OPTION, ...nextModels];
         setModel((current) => {
-          const preserved = modelOptionForValue(nextModels, current);
+          const preserved = modelOptionForValue(nextOptions, current);
           if (preserved) return preserved.value;
           const previous = modelOptionForValue(previousModels, current);
-          const migrated = previous && modelOptionForValue(nextModels, previous.value);
+          const migrated = previous && modelOptionForValue(nextOptions, previous.value);
           if (migrated) return migrated.value;
           const stored = localStorage.getItem(MODEL_KEY) ?? "";
-          return modelOptionForValue(nextModels, stored)?.value ?? nextModels[0]?.value ?? "";
+          return modelOptionForValue(nextOptions, stored)?.value ?? nextModels[0]?.value ?? "";
         });
         setModelsLoading(false);
       })
@@ -209,13 +217,14 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
           return { mimeType: attachment.mime, data: attachment.uri.slice(comma + 1) };
         })
         .filter((item): item is { mimeType: string; data: string } => item !== null);
-      const result = await sendJson<{ task: TaskSummary }>("/api/tasks", {
+      const isAuto = model === AUTO_MODEL_VALUE;
+      const result = await sendJson<{ task: TaskSummary; autoDecision?: AutoDecision }>("/api/tasks", {
         projectId,
         prompt,
         // アカウントタグ付きモデルの value は「accountId::provider::model」。送信時は
         // Pi が解釈できる「provider::model」へ戻す（accountId は別フィールドで渡す）。
-        model: plainModelValue(model, models),
-        thinkingLevel,
+        ...(!isAuto ? { model: plainModelValue(model, models), thinkingLevel } : {}),
+        ...(isAuto ? { auto: true } : {}),
         images,
         ...(agent ? { agent } : {}),
         ...(selectedModel?.accountId ? { accountId: selectedModel.accountId } : {}),
@@ -234,6 +243,13 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
             }
           : {}),
       });
+      if (isAuto && result.autoDecision) {
+        writeAutoTaskRecord(result.task.id, {
+          decision: result.autoDecision,
+          ...(!images.length && prompt.length <= AUTO_TASK_PROMPT_MAX ? { prompt } : {}),
+          ...(agent ? { agent } : {}),
+        });
+      }
       localStorage.setItem(MODEL_KEY, model);
       writeStoredThinkingLevel(thinkingLevel);
       notifyTasksChanged();
@@ -356,7 +372,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                     value={model}
                     disabled={submitting}
                     loading={modelsLoading}
-                    options={models}
+                    options={modelOptions}
                     onChange={(value) => {
                       setModel(value);
                       localStorage.setItem(MODEL_KEY, value);
@@ -435,7 +451,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
             />
             <NextTaskSuggest
               projectId={projectId}
-              model={selectedModel}
+              model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
               disabled={submitting || health?.engineOk === false}
               onApply={(suggestion) => {
                 setPrompt(suggestion);

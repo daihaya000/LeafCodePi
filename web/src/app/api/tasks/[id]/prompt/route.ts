@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jsonError, promptTask } from "@/lib/pi/harness";
+import type { ThinkingLevel } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +14,8 @@ export async function POST(
     const body = (await req.json().catch(() => null)) as {
       prompt?: string;
       images?: { mimeType: string; data: string }[];
+      model?: string;
+      thinkingLevel?: ThinkingLevel;
       agent?: string;
       subagentPermission?: "allow" | "deny";
       permissionMode?: "allow" | "ask" | "deny";
@@ -29,6 +32,8 @@ export async function POST(
       return NextResponse.json({ error: "無効な送信方式です" }, { status: 400 });
     }
     const task = await promptTask(id, body.prompt ?? "", body.images, {
+      model: body.model,
+      thinkingLevel: body.thinkingLevel,
       agent: body.agent,
       subagentPermission: body.subagentPermission,
       permissionMode: body.permissionMode,

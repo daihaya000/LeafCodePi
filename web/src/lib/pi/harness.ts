@@ -3795,6 +3795,8 @@ export async function promptTask(
   images?: PromptImage[],
   options?: {
     agent?: string;
+    model?: string;
+    thinkingLevel?: ThinkingLevel;
     subagentPermission?: "allow" | "deny";
     permissionMode?: "allow" | "ask" | "deny";
     skillPermission?: SkillPermission;
@@ -3810,6 +3812,17 @@ export async function promptTask(
     if (requestedAgent !== currentAgent) {
       await setTaskAgent(id, options.agent);
     }
+  }
+  const task = getTask(id);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const agentModel = task.agent
+    ? loadAgentDefinition(task.agent)?.model
+    : undefined;
+  // A model fixed by the selected agent remains authoritative for follow-ups.
+  if (!agentModel && options?.model) await setTaskModel(id, options.model);
+  if (!agentModel && options?.thinkingLevel) {
+    await setTaskThinkingLevel(id, options.thinkingLevel);
   }
   const live = await ensureLive(id);
   applySubagentPermission(live.session, options?.subagentPermission);

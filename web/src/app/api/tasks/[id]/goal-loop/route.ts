@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { goalLoopCommand, goalLoopState, jsonError } from "@/lib/pi/harness";
+import {
+  goalLoopCommand,
+  goalLoopState,
+  jsonError,
+  setTaskModel,
+  setTaskThinkingLevel,
+} from "@/lib/pi/harness";
+import { loadAgentDefinition } from "@/lib/agents";
 import {
   clampGoalLoopCooldownSeconds,
   clampGoalLoopMaxTurns,
@@ -18,6 +25,10 @@ type Body = {
   maxTurns?: unknown;
   cooldownSeconds?: unknown;
   forceFullRun?: unknown;
+  model?: string;
+  thinkingLevel?: string;
+  auto?: unknown;
+  agent?: string;
 };
 
 function acceptance(value: unknown): string[] | null {
@@ -58,6 +69,14 @@ export async function POST(req: NextRequest, { params }: Params) {
     const criteria = acceptance(body?.acceptance);
     if (!goal || goal.length > 4_000 || !criteria) {
       return NextResponse.json({ error: "goal または acceptance が不正です" }, { status: 400 });
+    }
+    const fixedAgentModel =
+      body?.auto === true && typeof body.agent === "string"
+        ? loadAgentDefinition(body.agent)?.model
+        : undefined;
+    if (!fixedAgentModel && body?.model) await setTaskModel(id, body.model);
+    if (!fixedAgentModel && body?.thinkingLevel) {
+      await setTaskThinkingLevel(id, body.thinkingLevel);
     }
     const loop = await goalLoopCommand(id, {
       action: "start",
