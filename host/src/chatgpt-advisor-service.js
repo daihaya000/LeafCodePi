@@ -12,7 +12,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -66,13 +65,24 @@ function writeJsonAtomic(file, value) {
   mkdirSync(dirname(file), { recursive: true });
   const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
   try {
-    writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-    // On Windows inherited ACLs may block atomic rename over an existing file,
-    // so remove the target before renaming.
-    if (existsSync(file)) {
-      try { rmSync(file, { force: true }); } catch {}
+    // On Windows the mode option can cause EPERM when the parent directory is
+    // protected or inherited ACLs are strict, so write without it and rely on
+    // the platform default ACL (host data lives under %APPDATA%).
+    const writeOptions = process.platform === "win32" ? { encoding: "utf8" } : { encoding: "utf8", mode: 0o600 };
+    writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, writeOptions);
+    // On Windows rename over an existing file can fail with EPERM/EEXIST.
+    // Copy the temp file over the target and then remove the temp file.
+    if (process.platform === "win32") {
+      copyFileSync(temp, file);
+    } else {
+      if (existsSync(file)) {
+        try { rmSync(file, { force: true }); } catch {}
+      }
+      renameSync(temp, file);
     }
-    renameSync(temp, file);
+  } catch (error) {
+    const code = error?.code || "WRITE_FAILED";
+    throw new Error(`${code}: failed to write ${file}: ${error?.message || "unknown"}`);
   } finally {
     try {
       rmSync(temp, { force: true });
