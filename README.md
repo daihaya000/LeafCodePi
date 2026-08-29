@@ -89,7 +89,7 @@ OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペ
 | OS | Windows 10/11 x64（macOS / Linux でも WebUI 自体は動きます） |
 | Node.js | 20 以上 |
 | Pi 認証 | 設定画面のサブスクログイン（Claude Pro/Max / ChatGPT Plus/Pro）、環境変数、または `~/.pi/agent/auth.json` |
-| PowerShell（Windows） | Pi 0.84.3 の標準ツール。`pwsh.exe` を優先し、なければ Windows PowerShell を使います |
+| PowerShell（Windows） | Pi 0.84.4 の標準ツール。`pwsh.exe` を優先し、なければ Windows PowerShell を使います |
 | Bash（必要時のみ） | POSIX コマンドが必要な場合に Git Bash などを明示的に有効化します |
 
 ## 起動
