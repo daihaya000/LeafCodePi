@@ -76,6 +76,7 @@ import {
   type ResumableTurn,
 } from "@/lib/aborted-resume";
 import { isHangRetryUserMessage } from "@/lib/hang-retry";
+import { mergeTaskDelta, type TaskDeltaState } from "@/lib/task-delta";
 import {
   autoResumePrompt,
   formatHangTimeout,
@@ -637,12 +638,8 @@ export function TaskView({
       source.addEventListener("delta", (event) => {
         if (closed) return;
         let payload: {
-          task?: TaskSummary;
           message?: UiMessage | null;
-          isStreaming?: boolean;
-          isCompacting?: boolean;
-          contextUsage?: ContextUsageDto;
-        };
+        } & TaskDeltaState;
         try {
           payload = JSON.parse((event as MessageEvent).data) as typeof payload;
         } catch {
@@ -650,27 +647,12 @@ export function TaskView({
           return;
         }
         startTransition(() => {
-          if (payload.task) {
-            setAgent(payload.task.agent?.trim() || DEFAULT_AGENT);
-            setTask((current) => {
-              if (!current) {
-                return {
-                  ...payload.task!,
-                  messages: [],
-                  isStreaming: payload.isStreaming ?? payload.task!.status === "working",
-                  isCompacting: Boolean(payload.isCompacting),
-                };
-              }
-              const next: TaskDetail = {
-                ...current,
-                ...payload.task,
-                isStreaming: payload.isStreaming ?? current.isStreaming,
-                isCompacting: payload.isCompacting ?? current.isCompacting,
-                contextUsage: payload.contextUsage ?? current.contextUsage,
-              };
-              return sameTaskDetail(current, next) ? current : next;
-            });
-          }
+          if (payload.task) setAgent(payload.task.agent?.trim() || DEFAULT_AGENT);
+          setTask((current) => {
+            const next = mergeTaskDelta(current, payload);
+            if (!current || !next) return next;
+            return sameTaskDetail(current, next) ? current : next;
+          });
           if (payload.message) {
             setMessages((prev) => upsertUiMessage(prev, payload.message!));
           }

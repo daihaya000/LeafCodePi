@@ -97,4 +97,11 @@ describe("upsertUiMessage", () => {
     const next = upsertUiMessage([first], textMessage("b", "world"));
     expect(next).toEqual([first, textMessage("b", "world")]);
   });
+
+  it("replaces a streamed row when its persisted id changes", () => {
+    const streamed = textMessage("msg-3", "hello");
+    const persisted = { ...streamed, id: "entry-42" };
+
+    expect(upsertUiMessage([streamed], persisted)).toEqual([persisted]);
+  });
 });

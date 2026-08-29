@@ -60,9 +60,12 @@ export function stabilizeUiMessages(prev: UiMessage[], next: UiMessage[]): UiMes
 /** Upsert the one message carried by a high-frequency SSE delta. */
 export function upsertUiMessage(prev: UiMessage[], next: UiMessage): UiMessage[] {
   const lastIndex = prev.length - 1;
+  const renderKey = messageRenderKey(next);
   const existingIndex = prev[lastIndex]?.id === next.id
     ? lastIndex
-    : prev.findIndex((message) => message.id === next.id);
+    : prev.findIndex(
+        (message) => message.id === next.id || messageRenderKey(message) === renderKey,
+      );
   if (existingIndex < 0) return [...prev, next];
   const existing = prev[existingIndex]!;
   if (existing === next || messageFingerprint(existing) === messageFingerprint(next)) return prev;
