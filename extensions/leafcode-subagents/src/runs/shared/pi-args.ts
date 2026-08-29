@@ -46,6 +46,7 @@ import { WAIT_TOOL_ENABLED_ENV } from "../background/wait-config.ts";
 import {
 	PI_CODING_AGENT_PACKAGE_ROOT_ENV,
 	getAgentDir,
+	getProjectConfigDir,
 } from "../../shared/utils.ts";
 import {
 	encodePermissionRules,
@@ -65,6 +66,77 @@ import {
 } from "./capability-ceiling.ts";
 
 const TASK_ARG_LIMIT = 8000;
+const RETIRED_EXTENSION_NAME = "leafcode-collaboration";
+
+function extensionEntryName(value: string): string {
+	const normalized = value.trim().replace(/[\\/]+$/, "");
+	const base = path.basename(normalized);
+	return /^index\.(?:ts|js|mjs|cjs)$/i.test(base)
+		? path.basename(path.dirname(normalized)).toLowerCase()
+		: base.replace(/\.(?:ts|js|mjs|cjs)$/i, "").toLowerCase();
+}
+
+function isRetiredExtensionPath(value: string): boolean {
+	return extensionEntryName(value) === RETIRED_EXTENSION_NAME;
+}
+
+function hasRetiredExtensionEntry(dir: string): boolean {
+	try {
+		return fs.readdirSync(dir, { withFileTypes: true }).some((entry) =>
+			extensionEntryName(entry.name) === RETIRED_EXTENSION_NAME,
+		);
+	} catch {
+		return false;
+	}
+}
+
+function hasRetiredConfiguredSource(settingsPath: string): boolean {
+	try {
+		const parsed = JSON.parse(fs.readFileSync(settingsPath, "utf-8")) as {
+			packages?: Array<string | { source?: unknown }>;
+			extensions?: unknown;
+		};
+		const sources = [
+			...(parsed.packages ?? []).flatMap((entry) =>
+				typeof entry === "string"
+					? [entry]
+					: entry && typeof entry.source === "string"
+						? [entry.source]
+						: [],
+			),
+			...(Array.isArray(parsed.extensions)
+				? parsed.extensions.filter((entry): entry is string => typeof entry === "string")
+				: []),
+		];
+		return sources.some((source) =>
+			/(^|[\\/:@#])leafcode-collaboration(?:\.git)?(?=$|[\\/:@#?])/i.test(source),
+		);
+	} catch {
+		return false;
+	}
+}
+
+function retiredAmbientExtensionLocations(cwd: string | undefined): string[] {
+	const agentDir = getAgentDir();
+	const locations: string[] = [];
+	const extensionDirs = [
+		path.join(agentDir, "extensions"),
+		...(cwd ? [path.join(getProjectConfigDir(cwd), "extensions")] : []),
+	];
+	for (const dir of extensionDirs) {
+		if (hasRetiredExtensionEntry(dir)) locations.push(dir);
+	}
+	const settingsPaths = [
+		path.join(agentDir, "settings.json"),
+		...(cwd ? [path.join(getProjectConfigDir(cwd), "settings.json")] : []),
+	];
+	for (const settingsPath of settingsPaths) {
+		if (hasRetiredConfiguredSource(settingsPath)) locations.push(settingsPath);
+	}
+	const npmPackage = path.join(agentDir, "npm", "node_modules", RETIRED_EXTENSION_NAME);
+	if (fs.existsSync(npmPackage)) locations.push(npmPackage);
+	return locations;
+}
 
 /**
  * Env override for how the task text reaches the child process. Endpoint
@@ -410,7 +482,8 @@ export function resolvePiLaunchToolPlan(
 		: (input.tools ?? []).filter(
 				(tool) =>
 					!requestedBuiltinTools.includes(tool) &&
-					(tool.includes("/") || tool.endsWith(".ts") || tool.endsWith(".js")),
+					(tool.includes("/") || tool.endsWith(".ts") || tool.endsWith(".js")) &&
+					!isRetiredExtensionPath(tool),
 			);
 	const resolvedMcpSelections = capabilityCeiling?.denyExtensions
 		? []
@@ -464,9 +537,19 @@ export function resolvePiLaunchToolPlan(
 		? []
 		: [
 				...toolExtensionPaths,
-				...(input.extensions ?? []),
-				...(input.subagentOnlyExtensions ?? []),
+				...(input.extensions ?? []).filter((extension) => !isRetiredExtensionPath(extension)),
+				...(input.subagentOnlyExtensions ?? []).filter((extension) => !isRetiredExtensionPath(extension)),
 			];
+	// Do not silently run a stale retired extension in a child; disabling all
+	// unrelated ambient extensions would break configured child tools.
+	if (!disableAmbientExtensions) {
+		const retiredLocations = retiredAmbientExtensionLocations(input.cwd);
+		if (retiredLocations.length > 0) {
+			throw new Error(
+				`Retired extension '${RETIRED_EXTENSION_NAME}' is still discoverable at ${retiredLocations.join(", ")}. Remove it before launching a subagent.`,
+			);
+		}
+	}
 	const extensionArgs = disableAmbientExtensions
 		? [...new Set([...runtimeExtensions, ...configuredExtensions])]
 		: [

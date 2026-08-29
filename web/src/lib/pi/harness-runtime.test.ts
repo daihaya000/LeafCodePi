@@ -87,6 +87,7 @@ describe("getRuntimeFor", () => {
       getProvider: (id: string) =>
         optionalProviderIds.has(id) ? { id } : undefined,
       getProviders: () => [],
+      registerProvider: () => undefined,
     };
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
       modelRuntime: runtime,
