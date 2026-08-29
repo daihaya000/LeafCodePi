@@ -17,7 +17,7 @@ describe("remote-provider", () => {
       id: "Avesed/Qwen3.8-27B-INT4-W4A16",
       provider: "z390-s01",
       baseUrl: REMOTE_PROVIDER_BASE,
-      contextWindow: 65_536,
+      contextWindow: 131_072,
       reasoning: true,
     });
   });
