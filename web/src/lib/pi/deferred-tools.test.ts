@@ -55,6 +55,17 @@ describe("deferred tools", () => {
     },
   );
 
+  it("matches Japanese memory and skill requests", async () => {
+    const state = setup(["read", "memory_add", "skill_manage"]);
+    state.start();
+
+    const memory = await state.search.execute("tc-1", { query: "メモリに保存" });
+    const skill = await state.search.execute("tc-2", { query: "スキルを削除" });
+
+    expect(memory.details.matches).toEqual(["memory_add"]);
+    expect(skill.details.matches).toEqual(["skill_manage"]);
+  });
+
   it("does not expose tools outside the deferred allowlist", async () => {
     const state = setup(["read", "write"]);
     state.start();

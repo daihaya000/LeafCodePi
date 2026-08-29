@@ -67,10 +67,10 @@ function registerAnchorSessionSearchTool(pi: ExtensionAPI, sessionsDir: string):
   pi.registerTool({
     name: 'session_search',
     label: 'Session Search',
-    description: 'Search past Pi sessions in anchor mode. Pass Markdown with optional from/to/cwd/limit fields and all/any/exclude lists; returns path:startLine-endLine anchors.',
+    description: 'Search past Pi sessions in anchor mode. Markdown: from/to/cwd/limit; all=required, any=alternatives, exclude=omitted terms. Returns path:startLine-endLine anchors.',
     renderResult: createSharedToolResultRenderer(searchResultView),
     parameters: Type.Object({
-      markdown: Type.String({ description: 'Markdown request with optional from/to/cwd/limit fields and all/any/exclude lists.' }),
+      markdown: Type.String({ description: 'Markdown: from/to/cwd/limit; all=required, any=alternatives, exclude=omitted terms.' }),
     }),
     execute: async (_id: string, args: { markdown: string }) => {
       const markdown = args.markdown;

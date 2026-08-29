@@ -5,10 +5,10 @@ export const TOOL_SEARCH_NAME = "tool_search";
 
 const DEFERRED_TOOLS = [
   { name: "bash", keywords: ["bash", "posix", "unix shell", "shell script", "シェル"] },
-  { name: "memory_add", keywords: ["memory_add", "add memory", "save memory", "save preference", "remember", "メモリを追加", "記憶を保存"] },
+  { name: "memory_add", keywords: ["memory_add", "add memory", "save memory", "save preference", "remember", "save this", "メモリを追加", "メモリに保存", "記憶を保存", "覚えて"] },
   { name: "memory_replace", keywords: ["memory_replace", "replace memory", "update memory", "correct memory", "メモリを更新", "記憶を訂正"] },
-  { name: "memory_remove", keywords: ["memory_remove", "remove memory", "delete memory", "forget memory", "メモリを削除", "記憶を削除"] },
-  { name: "skill_manage", keywords: ["skill_manage", "create skill", "update skill", "delete skill", "procedural skill", "スキルを作成", "スキルを更新"] },
+  { name: "memory_remove", keywords: ["memory_remove", "remove memory", "delete memory", "forget memory", "forget this", "メモリを削除", "記憶を削除", "忘れて"] },
+  { name: "skill_manage", keywords: ["skill_manage", "create skill", "update skill", "delete skill", "procedural skill", "スキルを作成", "スキルを更新", "スキルを削除"] },
 ] as const;
 
 const deferredNames = new Set<string>(DEFERRED_TOOLS.map(({ name }) => name));

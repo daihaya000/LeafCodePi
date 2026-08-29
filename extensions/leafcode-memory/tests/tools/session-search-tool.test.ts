@@ -315,7 +315,9 @@ describe("registerSessionSearchTool", () => {
     assert.match(schema, /markdown/);
     assert.doesNotMatch(schema, /query/);
     assert.match(captured.description, /from\/to\/cwd\/limit/);
-    assert.match(captured.description, /all\/any\/exclude/);
+    assert.match(captured.description, /all=required/);
+    assert.match(captured.description, /any=alternatives/);
+    assert.match(captured.description, /exclude=omitted terms/);
     assert.match(captured.description, /path:startLine-endLine anchors/);
     assert.ok(captured.description.length < 250);
     assert.strictEqual(captured.promptSnippet, undefined);
