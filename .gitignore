@@ -32,5 +32,3 @@ scripts/launcher/*.pdb
 
 # WebUI/拡張のローカル実行状態（goal-loop state, permission-gate 設定等）
 /.pi/
-integrations/surf-chatgpt-advisor.tgz
-integrations/surf-chatgpt-advisor/

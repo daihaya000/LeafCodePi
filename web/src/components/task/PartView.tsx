@@ -14,7 +14,6 @@ import {
   Globe,
   ListTodo,
   Loader2,
-  MessageCircle,
   Minus,
   RotateCcw,
   Search,
@@ -33,7 +32,7 @@ import {
   type StructuredResult,
   type StructuredResultStatus,
 } from "@/lib/structured-result";
-import { isChatGPTTool, isSkillRead, toolInputFields, toolLabel, toolSummary } from "@/lib/tool-labels";
+import { isSkillRead, toolInputFields, toolLabel, toolSummary } from "@/lib/tool-labels";
 import { subagentAgentNames, useSubagentRuns } from "@/components/task/use-subagent-runs";
 import {
   saveReasoningTranslationOverride,
@@ -194,7 +193,6 @@ function UserTextPart({
 
 export function toolIcon(tool: string, input?: Record<string, unknown>) {
   const t = tool.toLowerCase();
-  if (isChatGPTTool(tool)) return MessageCircle;
   if (isSkillRead(tool, input)) return Wrench;
   if (t.includes("bash") || t.includes("shell")) return Terminal;
   if (t.includes("todo")) return ListTodo;

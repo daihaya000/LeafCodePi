@@ -21,8 +21,6 @@ import { WebUiAuthSettings } from "@/components/settings/WebUiAuthSettings";
 import { ReasoningTranslationSettings } from "@/components/settings/ReasoningTranslationSettings";
 import { HangTimeoutSettings } from "@/components/settings/HangTimeoutSettings";
 import { NotificationSoundSettings } from "@/components/settings/NotificationSoundSettings";
-import { ChatGptBridgeSettings } from "@/components/settings/ChatGptBridgeSettings";
-import { ChatGptAdvisorSettings } from "@/components/settings/ChatGptAdvisorSettings";
 import { Badge, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import type { HealthDto, ProviderAuthDto } from "@/lib/types";
@@ -236,8 +234,6 @@ export function SettingsView() {
                     )}
                     {id === "integrations" && (
                       <div className="space-y-4">
-                        <ChatGptAdvisorSettings />
-                        <ChatGptBridgeSettings />
                         <CollaborationSettings />
                         <ExtensionsSettings />
                         <McpSettings />

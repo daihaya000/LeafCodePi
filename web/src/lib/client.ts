@@ -21,8 +21,7 @@ export function apiUrl(path: string, params?: Record<string, string | undefined>
 
 async function parseError(res: Response): Promise<string> {
   try {
-    const body = (await res.json()) as { error?: string; message?: string };
-    if (body?.message) return body.message;
+    const body = (await res.json()) as { error?: string };
     if (body?.error) return body.error;
   } catch {
     /* ignore */
