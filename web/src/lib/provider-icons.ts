@@ -16,6 +16,7 @@ const PROVIDER_ICON_FILES: Record<string, string> = {
   lmstudio: "lmstudio.png",
   "llama-server": "llama-server.png",
   commandcode: "commandcode.svg",
+  "z390-s01": "z390-s01.svg",
 };
 
 /** Map Pi provider ids → bundled icon file key. */
@@ -41,6 +42,7 @@ const PROVIDER_ID_TO_ICON: Record<string, string> = {
   "llama-server": "llama-server",
   commandcode: "commandcode",
   "command-code": "commandcode",
+  "z390-s01": "z390-s01",
 };
 
 /** Public path of a brand icon for a provider id, or null. */
