@@ -50,6 +50,7 @@ import {
 } from "@/lib/pi/llama-provider";
 import { registerCursorProvider } from "@/lib/pi/cursor-provider";
 import { registerCommandCodeProvider } from "@/lib/pi/commandcode-provider";
+import { registerRemoteProvider } from "@/lib/pi/remote-provider";
 import {
   registerOllamaCloudProvider,
   syncOllamaCloudProvider,
@@ -540,6 +541,7 @@ async function ensureOptionalProviders(
     registerCursorProvider(runtime, scope),
     registerCommandCodeProvider(runtime, scope),
     registerOllamaCloudProvider(runtime),
+    registerRemoteProvider(runtime),
   ]).then(() => undefined);
   promises.set(runtime, promise);
   try {
