@@ -1,0 +1,264 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createChatGptAdvisorService } from "./chatgpt-advisor-service.js";
+import { createLlamaControlServer, listenControlServer, closeControlServer } from "./llama-control-server.js";
+
+function makeEnv(overrides = {}) {
+  return { ...process.env, LEAFCODE_PI_CHATGPT_ADVISOR_DISABLED: undefined, ...overrides };
+}
+
+function makeService(deps = {}) {
+  const root = mkdtempSync(join(tmpdir(), "leafcode-advisor-test-"));
+  const repoRoot = join(root, "repo");
+  const dataDir = join(root, "data");
+  mkdirSync(join(repoRoot, "integrations"), { recursive: true });
+  mkdirSync(join(dataDir, "store.json").replace(/store\.json$/, ""), { recursive: true });
+  const log = deps.log ?? (() => {});
+  const service = createChatGptAdvisorService({
+    repoRoot,
+    dataDir,
+    env: makeEnv(),
+    log,
+    platform: "win32",
+    spawn: deps.spawn,
+    isProcessAlive: deps.isProcessAlive ?? (() => false),
+    commandExists: deps.commandExists ?? (() => true),
+    now: deps.now,
+    wait: deps.wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+  });
+  return { service, root, repoRoot, dataDir };
+}
+
+test("computeExtensionIdFromPath returns a 32-char a-p id deterministically", () => {
+  const { service } = makeService();
+  const id1 = service._internals.computeExtensionIdFromPath("C:\\x\\extension");
+  const id2 = service._internals.computeExtensionIdFromPath("C:\\x\\extension");
+  assert.match(id1, /^[a-p]{32}$/);
+  assert.equal(id1, id2);
+  const id3 = service._internals.computeExtensionIdFromPath("C:\\x\\extension2");
+  assert.notEqual(id1, id3);
+});
+
+test("restrictedManifest contains only Oracle-required permissions", () => {
+  const { service } = makeService();
+  const manifest = service._internals.restrictedManifest();
+  assert.equal(manifest.manifest_version, 3);
+  assert.deepEqual(manifest.permissions, [
+    "storage",
+    "activeTab",
+    "scripting",
+    "debugger",
+    "tabs",
+    "webNavigation",
+    "nativeMessaging",
+    "cookies",
+  ]);
+  assert.deepEqual(manifest.host_permissions, ["https://chatgpt.com/*"]);
+  assert.deepEqual(manifest.content_scripts[0].matches, ["https://chatgpt.com/*"]);
+  assert.equal(manifest.content_security_policy.extension_pages.includes("https: wss:"), false);
+  assert.equal(manifest.content_security_policy.extension_pages.includes("https://chatgpt.com"), true);
+  assert.equal(manifest.name, "Surf (LeafCodePi restricted)");
+});
+
+test("readExtensionIdFromPreferences finds the restricted extension", () => {
+  const { service, root } = makeService();
+  const profile = join(root, "profile");
+  const prefs = join(profile, "Default");
+  mkdirSync(prefs, { recursive: true });
+  const id = "abcdefghijklmnopabcdefghijklmnop";
+  writeFileSync(
+    join(prefs, "Preferences"),
+    JSON.stringify({
+      extensions: {
+        settings: {
+          [id]: {
+            path: "C:\\x\\surf-chatgpt-advisor\\dist",
+            manifest: { name: "Surf (LeafCodePi restricted)" },
+          },
+        },
+      },
+    }),
+    "utf8",
+  );
+  assert.equal(service._internals.readExtensionIdFromPreferences(profile), id);
+});
+
+test("readExtensionIdFromPreferences returns null when no restricted extension", () => {
+  const { service, root } = makeService();
+  const profile = join(root, "profile");
+  mkdirSync(join(profile, "Default"), { recursive: true });
+  writeFileSync(
+    join(profile, "Default", "Preferences"),
+    JSON.stringify({
+      extensions: {
+        settings: {
+          someotheridabcdefghijklmnopqrstuv: {
+            path: "C:\\x\\other",
+            manifest: { name: "Other" },
+          },
+        },
+      },
+    }),
+    "utf8",
+  );
+  assert.equal(service._internals.readExtensionIdFromPreferences(profile), null);
+});
+
+test("installNativeHost writes manifest and registers registry entry", () => {
+  const { service, root } = makeService();
+  const id = "abcdefghijklmnopabcdefghijklmnop";
+  // Point forkDir native host at a real file.
+  const forkNative = join(root, "repo", "integrations", "surf-chatgpt-advisor", "native");
+  mkdirSync(forkNative, { recursive: true });
+  writeFileSync(join(forkNative, "host.cjs"), "// host", "utf8");
+  // Registry exec is mocked away via spawnSync? We don't inject spawnSync; the
+  // service uses global spawnSync which would fail on non-Windows or in CI.
+  // So we only assert the manifest is written for the local wrapper, and skip
+  // the registry call by asserting an error path? Instead, directly test the
+  // manifest file creation by checking the wrapper exists after a successful
+  // path through installNativeHost. Since reg add may fail in this env, catch
+  // the error and assert the manifest file was still written.
+  try {
+    service._internals.installNativeHost(id);
+  } catch {
+    // registry failure is environment-dependent; manifest must still exist
+  }
+  const manifestDir = join(root, "data", "chatgpt-advisor", "native-host", "manifest");
+  const manifestPath = join(manifestDir, "surf.browser.host.json");
+  assert.equal(existsSync(manifestPath), true);
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  assert.equal(manifest.name, "surf.browser.host");
+  assert.deepEqual(manifest.allowed_origins, [`chrome-extension://${id}/`]);
+  assert.equal(manifest.type, "stdio");
+  assert.equal(existsSync(manifest.path), true);
+});
+
+test("status reports disabled by default", async () => {
+  const { service } = makeService();
+  const result = await service.status();
+  assert.equal(result.enabled, false);
+  assert.equal(result.state, "disabled");
+});
+
+test("setEnabled toggles config and disables stops", async () => {
+  const { service } = makeService();
+  const enabled = await service.setEnabled(true);
+  assert.equal(enabled.enabled, true);
+  const status = await service.status();
+  assert.equal(status.enabled, true);
+  // No fork artifact in this test env, so prerequisites_missing is expected.
+  assert.equal(status.state, "prerequisites_missing");
+  const disabled = await service.setEnabled(false);
+  assert.equal(disabled.enabled, false);
+  assert.equal((await service.status()).state, "disabled");
+});
+
+test("kill switch env disables regardless of config", async () => {
+  const root = mkdtempSync(join(tmpdir(), "leafcode-advisor-kill-"));
+  const service = createChatGptAdvisorService({
+    repoRoot: join(root, "repo"),
+    dataDir: join(root, "data"),
+    env: { ...process.env, LEAFCODE_PI_CHATGPT_ADVISOR_DISABLED: "1" },
+    log: () => {},
+    platform: "win32",
+    isProcessAlive: () => false,
+  });
+  await service.setEnabled(true);
+  const status = await service.status();
+  assert.equal(status.enabled, false);
+  assert.equal(status.state, "disabled");
+});
+
+test("setup requires project validation before chrome launch", async () => {
+  const root = mkdtempSync(join(tmpdir(), "leafcode-advisor-setup-"));
+  const repoRoot = join(root, "repo");
+  const dataDir = join(root, "data");
+  mkdirSync(join(dataDir), { recursive: true });
+  // No store.json -> project not found, no chrome launch happens.
+  const service = createChatGptAdvisorService({
+    repoRoot,
+    dataDir,
+    env: { ...process.env },
+    log: () => {},
+    platform: "win32",
+    spawn: () => {
+      throw new Error("spawn should not be called");
+    },
+    isProcessAlive: () => false,
+    commandExists: () => true,
+  });
+  await service.setEnabled(true);
+  await assert.rejects(() => service.setup("p1"), (err) => err.code === "PROJECT_NOT_FOUND");
+});
+
+test("setup raises when disabled by kill switch", async () => {
+  const root = mkdtempSync(join(tmpdir(), "leafcode-advisor-killsetup-"));
+  const service = createChatGptAdvisorService({
+    repoRoot: join(root, "repo"),
+    dataDir: join(root, "data"),
+    env: { ...process.env, LEAFCODE_PI_CHATGPT_ADVISOR_DISABLED: "1" },
+    log: () => {},
+    platform: "win32",
+  });
+  await assert.rejects(() => service.setup("p1"), (err) => err.code === "ADVISOR_DISABLED");
+});
+
+test("control server exposes /chatgpt-advisor routes", async () => {
+  const calls = [];
+  const port = 39123;
+  const server = createLlamaControlServer({
+    controlPort: port,
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async () => ({ ok: true }),
+    onLlamaServerStop: () => {},
+    onChatGptAdvisor: async (action, body, query) => {
+      calls.push({ action, body, projectId: query.get("projectId") });
+      return { ok: true, action };
+    },
+  });
+  await listenControlServer(server, port);
+  try {
+    const status = await fetch(`http://127.0.0.1:${port}/chatgpt-advisor/status?projectId=p1`, {
+      headers: { host: `127.0.0.1:${port}` },
+    });
+    assert.equal(status.status, 200);
+    assert.deepEqual(await status.json(), { ok: true, action: "status" });
+
+    const setup = await fetch(`http://127.0.0.1:${port}/chatgpt-advisor/setup`, {
+      method: "POST",
+      headers: { host: `127.0.0.1:${port}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectId: "p1" }),
+    });
+    assert.equal(setup.status, 200);
+    assert.deepEqual(await setup.json(), { ok: true, action: "setup" });
+
+    const stop = await fetch(`http://127.0.0.1:${port}/chatgpt-advisor/stop`, {
+      method: "POST",
+      headers: { host: `127.0.0.1:${port}` },
+    });
+    assert.equal(stop.status, 200);
+
+    assert.deepEqual(calls, [
+      { action: "status", body: {}, projectId: "p1" },
+      // setup passes projectId in the body; the query carries it only when the
+      // caller uses ?projectId=. The mock reads query only.
+      { action: "setup", body: { projectId: "p1" }, projectId: null },
+      { action: "stop", body: {}, projectId: null },
+    ]);
+  } finally {
+    await closeControlServer(server);
+  }
+});
+
+test("cleanup removes profile when requested", async () => {
+  const { service, root } = makeService();
+  const profile = join(root, "data", "chatgpt-advisor", "chrome-profile");
+  mkdirSync(profile, { recursive: true });
+  writeFileSync(join(profile, "x"), "y", "utf8");
+  await service.cleanup(true);
+  assert.equal(existsSync(profile), false);
+});

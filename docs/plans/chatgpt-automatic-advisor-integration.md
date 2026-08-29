@@ -342,6 +342,8 @@ DESIGN.mdの既存tokenとcomponentを使い、新しい視覚言語を作らな
 - model/effort選択UIはMVPで作らない
 - destructiveなprofile削除は通常停止と分ける
 
+**セットアップ自動化の原則（2026-08-29確定）:** ユーザー依存は「専用ChromeでのChatGPTログイン」と「C2C ConnectorのOAuth承認」だけに絞る。fork展開・manifest縮小・専用Chrome起動・拡張ID検出・native host登録・host起動・接続確認はHostサービスが自動実行する。ユーザーに拡張IDのコピー、native hostの手動インストール、CLI手動実行を要求しない。
+
 状態は`disabled / setup_required / ready / running / degraded / error`だけを表示し、未観測remote進捗を割合表示しない。
 
 ### 7.2 Task
@@ -562,6 +564,7 @@ web/src/
 2. Hostへ専用profile、state、pipe、native messaging manifestのsetup/lifecycleを追加する。
 3. Windows ACL、canonical path、通常profile拒否、kill switchを実装する。
 4. setup/status/stop/cleanupのHost testを追加する。
+5. **セットアップ自動化を実装する**: `chatgpt-advisor-service.js`がfork展開→manifest縮小→専用Chrome起動→拡張ID自動検出→native host登録→host起動→接続確認を1コマンドで実行する。ユーザー操作はChatGPTログインとConnector承認のみ。
 
 **Gate:** runtime install/buildなしでdoctorとone-shotが成功する。
 

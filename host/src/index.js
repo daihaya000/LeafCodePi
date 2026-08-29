@@ -17,6 +17,7 @@ import { stopProcessTreeGracefully } from "./process-stop.js";
 import { buildHostRestartScript } from "./host-restart.js";
 import { createTranslationService } from "./translation-service.js";
 import { createChatGptBridgeService } from "./chatgpt-bridge-service.js";
+import { createChatGptAdvisorService } from "./chatgpt-advisor-service.js";
 import { withLocalLeafcodeTempEnv } from "./tray-temp.js";
 import {
   ensureWebUiAuth,
@@ -110,6 +111,13 @@ const translationService = createTranslationService({
 });
 
 const chatGptBridgeService = createChatGptBridgeService({
+  repoRoot: REPO_ROOT,
+  dataDir: DATA_DIR,
+  log,
+  stopProcessTreeGracefully,
+});
+
+const chatGptAdvisorService = createChatGptAdvisorService({
   repoRoot: REPO_ROOT,
   dataDir: DATA_DIR,
   log,
@@ -735,6 +743,33 @@ async function startControlServer() {
       if (action === "record") return chatGptBridgeService.record(projectId, input);
       throw Object.assign(new Error("unknown ChatGPT Bridge action"), { status: 404, code: "NOT_FOUND" });
     },
+    onChatGptAdvisor: async (action, body, query) => {
+      const input = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+      const projectId =
+        typeof input.projectId === "string" && input.projectId.trim()
+          ? input.projectId.trim()
+          : query.get("projectId")?.trim() || undefined;
+      if (action === "status") return chatGptAdvisorService.status(projectId);
+      if (action === "enabled") {
+        if (typeof input.enabled !== "boolean") {
+          throw Object.assign(new Error("enabled must be a boolean"), { status: 400, code: "INVALID_REQUEST" });
+        }
+        return chatGptAdvisorService.setEnabled(input.enabled);
+      }
+      if (action === "project") {
+        if (!projectId) throw Object.assign(new Error("projectId is required"), { status: 400, code: "INVALID_PROJECT" });
+        return chatGptAdvisorService.setProject(projectId);
+      }
+      if (action === "setup") {
+        if (!projectId) throw Object.assign(new Error("projectId is required"), { status: 400, code: "INVALID_PROJECT" });
+        return chatGptAdvisorService.setup(projectId);
+      }
+      if (action === "open") return chatGptAdvisorService.open();
+      if (action === "verify") return chatGptAdvisorService.verify(projectId);
+      if (action === "stop") return chatGptAdvisorService.stop();
+      if (action === "cleanup") return chatGptAdvisorService.cleanup(input.deleteProfile === true);
+      throw Object.assign(new Error("unknown ChatGPT Advisor action"), { status: 404, code: "NOT_FOUND" });
+    },
   });
   try {
     await listenControlServer(server, CONTROL_PORT);
@@ -765,6 +800,11 @@ async function quit() {
   }
   try {
     await chatGptBridgeService.shutdown();
+  } catch {
+    /* ignore */
+  }
+  try {
+    await chatGptAdvisorService.shutdown();
   } catch {
     /* ignore */
   }

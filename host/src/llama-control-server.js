@@ -58,6 +58,7 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onTranslationUnreviewed?: (limit: unknown) => Promise<object> | object,
  *   onTranslationReviewResults?: (body: object) => Promise<object> | object,
  *   onChatGptBridge?: (action: string, body: object, query: URLSearchParams) => Promise<object> | object,
+ *   onChatGptAdvisor?: (action: string, body: object, query: URLSearchParams) => Promise<object> | object,
  * }} handlers
  */
 export function createLlamaControlServer(handlers) {
@@ -313,6 +314,55 @@ export function createLlamaControlServer(handlers) {
             ok: false,
             error: typeof err === "object" && err && "code" in err && typeof err.code === "string" ? err.code : "bridge_request_failed",
             message: err instanceof Error ? err.message : "ChatGPT Bridge request failed",
+          }));
+        }
+        return;
+      }
+
+      if (pathname.startsWith("/chatgpt-advisor/")) {
+        if (typeof handlers.onChatGptAdvisor !== "function") {
+          res.writeHead(501, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "ChatGPT Advisor is not supported by this host" }));
+          return;
+        }
+        const action = pathname.slice("/chatgpt-advisor/".length);
+        if (!/^[a-z-]+$/.test(action)) {
+          res.writeHead(404, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "not found" }));
+          return;
+        }
+        if (method !== "GET" && method !== "POST") {
+          res.writeHead(405, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          return;
+        }
+        if (method === "GET" && action !== "status") {
+          res.writeHead(405, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "GET supports status only" }));
+          return;
+        }
+        const body = method === "POST" ? await readJsonBody(req, 16_384).catch(() => ({})) : {};
+        let query = new URLSearchParams();
+        try {
+          query = new URL(req.url ?? "/", "http://127.0.0.1").searchParams;
+        } catch {
+          // use an empty query for malformed request URLs
+        }
+        try {
+          const result = await handlers.onChatGptAdvisor(action, body, query);
+          res.writeHead(200, JSON_HEADERS);
+          res.end(JSON.stringify(result ?? { ok: true }));
+        } catch (err) {
+          const status =
+            typeof err === "object" && err && "status" in err &&
+            typeof err.status === "number" && err.status >= 400 && err.status < 500
+              ? err.status
+              : 502;
+          res.writeHead(status, JSON_HEADERS);
+          res.end(JSON.stringify({
+            ok: false,
+            error: typeof err === "object" && err && "code" in err && typeof err.code === "string" ? err.code : "advisor_request_failed",
+            message: err instanceof Error ? err.message : "ChatGPT Advisor request failed",
           }));
         }
         return;
