@@ -19,7 +19,13 @@ export type ChatGptBridgeAction =
   | "verify"
   | "stop"
   | "disconnect"
+  | "message"
+  | "record"
   | "enabled";
+
+export type ChatGptAdvisoryMessageKind = "init" | "executed";
+export type ChatGptAdvisoryImportKind = "plan" | "review" | "done" | "blocked";
+export type ChatGptExitStatus = "ok" | "failed" | "blocked";
 
 export interface ChatGptBridgeStatus {
   ok: boolean;
@@ -47,8 +53,35 @@ export interface ChatGptBridgePairing {
   pairingExpiresAt: number;
 }
 
+export interface ChatGptAdvisoryMessage {
+  ok: true;
+  projectId: string;
+  publicTaskId: string;
+  iteration: number;
+  kind: ChatGptAdvisoryMessageKind;
+  message: string;
+}
+
+export interface ChatGptExecutionRecord {
+  ok: true;
+  projectId: string;
+  publicTaskId: string;
+  iteration: number;
+  changedFiles: number;
+  tests: string | null;
+  exitStatus: ChatGptExitStatus;
+}
+
 export function isSafeChatGptProjectId(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(value);
+}
+
+export function isSafeChatGptPublicTaskId(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value);
+}
+
+export function isSafeChatGptIteration(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 10_000;
 }
 
 export function chatGptBridgePath(action: ChatGptBridgeAction): string {

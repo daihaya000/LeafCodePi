@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveHostControlUrl } from "@/lib/host-control";
 import {
   chatGptBridgePath,
+  isSafeChatGptIteration,
   isSafeChatGptProjectId,
+  isSafeChatGptPublicTaskId,
+  type ChatGptAdvisoryMessageKind,
   type ChatGptBridgeAction,
+  type ChatGptExitStatus,
 } from "@/lib/chatgpt-bridge";
 
 export const runtime = "nodejs";
@@ -16,8 +20,13 @@ const ACTIONS = new Set<ChatGptBridgeAction>([
   "verify",
   "stop",
   "disconnect",
+  "message",
+  "record",
   "enabled",
 ]);
+
+const MESSAGE_KINDS = new Set<ChatGptAdvisoryMessageKind>(["init", "executed"]);
+const EXIT_STATUSES = new Set<ChatGptExitStatus>(["ok", "failed", "blocked"]);
 
 function noStore(response: NextResponse): NextResponse {
   response.headers.set("Cache-Control", "no-store");
@@ -50,20 +59,55 @@ export async function POST(
       return invalid("enabled must be a boolean");
     }
   } else {
-    const allowedKeys = action === "disconnect" ? new Set(["projectId", "deleteState"]) : new Set(["projectId"]);
+    const allowedKeys = action === "disconnect"
+      ? new Set(["projectId", "deleteState"])
+      : action === "message"
+        ? new Set(["projectId", "publicTaskId", "iteration", "kind", "goal"])
+        : action === "record"
+          ? new Set(["projectId", "publicTaskId", "iteration", "tests", "exitStatus"])
+          : new Set(["projectId"]);
     if (Object.keys(body).some((key) => !allowedKeys.has(key))) return invalid("unsupported request fields");
     if (!isSafeChatGptProjectId(body.projectId)) return invalid("projectId is invalid");
     if (action === "disconnect" && body.deleteState !== undefined && typeof body.deleteState !== "boolean") {
       return invalid("deleteState must be a boolean");
     }
+    if (action === "message" || action === "record") {
+      if (!isSafeChatGptPublicTaskId(body.publicTaskId)) return invalid("publicTaskId is invalid");
+      if (!isSafeChatGptIteration(body.iteration)) return invalid("iteration is invalid");
+    }
+    if (action === "message") {
+      if (!MESSAGE_KINDS.has(body.kind as ChatGptAdvisoryMessageKind)) return invalid("message kind is invalid");
+      if (body.goal !== undefined && (typeof body.goal !== "string" || body.goal.length > 600)) {
+        return invalid("goal is invalid");
+      }
+    }
+    if (action === "record") {
+      if (!EXIT_STATUSES.has(body.exitStatus as ChatGptExitStatus)) return invalid("exitStatus is invalid");
+      if (body.tests !== undefined && body.tests !== null && (typeof body.tests !== "string" || body.tests.length > 1_000)) {
+        return invalid("tests is invalid");
+      }
+    }
   }
 
-  const forwarded = action === "enabled"
-    ? { enabled: body.enabled }
-    : {
-        projectId: body.projectId,
-        ...(action === "disconnect" && body.deleteState === true ? { deleteState: true } : {}),
-      };
+  let forwarded: Record<string, unknown>;
+  if (action === "enabled") {
+    forwarded = { enabled: body.enabled };
+  } else {
+    forwarded = { projectId: body.projectId };
+    if (action === "disconnect" && body.deleteState === true) forwarded.deleteState = true;
+    if (action === "message") {
+      forwarded.publicTaskId = body.publicTaskId;
+      forwarded.iteration = body.iteration;
+      forwarded.kind = body.kind;
+      if (body.goal !== undefined) forwarded.goal = body.goal;
+    }
+    if (action === "record") {
+      forwarded.publicTaskId = body.publicTaskId;
+      forwarded.iteration = body.iteration;
+      forwarded.exitStatus = body.exitStatus;
+      if (body.tests !== undefined) forwarded.tests = body.tests;
+    }
+  }
 
   try {
     const response = await fetch(`${resolveHostControlUrl()}${chatGptBridgePath(action)}`, {

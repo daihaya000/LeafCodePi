@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createChatGptBridgeService, ChatGptBridgeError } from "./chatgpt-bridge-service.js";
+import { buildAdvisoryMessage, createChatGptBridgeService, ChatGptBridgeError } from "./chatgpt-bridge-service.js";
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "leafcode-c2c-host-"));
@@ -45,6 +45,29 @@ test("ChatGPT Bridge is opt-in and resolves only registered projects", async () 
 
     const status = await service.status("project-1");
     assert.equal(status.state, "ready");
+    const record = await service.record("project-1", {
+      publicTaskId: "task-1",
+      iteration: 1,
+      tests: "27 passed",
+      exitStatus: "ok",
+    });
+    assert.deepEqual(record, {
+      ok: true,
+      projectId: "project-1",
+      publicTaskId: "task-1",
+      iteration: 1,
+      changedFiles: 0,
+      tests: "27 passed",
+      exitStatus: "ok",
+    });
+    const executed = await service.message("project-1", {
+      kind: "executed",
+      publicTaskId: "task-1",
+      iteration: 1,
+    });
+    assert.match(executed.message, /TESTS: 27 passed/);
+    assert.equal(executed.message.includes(values.workspace), false);
+
     assert.equal(status.projectId, "project-1");
     assert.equal(status.projectName, "Demo");
     assert.equal("workspaceRoot" in status, false);
@@ -57,6 +80,18 @@ test("ChatGPT Bridge is opt-in and resolves only registered projects", async () 
   } finally {
     rmSync(values.root, { recursive: true, force: true });
   }
+});
+
+test("advisory messages are bounded and omit absolute paths", () => {
+  const message = buildAdvisoryMessage({
+    kind: "init",
+    publicTaskId: "task-1",
+    iteration: 0,
+    goal: "C:\\Users\\Daichi\\private\\repo /home/daichi/private/repo を確認してください",
+  });
+  assert.ok(Buffer.byteLength(message, "utf8") <= 1_024);
+  assert.equal(message.includes("C:\\Users"), false);
+  assert.equal(message.includes("/home/daichi"), false);
 });
 
 test("environment kill switch prevents Bridge activation", async () => {

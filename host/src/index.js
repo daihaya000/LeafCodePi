@@ -730,6 +730,8 @@ async function startControlServer() {
       if (action === "verify") return chatGptBridgeService.verify(projectId);
       if (action === "stop") return chatGptBridgeService.stop(projectId);
       if (action === "disconnect") return chatGptBridgeService.disconnect(projectId, input.deleteState === true);
+      if (action === "message") return chatGptBridgeService.message(projectId, input);
+      if (action === "record") return chatGptBridgeService.record(projectId, input);
       throw Object.assign(new Error("unknown ChatGPT Bridge action"), { status: 404, code: "NOT_FOUND" });
     },
   });

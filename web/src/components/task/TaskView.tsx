@@ -25,6 +25,7 @@ import { DiffPane } from "@/components/task/DiffPane";
 import { NextAction } from "@/components/task/NextAction";
 import { GraphPanel } from "@/components/task/GraphPanel";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
+import { ChatGptAdvisoryPanel } from "@/components/task/ChatGptAdvisoryPanel";
 import { ModelSelect } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { AgentSelect } from "@/components/AgentSelect";
@@ -1684,6 +1685,13 @@ export function TaskView({
           )}
         >
           <div ref={contentRef} className="relative mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-4">
+            {task && (
+              <ChatGptAdvisoryPanel
+                taskId={task.id}
+                projectId={task.projectId}
+                taskTitle={task.title}
+              />
+            )}
             {hangRetryNotice && (
               <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
                 {hangRetryNotice}

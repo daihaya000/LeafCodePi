@@ -70,4 +70,35 @@ describe("/api/chatgpt-bridge", () => {
       expect.objectContaining({ body: JSON.stringify({ projectId: "project-1", deleteState: true }) }),
     );
   });
+
+  it("forwards advisory messages with a public task id only", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, message: "[C2C]" }), { status: 200 }),
+    );
+    const response = await POST(
+      request("http://127.0.0.1:3010/api/chatgpt-bridge/message", {
+        projectId: "project-1",
+        publicTaskId: "c2c_task",
+        iteration: 2,
+        kind: "init",
+        goal: "レビュー",
+      }),
+      { params: Promise.resolve({ action: "message" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:18775/chatgpt-bridge/message",
+      expect.objectContaining({
+        body: JSON.stringify({
+          projectId: "project-1",
+          publicTaskId: "c2c_task",
+          iteration: 2,
+          kind: "init",
+          goal: "レビュー",
+        }),
+      }),
+    );
+    expect(JSON.stringify(fetchMock.mock.calls[0]?.[1])).not.toContain("internal-task");
+  });
 });
