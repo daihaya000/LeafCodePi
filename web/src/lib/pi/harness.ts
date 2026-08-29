@@ -3937,15 +3937,17 @@ async function stopSubagentRunsForTask(
   }
 }
 
-/** Pause an active Goal Loop before aborting its current Pi request. */
-async function pauseGoalLoopForTask(live: LiveRuntime): Promise<void> {
+/** Fully stop an active Goal Loop before aborting its current Pi request.
+ *  The main task "停止" button must terminate the loop (not merely pause it),
+ *  so it matches the GoalLoopPanel "停止" action and the button label. */
+async function stopGoalLoopForTask(live: LiveRuntime): Promise<void> {
   const loop = readGoalLoopState(
     live.session.sessionManager.getCwd(),
     live.session.sessionId,
   );
   if (!loop || !["queued", "running", "verifying_completed"].includes(loop.status)) return;
 
-  const command = live.session.extensionRunner.getCommand("goal-pause");
+  const command = live.session.extensionRunner.getCommand("goal-stop");
   if (!command) return;
   try {
     await command.handler(
@@ -3954,7 +3956,7 @@ async function pauseGoalLoopForTask(live: LiveRuntime): Promise<void> {
     );
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    console.warn(`[goal-loop] failed to pause before abort: ${reason}`);
+    console.warn(`[goal-loop] failed to stop before abort: ${reason}`);
   }
 }
 
@@ -3983,7 +3985,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
         ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant")
         : [];
     live.manualAbortedAssistantId = turnAssistants.at(-1)?.id ?? "";
-    await pauseGoalLoopForTask(live);
+    await stopGoalLoopForTask(live);
     await stopSubagentRunsForTask(live, msgs);
     await live.session.abort();
     emitTaskSnapshot(live, "abort");

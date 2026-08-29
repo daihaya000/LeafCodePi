@@ -138,7 +138,7 @@ describe("abortTask", () => {
     assert.equal(getTask(task.id)?.status, "idle");
   });
 
-  it("pauses a queued Goal Loop before aborting an idle session", async () => {
+  it("stops a queued Goal Loop before aborting an idle session", async () => {
     const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-goal-abort-"));
     tempDirs.push(root);
     process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
@@ -165,8 +165,8 @@ describe("abortTask", () => {
       },
       extensionRunner: {
         getCommand: (name: string) =>
-          name === "goal-pause"
-            ? { handler: async () => events.push("goal-pause") }
+          name === "goal-stop"
+            ? { handler: async () => events.push("goal-stop") }
             : undefined,
         createCommandContext: () => ({}),
       },
@@ -201,7 +201,7 @@ describe("abortTask", () => {
 
     await abortTask(task.id);
 
-    assert.deepEqual(events, ["goal-pause", "abort"]);
+    assert.deepEqual(events, ["goal-stop", "abort"]);
     assert.equal(getTask(task.id)?.status, "idle");
   });
 });
