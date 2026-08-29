@@ -154,7 +154,7 @@ async function collectCpuTemperature(): Promise<number | null> {
 /**
  * Windows標準のGPUパフォーマンスカウンターをAMD用に正規化するスクリプト。
  * GPU Engine はLUID単位で最大エンジン使用率を取り、VRAMはDedicated Usageを
- * 使う。他ベンダーGPUとの混在時はLUIDを自動推測せず、環境変数で明示できる。
+ * 使う。DXGIでLUIDとベンダーを突合し、他ベンダーGPUとの混在時もAMDだけを選ぶ。
  */
 const AMD_GPU_QUERY = String.raw`
 $ErrorActionPreference = 'Stop'
@@ -284,6 +284,62 @@ public static class LeafGpuTemp {
     }
     return result;
   }
+
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  public struct DXGI_ADAPTER_DESC1 {
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+    public string Description;
+    public uint VendorId;
+    public uint DeviceId;
+    public uint SubSysId;
+    public uint Revision;
+    public UIntPtr DedicatedVideoMemory;
+    public UIntPtr DedicatedSystemMemory;
+    public UIntPtr SharedSystemMemory;
+    public LUID AdapterLuid;
+    public uint Flags;
+  }
+  [DllImport("dxgi.dll", EntryPoint = "CreateDXGIFactory1", CallingConvention = CallingConvention.StdCall)]
+  private static extern int CreateDXGIFactory1(ref Guid riid, out IntPtr factory);
+  [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+  private delegate int EnumAdapters1Delegate(IntPtr self, uint index, out IntPtr adapter);
+  [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+  private delegate int GetDesc1Delegate(IntPtr self, out DXGI_ADAPTER_DESC1 desc);
+  [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+  private delegate uint ReleaseDelegate(IntPtr self);
+
+  private static T VTableMethod<T>(IntPtr instance, int slot) where T : class {
+    IntPtr vtable = Marshal.ReadIntPtr(instance);
+    return Marshal.GetDelegateForFunctionPointer(Marshal.ReadIntPtr(vtable, slot * IntPtr.Size), typeof(T)) as T;
+  }
+
+  /** DXGIのアダプター一覧をLUID=ベンダーID|名称の形式で返す。 */
+  public static string ReadDxgiAdapters() {
+    Guid iid = new Guid("770aae78-f26f-4dba-a829-253c83d1b387");
+    IntPtr factory = IntPtr.Zero;
+    if (CreateDXGIFactory1(ref iid, out factory) != 0 || factory == IntPtr.Zero) return "";
+    string result = "";
+    try {
+      EnumAdapters1Delegate enumerate = VTableMethod<EnumAdapters1Delegate>(factory, 12);
+      for (uint i = 0; ; i++) {
+        IntPtr adapter;
+        int hr = enumerate(factory, i, out adapter);
+        if (hr != 0 || adapter == IntPtr.Zero) break;
+        try {
+          DXGI_ADAPTER_DESC1 desc;
+          if (VTableMethod<GetDesc1Delegate>(adapter, 10)(adapter, out desc) == 0) {
+            string key = ("0x" + desc.AdapterLuid.HighPart.ToString("x") + "_0x" + desc.AdapterLuid.LowPart.ToString("x")).ToLowerInvariant();
+            result += key + "=" + desc.VendorId.ToString() + "|" + (desc.Description ?? "").Trim() + ";";
+          }
+        } finally {
+          VTableMethod<ReleaseDelegate>(adapter, 2)(adapter);
+        }
+      }
+    } finally {
+      VTableMethod<ReleaseDelegate>(factory, 2)(factory);
+    }
+    return result;
+  }
 }
 '@
   foreach ($entry in ([LeafGpuTemp]::Read() -split ';')) {
@@ -299,6 +355,19 @@ public static class LeafGpuTemp {
   # 温度取得に失敗しても使用率/VRAMは返す
 }
 
+# DXGIのAdapterLuidとVendorIdを使い、混在構成でもAMDのカウンターを正確に選ぶ。
+$dxgiAmdByLuid = @{}
+try {
+  foreach ($entry in ([LeafGpuTemp]::ReadDxgiAdapters() -split ';')) {
+    if ($entry -notmatch '^(0x[0-9a-f]+_0x[0-9a-f]+)=([0-9]+)\|(.+)$') { continue }
+    if ([uint32]$Matches[2] -ne 0x1002) { continue }
+    $key = Get-LuidKey $Matches[1]
+    if ($null -ne $key) { $dxgiAmdByLuid[$key] = $Matches[3] }
+  }
+} catch {
+  # 古い環境やDXGI取得不可時は、明示LUIDまたはAMD単独時の従来経路へフォールバック
+}
+
 $physical = @(Get-CimInstance Win32_VideoController |
   Where-Object { $_.Name -notmatch 'Virtual|Remote|Basic|Parsec' })
 $amd = @($physical | Where-Object { $_.Name -match 'AMD|Radeon' })
@@ -306,17 +375,10 @@ if ($amd.Count -eq 0) {
   [pscustomobject]@{ available = $false; reason = 'AMD GPU が見つかりません' } | ConvertTo-Json -Compress
   exit
 }
-# LUID 指定が必要なのは「AMD 以外の物理カード（NVIDIA/Intel 等）と共存し、
-# 自動選択が他カードのカウンターを誤選択し得る」場合だけ。AMD のみなら
-# 全カウンターが AMD なので自動選択で安全。
+# DXGIでAMDのLUIDを自動特定する。自動特定できない場合だけ明示指定を使う。
 $needLuid = @($physical | Where-Object { $_.Name -notmatch 'AMD|Radeon' }).Count -gt 0
 
 $overrideKey = Get-LuidKey $override
-if ($needLuid -and [string]::IsNullOrWhiteSpace($overrideKey)) {
-  [pscustomobject]@{ available = $false; reason = 'NVIDIA等の他GPUと共存するためLEAFCODE_SYSMON_AMD_LUIDを指定してください' } | ConvertTo-Json -Compress
-  exit
-}
-
 $memory = @(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory)
 $engines = @(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine)
 $engineByLuid = @{}
@@ -340,28 +402,59 @@ foreach ($a in $amd) {
   }
 }
 $adapters = @($adapters | Sort-Object @{ Expression = { [double] $_.total }; Descending = $true })
+$adapterByName = @{}
+foreach ($adapter in $adapters) { $adapterByName[[string]$adapter.name] = $adapter }
 
-# カウンター側も VRAM 使用量の多い LUID から並べ、同名アダプターと大きい順に対応付ける。
-$selectedKeys = @($memory | Sort-Object @{ Expression = { [double] $_.DedicatedUsage }; Descending = $true } | ForEach-Object { Get-LuidKey ([string] $_.Name) } | Where-Object { $null -ne $_ })
+# メモリカウンターに存在するLUIDだけを対象にする。
+$allLuidKeys = @($memory |
+  Sort-Object @{ Expression = { [double] $_.DedicatedUsage }; Descending = $true } |
+  ForEach-Object { Get-LuidKey ([string] $_.Name) } |
+  Where-Object { $null -ne $_ } |
+  Select-Object -Unique)
+$amdLuidKeys = @($allLuidKeys |
+  Where-Object { $dxgiAmdByLuid.ContainsKey($_) } |
+  Sort-Object @{ Expression = {
+    $name = $dxgiAmdByLuid[[string]$_]
+    if ($adapterByName.ContainsKey($name)) { [double]$adapterByName[$name].total } else { 0 }
+  }; Descending = $true })
+
+$selectedKeys = @()
 if ($overrideKey) {
-  # 明示指定があれば、その LUID に絞る（AMD のみ構成で古い LUID 等でもフォールバックで全列挙）。
+  # 明示指定は既存の運用との互換用。指定が無効なら自動特定へ戻る。
   $hit = @($memory | Where-Object { (Get-LuidKey ([string] $_.Name)) -eq $overrideKey })
   if ($hit.Count -gt 0) { $selectedKeys = @($overrideKey) }
 }
 if ($selectedKeys.Count -eq 0) {
-  [pscustomobject]@{ available = $false; reason = 'AMD GPUのパフォーマンスカウンターを取得できません' } | ConvertTo-Json -Compress
+  if ($amdLuidKeys.Count -gt 0) {
+    $selectedKeys = $amdLuidKeys
+  } elseif (-not $needLuid) {
+    # DXGIが使えないAMD単独構成では、従来どおり全カウンターを使う。
+    $selectedKeys = $allLuidKeys
+  }
+}
+if ($selectedKeys.Count -eq 0) {
+  $reason = if ($needLuid) {
+    'AMD GPUを自動特定できません。LEAFCODE_SYSMON_AMD_LUIDを指定してください'
+  } else {
+    'AMD GPUのパフォーマンスカウンターを取得できません'
+  }
+  [pscustomobject]@{ available = $false; reason = $reason } | ConvertTo-Json -Compress
   exit
 }
 
 $result = @()
-# LUID 数が AMD アダプター数より多い場合（仮想アダプター等）は、対応付けできない分を切り捨てる。
-$limit = [Math]::Min($selectedKeys.Count, $adapters.Count)
+# DXGIで対応付けできない旧経路だけ、仮想アダプター分を切り捨てる。
+$limit = if ($amdLuidKeys.Count -gt 0) { $selectedKeys.Count } else { [Math]::Min($selectedKeys.Count, $adapters.Count) }
 for ($i = 0; $i -lt $limit; $i++) {
   $key = $selectedKeys[$i]
   $m = $memory | Where-Object { (Get-LuidKey ([string] $_.Name)) -eq $key } | Select-Object -First 1
   if ($null -eq $m) { continue }
-  # LUID とアダプター名の直接対応は Windows カウンターに無いため、VRAM 使用量順 ↔ 総量順で対応付ける。
-  $adapter = $adapters[$i]
+  $adapterName = if ($dxgiAmdByLuid.ContainsKey($key)) { [string]$dxgiAmdByLuid[$key] } else { $null }
+  $adapter = if ($adapterName -and $adapterByName.ContainsKey($adapterName)) { $adapterByName[$adapterName] } elseif ($i -lt $adapters.Count) { $adapters[$i] } else { $null }
+  if ($null -eq $adapter -and $adapterName) {
+    $adapter = [pscustomobject]@{ name = $adapterName; total = Get-VramTotal $adapterName }
+  }
+  if ($null -eq $adapter) { continue }
   $gpu = [double] 0
   if ($engineByLuid.ContainsKey($key)) { $gpu = [double] $engineByLuid[$key] }
   $total = $null
