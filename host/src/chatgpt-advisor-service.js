@@ -70,10 +70,18 @@ function writeJsonAtomic(file, value) {
     // the platform default ACL (host data lives under %APPDATA%).
     const writeOptions = process.platform === "win32" ? { encoding: "utf8" } : { encoding: "utf8", mode: 0o600 };
     writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, writeOptions);
-    // On Windows rename over an existing file can fail with EPERM/EEXIST.
-    // Copy the temp file over the target and then remove the temp file.
-    if (process.platform === "win32") {
-      copyFileSync(temp, file);
+    // On Windows copying/overwriting an existing locked file can fail with
+    // EPERM. Rename the existing file out of the way, then rename the temp
+    // file into place, and finally delete the old file.
+    if (process.platform === "win32" && existsSync(file)) {
+      const backup = `${file}.${process.pid}.bak`;
+      try { renameSync(file, backup); } catch {}
+      try { renameSync(temp, file); } catch (error) {
+        // Restore the backup on failure so the file is not lost.
+        try { renameSync(backup, file); } catch {}
+        throw error;
+      }
+      try { rmSync(backup, { force: true }); } catch {}
     } else {
       if (existsSync(file)) {
         try { rmSync(file, { force: true }); } catch {}
