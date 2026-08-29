@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { registerDeferredTools, TOOL_SEARCH_NAME } from "./deferred-tools";
+import { needsToolSearch, registerDeferredTools, TOOL_SEARCH_NAME } from "./deferred-tools";
 
 type SearchTool = {
   name: string;
@@ -36,6 +36,11 @@ function setup(initial: string[]) {
 }
 
 describe("deferred tools", () => {
+  it("does not widen an agent allowlist without an optional tool", () => {
+    expect(needsToolSearch(["read", "grep"])).toBe(false);
+    expect(needsToolSearch(["read", "memory_add"])).toBe(true);
+  });
+
   it("starts with the loader but removes low-frequency schemas", () => {
     const state = setup(["read", "bash", "memory_add", "memory_replace", "memory_remove", "skill_manage"]);
     state.start();

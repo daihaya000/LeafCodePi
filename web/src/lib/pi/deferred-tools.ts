@@ -13,6 +13,10 @@ const DEFERRED_TOOLS = [
 
 const deferredNames = new Set<string>(DEFERRED_TOOLS.map(({ name }) => name));
 
+export function needsToolSearch(toolNames: readonly string[]): boolean {
+  return toolNames.some((name) => deferredNames.has(name));
+}
+
 export function registerDeferredTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: TOOL_SEARCH_NAME,

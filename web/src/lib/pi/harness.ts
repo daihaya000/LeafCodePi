@@ -66,7 +66,11 @@ import {
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
 import { compactSkillsForPrompt, filterSkillsByState } from "@/lib/skills";
 import type { SkillPermission } from "@/lib/skill-permission";
-import { registerDeferredTools, TOOL_SEARCH_NAME } from "@/lib/pi/deferred-tools";
+import {
+  needsToolSearch,
+  registerDeferredTools,
+  TOOL_SEARCH_NAME,
+} from "@/lib/pi/deferred-tools";
 import { sessionIdentityPatch } from "@/lib/pi/session-identity";
 import {
   basenameKey,
@@ -1636,7 +1640,9 @@ async function createSession(options: {
   // their schemas from the initial model request. `subagent` remains governed
   // independently by the user's delegation permission.
   const configuredTools = agentOptions?.tools
-    ? [...new Set([...agentOptions.tools, TOOL_SEARCH_NAME])]
+    ? needsToolSearch(agentOptions.tools)
+      ? [...new Set([...agentOptions.tools, TOOL_SEARCH_NAME])]
+      : agentOptions.tools
     : [
         "read",
         "write",
