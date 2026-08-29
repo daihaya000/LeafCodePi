@@ -11,6 +11,12 @@ import {
   PREVIOUS_SUGGESTIONS_MAX_COUNT,
   type DirectGenerationModel,
 } from "@/lib/direct-generation-text";
+import type { ModelOption } from "@/lib/types";
+
+type DirectModelSelection = Pick<
+  ModelOption,
+  "providerID" | "modelID" | "accountId"
+>;
 
 type State =
   | { kind: "idle" }
@@ -25,7 +31,7 @@ export function NextTaskSuggest({
   onApply,
 }: {
   projectId: string;
-  model?: string;
+  model?: DirectModelSelection;
   disabled?: boolean;
   onApply: (suggestion: string) => void;
 }) {
@@ -60,9 +66,12 @@ export function NextTaskSuggest({
     setState({ kind: "loading" });
     try {
       const body: Record<string, unknown> = {};
-      if (model) {
-        const [providerID, modelID] = model.split("::");
-        if (providerID && modelID) body.model = { providerID, modelID };
+      if (model?.providerID && model.modelID) {
+        body.model = {
+          providerID: model.providerID,
+          modelID: model.modelID,
+          ...(model.accountId ? { accountId: model.accountId } : {}),
+        };
       }
       if (previous.length > 0) body.previousSuggestions = previous;
       const response = await sendJson<unknown>(

@@ -12,6 +12,7 @@ import {
   generateDirectText,
   generateDirectTextWithFallback,
   generateDirectTextWithFallbackResult,
+  parseDirectModel,
 } from "./direct-generation";
 
 describe("direct-generation", () => {
@@ -28,6 +29,20 @@ describe("direct-generation", () => {
       }),
     ).toBe("one\ntwo");
     expect(extractDirectText({ choices: [] })).toBe("");
+  });
+
+  it("preserves the selected account in a direct model object", () => {
+    expect(
+      parseDirectModel({
+        providerID: "anthropic",
+        modelID: "claude-sonnet",
+        accountId: " acc-1 ",
+      }),
+    ).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-sonnet",
+      accountId: "acc-1",
+    });
   });
 
   it("uses Pi's runtime directly for Ollama Cloud", async () => {

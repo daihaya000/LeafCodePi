@@ -1993,7 +1993,7 @@ export function TaskView({
           <NextAction
             taskId={taskId}
             sessionId={task.sessionId}
-            model={modelValue}
+            model={selectedModel}
             invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
             disabled={compacting}
             onApply={(suggestion) => {

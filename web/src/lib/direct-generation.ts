@@ -45,8 +45,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function parseDirectModel(value: unknown): DirectModel | undefined {
   if (!isRecord(value)) return undefined;
+  const accountId =
+    typeof value.accountId === "string" && value.accountId.trim()
+      ? value.accountId.trim()
+      : undefined;
   return typeof value.providerID === "string" && typeof value.modelID === "string"
-    ? { providerID: value.providerID, modelID: value.modelID }
+    ? {
+        providerID: value.providerID,
+        modelID: value.modelID,
+        ...(accountId ? { accountId } : {}),
+      }
     : undefined;
 }
 

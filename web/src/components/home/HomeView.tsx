@@ -435,7 +435,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
             />
             <NextTaskSuggest
               projectId={projectId}
-              model={model}
+              model={selectedModel}
               disabled={submitting || health?.engineOk === false}
               onApply={(suggestion) => {
                 setPrompt(suggestion);
