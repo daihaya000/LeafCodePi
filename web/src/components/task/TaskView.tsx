@@ -1675,6 +1675,22 @@ export function TaskView({
           />
         </div>
       )}
+      {task && (
+        <div
+          className={cx(
+            "shrink-0 border-b border-border bg-surface px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4",
+            mobilePanelOpen && "hidden",
+          )}
+        >
+          <div className="mx-auto w-full min-w-0 max-w-5xl">
+            <ChatGptAdvisoryPanel
+              taskId={task.id}
+              projectId={task.projectId}
+              taskTitle={task.title}
+            />
+          </div>
+        </div>
+      )}
       <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
         <div
           ref={scrollRef}
@@ -1685,13 +1701,6 @@ export function TaskView({
           )}
         >
           <div ref={contentRef} className="relative mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-4">
-            {task && (
-              <ChatGptAdvisoryPanel
-                taskId={task.id}
-                projectId={task.projectId}
-                taskTitle={task.title}
-              />
-            )}
             {hangRetryNotice && (
               <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
                 {hangRetryNotice}
