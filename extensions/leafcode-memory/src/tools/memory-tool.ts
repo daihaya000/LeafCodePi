@@ -387,10 +387,6 @@ export function registerMemoryTool(
     };
   };
 
-  const commonDescription = `${MEMORY_TOOL_DESCRIPTION}
-
-This action-specific tool accepts only the parameters listed in its schema.`;
-
   const registerActionTool = (
     action: MemoryAction,
     name: string,
@@ -402,11 +398,6 @@ This action-specific tool accepts only the parameters listed in its schema.`;
       name,
       label,
       description,
-      promptSnippet: `${label}: persistent memory that survives across sessions`,
-      promptGuidelines: [
-        "Use this tool proactively when the user corrects you, shares a preference, or reveals durable environment or project facts.",
-        "Do not use memory tools for temporary task state, TODO items, or session progress.",
-      ],
       renderResult: createSharedToolResultRenderer(memoryResultView),
       parameters,
       async execute(_toolCallId, params, signal) {
@@ -426,9 +417,7 @@ This action-specific tool accepts only the parameters listed in its schema.`;
     "add",
     "memory_add",
     "Memory Add",
-    `${commonDescription}
-
-Add one durable entry. The target and content fields are required.`,
+    `${MEMORY_TOOL_DESCRIPTION} Add requires target and content.`,
     Type.Object({
       target,
       content: Type.String({ description: "Entry content to save." }),
@@ -440,9 +429,7 @@ Add one durable entry. The target and content fields are required.`,
     "replace",
     "memory_replace",
     "Memory Replace",
-    `${commonDescription}
-
-Replace one existing entry. The target, old_text, and content fields are required.`,
+    "Replace one durable memory entry; target, old_text, and content are required.",
     Type.Object({
       target,
       old_text: Type.String({ description: "Substring identifying the entry to replace." }),
@@ -453,9 +440,7 @@ Replace one existing entry. The target, old_text, and content fields are require
     "remove",
     "memory_remove",
     "Memory Remove",
-    `${commonDescription}
-
-Remove one existing entry. The target and old_text fields are required.`,
+    "Remove one durable memory entry; target and old_text are required.",
     Type.Object({
       target,
       old_text: Type.String({ description: "Substring identifying the entry to remove." }),

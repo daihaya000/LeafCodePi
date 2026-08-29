@@ -16,7 +16,7 @@ describe("loadConfig", () => {
   it("returns defaults when no config file exists", () => {
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.memoryMode, "policy-only");
-    assert.strictEqual(config.memoryPolicyStyle, "full");
+    assert.strictEqual(config.memoryPolicyStyle, "compact");
     assert.strictEqual(config.memoryPolicyCustomText, undefined);
     assert.strictEqual(config.memoryCharLimit, 5000);
     assert.strictEqual(config.userCharLimit, 5000);
@@ -112,7 +112,7 @@ describe("loadConfig", () => {
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.reviewEnabled, false);
     assert.strictEqual(config.memoryMode, "policy-only");
-    assert.strictEqual(config.memoryPolicyStyle, "full");
+    assert.strictEqual(config.memoryPolicyStyle, "compact");
     assert.strictEqual(config.memoryCharLimit, 5000); // default
     assert.strictEqual(config.reviewRecentMessages, 50);
     assert.strictEqual(config.flushRecentMessages, 50);
@@ -274,7 +274,7 @@ describe("loadConfig", () => {
       memoryPolicyStyle: "invalid",
     }));
     const config = loadConfig(TEST_CONFIG_PATH);
-    assert.strictEqual(config.memoryPolicyStyle, "full");
+    assert.strictEqual(config.memoryPolicyStyle, "compact");
   });
 
   it("accepts string memoryPolicyCustomText and ignores non-string values", () => {

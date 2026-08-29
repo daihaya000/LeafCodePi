@@ -94,17 +94,6 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
     name: SKILL_MANAGE_TOOL_NAME,
     label: "Skill Manager",
     description: SKILL_TOOL_DESCRIPTION,
-    promptSnippet: "Create, inspect, and update reusable procedures and patterns",
-    promptGuidelines: [
-      "Use the skill_manage tool after completing complex tasks that required trial and error or multiple tool calls.",
-      "Use 'create' to save a new reusable procedure, 'patch' to update a section of an existing skill by skill_id, and 'update' for a full rewrite.",
-      "Scope is required on create: choose scope='global' for transferable procedures and scope='project' when the workflow depends on this repo's paths, scripts, conventions, or deploy steps.",
-      "Prefer structured fields for create/update/patch: when_to_use, procedure_steps, pitfalls, and verification_steps. The tool renders valid SKILL.md sections for you.",
-      "For patch, pass section plus the matching structured field (e.g. section='Procedure' with procedure_steps). Avoid free-form content that is a JSON array/object string.",
-      "Prefer 'update' for multi-section rewrites when patch content would be large or format-unstable.",
-      "Use 'view' before patching or updating when you need to inspect an existing skill.",
-      "Do NOT use skills for temporary task state — only for durable, reusable procedures.",
-    ],
     renderResult: createSharedToolResultRenderer(skillResultView),
     parameters: SKILL_TOOL_PARAMETERS,
     async execute(toolCallId, params, signal, onUpdate, ctx) {

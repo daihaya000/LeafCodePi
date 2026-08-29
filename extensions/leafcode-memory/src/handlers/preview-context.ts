@@ -42,7 +42,7 @@ export function registerPreviewContextCommand(
         lines.push("  ╚══════════════════════════════════════════════╝");
         lines.push("");
         lines.push("  Mode: policy-only");
-        lines.push(`  Policy style: ${config.memoryPolicyStyle ?? "full"}`);
+        lines.push(`  Policy style: ${config.memoryPolicyStyle ?? "compact"}`);
         lines.push("  This is the memory policy appended to the system prompt.");
         lines.push("  Full Markdown memories are NOT injected in this mode.");
         lines.push("");

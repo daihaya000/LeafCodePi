@@ -54,7 +54,7 @@ export const MEMORY_SETTING_LIMITS = {
 
 export const DEFAULT_LEAFCODE_MEMORY_SETTINGS: LeafCodeMemorySettings = {
   memoryMode: "policy-only",
-  memoryPolicyStyle: "full",
+  memoryPolicyStyle: "compact",
   memoryCharLimit: 5_000,
   userCharLimit: 5_000,
   projectCharLimit: 5_000,

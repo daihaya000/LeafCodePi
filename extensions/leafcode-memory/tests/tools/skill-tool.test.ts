@@ -52,8 +52,9 @@ describe("registerSkillTool", () => {
     assert.strictEqual(captured.name, SKILL_MANAGE_TOOL_NAME);
     assert.strictEqual(captured.label, "Skill Manager");
     assert.ok(captured.description.length > 0);
-    assert.ok(captured.promptSnippet.length > 0);
-    assert.ok(Array.isArray(captured.promptGuidelines));
+    assert.ok(captured.description.length < 250);
+    assert.strictEqual(captured.promptSnippet, undefined);
+    assert.strictEqual(captured.promptGuidelines, undefined);
     assert.ok(captured.parameters);
   });
 

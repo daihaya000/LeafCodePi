@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { registerPreviewContextCommand } from "../../src/handlers/preview-context.js";
-import { MEMORY_POLICY_PROMPT, MEMORY_POLICY_PROMPT_COMPACT } from "../../src/constants.js";
+import { MEMORY_POLICY_PROMPT_COMPACT } from "../../src/constants.js";
 
 describe("registerPreviewContextCommand", () => {
   function setup(opts: {
@@ -71,11 +71,10 @@ describe("registerPreviewContextCommand", () => {
     assert.strictEqual(notifyCalls.length, 1);
     const out = notifyCalls[0].message;
     assert.match(out, /Mode: policy-only/);
-    assert.match(out, /Policy style: full/);
+    assert.match(out, /Policy style: compact/);
     assert.match(out, /Full Markdown memories are NOT injected/);
     assert.match(out, /memory_search/);
-    assert.match(out, /target="failure"/);
-    assert.ok(out.includes(MEMORY_POLICY_PROMPT));
+    assert.ok(out.includes(MEMORY_POLICY_PROMPT_COMPACT));
     assert.match(out, /Blocks shown: 1/);
   });
 

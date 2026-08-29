@@ -20,7 +20,7 @@ export interface SessionSearchConfig {
 export interface MemoryConfig {
   /** Prompt memory mode. Default: policy-only */
   memoryMode: "policy-only" | "legacy-inject";
-  /** Policy prompt style used when memoryMode is policy-only. Default: full */
+  /** Policy prompt style used when memoryMode is policy-only. Default: compact */
   memoryPolicyStyle?: "full" | "compact" | "custom" | "none";
   /** Custom policy prompt text used when memoryPolicyStyle is custom */
   memoryPolicyCustomText?: string;

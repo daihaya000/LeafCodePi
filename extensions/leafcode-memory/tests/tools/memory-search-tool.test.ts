@@ -21,6 +21,17 @@ function makeDbManager(): DatabaseManager {
 }
 
 describe('registerMemorySearchTool', () => {
+  it('registers compact tool metadata without duplicated system-prompt guidance', () => {
+    const dbManager = makeDbManager();
+    let captured: any;
+    registerMemorySearchTool({ registerTool: (def: any) => { captured = def; } } as any, dbManager);
+
+    assert.ok(captured.description.length < 250);
+    assert.strictEqual(captured.promptSnippet, undefined);
+    assert.strictEqual(captured.promptGuidelines, undefined);
+    dbManager.close();
+  });
+
   it('returns a broader natural-language match when strict term matching misses', async () => {
     const dbManager = makeDbManager();
     addMemory(dbManager, "user's name is Naruto", 'user');

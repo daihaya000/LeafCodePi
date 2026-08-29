@@ -41,7 +41,7 @@ function isThinkingLevel(value: unknown): value is ThinkingLevel {
 
 const DEFAULT_CONFIG: MemoryConfig = {
   memoryMode: "policy-only",
-  memoryPolicyStyle: "full",
+  memoryPolicyStyle: "compact",
   memoryCharLimit: DEFAULT_MEMORY_CHAR_LIMIT,
   userCharLimit: DEFAULT_USER_CHAR_LIMIT,
   projectCharLimit: DEFAULT_PROJECT_CHAR_LIMIT,

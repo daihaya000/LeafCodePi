@@ -67,31 +67,7 @@ function registerAnchorSessionSearchTool(pi: ExtensionAPI, sessionsDir: string):
   pi.registerTool({
     name: 'session_search',
     label: 'Session Search',
-    description: `Search Pi session JSONL files in the opt-in anchor mode using a Markdown request.
-
-This mode accepts only a markdown request. Supported scalar fields are from, to, cwd, and limit. Supported list sections are all, any, and exclude: all terms must match, any requires at least one listed term, and exclude removes matching ranges. It returns compact JSONL line-range anchors, not summaries or previews. Output is plain text: count, optional message, then anchors as path:startLine-endLine with a short reason.
-
-Example:
-from: 2026-05-14
-to: 2026-05-15
-cwd: /path/to/project
-limit: 20
-
-all:
-- alpha
-
-any:
-- beta
-- gamma
-
-exclude:
-- delta`,
-    promptSnippet: 'Search past session JSONL files for compact source anchors',
-    promptGuidelines: [
-      'Use session_search with markdown only when the session search anchor mode is configured.',
-      'Request source anchors, not summaries or previews.',
-      'Use all for required terms, any for alternatives, and exclude for terms that must not appear in a returned range.',
-    ],
+    description: 'Search past Pi sessions in anchor mode. Pass Markdown with optional from/to/cwd/limit fields and all/any/exclude lists; returns path:startLine-endLine anchors.',
     renderResult: createSharedToolResultRenderer(searchResultView),
     parameters: Type.Object({
       markdown: Type.String({ description: 'Markdown request with optional from/to/cwd/limit fields and all/any/exclude lists.' }),
@@ -147,19 +123,7 @@ function registerLegacySessionSearchTool(pi: ExtensionAPI, dbManager: DatabaseMa
   pi.registerTool({
     name: 'session_search',
     label: 'Session Search',
-    description: `Search across past Pi coding sessions for relevant conversation context. Use this when the user asks about previous discussions, past work, or when you need context from earlier sessions.
-
-Examples:
-- "What did we discuss about auth last week?"
-- "Find the PR where we fixed the test hang"
-- "What approach did we take for the database migration?"
-
-Returns bounded conversation snippets with session dates and project context. Large messages are truncated with their original character count.`,
-    promptSnippet: 'Search past conversations for relevant context',
-    promptGuidelines: [
-      'Use session_search when the user asks about previous discussions or past work.',
-      'Use session_search when you need context from earlier sessions.',
-    ],
+    description: 'Search past Pi coding sessions for previous discussions or work. Returns bounded snippets with dates and project context.',
     renderResult: createSharedToolResultRenderer(searchResultView),
     parameters: Type.Object({
       query: Type.String({ description: 'Search query. Use natural language or specific terms.' }),

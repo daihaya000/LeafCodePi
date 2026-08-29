@@ -44,10 +44,11 @@ describe("registerMemoryTool", () => {
     );
     for (const tool of registeredTools) {
       assert.ok(tool.description.length > 0);
-      assert.ok(tool.promptSnippet.length > 0);
-      assert.ok(Array.isArray(tool.promptGuidelines));
+      assert.strictEqual(tool.promptSnippet, undefined);
+      assert.strictEqual(tool.promptGuidelines, undefined);
       assert.ok(tool.parameters);
     }
+    assert.ok(registeredTools.every((tool) => tool.description.length < 250));
   });
 
   it("execute add returns JSON with usage field", async () => {

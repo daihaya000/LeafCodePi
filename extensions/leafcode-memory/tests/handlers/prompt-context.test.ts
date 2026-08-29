@@ -20,18 +20,12 @@ describe("buildPromptContext", () => {
       "demo",
     );
 
-    assert.strictEqual(result, MEMORY_POLICY_PROMPT);
+    assert.strictEqual(result, MEMORY_POLICY_PROMPT_COMPACT);
     assert.match(result, /memory_search/);
-    assert.match(result, /Accepted memory categories/);
     assert.match(result, /category filters categorized failure\/lesson memories only/);
-    assert.match(result, /Use category only for categorized failure\/lesson searches/);
-    assert.match(result, /session_search: search indexed past conversation messages/);
-    assert.match(result, /skill_manage: list, view, create, patch, update, and delete procedural skills/);
-    assert.match(result, /Always pass scope explicitly on create/);
-    assert.match(result, /Do not create skills for one-off task state/);
-    assert.doesNotMatch(result, /category="preference"/);
-    assert.doesNotMatch(result, /inspect, and update procedural skills/);
-    assert.doesNotMatch(result, /memory_search: search relevant user, project, session, failure, and skill memories/);
+    assert.match(result, /scope is required: global for transferable workflows, project for repo-specific ones/);
+    assert.match(result, /Do not use memory_search for generic questions/);
+    assert.doesNotMatch(result, /Accepted memory categories/);
     assert.doesNotMatch(result, /MEMORY<\/memory-context>/);
     assert.doesNotMatch(result, /PROJECT demo/);
     assert.doesNotMatch(result, /SKILLS/);
@@ -125,7 +119,7 @@ describe("buildPromptContext", () => {
       standing,
     );
 
-    assert.ok(result.startsWith(MEMORY_POLICY_PROMPT), "the policy still leads");
+    assert.ok(result.startsWith(MEMORY_POLICY_PROMPT_COMPACT), "the compact policy still leads");
     assert.match(result, /<standing-instructions>/);
     assert.match(result, /never run find \//);
     assert.doesNotMatch(result, /MEMORY<\/memory-context>/, "stored memories stay out of policy-only");
@@ -161,6 +155,6 @@ describe("buildPromptContext", () => {
   it("injects nothing extra when no standing store is wired", async () => {
     const result = await buildPromptContext({ memoryMode: "policy-only" }, store, projectStore, "demo");
 
-    assert.strictEqual(result, MEMORY_POLICY_PROMPT);
+    assert.strictEqual(result, MEMORY_POLICY_PROMPT_COMPACT);
   });
 });

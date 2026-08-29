@@ -6,7 +6,7 @@ import type { StandingInstructions } from "./store/standing-instructions.js";
 type MemoryPolicyConfig = Pick<MemoryConfig, "memoryPolicyStyle" | "memoryPolicyCustomText">;
 
 export function resolveMemoryPolicyPrompt(config: MemoryPolicyConfig): string {
-  const style = config.memoryPolicyStyle ?? "full";
+  const style = config.memoryPolicyStyle ?? "compact";
 
   switch (style) {
     case "compact":

@@ -314,13 +314,12 @@ describe("registerSessionSearchTool", () => {
     assert.strictEqual(captured.name, "session_search");
     assert.match(schema, /markdown/);
     assert.doesNotMatch(schema, /query/);
-    assert.match(captured.description, /all terms must match/);
-    assert.match(captured.description, /any requires at least one listed term/);
-    assert.match(captured.description, /exclude removes matching ranges/);
-    assert.match(captured.description, /Output is plain text: count, optional message/);
-    assert.match(captured.description, /path:startLine-endLine with a short reason/);
-    assert.match(captured.description, /Example:\nfrom: 2026-05-14/);
-    assert.match(captured.promptGuidelines.join("\n"), /Use all for required terms/);
+    assert.match(captured.description, /from\/to\/cwd\/limit/);
+    assert.match(captured.description, /all\/any\/exclude/);
+    assert.match(captured.description, /path:startLine-endLine anchors/);
+    assert.ok(captured.description.length < 250);
+    assert.strictEqual(captured.promptSnippet, undefined);
+    assert.strictEqual(captured.promptGuidelines, undefined);
 
     const empty = await captured.execute("tc-1", { markdown: "" });
     assert.strictEqual(empty.details.success, false);

@@ -28,21 +28,7 @@ export function registerMemorySearchTool(pi: ExtensionAPI, dbManager: DatabaseMa
   pi.registerTool({
     name: 'memory_search',
     label: 'Memory Search',
-    description: `Search extended memory store for relevant entries. Use this when you need context beyond what's in the system prompt — the extended store has unlimited capacity and is searchable.
-
-Use cases:
-- Find memories about a specific topic: "What do I know about auth setup?"
-- Search project-specific memories: "What conventions does project X follow?"
-- Find user preferences: "What are the user's testing preferences?"
-- Search for past failures: "memory_search('auth', category='failure')"
-
-Returns matching memory entries with their mutation target, scope, and dates. The displayed target is the value required by memory_replace and memory_remove.`,
-    promptSnippet: 'Search extended memory store (unlimited capacity)',
-    promptGuidelines: [
-      'Use memory_search when you need context beyond what is in the system prompt.',
-      'Use memory_search to find project-specific memories or user preferences.',
-      'Use memory_search with category filter to find specific types of memories (failure, correction, insight, etc.).',
-    ],
+    description: 'Search durable user, global, project, or failure memories for context not already in the prompt. Results include mutation target and scope.',
     renderResult: createSharedToolResultRenderer(searchResultView),
     parameters: Type.Object({
       query: Type.String({ description: 'Search query. Use natural language or specific terms.' }),
