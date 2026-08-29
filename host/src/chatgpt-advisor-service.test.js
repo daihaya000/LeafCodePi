@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync, rmSync } from "node:fs";
@@ -12,8 +12,22 @@ function makeEnv(overrides = {}) {
   return { ...process.env, LEAFCODE_PI_CHATGPT_ADVISOR_DISABLED: undefined, ...overrides };
 }
 
+/** Temp roots created by makeService, removed once the file finishes. */
+const tempRoots = [];
+
+after(() => {
+  for (const root of tempRoots) {
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch {
+      // a locked temp dir must not fail the suite
+    }
+  }
+});
+
 function makeService(deps = {}) {
   const root = mkdtempSync(join(tmpdir(), "leafcode-advisor-test-"));
+  tempRoots.push(root);
   const repoRoot = join(root, "repo");
   const dataDir = join(root, "data");
   mkdirSync(join(repoRoot, "integrations"), { recursive: true });
@@ -144,6 +158,7 @@ test("setEnabled toggles config and disables stops", async () => {
 
 test("kill switch env disables regardless of config", async () => {
   const root = mkdtempSync(join(tmpdir(), "leafcode-advisor-kill-"));
+  tempRoots.push(root);
   const service = createChatGptAdvisorService({
     repoRoot: join(root, "repo"),
     dataDir: join(root, "data"),
@@ -160,6 +175,7 @@ test("kill switch env disables regardless of config", async () => {
 
 test("setup requires project validation before chrome launch", async () => {
   const root = mkdtempSync(join(tmpdir(), "leafcode-advisor-setup-"));
+  tempRoots.push(root);
   const repoRoot = join(root, "repo");
   const dataDir = join(root, "data");
   mkdirSync(join(dataDir), { recursive: true });
@@ -182,6 +198,7 @@ test("setup requires project validation before chrome launch", async () => {
 
 test("setup raises when disabled by kill switch", async () => {
   const root = mkdtempSync(join(tmpdir(), "leafcode-advisor-killsetup-"));
+  tempRoots.push(root);
   const service = createChatGptAdvisorService({
     repoRoot: join(root, "repo"),
     dataDir: join(root, "data"),
