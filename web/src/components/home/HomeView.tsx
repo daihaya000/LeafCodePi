@@ -167,8 +167,19 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
 
   useEffect(() => {
     if (health?.engineOk !== false) return;
-    const timer = setInterval(() => void refresh(), 3000);
-    return () => clearInterval(timer);
+    // エンジン停止中の回復検知は可視時のみ。バックグラウンドのポーリングを止め
+    // バッテリー・帯域を節約する（他コンポーネントと同じ visibility ガード）。
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, 3000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [health?.engineOk, refresh]);
 
   function addImageFiles(files: FileList) {
