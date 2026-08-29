@@ -342,7 +342,11 @@ DESIGN.mdの既存tokenとcomponentを使い、新しい視覚言語を作らな
 - model/effort選択UIはMVPで作らない
 - destructiveなprofile削除は通常停止と分ける
 
-**セットアップ自動化の原則（2026-08-29確定）:** ユーザー依存は「専用ChromeでのChatGPTログイン」と「C2C ConnectorのOAuth承認」だけに絞る。fork展開・manifest縮小・専用Chrome起動・拡張ID検出・native host登録・host起動・接続確認はHostサービスが自動実行する。ユーザーに拡張IDのコピー、native hostの手動インストール、CLI手動実行を要求しない。
+**セットアップ自動化の原則（2026-08-29確定）:** ユーザー依存は「専用ブラウザでのChatGPTログイン」と「C2C ConnectorのOAuth承認」だけに絞る。fork展開・manifest縮小・専用ブラウザ起動・拡張ID算出・native host登録・接続確認はHostサービスが自動実行する。ユーザーに拡張IDのコピー、native hostの手動インストール、CLI手動実行を要求しない。
+
+**ブラウザ要件の変更（2026-08-29 実機検証で確定）:** インストール済みChrome 151とEdgeは`--load-extension`を無視するため使用できない。最小の正当な拡張でも読み込まれないことをDevTools targetsで確認済み。専用ブラウザにはPlaywright同梱Chromium（`%LOCALAPPDATA%\ms-playwright\chromium-*`）またはChrome for Testingを使う。見つからない場合は`BROWSER_NOT_FOUND`で停止し、stable Chromeへフォールバックしない（拡張が読み込まれないまま成功したように見えるため）。
+
+**native hostの起動主体（同上）:** `native/host.cjs`はstdin終了で即shutdownするnative messaging hostであり、Hostサービスが直接spawnしてはならない。拡張の`connectNative()`によりブラウザが起動する。Hostサービスはnative messaging manifestとレジストリを登録し、socket到達を待つだけとする。専用socket/state pathはブラウザ経由では継承されないため、wrapper `.bat`内で`set`する。
 
 状態は`disabled / setup_required / ready / running / degraded / error`だけを表示し、未観測remote進捗を割合表示しない。
 
@@ -564,7 +568,8 @@ web/src/
 2. Hostへ専用profile、state、pipe、native messaging manifestのsetup/lifecycleを追加する。
 3. Windows ACL、canonical path、通常profile拒否、kill switchを実装する。
 4. setup/status/stop/cleanupのHost testを追加する。
-5. **セットアップ自動化を実装する**: `chatgpt-advisor-service.js`がfork展開→manifest縮小→専用Chrome起動→拡張ID自動検出→native host登録→host起動→接続確認を1コマンドで実行する。ユーザー操作はChatGPTログインとConnector承認のみ。
+5. **セットアップ自動化を実装する**: `chatgpt-advisor-service.js`がfork展開→manifest縮小→専用ブラウザ起動→拡張ID算出→拡張load確認→native host登録→socket到達確認を1コマンドで実行する。ユーザー操作はChatGPTログインとConnector承認のみ。
+6. **拡張の整合性を実装時に検証する**: manifestの`version`は1〜4個のドット区切り整数のみ（`2.6.0-restricted`はChromeが拒否）。distは全体をコピーする（`service-worker-loader.js`が`./service-worker/index.js`をimportするため、許可リスト方式は必要ファイルを落とす）。拡張IDはChromeと同一アルゴリズム（Windowsはドライブレターを大文字化したパスのUTF-16LEバイトをSHA-256し、先頭16バイトを上位ニブル先行で`a`-`p`へ写像）で算出する。
 
 **Gate:** runtime install/buildなしでdoctorとone-shotが成功する。
 

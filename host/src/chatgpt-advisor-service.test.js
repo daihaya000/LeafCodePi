@@ -65,48 +65,32 @@ test("restrictedManifest contains only Oracle-required permissions", () => {
   assert.equal(manifest.name, "Surf (LeafCodePi restricted)");
 });
 
-test("readExtensionIdFromPreferences finds the restricted extension", () => {
-  const { service, root } = makeService();
-  const profile = join(root, "profile");
-  const prefs = join(profile, "Default");
-  mkdirSync(prefs, { recursive: true });
-  const id = "abcdefghijklmnopabcdefghijklmnop";
-  writeFileSync(
-    join(prefs, "Preferences"),
-    JSON.stringify({
-      extensions: {
-        settings: {
-          [id]: {
-            path: "C:\\x\\surf-chatgpt-advisor\\dist",
-            manifest: { name: "Surf (LeafCodePi restricted)" },
-          },
-        },
-      },
-    }),
-    "utf8",
+// Verified against a real Chrome-assigned ID: launching Chromium with
+// --load-extension=%TEMP%\minext produced chrome-extension://hgmcjhacngkmcjdbbmapjbckdlnomojg/.
+// Chrome hashes the UTF-16LE bytes of the path with an upper-cased drive
+// letter and emits the high nibble of each byte first, so a UTF-8 hash or a
+// swapped nibble order yields an ID that silently never matches.
+test("computeExtensionIdFromPath matches the ID Chrome assigns", () => {
+  const { service } = makeService();
+  assert.equal(
+    service._internals.computeExtensionIdFromPath("C:\\Users\\Daichi\\AppData\\Local\\Temp\\minext", "win32"),
+    "hgmcjhacngkmcjdbbmapjbckdlnomojg",
   );
-  assert.equal(service._internals.readExtensionIdFromPreferences(profile), id);
 });
 
-test("readExtensionIdFromPreferences returns null when no restricted extension", () => {
+test("computeExtensionIdFromPath upper-cases the drive letter like Chrome", () => {
+  const { service } = makeService();
+  assert.equal(
+    service._internals.computeExtensionIdFromPath("c:\\x\\extension", "win32"),
+    service._internals.computeExtensionIdFromPath("C:\\x\\extension", "win32"),
+  );
+});
+
+test("isExtensionLoaded is false without a DevToolsActivePort file", async () => {
   const { service, root } = makeService();
   const profile = join(root, "profile");
-  mkdirSync(join(profile, "Default"), { recursive: true });
-  writeFileSync(
-    join(profile, "Default", "Preferences"),
-    JSON.stringify({
-      extensions: {
-        settings: {
-          someotheridabcdefghijklmnopqrstuv: {
-            path: "C:\\x\\other",
-            manifest: { name: "Other" },
-          },
-        },
-      },
-    }),
-    "utf8",
-  );
-  assert.equal(service._internals.readExtensionIdFromPreferences(profile), null);
+  mkdirSync(profile, { recursive: true });
+  assert.equal(await service._internals.isExtensionLoaded(profile, "abcdefghijklmnopabcdefghijklmnop"), false);
 });
 
 test("installNativeHost writes manifest and registers registry entry", () => {

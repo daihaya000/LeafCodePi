@@ -28,15 +28,10 @@ import { fileURLToPath } from "node:url";
 import { stopProcessTreeGracefully as defaultStopProcessTreeGracefully } from "./process-stop.js";
 
 const FORK_PKG = "surf-chatgpt-advisor";
-const EXTENSION_VERSION = "2.6.0-restricted";
-const CHROME_EXE_CANDIDATES = [
-  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-  "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-  process.env.LOCALAPPDATA
-    ? join(process.env.LOCALAPPDATA, "Google", "Chrome", "Application", "chrome.exe")
-    : null,
-  "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
-].filter(Boolean);
+// Chrome rejects a manifest whose version is not 1-4 dot-separated integers,
+// so the "restricted" marker belongs in version_name, not version.
+const EXTENSION_VERSION = "2.6.0";
+const EXTENSION_VERSION_NAME = "2.6.0-leafcodepi-restricted";
 const HOST_NAME = "surf.browser.host";
 const NAMED_PIPE = "\\\\.\\pipe\\leafcode-surf";
 const STARTUP_TIMEOUT_MS = 30_000;
@@ -150,6 +145,7 @@ function restrictedManifest() {
     manifest_version: 3,
     name: "Surf (LeafCodePi restricted)",
     version: EXTENSION_VERSION,
+    version_name: EXTENSION_VERSION_NAME,
     description: "LeafCodePi ChatGPT advisor restricted fork",
     options_page: "options/options.html",
     icons: {
@@ -199,63 +195,109 @@ function restrictedManifest() {
   };
 }
 
-function resolveChrome() {
-  for (const candidate of CHROME_EXE_CANDIDATES) {
-    if (candidate && existsSync(candidate)) return candidate;
+/**
+ * Locate a Chromium that can still load an unpacked extension.
+ *
+ * Verified on this machine: Chrome 151 and Edge silently ignore
+ * `--load-extension` (Chrome removed the switch), so installed Chrome cannot
+ * host the advisor extension. Playwright's bundled Chromium and Chrome for
+ * Testing keep the switch, so those are preferred and the stable browsers are
+ * not used at all -- falling back to them would look like it worked while the
+ * extension never loads.
+ */
+export function resolveExtensionCapableBrowser(env = process.env) {
+  const roots = [];
+  if (env.LOCALAPPDATA) {
+    roots.push(join(env.LOCALAPPDATA, "ms-playwright"));
+    roots.push(join(env.LOCALAPPDATA, "Chrome for Testing"));
   }
-  throw new AdvisorError("CHROME_NOT_FOUND", "Chrome is not installed in a known location", 412);
+  const found = [];
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    let entries;
+    try {
+      entries = readdirSync(root, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !/^chromium-\d+$|^chrome-win/.test(entry.name)) continue;
+      for (const layout of [join("chrome-win64", "chrome.exe"), join("chrome-win", "chrome.exe"), "chrome.exe"]) {
+        const exe = join(root, entry.name, layout);
+        if (existsSync(exe)) {
+          found.push({ exe, revision: Number(entry.name.match(/(\d+)/)?.[1] ?? 0) });
+          break;
+        }
+      }
+    }
+  }
+  if (found.length === 0) return null;
+  found.sort((a, b) => b.revision - a.revision);
+  return found[0].exe;
 }
 
-function extensionIdFromManifest(manifestPath) {
-  // Chrome computes extension IDs from the public key in the manifest, but
-  // unpacked extensions without a key get a deterministic ID derived from the
-  // absolute path. There is no reliable local computation, so we read the ID
-  // from Chrome's Preferences after the first launch.
-  return null;
+function resolveChrome(env = process.env) {
+  const exe = resolveExtensionCapableBrowser(env);
+  if (exe) return exe;
+  throw new AdvisorError(
+    "BROWSER_NOT_FOUND",
+    "no Chromium that supports --load-extension was found; installed Chrome and Edge ignore the switch. Install Playwright's Chromium (npx playwright install chromium) or Chrome for Testing.",
+    412,
+  );
 }
 
 /**
- * Chrome derives unpacked-extension IDs from the absolute extension path
- * (Extension::GenerateIdForPath: SHA256 of the normalized path, first 16
- * bytes mapped into [a-p]). Used as a fast fallback before Preferences are
- * flushed; the Preferences read remains authoritative when both disagree.
+ * Reproduce Chrome's Extension::GenerateIdForPath for unpacked extensions.
+ *
+ * Chrome hashes the raw bytes of the absolute path -- on Windows that is the
+ * UTF-16LE representation with the drive letter upper-cased -- takes the first
+ * 16 bytes of the SHA-256, hex-encodes them and maps '0'-'9'/'A'-'F' onto
+ * 'a'-'p'. Hex encoding emits the high nibble first, so nibble order matters.
  */
-export function computeExtensionIdFromPath(extensionPath) {
-  const normalized = extensionPath.replace(/[\\/]+$/, "");
-  const digest = createHash("sha256").update(normalized).digest();
+export function computeExtensionIdFromPath(extensionPath, platform = process.platform) {
+  let normalized = extensionPath.replace(/[\\/]+$/, "");
+  let input;
+  if (platform === "win32") {
+    if (/^[a-z]:/.test(normalized)) normalized = normalized[0].toUpperCase() + normalized.slice(1);
+    input = Buffer.from(normalized, "utf16le");
+  } else {
+    input = Buffer.from(normalized, "utf8");
+  }
+  const digest = createHash("sha256").update(input).digest();
   const alphabet = "abcdefghijklmnop";
   let id = "";
   for (let i = 0; i < 16; i += 1) {
-    const value = digest[i];
-    id += alphabet[value & 0x0f];
-    id += alphabet[(value >> 4) & 0x0f];
+    id += alphabet[(digest[i] >> 4) & 0x0f];
+    id += alphabet[digest[i] & 0x0f];
   }
   return id;
 }
 
-function readExtensionIdFromPreferences(profileDir) {
-  const prefs = join(profileDir, "Default", "Preferences");
-  if (!existsSync(prefs)) return null;
+/**
+ * Confirm the extension is actually running.
+ *
+ * Extensions loaded from the command line are not written to the profile's
+ * Preferences, so the only reliable signal is a live DevTools target under
+ * `chrome-extension://<id>/`. Chrome writes the chosen port to
+ * DevToolsActivePort in the profile directory when launched with port 0.
+ */
+async function isExtensionLoaded(profileDir, extensionId) {
+  const portFile = join(profileDir, "DevToolsActivePort");
+  if (!existsSync(portFile)) return false;
+  const port = Number(readFileSync(portFile, "utf8").split(/\r?\n/)[0]);
+  if (!Number.isInteger(port) || port <= 0) return false;
   try {
-    const parsed = JSON.parse(readFileSync(prefs, "utf8"));
-    const settings = parsed?.extensions?.settings;
-    if (!settings || typeof settings !== "object") return null;
-    const entry = Object.values(settings).find(
-      (value) =>
-        value &&
-        typeof value === "object" &&
-        typeof value.path === "string" &&
-        value.path.includes("surf") &&
-        typeof value.manifest === "object" &&
-        value.manifest?.name === "Surf (LeafCodePi restricted)",
+    const response = await fetch(`http://127.0.0.1:${port}/json`, {
+      signal: AbortSignal.timeout(3_000),
+    });
+    if (!response.ok) return false;
+    const targets = await response.json();
+    return (
+      Array.isArray(targets) &&
+      targets.some((target) => typeof target?.url === "string" && target.url.startsWith(`chrome-extension://${extensionId}/`))
     );
-    if (!entry) return null;
-    const id = Object.keys(settings).find(
-      (key) => settings[key] === entry && /^[a-p]{32}$/.test(key),
-    );
-    return id || null;
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -283,7 +325,6 @@ export function createChatGptAdvisorService(options) {
   const surfTmp = join(advisorRoot, "tmp");
   const extensionDir = join(advisorRoot, "extension");
 
-  let active = null;
   let chromeProc = null;
 
   function config() {
@@ -319,7 +360,6 @@ export function createChatGptAdvisorService(options) {
     const value = jsonFile(runtimeFile);
     if (
       !value ||
-      !Number.isInteger(value.hostPid) ||
       !Number.isInteger(value.chromePid) ||
       typeof value.extensionId !== "string" ||
       !/^[a-p]{32}$/.test(value.extensionId)
@@ -410,27 +450,29 @@ export function createChatGptAdvisorService(options) {
     log("Surf fork extracted");
   }
 
-  /** Apply the restricted manifest to the extension dist. */
+  /** Stage the extension with the restricted manifest applied. */
   function applyRestrictedManifest() {
-    const manifestPath = join(forkDist, "manifest.json");
-    if (!existsSync(manifestPath)) {
+    if (!existsSync(join(forkDist, "manifest.json"))) {
       throw new AdvisorError("FORK_MANIFEST_MISSING", "fork manifest is missing", 412);
     }
-    writeJsonAtomic(manifestPath, restrictedManifest());
-    // Copy the extension into the advisor-owned extension dir so Chrome loads
-    // a stable path and the runtime can verify it.
+    // Copy the whole dist: an allow-list silently drops files the bundle needs
+    // (service-worker-loader.js imports ./service-worker/index.js, so omitting
+    // that directory leaves Chrome unable to load the extension at all).
+    // Permissions are restricted by the manifest, not by which files ship.
     if (existsSync(extensionDir)) rmSync(extensionDir, { recursive: true, force: true });
-    mkdirSync(extensionDir, { recursive: true });
-    for (const entry of ["manifest.json", "service-worker-loader.js", "content", "options", "icons"]) {
-      const src = join(forkDist, entry);
-      const dest = join(extensionDir, entry);
-      if (existsSync(src)) {
-        if (statSync(src).isDirectory()) {
-          copyDir(src, dest);
-        } else {
-          mkdirSync(dirname(dest), { recursive: true });
-          copyFileSync(src, dest);
-        }
+    copyDir(forkDist, extensionDir);
+    const manifest = restrictedManifest();
+    // Chrome only reports manifest errors in a modal dialog the host never
+    // sees, so validate the fields it rejects outright before staging.
+    if (!/^\d{1,5}(\.\d{1,5}){0,3}$/.test(manifest.version)) {
+      throw new AdvisorError("MANIFEST_INVALID", `manifest version ${manifest.version} is not 1-4 dot-separated integers`, 500);
+    }
+    writeJsonAtomic(join(extensionDir, "manifest.json"), manifest);
+    const loader = join(extensionDir, "service-worker-loader.js");
+    if (existsSync(loader)) {
+      const target = readFileSync(loader, "utf8").match(/['"](\.\/[^'"]+)['"]/)?.[1];
+      if (target && !existsSync(join(extensionDir, target))) {
+        throw new AdvisorError("FORK_INCOMPLETE", `service worker entry ${target} is missing from the staged extension`, 500);
       }
     }
     log("Restricted manifest applied and extension staged");
@@ -446,17 +488,22 @@ export function createChatGptAdvisorService(options) {
     }
   }
 
-  /** Launch the dedicated Chrome profile with the staged extension. */
+  /** Launch the dedicated browser profile with the staged extension. */
   async function openChrome() {
-    const chrome = resolveChrome();
+    const chrome = resolveChrome(env);
     prepareDirectories();
+    // The ID is derived from the extension's absolute path by the same
+    // algorithm Chrome uses, so it is known before launch.
+    const extensionId = computeExtensionIdFromPath(extensionDir, platform);
     if (chromeProc && isProcessAlive(chromeProc.pid)) {
-      const id = readExtensionIdFromPreferences(chromeProfileDir) || computeExtensionIdFromPath(extensionDir);
-      return { alreadyRunning: true, extensionId: id };
+      return { alreadyRunning: true, extensionId };
     }
     const args = [
       `--user-data-dir=${chromeProfileDir}`,
       `--load-extension=${extensionDir}`,
+      // Port 0 lets the browser pick a free localhost port and write it to
+      // DevToolsActivePort; it is only used to confirm the extension loaded.
+      "--remote-debugging-port=0",
       "--no-first-run",
       "--no-default-browser-check",
       "--disable-features=Translate",
@@ -467,22 +514,21 @@ export function createChatGptAdvisorService(options) {
       stdio: "ignore",
       windowsHide: true,
     });
-    log(`Chrome launched (pid=${chromeProc.pid})`);
-    // Extension IDs for unpacked extensions are derived from the absolute
-    // path, so compute immediately; Preferences are the authoritative source
-    // once Chrome flushes them.
-    const computed = computeExtensionIdFromPath(extensionDir);
+    log(`Browser launched: ${chrome} (pid=${chromeProc.pid})`);
+
     const deadline = now() + STARTUP_TIMEOUT_MS;
     while (now() < deadline) {
-      const id = readExtensionIdFromPreferences(chromeProfileDir);
-      if (id) {
-        log(`Extension ID detected from Preferences: ${id}`);
-        return { extensionId: id };
+      if (await isExtensionLoaded(chromeProfileDir, extensionId)) {
+        log(`Extension confirmed loaded: ${extensionId}`);
+        return { extensionId };
       }
       await wait(READY_POLL_MS);
     }
-    log(`Using path-derived extension ID: ${computed}`);
-    return { extensionId: computed };
+    throw new AdvisorError(
+      "EXTENSION_NOT_LOADED",
+      `the browser did not load the advisor extension (${extensionId}). Chrome 137+ and Edge ignore --load-extension; use Playwright's Chromium or Chrome for Testing.`,
+      504,
+    );
   }
 
   /** Write the Windows native messaging manifest and register it. */
@@ -496,7 +542,19 @@ export function createChatGptAdvisorService(options) {
     const wrapperDir = join(advisorRoot, "native-host");
     mkdirSync(wrapperDir, { recursive: true });
     const wrapperBat = join(wrapperDir, "host-wrapper.bat");
-    const wrapperContent = `@echo off\r\n"${nodePath}" "${hostPath}" %*\r\n`;
+    // The browser -- not this service -- spawns the native host, so it does not
+    // inherit our environment. The dedicated socket and state paths have to be
+    // baked into the wrapper or the host would fall back to the shared
+    // //./pipe/surf and the global Surf state directory.
+    const wrapperContent = [
+      "@echo off",
+      `set "SURF_SOCKET=${NAMED_PIPE}"`,
+      `set "SURF_STATE_DIR=${surfStateDir}"`,
+      `set "SURF_NETWORK_PATH=${surfNetworkPath}"`,
+      `set "SURF_TMP=${surfTmp}"`,
+      `"${nodePath}" "${hostPath}" %*`,
+      "",
+    ].join("\r\n");
     writeFileSync(wrapperBat, wrapperContent, { encoding: "utf8" });
 
     const manifestDir = join(advisorRoot, "native-host", "manifest");
@@ -531,30 +589,14 @@ export function createChatGptAdvisorService(options) {
     return { wrapperBat, manifestPath, extensionId };
   }
 
-  /** Start the Surf native host process with dedicated env. */
-  async function startNativeHost() {
-    const hostPath = join(forkDir, "native", "host.cjs");
-    const nodePath = process.execPath;
-    const child = spawnProcess(nodePath, [hostPath], {
-      cwd: forkDir,
-      env: {
-        ...env,
-        SURF_SOCKET: NAMED_PIPE,
-        SURF_STATE_DIR: surfStateDir,
-        SURF_NETWORK_PATH: surfNetworkPath,
-        SURF_TMP: surfTmp,
-      },
-      detached: false,
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    active = { hostChild: child };
-    child.once("exit", () => {
-      if (active?.hostChild === child) active = null;
-    });
-    log(`Native host started (pid=${child.pid})`);
-    return child;
-  }
+  /**
+   * The native host is deliberately not started here.
+   *
+   * host.cjs is a native messaging host: it shuts down as soon as stdin ends,
+   * so spawning it with stdio "ignore" kills it immediately and the socket is
+   * never created. Only the browser may start it, via connectNative() from the
+   * extension, which is why setup waits for the socket instead.
+   */
 
   /** Ping the native host through the socket. */
   async function pingNativeHost(timeoutMs = 5_000) {
@@ -582,7 +624,7 @@ export function createChatGptAdvisorService(options) {
       ok: true,
       enabled: !disabled(),
       artifactReady: artifactReady(),
-      chromeAvailable: existsSync(resolveChromeSafe()),
+      chromeAvailable: resolveChromeSafe() !== null,
       ready: false,
       state: "disabled",
     };
@@ -590,9 +632,9 @@ export function createChatGptAdvisorService(options) {
     if (!common.artifactReady) return { ...common, state: "prerequisites_missing" };
     const rt = runtime();
     const chromeRunning = rt && isProcessAlive(rt.chromePid);
-    const hostRunning = rt && isProcessAlive(rt.hostPid);
-    const socketAlive = chromeRunning && hostRunning ? await pingNativeHost() : false;
-    const ready = socketAlive === true;
+    // The browser owns the native host, so socket reachability is the only
+    // signal that the advisor is actually usable.
+    const ready = chromeRunning ? await pingNativeHost() : false;
     if (projectId) {
       try {
         const project = readProject(projectId);
@@ -605,17 +647,16 @@ export function createChatGptAdvisorService(options) {
     return {
       ...common,
       ready,
-      state: ready ? "ready" : chromeRunning && hostRunning ? "degraded" : "setup_required",
+      state: ready ? "ready" : chromeRunning ? "degraded" : "setup_required",
       extensionId: rt?.extensionId || null,
       chromePid: rt?.chromePid || null,
-      hostPid: rt?.hostPid || null,
       profileDir: chromeProfileDir,
     };
   }
 
   function resolveChromeSafe() {
     try {
-      return resolveChrome();
+      return resolveChrome(env);
     } catch {
       return null;
     }
@@ -634,17 +675,13 @@ export function createChatGptAdvisorService(options) {
         applyRestrictedManifest();
       }
       log("setup: launching dedicated Chrome");
-      const opened = await openChrome();
-      const extensionId =
-        opened.extensionId ||
-        readExtensionIdFromPreferences(chromeProfileDir) ||
-        computeExtensionIdFromPath(extensionDir);
-      if (!extensionId) throw new AdvisorError("EXTENSION_ID_TIMEOUT", "extension ID was not detected", 504);
+      const { extensionId } = await openChrome();
       log(`setup: extensionId=${extensionId}`);
       log("setup: installing native host");
       installNativeHost(extensionId);
-      log("setup: starting native host process");
-      await startNativeHost();
+      // Chrome starts the native host when the extension calls connectNative,
+      // so wait for the socket rather than spawning it here.
+      log("setup: waiting for the extension to start the native host");
       const deadline = now() + STARTUP_TIMEOUT_MS;
       let connected = false;
       while (now() < deadline) {
@@ -652,11 +689,16 @@ export function createChatGptAdvisorService(options) {
         if (connected) break;
         await wait(READY_POLL_MS);
       }
-      if (!connected) throw new AdvisorError("HOST_CONNECT_FAILED", "native host did not become reachable", 504);
+      if (!connected) {
+        throw new AdvisorError(
+          "HOST_CONNECT_FAILED",
+          "the extension did not start the native host; open the extension in the dedicated browser and confirm it is enabled",
+          504,
+        );
+      }
       const rt = runtime() || {};
       writeJsonAtomic(runtimeFile, {
         version: 1,
-        hostPid: active?.hostChild?.pid || rt.hostPid || 0,
         chromePid: chromeProc?.pid || rt.chromePid || 0,
         extensionId,
         projectId: projectId || null,
@@ -672,14 +714,8 @@ export function createChatGptAdvisorService(options) {
   }
 
   async function stop() {
-    if (active?.hostChild) {
-      await stopProcessTreeGracefully({ pid: active.hostChild.pid, isAlive: isProcessAlive }).catch(() => undefined);
-      active = null;
-    }
+    // Stopping the browser also stops the native host it spawned.
     const rt = runtime();
-    if (rt && isProcessAlive(rt.hostPid)) {
-      await stopProcessTreeGracefully({ pid: rt.hostPid, isAlive: isProcessAlive }).catch(() => undefined);
-    }
     if (chromeProc && isProcessAlive(chromeProc.pid)) {
       await stopProcessTreeGracefully({ pid: chromeProc.pid, isAlive: isProcessAlive }).catch(() => undefined);
       chromeProc = null;
@@ -746,7 +782,7 @@ export function createChatGptAdvisorService(options) {
     shutdown,
     _internals: {
       restrictedManifest,
-      readExtensionIdFromPreferences,
+      isExtensionLoaded,
       computeExtensionIdFromPath,
       installNativeHost,
       extractFork,
