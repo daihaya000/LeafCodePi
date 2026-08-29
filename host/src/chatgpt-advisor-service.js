@@ -25,7 +25,6 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { restrictToCurrentUser } from "./secure-file.js";
 import { stopProcessTreeGracefully as defaultStopProcessTreeGracefully } from "./process-stop.js";
 
 const FORK_PKG = "surf-chatgpt-advisor";
@@ -63,34 +62,32 @@ function jsonFile(file) {
 
 function writeJsonAtomic(file, value) {
   mkdirSync(dirname(file), { recursive: true });
+  const payload = `${JSON.stringify(value, null, 2)}\n`;
+  try {
+    writeJsonOnce(file, payload);
+  } catch (error) {
+    // A stripped-inheritance directory leaves files with an empty DACL, so the
+    // first write fails with EPERM. Restore inherited ACLs once and retry.
+    if (error?.code !== "EPERM" || !repairAcl(dirname(file))) {
+      throw new Error(`${error?.code || "WRITE_FAILED"}: failed to write ${file}: ${error?.message || "unknown"}`);
+    }
+    try {
+      writeJsonOnce(file, payload);
+    } catch (retryError) {
+      throw new Error(
+        `${retryError?.code || "WRITE_FAILED"}: failed to write ${file} after ACL repair: ${retryError?.message || "unknown"}`,
+      );
+    }
+  }
+}
+
+function writeJsonOnce(file, payload) {
   const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
   try {
-    // On Windows the mode option can cause EPERM when the parent directory is
-    // protected or inherited ACLs are strict, so write without it and rely on
-    // the platform default ACL (host data lives under %APPDATA%).
-    const writeOptions = process.platform === "win32" ? { encoding: "utf8" } : { encoding: "utf8", mode: 0o600 };
-    writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, writeOptions);
-    // On Windows copying/overwriting an existing locked file can fail with
-    // EPERM. Rename the existing file out of the way, then rename the temp
-    // file into place, and finally delete the old file.
-    if (process.platform === "win32" && existsSync(file)) {
-      const backup = `${file}.${process.pid}.bak`;
-      try { renameSync(file, backup); } catch {}
-      try { renameSync(temp, file); } catch (error) {
-        // Restore the backup on failure so the file is not lost.
-        try { renameSync(backup, file); } catch {}
-        throw error;
-      }
-      try { rmSync(backup, { force: true }); } catch {}
-    } else {
-      if (existsSync(file)) {
-        try { rmSync(file, { force: true }); } catch {}
-      }
-      renameSync(temp, file);
-    }
-  } catch (error) {
-    const code = error?.code || "WRITE_FAILED";
-    throw new Error(`${code}: failed to write ${file}: ${error?.message || "unknown"}`);
+    // Windows ignores the POSIX mode and can reject it outright, so only pass
+    // it where it means something.
+    writeFileSync(temp, payload, process.platform === "win32" ? { encoding: "utf8" } : { encoding: "utf8", mode: 0o600 });
+    renameSync(temp, file);
   } finally {
     try {
       rmSync(temp, { force: true });
@@ -126,11 +123,24 @@ function safeProjectId(value) {
   return value;
 }
 
-function restrictDir(root) {
+/**
+ * Restore inherited ACLs under `root`.
+ *
+ * An earlier build locked these directories down with `icacls /inheritance:r`,
+ * which leaves files created inside with an empty DACL: reading, renaming and
+ * deleting them then fail with EPERM and the advisor can never be enabled.
+ * Resetting to inherited permissions is the only way out, and it is safe here
+ * because the tree lives under the per-user %APPDATA% root.
+ */
+function repairAcl(root) {
+  if (process.platform !== "win32") return false;
   try {
-    restrictToCurrentUser(root);
+    return spawnSync("icacls", [root, "/reset", "/T", "/C", "/Q"], {
+      stdio: "ignore",
+      windowsHide: true,
+    }).status === 0;
   } catch {
-    // best effort
+    return false;
   }
 }
 
@@ -423,7 +433,6 @@ export function createChatGptAdvisorService(options) {
         }
       }
     }
-    restrictDir(extensionDir);
     log("Restricted manifest applied and extension staged");
   }
 

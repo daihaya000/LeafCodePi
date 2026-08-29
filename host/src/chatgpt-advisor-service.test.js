@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { createChatGptAdvisorService } from "./chatgpt-advisor-service.js";
 import { createLlamaControlServer, listenControlServer, closeControlServer } from "./llama-control-server.js";
 
@@ -261,4 +262,39 @@ test("cleanup removes profile when requested", async () => {
   writeFileSync(join(profile, "x"), "y", "utf8");
   await service.cleanup(true);
   assert.equal(existsSync(profile), false);
+});
+
+// Regression: an earlier build ran `icacls /inheritance:r` on the advisor
+// directories. Combined with a restricted process token that has an empty
+// default DACL, config.json was created with no ACEs at all, so setEnabled
+// failed with "EPERM: operation not permitted, rename" and the advisor could
+// never be enabled. The service must repair the ACL and complete the write.
+test("setEnabled recovers from an empty-DACL config.json", { skip: process.platform !== "win32" }, async () => {
+  const { service, dataDir } = makeService();
+  const advisorDir = join(dataDir, "chatgpt-advisor");
+  const configFile = join(advisorDir, "config.json");
+  mkdirSync(advisorDir, { recursive: true });
+
+  // Reproduce the broken directory: no inheritance and no delete-child right,
+  // so replacing a file inside depends on the file's own DACL.
+  const principal = `${process.env.USERDOMAIN}\\${process.env.USERNAME}`;
+  execFileSync(
+    "icacls",
+    [advisorDir, "/inheritance:r", "/grant:r", `${principal}:(R,W,D)`, "/grant:r", "*S-1-5-18:(F)", "/grant:r", "*S-1-5-32-544:(F)"],
+    { stdio: "ignore" },
+  );
+  writeFileSync(configFile, "{}\n", "utf8");
+  execFileSync("icacls", [configFile, "/inheritance:r"], { stdio: "ignore" });
+  for (const who of [principal, "*S-1-5-18", "*S-1-5-32-544"]) {
+    try {
+      execFileSync("icacls", [configFile, "/remove:g", who], { stdio: "ignore" });
+    } catch {
+      // the ACE may not be present; the goal is an empty DACL
+    }
+  }
+
+  const result = await service.setEnabled(true);
+
+  assert.equal(result.enabled, true);
+  assert.equal(JSON.parse(readFileSync(configFile, "utf8")).enabled, true);
 });
