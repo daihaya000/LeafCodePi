@@ -64,7 +64,7 @@ import {
   todosFromPiMessages,
 } from "@/lib/pi/todowrite-state";
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
-import { filterSkillsByState } from "@/lib/skills";
+import { compactSkillsForPrompt, filterSkillsByState } from "@/lib/skills";
 import type { SkillPermission } from "@/lib/skill-permission";
 import { sessionIdentityPatch } from "@/lib/pi/session-identity";
 import {
@@ -1589,8 +1589,8 @@ async function createSession(options: {
         return { skills: [], diagnostics: base.diagnostics };
       }
       return {
-        skills: filterSkillsByState(base.skills).filter(
-          (skill) => !isAgentsSkill(skill),
+        skills: compactSkillsForPrompt(
+          filterSkillsByState(base.skills).filter((skill) => !isAgentsSkill(skill)),
         ),
         diagnostics: base.diagnostics,
       };

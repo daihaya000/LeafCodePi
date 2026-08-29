@@ -116,6 +116,23 @@ export function filterSkillsByState<T extends { name: string }>(
   return skills.filter((skill) => state.disabled[skill.name] !== true);
 }
 
+const MAX_PROMPT_DESCRIPTION_CHARS = 200;
+
+/** Keep skill discovery useful without injecting long trigger inventories. */
+export function compactSkillsForPrompt<T extends { description: string }>(skills: readonly T[]): T[] {
+  return skills.map((skill) => {
+    const normalized = skill.description.replace(/\s+/g, " ").trim();
+    const characters = [...normalized];
+    if (characters.length <= MAX_PROMPT_DESCRIPTION_CHARS) {
+      return normalized === skill.description ? skill : { ...skill, description: normalized };
+    }
+    const head = characters.slice(0, MAX_PROMPT_DESCRIPTION_CHARS - 1).join("");
+    const wordBreak = head.lastIndexOf(" ");
+    const description = `${(wordBreak >= 150 ? head.slice(0, wordBreak) : head).trimEnd()}…`;
+    return { ...skill, description };
+  });
+}
+
 function loadFromDir(dir: string, source: SkillSource): Array<Skill & { source: SkillSource }> {
   if (!existsSync(dir)) return [];
   return loadSkillsFromDir({ dir, source }).skills.map((skill) => ({ ...skill, source }));

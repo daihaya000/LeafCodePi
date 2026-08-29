@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  compactSkillsForPrompt,
   filterSkillsByState,
   listSkills,
   readSkillsState,
@@ -26,6 +27,23 @@ describe("filterSkillsByState", () => {
     const out = filterSkillsByState(skills, { disabled: {} });
     expect(out).toEqual(skills);
     expect(out).not.toBe(skills);
+  });
+});
+
+describe("compactSkillsForPrompt", () => {
+  it("normalizes and caps only the prompt copy", () => {
+    const source = [{ name: "long", description: `Use this skill  when needed. ${"trigger ".repeat(40)}` }];
+
+    const [compacted] = compactSkillsForPrompt(source);
+
+    expect([...compacted.description].length).toBeLessThanOrEqual(200);
+    expect(compacted.description.endsWith("…")).toBe(true);
+    expect(source[0].description).toContain("  ");
+  });
+
+  it("keeps short descriptions intact", () => {
+    const source = [{ name: "short", description: "Use for tests." }];
+    expect(compactSkillsForPrompt(source)[0]).toBe(source[0]);
   });
 });
 
