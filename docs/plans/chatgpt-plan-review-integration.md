@@ -1,10 +1,13 @@
 # ChatGPTプラン・レビュー連携 要件定義・実装計画
 
-- **状態:** 確定
+- **状態:** v1実装済み（手動fallbackとして維持）
+- **後継計画:** [ChatGPT自動アドバイザー統合](./chatgpt-automatic-advisor-integration.md)
 - **対象:** LeafCodePi / Windows 10・11
 - **上流基準:** [`XiaoDuoYa/codex-with-chatgpt`](https://github.com/XiaoDuoYa/codex-with-chatgpt) `b4e0b14782519bae60236ffaa6120673887fecaa`（0.1.0）
 - **内部識別子:** `c2c`
 - **ユーザー向け名称:** ChatGPTプラン・レビュー連携
+
+> この文書は手動送受信を行うv1とfallbackの仕様を保持する。今後の自動呼出し要件・実装順序は後継計画を正とする。
 
 ## 1. 決定概要
 
