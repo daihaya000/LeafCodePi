@@ -66,7 +66,7 @@ export function writeSecureJson(file: string, data: unknown): void {
   ensureDir(path.dirname(file));
   const temp = `${file}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
   try {
-    fs.writeFileSync(temp, `${JSON.stringify(data, null, 2)}\\n`, { mode: 0o600 });
+    fs.writeFileSync(temp, `${JSON.stringify(data, null, 2)}${String.fromCharCode(10)}`, { mode: 0o600 });
     try {
       fs.chmodSync(temp, 0o600);
     } catch {
