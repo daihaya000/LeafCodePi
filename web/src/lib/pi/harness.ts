@@ -66,6 +66,7 @@ import {
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
 import { compactSkillsForPrompt, filterSkillsByState } from "@/lib/skills";
 import type { SkillPermission } from "@/lib/skill-permission";
+import { registerDeferredTools, TOOL_SEARCH_NAME } from "@/lib/pi/deferred-tools";
 import { sessionIdentityPatch } from "@/lib/pi/session-identity";
 import {
   basenameKey,
@@ -1584,6 +1585,7 @@ async function createSession(options: {
     cwd: options.cwd,
     agentDir,
     additionalExtensionPaths: bundled.map((entry) => entry.filePath),
+    extensionFactories: [registerDeferredTools],
     skillsOverride: (base) => {
       if (agentOptions?.noSkills || skillPermissionRef.current === "deny") {
         return { skills: [], diagnostics: base.diagnostics };
@@ -1629,35 +1631,32 @@ async function createSession(options: {
       persist: persistPermission,
     },
   );
-  // Agent-defined tool allowlist wins; otherwise default tools. The `subagent`
-  // tool is only exposed when subagent permission is "allow" (delegation stays
-  // independent from running an agent as the main persona).
-  const configuredTools =
-    agentOptions?.tools ??
-    (options.subagentPermission === "allow"
-      ? [
-          "read",
-          "write",
-          "edit",
-          "powershell",
-          "question",
-          "grep",
-          "find",
-          "ls",
-          "subagent",
-          "todowrite",
-        ]
-      : [
-          "read",
-          "write",
-          "edit",
-          "powershell",
-          "question",
-          "grep",
-          "find",
-          "ls",
-          "todowrite",
-        ]);
+  // Agent-defined tool allowlist wins; otherwise default tools. Deferred tools
+  // stay allowed so tool_search can activate them, then session_start removes
+  // their schemas from the initial model request. `subagent` remains governed
+  // independently by the user's delegation permission.
+  const configuredTools = agentOptions?.tools
+    ? [...new Set([...agentOptions.tools, TOOL_SEARCH_NAME])]
+    : [
+        "read",
+        "write",
+        "edit",
+        "powershell",
+        "bash",
+        "question",
+        "grep",
+        "find",
+        "ls",
+        "memory_search",
+        "memory_add",
+        "memory_replace",
+        "memory_remove",
+        "session_search",
+        "skill_manage",
+        ...(options.subagentPermission === "allow" ? ["subagent"] : []),
+        "todowrite",
+        TOOL_SEARCH_NAME,
+      ];
   const tools = configuredTools;
   const result = await pi.createAgentSession({
     cwd: options.cwd,
