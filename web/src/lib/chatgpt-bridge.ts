@@ -21,6 +21,7 @@ export type ChatGptBridgeAction =
   | "disconnect"
   | "message"
   | "record"
+  | "session"
   | "enabled";
 
 export type ChatGptAdvisoryMessageKind = "init" | "executed";
@@ -42,6 +43,7 @@ export interface ChatGptBridgeStatus {
   connectionUrl?: string | null;
   tunnelRunning?: boolean;
   pairingActive?: boolean;
+  conversationUrl?: string | null;
   error?: string;
 }
 
@@ -74,6 +76,21 @@ export interface ChatGptExecutionRecord {
 
 export function isSafeChatGptProjectId(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(value);
+}
+
+export function isSafeChatGptConversationUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 2_048) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" &&
+      parsed.hostname === "chatgpt.com" &&
+      parsed.username === "" &&
+      parsed.password === "" &&
+      parsed.search === "" &&
+      parsed.hash === "";
+  } catch {
+    return false;
+  }
 }
 
 export function isSafeChatGptPublicTaskId(value: unknown): value is string {

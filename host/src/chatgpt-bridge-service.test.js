@@ -73,6 +73,22 @@ test("ChatGPT Bridge is opt-in and resolves only registered projects", async () 
     assert.equal("workspaceRoot" in status, false);
     assert.equal(status.cloudflaredAvailable, false);
 
+    assert.deepEqual(await service.session("project-1", { conversationUrl: "https://chatgpt.com/c/demo" }), {
+      ok: true,
+      projectId: "project-1",
+      conversationUrl: "https://chatgpt.com/c/demo",
+    });
+    assert.equal((await service.status("project-1")).conversationUrl, "https://chatgpt.com/c/demo");
+    await assert.rejects(
+      () => service.session("project-1", { conversationUrl: "https://evil.example/c/demo" }),
+      (error) => error instanceof ChatGptBridgeError && error.code === "INVALID_SESSION" && error.status === 400,
+    );
+    assert.deepEqual(await service.session("project-1", { conversationUrl: null }), {
+      ok: true,
+      projectId: "project-1",
+      conversationUrl: null,
+    });
+
     await assert.rejects(
       () => service.status("not-registered"),
       (error) => error instanceof ChatGptBridgeError && error.code === "PROJECT_NOT_FOUND" && error.status === 404,

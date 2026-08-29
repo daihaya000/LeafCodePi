@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveHostControlUrl } from "@/lib/host-control";
 import {
   chatGptBridgePath,
+  isSafeChatGptConversationUrl,
   isSafeChatGptIteration,
   isSafeChatGptProjectId,
   isSafeChatGptPublicTaskId,
@@ -22,6 +23,7 @@ const ACTIONS = new Set<ChatGptBridgeAction>([
   "disconnect",
   "message",
   "record",
+  "session",
   "enabled",
 ]);
 
@@ -41,7 +43,7 @@ function invalid(message: string): NextResponse {
   return noStore(NextResponse.json({ ok: false, error: message }, { status: 400 }));
 }
 
-export async function POST(
+async function handle(
   req: NextRequest,
   { params }: { params: Promise<{ action: string }> },
 ): Promise<NextResponse> {
@@ -65,7 +67,9 @@ export async function POST(
         ? new Set(["projectId", "publicTaskId", "iteration", "kind", "goal"])
         : action === "record"
           ? new Set(["projectId", "publicTaskId", "iteration", "tests", "exitStatus"])
-          : new Set(["projectId"]);
+          : action === "session"
+            ? new Set(["projectId", "conversationUrl"])
+            : new Set(["projectId"]);
     if (Object.keys(body).some((key) => !allowedKeys.has(key))) return invalid("unsupported request fields");
     if (!isSafeChatGptProjectId(body.projectId)) return invalid("projectId is invalid");
     if (action === "disconnect" && body.deleteState !== undefined && typeof body.deleteState !== "boolean") {
@@ -85,6 +89,12 @@ export async function POST(
       if (!EXIT_STATUSES.has(body.exitStatus as ChatGptExitStatus)) return invalid("exitStatus is invalid");
       if (body.tests !== undefined && body.tests !== null && (typeof body.tests !== "string" || body.tests.length > 1_000)) {
         return invalid("tests is invalid");
+      }
+    }
+    if (action === "session") {
+      if (!(Object.prototype.hasOwnProperty.call(body, "conversationUrl")) ||
+        (body.conversationUrl !== null && !isSafeChatGptConversationUrl(body.conversationUrl))) {
+        return invalid("conversationUrl is invalid");
       }
     }
   }
@@ -107,6 +117,7 @@ export async function POST(
       forwarded.exitStatus = body.exitStatus;
       if (body.tests !== undefined) forwarded.tests = body.tests;
     }
+    if (action === "session") forwarded.conversationUrl = body.conversationUrl;
   }
 
   try {
@@ -122,4 +133,18 @@ export async function POST(
   } catch {
     return noStore(NextResponse.json({ ok: false, state: "unavailable", error: "ホストに接続できません" }, { status: 503 }));
   }
+}
+
+export async function POST(
+  req: NextRequest,
+  context: { params: Promise<{ action: string }> },
+): Promise<NextResponse> {
+  return handle(req, context);
+}
+
+export async function PATCH(
+  req: NextRequest,
+  context: { params: Promise<{ action: string }> },
+): Promise<NextResponse> {
+  return handle(req, context);
 }

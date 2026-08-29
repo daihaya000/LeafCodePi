@@ -67,6 +67,21 @@ describe("ChatGptBridgeSettings", () => {
     expect(sendJson).not.toHaveBeenCalledWith("/api/chatgpt-bridge/setup", expect.anything());
   });
 
+  it("saves only an allowlisted ChatGPT conversation URL", async () => {
+    sendJson.mockResolvedValue({ ok: true, projectId: "project-1", conversationUrl: "https://chatgpt.com/c/demo" });
+    render(<ChatGptBridgeSettings />);
+
+    await waitFor(() => expect(screen.getByLabelText("ChatGPT会話URL（任意）")).toBeTruthy());
+    fireEvent.change(screen.getByLabelText("ChatGPT会話URL（任意）"), { target: { value: "https://chatgpt.com/c/demo" } });
+    fireEvent.click(screen.getByRole("button", { name: "URLを保存" }));
+
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith(
+      "/api/chatgpt-bridge/session",
+      { projectId: "project-1", conversationUrl: "https://chatgpt.com/c/demo" },
+      "PATCH",
+    ));
+  });
+
   it("shows a pairing code returned by Host", async () => {
     getJson.mockImplementation((path: string) => {
       if (path === "/api/projects") return Promise.resolve({ projects });

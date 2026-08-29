@@ -203,6 +203,10 @@ export function createChatGptBridgeService(options) {
     return join(c2cRoot, "runtime", `${id}.json`);
   }
 
+  function sessionFile(id) {
+    return join(c2cRoot, "sessions", `${id}.json`);
+  }
+
   function readRuntime(id) {
     const value = jsonFile(runtimeFile(id));
     if (
@@ -289,12 +293,29 @@ export function createChatGptBridgeService(options) {
     }
   }
 
+  function conversationUrl(value) {
+    if (typeof value !== "string" || value.length > 2048) return null;
+    try {
+      const parsed = new URL(value);
+      if (parsed.protocol !== "https:" || parsed.hostname !== "chatgpt.com") return null;
+      return parsed.toString().replace(/\/$/, "");
+    } catch {
+      return null;
+    }
+  }
+
+  function readConversationUrl(project) {
+    const value = jsonFile(sessionFile(project.workspaceId));
+    return conversationUrl(value?.conversationUrl);
+  }
+
   function statusFromInfo(project, info, common) {
     const tunnelUrl = publicUrl(info.publicUrl);
     const tunnelRunning = info.tunnel?.running === true && tunnelUrl !== null;
     const connected = Number(info.tokenCount) > 0;
     const verifiedAt = typeof info.verifiedAt === "string" ? info.verifiedAt : null;
     const verified = verifiedAt !== null;
+    const savedConversationUrl = readConversationUrl(project);
     const state = verified ? "verified" : connected ? "connected" : info.pairingActive ? "pairing" : "starting";
     return {
       ok: true,
@@ -307,6 +328,7 @@ export function createChatGptBridgeService(options) {
       verifiedAt,
       publicUrl: tunnelRunning ? tunnelUrl : null,
       connectionUrl: tunnelRunning ? `${tunnelUrl}/mcp` : null,
+      conversationUrl: savedConversationUrl,
       tunnelRunning,
       pairingActive: info.pairingActive === true,
     };
@@ -433,23 +455,29 @@ export function createChatGptBridgeService(options) {
       return { ok: true, ...common, state: "ready", projectId: null };
     }
     const project = readProject(projectId);
+    const projectCommon = {
+      ...common,
+      projectId: project.id,
+      projectName: project.name,
+      conversationUrl: readConversationUrl(project),
+    };
     if (active && active.project.id !== project.id && isProcessAlive(active.child?.pid)) {
-      return { ok: true, ...common, state: "busy", projectId: project.id, projectName: project.name };
+      return { ok: true, ...projectCommon, state: "busy" };
     }
     if (active && active.project.id === project.id && isProcessAlive(active.child?.pid)) {
       try {
         const current = await liveInfo(project);
         if (current) return statusFromInfo(project, current.info, common);
       } catch {
-        return { ok: true, ...common, projectId: project.id, projectName: project.name, state: "repair_needed" };
+        return { ok: true, ...projectCommon, state: "repair_needed" };
       }
     }
     const stale = readRuntime(project.workspaceId);
     if (stale && isProcessAlive(stale.pid)) {
-      return { ok: true, ...common, projectId: project.id, projectName: project.name, state: "repair_needed" };
+      return { ok: true, ...projectCommon, state: "repair_needed" };
     }
     if (stale) clearRuntime(project.workspaceId);
-    return { ok: true, ...common, projectId: project.id, projectName: project.name, state: "ready" };
+    return { ok: true, ...projectCommon, state: "ready" };
   }
 
   async function stopChild(child) {
@@ -598,11 +626,25 @@ export function createChatGptBridgeService(options) {
       try {
         rmSync(join(c2cRoot, "auth", `${project.workspaceId}.json`), { force: true });
         rmSync(join(c2cRoot, "executions", `${project.workspaceId}.jsonl`), { force: true });
+        rmSync(sessionFile(project.workspaceId), { force: true });
       } catch {
         // state deletion is best effort after revocation and shutdown
       }
     }
     return { ok: true, ...commonStatus(), projectId: project.id, projectName: project.name, state: "ready" };
+  }
+
+  async function session(projectId, input) {
+    const project = readProject(projectId);
+    const raw = input?.conversationUrl;
+    if (raw === null || raw === undefined || raw === "") {
+      rmSync(sessionFile(project.workspaceId), { force: true });
+      return { ok: true, projectId: project.id, conversationUrl: null };
+    }
+    const url = conversationUrl(raw);
+    if (!url) throw new ChatGptBridgeError("INVALID_SESSION", "conversation URL is invalid", 400);
+    writeJsonAtomic(sessionFile(project.workspaceId), { version: 1, conversationUrl: url });
+    return { ok: true, projectId: project.id, conversationUrl: url };
   }
 
   async function setEnabled(enabled) {
@@ -625,6 +667,7 @@ export function createChatGptBridgeService(options) {
     verify,
     stop,
     disconnect,
+    session,
     message,
     record,
     setEnabled,

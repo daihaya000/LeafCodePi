@@ -4,7 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, Button, cx } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import type { ProjectDto } from "@/lib/types";
-import type { ChatGptBridgePairing, ChatGptBridgeStatus } from "@/lib/chatgpt-bridge";
+import {
+  isSafeChatGptConversationUrl,
+  type ChatGptBridgePairing,
+  type ChatGptBridgeStatus,
+} from "@/lib/chatgpt-bridge";
 
 const STATE_LABELS: Record<ChatGptBridgeStatus["state"], string> = {
   disabled: "無効",
@@ -37,6 +41,7 @@ export function ChatGptBridgeSettings() {
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [projectId, setProjectId] = useState("");
   const [status, setStatus] = useState<ChatGptBridgeStatus | null>(null);
+  const [conversationUrl, setConversationUrl] = useState("");
   const [pairing, setPairing] = useState<ChatGptBridgePairing | null>(null);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -53,6 +58,7 @@ export function ChatGptBridgeSettings() {
     try {
       const next = await getJson<ChatGptBridgeStatus>("/api/chatgpt-bridge", { projectId: nextProjectId });
       setStatus(next);
+      setConversationUrl(next.conversationUrl ?? "");
       if (!keepPairing && next.state !== "pairing") setPairing(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "ChatGPT連携の状態取得に失敗しました");
@@ -141,6 +147,32 @@ export function ChatGptBridgeSettings() {
     }
   }
 
+  async function saveConversation() {
+    if (!projectId) return;
+    const value = conversationUrl.trim();
+    if (value && !isSafeChatGptConversationUrl(value)) {
+      setError("ChatGPTの会話URLを入力してください");
+      return;
+    }
+    setBusy("session");
+    setError(null);
+    setNotice(null);
+    try {
+      const next = await sendJson<{ ok: boolean; projectId: string; conversationUrl: string | null }>(
+        "/api/chatgpt-bridge/session",
+        { projectId, conversationUrl: value || null },
+        "PATCH",
+      );
+      setConversationUrl(next.conversationUrl ?? "");
+      setStatus((current) => current ? { ...current, conversationUrl: next.conversationUrl } : current);
+      setNotice("会話URLを保存しました");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "会話URLの保存に失敗しました");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function pairBridge() {
     if (!projectId) return;
     setBusy("pair");
@@ -214,6 +246,22 @@ export function ChatGptBridgeSettings() {
             </>
           )}
         </dl>
+
+        <div className="flex min-w-0 flex-wrap items-end gap-2">
+          <label className="min-w-0 flex-1 text-xs text-muted">
+            ChatGPT会話URL（任意）
+            <input
+              type="url"
+              value={conversationUrl}
+              onChange={(event) => setConversationUrl(event.target.value)}
+              placeholder="https://chatgpt.com/c/..."
+              className="mt-1 min-h-11 w-full min-w-0 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none focus:border-border-strong"
+            />
+          </label>
+          <Button variant="secondary" className="min-h-11" busy={busy === "session"} disabled={!projectId || busy !== null} onClick={() => void saveConversation()}>
+            URLを保存
+          </Button>
+        </div>
 
         <div className="flex flex-wrap gap-2">
           <button

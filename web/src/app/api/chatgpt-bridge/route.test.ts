@@ -8,11 +8,11 @@ const hostControl = vi.hoisted(() => ({
 vi.mock("@/lib/host-control", () => hostControl);
 
 import { GET } from "./route";
-import { POST } from "./[action]/route";
+import { PATCH, POST } from "./[action]/route";
 
-function request(url: string, body?: unknown): NextRequest {
+function request(url: string, body?: unknown, method = "POST"): NextRequest {
   return new NextRequest(url, body === undefined ? undefined : {
-    method: "POST",
+    method,
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -68,6 +68,28 @@ describe("/api/chatgpt-bridge", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:18775/chatgpt-bridge/disconnect",
       expect.objectContaining({ body: JSON.stringify({ projectId: "project-1", deleteState: true }) }),
+    );
+  });
+
+  it("accepts PATCH for an allowlisted conversation URL", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, conversationUrl: "https://chatgpt.com/c/demo" }), { status: 200 }),
+    );
+    const response = await PATCH(
+      request("http://127.0.0.1:3010/api/chatgpt-bridge/session", {
+        projectId: "project-1",
+        conversationUrl: "https://chatgpt.com/c/demo",
+      }, "PATCH"),
+      { params: Promise.resolve({ action: "session" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:18775/chatgpt-bridge/session",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ projectId: "project-1", conversationUrl: "https://chatgpt.com/c/demo" }),
+      }),
     );
   });
 
