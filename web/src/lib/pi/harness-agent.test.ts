@@ -137,4 +137,71 @@ describe("abortTask", () => {
     assert.equal(getTaskHangWatch(task.id), null);
     assert.equal(getTask(task.id)?.status, "idle");
   });
+
+  it("pauses a queued Goal Loop before aborting an idle session", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-goal-abort-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "demo", rootPath: root });
+    const task = insertTask({ project, title: "abort goal loop" });
+    const sessionId = "goal-abort-session";
+    const goalDir = join(root, ".pi", "goals-loop");
+    mkdirSync(goalDir, { recursive: true });
+    writeFileSync(
+      join(goalDir, `${sessionId}.json`),
+      JSON.stringify({ goal: "作業", status: "queued" }),
+      "utf8",
+    );
+    const events: string[] = [];
+    const session = {
+      sessionId,
+      messages: [{ role: "user", content: "作業", timestamp: 1 }],
+      agent: { state: { streamingMessage: undefined } },
+      isStreaming: false,
+      sessionManager: {
+        getLeafId: () => null,
+        getBranch: () => [],
+        getCwd: () => root,
+      },
+      extensionRunner: {
+        getCommand: (name: string) =>
+          name === "goal-pause"
+            ? { handler: async () => events.push("goal-pause") }
+            : undefined,
+        createCommandContext: () => ({}),
+      },
+      abort: async () => {
+        events.push("abort");
+      },
+    };
+    const live = new Map([[task.id, {
+      accountId: null,
+      session,
+      skillPermission: "allow",
+      skillPermissionRef: { current: "allow" },
+      unsubscribe: () => {},
+      promptChain: Promise.resolve(),
+      promptActive: false,
+      throughputByStartedAt: new Map(),
+      persistedThroughputKeys: new Set(),
+      toolStartedAt: new Map(),
+      toolEndedAt: new Map(),
+      toolPartialOutputByCallId: new Map(),
+      snapshotTimer: null,
+      pendingSnapshotEventType: null,
+      revertLeafId: null,
+      manualAbortedAssistantId: null,
+      hangRetryCount: 0,
+      reasoningFallbackTried: false,
+    }]]);
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      live,
+      events: new EventEmitter(),
+    };
+
+    await abortTask(task.id);
+
+    assert.deepEqual(events, ["goal-pause", "abort"]);
+    assert.equal(getTask(task.id)?.status, "idle");
+  });
 });

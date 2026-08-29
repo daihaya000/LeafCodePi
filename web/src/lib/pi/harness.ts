@@ -3937,6 +3937,27 @@ async function stopSubagentRunsForTask(
   }
 }
 
+/** Pause an active Goal Loop before aborting its current Pi request. */
+async function pauseGoalLoopForTask(live: LiveRuntime): Promise<void> {
+  const loop = readGoalLoopState(
+    live.session.sessionManager.getCwd(),
+    live.session.sessionId,
+  );
+  if (!loop || !["queued", "running", "verifying_completed"].includes(loop.status)) return;
+
+  const command = live.session.extensionRunner.getCommand("goal-pause");
+  if (!command) return;
+  try {
+    await command.handler(
+      "",
+      live.session.extensionRunner.createCommandContext(),
+    );
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`[goal-loop] failed to pause before abort: ${reason}`);
+  }
+}
+
 export async function abortTask(id: string): Promise<TaskSummary> {
   // An explicit stop is terminal for the current request; do not leave the
   // persisted watchdog armed to wake it up later.
@@ -3962,6 +3983,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
         ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant")
         : [];
     live.manualAbortedAssistantId = turnAssistants.at(-1)?.id ?? "";
+    await pauseGoalLoopForTask(live);
     await stopSubagentRunsForTask(live, msgs);
     await live.session.abort();
     emitTaskSnapshot(live, "abort");
