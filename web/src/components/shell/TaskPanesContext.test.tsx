@@ -52,6 +52,20 @@ function DispatchProbe() {
   );
 }
 
+function RetargetHomeProbe() {
+  const { retargetToUrl } = useTaskPanes();
+  return (
+    <button
+      onClick={() => {
+        window.history.pushState(null, "", "/?projectId=project-1");
+        retargetToUrl("home");
+      }}
+    >
+      open project home
+    </button>
+  );
+}
+
 describe("TaskPanesProvider", () => {
   let matches = false;
   let mediaListeners: Array<(event: MediaQueryListEvent) => void>;
@@ -226,5 +240,27 @@ describe("TaskPanesProvider", () => {
       expect(screen.getByTestId("active-tab").textContent).toBe("second");
     });
     expect(mocks.retargetActiveTab).not.toHaveBeenCalled();
+  });
+
+  it("プロジェクト付きHomeへのネイティブ遷移でqueryを保持する", async () => {
+    matches = true;
+
+    render(
+      <TaskPanesProvider>
+        <ActiveTabProbe />
+        <RetargetHomeProbe />
+      </TaskPanesProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("active-tab").textContent).toBe("saved-task");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "open project home" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("active-tab").textContent).toBe("home");
+    });
+    expect(window.location.pathname).toBe("/");
+    expect(window.location.search).toBe("?projectId=project-1");
   });
 });

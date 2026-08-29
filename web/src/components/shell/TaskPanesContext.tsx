@@ -63,8 +63,17 @@ const TaskPanesContext = createContext<TaskPanesContextValue>(EMPTY);
 /** RSC fetch の発生しない URL 同期（Next.js App Router の replaceState 公式サポート）。 */
 function syncUrl(taskId: string | null): void {
   if (typeof window === "undefined") return;
-  const target = taskId == null || taskId === HOME_TAB_ID ? "/" : `/task/${encodeURIComponent(taskId)}`;
-  if (window.location.pathname === target) return;
+  let target: string;
+  if (taskId == null || taskId === HOME_TAB_ID) {
+    const projectId =
+      taskId === HOME_TAB_ID && window.location.pathname === "/"
+        ? new URLSearchParams(window.location.search).get("projectId")
+        : null;
+    target = projectId ? `/?projectId=${encodeURIComponent(projectId)}` : "/";
+  } else {
+    target = `/task/${encodeURIComponent(taskId)}`;
+  }
+  if (`${window.location.pathname}${window.location.search}` === target) return;
   window.history.replaceState(null, "", target);
 }
 

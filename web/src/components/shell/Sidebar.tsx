@@ -27,6 +27,7 @@ import { cx, timeAgo, ThemeToggle } from "@/components/ui";
 import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
+import { HOME_TAB_ID } from "@/lib/task-panes";
 import type { HealthDto, ProjectDto, TaskSummary } from "@/lib/types";
 import type { CollaborationRoomSummary } from "@/lib/collaboration-room";
 
@@ -485,9 +486,48 @@ export function Sidebar({
 
   // 仕様 §2: タブ機構のある md 以上では provider の activeTaskId を
   // ハイライト・自動展開の源とする。モバイルは panes を触らないため pathname 由来のまま。
-  const { activeTaskId: paneActiveTaskId, mdUp: paneMdUp } = useTaskPanes();
+  const {
+    activeTaskId: paneActiveTaskId,
+    mdUp: paneMdUp,
+    splitHostEnabled,
+    retargetToUrl,
+  } = useTaskPanes();
   const pathnameTaskId = pathname.startsWith("/task/") ? pathname.slice("/task/".length) : null;
   const activeTaskId = paneMdUp ? paneActiveTaskId : pathnameTaskId;
+
+  const openTask = useCallback(
+    (taskId: string) => {
+      const href = `/task/${encodeURIComponent(taskId)}`;
+      if (paneMdUp && splitHostEnabled) {
+        // タブ切替は RSC を再取得せず、TaskPanesProvider の replaceState 経路を使う。
+        retargetToUrl(taskId);
+      } else if (paneMdUp) {
+        // settings からの遷移だけは Host を有効化するため先に pathname を変える。
+        window.history.pushState(null, "", href);
+        retargetToUrl(taskId);
+      } else {
+        router.push(href);
+      }
+      onClose();
+    },
+    [onClose, paneMdUp, retargetToUrl, router, splitHostEnabled],
+  );
+
+  const openProject = useCallback(
+    (projectId: string) => {
+      const href = `/?projectId=${encodeURIComponent(projectId)}`;
+      if (paneMdUp) {
+        // HomeView も pathname が変わらない場合があるため、query を先に反映する。
+        window.history.pushState(null, "", href);
+        retargetToUrl(HOME_TAB_ID);
+      } else {
+        router.push(href);
+      }
+      onClose();
+    },
+    [onClose, paneMdUp, retargetToUrl, router],
+  );
+
   const tasksByProject = useMemo(() => {
     const map = new Map<string, TaskSummary[]>();
     for (const task of tasks) {
@@ -918,10 +958,7 @@ export function Sidebar({
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        router.push(`/?projectId=${encodeURIComponent(project.id)}`);
-                        onClose();
-                      }}
+                      onClick={() => openProject(project.id)}
                       className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 text-left"
                     >
                       <ProjectIcon
@@ -944,10 +981,7 @@ export function Sidebar({
                       type="button"
                       aria-label={`${project.name}に新規タスクを作成`}
                       title="新規タスク"
-                      onClick={() => {
-                        router.push(`/?projectId=${encodeURIComponent(project.id)}`);
-                        onClose();
-                      }}
+                      onClick={() => openProject(project.id)}
                       className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted hover:text-text md:h-8 md:w-8"
                     >
                       <Plus className="h-3.5 w-3.5" />
@@ -979,10 +1013,7 @@ export function Sidebar({
                                   event.dataTransfer.effectAllowed = "move";
                                   setTaskDragData(event.dataTransfer, task.id);
                                 }}
-                                onClick={() => {
-                                  router.push(`/task/${task.id}`);
-                                  onClose();
-                                }}
+                                onClick={() => openTask(task.id)}
                                 className={cx(
                                   "flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 py-1.5 text-left md:min-h-8",
                                   task.id === activeTaskId ? "bg-surface-3 text-text" : "text-muted hover:bg-surface-2 hover:text-text",
@@ -1084,10 +1115,7 @@ export function Sidebar({
                           <div className="flex items-center gap-0.5 rounded-lg text-muted hover:bg-surface-2 hover:text-text">
                             <button
                               type="button"
-                              onClick={() => {
-                                router.push(`/task/${task.id}`);
-                                onClose();
-                              }}
+                              onClick={() => openTask(task.id)}
                               className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left"
                             >
                               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint" />
@@ -1132,10 +1160,7 @@ export function Sidebar({
                     <div className="flex items-center gap-0.5 rounded-lg text-muted hover:bg-surface-2 hover:text-text">
                       <button
                         type="button"
-                        onClick={() => {
-                          router.push(`/?projectId=${encodeURIComponent(project.id)}`);
-                          onClose();
-                        }}
+                        onClick={() => openProject(project.id)}
                         className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left"
                       >
                         <span className="min-w-0 flex-1 truncate text-xs font-medium">{project.name}</span>
@@ -1246,8 +1271,7 @@ export function Sidebar({
                   data-project-id={project.id}
                   onClick={(event) => {
                     if (!tapOpensMenu) {
-                      router.push(`/?projectId=${encodeURIComponent(project.id)}`);
-                      onClose();
+                      openProject(project.id);
                       return;
                     }
                     if (menuOpen) {
@@ -1414,8 +1438,7 @@ export function Sidebar({
               onClick={() => {
                 cancelProjectTaskMenuHide();
                 setProjectTaskMenu(null);
-                router.push(`/?projectId=${encodeURIComponent(projectTaskMenuProject.id)}`);
-                onClose();
+                openProject(projectTaskMenuProject.id);
               }}
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"
             >
@@ -1436,8 +1459,7 @@ export function Sidebar({
                     onClick={() => {
                       cancelProjectTaskMenuHide();
                       setProjectTaskMenu(null);
-                      router.push(`/task/${encodeURIComponent(task.id)}`);
-                      onClose();
+                      openTask(task.id);
                     }}
                     className={cx(
                       "flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-muted hover:bg-surface-2 hover:text-text",
