@@ -81,6 +81,7 @@ export async function startBridge(opts: BridgeOptions): Promise<Bridge> {
   const adminToken = `c2c_admin_${randomBytes(24).toString("base64url")}`;
 
   let publicBaseUrl: string | null = null;
+  let verifiedAt: string | null = null;
 
   const app = express();
   app.set("trust proxy", false);
@@ -113,7 +114,17 @@ export async function startBridge(opts: BridgeOptions): Promise<Bridge> {
 
   // ---- MCP endpoint (bearer-protected) --------------------------------------
 
-  const mcpHandler = createMcpHttpHandler(() => createMcpServer({ workspace, logger }), logger);
+  const mcpHandler = createMcpHttpHandler(
+    () =>
+      createMcpServer({
+        workspace,
+        logger,
+        onWorkspaceVerified: () => {
+          verifiedAt = new Date().toISOString();
+        },
+      }),
+    logger,
+  );
   app.all(
     "/mcp",
     express.json({ limit: "1mb" }),
@@ -157,6 +168,7 @@ export async function startBridge(opts: BridgeOptions): Promise<Bridge> {
       tunnel: tunnel.status(),
       tokenCount: authStore.tokenCount(),
       pairingActive: pairing.hasActiveSession(),
+      verifiedAt,
       pid: process.pid,
       startedAt,
     });

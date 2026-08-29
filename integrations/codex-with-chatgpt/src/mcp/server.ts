@@ -45,10 +45,11 @@ function requireScope(authInfo: AuthInfo | undefined, scope: string): ToolResult
 export interface McpContext {
   workspace: Workspace;
   logger: Logger;
+  onWorkspaceVerified?: () => void;
 }
 
 export function createMcpServer(ctx: McpContext): McpServer {
-  const { workspace } = ctx;
+  const { workspace, onWorkspaceVerified } = ctx;
   const server = new McpServer(
     { name: PRODUCT_NAME, version: VERSION },
     { capabilities: { tools: {} }, instructions: UNTRUSTED_NOTE }
@@ -70,6 +71,7 @@ export function createMcpServer(ctx: McpContext): McpServer {
       try {
         const project = workspace.detectProject();
         const git = gitInfo(workspace.root);
+        onWorkspaceVerified?.();
         return ok({
           workspaceName: workspace.name,
           rootAlias: "workspace:/",

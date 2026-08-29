@@ -16,6 +16,7 @@ import { getListeningPids } from "./port-scanner.js";
 import { stopProcessTreeGracefully } from "./process-stop.js";
 import { buildHostRestartScript } from "./host-restart.js";
 import { createTranslationService } from "./translation-service.js";
+import { createChatGptBridgeService } from "./chatgpt-bridge-service.js";
 import { withLocalLeafcodeTempEnv } from "./tray-temp.js";
 import {
   ensureWebUiAuth,
@@ -106,6 +107,13 @@ const translationService = createTranslationService({
   repoRoot: REPO_ROOT,
   dataDir: DATA_DIR,
   log,
+});
+
+const chatGptBridgeService = createChatGptBridgeService({
+  repoRoot: REPO_ROOT,
+  dataDir: DATA_DIR,
+  log,
+  stopProcessTreeGracefully,
 });
 
 /** @type {import("node:http").Server | null} */
@@ -700,6 +708,30 @@ async function startControlServer() {
       const updated = translationService.applyReviewResults(body.results, model);
       return { updated };
     },
+    onChatGptBridge: async (action, body, query) => {
+      const input = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+      const projectId =
+        typeof input.projectId === "string" && input.projectId.trim()
+          ? input.projectId.trim()
+          : query.get("projectId")?.trim() || undefined;
+      if (action === "status") return chatGptBridgeService.status(projectId);
+      if (action === "enabled") {
+        if (typeof input.enabled !== "boolean") {
+          throw Object.assign(new Error("enabled must be a boolean"), { status: 400, code: "INVALID_REQUEST" });
+        }
+        return chatGptBridgeService.setEnabled(input.enabled);
+      }
+      if (!projectId) {
+        throw Object.assign(new Error("projectId is required"), { status: 400, code: "INVALID_PROJECT" });
+      }
+      if (action === "setup") return chatGptBridgeService.setup(projectId);
+      if (action === "start") return chatGptBridgeService.start(projectId);
+      if (action === "pair") return chatGptBridgeService.pair(projectId);
+      if (action === "verify") return chatGptBridgeService.verify(projectId);
+      if (action === "stop") return chatGptBridgeService.stop(projectId);
+      if (action === "disconnect") return chatGptBridgeService.disconnect(projectId, input.deleteState === true);
+      throw Object.assign(new Error("unknown ChatGPT Bridge action"), { status: 404, code: "NOT_FOUND" });
+    },
   });
   try {
     await listenControlServer(server, CONTROL_PORT);
@@ -725,6 +757,11 @@ async function quit() {
   try {
     await closeControlServer(controlServer);
     controlServer = null;
+  } catch {
+    /* ignore */
+  }
+  try {
+    await chatGptBridgeService.shutdown();
   } catch {
     /* ignore */
   }
