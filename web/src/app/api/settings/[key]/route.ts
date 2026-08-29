@@ -10,6 +10,10 @@ import {
   splitGenerationModel,
 } from "@/lib/generation-model-key";
 import {
+  COMPACTION_ACTION_SETTING_KEY,
+  COMPACTION_THRESHOLD_SETTING_KEY,
+} from "@/lib/compaction-settings";
+import {
   clampNotificationSoundVolume,
   isNotificationSoundType,
   MAX_NOTIFICATION_SOUND_VOLUME,
@@ -29,6 +33,8 @@ const ALLOWED_KEYS = new Set<string>([
   GENERATION_MODEL_EFFORT_SETTING_KEY,
   NOTIFICATION_SOUND_TYPE_SETTING_KEY,
   NOTIFICATION_SOUND_VOLUME_SETTING_KEY,
+  COMPACTION_ACTION_SETTING_KEY,
+  COMPACTION_THRESHOLD_SETTING_KEY,
 ]);
 
 function normalizedGenerationModelValue(value: string): string | null {
@@ -39,6 +45,15 @@ function normalizedGenerationModelValue(value: string): string | null {
 }
 
 function validateValue(key: string, value: string): string | null {
+  if (key === COMPACTION_ACTION_SETTING_KEY) {
+    return value === "suggest" || value === "auto" || value === "off" ? value : null;
+  }
+  if (key === COMPACTION_THRESHOLD_SETTING_KEY) {
+    const threshold = Number(value);
+    return Number.isInteger(threshold) && threshold >= 70 && threshold <= 95
+      ? String(threshold)
+      : null;
+  }
   if (key === GENERATION_FALLBACK_MODEL_SETTING_KEY) {
     return normalizedGenerationModelValue(value);
   }
