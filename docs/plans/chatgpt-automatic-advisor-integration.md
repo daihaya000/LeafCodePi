@@ -560,6 +560,20 @@ web/src/
 
 **Phase 0静的監査の結論（2026-08-29）:** 条件付き採用可。Oracle必須permissionは`storage / activeTab / scripting / debugger / tabs / webNavigation / nativeMessaging / cookies`。`GET_AUTH`/`NATIVE_API_REQUEST`/`COOKIE_SET/CLEAR`/`HISTORY_*`/`BOOKMARK_*`/`DOWNLOADS_SEARCH`/`persistNetwork`をforkで削除する。
 
+**Phase 0実機E2Eの実測結果（2026-08-29）:**
+
+| 項目 | 結果 | 証拠 |
+| --- | --- | --- |
+| 自動セットアップ | PASS | `state: ready`をcontrol APIで確認。fork展開→manifest縮小→ブラウザ起動→拡張load確認→native host登録→socket到達が無人で完了 |
+| 拡張load | PASS | DevTools target `chrome-extension://mgbleomajmanpkblhjebhkkocbckpagl/service-worker-loader.js`。算出IDと完全一致 |
+| native host起動 | PASS | 拡張のconnectNative経由で`\\.\pipe\leafcode-surf`が7秒後に到達 |
+| ChatGPT login | PASS | Oracle dispatchが成功しconversation URLが発行された |
+| Oracle one-shot | PASS | `state: captured`、`response: "LEAFCODE_ORACLE_OK"`。dispatch→capture約28秒 |
+| C2C Connector E2E | 未実施 | OAuth承認がユーザー操作のため未実行 |
+| model/effort・quota・logout・DOM failure | 未実施 | one-shotでは`model: null`。明示指定時の検証が必要 |
+
+実測で確定した制約は7.1の「ブラウザ要件の変更」と「native hostの起動主体」を参照。
+
 **Gate:** AC-05、AC-06と実Connector E2Eを満たさなければ中止。公式APIへ自動fallbackしない。
 
 ### Phase 1: 固定forkと専用runtime
