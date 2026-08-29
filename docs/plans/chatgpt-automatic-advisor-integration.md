@@ -34,6 +34,16 @@
 - 上流Surf Chrome拡張は`<all_urls>`、`cookies`、`history`、`bookmarks`、`downloads`等の広い権限を要求する。
 - 現環境にはSurfは未導入であり、実ChatGPT Web、専用Chrome profile、C2C Connectorを組み合わせたE2Eは未実施である。
 
+### 2.1.1 Phase 0静的監査の追加事実（2026-08-29）
+
+- npm registry `surf-cli@2.17.0`の`dist.integrity`/`gitHead`は計画記載と一致。MITライセンス（Nico Bailon, 2025）。
+- Oracle必須permissionは`storage / activeTab / scripting / debugger / tabs / webNavigation / nativeMessaging / cookies`。`cookies`は`GET_CHATGPT_COOKIES`（`chrome.cookies.getAll`）でログイン確認に使用。
+- `alarms`/`tabGroups`/`notifications`/`system.display`/`unlimitedStorage`はmanifestにあるがコード参照なし（削除可）。
+- `GET_AUTH`（`~/.pi/agent/auth.json`読取）、`NATIVE_API_REQUEST`（任意HTTPS）、`COOKIE_SET/CLEAR`（任意cookie操作）、`HISTORY_*`/`BOOKMARK_*`/`DOWNLOADS_SEARCH`/`GET_GOOGLE_COOKIES`/`GET_TWITTER_COOKIES`（他provider向け）が存在し、Oracleでは不使用。forkで削除する。
+- `READ_NETWORK_REQUESTS`の`persistNetwork`は既定trueで、`~/.surf/state/network`へ24h・200MB上限で永続化する。Oracleは`READ_NETWORK_REQUESTS`を呼ばないが、forkで既定falseへ変更する。
+- native hostは`SURF_LISTEN`未設定時はlocal socketのみ。remoteは`createServerAuthSession`で認証必須。prompt/秘密値をargvへ渡さない。
+- `surf-host.log`（`SURF_TMP`）にprompt本文が含まれ得るため、専用`SURF_TMP`とcleanupが必要。
+
 ### 2.2 リリースを止める未検証事項
 
 Phase 0で次を実機確認できなければ、ブラウザ自動化経路をリリースしない。
@@ -287,15 +297,24 @@ dataDir()\chatgpt-advisor\
 
 ### 6.2 固定Surf fork
 
-上流manifestをそのまま配布しない。Phase 0では少なくとも次を満たす最小manifestを作る。
+上流manifestをそのまま配布しない。Phase 0静的監査の結果、次を最小manifestとする。
 
 - `content_scripts.matches`と`host_permissions`を`https://chatgpt.com/*`へ限定する。
-- `cookies`、`history`、`bookmarks`、`downloads`を削除する。
-- Oracleに実測上必要な`storage / activeTab / scripting / debugger / tabs / alarms / webNavigation / nativeMessaging`だけを残す。
+- permissionsはOracle必須の`storage / activeTab / scripting / debugger / tabs / webNavigation / nativeMessaging / cookies`だけを残す。
+- `cookies`はOracleが`GET_CHATGPT_COOKIES`（`chrome.cookies.getAll`）でログイン確認に使うため必須。ただし`COOKIE_SET`/`COOKIE_CLEAR`/`COOKIE_CLEAR_ALL`はforkで削除する。
+- `alarms`/`tabGroups`/`notifications`/`system.display`/`unlimitedStorage`/`history`/`bookmarks`/`downloads`/`<all_urls>`は削除する（Phase 0で未使用を確認）。
 - 拡張IDとnative messaging `allowed_origins`を固定・検証する。
 - extensionの`connect-src`を`'self'`と実測上必要なChatGPT originだけへ限定し、任意`https:`/`wss:`を許可しない。
 - Surf remote listener/client、analytics、telemetryを無効にし、Oracle経路からChatGPT・loopback native host以外へ送信しない。
 - native hostはhash確認済みartifactと絶対Node pathだけを起動し、promptや秘密値をargvへ渡さない。
+
+Phase 0静的監査で特定した、forkで必ず削除する拡張・host面は次。
+
+- `GET_AUTH`（native hostが`~/.pi/agent/auth.json`を読む経路）
+- `NATIVE_API_REQUEST` / `API_REQUEST`（任意URLへのHTTPS request）
+- `COOKIE_SET` / `COOKIE_CLEAR` / `COOKIE_CLEAR_ALL`（任意cookie操作）
+- `HISTORY_*` / `BOOKMARK_*` / `DOWNLOADS_SEARCH` / `GET_GOOGLE_COOKIES` / `GET_TWITTER_COOKIES`（他provider向け）
+- `READ_NETWORK_REQUESTS` の `persistNetwork` 既定true（`~/.surf/state/network`への24h永続化）を既定falseへ
 
 縮小権限・egress制限で動かない場合、権限を黙って戻さずsecurity reviewへ差し戻す。
 
@@ -527,11 +546,13 @@ web/src/
 ### Phase 0: 実機spikeとrelease gate
 
 1. Surf `2.17.0`のsource、license、npm integrity、依存auditを固定する。
-2. manifest権限とextension egressを縮小し、専用Chrome profileだけへloadする。
+2. manifest権限とextension egressを縮小し、専用Chrome profileだけへloadする（6.2の最小manifestとfork削除面）。
 3. ChatGPT loginは手動で行い、Oracle one-shotを実測する。
 4. C2C Connectorを登録し、ChatGPTから`workspace_info/read_file/git_diff`を確認する。
 5. model/effort、quota、logout、DOM failure、conversation URLを確認する。
 6. network body persistence、telemetry、local state、native host argvを監査する。
+
+**Phase 0静的監査の結論（2026-08-29）:** 条件付き採用可。Oracle必須permissionは`storage / activeTab / scripting / debugger / tabs / webNavigation / nativeMessaging / cookies`。`GET_AUTH`/`NATIVE_API_REQUEST`/`COOKIE_SET/CLEAR`/`HISTORY_*`/`BOOKMARK_*`/`DOWNLOADS_SEARCH`/`persistNetwork`をforkで削除する。
 
 **Gate:** AC-05、AC-06と実Connector E2Eを満たさなければ中止。公式APIへ自動fallbackしない。
 
@@ -659,7 +680,7 @@ remote ChatGPT生成の停止は保証しない。conversation URLがある場�
 
 - ユーザーが本計画に対して明示的に実装開始を指示している。
 - Phase 0のブラウザ自動化例外と専用profile利用へ同意している。
-- Surf固定forkのlicense/integrity/source reviewが完了している。
+- Surf固定forkのlicense/integrity/source reviewが完了している（Phase 0静的監査で条件付き通過。実機E2E未完了）。
 - restricted manifestとC2C Connectorの実機E2E手順が用意されている。
 - security-auditorとui-ux-designerを各該当Phaseへ割り当てている。
 - rollback用kill switchと通常Piへの縮退動作を先に保持できる。
