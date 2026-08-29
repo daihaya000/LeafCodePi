@@ -1,6 +1,6 @@
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 
-export const REMOTE_PROVIDER_ID = "remote-vllm";
+export const REMOTE_PROVIDER_ID = "z390-s01";
 export const REMOTE_PROVIDER_BASE = "http://100.120.239.27:8000/v1";
 
 type RuntimeLike = {
@@ -74,7 +74,7 @@ async function fetchModels(): Promise<ModelRow[]> {
 
 function providerConfig(models: ModelRow[]): Record<string, unknown> {
   return {
-    name: "Remote vLLM",
+    name: "Z390-S01",
     baseUrl: REMOTE_PROVIDER_BASE,
     api: openAICompletionsApi(),
     apiKey: "local",

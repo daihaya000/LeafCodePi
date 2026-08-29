@@ -15,7 +15,7 @@ describe("remote-provider", () => {
     });
     expect(model).toMatchObject({
       id: "Avesed/Qwen3.8-27B-INT4-W4A16",
-      provider: "remote-vllm",
+      provider: "z390-s01",
       baseUrl: REMOTE_PROVIDER_BASE,
       contextWindow: 65_536,
       reasoning: true,
@@ -37,7 +37,7 @@ describe("remote-provider", () => {
       registerProvider,
     });
     expect(registerProvider).toHaveBeenCalledWith(
-      "remote-vllm",
+      "z390-s01",
       expect.objectContaining({
         models: [expect.objectContaining({ id: "updated-model" })],
       }),
@@ -59,9 +59,9 @@ describe("remote-provider", () => {
       registerProvider,
     });
     expect(registerProvider).toHaveBeenCalledWith(
-      "remote-vllm",
+      "z390-s01",
       expect.objectContaining({
-        name: "Remote vLLM",
+        name: "Z390-S01",
         baseUrl: REMOTE_PROVIDER_BASE,
         models: [expect.objectContaining({ id: "remote-model" })],
       }),
