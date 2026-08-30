@@ -14,6 +14,10 @@ afterEach(() => {
 });
 
 describe("remote-provider", () => {
+  it("uses the renamed LeafCodeCloud credentials", () => {
+    expect(REMOTE_PROVIDER_API_KEY_ENV).toBe("LEAFCODECLOUD_API_KEY");
+  });
+
   it("converts the OpenAI-compatible model catalog", () => {
     const [model] = modelRows({
       data: [{ id: "other-model", max_model_len: 65_536 }],

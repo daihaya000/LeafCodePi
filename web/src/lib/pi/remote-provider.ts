@@ -2,7 +2,7 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 
 export const REMOTE_PROVIDER_ID = "leafcodecloud";
 export const REMOTE_PROVIDER_BASE = "https://z390-s01.tail3dc57b.ts.net/v1";
-export const REMOTE_PROVIDER_API_KEY_ENV = "Z390_S01_API_KEY";
+export const REMOTE_PROVIDER_API_KEY_ENV = "LEAFCODECLOUD_API_KEY";
 const REMOTE_CONTEXT_WINDOW = 131_072;
 
 type RuntimeLike = {
