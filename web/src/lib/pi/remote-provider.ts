@@ -1,6 +1,6 @@
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 
-export const REMOTE_PROVIDER_ID = "z390-s01";
+export const REMOTE_PROVIDER_ID = "leafcodecloud";
 export const REMOTE_PROVIDER_BASE = "https://z390-s01.tail3dc57b.ts.net/v1";
 export const REMOTE_PROVIDER_API_KEY_ENV = "Z390_S01_API_KEY";
 const REMOTE_CONTEXT_WINDOW = 131_072;
@@ -76,7 +76,7 @@ async function fetchModels(): Promise<ModelRow[]> {
 
 function providerConfig(models: ModelRow[]): Record<string, unknown> {
   return {
-    name: "Z390-S01",
+    name: "LeafCodeCloud",
     baseUrl: REMOTE_PROVIDER_BASE,
     api: openAICompletionsApi(),
     apiKey: process.env[REMOTE_PROVIDER_API_KEY_ENV]?.trim() ?? "",

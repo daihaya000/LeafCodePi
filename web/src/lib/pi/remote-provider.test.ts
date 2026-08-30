@@ -20,7 +20,7 @@ describe("remote-provider", () => {
     });
     expect(model).toMatchObject({
       id: "other-model",
-      provider: "z390-s01",
+      provider: "leafcodecloud",
       baseUrl: REMOTE_PROVIDER_BASE,
       contextWindow: 131_072,
       reasoning: false,
@@ -42,7 +42,7 @@ describe("remote-provider", () => {
       registerProvider,
     });
     expect(registerProvider).toHaveBeenCalledWith(
-      "z390-s01",
+      "leafcodecloud",
       expect.objectContaining({
         models: [expect.objectContaining({ id: "updated-model" })],
       }),
@@ -64,9 +64,9 @@ describe("remote-provider", () => {
       registerProvider,
     });
     expect(registerProvider).toHaveBeenCalledWith(
-      "z390-s01",
+      "leafcodecloud",
       expect.objectContaining({
-        name: "Z390-S01",
+        name: "LeafCodeCloud",
         baseUrl: REMOTE_PROVIDER_BASE,
         models: [expect.objectContaining({ id: "remote-model" })],
       }),

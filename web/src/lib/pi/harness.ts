@@ -2007,8 +2007,8 @@ async function syncProvidersBestEffort(
       }),
       syncRemoteProvider(runtime).then(() => null).catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
-        console.warn("[leafcode-pi] z390-s01 provider sync failed:", message);
-        return `z390-s01: ${message}`;
+        console.warn("[leafcode-pi] leafcodecloud provider sync failed:", message);
+        return `leafcodecloud: ${message}`;
       }),
     ])
   ).filter((warning): warning is string => warning !== null);
