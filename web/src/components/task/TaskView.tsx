@@ -7,6 +7,7 @@ import {
   ChevronUp,
   ChevronsDown,
   ChevronsUp,
+  FolderOpen,
   GitGraph,
   ListPlus,
   PanelRight,
@@ -1078,6 +1079,15 @@ export function TaskView({
     };
   }, [messages]);
 
+  async function openProjectInExplorer() {
+    if (!task?.projectId) return;
+    try {
+      await sendJson(`/api/projects/${encodeURIComponent(task.projectId)}/explorer`, {});
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "プロジェクトを開けませんでした");
+    }
+  }
+
   async function revert() {
     const target = revertEntryRef.current;
     if (!target || revertBusy || working) return;
@@ -1803,6 +1813,17 @@ export function TaskView({
             tabIndex={0}
             className="flex max-w-[52vw] items-center gap-1 overflow-x-auto rounded-md [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:max-w-none sm:overflow-visible"
           >
+            <Button
+              variant="ghost"
+              size="icon"
+              title="プロジェクトをエクスプローラーで開く"
+              aria-label="プロジェクトをエクスプローラーで開く"
+              disabled={!task?.projectId}
+              className="h-11 w-11 md:h-9 md:w-9"
+              onClick={() => void openProjectInExplorer()}
+            >
+              <FolderOpen className="h-4 w-4" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
