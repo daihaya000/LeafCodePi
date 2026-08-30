@@ -64,10 +64,11 @@ export async function GET(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const projectId = req.nextUrl.searchParams.get("projectId");
-    if (!projectId) {
-      return NextResponse.json({ error: "projectId is required" }, { status: 400 });
+    const noProject = req.nextUrl.searchParams.get("noProject") === "1";
+    if (!projectId && !noProject) {
+      return NextResponse.json({ error: "projectId or noProject is required" }, { status: 400 });
     }
-    return NextResponse.json(destroyArchivedTasksByProject(projectId));
+    return NextResponse.json(destroyArchivedTasksByProject(noProject ? null : projectId));
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

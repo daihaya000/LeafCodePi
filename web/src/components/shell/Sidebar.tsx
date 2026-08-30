@@ -11,6 +11,8 @@ import {
   ArchiveRestore,
   ChevronRight,
   Cpu,
+  Folder,
+  FolderUp,
   Loader2,
   Menu,
   Plus,
@@ -22,12 +24,12 @@ import { AddProjectButton } from "@/components/AddProjectButton";
 import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
-import { cx, timeAgo, ThemeToggle } from "@/components/ui";
+import { Button, cx, timeAgo, ThemeToggle } from "@/components/ui";
 import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { HOME_TAB_ID } from "@/lib/task-panes";
-import type { HealthDto, ProjectDto, TaskSummary } from "@/lib/types";
+import { NO_PROJECT_NAME, type HealthDto, type ProjectDto, type TaskSummary } from "@/lib/types";
 
 type ProjectTaskMenuState = {
   projectId: string;
@@ -51,6 +53,7 @@ const POLL_IDLE_MS = 12_000;
 const POLL_WORKING_MS = 4_000;
 const PROJECT_DRAG_MIME = "application/x-leafcode-project";
 const HOVER_QUERY = "(hover: hover)";
+const NO_PROJECT_GROUP_ID = "__leafcode_no_project__";
 
 const PROJECT_ICON_TONES = [
   "border-danger/30 bg-danger-bg text-danger",
@@ -169,6 +172,10 @@ export function tasksForSidebar(tasks: TaskSummary[]): TaskSummary[] {
 }
 
 const LIVE_GOAL_LOOP_STATUSES = new Set(["queued", "running", "verifying_completed"]);
+
+function promotionBlocked(task: TaskSummary): boolean {
+  return task.status === "working" || LIVE_GOAL_LOOP_STATUSES.has(task.goalLoopSummary?.status ?? "");
+}
 
 function TodoProgressBar({
   task,
@@ -329,6 +336,112 @@ function useIsMdUp(): boolean {
   );
 }
 
+function PromoteTaskDialog({
+  task,
+  onClose,
+  onDone,
+}: {
+  task: TaskSummary;
+  onClose: () => void;
+  onDone: (warning?: string) => void;
+}) {
+  const [path, setPath] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [busy, onClose]);
+
+  async function browse() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ path?: string }>(
+        "/api/browse/dirs",
+        {},
+        "POST",
+        { timeoutMs: 135_000 },
+      );
+      if (result.path) setPath(result.path);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "フォルダー選択に失敗しました");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submit() {
+    const destinationPath = path.trim();
+    if (!destinationPath || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ warning?: string }>(
+        `/api/tasks/${encodeURIComponent(task.id)}/promote`,
+        { destinationPath },
+      );
+      onDone(result.warning);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "プロジェクトへの昇進に失敗しました");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-3 backdrop-blur-[2px] sm:p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="promote-task-title"
+        className="w-full max-w-lg rounded-2xl border border-border bg-surface shadow-2xl"
+      >
+        <div className="border-b border-border px-4 py-3 sm:px-5">
+          <h2 id="promote-task-title" className="text-sm font-semibold">プロジェクトへ昇進</h2>
+          <p className="mt-1 truncate text-xs text-muted" title={task.title}>{task.title}</p>
+        </div>
+        <div className="space-y-3 p-4 sm:p-5">
+          <p className="text-xs leading-5 text-muted">
+            作業フォルダーを指定先へ移動し、通常プロジェクトとして登録します。移動先は空のフォルダーにしてください。
+          </p>
+          <div className="flex gap-2">
+            <input
+              ref={inputRef}
+              value={path}
+              onChange={(event) => setPath(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void submit();
+                }
+              }}
+              aria-label="移動先フォルダーのパス"
+              placeholder="C:\\path\\to\\project"
+              className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 font-mono text-xs outline-none placeholder:text-faint focus:border-accent"
+            />
+            <Button size="sm" onClick={() => void browse()} busy={busy}>参照</Button>
+          </div>
+          {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-border px-4 py-3 sm:px-5">
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>キャンセル</Button>
+          <Button variant="primary" size="sm" onClick={() => void submit()} busy={busy} disabled={!path.trim()}>
+            移動して登録
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Sidebar({
   mobileOpen,
   onClose,
@@ -361,6 +474,7 @@ export function Sidebar({
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
   const [projectTaskMenu, setProjectTaskMenu] = useState<ProjectTaskMenuState | null>(null);
+  const [promotionTask, setPromotionTask] = useState<TaskSummary | null>(null);
   const [railWidget, setRailWidget] = useState<RailWidget | null>(null);
   const [railWidgetPos, setRailWidgetPos] = useState({ bottom: 0, left: 0 });
   const taskDragActiveRef = useRef(false);
@@ -494,6 +608,17 @@ export function Sidebar({
     [onClose, paneMdUp, retargetToUrl, router],
   );
 
+  const openNoProject = useCallback(() => {
+    const href = "/?noProject=1";
+    if (paneMdUp) {
+      window.history.pushState(null, "", href);
+      retargetToUrl(HOME_TAB_ID);
+    } else {
+      router.push(href);
+    }
+    onClose();
+  }, [onClose, paneMdUp, retargetToUrl, router]);
+
   const tasksByProject = useMemo(() => {
     const map = new Map<string | null, TaskSummary[]>();
     for (const task of tasks) {
@@ -506,6 +631,9 @@ export function Sidebar({
     }
     return map;
   }, [tasks]);
+  const noProjectTasks = tasksByProject.get(null) ?? [];
+  const noProjectOpen =
+    expanded.has(NO_PROJECT_GROUP_ID) || noProjectTasks.some((task) => task.id === activeTaskId);
 
   const archivedGroups = useMemo(() => {
     const groups = new Map<string, TaskSummary[]>();
@@ -690,9 +818,12 @@ export function Sidebar({
   async function destroyArchivedGroup(group: { key: string; name: string; tasks: TaskSummary[] }) {
     if (!window.confirm(`「${group.name}」のアーカイブ済みタスクを${group.tasks.length}件すべて完全に削除しますか？`)) return;
     const projectId = group.tasks[0]?.projectId;
-    if (!projectId) return;
+    if (projectId === undefined) return;
+    const query = projectId === null
+      ? "noProject=1"
+      : `projectId=${encodeURIComponent(projectId)}`;
     await runAction(`destroy-group:${group.key}`, () =>
-      sendJson(`/api/tasks?projectId=${encodeURIComponent(projectId)}`, undefined, "DELETE"),
+      sendJson(`/api/tasks?${query}`, undefined, "DELETE"),
     );
   }
 
@@ -854,6 +985,76 @@ export function Sidebar({
     [cancelProjectTaskMenuHide, cancelRailWidgetHide],
   );
 
+  function renderTaskList(children: TaskSummary[]) {
+    return (
+      <ul className="mb-1 ml-5 space-y-0.5 border-l border-border pl-1.5">
+        {children.length === 0 ? (
+          <li className="px-2 py-1.5 text-[11px] text-muted">タスクなし</li>
+        ) : (
+          children.map((task) => (
+            <li key={task.id} className="group rounded-lg">
+              <div className="flex items-center">
+                <button
+                  type="button"
+                  draggable={mdUp}
+                  onDragStart={(event) => {
+                    taskDragActiveRef.current = true;
+                    event.dataTransfer.effectAllowed = "move";
+                    setTaskDragData(event.dataTransfer, task.id);
+                  }}
+                  onClick={() => openTask(task.id)}
+                  className={cx(
+                    "flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 py-1.5 text-left md:min-h-8",
+                    task.id === activeTaskId ? "bg-surface-3 text-text" : "text-muted hover:bg-surface-2 hover:text-text",
+                  )}
+                >
+                  {task.status === "working" ? (
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin text-working" />
+                  ) : (
+                    <span
+                      className={cx(
+                        "h-1.5 w-1.5 shrink-0 rounded-full",
+                        task.status === "error" ? "bg-danger" : "bg-faint",
+                      )}
+                    />
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium">{task.title}</span>
+                  <span className="shrink-0 text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
+                </button>
+                {task.projectId === null && (
+                  <button
+                    type="button"
+                    aria-label={promotionBlocked(task) ? `「${task.title}」は実行中のため昇進できません` : `「${task.title}」をプロジェクトへ昇進`}
+                    title={promotionBlocked(task) ? "実行中のタスクは昇進できません" : "プロジェクトへ昇進"}
+                    disabled={actionBusyKey !== null || promotionBlocked(task)}
+                    onClick={() => setPromotionTask(task)}
+                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40 md:h-6 md:w-6"
+                  >
+                    <FolderUp className="h-3 w-3" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  aria-label={`「${task.title}」をアーカイブ`}
+                  title="タスクをアーカイブ"
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text md:h-6 md:w-6"
+                  onClick={() =>
+                    void runAction(`archive:${task.id}`, () =>
+                      sendJson(`/api/tasks/${task.id}`, undefined, "DELETE"),
+                    )
+                  }
+                >
+                  <Archive className="h-3 w-3" />
+                </button>
+              </div>
+              <TaskProgressBar task={task} className="mx-8 pb-1.5 md:mx-7" />
+            </li>
+          ))
+        )}
+      </ul>
+    );
+  }
+
   // `collapsed` はデスクトップ専用のレール表示（collapsedRail）用。body は
   // デスクトップでは !collapsed のときだけ描画され、モバイルドロワーは常に全幅なので、
   // body 内で collapsed を参照してはいけない（参照すると 240px 幅のまま
@@ -890,10 +1091,50 @@ export function Sidebar({
         <span role="status" aria-live="polite" className="sr-only">
           {reorderAnnouncement}
         </span>
-        {projects.length === 0 ? (
-          <p className="px-2 py-3 text-xs text-muted">プロジェクトなし</p>
+        {projects.length === 0 && noProjectTasks.length === 0 ? (
+          <p className="px-2 py-3 text-xs text-muted">プロジェクトはありません</p>
         ) : (
           <ul className="space-y-1">
+            {noProjectTasks.length > 0 && (
+              <li>
+                <div className="flex items-center gap-0.5 rounded-lg">
+                  <button
+                    type="button"
+                    aria-expanded={noProjectOpen}
+                    aria-label={`${NO_PROJECT_NAME}${noProjectOpen ? "を折りたたむ" : "を展開"}`}
+                    onClick={() => toggleExpanded(NO_PROJECT_GROUP_ID)}
+                    className="inline-flex h-8 w-6 items-center justify-center text-faint"
+                  >
+                    <ChevronRight className={cx("h-3.5 w-3.5 transition", noProjectOpen && "rotate-90")} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openNoProject}
+                    className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 text-left"
+                  >
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border bg-surface-2 text-muted">
+                      <Folder className="h-3 w-3" />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm">{NO_PROJECT_NAME}</span>
+                    {countRunningTasks(noProjectTasks) > 0 && (
+                      <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-working px-1 text-[10px] font-semibold text-primary-fg">
+                        {countRunningTasks(noProjectTasks)}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`${NO_PROJECT_NAME}で新規タスクを作成`}
+                    title="プロジェクトなしで新規タスク"
+                    onClick={openNoProject}
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted hover:text-text md:h-8 md:w-8"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {noProjectOpen && renderTaskList(noProjectTasks)}
+              </li>
+            )}
             {orderedProjects.map((project) => {
               const children = tasksByProject.get(project.id) ?? [];
               const open = expanded.has(project.id) || children.some((task) => task.id === activeTaskId);
@@ -969,61 +1210,7 @@ export function Sidebar({
                       <Archive className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                  {open && (
-                    <ul className="mb-1 ml-5 space-y-0.5 border-l border-border pl-1.5">
-                      {children.length === 0 ? (
-                        <li className="px-2 py-1.5 text-[11px] text-muted">タスクなし</li>
-                      ) : (
-                        children.map((task) => (
-                          <li key={task.id} className="group rounded-lg">
-                            <div className="flex items-center">
-                              <button
-                                type="button"
-                                draggable={mdUp}
-                                onDragStart={(event) => {
-                                  taskDragActiveRef.current = true;
-                                  event.dataTransfer.effectAllowed = "move";
-                                  setTaskDragData(event.dataTransfer, task.id);
-                                }}
-                                onClick={() => openTask(task.id)}
-                                className={cx(
-                                  "flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 py-1.5 text-left md:min-h-8",
-                                  task.id === activeTaskId ? "bg-surface-3 text-text" : "text-muted hover:bg-surface-2 hover:text-text",
-                                )}
-                              >
-                                {task.status === "working" ? (
-                                  <Loader2 className="h-3 w-3 shrink-0 animate-spin text-working" />
-                                ) : (
-                                  <span
-                                    className={cx(
-                                      "h-1.5 w-1.5 shrink-0 rounded-full",
-                                      task.status === "error" ? "bg-danger" : "bg-faint",
-                                    )}
-                                  />
-                                )}
-                                <span className="min-w-0 flex-1 truncate text-xs font-medium">{task.title}</span>
-                                <span className="shrink-0 text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
-                              </button>
-                              <button
-                                type="button"
-                                aria-label={`「${task.title}」をアーカイブ`}
-                                title="タスクをアーカイブ"
-                                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text md:h-6 md:w-6"
-                                onClick={() =>
-                                  void runAction(`archive:${task.id}`, () =>
-                                    sendJson(`/api/tasks/${task.id}`, undefined, "DELETE"),
-                                  )
-                                }
-                              >
-                                <Archive className="h-3 w-3" />
-                              </button>
-                            </div>
-                            <TaskProgressBar task={task} className="mx-8 pb-1.5 md:mx-7" />
-                          </li>
-                        ))
-                      )}
-                    </ul>
-                  )}
+                  {open && renderTaskList(children)}
                 </li>
               );
             })}
@@ -1220,6 +1407,26 @@ export function Sidebar({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <ul className="flex flex-col items-center gap-3">
+          {noProjectTasks.length > 0 && (
+            <li>
+              <button
+                type="button"
+                title={NO_PROJECT_NAME}
+                aria-label={`${NO_PROJECT_NAME}を選択`}
+                onClick={openNoProject}
+                className="group relative inline-flex h-12 w-12 items-center justify-center rounded-xl p-1 hover:bg-surface-2"
+              >
+                <span className="flex h-full w-full items-center justify-center rounded-lg border border-border bg-surface-2 text-muted transition-transform group-hover:scale-105">
+                  <Folder className="h-5 w-5" />
+                </span>
+                {countRunningTasks(noProjectTasks) > 0 && (
+                  <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-surface bg-working px-1 text-[10px] font-semibold text-primary-fg">
+                    {countRunningTasks(noProjectTasks)}
+                  </span>
+                )}
+              </button>
+            </li>
+          )}
           {orderedProjects.map((project) => {
             const projectTasks = tasksByProject.get(project.id) ?? [];
             const running = countRunningTasks(projectTasks);
@@ -1513,6 +1720,17 @@ export function Sidebar({
         >
           {body}
         </aside>
+      )}
+      {promotionTask && (
+        <PromoteTaskDialog
+          task={promotionTask}
+          onClose={() => setPromotionTask(null)}
+          onDone={(warning) => {
+            if (warning) window.alert(warning);
+            void refresh();
+            notifyTasksChanged();
+          }}
+        />
       )}
     </>
   );

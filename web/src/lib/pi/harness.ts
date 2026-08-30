@@ -1,9 +1,11 @@
 import { EventEmitter } from "node:events";
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dataDir, isAbsolutePath, noProjectRoot } from "@/lib/paths";
+import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import {
   deleteProjectRecord,
   deleteTask,
@@ -267,6 +269,13 @@ const GLOBAL_KEY = "__leafcodePiHarness" as const;
 
 /** Coalesce concurrent ensureLive(taskId) so only one Pi session is created. */
 const ensureLiveInflight = new Map<string, Promise<LiveRuntime>>();
+const promoteInflight = new Map<string, Promise<PromoteTaskResult>>();
+
+type PromoteTaskResult = {
+  task: TaskSummary;
+  project: ProjectDto;
+  warning?: string;
+};
 /** Serialize selection + task insert for the same integrated provider/model. */
 const routeLocks = new Map<string, Promise<void>>();
 /** Reserve selected accounts until the new task has a live session. */
@@ -1912,6 +1921,12 @@ async function ensureLive(taskId: string): Promise<LiveRuntime> {
   return promise;
 }
 
+function sameOrDescendantPath(path: string, parent: string): boolean {
+  const child = resolve(path).toLowerCase();
+  const root = resolve(parent).toLowerCase();
+  return child === root || child.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
+}
+
 function validateProjectPath(
   rootPath: string,
 ): { ok: true; path: string } | { ok: false; error: string } {
@@ -3140,6 +3155,137 @@ export function addProject(rootPath: string): ProjectDto {
     name: basename(validated.path) || "Untitled",
     rootPath: validated.path,
   });
+}
+
+async function promoteTaskOnce(
+  taskId: string,
+  destinationPath: string,
+): Promise<PromoteTaskResult> {
+  const task = getTask(taskId);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (task.projectId !== null)
+    throw Object.assign(new Error("プロジェクトなしタスクのみ昇進できます"), {
+      status: 409,
+    });
+
+  const live = state().live.get(taskId);
+  const goalLoop = readGoalLoopState(task.directory, task.sessionId);
+  if (
+    task.status === "working" ||
+    live?.session.isStreaming ||
+    live?.session.isCompacting ||
+    live?.promptActive ||
+    ["queued", "running", "verifying_completed"].includes(goalLoop?.status ?? "")
+  ) {
+    throw Object.assign(new Error("実行中のタスクは停止してから昇進してください"), {
+      status: 409,
+    });
+  }
+
+  const source = resolve(task.directory);
+  const noProjectBase = resolve(noProjectRoot());
+  if (
+    source === noProjectBase ||
+    !sameOrDescendantPath(source, noProjectBase)
+  ) {
+    throw Object.assign(new Error("無プロジェクトの作業フォルダーが不正です"), {
+      status: 400,
+    });
+  }
+  const rawDestination = destinationPath.trim();
+  if (!isAbsolutePath(rawDestination))
+    throw Object.assign(new Error("移動先には絶対パスを指定してください"), {
+      status: 400,
+    });
+  const destination = resolve(rawDestination);
+  if (sameOrDescendantPath(destination, source) || sameOrDescendantPath(source, destination)) {
+    throw Object.assign(new Error("移動元と移動先を入れ子にはできません"), {
+      status: 400,
+    });
+  }
+  if (
+    listProjects(true).some(
+      (project) => resolve(project.rootPath).toLowerCase() === destination.toLowerCase(),
+    )
+  ) {
+    throw Object.assign(new Error("移動先は既にプロジェクトとして登録されています"), {
+      status: 409,
+    });
+  }
+  if (!task.sessionFile || !existsSync(task.sessionFile)) {
+    throw Object.assign(new Error("保存済みセッションのあるタスクのみ昇進できます"), {
+      status: 409,
+    });
+  }
+
+  const hadSubscriber = state().events.listenerCount(taskId) > 0;
+  disposeLive(taskId);
+  let prepared: PreparedWorkspaceMove | undefined;
+  let forkedSessionFile: string | undefined;
+  let project: ProjectDto | undefined;
+  let committed = false;
+  try {
+    prepared = await prepareWorkspaceMove(source, destination);
+    const pi = await loadPi();
+    const forked = pi.SessionManager.forkFrom(task.sessionFile, destination);
+    forkedSessionFile = forked.getSessionFile();
+    if (!forkedSessionFile) throw new Error("新しいセッションを作成できませんでした");
+
+    project = addProject(destination);
+    const updated = patchTask(taskId, {
+      projectId: project.id,
+      projectName: project.name,
+      directory: destination,
+      sessionId: forked.getSessionId(),
+      sessionFile: forkedSessionFile,
+    });
+    if (!updated) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+    committed = true;
+
+    const warnings: string[] = [];
+    try {
+      await prepared.finalize();
+    } catch {
+      warnings.push("元の作業フォルダーを削除できませんでした");
+    }
+    if (hadSubscriber) {
+      try {
+        const refreshed = await ensureLive(taskId);
+        emitTaskSnapshot(refreshed, "project_promoted");
+      } catch {
+        warnings.push("セッションの再接続は次回タスク表示時に行います");
+      }
+    }
+    const resultTask = getTask(taskId) ?? updated;
+    return {
+      task: toSummary(resultTask),
+      project,
+      ...(warnings.length > 0 ? { warning: warnings.join("。") } : {}),
+    };
+  } catch (error) {
+    if (!committed) {
+      if (forkedSessionFile) {
+        await rm(forkedSessionFile, { force: true }).catch(() => undefined);
+      }
+      if (project) deleteProjectRecord(project.id);
+      if (prepared) await prepared.rollback().catch(() => undefined);
+    }
+    throw error;
+  }
+}
+
+export async function promoteTask(
+  taskId: string,
+  destinationPath: string,
+): Promise<PromoteTaskResult> {
+  const existing = promoteInflight.get(taskId);
+  if (existing) return existing;
+  const operation = promoteTaskOnce(taskId, destinationPath).finally(() => {
+    if (promoteInflight.get(taskId) === operation) promoteInflight.delete(taskId);
+  });
+  promoteInflight.set(taskId, operation);
+  return operation;
 }
 
 export function archiveProject(id: string): ProjectDto {
@@ -4398,7 +4544,7 @@ export function destroyTask(id: string): { ok: true } {
   return { ok: true };
 }
 
-export function destroyArchivedTasksByProject(projectId: string): {
+export function destroyArchivedTasksByProject(projectId: string | null): {
   ok: true;
   removed: number;
 } {
