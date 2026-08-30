@@ -451,6 +451,7 @@ export function TaskPanesHost() {
                   className={cx("min-h-0 min-w-0 flex-1", !isActiveTab && "hidden")}
                 >
                   <PaneHomeView
+                    key={`${projectId ?? ""}:${noProject ? "no-project" : "project"}`}
                     initialProjectId={projectId ?? undefined}
                     initialNoProject={noProject}
                   />

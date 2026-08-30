@@ -270,6 +270,7 @@ const GLOBAL_KEY = "__leafcodePiHarness" as const;
 /** Coalesce concurrent ensureLive(taskId) so only one Pi session is created. */
 const ensureLiveInflight = new Map<string, Promise<LiveRuntime>>();
 const promoteInflight = new Map<string, Promise<PromoteTaskResult>>();
+const promoteDestinationInflight = new Map<string, Promise<void>>();
 
 type PromoteTaskResult = {
   task: TaskSummary;
@@ -1927,6 +1928,28 @@ function sameOrDescendantPath(path: string, parent: string): boolean {
   return child === root || child.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
 }
 
+async function withPromotionDestinationLock<T>(
+  destination: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  const key = destination.toLowerCase();
+  const previous = promoteDestinationInflight.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolveLock) => {
+    release = resolveLock;
+  });
+  promoteDestinationInflight.set(key, current);
+  await previous;
+  try {
+    return await action();
+  } finally {
+    release();
+    if (promoteDestinationInflight.get(key) === current) {
+      promoteDestinationInflight.delete(key);
+    }
+  }
+}
+
 function validateProjectPath(
   rootPath: string,
 ): { ok: true; path: string } | { ok: false; error: string } {
@@ -3213,79 +3236,82 @@ async function promoteTaskOnce(
       status: 409,
     });
   }
-  if (!task.sessionFile || !existsSync(task.sessionFile)) {
+  const sessionFile = task.sessionFile;
+  if (!sessionFile || !existsSync(sessionFile)) {
     throw Object.assign(new Error("保存済みセッションのあるタスクのみ昇進できます"), {
       status: 409,
     });
   }
 
-  const hadSubscriber = state().events.listenerCount(taskId) > 0;
-  disposeLive(taskId);
-  let prepared: PreparedWorkspaceMove | undefined;
-  let forkedSessionFile: string | undefined;
-  let project: ProjectDto | undefined;
-  let committed = false;
-  try {
-    prepared = await prepareWorkspaceMove(source, destination);
-    const pi = await loadPi();
-    if (
-      listProjects(true).some(
-        (candidate) => resolve(candidate.rootPath).toLowerCase() === destination.toLowerCase(),
-      )
-    ) {
-      throw Object.assign(new Error("移動先は既にプロジェクトとして登録されています"), {
-        status: 409,
-      });
-    }
-    const forked = pi.SessionManager.forkFrom(task.sessionFile, destination);
-    const nextSessionFile = forked.getSessionFile();
-    if (!nextSessionFile) throw new Error("新しいセッションを作成できませんでした");
-    if (sameOrDescendantPath(nextSessionFile, source)) {
-      throw new Error("新しいセッションの保存先が不正です");
-    }
-    forkedSessionFile = nextSessionFile;
-
-    project = addProject(destination);
-    const updated = patchTask(taskId, {
-      projectId: project.id,
-      projectName: project.name,
-      directory: destination,
-      sessionId: forked.getSessionId(),
-      sessionFile: forkedSessionFile,
-    });
-    if (!updated) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-    committed = true;
-
-    const warnings: string[] = [];
+  return withPromotionDestinationLock(destination, async () => {
+    const hadSubscriber = state().events.listenerCount(taskId) > 0;
+    disposeLive(taskId);
+    let prepared: PreparedWorkspaceMove | undefined;
+    let forkedSessionFile: string | undefined;
+    let project: ProjectDto | undefined;
+    let committed = false;
     try {
-      await prepared.finalize();
-    } catch {
-      warnings.push("元の作業フォルダーを削除できませんでした");
-    }
-    if (hadSubscriber) {
+      prepared = await prepareWorkspaceMove(source, destination);
+      const pi = await loadPi();
+      if (
+        listProjects(true).some(
+          (candidate) => resolve(candidate.rootPath).toLowerCase() === destination.toLowerCase(),
+        )
+      ) {
+        throw Object.assign(new Error("移動先は既にプロジェクトとして登録されています"), {
+          status: 409,
+        });
+      }
+      const forked = pi.SessionManager.forkFrom(sessionFile, destination);
+      const nextSessionFile = forked.getSessionFile();
+      if (!nextSessionFile) throw new Error("新しいセッションを作成できませんでした");
+      if (sameOrDescendantPath(nextSessionFile, source)) {
+        throw new Error("新しいセッションの保存先が不正です");
+      }
+      forkedSessionFile = nextSessionFile;
+
+      project = addProject(destination);
+      const updated = patchTask(taskId, {
+        projectId: project.id,
+        projectName: project.name,
+        directory: destination,
+        sessionId: forked.getSessionId(),
+        sessionFile: forkedSessionFile,
+      });
+      if (!updated) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+      committed = true;
+
+      const warnings: string[] = [];
       try {
-        const refreshed = await ensureLive(taskId);
-        emitTaskSnapshot(refreshed, "project_promoted");
+        await prepared.finalize();
       } catch {
-        warnings.push("セッションの再接続は次回タスク表示時に行います");
+        warnings.push("元の作業フォルダーを削除できませんでした");
       }
-    }
-    const resultTask = getTask(taskId) ?? updated;
-    return {
-      task: toSummary(resultTask),
-      project,
-      ...(warnings.length > 0 ? { warning: warnings.join("。") } : {}),
-    };
-  } catch (error) {
-    if (!committed) {
-      if (forkedSessionFile) {
-        await rm(forkedSessionFile, { force: true }).catch(() => undefined);
+      if (hadSubscriber) {
+        try {
+          const refreshed = await ensureLive(taskId);
+          emitTaskSnapshot(refreshed, "project_promoted");
+        } catch {
+          warnings.push("セッションの再接続は次回タスク表示時に行います");
+        }
       }
-      if (project) deleteProjectRecord(project.id);
-      if (prepared) await prepared.rollback().catch(() => undefined);
+      const resultTask = getTask(taskId) ?? updated;
+      return {
+        task: toSummary(resultTask),
+        project,
+        ...(warnings.length > 0 ? { warning: warnings.join("。") } : {}),
+      };
+    } catch (error) {
+      if (!committed) {
+        if (forkedSessionFile) {
+          await rm(forkedSessionFile, { force: true }).catch(() => undefined);
+        }
+        if (project) deleteProjectRecord(project.id);
+        if (prepared) await prepared.rollback().catch(() => undefined);
+      }
+      throw error;
     }
-    throw error;
-  }
+  });
 }
 
 export async function promoteTask(

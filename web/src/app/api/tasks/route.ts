@@ -102,13 +102,15 @@ export async function POST(req: NextRequest) {
     } | null;
     if (
       !body ||
-      (body.projectId !== undefined &&
-        body.projectId !== null &&
-        typeof body.projectId !== "string") ||
+      (body.projectId !== null &&
+        (typeof body.projectId !== "string" || !body.projectId.trim())) ||
       typeof body.prompt !== "string" ||
       !body.prompt.trim()
     ) {
-      return NextResponse.json({ error: "prompt が必要です" }, { status: 400 });
+      return NextResponse.json(
+        { error: "projectId（null可）と prompt が必要です" },
+        { status: 400 },
+      );
     }
     const projectId =
       typeof body.projectId === "string" && body.projectId.trim()
