@@ -636,16 +636,17 @@ export function Sidebar({
     expanded.has(NO_PROJECT_GROUP_ID) || noProjectTasks.some((task) => task.id === activeTaskId);
 
   const archivedGroups = useMemo(() => {
-    const groups = new Map<string, TaskSummary[]>();
+    const groups = new Map<string, { name: string; tasks: TaskSummary[] }>();
     for (const task of archivedTasks) {
-      const list = groups.get(task.projectName) ?? [];
-      list.push(task);
-      groups.set(task.projectName, list);
+      const key = task.projectId ? `project:${task.projectId}` : "no-project";
+      const group = groups.get(key) ?? { name: task.projectName, tasks: [] };
+      group.tasks.push(task);
+      groups.set(key, group);
     }
-    return [...groups.entries()].map(([name, list]) => ({
-      key: name,
-      name,
-      tasks: list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    return [...groups.entries()].map(([key, group]) => ({
+      key,
+      name: group.name,
+      tasks: group.tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     }));
   }, [archivedTasks]);
 

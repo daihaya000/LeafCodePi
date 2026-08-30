@@ -3228,9 +3228,22 @@ async function promoteTaskOnce(
   try {
     prepared = await prepareWorkspaceMove(source, destination);
     const pi = await loadPi();
+    if (
+      listProjects(true).some(
+        (candidate) => resolve(candidate.rootPath).toLowerCase() === destination.toLowerCase(),
+      )
+    ) {
+      throw Object.assign(new Error("移動先は既にプロジェクトとして登録されています"), {
+        status: 409,
+      });
+    }
     const forked = pi.SessionManager.forkFrom(task.sessionFile, destination);
-    forkedSessionFile = forked.getSessionFile();
-    if (!forkedSessionFile) throw new Error("新しいセッションを作成できませんでした");
+    const nextSessionFile = forked.getSessionFile();
+    if (!nextSessionFile) throw new Error("新しいセッションを作成できませんでした");
+    if (sameOrDescendantPath(nextSessionFile, source)) {
+      throw new Error("新しいセッションの保存先が不正です");
+    }
+    forkedSessionFile = nextSessionFile;
 
     project = addProject(destination);
     const updated = patchTask(taskId, {
