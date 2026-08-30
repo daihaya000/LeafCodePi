@@ -1,12 +1,17 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   modelRows,
   registerRemoteProvider,
   syncRemoteProvider,
   REMOTE_PROVIDER_BASE,
+  REMOTE_PROVIDER_API_KEY_ENV,
 } from "./remote-provider";
 
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => vi.stubEnv(REMOTE_PROVIDER_API_KEY_ENV, "test-api-key"));
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 describe("remote-provider", () => {
   it("converts the OpenAI-compatible model catalog", () => {

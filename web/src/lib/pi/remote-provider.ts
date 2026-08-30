@@ -1,7 +1,8 @@
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 
 export const REMOTE_PROVIDER_ID = "z390-s01";
-export const REMOTE_PROVIDER_BASE = "http://100.120.239.27:8000/v1";
+export const REMOTE_PROVIDER_BASE = "https://z390-s01.tail3dc57b.ts.net/v1";
+export const REMOTE_PROVIDER_API_KEY_ENV = "Z390_S01_API_KEY";
 const QWEN38_27B_CONTEXT_WINDOW = 131_072;
 
 type RuntimeLike = {
@@ -63,8 +64,11 @@ export function modelRows(body: unknown): ModelRow[] {
 
 async function fetchModels(): Promise<ModelRow[]> {
   try {
+    const apiKey = process.env[REMOTE_PROVIDER_API_KEY_ENV]?.trim();
+    if (!apiKey) return [];
     const response = await fetch(`${REMOTE_PROVIDER_BASE}/models`, {
       cache: "no-store",
+      headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) return [];
@@ -79,7 +83,7 @@ function providerConfig(models: ModelRow[]): Record<string, unknown> {
     name: "Z390-S01",
     baseUrl: REMOTE_PROVIDER_BASE,
     api: openAICompletionsApi(),
-    apiKey: "local",
+    apiKey: process.env[REMOTE_PROVIDER_API_KEY_ENV]?.trim() ?? "",
     models,
   };
 }
