@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
-import { linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -122,6 +132,27 @@ test("repository-owned web files are copied so build tooling can mutate them", (
 
     writeFileSync(join(mirror, "src", "page.tsx"), "export default function Page() { return null; }\n");
     assert.equal(readFileSync(join(source, "src", "page.tsx"), "utf8"), "export default null;\n");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("syncMirror refreshes a same-size file when its mtime was preserved", () => {
+  const { root, source, mirror } = sandbox();
+  try {
+    mkdirSync(source, { recursive: true });
+    const sourceFile = join(source, "TaskView.tsx");
+    const mirrorFile = join(mirror, "TaskView.tsx");
+    writeFileSync(sourceFile, "old-content\n");
+    syncMirror({ sourceDir: source, mirrorRoot: mirror });
+
+    const mirrorStat = statSync(mirrorFile);
+    writeFileSync(sourceFile, "new-content\n");
+    utimesSync(sourceFile, mirrorStat.atime, mirrorStat.mtime);
+
+    syncMirror({ sourceDir: source, mirrorRoot: mirror });
+
+    assert.equal(readFileSync(mirrorFile, "utf8"), "new-content\n");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

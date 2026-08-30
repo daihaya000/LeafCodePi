@@ -5,6 +5,7 @@ import {
   linkSync,
   lstatSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   rmSync,
   statSync,
@@ -93,9 +94,9 @@ function shouldCopy(relPath) {
 }
 
 /** Re-place a linked repository file with an independent copy after policy changes. */
-function needsReplace(sourceStat, targetStat, relPath) {
+function needsReplace(sourceStat, targetStat, relPath, from, to) {
   if (!targetStat) return true;
-  if (!isUpToDate(sourceStat, targetStat)) return true;
+  if (!isUpToDate(sourceStat, targetStat, relPath, from, to)) return true;
   return shouldCopy(relPath) && sourceStat.nlink > 1;
 }
 
@@ -130,9 +131,17 @@ export function isMirroredNextCliReady(mirrorRoot) {
   return existsSync(join(mirrorRoot, "node_modules", "next", "dist", "compiled", "commander", "index.js"));
 }
 
-/** Same content already in place? Hard links share mtime/size with the source. */
-function isUpToDate(sourceStat, targetStat) {
-  return targetStat.size === sourceStat.size && Math.abs(targetStat.mtimeMs - sourceStat.mtimeMs) < 2;
+/** Same content already in place? Synced files can keep size/mtime after their bytes change. */
+function isUpToDate(sourceStat, targetStat, relPath, from, to) {
+  if (targetStat.size !== sourceStat.size || Math.abs(targetStat.mtimeMs - sourceStat.mtimeMs) >= 2) {
+    return false;
+  }
+  if (!shouldCopy(relPath)) return true;
+  try {
+    return readFileSync(from).equals(readFileSync(to));
+  } catch {
+    return false;
+  }
 }
 
 function placeFile(from, to, relPath, stats) {
@@ -194,7 +203,7 @@ function syncDir(sourceDir, targetDir, rootDir, counters) {
     } catch {
       targetStat = undefined;
     }
-    if (targetStat && !needsReplace(sourceStat, targetStat, relPath)) {
+    if (targetStat && !needsReplace(sourceStat, targetStat, relPath, from, to)) {
       counters.unchanged += 1;
       continue;
     }
