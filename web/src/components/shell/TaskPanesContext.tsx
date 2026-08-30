@@ -65,11 +65,17 @@ function syncUrl(taskId: string | null): void {
   if (typeof window === "undefined") return;
   let target: string;
   if (taskId == null || taskId === HOME_TAB_ID) {
-    const projectId =
+    const search =
       taskId === HOME_TAB_ID && window.location.pathname === "/"
-        ? new URLSearchParams(window.location.search).get("projectId")
+        ? new URLSearchParams(window.location.search)
         : null;
-    target = projectId ? `/?projectId=${encodeURIComponent(projectId)}` : "/";
+    const noProject = search?.get("noProject") === "1";
+    const projectId = search?.get("projectId");
+    target = noProject
+      ? "/?noProject=1"
+      : projectId
+        ? `/?projectId=${encodeURIComponent(projectId)}`
+        : "/";
   } else {
     target = `/task/${encodeURIComponent(taskId)}`;
   }

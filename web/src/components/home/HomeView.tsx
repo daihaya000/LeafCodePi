@@ -58,7 +58,7 @@ import {
   writePermissionMode,
   type PermissionMode,
 } from "@/lib/permission-gate";
-import type { HealthDto, ModelOption, ProjectDto, TaskSummary, ThinkingLevel } from "@/lib/types";
+import { NO_PROJECT_NAME, type HealthDto, type ModelOption, type ProjectDto, type TaskSummary, type ThinkingLevel } from "@/lib/types";
 import type { AutoOptimizeMode } from "@/lib/auto-model";
 
 const MODEL_KEY = "leafcodepi.defaultModel";
@@ -70,10 +70,19 @@ function plainModelValue(modelValue: string, models: ModelOption[]): string {
   return `${option.providerID}::${option.modelID}`;
 }
 
-export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
+export function HomeView({
+  initialProjectId,
+  initialNoProject = false,
+}: {
+  initialProjectId?: string;
+  initialNoProject?: boolean;
+}) {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectDto[]>([]);
-  const [projectId, setProjectId] = useState(initialProjectId ?? "");
+  // undefined = project list has not resolved; null = explicit no-project mode.
+  const [projectId, setProjectId] = useState<string | null | undefined>(
+    initialNoProject ? null : initialProjectId,
+  );
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [model, setModel] = useState("");
@@ -109,7 +118,9 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const composingRef = useRef(false);
   const modelsRef = useRef<ModelOption[]>([]);
 
-  const selectedProject = projects.find((project) => project.id === projectId);
+  const selectedProject = projectId
+    ? projects.find((project) => project.id === projectId)
+    : undefined;
   const modelOptions = useMemo(() => [AUTO_MODEL_OPTION, ...models], [models]);
   const selectedModel = modelOptions.find((option) => option.value === model);
   const thinkingLevels = useMemo(
@@ -149,8 +160,9 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
     if (projectRes.status === "fulfilled") {
       setProjects(projectRes.value.projects);
       setProjectId((current) => {
+        if (current === null) return null;
         if (current && projectRes.value.projects.some((project) => project.id === current)) return current;
-        return projectRes.value.projects[0]?.id ?? "";
+        return projectRes.value.projects[0]?.id ?? null;
       });
     }
     if (healthRes.status === "fulfilled") setHealth(healthRes.value);
@@ -177,8 +189,12 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   }, [refresh]);
 
   useEffect(() => {
-    if (initialProjectId !== undefined) setProjectId(initialProjectId);
-  }, [initialProjectId]);
+    if (initialNoProject) {
+      setProjectId(null);
+    } else if (initialProjectId !== undefined) {
+      setProjectId(initialProjectId);
+    }
+  }, [initialNoProject, initialProjectId]);
 
   useEffect(
     () =>
@@ -251,7 +267,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   }
 
   async function submit() {
-    if (!prompt.trim() || !projectId || submitting) return;
+    if (!prompt.trim() || projectId === undefined || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -268,7 +284,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
       const isAuto = model === AUTO_MODEL_VALUE;
       const autoRouteConfig = readAutoRouteConfig();
       const result = await sendJson<{ task: TaskSummary; autoDecision?: AutoDecision }>("/api/tasks", {
-        projectId,
+        projectId: projectId ?? null,
         prompt,
         // アカウントタグ付きモデルの value は「accountId::provider::model」。送信時は
         // Pi が解釈できる「provider::model」へ戻す（accountId は別フィールドで渡す）。
@@ -328,14 +344,14 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
             </h1>
             <div className="mx-auto mb-3 flex max-w-5xl items-center justify-start gap-2 overflow-x-auto px-1 py-1">
               <GhostSelect
-                value={projectId}
+                value={projectId ?? ""}
                 disabled={submitting}
                 aria-label="プロジェクト"
                 icon={<FolderGit2 className="h-3.5 w-3.5" />}
-                valueLabel={selectedProject ? selectedProject.name : "プロジェクトなし"}
-                onChange={setProjectId}
+                valueLabel={selectedProject ? selectedProject.name : NO_PROJECT_NAME}
+                onChange={(value) => setProjectId(value || null)}
                 className="min-w-0 max-w-[11rem] shrink sm:max-w-56"
-                title={selectedProject?.name ?? "プロジェクトなし"}
+                title={selectedProject?.name ?? NO_PROJECT_NAME}
                 action={
                   <AddProjectButton
                     label="プロジェクトを追加"
@@ -348,6 +364,7 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                   />
                 }
               >
+                <option value="">{NO_PROJECT_NAME}</option>
                 {projects.map((project) => (
                   <option key={project.id} value={project.id}>
                     {project.name}
@@ -510,14 +527,14 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                   aria-label="タスク開始"
                   className="shrink-0"
                   busy={submitting}
-                  disabled={!prompt.trim() || !projectId || submitting || health?.engineOk === false}
+                  disabled={!prompt.trim() || projectId === undefined || submitting || health?.engineOk === false}
                 >
                   {!submitting && <ArrowUp className="h-4.5 w-4.5" />}
                 </Button>
               }
             />
             <NextTaskSuggest
-              projectId={projectId}
+              projectId={projectId ?? ""}
               model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
               disabled={submitting || health?.engineOk === false}
               onApply={(suggestion) => {

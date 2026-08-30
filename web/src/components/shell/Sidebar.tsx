@@ -495,7 +495,7 @@ export function Sidebar({
   );
 
   const tasksByProject = useMemo(() => {
-    const map = new Map<string, TaskSummary[]>();
+    const map = new Map<string | null, TaskSummary[]>();
     for (const task of tasks) {
       const list = map.get(task.projectId) ?? [];
       list.push(task);

@@ -183,7 +183,9 @@ const PaneHomeView = dynamic(
 export function TaskPanesHost() {
   const { state, statusFor, reportStatus, dispatch, retargetToUrl, activeTaskId, titleFor, mdUp } = useTaskPanes();
   const pathname = usePathname();
-  const projectId = useSearchParams().get("projectId");
+  const searchParams = useSearchParams();
+  const projectId = searchParams.get("projectId");
+  const noProject = searchParams.get("noProject") === "1";
   const containerRef = useRef<HTMLDivElement>(null);
   const [dragOverPaneId, setDragOverPaneId] = useState<string | null>(null);
   // 端ドラッグ中の分割プレビュー。null = 中央（通常ドロップ）。
@@ -247,9 +249,14 @@ export function TaskPanesHost() {
   // プロジェクト指定付きのホーム遷移は pathname が変わらない場合もあるため、
   // クエリを検知したら新規作成（Home）タブへ切り替える。
   useEffect(() => {
-    if (pathname !== "/" || projectId === null || !mdUp || activeTaskId === HOME_TAB_ID) return;
+    if (
+      pathname !== "/" ||
+      (projectId === null && !noProject) ||
+      !mdUp ||
+      activeTaskId === HOME_TAB_ID
+    ) return;
     retargetToUrl(HOME_TAB_ID);
-  }, [activeTaskId, mdUp, pathname, projectId, retargetToUrl]);
+  }, [activeTaskId, mdUp, noProject, pathname, projectId, retargetToUrl]);
 
   // 分割ホスト対象パス（「/」と task path）でのみ render。settings では非表示。
   const urlTaskId = taskIdFromPathname(pathname);
@@ -443,7 +450,10 @@ export function TaskPanesHost() {
                   key={taskId}
                   className={cx("min-h-0 min-w-0 flex-1", !isActiveTab && "hidden")}
                 >
-                  <PaneHomeView initialProjectId={projectId ?? undefined} />
+                  <PaneHomeView
+                    initialProjectId={projectId ?? undefined}
+                    initialNoProject={noProject}
+                  />
                 </div>
               );
             }

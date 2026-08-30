@@ -77,7 +77,7 @@ export async function DELETE(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => null)) as {
-      projectId?: string;
+      projectId?: string | null;
       prompt?: string;
       model?: string;
       thinkingLevel?: ThinkingLevel;
@@ -101,13 +101,18 @@ export async function POST(req: NextRequest) {
     } | null;
     if (
       !body ||
-      typeof body.projectId !== "string" ||
-      !body.projectId.trim() ||
+      (body.projectId !== undefined &&
+        body.projectId !== null &&
+        typeof body.projectId !== "string") ||
       typeof body.prompt !== "string" ||
       !body.prompt.trim()
     ) {
-      return NextResponse.json({ error: "projectId と prompt が必要です" }, { status: 400 });
+      return NextResponse.json({ error: "prompt が必要です" }, { status: 400 });
     }
+    const projectId =
+      typeof body.projectId === "string" && body.projectId.trim()
+        ? body.projectId.trim()
+        : null;
     if (body.model !== undefined && typeof body.model !== "string") {
       return NextResponse.json({ error: "invalid model" }, { status: 400 });
     }
@@ -230,7 +235,7 @@ export async function POST(req: NextRequest) {
       }
     }
     const task = await createTask({
-      projectId: body.projectId,
+      projectId,
       prompt: body.prompt,
       ...(model && model !== AUTO_MODEL_VALUE ? { model } : {}),
       ...(thinkingLevel ? { thinkingLevel } : {}),

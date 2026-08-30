@@ -47,6 +47,24 @@ describe("store", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("creates an isolated no-project task workspace", async () => {
+    const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}`);
+    const workspaceRoot = join(dir, "workspaces");
+    mkdirSync(dir, { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.LEAFCODE_PI_DEFAULT_DIR = workspaceRoot;
+    const store = await import("./store");
+    const task = store.insertTask({ project: null, title: "temporary" });
+
+    expect(task.projectId).toBeNull();
+    expect(task.projectName).toBe("プロジェクトなし");
+    expect(task.directory).toBeTruthy();
+    expect(task.directory.startsWith(workspaceRoot)).toBe(true);
+    expect(store.getTask(task.id)?.directory).toBe(task.directory);
+    rmSync(dir, { recursive: true, force: true });
+    delete process.env.LEAFCODE_PI_DEFAULT_DIR;
+  });
+
   it("persists and patches the task account", async () => {
     const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}`);
     mkdirSync(dir, { recursive: true });

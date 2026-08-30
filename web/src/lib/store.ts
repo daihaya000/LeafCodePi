@@ -1,8 +1,8 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
-import { storePath } from "./paths";
-import type { ProjectDto, TaskStatus, TaskSummary, ThinkingLevel } from "./types";
+import { noProjectSessionDir, storePath } from "./paths";
+import { NO_PROJECT_NAME, type ProjectDto, type TaskStatus, type TaskSummary, type ThinkingLevel } from "./types";
 
 type StoreFile = {
   version: 1;
@@ -134,7 +134,7 @@ export function getTask(id: string): TaskSummary | undefined {
 }
 
 export function insertTask(input: {
-  project: ProjectDto;
+  project: ProjectDto | null;
   title: string;
   thinkingLevel?: ThinkingLevel;
   providerID?: string;
@@ -147,10 +147,10 @@ export function insertTask(input: {
   const now = new Date().toISOString();
   const task: TaskSummary = {
     id: randomUUID(),
-    projectId: input.project.id,
-    projectName: input.project.name,
+    projectId: input.project?.id ?? null,
+    projectName: input.project?.name ?? NO_PROJECT_NAME,
     title: input.title,
-    directory: input.project.rootPath,
+    directory: input.project?.rootPath ?? noProjectSessionDir(),
     isolation: "current_folder",
     status: "idle",
     sessionId: null,
@@ -176,6 +176,9 @@ export function patchTask(
     Pick<
       TaskSummary,
       | "title"
+      | "projectId"
+      | "projectName"
+      | "directory"
       | "status"
       | "sessionId"
       | "sessionFile"

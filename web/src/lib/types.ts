@@ -9,6 +9,8 @@ export type ThinkingLevel =
   | "xhigh"
   | "max";
 
+export const NO_PROJECT_NAME = "プロジェクトなし";
+
 export type ProjectDto = {
   id: string;
   name: string;
@@ -27,7 +29,7 @@ export type TodoProgressDto = {
 
 export type TaskSummary = {
   id: string;
-  projectId: string;
+  projectId: string | null;
   projectName: string;
   title: string;
   directory: string;

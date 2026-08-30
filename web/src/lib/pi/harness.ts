@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { dataDir, isAbsolutePath } from "@/lib/paths";
+import { dataDir, isAbsolutePath, noProjectRoot } from "@/lib/paths";
 import {
   deleteProjectRecord,
   deleteTask,
@@ -1870,7 +1870,7 @@ async function ensureLive(taskId: string): Promise<LiveRuntime> {
     const task = getTask(taskId);
     if (!task)
       throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-    const project = getProject(task.projectId);
+    const project = task.projectId ? getProject(task.projectId) : undefined;
     const cwd = project?.rootPath ?? task.directory;
     const modelRoute = await resolveConcreteModel(
       task.providerID && task.modelID
@@ -3359,7 +3359,7 @@ export async function goalLoopCommand(
 }
 
 export async function createTask(input: {
-  projectId: string;
+  projectId: string | null;
   prompt: string;
   model?: string;
   thinkingLevel?: ThinkingLevel;
@@ -3377,8 +3377,8 @@ export async function createTask(input: {
     forceFullRun?: boolean;
   };
 }): Promise<TaskSummary> {
-  const project = getProject(input.projectId);
-  if (!project)
+  const project = input.projectId ? getProject(input.projectId) ?? null : null;
+  if (input.projectId && !project)
     throw Object.assign(new Error("プロジェクトが見つかりません"), {
       status: 404,
     });
@@ -3453,7 +3453,7 @@ export async function createTask(input: {
           reserveRoute(parsed.providerID, route.accountId);
         }
         try {
-          patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
+          if (project) patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
           return {
             route,
             task: insertStoredTask(route.model, route.accountId),
@@ -3484,7 +3484,7 @@ export async function createTask(input: {
     }
     task = routed.task;
   } else {
-    patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
+    if (project) patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
     task = insertStoredTask(undefined, concreteAccountId);
   }
   const model = modelRoute?.model;
@@ -3496,7 +3496,7 @@ export async function createTask(input: {
     : requestedThinking;
   try {
     const setup = await createSession({
-      cwd: project.rootPath,
+      cwd: project?.rootPath ?? task.directory,
       sessionName: task.title,
       accountId: concreteAccountId,
       model,
@@ -3555,7 +3555,7 @@ async function replaceLiveForRoute(
   task: TaskSummary,
   route: ConcreteModelRoute,
 ): Promise<LiveRuntime> {
-  const project = getProject(task.projectId);
+  const project = task.projectId ? getProject(task.projectId) : undefined;
   const sessionFile = live.session.sessionFile ?? task.sessionFile;
   if (!sessionFile) {
     throw new Error("セッションを別アカウントへ切り替えられません");

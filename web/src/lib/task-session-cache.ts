@@ -63,7 +63,7 @@ function isTaskSummary(value: unknown): value is TaskSummary {
   if (!isRecord(value)) return false;
   return (
     typeof value.id === "string" &&
-    typeof value.projectId === "string" &&
+    (typeof value.projectId === "string" || value.projectId === null) &&
     typeof value.projectName === "string" &&
     typeof value.title === "string" &&
     typeof value.directory === "string" &&
