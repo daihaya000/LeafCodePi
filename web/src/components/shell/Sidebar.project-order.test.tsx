@@ -156,6 +156,45 @@ describe("Sidebar project ordering", () => {
     });
   });
 
+  it("makes project task lists scrollable at five tasks", async () => {
+    const projectTasks = Array.from({ length: 5 }, (_, index) => ({
+      id: `task-${index}`,
+      projectId: "project-a",
+      projectName: "Project A",
+      title: `Task ${index + 1}`,
+      directory: "C:\\repo-a",
+      isolation: "current_folder" as const,
+      status: "ready" as const,
+      sessionId: null,
+      sessionFile: null,
+      createdAt: "",
+      updatedAt: "",
+    }));
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
+      if (path === "/api/tasks?archived=1") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/health") {
+        return Promise.resolve({
+          ok: true,
+          engine: "pi",
+          engineOk: true,
+          version: "1.0.0",
+          modelCount: 0,
+          dataDir: "C:\\data",
+          error: null,
+        });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Project Aを展開" }));
+
+    const taskList = screen.getByText("Task 1").closest("ul");
+    expect(taskList?.className).toContain("max-h-40");
+    expect(taskList?.className).toContain("overflow-y-auto");
+  });
+
   it("shows the no-project entry even before the first no-project task exists", async () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
