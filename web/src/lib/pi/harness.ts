@@ -1865,7 +1865,14 @@ function toSummary(task: TaskSummary): TaskSummary {
   };
 }
 
-async function ensureLive(taskId: string): Promise<LiveRuntime> {
+async function ensureLive(
+  taskId: string,
+  options?: { allowDuringPromotion?: boolean },
+): Promise<LiveRuntime> {
+  if (!options?.allowDuringPromotion) {
+    const promotion = promoteInflight.get(taskId);
+    if (promotion) await promotion.catch(() => undefined);
+  }
   const current = state();
   const existing = current.live.get(taskId);
   if (existing) return existing;
@@ -3289,7 +3296,7 @@ async function promoteTaskOnce(
       }
       if (hadSubscriber) {
         try {
-          const refreshed = await ensureLive(taskId);
+          const refreshed = await ensureLive(taskId, { allowDuringPromotion: true });
           emitTaskSnapshot(refreshed, "project_promoted");
         } catch {
           warnings.push("セッションの再接続は次回タスク表示時に行います");

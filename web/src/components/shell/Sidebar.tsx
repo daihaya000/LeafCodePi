@@ -1092,50 +1092,45 @@ export function Sidebar({
         <span role="status" aria-live="polite" className="sr-only">
           {reorderAnnouncement}
         </span>
-        {projects.length === 0 && noProjectTasks.length === 0 ? (
-          <p className="px-2 py-3 text-xs text-muted">プロジェクトはありません</p>
-        ) : (
-          <ul className="space-y-1">
-            {noProjectTasks.length > 0 && (
-              <li>
-                <div className="flex items-center gap-0.5 rounded-lg">
-                  <button
-                    type="button"
-                    aria-expanded={noProjectOpen}
-                    aria-label={`${NO_PROJECT_NAME}${noProjectOpen ? "を折りたたむ" : "を展開"}`}
-                    onClick={() => toggleExpanded(NO_PROJECT_GROUP_ID)}
-                    className="inline-flex h-8 w-6 items-center justify-center text-faint"
-                  >
-                    <ChevronRight className={cx("h-3.5 w-3.5 transition", noProjectOpen && "rotate-90")} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={openNoProject}
-                    className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 text-left"
-                  >
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border bg-surface-2 text-muted">
-                      <Folder className="h-3 w-3" />
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-sm">{NO_PROJECT_NAME}</span>
-                    {countRunningTasks(noProjectTasks) > 0 && (
-                      <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-working px-1 text-[10px] font-semibold text-primary-fg">
-                        {countRunningTasks(noProjectTasks)}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`${NO_PROJECT_NAME}で新規タスクを作成`}
-                    title="プロジェクトなしで新規タスク"
-                    onClick={openNoProject}
-                    className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted hover:text-text md:h-8 md:w-8"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-                {noProjectOpen && renderTaskList(noProjectTasks)}
-              </li>
-            )}
+        <ul className="space-y-1">
+          <li>
+            <div className="flex items-center gap-0.5 rounded-lg">
+              <button
+                type="button"
+                aria-expanded={noProjectOpen}
+                aria-label={`${NO_PROJECT_NAME}${noProjectOpen ? "を折りたたむ" : "を展開"}`}
+                onClick={() => toggleExpanded(NO_PROJECT_GROUP_ID)}
+                className="inline-flex h-8 w-6 items-center justify-center text-faint"
+              >
+                <ChevronRight className={cx("h-3.5 w-3.5 transition", noProjectOpen && "rotate-90")} />
+              </button>
+              <button
+                type="button"
+                onClick={openNoProject}
+                className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 text-left"
+              >
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border bg-surface-2 text-muted">
+                  <Folder className="h-3 w-3" />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm">{NO_PROJECT_NAME}</span>
+                {countRunningTasks(noProjectTasks) > 0 && (
+                  <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-working px-1 text-[10px] font-semibold text-primary-fg">
+                    {countRunningTasks(noProjectTasks)}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                aria-label={`${NO_PROJECT_NAME}で新規タスクを作成`}
+                title="プロジェクトなしで新規タスク"
+                onClick={openNoProject}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted hover:text-text md:h-8 md:w-8"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {noProjectOpen && renderTaskList(noProjectTasks)}
+          </li>
             {orderedProjects.map((project) => {
               const children = tasksByProject.get(project.id) ?? [];
               const open = expanded.has(project.id) || children.some((task) => task.id === activeTaskId);
@@ -1215,8 +1210,7 @@ export function Sidebar({
                 </li>
               );
             })}
-          </ul>
-        )}
+        </ul>
 
         <div className="mt-2">
           <button
@@ -1408,26 +1402,24 @@ export function Sidebar({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <ul className="flex flex-col items-center gap-3">
-          {noProjectTasks.length > 0 && (
-            <li>
-              <button
-                type="button"
-                title={NO_PROJECT_NAME}
-                aria-label={`${NO_PROJECT_NAME}を選択`}
-                onClick={openNoProject}
-                className="group relative inline-flex h-12 w-12 items-center justify-center rounded-xl p-1 hover:bg-surface-2"
-              >
-                <span className="flex h-full w-full items-center justify-center rounded-lg border border-border bg-surface-2 text-muted transition-transform group-hover:scale-105">
-                  <Folder className="h-5 w-5" />
+          <li>
+            <button
+              type="button"
+              title={NO_PROJECT_NAME}
+              aria-label={`${NO_PROJECT_NAME}を選択`}
+              onClick={openNoProject}
+              className="group relative inline-flex h-12 w-12 items-center justify-center rounded-xl p-1 hover:bg-surface-2"
+            >
+              <span className="flex h-full w-full items-center justify-center rounded-lg border border-border bg-surface-2 text-muted transition-transform group-hover:scale-105">
+                <Folder className="h-5 w-5" />
+              </span>
+              {countRunningTasks(noProjectTasks) > 0 && (
+                <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-surface bg-working px-1 text-[10px] font-semibold text-primary-fg">
+                  {countRunningTasks(noProjectTasks)}
                 </span>
-                {countRunningTasks(noProjectTasks) > 0 && (
-                  <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-surface bg-working px-1 text-[10px] font-semibold text-primary-fg">
-                    {countRunningTasks(noProjectTasks)}
-                  </span>
-                )}
-              </button>
-            </li>
-          )}
+              )}
+            </button>
+          </li>
           {orderedProjects.map((project) => {
             const projectTasks = tasksByProject.get(project.id) ?? [];
             const running = countRunningTasks(projectTasks);

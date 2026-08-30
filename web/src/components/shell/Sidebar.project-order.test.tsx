@@ -155,4 +155,29 @@ describe("Sidebar project ordering", () => {
       );
     });
   });
+
+  it("shows the no-project entry even before the first no-project task exists", async () => {
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
+      if (path === "/api/tasks?archived=1") return Promise.resolve({ tasks: [] });
+      if (path === "/api/health") {
+        return Promise.resolve({
+          ok: true,
+          engine: "pi",
+          engineOk: true,
+          version: "1.0.0",
+          modelCount: 0,
+          dataDir: "C:\\data",
+          error: null,
+        });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    expect(await screen.findByRole("button", { name: "プロジェクトなしを展開" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "プロジェクトなしで新規タスクを作成" }));
+    expect(mocks.retargetToUrl).toHaveBeenCalledWith("home");
+  });
 });

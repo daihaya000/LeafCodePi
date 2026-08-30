@@ -2,9 +2,29 @@ import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { getTask, insertTask, listProjects, patchTask } from "@/lib/store";
-import { promoteTask } from "./harness";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { deleteTask, getTask, insertTask, listProjects, patchTask } from "@/lib/store";
+
+const moveControl = vi.hoisted(() => ({
+  gate: null as Promise<void> | null,
+  entered: null as (() => void) | null,
+}));
+
+vi.mock("@/lib/workspace-move", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/workspace-move")>("@/lib/workspace-move");
+  return {
+    ...actual,
+    prepareWorkspaceMove: async (...args: Parameters<typeof actual.prepareWorkspaceMove>) => {
+      if (moveControl.gate) {
+        moveControl.entered?.();
+        await moveControl.gate;
+      }
+      return actual.prepareWorkspaceMove(...args);
+    },
+  };
+});
+
+import { getTaskDetail, promoteTask } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const roots: string[] = [];
@@ -19,6 +39,8 @@ function setHarness(pi: unknown) {
 }
 
 afterEach(() => {
+  moveControl.gate = null;
+  moveControl.entered = null;
   delete (globalThis as Record<string, unknown>)[GLOBAL_KEY];
   delete process.env.LEAFCODE_PI_DATA_DIR;
   delete process.env.LEAFCODE_PI_DEFAULT_DIR;
@@ -67,6 +89,59 @@ describe("promoteTask", () => {
     expect(existsSync(source)).toBe(false);
     expect(existsSync(join(destination, "result.txt"))).toBe(true);
     expect(existsSync(join(destination, "forked-session.json"))).toBe(true);
+  });
+
+  it("waits for an in-flight promotion before hydrating the old session", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-promote-"));
+    roots.push(root);
+    const noProjectRoot = join(root, "no-project");
+    const destination = join(root, "project");
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    process.env.LEAFCODE_PI_DEFAULT_DIR = noProjectRoot;
+    const task = insertTask({ project: null, title: "temporary" });
+    const sessionFile = join(task.directory, "session.json");
+    writeFileSync(sessionFile, "session\n", "utf8");
+    patchTask(task.id, { sessionId: "old-session", sessionFile });
+    setHarness({
+      SessionManager: {
+        forkFrom: (_file: string, cwd: string) => {
+          const forkedFile = join(cwd, "forked-session.json");
+          writeFileSync(forkedFile, "forked\n", "utf8");
+          return {
+            getSessionFile: () => forkedFile,
+            getSessionId: () => "new-session",
+          };
+        },
+      },
+    });
+
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      moveControl.entered = resolve;
+    });
+    moveControl.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const promotion = promoteTask(task.id, destination);
+    await entered;
+
+    const detail = getTaskDetail(task.id);
+    let detailSettled = false;
+    void detail.then(
+      () => {
+        detailSettled = true;
+      },
+      () => {
+        detailSettled = true;
+      },
+    );
+    await Promise.resolve();
+    expect(detailSettled).toBe(false);
+
+    deleteTask(task.id);
+    release();
+    await expect(promotion).rejects.toThrow("タスクが見つかりません");
+    await expect(detail).rejects.toMatchObject({ status: 404 });
   });
 
   it("rolls back the copied workspace when session forking fails", async () => {
