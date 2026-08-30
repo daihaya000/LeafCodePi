@@ -63,6 +63,7 @@ function ProviderRow({
   busyId,
   onToggleProvider,
   onToggleModel,
+  onContextWindowChange,
   onDragStartProvider,
   onDropProvider,
   onDragStartModel,
@@ -72,6 +73,7 @@ function ProviderRow({
   busyId: string | null;
   onToggleProvider: (enabled: boolean) => void;
   onToggleModel: (modelId: string, enabled: boolean) => void;
+  onContextWindowChange: (modelId: string, contextWindow: number) => void;
   onDragStartProvider: () => void;
   onDropProvider: () => void;
   onDragStartModel: (modelId: string) => void;
@@ -189,6 +191,27 @@ function ProviderRow({
                     </Badge>
                   </div>
                 </div>
+                <label className="flex shrink-0 items-center gap-1 text-xs text-muted">
+                  <span className="sr-only">{model.name} のコンテキストサイズ</span>
+                  <input
+                    type="number"
+                    min={4096}
+                    max={1_000_000}
+                    step={1024}
+                    defaultValue={model.contextWindow}
+                    placeholder="既定"
+                    disabled={parentDisabled || modelBusy}
+                    onBlur={(event) => {
+                      const value = Number(event.currentTarget.value);
+                      if (Number.isSafeInteger(value) && value >= 4096 && value <= 1_000_000) {
+                        onContextWindowChange(model.id, value);
+                      }
+                    }}
+                    className="w-28 rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-right text-xs text-text"
+                    aria-label={`${model.name} のコンテキストサイズ`}
+                  />
+                  <span>tokens</span>
+                </label>
                 <ExtensionSwitch
                   name={`${displayName} の ${model.name}`}
                   enabled={model.enabled}
@@ -247,6 +270,32 @@ export function ProviderModelsPanel({
   useEffect(() => {
     void load();
   }, [load, refreshToken]);
+
+  const setContextWindow = useCallback(
+    async (provider: ProviderModelsRow, modelId: string, contextWindow: number) => {
+      const rowKey = providerRowKey(provider);
+      const modelKey = `${rowKey}::${modelId}`;
+      setBusyId(modelKey);
+      setActionError(null);
+      try {
+        await sendJson(
+          `/api/provider-models/${encodeURIComponent(`${provider.id}::${modelId}`)}`,
+          { contextWindow, ...(provider.accountId ? { accountId: provider.accountId } : {}) },
+          "PATCH",
+        );
+        setProviders((prev) => prev.map((current) =>
+          providerRowKey(current) === rowKey
+            ? { ...current, models: current.models.map((model) => model.id === modelId ? { ...model, contextWindow } : model) }
+            : current,
+        ));
+      } catch (err) {
+        if (mountedRef.current) setActionError(err instanceof ApiError ? err.message : String(err));
+      } finally {
+        if (mountedRef.current) setBusyId(null);
+      }
+    },
+    [],
+  );
 
   const toggle = useCallback(
     async (provider: ProviderModelsRow, modelId: string | undefined, enabled: boolean) => {
@@ -398,6 +447,7 @@ export function ProviderModelsPanel({
         onDropModel={(modelId) => moveModel(rowKey, modelId)}
         onToggleProvider={(enabled) => void toggle(provider, undefined, enabled)}
         onToggleModel={(modelId, enabled) => void toggle(provider, modelId, enabled)}
+        onContextWindowChange={(modelId, contextWindow) => void setContextWindow(provider, modelId, contextWindow)}
       />
     );
   };

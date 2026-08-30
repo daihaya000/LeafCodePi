@@ -7,10 +7,12 @@ import {
   __resetProviderModelStateQueueForTests,
   accountModelKey,
   accountProviderModelKey,
+  contextWindowForModel,
   isModelDisabled,
   isProviderDisabled,
   providerModelStatePath,
   readProviderModelState,
+  setProviderModelContextWindow,
   setProviderModelDisabled,
   setProviderModelOrder,
   sortByPreferredOrder,
@@ -77,6 +79,16 @@ describe("provider-model-state", () => {
       state.modelOrder[accountProviderModelKey("openai-codex", "acc-1")],
       ["gpt-4", "gpt-5"],
     );
+  });
+
+  it("persists per-model context windows independently by account", async () => {
+    const dir = tempDataDir();
+    await setProviderModelContextWindow("openai-codex", "gpt-5", 65_536);
+    await setProviderModelContextWindow("openai-codex", "gpt-5", 131_072, "acc-1");
+
+    const state = readProviderModelState(providerModelStatePath(dir));
+    assert.equal(contextWindowForModel("openai-codex", "gpt-5", state), 65_536);
+    assert.equal(contextWindowForModel("openai-codex", "gpt-5", state, "acc-1"), 131_072);
   });
 
   it("sortByPreferredOrder keeps unknowns after preferred ids", () => {

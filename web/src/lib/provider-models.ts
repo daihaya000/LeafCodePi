@@ -1,6 +1,7 @@
 import {
   accountProviderModelKey,
   isModelDisabled,
+  contextWindowForModel,
   isProviderDisabled,
   readProviderModelState,
   sortByPreferredOrder,
@@ -11,6 +12,7 @@ export type ProviderModelRow = {
   id: string;
   name: string;
   enabled: boolean;
+  contextWindow?: number;
 };
 
 export type ProviderModelsRow = {
@@ -26,6 +28,7 @@ export type ProviderModelsRow = {
 type RuntimeLike = {
   getProviders(): readonly { id: string; name: string }[];
   getModels(providerId?: string): readonly { id: string; name?: string; provider?: string }[];
+  getModel?: (providerId: string, modelId: string) => { contextWindow?: number } | undefined;
   hasConfiguredAuth(providerId: string): boolean;
 };
 
@@ -45,6 +48,9 @@ export function buildProviderModelsCatalog(
         enabled:
           !isProviderDisabled(provider.id, state, accountId) &&
           !isModelDisabled(provider.id, modelID, state, accountId),
+        contextWindow:
+          contextWindowForModel(provider.id, modelID, state, accountId) ??
+          runtime.getModel?.(provider.id, modelID)?.contextWindow,
       };
     });
     if (models.length === 0) continue;

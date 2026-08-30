@@ -6,6 +6,7 @@ export type ProviderModelState = {
   disabled: Record<string, true>;
   providerOrder: string[];
   modelOrder: Record<string, string[]>;
+  contextWindow?: Record<string, number>;
 };
 
 function emptyState(): ProviderModelState {
@@ -13,6 +14,7 @@ function emptyState(): ProviderModelState {
     disabled: {},
     providerOrder: [],
     modelOrder: {},
+    contextWindow: {},
   };
 }
 
@@ -81,7 +83,15 @@ export function readProviderModelState(
         }
       }
     }
-    return { disabled, providerOrder, modelOrder };
+    const contextWindow: Record<string, number> = {};
+    if (parsed.contextWindow && typeof parsed.contextWindow === "object" && !Array.isArray(parsed.contextWindow)) {
+      for (const [key, value] of Object.entries(parsed.contextWindow)) {
+        if (typeof value === "number" && Number.isSafeInteger(value) && value >= 4096 && value <= 1_000_000) {
+          contextWindow[key] = value;
+        }
+      }
+    }
+    return { disabled, providerOrder, modelOrder, contextWindow };
   } catch {
     return emptyState();
   }
@@ -122,6 +132,28 @@ export function isModelDisabled(
   accountId?: string | null,
 ): boolean {
   return state.disabled[accountModelKey(providerID, modelID, accountId)] === true;
+}
+
+export async function setProviderModelContextWindow(
+  providerID: string,
+  modelID: string,
+  contextWindow: number | null,
+  accountId?: string | null,
+): Promise<void> {
+  await withStateLock((state) => {
+    const key = accountModelKey(providerID, modelID, accountId);
+    if (contextWindow === null) delete state.contextWindow?.[key];
+    else (state.contextWindow ??= {})[key] = contextWindow;
+  });
+}
+
+export function contextWindowForModel(
+  providerID: string,
+  modelID: string,
+  state = readProviderModelState(),
+  accountId?: string | null,
+): number | undefined {
+  return state.contextWindow?.[accountModelKey(providerID, modelID, accountId)];
 }
 
 export async function setProviderModelDisabled(

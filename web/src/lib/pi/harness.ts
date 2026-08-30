@@ -41,6 +41,7 @@ import {
 } from "@/lib/provider-models";
 import {
   accountProviderModelKey,
+  contextWindowForModel,
   readProviderModelState,
   setProviderModelDisabled,
   setProviderModelOrder,
@@ -1703,6 +1704,16 @@ type ConcreteModelRoute = {
   model: Model;
 };
 
+function modelWithContextWindow(
+  model: Model,
+  providerID: string,
+  modelID: string,
+  accountId?: string | null,
+): Model {
+  const contextWindow = contextWindowForModel(providerID, modelID, readProviderModelState(), accountId);
+  return contextWindow === undefined ? model : { ...model, contextWindow, maxTokens: Math.min(model.maxTokens, contextWindow) };
+}
+
 function routeLimitError(resetAt: string | null): Error {
   return Object.assign(
     new Error(
@@ -1758,7 +1769,7 @@ async function resolveIntegratedModelRoute(
       return {
         accountId: candidate.accountId,
         runtime: candidate.value.runtime,
-        model,
+        model: modelWithContextWindow(model, providerID, modelID, candidate.accountId),
       };
     }
   }
@@ -1801,7 +1812,7 @@ async function resolveConcreteModel(
       if (!record) return undefined;
       const model = record.runtime.getModel(parsed.providerID, parsed.modelID);
       return model
-        ? { accountId: requested, runtime: record.runtime, model }
+        ? { accountId: requested, runtime: record.runtime, model: modelWithContextWindow(model, parsed.providerID, parsed.modelID, requested) }
         : undefined;
     }
   }
@@ -1820,7 +1831,9 @@ async function resolveConcreteModel(
   const runtime = await getRuntimeFor();
   if (!runtime) return undefined;
   const model = runtime.getModel(parsed.providerID, parsed.modelID);
-  return model ? { accountId: null, runtime, model } : undefined;
+  return model
+    ? { accountId: null, runtime, model: modelWithContextWindow(model, parsed.providerID, parsed.modelID) }
+    : undefined;
 }
 
 function toGoalLoopSummary(
