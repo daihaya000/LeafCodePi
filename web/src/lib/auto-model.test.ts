@@ -275,9 +275,11 @@ describe("chooseAutoModel", () => {
   it("does not let stale or invalid usage hide an otherwise usable model", () => {
     const usage = autoProviderUsageFromProviders([
       { id: "invalid", usedPercent: Number.NaN },
+      { id: "explicit-limit", usedPercent: 10, limited: true },
       { id: "provider", usedPercent: 100, maxed: true, stale: true },
     ]);
     expect(usage).toEqual({
+      "explicit-limit": { usedPercent: 10, limited: true },
       provider: { usedPercent: 100, limited: true, stale: true },
     });
 
@@ -288,6 +290,36 @@ describe("chooseAutoModel", () => {
       usage,
     });
     expect(decision).toMatchObject({ modelID: "claude-haiku-4-5" });
+
+    const limitedDecision = chooseAutoModel({
+      models: [
+        model("claude-haiku-4-5", {
+          providerID: "explicit-limit",
+          value: "explicit-limit::haiku",
+        }),
+        model("claude-haiku-4-5", {
+          providerID: "available",
+          value: "available::haiku",
+        }),
+      ],
+      tier: "light",
+      hasImages: false,
+      usage,
+      config: {
+        version: 2,
+        modes: {
+          cost: {
+            light: {
+              candidates: [
+                { kind: "model", providerID: "explicit-limit", modelID: "claude-haiku-4-5" },
+                { kind: "model", providerID: "available", modelID: "claude-haiku-4-5" },
+              ],
+            },
+          },
+        },
+      },
+    });
+    expect(limitedDecision).toMatchObject({ providerID: "available", candidateIndex: 1 });
   });
 
   it("resolves v2 candidates in order and skips unavailable models", () => {

@@ -183,6 +183,7 @@ export type AutoProviderUsageSource = {
   id: string;
   accountId?: string | null;
   usedPercent?: number | null;
+  limited?: boolean;
   maxed?: boolean;
   stale?: boolean;
 };
@@ -201,6 +202,7 @@ function mergeAutoProviderUsage(
       ? source.usedPercent
       : null;
   const limited =
+    source.limited === true ||
     source.maxed === true ||
     (usedPercent !== null && usedPercent >= AUTO_USAGE_LIMIT_PERCENT);
   if (usedPercent === null && !limited) return;
