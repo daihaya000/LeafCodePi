@@ -988,7 +988,12 @@ export function Sidebar({
 
   function renderTaskList(children: TaskSummary[]) {
     return (
-      <ul className="mb-1 ml-5 space-y-0.5 border-l border-border pl-1.5">
+      <ul
+        className={cx(
+          "mb-1 ml-5 space-y-0.5 border-l border-border pl-1.5",
+          children.length >= 5 && "max-h-40 overflow-y-auto",
+        )}
+      >
         {children.length === 0 ? (
           <li className="px-2 py-1.5 text-[11px] text-muted">タスクなし</li>
         ) : (
