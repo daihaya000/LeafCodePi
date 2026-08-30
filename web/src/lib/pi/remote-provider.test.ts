@@ -16,14 +16,14 @@ afterEach(() => {
 describe("remote-provider", () => {
   it("converts the OpenAI-compatible model catalog", () => {
     const [model] = modelRows({
-      data: [{ id: "Avesed/Qwen3.8-27B-INT4-W4A16", max_model_len: 65_536 }],
+      data: [{ id: "other-model", max_model_len: 65_536 }],
     });
     expect(model).toMatchObject({
-      id: "Avesed/Qwen3.8-27B-INT4-W4A16",
+      id: "other-model",
       provider: "z390-s01",
       baseUrl: REMOTE_PROVIDER_BASE,
       contextWindow: 131_072,
-      reasoning: true,
+      reasoning: false,
     });
   });
 

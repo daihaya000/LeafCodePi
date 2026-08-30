@@ -3,7 +3,7 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 export const REMOTE_PROVIDER_ID = "z390-s01";
 export const REMOTE_PROVIDER_BASE = "https://z390-s01.tail3dc57b.ts.net/v1";
 export const REMOTE_PROVIDER_API_KEY_ENV = "Z390_S01_API_KEY";
-const QWEN38_27B_CONTEXT_WINDOW = 131_072;
+const REMOTE_CONTEXT_WINDOW = 131_072;
 
 type RuntimeLike = {
   getProvider: (id: string) => unknown;
@@ -36,11 +36,7 @@ export function modelRows(body: unknown): ModelRow[] {
   if (!isRecord(body) || !Array.isArray(body.data)) return [];
   return body.data.flatMap((row) => {
     if (!isRecord(row) || typeof row.id !== "string" || !row.id.trim()) return [];
-    const contextWindow = /qwen3[._-]?8.*27b/i.test(row.id)
-      ? QWEN38_27B_CONTEXT_WINDOW
-      : typeof row.max_model_len === "number" && row.max_model_len > 0
-        ? row.max_model_len
-        : 32_768;
+    const contextWindow = REMOTE_CONTEXT_WINDOW;
     const reasoning = /qwen3|deepseek-r1|thinking/i.test(row.id);
     return [{
       id: row.id,
