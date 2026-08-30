@@ -182,8 +182,12 @@ export function ModelSelect({
     };
   }, [open, updateMenuPosition]);
 
-  const isDisabled = disabled || options.length === 0;
-  const emptyStateLabel = options.length === 0 ? emptyLabel : "モデル";
+  const isDisabled = disabled || loading || options.length === 0;
+  const emptyStateLabel = loading
+    ? "モデルを読み込み中…"
+    : options.length === 0
+      ? emptyLabel
+      : "モデル";
   const selectedNearLimit = !isDisabled && modelNearLimit(selected);
   const selectedMaxed = !isDisabled && modelLimitReached(selected);
 

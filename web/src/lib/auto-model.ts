@@ -173,41 +173,75 @@ export type AutoCandidateProvider = {
 /** Optional CodexBar usage data used only as a routing hint. */
 export type AutoProviderUsage = Record<
   string,
-  { usedPercent: number | null; limited: boolean }
+  { usedPercent: number | null; limited: boolean; stale?: boolean }
 >;
 
 export const AUTO_USAGE_REROUTE_GAP = 20;
 const AUTO_USAGE_LIMIT_PERCENT = 90;
 
+export type AutoProviderUsageSource = {
+  id: string;
+  accountId?: string | null;
+  usedPercent?: number | null;
+  maxed?: boolean;
+  stale?: boolean;
+};
+
 function autoProviderUsageKey(providerID: string, accountId?: string): string {
   return accountId ? `${accountId}::${providerID}` : providerID;
 }
 
-/** Convert the usage fields already attached to model options into routing hints. */
+function mergeAutoProviderUsage(
+  usage: AutoProviderUsage,
+  source: AutoProviderUsageSource,
+): void {
+  if (!source.id) return;
+  const usedPercent =
+    typeof source.usedPercent === "number" && Number.isFinite(source.usedPercent)
+      ? source.usedPercent
+      : null;
+  const limited =
+    source.maxed === true ||
+    (usedPercent !== null && usedPercent >= AUTO_USAGE_LIMIT_PERCENT);
+  if (usedPercent === null && !limited) return;
+  const key = autoProviderUsageKey(source.id, source.accountId ?? undefined);
+  const previous = usage[key];
+  const mergedPercent =
+    previous?.usedPercent == null
+      ? usedPercent
+      : usedPercent == null
+        ? previous.usedPercent
+        : Math.max(previous.usedPercent, usedPercent);
+  const stale = Boolean(previous?.stale) || source.stale === true;
+  usage[key] = {
+    usedPercent: mergedPercent,
+    limited: Boolean(previous?.limited) || limited,
+    ...(stale ? { stale: true } : {}),
+  };
+}
+
+/** Convert CodexBar provider rows into short-lived routing hints. */
+export function autoProviderUsageFromProviders(
+  providers: readonly AutoProviderUsageSource[],
+): AutoProviderUsage {
+  const usage: AutoProviderUsage = {};
+  for (const provider of providers) mergeAutoProviderUsage(usage, provider);
+  return usage;
+}
+
+/** Convert usage fields already attached to model options into routing hints. */
 export function autoProviderUsageFromModels(
   models: readonly ModelOption[],
 ): AutoProviderUsage {
-  const usage: AutoProviderUsage = {};
-  for (const model of models) {
-    const usedPercent = model.codexbarUsedPercent ?? null;
-    const limited =
-      model.codexbarMaxed === true ||
-      (usedPercent !== null && usedPercent >= AUTO_USAGE_LIMIT_PERCENT);
-    if (usedPercent === null && !limited) continue;
-    const key = autoProviderUsageKey(model.providerID, model.accountId);
-    const previous = usage[key];
-    const mergedPercent =
-      previous?.usedPercent == null
-        ? usedPercent
-        : usedPercent == null
-          ? previous.usedPercent
-          : Math.max(previous.usedPercent, usedPercent);
-    usage[key] = {
-      usedPercent: mergedPercent,
-      limited: Boolean(previous?.limited) || limited,
-    };
-  }
-  return usage;
+  return autoProviderUsageFromProviders(
+    models.map((model) => ({
+      id: model.providerID,
+      accountId: model.accountId,
+      usedPercent: model.codexbarUsedPercent,
+      maxed: model.codexbarMaxed,
+      stale: model.codexbarStale,
+    })),
+  );
 }
 
 export type AutoVariant = IntelligenceVariant | "off";
@@ -449,7 +483,7 @@ function normalizeTierRoute(raw: unknown): AutoTierRoute | undefined {
     if (ordered.length > 0) variantFallbackOrder = ordered;
   }
   const fallback = isAutoTierFallback(object.fallback) ? object.fallback : undefined;
-  if (candidates.length === 0 && !variantFallbackOrder && !fallback) return undefined;
+  if (candidates.length === 0 && !variantFallbackOrder) return undefined;
   return {
     candidates,
     ...(variantFallbackOrder ? { variantFallbackOrder } : {}),
@@ -571,7 +605,10 @@ function pickBest(
   usage?: AutoProviderUsage,
 ): Candidate | undefined {
   const eligible = usage
-    ? candidates.filter((candidate) => !usageForCandidate(candidate, usage)?.limited)
+    ? candidates.filter((candidate) => {
+        const hint = usageForCandidate(candidate, usage);
+        return !hint?.limited || hint.stale === true;
+      })
     : candidates;
   if (eligible.length === 0) return undefined;
 
@@ -581,11 +618,16 @@ function pickBest(
   );
   if (!normalBest || !usage) return normalBest;
 
-  const normalUsage = usageForCandidate(normalBest, usage)?.usedPercent ?? null;
+  const normalHint = usageForCandidate(normalBest, usage);
+  const normalUsage =
+    normalHint?.stale === true ? null : normalHint?.usedPercent ?? null;
   if (normalUsage === null) return normalBest;
 
   const knownUsage = eligible.filter(
-    (candidate) => usageForCandidate(candidate, usage)?.usedPercent != null,
+    (candidate) => {
+      const hint = usageForCandidate(candidate, usage);
+      return hint?.stale !== true && hint?.usedPercent != null;
+    },
   );
   const lowestUsage = knownUsage.reduce<number | null>((lowest, candidate) => {
     const value = usageForCandidate(candidate, usage)?.usedPercent ?? null;
@@ -848,9 +890,14 @@ export function chooseAutoModel(input: {
   const config = input.config ?? EMPTY_AUTO_ROUTE_CONFIG;
   const legacyOverride = input.overrides?.[input.tier];
   const configured = config.modes[mode]?.[input.tier];
+  const usableConfigured =
+    configured && (configured.candidates.length > 0 || configured.variantFallbackOrder)
+      ? configured
+      : undefined;
   const preset = presetTierRoute(mode, input.tier);
-  const configuredCandidates = configured !== undefined && configured.candidates.length > 0;
-  const effective = configured ??
+  const configuredCandidates =
+    usableConfigured !== undefined && usableConfigured.candidates.length > 0;
+  const effective = usableConfigured ??
     (legacyOverride ? legacyRouteToTierRoute(legacyOverride) : preset);
   const candidates = effective.candidates.length > 0
     ? effective.candidates

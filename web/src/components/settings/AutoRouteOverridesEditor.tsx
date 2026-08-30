@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, Plus, RotateCcw, X } from "lucide-react";
 import { IntelligenceSelect } from "@/components/IntelligenceSelect";
 import { ModelSelect } from "@/components/ModelSelect";
@@ -227,6 +227,7 @@ function CandidateRow({
               ...candidate,
               providerID: selected.providerID,
               modelID: selected.modelID,
+              variant: undefined,
             });
           }}
           className="min-w-0 flex-1"
@@ -328,6 +329,10 @@ function TierEditor({
 
   const setCandidates = useCallback(
     (nextCandidates: readonly AutoRouteCandidate[]) => {
+      if (nextCandidates.length === 0) {
+        setCell(undefined);
+        return;
+      }
       setCell({
         candidates: [...nextCandidates],
         ...(cell?.variantFallbackOrder
@@ -412,6 +417,7 @@ function TierEditor({
         <select
           aria-label={`${TIER_LABEL[tier]}のフォールバック`}
           value={cell?.fallback ?? "preset"}
+          disabled={candidates.length === 0}
           onChange={(event) =>
             setCell({
               candidates: [...candidates],
@@ -450,6 +456,7 @@ export function AutoRouteOverridesEditor({
 }) {
   const [open, setOpen] = useState(false);
   const [editMode, setEditMode] = useState<AutoOptimizeMode>(mode);
+  useEffect(() => setEditMode(mode), [mode]);
   const source = useMemo<AutoRouteSource>(
     () => models ?? providers ?? [],
     [models, providers],

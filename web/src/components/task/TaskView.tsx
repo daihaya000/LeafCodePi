@@ -46,12 +46,12 @@ import {
   AUTO_MODEL_OPTION,
   AUTO_MODEL_VALUE,
   autoModelValue,
-  autoProviderUsageFromModels,
   autoVariantToThinkingLevel,
   chooseAutoModel,
   classifyPrompt,
   formatAutoDecisionNotice,
   type AutoOptimizeMode,
+  type AutoProviderUsage,
 } from "@/lib/auto-model";
 import {
   AUTO_OPTIMIZE_SETTING_KEY,
@@ -356,6 +356,7 @@ export function TaskView({
   const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
+  const [autoUsage, setAutoUsage] = useState<AutoProviderUsage>({});
   const [modelSelection, setModelSelection] = useState("");
   const [autoOptimizeMode, setAutoOptimizeMode] = useState<AutoOptimizeMode>(
     () => readAutoOptimizeMode(),
@@ -615,6 +616,8 @@ export function TaskView({
     // snapshot replaces them with the server session state.
     setSessionHydrating(true);
     setSseReconnecting(false);
+    setModelsLoading(true);
+    setAutoUsage({});
 
     const connect = () => {
       if (closed) return;
@@ -781,13 +784,17 @@ export function TaskView({
     // The SSE endpoint sends the initial full snapshot; avoid a duplicate task-detail request.
     connect();
 
-    void getJson<{ models: ModelOption[] }>("/api/models").then((result) => {
+    void getJson<{ models: ModelOption[]; autoUsage?: AutoProviderUsage }>("/api/models").then((result) => {
       if (!closed) {
         setModels(result.models);
+        setAutoUsage(result.autoUsage ?? {});
         setModelsLoading(false);
       }
     }).catch(() => {
-      if (!closed) setModelsLoading(false);
+      if (!closed) {
+        setAutoUsage({});
+        setModelsLoading(false);
+      }
       /* models are optional for the timeline */
     });
     void getJson<{ agents: { name: string; description?: string; enabled: boolean; model?: string }[] }>("/api/agents").then((result) => {
@@ -1166,7 +1173,7 @@ export function TaskView({
               }),
               hasImages: images.length > 0,
               mode: autoOptimizeMode,
-              usage: autoProviderUsageFromModels(models),
+              usage: autoUsage,
               config: autoRouteConfig,
             })
           : undefined;

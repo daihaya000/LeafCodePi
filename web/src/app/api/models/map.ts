@@ -27,6 +27,7 @@ export function attachCodexBarUsage<
       ...option,
       codexbarUsedPercent: provider.usedPercent,
       codexbarMaxed: provider.maxed,
+      ...(provider.stale ? { codexbarStale: true } : {}),
     };
   });
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AUTO_MODEL_VALUE,
+  autoProviderUsageFromProviders,
   autoProviderUsageFromModels,
   chooseAutoModel,
   classifyPrompt,
@@ -271,6 +272,24 @@ describe("chooseAutoModel", () => {
     });
   });
 
+  it("does not let stale or invalid usage hide an otherwise usable model", () => {
+    const usage = autoProviderUsageFromProviders([
+      { id: "invalid", usedPercent: Number.NaN },
+      { id: "provider", usedPercent: 100, maxed: true, stale: true },
+    ]);
+    expect(usage).toEqual({
+      provider: { usedPercent: 100, limited: true, stale: true },
+    });
+
+    const decision = chooseAutoModel({
+      models: [model("claude-haiku-4-5")],
+      tier: "light",
+      hasImages: false,
+      usage,
+    });
+    expect(decision).toMatchObject({ modelID: "claude-haiku-4-5" });
+  });
+
   it("resolves v2 candidates in order and skips unavailable models", () => {
     const decision = chooseAutoModel({
       models: [model("claude-sonnet-5", { thinkingLevels: ["high"] })],
@@ -310,6 +329,15 @@ describe("chooseAutoModel", () => {
         variantFallbackOrder: ["high"],
       });
     }
+  });
+
+  it("does not persist a fallback-only empty route as an override", () => {
+    expect(
+      normalizeAutoRouteConfig({
+        version: 2,
+        modes: { cost: { light: { candidates: [], fallback: "error" } } },
+      }),
+    ).toEqual({ version: 2, modes: {} });
   });
 
   it("can hide the selected model from the decision notice", () => {

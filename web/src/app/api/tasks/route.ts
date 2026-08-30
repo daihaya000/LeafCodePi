@@ -11,7 +11,7 @@ import {
 } from "@/lib/pi/harness";
 import {
   autoModelValue,
-  autoProviderUsageFromModels,
+  autoProviderUsageFromProviders,
   autoVariantToThinkingLevel,
   chooseAutoModel,
   classifyPrompt,
@@ -24,7 +24,6 @@ import {
 } from "@/lib/auto-model";
 import { loadAgentDefinition } from "@/lib/agents";
 import { getCachedUsage } from "@/lib/codexbar/cache";
-import { attachCodexBarUsage } from "../models/map";
 import {
   clampGoalLoopCooldownSeconds,
   clampGoalLoopMaxTurns,
@@ -34,6 +33,19 @@ import type { ThinkingLevel } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function isPromptImage(
+  value: unknown,
+): value is { mimeType: string; data: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const image = value as Record<string, unknown>;
+  return (
+    typeof image.mimeType === "string" &&
+    image.mimeType.length > 0 &&
+    typeof image.data === "string" &&
+    image.data.length > 0
+  );
+}
 
 export async function GET(req: NextRequest) {
   const includeArchived = req.nextUrl.searchParams.get("archived") === "1";
@@ -87,8 +99,26 @@ export async function POST(req: NextRequest) {
         forceFullRun?: unknown;
       };
     } | null;
-    if (!body?.projectId || !body.prompt?.trim()) {
+    if (
+      !body ||
+      typeof body.projectId !== "string" ||
+      !body.projectId.trim() ||
+      typeof body.prompt !== "string" ||
+      !body.prompt.trim()
+    ) {
       return NextResponse.json({ error: "projectId と prompt が必要です" }, { status: 400 });
+    }
+    if (body.model !== undefined && typeof body.model !== "string") {
+      return NextResponse.json({ error: "invalid model" }, { status: 400 });
+    }
+    if (body.agent !== undefined && typeof body.agent !== "string") {
+      return NextResponse.json({ error: "invalid agent" }, { status: 400 });
+    }
+    if (
+      body.images !== undefined &&
+      (!Array.isArray(body.images) || body.images.some((image) => !isPromptImage(image)))
+    ) {
+      return NextResponse.json({ error: "invalid images" }, { status: 400 });
     }
     if (body.auto !== undefined && typeof body.auto !== "boolean") {
       return NextResponse.json({ error: "invalid auto" }, { status: 400 });
@@ -164,15 +194,12 @@ export async function POST(req: NextRequest) {
       const agentModel = body.agent ? loadAgentDefinition(body.agent)?.model : undefined;
       if (!agentModel) {
         const accounts = listAccounts();
-        const models = attachCodexBarUsage(
-          await listModelsForAccounts(
-            accounts.map((account) => ({
-              id: account.id,
-              label: account.label,
-              providers: account.providers,
-            })),
-          ),
-          getCachedUsage()?.providers ?? [],
+        const models = await listModelsForAccounts(
+          accounts.map((account) => ({
+            id: account.id,
+            label: account.label,
+            providers: account.providers,
+          })),
         );
         const hasImages = Boolean(body.images?.length);
         autoDecision =
@@ -186,7 +213,7 @@ export async function POST(req: NextRequest) {
             mode: isAutoOptimizeMode(body.autoOptimize)
               ? body.autoOptimize
               : DEFAULT_AUTO_OPTIMIZE_MODE,
-            usage: autoProviderUsageFromModels(models),
+            usage: autoProviderUsageFromProviders(getCachedUsage()?.providers ?? []),
             config: autoRouteConfig,
           }) ?? undefined;
         if (!autoDecision) {

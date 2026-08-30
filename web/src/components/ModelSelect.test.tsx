@@ -65,6 +65,20 @@ describe("ModelSelect loading state", () => {
     expect(screen.getByText("モデルを読み込み中…")).toBeTruthy();
   });
 
+  it("does not allow selecting the Auto placeholder before models load", () => {
+    render(
+      <ModelSelect
+        value=""
+        options={[option({ value: "auto", label: "Auto" })]}
+        loading
+        onChange={() => {}}
+      />,
+    );
+
+    expect((screen.getByRole("button") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("モデルを読み込み中…")).toBeTruthy();
+  });
+
   it("shows modelなし only when there are no available models", () => {
     render(<ModelSelect value="" options={[]} onChange={() => {}} />);
 
