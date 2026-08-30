@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { ProviderAuthPanel } from "@/components/settings/ProviderAuthPanel";
 import { ProviderModelsPanel } from "@/components/settings/ProviderModelsPanel";
+import { AutoModelSettings } from "@/components/settings/AutoModelSettings";
 import { GenerationModelSettings } from "@/components/settings/GenerationModelSettings";
 import { LlamaServerSettings } from "@/components/settings/LlamaServerSettings";
 import { HostRestartPanel } from "@/components/settings/HostRestartPanel";
@@ -160,6 +161,7 @@ export function SettingsView() {
               <div className="rounded-2xl border border-border bg-surface p-4">
                 <ProviderModelsPanel refreshToken={modelsRevision} />
               </div>
+              <AutoModelSettings refreshToken={modelsRevision} />
               <GenerationModelSettings refreshToken={modelsRevision} />
               <div className="rounded-2xl border border-border bg-surface p-4">
                 <ProviderAuthPanel providers={providers} onChanged={onProviderChanged} />

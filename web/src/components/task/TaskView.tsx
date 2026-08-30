@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Composer, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
+import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { pasteImage } from "@/lib/clipboard-image";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { DiffPane } from "@/components/task/DiffPane";
@@ -45,11 +46,28 @@ import {
   AUTO_MODEL_OPTION,
   AUTO_MODEL_VALUE,
   autoModelValue,
+  autoProviderUsageFromModels,
   autoVariantToThinkingLevel,
   chooseAutoModel,
   classifyPrompt,
   formatAutoDecisionNotice,
+  type AutoOptimizeMode,
 } from "@/lib/auto-model";
+import {
+  AUTO_OPTIMIZE_SETTING_KEY,
+  AUTO_ROUTE_OVERRIDES_SETTING_KEY,
+  AUTO_SHOW_MODEL_SETTING_KEY,
+  hasStoredAutoSetting,
+  readAutoOptimizeMode,
+  readAutoRouteConfig,
+  readAutoSettingsFromServer,
+  readAutoShowModel,
+  subscribeAutoSetting,
+  writeAutoOptimizeMode,
+  writeAutoRouteConfig,
+  writeAutoShowModel,
+  writeAutoSettingToServer,
+} from "@/lib/auto-settings";
 import {
   readAutoTaskRecord,
   writeAutoTaskRecord,
@@ -339,8 +357,14 @@ export function TaskView({
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [modelSelection, setModelSelection] = useState("");
+  const [autoOptimizeMode, setAutoOptimizeMode] = useState<AutoOptimizeMode>(
+    () => readAutoOptimizeMode(),
+  );
+  const [autoShowModel, setAutoShowModel] = useState(() => readAutoShowModel());
+  const [autoRouteConfig, setAutoRouteConfig] = useState(() => readAutoRouteConfig());
   const [autoRecord, setAutoRecord] = useState<AutoTaskRecord | null>(null);
   const [autoFollowUpNotice, setAutoFollowUpNotice] = useState<string | null>(null);
+  const [autoRetryNotice, setAutoRetryNotice] = useState<string | null>(null);
   const [autoRetrying, setAutoRetrying] = useState(false);
   const autoRetryStatusRef = useRef<TaskStatus | undefined>(cachedSession?.status);
   const [contextUsage, setContextUsage] = useState<ContextUsageDto | undefined>(
@@ -424,6 +448,49 @@ export function TaskView({
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequestDto | null>(null);
   const [questionRequest, setQuestionRequest] = useState<QuestionRequestDto | null>(null);
   const [permissionBusy, setPermissionBusy] = useState(false);
+  useEffect(() => {
+    const unsubscribeMode = subscribeAutoSetting(AUTO_OPTIMIZE_SETTING_KEY, () =>
+      setAutoOptimizeMode(readAutoOptimizeMode()),
+    );
+    const unsubscribeShowModel = subscribeAutoSetting(AUTO_SHOW_MODEL_SETTING_KEY, () =>
+      setAutoShowModel(readAutoShowModel()),
+    );
+    const unsubscribeRouteConfig = subscribeAutoSetting(AUTO_ROUTE_OVERRIDES_SETTING_KEY, () =>
+      setAutoRouteConfig(readAutoRouteConfig()),
+    );
+    return () => {
+      unsubscribeMode();
+      unsubscribeShowModel();
+      unsubscribeRouteConfig();
+    };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    void readAutoSettingsFromServer().then((snapshot) => {
+      if (!active) return;
+      if (snapshot.mode && !hasStoredAutoSetting(AUTO_OPTIMIZE_SETTING_KEY)) {
+        writeAutoOptimizeMode(snapshot.mode);
+        setAutoOptimizeMode(snapshot.mode);
+      }
+      if (
+        snapshot.showModel !== undefined &&
+        !hasStoredAutoSetting(AUTO_SHOW_MODEL_SETTING_KEY)
+      ) {
+        writeAutoShowModel(snapshot.showModel);
+        setAutoShowModel(snapshot.showModel);
+      }
+      if (
+        snapshot.routeConfig &&
+        !hasStoredAutoSetting(AUTO_ROUTE_OVERRIDES_SETTING_KEY)
+      ) {
+        writeAutoRouteConfig(snapshot.routeConfig);
+        setAutoRouteConfig(snapshot.routeConfig);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
@@ -837,6 +904,7 @@ export function TaskView({
     setModelSelection("");
     setAutoRecord(readAutoTaskRecord(taskId));
     setAutoFollowUpNotice(null);
+    setAutoRetryNotice(null);
     setAutoRetrying(false);
     autoRetryStatusRef.current = cached?.status;
     setGoalLoopEnabled(false);
@@ -1094,8 +1162,12 @@ export function TaskView({
                 hasImages: images.length > 0,
                 attachmentCount: images.length,
                 historyMessageCount: messages.length,
+                recentFailure: task?.status === "error" || Boolean(task?.error),
               }),
               hasImages: images.length > 0,
+              mode: autoOptimizeMode,
+              usage: autoProviderUsageFromModels(models),
+              config: autoRouteConfig,
             })
           : undefined;
       if (isAuto && !fixedAgentModel && !autoDecision) {
@@ -1143,7 +1215,11 @@ export function TaskView({
           ...(working && deliveryMode === "steer" ? { streamingBehavior: "steer" } : {}),
         });
       }
-      if (autoDecision) setAutoFollowUpNotice(formatAutoDecisionNotice(autoDecision));
+      if (autoDecision && autoShowModel) {
+        setAutoFollowUpNotice(
+          formatAutoDecisionNotice(autoDecision, { showModel: autoShowModel }),
+        );
+      }
       setPrompt("");
       setAttachments([]);
       setIsReverted(false);
@@ -1184,8 +1260,9 @@ export function TaskView({
     if (!writeAutoTaskRecord(taskId, nextRecord)) return;
     setAutoRecord(nextRecord);
     setAutoRetrying(true);
-    const retryNotice =
-      `低コストモデルでエラーが発生したため ${escalation.providerID}/${escalation.modelID} で再試行しました`;
+    const retryNotice = autoShowModel
+      ? `低コストモデルでエラーが発生したため ${escalation.providerID}/${escalation.modelID} で再試行しました`
+      : "低コストモデルでエラーが発生したため上位候補で再試行しました";
     const retryThinkingLevel = autoVariantToThinkingLevel(escalation.variant);
     void sendJson(`/api/tasks/${taskId}/prompt`, {
       prompt: autoRecord.prompt,
@@ -1197,7 +1274,7 @@ export function TaskView({
       skillPermission,
     })
       .then(() => {
-        setAutoFollowUpNotice(retryNotice);
+        setAutoRetryNotice(retryNotice);
         setError(null);
         notifyTasksChanged();
       })
@@ -1212,6 +1289,7 @@ export function TaskView({
     permissionMode,
     skillPermission,
     subagentPermission,
+    autoShowModel,
     task?.status,
     taskId,
   ]);
@@ -1532,11 +1610,22 @@ export function TaskView({
         }`
       : null;
   const autoNotice =
-    autoFollowUpNotice ??
-    (autoRecord && !autoRecord.dismissed
-      ? formatAutoDecisionNotice(autoRecord.decision)
+    autoRetryNotice ??
+    (autoShowModel
+      ? autoFollowUpNotice ??
+        (autoRecord && !autoRecord.dismissed
+          ? formatAutoDecisionNotice(autoRecord.decision, { showModel: true })
+          : null)
       : null);
   function dismissAutoNotice() {
+    if (autoRetryNotice) {
+      setAutoRetryNotice(null);
+      if (autoRecord) {
+        const nextRecord = { ...autoRecord, dismissed: true };
+        if (writeAutoTaskRecord(taskId, nextRecord)) setAutoRecord(nextRecord);
+      }
+      return;
+    }
     if (autoFollowUpNotice) {
       if (autoRecord?.retried) {
         const nextRecord = { ...autoRecord, dismissed: true };
@@ -2267,28 +2356,40 @@ export function TaskView({
                 }}
                 className="min-w-0 max-w-[10rem] sm:max-w-[12rem]"
               />
-              <ThinkingSelect
-                levels={thinkingLevels}
-                value={thinkingValue}
-                disabled={working || compacting}
-                onChange={(value) => {
-                  void (async () => {
-                    try {
-                      setError(null);
-                      const result = await sendJson<{ task: TaskSummary }>(
-                        `/api/tasks/${taskId}/thinking`,
-                        { thinkingLevel: value },
-                      );
-                      setTask((current) => (current ? { ...current, ...result.task } : current));
-                      writeStoredThinkingLevel(
-                        isThinkingLevel(result.task.thinkingLevel) ? result.task.thinkingLevel : value,
-                      );
-                    } catch (err) {
-                      setError(err instanceof Error ? err.message : "思考レベルの切替に失敗しました");
-                    }
-                  })();
-                }}
-              />
+              {modelValue === AUTO_MODEL_VALUE ? (
+                <AutoOptimizeSelect
+                  value={autoOptimizeMode}
+                  disabled={working || compacting}
+                  onChange={(value) => {
+                    setAutoOptimizeMode(value);
+                    writeAutoOptimizeMode(value);
+                    void writeAutoSettingToServer(AUTO_OPTIMIZE_SETTING_KEY, value);
+                  }}
+                />
+              ) : (
+                <ThinkingSelect
+                  levels={thinkingLevels}
+                  value={thinkingValue}
+                  disabled={working || compacting}
+                  onChange={(value) => {
+                    void (async () => {
+                      try {
+                        setError(null);
+                        const result = await sendJson<{ task: TaskSummary }>(
+                          `/api/tasks/${taskId}/thinking`,
+                          { thinkingLevel: value },
+                        );
+                        setTask((current) => (current ? { ...current, ...result.task } : current));
+                        writeStoredThinkingLevel(
+                          isThinkingLevel(result.task.thinkingLevel) ? result.task.thinkingLevel : value,
+                        );
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "思考レベルの切替に失敗しました");
+                      }
+                    })();
+                  }}
+                />
+              )}
               {agents.length > 0 && (
                 <AgentSelect
                   value={agent}

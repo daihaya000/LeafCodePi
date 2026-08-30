@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   AUTO_MODEL_VALUE,
+  autoProviderUsageFromModels,
   chooseAutoModel,
   classifyPrompt,
+  formatAutoDecisionNotice,
   modelCostTier,
+  normalizeAutoRouteConfig,
   type AutoCandidateProvider,
 } from "@/lib/auto-model";
 import type { ModelOption } from "@/lib/types";
@@ -155,6 +158,170 @@ describe("chooseAutoModel", () => {
         hasImages: false,
       }),
     ).toMatchObject({ providerID: "alpha", modelID: "claude-haiku-4-5" });
+  });
+
+  it("applies the selected optimization mode to the preset route", () => {
+    const models = [
+      model("claude-haiku-4-5", { thinkingLevels: ["minimal"] }),
+      model("claude-sonnet-5", { thinkingLevels: ["medium"] }),
+    ];
+    expect(
+      chooseAutoModel({ models, tier: "light", hasImages: false, mode: "balanced" }),
+    ).toMatchObject({ modelID: "claude-haiku-4-5", mode: "balanced" });
+    expect(
+      chooseAutoModel({ models, tier: "light", hasImages: false, mode: "intelligence" }),
+    ).toMatchObject({ modelID: "claude-sonnet-5", mode: "intelligence" });
+  });
+
+  it("reroutes a best-cost choice when another provider has a lower usage gap", () => {
+    const decision = chooseAutoModel({
+      models: [
+        model("claude-haiku-4-5", { providerID: "alpha", value: "alpha::haiku" }),
+        model("claude-haiku-4-5", { providerID: "beta", value: "beta::haiku" }),
+      ],
+      tier: "light",
+      hasImages: false,
+      usage: {
+        alpha: { usedPercent: 90, limited: false },
+        beta: { usedPercent: 70, limited: false },
+      },
+    });
+    expect(decision).toMatchObject({ providerID: "beta", modelID: "claude-haiku-4-5" });
+  });
+
+  it("skips a limited configured provider and preserves account usage keys", () => {
+    const usage = autoProviderUsageFromModels([
+      model("claude-haiku-4-5", {
+        providerID: "provider",
+        accountId: "account-a",
+        codexbarUsedPercent: 90,
+      }),
+      model("claude-haiku-4-5", {
+        providerID: "provider",
+        accountId: "account-a",
+        codexbarMaxed: true,
+      }),
+    ]);
+    expect(usage).toEqual({
+      "account-a::provider": { usedPercent: 90, limited: true },
+    });
+
+    const accountDecision = chooseAutoModel({
+      models: [
+        model("claude-haiku-4-5", {
+          providerID: "provider",
+          value: "account-a::provider::haiku",
+          accountId: "account-a",
+        }),
+        model("claude-haiku-4-5", {
+          providerID: "provider",
+          value: "account-b::provider::haiku",
+          accountId: "account-b",
+        }),
+      ],
+      tier: "light",
+      hasImages: false,
+      config: {
+        version: 2,
+        modes: {
+          cost: {
+            light: {
+              candidates: [
+                { kind: "model", providerID: "provider", modelID: "claude-haiku-4-5" },
+              ],
+            },
+          },
+        },
+      },
+      usage: {
+        "account-a::provider": { usedPercent: 100, limited: true },
+        "account-b::provider": { usedPercent: 10, limited: false },
+      },
+    });
+    expect(accountDecision).toMatchObject({ accountId: "account-b" });
+
+    const decision = chooseAutoModel({
+      models: [
+        model("claude-haiku-4-5", { providerID: "alpha", value: "alpha::haiku" }),
+        model("claude-haiku-4-5", { providerID: "beta", value: "beta::haiku" }),
+      ],
+      tier: "light",
+      hasImages: false,
+      config: {
+        version: 2,
+        modes: {
+          cost: {
+            light: {
+              candidates: [
+                { kind: "model", providerID: "alpha", modelID: "claude-haiku-4-5" },
+                { kind: "model", providerID: "beta", modelID: "claude-haiku-4-5" },
+              ],
+            },
+          },
+        },
+      },
+      usage: {
+        alpha: { usedPercent: 100, limited: true },
+        beta: { usedPercent: 10, limited: false },
+      },
+    });
+    expect(decision).toMatchObject({
+      providerID: "beta",
+      candidateIndex: 1,
+    });
+  });
+
+  it("resolves v2 candidates in order and skips unavailable models", () => {
+    const decision = chooseAutoModel({
+      models: [model("claude-sonnet-5", { thinkingLevels: ["high"] })],
+      tier: "light",
+      hasImages: false,
+      mode: "cost",
+      config: {
+        version: 2,
+        modes: {
+          cost: {
+            light: {
+              candidates: [
+                { kind: "model", providerID: "provider", modelID: "missing" },
+                { kind: "model", providerID: "provider", modelID: "claude-sonnet-5", variant: "high" },
+              ],
+            },
+          },
+        },
+      },
+    });
+    expect(decision).toMatchObject({
+      modelID: "claude-sonnet-5",
+      variant: "high",
+      candidateIndex: 1,
+    });
+    expect(decision?.reason).toContain("候補1〜1は利用不可");
+  });
+
+  it("migrates legacy route overrides to all v2 modes", () => {
+    const config = normalizeAutoRouteConfig({
+      light: { costOrder: null, variantOrder: ["high"] },
+    });
+    expect(config.version).toBe(2);
+    for (const mode of ["cost", "balanced", "intelligence"] as const) {
+      expect(config.modes[mode]?.light).toEqual({
+        candidates: [{ kind: "strongest" }],
+        variantFallbackOrder: ["high"],
+      });
+    }
+  });
+
+  it("can hide the selected model from the decision notice", () => {
+    const decision = chooseAutoModel({
+      models: [model("claude-haiku-4-5")],
+      tier: "light",
+      hasImages: false,
+    });
+    expect(decision).not.toBeNull();
+    const notice = formatAutoDecisionNotice(decision!, { showModel: false });
+    expect(notice).not.toContain("claude-haiku-4-5");
+    expect(notice).toContain("モデルを自動選択");
   });
 
   it("keeps Auto separate from concrete model values", () => {

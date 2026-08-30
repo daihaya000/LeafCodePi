@@ -130,4 +130,83 @@ describe("/api/settings/[key]", () => {
     expect(response.status).toBe(400);
     expect(settings.setSetting).not.toHaveBeenCalled();
   });
+
+  it("accepts valid Auto settings and normalizes route overrides", async () => {
+    const modeResponse = await PUT(
+      request("auto-optimize", { value: "intelligence" }),
+      { params: Promise.resolve({ key: "auto-optimize" }) },
+    );
+    const routeResponse = await PUT(
+      request("auto-route-overrides", {
+        value: JSON.stringify({
+          light: { costOrder: ["cheap", "mid"] },
+        }),
+      }),
+      { params: Promise.resolve({ key: "auto-route-overrides" }) },
+    );
+
+    expect(modeResponse.status).toBe(200);
+    expect(routeResponse.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenNthCalledWith(
+      1,
+      "auto-optimize",
+      "intelligence",
+    );
+    expect(settings.setSetting).toHaveBeenNthCalledWith(
+      2,
+      "auto-route-overrides",
+      JSON.stringify({
+        version: 2,
+        modes: {
+          cost: {
+            light: {
+              candidates: [
+                { kind: "cost", cost: "cheap" },
+                { kind: "cost", cost: "mid" },
+              ],
+            },
+          },
+          balanced: {
+            light: {
+              candidates: [
+                { kind: "cost", cost: "cheap" },
+                { kind: "cost", cost: "mid" },
+              ],
+            },
+          },
+          intelligence: {
+            light: {
+              candidates: [
+                { kind: "cost", cost: "cheap" },
+                { kind: "cost", cost: "mid" },
+              ],
+            },
+          },
+        },
+      }),
+    );
+  });
+
+  it("rejects invalid Auto settings and clears the show-model setting", async () => {
+    const invalidMode = await PUT(
+      request("auto-optimize", { value: "turbo" }),
+      { params: Promise.resolve({ key: "auto-optimize" }) },
+    );
+    const invalidShowModel = await PUT(
+      request("auto-show-model", { value: "true" }),
+      { params: Promise.resolve({ key: "auto-show-model" }) },
+    );
+    const clearShowModel = await PUT(
+      request("auto-show-model", { value: "" }),
+      { params: Promise.resolve({ key: "auto-show-model" }) },
+    );
+
+    expect(invalidMode.status).toBe(400);
+    expect(await invalidMode.json()).toEqual({
+      error: "auto-optimize must be cost, balanced or intelligence",
+    });
+    expect(invalidShowModel.status).toBe(400);
+    expect(clearShowModel.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenLastCalledWith("auto-show-model", null);
+  });
 });

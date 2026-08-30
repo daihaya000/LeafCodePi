@@ -11,13 +11,20 @@ import {
 } from "@/lib/pi/harness";
 import {
   autoModelValue,
+  autoProviderUsageFromModels,
   autoVariantToThinkingLevel,
   chooseAutoModel,
   classifyPrompt,
   AUTO_MODEL_VALUE,
+  DEFAULT_AUTO_OPTIMIZE_MODE,
+  isAutoOptimizeMode,
+  normalizeAutoRouteConfig,
   type AutoDecision,
+  type AutoRouteConfig,
 } from "@/lib/auto-model";
 import { loadAgentDefinition } from "@/lib/agents";
+import { getCachedUsage } from "@/lib/codexbar/cache";
+import { attachCodexBarUsage } from "../models/map";
 import {
   clampGoalLoopCooldownSeconds,
   clampGoalLoopMaxTurns,
@@ -63,6 +70,8 @@ export async function POST(req: NextRequest) {
       model?: string;
       thinkingLevel?: ThinkingLevel;
       auto?: unknown;
+      autoOptimize?: unknown;
+      autoRouteOverrides?: unknown;
       variant?: unknown;
       images?: { mimeType: string; data: string }[];
       agent?: string;
@@ -83,6 +92,21 @@ export async function POST(req: NextRequest) {
     }
     if (body.auto !== undefined && typeof body.auto !== "boolean") {
       return NextResponse.json({ error: "invalid auto" }, { status: 400 });
+    }
+    if (body.autoOptimize !== undefined && !isAutoOptimizeMode(body.autoOptimize)) {
+      return NextResponse.json({ error: "invalid autoOptimize" }, { status: 400 });
+    }
+    if (body.autoOptimize !== undefined && body.auto !== true) {
+      return NextResponse.json(
+        { error: "autoOptimize requires auto" },
+        { status: 400 },
+      );
+    }
+    if (body.autoRouteOverrides !== undefined && body.auto !== true) {
+      return NextResponse.json(
+        { error: "autoRouteOverrides requires auto" },
+        { status: 400 },
+      );
     }
     if (body.auto === true && body.model?.trim()) {
       return NextResponse.json(
@@ -132,23 +156,38 @@ export async function POST(req: NextRequest) {
         ? body.accountId.trim()
         : undefined;
     let autoDecision: AutoDecision | undefined;
+    const autoRouteConfig: AutoRouteConfig | undefined =
+      body.autoRouteOverrides === undefined
+        ? undefined
+        : normalizeAutoRouteConfig(body.autoRouteOverrides);
     if (body.auto === true) {
       const agentModel = body.agent ? loadAgentDefinition(body.agent)?.model : undefined;
       if (!agentModel) {
         const accounts = listAccounts();
-        const models = await listModelsForAccounts(
-          accounts.map((account) => ({
-            id: account.id,
-            label: account.label,
-            providers: account.providers,
-          })),
+        const models = attachCodexBarUsage(
+          await listModelsForAccounts(
+            accounts.map((account) => ({
+              id: account.id,
+              label: account.label,
+              providers: account.providers,
+            })),
+          ),
+          getCachedUsage()?.providers ?? [],
         );
         const hasImages = Boolean(body.images?.length);
         autoDecision =
           chooseAutoModel({
             models,
-            tier: classifyPrompt(body.prompt, { hasImages }),
+            tier: classifyPrompt(body.prompt, {
+              hasImages,
+              attachmentCount: body.images?.length ?? 0,
+            }),
             hasImages,
+            mode: isAutoOptimizeMode(body.autoOptimize)
+              ? body.autoOptimize
+              : DEFAULT_AUTO_OPTIMIZE_MODE,
+            usage: autoProviderUsageFromModels(models),
+            config: autoRouteConfig,
           }) ?? undefined;
         if (!autoDecision) {
           throw Object.assign(

@@ -21,12 +21,19 @@ import {
   NOTIFICATION_SOUND_TYPE_SETTING_KEY,
   NOTIFICATION_SOUND_VOLUME_SETTING_KEY,
 } from "@/lib/notification-sound-settings";
+import {
+  isAutoOptimizeMode,
+  normalizeAutoRouteConfig,
+} from "@/lib/auto-model";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** 本家 LeafCode の /api/settings/[key] 相当。許容キーを絞って任意上書きを防ぐ。 */
 const ALLOWED_KEYS = new Set<string>([
+  "auto-optimize",
+  "auto-show-model",
+  "auto-route-overrides",
   GENERATION_FALLBACK_MODEL_SETTING_KEY,
   GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY,
   GENERATION_MODEL_SETTING_KEY,
@@ -45,6 +52,19 @@ function normalizedGenerationModelValue(value: string): string | null {
 }
 
 function validateValue(key: string, value: string): string | null {
+  if (key === "auto-optimize") {
+    return isAutoOptimizeMode(value) ? value : null;
+  }
+  if (key === "auto-show-model") {
+    return value === "1" ? value : null;
+  }
+  if (key === "auto-route-overrides") {
+    try {
+      return JSON.stringify(normalizeAutoRouteConfig(JSON.parse(value)));
+    } catch {
+      return null;
+    }
+  }
   if (key === COMPACTION_ACTION_SETTING_KEY) {
     return value === "suggest" || value === "auto" || value === "off" ? value : null;
   }
@@ -121,7 +141,23 @@ export async function PUT(
     );
   }
   // 値はキー毎のバリデーションを通ったものだけ保存（null は削除）。
+  if (value === "") {
+    setSetting(key, null);
+    return NextResponse.json({ value: getSetting(key) });
+  }
   if (typeof value === "string") {
+    if (key === "auto-optimize" && !isAutoOptimizeMode(value)) {
+      return NextResponse.json(
+        { error: "auto-optimize must be cost, balanced or intelligence" },
+        { status: 400 },
+      );
+    }
+    if (key === "auto-show-model" && value !== "1") {
+      return NextResponse.json(
+        { error: "auto-show-model must be 1 or empty" },
+        { status: 400 },
+      );
+    }
     const valid = validateValue(key, value);
     if (valid === null) {
       return NextResponse.json({ error: "invalid value" }, { status: 400 });

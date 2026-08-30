@@ -25,6 +25,9 @@ const INTELLIGENCE_KEYS: readonly IntelligenceVariant[] = [
   "thinking",
 ];
 
+export const ALL_INTELLIGENCE_VARIANTS: readonly IntelligenceVariant[] =
+  INTELLIGENCE_KEYS;
+
 const INTELLIGENCE_KEY_SET = new Set<string>(INTELLIGENCE_KEYS);
 
 export function getIntelligenceVariants(

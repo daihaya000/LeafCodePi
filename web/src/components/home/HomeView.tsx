@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowUp, FolderGit2 } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { AgentSelect } from "@/components/AgentSelect";
+import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { Composer, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { NextTaskSuggest } from "@/components/home/NextTaskSuggest";
@@ -21,6 +22,18 @@ import {
   AUTO_MODEL_VALUE,
   type AutoDecision,
 } from "@/lib/auto-model";
+import {
+  AUTO_OPTIMIZE_SETTING_KEY,
+  AUTO_ROUTE_OVERRIDES_SETTING_KEY,
+  hasStoredAutoSetting,
+  readAutoOptimizeMode,
+  readAutoRouteConfig,
+  readAutoSettingsFromServer,
+  subscribeAutoSetting,
+  writeAutoOptimizeMode,
+  writeAutoRouteConfig,
+  writeAutoSettingToServer,
+} from "@/lib/auto-settings";
 import { AUTO_TASK_PROMPT_MAX, writeAutoTaskRecord } from "@/lib/auto-task-record";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
@@ -46,6 +59,7 @@ import {
   type PermissionMode,
 } from "@/lib/permission-gate";
 import type { HealthDto, ModelOption, ProjectDto, TaskSummary, ThinkingLevel } from "@/lib/types";
+import type { AutoOptimizeMode } from "@/lib/auto-model";
 
 const MODEL_KEY = "leafcodepi.defaultModel";
 
@@ -63,6 +77,9 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [model, setModel] = useState("");
+  const [autoOptimizeMode, setAutoOptimizeMode] = useState<AutoOptimizeMode>(
+    () => readAutoOptimizeMode(),
+  );
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
     () => readStoredThinkingLevel() ?? "off",
   );
@@ -163,6 +180,37 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
     if (initialProjectId !== undefined) setProjectId(initialProjectId);
   }, [initialProjectId]);
 
+  useEffect(
+    () =>
+      subscribeAutoSetting(AUTO_OPTIMIZE_SETTING_KEY, () =>
+        setAutoOptimizeMode(readAutoOptimizeMode()),
+      ),
+    [],
+  );
+
+  useEffect(() => {
+    let active = true;
+    void readAutoSettingsFromServer().then((snapshot) => {
+      if (!active) return;
+      if (
+        snapshot.mode &&
+        !hasStoredAutoSetting(AUTO_OPTIMIZE_SETTING_KEY)
+      ) {
+        writeAutoOptimizeMode(snapshot.mode);
+        setAutoOptimizeMode(snapshot.mode);
+      }
+      if (
+        snapshot.routeConfig &&
+        !hasStoredAutoSetting(AUTO_ROUTE_OVERRIDES_SETTING_KEY)
+      ) {
+        writeAutoRouteConfig(snapshot.routeConfig);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   useEffect(() => {
     if (!selectedModel) return;
     const safeLevel = resolveThinkingLevel(thinkingLevels, thinkingLevel);
@@ -218,13 +266,20 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
         })
         .filter((item): item is { mimeType: string; data: string } => item !== null);
       const isAuto = model === AUTO_MODEL_VALUE;
+      const autoRouteConfig = readAutoRouteConfig();
       const result = await sendJson<{ task: TaskSummary; autoDecision?: AutoDecision }>("/api/tasks", {
         projectId,
         prompt,
         // アカウントタグ付きモデルの value は「accountId::provider::model」。送信時は
         // Pi が解釈できる「provider::model」へ戻す（accountId は別フィールドで渡す）。
         ...(!isAuto ? { model: plainModelValue(model, models), thinkingLevel } : {}),
-        ...(isAuto ? { auto: true } : {}),
+        ...(isAuto
+          ? {
+              auto: true,
+              autoOptimize: autoOptimizeMode,
+              autoRouteOverrides: autoRouteConfig,
+            }
+          : {}),
         images,
         ...(agent ? { agent } : {}),
         ...(selectedModel?.accountId ? { accountId: selectedModel.accountId } : {}),
@@ -379,16 +434,28 @@ export function HomeView({ initialProjectId }: { initialProjectId?: string }) {
                     }}
                     className="min-w-0 max-w-[9rem] shrink sm:max-w-48"
                   />
-                  <ThinkingSelect
-                    levels={thinkingLevels}
-                    value={thinkingLevel}
-                    disabled={submitting}
-                    onChange={(value) => {
-                      setThinkingLevel(value);
-                      writeStoredThinkingLevel(value);
-                    }}
-                    className="min-w-0 max-w-[7rem] shrink sm:max-w-[8rem]"
-                  />
+                  {model === AUTO_MODEL_VALUE ? (
+                    <AutoOptimizeSelect
+                      value={autoOptimizeMode}
+                      disabled={submitting}
+                      onChange={(value) => {
+                        setAutoOptimizeMode(value);
+                        writeAutoOptimizeMode(value);
+                        void writeAutoSettingToServer(AUTO_OPTIMIZE_SETTING_KEY, value);
+                      }}
+                    />
+                  ) : (
+                    <ThinkingSelect
+                      levels={thinkingLevels}
+                      value={thinkingLevel}
+                      disabled={submitting}
+                      onChange={(value) => {
+                        setThinkingLevel(value);
+                        writeStoredThinkingLevel(value);
+                      }}
+                      className="min-w-0 max-w-[7rem] shrink sm:max-w-[8rem]"
+                    />
+                  )}
                   {agents.length > 0 && (
                     <AgentSelect
                       value={agent}

@@ -60,6 +60,7 @@ export function ModelSelect({
   className,
   title,
   ariaLabel,
+  emptyLabel = "モデルなし",
 }: {
   value: string;
   options: ModelOption[];
@@ -69,6 +70,7 @@ export function ModelSelect({
   className?: string;
   title?: string;
   ariaLabel?: string;
+  emptyLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{
@@ -181,6 +183,7 @@ export function ModelSelect({
   }, [open, updateMenuPosition]);
 
   const isDisabled = disabled || options.length === 0;
+  const emptyStateLabel = options.length === 0 ? emptyLabel : "モデル";
   const selectedNearLimit = !isDisabled && modelNearLimit(selected);
   const selectedMaxed = !isDisabled && modelLimitReached(selected);
 
@@ -261,7 +264,7 @@ export function ModelSelect({
         aria-controls={open ? listboxId : undefined}
         aria-busy={loading || undefined}
         aria-label={ariaLabel ?? "モデル"}
-        title={title ?? selected?.label ?? (loading ? "モデルを読み込み中…" : "モデル")}
+        title={title ?? selected?.label ?? (loading ? "モデルを読み込み中…" : emptyStateLabel)}
         onClick={() => setOpen((current) => !current)}
         className={cx(
           "group inline-flex h-full w-full min-w-0 items-center gap-1.5 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs font-medium text-muted shadow-sm transition-colors hover:bg-surface-2 hover:text-text",
@@ -276,7 +279,7 @@ export function ModelSelect({
             selectedMaxed && "text-danger",
           )}
         >
-          {selected?.label ?? (loading ? "モデルを読み込み中…" : options.length === 0 ? "モデルなし" : "モデル")}
+          {selected?.label ?? (loading ? "モデルを読み込み中…" : emptyStateLabel)}
         </span>
         {selectedSupportsImage && (
           <span title="画像入力対応" className="inline-flex shrink-0">

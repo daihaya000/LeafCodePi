@@ -64,6 +64,18 @@ describe("ModelSelect loading state", () => {
 
     expect(screen.getByText("モデルを読み込み中…")).toBeTruthy();
   });
+
+  it("shows modelなし only when there are no available models", () => {
+    render(<ModelSelect value="" options={[]} onChange={() => {}} />);
+
+    expect(screen.getByText("モデルなし")).toBeTruthy();
+  });
+
+  it("keeps the generic model placeholder when a selection is missing", () => {
+    render(<ModelSelect value="missing" options={[option()]} onChange={() => {}} />);
+
+    expect(screen.getByText("モデル")).toBeTruthy();
+  });
 });
 
 describe("ModelSelect grouping by account", () => {
