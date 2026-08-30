@@ -18,6 +18,12 @@ describe("remote-provider", () => {
     expect(REMOTE_PROVIDER_API_KEY_ENV).toBe("LEAFCODECLOUD_API_KEY");
   });
 
+  it("marks LeafModel as a reasoning model so effort options are available", () => {
+    expect(modelRows({ data: [{ id: "LeafModel" }] })[0]).toMatchObject({
+      reasoning: true,
+    });
+  });
+
   it("converts the OpenAI-compatible model catalog", () => {
     const [model] = modelRows({
       data: [{ id: "other-model", max_model_len: 65_536 }],

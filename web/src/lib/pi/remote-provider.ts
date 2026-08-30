@@ -37,7 +37,7 @@ export function modelRows(body: unknown): ModelRow[] {
   return body.data.flatMap((row) => {
     if (!isRecord(row) || typeof row.id !== "string" || !row.id.trim()) return [];
     const contextWindow = REMOTE_CONTEXT_WINDOW;
-    const reasoning = /qwen3|deepseek-r1|thinking/i.test(row.id);
+    const reasoning = /qwen3|deepseek-r1|thinking|leafmodel/i.test(row.id);
     return [{
       id: row.id,
       name: row.id,
