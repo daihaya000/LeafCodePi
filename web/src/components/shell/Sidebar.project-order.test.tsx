@@ -191,7 +191,7 @@ describe("Sidebar project ordering", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Project Aを展開" }));
 
     const taskList = screen.getByText("Task 1").closest("ul");
-    expect(taskList?.className).toContain("max-h-40");
+    expect(taskList?.className).toContain("max-h-72");
     expect(taskList?.className).toContain("overflow-y-auto");
   });
 

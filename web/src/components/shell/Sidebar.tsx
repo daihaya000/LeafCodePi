@@ -991,7 +991,7 @@ export function Sidebar({
       <ul
         className={cx(
           "mb-1 ml-5 space-y-0.5 border-l border-border pl-1.5",
-          children.length >= 5 && "max-h-40 overflow-y-auto",
+          children.length >= 5 && "max-h-72 overflow-y-auto",
         )}
       >
         {children.length === 0 ? (
