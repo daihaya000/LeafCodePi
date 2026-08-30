@@ -153,7 +153,10 @@ export function contextWindowForModel(
   state = readProviderModelState(),
   accountId?: string | null,
 ): number | undefined {
-  return state.contextWindow?.[accountModelKey(providerID, modelID, accountId)];
+  const accountValue = accountId
+    ? state.contextWindow?.[accountModelKey(providerID, modelID, accountId)]
+    : undefined;
+  return accountValue ?? state.contextWindow?.[accountModelKey(providerID, modelID)];
 }
 
 export async function setProviderModelDisabled(

@@ -89,6 +89,7 @@ describe("provider-model-state", () => {
     const state = readProviderModelState(providerModelStatePath(dir));
     assert.equal(contextWindowForModel("openai-codex", "gpt-5", state), 65_536);
     assert.equal(contextWindowForModel("openai-codex", "gpt-5", state, "acc-1"), 131_072);
+    assert.equal(contextWindowForModel("openai-codex", "gpt-5", state, "acc-2"), 65_536);
   });
 
   it("sortByPreferredOrder keeps unknowns after preferred ids", () => {
