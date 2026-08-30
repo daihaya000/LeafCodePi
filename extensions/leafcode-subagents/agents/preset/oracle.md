@@ -2,7 +2,7 @@
 name: oracle
 aliases: advisor
 description: High-context decision-consistency oracle that protects inherited state and prevents drift
-tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, grep, find, ls, powershell, bash
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, grep, find, ls, powershell, bash, question
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
