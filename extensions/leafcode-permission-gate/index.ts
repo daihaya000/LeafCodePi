@@ -10,6 +10,8 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { requestWebUiPermission } from "./webui-bridge";
 
 export type PermissionMode = "allow" | "ask" | "deny";
@@ -18,7 +20,6 @@ type StoredConfig = {
   mode: PermissionMode;
 };
 
-const CONFIG_DIR = ".pi/leafcode";
 const CONFIG_FILE = "permission-gate.json";
 const SESSION_KEY = "leafcode-permission-gate";
 
@@ -39,14 +40,24 @@ const DANGEROUS_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /\b(git\s+reset\s+--hard|git\s+clean\s+-fd)/i, label: "destructive git" },
 ];
 
-function configPath(cwd: string): string {
-  return `${cwd}/${CONFIG_DIR}/${CONFIG_FILE}`;
+function leafcodeDataDir(): string {
+  const override = process.env.LEAFCODE_PI_DATA_DIR?.trim();
+  if (override) return override;
+  if (process.platform === "win32") {
+    const roaming = process.env.APPDATA?.trim();
+    if (roaming) return join(roaming, "leafcode-pi");
+  }
+  return join(homedir(), ".leafcode-pi");
 }
 
-function readConfig(cwd: string): StoredConfig {
+function configPath(): string {
+  return join(leafcodeDataDir(), CONFIG_FILE);
+}
+
+function readConfig(): StoredConfig {
   try {
     const { readFileSync } = require("node:fs");
-    const raw = JSON.parse(readFileSync(configPath(cwd), "utf8"));
+    const raw = JSON.parse(readFileSync(configPath(), "utf8"));
     if (raw && (raw.mode === "allow" || raw.mode === "ask" || raw.mode === "deny")) {
       return { mode: raw.mode };
     }
@@ -115,7 +126,7 @@ function extensionSessionId(ctx: ExtensionContext): string {
 export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     try {
-      const config = readConfig(ctx.cwd);
+      const config = readConfig();
       setSessionMode(ctx, config.mode);
     } catch {
       setSessionMode(ctx, "allow");

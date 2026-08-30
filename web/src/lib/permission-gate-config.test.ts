@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "vitest";
@@ -11,54 +11,56 @@ import {
   writePermissionGateConfig,
 } from "./permission-gate-config";
 
+function withTempDataDir<T>(run: (projectDir: string, appDir: string) => T): T {
+  const projectDir = mkdtempSync(join(tmpdir(), "lcp-project-"));
+  const appDir = mkdtempSync(join(tmpdir(), "lcp-data-"));
+  const previous = process.env.LEAFCODE_PI_DATA_DIR;
+  process.env.LEAFCODE_PI_DATA_DIR = appDir;
+  try {
+    return run(projectDir, appDir);
+  } finally {
+    if (previous === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+    else process.env.LEAFCODE_PI_DATA_DIR = previous;
+    rmSync(projectDir, { recursive: true, force: true });
+    rmSync(appDir, { recursive: true, force: true });
+  }
+}
+
 describe("permission-gate-config", () => {
-  it("writes mode to .pi/leafcode/permission-gate.json", () => {
-    const dir = mkdtempSync(join(tmpdir(), "lcp-perm-"));
-    try {
-      writePermissionGateConfig(dir, "deny");
-      const raw = readFileSync(permissionGateConfigPath(dir), "utf8");
+  it("writes mode to app data without creating project .pi", () => {
+    withTempDataDir((projectDir, appDir) => {
+      writePermissionGateConfig("deny");
+      const raw = readFileSync(permissionGateConfigPath(), "utf8");
       assert.deepEqual(JSON.parse(raw), { mode: "deny" });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+      assert.equal(permissionGateConfigPath(), join(appDir, "permission-gate.json"));
+      assert.equal(existsSync(join(projectDir, ".pi")), false);
+    });
   });
 
   it("defaults to allow when no mode is persisted", () => {
-    const dir = mkdtempSync(join(tmpdir(), "lcp-perm-"));
-    try {
-      assert.equal(readPermissionGateConfig(dir), "allow");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    withTempDataDir(() => assert.equal(readPermissionGateConfig(), "allow"));
   });
 
   it("reads persisted mode without writing", () => {
-    const dir = mkdtempSync(join(tmpdir(), "lcp-perm-"));
-    try {
-      writePermissionGateConfig(dir, "deny");
-      assert.equal(readPermissionGateConfig(dir), "deny");
-      applyPermissionMode({ extensionRunner: undefined }, dir, "ask", { persist: false });
-      const raw = readFileSync(permissionGateConfigPath(dir), "utf8");
+    withTempDataDir(() => {
+      writePermissionGateConfig("deny");
+      assert.equal(readPermissionGateConfig(), "deny");
+      applyPermissionMode({ extensionRunner: undefined }, "ask", { persist: false });
+      const raw = readFileSync(permissionGateConfigPath(), "utf8");
       assert.equal(JSON.parse(raw).mode, "deny");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   it("updates live extension session context", () => {
-    const dir = mkdtempSync(join(tmpdir(), "lcp-perm-"));
-    const ctx: Record<string, unknown> = {};
-    try {
+    withTempDataDir(() => {
+      const ctx: Record<string, unknown> = {};
       applyPermissionMode(
         { extensionRunner: { createContext: () => ctx } },
-        dir,
         "allow",
       );
       assert.equal(ctx[PERMISSION_GATE_SESSION_KEY], "allow");
-      const raw = readFileSync(permissionGateConfigPath(dir), "utf8");
+      const raw = readFileSync(permissionGateConfigPath(), "utf8");
       assert.equal(JSON.parse(raw).mode, "allow");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    });
   });
 });

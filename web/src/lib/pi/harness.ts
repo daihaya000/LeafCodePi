@@ -1625,16 +1625,8 @@ async function createSession(options: {
   });
   await resourceLoader.reload();
   const permissionMode =
-    options.permissionMode ?? readPermissionGateConfig(options.cwd);
+    options.permissionMode ?? readPermissionGateConfig();
   const persistPermission = options.permissionMode !== undefined;
-  applyPermissionMode(
-    { extensionRunner: undefined },
-    options.cwd,
-    permissionMode,
-    {
-      persist: persistPermission,
-    },
-  );
   // Agent-defined tool allowlist wins; otherwise default tools. Deferred tools
   // stay allowed so tool_search can activate them, then session_start removes
   // their schemas from the initial model request. `subagent` remains governed
@@ -1674,9 +1666,6 @@ async function createSession(options: {
     modelRuntime: (await getRuntimeFor(options.accountId)) ?? undefined,
     tools,
   });
-  applyPermissionMode(result.session, options.cwd, permissionMode, {
-    persist: persistPermission,
-  });
   // bindExtensions() emits session_start; bundled extensions (goal-loop 等)
   // create their per-session runtime there. Without it /goal-start silently
   // no-ops because the extension never sees a runtime.
@@ -1687,6 +1676,10 @@ async function createSession(options: {
         error.error,
       );
     },
+  });
+  // Apply after bindExtensions() so an explicit mode wins over persisted state.
+  applyPermissionMode(result.session, permissionMode, {
+    persist: persistPermission,
   });
   // Agent-defined tools may include `subagent`; enforce the user choice after
   // the full extension registry is ready, including the initial turn.
@@ -3705,13 +3698,7 @@ function queuePrompt(
     activeLive = await prepareLiveForPrompt(live, !meta?.streamingBehavior);
     applySubagentPermission(activeLive.session, meta?.subagentPermission);
     if (meta?.permissionMode) {
-      const task = getTask(activeLive.taskId);
-      const project = task ? getProject(task.projectId) : undefined;
-      applyPermissionMode(
-        activeLive.session,
-        project?.rootPath ?? activeLive.session.sessionManager.getCwd(),
-        meta.permissionMode,
-      );
+      applyPermissionMode(activeLive.session, meta.permissionMode);
     }
     const options: {
       images?: Array<{ type: "image"; data: string; mimeType: string }>;
@@ -3834,10 +3821,7 @@ export async function promptTask(
   if (options?.skillPermission)
     await applyLiveSkillPermission(live, options.skillPermission);
   if (options?.permissionMode) {
-    const task = getTask(id);
-    const project = task ? getProject(task.projectId) : undefined;
-    const cwd = project?.rootPath ?? live.session.sessionManager.getCwd();
-    applyPermissionMode(live.session, cwd, options.permissionMode);
+    applyPermissionMode(live.session, options.permissionMode);
   }
   live.revertLeafId = null;
   queuePrompt(live, prompt, images, {
@@ -3885,9 +3869,7 @@ export async function setTaskPermissionMode(
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  const project = getProject(task.projectId);
-  const cwd = project?.rootPath ?? live.session.sessionManager.getCwd();
-  applyPermissionMode(live.session, cwd, mode);
+  applyPermissionMode(live.session, mode);
   return toSummary(task);
 }
 
