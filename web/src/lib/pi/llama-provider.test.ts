@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import {
+  appendLlamaServerSystemPrompt,
   fetchLlamaServerModelIds,
   isLlamaOrnithModel,
   isLlamaQwenReasoningModel,
@@ -89,6 +90,26 @@ describe("isLlamaQwenReasoningModel", () => {
   it("rejects non-Qwen3 ids", () => {
     expect(isLlamaQwenReasoningModel("llama-3.1-8b")).toBe(false);
     expect(isLlamaQwenReasoningModel("qwen2.5-7b")).toBe(false);
+  });
+});
+
+describe("appendLlamaServerSystemPrompt", () => {
+  it("appends the configured prompt without mutating the Pi context", () => {
+    const context = {
+      systemPrompt: "Pi's instructions",
+      messages: [],
+    };
+    const result = appendLlamaServerSystemPrompt(context, "  Local model instructions  ");
+    expect(result).toEqual({
+      systemPrompt: "Pi's instructions\n\nLocal model instructions",
+      messages: [],
+    });
+    expect(context.systemPrompt).toBe("Pi's instructions");
+  });
+
+  it("returns the original context when the setting is empty", () => {
+    const context = { systemPrompt: "Pi's instructions", messages: [] };
+    expect(appendLlamaServerSystemPrompt(context, "  ")).toBe(context);
   });
 });
 

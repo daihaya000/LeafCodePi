@@ -3,12 +3,14 @@ import {
   DEFAULT_LLAMA_SERVER_SETTINGS,
   findLlamaModelPreset,
   isLlamaServerSettings,
+  isSafeLlamaSystemPrompt,
   isLlamaSpecComboBroken,
   isSafeLlamaModelFile,
   isSafeLlamaPathValue,
   LLAMA_MODEL_PRESETS,
   LLAMA_SERVER_EFFORTS,
   LLAMA_SERVER_SPEC_TYPES,
+  LLAMA_SERVER_SYSTEM_PROMPT_MAX_CHARS,
   parseLlamaServerSettings,
   resolveLlamaServerBin,
   serializeLlamaServerSettings,
@@ -28,6 +30,20 @@ describe("llama-server-settings", () => {
   it("accepts a well-formed settings object", () => {
     const valid = { effort: "medium", contextLength: 131072, parallel: 4 };
     expect(isLlamaServerSettings(valid)).toBe(true);
+  });
+
+  it("accepts multiline system prompts and rejects unsafe size/control values", () => {
+    expect(isSafeLlamaSystemPrompt("日本語で回答する\n簡潔にする")).toBe(true);
+    expect(isSafeLlamaSystemPrompt("\u0000")).toBe(false);
+    expect(isSafeLlamaSystemPrompt("x".repeat(LLAMA_SERVER_SYSTEM_PROMPT_MAX_CHARS + 1))).toBe(false);
+    expect(
+      isLlamaServerSettings({
+        effort: "low",
+        contextLength: 4096,
+        parallel: 1,
+        systemPrompt: "You are a coding assistant.",
+      }),
+    ).toBe(true);
   });
 
   it("rejects an effort outside the allowlist", () => {
@@ -64,6 +80,7 @@ describe("llama-server-settings", () => {
       effort: "xhigh" as const,
       contextLength: 262144,
       parallel: 2,
+      systemPrompt: "Answer in Japanese.\nKeep it concise.",
       llamaCppPath: "C:\\tools\\llama.cpp",
       modelDir: "D:\\models\\llm",
       modelFile: "repoA\\model-Q4_K_S.gguf",
@@ -83,6 +100,7 @@ describe("llama-server-settings", () => {
       effort: "medium",
       contextLength: 131072,
       parallel: 2,
+      systemPrompt: "",
       llamaCppPath: "",
       modelDir: "",
       modelFile: "",

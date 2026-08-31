@@ -124,6 +124,24 @@ function applyNoThinkPrefix(messages: unknown): unknown {
 }
 
 /**
+ * llama-server has no process-wide system-prompt flag. Add the configured
+ * prompt to the provider context so the OpenAI-compatible request sends it as
+ * a system message on every call without replacing Pi's own instructions.
+ */
+export function appendLlamaServerSystemPrompt(
+  context: Context,
+  systemPrompt: string,
+): Context {
+  const addition = systemPrompt.trim();
+  if (!addition) return context;
+  const base = context.systemPrompt?.trim();
+  return {
+    ...context,
+    systemPrompt: base ? `${base}\n\n${addition}` : addition,
+  };
+}
+
+/**
  * llama-server + Qwen3 template quirk (same as LeafCode):
  * - graded efforts must live in `chat_template_kwargs.reasoning_effort`
  * - `none` must be top-level `reasoning_effort` (kwargs reject it with HTTP 500)
@@ -264,7 +282,9 @@ function llamaStreamSimple(
   options?: SimpleStreamOptions,
 ) {
   const previous = options?.onPayload;
-  return streamSimple(model, context, {
+  const settings = parseLlamaServerSettings(readSettingValue(LLAMA_SERVER_SETTINGS_KEY));
+  const requestContext = appendLlamaServerSystemPrompt(context, settings.systemPrompt);
+  return streamSimple(model, requestContext, {
     ...options,
     onPayload: async (payload, current) => {
       let next: unknown = rewriteLlamaServerEffortPayload(payload, current);

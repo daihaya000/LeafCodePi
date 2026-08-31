@@ -8,6 +8,7 @@ import { isLoopbackHost } from "@/lib/loopback";
 import {
   DEFAULT_LLAMA_SERVER_SETTINGS,
   isLlamaSpecComboBroken,
+  LLAMA_SERVER_SYSTEM_PROMPT_MAX_CHARS,
   LLAMA_MODEL_PRESETS,
   LLAMA_SERVER_EFFORTS,
   LLAMA_SERVER_SPEC_TYPES,
@@ -183,7 +184,9 @@ export function LlamaServerSettings() {
     try {
       const res = await sendJson<{ ok?: boolean; pid?: number | null; error?: string }>(
         "/api/llama-server/start",
-        config,
+        // The prompt is applied to chat requests by the llama-server provider,
+        // not by the process launcher. Keep it out of the host control payload.
+        { ...config, systemPrompt: undefined },
       );
       if (!res.ok) {
         throw new Error(res.error ?? "起動に失敗しました");
@@ -535,6 +538,26 @@ export function LlamaServerSettings() {
                 {modelsNote}
               </span>
             )}
+          </div>
+
+          <div>
+            <label htmlFor="llama-system-prompt" className="mb-1 block text-sm text-muted">
+              システムプロンプト
+            </label>
+            <textarea
+              id="llama-system-prompt"
+              rows={5}
+              maxLength={LLAMA_SERVER_SYSTEM_PROMPT_MAX_CHARS}
+              aria-describedby="llama-system-prompt-hint"
+              placeholder="例: 回答は日本語で、簡潔に説明してください。"
+              value={config.systemPrompt}
+              disabled={actionBusy !== null}
+              onChange={(e) => setConfig((c) => ({ ...c, systemPrompt: e.target.value }))}
+              className="min-h-28 w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-border-strong disabled:opacity-40"
+            />
+            <span id="llama-system-prompt-hint" className="mt-1 block text-[11px] text-faint">
+              LeafCode の既定プロンプトに追加して、llama-server への各チャットリクエストに送信します。空欄なら追加しません。
+            </span>
           </div>
 
           <label className="flex items-start gap-3 text-sm">

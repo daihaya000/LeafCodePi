@@ -21,10 +21,24 @@ export type LlamaCacheType = (typeof LLAMA_CACHE_TYPES)[number];
 export const LLAMA_SERVER_HOSTS = ["127.0.0.1", "0.0.0.0"] as const;
 export type LlamaServerHost = (typeof LLAMA_SERVER_HOSTS)[number];
 
+/** Maximum UTF-16 code units accepted for the additional system prompt. */
+export const LLAMA_SERVER_SYSTEM_PROMPT_MAX_CHARS = 32_768;
+
+/** System prompts travel in JSON requests, so shell metacharacters are safe. */
+export function isSafeLlamaSystemPrompt(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= LLAMA_SERVER_SYSTEM_PROMPT_MAX_CHARS &&
+    !value.includes("\u0000")
+  );
+}
+
 export type LlamaServerSettings = {
   effort: LlamaServerEffort;
   contextLength: number;
   parallel: number;
+  /** llama-server リクエストへ追加するシステムプロンプト。"" は追加なし。 */
+  systemPrompt: string;
   /** llama.cpp のインストール先（ディレクトリ、または llama-server.exe の絶対パス）。"" は bat の既定値。 */
   llamaCppPath: string;
   /** GGUF モデルの保存先ルート。"" は bat の既定値。 */
@@ -44,6 +58,7 @@ export const DEFAULT_LLAMA_SERVER_SETTINGS: LlamaServerSettings = {
   effort: "low",
   contextLength: 32_768,
   parallel: 1,
+  systemPrompt: "",
   llamaCppPath: "",
   modelDir: "",
   modelFile: "",
@@ -93,8 +108,8 @@ export function resolveLlamaServerBin(llamaCppPath: string): string {
 }
 
 /**
- * Shape gate for the persisted setting. The three path fields are optional so a
- * config saved before they existed still validates (parse fills the defaults).
+ * Shape gate for the persisted setting. The prompt and path fields are optional
+ * so configs saved before they existed still validate (parse fills the defaults).
  */
 export function isLlamaServerSettings(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -110,6 +125,7 @@ export function isLlamaServerSettings(value: unknown): boolean {
     Number.isSafeInteger(candidate.parallel) &&
     candidate.parallel >= 1 &&
     candidate.parallel <= 16 &&
+    (candidate.systemPrompt === undefined || isSafeLlamaSystemPrompt(candidate.systemPrompt)) &&
     (candidate.llamaCppPath === undefined || isSafeLlamaPathValue(candidate.llamaCppPath)) &&
     (candidate.modelDir === undefined || isSafeLlamaPathValue(candidate.modelDir)) &&
     (candidate.modelFile === undefined || isSafeLlamaModelFile(candidate.modelFile)) &&
