@@ -57,6 +57,7 @@ The extension ships with agents you can use immediately:
 | Agent | Use it when you want... |
 |-------|--------------------------|
 | `scout` | Fast local codebase recon: relevant files, entry points, data flow, risks. |
+| `plan` | Read-only codebase analysis that produces an implementation plan before changes. |
 | `researcher` | Web/docs research with sources and a concise research brief. |
 | `worker` | Implementation work. Edits files, validates, escalates unapproved decisions instead of guessing. |
 | `reviewer` | Code review and small fixes against the task/plan, tests, edge cases, and simplicity. |
@@ -81,6 +82,7 @@ The package includes `/council` and `council-mode`, plus documented model-based
 | Review until clean | "Run a review loop on this change with a max of 3 rounds." |
 | Execute a plan carefully | "Have worker implement this approved plan, then run reviewers and apply the feedback." |
 | Scout before planning | "Use scout to inspect the auth flow before planning." |
+| Create an implementation plan | "Use plan to analyze this change before implementation." |
 | Run in the background | "Run this in the background." |
 | Use a saved workflow | "Run the review chain on this branch." |
 | Browse agents | "Show me the available subagents." |
