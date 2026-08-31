@@ -1583,15 +1583,16 @@ async function createSession(options: {
   // skillsOverride re-reads state on every resourceLoader.reload() / session.reload().
   // Also drop any ~/.agents skills Pi loads internally: this harness must not
   // read C:\Users\Daichi\.agents (skills.ts discovery already excludes it).
-  // Bundled WebUI extensions (goal-loop / todowrite / permission-gate) load
-  // straight from this repository's extensions/ dir; stale same-name copies
-  // under ~/.pi are dropped so they never register duplicate tools.
+  // Bundled LeafCode extensions load straight from this repository's
+  // extensions/ dir; stale same-name copies under ~/.pi are dropped so they
+  // never register duplicate tools.
   const bundled = bundledExtensionEntries();
   const bundledNames = new Set(bundled.map((entry) => entry.name));
   const bundledPaths = new Set(bundled.map((entry) => entry.filePath));
-  // The bundled leafcode-subagents fork replaces the npm pi-subagents package:
-  // drop the npm extension so the `subagent` tool is never registered twice.
+  // Bundled forks replace their upstream npm extensions. Drop those stale
+  // entries so their tools are never registered twice.
   const forkOwnsSubagents = bundledNames.has("leafcode-subagents");
+  const forkOwnsMcpAdapter = bundledNames.has("leafcode-mcp-adapter");
   // Selected agent becomes the main persona: its system prompt replaces (or
   // appends to) the base prompt, and context files / skills follow the agent's
   // inherit flags — mirroring how pi-subagents launches child sessions.
@@ -1626,6 +1627,7 @@ async function createSession(options: {
               forkOwnsSubagents &&
               basenameKey(extension.path) === "pi-subagents"
             ) &&
+            !(forkOwnsMcpAdapter && basenameKey(extension.path) === "pi-mcp-adapter") &&
             (!bundledNames.has(basenameKey(extension.path)) ||
               bundledPaths.has(resolve(extension.path))),
         ),

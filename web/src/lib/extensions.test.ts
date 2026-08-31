@@ -178,6 +178,16 @@ describe("listExtensions / setExtensionEnabled", () => {
     expectNames(listed.extensions, ["leafcode-goal-loop", "one", "other"]);
   });
 
+  it("hides the legacy MCP adapter when the bundled fork is present", () => {
+    const { agentDir: agent } = fixture();
+    const bundledRoot = join(data, "repo-extensions");
+    writeExtension(bundledRoot, "leafcode-mcp-adapter");
+    writeExtension(join(agent, "extensions"), "pi-mcp-adapter");
+
+    const listed = listExtensions(agent, { bundledDir: bundledRoot });
+    expectNames(listed.extensions, ["leafcode-mcp-adapter", "one"]);
+  });
+
   it("discovers extensions from installed packages (settings.json packages)", () => {
     const { agentDir: agent } = fixture();
     // Simulate a `pi install`-style package clone with a pi.extensions manifest.

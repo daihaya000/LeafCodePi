@@ -103,7 +103,7 @@ export function McpSettings() {
         </Button>
       </div>
       <p className="text-xs text-muted">
-        pi-mcp-adapter が読む MCP サーバー設定（
+        leafcode-mcp-adapter が読む MCP サーバー設定（
         <span className="font-mono">~/.pi/agent/mcp.json</span>
         ）の有効／無効を切り替えます。追加は <span className="font-mono">.mcp.json</span> などに{" "}
         <span className="font-mono">mcpServers</span> を記述してください。

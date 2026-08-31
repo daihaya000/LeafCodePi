@@ -63,6 +63,7 @@ LeafCodePi には次の Pi 拡張を同梱しています。WebUI と連携す�
 | --- | --- |
 | `leafcode-goal-loop` | Goal Loop と完走モード |
 | `leafcode-memory` | 永続メモリ、セッション検索、手続き型スキル |
+| `leafcode-mcp-adapter` | MCP サーバー接続とツール呼び出し |
 | `leafcode-permission-gate` | ツール実行の権限ゲート |
 | `leafcode-question` | WebUI からの質問応答 |
 | `leafcode-subagents` | サブエージェント委譲、エージェント定義、スキル、プロンプト |
@@ -90,6 +91,16 @@ Task 画面には本家 LeafCode と同様の折りたたみ式 ToDo 進捗と�
 ```powershell
 pi install ./extensions/leafcode-todowrite
 ```
+
+### MCP
+
+`extensions/leafcode-mcp-adapter` に `pi-mcp-adapter` の LeafCodePi 組み込みフォークを同梱しています。
+
+```powershell
+pi install ./extensions/leafcode-mcp-adapter
+```
+
+設定は `.mcp.json` または `~/.pi/agent/mcp.json` の `mcpServers` に記述します。
 
 ## まだないもの
 

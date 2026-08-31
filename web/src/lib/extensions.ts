@@ -3,8 +3,7 @@
  * Disabled extensions are filtered out of AgentSession through
  * DefaultResourceLoader.extensionsOverride.
  *
- * WebUI-dependent bundled extensions (leafcode-goal-loop, leafcode-todowrite,
- * leafcode-permission-gate) are read directly from this repository's
+ * Bundled LeafCode extensions are read directly from this repository's
  * extensions/ directory and win over same-name entries in ~/.pi.
  *
  * Discovery mirrors Pi's global extension roots:
@@ -13,7 +12,7 @@
  *   and subdirs with a package.json "pi.extensions" manifest)
  * - ~/.pi/agent/git/<host>/<owner>/<repo> for entries declared by installed
  *   git packages (settings.json "packages"), such as ponytail.
- * - ~/.pi/agent/npm/node_modules/<name> for installed npm packages (e.g. pi-mcp-adapter).
+ * - ~/.pi/agent/npm/node_modules/<name> for installed npm packages (e.g. leafcode-mcp-adapter).
  */
 
 import {
@@ -74,7 +73,7 @@ export function extensionsDir(agentDir = resolvePiAgentDir()): string {
   return join(agentDir, "extensions");
 }
 
-/** Repository extensions/ dir shipped with LeafCodePi (bundled WebUI extensions). */
+/** Repository extensions/ dir shipped with LeafCodePi (bundled extensions). */
 export function bundledExtensionsDir(): string | null {
   const override = process.env.LEAFCODE_PI_EXTENSIONS_DIR?.trim();
   const candidates = override ? [override] : [join(process.cwd(), "extensions"), join(process.cwd(), "..", "extensions")];
@@ -96,6 +95,7 @@ const emptyState = (): ExtensionsState => {
 
 // Prevent a removed bundled extension from being revived by a stale global copy.
 const RETIRED_EXTENSION_NAMES = new Set(["leafcode-collaboration"]);
+const BUNDLED_REPLACED_EXTENSION_NAMES = new Set(["pi-mcp-adapter"]);
 
 /** LeafCodePi の WebUI が依存する拡張。無効化禁止。 */
 export function isWebUiRequiredExtension(name: string): boolean {
@@ -352,6 +352,7 @@ export function listExtensions(
 
   const extensions = [...byName.values()]
     .filter((entry) => !RETIRED_EXTENSION_NAMES.has(entry.name))
+    .filter((entry) => !(BUNDLED_REPLACED_EXTENSION_NAMES.has(entry.name) && byName.has("leafcode-mcp-adapter")))
     .map(
       (entry): ExtensionDto => ({
         id: entry.name,

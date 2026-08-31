@@ -1,6 +1,6 @@
 /**
  * Global MCP servers with ON/OFF, managed through Pi's global override file
- * `~/.pi/agent/mcp.json`. pi-mcp-adapter reads this file (highest-precedence
+ * `~/.pi/agent/mcp.json`. leafcode-mcp-adapter reads this file (highest-precedence
  * Pi layer) plus shared `.mcp.json`/`~/.config/mcp/mcp.json` sources; we only
  * manage the Pi global override so existing shared configs keep working.
  *
