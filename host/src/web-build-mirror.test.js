@@ -321,6 +321,24 @@ test("the build guard fails closed when netstat is unavailable", () => {
   assert.equal(productionWebUiIsIdle({ port: 3010, mirrorRoot: MIRROR, exec: broken }), false);
 });
 
+test("the Linux build guard uses ss and ps", () => {
+  const calls = [];
+  const commandLine = `/usr/bin/node ${MIRROR}/node_modules/next/dist/bin/next start --hostname 127.0.0.1`;
+  const exec = (command) => {
+    calls.push(command);
+    if (command === "ss") {
+      return `LISTEN 0 128 127.0.0.1:3010 0.0.0.0:* users:(("node",pid=4242,fd=1))`;
+    }
+    if (command === "ps") return commandLine;
+    throw new Error(`unexpected command: ${command}`);
+  };
+  assert.equal(
+    productionWebUiIsIdle({ platform: "linux", port: 3010, mirrorRoot: MIRROR, exec }),
+    false,
+  );
+  assert.deepEqual(calls, ["ss", "ps"]);
+});
+
 test("webUiPort falls back to 3010 for absent or invalid values", () => {
   assert.equal(webUiPort({ LEAFCODE_PI_PORT: "3100" }), 3100);
   assert.equal(webUiPort({}), 3010);

@@ -1649,6 +1649,7 @@ async function createSession(options: {
   // stay allowed so tool_search can activate them, then session_start removes
   // their schemas from the initial model request. `subagent` remains governed
   // independently by the user's delegation permission.
+  const shellTools = process.platform === "win32" ? ["powershell", "bash"] : ["bash"];
   const configuredTools = agentOptions?.tools
     ? needsToolSearch(agentOptions.tools)
       ? [...new Set([...agentOptions.tools, TOOL_SEARCH_NAME])]
@@ -1657,8 +1658,7 @@ async function createSession(options: {
         "read",
         "write",
         "edit",
-        "powershell",
-        "bash",
+        ...shellTools,
         "question",
         "grep",
         "find",

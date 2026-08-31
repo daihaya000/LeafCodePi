@@ -57,11 +57,19 @@ async function stopLlamaServer() {
 }
 
 function openBrowser(url) {
-  spawn('cmd', ['/c', 'start', '', url], {
+  const [command, args] =
+    process.platform === 'win32'
+      ? ['cmd.exe', ['/c', 'start', '', url]]
+      : process.platform === 'darwin'
+        ? ['open', [url]]
+        : ['xdg-open', [url]];
+  const child = spawn(command, args, {
     detached: true,
     stdio: 'ignore',
     shell: false,
-  }).unref();
+  });
+  child.once('error', (err) => console.error(`Could not open browser: ${err.message}`));
+  child.unref();
 }
 
 let systray = null;

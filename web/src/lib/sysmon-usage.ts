@@ -516,6 +516,7 @@ async function collectNvidiaGpu(): Promise<GpuMetric | null> {
 
 /** Windows標準カウンター経由でAMDの使用率・VRAMを取得する。複数GPU（dGPU/iGPU）を返す。 */
 async function collectAmdGpu(): Promise<GpuMetric[]> {
+  if (process.platform !== "win32") return [];
   try {
     const { stdout } = await execFileAsync(
       powershellBin(),

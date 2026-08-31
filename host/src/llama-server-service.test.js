@@ -404,3 +404,44 @@ test('stop clears the owned pid so a subsequent status no longer reports it', as
   s = await svc.status();
   assert.equal(s.pid, null);
 });
+
+test('Linux starts llama-server directly without PowerShell or a tray', async () => {
+  let spawned = null;
+  const svc = createLlamaServerService(
+    makeDeps({
+      platform: 'linux',
+      defaultBin: '/usr/local/bin/llama-server',
+      defaultModelDir: '/home/test/models',
+      trayScript: '/tmp/llama-server-tray.mjs',
+      spawnSync: () => { throw new Error('PowerShell must not be called'); },
+      spawn: (command, args, options) => {
+        spawned = { command, args, options };
+        return { pid: 2468, once() {}, unref() {} };
+      },
+    }),
+  );
+  const result = await svc.start({
+    modelFile: 'repo/model-Q4_K_S.gguf',
+    contextLength: 65536,
+    parallel: 2,
+    effort: 'medium',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.pid, 2468);
+  assert.equal(result.trayPid, null);
+  assert.equal(spawned.command, '/usr/local/bin/llama-server');
+  assert.deepEqual(spawned.args, [
+    '--host', '127.0.0.1', '--port', '8080', '-c', '65536', '-np', '2',
+    '-ngl', '999', '-fa', 'on', '--temp', '0.6', '--top-p', '0.95', '--top-k', '20', '--jinja',
+    '--chat-template-kwargs', '{"reasoning_effort":"medium"}',
+    '-m', '/home/test/models/repo/model-Q4_K_S.gguf', '--alias', 'model-Q4_K_S',
+  ]);
+  assert.equal(spawned.options.detached, true);
+});
+
+test('Linux rejects model files outside the configured model directory', async () => {
+  const svc = createLlamaServerService(makeDeps({ platform: 'linux' }));
+  const result = await svc.start({ modelFile: '../secret.gguf' });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /unsafe llama-server path value: modelFile/);
+});

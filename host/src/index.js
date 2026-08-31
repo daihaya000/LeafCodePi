@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import SysTrayImport from "systray2";
-import { bindHost, dataDir, DEFAULT_HOST_CONTROL_PORT, DEFAULT_LLAMA_SERVER_PORT, DEFAULT_WEBUI_PORT, isHeadless, readPort, shouldOpenBrowser as envAllowsBrowser, webUiUrl } from "./config.js";
+import { bindHost, dataDir, DEFAULT_HOST_CONTROL_PORT, DEFAULT_LLAMA_SERVER_PORT, DEFAULT_WEBUI_PORT, readPort, shouldOpenBrowser as envAllowsBrowser, shouldUseTray, webUiUrl } from "./config.js";
 import { readBrowserConfig, writeBrowserConfig } from "./browser-config.js";
 import { isThisModuleEntrypoint } from "./entry.js";
 import { createLlamaControlServer, closeControlServer, listenControlServer } from "./llama-control-server.js";
@@ -13,7 +13,7 @@ import { createLlamaServerService } from "./llama-server-service.js";
 import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids } from "./port-scanner.js";
-import { stopProcessTreeGracefully } from "./process-stop.js";
+import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
 import { buildHostRestartScript } from "./host-restart.js";
 import { createTranslationService } from "./translation-service.js";
 import { withLocalLeafcodeTempEnv } from "./tray-temp.js";
@@ -41,11 +41,6 @@ import {
 
 const SysTray =
   SysTrayImport?.default?.default || SysTrayImport?.default || SysTrayImport;
-if (typeof SysTray !== "function") {
-  throw new Error(
-    `systray2 import failed (got ${typeof SysTrayImport}). Reinstall host deps: cd host && npm install`,
-  );
-}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HOST_DIR = join(__dirname, "..");
@@ -95,6 +90,7 @@ function webUiAuthSettings() {
 
 const llamaServerService = createLlamaServerService({
   batPath: join(REPO_ROOT, "scripts", "llama-server-load.bat"),
+  platform: process.platform,
   port: LLAMA_SERVER_PORT,
   getListeningPids,
   stopProcessTreeGracefully,
@@ -179,19 +175,23 @@ function npmCmd() {
 }
 
 function killTree(pid) {
-  if (!Number.isFinite(pid) || pid <= 0) return;
-  spawnSync("taskkill", ["/T", "/F", "/PID", String(pid)], {
-    windowsHide: true,
-    stdio: "ignore",
-  });
+  hardKillTree(pid, { platform: process.platform });
 }
 
 function openBrowser(url) {
-  spawn("cmd.exe", ["/c", "start", "", url], {
+  const [command, args] =
+    process.platform === "win32"
+      ? ["cmd.exe", ["/c", "start", "", url]]
+      : process.platform === "darwin"
+        ? ["open", [url]]
+        : ["xdg-open", [url]];
+  const child = spawn(command, args, {
     detached: true,
     stdio: "ignore",
     windowsHide: true,
-  }).unref();
+  });
+  child.once("error", (err) => error(`Could not open browser: ${err.message}`));
+  child.unref();
 }
 
 /** Browser auto-open is off by default; enabled via the settings UI. */
@@ -238,6 +238,7 @@ function pipeChild(label, child) {
 
 function runNodeScript(args, options) {
   return spawn(process.execPath, args, {
+    detached: process.platform !== "win32",
     windowsHide: true,
     stdio: "pipe",
     ...options,
@@ -441,6 +442,30 @@ async function restartWeb() {
  */
 async function restartHost() {
   log("Host restart requested; spawning replacement…");
+  if (process.platform !== "win32") {
+    const waitScript = [
+      "const fs = require('node:fs');",
+      "const { spawn } = require('node:child_process');",
+      "const [lock, executable, entry] = process.argv.slice(1);",
+      "const wait = () => { if (fs.existsSync(lock)) setTimeout(wait, 100); else { const child = spawn(executable, [entry], { detached: true, stdio: 'ignore', env: process.env }); child.unref(); } };",
+      "wait();",
+    ].join(" ");
+    const child = spawn(
+      process.execPath,
+      ["-e", waitScript, LOCK_FILE, process.execPath, fileURLToPath(import.meta.url)],
+      {
+        detached: true,
+        stdio: "ignore",
+        env: { ...process.env, LEAFCODE_PI_NO_BROWSER: "1" },
+      },
+    );
+    child.once("error", (err) => error(`Host restart failed: ${err.message}`));
+    child.unref();
+    log(`Replacement host waiter spawned (PID ${child.pid ?? "unknown"})`);
+    await quit();
+    return;
+  }
+
   const name = `leafcode-pi-restart-${randomBytes(6).toString("hex")}.bat`;
   const launcherPath = join(tmpdir(), name);
   const launcherExePath = join(REPO_ROOT, "LeafCodePi.exe");
@@ -557,6 +582,11 @@ function scheduleTrayRestart() {
 }
 
 async function startTray() {
+  if (typeof SysTray !== "function") {
+    throw new Error(
+      `systray2 import failed (got ${typeof SysTrayImport}). Reinstall host deps: cd host && npm install`,
+    );
+  }
   return withLocalLeafcodeTempEnv(async () => {
     let lastErr;
     for (const copyDir of [true, false]) {
@@ -788,11 +818,6 @@ function onHostExit() {
 }
 
 async function main() {
-  if (process.platform !== "win32") {
-    error("This host is intended for Windows.");
-    process.exit(1);
-  }
-
   acquireLock();
   log(`LeafCodePi host ${HOST_VERSION} pid=${process.pid}`);
   log(`Binding WebUI on ${WEBUI_HOST}:${WEBUI_PORT} (open ${WEBUI_URL})`);
@@ -810,9 +835,11 @@ async function main() {
   process.on("SIGTERM", () => {
     void quit();
   });
-  process.on("SIGBREAK", () => {
-    void quit();
-  });
+  if (process.platform === "win32") {
+    process.on("SIGBREAK", () => {
+      void quit();
+    });
+  }
   process.on("exit", onHostExit);
 
   try {
@@ -832,8 +859,8 @@ async function main() {
     process.exit(1);
   }
 
-  const headless = isHeadless();
-  if (!headless) {
+  const useTray = shouldUseTray();
+  if (useTray) {
     try {
       await startTray();
     } catch (err) {

@@ -2,26 +2,20 @@
  * llama-server process lifecycle service.
  *
  * The server is a tray-independent resident: it must survive LeafCode's own
- * process ending (normal quit or force-kill). LeafCode.exe wraps the whole
- * tree in a Kill-On-Job-Close job, so a plain child spawn dies with the host.
- * To escape that job this service launches scripts/llama-server-load.bat via
- * WMI (Win32_Process.Create), which spawns the process outside any job the
- * host belongs to. The bat uses `start` for llama-server.exe itself, so it is
- * already independent once launched; WMI just moves the whole batch out of the
- * host's job. Config values are inlined into a temporary UTF-8 launcher bat
- * (WMI does not inherit the caller's environment variables), which then `call`s
- * the real llama-server-load.bat.
+ * process ending (normal quit or force-kill). Windows launches a temporary bat
+ * outside LeafCode.exe's Kill-On-Job-Close job via WMI. Linux/macOS spawn the
+ * configured llama-server binary directly in a detached process group.
  *
- * status/start/stop are deliberately synchronous: start() launches via WMI and
- * returns immediately (the bat polls /health); status() does the live /health
- * probe and port check on demand. The BFF polls status() from the UI.
+ * status/start/stop are deliberately asynchronous at the process boundary:
+ * start() launches the server and returns immediately; status() does the live
+ * /health probe and port check on demand. The BFF polls status() from the UI.
  */
 
 import { spawn, spawnSync } from 'child_process';
 import { randomBytes } from 'crypto';
 import { writeFileSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import { homedir, tmpdir } from 'os';
+import { isAbsolute, join, posix, sep } from 'path';
 
 /**
  * Optional overrides for the start config. All map to the bat's env vars.
@@ -54,6 +48,16 @@ function isUnsafePathValue(value) {
   return typeof value !== 'string' || value.length > 400 || UNSAFE_PATH_CHARS.test(value);
 }
 
+/** @param {unknown} value */
+function isSafeModelFile(value, platform = process.platform) {
+  if (isUnsafePathValue(value)) return false;
+  if (value === '') return true;
+  if (!String(value).toLowerCase().endsWith('.gguf')) return false;
+  const normalized = String(value).replaceAll('\\', '/');
+  const absolute = platform === 'win32' ? isAbsolute(normalized) : posix.isAbsolute(normalized);
+  return !absolute && !normalized.split('/').includes('..');
+}
+
 /**
  * @typedef {Object} LlamaServerStatus
  * @property {boolean} running /health is ok OR a live PID owns the port.
@@ -64,8 +68,12 @@ function isUnsafePathValue(value) {
 
 /**
  * @param {{
- *   batPath: string,
+ *   batPath?: string,
  *   port: number,
+ *   platform?: string,
+ *   defaultBin?: string,
+ *   defaultModelDir?: string,
+ *   trayEnabled?: boolean,
  *   getListeningPids?: (port: number) => number[],
  *   fetch?: typeof fetch,
  *   spawn?: typeof spawn,
@@ -78,8 +86,23 @@ function isUnsafePathValue(value) {
  * }} deps
  */
 export function createLlamaServerService(deps) {
+  const platform = deps.platform ?? process.platform;
+  const isWindows = platform === 'win32';
   const batPath = deps.batPath;
   const port = deps.port;
+  const defaultBin = deps.defaultBin ?? (
+    isWindows
+      ? null
+      : process.env.LEAFCODE_PI_LLAMA_SERVER_BIN?.trim() || process.env.LLAMA_SERVER_BIN?.trim() || 'llama-server'
+  );
+  const defaultModelDir = deps.defaultModelDir ?? (
+    isWindows
+      ? null
+      : process.env.LEAFCODE_PI_LLAMA_MODEL_DIR?.trim() || join(homedir(), 'models', 'llm')
+  );
+  const pathJoin = isWindows ? join : posix.join;
+  const pathSeparator = isWindows ? sep : posix.sep;
+  const trayEnabled = deps.trayEnabled ?? isWindows;
   const getListeningPids = deps.getListeningPids ?? (() => []);
   const doFetch = deps.fetch ?? fetch;
   const writeFile = deps.writeFile ?? writeFileSync;
@@ -98,7 +121,6 @@ export function createLlamaServerService(deps) {
       }
     });
   const stopTree = deps.stopProcessTreeGracefully ?? null;
-
   /** @type {number | null} */
   let ownedPid = null;
   /** @type {number | null} */
@@ -235,6 +257,58 @@ export function createLlamaServerService(deps) {
     }
   }
 
+  /** Build a direct POSIX launch; unlike the Windows bat this needs no shell. */
+  function buildPosixLaunch(config) {
+    const binary = config.llamaServerBin?.trim() || defaultBin;
+    if (!binary) throw new Error('llama-server binary is not configured');
+    const modelDir = config.modelDir?.trim() || defaultModelDir;
+    if (!modelDir) throw new Error('llama-server model directory is not configured');
+    const args = [
+      '--host', config.llamaServerHost || '127.0.0.1',
+      '--port', String(port),
+      '-c', String(config.contextLength || 32768),
+      '-np', String(config.parallel || 1),
+      '-ngl', '999',
+      '-fa', 'on',
+      '--temp', '0.6',
+      '--top-p', '0.95',
+      '--top-k', '20',
+      '--jinja',
+    ];
+    if (config.cacheTypeK) args.push('--cache-type-k', config.cacheTypeK);
+    if (config.cacheTypeV) args.push('--cache-type-v', config.cacheTypeV);
+    if (config.specType) args.push('--spec-type', config.specType);
+    if (config.effort) {
+      args.push('--chat-template-kwargs', JSON.stringify({ reasoning_effort: config.effort }));
+    }
+    if (config.modelFile) {
+      const modelFile = String(config.modelFile).replaceAll('\\', pathSeparator);
+      const modelPath = pathJoin(modelDir, modelFile);
+      const alias = modelFile.split(pathSeparator).pop()?.replace(/\.gguf$/i, '') || 'model';
+      args.push('-m', modelPath, '--alias', alias);
+    } else {
+      args.push('--models-dir', modelDir);
+    }
+    return { binary, args };
+  }
+
+  function launchDetached(command, args, options = {}) {
+    const child = spawnFn(command, args, {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      ...options,
+    });
+    const pid = child.pid ?? null;
+    if (typeof child.once === 'function') {
+      child.once('error', () => {
+        if (ownedPid === pid) ownedPid = null;
+      });
+    }
+    child.unref?.();
+    return pid;
+  }
+
   /**
    * Start the server as a resident outside the host's Kill On Job Close.
    * @param {LlamaServerStartConfig} [config]
@@ -251,42 +325,55 @@ export function createLlamaServerService(deps) {
     if ((await fetchHealth()) === 'ok') {
       return { ok: false, pid: ownedPid, error: 'llama-server is already running' };
     }
-    for (const key of ['llamaServerBin', 'modelDir', 'modelFile']) {
+    for (const key of ['llamaServerBin', 'modelDir']) {
       if (config[key] !== undefined && isUnsafePathValue(config[key])) {
         return { ok: false, pid: null, error: `unsafe llama-server path value: ${key}` };
       }
     }
-  const launcherPath = buildLauncher(config);
-  try {
-    const wmiPid = launchViaWmi(launcherPath);
-    if (wmiPid !== null) {
-      ownedPid = wmiPid;
-    } else {
-      // Fallback: spawn inside the current tree (still works, just not
-      // independent of the host). The bat's own `start` keeps llama-server.exe
-      // alive past the bat, but the host's Kill Job still reaches it.
-      const child = spawnFn('cmd.exe', ['/c', launcherPath], {
-        detached: false,
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-      ownedPid = child.pid ?? null;
+    if (config.modelFile !== undefined && !isSafeModelFile(config.modelFile, platform)) {
+      return { ok: false, pid: null, error: 'unsafe llama-server path value: modelFile' };
     }
-    // Launch the standalone llama-server tray (a separate resident process)
-    // alongside the server, also outside the host's Kill Job. Best-effort: a
-    // failure here must not fail the server start.
-    if (trayScript) {
-      trayPid = launchNodeViaWmi(trayScript, String(port));
+
+    try {
+      if (!isWindows) {
+        const launch = buildPosixLaunch(config);
+        ownedPid = launchDetached(launch.binary, launch.args);
+        trayPid = trayEnabled && trayScript
+          ? launchDetached(process.execPath, [trayScript, String(port)])
+          : null;
+        return { ok: true, pid: ownedPid, trayPid };
+      }
+
+      const launcherPath = buildLauncher(config);
+      const wmiPid = launchViaWmi(launcherPath);
+      if (wmiPid !== null) {
+        ownedPid = wmiPid;
+      } else {
+        // Fallback: spawn inside the current tree (still works, just not
+        // independent of the host). The bat's own `start` keeps llama-server.exe
+        // alive past the bat, but the host's Kill Job still reaches it.
+        const child = spawnFn('cmd.exe', ['/c', launcherPath], {
+          detached: false,
+          stdio: 'ignore',
+          windowsHide: true,
+        });
+        ownedPid = child.pid ?? null;
+      }
+      // Launch the standalone llama-server tray (a separate resident process)
+      // alongside the server, also outside the host's Kill Job. Best-effort: a
+      // failure here must not fail the server start.
+      if (trayEnabled && trayScript) {
+        trayPid = launchNodeViaWmi(trayScript, String(port));
+      }
+      return { ok: true, pid: ownedPid, trayPid };
+    } catch (err) {
+      trayPid = null;
+      return {
+        ok: false,
+        pid: null,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
-    return { ok: true, pid: ownedPid, trayPid };
-  } catch (err) {
-    trayPid = null;
-    return {
-      ok: false,
-      pid: null,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
 }
 
   /**
@@ -310,7 +397,7 @@ export function createLlamaServerService(deps) {
     const killed = [];
     for (const pid of pidSet) {
       if (stopTree) {
-        await stopTree({ pid });
+        await stopTree({ pid, platform });
       }
       killed.push(pid);
     }

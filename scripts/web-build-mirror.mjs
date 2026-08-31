@@ -76,10 +76,12 @@ export function resolveMirrorRoot(env = process.env, sourceDir = DEFAULT_WEB_DIR
   const explicit = env.LEAFCODE_PI_BUILD_DIR?.trim();
   if (explicit) return resolve(explicit);
 
-  const base = env.LOCALAPPDATA?.trim() || env.APPDATA?.trim();
-  if (base) return join(base, "leafcode-pi", "build", mirrorSlug(sourceDir));
-
-  return join(resolve(sourceDir), ".build-mirror");
+  const base =
+    env.LOCALAPPDATA?.trim() ||
+    env.APPDATA?.trim() ||
+    env.XDG_CACHE_HOME?.trim() ||
+    join(homedir(), ".cache");
+  return join(base, "leafcode-pi", "build", mirrorSlug(sourceDir));
 }
 
 /** Production build output, always inside the mirrored project (Turbopack). */

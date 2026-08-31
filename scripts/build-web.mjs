@@ -4,7 +4,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveMirrorRoot, syncMirror } from "./web-build-mirror.mjs";
 import { DEFAULT_HOST_CONTROL_PORT, dataDir, readPort } from "../host/src/config.js";
-import { parseListeningPids } from "../host/src/port-plan.js";
+import { parseListeningPids, parseLsofListeningPids, parseSsListeningPids } from "../host/src/port-plan.js";
+import { runPortSnapshot } from "../host/src/port-scanner.js";
 
 /**
  * Single entry point for the production WebUI build, shared by `npm run build`
@@ -117,28 +118,42 @@ export function productionWebUiIsIdle({
   port = webUiPort(),
   mirrorRoot = resolveMirrorRoot(process.env, WEB_DIR),
   exec = execFileSync,
+  platform = process.platform,
 } = {}) {
-  let pids;
+  let snapshot;
   try {
-    pids = parseListeningPids(exec("netstat", ["-ano"], { encoding: "utf8" }), port);
+    snapshot = runPortSnapshot({ platform, execFileSync: exec }, port);
   } catch {
-    // netstat unavailable: cannot prove the port is free — fail closed.
+    snapshot = null;
+  }
+  if (!snapshot) {
+    // No listener tool available: cannot prove the port is free — fail closed.
     return false;
   }
+  const pids =
+    snapshot.format === "ss"
+      ? parseSsListeningPids(snapshot.output, port)
+      : snapshot.format === "lsof"
+        ? parseLsofListeningPids(snapshot.output, port)
+        : parseListeningPids(snapshot.output, port);
 
   for (const pid of pids) {
     let commandLine;
     try {
-      commandLine = exec(
-        "powershell.exe",
-        [
-          "-NoProfile",
-          "-NonInteractive",
-          "-Command",
-          `Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" | Select-Object -ExpandProperty CommandLine`,
-        ],
-        { encoding: "utf8" },
-      );
+      if (platform === "win32") {
+        commandLine = exec(
+          "powershell.exe",
+          [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            `Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" | Select-Object -ExpandProperty CommandLine`,
+          ],
+          { encoding: "utf8" },
+        );
+      } else {
+        commandLine = exec("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" });
+      }
     } catch {
       // A listener whose identity cannot be established might be the served
       // production build. Fail closed rather than risk replacing it.
