@@ -51,7 +51,19 @@ export function isSkillRead(
 /** 本家 LeafCode のタイムラインと同じ日本語ラベル・要約規則。 */
 export function toolLabel(tool: string, input?: Record<string, unknown>): string {
   const t = tool.toLowerCase();
+  const normalized = t === "memory_serch" ? "memory_search" : t;
   if (isSkillRead(tool, input)) return "スキル";
+  if (normalized === "memory_search") return "メモリ検索";
+  if (normalized === "memory_add") return "メモリ追加";
+  if (normalized === "memory_replace") return "メモリ更新";
+  if (normalized === "memory_remove") return "メモリ削除";
+  if (normalized === "session_search") return "セッション検索";
+  if (normalized === "skill_manage") return "スキル管理";
+  if (normalized === "tool_search") return "ツール検索";
+  if (normalized === "web_search") return "Web検索";
+  if (normalized === "source_check") return "出典確認";
+  if (normalized === "fetch_content") return "Web取得";
+  if (normalized === "get_search_content") return "検索結果取得";
   if (t.includes("subagent") || t === "task") return "サブエージェント";
   if (t === "question") return "確認";
   if (t.includes("bash") || t.includes("shell")) return "コマンド";

@@ -13,6 +13,21 @@ describe("toolLabel", () => {
     expect(toolLabel("subagent")).toBe("サブエージェント");
   });
 
+  it("maps memory and web access tools, including the legacy typo", () => {
+    expect(toolLabel("memory_search")).toBe("メモリ検索");
+    expect(toolLabel("memory_serch")).toBe("メモリ検索");
+    expect(toolLabel("memory_add")).toBe("メモリ追加");
+    expect(toolLabel("memory_replace")).toBe("メモリ更新");
+    expect(toolLabel("memory_remove")).toBe("メモリ削除");
+    expect(toolLabel("session_search")).toBe("セッション検索");
+    expect(toolLabel("skill_manage")).toBe("スキル管理");
+    expect(toolLabel("tool_search")).toBe("ツール検索");
+    expect(toolLabel("web_search")).toBe("Web検索");
+    expect(toolLabel("source_check")).toBe("出典確認");
+    expect(toolLabel("fetch_content")).toBe("Web取得");
+    expect(toolLabel("get_search_content")).toBe("検索結果取得");
+  });
+
   it("maps SKILL.md reads to the skill label", () => {
     const input = { path: "C:\\Users\\Daichi\\.pi\\agent\\skills\\bug-hunt\\SKILL.md" };
     expect(skillNameFromReadInput("read", input)).toBe("bug-hunt");

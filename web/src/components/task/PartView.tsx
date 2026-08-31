@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Search,
   Terminal,
+  Trash2,
   UserRound,
   Wrench,
 } from "lucide-react";
@@ -193,7 +194,19 @@ function UserTextPart({
 
 export function toolIcon(tool: string, input?: Record<string, unknown>) {
   const t = tool.toLowerCase();
+  const normalized = t === "memory_serch" ? "memory_search" : t;
   if (isSkillRead(tool, input)) return Wrench;
+  if (normalized === "memory_remove") return Trash2;
+  if (normalized === "memory_add" || normalized === "memory_replace") return FilePen;
+  if (normalized === "skill_manage") return Wrench;
+  if (
+    normalized === "memory_search" ||
+    normalized === "session_search" ||
+    normalized === "tool_search" ||
+    normalized === "source_check" ||
+    normalized === "get_search_content"
+  ) return Search;
+  if (normalized === "web_search" || normalized === "fetch_content") return Globe;
   if (t.includes("bash") || t.includes("shell")) return Terminal;
   if (t.includes("todo")) return ListTodo;
   if (t.includes("edit") || t.includes("write") || t.includes("patch")) return FilePen;
