@@ -67,6 +67,7 @@ LeafCodePi には次の Pi 拡張を同梱しています。WebUI と連携す�
 | `leafcode-question` | WebUI からの質問応答 |
 | `leafcode-subagents` | サブエージェント委譲、エージェント定義、スキル、プロンプト |
 | `leafcode-todowrite` | OpenCode 互換の ToDo 管理 |
+| `leafcode-web-access` | Web 検索、URL/PDF/GitHub/動画の取得・解析 |
 
 ### Goal Loop
 
