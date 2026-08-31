@@ -76,6 +76,9 @@ describe("/api/tasks/[id]/events", () => {
       new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
       { params: Promise.resolve({ id: "task-1" }) },
     );
+    expect(response.headers.get("cache-control")).toBe("no-store, no-cache, no-transform");
+    expect(response.headers.get("pragma")).toBe("no-cache");
+    expect(response.headers.get("expires")).toBe("0");
     const reader = response.body!.getReader();
 
     const bootstrapChunk = await readChunk(reader);

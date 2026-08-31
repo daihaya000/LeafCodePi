@@ -623,7 +623,9 @@ export const TaskView = memo(function TaskView({
 
     const connect = () => {
       if (closed) return;
-      source = new EventSource(`/api/tasks/${taskId}/events`);
+      // 一部の端末・中継が no-cache の SSE URL を再利用し、reload 後に
+      // 古いストリームを返すことがあるため、接続ごとに URL を変える。
+      source = new EventSource(`/api/tasks/${taskId}/events?epoch=${Date.now()}`);
       source.addEventListener("snapshot", (event) => {
         if (closed) return;
         if (retryCount > 0) setError(null);

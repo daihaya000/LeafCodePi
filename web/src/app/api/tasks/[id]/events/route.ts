@@ -110,7 +110,9 @@ export async function GET(
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
+      "Cache-Control": "no-store, no-cache, no-transform",
+      Pragma: "no-cache",
+      Expires: "0",
       Connection: "keep-alive",
     },
   });
