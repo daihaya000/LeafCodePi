@@ -6,28 +6,44 @@ function asPid(pid) {
   return n;
 }
 
-export function softKillTree(pid, deps = {}) {
+function signalProcessTree(pid, signal, deps) {
   const id = asPid(pid);
   if (!id) return false;
-  const run = deps.execSync ?? defaultExecSync;
+  const platform = deps.platform ?? process.platform;
+  if (platform === "win32") {
+    const run = deps.execSync ?? defaultExecSync;
+    try {
+      run(`taskkill /T${signal === "SIGKILL" ? " /F" : ""} /PID ${id}`, {
+        stdio: "ignore",
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const kill = deps.kill ?? process.kill.bind(process);
   try {
-    run(`taskkill /T /PID ${id}`, { stdio: "ignore" });
+    // Linux/macOS children are launched detached, making the child PID the
+    // process-group ID. Fall back to the process itself for external PIDs.
+    kill(-id, signal);
     return true;
   } catch {
-    return false;
+    try {
+      kill(id, signal);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
+export function softKillTree(pid, deps = {}) {
+  return signalProcessTree(pid, "SIGTERM", deps);
+}
+
 export function hardKillTree(pid, deps = {}) {
-  const id = asPid(pid);
-  if (!id) return false;
-  const run = deps.execSync ?? defaultExecSync;
-  try {
-    run(`taskkill /T /F /PID ${id}`, { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
+  return signalProcessTree(pid, "SIGKILL", deps);
 }
 
 function sleep(ms) {
@@ -44,13 +60,15 @@ function sleep(ms) {
  *   sleep?: (ms: number) => Promise<void>,
  *   softWaitMs?: number,
  *   pollMs?: number,
+ *   platform?: string,
+ *   kill?: (pid: number, signal: string) => void,
  * }} input
  */
 export async function stopProcessTreeGracefully(input) {
   const pid = asPid(input.pid);
   if (!pid) return "gone";
-  const softKill = input.softKill ?? softKillTree;
-  const hardKill = input.hardKill ?? hardKillTree;
+  const softKill = input.softKill ?? ((id) => softKillTree(id, { platform: input.platform, kill: input.kill }));
+  const hardKill = input.hardKill ?? ((id) => hardKillTree(id, { platform: input.platform, kill: input.kill }));
   const isAlive =
     input.isAlive ??
     ((id) => {

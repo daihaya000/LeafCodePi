@@ -10,6 +10,7 @@ import {
   publicHost,
   readPort,
   shouldOpenBrowser,
+  shouldUseTray,
   webUiUrl,
 } from "./config.js";
 import { isThisModuleEntrypoint } from "./entry.js";
@@ -34,6 +35,13 @@ test("isHeadless reads env and argv", () => {
 test("shouldOpenBrowser defaults on", () => {
   assert.equal(shouldOpenBrowser({}), true);
   assert.equal(shouldOpenBrowser({ LEAFCODE_PI_NO_BROWSER: "1" }), false);
+});
+
+test("shouldUseTray keeps non-Windows hosts headless unless opted in", () => {
+  assert.equal(shouldUseTray({}, [], "win32"), true);
+  assert.equal(shouldUseTray({}, [], "linux"), false);
+  assert.equal(shouldUseTray({ LEAFCODE_PI_TRAY: "1" }, [], "linux"), true);
+  assert.equal(shouldUseTray({ LEAFCODE_PI_TRAY: "1", LEAFCODE_PI_HEADLESS: "1" }, [], "linux"), false);
 });
 
 test("bindHost resolves tailscale or falls back to loopback", () => {

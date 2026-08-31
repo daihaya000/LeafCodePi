@@ -30,6 +30,19 @@ export function isHeadless(env = process.env, argv = process.argv) {
   return env.LEAFCODE_PI_HEADLESS === "1" || argv.includes("--headless");
 }
 
+/**
+ * Tray helpers need a graphical session. Keep Linux headless by default so a
+ * server/SSH launch still works; opt in with LEAFCODE_PI_TRAY=1.
+ */
+export function shouldUseTray(
+  env = process.env,
+  argv = process.argv,
+  platform = process.platform,
+) {
+  if (isHeadless(env, argv)) return false;
+  return platform === "win32" || env.LEAFCODE_PI_TRAY === "1";
+}
+
 export function shouldOpenBrowser(env = process.env) {
   return env.LEAFCODE_PI_NO_BROWSER !== "1";
 }
