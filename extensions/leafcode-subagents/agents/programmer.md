@@ -1,7 +1,7 @@
 ---
 name: programmer
 description: Implements code changes and features as a dedicated programming subagent. Use when the task is concrete implementation, refactoring, bug fixes, test writing, or any hands-on coding work.
-tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, grep, find, ls, powershell, bash, edit, write, question, todowrite, web_search, source_check, fetch_content, get_search_content
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, powershell, bash, edit, write, todowrite, web_search, source_check, fetch_content, get_search_content
 model: openai-codex/gpt-5.6-luna
 thinking: max
 systemPromptMode: replace
