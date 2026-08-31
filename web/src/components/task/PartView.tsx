@@ -194,19 +194,14 @@ function UserTextPart({
 
 export function toolIcon(tool: string, input?: Record<string, unknown>) {
   const t = tool.toLowerCase();
-  const normalized = t === "memory_serch" ? "memory_search" : t;
   if (isSkillRead(tool, input)) return Wrench;
-  if (normalized === "memory_remove") return Trash2;
-  if (normalized === "memory_add" || normalized === "memory_replace") return FilePen;
-  if (normalized === "skill_manage") return Wrench;
-  if (
-    normalized === "memory_search" ||
-    normalized === "session_search" ||
-    normalized === "tool_search" ||
-    normalized === "source_check" ||
-    normalized === "get_search_content"
-  ) return Search;
-  if (normalized === "web_search" || normalized === "fetch_content") return Globe;
+  if (t === "memory_remove") return Trash2;
+  if (t === "memory_add" || t === "memory_replace") return FilePen;
+  if (t === "skill_manage") return Wrench;
+  if (t === "contact_supervisor" || t === "subagent_wait") return Bot;
+  if (t === "watchdog_permission_decision" || t === "watchdog_warn") return CircleAlert;
+  if (t === "memory_search" || t === "session_search" || t === "tool_search" || t === "source_check" || t === "get_search_content") return Search;
+  if (t === "web_search" || t === "fetch_content") return Globe;
   if (t.includes("bash") || t.includes("shell")) return Terminal;
   if (t.includes("todo")) return ListTodo;
   if (t.includes("edit") || t.includes("write") || t.includes("patch")) return FilePen;
