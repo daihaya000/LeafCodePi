@@ -1,7 +1,7 @@
 ---
 name: ui-ux-reviewer
 description: Reviews implemented UI after substantial UI changes or before release. Use to verify DESIGN.md compliance, usability, responsive behavior, accessibility, and UI state coverage.
-tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, grep, find, ls, powershell, bash, question, todowrite
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, grep, find, ls, powershell, bash, question, todowrite, web_search, source_check, fetch_content, get_search_content
 model: openai-codex/gpt-5.6-luna
 thinking: max
 systemPromptMode: replace

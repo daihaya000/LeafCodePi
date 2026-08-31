@@ -1,7 +1,7 @@
 ---
 name: debugger
 description: Investigates bugs, test failures, and unexpected behavior to find the root cause. Use when something is broken and the cause is unknown — before attempting a fix. Returns a diagnosis with evidence; applies only minimal instrumentation, not feature changes.
-tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, grep, find, ls, powershell, bash, edit, question
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, grep, find, ls, powershell, bash, edit, question, web_search, source_check, fetch_content, get_search_content
 model: openai-codex/gpt-5.6-luna
 thinking: max
 systemPromptMode: replace
