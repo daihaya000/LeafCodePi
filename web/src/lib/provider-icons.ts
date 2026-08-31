@@ -16,7 +16,8 @@ const PROVIDER_ICON_FILES: Record<string, string> = {
   lmstudio: "lmstudio.png",
   "llama-server": "llama-server.png",
   commandcode: "commandcode.svg",
-  leafcodecloud: "leafcodecloud.svg",
+  leafcode: "leafcode.png",
+  leafcodegreen: "leafcodegreen.png",
 };
 
 /** Map Pi provider ids → bundled icon file key. */
@@ -42,7 +43,8 @@ const PROVIDER_ID_TO_ICON: Record<string, string> = {
   "llama-server": "llama-server",
   commandcode: "commandcode",
   "command-code": "commandcode",
-  leafcodecloud: "leafcodecloud",
+  auto: "leafcodegreen",
+  leafcodecloud: "leafcode",
 };
 
 /** Public path of a brand icon for a provider id, or null. */
