@@ -9,6 +9,8 @@ import {
   parseLeafCodeMemorySettings,
   type LeafCodeMemorySettings,
   type LeafCodeMemorySettingsSnapshot,
+  type MemorySearchEntry,
+  type MemorySearchResponse,
 } from "@/lib/leafcode-memory-schema";
 
 function SelectField({
@@ -105,6 +107,20 @@ function ToggleField({
   );
 }
 
+const categoryLabels: Record<NonNullable<MemorySearchEntry["category"]>, string> = {
+  failure: "失敗",
+  correction: "訂正",
+  insight: "知見",
+  preference: "好み",
+  convention: "規約",
+  "tool-quirk": "ツール特性",
+};
+
+function targetLabel(entry: MemorySearchEntry): string {
+  if (entry.target === "memory") return entry.project ? "プロジェクト" : "メモリ";
+  return entry.target === "user" ? "ユーザー" : "失敗";
+}
+
 export function MemorySettings() {
   const [snapshot, setSnapshot] = useState<LeafCodeMemorySettingsSnapshot | null>(null);
   const [draft, setDraft] = useState<LeafCodeMemorySettings>(DEFAULT_LEAFCODE_MEMORY_SETTINGS);
@@ -112,6 +128,11 @@ export function MemorySettings() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<MemorySearchEntry[]>([]);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -159,6 +180,24 @@ export function MemorySettings() {
     }
   }
 
+  async function searchMemory() {
+    const query = searchQuery.trim();
+    if (!query || searching) return;
+    setSearching(true);
+    setSearchError(null);
+    try {
+      const result = await sendJson<MemorySearchResponse>("/api/memory-search", { query });
+      setSearchResults(result.results);
+      setHasSearched(true);
+    } catch (err) {
+      setSearchResults([]);
+      setHasSearched(true);
+      setSearchError(err instanceof Error ? err.message : "メモリ検索に失敗しました");
+    } finally {
+      setSearching(false);
+    }
+  }
+
   const disabled = loading || saving;
   const seconds = (milliseconds: number) => Math.round(milliseconds / 1_000);
 
@@ -175,6 +214,58 @@ export function MemorySettings() {
           {!snapshot ? "読み込み中" : !snapshot.valid ? "要確認" : dirty ? "未保存" : "保存済み"}
         </Badge>
       </div>
+
+      <section aria-labelledby="memory-search-heading" className="mt-4 rounded-xl border border-border bg-surface-2 p-3">
+        <h3 id="memory-search-heading" className="text-sm font-medium">保存済みメモリを検索</h3>
+        <p className="mt-1 text-xs text-muted">エージェントを呼び出さず、SQLiteに保存されたメモリを直接検索します。</p>
+        <form
+          className="mt-3 flex flex-col gap-2 sm:flex-row"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void searchMemory();
+          }}
+        >
+          <label htmlFor="memory-search-query" className="sr-only">検索語</label>
+          <input
+            id="memory-search-query"
+            type="search"
+            value={searchQuery}
+            maxLength={200}
+            disabled={searching}
+            placeholder="例: デプロイ規約"
+            onChange={(event) => setSearchQuery(event.target.value)}
+            className="min-h-11 w-full rounded-lg border border-border bg-surface px-3 text-sm outline-none focus:border-border-strong"
+          />
+          <Button type="submit" variant="primary" className="h-11" busy={searching} disabled={!searchQuery.trim()}>
+            検索
+          </Button>
+        </form>
+
+        <div aria-live="polite" className="mt-2 min-h-5 text-xs">
+          {searchError && <p className="text-danger">{searchError}</p>}
+          {!searchError && hasSearched && (
+            <p className="text-muted">
+              {searchResults.length > 0 ? `${searchResults.length}件見つかりました。` : "一致するメモリはありません。"}
+            </p>
+          )}
+        </div>
+
+        {searchResults.length > 0 && (
+          <ul className="mt-2 space-y-2">
+            {searchResults.map((entry, index) => (
+              <li key={`${entry.target}-${entry.project ?? "global"}-${entry.created}-${index}`} className="rounded-lg border border-border bg-surface p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone="neutral">{targetLabel(entry)}</Badge>
+                  <span className="text-[11px] text-faint">{entry.project ?? "グローバル"}</span>
+                  {entry.category && <span className="text-[11px] text-muted">{categoryLabels[entry.category]}</span>}
+                </div>
+                <p className="mt-2 whitespace-pre-wrap break-words text-sm text-text">{entry.content}</p>
+                <p className="mt-2 text-[11px] text-faint">作成 {entry.created} ・ 最終参照 {entry.lastReferenced}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <fieldset disabled={disabled || snapshot?.writable === false} className="mt-4 space-y-4 disabled:opacity-60">
         <legend className="sr-only">メモリ設定</legend>

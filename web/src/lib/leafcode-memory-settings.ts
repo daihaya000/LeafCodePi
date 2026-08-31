@@ -8,7 +8,8 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import { resolvePiAgentDir, type AgentsMdEnv } from "@/lib/agents-md";
 import {
   DEFAULT_LEAFCODE_MEMORY_SETTINGS,
@@ -28,6 +29,8 @@ export type {
 } from "@/lib/leafcode-memory-schema";
 
 const MAX_CONFIG_BYTES = 64 * 1024;
+const DEFAULT_MEMORY_DIR = "leafcode-memory";
+const LEGACY_MEMORY_DIRS = ["pi-hermes-memory", "memory"];
 
 function settingError(message: string, status = 400): Error {
   return Object.assign(new Error(message), { status });
@@ -39,6 +42,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function leafCodeMemoryConfigPath(env: AgentsMdEnv = process.env): string {
   return join(resolvePiAgentDir(env), "leafcode-memory-config.json");
+}
+
+function expandHome(value: string): string {
+  if (value === "~") return homedir();
+  if (value.startsWith("~/") || value.startsWith("~\\")) return join(homedir(), value.slice(2));
+  return value;
+}
+
+/** The same global memory directory resolution used by the extension runtime. */
+export function leafCodeMemoryDir(env: AgentsMdEnv = process.env): string {
+  const agentDir = resolvePiAgentDir(env);
+  const fallback = join(agentDir, DEFAULT_MEMORY_DIR);
+  const configured = readRoot(leafCodeMemoryConfigPath(env)).root?.memoryDir;
+  if (typeof configured !== "string" || !configured.trim()) return fallback;
+
+  const expanded = expandHome(configured.trim());
+  const candidate = isAbsolute(expanded) ? normalize(expanded) : resolve(agentDir, expanded);
+  return LEGACY_MEMORY_DIRS.some((name) => resolve(candidate) === resolve(agentDir, name))
+    ? fallback
+    : candidate;
 }
 
 function readRoot(path: string): { root: Record<string, unknown> | null; exists: boolean; error?: string } {

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_LEAFCODE_MEMORY_SETTINGS,
   leafCodeMemoryConfigPath,
+  leafCodeMemoryDir,
   readLeafCodeMemorySettings,
   writeLeafCodeMemorySettings,
 } from "@/lib/leafcode-memory-settings";
@@ -29,6 +30,7 @@ describe("leafcode-memory settings", () => {
       valid: true,
       writable: true,
     });
+    expect(leafCodeMemoryDir(env)).toBe(join(agentDir, "leafcode-memory"));
   });
 
   it("writes validated parameters without losing file-only settings", () => {
@@ -50,6 +52,7 @@ describe("leafcode-memory settings", () => {
 
     expect(snapshot.settings).toEqual(settings);
     expect(saved.memoryDir).toBe("custom-memory");
+    expect(leafCodeMemoryDir(env)).toBe(join(agentDir, "custom-memory"));
     expect(saved.correctionStrongPatterns).toEqual(["keep-me"]);
     expect(saved.sessionSearch).toEqual({ variant: "anchors", futureOption: true });
     expect(saved.autoConsolidate).toBe(false);

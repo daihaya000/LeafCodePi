@@ -3,6 +3,20 @@ export type MemoryPolicyStyle = "full" | "compact" | "custom" | "none";
 export type SessionSearchVariant = "legacy" | "anchors";
 export type ReviewTransport = "direct" | "subprocess";
 export type MemoryOverflowStrategy = "auto-consolidate" | "reject" | "fifo-evict";
+export type MemoryCategory = "failure" | "correction" | "insight" | "preference" | "convention" | "tool-quirk";
+
+export type MemorySearchEntry = {
+  project: string | null;
+  target: "memory" | "user" | "failure";
+  category: MemoryCategory | null;
+  content: string;
+  created: string;
+  lastReferenced: string;
+};
+
+export type MemorySearchResponse = {
+  results: MemorySearchEntry[];
+};
 
 export type LeafCodeMemorySettings = {
   memoryMode: MemoryMode;

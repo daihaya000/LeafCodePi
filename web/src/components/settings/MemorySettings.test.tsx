@@ -22,7 +22,21 @@ const snapshot = {
 describe("MemorySettings", () => {
   beforeEach(() => {
     getJson.mockResolvedValue(snapshot);
-    sendJson.mockImplementation((_url: string, body: unknown) => Promise.resolve({ ...snapshot, settings: body }));
+    sendJson.mockImplementation((url: string, body: unknown) => {
+      if (url === "/api/memory-search") {
+        return Promise.resolve({
+          results: [{
+            project: "demo",
+            target: "memory",
+            category: "convention",
+            content: "デプロイ規約はmainから実行する",
+            created: "2026-01-01",
+            lastReferenced: "2026-02-01",
+          }],
+        });
+      }
+      return Promise.resolve({ ...snapshot, settings: body });
+    });
   });
 
   afterEach(() => {
@@ -47,5 +61,18 @@ describe("MemorySettings", () => {
     expect(method).toBe("PUT");
     expect(body.memoryCharLimit).toBe(8_000);
     expect(await screen.findByText(/新しいセッションまたはホスト再起動/)).toBeTruthy();
+  });
+
+  it("lets the user search stored memory without an agent turn", async () => {
+    render(<MemorySettings />);
+
+    const query = await screen.findByLabelText("検索語");
+    fireEvent.change(query, { target: { value: " デプロイ " } });
+    fireEvent.click(screen.getByRole("button", { name: "検索" }));
+
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/memory-search", { query: "デプロイ" }));
+    expect(await screen.findByText("デプロイ規約はmainから実行する")).toBeTruthy();
+    expect(screen.getByText("demo")).toBeTruthy();
+    expect(screen.getByText("1件見つかりました。")).toBeTruthy();
   });
 });
