@@ -61,6 +61,11 @@ import {
   registerOllamaCloudProvider,
   syncOllamaCloudProvider,
 } from "@/lib/pi/ollama-cloud-provider";
+import {
+  effectiveBaseUrl,
+  isEditableBaseUrlProvider,
+  setProviderBaseUrl as setProviderBaseUrlFromEndpoints,
+} from "@/lib/provider-endpoints";
 import { readGoalLoopState } from "@/lib/pi/goal-loop-state";
 import {
   todoProgressFromTodos,
@@ -2988,6 +2993,9 @@ export async function listProviderAuth(
       ...(isAccountRoutingProvider(provider.id)
         ? { accountRoutingMode: accountRoutingMode(provider.id) }
         : {}),
+      ...(isEditableBaseUrlProvider(provider.id)
+        ? { baseUrl: effectiveBaseUrl(provider.id) }
+        : {}),
     } satisfies ProviderAuthDto;
   });
   if (!providers.some((provider) => provider.id === "opencode-go")) {
@@ -3013,6 +3021,23 @@ export async function listProviderAuth(
     return score(b) - score(a) || a.name.localeCompare(b.name, "en");
   });
   return providers;
+}
+
+/**
+ * 変更可能なプロバイダーの API URL（base URL）を返す。
+ * 保存値がなければ既定値、変更不可プロバイダーは空文字。
+ * 変更は次回サーバー起動から反映されます。
+ */
+export function getProviderBaseUrl(providerId: string): string {
+  return effectiveBaseUrl(providerId);
+}
+
+/** 変更可能なプロバイダーの API URL（base URL）を保存。次回起動から反映。 */
+export function setProviderBaseUrl(
+  providerId: string,
+  baseUrl: string,
+): void {
+  setProviderBaseUrlFromEndpoints(providerId, baseUrl);
 }
 
 export async function setProviderAccountRoutingMode(

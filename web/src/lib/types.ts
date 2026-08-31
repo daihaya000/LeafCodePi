@@ -250,6 +250,8 @@ export type ProviderAuthDto = {
   oauthAvailable?: boolean;
   highlighted?: boolean;
   error?: string;
+  /** API URL を変更できるプロバイダーのみ、現在有効な base URL。 */
+  baseUrl?: string;
 };
 
 export type TaskDetail = TaskSummary & {

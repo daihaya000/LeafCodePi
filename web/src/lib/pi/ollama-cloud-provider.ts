@@ -1,8 +1,13 @@
 import { createProvider, type Model } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import {
+  DEFAULT_OLLAMA_CLOUD_BASE,
+  effectiveBaseUrl,
+} from "@/lib/provider-endpoints";
+
+export { DEFAULT_OLLAMA_CLOUD_BASE } from "@/lib/provider-endpoints";
 
 export const OLLAMA_CLOUD_PROVIDER_ID = "ollama-cloud";
-export const DEFAULT_OLLAMA_CLOUD_BASE = "https://ollama.com/v1";
 export const OLLAMA_API_KEY_ENV = "OLLAMA_API_KEY";
 
 type RuntimeLike = {
@@ -110,7 +115,8 @@ function envApiKey(): string | undefined {
 }
 
 function createOllamaCloudProvider() {
-  const baseUrl = DEFAULT_OLLAMA_CLOUD_BASE;
+  // 設定（provider-endpoints.json）の上書きを優先。未保存は既定値。
+  const baseUrl = effectiveBaseUrl(OLLAMA_CLOUD_PROVIDER_ID);
   return createProvider({
     id: OLLAMA_CLOUD_PROVIDER_ID,
     name: "Ollama Cloud",

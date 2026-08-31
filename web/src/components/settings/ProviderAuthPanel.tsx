@@ -952,7 +952,8 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           Cloud は <span className="font-mono">OLLAMA_API_KEY</span>{" "}
           でも設定できます。Ollama Cloud はアカウントごとに cookie
           も登録できます。OpenCode Go の利用量にもアカウント別 cookie
-          を登録できます。
+          を登録できます。Ollama Cloud / LeafCodeCloud の API URL は各行で変更でき、
+          次回起動から反映されます。
         </p>
         <ul className="space-y-1.5">
           {orderedProviders.length === 0 && (
@@ -963,6 +964,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
               key={provider.id}
               provider={provider}
               disabled={Boolean(login)}
+              onChanged={onChanged}
               onOAuth={
                 provider.oauthAvailable
                   ? () => void beginLogin(provider, "oauth")
@@ -1098,6 +1100,90 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   );
 });
 
+function BaseUrlEditor({
+  providerId,
+  providerName,
+  value,
+  onSave,
+}: {
+  providerId: string;
+  providerName: string;
+  value: string;
+  onSave: () => void;
+}) {
+  const [input, setInput] = useState(value);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const dirty = input.trim() !== value.trim();
+
+  useEffect(() => {
+    setInput(value);
+  }, [value]);
+
+  async function save() {
+    const next = input.trim();
+    if (busy) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await sendJson(
+        `/api/providers/${encodeURIComponent(providerId)}/base-url`,
+        { baseUrl: next },
+        "PUT",
+      );
+      setMessage("保存しました（次回起動から反映）");
+      onSave();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 border-t border-border pt-2">
+      <label
+        htmlFor={`base-url-${providerId}`}
+        className="block text-xs text-muted"
+      >
+        API URL
+      </label>
+      <div className="mt-1 flex gap-2">
+        <input
+          id={`base-url-${providerId}`}
+          type="text"
+          spellCheck={false}
+          autoComplete="off"
+          value={input}
+          onChange={(event) => {
+            setInput(event.target.value);
+            if (message) setMessage(null);
+          }}
+          placeholder={value}
+          aria-label={`${providerName} の API URL`}
+          className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-3 py-1.5 text-xs font-mono outline-none focus:border-accent"
+        />
+        <Button
+          size="sm"
+          busy={busy}
+          disabled={!dirty}
+          onClick={() => void save()}
+        >
+          保存
+        </Button>
+      </div>
+      {message && (
+        <p
+          className={`mt-1 text-xs ${/失敗|エラー|不正|指定してください/.test(message) ? "text-danger" : "text-success"}`}
+          role="status"
+        >
+          {message}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ProviderRow({
   provider,
   disabled,
@@ -1105,6 +1191,7 @@ function ProviderRow({
   onApiKey,
   onLogout,
   accountControls,
+  onChanged,
 }: {
   provider: ProviderAuthDto;
   disabled?: boolean;
@@ -1112,6 +1199,7 @@ function ProviderRow({
   onApiKey?: () => void;
   onLogout?: () => void;
   accountControls?: ReactNode;
+  onChanged: () => void;
 }) {
   const accountManaged = isAccountProviderId(provider.id);
   const badge = accountManaged
@@ -1159,6 +1247,14 @@ function ProviderRow({
         </div>
       </div>
       {accountControls}
+      {provider.baseUrl != null && (
+        <BaseUrlEditor
+          providerId={provider.id}
+          providerName={provider.name}
+          value={provider.baseUrl}
+          onSave={onChanged}
+        />
+      )}
     </li>
   );
 }

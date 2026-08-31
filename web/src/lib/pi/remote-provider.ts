@@ -1,7 +1,12 @@
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import {
+  effectiveBaseUrl,
+  REMOTE_PROVIDER_BASE,
+} from "@/lib/provider-endpoints";
+
+export { REMOTE_PROVIDER_BASE } from "@/lib/provider-endpoints";
 
 export const REMOTE_PROVIDER_ID = "leafcodecloud";
-export const REMOTE_PROVIDER_BASE = "https://z390-s01.tail3dc57b.ts.net/v1";
 export const REMOTE_PROVIDER_API_KEY_ENV = "LEAFCODECLOUD_API_KEY";
 const REMOTE_CONTEXT_WINDOW = 131_072;
 
@@ -32,7 +37,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-export function modelRows(body: unknown): ModelRow[] {
+export function modelRows(
+  body: unknown,
+  baseUrl = REMOTE_PROVIDER_BASE,
+): ModelRow[] {
   if (!isRecord(body) || !Array.isArray(body.data)) return [];
   return body.data.flatMap((row) => {
     if (!isRecord(row) || typeof row.id !== "string" || !row.id.trim()) return [];
@@ -43,7 +51,7 @@ export function modelRows(body: unknown): ModelRow[] {
       name: row.id,
       api: "openai-completions",
       provider: REMOTE_PROVIDER_ID,
-      baseUrl: REMOTE_PROVIDER_BASE,
+      baseUrl,
       reasoning,
       input: ["text"],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -58,26 +66,29 @@ export function modelRows(body: unknown): ModelRow[] {
   });
 }
 
-async function fetchModels(): Promise<ModelRow[]> {
+async function fetchModels(baseUrl: string): Promise<ModelRow[]> {
   try {
     const apiKey = process.env[REMOTE_PROVIDER_API_KEY_ENV]?.trim();
     if (!apiKey) return [];
-    const response = await fetch(`${REMOTE_PROVIDER_BASE}/models`, {
+    const response = await fetch(`${baseUrl}/models`, {
       cache: "no-store",
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) return [];
-    return modelRows(await response.json());
+    return modelRows(await response.json(), baseUrl);
   } catch {
     return [];
   }
 }
 
-function providerConfig(models: ModelRow[]): Record<string, unknown> {
+function providerConfig(
+  models: ModelRow[],
+  baseUrl: string,
+): Record<string, unknown> {
   return {
     name: "LeafCodeCloud",
-    baseUrl: REMOTE_PROVIDER_BASE,
+    baseUrl,
     api: openAICompletionsApi(),
     apiKey: process.env[REMOTE_PROVIDER_API_KEY_ENV]?.trim() ?? "",
     models,
@@ -86,7 +97,16 @@ function providerConfig(models: ModelRow[]): Record<string, unknown> {
 
 /** Re-fetch `/v1/models` and replace the registered provider catalog. */
 export async function syncRemoteProvider(runtime: RuntimeLike): Promise<void> {
-  runtime.registerProvider(REMOTE_PROVIDER_ID, providerConfig(await fetchModels()));
+  // 登録済み runtime は再起動まで現在の URL を維持する。
+  const registered = runtime.getProvider(REMOTE_PROVIDER_ID);
+  const baseUrl =
+    isRecord(registered) && typeof registered.baseUrl === "string"
+      ? registered.baseUrl
+      : effectiveBaseUrl(REMOTE_PROVIDER_ID);
+  runtime.registerProvider(
+    REMOTE_PROVIDER_ID,
+    providerConfig(await fetchModels(baseUrl), baseUrl),
+  );
 }
 
 export async function registerRemoteProvider(runtime: RuntimeLike): Promise<void> {

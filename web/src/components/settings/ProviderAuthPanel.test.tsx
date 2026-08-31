@@ -103,6 +103,13 @@ const opencodeGoAccount = {
   updatedAt: "",
 };
 
+const endpointProvider = {
+  id: "leafcodecloud",
+  name: "LeafCodeCloud",
+  authenticated: false,
+  baseUrl: "https://default.example/v1",
+};
+
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
@@ -148,6 +155,38 @@ async function accountRegion(name: string) {
 }
 
 describe("ProviderAuthPanel provider-scoped accounts", () => {
+  it("edits a provider API URL with PUT", async () => {
+    const onChanged = vi.fn();
+    fetchMock.mockResolvedValue(
+      jsonResponse({ baseUrl: "https://custom.example/v1" }),
+    );
+    render(
+      <ProviderAuthPanel
+        providers={[endpointProvider]}
+        onChanged={onChanged}
+      />,
+    );
+
+    const input = screen.getByRole("textbox", {
+      name: "LeafCodeCloud の API URL",
+    });
+    fireEvent.change(input, {
+      target: { value: "https://custom.example/v1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/providers/leafcodecloud/base-url"),
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({ baseUrl: "https://custom.example/v1" }),
+        }),
+      );
+      expect(onChanged).toHaveBeenCalled();
+    });
+  });
+
   it("skips account loading when no account-managed provider is available", () => {
     render(<ProviderAuthPanel providers={providers.slice(0, 1)} onChanged={() => {}} />);
 
