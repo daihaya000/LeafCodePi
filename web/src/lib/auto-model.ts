@@ -17,7 +17,7 @@ export const AUTO_MODEL_VALUE = "auto";
 
 export const AUTO_MODEL_OPTION: ModelOption = {
   value: AUTO_MODEL_VALUE,
-  label: "Auto（コスト最適）",
+  label: "Auto",
   providerID: AUTO_MODEL_VALUE,
   modelID: AUTO_MODEL_VALUE,
 };
