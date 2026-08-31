@@ -3593,6 +3593,8 @@ export async function createTask(input: {
   prompt: string;
   model?: string;
   thinkingLevel?: ThinkingLevel;
+  /** Auto routing already resolved the requested effort from the route config. */
+  auto?: boolean;
   images?: PromptImage[];
   agent?: string;
   subagentPermission?: "allow" | "deny";
@@ -3721,9 +3723,13 @@ export async function createTask(input: {
   const requestedThinking = isThinkingLevel(input.thinkingLevel)
     ? input.thinkingLevel
     : "off";
-  const thinkingLevel = model
-    ? clampThinkingLevelForModel(model, requestedThinking)
-    : requestedThinking;
+  // Auto route settings are authoritative. The provider adapter performs the
+  // final model-specific clamping when it builds the request.
+  const thinkingLevel = input.auto
+    ? requestedThinking
+    : model
+      ? clampThinkingLevelForModel(model, requestedThinking)
+      : requestedThinking;
   try {
     const setup = await createSession({
       cwd: project?.rootPath ?? task.directory,
