@@ -3723,13 +3723,9 @@ export async function createTask(input: {
   const requestedThinking = isThinkingLevel(input.thinkingLevel)
     ? input.thinkingLevel
     : "off";
-  // Auto route settings are authoritative. The provider adapter performs the
-  // final model-specific clamping when it builds the request.
-  const thinkingLevel = input.auto
-    ? requestedThinking
-    : model
-      ? clampThinkingLevelForModel(model, requestedThinking)
-      : requestedThinking;
+  // The provider adapter performs the final model-specific clamping when it
+  // builds the request. Do not clamp from the session-creation model metadata.
+  const thinkingLevel = requestedThinking;
   try {
     const setup = await createSession({
       cwd: project?.rootPath ?? task.directory,
