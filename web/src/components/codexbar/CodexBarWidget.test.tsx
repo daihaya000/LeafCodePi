@@ -92,6 +92,7 @@ describe("CodexBarWidget", () => {
     render(<CodexBarWidget />);
 
     expect(screen.getByRole("button", { name: "CodexBar 利用状況を開く" })).toBeTruthy();
+    expect(screen.getByText("全体 1%")).toBeTruthy();
     expect(screen.queryByText("CodexBar 利用状況")).toBeNull();
   });
 

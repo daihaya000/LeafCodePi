@@ -26,6 +26,7 @@ import {
   hasLastGoodUsage,
   isStale,
   groupCodexBarProviders,
+  overallUsedPercent,
   percentTone,
   providerIconSrc,
   providerIconSrcForOpencodeId,
@@ -664,10 +665,7 @@ export function CodexBarWidget({
     const rank: Record<UsageTone, number> = { ok: 0, warn: 1, danger: 2 };
     return rank[tone] > rank[current] ? tone : current;
   }, "ok");
-  const compactPercent = providerGroups
-    .filter((group) => group.provider.usedPercent !== null)
-    .map((group) => `${providerLabel(group.id)} ${Math.round(group.provider.usedPercent!)}%`)
-    .join(" · ");
+  const overall = usage ? overallUsedPercent(usage) : null;
   const limited = providerGroups.reduce((sum, group) => sum + group.limitedCount, 0);
 
   if (collapsed) {
@@ -681,8 +679,8 @@ export function CodexBarWidget({
       >
         <Activity className={cx("h-3.5 w-3.5", textClass[summaryTone])} />
         <span className="font-medium text-text">CodexBar</span>
-        {compactPercent && (
-          <span className="min-w-0 truncate font-mono text-muted">{compactPercent}</span>
+        {overall !== null && (
+          <span className="font-mono text-muted">全体 {Math.round(overall)}%</span>
         )}
         {limited > 0 && (
           <span className="rounded-full bg-danger-bg px-1.5 font-mono text-danger">
