@@ -3739,13 +3739,16 @@ export async function createTask(input: {
       // The selected agent talks as the main persona for this whole session.
       agentName: input.agent ?? null,
     });
+    // createAgentSession may normalize the level from its model metadata. Keep
+    // the user's Auto effort in the session; the provider clamps at request time.
+    if (setup.session.thinkingLevel !== thinkingLevel) {
+      setup.session.setThinkingLevel(thinkingLevel);
+    }
     patchTask(task.id, {
       sessionId: setup.session.sessionId,
       sessionFile: setup.session.sessionFile,
       status: "working",
-      thinkingLevel: isThinkingLevel(setup.session.thinkingLevel)
-        ? setup.session.thinkingLevel
-        : thinkingLevel,
+      thinkingLevel,
       ...modelId(setup.session.model),
     });
     const live = await attachSession(
