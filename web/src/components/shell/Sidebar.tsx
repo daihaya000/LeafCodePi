@@ -1121,6 +1121,11 @@ export function Sidebar({
           <img src="/icon.svg" alt="" className="h-6 w-6 rounded-[5px]" />
           <span className="truncate text-sm font-semibold">LeafCodePi</span>
         </Link>
+        <AddProjectButton
+          variant="icon"
+          onAdded={() => void refresh()}
+          className="ml-auto h-11 w-11 shrink-0"
+        />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
@@ -1387,9 +1392,6 @@ export function Sidebar({
       </div>
 
       <div className="shrink-0 border-t border-border p-2 pb-[env(safe-area-inset-bottom)]">
-        <div className="mb-2 px-1">
-          <AddProjectButton onAdded={() => void refresh()} className="w-full" />
-        </div>
         <div className="mt-2">
           <CodexBarWidget />
         </div>
