@@ -63,6 +63,8 @@ function PaneResizeHandle({
   const sizeLabel = axis === "x" ? "幅" : "高さ";
   const minimumFor = (containerSize: number) =>
     Math.min(MIN_PANE_WIDTH / Math.max(containerSize, MIN_PANE_WIDTH), pairTotal / 2);
+  const containerSize =
+    axis === "x" ? containerRef.current?.clientWidth ?? 0 : containerRef.current?.clientHeight ?? 0;
 
   const resizeBy = (delta: number, containerSize: number, startSizes = widths) => {
     onResize(resizeAdjacentPaneWidths(startSizes, boundaryIndex, delta, minimumFor(containerSize)));
@@ -73,8 +75,8 @@ function PaneResizeHandle({
       role="separator"
       aria-orientation={axis === "x" ? "vertical" : "horizontal"}
       aria-label={`ペイン ${boundaryIndex + 1} と ${boundaryIndex + 2} の${sizeLabel}を調整`}
-      aria-valuemin={Math.round(minimumFor(containerRef.current?.clientWidth ?? 0) * 100)}
-      aria-valuemax={Math.round((pairTotal - minimumFor(containerRef.current?.clientWidth ?? 0)) * 100)}
+      aria-valuemin={Math.round(minimumFor(containerSize) * 100)}
+      aria-valuemax={Math.round((pairTotal - minimumFor(containerSize)) * 100)}
       aria-valuenow={Math.round(currentSize * 100)}
       tabIndex={0}
       className={cx(
@@ -194,6 +196,7 @@ export function TaskPanesHost() {
   );
   const [paneWidths, setPaneWidths] = useState<number[]>([]);
   const [gridColumnWidth, setGridColumnWidth] = useState(0.5);
+  const [gridRowHeight, setGridRowHeight] = useState(0.5);
   // 一度開いたタブのみマウントする（初回読み込み・SSE 接続を遅延）。
   // アクティブタブは開封済みに追加、タブが閉じられたら除去して再オープン時に再読み込み。
   const [openedTabs, setOpenedTabs] = useState<Set<string>>(() => new Set());
@@ -204,6 +207,7 @@ export function TaskPanesHost() {
   useEffect(() => {
     setPaneWidths(equalPaneWidths(paneCount));
     setGridColumnWidth(0.5);
+    setGridRowHeight(0.5);
   }, [paneCount, paneLayoutKey]);
 
   // dragend/drop でリング解除（Escape キャンセル・ブラウザ外での drop 漏れ対策）
@@ -293,6 +297,7 @@ export function TaskPanesHost() {
     ? paneWidths
     : equalPaneWidths(state.panes.length);
   const resizeWidths = isGrid ? [gridColumnWidth, 1 - gridColumnWidth] : widths;
+  const resizeHeights = [gridRowHeight, 1 - gridRowHeight];
   const handlePositions = isGrid
     ? [gridColumnWidth]
     : widths.slice(0, -1).map((_, index) =>
@@ -312,7 +317,10 @@ export function TaskPanesHost() {
       className={cx(paneLayoutClass(state), "relative")}
       style={
         isGrid
-          ? { gridTemplateColumns: `${gridColumnWidth}fr ${1 - gridColumnWidth}fr` }
+          ? {
+              gridTemplateColumns: `${gridColumnWidth}fr ${1 - gridColumnWidth}fr`,
+              gridTemplateRows: `${gridRowHeight}fr ${1 - gridRowHeight}fr`,
+            }
           : undefined
       }
     >
@@ -474,7 +482,28 @@ export function TaskPanesHost() {
           })}
         </section>
       ))}
-      {!single && handlePositions.map((position, boundaryIndex) => (
+      {!single && (isGrid ? (
+        <>
+          <PaneResizeHandle
+            key="pane-resize-column"
+            boundaryIndex={0}
+            position={gridColumnWidth}
+            widths={resizeWidths}
+            containerRef={containerRef}
+            onResize={updatePaneWidths}
+            axis="x"
+          />
+          <PaneResizeHandle
+            key="pane-resize-row"
+            boundaryIndex={0}
+            position={gridRowHeight}
+            widths={resizeHeights}
+            containerRef={containerRef}
+            onResize={(next) => setGridRowHeight(next[0] ?? 0.5)}
+            axis="y"
+          />
+        </>
+      ) : handlePositions.map((position, boundaryIndex) => (
         <PaneResizeHandle
           key={`pane-resize-${boundaryIndex}`}
           boundaryIndex={boundaryIndex}
@@ -482,9 +511,9 @@ export function TaskPanesHost() {
           widths={resizeWidths}
           containerRef={containerRef}
           onResize={updatePaneWidths}
-          axis={isGrid || !isColumn ? "x" : "y"}
+          axis={!isColumn ? "x" : "y"}
         />
-      ))}
+      )))}
     </div>
   );
 }

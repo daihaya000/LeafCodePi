@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskPanesState } from "@/lib/task-panes";
 
@@ -42,6 +42,17 @@ function createState(): TaskPanesState {
   };
 }
 
+function createGridState(): TaskPanesState {
+  return {
+    panes: Array.from({ length: 4 }, (_, index) => ({
+      id: `pane-${index + 1}`,
+      tabs: [`task-${index + 1}`],
+      activeTabId: `task-${index + 1}`,
+    })),
+    activePaneId: "pane-1",
+  };
+}
+
 describe("TaskPanesHost lazy tab mounting", () => {
   beforeEach(() => {
     mocks.useTaskPanes.mockReturnValue({
@@ -68,6 +79,37 @@ describe("TaskPanesHost lazy tab mounting", () => {
       expect(screen.getAllByTestId("dynamic-pane")).toHaveLength(1);
     });
     expect(screen.getByTestId("dynamic-pane").getAttribute("data-task-id")).toBe("active");
+  });
+
+  it("4分割では列と行のリサイズを表示し、行ハンドルを高さとして操作できる", () => {
+    const contextValue = {
+      state: createGridState(),
+      statusFor: () => null,
+      reportStatus: vi.fn(),
+      dispatch: vi.fn(),
+      retargetToUrl: vi.fn(),
+      activeTaskId: "task-1",
+      titleFor: () => null,
+      mdUp: true,
+    };
+    mocks.useTaskPanes.mockReturnValue(contextValue);
+
+    const { container } = render(<TaskPanesHost />);
+    const host = container.firstElementChild as HTMLElement;
+    Object.defineProperty(host, "clientWidth", { configurable: true, value: 1200 });
+    Object.defineProperty(host, "clientHeight", { configurable: true, value: 800 });
+
+    const separators = screen.getAllByRole("separator");
+    expect(separators).toHaveLength(2);
+    const rowHandle = separators.find(
+      (separator) => separator.getAttribute("aria-orientation") === "horizontal",
+    );
+    expect(rowHandle).toBeDefined();
+    expect(rowHandle?.getAttribute("aria-label")).toBe("ペイン 1 と 2 の高さを調整");
+
+    fireEvent.keyDown(rowHandle!, { key: "ArrowDown" });
+    expect(rowHandle?.getAttribute("aria-valuenow")).toBe("52");
+    expect(host.style.gridTemplateRows).toBe("0.52fr 0.48fr");
   });
 
   it("モバイルではURLタスクだけを表示し、デスクトップ復帰後はアクティブタブを表示する", async () => {

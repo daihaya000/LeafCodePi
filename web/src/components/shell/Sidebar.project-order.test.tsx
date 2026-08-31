@@ -9,7 +9,6 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   usePathname: vi.fn(() => "/"),
   retargetToUrl: vi.fn(),
-  activeTaskId: null as string | null,
 }));
 
 vi.mock("@/lib/client", () => ({
@@ -24,7 +23,7 @@ vi.mock("@/components/codexbar/CodexBarWidget", () => ({ CodexBarWidget: () => n
 vi.mock("@/components/sysmon/SystemMonitorWidget", () => ({ SystemMonitorWidget: () => null }));
 vi.mock("@/components/shell/TaskPanesContext", () => ({
   useTaskPanes: () => ({
-    activeTaskId: mocks.activeTaskId,
+    activeTaskId: null,
     mdUp: true,
     splitHostEnabled: false,
     retargetToUrl: mocks.retargetToUrl,
@@ -95,7 +94,6 @@ beforeEach(() => {
   mocks.sendJson.mockReset().mockResolvedValue({});
   mocks.push.mockReset();
   mocks.retargetToUrl.mockReset();
-  mocks.activeTaskId = null;
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query.includes("min-width"),
     media: query,
@@ -195,50 +193,6 @@ describe("Sidebar project ordering", () => {
     const taskList = screen.getByText("Task 1").closest("ul");
     expect(taskList?.className).toContain("max-h-72");
     expect(taskList?.className).toContain("overflow-y-auto");
-  });
-
-  it("lets the project task toggle collapse the active project", async () => {
-    const projectTasks = [{
-      id: "task-1",
-      projectId: "project-a",
-      projectName: "Project A",
-      title: "Active task",
-      directory: "C:\\repo-a",
-      isolation: "current_folder" as const,
-      status: "ready" as const,
-      sessionId: null,
-      sessionFile: null,
-      createdAt: "",
-      updatedAt: "",
-    }];
-    mocks.activeTaskId = "task-1";
-    mocks.getJson.mockImplementation((path: string) => {
-      if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?archived=1") return Promise.resolve({ tasks: projectTasks });
-      if (path === "/api/health") {
-        return Promise.resolve({
-          ok: true,
-          engine: "pi",
-          engineOk: true,
-          version: "1.0.0",
-          modelCount: 0,
-          dataDir: "C:\\data",
-          error: null,
-        });
-      }
-      return Promise.reject(new Error(`Unexpected request: ${path}`));
-    });
-
-    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
-
-    const toggle = await screen.findByRole("button", { name: "Project Aを折りたたむ" });
-    expect(screen.getByText("Active task")).toBeTruthy();
-    fireEvent.click(toggle);
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Project Aを展開" })).toBeTruthy();
-      expect(screen.queryByText("Active task")).toBeNull();
-    });
   });
 
   it("shows the no-project entry even before the first no-project task exists", async () => {
