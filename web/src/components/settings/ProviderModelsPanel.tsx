@@ -175,15 +175,15 @@ function ProviderRow({
                 }}
                 aria-busy={modelBusy || undefined}
                 className={cx(
-                  "ml-4 flex items-center gap-3 rounded-xl border border-border border-l-2 border-l-border bg-surface px-4 py-3",
+                  "ml-4 grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 rounded-xl border border-border border-l-2 border-l-border bg-surface px-4 py-3 sm:flex sm:items-center sm:gap-3",
                   parentDisabled && "opacity-50",
                 )}
               >
                 <GripVertical
                   aria-label={`${displayName} の ${model.name} をドラッグして並び替え`}
-                  className="h-4 w-4 shrink-0 cursor-grab text-muted"
+                  className="mt-1 h-4 w-4 shrink-0 cursor-grab text-muted sm:mt-0"
                 />
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 sm:flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="min-w-0 truncate text-sm font-medium">{model.name}</p>
                     <Badge tone={model.enabled ? "success" : "neutral"}>
@@ -191,7 +191,7 @@ function ProviderRow({
                     </Badge>
                   </div>
                 </div>
-                <label className="flex shrink-0 items-center gap-1 text-xs text-muted">
+                <label className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center gap-1 text-xs text-muted sm:col-auto sm:row-auto sm:shrink-0 sm:flex-nowrap">
                   <span className="sr-only">{model.name} のコンテキストサイズ</span>
                   <input
                     type="number"
@@ -207,17 +207,19 @@ function ProviderRow({
                         onContextWindowChange(model.id, value);
                       }
                     }}
-                    className="w-28 rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-right text-xs text-text"
+                    className="w-28 max-w-full rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-right text-xs text-text"
                     aria-label={`${model.name} のコンテキストサイズ`}
                   />
-                  <span>tokens</span>
+                  <span className="shrink-0">tokens</span>
                 </label>
-                <ExtensionSwitch
-                  name={`${displayName} の ${model.name}`}
-                  enabled={model.enabled}
-                  busy={modelBusy || parentDisabled}
-                  onToggle={() => onToggleModel(model.id, !model.enabled)}
-                />
+                <div className="col-start-3 row-start-1 sm:col-auto sm:row-auto">
+                  <ExtensionSwitch
+                    name={`${displayName} の ${model.name}`}
+                    enabled={model.enabled}
+                    busy={modelBusy || parentDisabled}
+                    onToggle={() => onToggleModel(model.id, !model.enabled)}
+                  />
+                </div>
               </li>
             );
           })}
