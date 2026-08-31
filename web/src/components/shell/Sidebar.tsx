@@ -636,6 +636,17 @@ export function Sidebar({
     onClose();
   }, [onClose, paneMdUp, retargetToUrl, router]);
 
+  const openHome = useCallback(() => {
+    const href = "/";
+    if (paneMdUp) {
+      window.history.pushState(null, "", href);
+      retargetToUrl(HOME_TAB_ID);
+    } else {
+      router.push(href);
+    }
+    onClose();
+  }, [onClose, paneMdUp, retargetToUrl, router]);
+
   const tasksByProject = useMemo(() => {
     const map = new Map<string | null, TaskSummary[]>();
     for (const task of tasks) {
@@ -1121,10 +1132,19 @@ export function Sidebar({
           <img src="/icon.svg" alt="" className="h-6 w-6 rounded-[5px]" />
           <span className="truncate text-sm font-semibold">LeafCodePi</span>
         </Link>
+        <button
+          type="button"
+          aria-label="新規タスクを作成"
+          title="新規タスク"
+          onClick={openHome}
+          className="ml-auto inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
         <AddProjectButton
           variant="icon"
           onAdded={() => void refresh()}
-          className="ml-auto h-11 w-11 shrink-0"
+          className="h-11 w-11 shrink-0"
         />
       </div>
 

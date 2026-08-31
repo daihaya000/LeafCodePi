@@ -241,6 +241,21 @@ describe("Sidebar project ordering", () => {
     });
   });
 
+  it("opens HomeView from the header button to the left of project add", async () => {
+    const onClose = vi.fn();
+    render(<Sidebar mobileOpen={false} onClose={onClose} />);
+
+    const newTaskButton = await screen.findByRole("button", { name: "新規タスクを作成" });
+    const addProjectButton = screen.getByRole("button", { name: "プロジェクトを追加" });
+    expect(addProjectButton.previousElementSibling).toBe(newTaskButton);
+
+    fireEvent.click(newTaskButton);
+
+    expect(mocks.retargetToUrl).toHaveBeenCalledWith("home");
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("shows the no-project entry even before the first no-project task exists", async () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
