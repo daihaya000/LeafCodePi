@@ -5,6 +5,7 @@ import {
   sameTaskList,
   reorderProjectIds,
   tasksForSidebar,
+  latestWorkingTask,
 } from "./Sidebar";
 import type { GoalLoopSummaryDto, HealthDto, ProjectDto, TaskSummary } from "@/lib/types";
 
@@ -92,6 +93,23 @@ describe("tasksForSidebar", () => {
 
   it("returns empty list unchanged", () => {
     expect(tasksForSidebar([])).toEqual([]);
+  });
+});
+
+describe("latestWorkingTask", () => {
+  it("returns the newest working task for the requested project", () => {
+    const newest = task("t2", "working", "進行中の最新タスク");
+    const tasks = [
+      newest,
+      task("t1", "working", "進行中の古いタスク"),
+      task("other", "working", "別プロジェクト"),
+    ].map((item) => (item.id === "other" ? { ...item, projectId: "p2" } : item));
+
+    expect(latestWorkingTask(tasks, "p1")).toEqual(newest);
+  });
+
+  it("returns null when the project has no working task", () => {
+    expect(latestWorkingTask([task("t1", "idle", "完了済み")], "p1")).toBeNull();
   });
 });
 

@@ -171,6 +171,11 @@ export function tasksForSidebar(tasks: TaskSummary[]): TaskSummary[] {
   return [...working, ...rest];
 }
 
+/** API が新しい順に返すプロジェクト内の、最新の進行中タスクを返す。 */
+export function latestWorkingTask(tasks: TaskSummary[], projectId: string): TaskSummary | null {
+  return tasks.find((task) => task.projectId === projectId && task.status === "working") ?? null;
+}
+
 const LIVE_GOAL_LOOP_STATUSES = new Set(["queued", "running", "verifying_completed"]);
 
 function promotionBlocked(task: TaskSummary): boolean {
@@ -593,7 +598,7 @@ export function Sidebar({
     [onClose, paneMdUp, retargetToUrl, router, splitHostEnabled],
   );
 
-  const openProject = useCallback(
+  const openProjectHome = useCallback(
     (projectId: string) => {
       const href = `/?projectId=${encodeURIComponent(projectId)}`;
       if (paneMdUp) {
@@ -606,6 +611,18 @@ export function Sidebar({
       onClose();
     },
     [onClose, paneMdUp, retargetToUrl, router],
+  );
+
+  const openProject = useCallback(
+    (projectId: string) => {
+      const task = latestWorkingTask(tasks, projectId);
+      if (task) {
+        openTask(task.id);
+        return;
+      }
+      openProjectHome(projectId);
+    },
+    [openProjectHome, openTask, tasks],
   );
 
   const openNoProject = useCallback(() => {
@@ -1195,7 +1212,7 @@ export function Sidebar({
                       type="button"
                       aria-label={`${project.name}に新規タスクを作成`}
                       title="新規タスク"
-                      onClick={() => openProject(project.id)}
+                      onClick={() => openProjectHome(project.id)}
                       className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted hover:text-text md:h-8 md:w-8"
                     >
                       <Plus className="h-3.5 w-3.5" />
@@ -1615,7 +1632,7 @@ export function Sidebar({
               onClick={() => {
                 cancelProjectTaskMenuHide();
                 setProjectTaskMenu(null);
-                openProject(projectTaskMenuProject.id);
+                openProjectHome(projectTaskMenuProject.id);
               }}
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"
             >
