@@ -21,7 +21,8 @@
 - ポート **8081**（LeafCode の llama-server と同じ。片方を起動すれば共有可）。
 - `MODEL_FILE` 未指定 → ルーター（`--models-dir`）でモデルを切り替え。
 - `MODEL_FILE` 指定 → 単体 GGUF（`-m`）。プロバイダー ID `llama-server`。
-- バイナリ既定: `C:\tools\llama.cpp\llama-server.exe`
+- Windows のバイナリ既定: `C:\tools\llama.cpp\llama-server.exe`
+- Linux/macOS: 設定画面でバイナリを指定するか、`LEAFCODE_PI_LLAMA_SERVER_BIN`（未設定時は PATH の `llama-server`）を設定します。モデルディレクトリの既定は `~/models/llm` です。Linux/macOS では host がバイナリを detached process として直接起動します。
 
 ## Ollama Cloud
 
@@ -44,7 +45,7 @@
 
 Cursor は非公式拡張です。本機の Cursor IDE / CLI のトークンを使うか、設定画面から「サブスクでログイン」します。Node.js **22.19+** を推奨します。
 
-トークンは `%USERPROFILE%\.pi\agent\auth.json` に保存されます。コールバックは本機の `127.0.0.1:53692`（Anthropic）と `localhost:1455`（OpenAI Codex）を使います。通常の API キー（`ANTHROPIC_API_KEY` など）も併用できます。
+トークンは Windows では `%USERPROFILE%\.pi\agent\auth.json`、Linux/macOS では `~/.pi/agent/auth.json` に保存されます。コールバックは本機の `127.0.0.1:53692`（Anthropic）と `localhost:1455`（OpenAI Codex）を使います。通常の API キー（`ANTHROPIC_API_KEY` など）も併用できます。
 
 ## マルチアカウント（ChatGPT / Claude の複数アカウント）
 
@@ -83,7 +84,7 @@ pi install ./extensions/leafcode-goal-loop
 ### ToDo (`todowrite`)
 
 `extensions/leafcode-todowrite` は OpenCode の `todowrite` と
-`%USERPROFILE%\.agents\skills\todowrite-discipline` の形式に合わせた Pi 拡張です。
+`~/.agents/skills/todowrite-discipline`（Windows は `%USERPROFILE%\.agents\skills\todowrite-discipline`）の形式に合わせた Pi 拡張です。
 `pending` / `in_progress` / `completed` / `cancelled`、`high` / `medium` / `low` を扱い、
 `in_progress` は同時に1件だけ許可します。Pi セッションの tool result に状態を保存し、
 Task 画面には本家 LeafCode と同様の折りたたみ式 ToDo 進捗とプログレスバーを表示します。
@@ -104,27 +105,45 @@ pi install ./extensions/leafcode-mcp-adapter
 
 ## まだないもの
 
-OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペイン、Caddy は未実装です。エージェントはプロジェクトフォルダ上で Pi の標準ツール（read / write / edit / powershell / grep / find / ls）を直接実行します。Bash が必要な処理だけ `bash` を明示的に有効化します。
+OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペイン、Caddy は未実装です。エージェントはプロジェクトフォルダ上で Pi の標準ツール（read / write / edit / bash / grep / find / ls）を直接実行します。`powershell` は Windows のみ既定で有効です。
 
 ## 動作条件
 
 | 項目 | 要件 |
 | --- | --- |
-| OS | Windows 10/11 x64（macOS / Linux でも WebUI 自体は動きます） |
+| OS | Windows 10/11 x64、または Linux/macOS |
 | Node.js | 20 以上 |
 | Pi 認証 | 設定画面のサブスクログイン（Claude Pro/Max / ChatGPT Plus/Pro）、環境変数、または `~/.pi/agent/auth.json` |
-| PowerShell（Windows） | Pi 0.84.4 の標準ツール。`pwsh.exe` を優先し、なければ Windows PowerShell を使います |
-| Bash（必要時のみ） | POSIX コマンドが必要な場合に Git Bash などを明示的に有効化します |
+| Linux/macOS のプロセス検出 | `ss` または `lsof`、`ps`（WebUI の build guard / 停止に使用） |
+| PowerShell（Windows のみ） | Pi 0.84.4 の標準ツール。`pwsh.exe` を優先し、なければ Windows PowerShell を使います |
+| Bash（Linux/macOS） | Pi の標準シェルツール。Windows では必要時のみ明示的に有効化します |
+| Linux のトレイ（任意） | グラフィカルセッションと systray 対応環境。既定はヘッドレスです |
 
 ## 起動
 
+### Windows
+
 リポジトリ直下の `start.bat` をダブルクリックします。初回は Node.js / 依存関係 / production build を確認し、トレイに常駐します。ソースがビルドより新しければ、本家 LeafCode と同じく起動時に `next build` し直します。準備できたら `http://127.0.0.1:3010` を開きます。
+
+### Linux / macOS
+
+`start.bat` は Windows 専用です。リポジトリ直下で次を一度実行して依存関係を入れ、その後 `npm run host` で WebUI と host を起動します。
+
+```bash
+npm --prefix web install
+npm --prefix host install
+npm run host
+```
+
+Linux/macOS は既定でトレイを使わないため、SSH やヘッドレス環境でも起動できます。デスクトップのトレイを試す場合だけ `LEAFCODE_PI_TRAY=1 npm run host` を使います。ブラウザ自動起動は設定画面で有効にした場合のみ行われ、Linux は `xdg-open`、macOS は `open` を使います。
+
+本番ビルドを使わず開発モードで起動する場合は `LEAFCODE_PI_MODE=dev npm run host` とします。`npm run dev` は WebUI だけを起動するため、host 制御 API や llama-server 連携は使いません。
 
 本家 LeafCode と同じく、ホスト PC 上のブラウザが Tailscale / LAN IP で WebUI を開いた場合は `127.0.0.1` へ自動リダイレクトします（リモート端末はリダイレクトされません）。
 
 ビルドが稼働中の `next start` の `.next` を置き換えたときは、そのままだと配信中の HTML が参照するチャンクが消えて `/_next/static/...` が 500 になり、キャッシュを持たないクライアント（スマホなど）に Next の "This page couldn't load" が出ます。`scripts/build-web.mjs` はビルド後に稼働中の WebUI を検出したら、ホスト制御の `POST /restart/webui` で新しい世代へ切り替えます。ホストに届かない場合はトレイの Restart WebUI が必要です。
 
-production build は本家 LeafCode と同じく **`%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>\`** のハードリンクミラーで実行し、`next start` もそこから配信します。OneDrive がビルド中・配信中の `.next` に触れてチャンク世代が混ざるのを防ぐためです（`scripts\web-build-mirror.mjs`）。`next dev` はリポジトリのまま動きます（Next 16 の dev 出力は `web/.next/dev` で prod と分離）。ミラーの場所は `LEAFCODE_PI_BUILD_DIR` で変更できます。
+production build は本家 LeafCode と同じく Windows では **`%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>\`**、Linux/macOS では **`$XDG_CACHE_HOME/leafcode-pi/build/<checkout>-<hash>/`**（未設定時は `~/.cache/leafcode-pi/build/...`）のハードリンクミラーで実行し、`next start` もそこから配信します。OneDrive がビルド中・配信中の `.next` に触れてチャンク世代が混ざるのを防ぐためです（`scripts\web-build-mirror.mjs`）。`next dev` はリポジトリのまま動きます（Next 16 の dev 出力は `web/.next/dev` で prod と分離）。ミラーの場所は `LEAFCODE_PI_BUILD_DIR` で変更できます。
 
 トレイメニュー:
 
@@ -137,7 +156,7 @@ production build は本家 LeafCode と同じく **`%LOCALAPPDATA%\leafcode-pi\b
 start.bat
 ```
 
-開発時だけトレイなしで動かす場合:
+開発時に WebUI だけを動かす場合:
 
 ```powershell
 npm --prefix web install
@@ -157,8 +176,7 @@ npm run check
 
 デスクトップショートカットは `scripts\create-shortcut.bat` です（`LeafCodePi.lnk`。LeafCode の `LeafCode.lnk` とは別ファイルです）。
 
-プロジェクトデータは `%APPDATA%\leafcode-pi\store.json` に保存します。Pi セッション本体は `~/.pi/agent/sessions/` です。
-ホストログと `host.lock` は `%APPDATA%\leafcode-pi\` です。トレイ用 TEMP は `%LOCALAPPDATA%\leafcode-pi\tmp` です。
+プロジェクトデータ、ホストログ、`host.lock` は Windows では `%APPDATA%\leafcode-pi\`、Linux/macOS では `~/.leafcode-pi/` に保存します。Pi セッション本体は `~/.pi/agent/sessions/` です。トレイ用 TEMP は Windows では `%LOCALAPPDATA%\leafcode-pi\tmp`、Linux/macOS ではシステムの一時ディレクトリ配下です。
 
 ## LeafCode との同時起動
 
@@ -168,8 +186,8 @@ npm run check
 | --- | --- | --- |
 | WebUI | `http://127.0.0.1:3000` | `http://127.0.0.1:3010` |
 | 環境変数 | `LEAFCODE_*` | `LEAFCODE_PI_*` |
-| データ | `%APPDATA%\leafcode` | `%APPDATA%\leafcode-pi` |
-| トレイ TEMP | `%LOCALAPPDATA%\leafcode\tmp` | `%LOCALAPPDATA%\leafcode-pi\tmp` |
+| データ | `%APPDATA%\leafcode` | Windows `%APPDATA%\leafcode-pi` / Linux `~/.leafcode-pi` |
+| トレイ TEMP | `%LOCALAPPDATA%\leafcode\tmp` | Windows `%LOCALAPPDATA%\leafcode-pi\tmp` / Linux システム一時ディレクトリ |
 | ショートカット | `LeafCode.lnk` | `LeafCodePi.lnk` |
 | コンソール title | LeafCode | LeafCodePi |
 
@@ -178,7 +196,7 @@ npm run check
 ## 構成
 
 - `web/` — Next.js UI と BFF
-- `host/` — Windows トレイ常駐。Next.js の起動・監視・再起動
+- `host/` — Next.js の起動・監視・再起動。Windows はトレイ常駐、Linux/macOS は既定でヘッドレス
 - `start.bat` — 導入とホスト起動
 - `scripts/build-web.mjs` — production build の唯一の入口（ミラー同期 → `next build` → BUILD_ID 検証）
 - `scripts/web-build-mirror.mjs` — OneDrive 外へのハードリンクミラー
@@ -192,16 +210,20 @@ npm run check
 
 | 変数 | 内容 |
 | --- | --- |
-| `LEAFCODE_PI_DATA_DIR` | ストアと host.lock / host.log の保存先（未設定時は `%APPDATA%\leafcode-pi`） |
-| `LEAFCODE_PI_DEFAULT_DIR` | プロジェクト未登録タスクの作業ルート（未設定時は `%USERPROFILE%\Documents\LeafCodePi`） |
+| `LEAFCODE_PI_DATA_DIR` | ストアと host.lock / host.log の保存先（未設定時は Windows `%APPDATA%\leafcode-pi`、Linux/macOS `~/.leafcode-pi`） |
+| `LEAFCODE_PI_DEFAULT_DIR` | プロジェクト未登録タスクの作業ルート（未設定時は `~/Documents/LeafCodePi`） |
 | `LEAFCODE_PI_PORT` | WebUI ポート（既定 **3010**。LeafCode の 3000 と衝突しない） |
 | `LEAFCODE_PI_HOST` | WebUI 待ち受け。既定 `tailscale`（Tailscale IPv4。未検出時は 127.0.0.1）。`0.0.0.0` / 明示 IP も可 |
 | `LEAFCODE_PI_HOST_CONTROL_PORT` | ホスト制御（llama-server 起動など）。既定 **18775**（LeafCode の 18765 と別） |
 | `LEAFCODE_PI_LLAMA_PORT` | llama-server ポート。既定 **8081** |
 | `LEAFCODE_PI_MODE` | `prod`（既定・start.bat）または `dev` |
-| `LEAFCODE_PI_BUILD_DIR` | production build のミラー先（未設定時は `%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>`） |
+| `LEAFCODE_PI_BUILD_DIR` | production build のミラー先（未設定時は Windows `%LOCALAPPDATA%\leafcode-pi\build\...`、Linux/macOS `$XDG_CACHE_HOME/leafcode-pi/build/...`） |
+| `XDG_CACHE_HOME` | Linux/macOS の production build ミラー基底ディレクトリ |
 | `LEAFCODE_PI_USE_WEBPACK` | `1` で `next build` を Turbopack でなく webpack で行う（切り分け用） |
 | `LEAFCODE_PI_HEADLESS` | `1` でトレイなし |
+| `LEAFCODE_PI_TRAY` | `1` で Linux/macOS のトレイを opt-in（グラフィカルセッションが必要） |
 | `LEAFCODE_PI_NO_BROWSER` | `1` で起動時にブラウザを開かない |
 | `LEAFCODE_PI_NONINTERACTIVE` | `1` で失敗時の pause を省略 |
+| `LEAFCODE_PI_LLAMA_SERVER_BIN` | Linux/macOS の llama-server バイナリ（未設定時は PATH の `llama-server`） |
+| `LEAFCODE_PI_LLAMA_MODEL_DIR` | Linux/macOS のモデルディレクトリ（未設定時は `~/models/llm`） |
 | `ANTHROPIC_API_KEY` など | Pi が読むプロバイダーキー |
