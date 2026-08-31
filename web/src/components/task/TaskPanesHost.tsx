@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { cx } from "@/components/ui";
 import { isTaskDrag, taskDragIdFrom } from "@/lib/task-drag";
@@ -200,6 +200,7 @@ export function TaskPanesHost() {
   // 一度開いたタブのみマウントする（初回読み込み・SSE 接続を遅延）。
   // アクティブタブは開封済みに追加、タブが閉じられたら除去して再オープン時に再読み込み。
   const [openedTabs, setOpenedTabs] = useState<Set<string>>(() => new Set());
+  const addPane = useCallback(() => dispatch({ type: "addPane" }), [dispatch]);
   const paneLayoutKey = state.panes.map((pane) => pane.id).join("|");
   const paneCount = state.panes.length;
 
@@ -276,7 +277,8 @@ export function TaskPanesHost() {
         <SplitTaskView
           key={urlTaskId}
           taskId={urlTaskId}
-          onStatus={(status) => reportStatus(urlTaskId, status)}
+          mdUp={mdUp}
+          onStatus={reportStatus}
         />
       </div>
     );
@@ -470,11 +472,12 @@ export function TaskPanesHost() {
               <SplitTaskView
                 key={taskId}
                 taskId={taskId}
+                mdUp={mdUp}
                 active={isActiveTab}
-                onStatus={(status) => reportStatus(taskId, status)}
+                onStatus={reportStatus}
                 onAddPane={
                   single && state.panes.length < 4
-                    ? () => dispatch({ type: "addPane" })
+                    ? addPane
                     : undefined
                 }
               />

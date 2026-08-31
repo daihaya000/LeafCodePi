@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
   ChevronDown,
@@ -34,7 +34,6 @@ import { SkillPermissionSelect } from "@/components/SkillPermissionSelect";
 import { PermissionSelect } from "@/components/PermissionSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
-import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { PartView, WorkingRow } from "@/components/task/PartView";
 import { PermissionAdvice } from "@/components/task/PermissionAdvice";
 import { QuestionCard } from "@/components/task/QuestionCard";
@@ -336,21 +335,23 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
   );
 }
 
-export function TaskView({
+export const TaskView = memo(function TaskView({
   taskId,
+  mdUp,
   active = true,
   onStatus,
   onAddPane,
 }: {
   taskId: string;
+  /** ペインコンテキスト全体を購読せず、ブレークポイントだけ受け取る。 */
+  mdUp: boolean;
   /** 非アクティブタブは hidden mount（CSS で非表示、SSE は維持）。 */
   active?: boolean;
   /** SSE snapshot の status 変化をタブバッジへ報告する（TaskPanesProvider）。 */
-  onStatus?: (status: TaskStatus) => void;
+  onStatus?: (taskId: string, status: TaskStatus) => void;
   /** 1 ペイン時にも分割を開始できるよう空ペインを追加する。 */
   onAddPane?: () => void;
 }) {
-  const { mdUp } = useTaskPanes();
   const [cachedSession] = useState(() => loadTaskSessionCache(taskId));
   const [task, setTask] = useState<TaskDetail | null>(cachedSession);
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
@@ -722,7 +723,7 @@ export function TaskView({
         if (payload.error) setError(payload.error);
         notifySidebarIfNeeded(snapshotTask);
         const status = snapshotTask?.status;
-        if (status) onStatusRef.current?.(status);
+        if (status) onStatusRef.current?.(taskId, status);
       });
       source.addEventListener("delta", (event) => {
         if (closed) return;
@@ -753,7 +754,7 @@ export function TaskView({
           if ("isCompacting" in payload) setIsCompacting(Boolean(payload.isCompacting));
         });
         notifySidebarIfNeeded(payload.task);
-        if (payload.task?.status) onStatusRef.current?.(payload.task.status);
+        if (payload.task?.status) onStatusRef.current?.(taskId, payload.task.status);
       });
       source.addEventListener("error", (event) => {
         if (closed) return;
@@ -1029,7 +1030,10 @@ export function TaskView({
         const changed = payload.count ?? payload.files.length;
         const next = statusFromChangedFileCount(changed);
         setWorktreeStatus(next);
-        onStatusRef.current?.(working ? "working" : task.status === "idle" ? next : task.status);
+        onStatusRef.current?.(
+          taskId,
+          working ? "working" : task.status === "idle" ? next : task.status,
+        );
       } catch {
         if (!closed) setWorktreeStatus(null);
       } finally {
@@ -1046,7 +1050,7 @@ export function TaskView({
       closed = true;
       window.clearInterval(timer);
     };
-  }, [active, task?.directory, task?.status, working]);
+  }, [active, task?.directory, task?.status, taskId, working]);
 
   useEffect(() => {
     if (titleTaskRef.current !== taskId) {
@@ -2548,4 +2552,4 @@ export function TaskView({
       </div>
     </div>
   );
-}
+});
