@@ -127,13 +127,14 @@ OpenCode 版 LeafCode にあった worktree 分離、権限カード、差分ペ
 
 ### Linux / macOS
 
-`start.bat` は Windows 専用です。リポジトリ直下で次を一度実行して依存関係を入れ、その後 `npm run host` で WebUI と host を起動します。
+`start.bat` は Windows 専用です。リポジトリ直下で次を実行します。`start.sh` は Node.js 20 以上を確認し、依存関係が無い場合だけ install してから WebUI と host を起動します。
 
 ```bash
-npm --prefix web install
-npm --prefix host install
-npm run host
+chmod +x start.sh
+./start.sh
 ```
+
+手動で起動する場合は `npm --prefix web install`、`npm --prefix host install` の後に `npm run host` でも構いません。
 
 Linux/macOS は既定でトレイを使わないため、SSH やヘッドレス環境でも起動できます。デスクトップのトレイを試す場合だけ `LEAFCODE_PI_TRAY=1 npm run host` を使います。ブラウザ自動起動は設定画面で有効にした場合のみ行われ、Linux は `xdg-open`、macOS は `open` を使います。
 
