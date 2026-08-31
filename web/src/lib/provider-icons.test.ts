@@ -9,8 +9,8 @@ describe("providerIconSrc", () => {
     expect(providerIconSrc("llama-server")).toBe("/icons/llama-server.png");
     expect(providerIconSrc("ollama-cloud")).toBe("/icons/ollama.png");
     expect(providerIconSrc("openrouter")).toBe("/icons/openrouter.svg");
-    expect(providerIconSrc("auto")).toBe("/icons/leafcodegreen.png");
-    expect(providerIconSrc("LeafCodeCloud")).toBe("/icons/leafcode.png");
+    expect(providerIconSrc("auto")).toBe("/icons/leafcode.png");
+    expect(providerIconSrc("LeafCodeCloud")).toBe("/icons/leafcodegreen.png");
   });
 
   it("returns null for unknown providers", () => {
