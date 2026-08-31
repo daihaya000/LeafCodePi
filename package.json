@@ -7,8 +7,10 @@
     "build": "node scripts/build-web.mjs",
     "host": "npm --prefix host start",
     "icons": "node scripts/gen-icons.mjs",
+    "lint": "npm --prefix web run lint",
     "test": "npm --prefix web test && npm --prefix host test",
-    "typecheck": "npm --prefix web run typecheck"
+    "typecheck": "npm --prefix web run typecheck",
+    "check": "npm run typecheck && npm run lint && npm test"
   },
   "engines": {
     "node": ">=20"

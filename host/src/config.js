@@ -1,5 +1,4 @@
-import { networkInterfaces } from "node:os";
-import { homedir } from "node:os";
+import { homedir, networkInterfaces } from "node:os";
 import { join } from "node:path";
 
 /** Dedicated port so LeafCode (default 3000) can run at the same time. */

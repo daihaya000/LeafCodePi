@@ -9,7 +9,6 @@
 - タスク: タイムライン（テキスト・思考・ツールカード）+ SSE ストリーミング + 停止 + **コンテキスト使用量**
 - 設定: Pi のヘルス、**llama-server 起動**、再起動。**一般タブでグローバル AGENTS.md**。モデルタブで **Claude / ChatGPT / Cursor サブスク**、**Ollama Cloud**、有効・無効・並び替え、有効モデル一覧
 - プロジェクト追加: ホスト PC ではクリック時にエクスプローラー（ネイティブフォルダ選択）を直接開き、選択で即追加。リモートはパス入力 / アプリ内フォルダ一覧
-- モデルタブ: サブスクログイン、Ollama Cloud API キー、認証済みプロバイダー / モデルの有効・無効とドラッグ並び替え、有効モデル一覧
 
 ## カスタム指示（AGENTS.md）
 
@@ -56,7 +55,20 @@ Cursor は非公式拡張です。本機の Cursor IDE / CLI のトークンを�
 - アカウントが無い場合は選択 UI 自体が非表示になります。OAuth のログインフローは同時に 1 件のみです
 - 実行中のタスクから参照されているアカウントは削除できません。認証ファイルは削除後も残ります（手動削除は `%USERPROFILE%\.pi\agent\accounts\` 配下）
 
-## Goal Loop
+## 同梱拡張
+
+LeafCodePi には次の Pi 拡張を同梱しています。WebUI と連携する拡張はリポジトリから自動的に読み込まれます。
+
+| 拡張 | 役割 |
+| --- | --- |
+| `leafcode-goal-loop` | Goal Loop と完走モード |
+| `leafcode-memory` | 永続メモリ、セッション検索、手続き型スキル |
+| `leafcode-permission-gate` | ツール実行の権限ゲート |
+| `leafcode-question` | WebUI からの質問応答 |
+| `leafcode-subagents` | サブエージェント委譲、エージェント定義、スキル、プロンプト |
+| `leafcode-todowrite` | OpenCode 互換の ToDo 管理 |
+
+### Goal Loop
 
 `extensions/leafcode-goal-loop` に LeafCode 互換の Pi 拡張を同梱しています。登録すると Home / Task の Composer に「ループ」「承認条件」「最大ターン」「クールタイム」「完走モード」が表示されます。
 
@@ -66,10 +78,10 @@ pi install ./extensions/leafcode-goal-loop
 
 通常モードは完了宣言を検証ターンで確認し、完走モードは完了宣言を無視して指定ターン数まで実行します。最大ターンを `0` にすると無制限、クールタイムは `15m 30s` のように指定できます。状態は各プロジェクトの `.pi/goals-loop/` に保存されます。
 
-## ToDo (`todowrite`)
+### ToDo (`todowrite`)
 
 `extensions/leafcode-todowrite` は OpenCode の `todowrite` と
-`C:\Users\Daichi\.agents\skills\todowrite-discipline` の形式に合わせた Pi 拡張です。
+`%USERPROFILE%\.agents\skills\todowrite-discipline` の形式に合わせた Pi 拡張です。
 `pending` / `in_progress` / `completed` / `cancelled`、`high` / `medium` / `low` を扱い、
 `in_progress` は同時に1件だけ許可します。Pi セッションの tool result に状態を保存し、
 Task 画面には本家 LeafCode と同様の折りたたみ式 ToDo 進捗とプログレスバーを表示します。
@@ -115,9 +127,20 @@ start.bat
 
 開発時だけトレイなしで動かす場合:
 
-```bat
+```powershell
 npm --prefix web install
+npm --prefix host install
 npm run dev
+```
+
+コードの確認:
+
+```powershell
+npm run typecheck
+npm run lint
+npm test
+# 上記をまとめて実行
+npm run check
 ```
 
 デスクトップショートカットは `scripts\create-shortcut.bat` です（`LeafCodePi.lnk`。LeafCode の `LeafCode.lnk` とは別ファイルです）。
@@ -147,6 +170,9 @@ npm run dev
 - `start.bat` — 導入とホスト起動
 - `scripts/build-web.mjs` — production build の唯一の入口（ミラー同期 → `next build` → BUILD_ID 検証）
 - `scripts/web-build-mirror.mjs` — OneDrive 外へのハードリンクミラー
+- `extensions/` — Pi 拡張（Goal Loop、memory、subagents など）
+- `docs/` — 実装計画と仕様
+- `translation/` — 推論テキスト翻訳サービス
 - `web/src/lib/pi/harness.ts` — Pi `createAgentSession` のプロセス内シングルトン
 - `web/src/lib/store.ts` — プロジェクト / タスクの JSON ストア
 
@@ -155,6 +181,7 @@ npm run dev
 | 変数 | 内容 |
 | --- | --- |
 | `LEAFCODE_PI_DATA_DIR` | ストアと host.lock / host.log の保存先（未設定時は `%APPDATA%\leafcode-pi`） |
+| `LEAFCODE_PI_DEFAULT_DIR` | プロジェクト未登録タスクの作業ルート（未設定時は `%USERPROFILE%\Documents\LeafCodePi`） |
 | `LEAFCODE_PI_PORT` | WebUI ポート（既定 **3010**。LeafCode の 3000 と衝突しない） |
 | `LEAFCODE_PI_HOST` | WebUI 待ち受け。既定 `tailscale`（Tailscale IPv4。未検出時は 127.0.0.1）。`0.0.0.0` / 明示 IP も可 |
 | `LEAFCODE_PI_HOST_CONTROL_PORT` | ホスト制御（llama-server 起動など）。既定 **18775**（LeafCode の 18765 と別） |
