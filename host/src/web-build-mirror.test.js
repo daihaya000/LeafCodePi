@@ -321,6 +321,17 @@ test("the build guard fails closed when netstat is unavailable", () => {
   assert.equal(productionWebUiIsIdle({ port: 3010, mirrorRoot: MIRROR, exec: broken }), false);
 });
 
+test("the Linux build guard refuses an unidentified ss listener", () => {
+  const exec = (command) => {
+    if (command === "ss") return "LISTEN 0 128 127.0.0.1:3010 0.0.0.0:*";
+    throw new Error(`unexpected command: ${command}`);
+  };
+  assert.equal(
+    productionWebUiIsIdle({ platform: "linux", port: 3010, mirrorRoot: MIRROR, exec }),
+    false,
+  );
+});
+
 test("the Linux build guard uses ss and ps", () => {
   const calls = [];
   const commandLine = `/usr/bin/node ${MIRROR}/node_modules/next/dist/bin/next start --hostname 127.0.0.1`;

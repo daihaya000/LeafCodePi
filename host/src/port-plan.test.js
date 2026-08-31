@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseListeningPids, parseLsofListeningPids, parseSsListeningPids } from "./port-plan.js";
+import { hasSsListeningPort, parseListeningPids, parseLsofListeningPids, parseSsListeningPids } from "./port-plan.js";
 
 test("parseListeningPids reads Windows TCP listeners", () => {
   const output = "  TCP    127.0.0.1:3010   0.0.0.0:0   LISTENING   1234\n";
@@ -19,4 +19,9 @@ test("parseSsListeningPids reads Linux TCP listeners", () => {
 
 test("parseLsofListeningPids deduplicates numeric PIDs", () => {
   assert.deepEqual(parseLsofListeningPids("4321\n4321\n\n9000\n", 3010), [4321, 9000]);
+});
+
+test("hasSsListeningPort detects a listener without visible process metadata", () => {
+  assert.equal(hasSsListeningPort("LISTEN 0 128 127.0.0.1:3010 0.0.0.0:*", 3010), true);
+  assert.equal(hasSsListeningPort("State Recv-Q Send-Q Local Address:Port", 3010), false);
 });

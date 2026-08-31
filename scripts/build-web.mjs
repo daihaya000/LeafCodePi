@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveMirrorRoot, syncMirror } from "./web-build-mirror.mjs";
 import { DEFAULT_HOST_CONTROL_PORT, dataDir, readPort } from "../host/src/config.js";
-import { parseListeningPids, parseLsofListeningPids, parseSsListeningPids } from "../host/src/port-plan.js";
+import { hasSsListeningPort, parseListeningPids, parseLsofListeningPids, parseSsListeningPids } from "../host/src/port-plan.js";
 import { runPortSnapshot } from "../host/src/port-scanner.js";
 
 /**
@@ -136,6 +136,11 @@ export function productionWebUiIsIdle({
       : snapshot.format === "lsof"
         ? parseLsofListeningPids(snapshot.output, port)
         : parseListeningPids(snapshot.output, port);
+  if (snapshot.format === "ss" && pids.length === 0 && hasSsListeningPort(snapshot.output, port)) {
+    // ss can hide process metadata for an unprivileged caller; do not risk
+    // replacing a production build whose listener cannot be identified.
+    return false;
+  }
 
   for (const pid of pids) {
     let commandLine;
