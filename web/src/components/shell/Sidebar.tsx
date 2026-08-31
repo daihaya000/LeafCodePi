@@ -649,8 +649,24 @@ export function Sidebar({
     return map;
   }, [tasks]);
   const noProjectTasks = tasksByProject.get(null) ?? [];
-  const noProjectOpen =
-    expanded.has(NO_PROJECT_GROUP_ID) || noProjectTasks.some((task) => task.id === activeTaskId);
+  const activeTask = activeTaskId === null ? undefined : tasks.find((task) => task.id === activeTaskId);
+  const activeGroupId = activeTask
+    ? activeTask.projectId ?? NO_PROJECT_GROUP_ID
+    : null;
+
+  // アクティブタスクへ移動した時だけ自動展開し、同じグループの手動折りたたみを尊重する。
+  useEffect(() => {
+    if (activeGroupId === null) return;
+    setExpanded((current) => {
+      if (current.has(activeGroupId)) return current;
+      const next = new Set(current);
+      next.add(activeGroupId);
+      saveExpanded(next);
+      return next;
+    });
+  }, [activeGroupId]);
+
+  const noProjectOpen = expanded.has(NO_PROJECT_GROUP_ID);
 
   const archivedGroups = useMemo(() => {
     const groups = new Map<string, { name: string; tasks: TaskSummary[] }>();
@@ -1155,7 +1171,7 @@ export function Sidebar({
           </li>
             {orderedProjects.map((project) => {
               const children = tasksByProject.get(project.id) ?? [];
-              const open = expanded.has(project.id) || children.some((task) => task.id === activeTaskId);
+              const open = expanded.has(project.id);
               const running = countRunningTasks(children);
               return (
                 <li key={project.id}>
