@@ -409,6 +409,7 @@ export const TaskView = memo(function TaskView({
   const [resumeTurnError, setResumeTurnError] = useState<string | null>(null);
   const [manualAbortedAssistantId, setManualAbortedAssistantId] = useState<string | null>(null);
   const autoResumeKeyRef = useRef<string | null>(null);
+  const agentHydratedRef = useRef(false);
   const [hangRetryCount, setHangRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [sessionHydrating, setSessionHydrating] = useState(Boolean(cachedSession));
@@ -633,6 +634,7 @@ export const TaskView = memo(function TaskView({
     setSessionHydrating(true);
     setSseReconnecting(false);
     setModelsLoading(true);
+    agentHydratedRef.current = false;
     setAutoUsage({});
 
     const connect = () => {
@@ -675,9 +677,11 @@ export const TaskView = memo(function TaskView({
           if (!isBootstrap) setSessionHydrating(false);
           if (snapshotTask) {
             const nextAgent = snapshotTask.agent?.trim() || DEFAULT_AGENT;
+            const isInitialAgentSnapshot = !agentHydratedRef.current;
+            agentHydratedRef.current = true;
             setAgent(nextAgent);
             setAgentSelection((current) =>
-              current === AUTO_AGENT_VALUE ? current : nextAgent,
+              isInitialAgentSnapshot || current !== AUTO_AGENT_VALUE ? nextAgent : current,
             );
             setTask((current) => {
               const base: TaskDetail = current ?? {
