@@ -3,7 +3,22 @@ export type ComposerReferenceKind = "skill" | "agent";
 export type ComposerReference = {
   name: string;
   description?: string;
+  tools?: readonly string[];
 };
+
+export function composerReferenceToolNames(
+  reference: Pick<ComposerReference, "tools">,
+): string[] {
+  const tools = reference.tools?.map((tool) => tool.trim()).filter(Boolean) ?? [];
+  if (tools.length > 0) return tools;
+  return reference.tools === undefined ? ["既定"] : ["なし"];
+}
+
+export function composerReferenceToolTitle(
+  reference: Pick<ComposerReference, "tools">,
+): string {
+  return `ツール権限: ${composerReferenceToolNames(reference).join(", ")}`;
+}
 
 export type ComposerReferenceToken = {
   kind: ComposerReferenceKind;

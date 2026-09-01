@@ -19,6 +19,10 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { GhostSelect } from "@/components/ui";
+import {
+  composerReferenceToolTitle,
+  type ComposerReference,
+} from "@/lib/composer-references";
 import { DEFAULT_AGENT, resolveAgentSelection } from "@/lib/default-agent";
 
 const AGENT_ICONS: Record<string, LucideIcon> = {
@@ -58,13 +62,18 @@ export function AgentSelect({
   className,
 }: {
   value: string;
-  agents: string[];
+  agents: readonly (ComposerReference | string)[];
   disabled?: boolean;
   onChange: (agent: string) => void;
   className?: string;
 }) {
-  const selectableAgents = agents.filter((agent) => agent.trim());
-  const selectedValue = resolveAgentSelection(value, selectableAgents) || DEFAULT_AGENT;
+  const selectableAgents = agents
+    .map((agent) => (typeof agent === "string" ? { name: agent } : agent))
+    .filter((agent) => agent.name.trim());
+  const selectedValue = resolveAgentSelection(
+    value,
+    selectableAgents.map(({ name }) => name),
+  ) || DEFAULT_AGENT;
 
   return (
     <GhostSelect
@@ -78,10 +87,14 @@ export function AgentSelect({
       className={className}
     >
       {selectableAgents.map((agent) => (
-        <option key={agent} value={agent}>
+        <option
+          key={agent.name}
+          value={agent.name}
+          title={composerReferenceToolTitle(agent)}
+        >
           <span className="flex min-w-0 items-center gap-2">
-            <AgentRoleIcon name={agent} />
-            <span className="truncate">{agent}</span>
+            <AgentRoleIcon name={agent.name} />
+            <span className="truncate">{agent.name}</span>
           </span>
         </option>
       ))}

@@ -71,7 +71,7 @@ describe("Composer", () => {
           onRemoveAttachment={() => {}}
           references={{
             skills: [{ name: "review", description: "Review changes" }],
-            agents: [{ name: "reviewer", description: "Review agent" }],
+            agents: [{ name: "reviewer", description: "Review agent", tools: ["read", "grep"] }],
           }}
           textarea={{
             ref: textareaRef,
@@ -115,6 +115,8 @@ describe("Composer", () => {
     expect(agentOption.textContent).toContain("reviewer");
     expect(agentOption.textContent).toContain("Review agent");
     expect(agentOption.textContent).not.toContain("@reviewer");
+    expect(agentOption.querySelector('[data-tool-permission="read"]')).not.toBeNull();
+    expect(agentOption.querySelector('[data-tool-permission="grep"]')).not.toBeNull();
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(textarea.value).toBe("@reviewer ");
     expect(document.querySelector('[aria-hidden="true"] .text-primary')).toBeTruthy();

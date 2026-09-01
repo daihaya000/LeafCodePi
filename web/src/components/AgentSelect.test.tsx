@@ -41,4 +41,23 @@ describe("AgentSelect", () => {
     view.rerender(<AgentSelect value="custom-agent" agents={["plan", "custom-agent"]} onChange={() => {}} />);
     expect(screen.getByRole("button", { name: "エージェント" }).querySelector('[data-agent-icon="custom-agent"]')).not.toBeNull();
   });
+
+  it("shows each agent's tool permissions on dropdown options", () => {
+    render(
+      <AgentSelect
+        value="build"
+        agents={[{ name: "build", tools: ["read", "grep"] }, { name: "custom-agent" }]}
+        onChange={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "エージェント" }));
+
+    expect(screen.getByRole("option", { name: "build" }).getAttribute("title")).toBe(
+      "ツール権限: read, grep",
+    );
+    expect(screen.getByRole("option", { name: "custom-agent" }).getAttribute("title")).toBe(
+      "ツール権限: 既定",
+    );
+  });
 });

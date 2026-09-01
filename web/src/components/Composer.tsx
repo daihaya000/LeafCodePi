@@ -17,6 +17,7 @@ import type {
 } from "react";
 import { Paperclip, Sparkles, UsersRound, X } from "lucide-react";
 import {
+  composerReferenceToolNames,
   composerReferenceValue,
   filterComposerReferences,
   findComposerReferenceToken,
@@ -309,6 +310,22 @@ export function Composer({
                     <span className="block truncate text-base font-semibold leading-6 text-accent">
                       {reference.name}
                     </span>
+                    {kind === "agent" && (
+                      <span
+                        className="mt-1 flex flex-wrap gap-1"
+                        aria-label="ツール権限"
+                      >
+                        {composerReferenceToolNames(reference).map((tool) => (
+                          <span
+                            key={tool}
+                            data-tool-permission={tool}
+                            className="rounded-full border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium leading-4 text-muted"
+                          >
+                            {tool}
+                          </span>
+                        ))}
+                      </span>
+                    )}
                     {reference.description && (
                       <span className="mt-0.5 line-clamp-3 block text-sm leading-5 text-muted">
                         {reference.description}

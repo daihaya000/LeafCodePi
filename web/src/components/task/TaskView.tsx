@@ -801,11 +801,11 @@ export const TaskView = memo(function TaskView({
       }
       /* models are optional for the timeline */
     });
-    void getJson<{ agents: { name: string; description?: string; enabled: boolean; model?: string }[] }>("/api/agents").then((result) => {
+    void getJson<{ agents: { name: string; description?: string; enabled: boolean; model?: string; tools?: string[] }[] }>("/api/agents").then((result) => {
       if (!closed) {
         const enabledAgents = result.agents
           .filter((a) => a.enabled)
-          .map(({ name, description }) => ({ name, description }));
+          .map(({ name, description, tools }) => ({ name, description, tools }));
         const enabledAgentNames = enabledAgents.map(({ name }) => name);
         setAgents(enabledAgents);
         setAgentModels(
@@ -2428,7 +2428,7 @@ export const TaskView = memo(function TaskView({
               {agents.length > 0 && (
                 <AgentSelect
                   value={agent}
-                  agents={agents.map(({ name }) => name)}
+                  agents={agents}
                   disabled={working || compacting || agentChanging}
                   onChange={(value) => {
                     const previous = agent;

@@ -154,7 +154,7 @@ export function HomeView({
     const [projectRes, healthRes, agentRes, skillRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects"),
       getJson<HealthDto>("/api/health"),
-      getJson<{ agents: { name: string; description?: string; enabled: boolean }[] }>("/api/agents"),
+      getJson<{ agents: { name: string; description?: string; enabled: boolean; tools?: string[] }[] }>("/api/agents"),
       getJson<{ skills: { name: string; description?: string; enabled: boolean }[] }>("/api/skills"),
     ]);
     if (projectRes.status === "fulfilled") {
@@ -169,7 +169,7 @@ export function HomeView({
     if (agentRes.status === "fulfilled") {
       const enabledAgents = agentRes.value.agents
         .filter((a) => a.enabled)
-        .map(({ name, description }) => ({ name, description }));
+        .map(({ name, description, tools }) => ({ name, description, tools }));
       const enabledAgentNames = enabledAgents.map(({ name }) => name);
       setAgents(enabledAgents);
       setAgent((current) => resolveAgentSelection(current || readStoredAgent(), enabledAgentNames));
@@ -476,7 +476,7 @@ export function HomeView({
                   {agents.length > 0 && (
                     <AgentSelect
                       value={agent}
-                      agents={agents.map(({ name }) => name)}
+                      agents={agents}
                       disabled={submitting}
                       onChange={(value) => {
                         setAgent(value);
