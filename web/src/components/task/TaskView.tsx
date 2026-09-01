@@ -114,6 +114,8 @@ import {
 } from "@/lib/aborted-resume";
 import { isHangRetryUserMessage } from "@/lib/hang-retry";
 import { mergeTaskDelta, type TaskDeltaState } from "@/lib/task-delta";
+
+const MODEL_KEY = "leafcodepi.defaultModel";
 import {
   autoResumePrompt,
   formatHangTimeout,
@@ -939,7 +941,11 @@ export const TaskView = memo(function TaskView({
     setPrompt("");
     setAttachments([]);
     const nextAutoRecord = readAutoTaskRecord(taskId);
-    setModelSelection(nextAutoRecord ? AUTO_MODEL_VALUE : "");
+    setModelSelection(
+      nextAutoRecord || localStorage.getItem(MODEL_KEY) === AUTO_MODEL_VALUE
+        ? AUTO_MODEL_VALUE
+        : "",
+    );
     setAutoRecord(nextAutoRecord);
     setAutoFollowUpNotice(null);
     setAutoRetryNotice(null);
