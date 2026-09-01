@@ -1629,7 +1629,10 @@ export function Sidebar({
           }}
         >
           <div className="flex items-center gap-1 px-2 py-1">
-            <ProjectIcon project={projectTaskMenuProject} className="h-7 w-7 shrink-0 border text-xs font-medium" />
+            <ProjectIcon
+              project={projectTaskMenuProject}
+              className="flex h-7 w-7 shrink-0 items-center justify-center border text-xs font-medium"
+            />
             <p className="min-w-0 flex-1 truncate text-sm font-medium text-muted">
               {projectTaskMenuProject.name}
             </p>
