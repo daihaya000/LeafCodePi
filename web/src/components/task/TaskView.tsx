@@ -2403,7 +2403,7 @@ export const TaskView = memo(function TaskView({
               <ModelSelect
                 value={modelValue}
                 options={modelOptions}
-                disabled={working || compacting}
+                disabled={compacting}
                 loading={modelsLoading}
                 onChange={(value) => {
                   if (value === AUTO_MODEL_VALUE) {
@@ -2438,7 +2438,7 @@ export const TaskView = memo(function TaskView({
               {modelValue === AUTO_MODEL_VALUE ? (
                 <AutoOptimizeSelect
                   value={autoOptimizeMode}
-                  disabled={working || compacting}
+                  disabled={compacting}
                   onChange={(value) => {
                     setAutoOptimizeMode(value);
                     writeAutoOptimizeMode(value);
@@ -2449,7 +2449,7 @@ export const TaskView = memo(function TaskView({
                 <ThinkingSelect
                   levels={thinkingLevels}
                   value={thinkingValue}
-                  disabled={working || compacting}
+                  disabled={compacting}
                   onChange={(value) => {
                     void (async () => {
                       try {
