@@ -81,6 +81,7 @@ import { getJson, sendJson } from "@/lib/client";
 import {
   AUTO_AGENT_VALUE,
   DEFAULT_AGENT,
+  readStoredAgent,
   resolveAgentSelection,
   writeStoredAgent,
 } from "@/lib/default-agent";
@@ -409,7 +410,6 @@ export const TaskView = memo(function TaskView({
   const [resumeTurnError, setResumeTurnError] = useState<string | null>(null);
   const [manualAbortedAssistantId, setManualAbortedAssistantId] = useState<string | null>(null);
   const autoResumeKeyRef = useRef<string | null>(null);
-  const agentHydratedRef = useRef(false);
   const [hangRetryCount, setHangRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [sessionHydrating, setSessionHydrating] = useState(Boolean(cachedSession));
@@ -430,7 +430,7 @@ export const TaskView = memo(function TaskView({
     () => cachedSession?.agent?.trim() || DEFAULT_AGENT,
   );
   const [agentSelection, setAgentSelection] = useState(
-    () => cachedSession?.agent?.trim() || DEFAULT_AGENT,
+    () => readStoredAgent() || cachedSession?.agent?.trim() || DEFAULT_AGENT,
   );
   const [agentChanging, setAgentChanging] = useState(false);
   const [accountLabels, setAccountLabels] = useState<Map<string, string>>(new Map());
@@ -634,7 +634,6 @@ export const TaskView = memo(function TaskView({
     setSessionHydrating(true);
     setSseReconnecting(false);
     setModelsLoading(true);
-    agentHydratedRef.current = false;
     setAutoUsage({});
 
     const connect = () => {
@@ -677,11 +676,9 @@ export const TaskView = memo(function TaskView({
           if (!isBootstrap) setSessionHydrating(false);
           if (snapshotTask) {
             const nextAgent = snapshotTask.agent?.trim() || DEFAULT_AGENT;
-            const isInitialAgentSnapshot = !agentHydratedRef.current;
-            agentHydratedRef.current = true;
             setAgent(nextAgent);
             setAgentSelection((current) =>
-              isInitialAgentSnapshot || current !== AUTO_AGENT_VALUE ? nextAgent : current,
+              current === AUTO_AGENT_VALUE ? current : nextAgent,
             );
             setTask((current) => {
               const base: TaskDetail = current ?? {
@@ -942,7 +939,7 @@ export const TaskView = memo(function TaskView({
     setPrompt("");
     setAttachments([]);
     const nextAutoRecord = readAutoTaskRecord(taskId);
-    setModelSelection(nextAutoRecord ? autoModelValue(nextAutoRecord.decision) : "");
+    setModelSelection(nextAutoRecord ? AUTO_MODEL_VALUE : "");
     setAutoRecord(nextAutoRecord);
     setAutoFollowUpNotice(null);
     setAutoRetryNotice(null);
