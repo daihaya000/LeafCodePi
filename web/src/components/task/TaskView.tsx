@@ -49,23 +49,19 @@ import {
   autoVariantToThinkingLevel,
   chooseAutoModel,
   classifyPrompt,
-  formatAutoDecisionNotice,
   type AutoOptimizeMode,
   type AutoProviderUsage,
 } from "@/lib/auto-model";
 import {
   AUTO_OPTIMIZE_SETTING_KEY,
   AUTO_ROUTE_OVERRIDES_SETTING_KEY,
-  AUTO_SHOW_MODEL_SETTING_KEY,
   hasStoredAutoSetting,
   readAutoOptimizeMode,
   readAutoRouteConfig,
   readAutoSettingsFromServer,
-  readAutoShowModel,
   subscribeAutoSetting,
   writeAutoOptimizeMode,
   writeAutoRouteConfig,
-  writeAutoShowModel,
   writeAutoSettingToServer,
 } from "@/lib/auto-settings";
 import {
@@ -371,10 +367,8 @@ export const TaskView = memo(function TaskView({
   const [autoOptimizeMode, setAutoOptimizeMode] = useState<AutoOptimizeMode>(
     () => readAutoOptimizeMode(),
   );
-  const [autoShowModel, setAutoShowModel] = useState(() => readAutoShowModel());
   const [autoRouteConfig, setAutoRouteConfig] = useState(() => readAutoRouteConfig());
   const [autoRecord, setAutoRecord] = useState<AutoTaskRecord | null>(null);
-  const [autoFollowUpNotice, setAutoFollowUpNotice] = useState<string | null>(null);
   const [autoRetryNotice, setAutoRetryNotice] = useState<string | null>(null);
   const [autoRetrying, setAutoRetrying] = useState(false);
   const autoRetryStatusRef = useRef<TaskStatus | undefined>(cachedSession?.status);
@@ -467,15 +461,11 @@ export const TaskView = memo(function TaskView({
     const unsubscribeMode = subscribeAutoSetting(AUTO_OPTIMIZE_SETTING_KEY, () =>
       setAutoOptimizeMode(readAutoOptimizeMode()),
     );
-    const unsubscribeShowModel = subscribeAutoSetting(AUTO_SHOW_MODEL_SETTING_KEY, () =>
-      setAutoShowModel(readAutoShowModel()),
-    );
     const unsubscribeRouteConfig = subscribeAutoSetting(AUTO_ROUTE_OVERRIDES_SETTING_KEY, () =>
       setAutoRouteConfig(readAutoRouteConfig()),
     );
     return () => {
       unsubscribeMode();
-      unsubscribeShowModel();
       unsubscribeRouteConfig();
     };
   }, []);
@@ -486,13 +476,6 @@ export const TaskView = memo(function TaskView({
       if (snapshot.mode && !hasStoredAutoSetting(AUTO_OPTIMIZE_SETTING_KEY)) {
         writeAutoOptimizeMode(snapshot.mode);
         setAutoOptimizeMode(snapshot.mode);
-      }
-      if (
-        snapshot.showModel !== undefined &&
-        !hasStoredAutoSetting(AUTO_SHOW_MODEL_SETTING_KEY)
-      ) {
-        writeAutoShowModel(snapshot.showModel);
-        setAutoShowModel(snapshot.showModel);
       }
       if (
         snapshot.routeConfig &&
@@ -939,7 +922,6 @@ export const TaskView = memo(function TaskView({
         : "",
     );
     setAutoRecord(nextAutoRecord);
-    setAutoFollowUpNotice(null);
     setAutoRetryNotice(null);
     setAutoRetrying(false);
     autoRetryStatusRef.current = cached?.status;
@@ -1282,11 +1264,6 @@ export const TaskView = memo(function TaskView({
           agentSelection === AUTO_AGENT_VALUE ? AUTO_AGENT_VALUE : nextAgent,
         );
       }
-      if (autoDecision && autoShowModel) {
-        setAutoFollowUpNotice(
-          formatAutoDecisionNotice(autoDecision, { showModel: autoShowModel }),
-        );
-      }
       setPrompt("");
       setAttachments([]);
       setIsReverted(false);
@@ -1327,9 +1304,7 @@ export const TaskView = memo(function TaskView({
     if (!writeAutoTaskRecord(taskId, nextRecord)) return;
     setAutoRecord(nextRecord);
     setAutoRetrying(true);
-    const retryNotice = autoShowModel
-      ? `低コストモデルでエラーが発生したため ${escalation.providerID}/${escalation.modelID} で再試行しました`
-      : "低コストモデルでエラーが発生したため上位候補で再試行しました";
+    const retryNotice = "低コストモデルでエラーが発生したため上位候補で再試行しました";
     const retryThinkingLevel = autoVariantToThinkingLevel(escalation.variant);
     void sendJson(`/api/tasks/${taskId}/prompt`, {
       prompt: autoRecord.prompt,
@@ -1357,7 +1332,6 @@ export const TaskView = memo(function TaskView({
     permissionMode,
     skillPermission,
     subagentPermission,
-    autoShowModel,
     task?.status,
     taskId,
   ]);
@@ -1677,35 +1651,9 @@ export const TaskView = memo(function TaskView({
           autoHangRetryCount > 1 ? `（${autoHangRetryCount}回）` : ""
         }`
       : null;
-  const autoNotice =
-    autoRetryNotice ??
-    (autoShowModel
-      ? autoFollowUpNotice ??
-        (autoRecord && !autoRecord.dismissed
-          ? formatAutoDecisionNotice(autoRecord.decision, { showModel: true })
-          : null)
-      : null);
+  const autoNotice = autoRetryNotice;
   function dismissAutoNotice() {
-    if (autoRetryNotice) {
-      setAutoRetryNotice(null);
-      if (autoRecord) {
-        const nextRecord = { ...autoRecord, dismissed: true };
-        if (writeAutoTaskRecord(taskId, nextRecord)) setAutoRecord(nextRecord);
-      }
-      return;
-    }
-    if (autoFollowUpNotice) {
-      if (autoRecord?.retried) {
-        const nextRecord = { ...autoRecord, dismissed: true };
-        if (!writeAutoTaskRecord(taskId, nextRecord)) return;
-        setAutoRecord(nextRecord);
-      }
-      setAutoFollowUpNotice(null);
-      return;
-    }
-    if (!autoRecord) return;
-    const nextRecord = { ...autoRecord, dismissed: true };
-    if (writeAutoTaskRecord(taskId, nextRecord)) setAutoRecord(nextRecord);
+    setAutoRetryNotice(null);
   }
   const modelLabels = useMemo(
     () => Object.fromEntries(models.map((option) => [option.value, option.label])),
@@ -2407,7 +2355,6 @@ export const TaskView = memo(function TaskView({
                 onChange={(value) => {
                   if (value === AUTO_MODEL_VALUE) {
                     setModelSelection(AUTO_MODEL_VALUE);
-                    setAutoFollowUpNotice(null);
                     return;
                   }
                   const previous = modelValue;
