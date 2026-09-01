@@ -45,7 +45,7 @@ const AGENT_ICONS: Record<string, LucideIcon> = {
   retrospective: History,
 };
 
-function AgentRoleIcon({ name }: { name: string }) {
+export function AgentRoleIcon({ name }: { name: string }) {
   const Icon = AGENT_ICONS[name] ?? Bot;
   return <Icon aria-hidden="true" data-agent-icon={name} className="h-3.5 w-3.5 shrink-0" />;
 }

@@ -22,6 +22,7 @@ import {
   UserRound,
   Wrench,
 } from "lucide-react";
+import { AgentRoleIcon } from "@/components/AgentSelect";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ReferenceHighlight, type ReferenceHighlightReferences } from "@/components/ReferenceHighlight";
 import { Button, cx, formatMessageTime } from "@/components/ui";
@@ -677,9 +678,11 @@ function MessageMetaHeader({
           {index > 0 && <span aria-hidden="true">·</span>}
           <span
             className={cx(
-              field.key === "model" || field.key === "account"
-                ? "min-w-0 max-w-64 truncate"
-                : "shrink-0",
+              field.key === "agent"
+                ? "inline-flex shrink-0 items-center gap-0.5"
+                : field.key === "model" || field.key === "account"
+                  ? "min-w-0 max-w-64 truncate"
+                  : "shrink-0",
               field.key === "rate" && "tabular-nums",
             )}
             title={
@@ -694,6 +697,7 @@ function MessageMetaHeader({
                       : undefined
             }
           >
+            {field.key === "agent" && <AgentRoleIcon name={field.text} />}
             {field.key === "account" && (
               <UserRound className="mr-0.5 inline h-3 w-3 align-[-1px]" aria-hidden />
             )}

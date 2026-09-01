@@ -96,6 +96,7 @@ describe("PartView response metadata", () => {
 
     expect(screen.getByText("build")).toBeTruthy();
     expect(screen.getByText("仕事用")).toBeTruthy();
+    expect(screen.getByText("build").querySelector('[data-agent-icon="build"]')).not.toBeNull();
   });
 });
 
