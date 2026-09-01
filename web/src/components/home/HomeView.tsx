@@ -318,7 +318,7 @@ export function HomeView({
         writeAutoTaskRecord(result.task.id, {
           decision: result.autoDecision,
           ...(!images.length && prompt.length <= AUTO_TASK_PROMPT_MAX ? { prompt } : {}),
-          ...(agent ? { agent } : {}),
+          ...(result.task.agent?.trim() ? { agent: result.task.agent.trim() } : {}),
         });
       }
       localStorage.setItem(MODEL_KEY, model);

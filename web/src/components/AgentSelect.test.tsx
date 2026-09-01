@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentSelect } from "./AgentSelect";
+import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 
 describe("AgentSelect", () => {
   afterEach(cleanup);
@@ -12,6 +13,7 @@ describe("AgentSelect", () => {
     fireEvent.click(screen.getByRole("button", { name: "エージェント" }));
 
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Auto",
       "build",
       "programmer",
     ]);
@@ -28,6 +30,18 @@ describe("AgentSelect", () => {
 
     view.rerender(<AgentSelect value="エージェント" agents={["build", "programmer"]} onChange={() => {}} />);
     expect(screen.getByRole("button", { name: "エージェント" }).textContent).toContain("build");
+  });
+
+  it("reports Auto and uses role icons for real agents", () => {
+    const onChange = vi.fn();
+    render(<AgentSelect value={AUTO_AGENT_VALUE} agents={["build", "programmer"]} onChange={onChange} />);
+
+    const button = screen.getByRole("button", { name: "エージェント" });
+    expect(button.textContent).toContain("Auto");
+    expect(button.querySelector(`[data-agent-icon="${AUTO_AGENT_VALUE}"]`)).not.toBeNull();
+    fireEvent.click(button);
+    fireEvent.click(screen.getByRole("option", { name: "Auto" }));
+    expect(onChange).toHaveBeenCalledWith(AUTO_AGENT_VALUE);
   });
 
   it("uses role icons and falls back to Bot for custom agents", () => {

@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
+import { AUTO_AGENT_VALUE } from "./default-agent";
 import { agentsDir, AgentsError, agentsErrorStatus, buildAgentResourceOptions, createAgent, deleteAgent, listAgents, loadAgentDefinition, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, setAgentModel, updateAgent } from "./agents";
 
 const AGENT = `---
@@ -143,6 +144,24 @@ describe("listAgents / setAgentEnabled", () => {
 
     deleteAgent("mydoc", agentDir);
     assert.equal(listAgents(agentDir).agents.some((a) => a.name === "mydoc"), false);
+  });
+
+  it("rejects the reserved Auto sentinel and hides legacy definitions", () => {
+    fixture();
+    assert.throws(
+      () => createAgent({ name: AUTO_AGENT_VALUE, systemPrompt: "x" }, agentDir),
+      /予約された名前/,
+    );
+    writeFileSync(
+      join(agentDir, "agents", "reserved.md"),
+      agentNamed(AUTO_AGENT_VALUE),
+      "utf8",
+    );
+    assert.equal(
+      listAgents(agentDir).agents.some((agent) => agent.name === AUTO_AGENT_VALUE),
+      false,
+    );
+    assert.equal(loadAgentDefinition(AUTO_AGENT_VALUE, agentDir), undefined);
   });
 
   it("rejects creating a duplicate name", () => {

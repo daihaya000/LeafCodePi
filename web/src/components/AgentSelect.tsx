@@ -15,6 +15,7 @@ import {
   Palette,
   Search,
   ShieldCheck,
+  Sparkles,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -23,9 +24,10 @@ import {
   composerReferenceToolTitle,
   type ComposerReference,
 } from "@/lib/composer-references";
-import { DEFAULT_AGENT, resolveAgentSelection } from "@/lib/default-agent";
+import { AUTO_AGENT_VALUE, DEFAULT_AGENT, resolveAgentSelection } from "@/lib/default-agent";
 
 const AGENT_ICONS: Record<string, LucideIcon> = {
+  [AUTO_AGENT_VALUE]: Sparkles,
   build: Blocks,
   programmer: Code2,
   plan: ClipboardList,
@@ -51,8 +53,9 @@ function AgentRoleIcon({ name }: { name: string }) {
 /**
  * エージェント選択ドロップダウン。
  * agents は /api/agents の一覧（ビルトイン + ユーザー定義）から取得する。
- * 選択したエージェントはタスク全体のメイン対話者になる。空値や不明値は
- * build（なければ先頭の有効なエージェント）へ正規化する。
+ * 選択したエージェントはタスク全体のメイン対話者になる。Auto は送信時に
+ * 会話内容から実在するエージェントへ解決する。空値や不明値は build（なければ
+ * 先頭の有効なエージェント）へ正規化する。
  */
 export function AgentSelect({
   value,
@@ -69,23 +72,34 @@ export function AgentSelect({
 }) {
   const selectableAgents = agents
     .map((agent) => (typeof agent === "string" ? { name: agent } : agent))
-    .filter((agent) => agent.name.trim());
+    .filter((agent) => {
+      const name = agent.name.trim();
+      return name && name !== AUTO_AGENT_VALUE;
+    });
   const selectedValue = resolveAgentSelection(
     value,
     selectableAgents.map(({ name }) => name),
   ) || DEFAULT_AGENT;
+  const isAuto = selectedValue === AUTO_AGENT_VALUE;
+  const selectedLabel = isAuto ? "Auto" : selectedValue;
 
   return (
     <GhostSelect
       value={selectedValue}
       disabled={disabled}
       aria-label="エージェント"
-      title={`${selectedValue} がこのタスクの対話者になります`}
+      title={isAuto ? "Auto が会話内容からエージェントを選びます" : `${selectedValue} がこのタスクの対話者になります`}
       icon={<AgentRoleIcon name={selectedValue} />}
-      valueLabel={selectedValue}
+      valueLabel={selectedLabel}
       onChange={onChange}
       className={className}
     >
+      <option value={AUTO_AGENT_VALUE}>
+        <span className="flex min-w-0 items-center gap-2">
+          <AgentRoleIcon name={AUTO_AGENT_VALUE} />
+          <span className="truncate">Auto</span>
+        </span>
+      </option>
       {selectableAgents.map((agent) => (
         <option
           key={agent.name}

@@ -23,6 +23,9 @@ import {
   type AutoRouteConfig,
 } from "@/lib/auto-model";
 import { loadAgentDefinition } from "@/lib/agents";
+import { parseDirectModelKey } from "@/lib/direct-generation";
+import { resolveAutoAgent } from "@/lib/auto-agent";
+import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { getCachedUsage } from "@/lib/codexbar/cache";
 import {
   clampGoalLoopCooldownSeconds,
@@ -193,13 +196,37 @@ export async function POST(req: NextRequest) {
       typeof body.accountId === "string" && body.accountId.trim()
         ? body.accountId.trim()
         : undefined;
+    const requestedModel =
+      body.model && body.model !== AUTO_MODEL_VALUE
+        ? parseDirectModelKey(body.model)
+        : undefined;
+    if (requestedModel?.accountId && accountId && requestedModel.accountId !== accountId) {
+      return NextResponse.json(
+        { error: "モデルとアカウントの指定が一致しません" },
+        { status: 400 },
+      );
+    }
+    let agent = body.agent?.trim() || undefined;
+    if (agent === AUTO_AGENT_VALUE) {
+      const selectionModel =
+        requestedModel && accountId && !requestedModel.accountId
+          ? { ...requestedModel, accountId }
+          : requestedModel;
+      agent = await resolveAutoAgent({
+        conversation: [],
+        prompt: body.prompt,
+        hasImages: Boolean(body.images?.length),
+        ...(selectionModel ? { requestedModel: selectionModel } : {}),
+        ...(accountId ? { accountId } : {}),
+      });
+    }
     let autoDecision: AutoDecision | undefined;
     const autoRouteConfig: AutoRouteConfig | undefined =
       body.autoRouteOverrides === undefined
         ? undefined
         : normalizeAutoRouteConfig(body.autoRouteOverrides);
     if (body.auto === true) {
-      const agentModel = body.agent ? loadAgentDefinition(body.agent)?.model : undefined;
+      const agentModel = agent ? loadAgentDefinition(agent)?.model : undefined;
       if (!agentModel) {
         const accounts = listAccounts();
         const models = await listModelsForAccounts(
@@ -244,7 +271,7 @@ export async function POST(req: NextRequest) {
       ...(thinkingLevel ? { thinkingLevel } : {}),
       ...(autoDecision ? { auto: true } : {}),
       images: body.images,
-      agent: body.agent,
+      ...(agent ? { agent } : {}),
       accountId,
       subagentPermission: body.subagentPermission,
       permissionMode: body.permissionMode,

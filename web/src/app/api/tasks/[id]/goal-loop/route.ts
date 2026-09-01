@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getTask } from "@/lib/store";
+import { readSessionConversation } from "@/lib/direct-session";
+import { parseDirectModelKey } from "@/lib/direct-generation";
+import { resolveAutoAgent } from "@/lib/auto-agent";
+import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import {
   goalLoopCommand,
   goalLoopState,
   jsonError,
+  setTaskAgent,
   setTaskModel,
   setTaskThinkingLevel,
 } from "@/lib/pi/harness";
@@ -70,9 +76,41 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (!goal || goal.length > 4_000 || !criteria) {
       return NextResponse.json({ error: "goal または acceptance が不正です" }, { status: 400 });
     }
+    if (body?.agent !== undefined && typeof body.agent !== "string") {
+      return NextResponse.json({ error: "invalid agent" }, { status: 400 });
+    }
+    let agent = body?.agent?.trim() || undefined;
+    if (agent === AUTO_AGENT_VALUE) {
+      const currentTask = getTask(id);
+      if (!currentTask) {
+        return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });
+      }
+      if (currentTask.status === "working") {
+        agent = currentTask.agent?.trim() || undefined;
+      } else {
+        const taskModel =
+          currentTask.providerID && currentTask.modelID
+            ? {
+                providerID: currentTask.providerID,
+                modelID: currentTask.modelID,
+                ...(currentTask.accountId ? { accountId: currentTask.accountId } : {}),
+              }
+            : undefined;
+        const requestedModel = parseDirectModelKey(body?.model) ?? taskModel;
+        agent = await resolveAutoAgent({
+          conversation: readSessionConversation(currentTask.sessionFile),
+          prompt: goal,
+          ...(requestedModel ? { requestedModel } : {}),
+          ...(currentTask.accountId ? { accountId: currentTask.accountId } : {}),
+        });
+      }
+      if (agent && agent !== (currentTask.agent?.trim() || undefined)) {
+        await setTaskAgent(id, agent);
+      }
+    }
     const fixedAgentModel =
-      body?.auto === true && typeof body.agent === "string"
-        ? loadAgentDefinition(body.agent)?.model
+      body?.auto === true && agent
+        ? loadAgentDefinition(agent)?.model
         : undefined;
     if (!fixedAgentModel && body?.model) await setTaskModel(id, body.model);
     if (!fixedAgentModel && body?.thinkingLevel) {
@@ -86,7 +124,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       cooldownSeconds: clampGoalLoopCooldownSeconds(body?.cooldownSeconds),
       forceFullRun: body?.forceFullRun === true,
     });
-    return NextResponse.json({ loop });
+    return NextResponse.json({ loop, agent: getTask(id)?.agent ?? null });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

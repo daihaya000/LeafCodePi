@@ -16,6 +16,7 @@ import YAML from "yaml";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { readPiSettings } from "@/lib/extensions";
 import { bundledExtensionsDir, resolvePackageDir } from "@/lib/extensions";
+import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 
 export type AgentDto = {
   id: string;
@@ -200,6 +201,7 @@ export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
   const byName = new Map<string, AgentDto>();
   const push = (source: AgentDto["source"], dir: string) => {
     for (const entry of discoverInDir(dir, source)) {
+      if (entry.name === AUTO_AGENT_VALUE) continue;
       if (!byName.has(entry.name)) {
         const rawOverrideModel = overrides[entry.name]?.model;
         const overrideModel = typeof rawOverrideModel === "string" ? rawOverrideModel.trim() || undefined : undefined;
@@ -322,6 +324,7 @@ function userAgentPath(agentDir: string, name: string): string {
 
 function assertValidName(name: string): string {
   const trimmed = name.trim();
+  if (trimmed === AUTO_AGENT_VALUE) throw new AgentsError("invalid-name", "予約された名前です");
   if (!trimmed || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(trimmed)) {
     throw new AgentsError("invalid-name", "名前は英数字・._- のみ使用できます");
   }
@@ -458,7 +461,7 @@ export function loadAgentDefinition(
   agentDir = resolvePiAgentDir(),
 ): LoadedAgentDefinition | undefined {
   const trimmed = name.trim();
-  if (!trimmed) return undefined;
+  if (!trimmed || trimmed === AUTO_AGENT_VALUE) return undefined;
   const dto = listAgents(agentDir).agents.find(
     (agent) => agent.name === trimmed && agent.enabled,
   );

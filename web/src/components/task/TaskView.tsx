@@ -78,7 +78,12 @@ import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { notifyTasksChanged } from "@/lib/events";
 import { taskSidebarNotifyKey } from "@/lib/task-sidebar-notify";
 import { getJson, sendJson } from "@/lib/client";
-import { DEFAULT_AGENT, resolveAgentSelection, writeStoredAgent } from "@/lib/default-agent";
+import {
+  AUTO_AGENT_VALUE,
+  DEFAULT_AGENT,
+  resolveAgentSelection,
+  writeStoredAgent,
+} from "@/lib/default-agent";
 import { messageNavigationIndex } from "@/lib/message-navigation";
 import {
   normalizeTaskPanelState,
@@ -418,7 +423,12 @@ export const TaskView = memo(function TaskView({
     }),
     [agents, skills],
   );
+  // agent is the persisted session persona; agentSelection may temporarily be
+  // Auto until the next prompt is sent and the server resolves it.
   const [agent, setAgent] = useState(
+    () => cachedSession?.agent?.trim() || DEFAULT_AGENT,
+  );
+  const [agentSelection, setAgentSelection] = useState(
     () => cachedSession?.agent?.trim() || DEFAULT_AGENT,
   );
   const [agentChanging, setAgentChanging] = useState(false);
@@ -591,8 +601,12 @@ export const TaskView = memo(function TaskView({
     setPermissionRequest(detail.permissionRequest ?? null);
     setQuestionRequest(detail.questionRequest ?? null);
     setSkillPermission(detail.skillPermission ?? readSkillPermission());
-    // セッション人格は作成時固定。タスクに紐づくエージェントを選択状態へ反映する。
-    setAgent(detail.agent?.trim() || DEFAULT_AGENT);
+    // セッション人格は作成時固定。Auto 選択中は送信待ちの選択を維持する。
+    const nextAgent = detail.agent?.trim() || DEFAULT_AGENT;
+    setAgent(nextAgent);
+    setAgentSelection((current) =>
+      current === AUTO_AGENT_VALUE ? current : nextAgent,
+    );
   }, []);
 
   const notifySidebarIfNeeded = useCallback((snapshotTask?: TaskSummary | TaskDetail | null) => {
@@ -660,7 +674,11 @@ export const TaskView = memo(function TaskView({
         startTransition(() => {
           if (!isBootstrap) setSessionHydrating(false);
           if (snapshotTask) {
-            setAgent(snapshotTask.agent?.trim() || DEFAULT_AGENT);
+            const nextAgent = snapshotTask.agent?.trim() || DEFAULT_AGENT;
+            setAgent(nextAgent);
+            setAgentSelection((current) =>
+              current === AUTO_AGENT_VALUE ? current : nextAgent,
+            );
             setTask((current) => {
               const base: TaskDetail = current ?? {
                 ...snapshotTask,
@@ -739,7 +757,13 @@ export const TaskView = memo(function TaskView({
           return;
         }
         startTransition(() => {
-          if (payload.task) setAgent(payload.task.agent?.trim() || DEFAULT_AGENT);
+          if (payload.task) {
+            const nextAgent = payload.task.agent?.trim() || DEFAULT_AGENT;
+            setAgent(nextAgent);
+            setAgentSelection((current) =>
+              current === AUTO_AGENT_VALUE ? current : nextAgent,
+            );
+          }
           setTask((current) => {
             const next = mergeTaskDelta(current, payload);
             if (!current || !next) return next;
@@ -816,6 +840,7 @@ export const TaskView = memo(function TaskView({
           ),
         );
         setAgent((current) => resolveAgentSelection(current, enabledAgentNames));
+        setAgentSelection((current) => resolveAgentSelection(current, enabledAgentNames));
       }
     }).catch(() => {
       /* agents are optional for the composer */
@@ -940,7 +965,9 @@ export const TaskView = memo(function TaskView({
     setPermissionRequest(null);
     setQuestionRequest(null);
     setPermissionBusy(false);
-    setAgent(cached?.agent?.trim() || DEFAULT_AGENT);
+    const nextAgent = cached?.agent?.trim() || DEFAULT_AGENT;
+    setAgent(nextAgent);
+    setAgentSelection(nextAgent);
     autoResumeKeyRef.current = null;
     messageElsRef.current.clear();
     navigationMessageIdsRef.current = [];
@@ -1177,7 +1204,9 @@ export const TaskView = memo(function TaskView({
         })
         .filter((item): item is { mimeType: string; data: string } => item !== null);
       const isAuto = modelValue === AUTO_MODEL_VALUE;
-      const fixedAgentModel = agent ? agentModels.get(agent)?.trim() : undefined;
+      const fixedAgentModel = agentSelection
+        ? agentModels.get(agentSelection)?.trim()
+        : undefined;
       const autoDecision =
         isAuto && !fixedAgentModel
           ? chooseAutoModel({
@@ -1199,29 +1228,34 @@ export const TaskView = memo(function TaskView({
           "Auto で選択可能なモデルがありません。プロバイダ接続とモデル有効化を確認してください。",
         );
       }
+      let resolvedAgent: string | null | undefined;
       if (goalLoopEnabled) {
         if (images.length > 0) throw new Error("Goal loop の開始では画像添付は使えません");
-        await sendJson(`/api/tasks/${taskId}/goal-loop`, {
-          action: "start",
-          goal: prompt,
-          acceptance: goalLoopAcceptance,
-          maxTurns: goalLoopMaxTurns,
-          cooldownSeconds: goalLoopCooldownSeconds,
-          forceFullRun: goalLoopForceFullRun,
-          ...(agent ? { agent } : {}),
-          ...(autoDecision ? { auto: true } : {}),
-          ...(autoDecision
-            ? {
-                model: autoModelValue(autoDecision),
-                ...(autoVariantToThinkingLevel(autoDecision.variant)
-                  ? { thinkingLevel: autoVariantToThinkingLevel(autoDecision.variant) }
-                  : {}),
-              }
-            : {}),
-        });
+        const result = await sendJson<{ loop: GoalLoopDto | null; agent?: string | null }>(
+          `/api/tasks/${taskId}/goal-loop`,
+          {
+            action: "start",
+            goal: prompt,
+            acceptance: goalLoopAcceptance,
+            maxTurns: goalLoopMaxTurns,
+            cooldownSeconds: goalLoopCooldownSeconds,
+            forceFullRun: goalLoopForceFullRun,
+            ...(agentSelection ? { agent: agentSelection } : {}),
+            ...(autoDecision ? { auto: true } : {}),
+            ...(autoDecision
+              ? {
+                  model: autoModelValue(autoDecision),
+                  ...(autoVariantToThinkingLevel(autoDecision.variant)
+                    ? { thinkingLevel: autoVariantToThinkingLevel(autoDecision.variant) }
+                    : {}),
+                }
+              : {}),
+          },
+        );
+        resolvedAgent = result.agent;
         setGoalLoopEnabled(false);
       } else {
-        await sendJson(`/api/tasks/${taskId}/prompt`, {
+        const result = await sendJson<{ task: TaskSummary }>(`/api/tasks/${taskId}/prompt`, {
           prompt,
           images,
           ...(autoDecision
@@ -1232,14 +1266,24 @@ export const TaskView = memo(function TaskView({
                   : {}),
               }
             : {}),
-          ...(agent ? { agent } : {}),
+          ...(agentSelection ? { agent: agentSelection } : {}),
           subagentPermission,
           permissionMode,
           skillPermission,
           ...(working && deliveryMode === "steer" ? { streamingBehavior: "steer" } : {}),
         });
+        resolvedAgent = result.task.agent ?? null;
       }
-      if (autoDecision && autoShowModel) {
+      if (resolvedAgent !== undefined) {
+        const nextAgent = resolvedAgent?.trim() || DEFAULT_AGENT;
+        setAgent(nextAgent);
+        setAgentSelection(nextAgent);
+      }
+      if (
+        autoDecision &&
+        autoShowModel &&
+        !(resolvedAgent && agentModels.get(resolvedAgent.trim())?.trim())
+      ) {
         setAutoFollowUpNotice(
           formatAutoDecisionNotice(autoDecision, { showModel: autoShowModel }),
         );
@@ -2056,7 +2100,7 @@ export const TaskView = memo(function TaskView({
           <SidePanel storageKey="webui.diffpane.width">
             <DiffPane
               directory={task.directory}
-              agent={agent || undefined}
+              agent={task.agent?.trim() || undefined}
               model={
                 task.providerID && task.modelID
                   ? { providerID: task.providerID, modelID: task.modelID }
@@ -2427,22 +2471,33 @@ export const TaskView = memo(function TaskView({
               )}
               {agents.length > 0 && (
                 <AgentSelect
-                  value={agent}
+                  value={agentSelection}
                   agents={agents}
                   disabled={working || compacting || agentChanging}
                   onChange={(value) => {
+                    if (value === AUTO_AGENT_VALUE) {
+                      setAgentSelection(value);
+                      writeStoredAgent(value);
+                      return;
+                    }
                     const previous = agent;
+                    const previousSelection = agentSelection;
+                    setAgentSelection(value);
                     setAgent(value);
                     writeStoredAgent(value);
                     setAgentChanging(true);
                     void sendJson<{ task: TaskSummary }>(`/api/tasks/${taskId}/agent`, { agent: value })
                       .then(({ task: updatedTask }) => {
+                        const nextAgent = updatedTask.agent?.trim() || DEFAULT_AGENT;
+                        setAgent(nextAgent);
+                        setAgentSelection(nextAgent);
                         setTask((current) => (current ? { ...current, ...updatedTask } : current));
                         setError(null);
                       })
                       .catch((err) => {
                         setAgent(previous);
-                        writeStoredAgent(previous);
+                        setAgentSelection(previousSelection);
+                        writeStoredAgent(previousSelection);
                         setError(err instanceof Error ? err.message : "エージェントの切替に失敗しました");
                       })
                       .finally(() => setAgentChanging(false));

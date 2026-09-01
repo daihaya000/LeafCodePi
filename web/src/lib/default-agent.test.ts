@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { DEFAULT_AGENT, resolveAgentSelection } from "./default-agent";
+import { AUTO_AGENT_VALUE, DEFAULT_AGENT, resolveAgentSelection } from "./default-agent";
 
 describe("resolveAgentSelection", () => {
   it("prefers build and rejects the display placeholder", () => {
@@ -12,5 +12,9 @@ describe("resolveAgentSelection", () => {
 
   it("keeps a valid explicit agent", () => {
     assert.equal(resolveAgentSelection("reviewer", ["build", "reviewer"]), "reviewer");
+  });
+
+  it("keeps the Auto sentinel separate from real agents", () => {
+    assert.equal(resolveAgentSelection(AUTO_AGENT_VALUE, ["build", "reviewer"]), AUTO_AGENT_VALUE);
   });
 });
