@@ -974,7 +974,11 @@ export const TaskView = memo(function TaskView({
     setPermissionBusy(false);
     const nextAgent = cached?.agent?.trim() || DEFAULT_AGENT;
     setAgent(nextAgent);
-    setAgentSelection(nextAgent);
+    setAgentSelection((current) =>
+      current === AUTO_AGENT_VALUE || readStoredAgent() === AUTO_AGENT_VALUE
+        ? AUTO_AGENT_VALUE
+        : nextAgent,
+    );
     autoResumeKeyRef.current = null;
     messageElsRef.current.clear();
     navigationMessageIdsRef.current = [];
