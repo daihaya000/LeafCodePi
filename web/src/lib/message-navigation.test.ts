@@ -23,13 +23,16 @@ describe("messageNavigationIndex", () => {
   const tops = [0, 200, 400];
   const topOf = (index: number) => tops[index]!;
 
-  it("keeps the current target until the next target reaches the viewport line", () => {
-    expect(messageNavigationIndex(tops.length, 0, 100, topOf)).toBe(0);
+  it("uses the first target at or below the viewport line", () => {
+    expect(messageNavigationIndex(tops.length, 0, 100, topOf)).toBe(1);
     expect(messageNavigationIndex(tops.length, 0, 200, topOf)).toBe(1);
   });
 
-  it("moves backward to the target at or above the line", () => {
-    expect(messageNavigationIndex(tops.length, 2, 250, topOf)).toBe(1);
+  it("keeps the next target as current so previous does not skip the visible message", () => {
+    expect(messageNavigationIndex(tops.length, 2, 250, topOf)).toBe(2);
+  });
+
+  it("moves backward to the target at or below the line", () => {
     expect(messageNavigationIndex(tops.length, 2, 0, topOf)).toBe(0);
   });
 

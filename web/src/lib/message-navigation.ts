@@ -13,9 +13,9 @@ export function messageNavigationIds(messages: Pick<UiMessage, "id" | "role">[])
 }
 
 /**
- * Return the target currently at or above the viewport line. Keeping the last
- * reached target makes the next button select the next message instead of
- * skipping the first target below the current scroll position.
+ * Return the first target at or below the viewport line. The navigation
+ * buttons move from this target, so the previous button selects the message
+ * currently visible instead of skipping it.
  */
 export function messageNavigationIndex(
   length: number,
@@ -25,7 +25,7 @@ export function messageNavigationIndex(
 ): number {
   if (length <= 0) return 0;
   let index = Math.min(Math.max(currentIndex, 0), length - 1);
-  while (index + 1 < length && topOf(index + 1) <= line) index += 1;
-  while (index > 0 && topOf(index) > line) index -= 1;
-  return index;
+  while (index < length && topOf(index) < line) index += 1;
+  while (index > 0 && topOf(index - 1) >= line) index -= 1;
+  return Math.min(index, length - 1);
 }
