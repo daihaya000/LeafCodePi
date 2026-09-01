@@ -2659,8 +2659,8 @@ export async function completeModelText(options: {
           options.maxTokens,
           options.reasoning,
         ),
-        // Codex Responses rejects the temperature request parameter.
-        ...(model.api === "openai-codex-responses"
+        // Codex rejects temperature regardless of the model catalog API label.
+        ...(model.provider === "openai-codex" || model.api === "openai-codex-responses"
           ? {}
           : { temperature: Math.min(2, Math.max(0, options.temperature ?? 0.2)) }),
         reasoning: options.reasoning,

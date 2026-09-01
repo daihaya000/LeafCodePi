@@ -53,8 +53,8 @@ function installRuntime(response: AssistantMessage) {
     getModel: (providerID: string, modelID: string) =>
       providerID === "anthropic" && (modelID === "claude-sonnet" || modelID === "reasoning-model")
         ? { id: modelID, provider: providerID, api: "anthropic-messages", reasoning: modelID === "reasoning-model", maxTokens: 32_768 }
-        : providerID === "openai-codex" && modelID === "codex-model"
-          ? { id: modelID, provider: providerID, api: "openai-codex-responses", reasoning: true, maxTokens: 32_768 }
+        : providerID === "openai-codex" && (modelID === "codex-model" || modelID === "codex-legacy")
+          ? { id: modelID, provider: providerID, api: modelID === "codex-model" ? "openai-codex-responses" : "openai-responses", reasoning: true, maxTokens: 32_768 }
           : undefined,
     completeSimple: (...args: unknown[]) => {
       calls.push(args);
@@ -114,14 +114,14 @@ describe("completeModelText", () => {
     );
   });
 
-  it("omits temperature for Codex Responses models", async () => {
+  it("omits temperature for every Codex model, including legacy API labels", async () => {
     const calls = installRuntime(
       assistant({ content: [{ type: "text", text: "ok" }] }),
     );
 
     await completeModelText({
       providerID: "openai-codex",
-      modelID: "codex-model",
+      modelID: "codex-legacy",
       system: "system",
       prompt: "prompt",
       temperature: 0,
