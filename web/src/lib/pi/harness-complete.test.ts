@@ -52,8 +52,10 @@ function installRuntime(response: AssistantMessage) {
     getProvider: () => ({ id: "stub" }),
     getModel: (providerID: string, modelID: string) =>
       providerID === "anthropic" && (modelID === "claude-sonnet" || modelID === "reasoning-model")
-        ? { id: modelID, provider: providerID, reasoning: modelID === "reasoning-model", maxTokens: 32_768 }
-        : undefined,
+        ? { id: modelID, provider: providerID, api: "anthropic-messages", reasoning: modelID === "reasoning-model", maxTokens: 32_768 }
+        : providerID === "openai-codex" && modelID === "codex-model"
+          ? { id: modelID, provider: providerID, api: "openai-codex-responses", reasoning: true, maxTokens: 32_768 }
+          : undefined,
     completeSimple: (...args: unknown[]) => {
       calls.push(args);
       return Promise.resolve(response);
@@ -110,6 +112,25 @@ describe("completeModelText", () => {
       }),
       "更新 foo",
     );
+  });
+
+  it("omits temperature for Codex Responses models", async () => {
+    const calls = installRuntime(
+      assistant({ content: [{ type: "text", text: "ok" }] }),
+    );
+
+    await completeModelText({
+      providerID: "openai-codex",
+      modelID: "codex-model",
+      system: "system",
+      prompt: "prompt",
+      temperature: 0,
+    });
+
+    const requestOptions = (calls[0] as unknown[] | undefined)?.[2] as {
+      temperature?: number;
+    };
+    assert.equal(requestOptions.temperature, undefined);
   });
 
   it("routes an integrated model to the account with lower cached usage", async () => {

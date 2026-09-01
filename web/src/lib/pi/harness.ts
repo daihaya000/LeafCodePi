@@ -2659,7 +2659,10 @@ export async function completeModelText(options: {
           options.maxTokens,
           options.reasoning,
         ),
-        temperature: Math.min(2, Math.max(0, options.temperature ?? 0.2)),
+        // Codex Responses rejects the temperature request parameter.
+        ...(model.api === "openai-codex-responses"
+          ? {}
+          : { temperature: Math.min(2, Math.max(0, options.temperature ?? 0.2)) }),
         reasoning: options.reasoning,
       },
     );
