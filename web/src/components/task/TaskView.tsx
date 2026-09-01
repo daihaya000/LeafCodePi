@@ -942,7 +942,7 @@ export const TaskView = memo(function TaskView({
     setPrompt("");
     setAttachments([]);
     const nextAutoRecord = readAutoTaskRecord(taskId);
-    setModelSelection(nextAutoRecord ? AUTO_MODEL_VALUE : "");
+    setModelSelection(nextAutoRecord ? autoModelValue(nextAutoRecord.decision) : "");
     setAutoRecord(nextAutoRecord);
     setAutoFollowUpNotice(null);
     setAutoRetryNotice(null);
