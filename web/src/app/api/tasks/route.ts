@@ -22,7 +22,6 @@ import {
   type AutoDecision,
   type AutoRouteConfig,
 } from "@/lib/auto-model";
-import { loadAgentDefinition } from "@/lib/agents";
 import { parseDirectModelKey } from "@/lib/direct-generation";
 import { resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
@@ -207,9 +206,55 @@ export async function POST(req: NextRequest) {
       );
     }
     let agent = body.agent?.trim() || undefined;
+    let autoDecision: AutoDecision | undefined;
+    const autoRouteConfig: AutoRouteConfig | undefined =
+      body.autoRouteOverrides === undefined
+        ? undefined
+        : normalizeAutoRouteConfig(body.autoRouteOverrides);
+    if (body.auto === true) {
+      const accounts = listAccounts();
+      const models = await listModelsForAccounts(
+        accounts.map((account) => ({
+          id: account.id,
+          label: account.label,
+          providers: account.providers,
+        })),
+      );
+      const hasImages = Boolean(body.images?.length);
+      autoDecision =
+        chooseAutoModel({
+          models,
+          tier: classifyPrompt(body.prompt, {
+            hasImages,
+            attachmentCount: body.images?.length ?? 0,
+          }),
+          hasImages,
+          mode: isAutoOptimizeMode(body.autoOptimize)
+            ? body.autoOptimize
+            : DEFAULT_AUTO_OPTIMIZE_MODE,
+          usage: autoProviderUsageFromProviders(getCachedUsage()?.providers ?? []),
+          config: autoRouteConfig,
+        }) ?? undefined;
+      if (!autoDecision) {
+        throw Object.assign(
+          new Error(
+            "Auto で選択可能なモデルがありません。プロバイダ接続とモデル有効化を確認してください。",
+          ),
+          { status: 400 },
+        );
+      }
+      model = autoModelValue(autoDecision);
+      thinkingLevel = autoVariantToThinkingLevel(autoDecision.variant);
+      accountId = autoDecision.accountId;
+    }
     if (agent === AUTO_AGENT_VALUE) {
-      const selectionModel =
-        requestedModel && accountId && !requestedModel.accountId
+      const selectionModel = autoDecision
+        ? {
+            providerID: autoDecision.providerID,
+            modelID: autoDecision.modelID,
+            ...(autoDecision.accountId ? { accountId: autoDecision.accountId } : {}),
+          }
+        : requestedModel && accountId && !requestedModel.accountId
           ? { ...requestedModel, accountId }
           : requestedModel;
       agent = await resolveAutoAgent({
@@ -219,50 +264,6 @@ export async function POST(req: NextRequest) {
         ...(selectionModel ? { requestedModel: selectionModel } : {}),
         ...(accountId ? { accountId } : {}),
       });
-    }
-    let autoDecision: AutoDecision | undefined;
-    const autoRouteConfig: AutoRouteConfig | undefined =
-      body.autoRouteOverrides === undefined
-        ? undefined
-        : normalizeAutoRouteConfig(body.autoRouteOverrides);
-    if (body.auto === true) {
-      const agentModel = agent ? loadAgentDefinition(agent)?.model : undefined;
-      if (!agentModel) {
-        const accounts = listAccounts();
-        const models = await listModelsForAccounts(
-          accounts.map((account) => ({
-            id: account.id,
-            label: account.label,
-            providers: account.providers,
-          })),
-        );
-        const hasImages = Boolean(body.images?.length);
-        autoDecision =
-          chooseAutoModel({
-            models,
-            tier: classifyPrompt(body.prompt, {
-              hasImages,
-              attachmentCount: body.images?.length ?? 0,
-            }),
-            hasImages,
-            mode: isAutoOptimizeMode(body.autoOptimize)
-              ? body.autoOptimize
-              : DEFAULT_AUTO_OPTIMIZE_MODE,
-            usage: autoProviderUsageFromProviders(getCachedUsage()?.providers ?? []),
-            config: autoRouteConfig,
-          }) ?? undefined;
-        if (!autoDecision) {
-          throw Object.assign(
-            new Error(
-              "Auto で選択可能なモデルがありません。プロバイダ接続とモデル有効化を確認してください。",
-            ),
-            { status: 400 },
-          );
-        }
-        model = autoModelValue(autoDecision);
-        thinkingLevel = autoVariantToThinkingLevel(autoDecision.variant);
-        accountId = autoDecision.accountId;
-      }
     }
     const task = await createTask({
       projectId,

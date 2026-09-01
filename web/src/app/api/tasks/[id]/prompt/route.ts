@@ -21,6 +21,7 @@ export async function POST(
       images?: { mimeType: string; data: string }[];
       model?: string;
       thinkingLevel?: ThinkingLevel;
+      auto?: unknown;
       agent?: string;
       subagentPermission?: "allow" | "deny";
       permissionMode?: "allow" | "ask" | "deny";
@@ -32,6 +33,9 @@ export async function POST(
     }
     if (body?.agent !== undefined && typeof body.agent !== "string") {
       return NextResponse.json({ error: "invalid agent" }, { status: 400 });
+    }
+    if (body?.auto !== undefined && typeof body.auto !== "boolean") {
+      return NextResponse.json({ error: "invalid auto" }, { status: 400 });
     }
     if (
       body?.streamingBehavior !== undefined &&
@@ -71,6 +75,7 @@ export async function POST(
     const task = await promptTask(id, body.prompt ?? "", body.images, {
       model: body.model,
       thinkingLevel: body.thinkingLevel,
+      ...(body.auto === true ? { auto: true } : {}),
       agent,
       subagentPermission: body.subagentPermission,
       permissionMode: body.permissionMode,

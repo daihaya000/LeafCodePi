@@ -134,7 +134,7 @@ import {
 import {
   isThinkingLevel,
   resolveThinkingLevel,
-  thinkingLevelLabel,
+  thinkingLevelMetaLabel,
   writeStoredThinkingLevel,
 } from "@/lib/thinking-levels";
 import {
@@ -418,7 +418,6 @@ export const TaskView = memo(function TaskView({
   const [sseReconnecting, setSseReconnecting] = useState(false);
   const [agents, setAgents] = useState<ComposerReference[]>([]);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
-  const [agentModels, setAgentModels] = useState<Map<string, string>>(new Map());
   const messageReferences = useMemo(
     () => ({
       skills,
@@ -835,13 +834,6 @@ export const TaskView = memo(function TaskView({
           .map(({ name, description, tools }) => ({ name, description, tools }));
         const enabledAgentNames = enabledAgents.map(({ name }) => name);
         setAgents(enabledAgents);
-        setAgentModels(
-          new Map(
-            result.agents
-              .filter((a) => a.enabled && a.model?.trim())
-              .map((a) => [a.name, a.model!.trim()]),
-          ),
-        );
         setAgent((current) => resolveAgentSelection(current, enabledAgentNames));
         setAgentSelection((current) => resolveAgentSelection(current, enabledAgentNames));
       }
@@ -1215,11 +1207,8 @@ export const TaskView = memo(function TaskView({
         })
         .filter((item): item is { mimeType: string; data: string } => item !== null);
       const isAuto = modelValue === AUTO_MODEL_VALUE;
-      const fixedAgentModel = agentSelection
-        ? agentModels.get(agentSelection)?.trim()
-        : undefined;
       const autoDecision =
-        isAuto && !fixedAgentModel
+        isAuto
           ? chooseAutoModel({
               models,
               tier: classifyPrompt(prompt, {
@@ -1234,7 +1223,7 @@ export const TaskView = memo(function TaskView({
               config: autoRouteConfig,
             })
           : undefined;
-      if (isAuto && !fixedAgentModel && !autoDecision) {
+      if (isAuto && !autoDecision) {
         throw new Error(
           "Auto で選択可能なモデルがありません。プロバイダ接続とモデル有効化を確認してください。",
         );
@@ -1271,6 +1260,7 @@ export const TaskView = memo(function TaskView({
           images,
           ...(autoDecision
             ? {
+                auto: true,
                 model: autoModelValue(autoDecision),
                 ...(autoVariantToThinkingLevel(autoDecision.variant)
                   ? { thinkingLevel: autoVariantToThinkingLevel(autoDecision.variant) }
@@ -1292,11 +1282,7 @@ export const TaskView = memo(function TaskView({
           agentSelection === AUTO_AGENT_VALUE ? AUTO_AGENT_VALUE : nextAgent,
         );
       }
-      if (
-        autoDecision &&
-        autoShowModel &&
-        !(resolvedAgent && agentModels.get(resolvedAgent.trim())?.trim())
-      ) {
+      if (autoDecision && autoShowModel) {
         setAutoFollowUpNotice(
           formatAutoDecisionNotice(autoDecision, { showModel: autoShowModel }),
         );
@@ -1347,6 +1333,7 @@ export const TaskView = memo(function TaskView({
     const retryThinkingLevel = autoVariantToThinkingLevel(escalation.variant);
     void sendJson(`/api/tasks/${taskId}/prompt`, {
       prompt: autoRecord.prompt,
+      auto: true,
       model: autoModelValue(escalation),
       ...(retryThinkingLevel ? { thinkingLevel: retryThinkingLevel } : {}),
       ...(autoRecord.agent ? { agent: autoRecord.agent } : {}),
@@ -1724,9 +1711,8 @@ export const TaskView = memo(function TaskView({
     () => Object.fromEntries(models.map((option) => [option.value, option.label])),
     [models],
   );
-  // 本家 LeafCode と同じく、メタ行の effort はタスクの現在値を表示する。
-  const effortLabel =
-    thinkingLevels.length > 1 ? thinkingLevelLabel(thinkingValue) : undefined;
+  // モデル一覧の読み込み状態に関係なく、タスクへ実際に保存されたeffortを表示する。
+  const effortLabel = thinkingLevelMetaLabel(task?.thinkingLevel);
 
   // ナビゲーターのジャンプ対象: ユーザーメッセージを優先し、Goal Loop の
   // hidden custom message しかない履歴では投影済みメッセージへフォールバックする。

@@ -106,6 +106,31 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     });
   });
 
+  it("applies the Auto-selected model and effort even when the resolved agent has a model", async () => {
+    mocks.resolveAutoAgent.mockResolvedValue("build");
+    mocks.loadAgentDefinition.mockReturnValue({ model: "openai-codex/gpt-5.6-luna" });
+
+    const response = await POST(
+      request({
+        action: "start",
+        goal: "大規模な修正を実施する",
+        acceptance: ["テストが通る"],
+        agent: AUTO_AGENT_VALUE,
+        auto: true,
+        model: "openai-codex::gpt-5.6-sol",
+        thinkingLevel: "medium",
+      }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.setTaskModel).toHaveBeenCalledWith(
+      "task-1",
+      "openai-codex::gpt-5.6-sol",
+    );
+    expect(mocks.setTaskThinkingLevel).toHaveBeenCalledWith("task-1", "medium");
+  });
+
   it("rejects a non-string agent value", async () => {
     const response = await POST(
       request({ action: "start", goal: "作業", agent: null }),

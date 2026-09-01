@@ -12,7 +12,6 @@ import {
   setTaskModel,
   setTaskThinkingLevel,
 } from "@/lib/pi/harness";
-import { loadAgentDefinition } from "@/lib/agents";
 import {
   clampGoalLoopCooldownSeconds,
   clampGoalLoopMaxTurns,
@@ -79,6 +78,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (body?.agent !== undefined && typeof body.agent !== "string") {
       return NextResponse.json({ error: "invalid agent" }, { status: 400 });
     }
+    if (body?.auto !== undefined && typeof body.auto !== "boolean") {
+      return NextResponse.json({ error: "invalid auto" }, { status: 400 });
+    }
     let agent = body?.agent?.trim() || undefined;
     if (agent === AUTO_AGENT_VALUE) {
       const currentTask = getTask(id);
@@ -108,14 +110,8 @@ export async function POST(req: NextRequest, { params }: Params) {
         await setTaskAgent(id, agent);
       }
     }
-    const fixedAgentModel =
-      body?.auto === true && agent
-        ? loadAgentDefinition(agent)?.model
-        : undefined;
-    if (!fixedAgentModel && body?.model) await setTaskModel(id, body.model);
-    if (!fixedAgentModel && body?.thinkingLevel) {
-      await setTaskThinkingLevel(id, body.thinkingLevel);
-    }
+    if (body?.model) await setTaskModel(id, body.model);
+    if (body?.thinkingLevel) await setTaskThinkingLevel(id, body.thinkingLevel);
     const loop = await goalLoopCommand(id, {
       action: "start",
       goal,

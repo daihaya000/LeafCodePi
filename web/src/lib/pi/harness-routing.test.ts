@@ -70,7 +70,7 @@ const fakePi = vi.hoisted(() => {
         messages: manager.history,
         agent: { state: { errorMessage: undefined, streamingMessage: undefined } },
         model: options.model,
-        thinkingLevel: "off" as const,
+        thinkingLevel: "off" as ThinkingLevel,
         extensionRunner: { createContext: () => ({}) },
         get isStreaming() {
           return streaming;
@@ -88,7 +88,10 @@ const fakePi = vi.hoisted(() => {
         },
         getActiveToolNames: () => [],
         setActiveToolsByName: () => undefined,
-        setThinkingLevel: (level: "off") => {
+        setModel: async (model: unknown) => {
+          session.model = model;
+        },
+        setThinkingLevel: (level: ThinkingLevel) => {
           session.thinkingLevel = level;
         },
         prompt: async (text: string) => {
@@ -115,6 +118,7 @@ import { createAccount, accountAuthPath, __resetPiAgentDirCacheForTests } from "
 import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
 import { upsertProject, getTask } from "@/lib/store";
+import type { ThinkingLevel } from "@/lib/types";
 import { setAccountRoutingMode, __resetProviderRoutingQueueForTests } from "@/lib/provider-routing";
 import { AccountRuntimeManager } from "./account-runtime-manager";
 import { createTask, promptTask } from "./harness";
@@ -198,6 +202,45 @@ afterEach(() => {
 });
 
 describe("integrated session routing", () => {
+  it("applies an explicit Auto effort over a fixed agent model on follow-up", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-auto-agent-routing-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+    mkdirSync(join(agentDir, "agents"), { recursive: true });
+    writeFileSync(
+      join(agentDir, "agents", "build.md"),
+      "---\nname: build\nmodel: anthropic/claude-sonnet\n---\n",
+      "utf8",
+    );
+
+    const account = createAccount({ label: "テスト", providers: ["anthropic"] });
+    storeProviderAuth(account.id, agentDir);
+    installHarness(new Map([[account.id, runtime(account.id)]]));
+    await setAccountRoutingMode("anthropic", "integrated");
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "最初の確認",
+      model: "anthropic::claude-sonnet",
+      thinkingLevel: "off",
+      agent: "build",
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+
+    await promptTask(task.id, "Autoで続行", undefined, {
+      model: "anthropic::claude-sonnet",
+      thinkingLevel: "medium",
+      auto: true,
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+
+    assert.equal(getTask(task.id)?.thinkingLevel, "medium");
+  });
+
   it("reselects an account before a later prompt and keeps the transcript", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-session-routing-"));
     tempDirs.push(dir);

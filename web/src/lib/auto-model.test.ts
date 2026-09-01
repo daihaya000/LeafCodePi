@@ -350,6 +350,55 @@ describe("chooseAutoModel", () => {
     expect(decision?.reason).toContain("候補1〜1は利用不可");
   });
 
+  it("uses a manually configured balanced model and effort for each tier", () => {
+    const models = [
+      model("gpt-5.6-luna", {
+        providerID: "openai-codex",
+        value: "openai-codex::gpt-5.6-luna",
+        thinkingLevels: ["minimal", "low", "medium", "high", "xhigh", "max"],
+      }),
+      model("gpt-5.6-sol", {
+        providerID: "openai-codex",
+        value: "openai-codex::gpt-5.6-sol",
+        thinkingLevels: ["minimal", "low", "medium", "high", "xhigh", "max"],
+      }),
+    ];
+    const config = {
+      version: 2 as const,
+      modes: {
+        balanced: {
+          light: {
+            candidates: [
+              {
+                kind: "model" as const,
+                providerID: "openai-codex",
+                modelID: "gpt-5.6-luna",
+                variant: "max" as const,
+              },
+            ],
+          },
+          heavy: {
+            candidates: [
+              {
+                kind: "model" as const,
+                providerID: "openai-codex",
+                modelID: "gpt-5.6-sol",
+                variant: "medium" as const,
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    expect(
+      chooseAutoModel({ models, tier: "light", hasImages: false, mode: "balanced", config }),
+    ).toMatchObject({ modelID: "gpt-5.6-luna", variant: "max", mode: "balanced" });
+    expect(
+      chooseAutoModel({ models, tier: "heavy", hasImages: false, mode: "balanced", config }),
+    ).toMatchObject({ modelID: "gpt-5.6-sol", variant: "medium", mode: "balanced" });
+  });
+
   it("migrates legacy route overrides to all v2 modes", () => {
     const config = normalizeAutoRouteConfig({
       light: { costOrder: null, variantOrder: ["high"] },

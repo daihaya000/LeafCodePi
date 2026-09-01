@@ -77,6 +77,34 @@ describe("POST /api/tasks/[id]/prompt", () => {
     );
   });
 
+  it("forwards Auto model authority with the resolved agent", async () => {
+    mocks.resolveAutoAgent.mockResolvedValue("build");
+
+    const response = await POST(
+      request({
+        prompt: "徹底的に調査して",
+        agent: AUTO_AGENT_VALUE,
+        auto: true,
+        model: "openai-codex::gpt-5.6-sol",
+        thinkingLevel: "medium",
+      }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.promptTask).toHaveBeenCalledWith(
+      "task-1",
+      "徹底的に調査して",
+      undefined,
+      expect.objectContaining({
+        agent: "build",
+        model: "openai-codex::gpt-5.6-sol",
+        thinkingLevel: "medium",
+        auto: true,
+      }),
+    );
+  });
+
   it("keeps the current agent for a stale Auto request during a running turn", async () => {
     mocks.getTask.mockReturnValue({
       id: "task-1",

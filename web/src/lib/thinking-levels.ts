@@ -91,3 +91,7 @@ export function thinkingLevelLabel(level: ThinkingLevel | string | undefined): s
   if (isThinkingLevel(level)) return THINKING_LEVEL_LABELS[level];
   return "effort";
 }
+
+export function thinkingLevelMetaLabel(level: unknown): string | undefined {
+  return isThinkingLevel(level) && level !== "off" ? THINKING_LEVEL_LABELS[level] : undefined;
+}

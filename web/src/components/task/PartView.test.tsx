@@ -89,11 +89,13 @@ describe("PartView response metadata", () => {
     render(
       <PartView
         message={{ id: "assistant-meta", role: "assistant", createdAt: 1, parts: [] }}
+        effort="max"
         agent="build"
         accountLabel="仕事用"
       />,
     );
 
+    expect(screen.getByText("max")).toBeTruthy();
     expect(screen.getByText("build")).toBeTruthy();
     expect(screen.getByText("仕事用")).toBeTruthy();
     expect(screen.getByText("build").querySelector('[data-agent-icon="build"]')).not.toBeNull();

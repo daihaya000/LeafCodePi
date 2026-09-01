@@ -7,6 +7,7 @@ import {
   isThinkingLevel,
   resolveThinkingLevel,
   thinkingLevelLabel,
+  thinkingLevelMetaLabel,
   thinkingLevelsForModel,
 } from "./thinking-levels";
 
@@ -100,5 +101,11 @@ describe("thinking-levels", () => {
   it("labels levels with model-baseline English names", () => {
     expect(THINKING_LEVEL_LABELS.off).toBe("off");
     expect(thinkingLevelLabel("xhigh")).toBe("xhigh");
+  });
+
+  it("shows the applied effort in metadata without depending on model options", () => {
+    expect(thinkingLevelMetaLabel("max")).toBe("max");
+    expect(thinkingLevelMetaLabel("off")).toBeUndefined();
+    expect(thinkingLevelMetaLabel(undefined)).toBeUndefined();
   });
 });

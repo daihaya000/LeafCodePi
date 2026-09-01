@@ -4029,6 +4029,8 @@ export async function promptTask(
     agent?: string;
     model?: string;
     thinkingLevel?: ThinkingLevel;
+    /** Auto routing already selected model and effort for this turn. */
+    auto?: boolean;
     subagentPermission?: "allow" | "deny";
     permissionMode?: "allow" | "ask" | "deny";
     skillPermission?: SkillPermission;
@@ -4051,9 +4053,10 @@ export async function promptTask(
   const agentModel = task.agent
     ? loadAgentDefinition(task.agent)?.model
     : undefined;
-  // A model fixed by the selected agent remains authoritative for follow-ups.
-  if (!agentModel && options?.model) await setTaskModel(id, options.model);
-  if (!agentModel && options?.thinkingLevel) {
+  // An explicit Auto decision wins over the resolved agent's default model.
+  const applyRequestedModel = options?.auto === true || !agentModel;
+  if (applyRequestedModel && options?.model) await setTaskModel(id, options.model);
+  if (applyRequestedModel && options?.thinkingLevel) {
     await setTaskThinkingLevel(id, options.thinkingLevel);
   }
   const live = await ensureLive(id);
