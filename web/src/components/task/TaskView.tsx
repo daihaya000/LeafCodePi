@@ -426,8 +426,8 @@ export const TaskView = memo(function TaskView({
     }),
     [agents, skills],
   );
-  // agent is the persisted session persona; agentSelection may temporarily be
-  // Auto until the next prompt is sent and the server resolves it.
+  // agent is the persisted session persona; agentSelection is the user's
+  // displayed/input choice and may remain Auto after the server resolves it.
   const [agent, setAgent] = useState(
     () => cachedSession?.agent?.trim() || DEFAULT_AGENT,
   );
@@ -1288,7 +1288,9 @@ export const TaskView = memo(function TaskView({
       if (resolvedAgent !== undefined) {
         const nextAgent = resolvedAgent?.trim() || DEFAULT_AGENT;
         setAgent(nextAgent);
-        setAgentSelection(nextAgent);
+        setAgentSelection(
+          agentSelection === AUTO_AGENT_VALUE ? AUTO_AGENT_VALUE : nextAgent,
+        );
       }
       if (
         autoDecision &&
