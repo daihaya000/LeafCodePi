@@ -6,6 +6,7 @@ import { Badge, Button } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import { isLoopbackHost } from "@/lib/loopback";
 import {
+  DEFAULT_LLAMA_SERVER_PORT,
   DEFAULT_LLAMA_SERVER_SETTINGS,
   isLlamaSpecComboBroken,
   LLAMA_SERVER_SYSTEM_PROMPT_MAX_CHARS,
@@ -26,6 +27,7 @@ import {
 type LlamaServerStatus = {
   running: boolean;
   pid: number | null;
+  port?: number;
   listeningPids: number[];
   health: string | null;
 };
@@ -33,7 +35,6 @@ type LlamaServerStatus = {
 const POLL_INTERVAL_MS = 3000;
 const START_HEALTH_BUDGET_MS = 120_000;
 const START_POLL_INTERVAL_MS = 1000;
-const LLAMA_SERVER_UI_PORT = 8081;
 
 async function fetchStatus(): Promise<LlamaServerStatus | null> {
   try {
@@ -74,8 +75,7 @@ export function LlamaServerSettings() {
 
   /**
    * List the GGUF files under `dir` for the launch-model dropdown. Called with
-   * an empty `dir` too: the response still carries the bat's fallback model, so
-   * the "既定" entry can name it.
+   * an empty `dir` too: the response resolves the platform's fallback directory.
    */
   const loadModels = useCallback(async (dir: string) => {
     const trimmed = dir.trim();
@@ -91,7 +91,7 @@ export function LlamaServerSettings() {
       const found = res.models ?? [];
       setModels(found);
       setDefaultModel(res.defaultModel ?? null);
-      // The API resolved an empty dir against the bat's MODEL_DIR; save it so
+      // The API resolved an empty dir against the platform default; save it so
       // presets keep working across reloads.
       if (!trimmed && typeof res.dir === "string" && res.dir) {
         setConfig((c) => (c.modelDir ? c : { ...c, modelDir: res.dir as string }));
@@ -332,7 +332,7 @@ export function LlamaServerSettings() {
         <div className="min-w-0">
           <h2 className="text-sm font-semibold">ローカル LLM (llama-server)</h2>
           <p className="mt-1 text-xs text-muted">
-            llama-server-load.bat 経由でローカルモデルを起動・停止します。起動時にモデルがロードされ、停止時にアンロードされます。
+            ローカルモデルを起動・停止します。起動時にモデルがロードされ、停止時にアンロードされます。
           </p>
         </div>
         <Badge tone={running ? "success" : status ? "danger" : "neutral"}>
@@ -387,7 +387,11 @@ export function LlamaServerSettings() {
               typeof window !== "undefined" && !isLoopbackHost(window.location.hostname)
                 ? window.location.hostname
                 : "127.0.0.1";
-            window.open(`http://${hostname}:${LLAMA_SERVER_UI_PORT}/`, "_blank", "noopener");
+            window.open(
+              `http://${hostname}:${status?.port ?? DEFAULT_LLAMA_SERVER_PORT}/`,
+              "_blank",
+              "noopener",
+            );
           }}
         >
           WebUI を開く
@@ -464,14 +468,14 @@ export function LlamaServerSettings() {
               type="text"
               spellCheck={false}
               aria-describedby="llama-cpp-path-hint"
-              placeholder="C:\tools\llama.cpp"
+              placeholder="例: /opt/llama.cpp または C:\tools\llama.cpp"
               value={config.llamaCppPath}
               disabled={actionBusy !== null}
               onChange={(e) => setConfig((c) => ({ ...c, llamaCppPath: e.target.value }))}
               className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             />
             <span id="llama-cpp-path-hint" className="mt-1 block text-[11px] text-faint">
-              フォルダ指定で llama-server.exe を補完します。空欄なら bat の既定値。
+              フォルダ指定で実行ファイル（Windows: llama-server.exe / Linux・macOS: llama-server）を補完します。空欄なら環境変数/既定値。
             </span>
           </div>
 
@@ -520,7 +524,7 @@ export function LlamaServerSettings() {
               className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             >
               <option value="">
-                {defaultModel ? `既定: ${defaultModel}` : "既定 (bat の設定)"}
+                {defaultModel ? `既定: ${defaultModel}` : "既定 (サーバー設定)"}
               </option>
               {/* A saved model stays selectable even when the listing is empty
                   or the folder is temporarily unreachable. */}
@@ -579,7 +583,7 @@ export function LlamaServerSettings() {
               リモートアクセスを許可（LAN・Tailscale）
               <span className="mt-1 block text-[11px] text-faint">
                 llama-server を 0.0.0.0 にバインドし、他の端末から WebUI
-                （http://&lt;ホストのIP&gt;:8081）を開けるようにします。オフの場合は
+                （http://&lt;ホストのIP&gt;:{status?.port ?? DEFAULT_LLAMA_SERVER_PORT}）を開けるようにします。オフの場合は
                 このPCのみ（127.0.0.1）。反映にはサーバーの再起動が必要です。
               </span>
             </span>

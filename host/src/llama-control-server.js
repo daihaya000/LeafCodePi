@@ -98,7 +98,7 @@ export function createLlamaControlServer(handlers) {
         const config = body && typeof body === "object" && !Array.isArray(body)
           ? {
               effort:
-                typeof body.effort === "string" && ["low", "medium", "xhigh"].includes(body.effort)
+                typeof body.effort === "string" && ["", "low", "medium", "xhigh"].includes(body.effort)
                   ? body.effort
                   : undefined,
               contextLength:
@@ -128,6 +128,18 @@ export function createLlamaControlServer(handlers) {
               llamaServerHost:
                 body.llamaServerHost === "127.0.0.1" || body.llamaServerHost === "0.0.0.0"
                   ? body.llamaServerHost
+                  : undefined,
+              specType:
+                typeof body.specType === "string" && ["", "draft-mtp"].includes(body.specType)
+                  ? body.specType
+                  : undefined,
+              cacheTypeK:
+                typeof body.cacheTypeK === "string" && ["", "f16", "q8_0"].includes(body.cacheTypeK)
+                  ? body.cacheTypeK
+                  : undefined,
+              cacheTypeV:
+                typeof body.cacheTypeV === "string" && ["", "f16", "q8_0"].includes(body.cacheTypeV)
+                  ? body.cacheTypeV
                   : undefined,
             }
           : {};

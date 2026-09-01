@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { homedir } from "node:os";
 import {
   copyFileSync,
   existsSync,
@@ -58,19 +59,21 @@ const SKIP_FILES = new Set(["tsconfig.tsbuildinfo"]);
 const LINK_PREFIXES = ["node_modules"];
 
 /** Stable per-checkout mirror name, so two checkouts never share one. */
-export function mirrorSlug(sourceDir) {
-  const normalized = resolve(sourceDir).replaceAll("/", "\\").toLowerCase();
+export function mirrorSlug(sourceDir, platform = process.platform) {
+  const resolved = resolve(sourceDir);
+  // Windows paths are case-insensitive; POSIX paths are not. Lower-casing a
+  // Linux checkout would make distinct directories share one build mirror.
+  const normalized =
+    platform === "win32" ? resolved.replaceAll("/", "\\").toLowerCase() : resolved;
   const digest = createHash("sha1").update(normalized).digest("hex").slice(0, 8);
-  // Both halves come from the normalized path: deriving the readable part from
-  // the raw argument would give one checkout two mirrors depending on the
-  // casing the caller happened to use.
   return `${basename(dirname(normalized)) || "install"}-${digest}`;
 }
 
 /**
  * Mirror root for a checkout — this is the Next.js project root for the build.
  * Priority: LEAFCODE_PI_BUILD_DIR → %LOCALAPPDATA%\leafcode-pi\build\<slug>
- * → %APPDATA%\... → <webDir>\.build-mirror (last resort, e.g. no env at all).
+ * → %APPDATA%\... → $XDG_CACHE_HOME/leafcode-pi/build/<slug>
+ * → ~/.cache/leafcode-pi/build/<slug> (last resort).
  */
 export function resolveMirrorRoot(env = process.env, sourceDir = DEFAULT_WEB_DIR) {
   const explicit = env.LEAFCODE_PI_BUILD_DIR?.trim();

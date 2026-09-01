@@ -35,22 +35,24 @@ import { isAbsolute, join, posix, sep } from 'path';
  */
 
 /**
- * The bat interpolates these env vars into a quoted command line under
- * `setlocal enabledelayedexpansion`, so a value carrying `"`, `%`, `!`, `&`,
- * `|`, `<`, `>` or `^` would break out of the quoting and run commands. The BFF
- * rejects them too (web/src/lib/llama-server-settings.ts); this is the check at
- * the spawn point itself, which no caller can bypass.
+ * On Windows the bat interpolates these env vars into a quoted command line
+ * under `setlocal enabledelayedexpansion`, so a value carrying `"`, `%`, `!`,
+ * `&`, `|`, `<`, `>` or `^` would break out of the quoting and run commands.
+ * The BFF rejects them too; this is the check at the spawn point itself.
  */
-const UNSAFE_PATH_CHARS = /["%!&|<>^*?\u0000-\u001f]/;
+const WINDOWS_UNSAFE_PATH_CHARS = /["%!&|<>^*?\u0000-\u001f]/;
+const POSIX_UNSAFE_PATH_CHARS = /[\u0000-\u001f]/;
 
-/** @param {unknown} value */
-function isUnsafePathValue(value) {
-  return typeof value !== 'string' || value.length > 400 || UNSAFE_PATH_CHARS.test(value);
+/** @param {unknown} value @param {string} platform */
+function isUnsafePathValue(value, platform = process.platform) {
+  if (typeof value !== 'string' || value.length > 400) return true;
+  const unsafe = platform === 'win32' ? WINDOWS_UNSAFE_PATH_CHARS : POSIX_UNSAFE_PATH_CHARS;
+  return unsafe.test(value);
 }
 
-/** @param {unknown} value */
+/** @param {unknown} value @param {string} platform */
 function isSafeModelFile(value, platform = process.platform) {
-  if (isUnsafePathValue(value)) return false;
+  if (isUnsafePathValue(value, platform)) return false;
   if (value === '') return true;
   if (!String(value).toLowerCase().endsWith('.gguf')) return false;
   const normalized = String(value).replaceAll('\\', '/');
@@ -64,6 +66,7 @@ function isSafeModelFile(value, platform = process.platform) {
  * @property {number | null} pid the tracked owned PID (may already be dead).
  * @property {number[]} listeningPids PIDs listening on the port right now.
  * @property {string | null} health raw /health status, or null on failure.
+ * @property {number} port configured llama-server port.
  */
 
 /**
@@ -82,6 +85,8 @@ function isSafeModelFile(value, platform = process.platform) {
  *   tmpDir?: () => string,
  *   trayScript?: string | null,
  *   isProcessAlive?: (pid: number) => boolean,
+ *   isOwnedProcess?: (pid: number, marker: string | null) => boolean,
+ *   isLlamaServerProcess?: (pid: number, marker: string | null) => boolean,
  *   stopProcessTreeGracefully?: (input: { pid: number, softKill?: (pid: number) => boolean, hardKill?: (pid: number) => boolean, isAlive?: (pid: number) => boolean, sleep?: (ms: number) => Promise<void>, softWaitMs?: number, pollMs?: number }) => Promise<'soft' | 'hard' | 'gone'>,
  * }} deps
  */
@@ -121,10 +126,32 @@ export function createLlamaServerService(deps) {
       }
     });
   const stopTree = deps.stopProcessTreeGracefully ?? null;
+  function serverMarker(config) {
+    return config.llamaServerBin?.trim() || (isWindows ? 'llama-server.exe' : defaultBin);
+  }
+  const isOwnedProcess = deps.isOwnedProcess ?? (() => true);
+  const isLlamaServerProcess = deps.isLlamaServerProcess ?? (() => false);
   /** @type {number | null} */
   let ownedPid = null;
   /** @type {number | null} */
   let trayPid = null;
+  /** @type {string | null} */
+  let ownedCommandMarker = null;
+  /** @type {string | null} */
+  let trayCommandMarker = null;
+  /** @type {string | null} */
+  let serverCommandMarker = null;
+  const serverListenerPids = new Set();
+
+  function rememberServerListeners(listeningPids = getListeningPids(port)) {
+    if (!serverCommandMarker) return;
+    for (const pid of listeningPids) {
+      const n = Number(pid);
+      if (Number.isInteger(n) && n > 0 && isLlamaServerProcess(n, serverCommandMarker)) {
+        serverListenerPids.add(n);
+      }
+    }
+  }
 
   async function fetchHealth() {
     try {
@@ -143,7 +170,11 @@ export function createLlamaServerService(deps) {
   /** @returns {Promise<LlamaServerStatus>} */
   async function status() {
     const listeningPids = getListeningPids(port);
-    const ownedAlive = ownedPid !== null && isProcessAlive(ownedPid);
+    rememberServerListeners(listeningPids);
+    const ownedAlive =
+      ownedPid !== null &&
+      isProcessAlive(ownedPid) &&
+      isOwnedProcess(ownedPid, ownedCommandMarker);
     const health = await fetchHealth();
     // running = /health ok, or the launcher is still alive (bat just spawned,
     // /health not ready yet). A port listener alone is NOT enough — another
@@ -152,6 +183,7 @@ export function createLlamaServerService(deps) {
     return {
       running,
       pid: ownedPid,
+      port,
       listeningPids,
       health,
     };
@@ -171,7 +203,10 @@ export function createLlamaServerService(deps) {
     const path = join(getTmpDir(), name);
     const lines = ['@echo off', 'chcp 65001 >nul', 'setlocal EnableDelayedExpansion'];
     lines.push(`set "SERVER_PORT=${port}"`);
-    if (config.effort) lines.push(`set "REASONING_EFFORT=${config.effort}"`);
+    if (config.effort !== undefined) {
+      lines.push(`set "REASONING_EFFORT=${config.effort}"`);
+      if (config.effort === '') lines.push('set "LEAFCODE_PI_EMPTY_EFFORT=1"');
+    }
     if (config.contextLength)
       lines.push(`set "CONTEXT_LENGTH=${String(config.contextLength)}"`);
     if (config.parallel) lines.push(`set "PARALLEL=${String(config.parallel)}"`);
@@ -301,9 +336,18 @@ export function createLlamaServerService(deps) {
     });
     const pid = child.pid ?? null;
     if (typeof child.once === 'function') {
-      child.once('error', () => {
-        if (ownedPid === pid) ownedPid = null;
-      });
+      const clearOwnedPid = () => {
+        if (ownedPid === pid) {
+          ownedPid = null;
+          ownedCommandMarker = null;
+        }
+        if (trayPid === pid) {
+          trayPid = null;
+          trayCommandMarker = null;
+        }
+      };
+      child.once('error', clearOwnedPid);
+      child.once('close', clearOwnedPid);
     }
     child.unref?.();
     return pid;
@@ -323,10 +367,26 @@ export function createLlamaServerService(deps) {
       return { ok: false, pid: ownedPid, error: 'llama-server is already running' };
     }
     if ((await fetchHealth()) === 'ok') {
-      return { ok: false, pid: ownedPid, error: 'llama-server is already running' };
+      ownedPid = null;
+      trayPid = null;
+      ownedCommandMarker = null;
+      trayCommandMarker = null;
+      serverCommandMarker = null;
+      serverListenerPids.clear();
+      return { ok: false, pid: null, error: 'llama-server is already running' };
+    }
+    const existingListeners = getListeningPids(port);
+    if (existingListeners.length > 0) {
+      ownedPid = null;
+      trayPid = null;
+      ownedCommandMarker = null;
+      trayCommandMarker = null;
+      serverCommandMarker = null;
+      serverListenerPids.clear();
+      return { ok: false, pid: null, error: 'llama-server port is already in use' };
     }
     for (const key of ['llamaServerBin', 'modelDir']) {
-      if (config[key] !== undefined && isUnsafePathValue(config[key])) {
+      if (config[key] !== undefined && isUnsafePathValue(config[key], platform)) {
         return { ok: false, pid: null, error: `unsafe llama-server path value: ${key}` };
       }
     }
@@ -335,16 +395,25 @@ export function createLlamaServerService(deps) {
     }
 
     try {
+      serverListenerPids.clear();
       if (!isWindows) {
         const launch = buildPosixLaunch(config);
+        serverCommandMarker = serverMarker(config);
+        ownedCommandMarker = launch.binary;
         ownedPid = launchDetached(launch.binary, launch.args);
-        trayPid = trayEnabled && trayScript
-          ? launchDetached(process.execPath, [trayScript, String(port)])
-          : null;
+        if (trayEnabled && trayScript) {
+          trayCommandMarker = trayScript;
+          trayPid = launchDetached(process.execPath, [trayScript, String(port)]);
+        } else {
+          trayPid = null;
+        }
+        rememberServerListeners();
         return { ok: true, pid: ownedPid, trayPid };
       }
 
       const launcherPath = buildLauncher(config);
+      serverCommandMarker = serverMarker(config);
+      ownedCommandMarker = launcherPath;
       const wmiPid = launchViaWmi(launcherPath);
       if (wmiPid !== null) {
         ownedPid = wmiPid;
@@ -363,10 +432,19 @@ export function createLlamaServerService(deps) {
       // alongside the server, also outside the host's Kill Job. Best-effort: a
       // failure here must not fail the server start.
       if (trayEnabled && trayScript) {
+        trayCommandMarker = trayScript;
         trayPid = launchNodeViaWmi(trayScript, String(port));
+      } else {
+        trayPid = null;
       }
+      rememberServerListeners();
       return { ok: true, pid: ownedPid, trayPid };
     } catch (err) {
+      ownedPid = null;
+      ownedCommandMarker = null;
+      trayCommandMarker = null;
+      serverCommandMarker = null;
+      serverListenerPids.clear();
       trayPid = null;
       return {
         ok: false,
@@ -380,7 +458,7 @@ export function createLlamaServerService(deps) {
    * Stop the server and its standalone tray. The bat uses `start`, so
    * llama-server.exe is reparented once the bat exits and is NOT in the
    * launcher tree — kill the owned launcher (covers the bat's own children)
-   * plus every live listener on the port. The tray is killed by its PID.
+   * plus listeners verified as this server. The tray is killed by its PID.
    * @returns {Promise<{ ok: boolean, killed: number[] }>}
    */
   async function stop() {
@@ -388,11 +466,18 @@ export function createLlamaServerService(deps) {
     const ownedAlive = ownedPid !== null && isProcessAlive(ownedPid);
     const trayAlive = trayPid !== null && isProcessAlive(trayPid);
     const pidSet = new Set();
-    if (ownedAlive) pidSet.add(ownedPid);
-    if (trayAlive) pidSet.add(trayPid);
+    if (ownedAlive && isOwnedProcess(ownedPid, ownedCommandMarker)) pidSet.add(ownedPid);
+    if (trayAlive && isOwnedProcess(trayPid, trayCommandMarker)) pidSet.add(trayPid);
     for (const pid of listeningPids) {
       const n = Number(pid);
-      if (Number.isFinite(n) && n > 0) pidSet.add(n);
+      if (
+        Number.isFinite(n) &&
+        n > 0 &&
+        serverListenerPids.has(n) &&
+        isLlamaServerProcess(n, serverCommandMarker)
+      ) {
+        pidSet.add(n);
+      }
     }
     const killed = [];
     for (const pid of pidSet) {
@@ -403,6 +488,10 @@ export function createLlamaServerService(deps) {
     }
     ownedPid = null;
     trayPid = null;
+    ownedCommandMarker = null;
+    trayCommandMarker = null;
+    serverCommandMarker = null;
+    serverListenerPids.clear();
     return { ok: true, killed };
   }
 

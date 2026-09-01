@@ -74,17 +74,17 @@ function parseStartBody(value: unknown): StartBody | null {
     config.parallel = raw.parallel;
   }
   if (raw.llamaCppPath !== undefined) {
-    if (!isSafeLlamaPathValue(raw.llamaCppPath)) return null;
-    const bin = resolveLlamaServerBin(raw.llamaCppPath);
+    if (!isSafeLlamaPathValue(raw.llamaCppPath, process.platform)) return null;
+    const bin = resolveLlamaServerBin(raw.llamaCppPath, process.platform);
     if (bin) config.llamaServerBin = bin;
   }
   if (raw.modelDir !== undefined) {
-    if (!isSafeLlamaPathValue(raw.modelDir)) return null;
+    if (!isSafeLlamaPathValue(raw.modelDir, process.platform)) return null;
     const modelDir = raw.modelDir.trim();
     if (modelDir) config.modelDir = modelDir;
   }
   if (raw.modelFile !== undefined) {
-    if (!isSafeLlamaModelFile(raw.modelFile)) return null;
+    if (!isSafeLlamaModelFile(raw.modelFile, process.platform)) return null;
     const modelFile = raw.modelFile.trim();
     if (modelFile) config.modelFile = modelFile;
   }

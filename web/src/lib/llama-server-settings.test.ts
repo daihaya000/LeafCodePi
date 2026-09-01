@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_LLAMA_SERVER_SETTINGS,
   findLlamaModelPreset,
+  llamaServerBaseUrl,
+  llamaServerPort,
   isLlamaServerSettings,
   isSafeLlamaSystemPrompt,
   isLlamaSpecComboBroken,
@@ -192,11 +194,12 @@ describe("llama-server-settings", () => {
 
   it("rejects a path value cmd.exe could reinterpret", () => {
     for (const bad of ['C:\\a" & calc & "', "C:\\a%PATH%", "C:\\a!b!", "C:\\a\r\nb", "C:\\a^b"]) {
-      expect(isSafeLlamaPathValue(bad)).toBe(false);
+      expect(isSafeLlamaPathValue(bad, "win32")).toBe(false);
     }
-    expect(isSafeLlamaPathValue("C:\\Users\\me\\models\\llm")).toBe(true);
+    expect(isSafeLlamaPathValue("C:\\Users\\me\\models\\llm", "win32")).toBe(true);
+    expect(isSafeLlamaPathValue("/opt/llama&tools/models", "linux")).toBe(true);
     expect(isSafeLlamaPathValue("")).toBe(true);
-    expect(isSafeLlamaPathValue(`C:\\${"a".repeat(400)}`)).toBe(false);
+    expect(isSafeLlamaPathValue(`C:\\${"a".repeat(400)}`, "win32")).toBe(false);
   });
 
   it("keeps modelFile relative, traversal-free and .gguf", () => {
@@ -211,9 +214,9 @@ describe("llama-server-settings", () => {
 
   it("rejects a settings object carrying an unsafe path", () => {
     const base = { effort: "low", contextLength: 4096, parallel: 1 };
-    expect(isLlamaServerSettings({ ...base, modelDir: 'C:\\a" & calc' })).toBe(false);
-    expect(isLlamaServerSettings({ ...base, modelFile: "..\\evil.gguf" })).toBe(false);
-    expect(isLlamaServerSettings({ ...base, llamaCppPath: "C:\\tools\\llama.cpp" })).toBe(true);
+    expect(isLlamaServerSettings({ ...base, modelDir: 'C:\\a" & calc' }, "win32")).toBe(false);
+    expect(isLlamaServerSettings({ ...base, modelFile: "..\\evil.gguf" }, "win32")).toBe(false);
+    expect(isLlamaServerSettings({ ...base, llamaCppPath: "C:\\tools\\llama.cpp" }, "win32")).toBe(true);
   });
 
   it("accepts only the known bind addresses", () => {
@@ -225,16 +228,28 @@ describe("llama-server-settings", () => {
     expect(isLlamaServerSettings({ ...base })).toBe(true);
   });
 
-  it("appends llama-server.exe only when the install path is a folder", () => {
-    expect(resolveLlamaServerBin("C:\\tools\\llama.cpp")).toBe(
+  it("resolves platform-specific llama-server paths", () => {
+    expect(resolveLlamaServerBin("C:\\tools\\llama.cpp", "win32")).toBe(
       "C:\\tools\\llama.cpp\\llama-server.exe",
     );
-    expect(resolveLlamaServerBin("C:\\tools\\llama.cpp\\")).toBe(
+    expect(resolveLlamaServerBin("C:\\tools\\llama.cpp\\", "win32")).toBe(
       "C:\\tools\\llama.cpp\\llama-server.exe",
     );
-    expect(resolveLlamaServerBin("C:\\tools\\llama.cpp\\llama-server.exe")).toBe(
+    expect(resolveLlamaServerBin("C:\\tools\\llama.cpp\\llama-server.exe", "win32")).toBe(
       "C:\\tools\\llama.cpp\\llama-server.exe",
+    );
+    expect(resolveLlamaServerBin("/opt/llama.cpp", "linux")).toBe(
+      "/opt/llama.cpp/llama-server",
+    );
+    expect(resolveLlamaServerBin("/opt/llama.cpp/llama-server", "linux")).toBe(
+      "/opt/llama.cpp/llama-server",
     );
     expect(resolveLlamaServerBin("  ")).toBe("");
+  });
+
+  it("validates the configured llama-server port strictly", () => {
+    expect(llamaServerPort("8082")).toBe(8082);
+    expect(llamaServerPort("8082oops")).toBe(8081);
+    expect(llamaServerBaseUrl("8082")).toBe("http://127.0.0.1:8082");
   });
 });

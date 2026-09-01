@@ -21,8 +21,8 @@ export function dataDir(env = process.env) {
 }
 
 export function readPort(value, fallback) {
-  const parsed = Number.parseInt(String(value ?? ""), 10);
-  if (Number.isFinite(parsed) && parsed > 0 && parsed < 65536) return parsed;
+  const parsed = Number(String(value ?? "").trim());
+  if (Number.isInteger(parsed) && parsed > 0 && parsed < 65536) return parsed;
   return fallback;
 }
 
@@ -113,5 +113,7 @@ export function publicHost(bind, deps = {}) {
 }
 
 export function webUiUrl(bind, port, deps = {}) {
-  return `http://${publicHost(bind, deps)}:${port}`;
+  const host = publicHost(bind, deps);
+  const formattedHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+  return `http://${formattedHost}:${port}`;
 }

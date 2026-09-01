@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import { isSafeLlamaPathValue } from "@/lib/llama-server-settings";
 
@@ -14,7 +15,8 @@ function installationRoot(): string {
   );
 }
 
-function batDefaultModel(): string | null {
+function batDefaultModel(platform = process.platform): string | null {
+  if (platform !== "win32") return null;
   try {
     const bat = fs.readFileSync(
       path.join(installationRoot(), "scripts", "llama-server-load.bat"),
@@ -28,7 +30,8 @@ function batDefaultModel(): string | null {
 }
 
 /** The bat's fallback MODEL_DIR, so an empty `dir` param still lists GGUFs. */
-function batDefaultModelDir(): string | null {
+function batDefaultModelDir(platform = process.platform): string | null {
+  if (platform !== "win32") return null;
   try {
     const bat = fs.readFileSync(
       path.join(installationRoot(), "scripts", "llama-server-load.bat"),
@@ -39,6 +42,16 @@ function batDefaultModelDir(): string | null {
   } catch {
     return null;
   }
+}
+
+export function defaultModelDir(
+  platform = process.platform,
+  env = process.env,
+): string | null {
+  const configured = env.LEAFCODE_PI_LLAMA_MODEL_DIR?.trim();
+  if (configured) return configured;
+  if (platform !== "win32") return path.join(homedir(), "models", "llm");
+  return batDefaultModelDir(platform);
 }
 
 const MAX_DEPTH = 2;
@@ -79,15 +92,15 @@ function collect(root: string, rel: string, depth: number, out: string[]): void 
 }
 
 export async function GET(req: NextRequest) {
-  const defaultModel = batDefaultModel();
-  // An empty dir falls back to the bat's MODEL_DIR: presets must be able to
-  // resolve a GGUF even before the user has ever saved a model directory.
+  const defaultModel = batDefaultModel(process.platform);
+  // An empty dir falls back to the platform's configured model directory:
+  // presets must work before the user has saved a directory explicitly.
   const requested = (req.nextUrl.searchParams.get("dir") ?? "").trim();
-  const dir = requested || batDefaultModelDir() || "";
+  const dir = requested || defaultModelDir(process.platform, process.env) || "";
   if (!dir) {
     return NextResponse.json({ dir: null, models: [], defaultModel });
   }
-  if (!isSafeLlamaPathValue(dir)) {
+  if (!isSafeLlamaPathValue(dir, process.platform)) {
     return NextResponse.json(
       { error: "モデル保存先に使用できない文字が含まれています" },
       { status: 400 },

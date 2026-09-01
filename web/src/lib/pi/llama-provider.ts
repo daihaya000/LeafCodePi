@@ -4,12 +4,15 @@ import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/p
 import { readSettingValue } from "@/lib/host-control";
 import {
   LLAMA_SERVER_SETTINGS_KEY,
+  llamaServerBaseUrl,
   parseLlamaServerSettings,
   type LlamaServerSettings,
 } from "@/lib/llama-server-settings";
 
 export const LLAMA_SERVER_PROVIDER_ID = "llama-server";
-export const DEFAULT_LLAMA_SERVER_BASE = "http://127.0.0.1:8081";
+export const DEFAULT_LLAMA_SERVER_BASE = llamaServerBaseUrl(
+  process.env.LEAFCODE_PI_LLAMA_PORT,
+);
 
 /** Graded efforts accepted by Qwen3 GGUF chat templates on llama-server. */
 export const LLAMA_QWEN_GRADED_EFFORTS = ["low", "medium", "xhigh"] as const;

@@ -1,3 +1,5 @@
+import { llamaServerBaseUrl } from "@/lib/llama-server-settings";
+
 /**
  * Ensure llama-server has at least one loaded model (router mode).
  * Safe to call repeatedly; no-ops when already loaded or single-model.
@@ -7,7 +9,9 @@ export async function ensureLlamaServerModelLoaded(options?: {
   preferredId?: string;
   waitMs?: number;
 }): Promise<{ ok: boolean; modelId?: string; error?: string }> {
-  const root = (options?.baseUrl ?? "http://127.0.0.1:8081").replace(/\/$/, "").replace(/\/v1$/i, "");
+  const root = (options?.baseUrl ?? llamaServerBaseUrl(process.env.LEAFCODE_PI_LLAMA_PORT))
+    .replace(/\/$/, "")
+    .replace(/\/v1$/i, "");
   const preferred = options?.preferredId?.trim() ?? "";
   const waitMs = options?.waitMs ?? 180_000;
 

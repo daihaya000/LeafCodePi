@@ -1,4 +1,22 @@
 export const LLAMA_SERVER_SETTINGS_KEY = "llama-server-config";
+export const DEFAULT_LLAMA_SERVER_PORT = 8081;
+
+function runtimePlatform(): string {
+  return typeof process !== "undefined" && typeof process.platform === "string"
+    ? process.platform
+    : "win32";
+}
+
+export function llamaServerPort(raw: unknown): number {
+  const parsed = Number(String(raw ?? "").trim());
+  return Number.isInteger(parsed) && parsed > 0 && parsed < 65_536
+    ? parsed
+    : DEFAULT_LLAMA_SERVER_PORT;
+}
+
+export function llamaServerBaseUrl(raw: unknown): string {
+  return `http://127.0.0.1:${llamaServerPort(raw)}`;
+}
 
 /** "" = omit the kwarg entirely (models without a reasoning_effort template,
  *  e.g. Ornith-1.5). The other values are graded Qwen3 efforts. */
@@ -39,11 +57,11 @@ export type LlamaServerSettings = {
   parallel: number;
   /** llama-server リクエストへ追加するシステムプロンプト。"" は追加なし。 */
   systemPrompt: string;
-  /** llama.cpp のインストール先（ディレクトリ、または llama-server.exe の絶対パス）。"" は bat の既定値。 */
+  /** llama.cpp のインストール先ディレクトリ。"" はOS別の既定値。 */
   llamaCppPath: string;
-  /** GGUF モデルの保存先ルート。"" は bat の既定値。 */
+  /** GGUF モデルの保存先ルート。"" はOS別の既定値。 */
   modelDir: string;
-  /** 起動するモデル。modelDir からの相対パス。"" は bat の既定値。 */
+  /** 起動するモデル。modelDir からの相対パス。"" はOS別の既定値。 */
   modelFile: string;
   /** バインド先。127.0.0.1 = このPCのみ / 0.0.0.0 = LAN・Tailscale からも可。 */
   llamaServerHost: LlamaServerHost;
@@ -71,24 +89,32 @@ export const DEFAULT_LLAMA_SERVER_SETTINGS: LlamaServerSettings = {
 export const LLAMA_SERVER_PATH_MAX_CHARS = 400;
 
 /**
- * These path values become env vars for scripts/llama-server-load.bat, which
- * interpolates them into a quoted command line under
+ * On Windows these path values become env vars for scripts/llama-server-load.bat,
+ * which interpolates them into a quoted command line under
  * `setlocal enabledelayedexpansion`. A `"`, `%`, `!`, `&`, `|`, `<`, `>` or `^`
  * would break out of that quoting and run arbitrary commands, so reject them at
- * the trust boundary instead of trying to escape them for cmd.exe.
+ * the Windows trust boundary instead of trying to escape them for cmd.exe.
  */
-const UNSAFE_PATH_CHARS = /["%!&|<>^*?\u0000-\u001f]/;
+const WINDOWS_UNSAFE_PATH_CHARS = /["%!&|<>^*?\u0000-\u001f]/;
+const POSIX_UNSAFE_PATH_CHARS = /[\u0000-\u001f]/;
 
-/** "" (= bat default) or a cmd.exe-safe path string. */
-export function isSafeLlamaPathValue(value: unknown): value is string {
+/** "" (= bat default) or a platform-safe path string. */
+export function isSafeLlamaPathValue(
+  value: unknown,
+  platform = runtimePlatform(),
+): value is string {
   if (typeof value !== "string") return false;
   if (value.length > LLAMA_SERVER_PATH_MAX_CHARS) return false;
-  return !UNSAFE_PATH_CHARS.test(value);
+  const unsafe = platform === "win32" ? WINDOWS_UNSAFE_PATH_CHARS : POSIX_UNSAFE_PATH_CHARS;
+  return !unsafe.test(value);
 }
 
 /** "" or a `.gguf` path relative to modelDir (no drive letter, no `..`). */
-export function isSafeLlamaModelFile(value: unknown): value is string {
-  if (!isSafeLlamaPathValue(value)) return false;
+export function isSafeLlamaModelFile(
+  value: unknown,
+  platform = runtimePlatform(),
+): value is string {
+  if (!isSafeLlamaPathValue(value, platform)) return false;
   if (value === "") return true;
   if (/^[a-zA-Z]:/.test(value) || value.startsWith("\\") || value.startsWith("/")) {
     return false;
@@ -98,12 +124,22 @@ export function isSafeLlamaModelFile(value: unknown): value is string {
 }
 
 /**
- * Map the user-facing "llama.cpp install path" to the binary the bat runs.
- * A directory gets `\llama-server.exe` appended; an explicit `.exe` is kept.
+ * Map the user-facing llama.cpp install directory to its platform binary.
+ * Windows appends `\llama-server.exe`; POSIX appends `llama-server`.
  */
-export function resolveLlamaServerBin(llamaCppPath: string): string {
+export function resolveLlamaServerBin(
+  llamaCppPath: string,
+  platform = runtimePlatform(),
+): string {
   const trimmed = llamaCppPath.trim().replace(/[\\/]+$/, "");
   if (!trimmed) return "";
+  if (platform !== "win32") {
+    const normalized = trimmed.replaceAll("\\", "/");
+    const leaf = normalized.split("/").pop() ?? "";
+    return /^llama-server(?:$|[-_.])/i.test(leaf)
+      ? normalized
+      : `${normalized}/llama-server`;
+  }
   return /\.exe$/i.test(trimmed) ? trimmed : `${trimmed}\\llama-server.exe`;
 }
 
@@ -111,7 +147,7 @@ export function resolveLlamaServerBin(llamaCppPath: string): string {
  * Shape gate for the persisted setting. The prompt and path fields are optional
  * so configs saved before they existed still validate (parse fills the defaults).
  */
-export function isLlamaServerSettings(value: unknown): boolean {
+export function isLlamaServerSettings(value: unknown, platform = runtimePlatform()): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const candidate = value as Partial<LlamaServerSettings>;
   return (
@@ -126,9 +162,9 @@ export function isLlamaServerSettings(value: unknown): boolean {
     candidate.parallel >= 1 &&
     candidate.parallel <= 16 &&
     (candidate.systemPrompt === undefined || isSafeLlamaSystemPrompt(candidate.systemPrompt)) &&
-    (candidate.llamaCppPath === undefined || isSafeLlamaPathValue(candidate.llamaCppPath)) &&
-    (candidate.modelDir === undefined || isSafeLlamaPathValue(candidate.modelDir)) &&
-    (candidate.modelFile === undefined || isSafeLlamaModelFile(candidate.modelFile)) &&
+    (candidate.llamaCppPath === undefined || isSafeLlamaPathValue(candidate.llamaCppPath, platform)) &&
+    (candidate.modelDir === undefined || isSafeLlamaPathValue(candidate.modelDir, platform)) &&
+    (candidate.modelFile === undefined || isSafeLlamaModelFile(candidate.modelFile, platform)) &&
     (candidate.llamaServerHost === undefined ||
       LLAMA_SERVER_HOSTS.includes(candidate.llamaServerHost as LlamaServerHost)) &&
     (candidate.specType === undefined ||
@@ -140,11 +176,14 @@ export function isLlamaServerSettings(value: unknown): boolean {
   );
 }
 
-export function parseLlamaServerSettings(raw: string | null | undefined): LlamaServerSettings {
+export function parseLlamaServerSettings(
+  raw: string | null | undefined,
+  platform = runtimePlatform(),
+): LlamaServerSettings {
   if (!raw) return DEFAULT_LLAMA_SERVER_SETTINGS;
   try {
     const value: unknown = JSON.parse(raw);
-    if (!isLlamaServerSettings(value)) return DEFAULT_LLAMA_SERVER_SETTINGS;
+    if (!isLlamaServerSettings(value, platform)) return DEFAULT_LLAMA_SERVER_SETTINGS;
     return {
       ...DEFAULT_LLAMA_SERVER_SETTINGS,
       ...(value as Partial<LlamaServerSettings>),

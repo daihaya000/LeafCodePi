@@ -10,7 +10,7 @@ import {
   utimesSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
@@ -207,9 +207,18 @@ test("resolveMirrorRoot prefers the explicit override, then LOCALAPPDATA", () =>
   );
 });
 
+test("resolveMirrorRoot has a home cache fallback when no cache env is set", () => {
+  const source = join(REPO_ROOT, "web");
+  assert.equal(
+    resolveMirrorRoot({}, source),
+    join(homedir(), ".cache", "leafcode-pi", "build", mirrorSlug(source)),
+  );
+});
+
 test("mirrorSlug is stable per checkout and differs between checkouts", () => {
-  assert.equal(mirrorSlug("C:\\repo\\web"), mirrorSlug("c:/REPO/web"));
-  assert.notEqual(mirrorSlug("C:\\repo-a\\web"), mirrorSlug("C:\\repo-b\\web"));
+  assert.equal(mirrorSlug("C:\\repo\\web", "win32"), mirrorSlug("c:/REPO/web", "win32"));
+  assert.notEqual(mirrorSlug("C:\\repo-a\\web", "win32"), mirrorSlug("C:\\repo-b\\web", "win32"));
+  assert.notEqual(mirrorSlug("/home/A/LeafCodePi/web", "linux"), mirrorSlug("/home/a/LeafCodePi/web", "linux"));
 });
 
 test("mirrorDistDir stays inside the mirrored project (Turbopack rejects an outside distDir)", () => {

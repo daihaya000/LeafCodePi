@@ -5,6 +5,7 @@ import { createLlamaServerService } from './llama-server-service.js';
 /** @returns {any} deps with every dependency stubbed. */
 function makeDeps(overrides = {}) {
   return {
+    platform: 'win32',
     batPath: 'C:\\fake\\llama-server-load.bat',
     port: 8080,
     getListeningPids: () => [],
@@ -30,6 +31,7 @@ test('status reports running when /health is ok', async () => {
   const s = await svc.status();
   assert.equal(s.running, true);
   assert.equal(s.health, 'ok');
+  assert.equal(s.port, 8080);
 });
 
 test('status reports running when listeners exist even if /health fails', async () => {
@@ -100,6 +102,19 @@ test('start writes a UTF-8 launcher bat that inlines config and calls the real b
   // WMI via powershell -EncodedCommand (base64 UTF-16LE).
   assert.equal(wmiArgs.cmd, 'powershell.exe');
   assert.ok(wmiArgs.args.includes('-EncodedCommand'));
+});
+
+test('start preserves an explicitly empty reasoning effort for the Windows launcher', async () => {
+  let written = '';
+  const svc = createLlamaServerService(
+    makeDeps({
+      writeFile: (path, data) => { written = data; },
+    }),
+  );
+  const result = await svc.start({ effort: '' });
+  assert.equal(result.ok, true);
+  assert.match(written, /set "REASONING_EFFORT="/);
+  assert.match(written, /set "LEAFCODE_PI_EMPTY_EFFORT=1"/);
 });
 
 test('start maps llama.cpp path, model dir and model file into the launcher bat', async () => {
@@ -334,6 +349,7 @@ test('stop kills the owned pid and every listener (WMI launcher + bat `start` re
       spawnSync: () => { listeners = [200]; return { status: 0, stdout: '100' }; },
       isProcessAlive: (pid) => pid === 100,
       getListeningPids: () => listeners,
+      isLlamaServerProcess: () => true,
       stopProcessTreeGracefully: async ({ pid }) => { killed.push(pid); return 'soft'; },
     }),
   );
@@ -352,6 +368,7 @@ test('stop falls back to listeners when the owned pid is already dead', async ()
       spawnSync: () => { listeners = [200, 201]; return { status: 0, stdout: '100' }; },
       isProcessAlive: () => false, // owned launcher has exited
       getListeningPids: () => listeners,
+      isLlamaServerProcess: () => true,
       stopProcessTreeGracefully: async ({ pid }) => { killed.push(pid); return 'soft'; },
     }),
   );
@@ -369,12 +386,44 @@ test('stop deduplicates listeners and owned pid when they collide', async () => 
       spawnSync: () => { listeners = [200, 201]; return { status: 0, stdout: '200' }; },
       isProcessAlive: (pid) => pid === 200,
       getListeningPids: () => listeners,
+      isLlamaServerProcess: () => true,
       stopProcessTreeGracefully: async ({ pid }) => { killed.push(pid); return 'soft'; },
     }),
   );
   await svc.start();
   const result = await svc.stop();
   assert.deepEqual(killed, [200, 201]);
+});
+
+test('stop leaves listeners that are not verified as llama-server untouched', async () => {
+  const killed = [];
+  const svc = createLlamaServerService(
+    makeDeps({
+      getListeningPids: () => [200],
+      isLlamaServerProcess: () => false,
+      stopProcessTreeGracefully: async ({ pid }) => { killed.push(pid); return 'soft'; },
+    }),
+  );
+  const result = await svc.stop();
+  assert.deepEqual(result.killed, []);
+  assert.deepEqual(killed, []);
+});
+
+test('stop does not kill a PID that no longer matches the owned process', async () => {
+  let alive = false;
+  const killed = [];
+  const svc = createLlamaServerService(
+    makeDeps({
+      isProcessAlive: () => alive,
+      isOwnedProcess: () => false,
+      stopProcessTreeGracefully: async ({ pid }) => { killed.push(pid); return 'soft'; },
+    }),
+  );
+  await svc.start();
+  alive = true;
+  const result = await svc.stop();
+  assert.deepEqual(result.killed, []);
+  assert.deepEqual(killed, []);
 });
 
 test('stop with no owned pid and no listeners returns empty killed', async () => {
@@ -437,6 +486,29 @@ test('Linux starts llama-server directly without PowerShell or a tray', async ()
     '-m', '/home/test/models/repo/model-Q4_K_S.gguf', '--alias', 'model-Q4_K_S',
   ]);
   assert.equal(spawned.options.detached, true);
+});
+
+test('Linux accepts POSIX path characters that do not reach a shell', async () => {
+  let spawned = null;
+  const svc = createLlamaServerService(
+    makeDeps({
+      platform: 'linux',
+      defaultBin: '/usr/local/bin/llama-server',
+      defaultModelDir: '/home/test/models',
+      spawn: (command, args, options) => {
+        spawned = { command, args, options };
+        return { pid: 2468, once() {}, unref() {} };
+      },
+    }),
+  );
+  const result = await svc.start({
+    llamaServerBin: '/opt/llama&tools/llama-server',
+    modelDir: '/home/test/models&cache',
+    modelFile: 'model&test.gguf',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(spawned.command, '/opt/llama&tools/llama-server');
+  assert.ok(spawned.args.includes('/home/test/models&cache/model&test.gguf'));
 });
 
 test('Linux rejects model files outside the configured model directory', async () => {

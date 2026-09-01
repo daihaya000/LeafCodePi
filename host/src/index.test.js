@@ -22,6 +22,7 @@ import { formatWebStatus, getPostBuildLaunchPlan, getWebLaunchPlan, isWebBuildSt
 test("readPort falls back on invalid values", () => {
   assert.equal(readPort("3000", 1), 3000);
   assert.equal(readPort("nope", 3000), 3000);
+  assert.equal(readPort("3010oops", 3000), 3000);
   assert.equal(readPort("0", 3000), 3000);
   assert.equal(readPort(undefined, 3000), 3000);
 });
@@ -92,6 +93,7 @@ test("publicHost never exposes 0.0.0.0", () => {
   assert.equal(publicHost("0.0.0.0", { findTailscale: () => null }), "127.0.0.1");
   assert.equal(publicHost("0.0.0.0", { findTailscale: () => "100.64.1.2" }), "100.64.1.2");
   assert.equal(webUiUrl("100.64.1.2", 3010), "http://100.64.1.2:3010");
+  assert.equal(webUiUrl("::1", 3010), "http://[::1]:3010");
 });
 
 test("getWebLaunchPlan prefers existing production build", () => {

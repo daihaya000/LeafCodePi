@@ -25,6 +25,48 @@ test("isLoopbackHostHeader accepts loopback with port", () => {
   assert.equal(isLoopbackHostHeader("evil.example:18775", 18775), false);
 });
 
+test("POST /llama-server/start forwards empty effort and POSIX launch settings", async () => {
+  let received = null;
+  const port = await freePort();
+  const server = createLlamaControlServer({
+    controlPort: port,
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async (config) => {
+      received = config;
+      return { ok: true };
+    },
+    onLlamaServerStop: () => {},
+  });
+  await listenControlServer(server, port);
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/llama-server/start`, {
+      method: "POST",
+      headers: { host: `127.0.0.1:${port}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        effort: "",
+        specType: "draft-mtp",
+        cacheTypeK: "q8_0",
+        cacheTypeV: "f16",
+      }),
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(received, {
+      effort: "",
+      contextLength: undefined,
+      parallel: undefined,
+      llamaServerBin: undefined,
+      modelDir: undefined,
+      modelFile: undefined,
+      llamaServerHost: undefined,
+      specType: "draft-mtp",
+      cacheTypeK: "q8_0",
+      cacheTypeV: "f16",
+    });
+  } finally {
+    await closeControlServer(server);
+  }
+});
+
 test("POST /restart/webui returns 202 then invokes handler", async () => {
   let called = false;
   const port = await freePort();

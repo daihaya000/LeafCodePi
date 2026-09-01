@@ -93,6 +93,8 @@ const llamaServerService = createLlamaServerService({
   platform: process.platform,
   port: LLAMA_SERVER_PORT,
   getListeningPids,
+  isOwnedProcess,
+  isLlamaServerProcess,
   stopProcessTreeGracefully,
   trayScript: join(__dirname, "llama-server-tray.mjs"),
 });
@@ -176,6 +178,62 @@ function npmCmd() {
 
 function killTree(pid) {
   hardKillTree(pid, { platform: process.platform });
+}
+
+function processCommandLine(pid) {
+  try {
+    const result =
+      process.platform === "win32"
+        ? spawnSync(
+            "powershell.exe",
+            [
+              "-NoProfile",
+              "-NonInteractive",
+              "-Command",
+              `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`,
+            ],
+            { encoding: "utf8", timeout: 3000, windowsHide: true },
+          )
+        : spawnSync("ps", ["-p", String(pid), "-o", "command="], {
+            encoding: "utf8",
+            timeout: 3000,
+            windowsHide: true,
+          });
+    if (result.error || result.status !== 0) return null;
+    const command = String(result.stdout ?? "").trim();
+    return command || null;
+  } catch {
+    return null;
+  }
+}
+
+function commandMarkerName(marker) {
+  const normalized = String(marker ?? "").replaceAll("\\", "/");
+  return normalized.slice(normalized.lastIndexOf("/") + 1).toLowerCase();
+}
+
+function commandLineMatches(pid, marker) {
+  const command = processCommandLine(pid);
+  const name = commandMarkerName(marker);
+  if (!command || !name) return null;
+  const lower = command.toLowerCase();
+  const isBoundary = (char) =>
+    !char || char <= " " || char === '"' || char === "'" || char === "/" || char === "\\";
+  for (let at = lower.indexOf(name); at >= 0; at = lower.indexOf(name, at + 1)) {
+    if (isBoundary(lower[at - 1]) && isBoundary(lower[at + name.length])) return true;
+  }
+  return false;
+}
+
+function isOwnedProcess(pid, marker) {
+  const match = commandLineMatches(pid, marker);
+  // A known PID may still be stopped when the platform tool is unavailable;
+  // unknown port listeners are handled fail-closed below.
+  return match === null ? true : match;
+}
+
+function isLlamaServerProcess(pid, marker) {
+  return commandLineMatches(pid, marker) === true;
 }
 
 function openBrowser(url) {
