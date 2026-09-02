@@ -1,5 +1,10 @@
 import { execFileSync, execSync } from "node:child_process";
-import { parseListeningPids, parseLsofListeningPids, parseSsListeningPids } from "./port-plan.js";
+import {
+  hasSsListeningPort,
+  parseListeningPids,
+  parseLsofListeningPids,
+  parseSsListeningPids,
+} from "./port-plan.js";
 
 function runCommand(command, args, deps) {
   const options = {
@@ -7,9 +12,23 @@ function runCommand(command, args, deps) {
     stdio: ["pipe", "pipe", "pipe"],
     timeout: 5000,
   };
-  if (deps.execFileSync) return deps.execFileSync(command, args, options);
-  const exec = deps.execSync ?? execSync;
-  return exec([command, ...args].join(" "), options);
+  try {
+    if (deps.execFileSync) return deps.execFileSync(command, args, options);
+    const exec = deps.execSync ?? execSync;
+    return exec([command, ...args].join(" "), options);
+  } catch (error) {
+    if (
+      command === "lsof" &&
+      error &&
+      typeof error === "object" &&
+      error.status === 1 &&
+      !String(error.stdout ?? "").trim() &&
+      !String(error.stderr ?? "").trim()
+    ) {
+      return "";
+    }
+    throw error;
+  }
 }
 
 /**
@@ -64,4 +83,16 @@ export function getListeningPids(port, snapshot, deps = {}) {
   } catch {
     return [];
   }
+}
+
+export function getPortListenerStatus(port, snapshot, deps = {}) {
+  const captured = snapshot ?? runPortSnapshot(deps, port);
+  if (captured == null) return { available: false, listening: false, pids: [] };
+  const pids = getListeningPids(port, captured, deps);
+  const output = typeof captured === "string" ? captured : captured.output;
+  const format = typeof captured === "string"
+    ? (deps.platform ?? process.platform)
+    : captured.format;
+  const listening = format === "ss" ? hasSsListeningPort(output, port) : pids.length > 0;
+  return { available: true, listening, pids };
 }
