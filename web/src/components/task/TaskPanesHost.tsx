@@ -293,8 +293,10 @@ export function TaskPanesHost() {
     state.panes.length === 1 &&
     state.panes[0].tabs.length <= 1 &&
     state.panes[0].tabs[0] !== HOME_TAB_ID;
-  const isGrid = state.panes.length >= 4;
-  const isColumn = !isGrid && state.orientation === "column";
+  // ドロップ方向が保存された分割は、その方向の flex レイアウトを使う。
+  // orientation がない旧保存値だけは従来の 4 ペイン grid を維持する。
+  const isGrid = state.panes.length >= 4 && !state.orientation;
+  const isColumn = state.orientation === "column";
   const widths = paneWidths.length === state.panes.length
     ? paneWidths
     : equalPaneWidths(state.panes.length);

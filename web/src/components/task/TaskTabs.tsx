@@ -166,8 +166,11 @@ export function TaskTabs({
 }
 
 export function paneLayoutClass(state: TaskPanesState): string {
-  // レイアウト自動切替（仕様 §1）: 4 ペイン = 2x2 grid、それ以外 = orientation 方向の並び
-  if (state.panes.length >= 4) return "grid min-h-0 min-w-0 flex-1 grid-cols-2 grid-rows-2";
+  // 方向指定のある分割はペイン数に関係なくドロップ方向を優先する。
+  // orientation がない保存済み状態だけは従来の 4 ペイン grid を維持する。
+  if (state.panes.length >= 4 && !state.orientation) {
+    return "grid min-h-0 min-w-0 flex-1 grid-cols-2 grid-rows-2";
+  }
   return state.orientation === "column"
     ? "flex min-h-0 min-w-0 flex-1 flex-col"
     : "flex min-h-0 min-w-0 flex-1";

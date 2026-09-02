@@ -20,9 +20,14 @@ describe("paneLayoutClass", () => {
     expect(paneLayoutClass(state(4))).toContain("grid-cols-2 grid-rows-2");
   });
 
-  it("4ペイン削除後は指定方向のflexレイアウトへ戻る", () => {
-    expect(paneLayoutClass(state(3, "row"))).toContain("flex");
-    expect(paneLayoutClass(state(3, "column"))).toContain("flex-col");
-    expect(paneLayoutClass(state(4, "column"))).toContain("grid");
+  it("4ペインでもドロップ方向のflexレイアウトを優先する", () => {
+    expect(paneLayoutClass(state(4, "row"))).toContain("flex");
+    expect(paneLayoutClass(state(4, "row"))).not.toContain("grid");
+    expect(paneLayoutClass(state(4, "column"))).toContain("flex-col");
+    expect(paneLayoutClass(state(4, "column"))).not.toContain("grid");
+  });
+
+  it("4ペインで方向がない旧保存値は2x2グリッドを維持する", () => {
+    expect(paneLayoutClass(state(4))).toContain("grid-cols-2 grid-rows-2");
   });
 });
