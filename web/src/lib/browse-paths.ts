@@ -1,6 +1,6 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { join, posix, resolve, win32 } from "node:path";
 import { listProjects } from "@/lib/store";
 
 /** OneDrive is a trusted user folder even when it is moved outside the home directory. */
@@ -17,7 +17,8 @@ export function oneDriveRoots(): string[] {
     try {
       if (!existsSync(candidate) || !statSync(candidate).isDirectory()) continue;
       const path = resolve(candidate);
-      roots.set(path.toLowerCase(), path);
+      const key = process.platform === "win32" ? path.toLowerCase() : path;
+      roots.set(key, path);
     } catch {
       // An unavailable sync folder should not make browsing fail.
     }
@@ -34,14 +35,33 @@ export function browseAllowedRoots(): string[] {
   return [...roots];
 }
 
-export function isAllowedBrowsePath(target: string): boolean {
-  const resolved = resolve(target);
-  const needle = resolved.toLowerCase();
-  for (const root of browseAllowedRoots()) {
-    const base = root.toLowerCase();
-    if (needle === base) return true;
-    const prefix = base.endsWith(sep) ? base : `${base}${sep}`;
-    if (needle.startsWith(prefix)) return true;
+export function isAllowedBrowsePath(
+  target: string,
+  options: {
+    platform?: string;
+    roots?: readonly string[];
+    realpath?: (path: string) => string;
+  } = {},
+): boolean {
+  const pathApi = (options.platform ?? process.platform) === "win32" ? win32 : posix;
+  const canonicalize = options.realpath ?? realpathSync.native;
+  let needle: string;
+  try {
+    needle = canonicalize(pathApi.resolve(target));
+  } catch {
+    return false;
+  }
+  for (const root of options.roots ?? browseAllowedRoots()) {
+    try {
+      const base = canonicalize(pathApi.resolve(root));
+      const child = pathApi.relative(base, needle);
+      if (!child) return true;
+      if (child !== ".." && !child.startsWith(`..${pathApi.sep}`) && !pathApi.isAbsolute(child)) {
+        return true;
+      }
+    } catch {
+      // Missing or unreadable roots cannot authorize browsing.
+    }
   }
   return false;
 }

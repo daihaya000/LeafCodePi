@@ -27,10 +27,29 @@ afterEach(() => {
 });
 
 describe("isAllowedBrowsePath", () => {
-  it("allows homedir and subpaths", () => {
-    const home = homedir();
-    expect(isAllowedBrowsePath(home)).toBe(true);
-    expect(isAllowedBrowsePath(join(home, "Documents"))).toBe(true);
+  it("allows homedir", () => {
+    expect(isAllowedBrowsePath(homedir())).toBe(true);
+  });
+
+  it("preserves POSIX path case", () => {
+    const identity = (path: string) => path;
+    expect(
+      isAllowedBrowsePath("/mnt/data/project", {
+        platform: "linux",
+        roots: ["/mnt/Data"],
+        realpath: identity,
+      }),
+    ).toBe(false);
+  });
+
+  it("blocks a symlink that resolves outside an allowed root", () => {
+    expect(
+      isAllowedBrowsePath("/home/user/link", {
+        platform: "linux",
+        roots: ["/home/user"],
+        realpath: (path) => (path === "/home/user/link" ? "/etc" : path),
+      }),
+    ).toBe(false);
   });
 
   it("blocks paths outside allowed roots", () => {
@@ -39,15 +58,17 @@ describe("isAllowedBrowsePath", () => {
 
   it("includes a configured OneDrive root", () => {
     const oneDrive = join(appData, "OneDrive");
-    mkdirSync(oneDrive);
+    const projects = join(oneDrive, "Projects");
+    mkdirSync(projects, { recursive: true });
     process.env.OneDrive = oneDrive;
 
     expect(browseAllowedRoots()).toContain(resolve(oneDrive));
-    expect(isAllowedBrowsePath(join(oneDrive, "Projects"))).toBe(true);
+    expect(isAllowedBrowsePath(projects)).toBe(true);
   });
 
   it("includes registered project roots", () => {
     const projectRoot = resolve(join(appData, "my-project"));
+    mkdirSync(join(projectRoot, "src"), { recursive: true });
     writeFileSync(
       join(appData, "leafcode-pi", "store.json"),
       JSON.stringify(
