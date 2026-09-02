@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, posix, resolve, win32 } from "node:path";
 
 export function dataDir(): string {
   const override = process.env.LEAFCODE_PI_DATA_DIR?.trim();
@@ -14,6 +14,26 @@ export function dataDir(): string {
 
 export function storePath(): string {
   return join(dataDir(), "store.json");
+}
+
+export function pathKey(value: string, platform = process.platform): string {
+  const path = platform === "win32" ? win32.resolve(value) : posix.resolve(value);
+  return platform === "win32" ? path.toLowerCase() : path;
+}
+
+export function samePath(left: string, right: string, platform = process.platform): boolean {
+  return pathKey(left, platform) === pathKey(right, platform);
+}
+
+export function sameOrDescendantPath(
+  value: string,
+  parent: string,
+  platform = process.platform,
+): boolean {
+  const path = pathKey(value, platform);
+  const root = pathKey(parent, platform);
+  const separator = platform === "win32" ? win32.sep : posix.sep;
+  return path === root || path.startsWith(root.endsWith(separator) ? root : `${root}${separator}`);
 }
 
 /** Base directory for tasks started without a registered project. */

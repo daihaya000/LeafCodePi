@@ -2,13 +2,25 @@ import { describe, expect, it, afterEach } from "vitest";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { noProjectRoot, noProjectSessionDir } from "./paths";
+import { noProjectRoot, noProjectSessionDir, sameOrDescendantPath, samePath } from "./paths";
 
 const roots: string[] = [];
 
 afterEach(() => {
   delete process.env.LEAFCODE_PI_DEFAULT_DIR;
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+describe("path identity", () => {
+  it("preserves POSIX case and folds Windows case", () => {
+    expect(samePath("/work/Foo", "/work/foo", "linux")).toBe(false);
+    expect(samePath("C:\\work\\Foo", "c:\\WORK\\foo", "win32")).toBe(true);
+  });
+
+  it("checks descendants with platform path semantics", () => {
+    expect(sameOrDescendantPath("/work/Foo/src", "/work/Foo", "linux")).toBe(true);
+    expect(sameOrDescendantPath("/work/foo/src", "/work/Foo", "linux")).toBe(false);
+  });
 });
 
 describe("no-project workspace paths", () => {
