@@ -82,13 +82,13 @@ describe("SettingsView", () => {
     getJson.mockReset();
   });
 
-  it("モデルタブをモデル、Auto、生成モデル、プロバイダーの順に表示する", () => {
+  it("モデルタブをモデル、Autoモデル、生成モデル、プロバイダーの順に表示する", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("button", { name: /^モデル$/ }));
 
     expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
       "モデル",
-      "Auto モード",
+      "Autoモデル",
       "生成モデル",
       "プロバイダー",
     ]);
