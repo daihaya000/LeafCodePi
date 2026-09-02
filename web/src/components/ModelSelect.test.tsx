@@ -119,7 +119,7 @@ describe("ModelSelect grouping by account", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "モデル" }));
     expect(screen.getByText("llama-server")).toBeTruthy();
-    expect(screen.getByText("openai-codex · 仕事用")).toBeTruthy();
+    expect(screen.getByText("Codex · 仕事用")).toBeTruthy();
   });
 
   it("calls onChange with the account-prefixed value", () => {

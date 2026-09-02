@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { Check, ChevronDown, ImageIcon } from "lucide-react";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { cx } from "@/components/ui";
+import { providerLabel } from "@/lib/codexbar";
 import type { ModelOption } from "@/lib/types";
 
 export function modelSupportsImage(option: ModelOption | undefined): boolean {
@@ -48,7 +49,8 @@ export function modelLimitReached(option: ModelOption | undefined): boolean {
 
 /** モデルドロップダウンのグループ見出し（プロバイダ × アカウント）。 */
 function groupHeader(option: ModelOption): string {
-  return option.accountLabel ? `${option.providerID} · ${option.accountLabel}` : option.providerID;
+  const providerName = providerLabel(option.providerID);
+  return option.accountLabel ? `${providerName} · ${option.accountLabel}` : providerName;
 }
 
 export function ModelSelect({
