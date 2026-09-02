@@ -229,11 +229,11 @@ export function __resetReasoningTranslationForTest(): void {
 }
 
 export function readReasoningTranslationMode(): ReasoningTranslationMode {
-  if (typeof window === "undefined") return "translated";
+  if (typeof window === "undefined") return "original";
   const value = window.localStorage.getItem(STORAGE_KEY);
   return value === "original" || value === "bilingual" || value === "translated"
     ? value
-    : "translated";
+    : "original";
 }
 
 export function writeReasoningTranslationMode(mode: ReasoningTranslationMode): void {

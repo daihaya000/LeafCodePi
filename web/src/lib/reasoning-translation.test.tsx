@@ -3,6 +3,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetReasoningTranslationForTest,
+  readReasoningTranslationMode,
   useReasoningTranslation,
 } from "./reasoning-translation";
 
@@ -38,6 +39,12 @@ describe("reasoning translation scheduler", () => {
     vi.unstubAllGlobals();
     localStorage.clear();
     vi.useRealTimers();
+  });
+
+  it("defaults to the original text when no display preference is stored", () => {
+    localStorage.removeItem("webui:reasoning-translation-mode");
+
+    expect(readReasoningTranslationMode()).toBe("original");
   });
 
   it("batches a long timeline instead of sending one request per reasoning part", async () => {
