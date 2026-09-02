@@ -979,7 +979,12 @@ export const PartView = memo(
               />
             );
           }
-          return <ToolCard key={part.id} part={part} taskId={taskId} nested={nested} />;
+          // エラーカードは親のスクロール計算前に開いた状態でマウントする。
+          const cardKey =
+            part.state.status === "error" || part.state.status === "cancelled"
+              ? `${part.id}:expanded`
+              : part.id;
+          return <ToolCard key={cardKey} part={part} taskId={taskId} nested={nested} />;
         })}
         {isUser && !nested && onRevert && (
           <button

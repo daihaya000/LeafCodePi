@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { useLayoutEffect } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { UiMessage } from "@/lib/types";
@@ -50,6 +51,29 @@ function setScrollMetrics(element: HTMLDivElement, scrollTop: number, scrollHeig
   });
 }
 
+function readMessage(status: "running" | "error"): UiMessage {
+  const failed = status === "error";
+  return {
+    id: "assistant-tool",
+    role: "assistant",
+    createdAt: 1,
+    parts: [
+      {
+        id: "tool-1",
+        type: "tool",
+        tool: "read",
+        callID: "call-1",
+        state: {
+          status,
+          input: { path: "README.md" },
+          title: "read",
+          ...(failed ? { output: "read failed", error: "read failed" } : {}),
+        },
+      },
+    ],
+  };
+}
+
 describe("PartView shell log", () => {
   afterEach(() => cleanup());
 
@@ -79,6 +103,31 @@ describe("PartView shell log", () => {
     setScrollMetrics(scroller, 1100, 1400);
     view.rerender(<PartView message={bashMessage("line 1\nline 2\nline 3\nline 4")} />);
     expect(scroller.scrollTop).toBe(1300);
+  });
+});
+
+describe("PartView tool error", () => {
+  afterEach(() => cleanup());
+
+  it("mounts an error card open before the parent measures its layout", () => {
+    const layoutStates: string[] = [];
+    const runningMessage = readMessage("running");
+    const errorMessage = readMessage("error");
+    function LayoutProbe({ message }: { message: UiMessage }) {
+      useLayoutEffect(() => {
+        layoutStates.push(
+          document.querySelector<HTMLButtonElement>("button[aria-expanded]")?.getAttribute(
+            "aria-expanded",
+          ) ?? "missing",
+        );
+      }, [message]);
+      return <PartView message={message} />;
+    }
+
+    const view = render(<LayoutProbe message={runningMessage} />);
+    view.rerender(<LayoutProbe message={errorMessage} />);
+
+    expect(layoutStates).toEqual(["false", "true"]);
   });
 });
 
