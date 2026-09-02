@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createLlamaServerService } from './llama-server-service.js';
 
 /** @returns {any} deps with every dependency stubbed. */
@@ -516,4 +519,140 @@ test('Linux rejects model files outside the configured model directory', async (
   const result = await svc.start({ modelFile: '../secret.gguf' });
   assert.equal(result.ok, false);
   assert.match(result.error, /unsafe llama-server path value: modelFile/);
+});
+
+test('start rejects unavailable port state before spawning', async () => {
+  let spawned = false;
+  const svc = createLlamaServerService(makeDeps({
+    platform: 'linux',
+    defaultBin: '/usr/local/bin/llama-server',
+    defaultModelDir: '/home/test/models',
+    getPortListenerStatus: () => ({ available: false, listening: false, pids: [] }),
+    spawn: () => { spawned = true; return { pid: 2468, unref() {} }; },
+  }));
+  const result = await svc.start();
+  assert.equal(result.ok, false);
+  assert.match(result.error, /port status is unavailable/);
+  assert.equal(spawned, false);
+});
+
+test('start refuses a port listener whose PID metadata is hidden', async () => {
+  let spawned = false;
+  const svc = createLlamaServerService(makeDeps({
+    platform: 'linux',
+    defaultBin: '/usr/local/bin/llama-server',
+    defaultModelDir: '/home/test/models',
+    getPortListenerStatus: () => ({ available: true, listening: true, pids: [] }),
+    spawn: () => { spawned = true; return { pid: 2468, unref() {} }; },
+  }));
+  const result = await svc.start();
+  assert.equal(result.ok, false);
+  assert.match(result.error, /port is already in use/);
+  assert.equal(spawned, false);
+});
+
+test('POSIX spawn errors are returned instead of reporting a successful start', async () => {
+  const listeners = new Map();
+  const child = {
+    pid: 2468,
+    once(event, handler) {
+      const list = listeners.get(event) ?? [];
+      list.push(handler);
+      listeners.set(event, list);
+    },
+    on() { return this; },
+    unref() {},
+  };
+  const svc = createLlamaServerService(makeDeps({
+    platform: 'linux',
+    defaultBin: '/missing/llama-server',
+    defaultModelDir: '/home/test/models',
+    spawn: () => {
+      queueMicrotask(() => {
+        for (const handler of listeners.get('error') ?? []) handler(new Error('ENOENT'));
+      });
+      return child;
+    },
+  }));
+  const result = await svc.start();
+  assert.equal(result.ok, false);
+  assert.match(result.error, /ENOENT/);
+});
+
+test('resident POSIX ownership survives host recreation and is stopped once', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'leafcode-pi-owner-'));
+  const ownershipFile = join(dir, 'llama-server-owner.json');
+  const currentListeners = [];
+  const starts = new Map([[2468, 'server-start']]);
+  const killed = [];
+  const common = {
+    platform: 'linux',
+    port: 8080,
+    defaultBin: '/usr/local/bin/llama-server',
+    defaultModelDir: '/home/test/models',
+    ownershipFile,
+    getProcessStartTime: (pid) => starts.get(pid) ?? null,
+    getPortListenerStatus: () => ({
+      available: true,
+      listening: currentListeners.length > 0,
+      pids: currentListeners,
+    }),
+    getListeningPids: () => currentListeners,
+    isProcessAlive: (pid) => pid === 2468,
+    isOwnedProcess: () => true,
+    isLlamaServerProcess: () => true,
+    stopProcessTreeGracefully: async ({ pid }) => { killed.push(pid); return 'soft'; },
+    fetch: async () => { throw new Error('no server'); },
+    spawn: () => ({ pid: 2468, unref() {} }),
+  };
+  try {
+    const first = createLlamaServerService(common);
+    assert.equal((await first.start()).ok, true);
+    assert.equal(JSON.parse(readFileSync(ownershipFile, 'utf8')).pid, 2468);
+
+    currentListeners.push(2468);
+    const afterRestart = createLlamaServerService(common);
+    const status = await afterRestart.status();
+    assert.equal(status.running, true);
+    assert.deepEqual((await afterRestart.stop()).killed, [2468]);
+    assert.deepEqual(killed, [2468]);
+    assert.throws(() => readFileSync(ownershipFile, 'utf8'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('restored ownership refuses a reused PID with a different start time', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'leafcode-pi-owner-'));
+  const ownershipFile = join(dir, 'llama-server-owner.json');
+  writeFileSync(ownershipFile, `${JSON.stringify({
+    version: 1,
+    port: 8080,
+    pid: 2468,
+    commandMarker: '/usr/local/bin/llama-server',
+    serverCommandMarker: '/usr/local/bin/llama-server',
+    pidStartTime: 'old-start',
+    listeners: [{ pid: 2468, startTime: 'old-start' }],
+  })}\n`);
+  const killed = [];
+  const svc = createLlamaServerService({
+    platform: 'linux',
+    port: 8080,
+    ownershipFile,
+    getPortListenerStatus: () => ({ available: true, listening: true, pids: [2468] }),
+    getListeningPids: () => [2468],
+    getProcessStartTime: () => 'new-start',
+    isProcessAlive: () => true,
+    isOwnedProcess: () => true,
+    isLlamaServerProcess: () => true,
+    fetch: async () => { throw new Error('no server'); },
+    stopProcessTreeGracefully: async ({ pid }) => { killed.push(pid); return 'soft'; },
+  });
+  try {
+    assert.equal((await svc.status()).running, false);
+    assert.deepEqual((await svc.stop()).killed, []);
+    assert.deepEqual(killed, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

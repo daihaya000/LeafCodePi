@@ -12,7 +12,7 @@ import { createLlamaControlServer, closeControlServer, listenControlServer } fro
 import { createLlamaServerService } from "./llama-server-service.js";
 import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { createLogFileWriter, formatLogLine } from "./log-file.js";
-import { getListeningPids } from "./port-scanner.js";
+import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
 import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
 import { buildHostRestartScript } from "./host-restart.js";
 import { createTranslationService } from "./translation-service.js";
@@ -117,10 +117,14 @@ const llamaServerService = createLlamaServerService({
   batPath: join(REPO_ROOT, "scripts", "llama-server-load.bat"),
   platform: process.platform,
   port: LLAMA_SERVER_PORT,
+  ownershipFile: join(DATA_DIR, "llama-server-owner.json"),
   getListeningPids,
+  getPortListenerStatus,
+  getProcessStartTime: processStartTime,
   isOwnedProcess,
   isLlamaServerProcess,
   stopProcessTreeGracefully,
+  trayEnabled: shouldUseTray(),
   trayScript: join(__dirname, "llama-server-tray.mjs"),
 });
 
@@ -237,6 +241,33 @@ function commandMarkerName(marker) {
   return normalized.slice(normalized.lastIndexOf("/") + 1).toLowerCase();
 }
 
+function processStartTime(pid) {
+  try {
+    const result =
+      process.platform === "win32"
+        ? spawnSync(
+            "powershell.exe",
+            [
+              "-NoProfile",
+              "-NonInteractive",
+              "-Command",
+              `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CreationDate`,
+            ],
+            { encoding: "utf8", timeout: 3000, windowsHide: true },
+          )
+        : spawnSync("ps", ["-p", String(pid), "-o", "lstart="], {
+            encoding: "utf8",
+            timeout: 3000,
+            windowsHide: true,
+          });
+    if (result.error || result.status !== 0) return null;
+    const value = String(result.stdout ?? "").trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
 function commandLineMatches(pid, marker) {
   const command = processCommandLine(pid);
   const name = commandMarkerName(marker);
@@ -251,10 +282,7 @@ function commandLineMatches(pid, marker) {
 }
 
 function isOwnedProcess(pid, marker) {
-  const match = commandLineMatches(pid, marker);
-  // A known PID may still be stopped when the platform tool is unavailable;
-  // unknown port listeners are handled fail-closed below.
-  return match === null ? true : match;
+  return commandLineMatches(pid, marker) === true;
 }
 
 function isLlamaServerProcess(pid, marker) {

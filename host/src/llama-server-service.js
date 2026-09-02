@@ -13,9 +13,9 @@
 
 import { spawn, spawnSync } from 'child_process';
 import { randomBytes } from 'crypto';
-import { writeFileSync } from 'fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { homedir, tmpdir } from 'os';
-import { isAbsolute, join, posix, sep } from 'path';
+import { dirname, isAbsolute, join, posix, sep } from 'path';
 
 /**
  * Optional overrides for the start config. All map to the bat's env vars.
@@ -78,6 +78,9 @@ function isSafeModelFile(value, platform = process.platform) {
  *   defaultModelDir?: string,
  *   trayEnabled?: boolean,
  *   getListeningPids?: (port: number) => number[],
+ *   getPortListenerStatus?: (port: number) => { available: boolean, listening: boolean, pids: number[] },
+ *   getProcessStartTime?: (pid: number) => string | null,
+ *   ownershipFile?: string | null,
  *   fetch?: typeof fetch,
  *   spawn?: typeof spawn,
  *   spawnSync?: typeof spawnSync,
@@ -109,6 +112,12 @@ export function createLlamaServerService(deps) {
   const pathSeparator = isWindows ? sep : posix.sep;
   const trayEnabled = deps.trayEnabled ?? isWindows;
   const getListeningPids = deps.getListeningPids ?? (() => []);
+  const getPortListenerStatus = deps.getPortListenerStatus ?? ((targetPort) => {
+    const pids = getListeningPids(targetPort);
+    return { available: true, listening: pids.length > 0, pids };
+  });
+  const getProcessStartTime = deps.getProcessStartTime ?? (() => null);
+  const ownershipFile = deps.ownershipFile ?? null;
   const doFetch = deps.fetch ?? fetch;
   const writeFile = deps.writeFile ?? writeFileSync;
   const getTmpDir = deps.tmpDir ?? tmpdir;
@@ -141,15 +150,186 @@ export function createLlamaServerService(deps) {
   let trayCommandMarker = null;
   /** @type {string | null} */
   let serverCommandMarker = null;
+  /** @type {string | null} */
+  let ownedStartTime = null;
+  /** @type {string | null} */
+  let trayStartTime = null;
+  let ownershipRestored = false;
   const serverListenerPids = new Set();
+  const serverListenerStartTimes = new Map();
+
+  function parsePid(value) {
+    const pid = Number(value);
+    return Number.isInteger(pid) && pid > 1 ? pid : null;
+  }
+
+  function parseStartTime(value) {
+    return typeof value === 'string' && value.length > 0 && value.length <= 256 ? value : null;
+  }
+
+  function currentStartTime(pid) {
+    if (!parsePid(pid)) return null;
+    try {
+      return parseStartTime(getProcessStartTime(pid));
+    } catch {
+      return null;
+    }
+  }
+
+  function resetTracking(removeFile = false) {
+    ownedPid = null;
+    trayPid = null;
+    ownedCommandMarker = null;
+    trayCommandMarker = null;
+    serverCommandMarker = null;
+    ownedStartTime = null;
+    trayStartTime = null;
+    ownershipRestored = false;
+    serverListenerPids.clear();
+    serverListenerStartTimes.clear();
+    if (removeFile && ownershipFile) {
+      try {
+        rmSync(ownershipFile, { force: true });
+      } catch {
+        /* stale ownership is best effort */
+      }
+    }
+  }
+
+  function loadOwnership() {
+    if (!ownershipFile) return;
+    try {
+      const value = JSON.parse(readFileSync(ownershipFile, 'utf8'));
+      const pid = parsePid(value?.pid);
+      const commandMarker = typeof value?.commandMarker === 'string' ? value.commandMarker : null;
+      const marker = typeof value?.serverCommandMarker === 'string' ? value.serverCommandMarker : null;
+      const startTime = parseStartTime(value?.pidStartTime);
+      if (!pid || !commandMarker || !marker || value?.port !== port || !startTime) return;
+      ownedPid = pid;
+      ownedCommandMarker = commandMarker;
+      serverCommandMarker = marker;
+      ownedStartTime = startTime;
+      const nextTrayPid = parsePid(value?.trayPid);
+      const nextTrayMarker = typeof value?.trayCommandMarker === 'string'
+        ? value.trayCommandMarker
+        : null;
+      const nextTrayStart = parseStartTime(value?.trayStartTime);
+      if (nextTrayPid && nextTrayMarker && nextTrayStart) {
+        trayPid = nextTrayPid;
+        trayCommandMarker = nextTrayMarker;
+        trayStartTime = nextTrayStart;
+      }
+      if (Array.isArray(value?.listeners)) {
+        for (const listener of value.listeners) {
+          const listenerPid = parsePid(listener?.pid);
+          if (!listenerPid) continue;
+          serverListenerPids.add(listenerPid);
+          const listenerStart = parseStartTime(listener?.startTime);
+          if (listenerStart) serverListenerStartTimes.set(listenerPid, listenerStart);
+        }
+      }
+      ownershipRestored = true;
+    } catch {
+      /* missing or malformed ownership is not trusted */
+    }
+  }
+
+  function saveOwnership() {
+    if (
+      !ownershipFile ||
+      !ownedPid ||
+      !ownedCommandMarker ||
+      !serverCommandMarker ||
+      !ownedStartTime
+    ) return;
+    try {
+      mkdirSync(dirname(ownershipFile), { recursive: true, mode: 0o700 });
+      writeFileSync(
+        ownershipFile,
+        `${JSON.stringify({
+          version: 1,
+          port,
+          pid: ownedPid,
+          commandMarker: ownedCommandMarker,
+          serverCommandMarker,
+          pidStartTime: ownedStartTime,
+          ...(trayPid && trayCommandMarker && trayStartTime
+            ? { trayPid, trayCommandMarker, trayStartTime }
+            : {}),
+          listeners: [...serverListenerPids].map((pid) => ({
+            pid,
+            ...(serverListenerStartTimes.get(pid)
+              ? { startTime: serverListenerStartTimes.get(pid) }
+              : {}),
+          })),
+        }, null, 2)}\n`,
+        { encoding: 'utf8', mode: 0o600 },
+      );
+      if (!isWindows) {
+        chmodSync(dirname(ownershipFile), 0o700);
+        chmodSync(ownershipFile, 0o600);
+      }
+    } catch {
+      /* ownership persistence is best effort; runtime checks still apply */
+    }
+  }
+
+  function processMatches(pid, marker, startTime, requireStartTime = false) {
+    if (!parsePid(pid) || !marker || !isProcessAlive(pid)) return false;
+    if (!isOwnedProcess(pid, marker)) return false;
+    if (!startTime) return !requireStartTime;
+    const current = currentStartTime(pid);
+    if (!current) return !requireStartTime;
+    return current === startTime;
+  }
 
   function rememberServerListeners(listeningPids = getListeningPids(port)) {
     if (!serverCommandMarker) return;
-    for (const pid of listeningPids) {
-      const n = Number(pid);
-      if (Number.isInteger(n) && n > 0 && isLlamaServerProcess(n, serverCommandMarker)) {
-        serverListenerPids.add(n);
+    const currentPids = new Set(listeningPids.map(parsePid).filter((pid) => pid !== null));
+    for (const pid of [...serverListenerPids]) {
+      const expectedStart = ownershipRestored && pid === ownedPid
+        ? ownedStartTime
+        : serverListenerStartTimes.get(pid);
+      if (
+        !currentPids.has(pid) ||
+        (ownershipRestored && pid === ownedPid && !expectedStart) ||
+        (expectedStart && currentStartTime(pid) !== expectedStart) ||
+        !isLlamaServerProcess(pid, serverCommandMarker)
+      ) {
+        serverListenerPids.delete(pid);
+        serverListenerStartTimes.delete(pid);
       }
+    }
+    for (const pid of currentPids) {
+      const expectedStart = ownershipRestored && pid === ownedPid
+        ? ownedStartTime
+        : serverListenerStartTimes.get(pid);
+      if (
+        (ownershipRestored && pid === ownedPid && !expectedStart) ||
+        (expectedStart && currentStartTime(pid) !== expectedStart) ||
+        !isLlamaServerProcess(pid, serverCommandMarker)
+      ) continue;
+      serverListenerPids.add(pid);
+      const startTime = currentStartTime(pid);
+      if (startTime) serverListenerStartTimes.set(pid, startTime);
+    }
+  }
+
+  loadOwnership();
+
+  function portStatus() {
+    try {
+      const value = getPortListenerStatus(port);
+      if (!value || value.available !== true || !Array.isArray(value.pids)) {
+        return { available: false, listening: false, pids: [] };
+      }
+      return {
+        available: true,
+        listening: value.listening === true,
+        pids: value.pids.map(parsePid).filter((pid) => pid !== null),
+      };
+    } catch {
+      return { available: false, listening: false, pids: [] };
     }
   }
 
@@ -169,17 +349,21 @@ export function createLlamaServerService(deps) {
 
   /** @returns {Promise<LlamaServerStatus>} */
   async function status() {
-    const listeningPids = getListeningPids(port);
+    const listeners = portStatus();
+    const listeningPids = listeners.pids;
     rememberServerListeners(listeningPids);
-    const ownedAlive =
-      ownedPid !== null &&
-      isProcessAlive(ownedPid) &&
-      isOwnedProcess(ownedPid, ownedCommandMarker);
+    const ownedAlive = processMatches(
+      ownedPid,
+      ownedCommandMarker,
+      ownedStartTime,
+      ownershipRestored,
+    );
+    const verifiedListener = serverListenerPids.size > 0;
     const health = await fetchHealth();
-    // running = /health ok, or the launcher is still alive (bat just spawned,
-    // /health not ready yet). A port listener alone is NOT enough — another
-    // process (e.g. Caddy) may occupy the port.
-    const running = health === 'ok' || ownedAlive;
+    // A listener counts only after its command line matches the recorded
+    // llama-server marker. Unknown listeners never become owned by adoption.
+    const running = health === 'ok' || ownedAlive || verifiedListener;
+    saveOwnership();
     return {
       running,
       pid: ownedPid,
@@ -253,7 +437,7 @@ export function createLlamaServerService(deps) {
         timeout: 15_000,
       });
       const pid = Number(String(out.stdout ?? '').trim());
-      if (out.status !== 0 || !Number.isInteger(pid) || pid <= 0) return null;
+      if (out.status !== 0 || !Number.isInteger(pid) || pid <= 1) return null;
       return pid;
     } catch {
       return null;
@@ -266,16 +450,19 @@ export function createLlamaServerService(deps) {
    * does not inherit the caller's environment, so pass the node executable
    * path and the script path explicitly in the CommandLine.
    * @param {string} scriptPath absolute path to the .mjs entry.
-   * @param {string} arg single string argument (the port).
+   * @param {...string} args arguments passed to the script.
    * @returns {number | null} PID of the WMI-spawned node, or null on failure.
    */
-  function launchNodeViaWmi(scriptPath, arg) {
+  function launchNodeViaWmi(scriptPath, ...args) {
     const nodeExe = process.execPath;
     const quotedScript = scriptPath.replace(/'/g, "''");
     const quotedExe = nodeExe.replace(/'/g, "''");
+    const commandArgs = args
+      .map((arg) => `"${String(arg).replace(/'/g, "''")}"`)
+      .join(' ');
     const ps =
       `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create ` +
-      `-Arguments @{ CommandLine = '"${quotedExe}" "${quotedScript}" "${arg}"' }; ` +
+      `-Arguments @{ CommandLine = '"${quotedExe}" "${quotedScript}" ${commandArgs}' }; ` +
       `if ($r.ReturnValue -ne 0) { exit 1 }; Write-Output $r.ProcessId`;
     const encoded = Buffer.from(ps, 'utf16le').toString('base64');
     try {
@@ -285,7 +472,7 @@ export function createLlamaServerService(deps) {
         timeout: 15_000,
       });
       const pid = Number(String(out.stdout ?? '').trim());
-      if (out.status !== 0 || !Number.isInteger(pid) || pid <= 0) return null;
+      if (out.status !== 0 || !Number.isInteger(pid) || pid <= 1) return null;
       return pid;
     } catch {
       return null;
@@ -334,7 +521,7 @@ export function createLlamaServerService(deps) {
       windowsHide: true,
       ...options,
     });
-    const pid = child.pid ?? null;
+    const pid = parsePid(child.pid);
     if (typeof child.once === 'function') {
       const clearOwnedPid = () => {
         if (ownedPid === pid) {
@@ -349,8 +536,14 @@ export function createLlamaServerService(deps) {
       child.once('error', clearOwnedPid);
       child.once('close', clearOwnedPid);
     }
+    const ready = typeof child.on === 'function'
+      ? new Promise((resolve, reject) => {
+          child.once('spawn', () => resolve(pid));
+          child.once('error', reject);
+        })
+      : Promise.resolve(pid);
     child.unref?.();
-    return pid;
+    return { pid, ready };
   }
 
   /**
@@ -362,27 +555,24 @@ export function createLlamaServerService(deps) {
     // Reject a double-start: if we already own a live PID or /health responds
     // ok, the server is already running. A port listener alone is NOT enough —
     // another process (e.g. Caddy) may occupy the port.
-    const ownedAlive = ownedPid !== null && isProcessAlive(ownedPid);
+    const ownedAlive = processMatches(
+      ownedPid,
+      ownedCommandMarker,
+      ownedStartTime,
+      ownershipRestored,
+    );
     if (ownedAlive) {
       return { ok: false, pid: ownedPid, error: 'llama-server is already running' };
     }
     if ((await fetchHealth()) === 'ok') {
-      ownedPid = null;
-      trayPid = null;
-      ownedCommandMarker = null;
-      trayCommandMarker = null;
-      serverCommandMarker = null;
-      serverListenerPids.clear();
-      return { ok: false, pid: null, error: 'llama-server is already running' };
+      saveOwnership();
+      return { ok: false, pid: ownedPid, error: 'llama-server is already running' };
     }
-    const existingListeners = getListeningPids(port);
-    if (existingListeners.length > 0) {
-      ownedPid = null;
-      trayPid = null;
-      ownedCommandMarker = null;
-      trayCommandMarker = null;
-      serverCommandMarker = null;
-      serverListenerPids.clear();
+    const existingListeners = portStatus();
+    if (!existingListeners.available) {
+      return { ok: false, pid: null, error: 'llama-server port status is unavailable' };
+    }
+    if (existingListeners.listening) {
       return { ok: false, pid: null, error: 'llama-server port is already in use' };
     }
     for (const key of ['llamaServerBin', 'modelDir']) {
@@ -395,19 +585,38 @@ export function createLlamaServerService(deps) {
     }
 
     try {
-      serverListenerPids.clear();
+      resetTracking(true);
       if (!isWindows) {
         const launch = buildPosixLaunch(config);
         serverCommandMarker = serverMarker(config);
         ownedCommandMarker = launch.binary;
-        ownedPid = launchDetached(launch.binary, launch.args);
+        const started = launchDetached(launch.binary, launch.args);
+        ownedPid = started.pid;
+        if (!ownedPid) throw new Error('llama-server did not return a process id');
+        await started.ready;
+        ownedStartTime = currentStartTime(ownedPid);
         if (trayEnabled && trayScript) {
           trayCommandMarker = trayScript;
-          trayPid = launchDetached(process.execPath, [trayScript, String(port)]);
+          const tray = launchDetached(process.execPath, [
+            trayScript,
+            String(port),
+            serverCommandMarker,
+            String(ownedPid),
+            ownedStartTime ?? '',
+          ]);
+          trayPid = tray.pid;
+          try {
+            await tray.ready;
+            trayStartTime = currentStartTime(trayPid);
+          } catch {
+            trayPid = null;
+            trayCommandMarker = null;
+          }
         } else {
           trayPid = null;
         }
         rememberServerListeners();
+        saveOwnership();
         return { ok: true, pid: ownedPid, trayPid };
       }
 
@@ -421,38 +630,44 @@ export function createLlamaServerService(deps) {
         // Fallback: spawn inside the current tree (still works, just not
         // independent of the host). The bat's own `start` keeps llama-server.exe
         // alive past the bat, but the host's Kill Job still reaches it.
-        const child = spawnFn('cmd.exe', ['/c', launcherPath], {
+        const started = launchDetached('cmd.exe', ['/c', launcherPath], {
           detached: false,
           stdio: 'ignore',
           windowsHide: true,
         });
-        ownedPid = child.pid ?? null;
+        ownedPid = started.pid;
+        if (!ownedPid) throw new Error('llama-server launcher did not return a process id');
+        await started.ready;
       }
+      ownedStartTime = currentStartTime(ownedPid);
       // Launch the standalone llama-server tray (a separate resident process)
       // alongside the server, also outside the host's Kill Job. Best-effort: a
       // failure here must not fail the server start.
       if (trayEnabled && trayScript) {
         trayCommandMarker = trayScript;
-        trayPid = launchNodeViaWmi(trayScript, String(port));
+        trayPid = launchNodeViaWmi(
+          trayScript,
+          String(port),
+          serverCommandMarker,
+          String(ownedPid),
+          ownedStartTime ?? '',
+        );
+        trayStartTime = currentStartTime(trayPid);
       } else {
         trayPid = null;
       }
       rememberServerListeners();
+      saveOwnership();
       return { ok: true, pid: ownedPid, trayPid };
     } catch (err) {
-      ownedPid = null;
-      ownedCommandMarker = null;
-      trayCommandMarker = null;
-      serverCommandMarker = null;
-      serverListenerPids.clear();
-      trayPid = null;
+      resetTracking(true);
       return {
         ok: false,
         pid: null,
         error: err instanceof Error ? err.message : String(err),
       };
     }
-}
+  }
 
   /**
    * Stop the server and its standalone tray. The bat uses `start`, so
@@ -462,19 +677,33 @@ export function createLlamaServerService(deps) {
    * @returns {Promise<{ ok: boolean, killed: number[] }>}
    */
   async function stop() {
-    const listeningPids = getListeningPids(port);
-    const ownedAlive = ownedPid !== null && isProcessAlive(ownedPid);
-    const trayAlive = trayPid !== null && isProcessAlive(trayPid);
+    const listeners = portStatus();
+    const listeningPids = listeners.pids;
+    rememberServerListeners(listeningPids);
     const pidSet = new Set();
-    if (ownedAlive && isOwnedProcess(ownedPid, ownedCommandMarker)) pidSet.add(ownedPid);
-    if (trayAlive && isOwnedProcess(trayPid, trayCommandMarker)) pidSet.add(trayPid);
+    if (processMatches(ownedPid, ownedCommandMarker, ownedStartTime, ownershipRestored)) {
+      pidSet.add(ownedPid);
+    }
+    if (processMatches(trayPid, trayCommandMarker, trayStartTime, ownershipRestored)) {
+      pidSet.add(trayPid);
+    }
     for (const pid of listeningPids) {
-      const n = Number(pid);
+      const n = parsePid(pid);
+      const expectedStart = n
+        ? ownershipRestored && n === ownedPid
+          ? ownedStartTime
+          : serverListenerStartTimes.get(n)
+        : null;
+      const startMatches = Boolean(expectedStart) && currentStartTime(n) === expectedStart;
+      const identityMatches = ownershipRestored && n === ownedPid
+        ? processMatches(n, ownedCommandMarker, ownedStartTime, true)
+        : true;
       if (
-        Number.isFinite(n) &&
-        n > 0 &&
+        n &&
         serverListenerPids.has(n) &&
-        isLlamaServerProcess(n, serverCommandMarker)
+        isLlamaServerProcess(n, serverCommandMarker) &&
+        (expectedStart ? startMatches : !ownershipRestored) &&
+        identityMatches
       ) {
         pidSet.add(n);
       }
@@ -486,12 +715,7 @@ export function createLlamaServerService(deps) {
       }
       killed.push(pid);
     }
-    ownedPid = null;
-    trayPid = null;
-    ownedCommandMarker = null;
-    trayCommandMarker = null;
-    serverCommandMarker = null;
-    serverListenerPids.clear();
+    resetTracking(true);
     return { ok: true, killed };
   }
 
