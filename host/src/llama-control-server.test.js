@@ -25,6 +25,82 @@ test("isLoopbackHostHeader accepts loopback with port", () => {
   assert.equal(isLoopbackHostHeader("evil.example:18775", 18775), false);
 });
 
+test("local-client Explorer endpoint requires an allowed origin and local header", async () => {
+  let opened = null;
+  const port = await freePort();
+  const server = createLlamaControlServer({
+    controlPort: port,
+    isLocalClientOrigin: (origin) => origin === "http://100.64.1.2:3010",
+    onOpenExplorer: (path) => {
+      opened = path;
+      return { ok: true };
+    },
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async () => ({ ok: true }),
+    onLlamaServerStop: () => {},
+  });
+  await listenControlServer(server, port);
+  try {
+    const headers = {
+      host: `127.0.0.1:${port}`,
+      origin: "http://100.64.1.2:3010",
+      "x-leafcode-pi-local-client": "1",
+    };
+    const capabilities = await fetch(`http://127.0.0.1:${port}/local-client/capabilities`, { headers });
+    assert.equal(capabilities.status, 200);
+    assert.deepEqual(await capabilities.json(), { ok: true, explorer: true });
+    assert.equal(capabilities.headers.get("access-control-allow-origin"), "http://100.64.1.2:3010");
+
+    const explorer = await fetch(`http://127.0.0.1:${port}/local-client/explorer`, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ path: "C:\\\\work\\\\project" }),
+    });
+    assert.equal(explorer.status, 200);
+    assert.deepEqual(await explorer.json(), { ok: true });
+    assert.equal(opened, "C:\\\\work\\\\project");
+
+    const denied = await fetch(`http://127.0.0.1:${port}/local-client/explorer`, {
+      method: "POST",
+      headers: {
+        host: `127.0.0.1:${port}`,
+        origin: "http://remote.example",
+        "x-leafcode-pi-local-client": "1",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ path: "C:\\\\work\\\\other" }),
+    });
+    assert.equal(denied.status, 403);
+    assert.equal(opened, "C:\\\\work\\\\project");
+  } finally {
+    await closeControlServer(server);
+  }
+});
+
+test("local-client Explorer endpoint rejects requests without the local header", async () => {
+  const port = await freePort();
+  const server = createLlamaControlServer({
+    controlPort: port,
+    isLocalClientOrigin: () => true,
+    onOpenExplorer: () => ({ ok: true }),
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async () => ({ ok: true }),
+    onLlamaServerStop: () => {},
+  });
+  await listenControlServer(server, port);
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/local-client/capabilities`, {
+      headers: {
+        host: `127.0.0.1:${port}`,
+        origin: "http://100.64.1.2:3010",
+      },
+    });
+    assert.equal(response.status, 403);
+  } finally {
+    await closeControlServer(server);
+  }
+});
+
 test("POST /llama-server/start forwards empty effort and POSIX launch settings", async () => {
   let received = null;
   const port = await freePort();

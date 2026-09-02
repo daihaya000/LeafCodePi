@@ -5,6 +5,21 @@
 import http from "node:http";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
+const LOCAL_CLIENT_REQUEST_HEADER = "x-leafcode-pi-local-client";
+
+function localClientCorsHeaders(req, handlers) {
+  const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
+  if (!origin || !handlers.isLocalClientOrigin?.(origin)) return null;
+  return {
+    ...JSON_HEADERS,
+    "access-control-allow-origin": origin,
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": `${LOCAL_CLIENT_REQUEST_HEADER}, content-type`,
+    "access-control-allow-private-network": "true",
+    "cache-control": "no-store",
+    vary: "Origin",
+  };
+}
 
 /** @param {string | undefined} hostHeader @param {number} port */
 export function isLoopbackHostHeader(hostHeader, port) {
@@ -49,6 +64,8 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onBrowserConfigWrite?: (patch: { autoOpenBrowser: boolean }) => { autoOpenBrowser: boolean },
  *   onWebUiAuthRead?: () => object,
  *   onWebUiAuthWrite?: (patch: { token?: string, enabled?: boolean }) => Promise<object> | object,
+ *   isLocalClientOrigin?: (origin: string) => boolean,
+ *   onOpenExplorer?: (path: string) => Promise<object> | object,
  *   onTranslationStatus?: () => Promise<object> | object,
  *   onTranslationStart?: () => Promise<object> | object,
  *   onTranslationStop?: () => Promise<unknown> | unknown,
@@ -79,6 +96,65 @@ export function createLlamaControlServer(handlers) {
       }
       if (pathname.length > 1 && pathname.endsWith("/")) {
         pathname = pathname.slice(0, -1);
+      }
+
+      if (pathname.startsWith("/local-client/")) {
+        const headers = localClientCorsHeaders(req, handlers);
+        if (!headers) {
+          res.writeHead(403, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "origin is not allowed" }));
+          return;
+        }
+        if (method === "OPTIONS") {
+          res.writeHead(204, headers);
+          res.end();
+          return;
+        }
+        if (req.headers[LOCAL_CLIENT_REQUEST_HEADER] !== "1") {
+          res.writeHead(403, headers);
+          res.end(JSON.stringify({ ok: false, error: "local client header is required" }));
+          return;
+        }
+        if (method === "GET" && pathname === "/local-client/capabilities") {
+          res.writeHead(200, headers);
+          res.end(JSON.stringify({ ok: true, explorer: typeof handlers.onOpenExplorer === "function" }));
+          return;
+        }
+        if (method === "POST" && pathname === "/local-client/explorer") {
+          if (typeof handlers.onOpenExplorer !== "function") {
+            res.writeHead(501, headers);
+            res.end(JSON.stringify({ ok: false, error: "Explorer is not supported by this host" }));
+            return;
+          }
+          if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) {
+            res.writeHead(415, headers);
+            res.end(JSON.stringify({ ok: false, error: "application/json is required" }));
+            return;
+          }
+          const body = await readJsonBody(req).catch(() => ({}));
+          if (typeof body?.path !== "string" || !body.path.trim()) {
+            res.writeHead(400, headers);
+            res.end(JSON.stringify({ ok: false, error: "path is required" }));
+            return;
+          }
+          try {
+            const result = await handlers.onOpenExplorer(body.path);
+            res.writeHead(200, headers);
+            res.end(JSON.stringify(result ?? { ok: true }));
+          } catch (err) {
+            const status =
+              typeof err === "object" && err && "status" in err &&
+              typeof err.status === "number" && err.status >= 400 && err.status < 600
+                ? err.status
+                : 500;
+            res.writeHead(status, headers);
+            res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+          }
+          return;
+        }
+        res.writeHead(405, headers);
+        res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+        return;
       }
 
       if (method === "GET" && pathname === "/llama-server/status") {

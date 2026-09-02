@@ -88,6 +88,31 @@ function webUiAuthSettings() {
   };
 }
 
+function isLocalClientOrigin(origin) {
+  try {
+    const candidate = new URL(origin);
+    if (candidate.protocol !== "http:") return false;
+    if (candidate.origin === new URL(WEBUI_URL).origin) return true;
+    return (
+      isLoopbackBind(candidate.hostname) &&
+      Number(candidate.port || 80) === WEBUI_PORT
+    );
+  } catch {
+    return false;
+  }
+}
+
+function openProjectInExplorer(path) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("explorer.exe", [path], { detached: true, stdio: "ignore" });
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.unref();
+      resolve({ ok: true });
+    });
+  });
+}
+
 const llamaServerService = createLlamaServerService({
   batPath: join(REPO_ROOT, "scripts", "llama-server-load.bat"),
   platform: process.platform,
@@ -728,6 +753,8 @@ async function startControlServer() {
       }, 500);
       return { ...webUiAuthSettings(), restartAccepted: true, enabled: saved.enabled };
     },
+    isLocalClientOrigin,
+    onOpenExplorer: process.platform === "win32" ? openProjectInExplorer : undefined,
     onTranslationStatus: () => translationService.status(),
     onTranslationStart: () => {
       translationService.start();

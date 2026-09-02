@@ -1,22 +1,24 @@
-import { spawn } from "node:child_process";
 import { NextResponse } from "next/server";
+import { resolveHostControlUrl } from "@/lib/host-control";
 import { getProjects } from "@/lib/pi/harness";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const project = getProjects(true).find((candidate) => candidate.id === id);
   if (!project) return NextResponse.json({ error: "プロジェクトが見つかりません" }, { status: 404 });
-  if (process.platform !== "win32") {
-    return NextResponse.json({ error: "エクスプローラーはWindowsでのみ利用できます" }, { status: 501 });
-  }
+  return NextResponse.json(
+    { controlUrl: resolveHostControlUrl(), path: project.rootPath },
+    { headers: { "cache-control": "no-store" } },
+  );
+}
 
-  try {
-    const child = spawn("explorer.exe", [project.rootPath], { detached: true, stdio: "ignore" });
-    child.unref();
-    return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ error: "エクスプローラーを起動できませんでした" }, { status: 500 });
-  }
+/** Explorer起動はブラウザからloopback専用ホスト制御へ直接送る。 */
+export async function POST() {
+  return NextResponse.json(
+    { error: "ExplorerはホストPCからのみ起動できます" },
+    { status: 403 },
+  );
 }
