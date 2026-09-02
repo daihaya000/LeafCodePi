@@ -454,7 +454,6 @@ export function AutoRouteOverridesEditor({
   providers?: AutoRouteProviders;
   onChange: (next: AutoRouteConfig) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [editMode, setEditMode] = useState<AutoOptimizeMode>(mode);
   useEffect(() => setEditMode(mode), [mode]);
   const source = useMemo<AutoRouteSource>(
@@ -477,15 +476,7 @@ export function AutoRouteOverridesEditor({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-          className="flex items-center gap-1 text-xs font-medium text-muted hover:text-text focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
-        >
-          <ChevronDown className={cx("h-3.5 w-3.5 transition-transform", open ? "rotate-0" : "-rotate-90")} />
-          Auto ルーティング設定
-        </button>
+        <p className="text-xs font-medium text-muted">Auto ルーティング設定</p>
         {hasAnyOverride && (
           <Button
             variant="ghost"
@@ -498,57 +489,55 @@ export function AutoRouteOverridesEditor({
           </Button>
         )}
       </div>
-      {open && (
-        <div className="space-y-4 rounded-lg border border-border bg-surface-2 px-3 py-3">
-          <div className="flex flex-wrap items-center gap-1">
-            {AUTO_OPTIMIZE_MODES.map((candidateMode) => {
-              const selected = candidateMode === editMode;
-              return (
-                <button
-                  key={candidateMode}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => setEditMode(candidateMode)}
-                  className={cx(
-                    "rounded-md px-2.5 py-1 text-xs",
-                    selected
-                      ? "bg-primary text-primary-fg"
-                      : "bg-surface-2 text-muted hover:bg-surface-3 hover:text-text",
-                  )}
-                >
-                  {autoOptimizeModeLabel(candidateMode)}
-                  {candidateMode === mode && <span className="ml-1">*</span>}
-                </button>
-              );
-            })}
-            {modeHasOverride && (
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label={`${autoOptimizeModeLabel(editMode)}モードをリセット`}
-                onClick={() => setModeConfig(undefined)}
+      <div className="space-y-4 rounded-lg border border-border bg-surface-2 px-3 py-3">
+        <div className="flex flex-wrap items-center gap-1">
+          {AUTO_OPTIMIZE_MODES.map((candidateMode) => {
+            const selected = candidateMode === editMode;
+            return (
+              <button
+                key={candidateMode}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setEditMode(candidateMode)}
+                className={cx(
+                  "rounded-md px-2.5 py-1 text-xs",
+                  selected
+                    ? "bg-primary text-primary-fg"
+                    : "bg-surface-2 text-muted hover:bg-surface-3 hover:text-text",
+                )}
               >
-                <RotateCcw className="h-3 w-3" />
-                このモードをリセット
-              </Button>
-            )}
-          </div>
-          <p className="text-xs text-faint">
-            タブで編集対象のモードを選べます。未編集のtierはそのモードの初期値のまま動きます。
-          </p>
-          {TIERS.map((tier) => (
-            <TierEditor
-              key={tier}
-              mode={editMode}
-              tier={tier}
-              config={config}
-              source={source}
-              modelOptions={modelOptions}
-              onChange={onChange}
-            />
-          ))}
+                {autoOptimizeModeLabel(candidateMode)}
+                {candidateMode === mode && <span className="ml-1">*</span>}
+              </button>
+            );
+          })}
+          {modeHasOverride && (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`${autoOptimizeModeLabel(editMode)}モードをリセット`}
+              onClick={() => setModeConfig(undefined)}
+            >
+              <RotateCcw className="h-3 w-3" />
+              このモードをリセット
+            </Button>
+          )}
         </div>
-      )}
+        <p className="text-xs text-faint">
+          タブで編集対象のモードを選べます。未編集のtierはそのモードの初期値のまま動きます。
+        </p>
+        {TIERS.map((tier) => (
+          <TierEditor
+            key={tier}
+            mode={editMode}
+            tier={tier}
+            config={config}
+            source={source}
+            modelOptions={modelOptions}
+            onChange={onChange}
+          />
+        ))}
+      </div>
     </div>
   );
 }

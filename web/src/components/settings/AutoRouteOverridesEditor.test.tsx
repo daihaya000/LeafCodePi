@@ -25,7 +25,7 @@ describe("AutoRouteOverridesEditor", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Auto ルーティング設定" }));
+    expect(screen.getAllByRole("button", { name: "候補を追加" })).toHaveLength(3);
     fireEvent.click(screen.getAllByRole("button", { name: "候補を追加" })[0]!);
 
     expect(onChange).toHaveBeenCalledWith({
