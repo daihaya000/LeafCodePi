@@ -16,7 +16,6 @@ import {
   type LlamaServerEffort,
   type LlamaServerSettings,
   type LlamaServerSpecType,
-  parseLlamaServerSettings,
 } from "@/lib/llama-server-settings";
 
 /**
@@ -111,14 +110,13 @@ export function LlamaServerSettings() {
   // Load persisted settings from the server on mount.
   useEffect(() => {
     let cancelled = false;
-    void getJson<{ value: string | null }>("/api/settings/llama-server-config")
+    void getJson<{ parsed: LlamaServerSettings }>("/api/settings/llama-server-config")
       .then((res) => {
         if (cancelled) return;
-        const parsed = parseLlamaServerSettings(res.value);
-        setConfig(parsed);
+        setConfig(res.parsed);
         setSelectedFamily(null); // derive from the saved model first
         hydratedRef.current = true;
-        void loadModels(parsed.modelDir);
+        void loadModels(res.parsed.modelDir);
       })
       .catch(() => {
         // Defaults are fine if the setting has never been saved.
