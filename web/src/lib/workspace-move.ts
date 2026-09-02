@@ -2,7 +2,8 @@ import { existsSync } from "node:fs";
 import { cp, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { dirname, resolve, sep } from "node:path";
+import { dirname, resolve } from "node:path";
+import { sameOrDescendantPath } from "./paths";
 
 export class WorkspaceMoveError extends Error {
   readonly status = 400;
@@ -14,12 +15,6 @@ export type PreparedWorkspaceMove = {
   /** Remove the original workspace after the task record has switched. */
   finalize: () => Promise<void>;
 };
-
-function sameOrDescendant(path: string, parent: string): boolean {
-  const child = resolve(path).toLowerCase();
-  const root = resolve(parent).toLowerCase();
-  return child === root || child.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
-}
 
 async function readDirectory(path: string): Promise<Dirent[] | null> {
   try {
@@ -39,7 +34,10 @@ export async function prepareWorkspaceMove(
 ): Promise<PreparedWorkspaceMove> {
   const source = resolve(sourcePath);
   const destination = resolve(destinationPath);
-  if (sameOrDescendant(source, destination) || sameOrDescendant(destination, source)) {
+  if (
+    sameOrDescendantPath(source, destination) ||
+    sameOrDescendantPath(destination, source)
+  ) {
     throw new WorkspaceMoveError("移動元と移動先を入れ子にはできません");
   }
 

@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
-import { noProjectSessionDir, storePath } from "./paths";
+import { noProjectSessionDir, samePath, storePath } from "./paths";
 import { NO_PROJECT_NAME, type ProjectDto, type TaskStatus, type TaskSummary, type ThinkingLevel } from "./types";
 
 type StoreFile = {
@@ -88,9 +88,7 @@ export function upsertProject(input: {
   favorite?: boolean;
 }): ProjectDto {
   const store = readStore();
-  const existing = store.projects.find(
-    (project) => project.rootPath.toLowerCase() === input.rootPath.toLowerCase(),
-  );
+  const existing = store.projects.find((project) => samePath(project.rootPath, input.rootPath));
   const now = new Date().toISOString();
   if (existing) {
     existing.lastOpenedAt = now;
