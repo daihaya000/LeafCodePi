@@ -5,8 +5,8 @@ import {
   applyToolOutput,
   applyThroughput,
   applyToolTiming,
+  buildPromptOptions,
   isReasoningMandatoryError,
-  promptInputSource,
   reasoningFallbackLevel,
   syncSessionName,
 } from "./harness";
@@ -61,10 +61,31 @@ describe("applySubagentPermission", () => {
   });
 });
 
-describe("promptInputSource", () => {
-  it("marks watchdog retries as extension input without changing user prompts", () => {
-    assert.equal(promptInputSource(true), "extension");
-    assert.equal(promptInputSource(false), undefined);
+describe("buildPromptOptions", () => {
+  it("marks watchdog retries as extension input in the options passed to prompt", () => {
+    assert.deepEqual(
+      buildPromptOptions({ isHangRetry: true, isStreaming: false }),
+      { source: "extension" },
+    );
+  });
+
+  it("preserves image and streaming behavior for ordinary prompts", () => {
+    assert.deepEqual(
+      buildPromptOptions({
+        images: [{ data: "image-data", mimeType: "image/png" }],
+        streamingBehavior: "steer",
+        isHangRetry: false,
+        isStreaming: true,
+      }),
+      {
+        images: [{ type: "image", data: "image-data", mimeType: "image/png" }],
+        streamingBehavior: "steer",
+      },
+    );
+    assert.deepEqual(
+      buildPromptOptions({ isHangRetry: false, isStreaming: true }),
+      { streamingBehavior: "followUp" },
+    );
   });
 });
 

@@ -190,6 +190,7 @@ type PiModule = typeof import("@earendil-works/pi-coding-agent");
 type AgentSession = Awaited<
   ReturnType<PiModule["createAgentSession"]>
 >["session"];
+type SessionPromptOptions = NonNullable<Parameters<AgentSession["prompt"]>[1]>;
 type ModelRuntime = Awaited<ReturnType<PiModule["ModelRuntime"]["create"]>>;
 type Model = NonNullable<AgentSession["model"]>;
 
@@ -3906,8 +3907,29 @@ async function prepareLiveForPrompt(
   );
 }
 
-export function promptInputSource(isHangRetry: boolean): "extension" | undefined {
-  return isHangRetry ? "extension" : undefined;
+export function buildPromptOptions({
+  images,
+  streamingBehavior,
+  isStreaming,
+  isHangRetry,
+}: {
+  images?: PromptImage[];
+  streamingBehavior?: "steer" | "followUp";
+  isStreaming: boolean;
+  isHangRetry: boolean;
+}): SessionPromptOptions {
+  const options: SessionPromptOptions = {};
+  if (isHangRetry) options.source = "extension";
+  if (images?.length) {
+    options.images = images.map((image) => ({
+      type: "image" as const,
+      data: image.data,
+      mimeType: image.mimeType,
+    }));
+  }
+  if (streamingBehavior) options.streamingBehavior = streamingBehavior;
+  else if (isStreaming) options.streamingBehavior = "followUp";
+  return options;
 }
 
 function queuePrompt(
@@ -3944,25 +3966,12 @@ function queuePrompt(
     if (meta?.permissionMode) {
       applyPermissionMode(activeLive.session, meta.permissionMode);
     }
-    const options: {
-      images?: Array<{ type: "image"; data: string; mimeType: string }>;
-      streamingBehavior?: "steer" | "followUp";
-      source?: "extension";
-    } = {};
-    const source = promptInputSource(isHangRetry);
-    if (source) options.source = source;
-    if (images && images.length > 0) {
-      options.images = images.map((image) => ({
-        type: "image" as const,
-        data: image.data,
-        mimeType: image.mimeType,
-      }));
-    }
-    if (meta?.streamingBehavior) {
-      options.streamingBehavior = meta.streamingBehavior;
-    } else if (live.session.isStreaming) {
-      options.streamingBehavior = "followUp";
-    }
+    const options = buildPromptOptions({
+      images,
+      streamingBehavior: meta?.streamingBehavior,
+      isStreaming: live.session.isStreaming,
+      isHangRetry,
+    });
     try {
       await activeLive.session.prompt(prompt, options);
     } catch (error) {
