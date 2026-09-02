@@ -884,7 +884,6 @@ async function main() {
   }
   if (WEBUI_AUTH.authRequired && WEBUI_AUTH.token) {
     log(`WebUI remote access requires a token (${webUiAuthPath(DATA_DIR)}). Use /login in the browser.`);
-    log(`WebUI access token: ${WEBUI_AUTH.token}`);
   }
 
   process.on("SIGINT", () => {

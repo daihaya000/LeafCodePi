@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
@@ -19,9 +19,19 @@ export function createLogFileWriter(dir, deps = {}) {
   const rename = deps.renameSync ?? renameSync;
   const exists = deps.existsSync ?? existsSync;
   const unlink = deps.unlinkSync ?? unlinkSync;
+  const chmod = deps.chmodSync ?? chmodSync;
+  const platform = deps.platform ?? process.platform;
   const maxBytes = deps.maxBytes ?? DEFAULT_MAX_BYTES;
-  mkdir(dir, { recursive: true });
+  mkdir(dir, { recursive: true, mode: 0o700 });
   const file = join(dir, "host.log");
+  if (platform !== "win32") {
+    try {
+      chmod(dir, 0o700);
+      if (exists(file)) chmod(file, 0o600);
+    } catch {
+      /* logging remains best effort */
+    }
+  }
 
   function rotateIfNeeded() {
     try {
@@ -39,7 +49,7 @@ export function createLogFileWriter(dir, deps = {}) {
     write(entry) {
       try {
         rotateIfNeeded();
-        append(file, `${formatLogLine(entry)}\n`, "utf8");
+        append(file, `${formatLogLine(entry)}\n`, { encoding: "utf8", mode: 0o600 });
       } catch {
         /* never take the host down */
       }

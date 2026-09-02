@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { writeSecretFile } from "./secure-file.js";
 
 export const WEBUI_TOKEN_MIN_LENGTH = 4;
 export const WEBUI_TOKEN_MAX_LENGTH = 512;
@@ -46,10 +47,9 @@ export function readWebUiAuthFile(dataDirPath) {
 
 function writeAuthConfig(dataDirPath, config) {
   const path = webUiAuthPath(dataDirPath);
-  mkdirSync(dirname(path), { recursive: true });
   const raw = config.token ? { token: config.token } : {};
   if (!config.enabled) raw.enabled = false;
-  writeFileSync(path, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+  writeSecretFile(path, `${JSON.stringify(raw, null, 2)}\n`);
 }
 
 export function writeWebUiAuthFile(dataDirPath, token) {

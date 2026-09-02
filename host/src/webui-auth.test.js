@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -41,6 +41,22 @@ test("ensureWebUiAuth creates and persists token for remote bind", () => {
     assert.ok(result.token && result.token.length >= 16);
     assert.equal(readWebUiAuthFile(dir), result.token);
     assert.deepEqual(JSON.parse(readFileSync(webUiAuthPath(dir), "utf8")), { token: result.token });
+    if (process.platform !== "win32") {
+      assert.equal(statSync(webUiAuthPath(dir)).mode & 0o777, 0o600);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("rewriting auth config repairs POSIX file permissions", { skip: process.platform === "win32" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-auth-"));
+  try {
+    const file = webUiAuthPath(dir);
+    writeFileSync(file, '{"token":"old-token"}\n', { mode: 0o644 });
+    chmodSync(file, 0o644);
+    writeWebUiAuthConfig(dir, { token: "new-token" });
+    assert.equal(statSync(file).mode & 0o777, 0o600);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

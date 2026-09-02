@@ -37,15 +37,18 @@ import {
   buildProviderModelsCatalog,
   enabledModelOptionsFromCatalog,
   mergeIntegratedProviderRows,
+  type ProviderModelSnapshot,
   type ProviderModelsRow,
 } from "@/lib/provider-models";
 import {
   accountProviderModelKey,
   contextWindowForModel,
+  ensureProviderModelsKnown,
   readProviderModelState,
   setProviderModelDisabled,
   setProviderModelOrder,
   sortByPreferredOrder,
+  type ProviderModelRef,
 } from "@/lib/provider-model-state";
 import {
   registerLlamaProviders,
@@ -2173,15 +2176,39 @@ export async function getHealth(): Promise<HealthDto> {
 }
 
 /** ランタイムごとの有効モデル一覧を構築する（既定・アカウント共通の処理）。 */
+function providerModelSnapshot(
+  runtime: ModelRuntime,
+  providerIds?: readonly string[],
+): { refs: ProviderModelRef[]; models: ProviderModelSnapshot } {
+  const allowed = providerIds ? new Set(providerIds) : undefined;
+  const refs: ProviderModelRef[] = [];
+  const models = new Map<string, readonly { id: string; name?: string; provider?: string }[]>();
+  for (const provider of runtime.getProviders()) {
+    if (!runtime.hasConfiguredAuth(provider.id)) continue;
+    const providerModels = runtime.getModels(provider.id);
+    models.set(provider.id, providerModels);
+    if (allowed !== undefined && !allowed.has(provider.id)) continue;
+    for (const model of providerModels) {
+      refs.push({ providerID: provider.id, modelID: model.id });
+    }
+  }
+  return { refs, models };
+}
+
 async function buildModelOptions(
   runtime: ModelRuntime,
   accountId?: string,
   providerIds?: readonly string[],
 ): Promise<ModelOption[]> {
   if (!accountId) await syncProvidersBestEffort(runtime);
-  const catalog = accountId
-    ? buildProviderModelsCatalog(runtime, readProviderModelState(), accountId)
-    : buildProviderModelsCatalog(runtime);
+  const snapshot = providerModelSnapshot(runtime, providerIds);
+  const state = await ensureProviderModelsKnown(snapshot.refs, accountId);
+  const catalog = buildProviderModelsCatalog(
+    runtime,
+    state,
+    accountId,
+    snapshot.models,
+  );
   const enabled = new Set(
     enabledModelOptionsFromCatalog(catalog).map((option) => option.value),
   );
@@ -2700,7 +2727,7 @@ export function listProviderModelsCatalog(): Promise<ProviderModelsRow[]> {
 
 async function listProviderModelsCatalogUncached(): Promise<ProviderModelsRow[]> {
   await ensureRuntime();
-  const state = readProviderModelState();
+  let state = readProviderModelState();
   const routingState = readProviderRouting();
   const rows: ProviderModelsRow[] = [];
   const accountRows: ProviderModelsRow[] = [];
@@ -2716,8 +2743,10 @@ async function listProviderModelsCatalogUncached(): Promise<ProviderModelsRow[]>
   }
   if (runtime) {
     // マルチアカウント対応プロバイダーはアカウント専用。既定欄には出さない。
+    const snapshot = providerModelSnapshot(runtime);
+    state = await ensureProviderModelsKnown(snapshot.refs);
     rows.push(
-      ...buildProviderModelsCatalog(runtime, state).filter(
+      ...buildProviderModelsCatalog(runtime, state, undefined, snapshot.models).filter(
         (row) => !runsThroughAccounts(row.id),
       ),
     );
@@ -2731,10 +2760,16 @@ async function listProviderModelsCatalogUncached(): Promise<ProviderModelsRow[]>
         try {
           const accountRuntime = await getRuntimeFor(account.id);
           if (!accountRuntime) return [];
+          const snapshot = providerModelSnapshot(accountRuntime, providerIds);
+          const accountState = await ensureProviderModelsKnown(
+            snapshot.refs,
+            account.id,
+          );
           const catalog = buildProviderModelsCatalog(
             accountRuntime,
-            state,
+            accountState,
             account.id,
+            snapshot.models,
           );
           return catalog
             .filter((row) => providerIds.includes(row.id as AccountProviderId))
@@ -2750,6 +2785,7 @@ async function listProviderModelsCatalogUncached(): Promise<ProviderModelsRow[]>
       }),
     );
     accountRows.push(...accountRowGroups.flat());
+    state = readProviderModelState();
   }
 
   const integratedRows = new Map<string, ProviderModelsRow[]>();

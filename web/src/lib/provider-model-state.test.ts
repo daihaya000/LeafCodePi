@@ -8,6 +8,7 @@ import {
   accountModelKey,
   accountProviderModelKey,
   contextWindowForModel,
+  ensureProviderModelsKnown,
   isModelDisabled,
   isProviderDisabled,
   providerModelStatePath,
@@ -101,6 +102,46 @@ describe("provider-model-state", () => {
     assert.deepEqual(
       sorted.map((item) => item.id),
       ["b", "a", "c"],
+    );
+  });
+
+  it("keeps known models enabled and disables newly discovered models", async () => {
+    const dir = tempDataDir();
+    const first = await ensureProviderModelsKnown([
+      { providerID: "anthropic", modelID: "claude-sonnet" },
+    ]);
+    assert.equal(first.knownModels?.["anthropic::claude-sonnet"], true);
+    assert.equal(first.disabled["anthropic::claude-sonnet"], undefined);
+
+    const next = await ensureProviderModelsKnown([
+      { providerID: "anthropic", modelID: "claude-sonnet" },
+      { providerID: "anthropic", modelID: "claude-opus" },
+    ]);
+    assert.equal(next.disabled["anthropic::claude-sonnet"], undefined);
+    assert.equal(next.disabled["anthropic::claude-opus"], true);
+    assert.equal(
+      readProviderModelState(providerModelStatePath(dir)).disabled[
+        "anthropic::claude-opus"
+      ],
+      true,
+    );
+    const catalog = buildProviderModelsCatalog(
+      {
+        getProviders: () => [{ id: "anthropic", name: "Anthropic" }],
+        getModels: () => [
+          { id: "claude-sonnet", name: "Sonnet" },
+          { id: "claude-opus", name: "Opus" },
+        ],
+        hasConfiguredAuth: () => true,
+      },
+      next,
+    );
+    assert.deepEqual(
+      catalog[0]?.models.map(({ id, enabled }) => ({ id, enabled })),
+      [
+        { id: "claude-sonnet", enabled: true },
+        { id: "claude-opus", enabled: false },
+      ],
     );
   });
 });

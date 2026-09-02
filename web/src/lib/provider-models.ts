@@ -1,4 +1,5 @@
 import {
+  accountModelKey,
   accountProviderModelKey,
   isModelDisabled,
   contextWindowForModel,
@@ -25,29 +26,36 @@ export type ProviderModelsRow = {
   accountLabel?: string;
 };
 
+type RuntimeModel = { id: string; name?: string; provider?: string };
+
 type RuntimeLike = {
   getProviders(): readonly { id: string; name: string }[];
-  getModels(providerId?: string): readonly { id: string; name?: string; provider?: string }[];
+  getModels(providerId?: string): readonly RuntimeModel[];
   getModel?: (providerId: string, modelId: string) => { contextWindow?: number } | undefined;
   hasConfiguredAuth(providerId: string): boolean;
 };
+
+export type ProviderModelSnapshot = ReadonlyMap<string, readonly RuntimeModel[]>;
 
 export function buildProviderModelsCatalog(
   runtime: RuntimeLike,
   state = readProviderModelState(),
   accountId?: string,
+  modelSnapshot?: ProviderModelSnapshot,
 ): ProviderModelsRow[] {
   const rows: ProviderModelsRow[] = [];
   for (const provider of runtime.getProviders()) {
     if (!runtime.hasConfiguredAuth(provider.id)) continue;
-    const models = runtime.getModels(provider.id).map((model) => {
+    const models = (modelSnapshot?.get(provider.id) ?? runtime.getModels(provider.id)).map((model) => {
       const modelID = model.id;
+      const modelKey = accountModelKey(provider.id, modelID, accountId);
       return {
         id: modelID,
         name: model.name || modelID,
         enabled:
           !isProviderDisabled(provider.id, state, accountId) &&
-          !isModelDisabled(provider.id, modelID, state, accountId),
+          !isModelDisabled(provider.id, modelID, state, accountId) &&
+          (state.knownModels === undefined || state.knownModels[modelKey] === true),
         contextWindow:
           contextWindowForModel(provider.id, modelID, state, accountId) ??
           runtime.getModel?.(provider.id, modelID)?.contextWindow,

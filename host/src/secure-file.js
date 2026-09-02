@@ -1,5 +1,5 @@
 import { execFileSync } from 'child_process';
-import { mkdirSync, writeFileSync } from 'fs';
+import { chmodSync, mkdirSync, writeFileSync } from 'fs';
 import { dirname } from 'path';
 
 /**
@@ -98,10 +98,18 @@ export function resetIcaclsCache() {
  *
  * @param {string} file
  * @param {string} contents
- * @param {{ execFile?: typeof execFileSync, platform?: string, onError?: (m: string) => void }} [deps]
+ * @param {{ execFile?: typeof execFileSync, chmodSync?: typeof chmodSync, platform?: string, onError?: (m: string) => void }} [deps]
  */
 export function writeSecretFile(file, contents, deps = {}) {
-  mkdirSync(dirname(file), { recursive: true });
+  const parent = dirname(file);
+  const platform = deps.platform ?? process.platform;
+  const chmod = deps.chmodSync ?? chmodSync;
+  mkdirSync(parent, { recursive: true, mode: 0o700 });
   writeFileSync(file, contents, { encoding: 'utf8', mode: 0o600 });
+  if (platform !== 'win32') {
+    chmod(parent, 0o700);
+    chmod(file, 0o600);
+    return;
+  }
   restrictToCurrentUser(file, deps);
 }

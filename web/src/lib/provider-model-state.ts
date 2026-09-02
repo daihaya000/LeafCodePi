@@ -7,6 +7,13 @@ export type ProviderModelState = {
   providerOrder: string[];
   modelOrder: Record<string, string[]>;
   contextWindow?: Record<string, number>;
+  /** Provider/model keys seen in a previous catalog refresh. */
+  knownModels?: Record<string, true>;
+};
+
+export type ProviderModelRef = {
+  providerID: string;
+  modelID: string;
 };
 
 function emptyState(): ProviderModelState {
@@ -72,6 +79,15 @@ export function readProviderModelState(
         if (value === true) disabled[key] = true;
       }
     }
+    const knownModels: Record<string, true> | undefined =
+      parsed.knownModels && typeof parsed.knownModels === "object" && !Array.isArray(parsed.knownModels)
+        ? {}
+        : undefined;
+    if (knownModels && parsed.knownModels) {
+      for (const [key, value] of Object.entries(parsed.knownModels)) {
+        if (value === true && key.trim()) knownModels[key] = true;
+      }
+    }
     const providerOrder = Array.isArray(parsed.providerOrder)
       ? parsed.providerOrder.filter((id): id is string => typeof id === "string")
       : [];
@@ -91,7 +107,13 @@ export function readProviderModelState(
         }
       }
     }
-    return { disabled, providerOrder, modelOrder, contextWindow };
+    return {
+      disabled,
+      providerOrder,
+      modelOrder,
+      contextWindow,
+      ...(knownModels ? { knownModels } : {}),
+    };
   } catch {
     return emptyState();
   }
@@ -115,6 +137,51 @@ function withStateLock<T>(mutate: (state: ProviderModelState) => T): Promise<T> 
   });
   writeQueue = run.catch(() => undefined);
   return run;
+}
+
+function withStateLockIfChanged<T>(
+  mutate: (state: ProviderModelState) => { result: T; changed: boolean },
+): Promise<T> {
+  const run = writeQueue.then(() => {
+    const state = readProviderModelState();
+    const { result, changed } = mutate(state);
+    if (changed) writeProviderModelState(state);
+    return result;
+  });
+  writeQueue = run.catch(() => undefined);
+  return run;
+}
+
+export async function ensureProviderModelsKnown(
+  models: readonly ProviderModelRef[],
+  accountId?: string | null,
+): Promise<ProviderModelState> {
+  return withStateLockIfChanged((state) => {
+    const knownModels = state.knownModels ?? {};
+    const initializedByScope = new Map<string, boolean>();
+    let changed = false;
+
+    for (const { providerID, modelID } of models) {
+      if (!providerID || !modelID) continue;
+      const scopeKey = accountProviderModelKey(providerID, accountId);
+      let initialized = initializedByScope.get(scopeKey);
+      if (initialized === undefined) {
+        const prefix = `${scopeKey}::`;
+        initialized = Object.keys(knownModels).some((key) => key.startsWith(prefix));
+        initializedByScope.set(scopeKey, initialized);
+      }
+      const modelKey = accountModelKey(providerID, modelID, accountId);
+      if (knownModels[modelKey] === true) continue;
+      knownModels[modelKey] = true;
+      changed = true;
+      if (initialized && state.disabled[modelKey] !== true) {
+        state.disabled[modelKey] = true;
+      }
+    }
+
+    if (changed) state.knownModels = knownModels;
+    return { result: state, changed };
+  });
 }
 
 export function isProviderDisabled(
@@ -167,11 +234,16 @@ export async function setProviderModelDisabled(
 ): Promise<void> {
   const storageKey = accountId ? `${accountId}::${key}` : key;
   await withStateLock((state) => {
+    if (key.includes("::")) {
+      (state.knownModels ??= {})[storageKey] = true;
+    }
     if (disabled) state.disabled[storageKey] = true;
     else {
       delete state.disabled[storageKey];
       for (const modelID of modelIdsToDisableOnEnable ?? []) {
-        state.disabled[accountModelKey(key, modelID, accountId)] = true;
+        const modelKey = accountModelKey(key, modelID, accountId);
+        (state.knownModels ??= {})[modelKey] = true;
+        state.disabled[modelKey] = true;
       }
     }
   });
