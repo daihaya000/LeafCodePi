@@ -99,8 +99,11 @@ describe("auto-agent", () => {
     expect(generated.prompt).not.toContain("x".repeat(601));
   });
 
-  it("uses the configured direct model and ignores disabled agents", async () => {
+  it("uses the configured direct model and prompt and ignores disabled agents", async () => {
     const model = { providerID: "llama-server", modelID: "selector" };
+    mocks.getSetting.mockImplementation((key: string) =>
+      key === "auto-agent-prompt" ? "レビューは reviewer を優先" : null,
+    );
     mocks.parseDirectModelKey.mockReturnValue(model);
     mocks.buildDirectGenerationCandidates.mockReturnValue([{ model }]);
     mocks.generateDirectTextWithFallbackResult.mockResolvedValue({
@@ -116,6 +119,7 @@ describe("auto-agent", () => {
     ).resolves.toBe("reviewer");
 
     const generated = mocks.generateDirectTextWithFallbackResult.mock.calls[0]?.[0];
+    expect(generated.system).toContain("レビューは reviewer を優先");
     expect(generated.prompt).toContain("レビューして");
     expect(generated.prompt).toContain("reviewer");
     expect(generated.prompt).not.toContain("disabled");

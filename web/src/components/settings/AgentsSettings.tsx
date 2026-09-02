@@ -90,6 +90,8 @@ function sortAgentRows(agents: readonly AgentDto[]): AgentDto[] {
 const INPUT_CLASS =
   "w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent";
 const LABEL_CLASS = "block text-xs font-medium text-muted";
+const AUTO_AGENT_PROMPT_SETTING_KEY = "auto-agent-prompt";
+const AUTO_AGENT_PROMPT_MAX_LENGTH = 4_096;
 
 function Field({
   label,
@@ -153,6 +155,96 @@ function AgentModelPicker({
       {loading && <span className="text-[11px] text-faint">モデルを読み込み中…</span>}
       {!loading && models.length === 0 && <span className="text-[11px] text-muted">利用可能なモデルがありません</span>}
     </div>
+  );
+}
+
+function AutoAgentPromptSettings() {
+  const [prompt, setPrompt] = useState("");
+  const [savedPrompt, setSavedPrompt] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const reload = useCallback(() => {
+    setLoading(true);
+    void getJson<{ value: string | null }>(`/api/settings/${AUTO_AGENT_PROMPT_SETTING_KEY}`)
+      .then((result) => {
+        const value = result.value ?? "";
+        setPrompt(value);
+        setSavedPrompt(value);
+        setError(null);
+        setNotice(null);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Autoエージェント設定の読み込みに失敗しました");
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  const dirty = prompt !== savedPrompt;
+  const disabled = loading || saving;
+
+  async function save() {
+    if (!dirty || saving) return;
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await sendJson<{ value: string | null }>(
+        `/api/settings/${AUTO_AGENT_PROMPT_SETTING_KEY}`,
+        { value: prompt.trim() ? prompt : "" },
+        "PUT",
+      );
+      const value = result.value ?? "";
+      setPrompt(value);
+      setSavedPrompt(value);
+      setNotice("保存しました。次回のAutoエージェント選定から有効です。");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Autoエージェント設定の保存に失敗しました");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section aria-labelledby="auto-agent-prompt-heading" className="mt-4 rounded-xl border border-border bg-surface-2 p-3">
+      <h3 id="auto-agent-prompt-heading" className="text-sm font-medium">Autoエージェント</h3>
+      <p className="mt-1 text-xs text-muted">
+        会話内容から担当エージェントを選ぶモデルへの追加指示です。空欄なら既定の選定指示だけを使います。
+      </p>
+      <label className="mt-3 block text-sm">
+        <span className={LABEL_CLASS}>モデル選定者向けプロンプト</span>
+        <textarea
+          aria-label="モデル選定者向けプロンプト"
+          value={prompt}
+          maxLength={AUTO_AGENT_PROMPT_MAX_LENGTH}
+          rows={6}
+          spellCheck={false}
+          disabled={disabled}
+          onChange={(event) => {
+            setPrompt(event.target.value);
+            setNotice(null);
+          }}
+          className="mt-1 w-full resize-y rounded-lg border border-border bg-surface px-3 py-2 font-mono text-xs leading-5 text-text outline-none focus:border-accent disabled:opacity-50"
+          placeholder="Autoエージェントの選定方針を追加で指定"
+        />
+      </label>
+      <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+        <Button type="button" variant="secondary" size="sm" disabled={disabled} onClick={() => reload()}>
+          再読込
+        </Button>
+        <Button type="button" variant="primary" size="sm" busy={saving} disabled={disabled || !dirty} onClick={() => void save()}>
+          保存
+        </Button>
+      </div>
+      {error && <p className="mt-2 text-xs text-danger" role="alert">{error}</p>}
+      {notice && <p className="mt-2 text-xs text-success" role="status">{notice}</p>}
+    </section>
   );
 }
 
@@ -426,6 +518,7 @@ export function AgentsSettings() {
         pi-subagents が提供するサブエージェントの有効／無効とモデルを管理します。ユーザー定義は{" "}
         <span className="font-mono">~/.pi/agent/agents/&lt;name&gt;.md</span> に保存されます。
       </p>
+      <AutoAgentPromptSettings />
       {agentsPath && (
         <div className="mt-1 space-y-0.5 font-mono text-[11px] text-faint">
           <p className="break-all">{agentsPath}</p>

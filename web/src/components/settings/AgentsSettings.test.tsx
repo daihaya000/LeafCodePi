@@ -77,7 +77,9 @@ describe("AgentsSettings", () => {
     getJson.mockImplementation((path: string) =>
       path === "/api/agents"
         ? Promise.resolve({ agents, agentsDir: "C:/pi/agent/agents" })
-        : Promise.resolve({ models }),
+        : path === "/api/settings/auto-agent-prompt"
+          ? Promise.resolve({ value: "レビューでは reviewer を優先" })
+          : Promise.resolve({ models }),
     );
     sendJson.mockResolvedValue({ agents });
   });
@@ -106,6 +108,24 @@ describe("AgentsSettings", () => {
         "/api/agents/enabled",
         { model: "anthropic/claude" },
         "PATCH",
+      );
+    });
+  });
+
+  it("loads and saves the Auto agent selector prompt", async () => {
+    render(<AgentsSettings />);
+
+    const prompt = await screen.findByRole("textbox", { name: "モデル選定者向けプロンプト" }) as HTMLTextAreaElement;
+    expect(prompt.value).toBe("レビューでは reviewer を優先");
+
+    fireEvent.change(prompt, { target: { value: "レビューは reviewer を優先" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => {
+      expect(sendJson).toHaveBeenCalledWith(
+        "/api/settings/auto-agent-prompt",
+        { value: "レビューは reviewer を優先" },
+        "PUT",
       );
     });
   });

@@ -187,6 +187,19 @@ describe("/api/settings/[key]", () => {
     );
   });
 
+  it("accepts and persists the Auto agent selector prompt", async () => {
+    const response = await PUT(
+      request("auto-agent-prompt", { value: "レビューは reviewer を優先" }),
+      { params: Promise.resolve({ key: "auto-agent-prompt" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith(
+      "auto-agent-prompt",
+      "レビューは reviewer を優先",
+    );
+  });
+
   it("rejects invalid Auto settings and clears the show-model setting", async () => {
     const invalidMode = await PUT(
       request("auto-optimize", { value: "turbo" }),

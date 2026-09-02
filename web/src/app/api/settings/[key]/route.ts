@@ -34,6 +34,7 @@ const ALLOWED_KEYS = new Set<string>([
   "auto-optimize",
   "auto-show-model",
   "auto-route-overrides",
+  "auto-agent-prompt",
   GENERATION_FALLBACK_MODEL_SETTING_KEY,
   GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY,
   GENERATION_MODEL_SETTING_KEY,
@@ -64,6 +65,9 @@ function validateValue(key: string, value: string): string | null {
     } catch {
       return null;
     }
+  }
+  if (key === "auto-agent-prompt") {
+    return value.trim() ? value : null;
   }
   if (key === COMPACTION_ACTION_SETTING_KEY) {
     return value === "suggest" || value === "auto" || value === "off" ? value : null;

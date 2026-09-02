@@ -17,6 +17,7 @@ import { AUTO_AGENT_VALUE, DEFAULT_AGENT } from "@/lib/default-agent";
 
 const MAX_TRANSCRIPT_CHARS = 16_000;
 const MAX_DESCRIPTION_CHARS = 600;
+const AUTO_AGENT_PROMPT_SETTING_KEY = "auto-agent-prompt";
 
 export const AUTO_AGENT_SYSTEM_INSTRUCTION = [
   "あなたはコーディング作業に適したエージェントを1つ選ぶルーターです。",
@@ -25,6 +26,13 @@ export const AUTO_AGENT_SYSTEM_INSTRUCTION = [
   "出力はJSONオブジェクト1件だけにしてください。形式は {\"agent\":\"候補名\"} です。",
   "候補にない名前を作らず、説明・理由・Markdown・コードフェンスを出力しないでください。",
 ].join("\n");
+
+function autoAgentSystemInstruction(): string {
+  const extra = getSetting(AUTO_AGENT_PROMPT_SETTING_KEY);
+  return extra?.trim()
+    ? `${AUTO_AGENT_SYSTEM_INSTRUCTION}\n\nユーザー指定の追加指示:\n${extra}`
+    : AUTO_AGENT_SYSTEM_INSTRUCTION;
+}
 
 export type AutoAgentOptions = {
   conversation: readonly ConversationMessage[];
@@ -183,7 +191,7 @@ export async function resolveAutoAgent(options: AutoAgentOptions): Promise<strin
     const generated = await generateDirectTextWithFallbackResult({
       candidates: directCandidates,
       accountId: options.accountId,
-      system: AUTO_AGENT_SYSTEM_INSTRUCTION,
+      system: autoAgentSystemInstruction(),
       prompt,
       maxTokens: 96,
       temperature: 0,
