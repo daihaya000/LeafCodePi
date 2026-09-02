@@ -73,6 +73,7 @@ function assertAutoResume(
       compacting,
       sseReconnecting,
       taskStatus: "idle",
+      stopRequested: false,
       resumingTurn: false,
       currentPromptIsHangRetry: false,
     }),
@@ -97,6 +98,24 @@ describe("findResumableTurn", () => {
     const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")]);
     assertAutoResume(target, true, false);
     assertAutoResume(target, false, true);
+  });
+
+  it("does not auto-resume after a manual stop was requested", () => {
+    const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")]);
+    expect(
+      shouldAutoResumeSilentTurn({
+        target,
+        showResume: true,
+        active: true,
+        sessionHydrating: false,
+        compacting: false,
+        sseReconnecting: false,
+        taskStatus: "idle",
+        stopRequested: true,
+        resumingTurn: false,
+        currentPromptIsHangRetry: false,
+      }),
+    ).toBe(false);
   });
 
   it("returns silent resume for empty assistant turn", () => {

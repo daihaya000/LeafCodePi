@@ -405,6 +405,8 @@ export const TaskView = memo(function TaskView({
   const [resumingTurn, setResumingTurn] = useState(false);
   const [resumeTurnError, setResumeTurnError] = useState<string | null>(null);
   const [manualAbortedAssistantId, setManualAbortedAssistantId] = useState<string | null>(null);
+  const [stopRequested, setStopRequested] = useState(false);
+  const stopRequestedRef = useRef(false);
   const autoResumeKeyRef = useRef<string | null>(null);
   const [hangRetryCount, setHangRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -941,6 +943,8 @@ export const TaskView = memo(function TaskView({
     setResumingTurn(false);
     setResumeTurnError(null);
     setManualAbortedAssistantId(null);
+    stopRequestedRef.current = false;
+    setStopRequested(false);
     setHangRetryCount(0);
     setError(null);
     setPermissionRequest(null);
@@ -1267,6 +1271,8 @@ export const TaskView = memo(function TaskView({
       setPrompt("");
       setAttachments([]);
       setIsReverted(false);
+      stopRequestedRef.current = false;
+      setStopRequested(false);
       notifyTasksChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "送信に失敗しました");
@@ -1408,18 +1414,32 @@ export const TaskView = memo(function TaskView({
   }
 
   async function abortWorking() {
+    if (stopRequestedRef.current) return;
+    stopRequestedRef.current = true;
+    setStopRequested(true);
     try {
       setError(null);
       const result = await sendJson<{ task: TaskSummary }>(`/api/tasks/${taskId}/abort`, {});
-      setTask((current) => (current ? { ...current, ...result.task } : current));
+      // TaskSummary does not include the live-session flag. Clear it here so
+      // one successful stop cannot leave the local `working` state stale.
+      setTask((current) =>
+        current ? { ...current, ...result.task, isStreaming: false } : current,
+      );
       notifyTasksChanged();
     } catch (err) {
+      stopRequestedRef.current = false;
+      setStopRequested(false);
       setError(err instanceof Error ? err.message : "停止に失敗しました");
     }
   }
 
-  const resumeTurn = useCallback(async (target: ResumableTurn) => {
+  const resumeTurn = useCallback(async (target: ResumableTurn, manual = false) => {
     if (working || resumingTurn) return;
+    const wasStopped = stopRequestedRef.current;
+    if (manual) {
+      stopRequestedRef.current = false;
+      setStopRequested(false);
+    }
     setResumeTurnError(null);
     setResumingTurn(true);
     stickRef.current = true;
@@ -1446,6 +1466,10 @@ export const TaskView = memo(function TaskView({
       setManualAbortedAssistantId(null);
       notifyTasksChanged();
     } catch (err) {
+      if (manual && wasStopped) {
+        stopRequestedRef.current = true;
+        setStopRequested(true);
+      }
       setResumeTurnError(err instanceof Error ? err.message : "再開に失敗しました");
     } finally {
       setResumingTurn(false);
@@ -1597,6 +1621,7 @@ export const TaskView = memo(function TaskView({
     compacting,
     sseReconnecting,
     taskStatus: task?.status,
+    stopRequested,
     resumingTurn,
     currentPromptIsHangRetry,
   });
@@ -1638,7 +1663,7 @@ export const TaskView = memo(function TaskView({
         }
         busy={resumingTurn}
         disabled={resumingTurn}
-        onClick={() => void resumeTurn(resumeTarget)}
+        onClick={() => void resumeTurn(resumeTarget, true)}
       >
         {!resumingTurn && <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />}
         {resumingTurn ? "再開中…" : "再開"}
@@ -2535,6 +2560,8 @@ export const TaskView = memo(function TaskView({
                 size="icon"
                 aria-label="停止"
                 title="停止"
+                busy={stopRequested}
+                disabled={stopRequested}
                 onClick={() => void abortWorking()}
               >
                 <Square className="h-3.5 w-3.5" />
