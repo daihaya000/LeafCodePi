@@ -8,6 +8,7 @@ import {
   ClipboardList,
   Code2,
   Eye,
+  FileSearch,
   FileText,
   FlaskConical,
   GitBranch,
@@ -15,7 +16,6 @@ import {
   Palette,
   Search,
   ShieldCheck,
-  Sparkles,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -27,7 +27,8 @@ import {
 import { AUTO_AGENT_VALUE, DEFAULT_AGENT, resolveAgentSelection } from "@/lib/default-agent";
 
 const AGENT_ICONS: Record<string, LucideIcon> = {
-  [AUTO_AGENT_VALUE]: Sparkles,
+  [AUTO_AGENT_VALUE]: Bot,
+  "code-reviewer": FileSearch,
   build: Blocks,
   programmer: Code2,
   plan: ClipboardList,

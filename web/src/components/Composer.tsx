@@ -15,7 +15,7 @@ import type {
   RefObject,
   UIEventHandler,
 } from "react";
-import { Paperclip, Sparkles, UsersRound, X } from "lucide-react";
+import { Paperclip, UsersRound, Wrench, X } from "lucide-react";
 import {
   composerReferenceToolNames,
   composerReferenceValue,
@@ -302,7 +302,7 @@ export function Composer({
                   onClick={() => chooseSuggestion(reference, kind)}
                 >
                   {kind === "skill" ? (
-                    <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
+                    <Wrench className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
                   ) : (
                     <UsersRound className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
                   )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban, Sparkles } from "lucide-react";
+import { Ban, Wrench } from "lucide-react";
 import { GhostSelect } from "@/components/ui";
 import {
   SKILL_PERMISSION_OPTIONS,
@@ -29,7 +29,7 @@ export function SkillPermissionSelect({
         value === "deny" ? (
           <Ban className="h-3.5 w-3.5" />
         ) : (
-          <Sparkles className="h-3.5 w-3.5" />
+          <Wrench className="h-3.5 w-3.5" />
         )
       }
       valueLabel={current?.label ?? value}
