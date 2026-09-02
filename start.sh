@@ -17,4 +17,6 @@ if [ ! -d host/node_modules/systray2 ]; then
   npm --prefix host install
 fi
 
-exec npm run host "$@"
+: "${LEAFCODE_PI_MODE:=prod}"
+export LEAFCODE_PI_MODE
+exec npm run host -- "$@"
