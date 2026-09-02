@@ -23,10 +23,31 @@ vi.mock("@/components/task/TaskPanesHost", () => ({
 import { AppShell } from "./AppShell";
 
 describe("AppShell", () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
 
   beforeEach(() => {
     mocks.usePathname.mockReturnValue("/");
+  });
+
+  it("Composer の既定値を WebUI 起動時に初期化する", () => {
+    localStorage.setItem("leafcodepi.defaultModel", "provider::model");
+    localStorage.setItem("webui:auto-optimize", "intelligence");
+    localStorage.setItem("leafcodepi.defaultAgent", "reviewer");
+    localStorage.setItem("webui:permission-mode", "deny");
+    localStorage.setItem("webui:skill-permission", "deny");
+    localStorage.setItem("webui:subagent-permission", "allow");
+
+    render(<AppShell><div /></AppShell>);
+
+    expect(localStorage.getItem("leafcodepi.defaultModel")).toBe("auto");
+    expect(localStorage.getItem("webui:auto-optimize")).toBe("balanced");
+    expect(localStorage.getItem("leafcodepi.defaultAgent")).toBe("__auto__");
+    expect(localStorage.getItem("webui:permission-mode")).toBe("allow");
+    expect(localStorage.getItem("webui:skill-permission")).toBe("allow");
+    expect(localStorage.getItem("webui:subagent-permission")).toBe("deny");
   });
 
   it("split host が有効な画面の page 内容をデスクトップで重ねて表示しない", () => {

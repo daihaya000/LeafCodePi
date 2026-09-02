@@ -2,12 +2,37 @@
 
 import { Suspense } from "react";
 import { usePathname } from "next/navigation";
+import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
+import { writeAutoOptimizeMode } from "@/lib/auto-settings";
+import { AUTO_AGENT_VALUE, writeStoredAgent } from "@/lib/default-agent";
+import { writePermissionMode } from "@/lib/permission-gate";
+import { writeSkillPermission } from "@/lib/skill-permission";
+import { writeSubagentPermission } from "@/lib/subagent-permission";
 import { Sidebar } from "./Sidebar";
 import { ShellProvider, useShellMobileNav } from "./ShellContext";
 import { TaskPanesProvider } from "./TaskPanesContext";
 import { TaskPanesHost } from "@/components/task/TaskPanesHost";
 import { cx } from "@/components/ui";
 import { isSplitHostPath } from "@/lib/task-panes";
+
+const COMPOSER_MODEL_STORAGE_KEY = "leafcodepi.defaultModel";
+let composerDefaultsInitialized = false;
+
+/** Reset Composer choices once per WebUI boot; later changes remain in this session. */
+function initializeComposerDefaults(): void {
+  if (composerDefaultsInitialized || typeof window === "undefined") return;
+  composerDefaultsInitialized = true;
+  try {
+    window.localStorage.setItem(COMPOSER_MODEL_STORAGE_KEY, AUTO_MODEL_VALUE);
+  } catch {
+    /* private mode 等では既定値を state 側で使う */
+  }
+  writeAutoOptimizeMode("balanced");
+  writeStoredAgent(AUTO_AGENT_VALUE);
+  writePermissionMode("allow");
+  writeSkillPermission("allow");
+  writeSubagentPermission("deny");
+}
 
 function AppShellInner({ children }: { children: React.ReactNode }) {
   const { mobileNavOpen, closeMobileNav } = useShellMobileNav();
@@ -41,6 +66,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  initializeComposerDefaults();
   return (
     <ShellProvider>
       <AppShellInner>{children}</AppShellInner>
