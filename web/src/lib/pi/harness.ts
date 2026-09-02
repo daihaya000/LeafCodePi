@@ -2,9 +2,16 @@ import { EventEmitter } from "node:events";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { dataDir, isAbsolutePath, noProjectRoot } from "@/lib/paths";
+import {
+  dataDir,
+  isAbsolutePath,
+  noProjectRoot,
+  pathKey,
+  sameOrDescendantPath,
+  samePath,
+} from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import {
   deleteProjectRecord,
@@ -1953,17 +1960,11 @@ async function ensureLive(
   return promise;
 }
 
-function sameOrDescendantPath(path: string, parent: string): boolean {
-  const child = resolve(path).toLowerCase();
-  const root = resolve(parent).toLowerCase();
-  return child === root || child.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
-}
-
 async function withPromotionDestinationLock<T>(
   destination: string,
   action: () => Promise<T>,
 ): Promise<T> {
-  const key = destination.toLowerCase();
+  const key = pathKey(destination);
   const previous = promoteDestinationInflight.get(key) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>((resolveLock) => {
@@ -3296,7 +3297,7 @@ async function promoteTaskOnce(
   const source = resolve(task.directory);
   const noProjectBase = resolve(noProjectRoot());
   if (
-    source === noProjectBase ||
+    samePath(source, noProjectBase) ||
     !sameOrDescendantPath(source, noProjectBase)
   ) {
     throw Object.assign(new Error("無プロジェクトの作業フォルダーが不正です"), {
@@ -3315,9 +3316,7 @@ async function promoteTaskOnce(
     });
   }
   if (
-    listProjects(true).some(
-      (project) => resolve(project.rootPath).toLowerCase() === destination.toLowerCase(),
-    )
+    listProjects(true).some((project) => samePath(project.rootPath, destination))
   ) {
     throw Object.assign(new Error("移動先は既にプロジェクトとして登録されています"), {
       status: 409,
@@ -3341,9 +3340,7 @@ async function promoteTaskOnce(
       prepared = await prepareWorkspaceMove(source, destination);
       const pi = await loadPi();
       if (
-        listProjects(true).some(
-          (candidate) => resolve(candidate.rootPath).toLowerCase() === destination.toLowerCase(),
-        )
+        listProjects(true).some((candidate) => samePath(candidate.rootPath, destination))
       ) {
         throw Object.assign(new Error("移動先は既にプロジェクトとして登録されています"), {
           status: 409,
