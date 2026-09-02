@@ -166,12 +166,7 @@ export function TaskTabs({
 }
 
 export function paneLayoutClass(state: TaskPanesState): string {
-  // 方向指定のある分割はペイン数に関係なくドロップ方向を優先する。
-  // orientation がない保存済み状態だけは従来の 4 ペイン grid を維持する。
-  if (state.panes.length >= 4 && !state.orientation) {
-    return "grid min-h-0 min-w-0 flex-1 grid-cols-2 grid-rows-2";
-  }
-  return state.orientation === "column"
-    ? "flex min-h-0 min-w-0 flex-1 flex-col"
-    : "flex min-h-0 min-w-0 flex-1";
+  void state;
+  // 分割方向は layout tree の各 split node が持つため、ホストは常に tree の親になる。
+  return "flex min-h-0 min-w-0 flex-1";
 }

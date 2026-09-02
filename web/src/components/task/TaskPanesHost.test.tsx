@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { TaskPanesState } from "@/lib/task-panes";
+import type { PaneLayout, TaskPanesState } from "@/lib/task-panes";
 
 const mocks = vi.hoisted(() => ({
   useTaskPanes: vi.fn(),
@@ -42,14 +42,35 @@ function createState(): TaskPanesState {
   };
 }
 
-function createGridState(): TaskPanesState {
+function createTreeState(): TaskPanesState {
+  const panes = Array.from({ length: 4 }, (_, index) => ({
+    id: `pane-${index + 1}`,
+    tabs: [`task-${index + 1}`],
+    activeTabId: `task-${index + 1}`,
+  }));
+  const leaf = (paneId: string): PaneLayout => ({ type: "pane", paneId });
   return {
-    panes: Array.from({ length: 4 }, (_, index) => ({
-      id: `pane-${index + 1}`,
-      tabs: [`task-${index + 1}`],
-      activeTabId: `task-${index + 1}`,
-    })),
+    panes,
     activePaneId: "pane-1",
+    layout: {
+      type: "split",
+      id: "root",
+      orientation: "column",
+      children: [
+        {
+          type: "split",
+          id: "top-row",
+          orientation: "row",
+          children: [leaf("pane-1"), leaf("pane-2")],
+        },
+        {
+          type: "split",
+          id: "bottom-row",
+          orientation: "row",
+          children: [leaf("pane-3"), leaf("pane-4")],
+        },
+      ],
+    },
   };
 }
 
@@ -81,9 +102,9 @@ describe("TaskPanesHost lazy tab mounting", () => {
     expect(screen.getByTestId("dynamic-pane").getAttribute("data-task-id")).toBe("active");
   });
 
-  it("4分割では列と行のリサイズを表示し、行ハンドルを高さとして操作できる", () => {
+  it("分割ツリーでは各境界を表示し、上下境界を局所的に高さとして操作できる", () => {
     const contextValue = {
-      state: createGridState(),
+      state: createTreeState(),
       statusFor: () => null,
       reportStatus: vi.fn(),
       dispatch: vi.fn(),
@@ -100,16 +121,42 @@ describe("TaskPanesHost lazy tab mounting", () => {
     Object.defineProperty(host, "clientHeight", { configurable: true, value: 800 });
 
     const separators = screen.getAllByRole("separator");
-    expect(separators).toHaveLength(2);
+    expect(separators).toHaveLength(3);
     const rowHandle = separators.find(
       (separator) => separator.getAttribute("aria-orientation") === "horizontal",
     );
     expect(rowHandle).toBeDefined();
-    expect(rowHandle?.getAttribute("aria-label")).toBe("ペイン 1 と 2 の高さを調整");
+    expect(rowHandle?.getAttribute("aria-label")).toBe("ペイン 1〜2 と ペイン 3〜4 の高さを調整");
+    Object.defineProperty(rowHandle?.parentElement, "clientHeight", {
+      configurable: true,
+      value: 800,
+    });
 
     fireEvent.keyDown(rowHandle!, { key: "ArrowDown" });
     expect(rowHandle?.getAttribute("aria-valuenow")).toBe("52");
-    expect(host.style.gridTemplateRows).toBe("0.52fr 0.48fr");
+    expect(host.style.gridTemplateRows).toBe("");
+  });
+
+  it("分割ブランチの子ラッパーが縦方向のflex高さを伝播する", () => {
+    mocks.useTaskPanes.mockReturnValue({
+      state: createTreeState(),
+      statusFor: () => null,
+      reportStatus: vi.fn(),
+      dispatch: vi.fn(),
+      retargetToUrl: vi.fn(),
+      activeTaskId: "task-1",
+      titleFor: () => null,
+      mdUp: true,
+    });
+
+    const { container } = render(<TaskPanesHost />);
+    const panes = container.querySelectorAll("[data-pane-id]");
+    expect(panes).toHaveLength(4);
+    for (const pane of panes) {
+      const branchWrapper = pane.parentElement;
+      expect(branchWrapper?.className).toContain("flex-col");
+      expect(branchWrapper?.className).toContain("overflow-hidden");
+    }
   });
 
   it("モバイルではURLタスクだけを表示し、デスクトップ復帰後はアクティブタブを表示する", async () => {

@@ -2,7 +2,7 @@
 
 **仕様:** [`docs/specs/taskview-tabs.md`](../specs/taskview-tabs.md)
 
-**ゴール:** `/task/*` に複数タスクをタブで開き、最大 4 ペインまで分割できるようにする。レイアウトは localStorage に永続化し、1 ペイン × 1 タブでは現行と完全同等の見た目を維持する。
+**ゴール:** `/task/*` に複数タスクをタブで開き、最大 4 ペインまで分割できるようにする。ペイン単位の split tree と各ノードの方向を localStorage に永続化し、1 ペイン × 1 タブでは現行と完全同等の見た目を維持する。
 
 **技術:** Next.js（App Router）、React、TypeScript、Vitest（node 環境・Testing Library なし）。DB / settings API は使わない。
 
@@ -49,9 +49,20 @@ export const TASK_PANES_STORAGE_KEY = "webui:task-panes";
 
 export type TaskPane = { id: string; tabs: string[]; activeTabId: string | null };
 
+export type PaneLayout =
+  | { type: "pane"; paneId: string }
+  | {
+      type: "split";
+      id: string;
+      orientation: "row" | "column";
+      children: [PaneLayout, PaneLayout];
+    };
+
 export type TaskPanesState = {
   panes: TaskPane[];            // 最小 1、最大 MAX_PANES
   activePaneId: string | null;
+  layout?: PaneLayout;          // 旧保存値では未指定
+  orientation?: "row" | "column"; // layout がない旧値の互換用
 };
 
 // reducer アクション
@@ -69,8 +80,9 @@ type Action =
 
 - 上限ガードは reducer 内で enforce（超過 = 前状態を**同一参照**のまま返す no-op）。呼び出し側は `prev === next` 比較で拒否を検知できるが、原則として UI 側で上限到達時に操作不能（disabled）にするため通知は不要
 - **最小 1 ペイン制約**: `closeTab` でペイン最終タブを閉じた場合のペイン閉鎖は `panes.length > 1` のときのみ。1 ペイン時はタブもペインも閉じない。activeTabId / activePaneId の繰り上げ規則: 閉じた位置の右隣、端なら左隣
-- localStorage I/O: `loadTaskPanes()` / `saveTaskPanes(state)`。破損 JSON・上限違反値は無視して `null` / 正規化済みを返す
-- **テスト**: `web/src/lib/task-panes.test.ts` — open/close/activate/reorder/move/addPane/closePane の遷移、上限ガード、activeTabId 繰り上げ、localStorage roundtrip（node 環境のため `globalThis.localStorage` を Map 実装でスタブ）
+- localStorage I/O: `loadTaskPanes()` / `saveTaskPanes(state)`。破損 JSON・上限違反値は無視して `null` / 正規化済みを返す。layout がない旧保存値も flat panes + orientation から互換変換する
+- direction 付き `openInNewPane` は anchor の葉だけを row/column split に置き換え、他の subtree の方向を変更しない。`openTab` など layout を変更しない操作は layout / orientation を保持する
+- **テスト**: `web/src/lib/task-panes.test.ts` — open/close/activate/reorder/move/addPane/closePane の遷移、上限ガード、activeTabId 繰り上げ、anchor 局所分割・tree 縮退、旧形式互換、localStorage roundtrip（node 環境のため `globalThis.localStorage` を Map 実装でスタブ）
 
 **検証**: `npm --prefix web test -- src/lib/task-panes.test.ts`、`npm --prefix web run typecheck`
 
@@ -96,8 +108,7 @@ type Action =
 ### AppShell / Host
 
 - `AppShellInner` の `<section>` 内を `<TaskPanesProvider>` で囲み、children の代わりに `<TaskPanesHost />` を描く（task path のときのみ内容を出す）
-- `TaskPanesHost`: `panes.map` で各ペインを描画。
-  - layout: `panes.length >= 4 ? "grid grid-cols-2 grid-rows-2" : "flex"`
+- `TaskPanesHost`: layout tree を再帰描画し、各 split node の orientation に応じた flex と局所リサイズハンドルを配置する。4 ペインでも 2x2 grid へ自動固定しない
   - TaskView は `next/dynamic(..., { ssr: false })` で読む（本家 SplitTaskView と同じ loading プレースホルダ付き）
   - **Phase 2 時点は 1 ペイン × 1 タブのみ動かし、現行 `/task/[id]` と見た目同等であることを確認**
 - `page.tsx`: `return null`（URL 初期化は provider の pathname 監視が担う。SSR 一瞬分は dynamic loading 表示で埋まる）
@@ -149,7 +160,7 @@ type Action =
 - 手動確認リスト:
   1. 1 ペイン × 1 タブ = 現行同等（タブバー非表示）
   2. 複数タブ開く → 切替・閉じる・並び替え・Composer テキスト保持
-  3. 2〜4 ペイン分割・レイアウト自動切替（4 = 2x2）
+  3. 2〜4 ペイン分割・端ドロップごとの局所方向（4 ペインでも 2x2 固定なし）
   4. リロードで構成復元・直リンク (`/task/[id]`) で URL 優先
   5. Home ↔ task 往復で panes が保持され、戻るとそのまま再表示。エラーなし
   6. working 中タスクのバッジが裏タブでも更新される

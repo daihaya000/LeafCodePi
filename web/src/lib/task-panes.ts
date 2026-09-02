@@ -20,16 +20,28 @@ export type TaskPane = {
   activeTabId: string | null;
 };
 
-/** ペインの並び方向。省略は "row"（横並び）。上下分割で "column" になる。 */
+/** ペインの並び方向。row は左右、column は上下に分割する。 */
 export type PaneOrientation = "row" | "column";
 
 /** 端ドラッグ分割の方向。left/top は anchor の前、right/bottom は後ろへ挿入。 */
 export type SplitDirection = "left" | "right" | "top" | "bottom";
 
+/** 各分割ノードが方向を持つペインレイアウトツリー。 */
+export type PaneLayout =
+  | { type: "pane"; paneId: string }
+  | {
+      type: "split";
+      id: string;
+      orientation: PaneOrientation;
+      children: [PaneLayout, PaneLayout];
+    };
+
 export type TaskPanesState = {
   panes: TaskPane[];
   activePaneId: string | null;
+  /** 旧形式との互換用。layout がある状態では描画方向に使わない。 */
   orientation?: PaneOrientation;
+  layout?: PaneLayout;
 };
 
 /** 隣接する 2 ペインの幅を、指定した最小幅を保って調整する。 */
@@ -91,6 +103,196 @@ export function createPane(): TaskPane {
   return { id, tabs: [], activeTabId: null };
 }
 
+function paneLeaf(paneId: string): PaneLayout {
+  return { type: "pane", paneId };
+}
+
+function splitId(paneId: string): string {
+  return `split-${paneId}`;
+}
+
+function flatPaneLayout(
+  paneIds: readonly string[],
+  orientation: PaneOrientation,
+): PaneLayout | null {
+  const [first, ...rest] = paneIds;
+  if (!first) return null;
+  let layout: PaneLayout = paneLeaf(first);
+  for (const paneId of rest) {
+    layout = {
+      type: "split",
+      id: splitId(paneId),
+      orientation,
+      children: [layout, paneLeaf(paneId)],
+    };
+  }
+  return layout;
+}
+
+function parsePaneLayout(value: unknown, paneIds: Set<string>): PaneLayout | null {
+  const usedPaneIds = new Set<string>();
+  const usedSplitIds = new Set<string>();
+
+  const visit = (candidate: unknown): PaneLayout | null => {
+    if (typeof candidate !== "object" || candidate === null) return null;
+    const item = candidate as {
+      type?: unknown;
+      paneId?: unknown;
+      id?: unknown;
+      orientation?: unknown;
+      children?: unknown;
+    };
+    if (item.type === "pane") {
+      if (
+        typeof item.paneId !== "string" ||
+        !paneIds.has(item.paneId) ||
+        usedPaneIds.has(item.paneId)
+      ) {
+        return null;
+      }
+      usedPaneIds.add(item.paneId);
+      return paneLeaf(item.paneId);
+    }
+    if (
+      item.type !== "split" ||
+      typeof item.id !== "string" ||
+      !item.id ||
+      usedSplitIds.has(item.id) ||
+      (item.orientation !== "row" && item.orientation !== "column") ||
+      !Array.isArray(item.children) ||
+      item.children.length !== 2
+    ) {
+      return null;
+    }
+    usedSplitIds.add(item.id);
+    const first = visit(item.children[0]);
+    const second = visit(item.children[1]);
+    if (!first || !second) return null;
+    return {
+      type: "split",
+      id: item.id,
+      orientation: item.orientation,
+      children: [first, second],
+    };
+  };
+
+  const parsed = visit(value);
+  return parsed && usedPaneIds.size === paneIds.size ? parsed : null;
+}
+
+/** 現行 layout、または旧 flat panes 値から描画用ツリーを得る。 */
+export function paneLayoutForState(state: TaskPanesState): PaneLayout | null {
+  const paneIds = state.panes.map((pane) => pane.id);
+  const parsed = state.layout
+    ? parsePaneLayout(state.layout, new Set(paneIds))
+    : null;
+  return parsed ?? flatPaneLayout(paneIds, state.orientation ?? "row");
+}
+
+function splitOrientation(direction: SplitDirection): PaneOrientation {
+  return direction === "top" || direction === "bottom" ? "column" : "row";
+}
+
+function splitPaneLayout(
+  layout: PaneLayout,
+  anchorPaneId: string,
+  newPaneId: string,
+  direction: SplitDirection,
+): [PaneLayout, boolean] {
+  if (layout.type === "pane") {
+    if (layout.paneId !== anchorPaneId) return [layout, false];
+    const newPane = paneLeaf(newPaneId);
+    const before = direction === "left" || direction === "top";
+    return [
+      {
+        type: "split",
+        id: splitId(newPaneId),
+        orientation: splitOrientation(direction),
+        children: before ? [newPane, layout] : [layout, newPane],
+      },
+      true,
+    ];
+  }
+
+  const [first, didSplitFirst] = splitPaneLayout(
+    layout.children[0],
+    anchorPaneId,
+    newPaneId,
+    direction,
+  );
+  if (didSplitFirst) {
+    return [{ ...layout, children: [first, layout.children[1]] }, true];
+  }
+  const [second, didSplitSecond] = splitPaneLayout(
+    layout.children[1],
+    anchorPaneId,
+    newPaneId,
+    direction,
+  );
+  return didSplitSecond
+    ? [{ ...layout, children: [layout.children[0], second] }, true]
+    : [layout, false];
+}
+
+function appendPaneLayout(
+  layout: PaneLayout | null,
+  paneId: string,
+  orientation: PaneOrientation,
+): PaneLayout {
+  if (!layout) return paneLeaf(paneId);
+  return {
+    type: "split",
+    id: splitId(paneId),
+    orientation,
+    children: [layout, paneLeaf(paneId)],
+  };
+}
+
+function removePaneFromLayout(
+  layout: PaneLayout,
+  paneId: string,
+): { layout: PaneLayout | null; removed: boolean } {
+  if (layout.type === "pane") {
+    return layout.paneId === paneId
+      ? { layout: null, removed: true }
+      : { layout, removed: false };
+  }
+
+  const first = removePaneFromLayout(layout.children[0], paneId);
+  if (first.removed) {
+    return {
+      layout: first.layout
+        ? { ...layout, children: [first.layout, layout.children[1]] }
+        : layout.children[1],
+      removed: true,
+    };
+  }
+  const second = removePaneFromLayout(layout.children[1], paneId);
+  if (second.removed) {
+    return {
+      layout: second.layout
+        ? { ...layout, children: [layout.children[0], second.layout] }
+        : layout.children[0],
+      removed: true,
+    };
+  }
+  return { layout, removed: false };
+}
+
+function layoutAfterPaneRemoval(
+  state: TaskPanesState,
+  panes: readonly TaskPane[],
+): PaneLayout | null {
+  let layout = paneLayoutForState(state);
+  const keptPaneIds = new Set(panes.map((pane) => pane.id));
+  for (const pane of state.panes) {
+    if (!keptPaneIds.has(pane.id) && layout) {
+      layout = removePaneFromLayout(layout, pane.id).layout;
+    }
+  }
+  return layout ?? flatPaneLayout(panes.map((pane) => pane.id), state.orientation ?? "row");
+}
+
 /**
  * 初期状態。URL 直リンクの taskId を最初のタブにし、なければ
  * 新規作成（Home）タブをアクティブにする（仕様 §5）。
@@ -99,7 +301,11 @@ export function createState(urlTaskId?: string | null): TaskPanesState {
   const pane = createPane();
   pane.tabs = [urlTaskId ?? HOME_TAB_ID];
   pane.activeTabId = urlTaskId ?? HOME_TAB_ID;
-  return { panes: [pane], activePaneId: pane.id };
+  return {
+    panes: [pane],
+    activePaneId: pane.id,
+    layout: paneLeaf(pane.id),
+  };
 }
 
 function activate(
@@ -123,6 +329,7 @@ function removePane(state: TaskPanesState, paneId: string): TaskPanesState {
   const index = state.panes.findIndex((pane) => pane.id === paneId);
   if (index < 0) return state;
   const panes = state.panes.filter((pane) => pane.id !== paneId);
+  const layout = layoutAfterPaneRemoval(state, panes);
   // 繰り上げ規則: 閉じた位置の右隣、端なら左隣（panes.length ≥ 1 は制約で保証）
   return {
     ...state,
@@ -131,6 +338,7 @@ function removePane(state: TaskPanesState, paneId: string): TaskPanesState {
       state.activePaneId === paneId
         ? (panes[Math.min(index, panes.length - 1)]?.id ?? null)
         : state.activePaneId,
+    ...(layout ? { layout } : {}),
   };
 }
 
@@ -177,6 +385,7 @@ export function taskPanesReducer(
       const target = state.panes.find((pane) => pane.id === action.paneId);
       if (!target || target.tabs.length >= MAX_TABS_PER_PANE) return state;
       return {
+        ...state,
         activePaneId: target.id,
         panes: state.panes.map((pane) =>
           pane.id === target.id
@@ -225,14 +434,27 @@ export function taskPanesReducer(
           : action.direction === "left" || action.direction === "top"
             ? anchorIndex
             : anchorIndex + 1;
-      const orientation =
-        action.direction === "top" || action.direction === "bottom"
-          ? "column"
-          : action.direction === "left" || action.direction === "right"
-            ? ("row" as const)
-            : (state.orientation ?? "row");
+      const orientation = action.direction
+        ? splitOrientation(action.direction)
+        : (state.orientation ?? "row");
       const pane = createPane();
+      const nextLayoutBase = paneLayoutForState(state);
+      const nextLayout =
+        action.direction && action.anchorPaneId && anchorIndex >= 0 && nextLayoutBase
+          ? (() => {
+              const [split, didSplit] = splitPaneLayout(
+                nextLayoutBase,
+                action.anchorPaneId,
+                pane.id,
+                action.direction,
+              );
+              return didSplit
+                ? split
+                : appendPaneLayout(nextLayoutBase, pane.id, orientation);
+            })()
+          : appendPaneLayout(nextLayoutBase, pane.id, orientation);
       return {
+        ...state,
         activePaneId: pane.id,
         orientation,
         panes: [
@@ -240,6 +462,7 @@ export function taskPanesReducer(
           { ...pane, tabs: [action.taskId], activeTabId: action.taskId },
           ...panes.slice(insertIndex),
         ],
+        layout: nextLayout,
       };
     }
 
@@ -311,7 +534,13 @@ export function taskPanesReducer(
     case "addPane": {
       if (state.panes.length >= MAX_PANES) return state;
       const pane = createPane();
-      return { ...state, panes: [...state.panes, pane], activePaneId: pane.id };
+      const orientation = state.orientation ?? "row";
+      return {
+        ...state,
+        panes: [...state.panes, pane],
+        activePaneId: pane.id,
+        layout: appendPaneLayout(paneLayoutForState(state), pane.id, orientation),
+      };
     }
 
     case "closePane":
@@ -373,7 +602,12 @@ export function removeTaskEverywhere(
     nextPanes.some((pane) => pane.id === nextActivePaneId)
       ? nextActivePaneId
       : (nextPanes[0]?.id ?? null);
-  return { ...state, panes: nextPanes, activePaneId };
+  return {
+    ...state,
+    panes: nextPanes,
+    activePaneId,
+    layout: layoutAfterPaneRemoval(state, nextPanes) ?? undefined,
+  };
 }
 
 /**
@@ -408,9 +642,17 @@ export function normalize(input: unknown): TaskPanesState | null {
     typeof raw.activePaneId === "string" && panes.some((pane) => pane.id === raw.activePaneId)
       ? raw.activePaneId
       : panes[0].id;
-  return raw.orientation === "row" || raw.orientation === "column"
-    ? { panes, activePaneId, orientation: raw.orientation }
-    : { panes, activePaneId };
+  const orientation =
+    raw.orientation === "row" || raw.orientation === "column" ? raw.orientation : undefined;
+  const layout = raw.layout === undefined
+    ? undefined
+    : parsePaneLayout(raw.layout, new Set(panes.map((pane) => pane.id)));
+  return {
+    panes,
+    activePaneId,
+    ...(orientation ? { orientation } : {}),
+    ...(layout ? { layout } : {}),
+  };
 }
 
 type StoredTaskPanes = { version: 1 } & TaskPanesState;

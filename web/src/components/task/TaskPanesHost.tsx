@@ -2,16 +2,20 @@
 
 import dynamic from "next/dynamic";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { cx } from "@/components/ui";
+import type { TaskStatus } from "@/lib/types";
 import { isTaskDrag, taskDragIdFrom } from "@/lib/task-drag";
 import {
   HOME_TAB_ID,
   isSplitHostPath,
+  paneLayoutForState,
   resizeAdjacentPaneWidths,
   taskIdFromPathname,
+  type PaneLayout,
   type SplitDirection,
+  type TaskPane,
 } from "@/lib/task-panes";
 import { paneLayoutClass, TaskTabs } from "./TaskTabs";
 
@@ -38,10 +42,6 @@ function edgeDirectionAt(
   return distances.find(([, distance]) => distance === nearest)?.[0] ?? null;
 }
 
-function equalPaneWidths(count: number): number[] {
-  return count > 0 ? Array.from({ length: count }, () => 1 / count) : [];
-}
-
 /** ペイン境界のドラッグハンドル。axis="x" は縦仕切り（左右移動）、y は横仕切り（上下移動）。 */
 function PaneResizeHandle({
   boundaryIndex,
@@ -50,6 +50,7 @@ function PaneResizeHandle({
   containerRef,
   onResize,
   axis,
+  label,
 }: {
   boundaryIndex: number;
   position: number;
@@ -57,6 +58,7 @@ function PaneResizeHandle({
   containerRef: { current: HTMLDivElement | null };
   onResize: (widths: number[]) => void;
   axis: "x" | "y";
+  label?: string;
 }) {
   const pairTotal = widths[boundaryIndex]! + widths[boundaryIndex + 1]!;
   const currentSize = widths[boundaryIndex]!;
@@ -74,7 +76,7 @@ function PaneResizeHandle({
     <div
       role="separator"
       aria-orientation={axis === "x" ? "vertical" : "horizontal"}
-      aria-label={`ペイン ${boundaryIndex + 1} と ${boundaryIndex + 2} の${sizeLabel}を調整`}
+      aria-label={label ?? `ペイン ${boundaryIndex + 1} と ${boundaryIndex + 2} の${sizeLabel}を調整`}
       aria-valuemin={Math.round(minimumFor(containerSize) * 100)}
       aria-valuemax={Math.round((pairTotal - minimumFor(containerSize)) * 100)}
       aria-valuenow={Math.round(currentSize * 100)}
@@ -172,6 +174,228 @@ const PaneHomeView = dynamic(
   { ssr: false },
 );
 
+type PaneBranchProps = {
+  paneById: ReadonlyMap<string, TaskPane>;
+  paneIndexes: ReadonlyMap<string, number>;
+  activePaneId: string;
+  single: boolean;
+  dragOverPaneId: string | null;
+  dragEdge: { paneId: string; direction: SplitDirection } | null;
+  openedTabs: Set<string>;
+  projectId: string | null;
+  noProject: boolean;
+  mdUp: boolean;
+  statusFor: (taskId: string) => TaskStatus | null;
+  reportStatus: (taskId: string, status: TaskStatus) => void;
+  titleFor: (taskId: string) => string | null;
+  canAddPane: boolean;
+  lastPaneId: string | undefined;
+  splitRatios: Record<string, number>;
+  onSplitRatioChange: (splitId: string, ratio: number) => void;
+  onPaneDragOver: (event: DragEvent<HTMLElement>, pane: TaskPane) => void;
+  onPaneDragLeave: (event: DragEvent<HTMLElement>, pane: TaskPane) => void;
+  onPaneDrop: (event: DragEvent<HTMLElement>, pane: TaskPane) => void;
+  onActivatePane: (paneId: string) => void;
+  onActivateTab: (paneId: string, taskId: string) => void;
+  onCloseTab: (paneId: string, taskId: string) => void;
+  onReorderTabs: (paneId: string, tabs: string[]) => void;
+  onMoveTab: (taskId: string, toPaneId: string) => void;
+  onAddPane: () => void;
+  onOpenHome: (paneId: string) => void;
+};
+
+function paneIdsInLayout(layout: PaneLayout): string[] {
+  return layout.type === "pane"
+    ? [layout.paneId]
+    : [...paneIdsInLayout(layout.children[0]), ...paneIdsInLayout(layout.children[1])];
+}
+
+function paneRangeLabel(layout: PaneLayout, paneIndexes: ReadonlyMap<string, number>): string {
+  const indexes = paneIdsInLayout(layout)
+    .map((paneId) => paneIndexes.get(paneId))
+    .filter((index): index is number => index !== undefined)
+    .sort((a, b) => a - b)
+    .map((index) => index + 1);
+  if (indexes.length === 0) return "ペイン";
+  const first = indexes[0]!;
+  const last = indexes[indexes.length - 1]!;
+  return first === last ? `ペイン ${first}` : `ペイン ${first}〜${last}`;
+}
+
+function PaneSection({
+  pane,
+  paneIndex,
+  activePaneId,
+  single,
+  dragOverPaneId,
+  dragEdge,
+  openedTabs,
+  projectId,
+  noProject,
+  mdUp,
+  statusFor,
+  reportStatus,
+  titleFor,
+  canAddPane,
+  lastPaneId,
+  onPaneDragOver,
+  onPaneDragLeave,
+  onPaneDrop,
+  onActivatePane,
+  onActivateTab,
+  onCloseTab,
+  onReorderTabs,
+  onMoveTab,
+  onAddPane,
+  onOpenHome,
+}: PaneBranchProps & { pane: TaskPane; paneIndex: number }) {
+  const isActivePane = pane.id === activePaneId;
+  return (
+    <section
+      data-pane-id={pane.id}
+      data-active={isActivePane ? "true" : "false"}
+      aria-label={`タスクペイン ${paneIndex + 1}`}
+      className={cx(
+        "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+        !single && "border-border",
+        dragOverPaneId === pane.id && dragEdge?.paneId !== pane.id &&
+          "ring-1 ring-inset ring-accent/50",
+      )}
+      onDragOver={(event) => onPaneDragOver(event, pane)}
+      onDragLeave={(event) => onPaneDragLeave(event, pane)}
+      onDrop={(event) => onPaneDrop(event, pane)}
+      onPointerDown={() => {
+        if (!isActivePane) onActivatePane(pane.id);
+      }}
+      onFocusCapture={() => {
+        if (!isActivePane) onActivatePane(pane.id);
+      }}
+    >
+      {!single && (
+        <TaskTabs
+          pane={pane}
+          isActivePane={isActivePane}
+          statusFor={statusFor}
+          titleFor={titleFor}
+          canAddPane={canAddPane}
+          showAddButton={pane.id === lastPaneId}
+          onActivateTab={(taskId) => onActivateTab(pane.id, taskId)}
+          onCloseTab={(taskId) => onCloseTab(pane.id, taskId)}
+          onReorderTabs={(tabs) => onReorderTabs(pane.id, tabs)}
+          onMoveTab={onMoveTab}
+          onAddPane={onAddPane}
+          onOpenHome={() => onOpenHome(pane.id)}
+        />
+      )}
+      {isActivePane && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 z-[70] h-0.5 bg-accent"
+        />
+      )}
+      {dragEdge?.paneId === pane.id && (
+        <span
+          aria-hidden="true"
+          className={cx(
+            "pointer-events-none absolute z-[75] bg-accent/15 ring-1 ring-inset ring-accent/40",
+            dragEdge.direction === "left" && "inset-y-0 left-0 w-1/2",
+            dragEdge.direction === "right" && "inset-y-0 right-0 w-1/2",
+            dragEdge.direction === "top" && "inset-x-0 top-0 h-1/2",
+            dragEdge.direction === "bottom" && "inset-x-0 bottom-0 h-1/2",
+          )}
+        />
+      )}
+      {pane.tabs.length === 0 && (
+        <div className="flex min-h-0 flex-1 items-center justify-center p-4 text-center text-xs text-faint">
+          サイドバーからタスクをドロップして開けます
+        </div>
+      )}
+      {pane.tabs.map((taskId) => {
+        const isActiveTab = pane.activeTabId === taskId;
+        if (!openedTabs.has(taskId)) return null;
+        if (taskId === HOME_TAB_ID) {
+          return (
+            <div
+              key={taskId}
+              className={cx("min-h-0 min-w-0 flex-1", !isActiveTab && "hidden")}
+            >
+              <PaneHomeView
+                key={`${projectId ?? ""}:${noProject ? "no-project" : "project"}`}
+                initialProjectId={projectId ?? undefined}
+                initialNoProject={noProject}
+              />
+            </div>
+          );
+        }
+        return (
+          <div
+            key={taskId}
+            className={cx("flex min-h-0 min-w-0 flex-1 flex-col", !isActiveTab && "hidden")}
+          >
+            <SplitTaskView
+              taskId={taskId}
+              mdUp={mdUp}
+              active={isActiveTab}
+              onStatus={reportStatus}
+              onAddPane={single && canAddPane ? onAddPane : undefined}
+            />
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function PaneLayoutBranch({ layout, ...props }: PaneBranchProps & { layout: PaneLayout }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  if (layout.type === "pane") {
+    const pane = props.paneById.get(layout.paneId);
+    if (!pane) return null;
+    return (
+      <PaneSection
+        {...props}
+        pane={pane}
+        paneIndex={props.paneIndexes.get(pane.id) ?? 0}
+      />
+    );
+  }
+
+  const ratio = Math.max(0.05, Math.min(0.95, props.splitRatios[layout.id] ?? 0.5));
+  const axis = layout.orientation === "row" ? "x" : "y";
+  const sizeLabel = axis === "x" ? "幅" : "高さ";
+  return (
+    <div
+      ref={containerRef}
+      className={cx(
+        "relative flex min-h-0 min-w-0 flex-1 overflow-hidden",
+        layout.orientation === "column" && "flex-col",
+      )}
+    >
+      <div
+        className="flex min-h-0 min-w-0 flex-col overflow-hidden"
+        style={{ flex: `${ratio} 1 0%` }}
+      >
+        <PaneLayoutBranch {...props} layout={layout.children[0]} />
+      </div>
+      <PaneResizeHandle
+        boundaryIndex={0}
+        position={ratio}
+        widths={[ratio, 1 - ratio]}
+        containerRef={containerRef}
+        onResize={(next) => props.onSplitRatioChange(layout.id, next[0] ?? ratio)}
+        axis={axis}
+        label={`${paneRangeLabel(layout.children[0], props.paneIndexes)} と ${paneRangeLabel(layout.children[1], props.paneIndexes)} の${sizeLabel}を調整`}
+      />
+      <div
+        className="flex min-h-0 min-w-0 flex-col overflow-hidden"
+        style={{ flex: `${1 - ratio} 1 0%` }}
+      >
+        <PaneLayoutBranch {...props} layout={layout.children[1]} />
+      </div>
+    </div>
+  );
+}
+
 /**
  * 分割ホスト対象パス（「/」＝新規作成タブ含む）で内容を返す描画ホスト。
  * settings では null を返すだけで Provider の panes state・SSE は保持される
@@ -188,28 +412,22 @@ export function TaskPanesHost() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("projectId");
   const noProject = searchParams.get("noProject") === "1";
-  const containerRef = useRef<HTMLDivElement>(null);
   const [dragOverPaneId, setDragOverPaneId] = useState<string | null>(null);
   // 端ドラッグ中の分割プレビュー。null = 中央（通常ドロップ）。
   const [dragEdge, setDragEdge] = useState<{ paneId: string; direction: SplitDirection } | null>(
     null,
   );
-  const [paneWidths, setPaneWidths] = useState<number[]>([]);
-  const [gridColumnWidth, setGridColumnWidth] = useState(0.5);
-  const [gridRowHeight, setGridRowHeight] = useState(0.5);
+  // 各 split node の比率。ペイン構成が変わったときだけ初期化する。
+  const [splitRatios, setSplitRatios] = useState<Record<string, number>>({});
   // 一度開いたタブのみマウントする（初回読み込み・SSE 接続を遅延）。
-  // アクティブタブは開封済みに追加、タブが閉じられたら除去して再オープン時に再読み込み。
+  // アクティブタブは開封済み集合へ追加、タブが閉じられたら除去して再オープン時に再読み込み。
   const [openedTabs, setOpenedTabs] = useState<Set<string>>(() => new Set());
   const addPane = useCallback(() => dispatch({ type: "addPane" }), [dispatch]);
   const paneLayoutKey = state.panes.map((pane) => pane.id).join("|");
-  const paneCount = state.panes.length;
 
-  // ペインの追加・削除時は新しい構成を均等幅から始める。タブ操作では幅を保持する。
   useEffect(() => {
-    setPaneWidths(equalPaneWidths(paneCount));
-    setGridColumnWidth(0.5);
-    setGridRowHeight(0.5);
-  }, [paneCount, paneLayoutKey]);
+    setSplitRatios({});
+  }, [paneLayoutKey]);
 
   // dragend/drop でリング解除（Escape キャンセル・ブラウザ外での drop 漏れ対策）
   useEffect(() => {
@@ -293,232 +511,104 @@ export function TaskPanesHost() {
     state.panes.length === 1 &&
     state.panes[0].tabs.length <= 1 &&
     state.panes[0].tabs[0] !== HOME_TAB_ID;
-  // ドロップ方向が保存された分割は、その方向の flex レイアウトを使う。
-  // orientation がない旧保存値だけは従来の 4 ペイン grid を維持する。
-  const isGrid = state.panes.length >= 4 && !state.orientation;
-  const isColumn = state.orientation === "column";
-  const widths = paneWidths.length === state.panes.length
-    ? paneWidths
-    : equalPaneWidths(state.panes.length);
-  const resizeWidths = isGrid ? [gridColumnWidth, 1 - gridColumnWidth] : widths;
-  const resizeHeights = [gridRowHeight, 1 - gridRowHeight];
-  const handlePositions = isGrid
-    ? [gridColumnWidth]
-    : widths.slice(0, -1).map((_, index) =>
-        widths.slice(0, index + 1).reduce((sum, width) => sum + width, 0),
-      );
-  const updatePaneWidths = (next: number[]) => {
-    if (isGrid) {
-      setGridColumnWidth(next[0] ?? 0.5);
+  const layout = paneLayoutForState(state);
+  if (!layout) return null;
+  const paneById = new Map(state.panes.map((pane) => [pane.id, pane]));
+  const paneIndexes = new Map(state.panes.map((pane, index) => [pane.id, index]));
+  const lastPaneId = state.panes[state.panes.length - 1]?.id;
+  const canAddPane = state.panes.length < 4;
+  const updateSplitRatio = (splitId: string, ratio: number) => {
+    if (!Number.isFinite(ratio)) return;
+    const nextRatio = Math.max(0.05, Math.min(0.95, ratio));
+    setSplitRatios((current) => {
+      if (current[splitId] === nextRatio) return current;
+      return { ...current, [splitId]: nextRatio };
+    });
+  };
+  const onPaneDragOver = (event: DragEvent<HTMLElement>, pane: TaskPane) => {
+    if (!isTaskDrag(event.dataTransfer.types)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverPaneId(pane.id);
+    const direction = edgeDirectionAt(event.currentTarget, event.clientX, event.clientY);
+    setDragEdge((current) =>
+      current?.paneId === pane.id && current.direction === direction
+        ? current
+        : direction
+          ? { paneId: pane.id, direction }
+          : null,
+    );
+  };
+  const onPaneDragLeave = (event: DragEvent<HTMLElement>, pane: TaskPane) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setDragOverPaneId((current) => (current === pane.id ? null : current));
+    setDragEdge((current) => (current?.paneId === pane.id ? null : current));
+  };
+  const onPaneDrop = (event: DragEvent<HTMLElement>, pane: TaskPane) => {
+    if (!isTaskDrag(event.dataTransfer.types)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setDragOverPaneId(null);
+    setDragEdge(null);
+    const taskId = taskDragIdFrom(event.dataTransfer);
+    if (!taskId) return;
+    const source = state.panes.find((candidate) => candidate.tabs.includes(taskId));
+    const direction = edgeDirectionAt(event.currentTarget, event.clientX, event.clientY);
+    if (direction) {
+      // 端ドロップ = anchor ペインだけを方向分割する。
+      dispatch({ type: "openInNewPane", taskId, anchorPaneId: pane.id, direction });
+    } else if (source && source.id !== pane.id) {
+      dispatch({ type: "moveTab", fromPaneId: source.id, toPaneId: pane.id, taskId });
+    } else if (pane.tabs.length === 0) {
+      dispatch({ type: "openTab", paneId: pane.id, taskId });
+    } else if (!source) {
+      // ペイン本体ドロップ = 分割。タブとして追加したい場合はタブバーへ。
+      dispatch({ type: "openInNewPane", taskId });
     } else {
-      setPaneWidths(next);
+      dispatch({ type: "activateTab", paneId: pane.id, taskId });
+    }
+  };
+  const onMoveTab = (taskId: string, toPaneId: string) => {
+    const source = state.panes.find((pane) => pane.tabs.includes(taskId));
+    if (source && source.id !== toPaneId) {
+      dispatch({ type: "moveTab", fromPaneId: source.id, toPaneId, taskId });
+    } else if (!source) {
+      dispatch({ type: "openTab", paneId: toPaneId, taskId });
     }
   };
 
   return (
-    <div
-      ref={containerRef}
-      className={cx(paneLayoutClass(state), "relative")}
-      style={
-        isGrid
-          ? {
-              gridTemplateColumns: `${gridColumnWidth}fr ${1 - gridColumnWidth}fr`,
-              gridTemplateRows: `${gridRowHeight}fr ${1 - gridRowHeight}fr`,
-            }
-          : undefined
-      }
-    >
-      {state.panes.map((pane, paneIndex) => (
-        <section
-          key={pane.id}
-          data-pane-id={pane.id}
-          data-active={pane.id === activePaneId ? "true" : "false"}
-          aria-label={`タスクペイン ${paneIndex + 1}`}
-          className={cx(
-            "relative flex min-h-0 min-w-0 flex-col overflow-hidden",
-            !single && "border-border",
-            !single && !isGrid && "flex-1",
-            // 横並び: 左隣との境界 / 縦並び: 上隣との境界 / grid: 右列・下段に罫線
-            !single && !isGrid && paneIndex > 0 && (isColumn ? "border-t" : "border-l"),
-            !single && isGrid && paneIndex % 2 === 1 && "border-l",
-            !single && isGrid && paneIndex >= 2 && "border-t",
-            dragOverPaneId === pane.id &&
-              dragEdge?.paneId !== pane.id &&
-              "ring-1 ring-inset ring-accent/50",
-          )}
-          style={!isGrid ? { flex: `${widths[paneIndex] ?? 0} 1 0%` } : undefined}
-          onDragOver={(event) => {
-            if (!isTaskDrag(event.dataTransfer.types)) return;
-            event.preventDefault();
-            event.dataTransfer.dropEffect = "move";
-            setDragOverPaneId(pane.id);
-            const direction = edgeDirectionAt(event.currentTarget, event.clientX, event.clientY);
-            setDragEdge((current) =>
-              current?.paneId === pane.id && current.direction === direction
-                ? current
-                : direction
-                  ? { paneId: pane.id, direction }
-                  : null,
-            );
-          }}
-          onDragLeave={(event) => {
-            if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-            setDragOverPaneId((current) => (current === pane.id ? null : current));
-            setDragEdge((current) => (current?.paneId === pane.id ? null : current));
-          }}
-          onDrop={(event) => {
-            if (!isTaskDrag(event.dataTransfer.types)) return;
-            event.preventDefault();
-            event.stopPropagation();
-            setDragOverPaneId(null);
-            setDragEdge(null);
-            const taskId = taskDragIdFrom(event.dataTransfer);
-            if (!taskId) return;
-            const source = state.panes.find((p) => p.tabs.includes(taskId));
-            const direction = edgeDirectionAt(event.currentTarget, event.clientX, event.clientY);
-            if (direction) {
-              // 端ドロップ = Blender/Cursor 方式の方向分割。既存タスクは元ペインから外れて新ペインへ移動する。
-              dispatch({ type: "openInNewPane", taskId, anchorPaneId: pane.id, direction });
-            } else if (source && source.id !== pane.id) {
-              dispatch({ type: "moveTab", fromPaneId: source.id, toPaneId: pane.id, taskId });
-            } else if (pane.tabs.length === 0) {
-              // 空ペイン: そのまま開く
-              dispatch({ type: "openTab", paneId: pane.id, taskId });
-            } else if (!source) {
-              // ペイン本体ドロップ = 分割（新ペインで開く）。タブとして追加したい場合はタブバーへ
-              dispatch({ type: "openInNewPane", taskId });
-            } else {
-              dispatch({ type: "activateTab", paneId: pane.id, taskId });
-            }
-          }}
-          onPointerDown={() => {
-            if (pane.id !== activePaneId) dispatch({ type: "activatePane", paneId: pane.id });
-          }}
-          onFocusCapture={() => {
-            if (pane.id !== activePaneId) dispatch({ type: "activatePane", paneId: pane.id });
-          }}
-        >
-          {!single && (
-            <TaskTabs
-              pane={pane}
-              isActivePane={pane.id === activePaneId}
-              statusFor={statusFor}
-              titleFor={titleFor}
-              canAddPane={state.panes.length < 4}
-              showAddButton={pane.id === state.panes[state.panes.length - 1].id}
-              onActivateTab={(taskId) => dispatch({ type: "activateTab", paneId: pane.id, taskId })}
-              onCloseTab={(taskId) => dispatch({ type: "closeTab", paneId: pane.id, taskId })}
-              onReorderTabs={(tabs) => dispatch({ type: "reorderTabs", paneId: pane.id, tabs })}
-              onMoveTab={(taskId, toPaneId) => {
-                const source = state.panes.find((p) => p.tabs.includes(taskId));
-                if (source && source.id !== toPaneId) {
-                  dispatch({ type: "moveTab", fromPaneId: source.id, toPaneId, taskId });
-                } else if (!source) {
-                  dispatch({ type: "openTab", paneId: toPaneId, taskId });
-                }
-              }}
-              onAddPane={() => dispatch({ type: "addPane" })}
-              onOpenHome={() => dispatch({ type: "openTab", paneId: pane.id, taskId: HOME_TAB_ID })}
-            />
-          )}
-          {/* アクティブペインのアクセント線（仕様 §6） */}
-          {pane.id === activePaneId && (
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-x-0 top-0 z-[70] h-0.5 bg-accent"
-            />
-          )}
-          {/* 端ドラッグ中の分割プレビュー（VS Code 風に分割後の占有領域を半分で示す） */}
-          {dragEdge?.paneId === pane.id && (
-            <span
-              aria-hidden="true"
-              className={cx(
-                "pointer-events-none absolute z-[75] bg-accent/15 ring-1 ring-inset ring-accent/40",
-                dragEdge.direction === "left" && "inset-y-0 left-0 w-1/2",
-                dragEdge.direction === "right" && "inset-y-0 right-0 w-1/2",
-                dragEdge.direction === "top" && "inset-x-0 top-0 h-1/2",
-                dragEdge.direction === "bottom" && "inset-x-0 bottom-0 h-1/2",
-              )}
-            />
-          )}
-          {/* 空ペインのガイド（仕様 §6 のドロップ待ち状態） */}
-          {pane.tabs.length === 0 && (
-            <div className="flex min-h-0 flex-1 items-center justify-center p-4 text-center text-xs text-faint">
-              サイドバーからタスクをドロップして開けます
-            </div>
-          )}
-          {pane.tabs.map((taskId) => {
-            // 可視性は各ペインの自ペイン内 activeTabId のみで決める。
-            // ペインのフォーカス（activePaneId）を条件にすると非アクティブペインが
-            // 空描画になる（隣ペインは常に自タブを表示していてこそ分割にならない）。
-            const isActiveTab = pane.activeTabId === taskId;
-            // 未開封タブはマウントしない（初回読み込み・SSE 接続を遅延）。
-            // アクティブタブは開封済み集合へ追加済みなので常にマウントされる。
-            if (!openedTabs.has(taskId)) return null;
-            // 新規作成（Home）タブ: TaskView の代わりに HomeView を同じ隠しマウント方式で載せる
-            if (taskId === HOME_TAB_ID) {
-              return (
-                <div
-                  key={taskId}
-                  className={cx("min-h-0 min-w-0 flex-1", !isActiveTab && "hidden")}
-                >
-                  <PaneHomeView
-                    key={`${projectId ?? ""}:${noProject ? "no-project" : "project"}`}
-                    initialProjectId={projectId ?? undefined}
-                    initialNoProject={noProject}
-                  />
-                </div>
-              );
-            }
-            return (
-              <SplitTaskView
-                key={taskId}
-                taskId={taskId}
-                mdUp={mdUp}
-                active={isActiveTab}
-                onStatus={reportStatus}
-                onAddPane={
-                  single && state.panes.length < 4
-                    ? addPane
-                    : undefined
-                }
-              />
-            );
-          })}
-        </section>
-      ))}
-      {!single && (isGrid ? (
-        <>
-          <PaneResizeHandle
-            key="pane-resize-column"
-            boundaryIndex={0}
-            position={gridColumnWidth}
-            widths={resizeWidths}
-            containerRef={containerRef}
-            onResize={updatePaneWidths}
-            axis="x"
-          />
-          <PaneResizeHandle
-            key="pane-resize-row"
-            boundaryIndex={0}
-            position={gridRowHeight}
-            widths={resizeHeights}
-            containerRef={containerRef}
-            onResize={(next) => setGridRowHeight(next[0] ?? 0.5)}
-            axis="y"
-          />
-        </>
-      ) : handlePositions.map((position, boundaryIndex) => (
-        <PaneResizeHandle
-          key={`pane-resize-${boundaryIndex}`}
-          boundaryIndex={boundaryIndex}
-          position={position}
-          widths={resizeWidths}
-          containerRef={containerRef}
-          onResize={updatePaneWidths}
-          axis={!isColumn ? "x" : "y"}
-        />
-      )))}
+    <div className={cx(paneLayoutClass(state), "relative")}>
+      <PaneLayoutBranch
+        layout={layout}
+        paneById={paneById}
+        paneIndexes={paneIndexes}
+        activePaneId={activePaneId}
+        single={single}
+        dragOverPaneId={dragOverPaneId}
+        dragEdge={dragEdge}
+        openedTabs={openedTabs}
+        projectId={projectId}
+        noProject={noProject}
+        mdUp={mdUp}
+        statusFor={statusFor}
+        reportStatus={reportStatus}
+        titleFor={titleFor}
+        canAddPane={canAddPane}
+        lastPaneId={lastPaneId}
+        splitRatios={splitRatios}
+        onSplitRatioChange={updateSplitRatio}
+        onPaneDragOver={onPaneDragOver}
+        onPaneDragLeave={onPaneDragLeave}
+        onPaneDrop={onPaneDrop}
+        onActivatePane={(paneId) => dispatch({ type: "activatePane", paneId })}
+        onActivateTab={(paneId, taskId) => dispatch({ type: "activateTab", paneId, taskId })}
+        onCloseTab={(paneId, taskId) => dispatch({ type: "closeTab", paneId, taskId })}
+        onReorderTabs={(paneId, tabs) => dispatch({ type: "reorderTabs", paneId, tabs })}
+        onMoveTab={onMoveTab}
+        onAddPane={addPane}
+        onOpenHome={(paneId) => dispatch({ type: "openTab", paneId, taskId: HOME_TAB_ID })}
+      />
     </div>
   );
 }

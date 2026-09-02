@@ -17,11 +17,21 @@
 
 - **最大 4 ペイン × 各ペイン最大 5 タブ**（本家と同じ）
 - 各ペインは複数タスクをタブで保持
-- **レイアウト**: ペイン数で自動切替（1〜3 = 横並び flex、4 = 2x2 grid）
+- **レイアウト**: ペイン単位の split tree。各分割ノードが左右（row）または上下（column）の方向を持ち、端ドロップは対象アンカーの葉だけを分割する。4 ペインでも 2x2 に固定せず、既存の他ペインの方向を変えない
 - **1 ペイン × 1 タブ時は従来通り**: タブバー非表示、見た目・動作とも現行と同一
 - **最小 1 ペイン制約**: 最後のペインは閉じられない。1 ペイン時の最終タブ `×` は no-op
 - **モバイル（md 未満）不可**: 分割もタブも無効化し、URL タスクの単一表示へフォールバック（`matchMedia("(min-width: 768px)")`）。単純化のため md へ復帰した直後は URL タスクのみの 1 ペインから再開する
 - 上限超過時の操作は reducer が no-op。`+` ボタンは上限到達時に disabled。トースト等の新規通知 UI は作らない
+
+### レイアウトツリー
+
+レイアウトは次の再帰構造で保持する。
+
+- `pane`: `{ type: "pane", paneId }`
+- `split`: `{ type: "split", id, orientation: "row" | "column", children: [leftOrTop, rightOrBottom] }`
+- `left` / `right` の端ドロップは row、`top` / `bottom` は column とする。left/top は新しい葉を children[0]、right/bottom は children[1] に置く
+- ペインを閉じたときは該当葉を除去し、片側だけになった split を縮退する
+- 旧保存値に layout がなければ、従来の `orientation`（なければ row）で flat panes から一時的にツリー化する。旧 `orientation` は layout がある状態の描画方向には使わない
 
 ### 本家との差分
 - 「4 ペインフル時にさらに追加 → 別ペインのタブとして追加」は廃止。どのペインに入れるかはドロップ先で明示的に指定する仕組みのため、暗黙のフォールバックは不要
@@ -64,7 +74,9 @@
 
 ## 5. 永続化
 
-- **localStorage キー `webui:task-panes`** に panes JSON（taskId 配列 + activeTabId のみ）を保存。500ms デバウンス
+- **localStorage キー `webui:task-panes`** に panes JSON（taskId 配列 + activeTabId + layout tree）を保存。500ms デバウンス
+- `layout` がない旧保存値も読み込める。旧値の flat panes は `orientation`（なければ row）で描画用ツリーへ変換し、次回のレイアウト操作から tree 形式で保持する
+- split のリサイズ比率は UI ローカル状態であり保存しない
 - 復元順序（md 以上のときのみ実行）:
   1. URL taskId から `panes[0] = { tabs: [url], activeTabId: url }` で即時構築
   2. mount 後に localStorage を読み、保存値の中に URL taskId を含むペインがあればその構成へ差し替え。含まれない場合は保存値の panes[0] の activeTabId を URL taskId に修正して復元（直リンク互換）
@@ -91,5 +103,5 @@
 
 - **新規 model**: `web/src/lib/task-panes.ts` — 型・reducer・上限ガード・localStorage I/O を純関数中心で実装
 - **Provider**: `web/src/components/shell/TaskPanesContext.tsx` — useReducer + URL 同期（`history.replaceState`）+ md フォールバック + status 報告 map + tasks-changed 自動クローズ
-- **描画ホスト**: AppShell の `<section>` 内で panes を動的レンダリング（`next/dynamic` ssr:false）。`/task/[id]/page.tsx` は `null` を返す薄いページになり、URL 情報は pathname 経由で provider が取得
+- **描画ホスト**: AppShell の `<section>` 内で layout tree を再帰レンダリング（`next/dynamic` ssr:false）。各 split node は自身の方向とリサイズ境界を持つ。`/task/[id]/page.tsx` は `null` を返す薄いページになり、URL 情報は pathname 経由で provider が取得
 - **DOM/SSE リソース**: 最大 4 ペイン × 5 タブ = 20 の TaskView + EventSource。LeafCodePi の SSE は BFF 内 harness 配信で軽量だが、接続数上限に注意（リスク節参照）

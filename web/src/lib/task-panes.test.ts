@@ -8,6 +8,7 @@ import {
   isSplitHostPath,
   loadTaskPanes,
   normalize,
+  paneLayoutForState,
   restoreTaskPanesForUrl,
   resizeAdjacentPaneWidths,
   retargetActiveTab,
@@ -15,6 +16,7 @@ import {
   removeTaskEverywhere,
   taskIdFromPathname,
   taskPanesReducer as reducer,
+  type PaneLayout,
   type TaskPane,
   type TaskPanesState,
 } from "./task-panes";
@@ -25,6 +27,12 @@ function pane(id: string, tabs: string[], activeTabId: string | null = tabs[0] ?
 
 function state(...panes: TaskPane[]): TaskPanesState {
   return { panes, activePaneId: panes[0].id };
+}
+
+function layoutPaneIds(layout: PaneLayout): string[] {
+  return layout.type === "pane"
+    ? [layout.paneId]
+    : [...layoutPaneIds(layout.children[0]), ...layoutPaneIds(layout.children[1])];
 }
 
 const P1 = "pane-1";
@@ -97,6 +105,25 @@ describe("openTab", () => {
     expect(next.panes[1].tabs).toEqual(["t2", "fresh"]);
     expect(next.panes[1].activeTabId).toBe("fresh");
     expect(next.activePaneId).toBe(P2);
+  });
+
+  it("タブ追加時も既存のレイアウトと orientation を保持する", () => {
+    const base: TaskPanesState = {
+      ...state(pane(P1, ["t1"]), pane(P2, ["t2"])),
+      orientation: "column",
+      layout: {
+        type: "split",
+        id: "root",
+        orientation: "row",
+        children: [
+          { type: "pane", paneId: P1 },
+          { type: "pane", paneId: P2 },
+        ],
+      },
+    };
+    const next = reducer(base, { type: "openTab", paneId: P2, taskId: "fresh" });
+    expect(next.orientation).toBe("column");
+    expect(next.layout).toEqual(base.layout);
   });
 
   it("重複時は既存タブの活性化に寄せる（二重登録しない）", () => {
@@ -201,6 +228,37 @@ describe("openInNewPane with direction", () => {
     });
     expect(next.panes.map((p) => p.id)).toEqual([P1, next.panes[1].id, P2]);
     expect(next.orientation).toBe("row");
+  });
+
+  it("方向分割は anchor の葉だけを置き換え、他ペインの方向を変えない", () => {
+    const base = state(pane(P1, ["a"]), pane(P2, ["b"]), pane(P3, ["c"]));
+    const next = reducer(base, {
+      type: "openInNewPane",
+      taskId: "d",
+      anchorPaneId: P2,
+      direction: "bottom",
+    });
+    const layout = next.layout!;
+    expect(layoutPaneIds(layout)).toEqual(next.panes.map((pane) => pane.id));
+    expect(layout).toMatchObject({
+      type: "split",
+      orientation: "row",
+      children: [
+        {
+          type: "split",
+          orientation: "row",
+          children: [
+            { type: "pane", paneId: P1 },
+            {
+              type: "split",
+              orientation: "column",
+              children: [{ type: "pane", paneId: P2 }, { type: "pane", paneId: next.panes[2].id }],
+            },
+          ],
+        },
+        { type: "pane", paneId: P3 },
+      ],
+    });
   });
 
   it("direction=top / bottom は orientation を column に切り替える", () => {
@@ -390,6 +448,40 @@ describe("addPane / closePane", () => {
     expect(next.panes.map((p) => p.id)).toEqual([P1]);
     expect(next.activePaneId).toBe(P1);
   });
+
+  it("closePane はレイアウトツリーの該当葉だけを縮退させる", () => {
+    const base = state(pane(P1, ["a"]), pane(P2, ["b"]));
+    const split = reducer(base, {
+      type: "openInNewPane",
+      taskId: "c",
+      anchorPaneId: P1,
+      direction: "right",
+    });
+    const closed = reducer(split, { type: "closePane", paneId: split.panes[1].id });
+    expect(closed.panes.map((pane) => pane.id)).toEqual([P1, P2]);
+    expect(layoutPaneIds(closed.layout!)).toEqual([P1, P2]);
+    expect(closed.layout).toMatchObject({
+      type: "split",
+      orientation: "row",
+      children: [{ type: "pane", paneId: P1 }, { type: "pane", paneId: P2 }],
+    });
+  });
+});
+
+describe("paneLayoutForState", () => {
+  it("layout のない旧保存値は orientation を使って平坦なツリーへ変換する", () => {
+    const layout = paneLayoutForState({
+      panes: [pane(P1, ["a"]), pane(P2, ["b"])],
+      activePaneId: P1,
+      orientation: "column",
+    });
+    expect(layout).toEqual({
+      type: "split",
+      id: "split-pane-2",
+      orientation: "column",
+      children: [{ type: "pane", paneId: P1 }, { type: "pane", paneId: P2 }],
+    });
+  });
 });
 
 describe("normalize", () => {
@@ -426,6 +518,25 @@ describe("normalize", () => {
     const absent = normalize({ panes: [{ id: P1, tabs: ["a"] }], activePaneId: P1 });
     expect(absent?.orientation).toBeUndefined();
   });
+
+  it("保存されたペイン単位の layout tree を検証して復元する", () => {
+    const layout: PaneLayout = {
+      type: "split",
+      id: "root",
+      orientation: "row",
+      children: [
+        { type: "pane", paneId: P1 },
+        { type: "pane", paneId: P2 },
+      ],
+    };
+    expect(
+      normalize({
+        panes: [pane(P1, ["a"]), pane(P2, ["b"])],
+        activePaneId: P2,
+        layout,
+      }),
+    ).toEqual({ panes: [pane(P1, ["a"]), pane(P2, ["b"])], activePaneId: P2, layout });
+  });
 });
 
 describe("localStorage 永続化", () => {
@@ -442,6 +553,24 @@ describe("localStorage 永続化", () => {
   it("save → load で roundtrip する", () => {
     installLocalStorage();
     const saved = state(pane(P1, ["a", "b"], "b"), pane(P2, [], null));
+    saveTaskPanes(saved);
+    expect(loadTaskPanes()).toEqual(saved);
+  });
+
+  it("方向付き layout tree も save → load で保持する", () => {
+    installLocalStorage();
+    const saved: TaskPanesState = {
+      ...state(pane(P1, ["a"]), pane(P2, ["b"])),
+      layout: {
+        type: "split",
+        id: "root",
+        orientation: "row",
+        children: [
+          { type: "pane", paneId: P1 },
+          { type: "pane", paneId: P2 },
+        ],
+      },
+    };
     saveTaskPanes(saved);
     expect(loadTaskPanes()).toEqual(saved);
   });
