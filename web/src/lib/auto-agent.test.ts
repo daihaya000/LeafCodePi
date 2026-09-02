@@ -28,8 +28,8 @@ import {
 } from "./auto-agent";
 
 const candidates: AutoAgentCandidate[] = [
-  { name: "build", description: "実装を進める" },
-  { name: "reviewer", description: "差分をレビューする" },
+  { name: "build", description: "実装を進める", canModifyFiles: true },
+  { name: "reviewer", description: "差分をレビューする", canModifyFiles: false },
 ];
 
 beforeEach(() => {
@@ -41,9 +41,19 @@ beforeEach(() => {
   mocks.generateDirectTextWithFallbackResult.mockReset();
   mocks.listAgents.mockReturnValue({
     agents: [
-      { name: "reviewer", description: "差分をレビューする", enabled: true },
+      {
+        name: "reviewer",
+        description: "差分をレビューする",
+        enabled: true,
+        tools: ["read", "grep"],
+      },
       { name: "disabled", description: "使わない", enabled: false },
-      { name: "build", description: "実装を進める", enabled: true },
+      {
+        name: "build",
+        description: "実装を進める",
+        enabled: true,
+        tools: ["read", "edit", "write"],
+      },
     ],
     agentsDir: "",
   });
@@ -61,10 +71,11 @@ describe("auto-agent", () => {
       candidates,
     );
 
-    expect(prompt).toContain("前回の依頼");
-    expect(prompt).toContain("今回の差分を確認して");
+    expect(prompt).toContain("<conversation_history>\nUser: 前回の依頼\n</conversation_history>");
+    expect(prompt).toContain("<current_request>\n今回の差分を確認して\n</current_request>");
     expect(prompt).toContain("reviewer");
     expect(prompt).toContain("差分をレビューする");
+    expect(prompt).toContain('"canModifyFiles":false');
   });
 
   it("accepts only a candidate name from the JSON response", () => {
@@ -120,9 +131,41 @@ describe("auto-agent", () => {
 
     const generated = mocks.generateDirectTextWithFallbackResult.mock.calls[0]?.[0];
     expect(generated.system).toContain("レビューは reviewer を優先");
+    expect(generated.system).toContain("現在の依頼を最優先");
+    expect(generated.system).toContain("canModifyFiles=false");
     expect(generated.prompt).toContain("レビューして");
     expect(generated.prompt).toContain("reviewer");
+    expect(generated.prompt).toContain('"canModifyFiles":false');
     expect(generated.prompt).not.toContain("disabled");
+  });
+
+  it("prioritizes a current implementation request over prior review context", async () => {
+    const model = { providerID: "p", modelID: "m" };
+    mocks.buildDirectGenerationCandidates.mockReturnValue([{ model }]);
+    mocks.generateDirectTextWithFallbackResult.mockResolvedValue({
+      text: '{"agent":"build"}',
+      model,
+    });
+
+    await expect(
+      resolveAutoAgent({
+        conversation: [
+          { role: "user", text: "レビューして" },
+          { role: "assistant", text: "修正点があります" },
+        ],
+        prompt: "指摘事項を修正して",
+      }),
+    ).resolves.toBe("build");
+
+    const generated = mocks.generateDirectTextWithFallbackResult.mock.calls[0]?.[0];
+    expect(generated.prompt).toContain("<conversation_history>\nUser: レビューして");
+    expect(generated.prompt).toContain(
+      "<current_request>\n指摘事項を修正して\n</current_request>",
+    );
+    expect(generated.prompt).toContain('"name":"reviewer"');
+    expect(generated.prompt).toContain('"canModifyFiles":false');
+    expect(generated.prompt).toContain('"name":"build"');
+    expect(generated.prompt).toContain('"canModifyFiles":true');
   });
 
   it("falls back to build when generation fails or returns an unknown name", async () => {
