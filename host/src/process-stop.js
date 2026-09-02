@@ -2,7 +2,8 @@ import { execSync as defaultExecSync } from "node:child_process";
 
 function asPid(pid) {
   const n = Number(pid);
-  if (!Number.isInteger(n) || n <= 0) return null;
+  // On POSIX kill(-1, signal) broadcasts to every process the caller may signal.
+  if (!Number.isInteger(n) || n <= 1) return null;
   return n;
 }
 

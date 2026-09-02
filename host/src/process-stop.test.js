@@ -14,6 +14,18 @@ test("Linux soft kill targets the detached process group", () => {
   assert.deepEqual(calls, [[-42, "SIGTERM"]]);
 });
 
+test("Linux refuses PID 1 instead of broadcasting kill(-1)", () => {
+  const calls = [];
+  assert.equal(
+    hardKillTree(1, {
+      platform: "linux",
+      kill: (pid, signal) => calls.push([pid, signal]),
+    }),
+    false,
+  );
+  assert.deepEqual(calls, []);
+});
+
 test("Linux kill falls back to the process when it is not a group leader", () => {
   const calls = [];
   assert.equal(
