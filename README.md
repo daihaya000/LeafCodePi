@@ -90,7 +90,7 @@ pi install ./extensions/leafcode-goal-loop
 `in_progress` は同時に1件だけ許可します。Pi セッションの tool result に状態を保存し、
 Task 画面には本家 LeafCode と同様の折りたたみ式 ToDo 進捗とプログレスバーを表示します。
 
-起票漏れを防ぐため、non-empty の ToDo を登録する前の変更、shell、委譲、memory変更、未分類toolを停止します。
+起票漏れを防ぐため、`in_progress` を含む non-empty の ToDo を登録する前の変更、shell、委譲、memory変更、未分類toolを停止します。
 通常のread-only作業も3回目までに起票が必要です。`AGENTS.md` / `SKILL.md` の確認と制御toolは対象外です。
 streaming中の `steer` / `followUp` とextension入力は現在のタスクの継続として扱います。
 
@@ -173,6 +173,7 @@ npm run dev
 コードの確認:
 
 ```powershell
+npm --prefix extensions/leafcode-todowrite install --include=dev
 npm run typecheck
 npm run lint
 npm test

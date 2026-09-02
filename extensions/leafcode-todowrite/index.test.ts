@@ -157,7 +157,7 @@ describe("todowrite omission gate", () => {
     }
   });
 
-  it("unlocks only after a successful non-empty write and stays unlocked after clearing", async () => {
+  it("unlocks only after registering an in-progress item and stays unlocked after clearing", async () => {
     const run = fixture();
     expect(run.callTool("edit")?.block).toBe(true);
 
@@ -166,6 +166,15 @@ describe("todowrite omission gate", () => {
 
     await run.writeTodos([]);
     expect(run.callTool("powershell")).toBeUndefined();
+  });
+
+  it("does not unlock a non-empty list without an in-progress item", async () => {
+    const run = fixture();
+    await run.writeTodos([{ content: "未着手", status: "pending", priority: "high" }]);
+    expect(run.callTool("edit")?.block).toBe(true);
+
+    await run.writeTodos([{ content: "完了済み", status: "completed", priority: "high" }]);
+    expect(run.callTool("edit")?.block).toBe(true);
   });
 
   it("does not unlock for empty, invalid, or restored Todo snapshots", async () => {

@@ -217,7 +217,7 @@ export default function (pi: ExtensionAPI): void {
       "Replace the current Todo list. Use statuses pending, in_progress, completed, cancelled and priorities high, medium, low. Keep at most one item in_progress.",
     promptSnippet: "Maintain the task Todo list with statuses and priorities",
     promptGuidelines: [
-      "Call todowrite with a non-empty list before edits, shell commands, delegation, or the third substantive read-only tool call. For explicit Todo requests, call it before the first substantive tool.",
+      "Call todowrite with a non-empty list and mark the current item in_progress before edits, shell commands, delegation, or the third substantive read-only tool call. For explicit Todo requests, call it before the first substantive tool.",
     ],
     parameters: TodoParams,
 
@@ -234,7 +234,7 @@ export default function (pi: ExtensionAPI): void {
         };
       }
       todos = normalized.todos;
-      if (todos.length > 0) gate.openedThisTask = true;
+      if (todos.some((todo) => todo.status === "in_progress")) gate.openedThisTask = true;
       const details = {
         todos: [...todos],
         updatedAt: new Date().toISOString(),

@@ -6,6 +6,7 @@ import {
   applyThroughput,
   applyToolTiming,
   isReasoningMandatoryError,
+  promptInputSource,
   reasoningFallbackLevel,
   syncSessionName,
 } from "./harness";
@@ -57,6 +58,13 @@ describe("applySubagentPermission", () => {
     const s = mockSession(["read", "bash"]);
     applySubagentPermission(s as never, "deny");
     assert.deepEqual(s.names(), ["read", "bash"]);
+  });
+});
+
+describe("promptInputSource", () => {
+  it("marks watchdog retries as extension input without changing user prompts", () => {
+    assert.equal(promptInputSource(true), "extension");
+    assert.equal(promptInputSource(false), undefined);
   });
 });
 

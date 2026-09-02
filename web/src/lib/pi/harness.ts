@@ -3906,6 +3906,10 @@ async function prepareLiveForPrompt(
   );
 }
 
+export function promptInputSource(isHangRetry: boolean): "extension" | undefined {
+  return isHangRetry ? "extension" : undefined;
+}
+
 function queuePrompt(
   live: LiveRuntime,
   prompt: string,
@@ -3943,7 +3947,10 @@ function queuePrompt(
     const options: {
       images?: Array<{ type: "image"; data: string; mimeType: string }>;
       streamingBehavior?: "steer" | "followUp";
+      source?: "extension";
     } = {};
+    const source = promptInputSource(isHangRetry);
+    if (source) options.source = source;
     if (images && images.length > 0) {
       options.images = images.map((image) => ({
         type: "image" as const,
