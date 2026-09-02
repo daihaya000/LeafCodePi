@@ -10,6 +10,7 @@ import { createSseWriter } from "@/lib/sse-writer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const TASK_SSE_PERF_ENABLED = process.env.NODE_ENV === "development";
 
 export async function GET(
   req: NextRequest,
@@ -23,11 +24,16 @@ export async function GET(
       let unsubscribe = () => {};
       let ready = false;
       const pendingPayloads: Record<string, unknown>[] = [];
+      const requestStartedAt = TASK_SSE_PERF_ENABLED ? performance.now() : 0;
       sse = createSseWriter(controller);
       sse.onCleanup(() => unsubscribe());
       sse.startHeartbeat();
       try {
+        const bootstrapStartedAt = TASK_SSE_PERF_ENABLED ? performance.now() : 0;
         const bootstrap = getTaskBootstrap(id);
+        const bootstrapMs = TASK_SSE_PERF_ENABLED
+          ? performance.now() - bootstrapStartedAt
+          : 0;
         unsubscribe = subscribeTask(id, (payload) => {
           if (!ready) {
             // Keep the ready snapshot before live updates. A full snapshot
@@ -85,6 +91,14 @@ export async function GET(
           questionRequest: detail.questionRequest ?? pendingQuestionForTask(id),
           eventType: "ready",
         });
+        if (TASK_SSE_PERF_ENABLED) {
+          console.debug("[leafcodepi:sse-perf]", {
+            bootstrapMs: Math.round(bootstrapMs),
+            readyMs: Math.round(performance.now() - requestStartedAt),
+            messages: detail.messages.length,
+            bufferedPayloads: pendingPayloads.length,
+          });
+        }
         ready = true;
         for (const payload of pendingPayloads) {
           if (sse.closed) break;

@@ -165,6 +165,75 @@ import { statusFromChangedFileCount, type WorktreeStatus } from "@/lib/worktree-
 
 /** Compaction LLM calls routinely exceed the default fetch budget. */
 const COMPACT_TIMEOUT_MS = 240_000;
+const TASK_SESSION_CACHE_THROTTLE_MS = 1_000;
+const TASK_PERF_ENABLED = process.env.NODE_ENV === "development";
+let nextTaskPerfId = 0;
+
+type TaskPerformanceState = {
+  id: number;
+  connectedAt: number | null;
+  bootstrapAt: number | null;
+  readyAt: number | null;
+  firstPaintAt: number | null;
+  firstDeltaAt: number | null;
+  snapshotCount: number;
+  snapshotChars: number;
+  deltaCount: number;
+  deltaChars: number;
+  reported: boolean;
+};
+
+function taskPerfNow(): number | null {
+  return TASK_PERF_ENABLED && typeof performance !== "undefined"
+    ? performance.now()
+    : null;
+}
+
+function taskPerfMark(id: number, phase: string): void {
+  if (!TASK_PERF_ENABLED || typeof performance === "undefined") return;
+  performance.mark(`leafcodepi:task:${id}:${phase}`);
+}
+
+function reportTaskPerformance(perf: TaskPerformanceState): void {
+  if (
+    !TASK_PERF_ENABLED ||
+    perf.reported ||
+    perf.readyAt === null ||
+    perf.firstPaintAt === null
+  ) {
+    return;
+  }
+  perf.reported = true;
+  const prefix = `leafcodepi:task:${perf.id}`;
+  try {
+    performance.measure(`${prefix}:bootstrap-ttfb`, `${prefix}:connect`, `${prefix}:bootstrap`);
+    performance.measure(`${prefix}:ready`, `${prefix}:connect`, `${prefix}:ready`);
+    performance.measure(`${prefix}:ready-to-paint`, `${prefix}:ready`, `${prefix}:first-paint`);
+  } catch {
+    /* Performance marks are diagnostic only. */
+  }
+  console.debug("[leafcodepi:task-perf]", {
+    instance: perf.id,
+    bootstrapTtfbMs:
+      perf.connectedAt !== null && perf.bootstrapAt !== null
+        ? Math.round(perf.bootstrapAt - perf.connectedAt)
+        : null,
+    readyMs:
+      perf.connectedAt !== null && perf.readyAt !== null
+        ? Math.round(perf.readyAt - perf.connectedAt)
+        : null,
+    readyToPaintMs:
+      perf.readyAt !== null ? Math.round(perf.firstPaintAt - perf.readyAt) : null,
+    firstDeltaMs:
+      perf.connectedAt !== null && perf.firstDeltaAt !== null
+        ? Math.round(perf.firstDeltaAt - perf.connectedAt)
+        : null,
+    snapshotCount: perf.snapshotCount,
+    snapshotChars: perf.snapshotChars,
+    deltaCount: perf.deltaCount,
+    deltaChars: perf.deltaChars,
+  });
+}
 
 /**
  * スナップショット毎に新オブジェクトが生成される setTask のマージ結果を、
@@ -531,6 +600,22 @@ export const TaskView = memo(function TaskView({
   const sidebarNotifyKeyRef = useRef("");
   const cacheSnapshotRef = useRef<TaskSessionCacheSnapshot | null>(null);
   const cacheTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const taskPerfRef = useRef<TaskPerformanceState | null>(null);
+  if (taskPerfRef.current === null) {
+    taskPerfRef.current = {
+      id: ++nextTaskPerfId,
+      connectedAt: null,
+      bootstrapAt: null,
+      readyAt: null,
+      firstPaintAt: null,
+      firstDeltaAt: null,
+      snapshotCount: 0,
+      snapshotChars: 0,
+      deltaCount: 0,
+      deltaChars: 0,
+      reported: false,
+    };
+  }
   cacheSnapshotRef.current = task
     ? {
         task,
@@ -545,13 +630,14 @@ export const TaskView = memo(function TaskView({
     const snapshot = cacheSnapshotRef.current;
     if (!snapshot || (sessionHydrating && snapshot.messages.length === 0)) return;
     // Throttle rather than debounce so a long-running stream is still cached
-    // before the host is quit.
+    // before the host is quit, without serializing the full cache every few
+    // hundred milliseconds.
     if (cacheTimerRef.current !== null) return;
     cacheTimerRef.current = setTimeout(() => {
       cacheTimerRef.current = null;
       const latest = cacheSnapshotRef.current;
       if (latest) saveTaskSessionCache(latest);
-    }, 500);
+    }, TASK_SESSION_CACHE_THROTTLE_MS);
   }, [contextUsage, isCompacting, messages, sessionHydrating, task, taskId]);
 
   useEffect(() => {
@@ -609,6 +695,20 @@ export const TaskView = memo(function TaskView({
     let source: EventSource | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryCount = 0;
+    const perf = taskPerfRef.current;
+    if (TASK_PERF_ENABLED && perf) {
+      perf.connectedAt = taskPerfNow();
+      perf.bootstrapAt = null;
+      perf.readyAt = null;
+      perf.firstPaintAt = null;
+      perf.firstDeltaAt = null;
+      perf.snapshotCount = 0;
+      perf.snapshotChars = 0;
+      perf.deltaCount = 0;
+      perf.deltaChars = 0;
+      perf.reported = false;
+      if (perf.connectedAt !== null) taskPerfMark(perf.id, "connect");
+    }
     sidebarNotifyKeyRef.current = "";
     setManualAbortedAssistantId(null);
     setHangRetryCount(0);
@@ -629,6 +729,11 @@ export const TaskView = memo(function TaskView({
       source = new EventSource(`/api/tasks/${taskId}/events?epoch=${Date.now()}`);
       source.addEventListener("snapshot", (event) => {
         if (closed) return;
+        const rawData = (event as MessageEvent).data as string;
+        if (TASK_PERF_ENABLED && perf) {
+          perf.snapshotCount += 1;
+          perf.snapshotChars += typeof rawData === "string" ? rawData.length : 0;
+        }
         if (retryCount > 0) setError(null);
         setSseReconnecting(false);
         retryCount = 0;
@@ -648,13 +753,23 @@ export const TaskView = memo(function TaskView({
           eventType?: string;
         };
         try {
-          payload = JSON.parse((event as MessageEvent).data) as typeof payload;
+          payload = JSON.parse(rawData) as typeof payload;
         } catch {
           setError("イベントデータの解析に失敗しました");
           return;
         }
         const snapshotTask = payload.task;
         const isBootstrap = payload.eventType === "bootstrap";
+        if (TASK_PERF_ENABLED && perf) {
+          const at = taskPerfNow();
+          if (at !== null && isBootstrap && perf.bootstrapAt === null) {
+            perf.bootstrapAt = at;
+            taskPerfMark(perf.id, "bootstrap");
+          } else if (at !== null && !isBootstrap && perf.readyAt === null) {
+            perf.readyAt = at;
+            taskPerfMark(perf.id, "ready");
+          }
+        }
         // Bootstrap marks a new hydration epoch. Set this urgently so a
         // reconnect cannot clear its gate and auto-resume cached state first.
         if (isBootstrap) setSessionHydrating(true);
@@ -734,11 +849,23 @@ export const TaskView = memo(function TaskView({
       });
       source.addEventListener("delta", (event) => {
         if (closed) return;
+        const rawData = (event as MessageEvent).data as string;
+        if (TASK_PERF_ENABLED && perf) {
+          perf.deltaCount += 1;
+          perf.deltaChars += typeof rawData === "string" ? rawData.length : 0;
+          if (perf.firstDeltaAt === null) {
+            const at = taskPerfNow();
+            if (at !== null) {
+              perf.firstDeltaAt = at;
+              taskPerfMark(perf.id, "first-delta");
+            }
+          }
+        }
         let payload: {
           message?: UiMessage | null;
         } & TaskDeltaState;
         try {
-          payload = JSON.parse((event as MessageEvent).data) as typeof payload;
+          payload = JSON.parse(rawData) as typeof payload;
         } catch {
           setError("イベントデータの解析に失敗しました");
           return;
@@ -968,6 +1095,28 @@ export const TaskView = memo(function TaskView({
   useLayoutEffect(() => {
     scheduleScrollToBottom();
   }, [messages, task?.isStreaming, isCompacting, scheduleScrollToBottom]);
+
+  useEffect(() => {
+    const perf = taskPerfRef.current;
+    if (
+      !TASK_PERF_ENABLED ||
+      !perf ||
+      sessionHydrating ||
+      perf.readyAt === null ||
+      perf.firstPaintAt !== null
+    ) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      if (perf.firstPaintAt !== null) return;
+      const at = taskPerfNow();
+      if (at === null) return;
+      perf.firstPaintAt = at;
+      taskPerfMark(perf.id, "first-paint");
+      reportTaskPerformance(perf);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages.length, sessionHydrating, taskId]);
 
   useEffect(() => {
     const scroller = scrollRef.current;
@@ -1585,17 +1734,58 @@ export const TaskView = memo(function TaskView({
     documentHidden,
     permissionTick,
   ]);
-  const { visibleMessages, detectedHangRetryCount } = useMemo(() => {
+  // ナビゲーターのジャンプ対象: ユーザーメッセージを優先し、Goal Loop の
+  // hidden custom message しかない履歴では投影済みメッセージへフォールバックする。
+  // 表示用フィルタとヘッダー統計も同じ走査で集計し、deltaごとの履歴再走査を抑える。
+  const {
+    visibleMessages,
+    detectedHangRetryCount,
+    userMessageIds,
+    navigationMessageIds,
+    stats,
+  } = useMemo(() => {
     const visible: UiMessage[] = [];
+    const userIds: string[] = [];
+    const fallbackIds: string[] = [];
     let detectedHangRetryCount = 0;
+    let totalTokens = 0;
+    let rateSum = 0;
+    let rateCount = 0;
+    let durationMs = 0;
+    let prevCreatedAt: number | null = null;
     for (const message of messages) {
       if (isHangRetryUserMessage(message)) {
         detectedHangRetryCount += 1;
-      } else {
-        visible.push(message);
+        continue;
       }
+      visible.push(message);
+      if (message.role === "user") userIds.push(message.id);
+      else if (message.role !== "compaction") fallbackIds.push(message.id);
+      if (message.role === "user" || message.role === "compaction") continue;
+      if (typeof message.outputTokens === "number" && message.outputTokens > 0) {
+        totalTokens += message.outputTokens;
+      }
+      if (typeof message.tokensPerSecond === "number" && message.tokensPerSecond > 0) {
+        rateSum += message.tokensPerSecond;
+        rateCount += 1;
+      }
+      if (prevCreatedAt !== null) {
+        durationMs += Math.max(0, message.createdAt - prevCreatedAt);
+      }
+      prevCreatedAt = message.createdAt;
     }
-    return { visibleMessages: visible, detectedHangRetryCount };
+    const avgRate = rateCount > 0 ? rateSum / rateCount : null;
+    return {
+      visibleMessages: visible,
+      detectedHangRetryCount,
+      userMessageIds: userIds,
+      navigationMessageIds: userIds.length > 0 ? userIds : fallbackIds,
+      stats: {
+        totalTokens,
+        avgRate,
+        durationMs: messages.length > 1 ? durationMs : 0,
+      },
+    };
   }, [messages]);
   const resumeTarget = useMemo(
     () =>
@@ -1687,44 +1877,6 @@ export const TaskView = memo(function TaskView({
   // モデル一覧の読み込み状態に関係なく、タスクへ実際に保存されたeffortを表示する。
   const effortLabel = thinkingLevelMetaLabel(task?.thinkingLevel);
 
-  // ナビゲーターのジャンプ対象: ユーザーメッセージを優先し、Goal Loop の
-  // hidden custom message しかない履歴では投影済みメッセージへフォールバックする。
-  // ヘッダー統計も同じ走査で集計し、deltaごとの履歴再走査を1回に抑える。
-  const { userMessageIds, navigationMessageIds, stats } = useMemo(() => {
-    const userIds: string[] = [];
-    const fallbackIds: string[] = [];
-    let totalTokens = 0;
-    let rateSum = 0;
-    let rateCount = 0;
-    let durationMs = 0;
-    let prevCreatedAt: number | null = null;
-    for (const message of visibleMessages) {
-      if (message.role === "user") userIds.push(message.id);
-      else if (message.role !== "compaction") fallbackIds.push(message.id);
-      if (message.role === "user" || message.role === "compaction") continue;
-      if (typeof message.outputTokens === "number" && message.outputTokens > 0) {
-        totalTokens += message.outputTokens;
-      }
-      if (typeof message.tokensPerSecond === "number" && message.tokensPerSecond > 0) {
-        rateSum += message.tokensPerSecond;
-        rateCount += 1;
-      }
-      if (prevCreatedAt !== null) {
-        durationMs += Math.max(0, message.createdAt - prevCreatedAt);
-      }
-      prevCreatedAt = message.createdAt;
-    }
-    const avgRate = rateCount > 0 ? rateSum / rateCount : null;
-    return {
-      userMessageIds: userIds,
-      navigationMessageIds: userIds.length > 0 ? userIds : fallbackIds,
-      stats: {
-        totalTokens,
-        avgRate,
-        durationMs: messages.length > 1 ? durationMs : 0,
-      },
-    };
-  }, [messages, visibleMessages]);
   const navigationTargetLabel = userMessageIds.length > 0 ? "ユーザーメッセージ" : "メッセージ";
   navigationMessageIdsRef.current = navigationMessageIds;
   currentNavigationIdxRef.current = navigationMessageIds.length > 0
@@ -1957,6 +2109,7 @@ export const TaskView = memo(function TaskView({
             {visibleMessages.map((message) => (
               <div
                 key={messageRenderKey(message)}
+                className="task-message-row"
                 ref={(el) => {
                   if (el) messageElsRef.current.set(message.id, el);
                   else messageElsRef.current.delete(message.id);

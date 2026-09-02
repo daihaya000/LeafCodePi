@@ -151,6 +151,11 @@ select {
   }
 }
 
+.task-message-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 12rem;
+}
+
 .md {
   min-width: 0;
   max-width: 100%;
