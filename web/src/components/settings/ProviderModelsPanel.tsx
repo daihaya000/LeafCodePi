@@ -430,24 +430,26 @@ export function ProviderModelsPanel({
     });
   }, [load]);
 
+  // 並び替えは現在の providers を直接参照して次の配列を計算し、setProviders は
+  // 確定した値を一度だけ渡す。updater関数内で saveOrder/setReorderAnnouncement を呼ぶと、
+  // Strict Modeや並行レンダーでupdaterが再実行された際にPATCHが重複し得るため。
   const moveProvider = useCallback(
     (targetRowKey: string) => {
-      if (dragging?.kind !== "provider" || dragging.rowKey === targetRowKey) return;
-      setProviders((prev) => {
-        const from = prev.findIndex((provider) => providerRowKey(provider) === dragging.rowKey);
-        const to = prev.findIndex((provider) => providerRowKey(provider) === targetRowKey);
-        if (from < 0 || to < 0) return prev;
-        const next = moveItem(prev, from, to);
-        saveOrder(next);
-        return next;
-      });
       setDragging(null);
+      if (dragging?.kind !== "provider" || dragging.rowKey === targetRowKey) return;
+      const from = providers.findIndex((provider) => providerRowKey(provider) === dragging.rowKey);
+      const to = providers.findIndex((provider) => providerRowKey(provider) === targetRowKey);
+      if (from < 0 || to < 0) return;
+      const next = moveItem(providers, from, to);
+      setProviders(next);
+      saveOrder(next);
     },
-    [dragging, saveOrder],
+    [dragging, providers, saveOrder],
   );
 
   const moveModel = useCallback(
     (rowKey: string, targetId: string) => {
+      setDragging(null);
       if (
         dragging?.kind !== "model" ||
         dragging.rowKey !== rowKey ||
@@ -455,59 +457,52 @@ export function ProviderModelsPanel({
       ) {
         return;
       }
-      setProviders((prev) => {
-        const next = prev.map((provider) => {
-          if (providerRowKey(provider) !== rowKey) return provider;
-          const from = provider.models.findIndex((model) => model.id === dragging.id);
-          const to = provider.models.findIndex((model) => model.id === targetId);
-          return { ...provider, models: moveItem(provider.models, from, to) };
-        });
-        saveOrder(next);
-        return next;
+      const next = providers.map((provider) => {
+        if (providerRowKey(provider) !== rowKey) return provider;
+        const from = provider.models.findIndex((model) => model.id === dragging.id);
+        const to = provider.models.findIndex((model) => model.id === targetId);
+        return { ...provider, models: moveItem(provider.models, from, to) };
       });
-      setDragging(null);
+      setProviders(next);
+      saveOrder(next);
     },
-    [dragging, saveOrder],
+    [dragging, providers, saveOrder],
   );
 
   const moveProviderBy = useCallback(
     (rowKey: string, direction: -1 | 1) => {
-      setProviders((current) => {
-        const from = current.findIndex((provider) => providerRowKey(provider) === rowKey);
-        const to = from + direction;
-        if (from < 0 || to < 0 || to >= current.length) return current;
-        const next = moveItem(current, from, to);
-        saveOrder(next);
-        setReorderAnnouncement(
-          `${providerDisplayName(current[from]!)}を${to + 1}番目へ移動しました`,
-        );
-        return next;
-      });
+      const from = providers.findIndex((provider) => providerRowKey(provider) === rowKey);
+      const to = from + direction;
+      if (from < 0 || to < 0 || to >= providers.length) return;
+      const next = moveItem(providers, from, to);
+      setProviders(next);
+      saveOrder(next);
+      setReorderAnnouncement(
+        `${providerDisplayName(providers[from]!)}を${to + 1}番目へ移動しました`,
+      );
     },
-    [saveOrder],
+    [providers, saveOrder],
   );
 
   const moveModelBy = useCallback(
     (rowKey: string, modelId: string, direction: -1 | 1) => {
-      setProviders((current) => {
-        let movedLabel = "";
-        let movedPosition = 0;
-        const next = current.map((provider) => {
-          if (providerRowKey(provider) !== rowKey) return provider;
-          const from = provider.models.findIndex((model) => model.id === modelId);
-          const to = from + direction;
-          if (from < 0 || to < 0 || to >= provider.models.length) return provider;
-          movedLabel = `${providerDisplayName(provider)} の ${provider.models[from]!.name}`;
-          movedPosition = to + 1;
-          return { ...provider, models: moveItem(provider.models, from, to) };
-        });
-        if (!movedLabel) return current;
-        saveOrder(next);
-        setReorderAnnouncement(`${movedLabel}を${movedPosition}番目へ移動しました`);
-        return next;
+      let movedLabel = "";
+      let movedPosition = 0;
+      const next = providers.map((provider) => {
+        if (providerRowKey(provider) !== rowKey) return provider;
+        const from = provider.models.findIndex((model) => model.id === modelId);
+        const to = from + direction;
+        if (from < 0 || to < 0 || to >= provider.models.length) return provider;
+        movedLabel = `${providerDisplayName(provider)} の ${provider.models[from]!.name}`;
+        movedPosition = to + 1;
+        return { ...provider, models: moveItem(provider.models, from, to) };
       });
+      if (!movedLabel) return;
+      setProviders(next);
+      saveOrder(next);
+      setReorderAnnouncement(`${movedLabel}を${movedPosition}番目へ移動しました`);
     },
-    [saveOrder],
+    [providers, saveOrder],
   );
 
   const enabledCount = providers.reduce(

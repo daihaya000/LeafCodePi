@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderModelsPanel } from "./ProviderModelsPanel";
 
@@ -281,5 +282,26 @@ describe("ProviderModelsPanel account model settings", () => {
     expect(screen.getByRole("status").textContent).toContain(
       "OpenAI Codex · 仕事用 の GPT-5を2番目へ移動しました",
     );
+  });
+
+  it("StrictModeでも並び替えボタンの1回クリックでPATCHは1回だけ送信される", async () => {
+    render(
+      <StrictMode>
+        <ProviderModelsPanel />
+      </StrictMode>,
+    );
+    await screen.findByRole("heading", { name: "モデル" });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "OpenAI Codex · 仕事用 を上へ" }),
+    );
+
+    await waitFor(() => {
+      const orderPatches = fetchMock.mock.calls.filter(
+        ([input, init]) =>
+          String(input).endsWith("/api/provider-models/order") && init?.method === "PATCH",
+      );
+      expect(orderPatches).toHaveLength(1);
+    });
   });
 });
