@@ -83,7 +83,8 @@ describe("ProviderModelsPanel account model settings", () => {
     render(<ProviderModelsPanel />);
     await screen.findByRole("heading", { name: "モデル" });
 
-    expect(screen.getByLabelText("OpenAI Codex をドラッグして並び替え")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "OpenAI Codex を上へ" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "OpenAI Codex を下へ" })).toBeTruthy();
     expect(screen.queryByText("アカウント: 仕事用")).toBeNull();
     expect(screen.queryByText("アカウント: 個人用")).toBeNull();
   });
@@ -223,22 +224,16 @@ describe("ProviderModelsPanel account model settings", () => {
     });
   });
 
-  it("moves account rows in the same list as shared providers", async () => {
+  it("moves account rows in the same list as shared providers with buttons", async () => {
     render(<ProviderModelsPanel />);
     await screen.findByRole("heading", { name: "モデル" });
 
-    const source = screen
-      .getByLabelText("OpenAI Codex · 仕事用 をドラッグして並び替え")
-      .closest("li");
-    const target = screen
-      .getByLabelText("Ollama Cloud をドラッグして並び替え")
-      .closest("li");
-    expect(source).toBeTruthy();
-    expect(target).toBeTruthy();
-    const dataTransfer = { effectAllowed: "", setData: vi.fn(), getData: vi.fn() };
-    fireEvent.dragStart(source!, { dataTransfer });
-    fireEvent.dragOver(target!, { dataTransfer });
-    fireEvent.drop(target!, { dataTransfer });
+    expect(
+      (screen.getByRole("button", { name: "Ollama Cloud を上へ" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.click(
+      screen.getByRole("button", { name: "OpenAI Codex · 仕事用 を上へ" }),
+    );
 
     await waitFor(() => {
       const orderPatch = fetchMock.mock.calls.find(
@@ -250,27 +245,26 @@ describe("ProviderModelsPanel account model settings", () => {
         providerOrder: ["acc-1::openai-codex", "ollama-cloud", "acc-2::openai-codex"],
       });
     });
+    expect(screen.getByRole("status").textContent).toContain(
+      "OpenAI Codex · 仕事用を1番目へ移動しました",
+    );
   });
 
-  it("saves model order under the selected account", async () => {
+  it("saves model order under the selected account with buttons", async () => {
     render(<ProviderModelsPanel />);
     await screen.findByRole("heading", { name: "モデル" });
     fireEvent.click(
       screen.getByRole("button", { name: "OpenAI Codex · 仕事用 のモデルを展開" }),
     );
 
-    const source = screen
-      .getByLabelText("OpenAI Codex · 仕事用 の GPT-5 をドラッグして並び替え")
-      .closest("li");
-    const target = screen
-      .getByLabelText("OpenAI Codex · 仕事用 の GPT-4 をドラッグして並び替え")
-      .closest("li");
-    expect(source).toBeTruthy();
-    expect(target).toBeTruthy();
-    const dataTransfer = { effectAllowed: "", setData: vi.fn(), getData: vi.fn() };
-    fireEvent.dragStart(source!, { dataTransfer });
-    fireEvent.dragOver(target!, { dataTransfer });
-    fireEvent.drop(target!, { dataTransfer });
+    expect(
+      (screen.getByRole("button", {
+        name: "OpenAI Codex · 仕事用 の GPT-4 を下へ",
+      }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.click(
+      screen.getByRole("button", { name: "OpenAI Codex · 仕事用 の GPT-5 を下へ" }),
+    );
 
     await waitFor(() => {
       const orderPatch = fetchMock.mock.calls.find(
@@ -284,5 +278,8 @@ describe("ProviderModelsPanel account model settings", () => {
         },
       });
     });
+    expect(screen.getByRole("status").textContent).toContain(
+      "OpenAI Codex · 仕事用 の GPT-5を2番目へ移動しました",
+    );
   });
 });

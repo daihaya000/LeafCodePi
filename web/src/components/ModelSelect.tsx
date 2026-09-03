@@ -12,7 +12,7 @@ import {
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, ImageIcon } from "lucide-react";
 import { ProviderIcon } from "@/components/ProviderIcon";
-import { cx } from "@/components/ui";
+import { cx, focusAdjacentControl } from "@/components/ui";
 import { providerLabel } from "@/lib/codexbar";
 import type { ModelOption } from "@/lib/types";
 
@@ -83,6 +83,7 @@ export function ModelSelect({
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const initialFocusRef = useRef<"selected" | "first" | "last">("selected");
   const listboxId = useId();
 
   const selected = options.find((option) => option.value === value);
@@ -154,11 +155,65 @@ export function ModelSelect({
     updateMenuPosition();
   }, [open, grouped, updateMenuPosition]);
 
+  useLayoutEffect(() => {
+    if (!open) return;
+    const optionButtons = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? [],
+    );
+    const selectedOption = optionButtons.find(
+      (option) => option.getAttribute("aria-selected") === "true",
+    );
+    const fallback = initialFocusRef.current === "last"
+      ? optionButtons.at(-1)
+      : optionButtons[0];
+    (selectedOption ?? fallback)?.focus();
+    initialFocusRef.current = "selected";
+  }, [open, grouped, value]);
+
+  const handleListboxKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const optionButtons = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+    );
+    if (event.key === "Tab") {
+      event.preventDefault();
+      setOpen(false);
+      focusAdjacentControl(triggerRef.current, event.shiftKey ? -1 : 1, menuRef.current);
+      return;
+    }
+    if (optionButtons.length === 0) return;
+    const current = (event.target as HTMLElement).closest<HTMLButtonElement>('[role="option"]');
+
+    if (event.key === "Enter" || event.key === " ") {
+      if (!current) return;
+      event.preventDefault();
+      current.click();
+      return;
+    }
+
+    const currentIndex = current ? optionButtons.indexOf(current) : -1;
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowDown") nextIndex = (currentIndex + 1) % optionButtons.length;
+    if (event.key === "ArrowUp") nextIndex = (currentIndex - 1 + optionButtons.length) % optionButtons.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = optionButtons.length - 1;
+    if (nextIndex === null) return;
+
+    event.preventDefault();
+    optionButtons[nextIndex]?.focus();
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     updateMenuPosition();
 
     function onPointerDown(event: PointerEvent) {
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
+        setOpen(false);
+      }
+    }
+
+    function onFocusIn(event: FocusEvent) {
       const target = event.target as Node;
       if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
         setOpen(false);
@@ -173,11 +228,13 @@ export function ModelSelect({
     }
 
     document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("focusin", onFocusIn);
     document.addEventListener("keydown", onKeyDown);
     window.addEventListener("resize", updateMenuPosition);
     window.addEventListener("scroll", updateMenuPosition, true);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("resize", updateMenuPosition);
       window.removeEventListener("scroll", updateMenuPosition, true);
@@ -208,6 +265,7 @@ export function ModelSelect({
         id={listboxId}
         role="listbox"
         aria-label={ariaLabel ?? "モデル"}
+        onKeyDown={handleListboxKeyDown}
         className="max-h-80 overflow-y-auto p-1"
       >
         {grouped.map((group) => (
@@ -225,6 +283,7 @@ export function ModelSelect({
                   type="button"
                   role="option"
                   aria-selected={option.value === value}
+                  tabIndex={-1}
                   title={option.label}
                   onClick={() => chooseOption(option)}
                   className={cx(
@@ -271,7 +330,16 @@ export function ModelSelect({
         aria-busy={loading || undefined}
         aria-label={ariaLabel ?? "モデル"}
         title={title ?? selected?.label ?? (loading ? "モデルを読み込み中…" : emptyStateLabel)}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => {
+          initialFocusRef.current = "selected";
+          setOpen((current) => !current);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          event.preventDefault();
+          initialFocusRef.current = event.key === "ArrowUp" ? "last" : "first";
+          setOpen(true);
+        }}
         className={cx(
           "group inline-flex h-full w-full min-w-0 items-center gap-1.5 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs font-medium text-muted shadow-sm transition-colors hover:bg-surface-2 hover:text-text",
           isDisabled && "cursor-not-allowed opacity-40",

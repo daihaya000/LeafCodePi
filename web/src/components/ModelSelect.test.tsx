@@ -122,6 +122,52 @@ describe("ModelSelect grouping by account", () => {
     expect(screen.getByText("Codex · 仕事用")).toBeTruthy();
   });
 
+  it("supports arrow, Home/End, Enter, and Escape keyboard operation", () => {
+    const onChange = vi.fn();
+    render(
+      <>
+        <ModelSelect
+          value="ollama-cloud::llama-3"
+          options={[
+            option({ value: "ollama-cloud::llama-3", label: "Llama 3", modelID: "llama-3" }),
+            option({ value: "openai::gpt-5", label: "GPT-5", providerID: "openai", modelID: "gpt-5" }),
+            option({ value: "custom::model", label: "Custom", providerID: "custom", modelID: "model" }),
+          ]}
+          onChange={onChange}
+        />
+        <button type="button">次の操作</button>
+      </>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "モデル" });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+
+    const options = screen.getAllByRole("option");
+    expect(document.activeElement).toBe(options[0]);
+    fireEvent.keyDown(options[0]!, { key: "End" });
+    expect(document.activeElement).toBe(options.at(-1));
+    fireEvent.keyDown(options.at(-1)!, { key: "Home" });
+    expect(document.activeElement).toBe(options[0]);
+    fireEvent.keyDown(options[0]!, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(options.at(-1));
+    fireEvent.keyDown(options.at(-1)!, { key: "Enter" });
+
+    expect(onChange).toHaveBeenCalledWith("custom::model");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    fireEvent.keyDown(document.activeElement!, { key: "Tab" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "次の操作" }));
+  });
+
   it("calls onChange with the account-prefixed value", () => {
     const onChange = vi.fn();
     render(

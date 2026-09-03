@@ -24,6 +24,39 @@ function cx(...parts: (string | false | null | undefined)[]): string {
 
 export { cx };
 
+const FOCUSABLE_CONTROL_SELECTOR = [
+  "a[href]",
+  "button:not(:disabled)",
+  "input:not(:disabled)",
+  "select:not(:disabled)",
+  "textarea:not(:disabled)",
+  '[tabindex]:not([tabindex="-1"])',
+  '[contenteditable="true"]',
+].join(",");
+
+function focusableControls(root: ParentNode = document): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_CONTROL_SELECTOR)).filter(
+    (element) => {
+      if (element.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
+      const style = window.getComputedStyle(element);
+      return style.display !== "none" && style.visibility !== "hidden";
+    },
+  );
+}
+
+export function focusAdjacentControl(
+  anchor: HTMLElement | null,
+  direction: -1 | 1,
+  excludedRoot?: HTMLElement | null,
+) {
+  if (!anchor) return;
+  const controls = focusableControls().filter(
+    (control) => !excludedRoot?.contains(control),
+  );
+  const anchorIndex = controls.indexOf(anchor);
+  controls[anchorIndex + direction]?.focus();
+}
+
 export function GhostSelect({
   icon,
   valueLabel,
@@ -58,6 +91,7 @@ export function GhostSelect({
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const initialFocusRef = useRef<"selected" | "first" | "last">("selected");
   const listboxId = useId();
   const groupedOptions = useMemo(() => {
     const groups: {
@@ -140,16 +174,100 @@ export function GhostSelect({
 
   useLayoutEffect(() => {
     if (!open) return;
-    menuRef.current
-      ?.querySelector<HTMLButtonElement>('[role="option"][aria-selected="true"]')
-      ?.focus();
+    const optionButtons = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') ?? [],
+    );
+    const selectedOption = optionButtons.find(
+      (option) => option.getAttribute("aria-selected") === "true",
+    );
+    const fallback = initialFocusRef.current === "last"
+      ? optionButtons.at(-1)
+      : optionButtons[0];
+    (selectedOption ?? fallback)?.focus();
+    initialFocusRef.current = "selected";
   }, [open, groupedOptions, value]);
+
+  const handleListboxKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const optionButtons = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)'),
+    );
+    if (event.key === "Tab") {
+      event.preventDefault();
+      if (!event.shiftKey) {
+        const actionContainer = menuRef.current?.querySelector<HTMLElement>(
+          "[data-ghost-select-action]",
+        );
+        const firstAction = actionContainer ? focusableControls(actionContainer)[0] : undefined;
+        if (firstAction) {
+          firstAction.focus();
+          return;
+        }
+      }
+      setOpen(false);
+      focusAdjacentControl(triggerRef.current, event.shiftKey ? -1 : 1, menuRef.current);
+      return;
+    }
+    if (optionButtons.length === 0) return;
+    const current = (event.target as HTMLElement).closest<HTMLButtonElement>('[role="option"]');
+
+    if (event.key === "Enter" || event.key === " ") {
+      if (!current) return;
+      event.preventDefault();
+      current.click();
+      return;
+    }
+
+    const currentIndex = current ? optionButtons.indexOf(current) : -1;
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowDown") nextIndex = (currentIndex + 1) % optionButtons.length;
+    if (event.key === "ArrowUp") nextIndex = (currentIndex - 1 + optionButtons.length) % optionButtons.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = optionButtons.length - 1;
+    if (nextIndex === null) return;
+
+    event.preventDefault();
+    optionButtons[nextIndex]?.focus();
+  }, []);
+
+  const handleActionKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") return;
+    const actionControls = focusableControls(event.currentTarget);
+    const eventTarget = event.target as HTMLElement;
+    const currentIndex = actionControls.findIndex(
+      (control) => control === eventTarget || control.contains(eventTarget),
+    );
+    if (event.shiftKey && currentIndex <= 0) {
+      event.preventDefault();
+      const optionButtons = Array.from(
+        menuRef.current?.querySelectorAll<HTMLButtonElement>(
+          '[role="option"]:not(:disabled)',
+        ) ?? [],
+      );
+      optionButtons.at(-1)?.focus();
+      return;
+    }
+    if (!event.shiftKey && currentIndex >= actionControls.length - 1) {
+      event.preventDefault();
+      setOpen(false);
+      focusAdjacentControl(triggerRef.current, 1, menuRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     updateMenuPosition();
 
     function onPointerDown(event: PointerEvent) {
+      const target = event.target as Node;
+      if (
+        !rootRef.current?.contains(target) &&
+        !menuRef.current?.contains(target)
+      ) {
+        setOpen(false);
+      }
+    }
+
+    function onFocusIn(event: FocusEvent) {
       const target = event.target as Node;
       if (
         !rootRef.current?.contains(target) &&
@@ -167,11 +285,13 @@ export function GhostSelect({
     }
 
     document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("focusin", onFocusIn);
     document.addEventListener("keydown", onKeyDown);
     window.addEventListener("resize", updateMenuPosition);
     window.addEventListener("scroll", updateMenuPosition, true);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("resize", updateMenuPosition);
       window.removeEventListener("scroll", updateMenuPosition, true);
@@ -193,6 +313,7 @@ export function GhostSelect({
         id={listboxId}
         role="listbox"
         aria-label={ariaLabel}
+        onKeyDown={handleListboxKeyDown}
         className="max-h-80 overflow-y-auto p-1"
       >
         {groupedOptions.map((group, groupIndex) => (
@@ -208,6 +329,7 @@ export function GhostSelect({
                 type="button"
                 role="option"
                 aria-selected={option.value === value}
+                tabIndex={-1}
                 disabled={option.disabled}
                 title={option.title}
                 onClick={() => {
@@ -229,7 +351,15 @@ export function GhostSelect({
           </div>
         ))}
       </div>
-      {action && <div className="border-t border-border p-1">{action}</div>}
+      {action && (
+        <div
+          data-ghost-select-action
+          onKeyDown={handleActionKeyDown}
+          className="border-t border-border p-1"
+        >
+          {action}
+        </div>
+      )}
     </div>
   );
 
@@ -245,7 +375,16 @@ export function GhostSelect({
         aria-controls={open ? listboxId : undefined}
         aria-label={ariaLabel}
         title={title}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => {
+          initialFocusRef.current = "selected";
+          setOpen((current) => !current);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          event.preventDefault();
+          initialFocusRef.current = event.key === "ArrowUp" ? "last" : "first";
+          setOpen(true);
+        }}
         className={cx(
           "group inline-flex h-full w-full min-w-0 items-center gap-1.5 rounded-lg border bg-bg px-2 py-1.5 text-xs font-medium shadow-sm transition-colors",
           tone === "warning"

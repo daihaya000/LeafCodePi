@@ -195,6 +195,7 @@ function ResolutionPreview({
 
 function CandidateRow({
   index,
+  isLast,
   candidate,
   source,
   modelOptions,
@@ -203,6 +204,7 @@ function CandidateRow({
   onRemove,
 }: {
   index: number;
+  isLast: boolean;
   candidate: AutoRouteCandidate;
   source: AutoRouteSource;
   modelOptions: ModelOption[];
@@ -212,7 +214,7 @@ function CandidateRow({
 }) {
   const effortOptions = effortOptionsFor(candidate, source);
   return (
-    <div className="flex items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5">
+    <div className="flex flex-wrap items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5">
       <span className="w-4 shrink-0 text-right text-[10px] text-faint">{index + 1}.</span>
       {candidate.kind === "model" && (
         <ModelSelect
@@ -264,31 +266,32 @@ function CandidateRow({
           className="h-7 shrink-0"
         />
       )}
-      <div className="flex items-center gap-0.5">
+      <div className="ml-auto flex items-center gap-0.5">
         <button
           type="button"
           aria-label={`候補${index + 1}を上へ`}
           disabled={index === 0}
           onClick={() => onMove(-1)}
-          className="rounded p-0.5 text-faint hover:bg-surface-3 hover:text-muted disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+          className="inline-flex h-11 w-11 items-center justify-center rounded text-faint hover:bg-surface-3 hover:text-muted disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:h-6 sm:w-6"
         >
-          <ChevronUp className="h-3 w-3" />
+          <ChevronUp aria-hidden="true" className="h-3 w-3" />
         </button>
         <button
           type="button"
           aria-label={`候補${index + 1}を下へ`}
+          disabled={isLast}
           onClick={() => onMove(1)}
-          className="rounded p-0.5 text-faint hover:bg-surface-3 hover:text-muted focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+          className="inline-flex h-11 w-11 items-center justify-center rounded text-faint hover:bg-surface-3 hover:text-muted disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:h-6 sm:w-6"
         >
-          <ChevronDown className="h-3 w-3" />
+          <ChevronDown aria-hidden="true" className="h-3 w-3" />
         </button>
         <button
           type="button"
           aria-label={`候補${index + 1}を削除`}
           onClick={onRemove}
-          className="rounded p-0.5 text-faint hover:bg-surface-3 hover:text-danger focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+          className="inline-flex h-11 w-11 items-center justify-center rounded text-faint hover:bg-surface-3 hover:text-danger focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:h-6 sm:w-6"
         >
-          <X className="h-3 w-3" />
+          <X aria-hidden="true" className="h-3 w-3" />
         </button>
       </div>
     </div>
@@ -391,6 +394,7 @@ function TierEditor({
             <CandidateRow
               key={`${index}-${candidate.kind}`}
               index={index}
+              isLast={index === candidates.length - 1}
               candidate={candidate}
               source={source}
               modelOptions={modelOptions}

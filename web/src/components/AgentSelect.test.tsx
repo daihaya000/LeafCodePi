@@ -56,6 +56,38 @@ describe("AgentSelect", () => {
     expect(screen.getByRole("button", { name: "エージェント" }).querySelector('[data-agent-icon="custom-agent"]')).not.toBeNull();
   });
 
+  it("supports keyboard navigation and selection", () => {
+    const onChange = vi.fn();
+    render(
+      <>
+        <AgentSelect
+          value="build"
+          agents={["build", "programmer", "reviewer"]}
+          onChange={onChange}
+        />
+        <button type="button">次の操作</button>
+      </>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "エージェント" });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByRole("option", { name: "build" }));
+
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByRole("option", { name: "programmer" }));
+    fireEvent.keyDown(document.activeElement!, { key: " " });
+
+    expect(onChange).toHaveBeenCalledWith("programmer");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    fireEvent.keyDown(document.activeElement!, { key: "Tab" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "次の操作" }));
+  });
+
   it("shows each agent's tool permissions on dropdown options", () => {
     render(
       <AgentSelect
