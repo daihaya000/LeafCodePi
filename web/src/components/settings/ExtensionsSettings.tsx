@@ -126,7 +126,7 @@ export function ExtensionsSettings() {
           などを追加してください。
         </p>
       ) : (
-        <ul className="mt-3 max-h-80 space-y-2 overflow-y-auto">
+        <ul className="mt-3 space-y-2">
           {extensions.map((extension) => (
             <li
               key={extension.id}

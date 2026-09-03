@@ -36,6 +36,9 @@ describe("ExtensionsSettings", () => {
     render(<ExtensionsSettings />);
 
     const toggle = await screen.findByRole("switch", { name: "leafcode-goal-loop を有効化" });
+    const list = toggle.closest("ul");
+    expect(list?.className).not.toContain("max-h-");
+    expect(list?.className).not.toContain("overflow-y-auto");
     expect((toggle as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByText("WebUI が依存するため有効化が必要です")).toBeTruthy();
 
