@@ -900,7 +900,7 @@ const SidebarView = memo(function SidebarView({
 
   async function setProjectIcon(project: ProjectDto, file: File | null) {
     if (!file) return;
-    if (!file.type.startsWith("image/") || file.size > 2 * 1024 * 1024) {
+    if (!file.type.match(/^image\/(png|jpeg|gif|webp)$/) || file.size > 2 * 1024 * 1024) {
       window.alert("2 MB以下の画像を選択してください。");
       return;
     }
@@ -1258,12 +1258,12 @@ const SidebarView = memo(function SidebarView({
                     </button>
                     <label
                       title="プロジェクトアイコンを設定"
-                      aria-label={`${project.name}のアイコンを設定`}
-                      className="inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted hover:text-text md:h-8 md:w-8"
+                      className="inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted hover:text-text focus-within:ring-2 focus-within:ring-inset focus-within:ring-primary md:h-8 md:w-8"
                     >
                       <ImageIcon className="h-3.5 w-3.5" />
                       <input
                         type="file"
+                        aria-label={`${project.name}のアイコンを設定`}
                         accept="image/png,image/jpeg,image/gif,image/webp"
                         className="sr-only"
                         onChange={(event) => {
@@ -1673,12 +1673,12 @@ const SidebarView = memo(function SidebarView({
             <label
               role="menuitem"
               title="プロジェクトアイコンを設定"
-              aria-label="プロジェクトアイコンを設定"
-              className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"
+              className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text focus-within:ring-2 focus-within:ring-inset focus-within:ring-primary"
             >
               <ImageIcon className="h-4 w-4" />
               <input
                 type="file"
+                aria-label="プロジェクトアイコンを設定"
                 accept="image/png,image/jpeg,image/gif,image/webp"
                 className="sr-only"
                 onChange={(event) => {

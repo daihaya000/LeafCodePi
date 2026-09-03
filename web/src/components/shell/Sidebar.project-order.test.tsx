@@ -115,9 +115,7 @@ describe("Sidebar project ordering", () => {
   it("sets a project icon from the expanded sidebar", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
-    const toggle = await screen.findByRole("button", { name: "Project Aを展開" });
-    const input = toggle.parentElement?.querySelector<HTMLInputElement>('input[type="file"]');
-    expect(input).toBeTruthy();
+    const input = (await screen.findByLabelText("Project Aのアイコンを設定")) as HTMLInputElement;
 
     fireEvent.change(input!, {
       target: { files: [new File(["icon"], "icon.png", { type: "image/png" })] },
