@@ -84,7 +84,7 @@ describe("SettingsView", () => {
 
   it("モデルタブをモデル、Autoモデル、生成モデル、プロバイダーの順に表示する", () => {
     render(<SettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: /^モデル$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^モデルタブ$/ }));
 
     expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
       "モデル",
@@ -103,7 +103,7 @@ describe("SettingsView", () => {
     );
 
     render(<SettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: /^モデル$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^モデルタブ$/ }));
 
     await waitFor(() => {
       expect(screen.getByTestId("provider-count").textContent).toBe("1");
@@ -146,7 +146,7 @@ describe("SettingsView", () => {
     window.history.replaceState(null, "", "/settings#engine-basic");
     render(<SettingsView />);
 
-    expect(within(screen.getByRole("navigation", { name: "設定" })).getByRole("button", { name: "エンジン" }).getAttribute("aria-current")).toBe("page");
+    expect(within(screen.getByRole("navigation", { name: "設定" })).getByRole("button", { name: "エンジンタブ" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("heading", { name: "基本" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "思考要約の翻訳" })).toBeNull();
@@ -154,7 +154,7 @@ describe("SettingsView", () => {
 
   it("エージェントタブがトップレベルに昇格し、AGENTS.md・メモリを直接表示する", () => {
     render(<SettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: /^エージェント$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^エージェントタブ$/ }));
 
     expect(screen.getByRole("heading", { name: "AGENTS.md" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "メモリ" })).toBeTruthy();
@@ -163,9 +163,49 @@ describe("SettingsView", () => {
 
   it("拡張タブがトップレベルに昇格し、拡張機能・MCPサーバーを直接表示する", () => {
     render(<SettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: /^拡張$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^拡張タブ$/ }));
 
     expect(screen.getByRole("heading", { name: "拡張機能" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "MCPサーバー" })).toBeTruthy();
+  });
+
+  it("旧 #general-basic / #general-response ハッシュからエンジンタブにリダイレクトし、ハッシュを新形式に正規化する", () => {
+    window.history.replaceState(null, "", "/settings#general-response");
+    render(<SettingsView />);
+
+    expect(within(screen.getByRole("navigation", { name: "設定" })).getByRole("button", { name: "エンジンタブ" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("heading", { name: "応答" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
+    expect(window.location.hash).toBe("#engine-response");
+  });
+
+  it("旧 #general-agents ハッシュからエージェントタブにリダイレクトする", () => {
+    window.history.replaceState(null, "", "/settings#general-agents");
+    render(<SettingsView />);
+
+    expect(within(screen.getByRole("navigation", { name: "設定" })).getByRole("button", { name: "エージェントタブ" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("heading", { name: "AGENTS.md" })).toBeTruthy();
+    expect(window.location.hash).toBe("");
+  });
+
+  it("旧 #general-integrations ハッシュから拡張タブにリダイレクトする", () => {
+    window.history.replaceState(null, "", "/settings#general-integrations");
+    render(<SettingsView />);
+
+    expect(within(screen.getByRole("navigation", { name: "設定" })).getByRole("button", { name: "拡張タブ" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("heading", { name: "拡張機能" })).toBeTruthy();
+    expect(window.location.hash).toBe("");
+  });
+
+  it("エンジン以外のハッシュ変更では engineSection をリセットしない", () => {
+    render(<SettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "応答" }));
+    expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
+
+    window.history.replaceState(null, "", "/settings#unrelated");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+
+    expect(screen.getByRole("heading", { name: "応答" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
   });
 });

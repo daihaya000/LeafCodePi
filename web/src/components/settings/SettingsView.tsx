@@ -42,15 +42,42 @@ function isEngineSection(value: string): value is EngineSection {
   return ENGINE_SECTIONS.some((section) => section.id === value);
 }
 
-function readEngineSection(): EngineSection {
-  if (typeof window === "undefined") return "overview";
-  const value = window.location.hash.replace(/^#engine-/, "");
-  return isEngineSection(value) ? value : "overview";
+// 旧「設定 > 一般」メニューのハッシュ。廃止後もブックマークや外部リンクから
+// 移行先タブへ届けるための互換マッピング。
+const LEGACY_HASH_TAB: Readonly<Record<string, Tab>> = {
+  "general-agents": "agents",
+  "general-integrations": "extensions",
+};
+const LEGACY_HASH_ENGINE_SECTION: Readonly<Record<string, EngineSection>> = {
+  "general-basic": "basic",
+  "general-response": "response",
+};
+
+function isSettingsHashKey(key: string): boolean {
+  return key.startsWith("engine-") || key in LEGACY_HASH_TAB || key in LEGACY_HASH_ENGINE_SECTION;
+}
+
+function resolveHashState(hash: string): { tab: Tab; engineSection: EngineSection } {
+  const key = hash.replace(/^#/, "");
+  if (key.startsWith("engine-")) {
+    const section = key.replace(/^engine-/, "");
+    return { tab: "engine", engineSection: isEngineSection(section) ? section : "overview" };
+  }
+  const legacyEngineSection = LEGACY_HASH_ENGINE_SECTION[key];
+  if (legacyEngineSection) return { tab: "engine", engineSection: legacyEngineSection };
+  const legacyTab = LEGACY_HASH_TAB[key];
+  if (legacyTab) return { tab: legacyTab, engineSection: "overview" };
+  return { tab: "engine", engineSection: "overview" };
+}
+
+function readInitialHashState(): { tab: Tab; engineSection: EngineSection } {
+  if (typeof window === "undefined") return { tab: "engine", engineSection: "overview" };
+  return resolveHashState(window.location.hash);
 }
 
 export function SettingsView() {
-  const [tab, setTab] = useState<Tab>("engine");
-  const [engineSection, setEngineSection] = useState<EngineSection>("overview");
+  const [tab, setTab] = useState<Tab>(() => readInitialHashState().tab);
+  const [engineSection, setEngineSection] = useState<EngineSection>(() => readInitialHashState().engineSection);
 
   const [health, setHealth] = useState<HealthDto | null>(null);
   const [providers, setProviders] = useState<ProviderAuthDto[]>([]);
@@ -76,16 +103,26 @@ export function SettingsView() {
   }, [reload]);
 
   useEffect(() => {
-    const syncEngineSection = () => {
-      setEngineSection(readEngineSection());
-      if (window.location.hash.startsWith("#engine-")) setTab("engine");
+    const syncFromHash = () => {
+      const key = window.location.hash.replace(/^#/, "");
+      // 設定以外のハッシュ変更（他機能のリンク移動等）で engineSection を
+      // 黙ってリセットしないようにガードする。
+      if (!isSettingsHashKey(key)) return;
+      const resolved = resolveHashState(window.location.hash);
+      setTab(resolved.tab);
+      setEngineSection(resolved.engineSection);
+      // 旧ハッシュは新形式に正規化しておく（ブックマーク・共有は旧形式のままになり䷄ける）。
+      if (key in LEGACY_HASH_TAB || key in LEGACY_HASH_ENGINE_SECTION) {
+        const canonicalHash = resolved.tab === "engine" ? `#engine-${resolved.engineSection}` : "";
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${canonicalHash}`);
+      }
     };
-    syncEngineSection();
-    window.addEventListener("hashchange", syncEngineSection);
-    window.addEventListener("popstate", syncEngineSection);
+    syncFromHash();
+    window.addEventListener("hashchange", syncFromHash);
+    window.addEventListener("popstate", syncFromHash);
     return () => {
-      window.removeEventListener("hashchange", syncEngineSection);
-      window.removeEventListener("popstate", syncEngineSection);
+      window.removeEventListener("hashchange", syncFromHash);
+      window.removeEventListener("popstate", syncFromHash);
     };
   }, []);
 
@@ -115,6 +152,7 @@ export function SettingsView() {
               <button
                 key={id}
                 type="button"
+                aria-label={`${label}タブ`}
                 aria-current={tab === id ? "page" : undefined}
                 onClick={() => setTab(id)}
                 className={cx(
@@ -171,7 +209,7 @@ export function SettingsView() {
 
                         <div className="rounded-2xl border border-border bg-surface p-4">
                           <div className="mb-3 flex items-center justify-between">
-                            <h2 className="text-sm font-semibold">Pi Coding Agent</h2>
+                            <h3 className="text-sm font-semibold">Pi Coding Agent</h3>
                             <Badge tone={health?.engineOk ? "success" : "warning"} pulse={!health?.engineOk}>
                               {health?.engineOk ? "利用可" : "未接続"}
                             </Badge>
