@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsView } from "./SettingsView";
 
@@ -110,26 +110,28 @@ describe("SettingsView", () => {
     });
   });
 
-  it("一般タブをカテゴリごとに切り替え、選択したカテゴリをハッシュに反映する", () => {
+  it("エンジンタブをセクションごとに切り替え、選択したセクションをハッシュに反映する", () => {
     render(<SettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: /^一般$/ }));
 
-    expect(screen.getByRole("navigation", { name: "一般設定" })).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "エンジン設定" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "基本" }));
+
     expect(screen.getByRole("heading", { name: "基本" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "思考要約の翻訳" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "応答" }));
 
-    expect(window.location.hash).toBe("#general-response");
+    expect(window.location.hash).toBe("#engine-response");
     expect(screen.getByRole("heading", { name: "応答" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "ブラウザ設定" })).toBeNull();
   });
 
-  it("一般設定では選択中カテゴリだけをマウントする", () => {
+  it("エンジン設定では選択中セクションだけをマウントする", () => {
     render(<SettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: /^一般$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "基本" }));
 
     expect(mountCounts.basic).toBe(1);
     expect(mountCounts.response).toBe(0);
@@ -140,14 +142,30 @@ describe("SettingsView", () => {
     expect(mountCounts.response).toBe(1);
   });
 
-  it("一般カテゴリのハッシュから直接開ける", () => {
-    window.history.replaceState(null, "", "/settings#general-agents");
+  it("エンジンセクションのハッシュから直接開ける", () => {
+    window.history.replaceState(null, "", "/settings#engine-basic");
     render(<SettingsView />);
 
-    expect(screen.getByRole("button", { name: "一般" }).getAttribute("aria-current")).toBe("page");
-    expect(screen.getByRole("heading", { name: "エージェント環境" })).toBeTruthy();
+    expect(within(screen.getByRole("navigation", { name: "設定" })).getByRole("button", { name: "エンジン" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("heading", { name: "基本" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "思考要約の翻訳" })).toBeNull();
+  });
+
+  it("エージェントタブがトップレベルに昇格し、AGENTS.md・メモリを直接表示する", () => {
+    render(<SettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: /^エージェント$/ }));
+
     expect(screen.getByRole("heading", { name: "AGENTS.md" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "メモリ" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "ブラウザ設定" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "スキル" })).toBeTruthy();
+  });
+
+  it("拡張タブがトップレベルに昇格し、拡張機能・MCPサーバーを直接表示する", () => {
+    render(<SettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: /^拡張$/ }));
+
+    expect(screen.getByRole("heading", { name: "拡張機能" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "MCPサーバー" })).toBeTruthy();
   });
 });

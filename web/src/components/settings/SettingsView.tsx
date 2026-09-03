@@ -25,33 +25,32 @@ import { Badge, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import type { HealthDto, ProviderAuthDto } from "@/lib/types";
 
-type Tab = "engine" | "models" | "general";
-type GeneralSection = "basic" | "response" | "agents" | "integrations";
+type Tab = "engine" | "models" | "agents" | "extensions";
+type EngineSection = "overview" | "basic" | "response";
 
-const GENERAL_SECTIONS: readonly {
-  id: GeneralSection;
+const ENGINE_SECTIONS: readonly {
+  id: EngineSection;
   label: string;
   description: string;
 }[] = [
+  { id: "overview", label: "エンジン", description: "Pi Coding Agent の状態とサーバー設定" },
   { id: "basic", label: "基本", description: "表示・通知に関する設定" },
   { id: "response", label: "応答", description: "翻訳・圧縮・自動再開に関する設定" },
-  { id: "agents", label: "エージェント環境", description: "AGENTS.md・メモリ・スキル・エージェントの管理" },
-  { id: "integrations", label: "拡張・連携", description: "拡張機能・MCPの設定" },
 ];
 
-function isGeneralSection(value: string): value is GeneralSection {
-  return GENERAL_SECTIONS.some((section) => section.id === value);
+function isEngineSection(value: string): value is EngineSection {
+  return ENGINE_SECTIONS.some((section) => section.id === value);
 }
 
-function readGeneralSection(): GeneralSection {
-  if (typeof window === "undefined") return "basic";
-  const value = window.location.hash.replace(/^#general-/, "");
-  return isGeneralSection(value) ? value : "basic";
+function readEngineSection(): EngineSection {
+  if (typeof window === "undefined") return "overview";
+  const value = window.location.hash.replace(/^#engine-/, "");
+  return isEngineSection(value) ? value : "overview";
 }
 
 export function SettingsView() {
   const [tab, setTab] = useState<Tab>("engine");
-  const [generalSection, setGeneralSection] = useState<GeneralSection>("basic");
+  const [engineSection, setEngineSection] = useState<EngineSection>("overview");
 
   const [health, setHealth] = useState<HealthDto | null>(null);
   const [providers, setProviders] = useState<ProviderAuthDto[]>([]);
@@ -77,23 +76,23 @@ export function SettingsView() {
   }, [reload]);
 
   useEffect(() => {
-    const syncGeneralSection = () => {
-      setGeneralSection(readGeneralSection());
-      if (window.location.hash.startsWith("#general-")) setTab("general");
+    const syncEngineSection = () => {
+      setEngineSection(readEngineSection());
+      if (window.location.hash.startsWith("#engine-")) setTab("engine");
     };
-    syncGeneralSection();
-    window.addEventListener("hashchange", syncGeneralSection);
-    window.addEventListener("popstate", syncGeneralSection);
+    syncEngineSection();
+    window.addEventListener("hashchange", syncEngineSection);
+    window.addEventListener("popstate", syncEngineSection);
     return () => {
-      window.removeEventListener("hashchange", syncGeneralSection);
-      window.removeEventListener("popstate", syncGeneralSection);
+      window.removeEventListener("hashchange", syncEngineSection);
+      window.removeEventListener("popstate", syncEngineSection);
     };
   }, []);
 
-  function selectGeneralSection(section: GeneralSection) {
-    setGeneralSection(section);
+  function selectEngineSection(section: EngineSection) {
+    setEngineSection(section);
     if (typeof window !== "undefined") {
-      const hash = `#general-${section}`;
+      const hash = `#engine-${section}`;
       if (window.location.hash !== hash) window.location.hash = hash;
     }
   }
@@ -109,7 +108,8 @@ export function SettingsView() {
               [
                 ["engine", "エンジン"],
                 ["models", "モデル"],
-                ["general", "一般"],
+                ["agents", "エージェント"],
+                ["extensions", "拡張"],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -128,61 +128,19 @@ export function SettingsView() {
           </nav>
 
           {tab === "engine" && (
-            <section className="space-y-4">
-              <HostRestartPanel onRestarted={reload} />
-
-              <div className="rounded-2xl border border-border bg-surface p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold">Pi Coding Agent</h2>
-                  <Badge tone={health?.engineOk ? "success" : "warning"} pulse={!health?.engineOk}>
-                    {health?.engineOk ? "利用可" : "未接続"}
-                  </Badge>
-                </div>
-                <dl className="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
-                  <dt className="text-muted">エンジン</dt>
-                  <dd>Pi SDK（プロセス内埋め込み）</dd>
-                  <dt className="text-muted">バージョン</dt>
-                  <dd className="font-mono">{health?.version ?? "—"}</dd>
-                  <dt className="text-muted">データ</dt>
-                  <dd className="break-all font-mono text-xs">{health?.dataDir ?? "—"}</dd>
-                  <dt className="text-muted">有効モデル数</dt>
-                  <dd>{health?.modelCount ?? 0}</dd>
-                </dl>
-                {health?.error && <p className="mt-3 text-sm text-danger">{health.error}</p>}
-                {error && <p className="mt-3 text-sm text-danger">{error}</p>}
-              </div>
-
-              <LlamaServerSettings />
-            </section>
-          )}
-
-          {tab === "models" && (
-            <section className="space-y-4">
-              <div className="rounded-2xl border border-border bg-surface p-4">
-                <ProviderModelsPanel refreshToken={modelsRevision} />
-              </div>
-              <AutoModelSettings refreshToken={modelsRevision} />
-              <GenerationModelSettings refreshToken={modelsRevision} />
-              <div className="rounded-2xl border border-border bg-surface p-4">
-                <ProviderAuthPanel providers={providers} onChanged={onProviderChanged} />
-              </div>
-            </section>
-          )}
-
-          {tab === "general" && (
             <div className="grid gap-6 md:grid-cols-[12rem_minmax(0,1fr)] md:items-start">
-              <nav aria-label="一般設定" className="min-w-0 md:sticky md:top-6">
-                <p className="mb-2 px-2 text-xs font-semibold text-muted">一般</p>
+              <nav aria-label="エンジン設定" className="min-w-0 md:sticky md:top-6">
+                <p className="mb-2 px-2 text-xs font-semibold text-muted">エンジン</p>
                 <div className="flex gap-1 overflow-x-auto pb-1 md:flex-col md:overflow-visible md:pb-0">
-                  {GENERAL_SECTIONS.map(({ id, label }) => (
+                  {ENGINE_SECTIONS.map(({ id, label }) => (
                     <button
                       key={id}
                       type="button"
-                      aria-current={generalSection === id ? "page" : undefined}
-                      onClick={() => selectGeneralSection(id)}
+                      aria-current={engineSection === id ? "page" : undefined}
+                      onClick={() => selectEngineSection(id)}
                       className={cx(
                         "min-h-11 shrink-0 rounded-lg border-b-2 px-3 py-2 text-left text-sm whitespace-nowrap transition-colors md:w-full md:border-b-0 md:border-l-2",
-                        generalSection === id
+                        engineSection === id
                           ? "border-accent bg-surface-2 font-medium text-text"
                           : "border-transparent text-muted hover:bg-surface-2 hover:text-text",
                       )}
@@ -194,19 +152,47 @@ export function SettingsView() {
               </nav>
 
               <div className="min-w-0">
-                {GENERAL_SECTIONS.map(({ id, label, description }) => generalSection === id && (
+                {ENGINE_SECTIONS.map(({ id, label, description }) => engineSection === id && (
                   <section
                     key={id}
-                    aria-labelledby={`general-${id}-heading`}
+                    aria-labelledby={`engine-${id}-heading`}
                     className="space-y-4"
                   >
                     <header>
-                      <h2 id={`general-${id}-heading`} className="text-lg font-semibold">
+                      <h2 id={`engine-${id}-heading`} className="text-lg font-semibold">
                         {label}
                       </h2>
                       <p className="mt-1 text-sm text-muted">{description}</p>
                     </header>
 
+                    {id === "overview" && (
+                      <div className="space-y-4">
+                        <HostRestartPanel onRestarted={reload} />
+
+                        <div className="rounded-2xl border border-border bg-surface p-4">
+                          <div className="mb-3 flex items-center justify-between">
+                            <h2 className="text-sm font-semibold">Pi Coding Agent</h2>
+                            <Badge tone={health?.engineOk ? "success" : "warning"} pulse={!health?.engineOk}>
+                              {health?.engineOk ? "利用可" : "未接続"}
+                            </Badge>
+                          </div>
+                          <dl className="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
+                            <dt className="text-muted">エンジン</dt>
+                            <dd>Pi SDK（プロセス内埋め込み）</dd>
+                            <dt className="text-muted">バージョン</dt>
+                            <dd className="font-mono">{health?.version ?? "—"}</dd>
+                            <dt className="text-muted">データ</dt>
+                            <dd className="break-all font-mono text-xs">{health?.dataDir ?? "—"}</dd>
+                            <dt className="text-muted">有効モデル数</dt>
+                            <dd>{health?.modelCount ?? 0}</dd>
+                          </dl>
+                          {health?.error && <p className="mt-3 text-sm text-danger">{health.error}</p>}
+                          {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+                        </div>
+
+                        <LlamaServerSettings />
+                      </div>
+                    )}
                     {id === "basic" && (
                       <div className="space-y-4">
                         <BrowserSettings />
@@ -225,24 +211,39 @@ export function SettingsView() {
                         <HangTimeoutSettings />
                       </div>
                     )}
-                    {id === "agents" && (
-                      <div className="space-y-4">
-                        <AgentsMdSettings />
-                        <MemorySettings />
-                        <SkillsSettings />
-                        <AgentsSettings />
-                      </div>
-                    )}
-                    {id === "integrations" && (
-                      <div className="space-y-4">
-                        <ExtensionsSettings />
-                        <McpSettings />
-                      </div>
-                    )}
                   </section>
                 ))}
               </div>
             </div>
+          )}
+
+          {tab === "models" && (
+            <section className="space-y-4">
+              <div className="rounded-2xl border border-border bg-surface p-4">
+                <ProviderModelsPanel refreshToken={modelsRevision} />
+              </div>
+              <AutoModelSettings refreshToken={modelsRevision} />
+              <GenerationModelSettings refreshToken={modelsRevision} />
+              <div className="rounded-2xl border border-border bg-surface p-4">
+                <ProviderAuthPanel providers={providers} onChanged={onProviderChanged} />
+              </div>
+            </section>
+          )}
+
+          {tab === "agents" && (
+            <section className="space-y-4">
+              <AgentsMdSettings />
+              <MemorySettings />
+              <SkillsSettings />
+              <AgentsSettings />
+            </section>
+          )}
+
+          {tab === "extensions" && (
+            <section className="space-y-4">
+              <ExtensionsSettings />
+              <McpSettings />
+            </section>
           )}
         </div>
       </div>
