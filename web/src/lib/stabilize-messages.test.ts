@@ -33,6 +33,27 @@ function toolMessage(id: string, output: string): UiMessage {
   };
 }
 
+function toolInputMessage(id: string, input: string, subagentRunIds?: string[]): UiMessage {
+  return {
+    id,
+    role: "assistant",
+    createdAt: 1,
+    parts: [
+      {
+        id: `${id}-tool`,
+        type: "tool",
+        tool: "bash",
+        callID: `${id}-call`,
+        state: {
+          status: "running",
+          input: { command: input },
+          ...(subagentRunIds ? { subagentRunIds } : {}),
+        },
+      },
+    ],
+  };
+}
+
 describe("messageRenderKey", () => {
   it("keeps a streamed row mounted after its persisted id is assigned", () => {
     const streamed = textMessage("msg-3", "実行します");
@@ -69,6 +90,26 @@ describe("stabilizeUiMessages", () => {
     expect(out[0]?.parts[0]).toMatchObject({ state: { output: "second text" } });
   });
 
+  it("updates a streamed tool when its input changes", () => {
+    const prev = [toolInputMessage("a", "first command")];
+    const next = [toolInputMessage("a", "second command")];
+    const out = stabilizeUiMessages(prev, next);
+    expect(out[0]).not.toBe(prev[0]);
+    expect(out[0]?.parts[0]).toMatchObject({
+      state: { input: { command: "second command" } },
+    });
+  });
+
+  it("updates a streamed tool when its subagent run ids change", () => {
+    const prev = [toolInputMessage("a", "command", ["run-a"])];
+    const next = [toolInputMessage("a", "command", ["run-b"])];
+    const out = stabilizeUiMessages(prev, next);
+    expect(out[0]).not.toBe(prev[0]);
+    expect(out[0]?.parts[0]).toMatchObject({
+      state: { subagentRunIds: ["run-b"] },
+    });
+  });
+
   it("updates when provider diagnostics change", () => {
     const prev = [textMessage("a", "", { diagnostics: [{ type: "transport" }] })];
     const next = [textMessage("a", "", { diagnostics: [{ type: "transport", details: { phase: "sse" } }] })];
@@ -90,6 +131,16 @@ describe("upsertUiMessage", () => {
     expect(next[0]).toBe(first);
     expect(next[1]).not.toBe(second);
     expect(next[1]?.parts[0]).toMatchObject({ text: "world!" });
+  });
+
+  it("updates a streamed tool delta when its input changes", () => {
+    const previous = [toolInputMessage("a", "first command")];
+    const next = upsertUiMessage(previous, toolInputMessage("a", "second command"));
+
+    expect(next).not.toBe(previous);
+    expect(next[0]?.parts[0]).toMatchObject({
+      state: { input: { command: "second command" } },
+    });
   });
 
   it("appends a new streamed message", () => {
