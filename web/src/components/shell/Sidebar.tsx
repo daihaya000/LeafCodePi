@@ -1673,6 +1673,7 @@ const SidebarView = memo(function SidebarView({
             <label
               role="menuitem"
               title="プロジェクトアイコンを設定"
+              aria-label="プロジェクトアイコンを設定"
               className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text focus-within:ring-2 focus-within:ring-inset focus-within:ring-primary"
             >
               <ImageIcon className="h-4 w-4" />
