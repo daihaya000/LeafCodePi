@@ -123,7 +123,7 @@ export function SkillsSettings() {
           などを追加してください。
         </p>
       ) : (
-        <ul className="mt-3 max-h-80 space-y-2 overflow-y-auto">
+        <ul className="mt-3 space-y-2">
           {skills.map((skill) => (
             <li
               key={skill.id}

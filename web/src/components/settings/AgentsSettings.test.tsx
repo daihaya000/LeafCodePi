@@ -232,6 +232,27 @@ describe("AgentsSettings", () => {
     expect(screen.getAllByRole("listitem")).toHaveLength(agents.length);
   });
 
+  it("一覧の前でエージェントを作成し、キャンセル後に起点へフォーカスを戻す", async () => {
+    render(<AgentsSettings />);
+
+    const agentSwitch = await screen.findByRole("switch", { name: "enabled を無効化" });
+    const createButton = screen.getByRole("button", { name: "＋新規" });
+    fireEvent.click(createButton);
+
+    const nameInput = screen.getByRole("textbox", { name: "名前" });
+    const editorHeading = screen.getByRole("heading", { name: "新規エージェント" });
+    const list = agentSwitch.closest("ul");
+    expect(list).not.toBeNull();
+    expect(document.activeElement).toBe(nameInput);
+    expect(editorHeading.compareDocumentPosition(list!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+
+    const autoHeading = screen.getByRole("heading", { name: "Autoエージェント" });
+    expect(list!.compareDocumentPosition(autoHeading) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
+    expect(document.activeElement).toBe(createButton);
+  });
+
   it("loads and saves the Auto agent selector prompt", async () => {
     render(<AgentsSettings />);
 

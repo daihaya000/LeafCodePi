@@ -59,18 +59,20 @@ export function CompactionSettings() {
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h2 className="text-sm font-semibold">コンテキスト節約</h2>
       <p className="mt-2 text-sm text-muted">コンテキスト使用量が閾値に達したときの動作を選択します。手動送信時の動作、Goal Loopには適用されません。</p>
-      <div className="mt-4 flex items-center gap-4">
-        <label htmlFor="compaction-action" className="text-sm text-muted">動作</label>
-        <select id="compaction-action" className="h-14 w-84 rounded-xl border border-border bg-surface px-5 text-lg" value={action} onChange={(e) => void changeAction(e.target.value as CompactionAction)}>
+      <div className="mt-4 flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-4">
+        <label htmlFor="compaction-action" className="text-sm text-muted sm:w-48 sm:shrink-0">動作</label>
+        <select id="compaction-action" className="h-12 min-w-0 w-full rounded-xl border border-border bg-surface px-4 text-base sm:h-14 sm:max-w-sm sm:px-5 sm:text-lg" value={action} onChange={(e) => void changeAction(e.target.value as CompactionAction)}>
           <option value="suggest">提案</option>
           <option value="auto">自動圧縮</option>
           <option value="off">無効</option>
         </select>
       </div>
-      <div className="mt-4 flex items-center gap-4">
-        <label htmlFor="compaction-threshold" className="text-sm text-muted">コンテキスト使用率の閾値</label>
-        <input id="compaction-threshold" type="number" min={70} max={95} step={1} className="h-14 w-60 rounded-xl border border-border bg-surface px-5 text-lg" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} onBlur={() => void save(COMPACTION_THRESHOLD_SETTING_KEY, String(threshold))} />
-        <span className="text-sm text-muted">%</span>
+      <div className="mt-4 flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-4">
+        <label htmlFor="compaction-threshold" className="text-sm text-muted sm:w-48 sm:shrink-0">コンテキスト使用率の閾値</label>
+        <div className="flex min-w-0 items-center gap-2 sm:max-w-sm sm:flex-1">
+          <input id="compaction-threshold" type="number" min={70} max={95} step={1} className="h-12 min-w-0 w-full rounded-xl border border-border bg-surface px-4 text-base sm:h-14 sm:px-5 sm:text-lg" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} onBlur={() => void save(COMPACTION_THRESHOLD_SETTING_KEY, String(threshold))} />
+          <span className="shrink-0 text-sm text-muted">%</span>
+        </div>
       </div>
       <p className="mt-3 text-xs text-faint">使用率が{threshold}%に達したらcompactを提案します（70〜95%）。</p>
       {settings && <p className="mt-2 text-[11px] text-faint">予約トークン {formatTokens(settings.reserveTokens)} / 直近保持 {formatTokens(settings.keepRecentTokens)}</p>}

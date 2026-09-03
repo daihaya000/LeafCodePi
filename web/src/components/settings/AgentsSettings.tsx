@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain } from "lucide-react";
 import { AgentRoleIcon } from "@/components/AgentSelect";
 import { ModelSelect } from "@/components/ModelSelect";
@@ -107,11 +107,13 @@ function Field({
   label,
   value,
   disabled,
+  autoFocus,
   onChange,
 }: {
   label: string;
   value: string;
   disabled?: boolean;
+  autoFocus?: boolean;
   onChange: (v: string) => void;
 }) {
   return (
@@ -121,6 +123,7 @@ function Field({
         className={`${INPUT_CLASS} mt-1`}
         value={value}
         disabled={disabled}
+        autoFocus={autoFocus}
         onChange={(e) => onChange(e.target.value)}
       />
     </label>
@@ -361,10 +364,26 @@ function AgentEditor({
   };
 
   return (
-    <div className="mt-3 space-y-3 rounded-xl border border-border bg-surface-2 p-3">
-      <p className="text-sm font-medium">{mode === "create" ? "新規エージェント" : `編集: ${initial.name}`}</p>
-      <Field label="名前" value={draft.name} disabled={mode === "edit"} onChange={(v) => setDraft({ ...draft, name: v })} />
-      <Field label="説明" value={draft.description ?? ""} onChange={(v) => setDraft({ ...draft, description: v })} />
+    <section
+      aria-labelledby="agent-editor-heading"
+      className="mt-3 space-y-3 rounded-xl border border-border bg-surface-2 p-3"
+    >
+      <h3 id="agent-editor-heading" className="text-sm font-medium">
+        {mode === "create" ? "新規エージェント" : `編集: ${initial.name}`}
+      </h3>
+      <Field
+        label="名前"
+        value={draft.name}
+        disabled={mode === "edit"}
+        autoFocus={mode === "create"}
+        onChange={(v) => setDraft({ ...draft, name: v })}
+      />
+      <Field
+        label="説明"
+        value={draft.description ?? ""}
+        autoFocus={mode === "edit"}
+        onChange={(v) => setDraft({ ...draft, description: v })}
+      />
       <AgentModelPicker
         name={draft.name || "新規エージェント"}
         model={draft.model}
@@ -397,7 +416,7 @@ function AgentEditor({
           キャンセル
         </Button>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -446,6 +465,7 @@ export function AgentsSettings() {
   const [editor, setEditor] = useState<EditorState>({ mode: "closed" });
   const [editingDraft, setEditingDraft] = useState<AgentDraft>(emptyDraft());
   const [saving, setSaving] = useState(false);
+  const editorTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -549,12 +569,14 @@ export function AgentsSettings() {
     }
   }
 
-  async function openCreate() {
+  function openCreate(trigger: HTMLButtonElement) {
+    editorTriggerRef.current = trigger;
     setEditingDraft(emptyDraft());
     setEditor({ mode: "create" });
   }
 
-  async function openEdit(agent: AgentDto) {
+  async function openEdit(agent: AgentDto, trigger: HTMLButtonElement) {
+    editorTriggerRef.current = trigger;
     if (agent.source !== "user") {
       setError("ビルトイン・パッケージエージェントは編集できません");
       return;
@@ -567,6 +589,11 @@ export function AgentsSettings() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "エージェントの取得に失敗しました");
     }
+  }
+
+  function closeEditor() {
+    setEditor({ mode: "closed" });
+    editorTriggerRef.current?.focus();
   }
 
   async function saveDraft(draft: AgentDraft, mode: EditorState) {
@@ -582,7 +609,7 @@ export function AgentsSettings() {
           "PATCH",
         );
       }
-      setEditor({ mode: "closed" });
+      closeEditor();
       reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "エージェントの保存に失敗しました");
@@ -621,7 +648,12 @@ export function AgentsSettings() {
           <Button variant="secondary" size="sm" onClick={() => reload()} disabled={loading || Boolean(busyId)}>
             再読込
           </Button>
-          <Button variant="primary" size="sm" onClick={() => void openCreate()} disabled={loading || Boolean(busyId)}>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={(event) => openCreate(event.currentTarget)}
+            disabled={loading || Boolean(busyId)}
+          >
             ＋新規
           </Button>
         </div>
@@ -630,7 +662,18 @@ export function AgentsSettings() {
         pi-subagents が提供するサブエージェントの有効／無効とモデル・Effortを管理します。ここでのモデル・Effortはサブエージェントとして呼び出された時だけ使われ、直接選択時はComposerの設定を使います。ユーザー定義は{" "}
         <span className="font-mono">~/.pi/agent/agents/&lt;name&gt;.md</span> に保存されます。
       </p>
-      <AutoAgentPromptSettings />
+      {editor.mode !== "closed" && (
+        <AgentEditor
+          key={editor.mode === "edit" ? editor.name : "create"}
+          mode={editor.mode}
+          initial={editingDraft}
+          busy={saving}
+          models={models}
+          modelsLoading={modelsLoading}
+          onSave={(draft) => void saveDraft(draft, editor)}
+          onCancel={closeEditor}
+        />
+      )}
       {agentsPath && (
         <div className="mt-1 space-y-0.5 font-mono text-[11px] text-faint">
           <p className="break-all">{agentsPath}</p>
@@ -696,7 +739,11 @@ export function AgentsSettings() {
                 />
                 {agent.source === "user" && (
                   <div className="flex items-center gap-1">
-                    <Button variant="secondary" size="sm" onClick={() => void openEdit(agent)}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={(event) => void openEdit(agent, event.currentTarget)}
+                    >
                       編集
                     </Button>
                     <Button variant="danger" size="sm" onClick={() => void remove(agent)}>
@@ -709,17 +756,7 @@ export function AgentsSettings() {
           ))}
         </ul>
       )}
-      {editor.mode !== "closed" && (
-        <AgentEditor
-          mode={editor.mode}
-          initial={editingDraft}
-          busy={saving}
-          models={models}
-          modelsLoading={modelsLoading}
-          onSave={(draft) => void saveDraft(draft, editor)}
-          onCancel={() => setEditor({ mode: "closed" })}
-        />
-      )}
+      <AutoAgentPromptSettings />
       {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
     </div>
   );

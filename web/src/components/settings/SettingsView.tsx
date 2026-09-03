@@ -44,8 +44,17 @@ const TAB_HASH: Readonly<Record<Tab, string>> = {
 const CURRENT_HASH_TAB: Readonly<Record<string, Tab>> = {
   engine: "engine",
   models: "models",
+  "models-catalog": "models",
+  "models-local": "models",
+  "models-auto": "models",
+  "models-generation": "models",
+  "models-providers": "models",
   agents: "agents",
   extensions: "extensions",
+  "extensions-list": "extensions",
+  "extensions-skills": "extensions",
+  "extensions-mcp": "extensions",
+  "extensions-memory": "extensions",
 };
 
 // 廃止した「一般」カテゴリとエンジンサブタブの旧ハッシュを移行先へ届ける。
@@ -207,8 +216,6 @@ export function SettingsView() {
               hidden={tab !== "engine"}
               className="space-y-4"
             >
-              <HostRestartPanel onRestarted={reload} />
-
               <div className="rounded-2xl border border-border bg-surface p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-sm font-semibold">Pi Coding Agent</h2>
@@ -230,8 +237,9 @@ export function SettingsView() {
                 {error && <p className="mt-3 text-sm text-danger">{error}</p>}
               </div>
 
-              <BrowserSettings />
+              <HostRestartPanel onRestarted={reload} />
               <WebUiAuthSettings />
+              <BrowserSettings />
               <NotificationSoundSettings />
               <NavigatorSettings />
               <div className="rounded-2xl border border-border bg-surface p-4 text-sm text-muted">
@@ -251,13 +259,29 @@ export function SettingsView() {
               hidden={tab !== "models"}
               className="space-y-4"
             >
-              <div className="rounded-2xl border border-border bg-surface p-4">
+              <nav
+                aria-label="モデル設定内"
+                className="flex flex-wrap gap-2 rounded-xl border border-border bg-surface p-2 text-xs"
+              >
+                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#models-catalog">モデル一覧</a>
+                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#models-local">ローカルLLM</a>
+                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#models-auto">Autoモデル</a>
+                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#models-generation">生成モデル</a>
+                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#models-providers">プロバイダー</a>
+              </nav>
+              <div id="models-catalog" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
                 <ProviderModelsPanel refreshToken={modelsRevision} />
               </div>
-              <AutoModelSettings refreshToken={modelsRevision} />
-              <GenerationModelSettings refreshToken={modelsRevision} />
-              <LlamaServerSettings active={tab === "models"} />
-              <div className="rounded-2xl border border-border bg-surface p-4">
+              <div id="models-local" className="scroll-mt-24">
+                <LlamaServerSettings active={tab === "models"} />
+              </div>
+              <div id="models-auto" className="scroll-mt-24">
+                <AutoModelSettings refreshToken={modelsRevision} />
+              </div>
+              <div id="models-generation" className="scroll-mt-24">
+                <GenerationModelSettings refreshToken={modelsRevision} />
+              </div>
+              <div id="models-providers" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
                 <ProviderAuthPanel providers={providers} onChanged={onProviderChanged} />
               </div>
             </section>
@@ -271,8 +295,8 @@ export function SettingsView() {
               hidden={tab !== "agents"}
               className="space-y-4"
             >
-              <AgentsMdSettings />
               <AgentsSettings />
+              <AgentsMdSettings />
             </section>
           )}
 
@@ -284,10 +308,27 @@ export function SettingsView() {
               hidden={tab !== "extensions"}
               className="space-y-4"
             >
-              <ExtensionsSettings />
-              <MemorySettings />
-              <SkillsSettings />
-              <McpSettings />
+              <nav
+                aria-label="拡張設定内"
+                className="flex flex-wrap gap-2 rounded-xl border border-border bg-surface p-2 text-xs"
+              >
+                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#extensions-list">拡張機能</a>
+                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#extensions-skills">スキル</a>
+                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#extensions-mcp">MCP</a>
+                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#extensions-memory">メモリ</a>
+              </nav>
+              <div id="extensions-list" className="scroll-mt-24">
+                <ExtensionsSettings />
+              </div>
+              <div id="extensions-skills" className="scroll-mt-24">
+                <SkillsSettings />
+              </div>
+              <div id="extensions-mcp" className="scroll-mt-24">
+                <McpSettings />
+              </div>
+              <div id="extensions-memory" className="scroll-mt-24">
+                <MemorySettings />
+              </div>
             </section>
           )}
         </div>

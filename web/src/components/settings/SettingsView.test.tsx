@@ -96,17 +96,18 @@ describe("SettingsView", () => {
     getJson.mockReset();
   });
 
-  it("モデルタブをモデル、Autoモデル、生成モデル、ローカルLLM、プロバイダーの順に表示する", () => {
+  it("モデルタブをモデル、ローカルLLM、Autoモデル、生成モデル、プロバイダーの順に表示する", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^モデルタブ$/ }));
 
     expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
       "モデル",
+      "ローカル LLM",
       "Autoモデル",
       "生成モデル",
-      "ローカル LLM",
       "プロバイダー",
     ]);
+    expect(within(screen.getByRole("navigation", { name: "モデル設定内" })).getAllByRole("link")).toHaveLength(5);
   });
 
   it("ヘルス取得が遅くてもプロバイダー一覧を先に反映する", async () => {
@@ -150,8 +151,10 @@ describe("SettingsView", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^エージェントタブ$/ }));
 
-    expect(screen.getByRole("heading", { name: "AGENTS.md" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "エージェント" })).toBeTruthy();
+    expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
+      "エージェント",
+      "AGENTS.md",
+    ]);
     expect(screen.queryByRole("heading", { name: "メモリ" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "スキル" })).toBeNull();
   });
@@ -160,10 +163,13 @@ describe("SettingsView", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^拡張タブ$/ }));
 
-    expect(screen.getByRole("heading", { name: "拡張機能" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "メモリ" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "スキル" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "MCPサーバー" })).toBeTruthy();
+    expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
+      "拡張機能",
+      "スキル",
+      "MCPサーバー",
+      "メモリ",
+    ]);
+    expect(within(screen.getByRole("navigation", { name: "拡張設定内" })).getAllByRole("link")).toHaveLength(4);
   });
 
   it("旧 #general-basic / #general-response ハッシュからエンジンタブにリダイレクトする", () => {
@@ -192,6 +198,14 @@ describe("SettingsView", () => {
     expect(within(screen.getByRole("tablist", { name: "設定" })).getByRole("tab", { name: "拡張タブ" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("heading", { name: "拡張機能" })).toBeTruthy();
     expect(window.location.hash).toBe("#extensions");
+  });
+
+  it("セクションのハッシュから対応するタブを開く", () => {
+    window.history.replaceState(null, "", "/settings#extensions-skills");
+    render(<SettingsView />);
+
+    expect(screen.getByRole("tab", { name: "拡張タブ" }).getAttribute("aria-selected")).toBe("true");
+    expect(document.getElementById("extensions-skills")).not.toBeNull();
   });
 
   it("設定以外のハッシュ変更では選択タブを変更しない", () => {
