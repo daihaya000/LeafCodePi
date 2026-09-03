@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -447,13 +447,26 @@ function PromoteTaskDialog({
   );
 }
 
-export function Sidebar({
-  mobileOpen,
-  onClose,
-}: {
+type SidebarProps = {
   mobileOpen: boolean;
   onClose: () => void;
-}) {
+};
+
+type SidebarPaneProps = {
+  paneActiveTaskId: string | null;
+  paneMdUp: boolean;
+  splitHostEnabled: boolean;
+  retargetToUrl: (taskId: string) => void;
+};
+
+const SidebarView = memo(function SidebarView({
+  mobileOpen,
+  onClose,
+  paneActiveTaskId,
+  paneMdUp,
+  splitHostEnabled,
+  retargetToUrl,
+}: SidebarProps & SidebarPaneProps) {
   const pathname = usePathname();
   const router = useRouter();
   const mdUp = useIsMdUp();
@@ -571,12 +584,6 @@ export function Sidebar({
 
   // 仕様 §2: タブ機構のある md 以上では provider の activeTaskId を
   // ハイライト・自動展開の源とする。モバイルは panes を触らないため pathname 由来のまま。
-  const {
-    activeTaskId: paneActiveTaskId,
-    mdUp: paneMdUp,
-    splitHostEnabled,
-    retargetToUrl,
-  } = useTaskPanes();
   const pathnameTaskId = pathname.startsWith("/task/") ? pathname.slice("/task/".length) : null;
   const activeTaskId = paneMdUp ? paneActiveTaskId : pathnameTaskId;
 
@@ -1789,5 +1796,23 @@ export function Sidebar({
         />
       )}
     </>
+  );
+});
+
+export function Sidebar(props: SidebarProps) {
+  const {
+    activeTaskId: paneActiveTaskId,
+    mdUp: paneMdUp,
+    splitHostEnabled,
+    retargetToUrl,
+  } = useTaskPanes();
+  return (
+    <SidebarView
+      {...props}
+      paneActiveTaskId={paneActiveTaskId}
+      paneMdUp={paneMdUp}
+      splitHostEnabled={splitHostEnabled}
+      retargetToUrl={retargetToUrl}
+    />
   );
 }
