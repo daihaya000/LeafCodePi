@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain } from "lucide-react";
 import { AgentRoleIcon } from "@/components/AgentSelect";
 import { ModelSelect } from "@/components/ModelSelect";
-import { Badge, Button, GhostSelect, cx } from "@/components/ui";
+import { Badge, Button, GhostSelect, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import { ALL_THINKING_LEVELS, THINKING_LEVEL_LABELS, isThinkingLevel } from "@/lib/thinking-levels";
 import type { ModelOption, ThinkingLevel } from "@/lib/types";
@@ -420,40 +420,6 @@ function AgentEditor({
   );
 }
 
-function AgentSwitch({
-  name,
-  enabled,
-  busy,
-  onToggle,
-}: {
-  name: string;
-  enabled: boolean;
-  busy: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={enabled}
-      aria-label={`${name} を${enabled ? "無効化" : "有効化"}`}
-      disabled={busy}
-      onClick={onToggle}
-      className={cx(
-        "relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary",
-        enabled ? "bg-primary" : "bg-surface-3",
-      )}
-    >
-      <span
-        className={cx(
-          "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-surface shadow transition-transform",
-          enabled ? "translate-x-5" : "translate-x-0",
-        )}
-      />
-    </button>
-  );
-}
-
 export function AgentsSettings() {
   const [agents, setAgents] = useState<AgentDto[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -731,11 +697,11 @@ export function AgentsSettings() {
                 <p className="mt-0.5 break-all font-mono text-[11px] text-faint">{agent.filePath}</p>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1">
-                <AgentSwitch
-                  name={agent.name}
-                  enabled={agent.enabled}
+                <Switch
+                  checked={agent.enabled}
+                  onChange={() => void toggle(agent)}
+                  label={`${agent.name} を${agent.enabled ? "無効化" : "有効化"}`}
                   busy={busyId === agent.id}
-                  onToggle={() => void toggle(agent)}
                 />
                 {agent.source === "user" && (
                   <div className="flex items-center gap-1">

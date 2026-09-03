@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Badge, Button, cx } from "@/components/ui";
+import { Badge, Button, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 
 type McpDto = {
@@ -15,40 +15,6 @@ type McpResponse = {
   servers: McpDto[];
   configPath: string;
 };
-
-function McpSwitch({
-  name,
-  enabled,
-  busy,
-  onToggle,
-}: {
-  name: string;
-  enabled: boolean;
-  busy: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={enabled}
-      aria-label={`${name} を${enabled ? "無効化" : "有効化"}`}
-      disabled={busy}
-      onClick={onToggle}
-      className={cx(
-        "relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary",
-        enabled ? "bg-primary" : "bg-surface-3",
-      )}
-    >
-      <span
-        className={cx(
-          "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-surface shadow transition-transform",
-          enabled ? "translate-x-5" : "translate-x-0",
-        )}
-      />
-    </button>
-  );
-}
 
 export function McpSettings() {
   const [servers, setServers] = useState<McpDto[]>([]);
@@ -141,17 +107,17 @@ export function McpSettings() {
                   </Badge>
                 </div>
               </div>
-              <McpSwitch
-                name={server.name}
-                enabled={server.enabled}
+              <Switch
+                checked={server.enabled}
+                onChange={() => void toggle(server)}
+                label={`${server.name} を${server.enabled ? "無効化" : "有効化"}`}
                 busy={busyId === server.id}
-                onToggle={() => void toggle(server)}
               />
             </li>
           ))}
         </ul>
       )}
-      {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+      {error && <p className="mt-2 text-sm text-danger" role="alert">{error}</p>}
     </div>
   );
 }

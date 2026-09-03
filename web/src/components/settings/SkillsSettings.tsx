@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Badge, Button, cx } from "@/components/ui";
+import { Badge, Button, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 
 type SkillDto = {
@@ -17,40 +17,6 @@ type SkillsResponse = {
   skills: SkillDto[];
   skillsDir: string;
 };
-
-function SkillSwitch({
-  name,
-  enabled,
-  busy,
-  onToggle,
-}: {
-  name: string;
-  enabled: boolean;
-  busy: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={enabled}
-      aria-label={`${name} を${enabled ? "無効化" : "有効化"}`}
-      disabled={busy}
-      onClick={onToggle}
-      className={cx(
-        "relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary",
-        enabled ? "bg-primary" : "bg-surface-3",
-      )}
-    >
-      <span
-        className={cx(
-          "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-surface shadow transition-transform",
-          enabled ? "translate-x-5" : "translate-x-0",
-        )}
-      />
-    </button>
-  );
-}
 
 export function SkillsSettings() {
   const [skills, setSkills] = useState<SkillDto[]>([]);
@@ -144,17 +110,17 @@ export function SkillsSettings() {
                   <p className="mt-0.5 text-xs break-words text-faint">{skill.description}</p>
                 )}
               </div>
-              <SkillSwitch
-                name={skill.name}
-                enabled={skill.enabled}
+              <Switch
+                checked={skill.enabled}
+                onChange={() => void toggle(skill)}
+                label={`${skill.name} を${skill.enabled ? "無効化" : "有効化"}`}
                 busy={busyId === skill.id}
-                onToggle={() => void toggle(skill)}
               />
             </li>
           ))}
         </ul>
       )}
-      {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+      {error && <p className="mt-2 text-sm text-danger" role="alert">{error}</p>}
     </div>
   );
 }

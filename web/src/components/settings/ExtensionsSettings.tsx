@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Badge, Button, cx } from "@/components/ui";
+import { Badge, Button, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 
 type ExtensionDto = {
@@ -17,43 +17,6 @@ type ExtensionsResponse = {
   extensions: ExtensionDto[];
   extensionsDir: string;
 };
-
-function ExtensionSwitch({
-  name,
-  enabled,
-  busy,
-  locked,
-  onToggle,
-}: {
-  name: string;
-  enabled: boolean;
-  busy: boolean;
-  locked: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={enabled}
-      aria-label={`${name} を${enabled ? "無効化" : "有効化"}`}
-      disabled={busy || locked}
-      title={locked ? "WebUI が依存する拡張機能のため無効化できません" : undefined}
-      onClick={onToggle}
-      className={cx(
-        "relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary",
-        enabled ? "bg-primary" : "bg-surface-3",
-      )}
-    >
-      <span
-        className={cx(
-          "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-surface shadow transition-transform",
-          enabled ? "translate-x-5" : "translate-x-0",
-        )}
-      />
-    </button>
-  );
-}
 
 export function ExtensionsSettings() {
   const [extensions, setExtensions] = useState<ExtensionDto[]>([]);
@@ -154,18 +117,19 @@ export function ExtensionsSettings() {
                   </p>
                 )}
               </div>
-              <ExtensionSwitch
-                name={extension.name}
-                enabled={extension.enabled}
+              <Switch
+                checked={extension.enabled}
+                onChange={() => void toggle(extension)}
+                label={`${extension.name} を${extension.enabled ? "無効化" : "有効化"}`}
                 busy={busyId === extension.id}
-                locked={extension.required && extension.enabled}
-                onToggle={() => void toggle(extension)}
+                disabled={extension.required && extension.enabled}
+                title={extension.required && extension.enabled ? "WebUI が依存する拡張機能のため無効化できません" : undefined}
               />
             </li>
           ))}
         </ul>
       )}
-      {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+      {error && <p className="mt-2 text-sm text-danger" role="alert">{error}</p>}
     </div>
   );
 }

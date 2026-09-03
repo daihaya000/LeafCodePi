@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, cx } from "@/components/ui";
+import { Button, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 
 export function BrowserSettings() {
@@ -50,31 +50,18 @@ export function BrowserSettings() {
         EXE 起動時にブラウザを自動で開きます。デフォルトはオフです。設定は次回の EXE 起動から反映されます。
       </p>
       <div className="mt-3 flex items-center gap-3">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={autoOpen}
-          aria-label="起動時にブラウザを自動で開く"
-          disabled={busy || !loaded}
-          onClick={() => void toggle(!autoOpen)}
-          className={cx(
-            "relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary",
-            autoOpen ? "bg-primary" : "bg-surface-3",
-          )}
-        >
-          <span
-            className={cx(
-              "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-surface shadow transition-transform",
-              autoOpen && "translate-x-5",
-            )}
-          />
-        </button>
+        <Switch
+          checked={autoOpen}
+          onChange={() => void toggle(!autoOpen)}
+          label="起動時にブラウザを自動で開く"
+          busy={busy || !loaded}
+        />
         <span className="text-sm text-text">{autoOpen ? "自動で開く" : "開かない"}</span>
         <Button variant="ghost" size="sm" disabled={busy} onClick={() => reload()}>
           再読込
         </Button>
       </div>
-      {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+      {error && <p className="mt-2 text-sm text-danger" role="alert">{error}</p>}
     </div>
   );
 }

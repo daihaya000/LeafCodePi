@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Badge, Button, cx } from "@/components/ui";
+import { Badge, Button, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 
 const TOKEN_MIN_LENGTH = 4;
@@ -106,28 +106,15 @@ export function WebUiAuthSettings() {
 
       <div className="mt-4 space-y-3">
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={enabled}
-            aria-label="WebUIアクセスゲート"
-            disabled={disabled}
-            onClick={() => {
+          <Switch
+            checked={enabled}
+            onChange={() => {
               setEnabled((value) => !value);
               setNotice(null);
             }}
-            className={cx(
-              "relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary",
-              enabled ? "bg-primary" : "bg-surface-3",
-            )}
-          >
-            <span
-              className={cx(
-                "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-surface shadow transition-transform",
-                enabled && "translate-x-5",
-              )}
-            />
-          </button>
+            label="WebUIアクセスゲート"
+            disabled={disabled}
+          />
           <span className="text-sm font-medium">アクセスゲートを{enabled ? "有効" : "無効"}にする</span>
         </div>
 

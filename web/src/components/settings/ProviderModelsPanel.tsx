@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
-import { Badge, Button, cx } from "@/components/ui";
+import { Badge, Button, Switch, cx } from "@/components/ui";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ApiError, getJson, sendJson } from "@/lib/client";
 import type { ProviderModelsRow } from "@/lib/provider-models";
@@ -28,40 +28,6 @@ function moveItem<T>(items: T[], from: number, to: number): T[] {
   if (item === undefined) return items;
   next.splice(to, 0, item);
   return next;
-}
-
-function ExtensionSwitch({
-  name,
-  enabled,
-  busy,
-  onToggle,
-}: {
-  name: string;
-  enabled: boolean;
-  busy: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={enabled}
-      aria-label={`${name} を${enabled ? "無効化" : "有効化"}`}
-      disabled={busy}
-      onClick={onToggle}
-      className={cx(
-        "relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary",
-        enabled ? "bg-primary" : "bg-surface-3",
-      )}
-    >
-      <span
-        className={cx(
-          "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-surface shadow transition-transform",
-          enabled ? "translate-x-5" : "translate-x-0",
-        )}
-      />
-    </button>
-  );
 }
 
 function ReorderButtons({
@@ -200,11 +166,11 @@ function ProviderRow({
             </Badge>
           </div>
         </div>
-        <ExtensionSwitch
-          name={displayName}
-          enabled={provider.enabled}
+        <Switch
+          checked={provider.enabled}
+          onChange={() => onToggleProvider(!provider.enabled)}
+          label={`${displayName} を${provider.enabled ? "無効化" : "有効化"}`}
           busy={isBusy}
-          onToggle={() => onToggleProvider(!provider.enabled)}
         />
         <ReorderButtons
           label={displayName}
@@ -276,11 +242,11 @@ function ProviderRow({
                   <span className="shrink-0">tokens</span>
                 </label>
                 <div className="col-start-3 row-start-1 sm:col-auto sm:row-auto">
-                  <ExtensionSwitch
-                    name={`${displayName} の ${model.name}`}
-                    enabled={model.enabled}
+                  <Switch
+                    checked={model.enabled}
+                    onChange={() => onToggleModel(model.id, !model.enabled)}
+                    label={`${displayName} の ${model.name} を${model.enabled ? "無効化" : "有効化"}`}
                     busy={modelBusy || parentDisabled}
-                    onToggle={() => onToggleModel(model.id, !model.enabled)}
                   />
                 </div>
                 <ReorderButtons
