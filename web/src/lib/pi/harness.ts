@@ -4456,15 +4456,19 @@ async function prepareLiveForPrompt(
 
       // 通常は既存の統合アカウント再選択だけを行い、全アカウント上限（429）時だけ
       // 別プロバイダーへフォールバックする。
-      let route: ConcreteModelRoute | undefined;
+      let route: ConcreteModelRoute;
       try {
-        route = await resolveIntegratedModelRoute(
+        const resolved = await resolveIntegratedModelRoute(
           latestTask.providerID,
           latestTask.modelID,
         );
+        if (!resolved) {
+          throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+        }
+        route = resolved;
       } catch (error) {
         if (!isProviderLimitError(error)) throw error;
-        route = (
+        const fallbackRoute = (
           await resolveProviderFallbackRoutes({
             providerID: latestTask.providerID,
             modelID: latestTask.modelID,
@@ -4473,7 +4477,8 @@ async function prepareLiveForPrompt(
               : {}),
           })
         )[0];
-        if (!route) throw error;
+        if (!fallbackRoute) throw error;
+        route = fallbackRoute;
       }
       const ids = modelId(route.model);
       const sameRoute =
