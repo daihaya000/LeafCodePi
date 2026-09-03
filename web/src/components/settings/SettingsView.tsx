@@ -219,8 +219,11 @@ export function SettingsView() {
               <div className="rounded-2xl border border-border bg-surface p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-sm font-semibold">Pi Coding Agent</h2>
-                  <Badge tone={health?.engineOk ? "success" : "warning"} pulse={!health?.engineOk}>
-                    {health?.engineOk ? "利用可" : "未接続"}
+                  <Badge
+                    tone={health === null ? "neutral" : health.engineOk ? "success" : "warning"}
+                    pulse={health === null || !health.engineOk}
+                  >
+                    {health === null ? "確認中" : health.engineOk ? "利用可" : "未接続"}
                   </Badge>
                 </div>
                 <dl className="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">

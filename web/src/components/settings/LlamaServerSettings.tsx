@@ -355,8 +355,8 @@ export function LlamaServerSettings(
             ローカルモデルを起動・停止します。起動時にモデルがロードされ、停止時にアンロードされます。
           </p>
         </div>
-        <Badge tone={running ? "success" : status ? "danger" : "neutral"}>
-          {running ? "実行中" : status ? "停止" : "不明"}
+        <Badge tone={status === null ? "neutral" : running ? "success" : "danger"} pulse={status === null}>
+          {status === null ? "確認中" : running ? "実行中" : "停止"}
         </Badge>
       </div>
 
@@ -379,7 +379,7 @@ export function LlamaServerSettings(
           size="sm"
           variant="primary"
           busy={actionBusy === "start"}
-          disabled={actionBusy !== null || running}
+          disabled={actionBusy !== null || running || status === null}
           onClick={() => void startServer()}
         >
           起動
@@ -389,7 +389,7 @@ export function LlamaServerSettings(
           size="sm"
           variant="danger"
           busy={actionBusy === "stop"}
-          disabled={actionBusy !== null || !running}
+          disabled={actionBusy !== null || !running || status === null}
           onClick={() => void stopServer()}
         >
           停止

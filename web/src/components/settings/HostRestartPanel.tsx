@@ -118,7 +118,9 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h2 className="text-sm font-semibold">再起動</h2>
       <p className="mt-1 text-xs text-muted">
-        {hostOk === false
+        {hostOk === null
+          ? "接続を確認しています…"
+          : hostOk === false
           ? "start.bat（トレイホスト）経由の起動が必要です。"
           : "トレイメニューの Restart WebUI と同じ操作です。"}
       </p>
@@ -128,7 +130,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           size="sm"
           variant="secondary"
           busy={restarting === "webui"}
-          disabled={hostOk === false || restarting !== null}
+          disabled={hostOk !== true || restarting !== null}
           onClick={() => setPending("webui")}
         >
           WebUI を再起動
@@ -138,7 +140,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           size="sm"
           variant="secondary"
           busy={restarting === "host"}
-          disabled={hostOk === false || restarting !== null}
+          disabled={hostOk !== true || restarting !== null}
           onClick={() => setPending("host")}
         >
           トレイホストを再起動

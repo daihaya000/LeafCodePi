@@ -75,4 +75,33 @@ describe("LlamaServerSettings", () => {
     const body = sendJson.mock.calls[0]?.[1] as { value: string };
     expect(JSON.parse(body.value)).toMatchObject(preset.settings);
   });
+
+  it("状態確認中は起動・停止ボタンを無効化し、確認完了後に有効化する", async () => {
+    let resolveStatus!: (value: unknown) => void;
+    getJson.mockImplementation((path: string) => {
+      if (path === "/api/settings/llama-server-config") {
+        return Promise.resolve({ parsed: { ...DEFAULT_LLAMA_SERVER_SETTINGS } });
+      }
+      if (path === "/api/llama-server/models") {
+        return Promise.resolve({ models: [], defaultModel: null, dir: null });
+      }
+      if (path === "/api/llama-server/status") {
+        return new Promise((resolve) => { resolveStatus = resolve; });
+      }
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+
+    render(<LlamaServerSettings />);
+
+    expect(await screen.findByText("確認中")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "起動" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "停止" }) as HTMLButtonElement).disabled).toBe(true);
+
+    resolveStatus({ running: false, pid: null, listeningPids: [], health: null });
+
+    await waitFor(() => {
+      expect(screen.getByText("停止")).toBeTruthy();
+    });
+    expect((screen.getByRole("button", { name: "起動" }) as HTMLButtonElement).disabled).toBe(false);
+  });
 });

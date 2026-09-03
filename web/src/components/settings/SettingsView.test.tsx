@@ -126,6 +126,26 @@ describe("SettingsView", () => {
     });
   });
 
+  it("ヘルス取得中は確認中と表示し、未接続と誤表示しない", async () => {
+    let resolveHealth!: (value: { engineOk: boolean }) => void;
+    getJson.mockImplementation((path: string) =>
+      path === "/api/health"
+        ? new Promise((resolve) => { resolveHealth = resolve; })
+        : Promise.resolve({ providers: [] }),
+    );
+
+    render(<SettingsView />);
+
+    expect(screen.getByText("確認中")).toBeTruthy();
+    expect(screen.queryByText("未接続")).toBeNull();
+
+    resolveHealth({ engineOk: true });
+
+    await waitFor(() => {
+      expect(screen.getByText("利用可")).toBeTruthy();
+    });
+  });
+
   it("エンジンタブ内にサブタブを置かず、基本・応答設定をすべて表示する", () => {
     render(<SettingsView />);
 
