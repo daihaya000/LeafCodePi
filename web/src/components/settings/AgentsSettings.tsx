@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { AgentRoleIcon } from "@/components/AgentSelect";
 import { ModelSelect } from "@/components/ModelSelect";
 import { Badge, Button, cx } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
@@ -541,6 +542,7 @@ export function AgentsSettings() {
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
+                  <AgentRoleIcon name={agent.name} />
                   <p className="min-w-0 truncate text-sm font-medium text-text" title={agent.id}>
                     {agent.name}
                   </p>

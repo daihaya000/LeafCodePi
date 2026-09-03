@@ -94,6 +94,8 @@ describe("AgentsSettings", () => {
     render(<AgentsSettings />);
 
     await screen.findByRole("switch", { name: "enabled を無効化" });
+    expect(screen.getByText("enabled").parentElement?.querySelector('[data-agent-icon="enabled"]')).not.toBeNull();
+    expect(screen.getByText("disabled").parentElement?.querySelector('[data-agent-icon="disabled"]')).not.toBeNull();
     expect(screen.getAllByRole("listitem").map((item) => item.querySelector("p")?.textContent)).toEqual([
       "enabled",
       "disabled",
