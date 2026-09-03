@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsView } from "./SettingsView";
 
 const { getJson, mountCounts } = vi.hoisted(() => ({
   getJson: vi.fn(),
-  mountCounts: { basic: 0, response: 0 },
+  mountCounts: { basic: 0, response: 0, memory: 0 },
 }));
 
 vi.mock("@/lib/client", () => ({ getJson }));
@@ -56,7 +57,17 @@ vi.mock("@/components/settings/AgentsMdSettings", () => ({
   AgentsMdSettings: () => <h2>AGENTS.md</h2>,
 }));
 vi.mock("@/components/settings/MemorySettings", () => ({
-  MemorySettings: () => <h2>メモリ</h2>,
+  MemorySettings: () => {
+    useEffect(() => {
+      mountCounts.memory += 1;
+    }, []);
+    return (
+      <>
+        <h2>メモリ</h2>
+        <input aria-label="メモリ設定の下書き" defaultValue="" />
+      </>
+    );
+  },
 }));
 vi.mock("@/components/settings/SkillsSettings", () => ({
   SkillsSettings: () => <h2>スキル</h2>,
@@ -76,6 +87,7 @@ describe("SettingsView", () => {
     window.history.replaceState(null, "", "/settings");
     mountCounts.basic = 0;
     mountCounts.response = 0;
+    mountCounts.memory = 0;
     getJson.mockResolvedValue({ providers: [] });
   });
 
@@ -86,7 +98,7 @@ describe("SettingsView", () => {
 
   it("モデルタブをモデル、Autoモデル、生成モデル、ローカルLLM、プロバイダーの順に表示する", () => {
     render(<SettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: /^モデルタブ$/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /^モデルタブ$/ }));
 
     expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
       "モデル",
@@ -106,7 +118,7 @@ describe("SettingsView", () => {
     );
 
     render(<SettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: /^モデルタブ$/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /^モデルタブ$/ }));
 
     await waitFor(() => {
       expect(screen.getByTestId("provider-count").textContent).toBe("1");
@@ -124,19 +136,19 @@ describe("SettingsView", () => {
     expect(mountCounts.response).toBe(1);
   });
 
-  it("廃止したエンジンサブタブのハッシュからエンジンタブを開き、ハッシュを除去する", () => {
+  it("廃止したエンジンサブタブのハッシュからエンジンタブを開き、正規ハッシュへ置き換える", () => {
     window.history.replaceState(null, "", "/settings#engine-basic");
     render(<SettingsView />);
 
-    expect(within(screen.getByRole("navigation", { name: "設定" })).getByRole("button", { name: "エンジンタブ" }).getAttribute("aria-current")).toBe("page");
+    expect(within(screen.getByRole("tablist", { name: "設定" })).getByRole("tab", { name: "エンジンタブ" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
-    expect(window.location.hash).toBe("");
+    expect(window.location.hash).toBe("#engine");
   });
 
   it("エージェントタブにAGENTS.mdとエージェントだけを表示する", () => {
     render(<SettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: /^エージェントタブ$/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /^エージェントタブ$/ }));
 
     expect(screen.getByRole("heading", { name: "AGENTS.md" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "エージェント" })).toBeTruthy();
@@ -146,7 +158,7 @@ describe("SettingsView", () => {
 
   it("拡張タブに拡張機能・メモリ・スキル・MCPサーバーを表示する", () => {
     render(<SettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: /^拡張タブ$/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /^拡張タブ$/ }));
 
     expect(screen.getByRole("heading", { name: "拡張機能" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "メモリ" })).toBeTruthy();
@@ -158,38 +170,67 @@ describe("SettingsView", () => {
     window.history.replaceState(null, "", "/settings#general-response");
     render(<SettingsView />);
 
-    expect(within(screen.getByRole("navigation", { name: "設定" })).getByRole("button", { name: "エンジンタブ" }).getAttribute("aria-current")).toBe("page");
+    expect(within(screen.getByRole("tablist", { name: "設定" })).getByRole("tab", { name: "エンジンタブ" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
-    expect(window.location.hash).toBe("");
+    expect(window.location.hash).toBe("#engine");
   });
 
   it("旧 #general-agents ハッシュからエージェントタブにリダイレクトする", () => {
     window.history.replaceState(null, "", "/settings#general-agents");
     render(<SettingsView />);
 
-    expect(within(screen.getByRole("navigation", { name: "設定" })).getByRole("button", { name: "エージェントタブ" }).getAttribute("aria-current")).toBe("page");
+    expect(within(screen.getByRole("tablist", { name: "設定" })).getByRole("tab", { name: "エージェントタブ" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("heading", { name: "AGENTS.md" })).toBeTruthy();
-    expect(window.location.hash).toBe("");
+    expect(window.location.hash).toBe("#agents");
   });
 
   it("旧 #general-integrations ハッシュから拡張タブにリダイレクトする", () => {
     window.history.replaceState(null, "", "/settings#general-integrations");
     render(<SettingsView />);
 
-    expect(within(screen.getByRole("navigation", { name: "設定" })).getByRole("button", { name: "拡張タブ" }).getAttribute("aria-current")).toBe("page");
+    expect(within(screen.getByRole("tablist", { name: "設定" })).getByRole("tab", { name: "拡張タブ" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("heading", { name: "拡張機能" })).toBeTruthy();
-    expect(window.location.hash).toBe("");
+    expect(window.location.hash).toBe("#extensions");
   });
 
   it("設定以外のハッシュ変更では選択タブを変更しない", () => {
     render(<SettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: "エージェントタブ" }));
+    fireEvent.click(screen.getByRole("tab", { name: "エージェントタブ" }));
 
     window.history.replaceState(null, "", "/settings#unrelated");
     window.dispatchEvent(new HashChangeEvent("hashchange"));
 
-    expect(within(screen.getByRole("navigation", { name: "設定" })).getByRole("button", { name: "エージェントタブ" }).getAttribute("aria-current")).toBe("page");
+    expect(within(screen.getByRole("tablist", { name: "設定" })).getByRole("tab", { name: "エージェントタブ" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("heading", { name: "AGENTS.md" })).toBeTruthy();
+  });
+
+  it("矢印キーでタブを移動し、正規ハッシュとパネルの関連を更新する", () => {
+    render(<SettingsView />);
+    const engineTab = screen.getByRole("tab", { name: "エンジンタブ" });
+
+    fireEvent.keyDown(engineTab, { key: "ArrowRight" });
+
+    const modelsTab = screen.getByRole("tab", { name: "モデルタブ" });
+    expect(modelsTab.getAttribute("aria-selected")).toBe("true");
+    expect(modelsTab.getAttribute("aria-controls")).toBe("settings-panel-models");
+    expect(document.activeElement).toBe(modelsTab);
+    expect(window.location.hash).toBe("#models");
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe("settings-tab-models");
+  });
+
+  it("一度開いたタブを非表示で保持し、切替後も下書きを残す", () => {
+    render(<SettingsView />);
+    fireEvent.click(screen.getByRole("tab", { name: "拡張タブ" }));
+    const draft = screen.getByLabelText("メモリ設定の下書き") as HTMLInputElement;
+    fireEvent.change(draft, { target: { value: "未保存の設定" } });
+
+    fireEvent.click(screen.getByRole("tab", { name: "エンジンタブ" }));
+    expect(draft.closest('[role="tabpanel"]')?.hasAttribute("hidden")).toBe(true);
+
+    fireEvent.click(screen.getByRole("tab", { name: "拡張タブ" }));
+    expect(screen.getByLabelText("メモリ設定の下書き")).toBe(draft);
+    expect(draft.value).toBe("未保存の設定");
+    expect(mountCounts.memory).toBe(1);
   });
 });

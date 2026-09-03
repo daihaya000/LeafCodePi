@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { ProviderAuthPanel } from "@/components/settings/ProviderAuthPanel";
 import { ProviderModelsPanel } from "@/components/settings/ProviderModelsPanel";
@@ -27,6 +27,27 @@ import type { HealthDto, ProviderAuthDto } from "@/lib/types";
 
 type Tab = "engine" | "models" | "agents" | "extensions";
 
+const SETTINGS_TABS: ReadonlyArray<{ id: Tab; label: string }> = [
+  { id: "engine", label: "エンジン" },
+  { id: "models", label: "モデル" },
+  { id: "agents", label: "エージェント" },
+  { id: "extensions", label: "拡張" },
+];
+
+const TAB_HASH: Readonly<Record<Tab, string>> = {
+  engine: "engine",
+  models: "models",
+  agents: "agents",
+  extensions: "extensions",
+};
+
+const CURRENT_HASH_TAB: Readonly<Record<string, Tab>> = {
+  engine: "engine",
+  models: "models",
+  agents: "agents",
+  extensions: "extensions",
+};
+
 // 廃止した「一般」カテゴリとエンジンサブタブの旧ハッシュを移行先へ届ける。
 const MIGRATED_HASH_TAB: Readonly<Record<string, Tab>> = {
   "general-basic": "engine",
@@ -38,13 +59,23 @@ const MIGRATED_HASH_TAB: Readonly<Record<string, Tab>> = {
   "engine-response": "engine",
 };
 
+function tabFromHash(hash: string): Tab | null {
+  const key = hash.replace(/^#/, "");
+  if (!key) return "engine";
+  return CURRENT_HASH_TAB[key] ?? MIGRATED_HASH_TAB[key] ?? null;
+}
+
 function readHashTab(): Tab {
   if (typeof window === "undefined") return "engine";
-  return MIGRATED_HASH_TAB[window.location.hash.replace(/^#/, "")] ?? "engine";
+  return tabFromHash(window.location.hash) ?? "engine";
 }
 
 export function SettingsView() {
   const [tab, setTab] = useState<Tab>(readHashTab);
+  const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(
+    () => new Set([readHashTab()]),
+  );
+  const tabButtonRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
 
   const [health, setHealth] = useState<HealthDto | null>(null);
   const [providers, setProviders] = useState<ProviderAuthDto[]>([]);
@@ -65,6 +96,44 @@ export function SettingsView() {
     reload();
   }, [reload]);
 
+  const showTab = useCallback((nextTab: Tab) => {
+    setTab(nextTab);
+    setVisitedTabs((current) => {
+      if (current.has(nextTab)) return current;
+      const next = new Set(current);
+      next.add(nextTab);
+      return next;
+    });
+  }, []);
+
+  const selectTab = useCallback((nextTab: Tab) => {
+    showTab(nextTab);
+    const nextHash = `#${TAB_HASH[nextTab]}`;
+    if (window.location.hash !== nextHash) {
+      window.history.pushState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}${nextHash}`,
+      );
+    }
+  }, [showTab]);
+
+  const handleTabKeyDown = useCallback((event: React.KeyboardEvent, currentTab: Tab) => {
+    const currentIndex = SETTINGS_TABS.findIndex(({ id }) => id === currentTab);
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % SETTINGS_TABS.length;
+    if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + SETTINGS_TABS.length) % SETTINGS_TABS.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = SETTINGS_TABS.length - 1;
+    if (nextIndex === null) return;
+
+    event.preventDefault();
+    const nextTab = SETTINGS_TABS[nextIndex]?.id;
+    if (!nextTab) return;
+    selectTab(nextTab);
+    tabButtonRefs.current[nextTab]?.focus();
+  }, [selectTab]);
+
   useEffect(() => {
     reload();
   }, [reload]);
@@ -72,10 +141,16 @@ export function SettingsView() {
   useEffect(() => {
     const syncFromHash = () => {
       const key = window.location.hash.replace(/^#/, "");
-      const migratedTab = MIGRATED_HASH_TAB[key];
-      if (!migratedTab) return;
-      setTab(migratedTab);
-      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+      const nextTab = tabFromHash(window.location.hash);
+      if (!nextTab) return;
+      showTab(nextTab);
+      if (MIGRATED_HASH_TAB[key]) {
+        window.history.replaceState(
+          null,
+          "",
+          `${window.location.pathname}${window.location.search}#${TAB_HASH[nextTab]}`,
+        );
+      }
     };
     syncFromHash();
     window.addEventListener("hashchange", syncFromHash);
@@ -84,7 +159,7 @@ export function SettingsView() {
       window.removeEventListener("hashchange", syncFromHash);
       window.removeEventListener("popstate", syncFromHash);
     };
-  }, []);
+  }, [showTab]);
 
   return (
     <div className="flex h-full flex-col">
@@ -92,33 +167,46 @@ export function SettingsView() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6">
           <h1 className="text-xl font-semibold">設定</h1>
-          <nav aria-label="設定" className="flex gap-1 overflow-x-auto rounded-xl border border-border bg-surface p-1">
-            {(
-              [
-                ["engine", "エンジン"],
-                ["models", "モデル"],
-                ["agents", "エージェント"],
-                ["extensions", "拡張"],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                aria-label={`${label}タブ`}
-                aria-current={tab === id ? "page" : undefined}
-                onClick={() => setTab(id)}
-                className={cx(
-                  "min-h-11 min-w-[5rem] flex-1 shrink-0 rounded-lg px-3 py-2 text-sm",
-                  tab === id ? "bg-surface-2 font-medium text-text" : "text-muted hover:bg-surface-2 hover:text-text",
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
+          <div className="sticky top-0 z-20 -mx-1 bg-bg/95 py-1 backdrop-blur">
+            <nav
+              role="tablist"
+              aria-label="設定"
+              className="grid grid-cols-2 gap-1 rounded-xl border border-border bg-surface p-1 sm:flex"
+            >
+              {SETTINGS_TABS.map(({ id, label }) => (
+                <button
+                  key={id}
+                  ref={(node) => { tabButtonRefs.current[id] = node; }}
+                  id={`settings-tab-${id}`}
+                  type="button"
+                  role="tab"
+                  aria-label={`${label}タブ`}
+                  aria-selected={tab === id}
+                  aria-controls={`settings-panel-${id}`}
+                  tabIndex={tab === id ? 0 : -1}
+                  onClick={() => selectTab(id)}
+                  onKeyDown={(event) => handleTabKeyDown(event, id)}
+                  className={cx(
+                    "min-h-11 min-w-0 flex-1 rounded-lg px-3 py-2 text-sm",
+                    tab === id
+                      ? "bg-accent/10 font-medium text-accent"
+                      : "text-muted hover:bg-surface-2 hover:text-text",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+          </div>
 
-          {tab === "engine" && (
-            <section className="space-y-4">
+          {visitedTabs.has("engine") && (
+            <section
+              id="settings-panel-engine"
+              role="tabpanel"
+              aria-labelledby="settings-tab-engine"
+              hidden={tab !== "engine"}
+              className="space-y-4"
+            >
               <HostRestartPanel onRestarted={reload} />
 
               <div className="rounded-2xl border border-border bg-surface p-4">
@@ -155,29 +243,47 @@ export function SettingsView() {
             </section>
           )}
 
-          {tab === "models" && (
-            <section className="space-y-4">
+          {visitedTabs.has("models") && (
+            <section
+              id="settings-panel-models"
+              role="tabpanel"
+              aria-labelledby="settings-tab-models"
+              hidden={tab !== "models"}
+              className="space-y-4"
+            >
               <div className="rounded-2xl border border-border bg-surface p-4">
                 <ProviderModelsPanel refreshToken={modelsRevision} />
               </div>
               <AutoModelSettings refreshToken={modelsRevision} />
               <GenerationModelSettings refreshToken={modelsRevision} />
-              <LlamaServerSettings />
+              <LlamaServerSettings active={tab === "models"} />
               <div className="rounded-2xl border border-border bg-surface p-4">
                 <ProviderAuthPanel providers={providers} onChanged={onProviderChanged} />
               </div>
             </section>
           )}
 
-          {tab === "agents" && (
-            <section className="space-y-4">
+          {visitedTabs.has("agents") && (
+            <section
+              id="settings-panel-agents"
+              role="tabpanel"
+              aria-labelledby="settings-tab-agents"
+              hidden={tab !== "agents"}
+              className="space-y-4"
+            >
               <AgentsMdSettings />
               <AgentsSettings />
             </section>
           )}
 
-          {tab === "extensions" && (
-            <section className="space-y-4">
+          {visitedTabs.has("extensions") && (
+            <section
+              id="settings-panel-extensions"
+              role="tabpanel"
+              aria-labelledby="settings-tab-extensions"
+              hidden={tab !== "extensions"}
+              className="space-y-4"
+            >
               <ExtensionsSettings />
               <MemorySettings />
               <SkillsSettings />

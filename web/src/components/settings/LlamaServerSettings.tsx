@@ -43,7 +43,9 @@ async function fetchStatus(): Promise<LlamaServerStatus | null> {
   }
 }
 
-export function LlamaServerSettings() {
+export function LlamaServerSettings(
+  { active = true }: { active?: boolean } = {},
+) {
   const [status, setStatus] = useState<LlamaServerStatus | null>(null);
   const [config, setConfig] = useState<LlamaServerSettings>(DEFAULT_LLAMA_SERVER_SETTINGS);
   const [actionBusy, setActionBusy] = useState<"start" | "stop" | null>(null);
@@ -60,17 +62,44 @@ export function LlamaServerSettings() {
   const mountedRef = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const configRef = useRef(config);
+  const persistedConfigRef = useRef(JSON.stringify(DEFAULT_LLAMA_SERVER_SETTINGS));
   /** False until the persisted config has been loaded, so the initial read
    *  does not trigger an immediate save-back of identical values. */
   const hydratedRef = useRef(false);
+  configRef.current = config;
+
+  const persistConfig = useCallback(async (
+    nextConfig: LlamaServerSettings,
+    announce: boolean,
+  ) => {
+    try {
+      await sendJson("/api/settings/llama-server-config", {
+        value: JSON.stringify(nextConfig),
+      }, "PUT");
+      persistedConfigRef.current = JSON.stringify(nextConfig);
+      if (mountedRef.current && announce) setMessage("設定を保存しました");
+    } catch (err: unknown) {
+      if (mountedRef.current) {
+        setError(
+          err instanceof Error ? err.message : "設定の保存に失敗しました",
+        );
+      }
+    }
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       if (pollRef.current) clearInterval(pollRef.current);
+      if (saveTimerRef.current !== null) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+        void persistConfig(configRef.current, false);
+      }
     };
-  }, []);
+  }, [persistConfig]);
 
   /**
    * List the GGUF files under `dir` for the launch-model dropdown. Called with
@@ -113,6 +142,7 @@ export function LlamaServerSettings() {
     void getJson<{ parsed: LlamaServerSettings }>("/api/settings/llama-server-config")
       .then((res) => {
         if (cancelled) return;
+        persistedConfigRef.current = JSON.stringify(res.parsed);
         setConfig(res.parsed);
         setSelectedFamily(null); // derive from the saved model first
         hydratedRef.current = true;
@@ -120,6 +150,7 @@ export function LlamaServerSettings() {
       })
       .catch(() => {
         // Defaults are fine if the setting has never been saved.
+        persistedConfigRef.current = JSON.stringify(DEFAULT_LLAMA_SERVER_SETTINGS);
         hydratedRef.current = true;
       });
     return () => {
@@ -132,28 +163,17 @@ export function LlamaServerSettings() {
   // next server start; a start already in flight keeps its own snapshot.
   useEffect(() => {
     if (!hydratedRef.current) return;
-    if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
+    if (saveTimerRef.current !== null) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const serialized = JSON.stringify(config);
+    if (serialized === persistedConfigRef.current) return;
     saveTimerRef.current = setTimeout(() => {
       saveTimerRef.current = null;
-      void sendJson("/api/settings/llama-server-config", {
-        value: JSON.stringify(config),
-      }, "PUT")
-        .then(() => {
-          if (mountedRef.current) setMessage("設定を保存しました");
-        })
-        .catch((err: unknown) => {
-          if (mountedRef.current) {
-            setError(
-              err instanceof Error ? err.message : "設定の保存に失敗しました",
-            );
-          }
-        });
+      void persistConfig(config, true);
     }, 600);
-    return () => {
-      if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    };
-  }, [config]);
+  }, [config, persistConfig]);
 
   // Poll status while the component is mounted.
   const refreshStatus = useCallback(async () => {
@@ -162,12 +182,14 @@ export function LlamaServerSettings() {
   }, []);
 
   useEffect(() => {
+    if (!active) return;
     void refreshStatus();
     pollRef.current = setInterval(() => void refreshStatus(), POLL_INTERVAL_MS);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
     };
-  }, [refreshStatus]);
+  }, [active, refreshStatus]);
 
   const startServer = async () => {
     if (actionBusy) return;
