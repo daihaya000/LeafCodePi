@@ -34,7 +34,8 @@ describe("AgentsMdSettings", () => {
   it("Markdownを既定表示し、編集ボタンから編集して保存する", async () => {
     render(<AgentsMdSettings />);
 
-    expect(await screen.findByRole("heading", { name: "既定の指示" })).toBeTruthy();
+    const heading = await screen.findByRole("heading", { name: "既定の指示" });
+    expect(heading.closest(".md")?.className).toContain("border-border");
     expect(screen.queryByRole("textbox", { name: "グローバル AGENTS.md" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "編集" }));
