@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Badge, Button } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 
@@ -15,6 +17,7 @@ export function AgentsMdSettings() {
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [meta, setMeta] = useState<AgentsMd | null>(null);
   const [content, setContent] = useState("");
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -26,6 +29,7 @@ export function AgentsMdSettings() {
       if (!mountedRef.current) return;
       setMeta(data);
       setContent(data.content);
+      setEditing(false);
       setLoadState("ready");
       setError(null);
     } catch (err) {
@@ -52,6 +56,8 @@ export function AgentsMdSettings() {
       const saved = await sendJson<SaveResult>("/api/agents-md", { content }, "PATCH");
       if (!mountedRef.current) return;
       setMeta({ path: saved.path, exists: saved.exists, content: saved.content });
+      setContent(saved.content);
+      setEditing(false);
       const reload = saved.reload;
       if (reload && reload.failed > 0) {
         setMessage(
@@ -82,11 +88,18 @@ export function AgentsMdSettings() {
             を読み込みます。保存すると開いているセッションにも即時反映され（進行中の応答の次のターンから）。
           </p>
         </div>
-        {meta && (
-          <Badge tone={meta.exists ? "success" : "neutral"}>
-            {meta.exists ? "存在" : "新規作成"}
-          </Badge>
-        )}
+        <div className="flex items-center gap-2">
+          {meta && (
+            <Badge tone={meta.exists ? "success" : "neutral"}>
+              {meta.exists ? "存在" : "新規作成"}
+            </Badge>
+          )}
+          {loadState === "ready" && !editing && (
+            <Button type="button" size="sm" variant="secondary" onClick={() => setEditing(true)}>
+              編集
+            </Button>
+          )}
+        </div>
       </div>
 
       {meta?.path && (
@@ -97,7 +110,17 @@ export function AgentsMdSettings() {
 
       {loadState === "loading" && <p className="text-xs text-faint">読み込み中…</p>}
 
-      {(loadState === "ready" || loadState === "error") && (
+      {loadState === "ready" && !editing && (
+        content.trim() ? (
+          <div className="md text-sm">
+            <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+          </div>
+        ) : (
+          <p className="text-sm text-muted">AGENTS.md は空です。</p>
+        )
+      )}
+
+      {(editing || loadState === "error") && (
         <>
           <textarea
             aria-label="グローバル AGENTS.md"
@@ -110,9 +133,23 @@ export function AgentsMdSettings() {
             placeholder={"# カスタム指示\n\n- 簡潔に答える\n- …"}
           />
           <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
-            <Button type="button" size="sm" variant="secondary" onClick={() => void refresh()}>
+            <Button type="button" size="sm" variant="secondary" disabled={saving} onClick={() => void refresh()}>
               再読み込み
             </Button>
+            {editing && (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={saving}
+                onClick={() => {
+                  setContent(meta?.content ?? "");
+                  setEditing(false);
+                }}
+              >
+                キャンセル
+              </Button>
+            )}
             <Button
               type="button"
               size="sm"
