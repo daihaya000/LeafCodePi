@@ -2904,7 +2904,10 @@ function integratedOption(
     ...(input ? { input } : {}),
     reasoning: records.every((record) => record.option.reasoning === true),
     ...(thinkingLevels ? { thinkingLevels } : {}),
-    codexbarUsedPercent: selectedUsage?.usedPercent ?? null,
+    codexbarUsedPercent:
+      decision.allMaxed
+        ? 100
+        : selectedUsage?.usedPercent ?? null,
     codexbarMaxed: decision.allMaxed,
     routingMode: "integrated",
     routingCandidateCount: records.length,

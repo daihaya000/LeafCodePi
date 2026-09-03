@@ -11,7 +11,7 @@ import {
 } from "@/lib/pi/harness";
 import {
   autoModelValue,
-  autoProviderUsageFromProviders,
+  autoProviderUsageFromModels,
   autoVariantToThinkingLevel,
   chooseAutoModel,
   classifyPrompt,
@@ -25,7 +25,6 @@ import {
 import { parseDirectModelKey } from "@/lib/direct-generation";
 import { resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
-import { getCachedUsage } from "@/lib/codexbar/cache";
 import {
   clampGoalLoopCooldownSeconds,
   clampGoalLoopMaxTurns,
@@ -232,7 +231,7 @@ export async function POST(req: NextRequest) {
           mode: isAutoOptimizeMode(body.autoOptimize)
             ? body.autoOptimize
             : DEFAULT_AUTO_OPTIMIZE_MODE,
-          usage: autoProviderUsageFromProviders(getCachedUsage()?.providers ?? []),
+          usage: autoProviderUsageFromModels(models),
           config: autoRouteConfig,
         }) ?? undefined;
       if (!autoDecision) {

@@ -13,11 +13,20 @@ import {
   providerModelStatePath,
   readProviderModelState,
 } from "@/lib/provider-model-state";
-import { setAccountRoutingMode } from "@/lib/provider-routing";
+import {
+  __resetProviderRoutingQueueForTests,
+  setAccountRoutingMode,
+  markProviderLimited,
+} from "@/lib/provider-routing";
+import {
+  autoProviderUsageFromModels,
+  chooseAutoModel,
+} from "@/lib/auto-model";
 import { AccountRuntimeManager } from "./account-runtime-manager";
 import {
   getHealth,
   getRuntimeFor,
+  invalidateHealthCache,
   listProviderAuth,
   listProviderModelsCatalog,
   listModelsForAccounts,
@@ -52,6 +61,7 @@ function storeAccountProviderAuth(
 
 afterEach(() => {
   delete (globalThis as Record<string, unknown>)[GLOBAL_KEY];
+  __resetProviderRoutingQueueForTests();
   for (const dir of tempDirs.splice(0))
     rmSync(dir, { recursive: true, force: true });
   delete process.env.LEAFCODE_PI_DATA_DIR;
@@ -734,6 +744,97 @@ describe("getRuntimeFor", () => {
       routingMode: "integrated",
       routingCandidateCount: 2,
     });
+  });
+
+  it("excludes a limited provider from Auto routing after a limit response", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-autolimit-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = useTestAgentDir(dir);
+    const codexFirst = createAccount({
+      label: "Codex 仕事用",
+      providers: ["openai-codex"],
+    });
+    const codexSecond = createAccount({
+      label: "Codex 個人用",
+      providers: ["openai-codex"],
+    });
+    const claude = createAccount({
+      label: "Claude 用",
+      providers: ["anthropic"],
+    });
+    storeAccountProviderAuth(codexFirst, agentDir, "openai-codex");
+    storeAccountProviderAuth(codexSecond, agentDir, "openai-codex");
+    storeAccountProviderAuth(claude, agentDir, "anthropic");
+    const makeRuntime = (providerID: string, modelID: string) => () => ({
+      registerProvider: () => {},
+      getProvider: () => undefined,
+      getProviders: () => [{ id: providerID, name: modelID }],
+      getModels: () => [{ id: modelID, name: modelID }],
+      getModel: (provider: string, model: string) =>
+        provider === providerID && model === modelID
+          ? { provider, id: model, input: ["text"], reasoning: false }
+          : undefined,
+      hasConfiguredAuth: () => true,
+      getAvailable: async () => [
+        {
+          provider: providerID,
+          id: modelID,
+          name: modelID,
+          input: ["text"],
+          reasoning: false,
+        },
+      ],
+    });
+    const runtimes = new Map([
+      [codexFirst.id, makeRuntime("openai-codex", "gpt-5")],
+      [codexSecond.id, makeRuntime("openai-codex", "gpt-5")],
+      [claude.id, makeRuntime("anthropic", "claude-sonnet-5")],
+    ]);
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      modelRuntime: {
+        getProviders: () => [{ id: "openai-codex" }, { id: "anthropic" }],
+        modelCache: null,
+      },
+      modelCache: { at: Date.now(), value: [] },
+      modelInflight: null,
+      live: new Map(),
+      lastProviderSyncWarnings: [],
+      accountRuntimes: new AccountRuntimeManager(
+        async (accountId) => runtimes.get(accountId)!() as never,
+      ),
+    };
+    await setAccountRoutingMode("openai-codex", "integrated");
+    const accounts = [
+      { id: codexFirst.id, label: codexFirst.label, providers: codexFirst.providers },
+      { id: codexSecond.id, label: codexSecond.label, providers: codexSecond.providers },
+      { id: claude.id, label: claude.label, providers: claude.providers },
+    ];
+
+    const before = await listModelsForAccounts(accounts);
+    const beforeCodex = before.find((model) => model.providerID === "openai-codex");
+    assert.equal(beforeCodex?.codexbarMaxed, false);
+
+    // 429 応答後の一時除外は、モデル一覧と Auto の候補選択へ反映される。
+    markProviderLimited("openai-codex", codexFirst.id);
+    markProviderLimited("openai-codex", codexSecond.id);
+    invalidateHealthCache();
+
+    const models = await listModelsForAccounts(accounts);
+    const codexOption = models.find((model) => model.providerID === "openai-codex");
+    assert.equal(codexOption?.codexbarMaxed, true);
+    assert.equal(codexOption?.codexbarUsedPercent, 100);
+
+    const usage = autoProviderUsageFromModels(models);
+    const decision = chooseAutoModel({
+      models,
+      tier: "light",
+      hasImages: false,
+      usage,
+    });
+    assert.equal(decision?.providerID, "anthropic");
+    assert.equal(decision?.modelID, "claude-sonnet-5");
+    assert.equal(decision?.accountId, claude.id);
   });
 
   it("orders integrated providers by the settings row order", async () => {
