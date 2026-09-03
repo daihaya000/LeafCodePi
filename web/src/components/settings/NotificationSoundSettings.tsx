@@ -85,7 +85,7 @@ export function NotificationSoundSettings() {
   return (
     <section>
       <h2 className="mb-3 text-sm font-semibold text-muted">通知音</h2>
-      <p className="mb-3 text-xs text-faint">
+      <p className="mb-3 text-xs text-muted">
         タスク完了時と、許可・質問の表示時に鳴る音を設定します。
       </p>
       <div className="rounded-xl border border-border bg-surface px-4 py-3">
@@ -149,7 +149,7 @@ export function NotificationSoundSettings() {
             注意音を再生
           </Button>
         </div>
-        <p id="notification-sound-help" className="mt-2.5 text-[11px] text-faint">
+        <p id="notification-sound-help" className="mt-2.5 text-[11px] text-muted">
           変更は即座に反映され、自動で保存されます。音量が0%のときは通知音は鳴りません。
         </p>
       </div>

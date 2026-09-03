@@ -76,7 +76,7 @@ export function ExtensionsSettings() {
         ）を有効／無効にします。無効化は状態ファイルに記録し、開いているセッションへ即時反映します。
       </p>
       {extensionsPath && (
-        <div className="mt-1 space-y-0.5 font-mono text-[11px] text-faint">
+        <div className="mt-1 space-y-0.5 font-mono text-[11px] text-muted">
           <p className="break-all">{extensionsPath}</p>
         </div>
       )}
@@ -106,9 +106,9 @@ export function ExtensionsSettings() {
                   </Badge>
                 </div>
                 {extension.description && (
-                  <p className="mt-0.5 text-xs break-words text-faint">{extension.description}</p>
+                  <p className="mt-0.5 text-xs break-words text-muted">{extension.description}</p>
                 )}
-                <p className="mt-0.5 break-all font-mono text-[11px] text-faint">{extension.filePath}</p>
+                <p className="mt-0.5 break-all font-mono text-[11px] text-muted">{extension.filePath}</p>
                 {extension.required && (
                   <p className="mt-0.5 text-[11px] text-muted">
                     {extension.enabled

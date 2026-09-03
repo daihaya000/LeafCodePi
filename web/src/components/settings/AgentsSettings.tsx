@@ -165,7 +165,7 @@ function AgentModelPicker({
           既定に戻す
         </Button>
       )}
-      {loading && <span className="text-[11px] text-faint">モデルを読み込み中…</span>}
+      {loading && <span className="text-[11px] text-muted">モデルを読み込み中…</span>}
       {!loading && models.length === 0 && <span className="text-[11px] text-muted">利用可能なモデルがありません</span>}
     </div>
   );
@@ -641,7 +641,7 @@ export function AgentsSettings() {
         />
       )}
       {agentsPath && (
-        <div className="mt-1 space-y-0.5 font-mono text-[11px] text-faint">
+        <div className="mt-1 space-y-0.5 font-mono text-[11px] text-muted">
           <p className="break-all">{agentsPath}</p>
         </div>
       )}
@@ -674,10 +674,10 @@ export function AgentsSettings() {
                   </Badge>
                 </div>
                 {agent.description && (
-                  <p className="mt-0.5 text-xs break-words text-faint">{agent.description}</p>
+                  <p className="mt-0.5 text-xs break-words text-muted">{agent.description}</p>
                 )}
                 {agent.tools && agent.tools.length > 0 && (
-                  <p className="mt-0.5 truncate font-mono text-[11px] text-faint">{agent.tools.join(", ")}</p>
+                  <p className="mt-0.5 truncate font-mono text-[11px] text-muted">{agent.tools.join(", ")}</p>
                 )}
                 <AgentModelPicker
                   name={agent.name}
@@ -694,7 +694,7 @@ export function AgentsSettings() {
                   busy={busyId === agent.id}
                   onChange={(thinking) => void changeThinking(agent, thinking)}
                 />
-                <p className="mt-0.5 break-all font-mono text-[11px] text-faint">{agent.filePath}</p>
+                <p className="mt-0.5 break-all font-mono text-[11px] text-muted">{agent.filePath}</p>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1">
                 <Switch

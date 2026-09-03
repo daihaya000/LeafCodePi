@@ -145,7 +145,7 @@ export function WebUiAuthSettings() {
             placeholder={`${TOKEN_MIN_LENGTH}文字以上（変更しない場合は空欄）`}
           />
         </label>
-        <p id="webui-auth-help" className="text-[11px] text-faint">
+        <p id="webui-auth-help" className="text-[11px] text-muted">
           {snapshot?.envManaged
             ? "LEAFCODE_PI_WEBUI_TOKEN が環境変数で指定されているため、トークン変更は環境変数側で行ってください。"
             : "変更後は現在のログイン cookie も新しいトークンへ更新されます。保存時にWebUIが再起動します。"}

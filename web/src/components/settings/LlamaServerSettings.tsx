@@ -440,7 +440,7 @@ export function LlamaServerSettings(
             ))}
             <option value="custom">カスタム（詳細設定）</option>
           </select>
-          <span id="llama-model-family-hint" className="mt-1 block text-[11px] text-faint">
+          <span id="llama-model-family-hint" className="mt-1 block text-[11px] text-muted">
             {activePreset
               ? activePreset.description
               : "個別の GGUF やパラメータを使う場合に選択してください。"}
@@ -494,7 +494,7 @@ export function LlamaServerSettings(
               onChange={(e) => setConfig((c) => ({ ...c, llamaCppPath: e.target.value }))}
               className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             />
-            <span id="llama-cpp-path-hint" className="mt-1 block text-[11px] text-faint">
+            <span id="llama-cpp-path-hint" className="mt-1 block text-[11px] text-muted">
               フォルダ指定で実行ファイル（Windows: llama-server.exe / Linux・macOS: llama-server）を補完します。空欄なら環境変数/既定値。
             </span>
           </div>
@@ -527,7 +527,7 @@ export function LlamaServerSettings(
                 再取得
               </Button>
             </div>
-            <span id="llama-model-dir-hint" className="mt-1 block text-[11px] text-faint">
+            <span id="llama-model-dir-hint" className="mt-1 block text-[11px] text-muted">
               絶対パスで指定。直下と 2 階層下までの .gguf を探します。
             </span>
           </div>
@@ -579,7 +579,7 @@ export function LlamaServerSettings(
               onChange={(e) => setConfig((c) => ({ ...c, systemPrompt: e.target.value }))}
               className="min-h-28 w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             />
-            <span id="llama-system-prompt-hint" className="mt-1 block text-[11px] text-faint">
+            <span id="llama-system-prompt-hint" className="mt-1 block text-[11px] text-muted">
               LeafCode の既定プロンプトに追加して、llama-server への各チャットリクエストに送信します。空欄なら追加しません。
             </span>
           </div>
@@ -601,7 +601,7 @@ export function LlamaServerSettings(
             />
             <span>
               リモートアクセスを許可（LAN・Tailscale）
-              <span className="mt-1 block text-[11px] text-faint">
+              <span className="mt-1 block text-[11px] text-muted">
                 llama-server を 0.0.0.0 にバインドし、他の端末から WebUI
                 （http://&lt;ホストのIP&gt;:{status?.port ?? DEFAULT_LLAMA_SERVER_PORT}）を開けるようにします。オフの場合は
                 このPCのみ（127.0.0.1）。反映にはサーバーの再起動が必要です。
@@ -645,7 +645,7 @@ export function LlamaServerSettings(
                 </option>
               ))}
             </select>
-            <span className="mt-1 block text-[11px] text-faint">
+            <span className="mt-1 block text-[11px] text-muted">
               draft-mtp は MTP 込み GGUF（Qwen3.8 等）専用。非対応モデルでは起動しません
             </span>
           </label>
@@ -704,7 +704,7 @@ export function LlamaServerSettings(
           </div>
         </div>
         )}
-        <p className="mt-2 text-[11px] text-faint">
+        <p className="mt-2 text-[11px] text-muted">
           変更は自動で保存され、次回起動時に反映されます
         </p>
       </div>

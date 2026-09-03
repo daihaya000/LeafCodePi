@@ -74,8 +74,8 @@ export function CompactionSettings() {
           <span className="shrink-0 text-sm text-muted">%</span>
         </div>
       </div>
-      <p className="mt-3 text-xs text-faint">使用率が{threshold}%に達したらcompactを提案します（70〜95%）。</p>
-      {settings && <p className="mt-2 text-[11px] text-faint">予約トークン {formatTokens(settings.reserveTokens)} / 直近保持 {formatTokens(settings.keepRecentTokens)}</p>}
+      <p className="mt-3 text-xs text-muted">使用率が{threshold}%に達したらcompactを提案します（70〜95%）。</p>
+      {settings && <p className="mt-2 text-[11px] text-muted">予約トークン {formatTokens(settings.reserveTokens)} / 直近保持 {formatTokens(settings.keepRecentTokens)}</p>}
       {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
     </div>
   );

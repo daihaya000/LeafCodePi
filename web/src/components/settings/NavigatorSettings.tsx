@@ -37,16 +37,16 @@ export function NavigatorSettings() {
             }}
             className="w-full max-w-[14rem] accent-accent"
           />
-          <span className="w-12 font-mono text-xs text-faint">{Math.round(opacity * 100)}%</span>
+          <span className="w-12 font-mono text-xs text-muted">{Math.round(opacity * 100)}%</span>
         </label>
-        <p className="mt-2 text-[11px] text-faint">
+        <p className="mt-2 text-[11px] text-muted">
           タスク画面右下のメッセージ移動ボタンの不透明度です（
           {Math.round(MIN_SCROLL_BUTTON_OPACITY * 100)}〜{Math.round(MAX_SCROLL_BUTTON_OPACITY * 100)}
           %）。値を下げると背後のメッセージが見えやすくなります。ホバー時は一時的に不透明になります。
         </p>
       </div>
       {/* 初期値の明示（本家と同じ 60%）。 */}
-      <p className="mt-1 text-[11px] text-faint">既定値 {Math.round(DEFAULT_SCROLL_BUTTON_OPACITY * 100)}%</p>
+      <p className="mt-1 text-[11px] text-muted">既定値 {Math.round(DEFAULT_SCROLL_BUTTON_OPACITY * 100)}%</p>
     </section>
   );
 }

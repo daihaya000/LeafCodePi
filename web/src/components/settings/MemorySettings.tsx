@@ -37,7 +37,7 @@ function SelectField({
       >
         {children}
       </select>
-      {hint && <span className="text-[11px] text-faint">{hint}</span>}
+      {hint && <span className="text-[11px] text-muted">{hint}</span>}
     </label>
   );
 }
@@ -75,7 +75,7 @@ function NumberField({
         />
         <span className="shrink-0 text-xs text-muted">{unit}</span>
       </span>
-      {hint && <span className="text-[11px] text-faint">{hint}</span>}
+      {hint && <span className="text-[11px] text-muted">{hint}</span>}
     </label>
   );
 }
@@ -101,7 +101,7 @@ function ToggleField({
       />
       <span>
         <span className="font-medium text-text">{label}</span>
-        {hint && <span className="mt-0.5 block text-[11px] text-faint">{hint}</span>}
+        {hint && <span className="mt-0.5 block text-[11px] text-muted">{hint}</span>}
       </span>
     </label>
   );
@@ -256,11 +256,11 @@ export function MemorySettings() {
               <li key={`${entry.target}-${entry.project ?? "global"}-${entry.created}-${index}`} className="rounded-lg border border-border bg-surface p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge tone="neutral">{targetLabel(entry)}</Badge>
-                  <span className="text-[11px] text-faint">{entry.project ?? "グローバル"}</span>
+                  <span className="text-[11px] text-muted">{entry.project ?? "グローバル"}</span>
                   {entry.category && <span className="text-[11px] text-muted">{categoryLabels[entry.category]}</span>}
                 </div>
                 <p className="mt-2 whitespace-pre-wrap break-words text-sm text-text">{entry.content}</p>
-                <p className="mt-2 text-[11px] text-faint">作成 {entry.created} ・ 最終参照 {entry.lastReferenced}</p>
+                <p className="mt-2 text-[11px] text-muted">作成 {entry.created} ・ 最終参照 {entry.lastReferenced}</p>
               </li>
             ))}
           </ul>
@@ -350,7 +350,7 @@ export function MemorySettings() {
         <Button variant="ghost" size="sm" disabled={disabled} onClick={reload}>再読込</Button>
       </div>
 
-      {snapshot?.path && <p className="mt-3 break-all font-mono text-[11px] text-faint">{snapshot.path}{snapshot.exists ? "" : "（未作成・保存時に作成）"}</p>}
+      {snapshot?.path && <p className="mt-3 break-all font-mono text-[11px] text-muted">{snapshot.path}{snapshot.exists ? "" : "（未作成・保存時に作成）"}</p>}
       <div aria-live="polite" className="mt-2 min-h-5 text-sm">
         {notice && <p role="status" className="text-success">{notice}</p>}
         {error && <p role="alert" className="text-danger">{error}</p>}

@@ -116,11 +116,11 @@ export function ReasoningTranslationSettings() {
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h2 className="text-sm font-semibold">思考要約の翻訳</h2>
-      <p className="mt-1 text-xs text-faint">
+      <p className="mt-1 text-xs text-muted">
         英語の思考要約を、このPC上のローカル翻訳エンジンで日本語表示します。外部サービスへは送信しません。
         思考欄の編集ボタンで保存した修正訳は、すべてのセッションで再利用されます。
       </p>
-      <p className="mt-2 text-xs text-faint">
+      <p className="mt-2 text-xs text-muted">
         サービス状態: {serviceState}
         {cacheEntries > 0 ? `（キャッシュ ${cacheEntries}件）` : ""}
       </p>
@@ -142,7 +142,7 @@ export function ReasoningTranslationSettings() {
           </button>
         ))}
       </div>
-      <p className="mt-2 text-[11px] text-faint">
+      <p className="mt-2 text-[11px] text-muted">
         {options.find((option) => option.value === mode)?.description}
       </p>
       {installing && (
@@ -167,7 +167,7 @@ export function ReasoningTranslationSettings() {
           >
             ローカル翻訳を導入
           </Button>
-          <span className="text-[11px] text-faint">
+          <span className="text-[11px] text-muted">
             初回のみ。Argos 翻訳モデル（約90MB）をダウンロードします。
           </span>
         </div>

@@ -250,7 +250,7 @@ function CandidateRow({
         </select>
       )}
       {candidate.kind === "strongest" && (
-        <span className="flex-1 text-xs text-faint">最強候補を優先</span>
+        <span className="flex-1 text-xs text-muted">最強候補を優先</span>
       )}
       {effortOptions.length > 0 && (
         <IntelligenceSelect
@@ -372,7 +372,7 @@ function TierEditor({
       <div className="flex items-center justify-between gap-2">
         <p className="min-w-0 text-xs font-medium text-muted">
           {TIER_LABEL[tier]}
-          <span className="ml-1.5 text-faint">{TIER_DESCRIPTION[tier]}</span>
+          <span className="ml-1.5 text-muted">{TIER_DESCRIPTION[tier]}</span>
         </p>
         {!isPreset && (
           <Button
@@ -385,9 +385,9 @@ function TierEditor({
           </Button>
         )}
       </div>
-      <p className="text-[10px] uppercase tracking-wide text-faint">候補（上が優先）</p>
+      <p className="text-[10px] uppercase tracking-wide text-muted">候補（上が優先）</p>
       {candidates.length === 0 ? (
-        <p className="text-xs text-faint">プリセットを使用中</p>
+        <p className="text-xs text-muted">プリセットを使用中</p>
       ) : (
         <div className="space-y-1">
           {candidates.map((candidate, index) => (
@@ -417,7 +417,7 @@ function TierEditor({
         候補を追加
       </button>
       <div className="space-y-1">
-        <p className="text-[10px] uppercase tracking-wide text-faint">全候補が使えない時</p>
+        <p className="text-[10px] uppercase tracking-wide text-muted">全候補が使えない時</p>
         <select
           aria-label={`${TIER_LABEL[tier]}のフォールバック`}
           value={cell?.fallback ?? "preset"}
@@ -527,7 +527,7 @@ export function AutoRouteOverridesEditor({
             </Button>
           )}
         </div>
-        <p className="text-xs text-faint">
+        <p className="text-xs text-muted">
           タブで編集対象のモードを選べます。未編集のtierはそのモードの初期値のまま動きます。
         </p>
         {TIERS.map((tier) => (

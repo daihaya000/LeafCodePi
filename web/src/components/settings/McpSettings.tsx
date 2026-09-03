@@ -75,7 +75,7 @@ export function McpSettings() {
         <span className="font-mono">mcpServers</span> を記述してください。
       </p>
       {configPath && (
-        <div className="mt-1 space-y-0.5 font-mono text-[11px] text-faint">
+        <div className="mt-1 space-y-0.5 font-mono text-[11px] text-muted">
           <p className="break-all">{configPath}</p>
         </div>
       )}

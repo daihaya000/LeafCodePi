@@ -103,12 +103,12 @@ export function AgentsMdSettings() {
       </div>
 
       {meta?.path && (
-        <p className="mb-2 truncate font-mono text-[11px] text-faint" title={meta.path}>
+        <p className="mb-2 truncate font-mono text-[11px] text-muted" title={meta.path}>
           {meta.path}
         </p>
       )}
 
-      {loadState === "loading" && <p className="text-xs text-faint">読み込み中…</p>}
+      {loadState === "loading" && <p className="text-xs text-muted">読み込み中…</p>}
 
       {loadState === "ready" && !editing && (
         content.trim() ? (
