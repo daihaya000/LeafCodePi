@@ -11,7 +11,9 @@ const { getJson, mountCounts } = vi.hoisted(() => ({
 vi.mock("@/lib/client", () => ({ getJson }));
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuHeader: () => null }));
 vi.mock("@/components/settings/HostRestartPanel", () => ({ HostRestartPanel: () => null }));
-vi.mock("@/components/settings/LlamaServerSettings", () => ({ LlamaServerSettings: () => null }));
+vi.mock("@/components/settings/LlamaServerSettings", () => ({
+  LlamaServerSettings: () => <h2>ローカル LLM</h2>,
+}));
 vi.mock("@/components/settings/ProviderModelsPanel", () => ({
   ProviderModelsPanel: () => <h2>モデル</h2>,
 }));
@@ -82,7 +84,7 @@ describe("SettingsView", () => {
     getJson.mockReset();
   });
 
-  it("モデルタブをモデル、Autoモデル、生成モデル、プロバイダーの順に表示する", () => {
+  it("モデルタブをモデル、Autoモデル、生成モデル、ローカルLLM、プロバイダーの順に表示する", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("button", { name: /^モデルタブ$/ }));
 
@@ -90,6 +92,7 @@ describe("SettingsView", () => {
       "モデル",
       "Autoモデル",
       "生成モデル",
+      "ローカル LLM",
       "プロバイダー",
     ]);
   });
@@ -114,6 +117,7 @@ describe("SettingsView", () => {
     render(<SettingsView />);
 
     expect(screen.queryByRole("navigation", { name: "エンジン設定" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "ローカル LLM" })).toBeNull();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
     expect(mountCounts.basic).toBe(1);
@@ -130,20 +134,23 @@ describe("SettingsView", () => {
     expect(window.location.hash).toBe("");
   });
 
-  it("エージェントタブがトップレベルに昇格し、AGENTS.md・メモリを直接表示する", () => {
+  it("エージェントタブにAGENTS.mdとエージェントだけを表示する", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("button", { name: /^エージェントタブ$/ }));
 
     expect(screen.getByRole("heading", { name: "AGENTS.md" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "メモリ" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "スキル" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "エージェント" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "メモリ" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "スキル" })).toBeNull();
   });
 
-  it("拡張タブがトップレベルに昇格し、拡張機能・MCPサーバーを直接表示する", () => {
+  it("拡張タブに拡張機能・メモリ・スキル・MCPサーバーを表示する", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("button", { name: /^拡張タブ$/ }));
 
     expect(screen.getByRole("heading", { name: "拡張機能" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "メモリ" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "スキル" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "MCPサーバー" })).toBeTruthy();
   });
 

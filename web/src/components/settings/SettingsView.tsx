@@ -142,7 +142,6 @@ export function SettingsView() {
                 {error && <p className="mt-3 text-sm text-danger">{error}</p>}
               </div>
 
-              <LlamaServerSettings />
               <BrowserSettings />
               <WebUiAuthSettings />
               <NotificationSoundSettings />
@@ -163,6 +162,7 @@ export function SettingsView() {
               </div>
               <AutoModelSettings refreshToken={modelsRevision} />
               <GenerationModelSettings refreshToken={modelsRevision} />
+              <LlamaServerSettings />
               <div className="rounded-2xl border border-border bg-surface p-4">
                 <ProviderAuthPanel providers={providers} onChanged={onProviderChanged} />
               </div>
@@ -172,8 +172,6 @@ export function SettingsView() {
           {tab === "agents" && (
             <section className="space-y-4">
               <AgentsMdSettings />
-              <MemorySettings />
-              <SkillsSettings />
               <AgentsSettings />
             </section>
           )}
@@ -181,6 +179,8 @@ export function SettingsView() {
           {tab === "extensions" && (
             <section className="space-y-4">
               <ExtensionsSettings />
+              <MemorySettings />
+              <SkillsSettings />
               <McpSettings />
             </section>
           )}
