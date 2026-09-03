@@ -1,6 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { dataDir } from "@/lib/paths";
+import { readSettingsFile, writeSettingsFile } from "@/lib/pi/web-settings";
 import {
   AUTO_RESUME_MODE_SETTING_KEY,
   DEFAULT_HANG_TIMEOUT_MS,
@@ -11,31 +9,10 @@ import {
   type AutoResumeMode,
 } from "@/lib/hang-timeout";
 
-type WebSettingsFile = {
-  version: 1;
-  [HANG_TIMEOUT_SETTING_KEY]?: number;
-  [AUTO_RESUME_MODE_SETTING_KEY]?: AutoResumeMode;
-};
-
-function settingsPath(): string {
-  return join(dataDir(), "web-settings.json");
-}
-
-function readSettings(): WebSettingsFile {
-  try {
-    const parsed = JSON.parse(readFileSync(settingsPath(), "utf8")) as WebSettingsFile;
-    if (!parsed || parsed.version !== 1) return { version: 1 };
-    return parsed;
-  } catch {
-    return { version: 1 };
-  }
-}
-
-function writeSettings(settings: WebSettingsFile): void {
-  const file = settingsPath();
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
-}
+// web-settings.ts と同じ web-settings.json を共有するため、read/write は共通実装を使う
+// （旧: ここで別読み書きしていたため、書き込みタイミングが競合し設定が消えることがあった）。
+const readSettings = readSettingsFile;
+const writeSettings = writeSettingsFile;
 
 export function readHangTimeoutSettingMs(): number {
   const raw = readSettings()[HANG_TIMEOUT_SETTING_KEY];
