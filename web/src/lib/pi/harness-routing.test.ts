@@ -202,7 +202,7 @@ afterEach(() => {
 });
 
 describe("integrated session routing", () => {
-  it("applies an explicit Auto effort over a fixed agent model on follow-up", async () => {
+  it("applies Composer effort instead of the directly selected agent's subagent default", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-auto-agent-routing-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
@@ -231,10 +231,9 @@ describe("integrated session routing", () => {
     });
     await waitFor(() => getTask(task.id)?.status === "idle");
 
-    await promptTask(task.id, "Autoで続行", undefined, {
+    await promptTask(task.id, "Composer設定で続行", undefined, {
       model: "anthropic::claude-sonnet",
       thinkingLevel: "medium",
-      auto: true,
     });
     await waitFor(() => getTask(task.id)?.status === "idle");
 

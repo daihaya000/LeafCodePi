@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import { AUTO_AGENT_VALUE } from "./default-agent";
-import { agentsDir, AgentsError, agentsErrorStatus, buildAgentResourceOptions, createAgent, deleteAgent, listAgents, loadAgentDefinition, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, setAgentModel, updateAgent } from "./agents";
+import { agentsDir, AgentsError, agentsErrorStatus, buildAgentResourceOptions, createAgent, deleteAgent, listAgents, loadAgentDefinition, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, setAgentModel, setAgentThinking, updateAgent } from "./agents";
 
 const AGENT = `---
 name: __NAME__
@@ -117,6 +117,21 @@ describe("listAgents / setAgentEnabled", () => {
 
     setAgentModel("worker", null, agentDir);
     assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.model, undefined);
+  });
+
+  it("persists subagent effort for package and user agents", () => {
+    fixture();
+    const initialPackageThinking = listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.thinking;
+    setAgentThinking("worker", "low", agentDir);
+    setAgentThinking("scout", "low", agentDir);
+
+    assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.thinking, "low");
+    assert.equal(readUserAgent("scout", agentDir).draft.thinking, "low");
+    const raw = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
+    assert.equal(raw.subagents.agentOverrides.worker.thinking, "low");
+
+    setAgentThinking("worker", null, agentDir);
+    assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.thinking, initialPackageThinking);
   });
 
   it("rejects unknown names", () => {

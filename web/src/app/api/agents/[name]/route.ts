@@ -1,5 +1,5 @@
 /**
- * PATCH /api/agents/:name — enable/disable, set a model, or update a user agent.
+ * PATCH /api/agents/:name — enable/disable, set a subagent model/Effort, or update a user agent.
  * GET    /api/agents/:name — read a user agent draft.
  * DELETE /api/agents/:name — delete a user agent.
  */
@@ -12,9 +12,11 @@ import {
   readUserAgent,
   setAgentEnabled,
   setAgentModel,
+  setAgentThinking,
   updateAgent,
   type AgentDraft,
 } from "@/lib/agents";
+import { isThinkingLevel } from "@/lib/thinking-levels";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,6 +64,9 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
   if ("model" in record && record.model !== undefined && record.model !== null && typeof record.model !== "string") {
     return NextResponse.json({ error: "model は文字列または null が必要です" }, { status: 400 });
   }
+  if ("thinking" in record && record.thinking !== undefined && record.thinking !== null && !isThinkingLevel(record.thinking)) {
+    return NextResponse.json({ error: "effort が不正です" }, { status: 400 });
+  }
 
   try {
     if (typeof record.enabled === "boolean") {
@@ -69,6 +74,8 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       setAgentEnabled(name, record.enabled);
     } else if (!("systemPrompt" in record) && "model" in record) {
       setAgentModel(name, record.model ?? null);
+    } else if (!("systemPrompt" in record) && "thinking" in record) {
+      setAgentThinking(name, isThinkingLevel(record.thinking) ? record.thinking : null);
     } else {
       // Update the agent definition.
       if (typeof record.systemPrompt !== "string") {

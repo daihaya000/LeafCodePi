@@ -114,6 +114,23 @@ describe("AgentsSettings", () => {
     });
   });
 
+  it("saves subagent effort independently from the Composer setting", async () => {
+    render(<AgentsSettings />);
+
+    const effort = await screen.findByRole("button", { name: "enabled のEffort" });
+    expect(effort.textContent).toContain("既定");
+    fireEvent.click(effort);
+    fireEvent.click(screen.getByRole("option", { name: "high" }));
+
+    await waitFor(() => {
+      expect(sendJson).toHaveBeenCalledWith(
+        "/api/agents/enabled",
+        { thinking: "high" },
+        "PATCH",
+      );
+    });
+  });
+
   it("shows every subagent without an internal scroll container", async () => {
     render(<AgentsSettings />);
 

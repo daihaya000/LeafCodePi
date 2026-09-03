@@ -7,7 +7,7 @@
  *
  * ON/OFF is persisted in ~/.pi/agent/settings.json under
  * `subagents.agentOverrides.<name>` (user scope), which pi-subagents reads
- * and applies for disabled state and package agent model overrides.
+ * and applies for disabled state and package agent model / thinking overrides.
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -17,6 +17,8 @@ import { resolvePiAgentDir } from "@/lib/agents-md";
 import { readPiSettings } from "@/lib/extensions";
 import { bundledExtensionsDir, resolvePackageDir } from "@/lib/extensions";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
+import { isThinkingLevel } from "@/lib/thinking-levels";
+import type { ThinkingLevel } from "@/lib/types";
 
 export type AgentDto = {
   id: string;
@@ -24,6 +26,7 @@ export type AgentDto = {
   description?: string;
   enabled: boolean;
   model?: string;
+  thinking?: ThinkingLevel;
   filePath: string;
   source: "user" | "builtin" | "package";
   tools?: string[];
@@ -71,7 +74,7 @@ export function agentsDir(agentDir = resolvePiAgentDir()): string {
   return join(agentDir, "agents");
 }
 
-type AgentOverride = { disabled?: boolean; model?: string };
+type AgentOverride = { disabled?: boolean; model?: string; thinking?: ThinkingLevel };
 
 type PiSettings = {
   subagents?: { agentOverrides?: Record<string, AgentOverride>; [key: string]: unknown };
@@ -143,8 +146,8 @@ function toTools(value: unknown): string[] | undefined {
   return undefined;
 }
 
-function discoverInDir(dir: string, source: AgentDto["source"]): Array<{ name: string; description?: string; model?: string; tools?: string[]; filePath: string }> {
-  const entries: Array<{ name: string; description?: string; model?: string; tools?: string[]; filePath: string }> = [];
+function discoverInDir(dir: string, source: AgentDto["source"]): Array<{ name: string; description?: string; model?: string; thinking?: ThinkingLevel; tools?: string[]; filePath: string }> {
+  const entries: Array<{ name: string; description?: string; model?: string; thinking?: ThinkingLevel; tools?: string[]; filePath: string }> = [];
   if (!existsSync(dir)) return entries;
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -163,7 +166,8 @@ function discoverInDir(dir: string, source: AgentDto["source"]): Array<{ name: s
     if (typeof fm.name !== "string" || !fm.name.trim()) continue;
     const description = typeof fm.description === "string" ? fm.description : undefined;
     const model = typeof fm.model === "string" && fm.model.trim() ? fm.model.trim() : undefined;
-    entries.push({ name: fm.name.trim(), description, model, tools: toTools(fm.tools), filePath: full });
+    const thinking = isThinkingLevel(fm.thinking) ? fm.thinking : undefined;
+    entries.push({ name: fm.name.trim(), description, model, thinking, tools: toTools(fm.tools), filePath: full });
   }
   return entries;
 }
@@ -208,12 +212,17 @@ export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
         const model = source === "user"
           ? entry.model ?? overrideModel
           : overrideModel ?? entry.model;
+        const overrideThinking = overrides[entry.name]?.thinking;
+        const thinking = source === "user"
+          ? entry.thinking ?? overrideThinking
+          : overrideThinking ?? entry.thinking;
         byName.set(entry.name, {
           id: entry.name,
           name: entry.name,
           description: entry.description,
           enabled: overrides[entry.name]?.disabled !== true,
           ...(model ? { model } : {}),
+          ...(thinking ? { thinking } : {}),
           filePath: entry.filePath,
           source,
           tools: entry.tools,
@@ -313,6 +322,27 @@ export function setAgentModel(
     (override) => {
       if (nextModel) override.model = nextModel;
       else delete override.model;
+    },
+    agentDir,
+  );
+}
+
+/** Set a user agent's frontmatter effort or a package agent's settings override. */
+export function setAgentThinking(
+  name: string,
+  thinking: ThinkingLevel | null,
+  agentDir = resolvePiAgentDir(),
+): AgentListResult {
+  const { name: trimmed, agent } = assertListedAgent(name, agentDir);
+  if (agent.source === "user") {
+    const { draft } = readUserAgent(trimmed, agentDir);
+    return updateAgent({ ...draft, thinking: thinking ?? undefined }, agentDir);
+  }
+  return updateAgentOverride(
+    trimmed,
+    (override) => {
+      if (thinking) override.thinking = thinking;
+      else delete override.thinking;
     },
     agentDir,
   );

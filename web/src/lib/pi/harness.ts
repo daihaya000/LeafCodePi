@@ -4169,16 +4169,13 @@ export async function promptTask(
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  const agentModel = task.agent
-    ? loadAgentDefinition(task.agent)?.model
-    : undefined;
-  // An explicit Auto decision wins over the resolved agent's default model.
-  const applyRequestedModel = options?.auto === true || !agentModel;
+  // エージェント定義のmodel/thinkingはサブエージェント起動専用。
+  // メイン対話者として直接選択した場合はComposerのモデル/Effortを使う。
   // 同一モデルへの再解決（全アカウントのモデル収集 ≈1.3s）をスキップする。
   // アカウントの現ターン選定は prepareLiveForPrompt が毎回行うため、タスクが
   // 要求のプロバイダ/モデルを既に持つなら付与側の再解決は不要。
   let modelChanged = false;
-  if (applyRequestedModel && options?.model) {
+  if (options?.model) {
     const requested = parseModelValue(options.model);
     const unchanged =
       requested !== null &&
@@ -4190,7 +4187,6 @@ export async function promptTask(
     }
   }
   if (
-    applyRequestedModel &&
     options?.thinkingLevel &&
     (modelChanged || task.thinkingLevel !== options.thinkingLevel)
   ) {

@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Brain } from "lucide-react";
 import { AgentRoleIcon } from "@/components/AgentSelect";
 import { ModelSelect } from "@/components/ModelSelect";
-import { Badge, Button, cx } from "@/components/ui";
+import { Badge, Button, GhostSelect, cx } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
-import type { ModelOption } from "@/lib/types";
+import { ALL_THINKING_LEVELS, THINKING_LEVEL_LABELS } from "@/lib/thinking-levels";
+import type { ModelOption, ThinkingLevel } from "@/lib/types";
 
 type AgentDto = {
   id: string;
@@ -13,6 +15,7 @@ type AgentDto = {
   description?: string;
   enabled: boolean;
   model?: string;
+  thinking?: ThinkingLevel;
   filePath: string;
   source: "user" | "builtin" | "package";
   tools?: string[];
@@ -159,6 +162,38 @@ function AgentModelPicker({
   );
 }
 
+function AgentEffortPicker({
+  name,
+  value,
+  busy,
+  onChange,
+}: {
+  name: string;
+  value?: ThinkingLevel;
+  busy: boolean;
+  onChange: (value: ThinkingLevel | null) => void;
+}) {
+  return (
+    <div className="mt-2 flex min-w-0 items-center gap-2">
+      <span className={LABEL_CLASS}>Effort</span>
+      <GhostSelect
+        value={value ?? ""}
+        disabled={busy}
+        aria-label={`${name} のEffort`}
+        icon={<Brain className="h-3.5 w-3.5" />}
+        valueLabel={value ?? "既定"}
+        onChange={(next) => onChange((next || null) as ThinkingLevel | null)}
+        className="max-w-[8rem] shrink-0"
+      >
+        <option value="">既定</option>
+        {ALL_THINKING_LEVELS.map((level) => (
+          <option key={level} value={level}>{THINKING_LEVEL_LABELS[level]}</option>
+        ))}
+      </GhostSelect>
+    </div>
+  );
+}
+
 function AutoAgentPromptSettings() {
   const [prompt, setPrompt] = useState("");
   const [savedPrompt, setSavedPrompt] = useState("");
@@ -292,7 +327,7 @@ function AgentEditor({
         busy={busy}
         onChange={(model) => setDraft({ ...draft, model: model ?? undefined })}
       />
-      <Field label="思考レベル（off/low/medium/high）" value={draft.thinking ?? ""} onChange={(v) => setDraft({ ...draft, thinking: v })} />
+      <Field label="Effort（off/minimal/low/medium/high/xhigh/max）" value={draft.thinking ?? ""} onChange={(v) => setDraft({ ...draft, thinking: v })} />
       <Field label="ツール（カンマ区切り）" value={toolsText} onChange={setToolsText} />
       <Field label="エイリアス（カンマ区切り）" value={draft.aliases?.join(", ") ?? ""} onChange={(v) => setDraft({ ...draft, aliases: v.split(",").map((x) => x.trim()).filter(Boolean) })} />
       <Field label="フォールバックモデル（カンマ区切り）" value={draft.fallbackModels?.join(", ") ?? ""} onChange={(v) => setDraft({ ...draft, fallbackModels: v.split(",").map((x) => x.trim()).filter(Boolean) })} />
@@ -438,6 +473,25 @@ export function AgentsSettings() {
     }
   }
 
+  async function changeThinking(agent: AgentDto, thinking: ThinkingLevel | null) {
+    if (busyId) return;
+    setBusyId(agent.id);
+    setError(null);
+    try {
+      const result = await sendJson<{ agents: AgentDto[] }>(
+        `/api/agents/${encodeURIComponent(agent.id)}`,
+        { thinking },
+        "PATCH",
+      );
+      setAgents(sortAgentRows(result.agents));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "エージェントのEffort保存に失敗しました");
+      reload();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function openCreate() {
     setEditingDraft(emptyDraft());
     setEditor({ mode: "create" });
@@ -516,7 +570,7 @@ export function AgentsSettings() {
         </div>
       </div>
       <p className="text-xs text-muted">
-        pi-subagents が提供するサブエージェントの有効／無効とモデルを管理します。ユーザー定義は{" "}
+        pi-subagents が提供するサブエージェントの有効／無効とモデル・Effortを管理します。ここでのモデル・Effortはサブエージェントとして呼び出された時だけ使われ、直接選択時はComposerの設定を使います。ユーザー定義は{" "}
         <span className="font-mono">~/.pi/agent/agents/&lt;name&gt;.md</span> に保存されます。
       </p>
       <AutoAgentPromptSettings />
@@ -566,6 +620,12 @@ export function AgentsSettings() {
                   loading={modelsLoading}
                   busy={busyId === agent.id}
                   onChange={(model) => void changeModel(agent, model)}
+                />
+                <AgentEffortPicker
+                  name={agent.name}
+                  value={agent.thinking}
+                  busy={busyId === agent.id}
+                  onChange={(thinking) => void changeThinking(agent, thinking)}
                 />
                 <p className="mt-0.5 break-all font-mono text-[11px] text-faint">{agent.filePath}</p>
               </div>
