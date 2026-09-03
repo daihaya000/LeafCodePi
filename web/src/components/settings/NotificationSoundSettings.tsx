@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui";
 import {
   clampNotificationSoundVolume,
+  DEFAULT_NOTIFICATION_SOUND_TYPE,
+  DEFAULT_NOTIFICATION_SOUND_VOLUME,
   MAX_NOTIFICATION_SOUND_VOLUME,
   isNotificationSoundType,
   notificationSoundTypeLabel,
@@ -23,10 +25,9 @@ const SERVER_SYNC_DELAY_MS = 400;
 const SOUND_TYPES: NotificationSoundType[] = ["standard", "soft", "clear"];
 
 export function NotificationSoundSettings() {
-  const [soundType, setSoundType] = useState<NotificationSoundType>(() =>
-    readNotificationSoundType(),
-  );
-  const [volume, setVolume] = useState(() => readNotificationSoundVolume());
+  // SSRとの一致を保つため初期値は定数固定とし、mount後にlocalStorageの保存値へ切り替える。
+  const [soundType, setSoundType] = useState<NotificationSoundType>(DEFAULT_NOTIFICATION_SOUND_TYPE);
+  const [volume, setVolume] = useState(DEFAULT_NOTIFICATION_SOUND_VOLUME);
   const latestRef = useRef({ soundType, volume });
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -34,10 +35,14 @@ export function NotificationSoundSettings() {
     latestRef.current = { soundType, volume };
   }, [soundType, volume]);
 
-  useEffect(() => subscribeNotificationSound(() => {
+  useEffect(() => {
     setSoundType(readNotificationSoundType());
     setVolume(readNotificationSoundVolume());
-  }), []);
+    return subscribeNotificationSound(() => {
+      setSoundType(readNotificationSoundType());
+      setVolume(readNotificationSoundVolume());
+    });
+  }, []);
 
   useEffect(() => {
     return () => {

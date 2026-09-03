@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getJson, sendJson } from "@/lib/client";
 import {
   DEFAULT_AUTO_RESUME_MODE,
+  DEFAULT_HANG_TIMEOUT_MS,
   MAX_HANG_TIMEOUT_MS,
   MIN_HANG_TIMEOUT_MS,
   isAutoResumeMode,
@@ -20,9 +21,15 @@ type HangSettingsDto = {
 };
 
 export function HangTimeoutSettings() {
-  const [minutes, setMinutes] = useState(() => String(readHangTimeoutMs() / 60_000));
-  const [resumeMode, setResumeMode] = useState<AutoResumeMode>(() => readAutoResumeMode());
+  // SSRとの一致を保つため初期値はデフォルト固定とし、mount後にlocalStorageの保存値へ切り替える。
+  const [minutes, setMinutes] = useState(() => String(DEFAULT_HANG_TIMEOUT_MS / 60_000));
+  const [resumeMode, setResumeMode] = useState<AutoResumeMode>(DEFAULT_AUTO_RESUME_MODE);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMinutes(String(readHangTimeoutMs() / 60_000));
+    setResumeMode(readAutoResumeMode());
+  }, []);
 
   function applySettings(result: HangSettingsDto): void {
     const mode = result.resumeMode ?? DEFAULT_AUTO_RESUME_MODE;

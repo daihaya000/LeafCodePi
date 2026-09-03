@@ -69,14 +69,12 @@ export const GenerationModelSettings = memo(function GenerationModelSettings({
   refreshToken?: number;
 }) {
   const [models, setModels] = useState<ModelOption[]>([]);
-  const [value, setValue] = useState(() => readGenerationModel() ?? "");
-  const [effort, setEffort] = useState(() => readGenerationModelEffort() ?? "");
-  const [fallbackValue, setFallbackValue] = useState(
-    () => readGenerationFallbackModel() ?? "",
-  );
-  const [fallbackEffort, setFallbackEffort] = useState(
-    () => readGenerationFallbackModelEffort() ?? "",
-  );
+  // SSRとの一致を保つため初期値は空固定とし、mount後の復元ロジック（サーバ→ローカル値）が
+  // 保存値をセットする。
+  const [value, setValue] = useState<string>("");
+  const [effort, setEffort] = useState<string>("");
+  const [fallbackValue, setFallbackValue] = useState<string>("");
+  const [fallbackEffort, setFallbackEffort] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const changedRef = useRef({

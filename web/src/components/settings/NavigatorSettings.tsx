@@ -12,11 +12,12 @@ import {
 
 /** ナビゲーター（メッセージ移動ボタン）の不透明度を変えるスライダー。 */
 export function NavigatorSettings() {
-  const [opacity, setOpacity] = useState(() => readScrollButtonOpacity());
-  useEffect(
-    () => subscribeScrollButtonOpacity(() => setOpacity(readScrollButtonOpacity())),
-    [],
-  );
+  // SSRとの一致を保つため初期値は定数固定とし、mount後にlocalStorageの保存値へ切り替える。
+  const [opacity, setOpacity] = useState(DEFAULT_SCROLL_BUTTON_OPACITY);
+  useEffect(() => {
+    setOpacity(readScrollButtonOpacity());
+    return subscribeScrollButtonOpacity(() => setOpacity(readScrollButtonOpacity()));
+  }, []);
 
   return (
     <section>

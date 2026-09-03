@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GenerationModelSettings } from "./GenerationModelSettings";
 
@@ -149,5 +150,16 @@ describe("GenerationModelSettings", () => {
 
     const fallbackEffort = await screen.findByRole("button", { name: "フォールバック先のEffort" });
     expect(fallbackEffort.textContent).toContain("high");
+  });
+
+  it("localStorageに保存値があってもサーバー相当レンダーは設定値に依存しない", () => {
+    mocks.readGenerationModel.mockReturnValue("anthropic::claude-sonnet");
+    mocks.readGenerationModelEffort.mockReturnValue("low");
+
+    const html = renderToStaticMarkup(<GenerationModelSettings />);
+    // モデル一覧取得前は選択UIが無効表示なので、localStorageのモデル名・Effortは出ない。
+    expect(html).not.toContain("Claude Sonnet");
+    expect(html).not.toContain("低");
+    expect(html).toContain("モデルなし");
   });
 });

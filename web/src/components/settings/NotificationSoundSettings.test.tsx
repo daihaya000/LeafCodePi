@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NotificationSoundSettings } from "./NotificationSoundSettings";
 
@@ -31,6 +32,23 @@ describe("NotificationSoundSettings", () => {
   afterEach(() => {
     cleanup();
     localStorage.clear();
+  });
+
+  it("localStorageにカスタム値があってもサーバー相当レンダーは既定値を表示し、mount後に保存値を反映する", async () => {
+    localStorage.setItem("webui:notification-sound-type", "soft");
+    localStorage.setItem("webui:notification-sound-volume", "35");
+
+    // SSR相当（useEffect非実行）は既定値のまま。
+    const html = renderToStaticMarkup(<NotificationSoundSettings />);
+    expect(html).toContain('value="standard" selected=""');
+    expect(html).toContain('aria-valuetext="100%"');
+
+    // hydrate相当（mount後）はlocalStorageの保存値へ切り替わる。
+    render(<NotificationSoundSettings />);
+    await waitFor(() => {
+      expect((screen.getByLabelText("通知音の種類") as HTMLSelectElement).value).toBe("soft");
+      expect(screen.getByText("35%")).toBeTruthy();
+    });
   });
 
   it("shows the selectable sound type and volume controls", () => {
