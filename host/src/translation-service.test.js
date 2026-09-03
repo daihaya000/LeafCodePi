@@ -310,6 +310,7 @@ function writeFakeService(repoRoot, { improveRetry }) {
   mkdirSync(translationDir, { recursive: true });
   writeFileSync(join(translationDir, 'translation_service.py'), `
 const readline = require('node:readline');
+process.stdout.write(JSON.stringify({ v: 1, type: 'ready', ok: true }) + '\\n');
 const rl = readline.createInterface({ input: process.stdin });
 rl.on('line', (line) => {
   const request = JSON.parse(line);
@@ -326,6 +327,7 @@ function writeSegmentingFakeService(repoRoot) {
   mkdirSync(translationDir, { recursive: true });
   writeFileSync(join(translationDir, 'translation_service.py'), `
 const readline = require('node:readline');
+process.stdout.write(JSON.stringify({ v: 1, type: 'ready', ok: true }) + '\\n');
 const rl = readline.createInterface({ input: process.stdin });
 rl.on('line', (line) => {
   const request = JSON.parse(line);

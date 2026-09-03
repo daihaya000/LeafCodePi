@@ -103,7 +103,10 @@ export function setPermissionMode(ctx: ExtensionContext, mode: PermissionMode): 
 function isProtectedPath(path: string): { protected: boolean; reason?: string } {
   const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
   const segments = normalized.split("/").filter(Boolean);
-  if (segments.includes(".env")) return { protected: true, reason: 'protected path ".env"' };
+  // Match `.env`, `.env.local`, `.env.production`, etc.
+  if (segments.some((segment) => segment === ".env" || segment.startsWith(".env."))) {
+    return { protected: true, reason: 'protected path ".env*"' };
+  }
   if (segments.includes(".git")) return { protected: true, reason: 'protected path ".git/"' };
   if (segments.includes("node_modules")) {
     return { protected: true, reason: 'protected path "node_modules/"' };
@@ -113,6 +116,29 @@ function isProtectedPath(path: string): { protected: boolean; reason?: string } 
   const authPath = ".pi/agent/auth.json";
   if (normalized === authPath || normalized.endsWith(`/${authPath}`)) {
     return { protected: true, reason: `protected path "${authPath}"` };
+  }
+  return { protected: false };
+}
+
+/** Detect shell commands that write or touch protected paths (bypass of write/edit gate). */
+function commandTouchesProtectedPath(command: string): { protected: boolean; reason?: string } {
+  if (/(?:^|[\\/\s"'])\.env(?:\.[\w.-]+)?(?:$|[\\/\s"':=])/i.test(command)) {
+    return { protected: true, reason: 'protected path ".env*"' };
+  }
+  if (/(?:^|[\\/\s"'])\.git(?:$|[\\/\s"'])/i.test(command)) {
+    return { protected: true, reason: 'protected path ".git/"' };
+  }
+  if (/(?:^|[\\/\s"'])\.ssh(?:$|[\\/\s"'])/i.test(command)) {
+    return { protected: true, reason: 'protected path ".ssh/"' };
+  }
+  if (/(?:^|[\\/\s"'])\.aws(?:$|[\\/\s"'])/i.test(command)) {
+    return { protected: true, reason: 'protected path ".aws/"' };
+  }
+  if (/(?:^|[\\/\s"'])node_modules(?:$|[\\/\s"'])/i.test(command)) {
+    return { protected: true, reason: 'protected path "node_modules/"' };
+  }
+  if (/(?:^|[\\/\s"'])\.pi[\\/]agent[\\/]auth\.json(?:$|[\\/\s"'])/i.test(command)) {
+    return { protected: true, reason: 'protected path ".pi/agent/auth.json"' };
   }
   return { protected: false };
 }
@@ -147,6 +173,16 @@ export default function (pi: ExtensionAPI): void {
         return { block: true, reason: "Shell execution blocked (permission mode: deny)" };
       }
       const command = (event.input as { command?: string }).command ?? "";
+      const protectedPath = commandTouchesProtectedPath(command);
+      if (protectedPath.protected) {
+        if (ctx.hasUI) {
+          ctx.ui.notify(`Blocked shell access to ${protectedPath.reason}`, "warning");
+        }
+        return {
+          block: true,
+          reason: `Shell command touches ${protectedPath.reason}`,
+        };
+      }
       const { dangerous, labels } = matchedDanger(command);
       if (dangerous) {
         if (mode === "ask") {

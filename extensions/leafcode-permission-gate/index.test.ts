@@ -112,4 +112,52 @@ describe("LeafCode permission gate", () => {
       rmSync(appDir, { recursive: true, force: true });
     }
   });
+
+  it("blocks .env* writes and shell bypasses of protected paths", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-protect-"));
+    const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-protect-data-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = appDir;
+    const handlers = new Map<string, Handler>();
+    const pi = {
+      on: (name: string, handler: Handler) => handlers.set(name, handler),
+      registerCommand: () => undefined,
+    } as unknown as ExtensionAPI;
+    permissionGate(pi);
+    const sessionManager = {
+      getSessionId: () => "protect-session",
+      getSessionName: () => "Protect",
+    };
+
+    try {
+      writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "allow" }), "utf8");
+      await handlers.get("session_start")?.({}, freshContext(cwd, sessionManager));
+
+      const envLocal = await handlers.get("tool_call")?.(
+        { toolName: "write", input: { path: ".env.local", content: "SECRET=1" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((envLocal as { block?: boolean } | undefined)?.block, true);
+
+      const shellEnv = await handlers.get("tool_call")?.(
+        {
+          toolName: "powershell",
+          input: { command: "Set-Content -Path .env -Value 'SECRET=1'" },
+        },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((shellEnv as { block?: boolean } | undefined)?.block, true);
+
+      const shellOk = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "echo hello" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((shellOk as { block?: boolean } | undefined)?.block, undefined);
+    } finally {
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(appDir, { recursive: true, force: true });
+    }
+  });
 });

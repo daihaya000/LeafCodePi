@@ -41,6 +41,10 @@ def main() -> int:
     logging.getLogger("argostranslate").setLevel(logging.ERROR)
     logging.getLogger("argostranslate.utils").setLevel(logging.ERROR)
 
+    # Signal the host only after Argos import succeeds so translate requests
+    # do not race model/package loading.
+    write_response({"v": 1, "type": "ready", "ok": True})
+
     cache: dict[tuple[str, str], object] = {}
     for line in sys.stdin:
         line = line.strip()

@@ -38,8 +38,12 @@ const READ_ONLY_TOOLS = new Set([
 const MUTATING_SHELL_PATTERNS = [
   /\bgit\s+(?:add|commit|apply|checkout|switch|restore|reset|clean|stash|merge|rebase|cherry-pick|mv|rm)\b/i,
   /\b(?:Set-Content|Add-Content|Out-File|Clear-Content|Export-Csv|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item)\b/i,
-  /(?:^|[^-])>{1,2}/,
+  // File redirects (`>` / `>>`) but not fd redirects like `2>&1`.
+  /(?<![0-9])>{1,2}(?!&)/,
   /(?:^|[;&|()\s])(?:rm|mv|cp|mkdir|touch|del|erase|patch)\s+/i,
+  /\b(?:npm|pnpm|yarn|bun)\s+(?:i|install|add|remove|uninstall|update|ci)\b/i,
+  /\b(?:pip|pip3)\s+install\b/i,
+  /\bcargo\s+(?:build|install|add)\b/i,
 ];
 
 type RecordLike = Record<string, unknown>;
@@ -113,12 +117,14 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
   if (process.env[SUBAGENT_CHILD_ENV] === "1") return;
 
   let initiallyDirty: boolean | undefined;
+  let initialStatusText: string | undefined;
   let mutationObserved = false;
   let reminderSent = false;
 
   pi.on("session_start", async (_event, ctx) => {
     const status = await gitStatus(pi, ctx.cwd);
     initiallyDirty = status === undefined ? undefined : isDirty(status);
+    initialStatusText = status;
     mutationObserved = false;
     reminderSent = false;
   });
@@ -134,7 +140,15 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
       reminderSent = false;
       return;
     }
-    if (!shouldRequestCommitGate({ initiallyDirty, dirty: true, mutationObserved, reminderSent })) return;
+    // Dirty fingerprint change is the primary signal; shell heuristics are backup.
+    const statusChanged =
+      initialStatusText !== undefined && status !== undefined && status !== initialStatusText;
+    if (!shouldRequestCommitGate({
+      initiallyDirty,
+      dirty: true,
+      mutationObserved: mutationObserved || statusChanged,
+      reminderSent,
+    })) return;
 
     // Set before enqueueing because sendMessage is non-idempotent.
     reminderSent = true;

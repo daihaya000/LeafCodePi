@@ -496,17 +496,21 @@ const SidebarView = memo(function SidebarView({
   const [railWidget, setRailWidget] = useState<RailWidget | null>(null);
   const [railWidgetPos, setRailWidgetPos] = useState({ bottom: 0, left: 0 });
   const taskDragActiveRef = useRef(false);
+  const refreshGenRef = useRef(0);
   const projectTaskMenuHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const projectTaskMenuRef = useRef<HTMLDivElement | null>(null);
   const railWidgetHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const railWidgetRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async () => {
+    const gen = ++refreshGenRef.current;
     const [projectRes, taskRes, healthRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects?archived=1"),
       getJson<{ tasks: TaskSummary[] }>("/api/tasks?archived=1"),
       getJson<HealthDto>("/api/health"),
     ]);
+    // Drop stale responses so a slow poll cannot overwrite a newer refresh.
+    if (gen !== refreshGenRef.current) return;
     if (taskDragActiveRef.current) return;
     if (projectRes.status === "fulfilled") {
       // 実質不変なら前回の参照を維持し、Sidebar の不要な再レンダーを避ける。

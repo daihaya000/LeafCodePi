@@ -15,7 +15,9 @@ describe("leafcode-commit-guard", () => {
   it("recognizes file edits and mutating shell commands but not read-only git commands", () => {
     expect(hasPotentialRepoMutation(mutationMessages("edit"))).toBe(true);
     expect(hasPotentialRepoMutation(mutationMessages("powershell", { command: "Set-Content -Path file.txt -Value x" }))).toBe(true);
+    expect(hasPotentialRepoMutation(mutationMessages("bash", { command: "npm install lodash" }))).toBe(true);
     expect(hasPotentialRepoMutation(mutationMessages("bash", { command: "git status --short && git diff" }))).toBe(false);
+    expect(hasPotentialRepoMutation(mutationMessages("bash", { command: "git status --short 2>&1" }))).toBe(false);
   });
 
   it("requires a new reminder only once while the worktree stays dirty", () => {
@@ -48,5 +50,32 @@ describe("leafcode-commit-guard", () => {
       expect.objectContaining({ customType: "leafcode-commit-gate", display: false }),
       { triggerTurn: true, deliverAs: "followUp" },
     );
+  });
+
+  it("treats a dirty fingerprint change as mutation even without shell heuristics", async () => {
+    const handlers = new Map<string, Handler>();
+    const sendMessage = vi.fn();
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: " M preexisting.ts\n", stderr: "", code: 0, killed: false })
+      .mockResolvedValueOnce({
+        stdout: " M preexisting.ts\n?? node_modules/.package-lock.json\n",
+        stderr: "",
+        code: 0,
+        killed: false,
+      });
+    const pi = {
+      on: (event: string, handler: Handler) => handlers.set(event, handler),
+      exec,
+      sendMessage,
+    } as unknown as ExtensionAPI;
+    const ctx = { cwd: process.cwd(), hasUI: false } as unknown as ExtensionContext;
+
+    registerCommitGuard(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    handlers.get("agent_end")?.({ messages: mutationMessages("bash", { command: "git status --short 2>&1" }) });
+    await handlers.get("agent_settled")?.({}, ctx);
+
+    expect(sendMessage).toHaveBeenCalledOnce();
   });
 });

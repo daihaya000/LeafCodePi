@@ -14,6 +14,7 @@ import {
 } from './reasoning-translation-quality.js';
 
 const REQUEST_TIMEOUT_MS = 30_000;
+const READY_TIMEOUT_MS = 60_000;
 const MAX_ENGINE_ITEMS = 16;
 const MAX_ENGINE_CHARS = 16_000;
 /** reviewModel value recorded when the local heuristic skipped the AI pass. */
@@ -69,13 +70,23 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
             reject(new Error('translation stdin unavailable'));
             return;
           }
+          let settled = false;
+          const finish = (fn, value) => {
+            if (settled) return;
+            settled = true;
+            child.stdin.off('drain', onDrain);
+            child.stdin.off('error', onError);
+            fn(value);
+          };
+          const onDrain = () => finish(resolve, undefined);
+          const onError = (error) => finish(reject, error);
           const ok = child.stdin.write(line, 'utf8', (err) => {
-            if (err) reject(err);
-            else resolve(undefined);
+            if (err) finish(reject, err);
+            else if (ok) finish(resolve, undefined);
           });
           if (!ok) {
-            child.stdin.once('drain', resolve);
-            child.stdin.once('error', reject);
+            child.stdin.once('drain', onDrain);
+            child.stdin.once('error', onError);
           }
         }),
     );
@@ -412,6 +423,25 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
     pending = new Map();
   }
 
+  let readyPromise = null;
+  let resolveReady = null;
+  let rejectReady = null;
+  let readyTimer = null;
+
+  function clearReadyWait(error) {
+    if (readyTimer) {
+      clearTimeout(readyTimer);
+      readyTimer = null;
+    }
+    const resolve = resolveReady;
+    const reject = rejectReady;
+    resolveReady = null;
+    rejectReady = null;
+    readyPromise = null;
+    if (error) reject?.(error);
+    else resolve?.();
+  }
+
   function stop() {
     const oldChild = child;
     child = null;
@@ -419,6 +449,7 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
       reader.close();
       reader = null;
     }
+    clearReadyWait(new Error('translation service stopped'));
     rejectPending(new Error('translation service stopped'));
     if (oldChild && !oldChild.killed) {
       oldChild.removeAllListeners('exit');
@@ -429,12 +460,17 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
   }
 
   function start() {
-    if (state === 'starting' || (child && state === 'ready')) return;
+    if (child && state === 'ready') return Promise.resolve();
+    if (state === 'starting' && readyPromise) return readyPromise;
     if (!existsSync(script)) throw new Error('translation service script is missing');
     stop();
     const python = executable(dataDir);
     state = 'starting';
     lastError = null;
+    readyPromise = new Promise((resolve, reject) => {
+      resolveReady = resolve;
+      rejectReady = reject;
+    });
     const newChild = spawn(python.file, [...python.args, script, '--packages-dir', packagesDir], {
       cwd: repoRoot,
       windowsHide: true,
@@ -446,6 +482,13 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
     reader.on('line', (line) => {
       let response;
       try { response = JSON.parse(line); } catch { return; }
+      if (response?.type === 'ready' && response?.ok) {
+        if (child === newChild && state === 'starting') {
+          state = 'ready';
+          clearReadyWait();
+        }
+        return;
+      }
       const item = pending.get(response?.id);
       if (!item) return;
       pending.delete(response.id);
@@ -457,6 +500,7 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
       if (child !== newChild) return;
       lastError = error instanceof Error ? error.message : String(error);
       state = 'error';
+      clearReadyWait(error instanceof Error ? error : new Error(String(error)));
       rejectPending(error);
     });
     newChild.once('exit', (code) => {
@@ -464,16 +508,31 @@ export function createTranslationService({ repoRoot, dataDir, log = () => {} }) 
       if (state !== 'stopped') {
         lastError = `translation service exited (${code ?? 'unknown'})`;
         state = 'error';
+        clearReadyWait(new Error(lastError));
         rejectPending(new Error(lastError));
       }
       child = null;
       reader = null;
     });
-    state = 'ready';
+    readyTimer = setTimeout(() => {
+      if (child !== newChild || state !== 'starting') return;
+      lastError = 'translation service ready timed out';
+      state = 'error';
+      clearReadyWait(new Error(lastError));
+      try {
+        newChild.kill();
+      } catch {
+        /* ignore */
+      }
+    }, READY_TIMEOUT_MS);
+    return readyPromise;
   }
 
   async function requestTranslation(texts) {
-    start();
+    await start();
+    if (state !== 'ready') {
+      throw new Error(lastError || 'translation service is not ready');
+    }
     const id = randomUUID();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {

@@ -1,3 +1,13 @@
+## 2026-09-04: バグハント残件6件を修正
+
+1. **Sidebar refresh stale** — `refreshGenRef` で古い poll 応答を破棄
+2. **保護パス シェルバイパス** — `.env*` とシェル内の保護パス参照を block
+3. **memory markdown lock** — heartbeat renew + fencing、`staleMs` 45s
+4. **commit-guard** — `2>&1` 偽陽性排除、npm/pip/cargo 検出、dirty fingerprint 変化を主信号
+5. **translation ready** — Python が ready 行を送信するまで `starting`、stdin backpressure 修正
+6. **host lock EPERM** — ESRCH のみ死亡、EPERM は生存扱い
+
+
 ## 2026-09-04: git branches/push の production typecheck 失敗を修正
 
 `gitDirectoryError` 導入後、`branches` が検証後も `directory`（`string | null`）を `runGit` に渡し、`push` は `body` が null のまま参照していた。`dir` / 分割代入で絞り込んで typecheck を通す。

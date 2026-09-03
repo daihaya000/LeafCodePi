@@ -237,6 +237,26 @@ test("lock file round-trip and stale pid", () => {
   assert.equal(readLock("lock", deps), null);
   assert.equal(pidAlive(process.pid), true);
   assert.equal(pidAlive(-1), false);
+  assert.equal(
+    pidAlive(42, {
+      kill: () => {
+        const err = new Error("operation not permitted");
+        err.code = "EPERM";
+        throw err;
+      },
+    }),
+    true,
+  );
+  assert.equal(
+    pidAlive(42, {
+      kill: () => {
+        const err = new Error("no such process");
+        err.code = "ESRCH";
+        throw err;
+      },
+    }),
+    false,
+  );
 });
 
 test("log line is a single tab-separated row", () => {

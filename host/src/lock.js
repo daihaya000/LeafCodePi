@@ -43,7 +43,15 @@ export function pidAlive(pid, deps = {}) {
   try {
     kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? error.code
+        : undefined;
+    // Only ESRCH means the process is gone. EPERM (and unknown errors) mean
+    // the pid exists but we cannot signal it — treat as alive so we never
+    // steal a live host's lock.
+    if (code === "ESRCH") return false;
+    return true;
   }
 }
