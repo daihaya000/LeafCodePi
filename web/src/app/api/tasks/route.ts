@@ -270,7 +270,6 @@ export async function POST(req: NextRequest) {
       prompt: body.prompt,
       ...(model && model !== AUTO_MODEL_VALUE ? { model } : {}),
       ...(thinkingLevel ? { thinkingLevel } : {}),
-      ...(autoDecision ? { auto: true } : {}),
       images: body.images,
       ...(agent ? { agent } : {}),
       accountId,

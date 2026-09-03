@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelOption } from "@/lib/types";
 import { AgentsSettings } from "./AgentsSettings";
@@ -63,6 +63,7 @@ const models: ModelOption[] = [
     label: "GPT-5.6 Luna",
     providerID: "openai-codex",
     modelID: "gpt-5.6-luna",
+    thinkingLevels: ["low", "medium", "high"],
   },
   {
     value: "anthropic::claude",
@@ -126,6 +127,48 @@ describe("AgentsSettings", () => {
       expect(sendJson).toHaveBeenCalledWith(
         "/api/agents/enabled",
         { thinking: "high" },
+        "PATCH",
+      );
+    });
+  });
+
+  it("offers only the effort levels the agent's model supports", async () => {
+    render(<AgentsSettings />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "enabled のEffort" }));
+
+    const labels = within(screen.getByRole("listbox", { name: "enabled のEffort" }))
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(labels).toEqual(["既定", "無効", "low", "medium", "high"]);
+  });
+
+  it("falls back to every effort level when the agent has no pinned model", async () => {
+    render(<AgentsSettings />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "disabled のEffort" }));
+
+    const labels = within(screen.getByRole("listbox", { name: "disabled のEffort" }))
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(labels).toContain("max");
+    expect(labels).toContain("xhigh");
+  });
+
+  it("saves an explicit thinking:false as the disabled effort", async () => {
+    render(<AgentsSettings />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "enabled のEffort" }));
+    fireEvent.click(
+      within(screen.getByRole("listbox", { name: "enabled のEffort" })).getByRole("option", {
+        name: "無効",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(sendJson).toHaveBeenCalledWith(
+        "/api/agents/enabled",
+        { thinking: false },
         "PATCH",
       );
     });

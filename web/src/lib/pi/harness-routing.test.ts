@@ -240,6 +240,45 @@ describe("integrated session routing", () => {
     assert.equal(getTask(task.id)?.thinkingLevel, "medium");
   });
 
+  it("applies an Auto-resolved model and effort over the agent's subagent default", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-auto-route-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+    mkdirSync(join(agentDir, "agents"), { recursive: true });
+    writeFileSync(
+      join(agentDir, "agents", "build.md"),
+      "---\nname: build\nmodel: anthropic/claude-sonnet\nthinking: max\n---\n",
+      "utf8",
+    );
+
+    const account = createAccount({ label: "テスト", providers: ["anthropic"] });
+    storeProviderAuth(account.id, agentDir);
+    installHarness(new Map([[account.id, runtime(account.id)]]));
+    await setAccountRoutingMode("anthropic", "integrated");
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "最初の確認",
+      model: "anthropic::claude-sonnet",
+      thinkingLevel: "off",
+      agent: "build",
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+
+    // Autoが解決したmodel/effortは、エージェントのサブエージェント既定値に上書きされない。
+    await promptTask(task.id, "Autoで続行", undefined, {
+      model: "anthropic::claude-sonnet",
+      thinkingLevel: "low",
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+
+    assert.equal(getTask(task.id)?.thinkingLevel, "low");
+  });
+
   it("reselects an account before a later prompt and keeps the transcript", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-session-routing-"));
     tempDirs.push(dir);

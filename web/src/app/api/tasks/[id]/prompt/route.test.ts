@@ -100,7 +100,6 @@ describe("POST /api/tasks/[id]/prompt", () => {
         agent: "build",
         model: "openai-codex::gpt-5.6-sol",
         thinkingLevel: "medium",
-        auto: true,
       }),
     );
   });

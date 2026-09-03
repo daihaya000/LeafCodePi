@@ -75,7 +75,6 @@ export async function POST(
     const task = await promptTask(id, body.prompt ?? "", body.images, {
       model: body.model,
       thinkingLevel: body.thinkingLevel,
-      ...(body.auto === true ? { auto: true } : {}),
       agent,
       subagentPermission: body.subagentPermission,
       permissionMode: body.permissionMode,

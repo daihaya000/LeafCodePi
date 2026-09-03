@@ -20,13 +20,19 @@ import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import type { ThinkingLevel } from "@/lib/types";
 
+/**
+ * `thinking: false` is pi-subagents' explicit "no thinking" marker and outranks
+ * `subagents.defaultThinking`, so it must survive round-trips as a real value.
+ */
+export type AgentThinking = ThinkingLevel | false;
+
 export type AgentDto = {
   id: string;
   name: string;
   description?: string;
   enabled: boolean;
   model?: string;
-  thinking?: ThinkingLevel;
+  thinking?: AgentThinking;
   filePath: string;
   source: "user" | "builtin" | "package";
   tools?: string[];
@@ -40,11 +46,17 @@ export type AgentDraft = {
   tools?: string[];
   model?: string;
   fallbackModels?: string[];
-  thinking?: string;
+  thinking?: string | false;
   systemPromptMode?: "replace" | "append";
   inheritProjectContext?: boolean;
   inheritSkills?: boolean;
   async?: boolean;
+  /**
+   * Frontmatter keys this editor does not manage (skills, extensions,
+   * defaultContext, acceptanceRole, disabled, ...). Kept so that saving a
+   * managed field never drops agent config the UI cannot show.
+   */
+  extraFrontmatter?: Record<string, unknown>;
   systemPrompt: string;
 };
 
@@ -74,7 +86,7 @@ export function agentsDir(agentDir = resolvePiAgentDir()): string {
   return join(agentDir, "agents");
 }
 
-type AgentOverride = { disabled?: boolean; model?: string; thinking?: ThinkingLevel };
+type AgentOverride = { disabled?: boolean; model?: string; thinking?: AgentThinking };
 
 type PiSettings = {
   subagents?: { agentOverrides?: Record<string, AgentOverride>; [key: string]: unknown };
@@ -136,6 +148,43 @@ export function parseAgentFile(content: string): ParsedAgent {
   return {};
 }
 
+/** Frontmatter keys `AgentDraft` round-trips. Everything else is preserved verbatim. */
+const MANAGED_FRONTMATTER_KEYS: ReadonlySet<string> = new Set([
+  "name",
+  "description",
+  "aliases",
+  "tools",
+  "model",
+  "fallbackModels",
+  "thinking",
+  "systemPromptMode",
+  "inheritProjectContext",
+  "inheritSkills",
+  "async",
+]);
+
+function extraFrontmatterFrom(fm: ParsedAgent): Record<string, unknown> | undefined {
+  const extras: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fm as Record<string, unknown>)) {
+    if (!MANAGED_FRONTMATTER_KEYS.has(key)) extras[key] = value;
+  }
+  return Object.keys(extras).length > 0 ? extras : undefined;
+}
+
+function readExtraFrontmatter(filePath: string): Record<string, unknown> | undefined {
+  try {
+    return extraFrontmatterFrom(parseAgentFile(readFileSync(filePath, "utf8")));
+  } catch {
+    return undefined;
+  }
+}
+
+function toThinking(value: unknown): AgentThinking | undefined {
+  if (value === false) return false;
+  if (typeof value === "string" && isThinkingLevel(value.trim())) return value.trim() as ThinkingLevel;
+  return undefined;
+}
+
 function toTools(value: unknown): string[] | undefined {
   if (typeof value === "string") {
     return value.split(",").map((t) => t.trim()).filter(Boolean);
@@ -146,8 +195,17 @@ function toTools(value: unknown): string[] | undefined {
   return undefined;
 }
 
-function discoverInDir(dir: string, source: AgentDto["source"]): Array<{ name: string; description?: string; model?: string; thinking?: ThinkingLevel; tools?: string[]; filePath: string }> {
-  const entries: Array<{ name: string; description?: string; model?: string; thinking?: ThinkingLevel; tools?: string[]; filePath: string }> = [];
+type DiscoveredAgent = {
+  name: string;
+  description?: string;
+  model?: string;
+  thinking?: AgentThinking;
+  tools?: string[];
+  filePath: string;
+};
+
+function discoverInDir(dir: string, source: AgentDto["source"]): DiscoveredAgent[] {
+  const entries: DiscoveredAgent[] = [];
   if (!existsSync(dir)) return entries;
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -166,7 +224,7 @@ function discoverInDir(dir: string, source: AgentDto["source"]): Array<{ name: s
     if (typeof fm.name !== "string" || !fm.name.trim()) continue;
     const description = typeof fm.description === "string" ? fm.description : undefined;
     const model = typeof fm.model === "string" && fm.model.trim() ? fm.model.trim() : undefined;
-    const thinking = isThinkingLevel(fm.thinking) ? fm.thinking : undefined;
+    const thinking = toThinking(fm.thinking);
     entries.push({ name: fm.name.trim(), description, model, thinking, tools: toTools(fm.tools), filePath: full });
   }
   return entries;
@@ -222,7 +280,7 @@ export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
           description: entry.description,
           enabled: overrides[entry.name]?.disabled !== true,
           ...(model ? { model } : {}),
-          ...(thinking ? { thinking } : {}),
+          ...(thinking !== undefined ? { thinking } : {}),
           filePath: entry.filePath,
           source,
           tools: entry.tools,
@@ -327,10 +385,13 @@ export function setAgentModel(
   );
 }
 
-/** Set a user agent's frontmatter effort or a package agent's settings override. */
+/**
+ * Set a user agent's frontmatter effort or a package agent's settings override.
+ * `null` clears the setting; `false` records pi-subagents' explicit "no thinking".
+ */
 export function setAgentThinking(
   name: string,
-  thinking: ThinkingLevel | null,
+  thinking: AgentThinking | null,
   agentDir = resolvePiAgentDir(),
 ): AgentListResult {
   const { name: trimmed, agent } = assertListedAgent(name, agentDir);
@@ -341,8 +402,8 @@ export function setAgentThinking(
   return updateAgentOverride(
     trimmed,
     (override) => {
-      if (thinking) override.thinking = thinking;
-      else delete override.thinking;
+      if (thinking === null) delete override.thinking;
+      else override.thinking = thinking;
     },
     agentDir,
   );
@@ -388,11 +449,16 @@ export function serializeAgent(draft: AgentDraft): string {
   if (draft.model) frontmatter.model = draft.model;
   const fallback = joinCsv(draft.fallbackModels);
   if (fallback) frontmatter.fallbackModels = fallback;
-  if (draft.thinking) frontmatter.thinking = draft.thinking;
+  if (draft.thinking === false) frontmatter.thinking = false;
+  else if (draft.thinking) frontmatter.thinking = draft.thinking;
   if (draft.systemPromptMode) frontmatter.systemPromptMode = draft.systemPromptMode;
   if (draft.inheritProjectContext !== undefined) frontmatter.inheritProjectContext = draft.inheritProjectContext;
   if (draft.inheritSkills !== undefined) frontmatter.inheritSkills = draft.inheritSkills;
   if (draft.async !== undefined) frontmatter.async = draft.async;
+  // Unmanaged keys last, never overwriting a managed value.
+  for (const [key, value] of Object.entries(draft.extraFrontmatter ?? {})) {
+    if (!(key in frontmatter)) frontmatter[key] = value;
+  }
   const body = draft.systemPrompt?.trim() ? `\n${draft.systemPrompt.trim()}\n` : "";
   return `---\n${YAML.stringify(frontmatter).trimEnd()}\n---\n${body}`;
 }
@@ -413,11 +479,12 @@ export function readUserAgent(name: string, agentDir = resolvePiAgentDir()): { d
       tools: toTools(fm.tools),
       model: typeof fm.model === "string" ? fm.model : undefined,
       fallbackModels: fromCsv(fm.fallbackModels),
-      thinking: typeof fm.thinking === "string" ? fm.thinking : undefined,
+      thinking: fm.thinking === false ? false : typeof fm.thinking === "string" ? fm.thinking : undefined,
       systemPromptMode: fm.systemPromptMode === "append" ? "append" : fm.systemPromptMode === "replace" ? "replace" : undefined,
       inheritProjectContext: typeof fm.inheritProjectContext === "boolean" ? fm.inheritProjectContext : undefined,
       inheritSkills: typeof fm.inheritSkills === "boolean" ? fm.inheritSkills : undefined,
       async: typeof fm.async === "boolean" ? fm.async : undefined,
+      ...(extraFrontmatterFrom(fm) ? { extraFrontmatter: extraFrontmatterFrom(fm) } : {}),
       systemPrompt,
     },
   };
@@ -447,11 +514,15 @@ export function createAgent(draft: AgentDraft, agentDir = resolvePiAgentDir()): 
   return listAgents(agentDir);
 }
 
-/** Update a user agent. */
+/** Update a user agent. Frontmatter the editor does not manage is preserved. */
 export function updateAgent(draft: AgentDraft, agentDir = resolvePiAgentDir()): AgentListResult {
   const name = assertValidName(draft.name);
   const filePath = assertEditable(agentDir, name);
-  atomicWrite(filePath, serializeAgent({ ...draft, name }));
+  const extraFrontmatter = draft.extraFrontmatter ?? readExtraFrontmatter(filePath);
+  atomicWrite(
+    filePath,
+    serializeAgent({ ...draft, name, ...(extraFrontmatter ? { extraFrontmatter } : {}) }),
+  );
   return listAgents(agentDir);
 }
 
@@ -468,7 +539,7 @@ export type LoadedAgentDefinition = {
   description?: string;
   tools?: string[];
   model?: string;
-  thinking?: string;
+  thinking?: string | false;
   /** pi-subagents semantics: replace (default) swaps the base prompt, append adds to it. */
   systemPromptMode: "replace" | "append";
   inheritProjectContext: boolean;
@@ -511,7 +582,7 @@ export function loadAgentDefinition(
       : {}),
     tools: toTools(fm.tools),
     model: typeof fm.model === "string" && fm.model.trim() ? fm.model.trim() : undefined,
-    thinking: typeof fm.thinking === "string" && fm.thinking.trim() ? fm.thinking.trim() : undefined,
+    thinking: fm.thinking === false ? false : typeof fm.thinking === "string" && fm.thinking.trim() ? fm.thinking.trim() : undefined,
     systemPromptMode:
       fm.systemPromptMode === "append"
         ? "append"

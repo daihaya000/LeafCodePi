@@ -137,7 +137,6 @@ describe("POST /api/tasks", () => {
         agent: "build",
         model: "openai-codex::gpt-5.6-sol",
         thinkingLevel: "medium",
-        auto: true,
       }),
     );
   });

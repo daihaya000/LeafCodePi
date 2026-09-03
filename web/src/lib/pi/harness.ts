@@ -3702,8 +3702,6 @@ export async function createTask(input: {
   prompt: string;
   model?: string;
   thinkingLevel?: ThinkingLevel;
-  /** Auto routing already resolved the requested effort from the route config. */
-  auto?: boolean;
   images?: PromptImage[];
   agent?: string;
   subagentPermission?: "allow" | "deny";
@@ -4148,8 +4146,6 @@ export async function promptTask(
     agent?: string;
     model?: string;
     thinkingLevel?: ThinkingLevel;
-    /** Auto routing already selected model and effort for this turn. */
-    auto?: boolean;
     subagentPermission?: "allow" | "deny";
     permissionMode?: "allow" | "ask" | "deny";
     skillPermission?: SkillPermission;

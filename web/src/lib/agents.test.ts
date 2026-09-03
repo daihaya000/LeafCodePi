@@ -134,6 +134,68 @@ describe("listAgents / setAgentEnabled", () => {
     assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.thinking, initialPackageThinking);
   });
 
+  it("round-trips an explicit thinking:false for user and package agents", () => {
+    fixture();
+    setAgentThinking("scout", false, agentDir);
+    setAgentThinking("worker", false, agentDir);
+
+    assert.equal(readUserAgent("scout", agentDir).draft.thinking, false);
+    assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "scout")?.thinking, false);
+    assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.thinking, false);
+    const raw = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
+    assert.equal(raw.subagents.agentOverrides.worker.thinking, false);
+  });
+
+  it("keeps unmanaged frontmatter when saving a managed field", () => {
+    fixture();
+    writeFileSync(
+      join(agentDir, "agents", "custom.md"),
+      [
+        "---",
+        "name: custom",
+        "description: keeps extras",
+        "skills: research, review",
+        "extensions: leafcode-subagents",
+        "defaultContext: fork",
+        "acceptanceRole: read-only",
+        "disabled: false",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    setAgentThinking("custom", "high", agentDir);
+    setAgentModel("custom", "anthropic/claude", agentDir);
+
+    const fm = parseAgentFile(readFileSync(join(agentDir, "agents", "custom.md"), "utf8")) as Record<string, unknown>;
+    assert.equal(fm.skills, "research, review");
+    assert.equal(fm.extensions, "leafcode-subagents");
+    assert.equal(fm.defaultContext, "fork");
+    assert.equal(fm.acceptanceRole, "read-only");
+    assert.equal(fm.disabled, false);
+    assert.equal(fm.thinking, "high");
+    assert.equal(fm.model, "anthropic/claude");
+    assert.equal(readUserAgent("custom", agentDir).draft.systemPrompt, "Body.");
+  });
+
+  it("keeps unmanaged frontmatter when the editor saves a full draft without extras", () => {
+    fixture();
+    writeFileSync(
+      join(agentDir, "agents", "custom.md"),
+      ["---", "name: custom", "skills: research", "---", "", "Body.", ""].join("\n"),
+      "utf8",
+    );
+
+    updateAgent({ name: "custom", description: "edited", systemPrompt: "New body." }, agentDir);
+
+    const fm = parseAgentFile(readFileSync(join(agentDir, "agents", "custom.md"), "utf8")) as Record<string, unknown>;
+    assert.equal(fm.skills, "research");
+    assert.equal(fm.description, "edited");
+  });
+
   it("rejects unknown names", () => {
     fixture();
     assert.throws(() => setAgentEnabled("missing", false, agentDir), AgentsError);

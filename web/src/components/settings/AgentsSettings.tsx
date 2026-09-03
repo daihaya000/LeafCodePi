@@ -6,8 +6,14 @@ import { AgentRoleIcon } from "@/components/AgentSelect";
 import { ModelSelect } from "@/components/ModelSelect";
 import { Badge, Button, GhostSelect, cx } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
-import { ALL_THINKING_LEVELS, THINKING_LEVEL_LABELS } from "@/lib/thinking-levels";
+import { ALL_THINKING_LEVELS, THINKING_LEVEL_LABELS, isThinkingLevel } from "@/lib/thinking-levels";
 import type { ModelOption, ThinkingLevel } from "@/lib/types";
+
+/** `false` = pi-subagents の明示的な thinking 無効。undefined = 既定に従う。 */
+type AgentThinking = ThinkingLevel | false;
+
+const EFFORT_DEFAULT_VALUE = "";
+const EFFORT_DISABLED_VALUE = "false";
 
 type AgentDto = {
   id: string;
@@ -15,7 +21,7 @@ type AgentDto = {
   description?: string;
   enabled: boolean;
   model?: string;
-  thinking?: ThinkingLevel;
+  thinking?: AgentThinking;
   filePath: string;
   source: "user" | "builtin" | "package";
   tools?: string[];
@@ -33,7 +39,7 @@ type AgentDraft = {
   tools?: string[];
   model?: string;
   fallbackModels?: string[];
-  thinking?: string;
+  thinking?: string | false;
   systemPromptMode?: "replace" | "append";
   inheritProjectContext?: boolean;
   inheritSkills?: boolean;
@@ -162,31 +168,71 @@ function AgentModelPicker({
   );
 }
 
+/**
+ * 選択可能なEffortはエージェントのモデルが受け付けるレベルだけ。未対応レベルを
+ * 保存すると pi-subagents が `model:max` のような存在しないIDで子プロセスを
+ * 起動して失敗する。モデル未指定（親継承）や未取得時は絞れないので全佯を返す。
+ */
+function effortLevelsFor(
+  model: string | undefined,
+  models: readonly ModelOption[],
+  current: AgentThinking | undefined,
+): ThinkingLevel[] {
+  const supported = model
+    ? models.find((option) => option.value === modelSelectionValue(model, models))?.thinkingLevels
+    : undefined;
+  const allowed = new Set<ThinkingLevel>(
+    supported && supported.length > 0 ? supported : ALL_THINKING_LEVELS,
+  );
+  // 保存済みの値は対応外でも現状を見せるために残す（false はレベルでないので除外）。
+  if (current) allowed.add(current);
+  return ALL_THINKING_LEVELS.filter((level) => allowed.has(level));
+}
+
+function effortLabel(value: AgentThinking | undefined): string {
+  if (value === false) return "無効";
+  return value ?? "既定";
+}
+
 function AgentEffortPicker({
   name,
   value,
+  levels,
   busy,
   onChange,
 }: {
   name: string;
-  value?: ThinkingLevel;
+  value?: AgentThinking;
+  levels: readonly ThinkingLevel[];
   busy: boolean;
-  onChange: (value: ThinkingLevel | null) => void;
+  onChange: (value: AgentThinking | null) => void;
 }) {
   return (
     <div className="mt-2 flex min-w-0 items-center gap-2">
       <span className={LABEL_CLASS}>Effort</span>
       <GhostSelect
-        value={value ?? ""}
+        value={value === false ? EFFORT_DISABLED_VALUE : value ?? EFFORT_DEFAULT_VALUE}
         disabled={busy}
         aria-label={`${name} のEffort`}
+        title="サブエージェントとして呼び出された時のEffort"
         icon={<Brain className="h-3.5 w-3.5" />}
-        valueLabel={value ?? "既定"}
-        onChange={(next) => onChange((next || null) as ThinkingLevel | null)}
+        valueLabel={effortLabel(value)}
+        onChange={(next) =>
+          onChange(
+            next === EFFORT_DEFAULT_VALUE
+              ? null
+              : next === EFFORT_DISABLED_VALUE
+                ? false
+                : isThinkingLevel(next)
+                  ? next
+                  : null,
+          )
+        }
         className="max-w-[8rem] shrink-0"
       >
-        <option value="">既定</option>
-        {ALL_THINKING_LEVELS.map((level) => (
+        <option value={EFFORT_DEFAULT_VALUE}>既定</option>
+        <option value={EFFORT_DISABLED_VALUE}>無効</option>
+        {levels.map((level) => (
           <option key={level} value={level}>{THINKING_LEVEL_LABELS[level]}</option>
         ))}
       </GhostSelect>
@@ -327,7 +373,11 @@ function AgentEditor({
         busy={busy}
         onChange={(model) => setDraft({ ...draft, model: model ?? undefined })}
       />
-      <Field label="Effort（off/minimal/low/medium/high/xhigh/max）" value={draft.thinking ?? ""} onChange={(v) => setDraft({ ...draft, thinking: v })} />
+      <Field
+        label="Effort（off/minimal/low/medium/high/xhigh/max、falseで無効）"
+        value={draft.thinking === false ? "false" : draft.thinking ?? ""}
+        onChange={(v) => setDraft({ ...draft, thinking: v.trim() === "false" ? false : v })}
+      />
       <Field label="ツール（カンマ区切り）" value={toolsText} onChange={setToolsText} />
       <Field label="エイリアス（カンマ区切り）" value={draft.aliases?.join(", ") ?? ""} onChange={(v) => setDraft({ ...draft, aliases: v.split(",").map((x) => x.trim()).filter(Boolean) })} />
       <Field label="フォールバックモデル（カンマ区切り）" value={draft.fallbackModels?.join(", ") ?? ""} onChange={(v) => setDraft({ ...draft, fallbackModels: v.split(",").map((x) => x.trim()).filter(Boolean) })} />
@@ -473,7 +523,7 @@ export function AgentsSettings() {
     }
   }
 
-  async function changeThinking(agent: AgentDto, thinking: ThinkingLevel | null) {
+  async function changeThinking(agent: AgentDto, thinking: AgentThinking | null) {
     if (busyId) return;
     setBusyId(agent.id);
     setError(null);
@@ -624,6 +674,7 @@ export function AgentsSettings() {
                 <AgentEffortPicker
                   name={agent.name}
                   value={agent.thinking}
+                  levels={effortLevelsFor(agent.model, models, agent.thinking)}
                   busy={busyId === agent.id}
                   onChange={(thinking) => void changeThinking(agent, thinking)}
                 />

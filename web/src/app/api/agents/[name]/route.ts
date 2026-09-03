@@ -15,8 +15,14 @@ import {
   setAgentThinking,
   updateAgent,
   type AgentDraft,
+  type AgentThinking,
 } from "@/lib/agents";
 import { isThinkingLevel } from "@/lib/thinking-levels";
+
+/** `false` は pi-subagents の明示的な thinking 無効。`null` は設定解除。 */
+function isThinkingInput(value: unknown): value is AgentThinking | null {
+  return value === null || value === false || isThinkingLevel(value);
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,7 +70,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
   if ("model" in record && record.model !== undefined && record.model !== null && typeof record.model !== "string") {
     return NextResponse.json({ error: "model は文字列または null が必要です" }, { status: 400 });
   }
-  if ("thinking" in record && record.thinking !== undefined && record.thinking !== null && !isThinkingLevel(record.thinking)) {
+  if ("thinking" in record && record.thinking !== undefined && !isThinkingInput(record.thinking)) {
     return NextResponse.json({ error: "effort が不正です" }, { status: 400 });
   }
 
@@ -72,10 +78,12 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     if (typeof record.enabled === "boolean") {
       // Toggle only (used by the switch).
       setAgentEnabled(name, record.enabled);
-    } else if (!("systemPrompt" in record) && "model" in record) {
-      setAgentModel(name, record.model ?? null);
-    } else if (!("systemPrompt" in record) && "thinking" in record) {
-      setAgentThinking(name, isThinkingLevel(record.thinking) ? record.thinking : null);
+    } else if (!("systemPrompt" in record) && ("model" in record || "thinking" in record)) {
+      // 同時指定でも片方を黙って捨てない。
+      if ("model" in record) setAgentModel(name, record.model ?? null);
+      if ("thinking" in record) {
+        setAgentThinking(name, isThinkingInput(record.thinking) ? record.thinking : null);
+      }
     } else {
       // Update the agent definition.
       if (typeof record.systemPrompt !== "string") {
