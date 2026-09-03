@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsView } from "./SettingsView";
 
@@ -144,6 +145,46 @@ describe("SettingsView", () => {
     await waitFor(() => {
       expect(screen.getByText("利用可")).toBeTruthy();
     });
+  });
+
+  it("ヘルス取得に失敗した場合は未接続と表示し、次回成功でエラーが消える", async () => {
+    getJson.mockImplementation((path: string) =>
+      path === "/api/health"
+        ? Promise.reject(new Error("network error"))
+        : Promise.resolve({ providers: [] }),
+    );
+
+    const view = render(<SettingsView />);
+
+    await waitFor(() => {
+      expect(screen.getByText("未接続")).toBeTruthy();
+    });
+    expect(screen.getByText("ヘルスの取得に失敗しました")).toBeTruthy();
+
+    // コンポーネント内部の reload は HostRestartPanel の onRestarted 経由でしか呼べず、
+    // そのパネルはモックでnullを返すため、再マウントの mount エフェクトで代替検証する。
+    view.unmount();
+    getJson.mockImplementation((path: string) =>
+      path === "/api/health"
+        ? Promise.resolve({ engineOk: true })
+        : Promise.resolve({ providers: [] }),
+    );
+    render(<SettingsView />);
+
+    await waitFor(() => {
+      expect(screen.getByText("利用可")).toBeTruthy();
+    });
+    expect(screen.queryByText("ヘルスの取得に失敗しました")).toBeNull();
+  });
+
+  it("ハッシュに関わらずサーバー相当レンダーは常にエンジンタブになり、hydration不一致を防ぐ", () => {
+    window.history.replaceState(null, "", "/settings#models");
+    getJson.mockImplementation(() => new Promise(() => {}));
+
+    const html = renderToStaticMarkup(<SettingsView />);
+
+    expect(html).toContain('id="settings-tab-engine" type="button" role="tab" aria-label="エンジンタブ" aria-selected="true"');
+    expect(html).toContain('id="settings-tab-models" type="button" role="tab" aria-label="モデルタブ" aria-selected="false"');
   });
 
   it("エンジンタブ内にサブタブを置かず、基本・応答設定をすべて表示する", () => {

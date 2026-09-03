@@ -74,16 +74,11 @@ function tabFromHash(hash: string): Tab | null {
   return CURRENT_HASH_TAB[key] ?? MIGRATED_HASH_TAB[key] ?? null;
 }
 
-function readHashTab(): Tab {
-  if (typeof window === "undefined") return "engine";
-  return tabFromHash(window.location.hash) ?? "engine";
-}
-
 export function SettingsView() {
-  const [tab, setTab] = useState<Tab>(readHashTab);
-  const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(
-    () => new Set([readHashTab()]),
-  );
+  // SSRとの一致を保つため初回はhashに依存せず固定値で初期化し、
+  // mount直後の syncFromHash エフェクトで実際のhashへ切り替える（hydration mismatch回避）。
+  const [tab, setTab] = useState<Tab>("engine");
+  const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(() => new Set(["engine"]));
   const tabButtonRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
 
   const [health, setHealth] = useState<HealthDto | null>(null);
@@ -93,7 +88,10 @@ export function SettingsView() {
 
   const reload = useCallback(() => {
     void getJson<HealthDto>("/api/health")
-      .then(setHealth)
+      .then((result) => {
+        setHealth(result);
+        setError(null);
+      })
       .catch(() => setError("ヘルスの取得に失敗しました"));
     void getJson<{ providers: ProviderAuthDto[] }>("/api/providers")
       .then((result) => setProviders(result.providers))
@@ -220,10 +218,16 @@ export function SettingsView() {
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-sm font-semibold">Pi Coding Agent</h2>
                   <Badge
-                    tone={health === null ? "neutral" : health.engineOk ? "success" : "warning"}
-                    pulse={health === null || !health.engineOk}
+                    tone={
+                      health === null && !error
+                        ? "neutral"
+                        : health?.engineOk
+                          ? "success"
+                          : "warning"
+                    }
+                    pulse={(health === null && !error) || !health?.engineOk}
                   >
-                    {health === null ? "確認中" : health.engineOk ? "利用可" : "未接続"}
+                    {health === null && !error ? "確認中" : health?.engineOk ? "利用可" : "未接続"}
                   </Badge>
                 </div>
                 <dl className="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
