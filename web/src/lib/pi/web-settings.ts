@@ -1,4 +1,12 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { dataDir } from "@/lib/paths";
 
@@ -40,12 +48,75 @@ export function writeSettingsFile(settings: WebSettingsFile): void {
   const dir = dirname(file);
   mkdirSync(dir, { recursive: true });
   const tmp = join(dir, `.web-settings.json.${process.pid}.${Date.now()}.tmp`);
-  writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
-  renameSync(tmp, file);
+  try {
+    writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+    renameSync(tmp, file);
+  } finally {
+    rmSync(tmp, { force: true });
+  }
+}
+
+const lockWait = new Int32Array(new SharedArrayBuffer(4));
+
+function ownerIsAlive(lock: string): boolean {
+  try {
+    if (Date.now() - statSync(lock).mtimeMs >= 30_000) return false;
+    const [rawPid] = readFileSync(join(lock, "owner"), "utf8").split(":");
+    const pid = Number(rawPid);
+    if (!Number.isInteger(pid) || pid <= 0) return true;
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+/** 複数Nodeプロセス間でもread-modify-writeを直列化する。 */
+export function updateSettingsFile<T>(update: (settings: WebSettingsFile) => T): T {
+  const file = settingsPath();
+  const lock = `${file}.lock`;
+  const owner = `${process.pid}:${randomUUID()}`;
+  mkdirSync(dirname(file), { recursive: true });
+  const deadline = Date.now() + 5_000;
+  for (;;) {
+    try {
+      mkdirSync(lock);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (!ownerIsAlive(lock)) {
+        rmSync(lock, { recursive: true, force: true });
+        continue;
+      }
+      if (Date.now() >= deadline) throw new Error("web-settings lock timeout");
+      Atomics.wait(lockWait, 0, 0, 25);
+      continue;
+    }
+    try {
+      writeFileSync(join(lock, "owner"), owner, "utf8");
+    } catch (error) {
+      rmSync(lock, { recursive: true, force: true });
+      throw error;
+    }
+    break;
+  }
+
+  try {
+    const settings = readSettingsFile();
+    const result = update(settings);
+    writeSettingsFile(settings);
+    return result;
+  } finally {
+    try {
+      if (readFileSync(join(lock, "owner"), "utf8") === owner) {
+        rmSync(lock, { recursive: true, force: true });
+      }
+    } catch {
+      /* 期限切れとして別プロセスが引き継いだ場合は触らない。 */
+    }
+  }
 }
 
 const readSettings = readSettingsFile;
-const writeSettings = writeSettingsFile;
 
 /** 最大 4KB。この BFF は認証なしで LAN から到達可能なため。 */
 export const MAX_SETTING_VALUE_CHARS = 4096;
@@ -56,8 +127,8 @@ export function getSetting(key: string): string | null {
 }
 
 export function setSetting(key: string, value: string | null): void {
-  const settings = readSettings();
-  if (value === null || value.length === 0) delete settings[key];
-  else settings[key] = value;
-  writeSettings(settings);
+  updateSettingsFile((settings) => {
+    if (value === null || value.length === 0) delete settings[key];
+    else settings[key] = value;
+  });
 }

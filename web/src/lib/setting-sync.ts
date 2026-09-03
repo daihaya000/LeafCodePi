@@ -17,7 +17,63 @@ export function createSettingSync(options: {
   eventName: string;
 }) {
   const { storageKey, serverPath, eventName } = options;
+  const pendingKey = `${storageKey}:server-pending`;
   let writeQueue = Promise.resolve();
+  let memoryPending: { encoded: string; value: string | null } | null = null;
+
+  function readPending(): { encoded: string; value: string | null } | null {
+    if (typeof window === "undefined") return null;
+    if (memoryPending) return memoryPending;
+    try {
+      const encoded = localStorage.getItem(pendingKey);
+      if (encoded === null) return null;
+      const value = JSON.parse(encoded) as unknown;
+      return value === null || typeof value === "string" ? { encoded, value } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function setPending(value: string | null): void {
+    const encoded = JSON.stringify(value);
+    memoryPending = { encoded, value };
+    try {
+      localStorage.setItem(pendingKey, encoded);
+    } catch {
+      /* memoryPending から即時再送する。 */
+    }
+  }
+
+  async function flushPending(): Promise<void> {
+    const delays = [0, 250, 1_000, 3_000];
+    for (const delay of delays) {
+      const pending = readPending();
+      if (!pending) return;
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+      try {
+        await sendJson(serverPath, { value: pending.value }, "PUT");
+        if (memoryPending?.encoded === pending.encoded) memoryPending = null;
+        try {
+          if (localStorage.getItem(pendingKey) === pending.encoded) {
+            localStorage.removeItem(pendingKey);
+          }
+        } catch {
+          /* memoryPending は上で解消済み。 */
+        }
+        return;
+      } catch (err) {
+        if (delay === delays.at(-1)) {
+          console.warn(`${eventName} server write failed`, err);
+        }
+      }
+    }
+  }
+
+  function queuePendingFlush(): Promise<void> {
+    const operation = writeQueue.then(flushPending);
+    writeQueue = operation.catch(() => undefined);
+    return operation;
+  }
 
   /** 同期読み取り。未設定・ブラウザ外・失敗時は null。 */
   function read(): string | null {
@@ -53,6 +109,11 @@ export function createSettingSync(options: {
   async function readFromServer(): Promise<string | null> {
     if (typeof window === "undefined") return null;
     await writeQueue.catch(() => undefined);
+    if (readPending()) {
+      await queuePendingFlush();
+      // 再起動中などで再送できなければ、古いサーバ値でローカル値を戻さない。
+      if (readPending()) return read();
+    }
     try {
       const data = await getJson<{ value: string | null }>(serverPath);
       const value = data?.value;
@@ -62,21 +123,11 @@ export function createSettingSync(options: {
     }
   }
 
-  /** サーバ settings 表へ書き込む（write queue で直列化）。 */
+  /** サーバ settings 表へ書き込む。失敗値はlocalStorageに残し、次回読込時にも再送する。 */
   async function writeToServer(value: string | null): Promise<void> {
     if (typeof window === "undefined") return;
-    const operation = writeQueue.then(async () => {
-      try {
-        await sendJson(serverPath, { value }, "PUT");
-      } catch (err) {
-        console.warn(`${eventName} server write failed`, err);
-      }
-    });
-    writeQueue = operation.then(
-      () => undefined,
-      () => undefined,
-    );
-    await operation;
+    setPending(value);
+    await queuePendingFlush();
   }
 
   return { read, write, readFromServer, writeToServer };
