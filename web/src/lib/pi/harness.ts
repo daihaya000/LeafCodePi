@@ -139,7 +139,11 @@ import { clearProviderCache } from "@/lib/codexbar/provider-cache";
 import {
   accountRoutingMode,
   chooseRoutingCandidate,
+  clearProviderLimit,
   isAccountRoutingProvider,
+  isProviderLimitError,
+  markProviderLimited,
+  providerLimitMark,
   readProviderRouting,
   setAccountRoutingMode,
   type AccountRoutingMode,
@@ -260,6 +264,14 @@ type LiveRuntime = {
   hangRetryCount: number;
   /** 「Reasoning is mandatory」400 で思考 ON に上げて再試行済みか。 */
   reasoningFallbackTried: boolean;
+  /** A provider-limit response is handled at the next safe turn boundary. */
+  pendingProviderFallback: {
+    providerID: string;
+    modelID: string;
+    message: string;
+  } | null;
+  /** Restore the user's retry setting after suppressing a duplicate limit retry. */
+  restoreAutoRetry: boolean;
 };
 
 type SessionSetup = {
@@ -1419,6 +1431,102 @@ function openSettingsManager() {
   return pi.SettingsManager.create(homedir(), pi.getAgentDir());
 }
 
+const providerFallbackInflight = new Map<string, Promise<void>>();
+
+function lastAssistantLimitError(event: unknown): string | null {
+  if (!event || typeof event !== "object") return null;
+  const record = event as Record<string, unknown>;
+  if (record.type !== "agent_end" || !Array.isArray(record.messages)) return null;
+  for (let index = record.messages.length - 1; index >= 0; index -= 1) {
+    const message = record.messages[index];
+    if (!message || typeof message !== "object") continue;
+    const item = message as Record<string, unknown>;
+    if (item.role !== "assistant") continue;
+    const error =
+      typeof item.errorMessage === "string"
+        ? item.errorMessage
+        : typeof item.error === "string"
+          ? item.error
+          : "";
+    return error && isProviderLimitError(error) ? error : null;
+  }
+  return null;
+}
+
+function canAutoFallbackTask(task: TaskSummary, providerID: string): boolean {
+  if (task.providerID !== providerID) return false;
+  if (!task.accountId) return true;
+  return (
+    isAccountRoutingProvider(providerID) &&
+    accountRoutingMode(providerID) === "integrated"
+  );
+}
+
+async function fallbackProviderAfterLimit(
+  live: LiveRuntime,
+  pending: NonNullable<LiveRuntime["pendingProviderFallback"]>,
+): Promise<void> {
+  const existing = providerFallbackInflight.get(live.taskId);
+  if (existing) return existing;
+  const operation = (async () => {
+    const task = getTask(live.taskId);
+    if (
+      !task ||
+      !task.providerID ||
+      !task.modelID ||
+      task.providerID !== pending.providerID ||
+      task.modelID !== pending.modelID ||
+      !canAutoFallbackTask(task, pending.providerID)
+    ) {
+      return;
+    }
+
+    await withRouteLock(
+      `${task.providerID}::${task.modelID}`,
+      async () => {
+        const currentLive = state().live.get(task.id) ?? live;
+        const latestTask = getTask(task.id);
+        if (
+          !latestTask ||
+          !latestTask.providerID ||
+          !latestTask.modelID ||
+          latestTask.providerID !== pending.providerID ||
+          latestTask.modelID !== pending.modelID ||
+          currentLive.session.isStreaming
+        ) {
+          return;
+        }
+        const routes = await resolveProviderFallbackRoutes({
+          providerID: pending.providerID,
+          modelID: pending.modelID,
+          ...(currentLive.accountId ? { accountId: currentLive.accountId } : {}),
+        });
+        const route = routes[0];
+        if (!route) return;
+        const ids = modelId(route.model);
+        if (
+          ids.providerID === latestTask.providerID &&
+          ids.modelID === latestTask.modelID &&
+          route.accountId === (latestTask.accountId ?? null)
+        ) {
+          return;
+        }
+        const nextLive = await replaceLiveForRoute(currentLive, latestTask, route);
+        setTaskStatus(nextLive.taskId, "idle");
+        emitTaskSnapshot(nextLive, "provider_fallback", {
+          fallbackFrom: `${pending.providerID}::${pending.modelID}`,
+        });
+      },
+    );
+  })().finally(() => {
+    if (providerFallbackInflight.get(live.taskId) === operation) {
+      providerFallbackInflight.delete(live.taskId);
+    }
+  });
+  providerFallbackInflight.set(live.taskId, operation);
+  return operation;
+}
+
 async function attachSession(
   taskId: string,
   session: AgentSession,
@@ -1480,9 +1588,38 @@ async function attachSession(
     manualAbortedAssistantId: null,
     hangRetryCount: 0,
     reasoningFallbackTried: false,
+    pendingProviderFallback: existing?.pendingProviderFallback ?? null,
+    restoreAutoRetry: false,
   };
 
   const unsubscribe = session.subscribe((event) => {
+    const limitMessage = lastAssistantLimitError(event);
+    const ids = modelId(session.model);
+    if (event.type === "agent_end" && ids.providerID) {
+      if (limitMessage) {
+        const usage = usageForProvider(ids.providerID, live.accountId);
+        markProviderLimited(
+          ids.providerID,
+          live.accountId,
+          usage?.resetsAt ?? null,
+        );
+        live.pendingProviderFallback = {
+          providerID: ids.providerID,
+          modelID: ids.modelID ?? "",
+          message: limitMessage,
+        };
+        if (
+          session.autoRetryEnabled &&
+          typeof session.setAutoRetryEnabled === "function"
+        ) {
+          session.setAutoRetryEnabled(false);
+          live.restoreAutoRetry = true;
+        }
+      } else if (!event.willRetry) {
+        clearProviderLimit(ids.providerID, live.accountId);
+      }
+    }
+
     const syncTask =
       event.type === "agent_start" ||
       event.type === "agent_settled" ||
@@ -1509,6 +1646,23 @@ async function attachSession(
     ) {
       const error = session.agent.state.errorMessage ?? null;
       setTaskStatus(taskId, error ? "error" : "idle", error);
+    }
+    if (event.type === "agent_settled") {
+      if (live.restoreAutoRetry) {
+        session.setAutoRetryEnabled(true);
+        live.restoreAutoRetry = false;
+      }
+      const pending = live.pendingProviderFallback;
+      live.pendingProviderFallback = null;
+      if (pending && pending.modelID) {
+        void fallbackProviderAfterLimit(live, pending).catch((error) => {
+          console.warn(
+            `[leafcode-pi] provider fallback failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        });
+      }
     }
     if (
       event.type === "compaction_end" &&
@@ -1742,6 +1896,12 @@ type ConcreteModelRoute = {
   model: Model;
 };
 
+export type ProviderFallbackModel = {
+  providerID: string;
+  modelID: string;
+  accountId?: string;
+};
+
 function modelWithContextWindow(
   model: Model,
   providerID: string,
@@ -1763,12 +1923,85 @@ function routeLimitError(resetAt: string | null): Error {
   );
 }
 
+function usageForProvider(
+  providerID: string,
+  accountId?: string | null,
+): CodexBarProvider | undefined {
+  return getCachedUsage()?.providers.find(
+    (provider) =>
+      provider.id === providerID &&
+      (provider.accountId ?? null) === (accountId ?? null),
+  );
+}
+
+function futureReset(resetAt: string | null | undefined, nowMs = Date.now()): boolean {
+  if (!resetAt) return false;
+  const parsed = Date.parse(resetAt);
+  return Number.isFinite(parsed) && parsed > nowMs;
+}
+
+function providerIsHardLimited(
+  providerID: string,
+  accountId?: string | null,
+): boolean {
+  if (providerLimitMark(providerID, accountId)) return true;
+  const usage = usageForProvider(providerID, accountId);
+  return Boolean(
+    usage?.maxed &&
+      !usage.stale &&
+      (!usage.resetsAt || futureReset(usage.resetsAt)),
+  );
+}
+
+function providerResetAt(
+  providerID: string,
+  accountId?: string | null,
+): string | null {
+  return (
+    providerLimitMark(providerID, accountId)?.resetAt ??
+    (providerIsHardLimited(providerID, accountId)
+      ? usageForProvider(providerID, accountId)?.resetsAt ?? null
+      : null)
+  );
+}
+
+function markedUsage(
+  providerID: string,
+  accountId: string,
+  usage: CodexBarProvider | undefined,
+): CodexBarProvider | null {
+  const mark = providerLimitMark(providerID, accountId);
+  if (!mark) return usage ?? null;
+  return {
+    ...(usage ?? {
+      id: providerID,
+      accountId,
+      opencodeId: null,
+      plan: null,
+      planMonthlyUsd: null,
+      limited: true,
+      updatedAt: null,
+      error: null,
+      windows: [],
+      credits: null,
+    }),
+    accountId,
+    usedPercent: Math.max(usage?.usedPercent ?? 100, 100),
+    maxed: true,
+    stale: false,
+    resetsAt: mark.resetAt ?? usage?.resetsAt ?? null,
+  };
+}
+
 async function resolveIntegratedModelRoute(
   providerID: string,
   modelID: string,
+  options?: { excludeAccountId?: string | null },
 ): Promise<ConcreteModelRoute | undefined> {
-  const accounts = listAccounts().filter((account) =>
-    accountHasProvider(account, providerID),
+  const excluded = options?.excludeAccountId ?? null;
+  const accounts = listAccounts().filter(
+    (account) =>
+      accountHasProvider(account, providerID) && account.id !== excluded,
   );
   const records = (await collectAccountModelRecords(accounts)).filter(
     (record) =>
@@ -1784,12 +2017,15 @@ async function resolveIntegratedModelRoute(
       accountId: record.accountId,
       accountIndex: record.accountIndex,
       value: record,
-      usage:
+      usage: markedUsage(
+        providerID,
+        record.accountId,
         usageProviders.find(
           (provider) =>
             provider.id === providerID &&
             provider.accountId === record.accountId,
-        ) ?? null,
+        ),
+      ),
       workingTaskCount:
         workingCounts.get(`${providerID}::${record.accountId}`) ?? 0,
     }),
@@ -1812,6 +2048,128 @@ async function resolveIntegratedModelRoute(
     }
   }
   return undefined;
+}
+
+function providerOrderRank(
+  providerID: string,
+  providerOrder: readonly string[],
+  usageOrder: readonly string[],
+): number {
+  const scoped = providerOrder
+    .map((key, index) => ({ key, index }))
+    .filter(
+      ({ key }) =>
+        key === providerID ||
+        key.split("::").length === 2 && key.endsWith(`::${providerID}`),
+    )
+    .map(({ index }) => index);
+  if (scoped.length > 0) return Math.min(...scoped);
+  const usageIndex = usageOrder.indexOf(providerID);
+  return usageIndex < 0
+    ? providerOrder.length + usageOrder.length + 1_000_000
+    : providerOrder.length + usageIndex;
+}
+
+function routeModelRef(route: ConcreteModelRoute): ProviderFallbackModel | null {
+  const ids = modelId(route.model);
+  if (!ids.providerID || !ids.modelID) return null;
+  return {
+    providerID: ids.providerID,
+    modelID: ids.modelID,
+    ...(route.accountId ? { accountId: route.accountId } : {}),
+  };
+}
+
+async function resolveProviderFallbackRoutes(
+  source: ProviderFallbackModel,
+): Promise<ConcreteModelRoute[]> {
+  const modelIdsByProvider = new Map<string, string[]>();
+  const addModel = (providerID: string, modelID: string) => {
+    if (!providerID || !modelID) return;
+    const modelIds = modelIdsByProvider.get(providerID) ?? [];
+    if (!modelIds.includes(modelID)) modelIds.push(modelID);
+    modelIdsByProvider.set(providerID, modelIds);
+  };
+  try {
+    for (const record of await collectAccountModelRecords(listAccounts())) {
+      addModel(record.option.providerID, record.option.modelID);
+    }
+  } catch {
+    // アカウントのモデル収集失敗は、共有候補だけに切り替える。
+  }
+  try {
+    for (const option of await listModels()) {
+      addModel(option.providerID, option.modelID);
+    }
+  } catch {
+    // 共有カタログが未取得でもアカウント候補で続行する。
+  }
+  if (modelIdsByProvider.size === 0) return [];
+
+  const providerOrder = readProviderModelState().providerOrder;
+  const usageOrder = getCachedUsage()?.providerOrder ?? [];
+  const providerIds = [...modelIdsByProvider.keys()].sort(
+    (a, b) =>
+      providerOrderRank(a, providerOrder, usageOrder) -
+        providerOrderRank(b, providerOrder, usageOrder) ||
+      a.localeCompare(b, "en"),
+  );
+  const routes: ConcreteModelRoute[] = [];
+
+  // A limited concrete account should first give another account in the same
+  // integrated provider a chance; only then do we cross the provider boundary.
+  if (
+    source.accountId &&
+    isAccountRoutingProvider(source.providerID) &&
+    accountRoutingMode(source.providerID) === "integrated"
+  ) {
+    try {
+      const route = await resolveIntegratedModelRoute(
+        source.providerID,
+        source.modelID,
+        { excludeAccountId: source.accountId },
+      );
+      if (route) routes.push(route);
+    } catch {
+      // Continue to the next provider when every account in this provider is limited.
+    }
+  }
+
+  for (const providerID of providerIds) {
+    if (providerID === source.providerID) continue;
+    const modelIds = modelIdsByProvider.get(providerID) ?? [];
+    const orderedModelIds = [
+      ...(modelIds.includes(source.modelID) ? [source.modelID] : []),
+      ...modelIds.filter((modelID) => modelID !== source.modelID),
+    ];
+    for (const modelID of orderedModelIds) {
+      try {
+        const route = isAccountRoutingProvider(providerID)
+          ? await resolveIntegratedModelRoute(providerID, modelID)
+          : await resolveConcreteModel(
+              modelValue(providerID, modelID),
+              null,
+              { strictAccountId: false },
+            );
+        if (route) {
+          routes.push(route);
+          break;
+        }
+      } catch {
+        // A limited or unavailable model must not block lower-priority providers.
+      }
+    }
+  }
+  return routes;
+}
+
+/** Resolve concrete fallbacks in provider priority order for direct generation. */
+export async function resolveProviderFallbackModels(
+  source: ProviderFallbackModel,
+): Promise<ProviderFallbackModel[]> {
+  return (await resolveProviderFallbackRoutes(source))
+    .map(routeModelRef)
+    .filter((model): model is ProviderFallbackModel => model !== null);
 }
 
 async function resolveConcreteModel(
@@ -1866,12 +2224,64 @@ async function resolveConcreteModel(
 
   // Shared providers never use an account runtime, even when a caller carries
   // a task account for a different provider.
+  if (providerIsHardLimited(parsed.providerID)) {
+    throw routeLimitError(providerResetAt(parsed.providerID));
+  }
   const runtime = await getRuntimeFor();
   if (!runtime) return undefined;
   const model = runtime.getModel(parsed.providerID, parsed.modelID);
   return model
     ? { accountId: null, runtime, model: modelWithContextWindow(model, parsed.providerID, parsed.modelID) }
     : undefined;
+}
+
+async function resolveConcreteModelWithFallback(
+  value: string | undefined,
+  requestedAccountId?: string | null,
+  options?: {
+    strictAccountId?: boolean;
+    allowProviderFallback?: boolean;
+    accountIdExplicit?: boolean;
+  },
+): Promise<ConcreteModelRoute | undefined> {
+  const parsed = parseModelValue(value);
+  if (!parsed) return undefined;
+  const explicit = Boolean(parsed.accountId) || options?.accountIdExplicit === true;
+  let sourceError: unknown;
+  let route: ConcreteModelRoute | undefined;
+  try {
+    route = await resolveConcreteModel(value, requestedAccountId, {
+      strictAccountId: options?.strictAccountId,
+    });
+    if (
+      route &&
+      requestedAccountId &&
+      !explicit &&
+      isAccountRoutingProvider(parsed.providerID) &&
+      providerIsHardLimited(parsed.providerID, requestedAccountId)
+    ) {
+      sourceError = routeLimitError(
+        providerResetAt(parsed.providerID, requestedAccountId),
+      );
+      route = undefined;
+    }
+  } catch (error) {
+    sourceError = error;
+  }
+  if (route) return route;
+  if (options?.allowProviderFallback === false || explicit) {
+    if (sourceError) throw sourceError;
+    return undefined;
+  }
+
+  const fallbackRoutes = await resolveProviderFallbackRoutes({
+    providerID: parsed.providerID,
+    modelID: parsed.modelID,
+    ...(requestedAccountId ? { accountId: requestedAccountId } : {}),
+  });
+  if (fallbackRoutes[0]) return fallbackRoutes[0];
+  if (sourceError) throw sourceError;
+  return undefined;
 }
 
 function toGoalLoopSummary(
@@ -2721,15 +3131,69 @@ export async function completeModelText(options: {
   const prompt = options.prompt.trim();
   if (!system || !prompt) throw new Error("生成プロンプトが空です");
 
-  const route = await resolveConcreteModel(
+  const sourceRoute = await resolveConcreteModelWithFallback(
     `${options.providerID}::${options.modelID}`,
     options.accountId ?? null,
-    { strictAccountId: options.accountIdExplicit === true },
+    {
+      strictAccountId: options.accountIdExplicit === true,
+      accountIdExplicit: options.accountIdExplicit === true,
+      allowProviderFallback: true,
+    },
   );
-  if (!route)
+  if (!sourceRoute)
     throw new Error(
       `モデルが見つかりません: ${options.providerID}::${options.modelID}`,
     );
+
+  const sourceRef = routeModelRef(sourceRoute);
+  try {
+    return await completeModelTextOnRoute(sourceRoute, options, system, prompt);
+  } catch (error) {
+    if (!isProviderLimitError(error) || options.accountIdExplicit === true) {
+      throw error;
+    }
+    if (sourceRef) {
+      markProviderLimited(sourceRef.providerID, sourceRef.accountId ?? null);
+    }
+    const fallbacks = sourceRef
+      ? await resolveProviderFallbackRoutes(sourceRef)
+      : [];
+    let lastError: unknown = error;
+    for (const route of fallbacks) {
+      const ids = modelId(route.model);
+      if (
+        sourceRef &&
+        ids.providerID === sourceRef.providerID &&
+        ids.modelID === sourceRef.modelID &&
+        route.accountId === sourceRef.accountId
+      ) {
+        continue;
+      }
+      try {
+        return await completeModelTextOnRoute(route, options, system, prompt);
+      } catch (fallbackError) {
+        lastError = fallbackError;
+        if (!isProviderLimitError(fallbackError)) throw fallbackError;
+      }
+    }
+    throw lastError;
+  }
+}
+
+async function completeModelTextOnRoute(
+  route: ConcreteModelRoute,
+  options: {
+    maxTokens?: number;
+    temperature?: number;
+    reasoning?: Exclude<ThinkingLevel, "off">;
+    signal?: AbortSignal;
+  },
+  system: string,
+  prompt: string,
+): Promise<string> {
+  const ids = modelId(route.model);
+  const providerID = ids.providerID ?? "";
+  const modelID = ids.modelID ?? "";
   const heldAccountId = route.accountId;
   const manager = heldAccountId ? accountRuntimeManager() : null;
   const runtime = manager
@@ -2737,11 +3201,11 @@ export async function completeModelText(options: {
     : route.runtime;
   try {
     const model = manager
-      ? runtime.getModel(options.providerID, options.modelID)
+      ? runtime.getModel(providerID, modelID)
       : route.model;
     if (!model)
       throw new Error(
-        `モデルが見つかりません: ${options.providerID}::${options.modelID}`,
+        `モデルが見つかりません: ${providerID}::${modelID}`,
       );
 
     const response = await runtime.completeSimple(
@@ -3773,11 +4237,13 @@ export async function createTask(input: {
     const routed = await withRouteLock(
       `${parsed?.providerID ?? "default"}::${parsed?.modelID ?? "default"}`,
       async () => {
-        const route = await resolveConcreteModel(
+        const route = await resolveConcreteModelWithFallback(
           input.model,
           requestedAccountId ?? null,
           {
             strictAccountId: true,
+            accountIdExplicit: Boolean(requestedAccountId),
+            allowProviderFallback: true,
           },
         );
         if (!route)
@@ -3919,10 +4385,11 @@ async function replaceLiveForRoute(
     agentName: task.agent ?? null,
   });
 
+  const routeIds = modelId(route.model);
   const updatedTask = patchTask(task.id, {
     accountId: route.accountId ?? undefined,
-    providerID: task.providerID,
-    modelID: task.modelID,
+    providerID: routeIds.providerID ?? task.providerID,
+    modelID: routeIds.modelID ?? task.modelID,
     thinkingLevel,
   });
   if (!updatedTask) {
@@ -3946,7 +4413,7 @@ async function replaceLiveForRoute(
   }
 }
 
-/** Select a fresh integrated account before a queued/next user turn. */
+/** Select a fresh account/provider before a queued/next user turn. */
 async function prepareLiveForPrompt(
   live: LiveRuntime,
   reroute: boolean,
@@ -3957,10 +4424,10 @@ async function prepareLiveForPrompt(
     reroute &&
       task?.providerID &&
       task.modelID &&
-      isAccountRoutingProvider(task.providerID) &&
-      accountRoutingMode(task.providerID) === "integrated" &&
       !currentLive.session.isStreaming &&
-      currentLive.session.messages.some((message) => message.role === "user"),
+      currentLive.session.messages.some((message) => message.role === "user") &&
+      (isAccountRoutingProvider(task.providerID) &&
+        accountRoutingMode(task.providerID) === "integrated"),
   );
   if (!canRoute || !task?.providerID || !task.modelID) {
     setTaskStatus(currentLive.taskId, "working");
@@ -3987,21 +4454,38 @@ async function prepareLiveForPrompt(
         return latestLive;
       }
 
-      const route = await resolveIntegratedModelRoute(
-        latestTask.providerID,
-        latestTask.modelID,
-      );
-      if (!route) {
-        throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+      // 通常は既存の統合アカウント再選択だけを行い、全アカウント上限（429）時だけ
+      // 別プロバイダーへフォールバックする。
+      let route: ConcreteModelRoute | undefined;
+      try {
+        route = await resolveIntegratedModelRoute(
+          latestTask.providerID,
+          latestTask.modelID,
+        );
+      } catch (error) {
+        if (!isProviderLimitError(error)) throw error;
+        route = (
+          await resolveProviderFallbackRoutes({
+            providerID: latestTask.providerID,
+            modelID: latestTask.modelID,
+            ...(latestTask.accountId
+              ? { accountId: latestTask.accountId }
+              : {}),
+          })
+        )[0];
+        if (!route) throw error;
       }
-
-      const nextLive =
-        route.accountId === (latestTask.accountId ?? null)
-          ? latestLive
-          : await replaceLiveForRoute(latestLive, latestTask, route);
+      const ids = modelId(route.model);
+      const sameRoute =
+        ids.providerID === latestTask.providerID &&
+        ids.modelID === latestTask.modelID &&
+        route.accountId === (latestTask.accountId ?? null);
+      const nextLive = sameRoute
+        ? latestLive
+        : await replaceLiveForRoute(latestLive, latestTask, route);
       setTaskStatus(latestTask.id, "working");
       if (nextLive !== latestLive) {
-        emitTaskSnapshot(nextLive, "account_routed");
+        emitTaskSnapshot(nextLive, "provider_routed");
       }
       return nextLive;
     },
@@ -4359,6 +4843,14 @@ export async function abortTask(id: string): Promise<TaskSummary> {
     live.manualAbortedAssistantId = turnAssistants.at(-1)?.id ?? "";
     await stopGoalLoopForTask(live);
     await stopSubagentRunsForTask(live, msgs);
+    // abort() stops the current run but keeps steer/follow-up queues; clear
+    // them or the post-run handler will continue with queued messages.
+    try {
+      live.session.clearQueue?.();
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`[abort] clearQueue failed: ${reason}`);
+    }
     await live.session.abort();
   }
   const task = setTaskStatus(id, "idle");
@@ -4415,7 +4907,11 @@ export async function setTaskModel(
   }
   const modelRoute = await withRouteLock(
     `${parsed.providerID}::${parsed.modelID}`,
-    () => resolveConcreteModel(modelValueRaw, parsed.accountId ?? null),
+    () =>
+      resolveConcreteModelWithFallback(modelValueRaw, parsed.accountId ?? null, {
+        accountIdExplicit: Boolean(parsed.accountId),
+        allowProviderFallback: true,
+      }),
   );
   if (!modelRoute)
     throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });

@@ -8,8 +8,13 @@ import permissionGate from "./index";
 
 type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown>;
 
+function freshContext(cwd: string, sessionManager: ExtensionContext["sessionManager"]): ExtensionContext {
+  // Pi's ExtensionRunner.createContext() returns a new object per event.
+  return { cwd, hasUI: false, sessionManager } as ExtensionContext;
+}
+
 describe("LeafCode permission gate", () => {
-  it("applies deny to both shell tools and asks before dangerous PowerShell", async () => {
+  it("applies deny across separate ExtensionContext instances (Pi createContext)", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-project-"));
     const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-data-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
@@ -25,33 +30,84 @@ describe("LeafCode permission gate", () => {
       getSessionId: () => "permission-test-session",
       getSessionName: () => "Permission test",
     };
-    const denyContext = { cwd, hasUI: false, sessionManager } as ExtensionContext;
 
     try {
       writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "deny" }), "utf8");
-      await handlers.get("session_start")?.({}, denyContext);
-      const bash = await handlers.get("tool_call")?.({ toolName: "bash", input: { command: "echo ok" } }, denyContext);
-      const powershell = await handlers.get("tool_call")?.({ toolName: "powershell", input: { command: "Write-Output ok" } }, denyContext);
+      await handlers.get("session_start")?.({}, freshContext(cwd, sessionManager));
+      const bash = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "echo ok" } },
+        freshContext(cwd, sessionManager),
+      );
+      const powershell = await handlers.get("tool_call")?.(
+        { toolName: "powershell", input: { command: "Write-Output ok" } },
+        freshContext(cwd, sessionManager),
+      );
       assert.equal((bash as { block?: boolean } | undefined)?.block, true);
       assert.equal((powershell as { block?: boolean } | undefined)?.block, true);
 
       writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "ask" }), "utf8");
-      const askContext = {
+      const askStart = {
         cwd,
         hasUI: true,
         sessionManager,
         ui: { select: async () => "No", notify: () => undefined },
       } as unknown as ExtensionContext;
-      await handlers.get("session_start")?.({}, askContext);
+      await handlers.get("session_start")?.({}, askStart);
+      const askCall = {
+        cwd,
+        hasUI: true,
+        sessionManager,
+        ui: { select: async () => "No", notify: () => undefined },
+      } as unknown as ExtensionContext;
       const dangerous = await handlers.get("tool_call")?.(
         { toolName: "powershell", input: { command: "Remove-Item -Recurse -Force target" } },
-        askContext,
+        askCall,
       );
       assert.equal((dangerous as { block?: boolean } | undefined)?.block, true);
     } finally {
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
       assert.equal(existsSync(join(cwd, ".pi")), false);
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(appDir, { recursive: true, force: true });
+    }
+  });
+
+  it("picks up WebUI-written deny without relying on ctx mutation", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-live-"));
+    const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-live-data-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = appDir;
+    const handlers = new Map<string, Handler>();
+    const pi = {
+      on: (name: string, handler: Handler) => handlers.set(name, handler),
+      registerCommand: () => undefined,
+    } as unknown as ExtensionAPI;
+    permissionGate(pi);
+    const sessionManager = {
+      getSessionId: () => "live-mode-session",
+      getSessionName: () => "Live mode",
+    };
+
+    try {
+      writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "allow" }), "utf8");
+      await handlers.get("session_start")?.({}, freshContext(cwd, sessionManager));
+      const allowed = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "echo ok" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((allowed as { block?: boolean } | undefined)?.block, undefined);
+
+      // Simulate WebUI applyPermissionMode writing the file mid-session.
+      writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "deny" }), "utf8");
+      const denied = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "echo ok" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((denied as { block?: boolean } | undefined)?.block, true);
+    } finally {
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
       rmSync(cwd, { recursive: true, force: true });
       rmSync(appDir, { recursive: true, force: true });
     }

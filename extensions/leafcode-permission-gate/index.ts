@@ -21,7 +21,8 @@ type StoredConfig = {
 };
 
 const CONFIG_FILE = "permission-gate.json";
-const SESSION_KEY = "leafcode-permission-gate";
+/** Kept for WebUI applyPermissionMode / docs; mode is file-backed, not ctx-backed. */
+export const SESSION_KEY = "leafcode-permission-gate";
 
 const DANGEROUS_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /\brm\s+(-[rf]*|--recursive|--force)/i, label: "rm -rf / rm --recursive" },
@@ -67,22 +68,28 @@ function readConfig(): StoredConfig {
   return { mode: "allow" };
 }
 
-function sessionMode(ctx: ExtensionContext): PermissionMode {
+function writeConfig(mode: PermissionMode): void {
   try {
-    const stored = (ctx as unknown as Record<string, unknown>)[SESSION_KEY];
-    if (stored === "allow" || stored === "ask" || stored === "deny") return stored;
+    const { mkdirSync, writeFileSync } = require("node:fs");
+    const { dirname } = require("node:path");
+    const file = configPath();
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, `${JSON.stringify({ mode }, null, 2)}\n`, "utf8");
   } catch {
     /* ignore */
   }
-  return "allow";
 }
 
-function setSessionMode(ctx: ExtensionContext, mode: PermissionMode): void {
-  try {
-    (ctx as unknown as Record<string, unknown>)[SESSION_KEY] = mode;
-  } catch {
-    /* ignore */
-  }
+/**
+ * Pi recreates ExtensionContext per event (createContext()), so mode cannot
+ * live on the ctx object. Persist to disk and re-read on every tool_call.
+ */
+function sessionMode(_ctx: ExtensionContext): PermissionMode {
+  return readConfig().mode;
+}
+
+function setSessionMode(_ctx: ExtensionContext, mode: PermissionMode): void {
+  writeConfig(mode);
 }
 
 export function getPermissionMode(ctx: ExtensionContext): PermissionMode {

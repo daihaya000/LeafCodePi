@@ -89,6 +89,7 @@ describe("abortTask", () => {
     const project = upsertProject({ name: "demo", rootPath: root });
     const task = insertTask({ project, title: "abort task" });
     let abortCount = 0;
+    let clearQueueCount = 0;
     const session = {
       messages: [{ role: "user", content: "作業", timestamp: 1 }],
       agent: { state: { streamingMessage: undefined } },
@@ -99,6 +100,10 @@ describe("abortTask", () => {
         getCwd: () => root,
       },
       extensionRunner: { getCommand: () => undefined },
+      clearQueue: () => {
+        clearQueueCount += 1;
+        return { steering: ["steer"], followUp: ["follow"] };
+      },
       abort: async () => {
         abortCount += 1;
       },
@@ -134,6 +139,7 @@ describe("abortTask", () => {
     await abortTask(task.id);
 
     assert.equal(abortCount, 1);
+    assert.equal(clearQueueCount, 1);
     assert.equal(getTaskHangWatch(task.id), null);
     assert.equal(getTask(task.id)?.status, "idle");
   });

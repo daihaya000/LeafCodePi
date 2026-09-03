@@ -90,6 +90,14 @@ describe("stabilizeUiMessages", () => {
     expect(out[0]?.parts[0]).toMatchObject({ state: { output: "second text" } });
   });
 
+  it("updates when account or model metadata is applied later", () => {
+    const prev = [textMessage("a", "hello")];
+    const next = [{ ...textMessage("a", "hello"), accountId: "acc-1", model: "gpt", provider: "openai" }];
+    const out = stabilizeUiMessages(prev, next);
+    expect(out[0]).not.toBe(prev[0]);
+    expect(out[0]).toMatchObject({ accountId: "acc-1", model: "gpt", provider: "openai" });
+  });
+
   it("updates a streamed tool when its input changes", () => {
     const prev = [toolInputMessage("a", "first command")];
     const next = [toolInputMessage("a", "second command")];

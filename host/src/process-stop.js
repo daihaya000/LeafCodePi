@@ -94,5 +94,5 @@ export async function stopProcessTreeGracefully(input) {
   if (!isAlive(pid)) return "soft";
   hardKill(pid);
   await wait(pollMs);
-  return isAlive(pid) ? "hard" : "hard";
+  return isAlive(pid) ? "alive" : "hard";
 }

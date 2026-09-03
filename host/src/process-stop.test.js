@@ -59,3 +59,16 @@ test("stopProcessTreeGracefully uses Linux signals and escalates", async () => {
   assert.equal(result, "hard");
   assert.deepEqual(signals, [[-42, "SIGTERM"], [-42, "SIGKILL"]]);
 });
+
+test("stopProcessTreeGracefully reports alive when hard kill fails", async () => {
+  const result = await stopProcessTreeGracefully({
+    pid: 42,
+    platform: "linux",
+    isAlive: () => true,
+    kill: () => {},
+    sleep: async () => {},
+    softWaitMs: 0,
+    pollMs: 0,
+  });
+  assert.equal(result, "alive");
+});

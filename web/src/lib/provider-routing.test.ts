@@ -7,6 +7,10 @@ import {
   __resetProviderRoutingQueueForTests,
   accountRoutingMode,
   chooseRoutingCandidate,
+  clearProviderLimit,
+  isProviderLimitError,
+  markProviderLimited,
+  providerLimitMark,
   providerRoutingPath,
   rankRoutingCandidates,
   readProviderRouting,
@@ -126,5 +130,73 @@ describe("routing candidate ranking", () => {
       now,
     );
     assert.equal(decision.candidate?.accountId, "idle");
+  });
+});
+
+describe("provider limit detection and marks", () => {
+  it("recognizes limit errors by status and quota wording", () => {
+    assert.equal(
+      isProviderLimitError(Object.assign(new Error("429 quota"), { status: 429 })),
+      true,
+    );
+    assert.equal(isProviderLimitError({ status: 402 }), true);
+    assert.equal(
+      isProviderLimitError({ response: { status: 429 } }),
+      true,
+    );
+    assert.equal(
+      isProviderLimitError({ errorMessage: "GoUsageLimitError" }),
+      true,
+    );
+    assert.equal(
+      isProviderLimitError("Monthly usage limit reached"),
+      true,
+    );
+    assert.equal(
+      isProviderLimitError("insufficient_quota"),
+      true,
+    );
+    assert.equal(isProviderLimitError("500 internal"), false);
+    assert.equal(isProviderLimitError({ status: 503 }), false);
+    assert.equal(isProviderLimitError({ errorMessage: "invalid api key" }), false);
+  });
+
+  it("excludes a provider/account until the reset time or TTL", () => {
+    const now = Date.parse("2026-01-01T00:00:00Z");
+    markProviderLimited(
+      "anthropic",
+      "acc-1",
+      "2026-01-01T12:00:00Z",
+      now,
+    );
+    assert.equal(providerLimitMark("anthropic", "acc-1", now) !== null, true);
+    assert.equal(
+      providerLimitMark("anthropic", "acc-1", Date.parse("2026-01-01T11:59:59Z")) !== null,
+      true,
+    );
+    assert.equal(
+      providerLimitMark("anthropic", "acc-1", Date.parse("2026-01-01T12:00:00Z")),
+      null,
+    );
+    // 別スコープは影響を受けない
+    assert.equal(providerLimitMark("anthropic", null, now), null);
+    assert.equal(providerLimitMark("openai-codex", "acc-1", now), null);
+  });
+
+  it("falls back to the TTL when no future reset is known", () => {
+    const now = Date.parse("2026-01-01T00:00:00Z");
+    markProviderLimited("anthropic", "acc-1", null, now);
+    assert.equal(
+      providerLimitMark("anthropic", "acc-1", now + 4 * 60 * 1000) !== null,
+      true,
+    );
+    assert.equal(providerLimitMark("anthropic", "acc-1", now + 6 * 60 * 1000), null);
+  });
+
+  it("clears a mark explicitly", () => {
+    const now = Date.parse("2026-01-01T00:00:00Z");
+    markProviderLimited("anthropic", "acc-1", null, now);
+    clearProviderLimit("anthropic", "acc-1");
+    assert.equal(providerLimitMark("anthropic", "acc-1", now), null);
   });
 });

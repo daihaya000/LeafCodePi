@@ -346,4 +346,85 @@ describe("completeModelText", () => {
       /生成が中断しました/,
     );
   });
+
+  it("crosses to another provider when the primary returns a 429 limit", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-complete-fallback-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = useTestAgentDir(dir);
+    const anthropic = createAccount({ label: "Claude", providers: ["anthropic"] });
+    const codex = createAccount({ label: "Codex", providers: ["openai-codex"] });
+    storeAccountProviderAuth(anthropic.id, agentDir);
+    const codexAuthPath = accountAuthPath(codex.id, agentDir);
+    mkdirSync(dirname(codexAuthPath), { recursive: true });
+    writeFileSync(
+      codexAuthPath,
+      JSON.stringify({ "openai-codex": { type: "api_key", key: "test-key" } }),
+      "utf8",
+    );
+
+    const calls: string[] = [];
+    const success = assistant({ content: [{ type: "text", text: "代替" }] });
+    const makeAccountRuntime = (accountId: string, providerID: string, modelID: string) => ({
+      getProvider: () => ({ id: "stub" }),
+      registerProvider: () => {},
+      getProviders: () => [{ id: providerID, name: providerID }],
+      getModels: () => [{ id: modelID, name: modelID }],
+      hasConfiguredAuth: () => true,
+      getAvailable: async () => [
+        { provider: providerID, id: modelID, name: modelID, input: ["text"], reasoning: false },
+      ],
+      getModel: (provider: string, model: string) =>
+        provider === providerID && model === modelID
+          ? { provider, id: model, reasoning: false, maxTokens: 32_768 }
+          : undefined,
+      completeSimple: async () => {
+        calls.push(accountId);
+        return success;
+      },
+    });
+    const limitRuntime = {
+      getProvider: () => ({ id: "stub" }),
+      getModel: (providerID: string, modelID: string) =>
+        providerID === "anthropic" && modelID === "claude-sonnet"
+          ? {
+              id: modelID,
+              provider: providerID,
+              api: "anthropic-messages",
+              reasoning: false,
+              maxTokens: 32_768,
+            }
+          : undefined,
+      completeSimple: async () => {
+        calls.push("default");
+        throw Object.assign(new Error("429 Monthly usage limit reached"), { status: 429 });
+      },
+    };
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      pi: null,
+      modelRuntime: limitRuntime,
+      accountRuntimes: new AccountRuntimeManager(
+        async (accountId) =>
+          (accountId === anthropic.id
+            ? makeAccountRuntime(anthropic.id, "anthropic", "claude-sonnet")
+            : makeAccountRuntime(codex.id, "openai-codex", "codex-model")) as never,
+      ),
+      initPromise: null,
+      initError: null,
+      live: new Map(),
+      watchdogRegistered: true,
+      lastProviderSyncWarnings: [],
+    };
+
+    await assert.equal(
+      await completeModelText({
+        providerID: "anthropic",
+        modelID: "claude-sonnet",
+        system: "system",
+        prompt: "prompt",
+      }),
+      "代替",
+    );
+    assert.deepEqual(calls, ["default", codex.id]);
+  });
 });

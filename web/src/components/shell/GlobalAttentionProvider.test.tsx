@@ -37,6 +37,7 @@ const taskDetail = (taskId: string) => ({
 describe("GlobalAttentionProvider", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    window.history.pushState({}, "", "/");
     mocks.getJson.mockReset();
     mocks.playAttentionRequiredSound.mockReset();
     mocks.getJson.mockImplementation(async (path: string) => {
@@ -53,6 +54,21 @@ describe("GlobalAttentionProvider", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+  });
+
+  it("does not auto-open when the fresh attention is only for the active task", async () => {
+    window.history.pushState({}, "", "/task/task-a");
+    render(<GlobalAttentionProvider />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+      await vi.advanceTimersByTimeAsync(0);
+      window.dispatchEvent(new Event("focusout"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(mocks.playAttentionRequiredSound).not.toHaveBeenCalled();
+    expect(document.body.textContent ?? "").not.toMatch(/承認・回答が必要です/);
   });
 
   it("does not refetch task details when the attention list is unchanged", async () => {

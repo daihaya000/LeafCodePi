@@ -93,10 +93,13 @@ export function GlobalAttentionProvider() {
         if (fresh.length > 0) {
           const activeTaskId = taskIdFromPathname(window.location.pathname);
           const onlyActive = fresh.every((item) => item.taskId === activeTaskId);
-          // 表示中タスク自身の要求は TaskView 側の注意音で鳴るため二重再生しない。
-          if (!onlyActive) playAttentionRequiredSound();
-          autoOpenedRef.current = false;
-          tryAutoOpen();
+          // 表示中タスク自身の要求は TaskView インライン UI が担当する。
+          // 音もモーダルも二重化しない（両方「許可」できてしまう）。
+          if (!onlyActive) {
+            playAttentionRequiredSound();
+            autoOpenedRef.current = false;
+            tryAutoOpen();
+          }
         }
       } catch {
         /* ポーリング失敗は無視（次回再試行） */

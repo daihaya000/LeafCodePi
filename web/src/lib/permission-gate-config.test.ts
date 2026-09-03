@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "vitest";
 import {
-  PERMISSION_GATE_SESSION_KEY,
   applyPermissionMode,
   permissionGateConfigPath,
   readPermissionGateConfig,
@@ -51,16 +50,12 @@ describe("permission-gate-config", () => {
     });
   });
 
-  it("updates live extension session context", () => {
+  it("persists mode to disk for the file-backed extension gate", () => {
     withTempDataDir(() => {
-      const ctx: Record<string, unknown> = {};
-      applyPermissionMode(
-        { extensionRunner: { createContext: () => ctx } },
-        "allow",
-      );
-      assert.equal(ctx[PERMISSION_GATE_SESSION_KEY], "allow");
+      applyPermissionMode({ extensionRunner: { createContext: () => ({}) } }, "deny");
+      assert.equal(readPermissionGateConfig(), "deny");
       const raw = readFileSync(permissionGateConfigPath(), "utf8");
-      assert.equal(JSON.parse(raw).mode, "allow");
+      assert.equal(JSON.parse(raw).mode, "deny");
     });
   });
 });

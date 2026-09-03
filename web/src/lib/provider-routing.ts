@@ -123,6 +123,87 @@ export function setAccountRoutingMode(
   return run;
 }
 
+const LIMIT_MARK_TTL_MS = 5 * 60 * 1000;
+const providerLimitMarks = new Map<
+  string,
+  { markedAt: number; expiresAt: number; resetAt: string | null }
+>();
+
+function providerLimitKey(providerId: string, accountId?: string | null): string {
+  return accountId ? `${accountId}::${providerId}` : providerId;
+}
+
+function statusOf(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const record = error as Record<string, unknown>;
+  if (typeof record.status === "number") return record.status;
+  const response = record.response;
+  if (response && typeof response === "object") {
+    const status = (response as Record<string, unknown>).status;
+    if (typeof status === "number") return status;
+  }
+  return undefined;
+}
+
+function messageOf(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (!error || typeof error !== "object") return String(error);
+  const record = error as Record<string, unknown>;
+  return [record.message, record.errorMessage, record.code, record.type]
+    .filter((value): value is string | number => typeof value === "string" || typeof value === "number")
+    .join(" ");
+}
+
+/** True for quota/rate-limit exhaustion, not ordinary transport/server errors. */
+export function isProviderLimitError(error: unknown): boolean {
+  const status = statusOf(error);
+  if (status === 402 || status === 429) return true;
+  return /GoUsageLimitError|FreeUsageLimitError|usage[_ ]limit[_ ](?:reached|exceeded)|usage_not_included|monthly usage limit reached|available balance|insufficient[_ ]quota|out of budget|quota exceeded|billing|rate[ ._-]?limit|too many requests/i.test(
+    messageOf(error),
+  );
+}
+
+/** Temporarily exclude a provider/account after a limit response. */
+export function markProviderLimited(
+  providerId: string,
+  accountId?: string | null,
+  resetAt?: string | null,
+  nowMs = Date.now(),
+): void {
+  const parsedReset = resetAt ? Date.parse(resetAt) : Number.NaN;
+  const expiresAt = Number.isFinite(parsedReset) && parsedReset > nowMs
+    ? parsedReset
+    : nowMs + LIMIT_MARK_TTL_MS;
+  providerLimitMarks.set(providerLimitKey(providerId, accountId), {
+    markedAt: nowMs,
+    expiresAt,
+    resetAt: Number.isFinite(parsedReset) && parsedReset > nowMs ? resetAt! : null,
+  });
+}
+
+export function providerLimitMark(
+  providerId: string,
+  accountId?: string | null,
+  nowMs = Date.now(),
+): { markedAt: number; expiresAt: number; resetAt: string | null } | null {
+  const key = providerLimitKey(providerId, accountId);
+  const mark = providerLimitMarks.get(key);
+  if (!mark) return null;
+  if (mark.expiresAt <= nowMs) {
+    providerLimitMarks.delete(key);
+    return null;
+  }
+  return mark;
+}
+
+export function clearProviderLimit(
+  providerId: string,
+  accountId?: string | null,
+): void {
+  providerLimitMarks.delete(providerLimitKey(providerId, accountId));
+}
+
 export type RoutingUsage = Pick<
   CodexBarProvider,
   | "usedPercent"
@@ -236,7 +317,8 @@ export function chooseRoutingCandidate<T>(
   };
 }
 
-/** Test helper: reset the process-local settings write queue. */
+/** Test helper: reset process-local settings and limit state. */
 export function __resetProviderRoutingQueueForTests(): void {
   writeQueue = Promise.resolve();
+  providerLimitMarks.clear();
 }

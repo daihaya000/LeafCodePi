@@ -34,21 +34,13 @@ export function writePermissionGateConfig(mode: PermissionMode): void {
   writeFileSync(file, `${JSON.stringify({ mode }, null, 2)}\n`, "utf8");
 }
 
-/** Apply mode to disk and the live extension session context (if loaded). */
+/** Persist mode for live tool_call handlers (file-backed; ctx is ephemeral). */
 export function applyPermissionMode(
-  session: AgentSession,
+  _session: AgentSession,
   mode: PermissionMode,
   options?: { persist?: boolean },
 ): void {
   if (options?.persist !== false) {
     writePermissionGateConfig(mode);
-  }
-  try {
-    const ctx = session.extensionRunner?.createContext();
-    if (ctx && typeof ctx === "object") {
-      (ctx as Record<string, unknown>)[PERMISSION_GATE_SESSION_KEY] = mode;
-    }
-  } catch {
-    /* extension not loaded */
   }
 }

@@ -2307,20 +2307,21 @@ export const TaskView = memo(function TaskView({
                 busy={permissionBusy}
                 disabled={permissionBusy}
                 onClick={() => {
+                  const answeredId = permissionRequest.id;
                   void (async () => {
                     try {
                       setPermissionBusy(true);
                       setError(null);
                       await sendJson(`/api/tasks/${taskId}/permission`, {
-                        requestId: permissionRequest.id,
+                        requestId: answeredId,
                         approved: true,
                       });
-                      setPermissionRequest(null);
+                      setPermissionRequest((cur) => (cur?.id === answeredId ? null : cur));
                     } catch (err) {
                       const message = err instanceof Error ? err.message : "許可の送信に失敗しました";
                       setError(message);
                       if (/not found|見つかりません/i.test(message)) {
-                        setPermissionRequest(null);
+                        setPermissionRequest((cur) => (cur?.id === answeredId ? null : cur));
                       }
                     } finally {
                       setPermissionBusy(false);
@@ -2336,20 +2337,21 @@ export const TaskView = memo(function TaskView({
                 busy={permissionBusy}
                 disabled={permissionBusy}
                 onClick={() => {
+                  const answeredId = permissionRequest.id;
                   void (async () => {
                     try {
                       setPermissionBusy(true);
                       setError(null);
                       await sendJson(`/api/tasks/${taskId}/permission`, {
-                        requestId: permissionRequest.id,
+                        requestId: answeredId,
                         approved: false,
                       });
-                      setPermissionRequest(null);
+                      setPermissionRequest((cur) => (cur?.id === answeredId ? null : cur));
                     } catch (err) {
                       const message = err instanceof Error ? err.message : "拒否の送信に失敗しました";
                       setError(message);
                       if (/not found|見つかりません/i.test(message)) {
-                        setPermissionRequest(null);
+                        setPermissionRequest((cur) => (cur?.id === answeredId ? null : cur));
                       }
                     } finally {
                       setPermissionBusy(false);

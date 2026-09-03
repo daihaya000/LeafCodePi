@@ -119,9 +119,9 @@ import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
 import { upsertProject, getTask } from "@/lib/store";
 import type { ThinkingLevel } from "@/lib/types";
-import { setAccountRoutingMode, __resetProviderRoutingQueueForTests } from "@/lib/provider-routing";
+import { setAccountRoutingMode, __resetProviderRoutingQueueForTests, markProviderLimited } from "@/lib/provider-routing";
 import { AccountRuntimeManager } from "./account-runtime-manager";
-import { createTask, promptTask } from "./harness";
+import { createTask, promptTask, resolveProviderFallbackModels } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const tempDirs: string[] = [];
@@ -331,5 +331,89 @@ describe("integrated session routing", () => {
     expect(fakePi.sessions[1]).toMatchObject({ accountId: low.id });
     expect(fakePi.sessions[1]?.prompts).toEqual(["次の確認"]);
     assert.equal(getTask(task.id)?.accountId, low.id);
+  });
+
+  it("crosses to another provider at the next turn after a limit response", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-provider-fallback-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+
+    const claude = createAccount({ label: "Claude", providers: ["anthropic"] });
+    const codex = createAccount({ label: "Codex", providers: ["openai-codex"] });
+    storeProviderAuth(claude.id, agentDir);
+    const codexAuthPath = accountAuthPath(codex.id, agentDir);
+    mkdirSync(dirname(codexAuthPath), { recursive: true });
+    writeFileSync(
+      codexAuthPath,
+      JSON.stringify({ "openai-codex": { type: "api_key", key: "test-key" } }),
+      "utf8",
+    );
+    const codexModel = {
+      provider: "openai-codex",
+      id: "codex-model",
+      input: ["text"],
+      reasoning: false,
+      thinkingLevelMap: { off: "none" },
+    };
+    const codexRuntime = (accountId: string) => ({
+      accountId,
+      getProvider: () => ({ id: "openai-codex" }),
+      registerProvider: () => undefined,
+      getProviders: () => [{ id: "openai-codex", name: "OpenAI Codex" }],
+      getModels: () => [{ id: codexModel.id, name: "Codex" }],
+      getModel: (providerID: string, modelID: string) =>
+        providerID === codexModel.provider && modelID === codexModel.id
+          ? { ...codexModel }
+          : undefined,
+      hasConfiguredAuth: () => true,
+      getAvailable: async () => [codexModel],
+    });
+    installHarness(
+      new Map([
+        [claude.id, runtime(claude.id)],
+        [codex.id, codexRuntime(codex.id)],
+      ]),
+    );
+    await setAccountRoutingMode("anthropic", "integrated");
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "最初の確認",
+      model: "anthropic::claude-sonnet",
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    assert.equal(getTask(task.id)?.accountId, claude.id);
+    assert.equal(fakePi.sessions.length, 1);
+
+    // リミット応答を模して、同一プロバイダーを除外した上で別プロバイダーへ切り替える。
+    markProviderLimited("anthropic", claude.id);
+
+    const fallbacks = await resolveProviderFallbackModels({
+      providerID: "anthropic",
+      modelID: "claude-sonnet",
+    });
+    assert.deepEqual(
+      fallbacks.map((model) => model.providerID),
+      ["openai-codex"],
+    );
+
+    await promptTask(task.id, "次の確認");
+    await waitFor(
+      () =>
+        getTask(task.id)?.accountId === codex.id &&
+        fakePi.sessions.length === 2,
+    );
+
+    assert.equal(fakePi.sessions.length, 2);
+    expect(fakePi.sessions[0]).toMatchObject({ accountId: claude.id, disposed: true });
+    expect(fakePi.sessions[1]).toMatchObject({ accountId: codex.id });
+    expect(fakePi.sessions[1]?.prompts).toEqual(["次の確認"]);
+    assert.equal(getTask(task.id)?.accountId, codex.id);
+    assert.equal(getTask(task.id)?.providerID, "openai-codex");
+    assert.equal(getTask(task.id)?.modelID, "codex-model");
   });
 });
