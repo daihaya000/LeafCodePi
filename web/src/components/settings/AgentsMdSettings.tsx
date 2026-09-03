@@ -106,7 +106,7 @@ export function AgentsMdSettings() {
             rows={14}
             spellCheck={false}
             disabled={loadState === "error" && !meta}
-            className="w-full resize-y rounded-lg border border-border bg-surface-2 px-3 py-2 font-mono text-xs leading-5 text-text outline-none focus:border-accent disabled:opacity-50"
+            className="w-full resize-none overflow-hidden rounded-lg border border-border bg-surface-2 px-3 py-2 font-mono text-xs leading-5 text-text outline-none [field-sizing:content] focus:border-accent disabled:opacity-50"
             placeholder={"# カスタム指示\n\n- 簡潔に答える\n- …"}
           />
           <div className="mt-2 flex flex-wrap items-center justify-end gap-2">

@@ -112,6 +112,16 @@ describe("AgentsSettings", () => {
     });
   });
 
+  it("shows every subagent without an internal scroll container", async () => {
+    render(<AgentsSettings />);
+
+    const agentSwitch = await screen.findByRole("switch", { name: "enabled を無効化" });
+    const list = agentSwitch.closest("ul");
+    expect(list?.className).not.toContain("max-h-");
+    expect(list?.className).not.toContain("overflow-y-auto");
+    expect(screen.getAllByRole("listitem")).toHaveLength(agents.length);
+  });
+
   it("loads and saves the Auto agent selector prompt", async () => {
     render(<AgentsSettings />);
 

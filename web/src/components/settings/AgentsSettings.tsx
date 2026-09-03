@@ -532,7 +532,7 @@ export function AgentsSettings() {
           <span className="font-mono">~/.pi/agent/agents/&lt;name&gt;.md</span> に追加してください。
         </p>
       ) : (
-        <ul className="mt-3 max-h-80 space-y-2 overflow-y-auto">
+        <ul className="mt-3 space-y-2">
           {agents.map((agent) => (
             <li
               key={agent.id}

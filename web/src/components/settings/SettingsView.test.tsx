@@ -110,46 +110,24 @@ describe("SettingsView", () => {
     });
   });
 
-  it("エンジンタブをセクションごとに切り替え、選択したセクションをハッシュに反映する", () => {
+  it("エンジンタブ内にサブタブを置かず、基本・応答設定をすべて表示する", () => {
     render(<SettingsView />);
 
-    expect(screen.getByRole("navigation", { name: "エンジン設定" })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "基本" }));
-
-    expect(screen.getByRole("heading", { name: "基本" })).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "エンジン設定" })).toBeNull();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "思考要約の翻訳" })).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "応答" }));
-
-    expect(window.location.hash).toBe("#engine-response");
-    expect(screen.getByRole("heading", { name: "応答" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "ブラウザ設定" })).toBeNull();
-  });
-
-  it("エンジン設定では選択中セクションだけをマウントする", () => {
-    render(<SettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: "基本" }));
-
-    expect(mountCounts.basic).toBe(1);
-    expect(mountCounts.response).toBe(0);
-
-    fireEvent.click(screen.getByRole("button", { name: "応答" }));
-
     expect(mountCounts.basic).toBe(1);
     expect(mountCounts.response).toBe(1);
   });
 
-  it("エンジンセクションのハッシュから直接開ける", () => {
+  it("廃止したエンジンサブタブのハッシュからエンジンタブを開き、ハッシュを除去する", () => {
     window.history.replaceState(null, "", "/settings#engine-basic");
     render(<SettingsView />);
 
     expect(within(screen.getByRole("navigation", { name: "設定" })).getByRole("button", { name: "エンジンタブ" }).getAttribute("aria-current")).toBe("page");
-    expect(screen.getByRole("heading", { name: "基本" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "思考要約の翻訳" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
+    expect(window.location.hash).toBe("");
   });
 
   it("エージェントタブがトップレベルに昇格し、AGENTS.md・メモリを直接表示する", () => {
@@ -169,14 +147,14 @@ describe("SettingsView", () => {
     expect(screen.getByRole("heading", { name: "MCPサーバー" })).toBeTruthy();
   });
 
-  it("旧 #general-basic / #general-response ハッシュからエンジンタブにリダイレクトし、ハッシュを新形式に正規化する", () => {
+  it("旧 #general-basic / #general-response ハッシュからエンジンタブにリダイレクトする", () => {
     window.history.replaceState(null, "", "/settings#general-response");
     render(<SettingsView />);
 
     expect(within(screen.getByRole("navigation", { name: "設定" })).getByRole("button", { name: "エンジンタブ" }).getAttribute("aria-current")).toBe("page");
-    expect(screen.getByRole("heading", { name: "応答" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
-    expect(window.location.hash).toBe("#engine-response");
+    expect(window.location.hash).toBe("");
   });
 
   it("旧 #general-agents ハッシュからエージェントタブにリダイレクトする", () => {
@@ -197,15 +175,14 @@ describe("SettingsView", () => {
     expect(window.location.hash).toBe("");
   });
 
-  it("エンジン以外のハッシュ変更では engineSection をリセットしない", () => {
+  it("設定以外のハッシュ変更では選択タブを変更しない", () => {
     render(<SettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: "応答" }));
-    expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "エージェントタブ" }));
 
     window.history.replaceState(null, "", "/settings#unrelated");
     window.dispatchEvent(new HashChangeEvent("hashchange"));
 
-    expect(screen.getByRole("heading", { name: "応答" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
+    expect(within(screen.getByRole("navigation", { name: "設定" })).getByRole("button", { name: "エージェントタブ" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("heading", { name: "AGENTS.md" })).toBeTruthy();
   });
 });

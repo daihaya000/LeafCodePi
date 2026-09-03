@@ -26,58 +26,25 @@ import { getJson } from "@/lib/client";
 import type { HealthDto, ProviderAuthDto } from "@/lib/types";
 
 type Tab = "engine" | "models" | "agents" | "extensions";
-type EngineSection = "overview" | "basic" | "response";
 
-const ENGINE_SECTIONS: readonly {
-  id: EngineSection;
-  label: string;
-  description: string;
-}[] = [
-  { id: "overview", label: "エンジン", description: "Pi Coding Agent の状態とサーバー設定" },
-  { id: "basic", label: "基本", description: "表示・通知に関する設定" },
-  { id: "response", label: "応答", description: "翻訳・圧縮・自動再開に関する設定" },
-];
-
-function isEngineSection(value: string): value is EngineSection {
-  return ENGINE_SECTIONS.some((section) => section.id === value);
-}
-
-// 旧「設定 > 一般」メニューのハッシュ。廃止後もブックマークや外部リンクから
-// 移行先タブへ届けるための互換マッピング。
-const LEGACY_HASH_TAB: Readonly<Record<string, Tab>> = {
+// 廃止した「一般」カテゴリとエンジンサブタブの旧ハッシュを移行先へ届ける。
+const MIGRATED_HASH_TAB: Readonly<Record<string, Tab>> = {
+  "general-basic": "engine",
+  "general-response": "engine",
   "general-agents": "agents",
   "general-integrations": "extensions",
+  "engine-overview": "engine",
+  "engine-basic": "engine",
+  "engine-response": "engine",
 };
-const LEGACY_HASH_ENGINE_SECTION: Readonly<Record<string, EngineSection>> = {
-  "general-basic": "basic",
-  "general-response": "response",
-};
 
-function isSettingsHashKey(key: string): boolean {
-  return key.startsWith("engine-") || key in LEGACY_HASH_TAB || key in LEGACY_HASH_ENGINE_SECTION;
-}
-
-function resolveHashState(hash: string): { tab: Tab; engineSection: EngineSection } {
-  const key = hash.replace(/^#/, "");
-  if (key.startsWith("engine-")) {
-    const section = key.replace(/^engine-/, "");
-    return { tab: "engine", engineSection: isEngineSection(section) ? section : "overview" };
-  }
-  const legacyEngineSection = LEGACY_HASH_ENGINE_SECTION[key];
-  if (legacyEngineSection) return { tab: "engine", engineSection: legacyEngineSection };
-  const legacyTab = LEGACY_HASH_TAB[key];
-  if (legacyTab) return { tab: legacyTab, engineSection: "overview" };
-  return { tab: "engine", engineSection: "overview" };
-}
-
-function readInitialHashState(): { tab: Tab; engineSection: EngineSection } {
-  if (typeof window === "undefined") return { tab: "engine", engineSection: "overview" };
-  return resolveHashState(window.location.hash);
+function readHashTab(): Tab {
+  if (typeof window === "undefined") return "engine";
+  return MIGRATED_HASH_TAB[window.location.hash.replace(/^#/, "")] ?? "engine";
 }
 
 export function SettingsView() {
-  const [tab, setTab] = useState<Tab>(() => readInitialHashState().tab);
-  const [engineSection, setEngineSection] = useState<EngineSection>(() => readInitialHashState().engineSection);
+  const [tab, setTab] = useState<Tab>(readHashTab);
 
   const [health, setHealth] = useState<HealthDto | null>(null);
   const [providers, setProviders] = useState<ProviderAuthDto[]>([]);
@@ -105,17 +72,10 @@ export function SettingsView() {
   useEffect(() => {
     const syncFromHash = () => {
       const key = window.location.hash.replace(/^#/, "");
-      // 設定以外のハッシュ変更（他機能のリンク移動等）で engineSection を
-      // 黙ってリセットしないようにガードする。
-      if (!isSettingsHashKey(key)) return;
-      const resolved = resolveHashState(window.location.hash);
-      setTab(resolved.tab);
-      setEngineSection(resolved.engineSection);
-      // 旧ハッシュは新形式に正規化しておく（ブックマーク・共有は旧形式のままになり䷄ける）。
-      if (key in LEGACY_HASH_TAB || key in LEGACY_HASH_ENGINE_SECTION) {
-        const canonicalHash = resolved.tab === "engine" ? `#engine-${resolved.engineSection}` : "";
-        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${canonicalHash}`);
-      }
+      const migratedTab = MIGRATED_HASH_TAB[key];
+      if (!migratedTab) return;
+      setTab(migratedTab);
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
     };
     syncFromHash();
     window.addEventListener("hashchange", syncFromHash);
@@ -125,14 +85,6 @@ export function SettingsView() {
       window.removeEventListener("popstate", syncFromHash);
     };
   }, []);
-
-  function selectEngineSection(section: EngineSection) {
-    setEngineSection(section);
-    if (typeof window !== "undefined") {
-      const hash = `#engine-${section}`;
-      if (window.location.hash !== hash) window.location.hash = hash;
-    }
-  }
 
   return (
     <div className="flex h-full flex-col">
@@ -166,93 +118,42 @@ export function SettingsView() {
           </nav>
 
           {tab === "engine" && (
-            <div className="grid gap-6 md:grid-cols-[12rem_minmax(0,1fr)] md:items-start">
-              <nav aria-label="エンジン設定" className="min-w-0 md:sticky md:top-6">
-                <p className="mb-2 px-2 text-xs font-semibold text-muted">エンジン</p>
-                <div className="flex gap-1 overflow-x-auto pb-1 md:flex-col md:overflow-visible md:pb-0">
-                  {ENGINE_SECTIONS.map(({ id, label }) => (
-                    <button
-                      key={id}
-                      type="button"
-                      aria-current={engineSection === id ? "page" : undefined}
-                      onClick={() => selectEngineSection(id)}
-                      className={cx(
-                        "min-h-11 shrink-0 rounded-lg border-b-2 px-3 py-2 text-left text-sm whitespace-nowrap transition-colors md:w-full md:border-b-0 md:border-l-2",
-                        engineSection === id
-                          ? "border-accent bg-surface-2 font-medium text-text"
-                          : "border-transparent text-muted hover:bg-surface-2 hover:text-text",
-                      )}
-                    >
-                      {label}
-                    </button>
-                  ))}
+            <section className="space-y-4">
+              <HostRestartPanel onRestarted={reload} />
+
+              <div className="rounded-2xl border border-border bg-surface p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold">Pi Coding Agent</h2>
+                  <Badge tone={health?.engineOk ? "success" : "warning"} pulse={!health?.engineOk}>
+                    {health?.engineOk ? "利用可" : "未接続"}
+                  </Badge>
                 </div>
-              </nav>
-
-              <div className="min-w-0">
-                {ENGINE_SECTIONS.map(({ id, label, description }) => engineSection === id && (
-                  <section
-                    key={id}
-                    aria-labelledby={`engine-${id}-heading`}
-                    className="space-y-4"
-                  >
-                    <header>
-                      <h2 id={`engine-${id}-heading`} className="text-lg font-semibold">
-                        {label}
-                      </h2>
-                      <p className="mt-1 text-sm text-muted">{description}</p>
-                    </header>
-
-                    {id === "overview" && (
-                      <div className="space-y-4">
-                        <HostRestartPanel onRestarted={reload} />
-
-                        <div className="rounded-2xl border border-border bg-surface p-4">
-                          <div className="mb-3 flex items-center justify-between">
-                            <h3 className="text-sm font-semibold">Pi Coding Agent</h3>
-                            <Badge tone={health?.engineOk ? "success" : "warning"} pulse={!health?.engineOk}>
-                              {health?.engineOk ? "利用可" : "未接続"}
-                            </Badge>
-                          </div>
-                          <dl className="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
-                            <dt className="text-muted">エンジン</dt>
-                            <dd>Pi SDK（プロセス内埋め込み）</dd>
-                            <dt className="text-muted">バージョン</dt>
-                            <dd className="font-mono">{health?.version ?? "—"}</dd>
-                            <dt className="text-muted">データ</dt>
-                            <dd className="break-all font-mono text-xs">{health?.dataDir ?? "—"}</dd>
-                            <dt className="text-muted">有効モデル数</dt>
-                            <dd>{health?.modelCount ?? 0}</dd>
-                          </dl>
-                          {health?.error && <p className="mt-3 text-sm text-danger">{health.error}</p>}
-                          {error && <p className="mt-3 text-sm text-danger">{error}</p>}
-                        </div>
-
-                        <LlamaServerSettings />
-                      </div>
-                    )}
-                    {id === "basic" && (
-                      <div className="space-y-4">
-                        <BrowserSettings />
-                        <WebUiAuthSettings />
-                        <NotificationSoundSettings />
-                        <NavigatorSettings />
-                        <div className="rounded-2xl border border-border bg-surface p-4 text-sm text-muted">
-                          テーマはサイドバー右下のアイコンから切り替えます（ライト / ダーク / システム）。
-                        </div>
-                      </div>
-                    )}
-                    {id === "response" && (
-                      <div className="space-y-4">
-                        <ReasoningTranslationSettings />
-                        <CompactionSettings />
-                        <HangTimeoutSettings />
-                      </div>
-                    )}
-                  </section>
-                ))}
+                <dl className="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
+                  <dt className="text-muted">エンジン</dt>
+                  <dd>Pi SDK（プロセス内埋め込み）</dd>
+                  <dt className="text-muted">バージョン</dt>
+                  <dd className="font-mono">{health?.version ?? "—"}</dd>
+                  <dt className="text-muted">データ</dt>
+                  <dd className="break-all font-mono text-xs">{health?.dataDir ?? "—"}</dd>
+                  <dt className="text-muted">有効モデル数</dt>
+                  <dd>{health?.modelCount ?? 0}</dd>
+                </dl>
+                {health?.error && <p className="mt-3 text-sm text-danger">{health.error}</p>}
+                {error && <p className="mt-3 text-sm text-danger">{error}</p>}
               </div>
-            </div>
+
+              <LlamaServerSettings />
+              <BrowserSettings />
+              <WebUiAuthSettings />
+              <NotificationSoundSettings />
+              <NavigatorSettings />
+              <div className="rounded-2xl border border-border bg-surface p-4 text-sm text-muted">
+                テーマはサイドバー右下のアイコンから切り替えます（ライト / ダーク / システム）。
+              </div>
+              <ReasoningTranslationSettings />
+              <CompactionSettings />
+              <HangTimeoutSettings />
+            </section>
           )}
 
           {tab === "models" && (
