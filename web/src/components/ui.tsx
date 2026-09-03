@@ -455,6 +455,62 @@ export const Button = forwardRef<
   );
 });
 
+/**
+ * 共有ON/OFFトグル。視覚トラックは24x44pxで固定し、タッチ領域はモバイル全44x44px、
+ * `sm`以上ではトラックと同じ大きさに戻す。ONは`success`、focus-visibleは
+ * 個別指定をせず`globals.css`の共通`outline: accent`へ委ねる。
+ */
+export function Switch({
+  checked,
+  onChange,
+  label,
+  busy,
+  disabled,
+  title,
+  className,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  label: string;
+  busy?: boolean;
+  disabled?: boolean;
+  title?: string;
+  className?: string;
+}) {
+  const isDisabled = Boolean(busy || disabled);
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      title={title}
+      disabled={isDisabled}
+      onClick={onChange}
+      className={cx(
+        "inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full disabled:cursor-not-allowed sm:h-6 sm:w-11",
+        className,
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cx(
+          "relative h-6 w-11 rounded-full transition-colors",
+          checked ? "bg-success" : "bg-surface-3",
+          isDisabled && "opacity-40",
+        )}
+      >
+        <span
+          className={cx(
+            "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-surface shadow transition-transform",
+            checked && "translate-x-5",
+          )}
+        />
+      </span>
+    </button>
+  );
+}
+
 export function Badge({
   tone = "neutral",
   children,
