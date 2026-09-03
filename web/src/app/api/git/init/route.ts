@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runGit } from "@/lib/git";
-import { isAbsolutePath } from "@/lib/paths";
+import { gitDirectoryError, runGit } from "@/lib/git";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,14 +19,19 @@ export async function POST(req: NextRequest) {
     directory?: string;
   } | null;
 
-  if (!body?.directory || !isAbsolutePath(body.directory)) {
-    return errorResponse("directory is required", 400);
+  const directoryError = gitDirectoryError(body?.directory);
+  if (directoryError) {
+    return errorResponse(
+      directoryError,
+      directoryError === "directory is not allowed" ? 403 : 400,
+    );
   }
+  const directory = body!.directory!;
 
-  const init = await runGit(body.directory, ["init"]);
+  const init = await runGit(directory, ["init"]);
   if (init.code !== 0) {
     return errorResponse(init.stderr.trim() || "git init failed", 500);
   }
 
-  return NextResponse.json({ ok: true, directory: body.directory });
+  return NextResponse.json({ ok: true, directory });
 }

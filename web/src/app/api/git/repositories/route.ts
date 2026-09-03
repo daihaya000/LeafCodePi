@@ -1,7 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
-import { isAbsolutePath } from "@/lib/paths";
+import { gitDirectoryError } from "@/lib/git";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,17 +18,22 @@ async function hasGitDir(directory: string): Promise<boolean> {
 /** List the opened folder itself and its immediate Git repositories. */
 export async function GET(req: NextRequest) {
   const directory = req.nextUrl.searchParams.get("directory");
-  if (!directory || !isAbsolutePath(directory)) {
-    return NextResponse.json({ error: "directory is required" }, { status: 400 });
+  const directoryError = gitDirectoryError(directory);
+  if (directoryError) {
+    return NextResponse.json(
+      { error: directoryError },
+      { status: directoryError === "directory is not allowed" ? 403 : 400 },
+    );
   }
+  const dir = directory!;
 
   try {
-    const entries = await readdir(directory, { withFileTypes: true });
+    const entries = await readdir(dir, { withFileTypes: true });
     const children = await Promise.all(
       entries
         .filter((entry) => entry.isDirectory())
         .map(async (entry) => {
-          const childPath = join(directory, entry.name);
+          const childPath = join(dir, entry.name);
           return (await hasGitDir(childPath))
             ? { path: childPath, name: entry.name }
             : null;
@@ -39,8 +44,8 @@ export async function GET(req: NextRequest) {
         (repository): repository is { path: string; name: string } => repository !== null,
       )
       .sort((left, right) => left.name.localeCompare(right.name));
-    if (await hasGitDir(directory)) {
-      repositories.unshift({ path: directory, name: basename(directory) || directory });
+    if (await hasGitDir(dir)) {
+      repositories.unshift({ path: dir, name: basename(dir) || dir });
     }
     return NextResponse.json({ repositories });
   } catch (err) {

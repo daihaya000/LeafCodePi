@@ -9,6 +9,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 vi.mock("@/lib/pi/harness", () => ({ completeModelText: mocks.completeModelText }));
+vi.mock("@/lib/browse-paths", () => ({
+  isAllowedBrowsePath: () => true,
+  browseAllowedRoots: () => [],
+  oneDriveRoots: () => [],
+}));
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/git/commit-message", {

@@ -48,27 +48,35 @@ export function QuestionCard({
 
   const reply = async (answers?: string[][]) => {
     if (busy !== null) return;
+    const generation = requestGenerationRef.current;
     setBusy("reply");
     setError(null);
     try {
       await onReply(request, answers ?? buildAnswer());
     } catch (err) {
+      if (requestGenerationRef.current !== generation) return;
       setError(err instanceof Error ? err.message : "回答に失敗しました");
     } finally {
-      setBusy(null);
+      if (requestGenerationRef.current === generation) {
+        setBusy(null);
+      }
     }
   };
 
   const reject = async () => {
     if (busy !== null) return;
+    const generation = requestGenerationRef.current;
     setBusy("reject");
     setError(null);
     try {
       await onReject(request);
     } catch (err) {
+      if (requestGenerationRef.current !== generation) return;
       setError(err instanceof Error ? err.message : "拒否に失敗しました");
     } finally {
-      setBusy(null);
+      if (requestGenerationRef.current === generation) {
+        setBusy(null);
+      }
     }
   };
 

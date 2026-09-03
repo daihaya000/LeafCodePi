@@ -2369,30 +2369,36 @@ export const TaskView = memo(function TaskView({
             <QuestionCard
               request={questionRequest}
               onReply={async (request, answers) => {
+                const answeredId = request.id;
                 setError(null);
                 try {
                   await sendJson(`/api/tasks/${taskId}/question`, {
-                    requestId: request.id,
+                    requestId: answeredId,
                     answers,
                   });
-                  setQuestionRequest(null);
+                  setQuestionRequest((cur) => (cur?.id === answeredId ? null : cur));
                 } catch (err) {
                   const message = err instanceof Error ? err.message : "回答の送信に失敗しました";
-                  if (/not found|見つかりません/i.test(message)) setQuestionRequest(null);
+                  if (/not found|見つかりません/i.test(message)) {
+                    setQuestionRequest((cur) => (cur?.id === answeredId ? null : cur));
+                  }
                   throw err;
                 }
               }}
               onReject={async (request) => {
+                const answeredId = request.id;
                 setError(null);
                 try {
                   await sendJson(`/api/tasks/${taskId}/question`, {
-                    requestId: request.id,
+                    requestId: answeredId,
                     reject: true,
                   });
-                  setQuestionRequest(null);
+                  setQuestionRequest((cur) => (cur?.id === answeredId ? null : cur));
                 } catch (err) {
                   const message = err instanceof Error ? err.message : "拒否の送信に失敗しました";
-                  if (/not found|見つかりません/i.test(message)) setQuestionRequest(null);
+                  if (/not found|見つかりません/i.test(message)) {
+                    setQuestionRequest((cur) => (cur?.id === answeredId ? null : cur));
+                  }
                   throw err;
                 }
               }}

@@ -7,6 +7,10 @@ import {
   subscribeTask,
 } from "@/lib/pi/harness";
 import { createSseWriter } from "@/lib/sse-writer";
+import {
+  rankMessageList,
+  shouldFlushPendingAfterReady,
+} from "@/lib/sse-ready-buffer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -99,9 +103,14 @@ export async function GET(
             bufferedPayloads: pendingPayloads.length,
           });
         }
+        const readyRank = rankMessageList(detail.messages);
         ready = true;
         for (const payload of pendingPayloads) {
           if (sse.closed) break;
+          // Ready is authoritative for full history. Only flush buffered
+          // events that are still newer so an older mid-fetch snapshot cannot
+          // rewind the client after ready.
+          if (!shouldFlushPendingAfterReady(payload, readyRank)) continue;
           sse.send(payload.type === "delta" ? "delta" : "snapshot", payload);
         }
         pendingPayloads.length = 0;

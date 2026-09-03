@@ -1,8 +1,17 @@
 import { spawn } from "node:child_process";
+import { isAllowedBrowsePath } from "@/lib/browse-paths";
+import { isAbsolutePath } from "@/lib/paths";
 import type { GraphCommit, GraphFileChange, GraphRef } from "@/lib/types";
 
 /** Hard ceiling so a hung git process cannot pin a BFF worker forever. */
 export const GIT_TIMEOUT_MS = 30_000;
+
+/** Reject absolute paths outside home / OneDrive / registered projects. */
+export function gitDirectoryError(directory: string | null | undefined): string | null {
+  if (!directory || !isAbsolutePath(directory)) return "directory is required";
+  if (!isAllowedBrowsePath(directory)) return "directory is not allowed";
+  return null;
+}
 
 /** Run git with argv array only (no shell). */
 export function runGit(

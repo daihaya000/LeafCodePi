@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { gitBranchRefs, gitLogGraph } from "@/lib/git";
-import { isAbsolutePath } from "@/lib/paths";
+import { gitBranchRefs, gitDirectoryError, gitLogGraph } from "@/lib/git";
 import type { GraphLogPayload } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -8,17 +7,22 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const directory = req.nextUrl.searchParams.get("directory");
-  if (!directory || !isAbsolutePath(directory)) {
-    return NextResponse.json({ error: "directory is required" }, { status: 400 });
+  const directoryError = gitDirectoryError(directory);
+  if (directoryError) {
+    return NextResponse.json(
+      { error: directoryError },
+      { status: directoryError === "directory is not allowed" ? 403 : 400 },
+    );
   }
+  const dir = directory!;
 
   const limit = Number(req.nextUrl.searchParams.get("limit") ?? "80");
   const skip = Number(req.nextUrl.searchParams.get("skip") ?? "0");
 
   try {
     const [{ commits, hasMore }, { refs, currentBranch }] = await Promise.all([
-      gitLogGraph(directory, Number.isFinite(limit) ? limit : 80, Number.isFinite(skip) ? skip : 0),
-      gitBranchRefs(directory),
+      gitLogGraph(dir, Number.isFinite(limit) ? limit : 80, Number.isFinite(skip) ? skip : 0),
+      gitBranchRefs(dir),
     ]);
     const payload: GraphLogPayload = {
       commits,

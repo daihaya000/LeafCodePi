@@ -304,6 +304,8 @@ const GLOBAL_KEY = "__leafcodePiHarness" as const;
 
 /** Coalesce concurrent ensureLive(taskId) so only one Pi session is created. */
 const ensureLiveInflight = new Map<string, Promise<LiveRuntime>>();
+/** Bumped by disposeLive so inflight ensureLive abandons a disposed runtime. */
+const ensureLiveEpoch = new Map<string, number>();
 const promoteInflight = new Map<string, Promise<PromoteTaskResult>>();
 const promoteDestinationInflight = new Map<string, Promise<void>>();
 
@@ -1716,6 +1718,7 @@ async function attachSession(
 
 /** live セッションを破棄し、保持していたアカウントランタイムの参照を解放する。 */
 function disposeLive(taskId: string): void {
+  ensureLiveEpoch.set(taskId, (ensureLiveEpoch.get(taskId) ?? 0) + 1);
   disarmTaskHangWatch(taskId);
   const live = state().live.get(taskId);
   if (!live) return;
@@ -2338,8 +2341,17 @@ async function ensureLive(
   const existing = current.live.get(taskId);
   if (existing) return existing;
 
+  const epoch = ensureLiveEpoch.get(taskId) ?? 0;
   const inflight = ensureLiveInflight.get(taskId);
-  if (inflight) return inflight;
+  if (inflight) {
+    const live = await inflight;
+    if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
+      return ensureLive(taskId, options);
+    }
+    const stillLive = state().live.get(taskId);
+    if (stillLive) return stillLive;
+    return ensureLive(taskId, options);
+  }
 
   const promise = (async () => {
     const again = state().live.get(taskId);
@@ -2374,12 +2386,31 @@ async function ensureLive(
       skillPermission: task.skillPermission,
       agentName: task.agent ?? null,
     });
+    if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
+      try {
+        setup.session.dispose();
+      } catch {
+        /* best-effort */
+      }
+      return ensureLive(taskId, options);
+    }
     patchTask(taskId, {
       sessionId: setup.session.sessionId,
       sessionFile: setup.session.sessionFile,
       ...modelId(setup.session.model),
     });
-    return await attachSession(taskId, setup.session, setup.skillPermissionRef);
+    const attached = await attachSession(
+      taskId,
+      setup.session,
+      setup.skillPermissionRef,
+    );
+    if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
+      if (state().live.get(taskId) === attached) {
+        disposeLive(taskId);
+      }
+      return ensureLive(taskId, options);
+    }
+    return attached;
   })().finally(() => {
     if (ensureLiveInflight.get(taskId) === promise) {
       ensureLiveInflight.delete(taskId);
@@ -2822,6 +2853,17 @@ function accountRowRank(
   );
 }
 
+/** リミット応答で除外中の候補は、モデル一覧・Auto の候補選択でも上限扱いにする。 */
+function applyLimitMark(option: ModelOption): ModelOption {
+  if (!providerLimitMark(option.providerID, option.accountId)) return option;
+  return {
+    ...option,
+    codexbarUsedPercent: 100,
+    codexbarMaxed: true,
+    codexbarStale: false,
+  };
+}
+
 function integratedOption(
   records: readonly AccountModelRecord[],
   usageProviders: readonly CodexBarProvider[],
@@ -2835,12 +2877,15 @@ function integratedOption(
       accountId: record.accountId,
       accountIndex: record.accountIndex,
       value: record,
-      usage:
+      usage: markedUsage(
+        providerID,
+        record.accountId,
         usageProviders.find(
           (provider) =>
             provider.id === providerID &&
             provider.accountId === record.accountId,
-        ) ?? null,
+        ),
+      ),
       workingTaskCount:
         workingCounts.get(`${providerID}::${record.accountId}`) ?? 0,
     }),
@@ -2902,7 +2947,11 @@ async function buildModelsForAccounts(
   const [sharedOptions, records] = await Promise.all([
     listModels()
       .catch(() => [])
-      .then((options) => options.filter((option) => !runsThroughAccounts(option.providerID))),
+      .then((options) =>
+        options
+          .filter((option) => !runsThroughAccounts(option.providerID))
+          .map(applyLimitMark),
+      ),
     collectAccountModelRecords(accounts),
   ]);
   const routingState = readProviderRouting();
@@ -2922,12 +2971,14 @@ async function buildModelsForAccounts(
       group.push(record);
       integrated.set(key, group);
     } else {
-      separate.push({
-        ...record.option,
-        value: `${record.accountId}::${record.option.value}`,
-        accountId: record.accountId,
-        accountLabel: record.accountLabel,
-      });
+      separate.push(
+        applyLimitMark({
+          ...record.option,
+          value: `${record.accountId}::${record.option.value}`,
+          accountId: record.accountId,
+          accountLabel: record.accountLabel,
+        }),
+      );
     }
   }
 
@@ -4538,17 +4589,21 @@ function queuePrompt(
   const isHangRetry =
     meta?.isHangRetry === true || prompt.startsWith(HANG_RETRY_PREFIX);
   live.manualAbortedAssistantId = null;
-  armTaskHangWatch({
-    taskId: live.taskId,
-    prompt,
-    images,
-    ...(meta?.agent ? { agent: meta.agent } : {}),
-    ...(meta?.subagentPermission
-      ? { subagentPermission: meta.subagentPermission }
-      : {}),
-    ...(meta?.permissionMode ? { permissionMode: meta.permissionMode } : {}),
-    isHangRetry,
-  });
+  // Steer/follow-up must not replace the hang-watch resume prompt. Re-arming
+  // with the short steer text would resume the wrong turn after a hang.
+  if (!meta?.streamingBehavior) {
+    armTaskHangWatch({
+      taskId: live.taskId,
+      prompt,
+      images,
+      ...(meta?.agent ? { agent: meta.agent } : {}),
+      ...(meta?.subagentPermission
+        ? { subagentPermission: meta.subagentPermission }
+        : {}),
+      ...(meta?.permissionMode ? { permissionMode: meta.permissionMode } : {}),
+      isHangRetry,
+    });
+  }
   let activeLive = live;
   const runPrompt = async () => {
     activeLive = await prepareLiveForPrompt(live, !meta?.streamingBehavior);

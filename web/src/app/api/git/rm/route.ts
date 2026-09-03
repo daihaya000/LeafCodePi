@@ -1,8 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
-import { commitPathError, runGit } from "@/lib/git";
-import { isAbsolutePath } from "@/lib/paths";
+import { commitPathError, gitDirectoryError, runGit } from "@/lib/git";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,8 +29,12 @@ export async function POST(req: NextRequest) {
   if (!body?.directory || !body.path) {
     return errorResponse("directory and path are required", 400);
   }
-  if (!isAbsolutePath(body.directory)) {
-    return errorResponse("invalid directory", 400);
+  const directoryError = gitDirectoryError(body.directory);
+  if (directoryError) {
+    return errorResponse(
+      directoryError,
+      directoryError === "directory is not allowed" ? 403 : 400,
+    );
   }
   const pathErr = commitPathError(body.path);
   if (pathErr) {

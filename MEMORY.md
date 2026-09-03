@@ -1,3 +1,23 @@
+## 2026-09-03: バグハント継続（SSE / hang-watch / ensureLive / Git path / QuestionCard）
+
+前回バックログの先頭5件を修正。
+
+1. **SSE ready 後の古い pending 上書き** — `shouldFlushPendingAfterReady` で ready より古い snapshot/delta を捨てる。  
+   検証: `sse-ready-buffer.test.ts` / `events/route.test.ts`
+
+2. **steer 時 hang-watch prompt 上書き** — `queuePrompt` は `streamingBehavior` 付きでは `armTaskHangWatch` しない。
+
+3. **ensureLive / disposeLive 競合** — `ensureLiveEpoch` で dispose 中の inflight 結果を破棄して再試行。
+
+4. **Git/Diff 任意絶対パス** — `gitDirectoryError` + browse allowlist。未許可は 403。  
+   検証: `git-directory.test.ts`（関連ルートテストも更新）
+
+5. **QuestionCard generation ガード** — reply/reject 完了時に generation 照合。TaskView の clear も answeredId 照合。  
+   検証: `QuestionCard.test.tsx`
+
+残: Sidebar refresh stale、保護パスのシェルバイパス、memory lock renew、commit-guard、translation ready、host lock EPERM。
+
+
 ## 2026-09-03: 徹底バグハント（証拠付き Critical/High 修正）
 
 観点: 状態/UI・並行/race・境界値・エラー処理・拡張コンテキスト揮発・プロセス制御。サブエージェント3系統 + コード再検証。

@@ -121,4 +121,57 @@ describe("/api/tasks/[id]/events", () => {
 
     await reader.cancel();
   });
+
+  it("drops buffered snapshots older than the ready tip", async () => {
+    const bootstrap = task({ messages: [], isStreaming: true });
+    const detail = task({
+      messages: [
+        { id: "u1", role: "user", createdAt: 1, parts: [{ id: "p1", type: "text", text: "質問" }] },
+        { id: "a1", role: "assistant", createdAt: 5, parts: [{ id: "p2", type: "text", text: "最新" }] },
+      ],
+      isStreaming: false,
+      status: "idle",
+    });
+    let resolveDetail!: (value: TaskDetail) => void;
+    let listener!: (payload: Record<string, unknown>) => void;
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail.mockReturnValue(
+      new Promise<TaskDetail>((resolve) => {
+        resolveDetail = resolve;
+      }),
+    );
+    mocks.subscribeTask.mockImplementation((_id: string, callback: typeof listener) => {
+      listener = callback;
+      return vi.fn();
+    });
+
+    const response = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const reader = response.body!.getReader();
+    await readChunk(reader);
+
+    listener({
+      type: "snapshot",
+      task: task({ status: "working" }),
+      messages: [{ id: "stale", role: "user", createdAt: 2, parts: [] }],
+      eventType: "stale",
+    });
+    listener({
+      type: "delta",
+      message: { id: "ancient", role: "assistant", createdAt: 0, parts: [] },
+    });
+    resolveDetail(detail);
+
+    const readyChunk = await readChunk(reader);
+    expect(eventData(readyChunk).eventType).toBe("ready");
+
+    const leftover = await Promise.race([
+      readChunk(reader).then((chunk) => chunk),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 50)),
+    ]);
+    expect(leftover).toBeNull();
+    await reader.cancel();
+  });
 });

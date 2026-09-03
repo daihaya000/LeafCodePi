@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 import { NextRequest, NextResponse } from "next/server";
-import { assertSafeBranchName, runGit } from "@/lib/git";
-import { isAbsolutePath } from "@/lib/paths";
+import { assertSafeBranchName, gitDirectoryError, runGit } from "@/lib/git";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -85,8 +84,12 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  if (!isAbsolutePath(body.directory)) {
-    return NextResponse.json({ error: "invalid directory" }, { status: 400 });
+  const directoryError = gitDirectoryError(body.directory);
+  if (directoryError) {
+    return NextResponse.json(
+      { error: directoryError },
+      { status: directoryError === "directory is not allowed" ? 403 : 400 },
+    );
   }
 
   if (body.base) {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isAbsolutePath } from "@/lib/paths";
+import { gitDirectoryError } from "@/lib/git";
 import { suggestCommitMessage } from "@/lib/commit-message";
 import { getSetting } from "@/lib/pi/web-settings";
 import {
@@ -138,8 +138,12 @@ export async function POST(req: NextRequest) {
     }
   })();
   const directory = typeof body?.directory === "string" ? body.directory : "";
-  if (!directory || !isAbsolutePath(directory)) {
-    return NextResponse.json({ error: "directory is required" }, { status: 400 });
+  const directoryError = gitDirectoryError(directory);
+  if (directoryError) {
+    return NextResponse.json(
+      { error: directoryError },
+      { status: directoryError === "directory is not allowed" ? 403 : 400 },
+    );
   }
   const files = normalizeFiles(body?.files);
   if (files.length === 0) {

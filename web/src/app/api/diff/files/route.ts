@@ -2,8 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { parseUnifiedDiff, untrackedHunk } from "@/lib/diffparse";
-import { runGit } from "@/lib/git";
-import { isAbsolutePath } from "@/lib/paths";
+import { gitDirectoryError, runGit } from "@/lib/git";
 import type { DiffFile, DiffFilesPayload } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -49,10 +48,14 @@ function emptyPayload(
 
 export async function GET(req: NextRequest) {
   const directory = req.nextUrl.searchParams.get("directory");
-  if (!directory || !isAbsolutePath(directory)) {
-    return NextResponse.json({ error: "directory is required" }, { status: 400 });
+  const directoryError = gitDirectoryError(directory);
+  if (directoryError) {
+    return NextResponse.json(
+      { error: directoryError },
+      { status: directoryError === "directory is not allowed" ? 403 : 400 },
+    );
   }
-  const dir = directory;
+  const dir = directory!;
   const countOnly = req.nextUrl.searchParams.get("count") === "1";
 
   try {

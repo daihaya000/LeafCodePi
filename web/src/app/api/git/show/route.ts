@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { gitCommitFileDiff, gitCommitFiles } from "@/lib/git";
-import { isAbsolutePath } from "@/lib/paths";
+import { gitCommitFileDiff, gitCommitFiles, gitDirectoryError } from "@/lib/git";
 import type { GraphShowPayload } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -10,8 +9,12 @@ export async function GET(req: NextRequest) {
   const directory = req.nextUrl.searchParams.get("directory");
   const commit = req.nextUrl.searchParams.get("commit");
   const file = req.nextUrl.searchParams.get("file");
-  if (!directory || !isAbsolutePath(directory)) {
-    return NextResponse.json({ error: "directory is required" }, { status: 400 });
+  const directoryError = gitDirectoryError(directory);
+  if (directoryError) {
+    return NextResponse.json(
+      { error: directoryError },
+      { status: directoryError === "directory is not allowed" ? 403 : 400 },
+    );
   }
   if (!commit) {
     return NextResponse.json({ error: "commit is required" }, { status: 400 });
@@ -19,11 +22,11 @@ export async function GET(req: NextRequest) {
 
   try {
     if (file) {
-      const diff = await gitCommitFileDiff(directory, commit, file);
+      const diff = await gitCommitFileDiff(directory!, commit, file);
       const payload: GraphShowPayload = { commit, diff };
       return NextResponse.json(payload);
     }
-    const files = await gitCommitFiles(directory, commit);
+    const files = await gitCommitFiles(directory!, commit);
     const payload: GraphShowPayload = { commit, files };
     return NextResponse.json(payload);
   } catch (err) {

@@ -7,7 +7,13 @@ const mocks = vi.hoisted(() => ({
   runGit: vi.fn().mockResolvedValue({ code: 0, stdout: "", stderr: "" }),
 }));
 
-vi.mock("@/lib/git", () => ({ runGit: mocks.runGit }));
+vi.mock("@/lib/git", () => ({
+  runGit: mocks.runGit,
+  gitDirectoryError: (directory: string | null | undefined) =>
+    !directory || !/^[A-Za-z]:[\\/]|^\\\\|^\/[^/]/.test(directory)
+      ? "directory is required"
+      : null,
+}));
 
 import { GET } from "./route";
 

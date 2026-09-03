@@ -1,25 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runGit } from "@/lib/git";
-import { isAbsolutePath } from "@/lib/paths";
+import { gitDirectoryError, runGit } from "@/lib/git";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const directory = req.nextUrl.searchParams.get("directory");
-  if (!directory || !isAbsolutePath(directory)) {
-    return NextResponse.json({ error: "directory is required" }, { status: 400 });
+  const directoryError = gitDirectoryError(directory);
+  if (directoryError) {
+    return NextResponse.json(
+      { error: directoryError },
+      { status: directoryError === "directory is not allowed" ? 403 : 400 },
+    );
   }
+  const dir = directory!;
 
-  const head = await runGit(directory, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  const branches = await runGit(directory, ["branch", "--format=%(refname:short)"]);
-  const upstream = await runGit(directory, [
+  const head = await runGit(dir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const branches = await runGit(dir, ["branch", "--format=%(refname:short)"]);
+  const upstream = await runGit(dir, [
     "rev-parse",
     "--abbrev-ref",
     "--symbolic-full-name",
     "@{u}",
   ]);
-  const aheadCount = await runGit(directory, ["rev-list", "--count", "@{u}..HEAD"]);
+  const aheadCount = await runGit(dir, ["rev-list", "--count", "@{u}..HEAD"]);
 
   if (head.code !== 0) {
     return NextResponse.json(
