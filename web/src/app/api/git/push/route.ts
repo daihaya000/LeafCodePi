@@ -22,18 +22,19 @@ export async function POST(req: NextRequest) {
       { status: directoryError === "directory is not allowed" ? 403 : 400 },
     );
   }
+  const { directory, remote: remoteRaw, branch: branchRaw, setUpstream, force } = body!;
 
-  const remote = body.remote?.trim() || "origin";
+  const remote = remoteRaw?.trim() || "origin";
   if (!REMOTE_RE.test(remote)) {
     return NextResponse.json({ error: "invalid remote" }, { status: 400 });
   }
 
   const args = ["push"];
-  if (body.force) args.push("--force-with-lease");
-  if (body.setUpstream) args.push("-u");
+  if (force) args.push("--force-with-lease");
+  if (setUpstream) args.push("-u");
 
-  if (body.branch?.trim()) {
-    const branch = body.branch.trim();
+  if (branchRaw?.trim()) {
+    const branch = branchRaw.trim();
     if (
       branch.length > 200 ||
       !/^[\p{L}\p{N}._/+-]+$/u.test(branch) ||
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
     args.push(remote, "HEAD");
   }
 
-  const result = await runGit(body.directory, args);
+  const result = await runGit(directory!, args);
   if (result.code !== 0) {
     return NextResponse.json(
       {

@@ -1,3 +1,8 @@
+## 2026-09-04: git branches/push の production typecheck 失敗を修正
+
+`gitDirectoryError` 導入後、`branches` が検証後も `directory`（`string | null`）を `runGit` に渡し、`push` は `body` が null のまま参照していた。`dir` / 分割代入で絞り込んで typecheck を通す。
+
+
 ## 2026-09-03: バグハント継続（SSE / hang-watch / ensureLive / Git path / QuestionCard）
 
 前回バックログの先頭5件を修正。

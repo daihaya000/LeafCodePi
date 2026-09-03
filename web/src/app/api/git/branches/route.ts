@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
   const ahead =
     aheadCount.code === 0 ? parseInt(aheadCount.stdout.trim(), 10) || 0 : -1;
 
-  const remotesResult = await runGit(directory, ["remote"]);
+  const remotesResult = await runGit(dir, ["remote"]);
   const remotes =
     remotesResult.code === 0
       ? remotesResult.stdout
