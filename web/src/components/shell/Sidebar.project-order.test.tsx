@@ -112,6 +112,29 @@ afterEach(() => {
 });
 
 describe("Sidebar project ordering", () => {
+  it("sets a project icon from the expanded sidebar", async () => {
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    const toggle = await screen.findByRole("button", { name: "Project Aを展開" });
+    const input = toggle.parentElement?.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).toBeTruthy();
+
+    fireEvent.change(input!, {
+      target: { files: [new File(["icon"], "icon.png", { type: "image/png" })] },
+    });
+
+    await waitFor(() => {
+      expect(mocks.sendJson).toHaveBeenCalledWith(
+        "/api/projects",
+        {
+          id: "project-a",
+          icon: expect.stringMatching(/^data:image\/png;base64,/),
+        },
+        "PATCH",
+      );
+    });
+  });
+
   it("reorders projects with native DnD and persists the order", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     const source = await screen.findByRole("button", { name: "Project Aを展開" });

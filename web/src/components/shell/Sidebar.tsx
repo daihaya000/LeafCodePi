@@ -1256,6 +1256,33 @@ const SidebarView = memo(function SidebarView({
                         </span>
                       )}
                     </button>
+                    <label
+                      title="プロジェクトアイコンを設定"
+                      aria-label={`${project.name}のアイコンを設定`}
+                      className="inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted hover:text-text md:h-8 md:w-8"
+                    >
+                      <ImageIcon className="h-3.5 w-3.5" />
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/gif,image/webp"
+                        className="sr-only"
+                        onChange={(event) => {
+                          void setProjectIcon(project, event.target.files?.[0] ?? null);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                    {project.icon && (
+                      <button
+                        type="button"
+                        aria-label={`${project.name}のアイコンを削除`}
+                        title="プロジェクトアイコンを削除"
+                        onClick={() => void clearProjectIcon(project)}
+                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted hover:text-text md:h-8 md:w-8"
+                      >
+                        <ImageOff className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     <button
                       type="button"
                       aria-label={`${project.name}に新規タスクを作成`}
