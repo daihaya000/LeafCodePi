@@ -59,6 +59,7 @@ export function LlamaServerSettings(
   /** Explicitly chosen family; survives until the GGUF listing can resolve it
    *  into config.modelFile. Null = derive the family from the saved model. */
   const [selectedFamily, setSelectedFamily] = useState<string | null>(null);
+  const [configLoaded, setConfigLoaded] = useState(false);
   const mountedRef = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -67,25 +68,32 @@ export function LlamaServerSettings(
   /** False until the persisted config has been loaded, so the initial read
    *  does not trigger an immediate save-back of identical values. */
   const hydratedRef = useRef(false);
+  /** 直列化キュー。PUTを並走させず1つずつ実行し、ネットワーク遅延の逆転で古い値が
+   *  新しい値を上書きしないようにする。 */
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   configRef.current = config;
 
-  const persistConfig = useCallback(async (
+  const persistConfig = useCallback((
     nextConfig: LlamaServerSettings,
     announce: boolean,
-  ) => {
-    try {
-      await sendJson("/api/settings/llama-server-config", {
-        value: JSON.stringify(nextConfig),
-      }, "PUT");
-      persistedConfigRef.current = JSON.stringify(nextConfig);
-      if (mountedRef.current && announce) setMessage("設定を保存しました");
-    } catch (err: unknown) {
-      if (mountedRef.current) {
-        setError(
-          err instanceof Error ? err.message : "設定の保存に失敗しました",
-        );
+  ): Promise<void> => {
+    const operation = saveQueueRef.current.then(async () => {
+      try {
+        await sendJson("/api/settings/llama-server-config", {
+          value: JSON.stringify(nextConfig),
+        }, "PUT");
+        persistedConfigRef.current = JSON.stringify(nextConfig);
+        if (mountedRef.current && announce) setMessage("設定を保存しました");
+      } catch (err: unknown) {
+        if (mountedRef.current) {
+          setError(
+            err instanceof Error ? err.message : "設定の保存に失敗しました",
+          );
+        }
       }
-    }
+    });
+    saveQueueRef.current = operation;
+    return operation;
   }, []);
 
   useEffect(() => {
@@ -136,7 +144,9 @@ export function LlamaServerSettings(
     }
   }, []);
 
-  // Load persisted settings from the server on mount.
+  // Load persisted settings from the server on mount. The form stays
+  // disabled (configLoaded=false) until this resolves so an edit made before
+  // the GET response arrives cannot be silently overwritten by setConfig below.
   useEffect(() => {
     let cancelled = false;
     void getJson<{ parsed: LlamaServerSettings }>("/api/settings/llama-server-config")
@@ -146,12 +156,14 @@ export function LlamaServerSettings(
         setConfig(res.parsed);
         setSelectedFamily(null); // derive from the saved model first
         hydratedRef.current = true;
+        setConfigLoaded(true);
         void loadModels(res.parsed.modelDir);
       })
       .catch(() => {
         // Defaults are fine if the setting has never been saved.
         persistedConfigRef.current = JSON.stringify(DEFAULT_LLAMA_SERVER_SETTINGS);
         hydratedRef.current = true;
+        setConfigLoaded(true);
       });
     return () => {
       cancelled = true;
@@ -183,6 +195,9 @@ export function LlamaServerSettings(
 
   useEffect(() => {
     if (!active) return;
+    // 非表示中はpollingを止めていたため、再表示直後の古いstatusで起動・停止を
+    // 操作できないよう、確認中へ戻してから最新値を取得する。
+    setStatus(null);
     void refreshStatus();
     pollRef.current = setInterval(() => void refreshStatus(), POLL_INTERVAL_MS);
     return () => {
@@ -312,6 +327,8 @@ export function LlamaServerSettings(
       (config.cacheTypeK ?? "") !== activePreset.settings.cacheTypeK ||
       (config.cacheTypeV ?? "") !== activePreset.settings.cacheTypeV);
   const specBroken = isLlamaSpecComboBroken(config.modelFile, config.specType);
+  // GET完了前の編集がeffectのsetConfigで上書きされないよう、読込完了まで起動設定フォーム全体を無効化する。
+  const formDisabled = actionBusy !== null || !configLoaded;
 
   /** Pick a model family (or "custom"): applies the preset wholesale. The
    *  GGUF file itself resolves later, once `models` has loaded (see effect). */
@@ -420,7 +437,6 @@ export function LlamaServerSettings(
 
       <div className="mt-4 border-t border-border pt-4">
         <h3 className="mb-2 text-sm font-semibold">起動設定</h3>
-
         <div>
           <label htmlFor="llama-model-family" className="mb-1 block text-sm text-muted">
             使用するモデル
@@ -428,7 +444,7 @@ export function LlamaServerSettings(
           <select
             id="llama-model-family"
             value={familyKey}
-            disabled={actionBusy !== null}
+            disabled={formDisabled}
             aria-describedby="llama-model-family-hint"
             onChange={(e) => selectModelFamily(e.target.value)}
             className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
@@ -490,7 +506,7 @@ export function LlamaServerSettings(
               aria-describedby="llama-cpp-path-hint"
               placeholder="例: /opt/llama.cpp または C:\tools\llama.cpp"
               value={config.llamaCppPath}
-              disabled={actionBusy !== null}
+              disabled={formDisabled}
               onChange={(e) => setConfig((c) => ({ ...c, llamaCppPath: e.target.value }))}
               className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             />
@@ -511,7 +527,7 @@ export function LlamaServerSettings(
                 aria-describedby="llama-model-dir-hint"
                 placeholder="C:\Users\me\models\llm"
                 value={config.modelDir}
-                disabled={actionBusy !== null}
+                disabled={formDisabled}
                 onChange={(e) => setConfig((c) => ({ ...c, modelDir: e.target.value }))}
                 onBlur={() => void loadModels(config.modelDir)}
                 className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
@@ -521,7 +537,7 @@ export function LlamaServerSettings(
                 size="sm"
                 variant="secondary"
                 busy={modelsBusy}
-                disabled={actionBusy !== null}
+                disabled={formDisabled}
                 onClick={() => void loadModels(config.modelDir)}
               >
                 再取得
@@ -539,7 +555,7 @@ export function LlamaServerSettings(
             <select
               id="llama-model-file"
               value={config.modelFile}
-              disabled={actionBusy !== null}
+              disabled={formDisabled}
               onChange={(e) => setConfig((c) => ({ ...c, modelFile: e.target.value }))}
               className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             >
@@ -575,7 +591,7 @@ export function LlamaServerSettings(
               aria-describedby="llama-system-prompt-hint"
               placeholder="例: 回答は日本語で、簡潔に説明してください。"
               value={config.systemPrompt}
-              disabled={actionBusy !== null}
+              disabled={formDisabled}
               onChange={(e) => setConfig((c) => ({ ...c, systemPrompt: e.target.value }))}
               className="min-h-28 w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             />
@@ -590,7 +606,7 @@ export function LlamaServerSettings(
               role="switch"
               aria-label="リモートアクセスを許可（LAN・Tailscale）"
               checked={config.llamaServerHost === "0.0.0.0"}
-              disabled={actionBusy !== null}
+              disabled={formDisabled}
               onChange={(e) =>
                 setConfig((c) => ({
                   ...c,
@@ -613,7 +629,7 @@ export function LlamaServerSettings(
             <span className="mb-1 block text-sm text-muted">思考の深さ</span>
             <select
               value={config.effort}
-              disabled={actionBusy !== null}
+              disabled={formDisabled}
               onChange={(e) =>
                 setConfig((c) => ({ ...c, effort: e.target.value as LlamaServerEffort }))
               }
@@ -630,7 +646,7 @@ export function LlamaServerSettings(
             <span className="mb-1 block text-sm text-muted">高速化（推測デコード）</span>
             <select
               value={config.specType ?? ""}
-              disabled={actionBusy !== null}
+              disabled={formDisabled}
               onChange={(e) =>
                 setConfig((c) => ({
                   ...c,
@@ -657,7 +673,7 @@ export function LlamaServerSettings(
               max={1_000_000}
               step={4096}
               value={config.contextLength}
-              disabled={actionBusy !== null}
+              disabled={formDisabled}
               onChange={(e) =>
                 setConfig((c) => ({
                   ...c,
@@ -671,7 +687,7 @@ export function LlamaServerSettings(
                 <button
                   key={n}
                   type="button"
-                  disabled={actionBusy !== null}
+                  disabled={formDisabled}
                   onClick={() => setConfig((c) => ({ ...c, contextLength: n }))}
                   className={`rounded-md border px-2 py-0.5 text-[11px] outline-none disabled:opacity-40 ${
                     config.contextLength === n
@@ -691,7 +707,7 @@ export function LlamaServerSettings(
               min={1}
               max={16}
               value={config.parallel}
-              disabled={actionBusy !== null}
+              disabled={formDisabled}
               onChange={(e) =>
                 setConfig((c) => ({
                   ...c,
@@ -705,7 +721,7 @@ export function LlamaServerSettings(
         </div>
         )}
         <p className="mt-2 text-[11px] text-muted">
-          変更は自動で保存され、次回起動時に反映されます
+          {configLoaded ? "変更は自動で保存され、次回起動時に反映されます" : "設定を読み込んでいます…"}
         </p>
       </div>
 
