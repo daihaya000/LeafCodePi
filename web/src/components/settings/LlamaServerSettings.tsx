@@ -475,8 +475,9 @@ export function LlamaServerSettings(
         <button
           type="button"
           aria-expanded={shelfOpen}
+          disabled={!configLoaded}
           onClick={() => setShelfOpen((o) => !o)}
-          className="mt-3 flex w-full items-center justify-between rounded-lg border border-border bg-bg px-3 py-2 text-sm text-muted outline-none hover:border-border-strong focus:border-border-strong"
+          className="mt-3 flex w-full items-center justify-between rounded-lg border border-border bg-bg px-3 py-2 text-sm text-muted outline-none hover:border-border-strong focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-50"
         >
           <span className="flex items-center gap-2">
             詳細設定
