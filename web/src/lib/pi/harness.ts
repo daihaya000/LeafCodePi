@@ -4368,11 +4368,13 @@ export async function abortTask(id: string): Promise<TaskSummary> {
     await stopGoalLoopForTask(live);
     await stopSubagentRunsForTask(live, msgs);
     await live.session.abort();
-    emitTaskSnapshot(live, "abort");
   }
   const task = setTaskStatus(id, "idle");
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  // 全購読先へ最終状態を送る。idle 保存前に送ると、停止要求元以外のペインが
+  // working のまま残り、停止ボタンが再表示される。
+  if (live) emitTaskSnapshot(live, "abort");
   return toSummary(task);
 }
 

@@ -1330,6 +1330,9 @@ export const TaskView = memo(function TaskView({
       setError(null);
       return;
     }
+    const wasStopped = stopRequestedRef.current;
+    stopRequestedRef.current = false;
+    setStopRequested(false);
     setSubmitting(true);
     setError(null);
     try {
@@ -1449,10 +1452,12 @@ export const TaskView = memo(function TaskView({
       setPrompt("");
       setAttachments([]);
       setIsReverted(false);
-      stopRequestedRef.current = false;
-      setStopRequested(false);
       notifyTasksChanged();
     } catch (err) {
+      if (wasStopped) {
+        stopRequestedRef.current = true;
+        setStopRequested(true);
+      }
       if (optimistic) {
         setPendingUserMessage(null);
         setPrompt((current) => current || submittedPrompt);
