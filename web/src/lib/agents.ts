@@ -51,12 +51,6 @@ export type AgentDraft = {
   inheritProjectContext?: boolean;
   inheritSkills?: boolean;
   async?: boolean;
-  /**
-   * Frontmatter keys this editor does not manage (skills, extensions,
-   * defaultContext, acceptanceRole, disabled, ...). Kept so that saving a
-   * managed field never drops agent config the UI cannot show.
-   */
-  extraFrontmatter?: Record<string, unknown>;
   systemPrompt: string;
 };
 
@@ -439,7 +433,10 @@ function joinCsv(values: string[] | undefined): string | undefined {
 }
 
 /** Build markdown file with YAML frontmatter for a user agent. */
-export function serializeAgent(draft: AgentDraft): string {
+export function serializeAgent(
+  draft: AgentDraft,
+  extraFrontmatter?: Readonly<Record<string, unknown>>,
+): string {
   const frontmatter: Record<string, unknown> = { name: draft.name };
   if (draft.description) frontmatter.description = draft.description;
   const aliases = joinCsv(draft.aliases);
@@ -455,8 +452,8 @@ export function serializeAgent(draft: AgentDraft): string {
   if (draft.inheritProjectContext !== undefined) frontmatter.inheritProjectContext = draft.inheritProjectContext;
   if (draft.inheritSkills !== undefined) frontmatter.inheritSkills = draft.inheritSkills;
   if (draft.async !== undefined) frontmatter.async = draft.async;
-  // Unmanaged keys last, never overwriting a managed value.
-  for (const [key, value] of Object.entries(draft.extraFrontmatter ?? {})) {
+  // Unmanaged keys are server-owned and never overwrite a managed value.
+  for (const [key, value] of Object.entries(extraFrontmatter ?? {})) {
     if (!(key in frontmatter)) frontmatter[key] = value;
   }
   const body = draft.systemPrompt?.trim() ? `\n${draft.systemPrompt.trim()}\n` : "";
@@ -484,7 +481,6 @@ export function readUserAgent(name: string, agentDir = resolvePiAgentDir()): { d
       inheritProjectContext: typeof fm.inheritProjectContext === "boolean" ? fm.inheritProjectContext : undefined,
       inheritSkills: typeof fm.inheritSkills === "boolean" ? fm.inheritSkills : undefined,
       async: typeof fm.async === "boolean" ? fm.async : undefined,
-      ...(extraFrontmatterFrom(fm) ? { extraFrontmatter: extraFrontmatterFrom(fm) } : {}),
       systemPrompt,
     },
   };
@@ -514,15 +510,11 @@ export function createAgent(draft: AgentDraft, agentDir = resolvePiAgentDir()): 
   return listAgents(agentDir);
 }
 
-/** Update a user agent. Frontmatter the editor does not manage is preserved. */
+/** Update a user agent. Frontmatter the editor does not manage is preserved server-side. */
 export function updateAgent(draft: AgentDraft, agentDir = resolvePiAgentDir()): AgentListResult {
   const name = assertValidName(draft.name);
   const filePath = assertEditable(agentDir, name);
-  const extraFrontmatter = draft.extraFrontmatter ?? readExtraFrontmatter(filePath);
-  atomicWrite(
-    filePath,
-    serializeAgent({ ...draft, name, ...(extraFrontmatter ? { extraFrontmatter } : {}) }),
-  );
+  atomicWrite(filePath, serializeAgent({ ...draft, name }, readExtraFrontmatter(filePath)));
   return listAgents(agentDir);
 }
 

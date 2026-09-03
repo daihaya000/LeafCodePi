@@ -182,7 +182,7 @@ function effortLevelsFor(
     ? models.find((option) => option.value === modelSelectionValue(model, models))?.thinkingLevels
     : undefined;
   const allowed = new Set<ThinkingLevel>(
-    supported && supported.length > 0 ? supported : ALL_THINKING_LEVELS,
+    supported === undefined ? ALL_THINKING_LEVELS : supported,
   );
   // 保存済みの値は対応外でも現状を見せるために残す（false はレベルでないので除外）。
   if (current) allowed.add(current);
@@ -508,10 +508,17 @@ export function AgentsSettings() {
     if (busyId) return;
     setBusyId(agent.id);
     setError(null);
+    const selected = model
+      ? models.find((option) => option.value === modelSelectionValue(model, models))
+      : undefined;
+    const clearUnsupportedThinking =
+      typeof agent.thinking === "string" &&
+      selected?.thinkingLevels !== undefined &&
+      !selected.thinkingLevels.includes(agent.thinking);
     try {
       const result = await sendJson<{ agents: AgentDto[] }>(
         `/api/agents/${encodeURIComponent(agent.id)}`,
-        { model },
+        { model, ...(clearUnsupportedThinking ? { thinking: null } : {}) },
         "PATCH",
       );
       setAgents(sortAgentRows(result.agents));

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import { AUTO_AGENT_VALUE } from "./default-agent";
-import { agentsDir, AgentsError, agentsErrorStatus, buildAgentResourceOptions, createAgent, deleteAgent, listAgents, loadAgentDefinition, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, setAgentModel, setAgentThinking, updateAgent } from "./agents";
+import { agentsDir, AgentsError, agentsErrorStatus, buildAgentResourceOptions, createAgent, deleteAgent, listAgents, loadAgentDefinition, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, setAgentModel, setAgentThinking, updateAgent, type AgentDraft } from "./agents";
 
 const AGENT = `---
 name: __NAME__
@@ -181,18 +181,31 @@ describe("listAgents / setAgentEnabled", () => {
     assert.equal(readUserAgent("custom", agentDir).draft.systemPrompt, "Body.");
   });
 
-  it("keeps unmanaged frontmatter when the editor saves a full draft without extras", () => {
+  it("keeps unmanaged frontmatter server-side without exposing or trusting it in drafts", () => {
     fixture();
+    const filePath = join(agentDir, "agents", "custom.md");
     writeFileSync(
-      join(agentDir, "agents", "custom.md"),
+      filePath,
       ["---", "name: custom", "skills: research", "---", "", "Body.", ""].join("\n"),
       "utf8",
     );
 
-    updateAgent({ name: "custom", description: "edited", systemPrompt: "New body." }, agentDir);
+    const { draft } = readUserAgent("custom", agentDir);
+    assert.equal("extraFrontmatter" in draft, false);
+    writeFileSync(
+      filePath,
+      ["---", "name: custom", "skills: current", "---", "", "Body.", ""].join("\n"),
+      "utf8",
+    );
+    updateAgent(
+      { ...draft, description: "edited", extraFrontmatter: { skills: "stale" } } as AgentDraft & {
+        extraFrontmatter: Record<string, unknown>;
+      },
+      agentDir,
+    );
 
-    const fm = parseAgentFile(readFileSync(join(agentDir, "agents", "custom.md"), "utf8")) as Record<string, unknown>;
-    assert.equal(fm.skills, "research");
+    const fm = parseAgentFile(readFileSync(filePath, "utf8")) as Record<string, unknown>;
+    assert.equal(fm.skills, "current");
     assert.equal(fm.description, "edited");
   });
 

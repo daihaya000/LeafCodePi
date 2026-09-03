@@ -70,6 +70,7 @@ const models: ModelOption[] = [
     label: "Claude",
     providerID: "anthropic",
     modelID: "claude",
+    thinkingLevels: [],
   },
 ];
 
@@ -141,6 +142,53 @@ describe("AgentsSettings", () => {
       .getAllByRole("option")
       .map((option) => option.textContent);
     expect(labels).toEqual(["既定", "無効", "low", "medium", "high"]);
+  });
+
+  it("offers no effort levels when the selected model reports an empty list", async () => {
+    getJson.mockImplementation((path: string) =>
+      path === "/api/agents"
+        ? Promise.resolve({
+            agents: [{ ...agents[1], model: "anthropic/claude" }],
+            agentsDir: "C:/pi/agent/agents",
+          })
+        : path === "/api/settings/auto-agent-prompt"
+          ? Promise.resolve({ value: null })
+          : Promise.resolve({ models }),
+    );
+    render(<AgentsSettings />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "enabled のEffort" }));
+
+    const labels = within(screen.getByRole("listbox", { name: "enabled のEffort" }))
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(labels).toEqual(["既定", "無効"]);
+  });
+
+  it("clears an effort that the newly selected model does not support", async () => {
+    getJson.mockImplementation((path: string) =>
+      path === "/api/agents"
+        ? Promise.resolve({
+            agents: [{ ...agents[1], thinking: "high" }],
+            agentsDir: "C:/pi/agent/agents",
+          })
+        : path === "/api/settings/auto-agent-prompt"
+          ? Promise.resolve({ value: null })
+          : Promise.resolve({ models }),
+    );
+    render(<AgentsSettings />);
+
+    fireEvent.change(await screen.findByRole("combobox", { name: "enabled のモデル" }), {
+      target: { value: "anthropic::claude" },
+    });
+
+    await waitFor(() => {
+      expect(sendJson).toHaveBeenCalledWith(
+        "/api/agents/enabled",
+        { model: "anthropic/claude", thinking: null },
+        "PATCH",
+      );
+    });
   });
 
   it("falls back to every effort level when the agent has no pinned model", async () => {
