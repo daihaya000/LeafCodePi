@@ -352,8 +352,8 @@ export function MemorySettings() {
 
       {snapshot?.path && <p className="mt-3 break-all font-mono text-[11px] text-faint">{snapshot.path}{snapshot.exists ? "" : "（未作成・保存時に作成）"}</p>}
       <div aria-live="polite" className="mt-2 min-h-5 text-sm">
-        {notice && <p className="text-success">{notice}</p>}
-        {error && <p className="text-danger">{error}</p>}
+        {notice && <p role="status" className="text-success">{notice}</p>}
+        {error && <p role="alert" className="text-danger">{error}</p>}
       </div>
     </div>
   );

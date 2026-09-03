@@ -233,8 +233,8 @@ export function SettingsView() {
                   <dt className="text-muted">有効モデル数</dt>
                   <dd>{health?.modelCount ?? 0}</dd>
                 </dl>
-                {health?.error && <p className="mt-3 text-sm text-danger">{health.error}</p>}
-                {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+                {health?.error && <p role="alert" className="mt-3 text-sm text-danger">{health.error}</p>}
+                {error && <p role="alert" className="mt-3 text-sm text-danger">{error}</p>}
               </div>
 
               <HostRestartPanel onRestarted={reload} />

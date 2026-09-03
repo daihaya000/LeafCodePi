@@ -179,7 +179,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           </>
         ) : null}
       </p>
-      {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
     </div>
   );
 }

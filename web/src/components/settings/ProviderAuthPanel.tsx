@@ -630,7 +630,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           )}
         </div>
         {accountsError && (
-          <p className="mt-2 text-xs text-danger">{accountsError}</p>
+          <p role="alert" className="mt-2 text-xs text-danger">{accountsError}</p>
         )}
         {accounts === null ? (
           <p className="mt-2 text-xs text-muted">読み込み中…</p>
@@ -1092,7 +1092,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
             <p className="mt-2 text-sm text-warning">{login.warning}</p>
           )}
           {login.error && (
-            <p className="mt-2 text-sm text-danger">{login.error}</p>
+            <p role="alert" className="mt-2 text-sm text-danger">{login.error}</p>
           )}
         </div>
       )}

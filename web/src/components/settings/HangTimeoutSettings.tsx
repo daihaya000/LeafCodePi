@@ -129,7 +129,7 @@ export function HangTimeoutSettings() {
       <p id="hang-resume-help" className="mt-2 text-[11px] text-muted">
         無言終了時は選択した方法で自動再開します。手動の「再開」ボタンは同じプロンプトを再送します。
       </p>
-      {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
     </div>
   );
 }

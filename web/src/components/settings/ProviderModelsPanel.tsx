@@ -553,8 +553,8 @@ export function ProviderModelsPanel({
       </div>
       <p role="status" aria-live="polite" className="sr-only">{reorderAnnouncement}</p>
       {status === "loading" && <p className="text-sm text-muted">読み込み中…</p>}
-      {error && <p className="text-sm text-danger">{error}</p>}
-      {actionError && <p className="text-sm text-danger">{actionError}</p>}
+      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+      {actionError && <p role="alert" className="text-sm text-danger">{actionError}</p>}
       {status === "ready" && providers.length === 0 && (
         <p className="text-sm text-muted">
           選択可能なプロバイダーまたはログインアカウントがありません。認証設定を確認してください。
