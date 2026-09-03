@@ -429,6 +429,10 @@ export const TaskView = memo(function TaskView({
   const [task, setTask] = useState<TaskDetail | null>(cachedSession);
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
+  const [pendingUserMessage, setPendingUserMessage] = useState<{
+    message: UiMessage;
+    baselineUserCount: number;
+  } | null>(null);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [autoUsage, setAutoUsage] = useState<AutoProviderUsage>({});
@@ -469,6 +473,7 @@ export const TaskView = memo(function TaskView({
   const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>([]);
   const [queuedAutoSend, setQueuedAutoSend] = useState(false);
   const nextQueueIdRef = useRef(1);
+  const nextOptimisticMessageIdRef = useRef(1);
   const submitRef = useRef<() => Promise<void>>(async () => undefined);
   const [submitting, setSubmitting] = useState(false);
   const [resumingTurn, setResumingTurn] = useState(false);
@@ -1308,6 +1313,9 @@ export const TaskView = memo(function TaskView({
 
   async function submit() {
     if ((!prompt.trim() && attachments.length === 0) || submitting || compacting || agentChanging) return;
+    const submittedPrompt = prompt;
+    const submittedAttachments = attachments;
+    let optimistic = false;
     if (working && deliveryMode === "queue") {
       setQueuedFollowUps((current) => [
         ...current,
@@ -1381,8 +1389,38 @@ export const TaskView = memo(function TaskView({
         resolvedAgent = result.agent;
         setGoalLoopEnabled(false);
       } else {
+        const optimisticId = `optimistic:${taskId}:${nextOptimisticMessageIdRef.current++}`;
+        const optimisticMessage: UiMessage = {
+          id: optimisticId,
+          role: "user",
+          createdAt: Date.now(),
+          parts: [],
+        };
+        if (submittedPrompt.trim()) {
+          optimisticMessage.parts.push({
+            id: `${optimisticId}:text`,
+            type: "text",
+            text: submittedPrompt,
+          });
+        }
+        submittedAttachments.forEach((attachment, index) => {
+          optimisticMessage.parts.push({
+            id: `${optimisticId}:image:${index}`,
+            type: "image",
+            url: attachment.uri,
+            mime: attachment.mime,
+            filename: attachment.name,
+          });
+        });
+        setPendingUserMessage({
+          message: optimisticMessage,
+          baselineUserCount: messages.filter((message) => message.role === "user").length,
+        });
+        setPrompt("");
+        setAttachments([]);
+        optimistic = true;
         const result = await sendJson<{ task: TaskSummary }>(`/api/tasks/${taskId}/prompt`, {
-          prompt,
+          prompt: submittedPrompt,
           images,
           ...(autoDecision
             ? {
@@ -1415,6 +1453,13 @@ export const TaskView = memo(function TaskView({
       setStopRequested(false);
       notifyTasksChanged();
     } catch (err) {
+      if (optimistic) {
+        setPendingUserMessage(null);
+        setPrompt((current) => current || submittedPrompt);
+        setAttachments((current) =>
+          current.length > 0 ? current : submittedAttachments,
+        );
+      }
       setError(err instanceof Error ? err.message : "送信に失敗しました");
     } finally {
       setSubmitting(false);
@@ -1778,6 +1823,16 @@ export const TaskView = memo(function TaskView({
       },
     };
   }, [messages]);
+  const pendingUserDelivered = Boolean(
+    pendingUserMessage && userMessageIds.length > pendingUserMessage.baselineUserCount,
+  );
+  const renderedMessages =
+    pendingUserMessage && !pendingUserDelivered
+      ? [...visibleMessages, pendingUserMessage.message]
+      : visibleMessages;
+  useEffect(() => {
+    if (pendingUserDelivered) setPendingUserMessage(null);
+  }, [pendingUserDelivered]);
   const resumeTarget = useMemo(
     () =>
       findResumableTurn(visibleMessages, {
@@ -2090,7 +2145,7 @@ export const TaskView = memo(function TaskView({
                 tone="neutral"
               />
             )}
-            {visibleMessages.map((message) => (
+            {renderedMessages.map((message) => (
               <div
                 key={messageRenderKey(message)}
                 className="task-message-row"
@@ -2140,9 +2195,9 @@ export const TaskView = memo(function TaskView({
                 tone={resumeTarget.reason === "silent" ? "neutral" : "danger"}
               />
             )}
-            {working && <WorkingRow messages={visibleMessages} />}
+            {working && <WorkingRow messages={renderedMessages} />}
             {task?.todos && <TodoProgressPanel todos={task.todos} />}
-            {visibleMessages.length === 0 && (
+            {renderedMessages.length === 0 && (
               <p
                 className="py-12 text-center text-sm text-muted"
                 role={sessionHydrating ? "status" : undefined}

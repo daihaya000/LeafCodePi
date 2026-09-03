@@ -248,6 +248,10 @@ type LiveRuntime = {
   /** Coalesce message_update snapshots onto the event loop. */
   snapshotTimer: ReturnType<typeof setTimeout> | null;
   pendingSnapshotEventType: string | null;
+  /** pending がフルスナップショット待ちか（delta 待ちとの区別）。 */
+  pendingSnapshotIsDelta: boolean;
+  /** フルスナップショットに付与する追加フィールド（error 等）。 */
+  pendingSnapshotExtra: Record<string, unknown> | undefined;
   /** Session entry id the last navigateTree moved the leaf to (for undo). */
   revertLeafId: string | null;
   /** POST /abort で中断したターンの assistant メッセージ ID。 */
@@ -278,6 +282,8 @@ type HarnessState = {
   modelInflight: Promise<ModelOption[]> | null;
   accountModelCache: AccountModelCacheEntry | null;
   accountModelInflight: AccountModelInflight | null;
+  accountRecordsCache: AccountModelRecordCacheEntry | null;
+  accountRecordsInflight: AccountModelRecordsInflight | null;
   watchdogRegistered: boolean;
   lastProviderSyncWarnings: string[];
 };
@@ -453,6 +459,8 @@ function state(): HarnessState {
       modelInflight: null,
       accountModelCache: null,
       accountModelInflight: null,
+      accountRecordsCache: null,
+      accountRecordsInflight: null,
       watchdogRegistered: false,
       lastProviderSyncWarnings: [],
     };
@@ -1357,22 +1365,27 @@ function scheduleTaskSnapshot(
   extra?: Record<string, unknown>,
 ): void {
   if (NON_RENDERING_SESSION_EVENTS.has(eventType)) return;
-  if (!THROTTLED_SNAPSHOT_EVENTS.has(eventType)) {
-    if (live.snapshotTimer) {
-      clearTimeout(live.snapshotTimer);
-      live.snapshotTimer = null;
-      live.pendingSnapshotEventType = null;
-    }
-    emitTaskSnapshot(live, eventType, extra);
-    return;
+  // ライフサイクルイベントの連続（message_start/end・agent_start 等）も100ms窓で
+  // 1つのスナップショットへ合流させる。従来はイベント毎に全履歴の射影と数MBの
+  // フルSSE送信が走り、送信直後の反映遅延の主因だった。
+  if (THROTTLED_SNAPSHOT_EVENTS.has(eventType)) {
+    // フルスナップショット待機中に来た delta は、そのフルに含まれるため送らない。
+    if (live.pendingSnapshotEventType && !live.pendingSnapshotIsDelta) return;
   }
   live.pendingSnapshotEventType = eventType;
+  live.pendingSnapshotExtra = extra;
+  live.pendingSnapshotIsDelta = THROTTLED_SNAPSHOT_EVENTS.has(eventType);
   if (live.snapshotTimer) return;
   live.snapshotTimer = setTimeout(() => {
     live.snapshotTimer = null;
     const pendingType = live.pendingSnapshotEventType ?? eventType;
+    const pendingExtra = live.pendingSnapshotExtra;
+    const isDelta = live.pendingSnapshotIsDelta === true;
     live.pendingSnapshotEventType = null;
-    emitTaskDelta(live, pendingType);
+    live.pendingSnapshotExtra = undefined;
+    live.pendingSnapshotIsDelta = false;
+    if (isDelta) emitTaskDelta(live, pendingType);
+    else emitTaskSnapshot(live, pendingType, pendingExtra);
   }, SNAPSHOT_THROTTLE_MS);
 }
 
@@ -1461,6 +1474,8 @@ async function attachSession(
     toolPartialOutputByCallId: existing?.toolPartialOutputByCallId ?? new Map(),
     snapshotTimer: null,
     pendingSnapshotEventType: null,
+    pendingSnapshotIsDelta: false,
+    pendingSnapshotExtra: undefined,
     revertLeafId: null,
     manualAbortedAssistantId: null,
     hangRetryCount: 0,
@@ -1529,9 +1544,14 @@ async function attachSession(
       clearTimeout(live.snapshotTimer);
       live.snapshotTimer = null;
       const pendingType = live.pendingSnapshotEventType;
+      const pendingExtra = live.pendingSnapshotExtra;
+      const isDelta = live.pendingSnapshotIsDelta === true;
       live.pendingSnapshotEventType = null;
+      live.pendingSnapshotExtra = undefined;
+      live.pendingSnapshotIsDelta = false;
       if (pendingType) {
-        emitTaskDelta(live, pendingType);
+        if (isDelta) emitTaskDelta(live, pendingType);
+        else emitTaskSnapshot(live, pendingType, pendingExtra);
       }
     }
     unsubscribe();
@@ -2041,6 +2061,12 @@ type HealthCacheEntry = { at: number; value: HealthDto };
 type ModelCacheEntry = { at: number; value: ModelOption[] };
 type AccountModelCacheEntry = ModelCacheEntry & { key: string };
 type AccountModelInflight = { key: string; promise: Promise<ModelOption[]> };
+type AccountModelRecordCacheEntry = {
+  at: number;
+  key: string;
+  value: AccountModelRecord[];
+};
+type AccountModelRecordsInflight = { key: string; promise: Promise<AccountModelRecord[]> };
 
 /** Fresh cache entries only; unhealthy snapshots are never cached (see below). */
 export function readHealthCache(
@@ -2090,6 +2116,8 @@ export function invalidateHealthCache(): void {
   current.healthCache = null;
   current.modelCache = null;
   current.accountModelCache = null;
+  current.accountRecordsCache = null;
+  current.accountRecordsInflight = null;
 }
 
 function accountModelsKey(
@@ -2279,44 +2307,86 @@ async function collectAccountModelRecords(
   accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
 ): Promise<AccountModelRecord[]> {
   if (accounts.length === 0) return [];
-  let agentDir: string;
-  try {
-    agentDir = await resolvePiAgentDir();
-  } catch {
-    return [];
+  const current = state();
+  const key = accountModelsKey(accounts);
+  const cached = current.accountRecordsCache;
+  if (cached?.key === key) {
+    const age = Date.now() - cached.at;
+    if (age >= 0 && age < MODEL_TTL_MS) {
+      const value = cached.value;
+      // キャッシュ済みランタイムは解放済みの可能性があるため取り直す（ensure は実質Map参照）。
+      const refreshed = await Promise.all(
+        value.map(async (record) => {
+          try {
+            const runtime = await getRuntimeFor(record.accountId);
+            return runtime ? { ...record, runtime } : null;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      return refreshed.filter(
+        (record): record is AccountModelRecord => record !== null,
+      );
+    }
   }
-  const recordsByAccount = await Promise.all(
-    accounts.map(async (account, accountIndex) => {
-      const records: AccountModelRecord[] = [];
-      const providerIds = storedAccountProviderIds(account, agentDir);
-      if (providerIds.length === 0) return records;
-      try {
-        const runtime = await getRuntimeFor(account.id);
-        if (!runtime) return records;
-        const built = await buildModelOptions(
-          runtime,
-          account.id,
-          providerIds,
-        );
-        for (const [modelIndex, option] of built.entries()) {
-          // API キー等で構成された他プロバイダを、この OAuth アカウントの枠へ複製しない。
-          if (!accountHasProvider(account, option.providerID)) continue;
-          records.push({
-            accountId: account.id,
-            accountLabel: account.label,
-            accountIndex,
-            modelIndex,
+  if (current.accountRecordsInflight?.key === key) {
+    return current.accountRecordsInflight.promise;
+  }
+
+  const promise = (async () => {
+    let agentDir: string;
+    try {
+      agentDir = await resolvePiAgentDir();
+    } catch {
+      return [];
+    }
+    const recordsByAccount = await Promise.all(
+      accounts.map(async (account, accountIndex) => {
+        const records: AccountModelRecord[] = [];
+        const providerIds = storedAccountProviderIds(account, agentDir);
+        if (providerIds.length === 0) return records;
+        try {
+          const runtime = await getRuntimeFor(account.id);
+          if (!runtime) return records;
+          const built = await buildModelOptions(
             runtime,
-            option,
-          });
+            account.id,
+            providerIds,
+          );
+          for (const [modelIndex, option] of built.entries()) {
+            // API キー等で構成された他プロバイダを、この OAuth アカウントの枠へ複製しない。
+            if (!accountHasProvider(account, option.providerID)) continue;
+            records.push({
+              accountId: account.id,
+              accountLabel: account.label,
+              accountIndex,
+              modelIndex,
+              runtime,
+              option,
+            });
+          }
+        } catch {
+          // そのアカウントのランタイム初期化失敗は無視して残りの一覧を返す
         }
-      } catch {
-        // そのアカウントのランタイム初期化失敗は無視して残りの一覧を返す
-      }
-      return records;
-    }),
-  );
-  return recordsByAccount.flat();
+        return records;
+      }),
+    );
+    return recordsByAccount.flat();
+  })();
+  current.accountRecordsInflight = { key, promise };
+  try {
+    const value = await promise;
+    if (current.accountRecordsInflight?.promise === promise) {
+      current.accountRecordsCache = { key, at: Date.now(), value };
+      current.healthCache = null;
+    }
+    return value;
+  } finally {
+    if (current.accountRecordsInflight?.promise === promise) {
+      current.accountRecordsInflight = null;
+    }
+  }
 }
 
 function intersection<T extends string>(
@@ -4104,8 +4174,26 @@ export async function promptTask(
     : undefined;
   // An explicit Auto decision wins over the resolved agent's default model.
   const applyRequestedModel = options?.auto === true || !agentModel;
-  if (applyRequestedModel && options?.model) await setTaskModel(id, options.model);
-  if (applyRequestedModel && options?.thinkingLevel) {
+  // 同一モデルへの再解決（全アカウントのモデル収集 ≈1.3s）をスキップする。
+  // アカウントの現ターン選定は prepareLiveForPrompt が毎回行うため、タスクが
+  // 要求のプロバイダ/モデルを既に持つなら付与側の再解決は不要。
+  let modelChanged = false;
+  if (applyRequestedModel && options?.model) {
+    const requested = parseModelValue(options.model);
+    const unchanged =
+      requested !== null &&
+      task.providerID === requested.providerID &&
+      task.modelID === requested.modelID;
+    if (!unchanged) {
+      await setTaskModel(id, options.model);
+      modelChanged = true;
+    }
+  }
+  if (
+    applyRequestedModel &&
+    options?.thinkingLevel &&
+    (modelChanged || task.thinkingLevel !== options.thinkingLevel)
+  ) {
     await setTaskThinkingLevel(id, options.thinkingLevel);
   }
   const live = await ensureLive(id);
