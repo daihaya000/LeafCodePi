@@ -5300,6 +5300,14 @@ function agentSwitchNotice(previousAgent: string | undefined, nextAgent: string)
   ].join("\n");
 }
 
+/** Prompt queued, streaming, or compacting: disposing live would drop in-flight work. */
+export function isLiveBusyForReplace(live: {
+  promptActive?: boolean;
+  session: { isStreaming?: boolean; isCompacting?: boolean };
+}): boolean {
+  return Boolean(live.promptActive || live.session.isStreaming || live.session.isCompacting);
+}
+
 export async function setTaskAgent(
   id: string,
   agentName: string,
@@ -5317,11 +5325,7 @@ export async function setTaskAgent(
   if (normalized === (task.agent?.trim() ?? "")) return toSummary(task);
 
   const live = await ensureLive(id);
-  if (
-    live.promptActive ||
-    live.session.isStreaming ||
-    live.session.isCompacting
-  ) {
+  if (isLiveBusyForReplace(live)) {
     throw Object.assign(new Error("実行中タスクのエージェントは変更できません"), {
       status: 409,
     });
@@ -5373,12 +5377,12 @@ export async function setTaskModel(
   const targetIds = modelId(model);
   const levels = thinkingLevelsForModel(model);
 
-  // アカウント切替はセッションの再作成が必要。実行中（ストリーミング中）は拒否し、
+  // アカウント切替はセッションの再作成が必要。promptActive / ストリーム / 圧縮中は拒否し、
   // それ以外は live セッションを破棄して次回 ensureLive で新しいランタイムから作る。
   // 先に ensureLive を待って作成中セッションとの競合をなくす。
   if (targetAccountId !== (task.accountId ?? null)) {
     const live = await ensureLive(id);
-    if (live.session.isStreaming) {
+    if (isLiveBusyForReplace(live)) {
       throw Object.assign(
         new Error("実行中タスクのアカウントは変更できません"),
         { status: 409 },

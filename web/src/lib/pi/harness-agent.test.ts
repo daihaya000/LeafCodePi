@@ -10,7 +10,7 @@ import {
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, setTaskAgent } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, isLiveBusyForReplace, setTaskAgent } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const previousHarness = (globalThis as Record<string, unknown>)[GLOBAL_KEY];
@@ -137,6 +137,27 @@ describe("setTaskAgent", () => {
     assert.equal(state.live.has(state.task.id), true);
     assert.equal(state.disposed, false);
     assert.equal(state.customMessages.length, 0);
+  });
+});
+
+describe("isLiveBusyForReplace", () => {
+  it("blocks dispose while a prompt is accepted, streaming, or compacting", () => {
+    assert.equal(
+      isLiveBusyForReplace({ promptActive: true, session: {} }),
+      true,
+    );
+    assert.equal(
+      isLiveBusyForReplace({ promptActive: false, session: { isStreaming: true } }),
+      true,
+    );
+    assert.equal(
+      isLiveBusyForReplace({ promptActive: false, session: { isCompacting: true } }),
+      true,
+    );
+    assert.equal(
+      isLiveBusyForReplace({ promptActive: false, session: {} }),
+      false,
+    );
   });
 });
 
