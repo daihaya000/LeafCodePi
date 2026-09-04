@@ -285,6 +285,10 @@ describe("system safety classifier", () => {
     );
     assert.deepEqual(matchSystemSafetyCommand("terraform plan"), []);
     assert.deepEqual(matchSystemSafetyCommand("echo terraform destroy"), []);
+    assert.ok(matchSystemSafetyCommand("terragrunt destroy").some((match) => match.label === "infrastructure destroy"));
+    assert.ok(matchSystemSafetyCommand("vagrant halt").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("vagrant destroy -f").some((match) => match.label === "OS shutdown/restart"));
+    assert.deepEqual(matchSystemSafetyCommand("echo vagrant halt"), []);
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);

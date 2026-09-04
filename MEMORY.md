@@ -1,3 +1,12 @@
+## 2026-09-05: permission-gate ループ tick 21
+
+- FN: `terragrunt destroy`、`vagrant halt` / `destroy` / `suspend`
+- `echo vagrant halt` は非検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 20
 
 - FN: IaC 破棄 — `terraform`/`tofu`/`pulumi`/`cdk`/`sam` の `destroy`/`delete`
