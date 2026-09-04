@@ -34,4 +34,13 @@ describe("POST /api/git/merge", () => {
     expect(response.status).toBe(400);
     expect(mocks.runGit).not.toHaveBeenCalled();
   });
+
+  it("rejects a non-string branch before invoking git", async () => {
+    const response = await POST(
+      request({ directory: "C:\\work", branch: 123 }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.runGit).not.toHaveBeenCalled();
+  });
 });

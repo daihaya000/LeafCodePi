@@ -14,13 +14,14 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
     directory?: string;
-    branch?: string;
+    branch?: unknown;
     into?: unknown;
     noFf?: boolean;
     message?: string;
   } | null;
+  const branch = typeof body?.branch === "string" ? body.branch.trim() : "";
 
-  if (!body?.directory || !body.branch?.trim()) {
+  if (!body?.directory || !branch) {
     return NextResponse.json(
       { error: "directory and branch are required" },
       { status: 400 },
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    assertSafeBranchName(body.branch.trim());
+    assertSafeBranchName(branch);
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "invalid branch" },
@@ -43,7 +44,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const branch = body.branch.trim();
   const intoRaw = body.into;
   if (intoRaw !== undefined && intoRaw !== "current" && intoRaw !== "branch") {
     return NextResponse.json({ error: "invalid merge direction" }, { status: 400 });
