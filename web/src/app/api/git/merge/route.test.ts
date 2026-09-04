@@ -43,4 +43,13 @@ describe("POST /api/git/merge", () => {
     expect(response.status).toBe(400);
     expect(mocks.runGit).not.toHaveBeenCalled();
   });
+
+  it("rejects a non-boolean noFf flag before invoking git", async () => {
+    const response = await POST(
+      request({ directory: "C:\\work", branch: "feature", noFf: "false" }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.runGit).not.toHaveBeenCalled();
+  });
 });

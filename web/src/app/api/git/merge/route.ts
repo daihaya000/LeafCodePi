@@ -16,10 +16,11 @@ export async function POST(req: NextRequest) {
     directory?: string;
     branch?: unknown;
     into?: unknown;
-    noFf?: boolean;
+    noFf?: unknown;
     message?: string;
   } | null;
   const branch = typeof body?.branch === "string" ? body.branch.trim() : "";
+  const noFf = body?.noFf;
 
   if (!body?.directory || !branch) {
     return NextResponse.json(
@@ -49,6 +50,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid merge direction" }, { status: 400 });
   }
   const into = intoRaw === "branch" ? "branch" : "current";
+  if (noFf !== undefined && typeof noFf !== "boolean") {
+    return NextResponse.json({ error: "noFf must be a boolean" }, { status: 400 });
+  }
 
   const head = await runGit(body.directory, ["rev-parse", "--abbrev-ref", "HEAD"]);
   if (head.code !== 0) {
@@ -75,7 +79,7 @@ export async function POST(req: NextRequest) {
       );
     }
     const args = ["merge"];
-    if (body.noFf) args.push("--no-ff");
+    if (noFf) args.push("--no-ff");
     if (body.message?.trim()) args.push("-m", body.message.trim());
     args.push(currentBranch);
     const merge = await runGit(body.directory, args);
@@ -128,7 +132,7 @@ export async function POST(req: NextRequest) {
   }
 
   const args = ["merge"];
-  if (body.noFf) args.push("--no-ff");
+  if (noFf) args.push("--no-ff");
   if (body.message?.trim()) args.push("-m", body.message.trim());
   args.push(branch);
   const merge = await runGit(body.directory, args);
