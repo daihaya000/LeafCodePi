@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 25
+
+- FN: `networksetup`/`airport`（Wi-Fi off）、`netsh advfirewall … state off`
+- FN: `manage-bde -off` / `fdesetup disable`（暗号化解除）
+- show/status / `echo networksetup …` は非検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 24
 
 - FN: `wsl --shutdown|--terminate|--unregister`、`vssadmin delete shadows`、`cipher /w`

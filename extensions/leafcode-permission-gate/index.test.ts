@@ -309,6 +309,14 @@ describe("system safety classifier", () => {
     assert.deepEqual(matchSystemSafetyCommand("format.com /?"), []);
     assert.deepEqual(matchSystemSafetyCommand("cp /etc/os-release ."), []);
     assert.ok(matchSystemSafetyCommand("cp file.txt /etc/cron.d/x").some((match) => match.label === "system path mutation"));
+    assert.ok(matchSystemSafetyCommand("networksetup -setairportpower en0 off").some((match) => match.label === "system policy/account/firewall change"));
+    assert.ok(matchSystemSafetyCommand("airport -z").some((match) => match.label === "system policy/account/firewall change"));
+    assert.ok(matchSystemSafetyCommand("netsh advfirewall set allprofiles state off").some((match) => match.label === "system policy/account/firewall change"));
+    assert.ok(matchSystemSafetyCommand("manage-bde -off C:").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("fdesetup disable").some((match) => match.category === "disk"));
+    assert.deepEqual(matchSystemSafetyCommand("manage-bde -status C:"), []);
+    assert.deepEqual(matchSystemSafetyCommand("netsh advfirewall show allprofiles"), []);
+    assert.deepEqual(matchSystemSafetyCommand("echo networksetup -setairportpower en0 off"), []);
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);
