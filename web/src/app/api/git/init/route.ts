@@ -16,18 +16,20 @@ function errorResponse(error: string, status: number): NextResponse {
  */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
-    directory?: string;
+    directory?: unknown;
   } | null;
+  const directory = body?.directory;
 
-  const directoryError = gitDirectoryError(body?.directory);
+  if (typeof directory !== "string" || !directory) {
+    return errorResponse("directory is required", 400);
+  }
+  const directoryError = gitDirectoryError(directory);
   if (directoryError) {
     return errorResponse(
       directoryError,
       directoryError === "directory is not allowed" ? 403 : 400,
     );
   }
-  const directory = body!.directory!;
-
   const init = await runGit(directory, ["init"]);
   if (init.code !== 0) {
     return errorResponse(init.stderr.trim() || "git init failed", 500);
