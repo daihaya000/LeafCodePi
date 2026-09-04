@@ -142,6 +142,20 @@ describe("auto-settings", () => {
     expect(readAutoRouteConfig()).toEqual({ version: 2, modes: {} });
   });
 
+  it("reports no stored setting for keys that were never written", () => {
+    globalThis.localStorage.clear();
+    for (const key of [
+      AUTO_OPTIMIZE_SETTING_KEY,
+      AUTO_ROUTE_OVERRIDES_SETTING_KEY,
+    ] as const) {
+      expect(hasStoredAutoSetting(key)).toBe(false);
+    }
+    // Writing then makes it stored; the values still read back correctly.
+    writeAutoOptimizeMode("intelligence");
+    expect(hasStoredAutoSetting(AUTO_OPTIMIZE_SETTING_KEY)).toBe(true);
+    expect(readAutoOptimizeMode()).toBe("intelligence");
+  });
+
   it("round-trips a route config and reports whether a setting is stored", () => {
     const config = normalizeAutoRouteConfig({
       version: 2,
