@@ -64,7 +64,7 @@ export async function DELETE(req: NextRequest) {
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
-    return NextResponse.json(destroyProject(id));
+    return NextResponse.json(await destroyProject(id));
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

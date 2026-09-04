@@ -66,7 +66,7 @@ export async function DELETE(req: NextRequest) {
     if (!projectId && !noProject) {
       return NextResponse.json({ error: "projectId or noProject is required" }, { status: 400 });
     }
-    return NextResponse.json(destroyArchivedTasksByProject(noProject ? null : projectId));
+    return NextResponse.json(await destroyArchivedTasksByProject(noProject ? null : projectId));
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

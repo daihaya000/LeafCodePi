@@ -48,7 +48,7 @@ export async function DELETE(
     const { id } = await params;
     const hard = req.nextUrl.searchParams.get("hard") === "1";
     if (hard) {
-      return NextResponse.json(destroyTask(id));
+      return NextResponse.json(await destroyTask(id));
     }
     return NextResponse.json({ task: await archiveTask(id) });
   } catch (error) {

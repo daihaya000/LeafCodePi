@@ -1,3 +1,7 @@
+## 2026-09-05: 発見→修正ループ Tick 44
+
+**完全削除が Goal loop を止めない** — `archiveTask` は abort してから dispose するが、`destroyTask` / `destroyProject` は dispose だけ。プロジェクト削除後もタイマーが残る。削除前にも abort する。
+
 ## 2026-09-05: 発見→修正ループ Tick 43
 
 **復元しても開いているタブが読み取り専用のまま** — `archiveTask` は SSE を出すが `restoreTask` は status だけ戻す。履歴タブの TaskView は `archived` のまま Composer を閉じたまま。復元時も snapshot を送る。

@@ -5923,20 +5923,24 @@ export async function setCompactionEnabled(
   return settings.getCompactionSettings();
 }
 
-export async function archiveTask(id: string): Promise<TaskSummary> {
-  const task = getTask(id);
-  if (!task)
-    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  if (task.status === "archived") return toSummary(task);
+async function abortThenDispose(id: string, logLabel: string): Promise<void> {
   if (state().live.get(id)) {
     try {
       await abortTask(id);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      console.warn(`[archive] abort before archive failed: ${reason}`);
+      console.warn(`[${logLabel}] abort before teardown failed: ${reason}`);
     }
   }
   disposeLive(id);
+}
+
+export async function archiveTask(id: string): Promise<TaskSummary> {
+  const task = getTask(id);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (task.status === "archived") return toSummary(task);
+  await abortThenDispose(id, "archive");
   const archived = setTaskStatus(id, "archived");
   if (!archived)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
@@ -5977,24 +5981,24 @@ export function restoreTask(id: string): TaskSummary {
   return restored;
 }
 
-export function destroyTask(id: string): { ok: true } {
+export async function destroyTask(id: string): Promise<{ ok: true }> {
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  disposeLive(id);
+  await abortThenDispose(id, "destroy");
   deleteTask(id);
   return { ok: true };
 }
 
-export function destroyArchivedTasksByProject(projectId: string | null): {
+export async function destroyArchivedTasksByProject(projectId: string | null): Promise<{
   ok: true;
   removed: number;
-} {
+}> {
   const tasks = listTasks(true).filter(
     (task) => task.projectId === projectId && task.status === "archived",
   );
   for (const task of tasks) {
-    disposeLive(task.id);
+    await abortThenDispose(task.id, "destroy");
     deleteTask(task.id);
   }
   return { ok: true, removed: tasks.length };
@@ -6009,7 +6013,7 @@ export function restoreProject(id: string): ProjectDto {
   return project;
 }
 
-export function destroyProject(id: string): { ok: true } {
+export async function destroyProject(id: string): Promise<{ ok: true }> {
   const project = getProject(id);
   if (!project)
     throw Object.assign(new Error("プロジェクトが見つかりません"), {
@@ -6017,7 +6021,7 @@ export function destroyProject(id: string): { ok: true } {
     });
   const tasks = listTasks(true).filter((task) => task.projectId === id);
   for (const task of tasks) {
-    disposeLive(task.id);
+    await abortThenDispose(task.id, "destroy");
     deleteTask(task.id);
   }
   deleteProjectRecord(id);

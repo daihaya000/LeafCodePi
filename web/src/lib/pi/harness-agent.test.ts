@@ -4,13 +4,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
-import { getTask, insertTask, patchTask, upsertProject } from "@/lib/store";
+import { getProject, getTask, insertTask, patchTask, upsertProject } from "@/lib/store";
 import {
   armTaskHangWatch,
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, archiveTask, getTaskDetail, isLiveBusyForReplace, markTaskWorkingIfIdle, restoreTask, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, archiveTask, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, markTaskWorkingIfIdle, restoreTask, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const previousHarness = (globalThis as Record<string, unknown>)[GLOBAL_KEY];
@@ -713,5 +713,147 @@ describe("archiveTask", () => {
         error.message.includes("アーカイブ"),
     );
     assert.equal(getTask(task.id)?.agent, "build");
+  });
+});
+
+describe("destroyTask", () => {
+  it("aborts a running session before deleting the task", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-destroy-busy-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "demo", rootPath: root });
+    const task = insertTask({ project, title: "destroy running" });
+    let abortCount = 0;
+    let clearQueueCount = 0;
+    let disposed = false;
+    const session = {
+      messages: [{ role: "user", content: "作業", timestamp: 1 }],
+      agent: { state: { streamingMessage: undefined } },
+      isStreaming: true,
+      sessionManager: {
+        getLeafId: () => null,
+        getBranch: () => [],
+        getCwd: () => root,
+      },
+      extensionRunner: { getCommand: () => undefined },
+      clearQueue: () => {
+        clearQueueCount += 1;
+        return { steering: ["steer"], followUp: ["follow"] };
+      },
+      abort: async () => {
+        abortCount += 1;
+      },
+      dispose: () => {
+        disposed = true;
+      },
+    };
+    const live = new Map([[task.id, {
+      accountId: null,
+      session,
+      skillPermission: "allow",
+      skillPermissionRef: { current: "allow" },
+      unsubscribe: () => {},
+      promptChain: Promise.resolve(),
+      promptActive: true,
+      promptEpoch: 0,
+      throughputByStartedAt: new Map(),
+      persistedThroughputKeys: new Set(),
+      toolStartedAt: new Map(),
+      toolEndedAt: new Map(),
+      toolPartialOutputByCallId: new Map(),
+      snapshotTimer: null,
+      pendingSnapshotEventType: null,
+      revertLeafId: null,
+      manualAbortedAssistantId: null,
+      hangRetryCount: 0,
+      reasoningFallbackTried: false,
+    }]]);
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      live,
+      events: new EventEmitter(),
+    };
+
+    armTaskHangWatch({ taskId: task.id, prompt: "作業" });
+    await destroyTask(task.id);
+
+    assert.equal(abortCount, 1);
+    assert.equal(clearQueueCount, 1);
+    assert.equal(disposed, true);
+    assert.equal(getTask(task.id), undefined);
+    assert.equal(getTaskHangWatch(task.id), null);
+    assert.equal(live.has(task.id), false);
+  });
+
+  it("stops a Goal loop before deleting a project", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-destroy-project-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "demo", rootPath: root });
+    const task = insertTask({ project, title: "destroy project live" });
+    const sessionId = "destroy-project-session";
+    const goalDir = join(root, ".pi", "goals-loop");
+    mkdirSync(goalDir, { recursive: true });
+    writeFileSync(
+      join(goalDir, `${sessionId}.json`),
+      JSON.stringify({ goal: "作業", status: "queued" }),
+      "utf8",
+    );
+    const events: string[] = [];
+    const session = {
+      sessionId,
+      messages: [{ role: "user", content: "作業", timestamp: 1 }],
+      agent: { state: { streamingMessage: undefined } },
+      isStreaming: false,
+      sessionManager: {
+        getLeafId: () => null,
+        getBranch: () => [],
+        getCwd: () => root,
+      },
+      extensionRunner: {
+        getCommand: (name: string) =>
+          name === "goal-stop"
+            ? { handler: async () => events.push("goal-stop") }
+            : undefined,
+        createCommandContext: () => ({}),
+      },
+      abort: async () => {
+        events.push("abort");
+      },
+      dispose: () => {
+        events.push("dispose");
+      },
+    };
+    const live = new Map([[task.id, {
+      accountId: null,
+      session,
+      skillPermission: "allow",
+      skillPermissionRef: { current: "allow" },
+      unsubscribe: () => {},
+      promptChain: Promise.resolve(),
+      promptActive: false,
+      promptEpoch: 0,
+      throughputByStartedAt: new Map(),
+      persistedThroughputKeys: new Set(),
+      toolStartedAt: new Map(),
+      toolEndedAt: new Map(),
+      toolPartialOutputByCallId: new Map(),
+      snapshotTimer: null,
+      pendingSnapshotEventType: null,
+      revertLeafId: null,
+      manualAbortedAssistantId: null,
+      hangRetryCount: 0,
+      reasoningFallbackTried: false,
+    }]]);
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      live,
+      events: new EventEmitter(),
+    };
+
+    await destroyProject(project.id);
+
+    assert.deepEqual(events, ["goal-stop", "abort", "dispose"]);
+    assert.equal(getTask(task.id), undefined);
+    assert.equal(getProject(project.id), undefined);
+    assert.equal(live.has(task.id), false);
   });
 });
