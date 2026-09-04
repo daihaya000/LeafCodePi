@@ -72,13 +72,14 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
     directory?: string;
-    title?: string;
+    title?: unknown;
     body?: string;
     base?: string;
     push?: boolean;
   } | null;
+  const title = typeof body?.title === "string" ? body.title.trim() : "";
 
-  if (!body?.directory || !body.title?.trim()) {
+  if (!body?.directory || !title) {
     return NextResponse.json(
       { error: "directory and title are required" },
       { status: 400 },
@@ -135,9 +136,9 @@ export async function POST(req: NextRequest) {
     "pr",
     "create",
     "--title",
-    body.title.trim(),
+    title,
     "--body",
-    body.body?.trim() || body.title.trim(),
+    body.body?.trim() || title,
   ];
   if (body.base) {
     args.push("--base", body.base);
