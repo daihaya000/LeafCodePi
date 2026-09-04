@@ -178,6 +178,15 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("rm -rf /./").some((match) => match.label === "system path mutation"));
     assert.ok(matchSystemSafetyCommand("find /etc -delete").some((match) => match.label === "system path mutation"));
     assert.ok(matchSystemSafetyCommand("rm -rf /etc /tmp").some((match) => match.label === "system path mutation"));
+    assert.ok(matchSystemSafetyCommand("$env:WINDIR\\System32\\shutdown.exe /s").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("Microsoft.PowerShell.Management\\Stop-Computer").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("rundll32.exe user32.dll,ExitWindowsEx 6 0").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("python -c \"import os; os.system('shutdown now')\"").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("echo shutdown now | bash").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("\"shutdown\" /s").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("gsudo id").some((match) => match.label === "privilege elevation"));
+    assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
+    assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);
     assert.deepEqual(matchSystemSafetyPath("/dev/null"), []);
     assert.ok(matchSystemSafetyPath("\\\\?\\C:\\Windows\\System32\\foo").some((match) => match.category === "os"));
@@ -826,6 +835,15 @@ describe("LeafCode permission gate", () => {
         freshContext(cwd, sessionManager),
       );
       assert.equal((rgGlobEq as { block?: boolean } | undefined)?.block, true);
+
+      const rgIglob = await handlers.get("tool_call")?.(
+        {
+          toolName: "bash",
+          input: { command: "rg --iglob '.env*' SECRET" },
+        },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((rgIglob as { block?: boolean } | undefined)?.block, true);
 
       const findEnv = await handlers.get("tool_call")?.(
         { toolName: "find", input: { pattern: ".env*" } },

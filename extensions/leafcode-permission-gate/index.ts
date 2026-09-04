@@ -88,14 +88,14 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
   {
     category: "os",
     label: "OS shutdown/restart",
-    // Soft prefixes (env/busybox/timeout/...) may wrap the binary; still not `echo Stop-Computer`.
-    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:env|busybox|timeout(?:\s+\S+)?|exec|nohup|nice|command|time|call)\s+)*(?:sudo\s+)?(?:%(?:WINDIR|SYSTEMROOT)%[\\/])?(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:Windows[\\/]System32[\\/])?(?:shutdown|reboot|poweroff|halt)(?:\.exe)?\b|\b(?:systemctl|loginctl)\b[^\r\n]*\b(?:reboot|poweroff|halt|hibernate)\b|\b(?:wmic(?:\.exe)?\b[^\r\n]*\b(?:os|computersystem)\b[^\r\n]*\bcall\s+(?:reboot|shutdown)\b)|\bInvoke-CimMethod\b[^\r\n]*\bWin32(?:_OperatingSystem)?\b[^\r\n]*\b(?:Win32Shutdown|Reboot|Shutdown)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*|[{]\s*|&\s*[{]\s*)(?:Stop-Computer|Restart-Computer|logoff(?:\.exe)?)\b|\bStart-Process\b[^\r\n]*\b(?:Stop-Computer|shutdown|reboot)(?:\.exe)?\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:init|telinit)\s+[06]\b/i,
+    // Soft prefixes may wrap the binary (flags only — not path args); still not `echo Stop-Computer`.
+    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|call|start|stdbuf|wsl(?:\.exe)?)(?:\s+--?[\w.-]+(?:=\S+)?|\s+\d+|\s+-\w+\s+\S+)*\s+)*(?:sudo\s+)?(?:%(?:WINDIR|SYSTEMROOT)%[\\/]|\$(?:\{)?(?:env:)?(?:WINDIR|SYSTEMROOT|SystemRoot)\}?[\\/])?(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:Windows[\\/]System32[\\/])?["']?(?:shutdown|reboot|poweroff|halt)["']?(?:\.exe)?\b|\b(?:systemctl|loginctl)\b[^\r\n]*\b(?:reboot|poweroff|halt|hibernate)\b|\b(?:wmic(?:\.exe)?\b[^\r\n]*\b(?:os|computersystem)\b[^\r\n]*\bcall\s+(?:reboot|shutdown)\b)|\b(?:Invoke-CimMethod|Get-CimInstance|Get-WmiObject)\b[^\r\n]*\b(?:Win32(?:_OperatingSystem)?|Win32Shutdown|Reboot|Shutdown)\b|\.\s*Reboot\s*\(|\brundll32(?:\.exe)?\b[^\r\n]*\bExitWindowsEx\b|\bdbus-send\b[^\r\n]*\b(?:Reboot|PowerOff)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*|[{]\s*|&\s*[{]\s*|\\)(?:[\w.]+\\)?(?:Stop-Computer|Restart-Computer|logoff(?:\.exe)?)\b|\bStart-Process\b[^\r\n]*\b(?:Stop-Computer|shutdown|reboot)(?:\.exe)?\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:init|telinit)\s+[06]\b/i,
   },
   // Same soft-prefix + command-position rule — not `git log --grep=sudo` / `npm install sudo-prompt`.
   {
     category: "os",
     label: "privilege elevation",
-    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:env|busybox|timeout(?:\s+\S+)?|exec|nohup|nice|command|time)\s+)*(?:sudo|doas|pkexec|runas(?:\.exe)?|sudoedit)\b|\bStart-Process\b[^\r\n]*-Verb\s+RunAs\b/i,
+    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|stdbuf)(?:\s+--?[\w.-]+(?:=\S+)?|\s+\d+)*\s+)*(?:sudo|doas|pkexec|runas(?:\.exe)?|sudoedit|gsudo|su)\b|\bStart-Process\b[^\r\n]*-Verb\s+RunAs\b/i,
   },
   { category: "os", label: "system policy/account/firewall change", pattern: /\b(?:Set-ExecutionPolicy|setx|icacls|net(?:\.exe)?\s+(?:user|localgroup)|(?:New|Remove|Add|Disable|Enable)-Local(?:User|GroupMember)|(?:New|Set|Remove)-(?:NetFirewallRule|WindowsOptionalFeature)|(?:Enable|Disable)-WindowsOptionalFeature|dism(?:\.exe)?\b[^\r\n]*\/(?:enable-feature|disable-feature|add-package|remove-package)|msiexec(?:\.exe)?\b[^\r\n]*\/(?:i|uninstall))\b/i },
   { category: "os", label: "system package change", pattern: /\b(?:apt(?:-get)?|dnf|yum|pacman|zypper|apk|brew|winget|choco)\b[^\r\n]*(?:install|remove|purge|upgrade|update|add|delete|uninstall|-[SRU][A-Za-z]*)\b|\b(?:npm|pnpm|yarn|pip|pip3)\b[^\r\n]*(?:--global|\s-g\b)\b/i },
@@ -105,17 +105,17 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
   { category: "os", label: "dynamic/elevated script execution", pattern: /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*-(?:EncodedCommand|enc)\b|\b(?:Invoke-Expression|\biex\b)\b|(?<![-/])\beval\b|\bInvoke-Command\b[^\r\n]*(?:-ComputerName|-Session)\b|(?:^|[;|&\r\n])\s*&\s*(?:\(|['"])|(?:^|[;|&\r\n])\s*["']?\$(?:\{)?[A-Za-z_]\w*\}?["']?\s+(?:stop|start|restart|kill|terminate|disable|enable|delete|remove|uninstall|format|erase|wipe|shutdown|reboot)\b/i },
   { category: "os", label: "downloaded script execution", pattern: /\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:\|\s*(?:sh|bash|zsh|pwsh|powershell|cmd|iex|Invoke-Expression)\b|(?:-o|--output)\s*-\s*&&)/i },
   // Require "kernel" (or load/unload module) — bare "install modules" is a package name, not sysadmin.
-  { category: "kernel", label: "kernel/module change", pattern: /\b(?:modprobe|insmod|rmmod|kexec)\b|\bsysctl\b[^\r\n]*(?:-w|--write)\b|\bdkms\b[^\r\n]*\b(?:install|remove|autoinstall)\b|\b(?:load|unload)\s+(?:the\s+)?kernel(?:\s+modules?)?\b|\b(?:install|remove|update)\s+the\s+kernel(?:\s+modules?)?\b|\b(?:load|unload)\s+(?:the\s+)?modules?\b/i },
+  { category: "kernel", label: "kernel/module change", pattern: /\b(?:modprobe|insmod|rmmod|kexec)\b|\bsysctl\b[^\r\n]*(?:-w|--write|[^\r\n]*=)\b|\bdkms\b[^\r\n]*\b(?:install|remove|autoinstall)\b|\b(?:load|unload)\s+(?:the\s+)?kernel(?:\s+modules?)?\b|\b(?:install|remove|update)\s+the\s+kernel(?:\s+modules?)?\b|\b(?:load|unload)\s+(?:the\s+)?modules?\b/i },
   // Bare "install driver" / "npm install driver" is a package name; require device-driver wording or tools.
   { category: "driver", label: "device-driver change", pattern: /\bpnputil(?:\.exe)?\b[^\r\n]*\/(?:add-driver|delete-driver)\b|\bdevcon(?:\.exe)?\s+(?:install|remove|update)\b|\bdism(?:\.exe)?\b[^\r\n]*\/(?:add-driver|remove-driver)\b|\b(?:Add|Remove|Install|Uninstall)-WindowsDriver\b|\b(?:install|uninstall|remove|update|load)\s+(?:the\s+)?device\s+drivers?\b/i },
   { category: "registry", label: "Windows registry change", pattern: /\breg(?:\.exe)?\s+(?:add|delete|import|copy|restore|load|unload)\b|\b(?:New-ItemProperty|Set-ItemProperty|Remove-ItemProperty|New-Item|Remove-Item)\b[^\r\n]*(?:HK(?:LM|CU|CR|U|CC)\b|Registry::|CurrentControlSet|Software[\\/]Classes)|\b(?:add|set|write|delete|remove|import|update)\s+(?:the\s+)?(?:Windows\s+)?registry\b/i },
   { category: "service", label: "service/daemon change", pattern: /\bsc(?:\.exe)?\s+(?:create|config|delete|start|stop|failure|privs)\b|\b(?:New|Remove|Set|Start|Stop|Restart)-(?:Windows)?Service\b|\bsystemctl\s+(?:enable|disable|start|stop|restart|mask|unmask|link|preset)\b|\bservice\s+\S+\s+(?:start|stop|restart)\b|\b(?:launchctl\s+(?:load|unload|bootstrap|bootout|enable|disable)|rc-service\s+\S+\s+(?:start|stop|restart))\b|\b(?:start|stop|restart|enable|disable)\s+(?:the\s+)?(?:service|daemon)s?\b|\b(?:start|stop|restart|enable|disable)[_-](?:service|daemon)s?\b/i },
   // Require bootloader/configuration — bare "update boot" is a commit message / package name.
-  { category: "boot", label: "boot configuration change", pattern: /\b(?:bcdboot(?:\.exe)?|grub-install|update-grub|update-initramfs)\b|\bbootrec(?:\.exe)?\b[^\r\n]*\/(?:fixmbr|fixboot|rebuildbcd)\b|\befibootmgr\b[^\r\n]*(?:\s-[cCbBdDoOnN]|--(?:create|delete|disk|bootorder|bootnext))\b|\breagentc(?:\.exe)?\b[^\r\n]*\/(?:enable|disable|setreimage|boottore)\b|\bbootcfg(?:\.exe)?\b[^\r\n]*\/(?:add|delete|raw)\b|\bbcdedit(?:\.exe)?\b[^\r\n]*\/(?:set|delete(?:value)?|create|import|export|store|timeout|default|displayorder|bootsequence|ems|dbgsettings|hypervisorsettings)\b|\b(?:change|modify|update|repair|write|set)\s+(?:the\s+)?boot(?:loader|configuration)\b/i },
+  { category: "boot", label: "boot configuration change", pattern: /\b(?:bcdboot(?:\.exe)?|grub-install|update-grub|update-initramfs)\b|\bbootrec(?:\.exe)?\b[^\r\n]*\/(?:fixmbr|fixboot|rebuildbcd)\b|\befibootmgr\b[^\r\n]*(?:\s-[cCbBdDoOnN]|--(?:create|delete|disk|bootorder|bootnext))\b|\breagentc(?:\.exe)?\b[^\r\n]*\/(?:enable|disable|setreimage|boottore)\b|\bbootcfg(?:\.exe)?\b[^\r\n]*\/(?:add|delete|raw)\b|\bbcdedit(?:\.exe)?\b[^\r\n]*[\/-](?:set|delete(?:value)?|create|import|export|store|timeout|default|displayorder|bootsequence|ems|dbgsettings|hypervisorsettings)\b|\b(?:change|modify|update|repair|write|set)\s+(?:the\s+)?boot(?:loader|configuration)\b/i },
   // Bare `format` / `npm run format` must not match; require format.com/exe or a drive letter arg.
   // Allow switches before the drive: `format /FS:NTFS C:`
-  // Bare `dd` of project files is normal; require device/raw targets.
-  { category: "disk", label: "disk/partition/volume change", pattern: /\b(?:mkfs(?:\.\w+)?|fdisk|sfdisk|parted|cfdisk|sgdisk|wipefs|diskpart(?:\.exe)?|diskutil)\b|\bdd\b[^\r\n]*\b(?:if|of)=(?:\/dev\/|\\\\\.\\|[A-Za-z]:[\\/])|\bformat(?:\.com|\.exe)\b|\bformat(?:\s+[\/\-][A-Za-z0-9:]+)*\s+[A-Za-z]:(?:\s|$|\/)|\b(?:Clear|Initialize|Set|New|Remove)-(?:Disk|Partition|Volume)\b|\b(?:Format|Resize|New|Remove|Set)-Volume\b|\b(?:format|erase|wipe|partition|resize|initialize)\s+(?:the\s+)?(?:disk|drive|volume|partition)s?\b/i },
+  // Bare `dd` of project files is normal; require device/raw/OS targets.
+  { category: "disk", label: "disk/partition/volume change", pattern: /\b(?:mkfs(?:\.\w+)?|fdisk|sfdisk|parted|cfdisk|sgdisk|wipefs|diskpart(?:\.exe)?|diskutil)\b|\bdd\b[^\r\n]*\b(?:if|of)=(?:\/(?:dev|etc|boot|sys|proc|usr|var|opt|root|sbin|bin|lib|private)\/|\\\\\.\\|[A-Za-z]:[\\/])|\bformat(?:\.com|\.exe)\b|\bformat(?:\s+[\/\-][A-Za-z0-9:]+)*\s+[A-Za-z]:(?:\s|$|\/)|\b(?:Clear|Initialize|Set|New|Remove)-(?:Disk|Partition|Volume)\b|\b(?:Format|Resize|New|Remove|Set)-Volume\b|\b(?:format|erase|wipe|partition|resize|initialize)\s+(?:the\s+)?(?:disk|drive|volume|partition)s?\b/i },
   // Require flash/write/the firmware — bare "npm install firmware" is a package name.
   { category: "firmware", label: "firmware/BIOS update", pattern: /\bfwupdmgr\b[^\r\n]*\b(?:install|update|refresh)\b|\bflashrom\b[^\r\n]*(?:-w|--write|\bwrite\b)|\b(?:flash|update|write|set)[ -]*(?:bios|uefi)\b|\b(?:flash|write)\s+(?:the\s+)?firmware\b|\b(?:Update|Set|Write)-Firmware\b|\b(?:flash|update|write|install|erase)\s+the\s+(?:firmware|bios|uefi)\b/i }
 ];
@@ -128,7 +128,7 @@ const MUTATING_COMMAND_PATTERN = /\b(?:rm|mv|cp|mkdir|touch|install|truncate|shr
 const USER_DATA_COMMAND_PATH_PATTERN = /(?:~(?:[A-Za-z0-9._-]+)?(?:[\\/]|$)|(?:%(?:USERPROFILE|APPDATA|LOCALAPPDATA|HOMEDRIVE|HOMEPATH)%|\$(?:\{)?(?:env:)?(?:USERPROFILE|HOME|APPDATA|LOCALAPPDATA|HOMEDRIVE|HOMEPATH)\}?)(?:[\\/]|$)|(?:[A-Za-z]:[\\/]|\/)(?:Users|home|Documents and Settings)(?:[\\/]|$))/i;
 // Absolute OS roots only — not project-relative `src/lib` / `docs/dev` / Windows `C:\dev`.
 // `/dev/null` and friends are not system mutations. `/*` and `/.` count as root wipes.
-const SYSTEM_COMMAND_PATH_PATTERN = /(?:%(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA)%|\$(?:\{)?(?:env:)?(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA)\}?|[A-Za-z]:[\\/](?:Windows|Program Files(?: \(x86\))?|ProgramData|EFI)(?:[\\/\s"';&|]|$)|(?:^|[\s"'=<>])\/(?:etc|boot|sys|proc|usr|var|opt|root|sbin|bin|lib)(?:[\\/\s"';&|]|$)|(?:^|[\s"'=<>])\/dev\/(?!null(?:\b|$)|zero(?:\b|$)|stdin(?:\b|$)|stdout(?:\b|$)|stderr(?:\b|$)|fd(?:[\\/]|$)|tty(?:\b|$)|random(?:\b|$)|urandom(?:\b|$))|(?:^|[\s"'=])\/(?:\*+|\/|\.\/?)*(?:[\s"';&|]|$)|(?:^|[\s"'=])[A-Za-z]:[\\/](?:[\s"';&|]|$))/i;
+const SYSTEM_COMMAND_PATH_PATTERN = /(?:%(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA)%|\$(?:\{)?(?:env:)?(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA|SystemRoot)\}?|[A-Za-z]:[\\/](?:Windows|Program Files(?: \(x86\))?|ProgramData|EFI)(?:[\\/\s"';&|]|$)|(?:^|[\s"'=<>])\/(?:private\/)?(?:etc|boot|sys|proc|usr|var|opt|root|sbin|bin|lib)(?:[\\/\s"';&|]|$)|(?:^|[\s"'=<>])\/dev\/(?!null(?:\b|$)|zero(?:\b|$)|stdin(?:\b|$)|stdout(?:\b|$)|stderr(?:\b|$)|fd(?:[\\/]|$)|tty(?:\b|$)|random(?:\b|$)|urandom(?:\b|$))|(?:^|[\s"'=])\/(?:\*+|\/|\.\/?)*(?:[\s"';&|]|$)|(?:^|[\s"'=])[A-Za-z]:[\\/](?:[\s"';&|]|$))/i;
 const KERNEL_COMMAND_PATH_PATTERN = /(?:\/(?:proc\/sys|sys)(?:[\\/]|$)|\/(?:lib|usr\/lib)\/modules(?:[\\/]|$)|(?:[A-Za-z]:[\\/]Windows[\\/]System32[\\/]drivers)(?:[\\/]|$))/i;
 // Project paths like src/modules must not count as driver mutations.
 const DRIVER_COMMAND_PATH_PATTERN = /(?:\/(?:lib|usr\/lib)\/modules(?:[\\/]|$)|(?:[A-Za-z]:[\\/]Windows[\\/]System32[\\/]drivers)(?:[\\/]|$))/i;
@@ -291,7 +291,7 @@ export function setPermissionMode(ctx: ExtensionContext, mode: PermissionMode): 
 }
 
 const USER_DATA_PATH_PATTERN = /^(?:~(?:[A-Za-z0-9._-]+)?(?:\/|$)|%(?:userprofile|appdata|localappdata|homedrive|homepath)%(?:\/|$)|\$(?:\{)?(?:env:)?(?:userprofile|home|appdata|localappdata|homedrive|homepath)\}?(?:\/|$)|(?:[a-z]:\/|\/)(?:users|home|documents and settings)(?:\/|$))/i;
-const OS_PATH_PATTERN = /^(?:%(?:windir|systemroot|programfiles|programdata)%(?:\/|$)|\$(?:\{)?(?:env:)?(?:windir|systemroot|programfiles|programdata)\}?(?:\/|$)|[a-z]:\/(?:windows|program files(?: \(x86\))?|programdata|efi)(?:\/|$)|[a-z]:\/$|\/(?:etc|boot|sys|proc|usr|var|opt|root|sbin|bin|lib)(?:\/|$)|\/dev\/(?!null(?:\/|$)|zero(?:\/|$)|stdin(?:\/|$)|stdout(?:\/|$)|stderr(?:\/|$)|fd(?:\/|$)|tty(?:\/|$)|random(?:\/|$)|urandom(?:\/|$))|\/$)/i;
+const OS_PATH_PATTERN = /^(?:%(?:windir|systemroot|programfiles|programdata)%(?:\/|$)|\$(?:\{)?(?:env:)?(?:windir|systemroot|programfiles|programdata|systemroot)\}?(?:\/|$)|[a-z]:\/(?:windows|program files(?: \(x86\))?|programdata|efi)(?:\/|$)|[a-z]:\/$|\/(?:private\/)?(?:etc|boot|sys|proc|usr|var|opt|root|sbin|bin|lib)(?:\/|$)|\/dev\/(?!null(?:\/|$)|zero(?:\/|$)|stdin(?:\/|$)|stdout(?:\/|$)|stderr(?:\/|$)|fd(?:\/|$)|tty(?:\/|$)|random(?:\/|$)|urandom(?:\/|$))|\/$)/i;
 const KERNEL_PATH_PATTERN = /^(?:\/(?:proc\/sys|sys|lib\/modules|usr\/lib\/modules)(?:\/|$)|[a-z]:\/windows\/system32\/drivers(?:\/|$))/i;
 const DRIVER_PATH_PATTERN = /^(?:\/(?:lib\/modules|usr\/lib\/modules)(?:\/|$)|[a-z]:\/windows\/system32\/drivers(?:\/|$))/i;
 const BOOT_PATH_PATTERN = /^(?:\/(?:boot|efi)(?:\/|$)|[a-z]:\/(?:boot|efi)(?:\/|$))/i;
@@ -383,6 +383,8 @@ function extractNestedShellCommands(command: string): string[] {
   if (
     !NESTED_SHELL_WRAPPER_PATTERN.test(command)
     && !/-(?:EncodedCommand|enc|encoded|ec)\b/i.test(command)
+    && !/\b(?:os\.system|subprocess\.|child_process\.|execSync)\b/i.test(command)
+    && !/\|\s*(?:bash|sh|zsh|pwsh|powershell)\b/i.test(command)
   ) {
     return [];
   }
@@ -437,6 +439,20 @@ function extractNestedShellCommands(command: string): string[] {
   )) {
     if (match[1]?.trim()) nested.push(match[1].trim());
   }
+  // Extract shell payloads from language runtimes: os.system('shutdown'), execSync('...')
+  for (const match of command.matchAll(
+    /\b(?:os\.system|os\.popen|subprocess\.(?:call|run|Popen|check_call|check_output)|child_process\.(?:exec|execSync|spawn|spawnSync)|system|exec)\s*\(\s*(['"])([\s\S]*?)\1/gi,
+  )) {
+    if (match[2]?.trim()) nested.push(match[2].trim());
+  }
+  // Pipe-to-shell: `echo shutdown | bash` / `printf ... | pwsh -`
+  for (const match of command.matchAll(
+    /(?:^|[;&|\r\n]\s*)(?:echo|printf|print)\b[^\r\n|]*\|\s*(?:bash|sh|zsh|pwsh|powershell)(?:\.exe)?(?:\s+\S+)*\s*$/gim,
+  )) {
+    const left = match[0].split("|")[0] ?? "";
+    const echoed = left.replace(/^(?:.*[;&|\r\n]\s*)?(?:echo|printf|print)\s+/i, "").replace(/^['"]|['"]$/g, "").trim();
+    if (echoed) nested.push(echoed);
+  }
   // PowerShell -EncodedCommand / -encoded / -ec is UTF-16LE base64 of the script body.
   for (const match of command.matchAll(
     /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*-(?:EncodedCommand|enc|encoded|ec)\s+([A-Za-z0-9+/=]+)/gi,
@@ -457,7 +473,8 @@ function matchSystemSafetyCommandInner(command: string, depth: number): SystemSa
   // Decode obfuscation the same way protected-path scanning does, so
   // `& ('Stop-' + 'Computer')` still hits the shutdown rule at low/standard.
   const decoded = collapseConcatenatedStrings(decodeCharCodes(command));
-  const normalized = decoded.replace(/\u0000/g, " ");
+  // Strip incidental quotes around command tokens: `"shutdown" /s`
+  const normalized = decoded.replace(/\u0000/g, " ").replace(/(["'])(shutdown|reboot|poweroff|halt|Stop-Computer|Restart-Computer)\1/gi, "$2");
   const matches: SystemSafetyMatch[] = [];
   if (isLeafCodePiStopCommand(normalized)) {
     pushSafetyMatch(matches, { category: "os", label: LEAFCODE_PI_STOP_LABEL });
@@ -1002,7 +1019,7 @@ function secretAppearsAsFileOperand(command: string): boolean {
   // Select-String -Path .env / positional Select-String x .env / rg --glob=.env* / -g'.env'
   if (/\bSelect-String\b[^\r\n]*-(?:Path|LiteralPath)\s+\S*\.env\b/i.test(command)) return true;
   if (/\bSelect-String\b[^\r\n]*\s\.env(?:\.[\w.-]+)?(?:[\s"';&|]|$)/i.test(command)) return true;
-  if (/\brg\b[^\r\n]*(?:--glob|-g)\s*=?\s*['"]?[^'"\s]*\.env/i.test(command)) return true;
+  if (/\brg\b[^\r\n]*(?:--glob|--iglob|-g)\s*=?\s*['"]?[^'"\s]*\.env/i.test(command)) return true;
   if (/\b(?:grep|egrep|fgrep)\b[^\r\n]*--include\s*=?\s*['"]?[^'"\s]*\.env/i.test(command)) return true;
   // `grep PATTERN .env` / `rg PATTERN path/.env` — secret is a path operand after the pattern.
   if (/\b(?:grep|egrep|fgrep|rg|findstr)\b(?:\s+-[A-Za-z0-9]+|\s+--\S+)*\s+\S+[^\r\n]*?(?:^|[\s])(?:\.[\\/])?(?:[\w.-]+[\\/])*\.env(?:\.[\w.-]+)?(?:[\s"';&|]|$)/im.test(command)) {

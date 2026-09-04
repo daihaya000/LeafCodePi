@@ -1,3 +1,14 @@
+## 2026-09-05: permission-gate ループ tick 6
+
+- `$env:WINDIR\...\shutdown.exe`、モジュール修飾 `Stop-Computer`
+- `rundll32 ExitWindowsEx`、WMI/CIM `.Reboot()`、`gsudo`/`su`
+- `python os.system` / `echo | bash`、引用付き `"shutdown"`、`start`/`wsl` 接頭辞
+- `bcdedit -set`、`/private/etc`、`rg --iglob`、`dd of=/etc/...`
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 5
 
 - `env`/`busybox`/`timeout` 接頭辞の shutdown
