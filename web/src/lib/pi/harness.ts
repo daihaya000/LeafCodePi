@@ -1836,6 +1836,7 @@ async function attachSession(
 function disposeLive(taskId: string): void {
   ensureLiveEpoch.set(taskId, (ensureLiveEpoch.get(taskId) ?? 0) + 1);
   disarmTaskHangWatch(taskId);
+  clearPendingAttentionForTask(taskId);
   const live = state().live.get(taskId);
   if (!live) return;
   live.unsubscribe();
@@ -5184,6 +5185,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
   // An explicit stop is terminal for the current request; do not leave the
   // persisted watchdog armed to wake it up later.
   disarmTaskHangWatch(id);
+  clearPendingAttentionForTask(id);
   const live = state().live.get(id);
   if (live) {
     const msgs = snapshotMessages(
@@ -5217,7 +5219,10 @@ export async function abortTask(id: string): Promise<TaskSummary> {
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   // 全購読先へ最終状態を送る。idle 保存前に送ると、停止要求元以外のペインが
   // working のまま残り、停止ボタンが再表示される。
-  if (live) emitTaskSnapshot(live, "abort");
+  if (live) emitTaskSnapshot(live, "abort", {
+    permissionRequest: null,
+    questionRequest: null,
+  });
   return toSummary(task);
 }
 
@@ -5238,6 +5243,7 @@ export function clearSessionQueue(session: { clearQueue?: () => unknown }): void
  */
 export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
   const live = state().live.get(taskId);
+  clearPendingAttentionForTask(taskId);
   if (live) {
     const msgs = snapshotMessages(
       live.session,
@@ -5822,6 +5828,11 @@ export function pendingPermissionForTask(
   taskId: string,
 ): PermissionRequestDto | null {
   return ensurePermissionPromptService().pendingForTask(taskId);
+}
+
+export function clearPendingAttentionForTask(taskId: string): void {
+  ensurePermissionPromptService().clearPendingForTask(taskId);
+  ensureQuestionPromptService().clearPendingForTask(taskId);
 }
 
 export function respondToPermissionPrompt(

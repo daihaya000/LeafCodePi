@@ -99,4 +99,47 @@ describe("createPermissionPromptService", () => {
     service.respond("task-a", "req-1", true);
     expect([...service.pendingTaskIds()]).toEqual([]);
   });
+
+  it("clears queued requests on abort so a later prompt is not blocked", async () => {
+    const emit = vi.fn();
+    const service = createPermissionPromptService({
+      resolveTaskId: () => "task-a",
+      emit,
+      snapshotExtras: () => ({}),
+    });
+    const first = service.handleRequest({
+      id: "req-1",
+      sessionId: "sess-1",
+      command: "rm -rf a",
+      labels: ["rm -rf"],
+      message: "first",
+    });
+    const second = service.handleRequest({
+      id: "req-2",
+      sessionId: "sess-1",
+      command: "sudo apt",
+      labels: ["sudo"],
+      message: "second",
+    });
+
+    expect(service.clearPendingForTask("task-a")).toBe(true);
+    await expect(first).resolves.toBe(false);
+    await expect(second).resolves.toBe(false);
+    expect(service.pendingForTask("task-a")).toBeNull();
+    expect(emit.mock.calls.at(-1)?.[1]).toMatchObject({
+      eventType: "permission_resolved",
+      permissionRequest: null,
+    });
+
+    const third = service.handleRequest({
+      id: "req-3",
+      sessionId: "sess-1",
+      command: "ls",
+      labels: ["ls"],
+      message: "third",
+    });
+    expect(service.pendingForTask("task-a")?.id).toBe("req-3");
+    expect(service.respond("task-a", "req-3", true)).toBe(true);
+    await expect(third).resolves.toBe(true);
+  });
 });

@@ -86,4 +86,27 @@ describe("createQuestionPromptService", () => {
     await expect(first).resolves.toEqual({ answers: [["a"]] });
     await expect(second).resolves.toEqual({ answers: [["b"]] });
   });
+
+  it("clears queued questions on abort so a later prompt is not blocked", async () => {
+    const { service, emit } = createService();
+    const first = service.handleRequest({
+      id: "q-6",
+      sessionId: "sess-1",
+      questions: QUESTIONS,
+    });
+    const second = service.handleRequest({
+      id: "q-7",
+      sessionId: "sess-1",
+      questions: QUESTIONS,
+    });
+
+    expect(service.clearPendingForTask("task-a")).toBe(true);
+    await expect(first).resolves.toBeNull();
+    await expect(second).resolves.toBeNull();
+    expect(service.pendingForTask("task-a")).toBeNull();
+    expect(emit.mock.calls.at(-1)?.[1]).toMatchObject({
+      eventType: "question_resolved",
+      questionRequest: null,
+    });
+  });
 });

@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 16
+
+**停止後も許可/質問カードが残る** — abort は SDK キューを捨てるが、permission/question の in-memory pending は残していた。停止後も承認 UI と GlobalAttention がゴーストになり、次の許可要求が古い要求の後ろに積まれる。タスク単位で pending を deny/null して resolved を送る。
+
 ## 2026-09-04: 発見→修正ループ Tick 15
 
 **SSE 再接続で EventSource が多重化する** — ネットワーク error 時に旧 retryTimer を clear せず、connect も既存接続を閉じなかった。連続切断で同じタスクにストリームが複数立ち、タイムラインや許可カードが二重更新される。再接続前にタイマーと既存 EventSource を必ず破棄する。

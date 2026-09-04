@@ -69,6 +69,7 @@ export function createQuestionPromptService(options: {
   respond: (taskId: string, requestId: string, answer: QuestionAnswer | null) => boolean;
   pendingForTask: (taskId: string) => QuestionRequestDto | null;
   pendingTaskIds: () => Set<string>;
+  clearPendingForTask: (taskId: string) => boolean;
   dispose: () => void;
 } {
   function pushSnapshot(taskId: string, questionRequest: QuestionRequestDto | null): void {
@@ -127,6 +128,18 @@ export function createQuestionPromptService(options: {
     return new Set(queueByTask.keys());
   }
 
+  function clearPendingForTask(taskId: string): boolean {
+    const queue = queueByTask.get(taskId);
+    if (!queue || queue.length === 0) return false;
+    for (const row of queue) {
+      row.resolve(null);
+      clearPendingRow(row);
+    }
+    queueByTask.delete(taskId);
+    pushSnapshot(taskId, null);
+    return true;
+  }
+
   function dispose(): void {
     for (const taskId of [...queueByTask.keys()]) {
       const queue = queueByTask.get(taskId) ?? [];
@@ -138,5 +151,12 @@ export function createQuestionPromptService(options: {
     }
   }
 
-  return { handleRequest, respond, pendingForTask, pendingTaskIds, dispose };
+  return {
+    handleRequest,
+    respond,
+    pendingForTask,
+    pendingTaskIds,
+    clearPendingForTask,
+    dispose,
+  };
 }
