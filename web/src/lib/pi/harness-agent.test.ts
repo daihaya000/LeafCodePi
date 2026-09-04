@@ -138,6 +138,31 @@ describe("setTaskAgent", () => {
     assert.equal(state.disposed, false);
     assert.equal(state.customMessages.length, 0);
   });
+
+  it("rejects a persona switch while a Goal loop is queued", async () => {
+    const state = fixture();
+    const sessionId = "goal-switch-session";
+    const live = state.live.get(state.task.id) as { session: { sessionId?: string } } | undefined;
+    if (live) live.session.sessionId = sessionId;
+    const goalDir = join(state.task.directory, ".pi", "goals-loop");
+    mkdirSync(goalDir, { recursive: true });
+    writeFileSync(
+      join(goalDir, `${sessionId}.json`),
+      JSON.stringify({ goal: "作業", status: "queued" }),
+      "utf8",
+    );
+
+    await assert.rejects(
+      setTaskAgent(state.task.id, "reviewer"),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { status?: number }).status === 409 &&
+        /Goal loop/.test(error.message),
+    );
+
+    assert.equal(getTask(state.task.id)?.agent, "build");
+    assert.equal(state.disposed, false);
+  });
 });
 
 describe("isLiveBusyForReplace", () => {

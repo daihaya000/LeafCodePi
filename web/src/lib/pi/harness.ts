@@ -76,7 +76,7 @@ import {
   isEditableBaseUrlProvider,
   setProviderBaseUrl as setProviderBaseUrlFromEndpoints,
 } from "@/lib/provider-endpoints";
-import { readGoalLoopState } from "@/lib/pi/goal-loop-state";
+import { isGoalLoopLiveStatus, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 import {
   todoProgressFromTodos,
   todosFromPiMessages,
@@ -4090,7 +4090,7 @@ async function promoteTaskOnce(
     live?.session.isStreaming ||
     live?.session.isCompacting ||
     live?.promptActive ||
-    ["queued", "running", "verifying_completed"].includes(goalLoop?.status ?? "")
+    isGoalLoopLiveStatus(goalLoop?.status)
   ) {
     throw Object.assign(new Error("実行中のタスクは停止してから昇進してください"), {
       status: 409,
@@ -5396,6 +5396,19 @@ function throwIfBusyForFieldChange(
   }
 }
 
+function throwIfGoalLoopBlocksSessionReplace(
+  task: { directory: string; sessionId?: string | null },
+  sessionId?: string | null,
+): void {
+  const goalLoop = readGoalLoopState(task.directory, sessionId ?? task.sessionId);
+  if (isGoalLoopLiveStatus(goalLoop?.status)) {
+    throw Object.assign(
+      new Error("Goal loop の実行中はセッションを切り替えできません"),
+      { status: 409 },
+    );
+  }
+}
+
 export async function setTaskAgent(
   id: string,
   agentName: string,
@@ -5418,6 +5431,7 @@ export async function setTaskAgent(
       status: 409,
     });
   }
+  throwIfGoalLoopBlocksSessionReplace(task, live.session.sessionId);
 
   // An empty transcript has no stale persona history to disambiguate.
   if (live.session.messages.length > 0) {
@@ -5476,6 +5490,7 @@ export async function setTaskModel(
         { status: 409 },
       );
     }
+    throwIfGoalLoopBlocksSessionReplace(task, live.session.sessionId);
     disposeLive(id);
     const current = isThinkingLevel(task.thinkingLevel)
       ? task.thinkingLevel

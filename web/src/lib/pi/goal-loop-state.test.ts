@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readGoalLoopState } from "./goal-loop-state";
+import { isGoalLoopLiveStatus, readGoalLoopState } from "./goal-loop-state";
 
 const tempDirs: string[] = [];
 
@@ -31,5 +31,15 @@ describe("readGoalLoopState", () => {
 
     writeFileSync(file, JSON.stringify({ ...base, goal: "更新後の目標" }), "utf8");
     expect(readGoalLoopState(cwd, "session")?.goal).toBe("更新後の目標");
+  });
+});
+
+describe("isGoalLoopLiveStatus", () => {
+  it("treats queued, running, and verifying as live", () => {
+    expect(isGoalLoopLiveStatus("queued")).toBe(true);
+    expect(isGoalLoopLiveStatus("running")).toBe(true);
+    expect(isGoalLoopLiveStatus("verifying_completed")).toBe(true);
+    expect(isGoalLoopLiveStatus("paused")).toBe(false);
+    expect(isGoalLoopLiveStatus("idle")).toBe(false);
   });
 });

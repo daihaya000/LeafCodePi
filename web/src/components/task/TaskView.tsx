@@ -2664,7 +2664,7 @@ export const TaskView = memo(function TaskView({
               <ModelSelect
                 value={modelValue}
                 options={modelOptions}
-                disabled={working || compacting || submitting}
+                disabled={working || compacting || submitting || goalLoopLive}
                 loading={modelsLoading}
                 onChange={(value) => {
                   if (value === AUTO_MODEL_VALUE) {
@@ -2733,7 +2733,7 @@ export const TaskView = memo(function TaskView({
                 <AgentSelect
                   value={agentSelection}
                   agents={agents}
-                  disabled={working || compacting || agentChanging}
+                  disabled={working || compacting || agentChanging || goalLoopLive}
                   onChange={(value) => {
                     if (value === AUTO_AGENT_VALUE) {
                       setAgentSelection(value);

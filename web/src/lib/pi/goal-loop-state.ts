@@ -17,6 +17,18 @@ type GoalLoopCacheEntry = {
 
 const goalLoopCache = new Map<string, GoalLoopCacheEntry>();
 
+export const GOAL_LOOP_LIVE_STATUSES = [
+  "queued",
+  "running",
+  "verifying_completed",
+] as const;
+
+export function isGoalLoopLiveStatus(
+  status: string | null | undefined,
+): boolean {
+  return Boolean(status && (GOAL_LOOP_LIVE_STATUSES as readonly string[]).includes(status));
+}
+
 export function goalLoopStateFile(cwd: string, sessionId: string): string {
   const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120) || "session";
   return join(cwd, GOAL_LOOP_DIR, `${safeId}.json`);
