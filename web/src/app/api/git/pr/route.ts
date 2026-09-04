@@ -73,11 +73,16 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
     directory?: string;
     title?: unknown;
-    body?: string;
+    body?: unknown;
     base?: string;
     push?: boolean;
   } | null;
   const title = typeof body?.title === "string" ? body.title.trim() : "";
+  const descriptionValue = body?.body;
+  if (descriptionValue !== undefined && typeof descriptionValue !== "string") {
+    return NextResponse.json({ error: "body must be a string" }, { status: 400 });
+  }
+  const description = typeof descriptionValue === "string" ? descriptionValue.trim() : "";
 
   if (!body?.directory || !title) {
     return NextResponse.json(
@@ -138,7 +143,7 @@ export async function POST(req: NextRequest) {
     "--title",
     title,
     "--body",
-    body.body?.trim() || title,
+    description || title,
   ];
   if (body.base) {
     args.push("--base", body.base);
