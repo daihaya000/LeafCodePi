@@ -71,13 +71,14 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
-    directory?: string;
+    directory?: unknown;
     title?: unknown;
     body?: unknown;
     base?: string;
     push?: unknown;
   } | null;
   const title = typeof body?.title === "string" ? body.title.trim() : "";
+  const directory = body?.directory;
   const push = body?.push;
   if (push !== undefined && typeof push !== "boolean") {
     return NextResponse.json({ error: "push must be a boolean" }, { status: 400 });
@@ -88,13 +89,13 @@ export async function POST(req: NextRequest) {
   }
   const description = typeof descriptionValue === "string" ? descriptionValue.trim() : "";
 
-  if (!body?.directory || !title) {
+  if (typeof directory !== "string" || !directory || !title) {
     return NextResponse.json(
       { error: "directory and title are required" },
       { status: 400 },
     );
   }
-  const directoryError = gitDirectoryError(body.directory);
+  const directoryError = gitDirectoryError(directory);
   if (directoryError) {
     return NextResponse.json(
       { error: directoryError },
@@ -115,7 +116,7 @@ export async function POST(req: NextRequest) {
 
   let ghAvailable = true;
   try {
-    await runGh(body.directory, ["--version"]);
+    await runGh(directory, ["--version"]);
   } catch {
     ghAvailable = false;
   }
@@ -130,7 +131,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (push !== false) {
-    const push = await runGit(body.directory, ["push", "-u", "origin", "HEAD"]);
+    const push = await runGit(directory, ["push", "-u", "origin", "HEAD"]);
     if (push.code !== 0) {
       return NextResponse.json(
         {
@@ -154,7 +155,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const pr = await runGh(body.directory, args);
+    const pr = await runGh(directory, args);
     if (pr.code !== 0) {
       return NextResponse.json(
         { error: pr.stderr.trim() || pr.stdout.trim() || "gh pr create failed" },

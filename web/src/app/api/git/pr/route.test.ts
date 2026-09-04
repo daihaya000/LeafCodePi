@@ -59,4 +59,12 @@ describe("POST /api/git/pr", () => {
     expect(response.status).toBe(400);
     expect(gitMocks.runGit).not.toHaveBeenCalled();
   });
+
+  it("rejects a non-string directory before invoking GitHub CLI", async () => {
+    const response = await POST(
+      request({ directory: 123, title: "title", push: false }),
+    );
+
+    expect(response.status).toBe(400);
+  });
 });
