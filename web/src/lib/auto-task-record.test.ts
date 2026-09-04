@@ -167,4 +167,49 @@ describe("auto-task-record", () => {
     expect(shouldAutoRetryEscalate({ ...eligible, autoRetrying: true })).toBe(false);
     expect(shouldAutoRetryEscalate({ ...eligible, retried: true })).toBe(false);
   });
+
+  it("round-trips a decision and survives corrupt or partial payloads", () => {
+    // Intelligence variants (including "thinking") must survive a reload.
+    for (const variant of ["", "off", "none", "minimal", "thinking", "max"] as const) {
+      const next: AutoTaskRecord = {
+        ...record,
+        decision: { ...record.decision, variant },
+      };
+      expect(writeAutoTaskRecord("round-trip", next)).toBe(true);
+      expect(readAutoTaskRecord("round-trip")?.decision.variant).toBe(variant);
+    }
+
+    // Escalation is preserved only when it is well formed.
+    const withEscalation: AutoTaskRecord = {
+      ...record,
+      decision: {
+        ...record.decision,
+        escalation: { providerID: "openai", modelID: "gpt-5", variant: "high" },
+      },
+    };
+    writeAutoTaskRecord("esc", withEscalation);
+    expect(readAutoTaskRecord("esc")?.decision.escalation).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5",
+      variant: "high",
+    });
+
+    // Malformed JSON, non-objects and missing decisions must not throw.
+    const storage = globalThis.sessionStorage;
+    storage.setItem(autoTaskStorageKey("broken"), "{not json");
+    expect(readAutoTaskRecord("broken")).toBeNull();
+    storage.setItem(autoTaskStorageKey("array"), "[]");
+    expect(readAutoTaskRecord("array")).toBeNull();
+    storage.setItem(autoTaskStorageKey("no-decision"), JSON.stringify({ prompt: "x" }));
+    expect(readAutoTaskRecord("no-decision")).toBeNull();
+    // An escalation missing a modelID is dropped, but the decision survives.
+    storage.setItem(
+      autoTaskStorageKey("half-esc"),
+      JSON.stringify({
+        decision: { ...record.decision, escalation: { providerID: "openai" } },
+      }),
+    );
+    expect(readAutoTaskRecord("half-esc")?.decision.escalation).toBeUndefined();
+    expect(readAutoTaskRecord("half-esc")?.decision.modelID).toBe(record.decision.modelID);
+  });
 });
