@@ -47,6 +47,7 @@ export const SSE_CONTROL_SNAPSHOT_EVENT_TYPES = new Set([
   "revert",
   "unrevert",
   "abort",
+  "prompt_accepted",
   "provider_fallback",
   "provider_routed",
   "project_promoted",

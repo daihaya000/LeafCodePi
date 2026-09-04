@@ -4870,6 +4870,14 @@ export function resolveStreamingBehaviorForPrompt(
   return isStreaming ? streamingBehavior : undefined;
 }
 
+/** Accepting a prompt must show as working before compaction / agent_start. */
+export function markTaskWorkingIfIdle(taskId: string): boolean {
+  const task = getTask(taskId);
+  if (!task || task.status === "working") return false;
+  setTaskStatus(taskId, "working");
+  return true;
+}
+
 function queuePrompt(
   live: LiveRuntime,
   prompt: string,
@@ -4992,6 +5000,9 @@ function queuePrompt(
     return;
   }
   live.promptActive = true;
+  if (markTaskWorkingIfIdle(live.taskId)) {
+    emitTaskSnapshot(live, "prompt_accepted");
+  }
   const promptChain = live.promptChain
     .then(runPrompt)
     .catch(handlePromptError)

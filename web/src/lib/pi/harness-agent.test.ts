@@ -10,7 +10,7 @@ import {
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, isLiveBusyForReplace, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, isLiveBusyForReplace, markTaskWorkingIfIdle, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const previousHarness = (globalThis as Record<string, unknown>)[GLOBAL_KEY];
@@ -199,6 +199,20 @@ describe("isLiveBusyForReplace", () => {
     );
     throwIfBusyForPermissionChange({ promptActive: false, session: {} });
     throwIfBusyForSkillPermissionChange({ promptActive: false, session: {} });
+  });
+});
+
+describe("markTaskWorkingIfIdle", () => {
+  it("promotes an idle task so the stop control can appear before agent_start", () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-working-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "demo", rootPath: root });
+    const task = insertTask({ project, title: "queued prompt" });
+    assert.equal(getTask(task.id)?.status, "idle");
+    assert.equal(markTaskWorkingIfIdle(task.id), true);
+    assert.equal(getTask(task.id)?.status, "working");
+    assert.equal(markTaskWorkingIfIdle(task.id), false);
   });
 });
 

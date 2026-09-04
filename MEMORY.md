@@ -1,3 +1,7 @@
+## 2026-09-05: 発見→修正ループ Tick 35
+
+**送信受理後も停止ボタンが出ない** — queuePrompt は promptActive にするが status は agent_start / 圧縮後まで idle。HTTP も idle のまま返すので、圧縮待ちのあいだ停止できず設定 UI も開いたまま。受理時点で working にし、クライアントも応答の task を反映する。
+
 ## 2026-09-05: 発見→修正ループ Tick 34
 
 **停止後に compaction 待ちのプロンプトが再起動する** — abort は SDK を止めるが harness の promptChain は残る。圧縮/ルート準備の await のあと session.prompt が走る。世代番号を abort で上げ、待ち解除後は破棄する。

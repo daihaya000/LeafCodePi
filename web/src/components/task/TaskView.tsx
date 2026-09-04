@@ -1452,6 +1452,7 @@ export const TaskView = memo(function TaskView({
         });
         resolvedAgent = result.task.agent ?? null;
         resolvedAutoDecision = result.autoDecision;
+        setTask((current) => (current ? { ...current, ...result.task } : current));
       }
       if (isAuto && resolvedAutoDecision) {
         const nextRecord: AutoTaskRecord = {
