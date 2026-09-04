@@ -1,3 +1,15 @@
+## 2026-09-05: permission-gate ループ tick 5
+
+- `env`/`busybox`/`timeout` 接頭辞の shutdown
+- `bash.exe -c`、`&{Stop-Computer}`、ScriptBlock / ArgumentList
+- `rm -rf /./`・`find /etc -delete`・`/etc` 空白終端
+- `rg --glob='.env*'`、`Select-String` 位置指定、`([char]46)+'env'`
+- `telinit` / `sudoedit` / `%WINDIR%\...\shutdown.exe`
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 4
 
 残抜けを追加修正:

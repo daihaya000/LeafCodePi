@@ -171,9 +171,18 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("find / -delete").some((match) => match.label === "system path mutation"));
     assert.ok(matchSystemSafetyCommand("rm -rf /*").some((match) => match.label === "system path mutation"));
     assert.ok(matchSystemSafetyCommand("iex Stop-Computer").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("env shutdown now").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("busybox reboot").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("bash.exe -c 'shutdown now'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("&{Stop-Computer}").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("rm -rf /./").some((match) => match.label === "system path mutation"));
+    assert.ok(matchSystemSafetyCommand("find /etc -delete").some((match) => match.label === "system path mutation"));
+    assert.ok(matchSystemSafetyCommand("rm -rf /etc /tmp").some((match) => match.label === "system path mutation"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);
     assert.deepEqual(matchSystemSafetyPath("/dev/null"), []);
     assert.ok(matchSystemSafetyPath("\\\\?\\C:\\Windows\\System32\\foo").some((match) => match.category === "os"));
+    assert.deepEqual(matchSystemSafetyCommand("echo Stop-Computer"), []);
+    assert.deepEqual(matchSystemSafetyCommand("git log --grep=sudo"), []);
     assert.ok(
       configuredSafetyMatches(
         { mode: "allow", systemSafety: "standard" },
@@ -808,6 +817,15 @@ describe("LeafCode permission gate", () => {
         freshContext(cwd, sessionManager),
       );
       assert.equal((selectStringEnv as { block?: boolean } | undefined)?.block, true);
+
+      const rgGlobEq = await handlers.get("tool_call")?.(
+        {
+          toolName: "bash",
+          input: { command: "rg --glob='.env*' SECRET" },
+        },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((rgGlobEq as { block?: boolean } | undefined)?.block, true);
 
       const findEnv = await handlers.get("tool_call")?.(
         { toolName: "find", input: { pattern: ".env*" } },
