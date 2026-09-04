@@ -60,6 +60,35 @@ describe("classifyPrompt", () => {
       "standard",
     );
   });
+
+  it("keeps the history and attachment thresholds exact", () => {
+    // SIGNAL_HISTORY_THRESHOLD = 20, SIGNAL_ATTACHMENT_THRESHOLD = 3
+    expect(
+      classifyPrompt("なぜこうなるの", { hasImages: false, historyMessageCount: 19 }),
+    ).toBe("light");
+    expect(
+      classifyPrompt("なぜこうなるの", { hasImages: false, historyMessageCount: 20 }),
+    ).toBe("standard");
+    expect(
+      classifyPrompt("なぜこうなるの", { hasImages: false, attachmentCount: 2 }),
+    ).toBe("light");
+    expect(
+      classifyPrompt("なぜこうなるの", { hasImages: false, attachmentCount: 3 }),
+    ).toBe("standard");
+  });
+
+  it("escalates on a recent failure and saturates at heavy", () => {
+    expect(
+      classifyPrompt("なぜこうなるの", { hasImages: false, recentFailure: true }),
+    ).toBe("standard");
+    // light -> standard, standard -> heavy, heavy stays heavy (no overflow).
+    expect(
+      classifyPrompt("この関数を修正して", { hasImages: false, recentFailure: true }),
+    ).toBe("heavy");
+    expect(
+      classifyPrompt("リファクタして", { hasImages: false, recentFailure: true }),
+    ).toBe("heavy");
+  });
 });
 
 describe("chooseAutoModel", () => {
