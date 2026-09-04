@@ -25,17 +25,17 @@ export const SYSTEM_SAFETY_LEVEL_OPTIONS: ReadonlyArray<{
   {
     value: "low",
     label: "軽め",
-    description: "停止・権限昇格・カーネル/ドライバ/boot/disk/firmware のみ、確認ダイアログ1回",
+    description: "停止・権限昇格・カーネル/ドライバ/boot/disk/firmware のみ確認",
   },
   {
     value: "standard",
     label: "標準",
-    description: "OS変更系をすべて対象に、確認ダイアログ1回（調査・計画は不要）",
+    description: "致命的な機械操作のみ確認。git show など日常の開発操作は確認なし",
   },
   {
     value: "strict",
     label: "厳格",
-    description: "調査・影響/復旧計画・明示承認が必要（従来どおり）",
+    description: "OS変更系すべてに調査・影響/復旧計画・明示承認が必要",
   },
 ];
 

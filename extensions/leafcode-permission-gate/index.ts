@@ -241,7 +241,9 @@ function configuredSafetyMatches(
   if (level === "off") {
     return matches.filter((match) => match.label === LEAFCODE_PI_STOP_LABEL);
   }
-  if (level === "low") {
+  // low/standard: only machine-breaking ops. Everyday work (git show, services,
+  // packages, etc.) does not enter the approval flow.
+  if (level === "low" || level === "standard") {
     return matches.filter((match) => isLowIntensityMatch(match));
   }
   return matches;
@@ -783,11 +785,38 @@ function matchProtectedPathLiteral(command: string): { protected: boolean; reaso
   return { protected: false };
 }
 
+/** Read-only git porcelain used constantly by agents; never treat as a protected-path hit. */
+const GIT_MUTATING_SUBCOMMAND_PATTERN = /\bgit(?:\.exe)?\b[^\r\n]*\b(?:commit|push|add|reset|clean|rebase|merge|cherry-pick|am|apply|checkout|switch|restore|init|clone|fetch|pull|gc|repack|filter-branch|update-ref|branch\s+-[dDmM]|tag\s+-[dD]|stash\s+(?:push|pop|drop|clear|apply|save)|remote\s+(?:add|remove|rm|rename|set-url)|config\s+(?!--(?:get|list)))\b/i;
+const GIT_COMMAND_PATTERN = /(^|[;&|\n])\s*git(?:\.exe)?\b/i;
+const READ_ONLY_FILE_COMMAND_PATTERN = /(^|[;&|\n])\s*(?:cat|head|tail|less|more|type|Get-Content|gc|Get-ChildItem|gci|ls|dir|Get-Item|gi|Test-Path|rg|grep|findstr|find|Select-String)\b/i;
+
+function isReadOnlyGitCommand(command: string): boolean {
+  if (!GIT_COMMAND_PATTERN.test(command)) return false;
+  return !GIT_MUTATING_SUBCOMMAND_PATTERN.test(command);
+}
+
+/**
+ * `.git` / `node_modules` may be inspected read-only under normal agent workflows
+ * (`git show`, `cat .git/HEAD`, `ls node_modules`). Secrets stay blocked even for reads.
+ */
+function allowsReadOnlyProtectedPathAccess(
+  command: string,
+  reason: string,
+): boolean {
+  const relaxable = reason.includes('".git/"') || reason.includes('"node_modules/"');
+  if (!relaxable) return false;
+  if (MUTATING_COMMAND_PATTERN.test(command) || matchedDanger(command).dangerous) return false;
+  if (isReadOnlyGitCommand(command)) return true;
+  return READ_ONLY_FILE_COMMAND_PATTERN.test(command);
+}
+
 /** Detect shell commands that write or touch protected paths (bypass of write/edit gate). */
 function commandTouchesProtectedPath(command: string): { protected: boolean; reason?: string } {
   for (const variant of commandVariantsForProtectedPath(command)) {
     const match = matchProtectedPathLiteral(variant);
-    if (match.protected) return match;
+    if (!match.protected) continue;
+    if (allowsReadOnlyProtectedPathAccess(variant, match.reason ?? "")) continue;
+    return match;
   }
   return { protected: false };
 }

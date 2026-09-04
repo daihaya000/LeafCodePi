@@ -916,3 +916,10 @@ turn 2 の合成ベンチマークでは、履歴100/1,000/5,000件を各200回 
 システム安全ガードのデフォルトを `strict` から `standard` に変更。設定UIは select から range スライダ（無効→軽め→標準→厳格）へ。旧 boolean `true` も standard へマップ。
 
 検証: web 関連 14 tests、permission-gate 11 tests 成功。
+## 2026-09-05: 標準度合いで git show 等を確認不要に
+
+- 標準/軽めは致命的な機械操作（停止・権限昇格・kernel/driver/boot/disk/firmware）のみ確認
+- `.git` / `node_modules` の読み取り（`git show`、`Get-Content .git/HEAD` 等）はブロックしない。書き換えは継続ブロック
+- `.env` / `.ssh` / `.aws` は読み取りもブロック維持
+
+検証: permission-gate 11 tests、SystemSafetySettings / system-safety 3 tests 成功。

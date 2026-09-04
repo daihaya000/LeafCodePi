@@ -318,7 +318,7 @@ describe("LeafCode permission gate", () => {
     }
   });
 
-  it("standard intensity asks once for service changes without an investigation plan", async () => {
+  it("standard intensity skips confirmation for everyday service changes", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-standard-safety-"));
     const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-standard-safety-data-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
@@ -360,7 +360,14 @@ describe("LeafCode permission gate", () => {
         approvalContext,
       );
       assert.equal(service, undefined);
-      assert.match(prompt, /明示的に許可/);
+      assert.equal(prompt, "");
+
+      const gitShow = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "git show HEAD" } },
+        approvalContext,
+      );
+      assert.equal(gitShow, undefined);
+      assert.equal(prompt, "");
     } finally {
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
@@ -578,6 +585,30 @@ describe("LeafCode permission gate", () => {
         freshContext(cwd, sessionManager),
       );
       assert.equal((shellOk as { block?: boolean } | undefined)?.block, undefined);
+
+      const gitShow = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "git show HEAD" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal(gitShow, undefined);
+
+      const gitDirShow = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "git --git-dir=.git show HEAD" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal(gitDirShow, undefined);
+
+      const readGitHead = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "Get-Content .git/HEAD" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal(readGitHead, undefined);
+
+      const mutateGit = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "Remove-Item -Recurse -Force .git" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((mutateGit as { block?: boolean } | undefined)?.block, true);
     } finally {
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;

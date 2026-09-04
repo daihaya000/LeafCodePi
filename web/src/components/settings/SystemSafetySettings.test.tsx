@@ -28,7 +28,7 @@ describe("SystemSafetySettings", () => {
     const slider = await screen.findByRole("slider", { name: "システム安全ガードの度合い" });
     await waitFor(() => expect((slider as HTMLInputElement).value).toBe("2"));
     expect(slider.getAttribute("aria-valuetext")).toBe("標準");
-    expect(screen.getByText(/確認ダイアログ1回（調査・計画は不要）/)).toBeTruthy();
+    expect(screen.getByText(/git show など日常の開発操作は確認なし/)).toBeTruthy();
 
     fireEvent.change(slider, { target: { value: "1" } });
 
