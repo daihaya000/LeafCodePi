@@ -224,4 +224,14 @@ describe("POST /api/tasks/[id]/prompt", () => {
     expect(response.status).toBe(400);
     expect(mocks.promptTask).not.toHaveBeenCalled();
   });
+
+  it("rejects an invalid permission mode before prompting", async () => {
+    const response = await POST(
+      request({ prompt: "作業", permissionMode: "invalid" }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.promptTask).not.toHaveBeenCalled();
+  });
 });

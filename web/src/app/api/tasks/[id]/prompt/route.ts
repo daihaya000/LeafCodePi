@@ -41,7 +41,7 @@ export async function POST(
       autoRouteOverrides?: unknown;
       agent?: string;
       subagentPermission?: "allow" | "deny";
-      permissionMode?: "allow" | "ask" | "deny";
+      permissionMode?: unknown;
       skillPermission?: "allow" | "deny";
       streamingBehavior?: "steer" | "followUp";
     } | null;
@@ -56,6 +56,15 @@ export async function POST(
     }
     if (body?.model !== undefined && typeof body.model !== "string") {
       return NextResponse.json({ error: "invalid model" }, { status: 400 });
+    }
+    const permissionMode = body?.permissionMode;
+    if (
+      permissionMode !== undefined &&
+      permissionMode !== "allow" &&
+      permissionMode !== "ask" &&
+      permissionMode !== "deny"
+    ) {
+      return NextResponse.json({ error: "invalid permissionMode" }, { status: 400 });
     }
     if (body?.auto !== undefined && typeof body.auto !== "boolean") {
       return NextResponse.json({ error: "invalid auto" }, { status: 400 });
@@ -157,7 +166,7 @@ export async function POST(
       accountIdExplicit: body?.auto !== true,
       agent,
       subagentPermission: body.subagentPermission,
-      permissionMode: body.permissionMode,
+      permissionMode,
       skillPermission: body.skillPermission,
       streamingBehavior: body.streamingBehavior,
     });
