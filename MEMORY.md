@@ -1,3 +1,7 @@
+## 2026-09-05: 発見→修正ループ Tick 38
+
+**steer の楽観ユーザー行が停止後も残る** — 割り込み送信は履歴に載る前に SDK キューへ入る。abort / hang abort はサーバーキューを捨てるが、クライアントの pending 行は user 件数増まで残す。タイムラインに存在しない文が残る。停止・hang イベントで pending も捨てる。
+
 ## 2026-09-05: 発見→修正ループ Tick 37
 
 **Goal loop ターン間のエージェント切替が古いタイマーを残す** — ループは idle になるので UI が切替を許し、disposeLive は session_shutdown を飛ばす。古い schedule が新セッションと競合する。昇進と同じく queued/running 中は 409。

@@ -112,6 +112,7 @@ import {
 } from "@/lib/aborted-resume";
 import {
   shouldAutoSendQueuedFollowUp,
+  shouldClearPendingUserMessageOnEvent,
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
   shouldQueueFollowUp,
@@ -852,6 +853,9 @@ export const TaskView = memo(function TaskView({
             setQueuedFollowUps([]);
             setQueuedAutoSend(false);
           }
+          if (shouldClearPendingUserMessageOnEvent(payload.eventType)) {
+            setPendingUserMessage(null);
+          }
           if (typeof payload.hangRetryCount === "number") {
             setHangRetryCount(payload.hangRetryCount);
           }
@@ -1098,6 +1102,7 @@ export const TaskView = memo(function TaskView({
     revertEntryRef.current = null;
     setQueuedFollowUps([]);
     setQueuedAutoSend(false);
+    setPendingUserMessage(null);
     setSubmitting(false);
     setResumingTurn(false);
     setResumeTurnError(null);
@@ -1687,6 +1692,7 @@ export const TaskView = memo(function TaskView({
     // auto-send when working flips to idle.
     setQueuedFollowUps([]);
     setQueuedAutoSend(false);
+    setPendingUserMessage(null);
     try {
       setError(null);
       const result = await sendJson<{ task: TaskSummary }>(`/api/tasks/${taskId}/abort`, {});

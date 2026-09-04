@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   shouldAutoSendQueuedFollowUp,
+  shouldClearPendingUserMessageOnEvent,
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
   shouldQueueFollowUp,
@@ -111,5 +112,13 @@ describe("queued follow-up hang events", () => {
     expect(shouldClearQueuedFollowUpOnEvent("hang_retry")).toBe(true);
     expect(shouldClearQueuedFollowUpOnEvent("abort")).toBe(false);
     expect(shouldClearQueuedFollowUpOnEvent(undefined)).toBe(false);
+  });
+
+  it("clears steer optimistic rows when abort drops the server queue", () => {
+    expect(shouldClearPendingUserMessageOnEvent("abort")).toBe(true);
+    expect(shouldClearPendingUserMessageOnEvent("hang_abort")).toBe(true);
+    expect(shouldClearPendingUserMessageOnEvent("hang_retry")).toBe(true);
+    expect(shouldClearPendingUserMessageOnEvent("prompt_accepted")).toBe(false);
+    expect(shouldClearPendingUserMessageOnEvent(undefined)).toBe(false);
   });
 });
