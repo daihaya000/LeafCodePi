@@ -6,6 +6,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
+  shouldAttachResumeImages,
   turnHasActiveTool,
   turnHasAssistantResponse,
 } from "@/lib/aborted-resume";
@@ -216,7 +217,8 @@ export function recoverInterruptedHangWatches(): void {
 
 export function armTaskHangWatch(input: ArmTaskHangWatchInput): void {
   const taskId = input.taskId.trim();
-  if (!taskId || !input.prompt.trim()) return;
+  if (!taskId) return;
+  if (!input.prompt.trim() && (input.images?.length ?? 0) === 0) return;
 
   const bodyBytes = estimateWatchBodyBytes({ prompt: input.prompt, images: input.images });
   const resumeAllowed = bodyBytes <= MAX_WATCH_BODY_BYTES;
@@ -319,7 +321,10 @@ async function resolveHang(row: TaskHangWatchRow): Promise<void> {
   }
 
   const resumeMode = readAutoResumeModeSetting();
-  if (!row.resumeAllowed && resumeMode !== "continue") {
+  const attachImages =
+    row.resumeAllowed &&
+    shouldAttachResumeImages(resumeMode, row.prompt, row.images.length);
+  if (!row.resumeAllowed && !(resumeMode === "continue" && row.prompt.trim())) {
     disarmTaskHangWatch(row.taskId);
     logWatchdog("stopped without resuming (request body was too large to store)", row);
     return;
@@ -336,7 +341,7 @@ async function resolveHang(row: TaskHangWatchRow): Promise<void> {
 
   hooks.resumePrompt(row.taskId, {
     prompt: markHangRetryPrompt(autoResumePrompt(resumeMode, row.prompt)),
-    images: resumeMode === "continue" ? [] : row.images,
+    images: attachImages ? row.images : [],
     ...(row.agent ? { agent: row.agent } : {}),
     ...(row.subagentPermission ? { subagentPermission: row.subagentPermission } : {}),
     ...(row.permissionMode ? { permissionMode: row.permissionMode } : {}),

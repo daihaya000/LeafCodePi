@@ -260,4 +260,85 @@ describe("hang-watchdog helpers", () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("arms an image-only prompt", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-image-only-arm-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    try {
+      const images = [{ mimeType: "image/png", data: "abc" }];
+      armTaskHangWatch({ taskId: "image-only", prompt: "", images });
+      expect(getTaskHangWatch("image-only")?.images).toEqual(images);
+      armTaskHangWatch({ taskId: "empty", prompt: "   " });
+      expect(getTaskHangWatch("empty")).toBeNull();
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps image-only attachments when hang-resume mode is continue", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-image-continue-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    fs.writeFileSync(
+      path.join(root, "web-settings.json"),
+      JSON.stringify({ version: 1, "auto-resume-mode": "continue" }),
+      "utf8",
+    );
+    const images = [{ mimeType: "image/png", data: "abc" }];
+    let resumed: { prompt: string; images?: { mimeType: string; data: string }[] } | null = null;
+    registerHangWatchdogHooks({
+      getLive: () => ({ isStreaming: false, isCompacting: false, messages: [] }),
+      abortTask: async () => undefined,
+      resumePrompt: (_taskId, input) => {
+        resumed = input;
+      },
+      notifyHangRetry: () => undefined,
+    });
+    try {
+      armTaskHangWatch({ taskId: "image-continue", prompt: "", images });
+      await resolveHangNow("image-continue");
+      expect(resumed?.images).toEqual(images);
+      expect(resumed?.prompt).toContain("続けて");
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("drops images on continue resume when the original prompt had text", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-text-continue-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    fs.writeFileSync(
+      path.join(root, "web-settings.json"),
+      JSON.stringify({ version: 1, "auto-resume-mode": "continue" }),
+      "utf8",
+    );
+    const images = [{ mimeType: "image/png", data: "abc" }];
+    let resumed: { prompt: string; images?: { mimeType: string; data: string }[] } | null = null;
+    registerHangWatchdogHooks({
+      getLive: () => ({ isStreaming: false, isCompacting: false, messages: [] }),
+      abortTask: async () => undefined,
+      resumePrompt: (_taskId, input) => {
+        resumed = input;
+      },
+      notifyHangRetry: () => undefined,
+    });
+    try {
+      armTaskHangWatch({ taskId: "text-continue", prompt: "見て", images });
+      await resolveHangNow("text-continue");
+      expect(resumed?.images).toEqual([]);
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
