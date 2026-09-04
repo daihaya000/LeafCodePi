@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 26
+
+- FN: `csrutil disable` / `nvram -c|-d` / `bless --setBoot`（boot）
+- FN: `takeown`（acl 変更、icacls と同系）
+- status/print / `echo csrutil disable` は非検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 25
 
 - FN: `networksetup`/`airport`（Wi-Fi off）、`netsh advfirewall … state off`

@@ -317,6 +317,13 @@ describe("system safety classifier", () => {
     assert.deepEqual(matchSystemSafetyCommand("manage-bde -status C:"), []);
     assert.deepEqual(matchSystemSafetyCommand("netsh advfirewall show allprofiles"), []);
     assert.deepEqual(matchSystemSafetyCommand("echo networksetup -setairportpower en0 off"), []);
+    assert.ok(matchSystemSafetyCommand("csrutil disable").some((match) => match.category === "boot"));
+    assert.ok(matchSystemSafetyCommand("nvram -c").some((match) => match.category === "boot"));
+    assert.ok(matchSystemSafetyCommand("bless --setBoot --folder /System/Library/CoreServices").some((match) => match.category === "boot"));
+    assert.ok(matchSystemSafetyCommand("takeown /f C:\\Windows\\System32 /r").some((match) => match.label === "system policy/account/firewall change"));
+    assert.deepEqual(matchSystemSafetyCommand("csrutil status"), []);
+    assert.deepEqual(matchSystemSafetyCommand("nvram -p"), []);
+    assert.deepEqual(matchSystemSafetyCommand("echo csrutil disable"), []);
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);
