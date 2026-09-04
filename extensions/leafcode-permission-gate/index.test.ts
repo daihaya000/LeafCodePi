@@ -211,6 +211,55 @@ describe("LeafCode permission gate", () => {
     }
   });
 
+  it("can disable system safety from permission-gate.json without disabling protected paths", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-disabled-safety-"));
+    const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-disabled-safety-data-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = appDir;
+    const handlers = new Map<string, Handler>();
+    const pi = {
+      on: (name: string, handler: Handler) => handlers.set(name, handler),
+      registerCommand: () => undefined,
+    } as unknown as ExtensionAPI;
+    permissionGate(pi);
+    const sessionManager = {
+      getSessionId: () => "disabled-safety-session",
+      getSessionName: () => "Disabled safety",
+    };
+
+    try {
+      writeFileSync(
+        join(appDir, "permission-gate.json"),
+        JSON.stringify({ mode: "allow", systemSafety: false }),
+        "utf8",
+      );
+      await handlers.get("session_start")?.({}, freshContext(cwd, sessionManager));
+
+      const allowed = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "systemctl stop sshd" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal(allowed, undefined);
+
+      const allowedUserBash = await handlers.get("user_bash")?.(
+        { command: "systemctl stop sshd" },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal(allowedUserBash, undefined);
+
+      const protectedWrite = await handlers.get("tool_call")?.(
+        { toolName: "write", input: { path: ".env.local", content: "SECRET=1" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((protectedWrite as { block?: boolean } | undefined)?.block, true);
+    } finally {
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(appDir, { recursive: true, force: true });
+    }
+  });
+
   it("requires read-only investigation, an impact/recovery plan, and explicit approval for system changes", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-safety-"));
     const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-safety-data-"));

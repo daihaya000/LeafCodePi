@@ -9,6 +9,7 @@ export const PERMISSION_GATE_SESSION_KEY = "leafcode-permission-gate";
 
 type StoredConfig = {
   mode: PermissionMode;
+  systemSafety?: boolean;
   sessions?: Record<string, PermissionMode>;
 };
 
@@ -27,9 +28,11 @@ function readStoredConfig(): StoredConfig {
   try {
     const raw = JSON.parse(readFileSync(permissionGateConfigPath(), "utf8")) as {
       mode?: unknown;
+      systemSafety?: unknown;
       sessions?: unknown;
     };
     const mode = parseMode(raw.mode) ?? "allow";
+    const systemSafety = typeof raw.systemSafety === "boolean" ? raw.systemSafety : undefined;
     const sessions: Record<string, PermissionMode> = {};
     if (raw.sessions && typeof raw.sessions === "object" && !Array.isArray(raw.sessions)) {
       for (const [key, value] of Object.entries(raw.sessions as Record<string, unknown>)) {
@@ -37,7 +40,10 @@ function readStoredConfig(): StoredConfig {
         if (parsed) sessions[key] = parsed;
       }
     }
-    return Object.keys(sessions).length > 0 ? { mode, sessions } : { mode };
+    const safetyConfig = systemSafety === undefined ? {} : { systemSafety };
+    return Object.keys(sessions).length > 0
+      ? { mode, ...safetyConfig, sessions }
+      : { mode, ...safetyConfig };
   } catch {
     /* missing or invalid */
   }
@@ -77,9 +83,10 @@ export function writePermissionGateConfig(
   const file = permissionGateConfigPath();
   mkdirSync(dataDir(), { recursive: true });
   const current = readStoredConfig();
+  const safetyConfig = current.systemSafety === undefined ? {} : { systemSafety: current.systemSafety };
   const next: StoredConfig = sessionId
-    ? { mode: current.mode, sessions: { ...current.sessions, [sessionId]: mode } }
-    : { mode, sessions: current.sessions };
+    ? { mode: current.mode, ...safetyConfig, sessions: { ...current.sessions, [sessionId]: mode } }
+    : { mode, ...safetyConfig, sessions: current.sessions };
   writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, "utf8");
 }
 

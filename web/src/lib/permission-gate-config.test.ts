@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "vitest";
@@ -38,6 +38,21 @@ describe("permission-gate-config", () => {
 
   it("defaults to allow when no mode is persisted", () => {
     withTempDataDir(() => assert.equal(readPermissionGateConfig(), "allow"));
+  });
+
+  it("preserves a disabled system safety setting when the mode changes", () => {
+    withTempDataDir(() => {
+      writeFileSync(
+        permissionGateConfigPath(),
+        JSON.stringify({ mode: "allow", systemSafety: false }),
+        "utf8",
+      );
+      writePermissionGateConfig("ask");
+      assert.deepEqual(JSON.parse(readFileSync(permissionGateConfigPath(), "utf8")), {
+        mode: "ask",
+        systemSafety: false,
+      });
+    });
   });
 
   it("reads persisted mode without writing", () => {

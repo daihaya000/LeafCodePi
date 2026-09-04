@@ -8,6 +8,9 @@
  *
  * WebUI からは `/api/tasks/:id/permission` で承認モードを設定する。
  * 未設定時は "allow"（許可）。
+ * システム安全ガードだけを無効化する場合は、データディレクトリの
+ * `permission-gate.json` に `"systemSafety": false` を設定する（保護パスと
+ * LeafCodePi 自己終了の禁止は継続）。
  */
 
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -19,6 +22,7 @@ export type PermissionMode = "allow" | "ask" | "deny";
 
 type StoredConfig = {
   mode: PermissionMode;
+  systemSafety?: boolean;
   sessions?: Record<string, PermissionMode>;
 };
 
@@ -148,9 +152,11 @@ function readConfig(): StoredConfig {
     const { readFileSync } = require("node:fs");
     const raw = JSON.parse(readFileSync(configPath(), "utf8")) as {
       mode?: unknown;
+      systemSafety?: unknown;
       sessions?: unknown;
     };
     const mode = parseMode(raw?.mode) ?? "allow";
+    const systemSafety = typeof raw?.systemSafety === "boolean" ? raw.systemSafety : undefined;
     const sessions: Record<string, PermissionMode> = {};
     if (raw?.sessions && typeof raw.sessions === "object" && !Array.isArray(raw.sessions)) {
       for (const [key, value] of Object.entries(raw.sessions as Record<string, unknown>)) {
@@ -158,7 +164,10 @@ function readConfig(): StoredConfig {
         if (parsed) sessions[key] = parsed;
       }
     }
-    return Object.keys(sessions).length > 0 ? { mode, sessions } : { mode };
+    const safetyConfig = systemSafety === undefined ? {} : { systemSafety };
+    return Object.keys(sessions).length > 0
+      ? { mode, ...safetyConfig, sessions }
+      : { mode, ...safetyConfig };
   } catch {
     /* ignore */
   }
@@ -171,9 +180,10 @@ function writeConfig(mode: PermissionMode, sessionId?: string): void {
     const { dirname } = require("node:path");
     const file = configPath();
     const current = readConfig();
+    const safetyConfig = current.systemSafety === undefined ? {} : { systemSafety: current.systemSafety };
     const next: StoredConfig = sessionId
-      ? { mode: current.mode, sessions: { ...current.sessions, [sessionId]: mode } }
-      : { mode, sessions: current.sessions };
+      ? { mode: current.mode, ...safetyConfig, sessions: { ...current.sessions, [sessionId]: mode } }
+      : { mode, ...safetyConfig, sessions: current.sessions };
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, "utf8");
   } catch (error) {
@@ -186,11 +196,18 @@ function writeConfig(mode: PermissionMode, sessionId?: string): void {
  * live on the ctx object. Persist to disk and re-read on every tool_call.
  * Session-scoped entries win; `mode` is only the default for new sessions.
  */
-function sessionMode(ctx: ExtensionContext): PermissionMode {
-  const config = readConfig();
+function sessionMode(ctx: ExtensionContext, config = readConfig()): PermissionMode {
   const sessionId = extensionSessionId(ctx);
   if (sessionId && config.sessions?.[sessionId]) return config.sessions[sessionId];
   return config.mode;
+}
+
+function configuredSafetyMatches(
+  config: StoredConfig,
+  matches: readonly SystemSafetyMatch[],
+): readonly SystemSafetyMatch[] {
+  if (config.systemSafety !== false) return matches;
+  return matches.filter((match) => match.label === LEAFCODE_PI_STOP_LABEL);
 }
 
 function setSessionMode(ctx: ExtensionContext, mode: PermissionMode): void {
@@ -837,8 +854,12 @@ export default function (pi: ExtensionAPI): void {
   };
 
   pi.on("tool_call", async (event, ctx) => {
-    const mode = sessionMode(ctx);
-    const safetyMatches = matchSystemSafetyForTool(event.toolName, event.input, ctx.cwd);
+    const config = readConfig();
+    const mode = sessionMode(ctx, config);
+    const safetyMatches = configuredSafetyMatches(
+      config,
+      matchSystemSafetyForTool(event.toolName, event.input, ctx.cwd),
+    );
     if (safetyMatches.some((match) => match.label === LEAFCODE_PI_STOP_LABEL)) {
       resetSafetyFlow();
       return { block: true, terminate: true, reason: LEAFCODE_PI_STOP_REASON };
@@ -932,7 +953,8 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("user_bash", async (event, ctx) => {
-    const mode = sessionMode(ctx);
+    const config = readConfig();
+    const mode = sessionMode(ctx, config);
     if (mode === "deny") {
       return blockedUserBashResult("Shell execution blocked (permission mode: deny)");
     }
@@ -940,7 +962,10 @@ export default function (pi: ExtensionAPI): void {
     if (protectedPath.protected) {
       return blockedUserBashResult(`Shell command touches ${protectedPath.reason}`);
     }
-    const safetyMatches = matchSystemSafetyCommand(event.command);
+    const safetyMatches = configuredSafetyMatches(
+      config,
+      matchSystemSafetyCommand(event.command),
+    );
     if (safetyMatches.some((match) => match.label === LEAFCODE_PI_STOP_LABEL)) {
       resetSafetyFlow();
       return blockedUserBashResult(LEAFCODE_PI_STOP_REASON);
