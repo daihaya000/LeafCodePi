@@ -1,3 +1,12 @@
+## 2026-09-05: permission-gate ループ tick 39
+
+- FN: `badblocks -w`、`Reset|Clear-PhysicalDisk`、`Clear-FileStorageTier`、`hdparm --security-set-pass|--user-master-password`
+- FP: `sg_format --inquiry|--version`（破壊フラグ必須に絞り込み）、`dd if=/dev/zero of=image.img`（`of=` がシステムパスのときのみ）、`diskpart select …`
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 38
 
 - FN: `nvme format|sanitize|delete-ns`、`sg_format`（disk）

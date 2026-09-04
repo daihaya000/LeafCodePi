@@ -447,6 +447,14 @@ describe("system safety classifier", () => {
     assert.deepEqual(matchSystemSafetyCommand("diskpart list disk"), []);
     assert.deepEqual(matchSystemSafetyCommand("nvme list"), []);
     assert.deepEqual(matchSystemSafetyCommand("sg_format --help"), []);
+    assert.ok(matchSystemSafetyCommand("badblocks -w /dev/sda").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("Reset-PhysicalDisk -FriendlyName Disk0").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("Clear-FileStorageTier -Volume D:").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("hdparm --security-set-pass p:X /dev/sda").some((match) => match.category === "disk"));
+    assert.deepEqual(matchSystemSafetyCommand("sg_format --inquiry /dev/sda"), []);
+    assert.deepEqual(matchSystemSafetyCommand("dd if=/dev/zero of=image.img"), []);
+    assert.ok(matchSystemSafetyCommand("dd if=image.img of=/dev/sda").some((match) => match.category === "disk"));
+    assert.deepEqual(matchSystemSafetyCommand("badblocks -n /dev/sda"), []);
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);
