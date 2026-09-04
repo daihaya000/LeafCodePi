@@ -21,7 +21,11 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as Partial<AgentDraft>;
+    const raw = await request.json().catch(() => null);
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return NextResponse.json({ error: "リクエスト本文が不正です" }, { status: 400 });
+    }
+    const body = raw as Partial<AgentDraft>;
     if (typeof body.name !== "string" || !body.name.trim()) {
       return NextResponse.json({ error: "name が必要です" }, { status: 400 });
     }
