@@ -20,6 +20,7 @@ import {
   type AutoRouteConfig,
 } from "@/lib/auto-model";
 import { parseDirectModelKey } from "@/lib/direct-generation";
+import { isPromptImageList } from "@/lib/prompt-images";
 import { resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import {
@@ -31,19 +32,6 @@ import type { ThinkingLevel } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function isPromptImage(
-  value: unknown,
-): value is { mimeType: string; data: string } {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const image = value as Record<string, unknown>;
-  return (
-    typeof image.mimeType === "string" &&
-    image.mimeType.length > 0 &&
-    typeof image.data === "string" &&
-    image.data.length > 0
-  );
-}
 
 export async function GET(req: NextRequest) {
   const includeArchived = req.nextUrl.searchParams.get("archived") === "1";
@@ -119,10 +107,7 @@ export async function POST(req: NextRequest) {
     if (body.agent !== undefined && typeof body.agent !== "string") {
       return NextResponse.json({ error: "invalid agent" }, { status: 400 });
     }
-    if (
-      body.images !== undefined &&
-      (!Array.isArray(body.images) || body.images.some((image) => !isPromptImage(image)))
-    ) {
+    if (body.images !== undefined && !isPromptImageList(body.images)) {
       return NextResponse.json({ error: "invalid images" }, { status: 400 });
     }
     if (!body.prompt?.trim() && !body.images?.length) {

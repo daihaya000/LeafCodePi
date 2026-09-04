@@ -214,4 +214,14 @@ describe("POST /api/tasks/[id]/prompt", () => {
     expect(response.status).toBe(400);
     expect(mocks.promptTask).not.toHaveBeenCalled();
   });
+
+  it("rejects malformed image attachments before prompting", async () => {
+    const response = await POST(
+      request({ prompt: "作業", images: [{ mimeType: "image/png" }] }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.promptTask).not.toHaveBeenCalled();
+  });
 });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTask } from "@/lib/store";
 import { readSessionConversation } from "@/lib/direct-session";
 import { parseDirectModelKey } from "@/lib/direct-generation";
+import { isPromptImageList } from "@/lib/prompt-images";
 import { resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import {
@@ -46,6 +47,9 @@ export async function POST(
     } | null;
     if (!body?.prompt?.trim() && !body?.images?.length) {
       return NextResponse.json({ error: "prompt が必要です" }, { status: 400 });
+    }
+    if (body?.images !== undefined && !isPromptImageList(body.images)) {
+      return NextResponse.json({ error: "invalid images" }, { status: 400 });
     }
     if (body?.agent !== undefined && typeof body.agent !== "string") {
       return NextResponse.json({ error: "invalid agent" }, { status: 400 });
