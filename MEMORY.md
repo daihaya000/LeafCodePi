@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 42
+
+- FN: FreeBSD `camcontrol format` / `gpart destroy|delete|create` / `newfs`、`diskshadow`、`Remove|New|Resize-VHD`
+- FN: disk soft-prefix に `ssh|docker|podman|wsl|…`（ホスト引数含む）を拡張
+- FP: `diskpart list|select vdisk`
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 41
 
 - FN: `storcli`/`perccli`/`MegaCli` の erase/secureerase/CfgLdDel/del force/init full

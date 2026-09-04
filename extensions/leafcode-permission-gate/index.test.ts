@@ -478,6 +478,20 @@ describe("system safety classifier", () => {
     );
     assert.deepEqual(matchSystemSafetyCommand("cipher /w:C: /?"), []);
     assert.deepEqual(matchSystemSafetyCommand("fsutil fsinfo ntfsinfo C:"), []);
+    assert.ok(matchSystemSafetyCommand("camcontrol format da0").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("gpart destroy -F ada0").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("diskshadow /s wipe.txt").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("Remove-VHD -Path C:\\test.vhdx").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("wsl camcontrol format da0").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("ssh root@server storcli /c0 /e252 /s0 start erase").some((match) => match.category === "disk"));
+    assert.ok(
+      configuredSafetyMatches(
+        { mode: "allow", systemSafety: "standard" },
+        matchSystemSafetyCommand("newfs /dev/da0"),
+      ).some((match) => match.category === "disk"),
+    );
+    assert.deepEqual(matchSystemSafetyCommand("diskpart list vdisk"), []);
+    assert.deepEqual(matchSystemSafetyCommand("gpart show ada0"), []);
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);
