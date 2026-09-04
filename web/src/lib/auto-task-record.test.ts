@@ -109,6 +109,37 @@ describe("auto-task-record", () => {
         plainTaskModelValue: "",
       }),
     ).toBe(input.firstModelValue);
+    // Nothing left to fall back to.
+    expect(
+      resolveModelValue({
+        ...input,
+        accountTaskModelValue: undefined,
+        plainTaskModelValue: "",
+        firstModelValue: undefined,
+      }),
+    ).toBe("");
+  });
+
+  it("lets an explicit selection override Auto and the task model", () => {
+    // A concrete selection wins even when an Auto record exists, so the user's
+    // manual choice is never masked by the Auto sentinel.
+    expect(
+      resolveModelValue({
+        modelSelection: "openai-codex::gpt-5",
+        hasAutoRecord: true,
+        accountTaskModelValue: "account-1::anthropic::claude-opus-5",
+        plainTaskModelValue: "anthropic::claude-opus-5",
+        firstModelValue: "anthropic::claude-haiku-4-5",
+      }),
+    ).toBe("openai-codex::gpt-5");
+    // The Auto sentinel itself is also an explicit selection.
+    expect(
+      resolveModelValue({
+        modelSelection: AUTO_MODEL_VALUE,
+        hasAutoRecord: false,
+        plainTaskModelValue: "anthropic::claude-opus-5",
+      }),
+    ).toBe(AUTO_MODEL_VALUE);
   });
 
   it("blocks escalation retries after a provider limit", () => {
