@@ -1,3 +1,12 @@
+## 2026-09-05: permission-gate ループ tick 20
+
+- FN: IaC 破棄 — `terraform`/`tofu`/`pulumi`/`cdk`/`sam` の `destroy`/`delete`
+- standard でもゲート（`infrastructure destroy`）。`plan` / `echo terraform destroy` は非検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 19
 
 - FN: `kubectl drain/delete node`、`doctl`/`hcloud`/`linode-cli`/`vultr-cli`、`multipass`/`limactl`/`colima`/`minikube` stop

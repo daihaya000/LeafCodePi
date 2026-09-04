@@ -105,6 +105,8 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
   // unelevated Start-Process are normal agent tools and stay out of this gate.
   { category: "os", label: "dynamic/elevated script execution", pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*-(?:EncodedCommand|enc)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:Invoke-Expression|\biex\b)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?<![-/])eval\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)Invoke-Command\b[^\r\n]*(?:-ComputerName|-Session)\b|(?:^|[;|&\r\n])\s*&\s*(?:\(|['"])|(?:^|[;|&\r\n])\s*["']?\$(?:\{)?[A-Za-z_]\w*\}?["']?\s+(?:stop|start|restart|kill|terminate|disable|enable|delete|remove|uninstall|format|erase|wipe|shutdown|reboot)\b/i },
   { category: "os", label: "downloaded script execution", pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:\|\s*(?:sh|bash|zsh|pwsh|powershell|cmd|iex|Invoke-Expression)\b|(?:-o|--output)\s*-\s*&&)/i },
+  // IaC teardown can wipe fleets; gate at standard like shutdown (not `terraform plan` / `echo terraform destroy`).
+  { category: "os", label: "infrastructure destroy", pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:terraform|tofu|pulumi|cdk|sam|serverless|cdktf)(?:\.exe)?\b[^\r\n]*\b(?:destroy|delete)\b/i },
   // Require "kernel" (or load/unload module) — bare "install modules" is a package name, not sysadmin.
   { category: "kernel", label: "kernel/module change", pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:modprobe|insmod|rmmod|kexec)(?:\.exe)?\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)sysctl\b[^\r\n]*(?:-w|--write|[^\r\n]*=)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)dkms\b[^\r\n]*\b(?:install|remove|autoinstall)\b|\b(?:load|unload)\s+(?:the\s+)?kernel(?:\s+modules?)?\b|\b(?:install|remove|update)\s+the\s+kernel(?:\s+modules?)?\b|\b(?:load|unload)\s+(?:the\s+)?modules?\b/i },
   // Bare "install driver" / "npm install driver" is a package name; require device-driver wording or tools.
@@ -202,7 +204,8 @@ function isLowIntensityMatch(match: SystemSafetyMatch): boolean {
     return match.label === "OS shutdown/restart"
       || match.label === "privilege elevation"
       || match.label === "protected OS path"
-      || match.label === "system path mutation";
+      || match.label === "system path mutation"
+      || match.label === "infrastructure destroy";
   }
   return false;
 }

@@ -275,6 +275,16 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("doctl compute droplet-action power-off 1").some((match) => match.label === "OS shutdown/restart"));
     assert.deepEqual(matchSystemSafetyCommand("kubectl get nodes"), []);
     assert.deepEqual(matchSystemSafetyCommand("echo multipass stop vm"), []);
+    assert.ok(matchSystemSafetyCommand("terraform destroy -auto-approve").some((match) => match.label === "infrastructure destroy"));
+    assert.ok(matchSystemSafetyCommand("pulumi destroy -y").some((match) => match.label === "infrastructure destroy"));
+    assert.ok(
+      configuredSafetyMatches(
+        { mode: "allow", systemSafety: "standard" },
+        matchSystemSafetyCommand("terraform destroy"),
+      ).some((match) => match.label === "infrastructure destroy"),
+    );
+    assert.deepEqual(matchSystemSafetyCommand("terraform plan"), []);
+    assert.deepEqual(matchSystemSafetyCommand("echo terraform destroy"), []);
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);
