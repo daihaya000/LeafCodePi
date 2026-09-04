@@ -33,6 +33,36 @@ function attentionItemKey(item: AttentionItemDto): string {
   return `${item.taskId}:${item.kinds.join("+")}`;
 }
 
+/** Hide items whose loaded details have explicitly cleared every pending kind. */
+export function attentionItemStillOpen(
+  item: AttentionItemDto,
+  detail: Pick<TaskDetail, "permissionRequest" | "questionRequest"> | undefined,
+): boolean {
+  if (!detail) return true;
+  return !item.kinds.every((kind) => {
+    if (kind === "permission") return detail.permissionRequest === null;
+    if (kind === "question") return detail.questionRequest === null;
+    return false;
+  });
+}
+
+/** Ignore a stale GET that still carries a request the user already answered. */
+export function applyFetchedAttentionDetail(
+  incoming: TaskDetail,
+  clearedPermissionIds: ReadonlySet<string>,
+  clearedQuestionIds: ReadonlySet<string>,
+): TaskDetail {
+  const permission = incoming.permissionRequest;
+  const question = incoming.questionRequest;
+  return {
+    ...incoming,
+    permissionRequest:
+      permission != null && clearedPermissionIds.has(permission.id) ? null : permission,
+    questionRequest:
+      question != null && clearedQuestionIds.has(question.id) ? null : question,
+  };
+}
+
 /** Drop resolved items so a later request on the same task can alert again. */
 export function takeFreshAttentionItems(
   seen: Set<string>,
@@ -70,6 +100,8 @@ export function GlobalAttentionProvider() {
   const autoOpenedRef = useRef(true);
   const itemsRef = useRef<AttentionItemDto[]>([]);
   const itemsKeyRef = useRef("");
+  const clearedPermissionIdsRef = useRef(new Set<string>());
+  const clearedQuestionIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
     itemsRef.current = items;
@@ -165,10 +197,20 @@ export function GlobalAttentionProvider() {
       }),
     ).then((entries) => {
       if (cancelled) return;
-      setDetails((current) => ({
-        ...current,
-        ...Object.fromEntries(entries.filter((entry): entry is readonly [string, TaskDetail] => entry !== null)),
-      }));
+      setDetails((current) => {
+        const incoming = Object.fromEntries(
+          entries.filter((entry): entry is readonly [string, TaskDetail] => entry !== null),
+        );
+        const next = { ...current };
+        for (const [taskId, task] of Object.entries(incoming)) {
+          next[taskId] = applyFetchedAttentionDetail(
+            task,
+            clearedPermissionIdsRef.current,
+            clearedQuestionIdsRef.current,
+          );
+        }
+        return next;
+      });
     });
     return () => {
       cancelled = true;
@@ -192,6 +234,7 @@ export function GlobalAttentionProvider() {
         requestId: request.id,
         approved,
       });
+      clearedPermissionIdsRef.current.add(request.id);
       setDetails((current) => ({
         ...current,
         [taskId]: { ...current[taskId], permissionRequest: null },
@@ -205,6 +248,7 @@ export function GlobalAttentionProvider() {
 
   const respondToQuestion = async (taskId: string, request: QuestionRequestDto, answers: string[][]) => {
     await sendJson(`/api/tasks/${taskId}/question`, { requestId: request.id, answers });
+    clearedQuestionIdsRef.current.add(request.id);
     setDetails((current) => ({
       ...current,
       [taskId]: { ...current[taskId], questionRequest: null },
@@ -216,8 +260,11 @@ export function GlobalAttentionProvider() {
     router.push(`/task/${taskId}`);
   };
 
-  const reopenableCount = items.filter((item) => item.taskId !== activeTaskId).length;
-  if (items.length === 0) return null;
+  const visibleItems = items.filter((item) =>
+    attentionItemStillOpen(item, details[item.taskId]),
+  );
+  const reopenableCount = visibleItems.filter((item) => item.taskId !== activeTaskId).length;
+  if (visibleItems.length === 0) return null;
   if (!open) {
     if (reopenableCount === 0) return null;
     return (
@@ -257,7 +304,7 @@ export function GlobalAttentionProvider() {
           </p>
         )}
         <ul className="flex flex-col gap-3">
-          {items.map((item) => {
+          {visibleItems.map((item) => {
             const detail = details[item.taskId];
             const question = detail?.questionRequest;
             const permission = detail?.permissionRequest;
@@ -286,6 +333,7 @@ export function GlobalAttentionProvider() {
                         requestId: request.id,
                         reject: true,
                       }).then(() => {
+                        clearedQuestionIdsRef.current.add(request.id);
                         setDetails((current) => ({
                           ...current,
                           [item.taskId]: { ...current[item.taskId], questionRequest: null },

@@ -17,7 +17,7 @@ vi.mock("next/navigation", () => ({
   usePathname: () => window.location.pathname,
 }));
 
-import { GlobalAttentionProvider, takeFreshAttentionItems } from "./GlobalAttentionProvider";
+import { GlobalAttentionProvider, attentionItemStillOpen, takeFreshAttentionItems } from "./GlobalAttentionProvider";
 
 const taskDetail = (taskId: string) => ({
   id: taskId,
@@ -287,6 +287,37 @@ describe("GlobalAttentionProvider", () => {
     });
     expect(screen.queryByRole("button", { name: /承認・回答が必要なタスク/ })).toBeNull();
   });
+
+  it("hides the modal as soon as the user answers a permission", async () => {
+    const permissionRequest = {
+      id: "req-a",
+      sessionId: "sess-a",
+      message: "Aを許可しますか",
+      command: "echo a",
+      labels: [],
+    };
+    mocks.getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/tasks") {
+        return { attention: [{ taskId: "task-a", title: "タスクA", kinds: ["permission"] }] };
+      }
+      if (path === "/api/tasks/task-a") {
+        return { task: { ...taskDetail("task-a"), title: "タスクA", permissionRequest } };
+      }
+      throw new Error(`unexpected: ${path}`);
+    });
+    render(<GlobalAttentionProvider />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(document.body.textContent ?? "").toMatch(/Aを許可しますか/);
+
+    await act(async () => {
+      screen.getByRole("button", { name: "許可" }).click();
+    });
+    expect(document.body.textContent ?? "").not.toMatch(/承認・回答が必要です/);
+    expect(screen.queryByRole("button", { name: /承認・回答が必要なタスク/ })).toBeNull();
+  });
 });
 
 describe("takeFreshAttentionItems", () => {
@@ -297,5 +328,34 @@ describe("takeFreshAttentionItems", () => {
     expect(takeFreshAttentionItems(seen, [item])).toEqual([]);
     expect(takeFreshAttentionItems(seen, [])).toEqual([]);
     expect(takeFreshAttentionItems(seen, [item])).toEqual([item]);
+  });
+});
+
+describe("attentionItemStillOpen", () => {
+  const item = { taskId: "task-a", title: "A", kinds: ["permission"] as const };
+
+  it("keeps items whose details are not loaded yet", () => {
+    expect(attentionItemStillOpen(item, undefined)).toBe(true);
+  });
+
+  it("keeps items when GET omitted the request field", () => {
+    expect(attentionItemStillOpen(item, { permissionRequest: undefined, questionRequest: undefined })).toBe(
+      true,
+    );
+  });
+
+  it("hides items after the matching request is explicitly cleared", () => {
+    expect(attentionItemStillOpen(item, { permissionRequest: null, questionRequest: undefined })).toBe(false);
+  });
+
+  it("keeps a combined item until every kind is cleared", () => {
+    const both = { taskId: "task-a", title: "A", kinds: ["permission", "question"] as const };
+    expect(
+      attentionItemStillOpen(both, {
+        permissionRequest: null,
+        questionRequest: { id: "q1", sessionId: "s", questions: [] },
+      }),
+    ).toBe(true);
+    expect(attentionItemStillOpen(both, { permissionRequest: null, questionRequest: null })).toBe(false);
   });
 });
