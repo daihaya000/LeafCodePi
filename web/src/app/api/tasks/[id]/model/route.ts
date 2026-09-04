@@ -10,8 +10,8 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const body = (await req.json().catch(() => null)) as { model?: string } | null;
-    if (!body?.model) {
+    const body = (await req.json().catch(() => null)) as { model?: unknown } | null;
+    if (typeof body?.model !== "string" || !body.model.trim()) {
       return NextResponse.json({ error: "model が必要です" }, { status: 400 });
     }
     return NextResponse.json({ task: await setTaskModel(id, body.model) });
