@@ -435,6 +435,18 @@ describe("system safety classifier", () => {
     );
     assert.deepEqual(matchSystemSafetyCommand("swapoff --help"), []);
     assert.deepEqual(matchSystemSafetyCommand("echo swapoff -a"), []);
+    assert.ok(matchSystemSafetyCommand("nvme format /dev/nvme0n1").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("nvme sanitize /dev/nvme0n1").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("sg_format --format /dev/sda").some((match) => match.category === "disk"));
+    assert.ok(
+      configuredSafetyMatches(
+        { mode: "allow", systemSafety: "standard" },
+        matchSystemSafetyCommand("nvme delete-ns /dev/nvme0n1 -n 1"),
+      ).some((match) => match.category === "disk"),
+    );
+    assert.deepEqual(matchSystemSafetyCommand("diskpart list disk"), []);
+    assert.deepEqual(matchSystemSafetyCommand("nvme list"), []);
+    assert.deepEqual(matchSystemSafetyCommand("sg_format --help"), []);
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);

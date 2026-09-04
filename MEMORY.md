@@ -1,3 +1,12 @@
+## 2026-09-05: permission-gate ループ tick 38
+
+- FN: `nvme format|sanitize|delete-ns`、`sg_format`（disk）
+- FP: `diskpart list disk|volume|partition`（読み取り専用）を除外；`nvme list` / help も非検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 37
 
 - FN: `swapoff` / `mkswap` / `blkdiscard`（disk、VAR=val・busybox soft-prefix 対応）
