@@ -334,6 +334,14 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("fdesetup changerecovery -personal").some((match) => match.category === "disk"));
     assert.deepEqual(matchSystemSafetyCommand("diskutil verifyVolume disk1"), []);
     assert.deepEqual(matchSystemSafetyCommand("bootctl list"), []);
+    assert.ok(matchSystemSafetyCommand("Set-SecureBootUEFI -Name test -Action Delete").some((match) => match.category === "boot"));
+    assert.ok(matchSystemSafetyCommand("tpm2_clear").some((match) => match.category === "boot"));
+    assert.ok(matchSystemSafetyCommand("Clear-Tpm").some((match) => match.category === "boot"));
+    assert.ok(matchSystemSafetyCommand("Disable-BitLocker -MountPoint C:").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("manage-bde -on C:").some((match) => match.category === "disk"));
+    assert.deepEqual(matchSystemSafetyCommand("Get-SecureBootUEFI"), []);
+    assert.deepEqual(matchSystemSafetyCommand("npm run build -- --global"), []);
+    assert.ok(matchSystemSafetyCommand("npm install -g typescript").some((match) => match.label === "system package change"));
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);

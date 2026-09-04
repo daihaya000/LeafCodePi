@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 29
+
+- FN: `Set-SecureBootUEFI` / `Confirm-SecureBootUEFI` / `update-secureboot-policy`、`tpm2_clear`/`Clear-Tpm`/`Initialize-Tpm`（boot）
+- FN: `Disable-BitLocker`/`Enable-BitLocker`、`manage-bde -on`/`-protectors add`（disk）
+- FP: `npm run … -- --global`（install 文脈なしの --global/-g を非検知）
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 28
 
 - FN: `nvram KEY=value`（boot 代入）、`spctl --global-disable|--disable-assessment`
