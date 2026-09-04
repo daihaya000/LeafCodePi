@@ -115,6 +115,11 @@ import {
 } from "@/lib/queued-follow-up";
 import { isHangRetryUserMessage } from "@/lib/hang-retry";
 import { mergeTaskDelta, type TaskDeltaState } from "@/lib/task-delta";
+import {
+  cancelPendingSseReconnect,
+  closeSseSource,
+  sseReconnectDelayMs,
+} from "@/lib/sse-reconnect";
 
 const MODEL_KEY = "leafcodepi.defaultModel";
 import {
@@ -737,6 +742,8 @@ export const TaskView = memo(function TaskView({
 
     const connect = () => {
       if (closed) return;
+      retryTimer = cancelPendingSseReconnect(retryTimer);
+      source = closeSseSource(source);
       // 一部の端末・中継が no-cache の SSE URL を再利用し、reload 後に
       // 古いストリームを返すことがあるため、接続ごとに URL を変える。
       source = new EventSource(`/api/tasks/${taskId}/events?epoch=${Date.now()}`);
@@ -927,9 +934,8 @@ export const TaskView = memo(function TaskView({
         if (event instanceof MessageEvent && typeof event.data === "string") {
           closed = true;
           setSseReconnecting(false);
-          source?.close();
-          source = null;
-          if (retryTimer) clearTimeout(retryTimer);
+          source = closeSseSource(source);
+          retryTimer = cancelPendingSseReconnect(retryTimer);
           try {
             const payload = JSON.parse(event.data) as { error?: string };
             setError(payload.error ?? "イベント接続に失敗しました");
@@ -941,10 +947,10 @@ export const TaskView = memo(function TaskView({
         setSseReconnecting(true);
         setError(null);
         // Auto-reconnect: close the broken stream and retry with backoff.
-        source?.close();
-        source = null;
+        source = closeSseSource(source);
+        retryTimer = cancelPendingSseReconnect(retryTimer);
         retryCount += 1;
-        const delay = Math.min(1000 * 2 ** (retryCount - 1), 15000);
+        const delay = sseReconnectDelayMs(retryCount);
         retryTimer = setTimeout(connect, delay);
       });
     };
@@ -989,8 +995,8 @@ export const TaskView = memo(function TaskView({
     });
     return () => {
       closed = true;
-      if (retryTimer) clearTimeout(retryTimer);
-      source?.close();
+      retryTimer = cancelPendingSseReconnect(retryTimer);
+      source = closeSseSource(source);
     };
   }, [taskId, applyDetail, notifySidebarIfNeeded]);
 

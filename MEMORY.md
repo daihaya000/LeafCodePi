@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 15
+
+**SSE 再接続で EventSource が多重化する** — ネットワーク error 時に旧 retryTimer を clear せず、connect も既存接続を閉じなかった。連続切断で同じタスクにストリームが複数立ち、タイムラインや許可カードが二重更新される。再接続前にタイマーと既存 EventSource を必ず破棄する。
+
 ## 2026-09-04: 発見→修正ループ Tick 14
 
 **ハング abort が steer/follow-up キューを残す** — 手動停止は `clearQueue` するが、watchdog の abort は `session.abort()` だけだった。ハング再送と同時に古い割り込みが走ることがある。ハング abort でもキューを捨て、クライアントは `hang_retry` で queuedFollowUps を空にする。
