@@ -10,7 +10,10 @@ vi.mock("@/lib/client", () => client);
 import {
   AUTO_OPTIMIZE_EVENT,
   AUTO_OPTIMIZE_SETTING_KEY,
+  AUTO_ROUTE_OVERRIDES_SETTING_KEY,
+  hasStoredAutoSetting,
   readAutoOptimizeMode,
+  readAutoRouteConfig,
   readAutoSettingsFromServer,
   readAutoShowModel,
   subscribeAutoSetting,
@@ -18,7 +21,14 @@ import {
   writeAutoRouteConfig,
   writeAutoSettingToServer,
   writeAutoShowModel,
+  type AutoSettingKey,
 } from "@/lib/auto-settings";
+import { normalizeAutoRouteConfig } from "@/lib/auto-model";
+
+// The module keeps its storage keys private, but they mirror the setting keys.
+function storageKeyFor(key: AutoSettingKey): string {
+  return `webui:${key}`;
+}
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -107,5 +117,43 @@ describe("auto-settings", () => {
     windowTarget.addEventListener(AUTO_OPTIMIZE_EVENT, listener);
     writeAutoOptimizeMode("balanced");
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to safe defaults for invalid or corrupt stored values", () => {
+    // An unknown optimize mode falls back to the default rather than leaking through.
+    globalThis.localStorage.setItem(
+      storageKeyFor(AUTO_OPTIMIZE_SETTING_KEY),
+      "turbo",
+    );
+    expect(readAutoOptimizeMode()).toBe("cost");
+
+    // Corrupt JSON for the route config yields the empty config, not a throw.
+    globalThis.localStorage.setItem(
+      storageKeyFor(AUTO_ROUTE_OVERRIDES_SETTING_KEY),
+      "{not json",
+    );
+    expect(readAutoRouteConfig()).toEqual({ version: 2, modes: {} });
+
+    // JSON of the wrong shape is also normalized away.
+    globalThis.localStorage.setItem(
+      storageKeyFor(AUTO_ROUTE_OVERRIDES_SETTING_KEY),
+      '"a string"',
+    );
+    expect(readAutoRouteConfig()).toEqual({ version: 2, modes: {} });
+  });
+
+  it("round-trips a route config and reports whether a setting is stored", () => {
+    const config = normalizeAutoRouteConfig({
+      version: 2,
+      modes: { cost: { light: { candidates: [{ kind: "strongest" }] } } },
+    });
+    writeAutoRouteConfig(config);
+    expect(readAutoRouteConfig()).toEqual(config);
+    expect(hasStoredAutoSetting(AUTO_ROUTE_OVERRIDES_SETTING_KEY)).toBe(true);
+
+    // An empty config is erased, so the setting becomes unstored.
+    writeAutoRouteConfig({ version: 2, modes: {} });
+    expect(hasStoredAutoSetting(AUTO_ROUTE_OVERRIDES_SETTING_KEY)).toBe(false);
+    expect(readAutoRouteConfig()).toEqual({ version: 2, modes: {} });
   });
 });
