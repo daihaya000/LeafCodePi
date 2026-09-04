@@ -29,7 +29,9 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function fixture() {
+type FixtureCustomMessage = { customType: string; content: unknown; display: boolean };
+
+function fixture(options: { messages?: unknown[] } = {}) {
   const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-agent-"));
   tempDirs.push(root);
   const agentDir = join(root, "agent");
@@ -46,10 +48,15 @@ function fixture() {
   const task = insertTask({ project, title: "switch agent", agent: "build" });
   let unsubscribed = false;
   let disposed = false;
+  const customMessages: FixtureCustomMessage[] = [];
   const live = new Map([[task.id, {
     accountId: null,
     session: {
       isStreaming: false,
+      messages: options.messages ?? [],
+      sendCustomMessage: async (message: FixtureCustomMessage) => {
+        customMessages.push(message);
+      },
       dispose: () => {
         disposed = true;
       },
@@ -62,7 +69,13 @@ function fixture() {
     live,
     events: new EventEmitter(),
   };
-  return { task, live, get disposed() { return disposed; }, get unsubscribed() { return unsubscribed; } };
+  return {
+    task,
+    live,
+    customMessages,
+    get disposed() { return disposed; },
+    get unsubscribed() { return unsubscribed; },
+  };
 }
 
 describe("setTaskAgent", () => {
@@ -78,6 +91,22 @@ describe("setTaskAgent", () => {
     assert.equal(state.disposed, true);
     assert.equal(state.unsubscribed, true);
     assert.equal(getTaskHangWatch(state.task.id), null);
+    // An empty transcript has no stale persona history to disambiguate.
+    assert.equal(state.customMessages.length, 0);
+  });
+
+  it("announces the persona switch on a non-empty transcript so the new persona does not inherit the old identity", async () => {
+    const state = fixture({ messages: [{ role: "user", content: "作業" }] });
+
+    await setTaskAgent(state.task.id, "reviewer");
+
+    assert.equal(state.customMessages.length, 1);
+    const notice = state.customMessages[0]!;
+    assert.equal(notice.customType, "leafcode-pi.agent-switch");
+    assert.equal(notice.display, false);
+    assert.equal(typeof notice.content, "string");
+    assert.match(notice.content as string, /"build"/);
+    assert.match(notice.content as string, /"reviewer"/);
   });
 });
 

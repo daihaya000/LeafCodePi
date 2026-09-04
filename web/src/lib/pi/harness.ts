@@ -5027,6 +5027,29 @@ export async function abortTask(id: string): Promise<TaskSummary> {
   return toSummary(task);
 }
 
+/** Session entry customType for the hidden agent-switch boundary notice. */
+const AGENT_SWITCH_CUSTOM_TYPE = "leafcode-pi.agent-switch";
+
+/**
+ * The next ensureLive() reopens this same transcript with only the system
+ * prompt swapped, so a mid-conversation switch leaves the new persona's
+ * context full of the outgoing persona's prior replies, tool calls, and
+ * self-description. Without an explicit boundary the model can misidentify
+ * which agent it currently is. This text is delivered as a hidden
+ * custom_message: excluded from the WebUI timeline (projectPiMessages
+ * ignores role "custom") but converted to a plain "user" turn for the LLM on
+ * the next session load, the same mechanism compaction/branch summaries use.
+ */
+function agentSwitchNotice(previousAgent: string | undefined, nextAgent: string): string {
+  const previousLabel = previousAgent?.trim() || "the default assistant persona";
+  const nextLabel = nextAgent.trim() || "the default assistant persona";
+  return [
+    `[Session notice] This task's active persona switched from "${previousLabel}" to "${nextLabel}".`,
+    `Everything above this line, including your own prior replies, tool calls, and any self-description, was produced under "${previousLabel}" and does not describe your current role.`,
+    `You are now "${nextLabel}". Follow only the system prompt currently in effect; do not refer to yourself by the previous persona's name or claim its tools or responsibilities.`,
+  ].join("\n");
+}
+
 export async function setTaskAgent(
   id: string,
   agentName: string,
@@ -5047,6 +5070,15 @@ export async function setTaskAgent(
   if (live.session.isStreaming) {
     throw Object.assign(new Error("実行中タスクのエージェントは変更できません"), {
       status: 409,
+    });
+  }
+
+  // An empty transcript has no stale persona history to disambiguate.
+  if (live.session.messages.length > 0) {
+    await live.session.sendCustomMessage({
+      customType: AGENT_SWITCH_CUSTOM_TYPE,
+      content: agentSwitchNotice(task.agent?.trim(), normalized),
+      display: false,
     });
   }
 
