@@ -134,4 +134,37 @@ describe("auto-task-record", () => {
       shouldAutoRetryEscalate({ ...eligible, hasCompletedAssistantText: true }),
     ).toBe(false);
   });
+
+  it("covers every remaining escalation guard", () => {
+    const eligible = {
+      previousStatus: "idle" as const,
+      currentStatus: "error" as const,
+      limitError: false,
+      hasEscalation: true,
+      retried: false,
+      hasPrompt: true,
+      autoRetrying: false,
+      userMessageCount: 1,
+      hasCompletedAssistantText: false,
+    };
+    // A first render has no previous status, so no edge is detected.
+    expect(
+      shouldAutoRetryEscalate({ ...eligible, previousStatus: undefined }),
+    ).toBe(false);
+    // Already-errored tasks must not re-trigger on later renders.
+    expect(
+      shouldAutoRetryEscalate({ ...eligible, previousStatus: "error" }),
+    ).toBe(false);
+    // Only a transition INTO error counts.
+    for (const status of ["idle", "ready", "working", "archived", "unknown"] as const) {
+      expect(
+        shouldAutoRetryEscalate({ ...eligible, currentStatus: status }),
+      ).toBe(false);
+    }
+    // Missing escalation candidate, no stored prompt, in-flight or already retried.
+    expect(shouldAutoRetryEscalate({ ...eligible, hasEscalation: false })).toBe(false);
+    expect(shouldAutoRetryEscalate({ ...eligible, hasPrompt: false })).toBe(false);
+    expect(shouldAutoRetryEscalate({ ...eligible, autoRetrying: true })).toBe(false);
+    expect(shouldAutoRetryEscalate({ ...eligible, retried: true })).toBe(false);
+  });
 });
