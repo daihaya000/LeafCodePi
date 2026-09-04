@@ -1,3 +1,14 @@
+## 2026-09-05: permission-gate ループ tick 28
+
+- FN: `nvram KEY=value`（boot 代入）、`spctl --global-disable|--disable-assessment`
+- FN: `bootctl set-default|set-oneshot`、`grub-set-default`/`grub-reboot`/`update-grub2`/`grub2-mkconfig`/`kernel-install`/`bootsect`/`grub-editenv set`/`dracut --force`
+- FN: `fdesetup changerecovery`
+- FP: `diskutil verifyVolume|Disk|Container`（読み取り検証）
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 27
 
 - FN: `mokutil --disable-validation`（boot）、`firmwarepasswd -delete`（firmware）、`spctl --master-disable`（policy）

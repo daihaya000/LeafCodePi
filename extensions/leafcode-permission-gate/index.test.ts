@@ -327,9 +327,17 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("mokutil --disable-validation").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyCommand("firmwarepasswd -delete").some((match) => match.category === "firmware"));
     assert.ok(matchSystemSafetyCommand("spctl --master-disable").some((match) => match.label === "system policy/account/firewall change"));
+    assert.ok(matchSystemSafetyCommand('nvram boot-args="-no_compat_check"').some((match) => match.category === "boot"));
+    assert.ok(matchSystemSafetyCommand("spctl --global-disable").some((match) => match.label === "system policy/account/firewall change"));
+    assert.ok(matchSystemSafetyCommand("bootctl set-default fedora").some((match) => match.category === "boot"));
+    assert.ok(matchSystemSafetyCommand("grub-set-default 2").some((match) => match.category === "boot"));
+    assert.ok(matchSystemSafetyCommand("fdesetup changerecovery -personal").some((match) => match.category === "disk"));
+    assert.deepEqual(matchSystemSafetyCommand("diskutil verifyVolume disk1"), []);
+    assert.deepEqual(matchSystemSafetyCommand("bootctl list"), []);
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);
+    assert.deepEqual(matchSystemSafetyCommand("nvram -p"), []);
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);
