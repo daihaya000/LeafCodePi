@@ -1,3 +1,7 @@
+## 2026-09-05: 発見→修正ループ Tick 34
+
+**停止後に compaction 待ちのプロンプトが再起動する** — abort は SDK を止めるが harness の promptChain は残る。圧縮/ルート準備の await のあと session.prompt が走る。世代番号を abort で上げ、待ち解除後は破棄する。
+
 ## 2026-09-05: 発見→修正ループ Tick 33
 
 **実行中に権限モード/スキル権限を差し替えられる** — UI は閉じているが API に busy ガードが無く、同一ターンの後続 tool から gate が新モードを読む。スキル変更は `session.reload()` も走る。モデル/思考レベルと同じく busy なら 409。

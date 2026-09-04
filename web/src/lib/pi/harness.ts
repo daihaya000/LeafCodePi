@@ -264,6 +264,8 @@ type LiveRuntime = {
   goalLoopTurnActive: boolean;
   /** A prompt has been accepted and is about to start or is still running. */
   promptActive: boolean;
+  /** Bumped on abort so in-flight promptChain work after await does not resume. */
+  promptEpoch: number;
   /** Assistant throughput samples keyed by message.timestamp (ms). */
   throughputByStartedAt: Map<number, ThroughputTiming>;
   /** startedAtMs values already written to the Pi session file. */
@@ -1670,6 +1672,7 @@ async function attachSession(
     nativeCompactionAttempted: false,
     goalLoopTurnActive: false,
     promptActive: existing?.promptActive ?? false,
+    promptEpoch: existing?.promptEpoch ?? 0,
     throughputByStartedAt:
       existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
     persistedThroughputKeys:
@@ -4905,17 +4908,27 @@ function queuePrompt(
     armHangWatchForPrompt();
   }
   let activeLive = live;
+  const startedEpoch = live.promptEpoch;
+  const stillQueued = () =>
+    !isStaleHarnessPrompt(
+      startedEpoch,
+      (state().live.get(live.taskId) ?? live).promptEpoch,
+    );
   const runPrompt = async () => {
+    if (!stillQueued()) return;
     const pendingCompaction = live.autoCompactionPromise;
     if (pendingCompaction) await pendingCompaction;
+    if (!stillQueued()) return;
     const currentLive = state().live.get(live.taskId) ?? live;
     const streamingBehavior = resolveStreamingBehaviorForPrompt(
       meta?.streamingBehavior,
       currentLive.session.isStreaming,
     );
     activeLive = await prepareLiveForPrompt(live, !streamingBehavior);
+    if (!stillQueued()) return;
     const activeCompaction = activeLive.autoCompactionPromise;
     if (activeCompaction) await activeCompaction;
+    if (!stillQueued()) return;
     applySubagentPermission(activeLive.session, meta?.subagentPermission);
     applySessionCompactionSettings(activeLive.session);
     const finalBehavior = resolveStreamingBehaviorForPrompt(
@@ -4934,6 +4947,7 @@ function queuePrompt(
     try {
       await activeLive.session.prompt(prompt, options);
     } catch (error) {
+      if (!stillQueued()) return;
       // 一部モデル（o系/gpt-5-pro 等）は思考オフ不可の 400 を返す。
       // 思考レベルを引き上げて同じプロンプトを一度だけ再試行する。
       if (!isReasoningMandatoryError(error) || activeLive.reasoningFallbackTried)
@@ -4946,6 +4960,7 @@ function queuePrompt(
       emitTaskSnapshot(activeLive, "thinking_level_changed", {
         thinkingLevel: level,
       });
+      if (!stillQueued()) return;
       await activeLive.session.prompt(prompt, options);
     }
   };
@@ -5187,6 +5202,19 @@ async function stopGoalLoopForTask(live: LiveRuntime): Promise<void> {
   }
 }
 
+function cancelHarnessPrompt(live: LiveRuntime): void {
+  live.promptEpoch = nextPromptEpoch(live.promptEpoch);
+  live.promptActive = false;
+}
+
+export function nextPromptEpoch(current: number | undefined): number {
+  return (current || 0) + 1;
+}
+
+export function isStaleHarnessPrompt(startedEpoch: number, currentEpoch: number): boolean {
+  return startedEpoch !== currentEpoch;
+}
+
 export async function abortTask(id: string): Promise<TaskSummary> {
   // An explicit stop is terminal for the current request; do not leave the
   // persisted watchdog armed to wake it up later.
@@ -5218,6 +5246,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
     // abort() stops the current run but keeps steer/follow-up queues; clear
     // them or the post-run handler will continue with queued messages.
     clearSessionQueue(live.session);
+    cancelHarnessPrompt(live);
     await live.session.abort();
   }
   const task = setTaskStatus(id, "idle");
@@ -5277,6 +5306,7 @@ export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
     persistManualAbortedAssistantId(taskId, turnAssistants.at(-1)?.id ?? "");
     await stopSubagentRunsForTask(live, msgs);
     clearSessionQueue(live.session);
+    cancelHarnessPrompt(live);
     await live.session.abort();
   }
   setTaskStatus(taskId, "idle");

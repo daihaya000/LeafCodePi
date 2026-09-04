@@ -237,6 +237,7 @@ describe("abortTask", () => {
       unsubscribe: () => {},
       promptChain: Promise.resolve(),
       promptActive: true,
+      promptEpoch: 0,
       throughputByStartedAt: new Map(),
       persistedThroughputKeys: new Set(),
       toolStartedAt: new Map(),
@@ -264,6 +265,9 @@ describe("abortTask", () => {
     assert.equal(getTaskHangWatch(task.id), null);
     assert.equal(getTask(task.id)?.status, "idle");
     assert.equal(getTask(task.id)?.manualAbortedAssistantId, "");
+    const abortedLive = live.get(task.id);
+    assert.equal(abortedLive?.promptEpoch, 1);
+    assert.equal(abortedLive?.promptActive, false);
   });
 
   it("clears steer/follow-up queues when the hang watchdog aborts", async () => {
@@ -306,6 +310,7 @@ describe("abortTask", () => {
       unsubscribe: () => {},
       promptChain: Promise.resolve(),
       promptActive: true,
+      promptEpoch: 0,
       throughputByStartedAt: new Map(),
       persistedThroughputKeys: new Set(),
       toolStartedAt: new Map(),
@@ -382,6 +387,7 @@ describe("abortTask", () => {
       unsubscribe: () => {},
       promptChain: Promise.resolve(),
       promptActive: false,
+      promptEpoch: 0,
       throughputByStartedAt: new Map(),
       persistedThroughputKeys: new Set(),
       toolStartedAt: new Map(),

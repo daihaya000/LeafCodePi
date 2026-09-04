@@ -8,6 +8,8 @@ import {
   buildPromptOptions,
   clearSessionQueue,
   isReasoningMandatoryError,
+  isStaleHarnessPrompt,
+  nextPromptEpoch,
   reasoningFallbackLevel,
   resolveStreamingBehaviorForPrompt,
   shouldBypassPromptChain,
@@ -61,6 +63,16 @@ describe("applySubagentPermission", () => {
     const s = mockSession(["read", "bash"]);
     applySubagentPermission(s as never, "deny");
     assert.deepEqual(s.names(), ["read", "bash"]);
+  });
+});
+
+describe("harness prompt abort generation", () => {
+  it("treats a queued prompt as stale after abort bumps the epoch", () => {
+    const started = 0;
+    const afterAbort = nextPromptEpoch(started);
+    assert.equal(afterAbort, 1);
+    assert.equal(isStaleHarnessPrompt(started, afterAbort), true);
+    assert.equal(isStaleHarnessPrompt(afterAbort, afterAbort), false);
   });
 });
 
