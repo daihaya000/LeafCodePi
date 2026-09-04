@@ -250,4 +250,24 @@ describe("auto-agent", () => {
       vi.useRealTimers();
     }
   });
+
+  it("REPRO: an empty conversation omits history from the router prompt", async () => {
+    const model = { providerID: "p", modelID: "m" };
+    mocks.buildDirectGenerationCandidates.mockReturnValue([{ model }]);
+    mocks.generateDirectTextWithFallbackResult.mockResolvedValue({
+      text: '{"agent":"build"}',
+      model,
+    });
+
+    // Task creation passes conversation: [], so the router sees no prior turns.
+    await resolveAutoAgent({ conversation: [], prompt: "続けて" });
+    const emptyPrompt = mocks.generateDirectTextWithFallbackResult.mock.calls[0]?.[0]?.prompt;
+    expect(emptyPrompt).toContain("<conversation_history>\n（なし）\n</conversation_history>");
+
+    // Follow-up paths pass real history, which is included.
+    await resolveAutoAgent({ conversation: [{ role: "user", text: "前回の依頼" }], prompt: "続けて" });
+    const withPrompt = mocks.generateDirectTextWithFallbackResult.mock.calls[1]?.[0]?.prompt;
+    expect(withPrompt).toContain("前回の依頼");
+    expect(withPrompt).not.toContain("\n（なし）\n");
+  });
 });
