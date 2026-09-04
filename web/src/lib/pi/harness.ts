@@ -699,7 +699,10 @@ async function ensureRuntime(): Promise<void> {
                   .slice(promptIndex + 1)
                   .filter((m) => m.role === "assistant")
               : [];
-          live.manualAbortedAssistantId = turnAssistants.at(-1)?.id ?? "";
+          persistManualAbortedAssistantId(
+            taskId,
+            turnAssistants.at(-1)?.id ?? "",
+          );
           await stopSubagentRunsForTask(live, msgs);
           await live.session.abort();
         }
@@ -1712,7 +1715,10 @@ async function attachSession(
     pendingSnapshotIsDelta: false,
     pendingSnapshotExtra: undefined,
     revertLeafId: existing?.revertLeafId ?? getTask(taskId)?.revertLeafId ?? null,
-    manualAbortedAssistantId: null,
+    manualAbortedAssistantId:
+      existing?.manualAbortedAssistantId ??
+      getTask(taskId)?.manualAbortedAssistantId ??
+      null,
     hangRetryCount: 0,
     reasoningFallbackTried: false,
     pendingProviderFallback: existing?.pendingProviderFallback ?? null,
@@ -4367,9 +4373,9 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
   let contextUsage: ContextUsageDto | undefined;
   let goalLoop: GoalLoopDto | null = null;
   let todos: TodoDto[] = [];
-  let manualAbortedAssistantId: string | null = null;
   let hangRetryCount = 0;
   let revertLeafId: string | null = task.revertLeafId ?? null;
+  let manualAbortedAssistantId: string | null = task.manualAbortedAssistantId ?? null;
   try {
     const live = await ensureLive(id);
     const fields = sessionSnapshotFields(
@@ -4386,7 +4392,7 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
     contextUsage = fields.contextUsage;
     goalLoop = fields.goalLoop;
     todos = fields.todos;
-    manualAbortedAssistantId = live.manualAbortedAssistantId;
+    manualAbortedAssistantId = live.manualAbortedAssistantId ?? manualAbortedAssistantId;
     hangRetryCount = live.hangRetryCount;
     revertLeafId = live.revertLeafId ?? revertLeafId;
   } catch (error) {
@@ -4907,7 +4913,7 @@ function queuePrompt(
   applySubagentPermission(live.session, meta?.subagentPermission);
   const isHangRetry =
     meta?.isHangRetry === true || prompt.startsWith(HANG_RETRY_PREFIX);
-  live.manualAbortedAssistantId = null;
+  persistManualAbortedAssistantId(live.taskId, null);
   const armHangWatchForPrompt = () => {
     armTaskHangWatch({
       taskId: live.taskId,
@@ -5231,7 +5237,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
       promptIndex >= 0
         ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant")
         : [];
-    live.manualAbortedAssistantId = turnAssistants.at(-1)?.id ?? "";
+    persistManualAbortedAssistantId(id, turnAssistants.at(-1)?.id ?? "");
     await stopGoalLoopForTask(live);
     await stopSubagentRunsForTask(live, msgs);
     // abort() stops the current run but keeps steer/follow-up queues; clear
@@ -5633,6 +5639,16 @@ export function persistRevertLeafId(
   const live = state().live.get(taskId);
   if (live) live.revertLeafId = revertLeafId;
   patchTask(taskId, { revertLeafId });
+}
+
+/** Persist the abort sentinel so resume survives reload and session replace. */
+export function persistManualAbortedAssistantId(
+  taskId: string,
+  manualAbortedAssistantId: string | null,
+): void {
+  const live = state().live.get(taskId);
+  if (live) live.manualAbortedAssistantId = manualAbortedAssistantId;
+  patchTask(taskId, { manualAbortedAssistantId });
 }
 
 /** unrevert 用: navigateTree の前に leaf id を保存する（後だと巻き戻し後の位置になる）。 */

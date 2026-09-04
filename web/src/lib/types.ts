@@ -48,6 +48,8 @@ export type TaskSummary = {
   permissionMode?: "allow" | "ask" | "deny";
   /** 巻き戻し前の leaf。ある間は「復元」できる。 */
   revertLeafId?: string | null;
+  /** 空文字は応答開始前の停止。再開ボタンの目印。 */
+  manualAbortedAssistantId?: string | null;
   /** pi-subagents agent running as the main session persona (null = default). */
   agent?: string | null;
   createdAt: string;

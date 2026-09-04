@@ -201,6 +201,7 @@ describe("abortTask", () => {
     assert.equal(clearQueueCount, 1);
     assert.equal(getTaskHangWatch(task.id), null);
     assert.equal(getTask(task.id)?.status, "idle");
+    assert.equal(getTask(task.id)?.manualAbortedAssistantId, "");
   });
 
   it("stops a queued Goal Loop before aborting an idle session", async () => {

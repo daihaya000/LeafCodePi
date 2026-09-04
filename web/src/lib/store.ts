@@ -189,6 +189,7 @@ export function patchTask(
       | "skillPermission"
       | "permissionMode"
       | "revertLeafId"
+      | "manualAbortedAssistantId"
       | "agent"
       | "error"
     >

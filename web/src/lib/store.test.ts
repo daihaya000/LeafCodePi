@@ -94,6 +94,11 @@ describe("store", () => {
     store.patchTask(withAccount.id, { revertLeafId: null });
     expect(store.getTask(withAccount.id)?.revertLeafId).toBeNull();
 
+    store.patchTask(withAccount.id, { manualAbortedAssistantId: "" });
+    expect(store.getTask(withAccount.id)?.manualAbortedAssistantId).toBe("");
+    store.patchTask(withAccount.id, { manualAbortedAssistantId: null });
+    expect(store.getTask(withAccount.id)?.manualAbortedAssistantId).toBeNull();
+
     rmSync(dir, { recursive: true, force: true });
   });
 

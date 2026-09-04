@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { captureRevertLeafId, imagesFromEntry, messageEntryById, persistRevertLeafId } from "./harness";
+import { captureRevertLeafId, imagesFromEntry, messageEntryById, persistManualAbortedAssistantId, persistRevertLeafId } from "./harness";
 
 describe("captureRevertLeafId", () => {
   it("keeps the pre-navigate leaf id (not the post-navigate position)", () => {
@@ -27,6 +27,26 @@ describe("persistRevertLeafId", () => {
     assert.equal(getTask(task.id)?.revertLeafId, "leaf-tip");
     persistRevertLeafId(task.id, null);
     assert.equal(getTask(task.id)?.revertLeafId, null);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("persistManualAbortedAssistantId", () => {
+  it("keeps the empty-string sentinel so resume survives a live restart", async () => {
+    const { mkdirSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = join(tmpdir(), `leafcode-pi-abort-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const { upsertProject, insertTask, getTask } = await import("@/lib/store");
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = insertTask({ project, title: "abort persist" });
+
+    persistManualAbortedAssistantId(task.id, "");
+    assert.equal(getTask(task.id)?.manualAbortedAssistantId, "");
+    persistManualAbortedAssistantId(task.id, null);
+    assert.equal(getTask(task.id)?.manualAbortedAssistantId, null);
     rmSync(dir, { recursive: true, force: true });
   });
 });

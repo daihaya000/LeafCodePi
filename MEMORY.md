@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 13
+
+**応答前停止の再開目印がリロードで消える** — Tick 9 で ready に載せたが、`manualAbortedAssistantId=""` は live メモリだけだった。エージェント切替やプロセス再起動で再開ボタンが消える。`revertLeafId` と同じくタスク記録へ保存し、attachSession で復元する。
+
 ## 2026-09-04: 発見→修正ループ Tick 12
 
 **巻き戻しの復元がリロード後に消える** — `isReverted` はクライアント専用、`revertLeafId` も live メモリだけだった。リロードやエージェント切替で復元 UI が消え、unrevert は 404 になった。leaf をタスク記録へ保存し、SSE ready からバナーを復元する。unrevert は `ensureLive` を使う。
