@@ -1,3 +1,12 @@
+## 2026-09-05: permission-gate ループ tick 19
+
+- FN: `kubectl drain/delete node`、`doctl`/`hcloud`/`linode-cli`/`vultr-cli`、`multipass`/`limactl`/`colima`/`minikube` stop
+- `kubectl get` / `echo multipass stop` は非検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 18
 
 - FN: クラウド／HV 電源操作 — `aws ec2 stop/reboot` / `az vm` / `gcloud compute instances` / `nova` / `openstack server` / `xl`/`xe` / `Stop-VM`
