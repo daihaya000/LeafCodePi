@@ -82,6 +82,14 @@ import {
   todosFromPiMessages,
 } from "@/lib/pi/todowrite-state";
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
+import {
+  COMPACTION_ACTION_SETTING_KEY,
+  COMPACTION_THRESHOLD_SETTING_KEY,
+  parseCompactionAction,
+  parseCompactionThreshold,
+  reserveTokensForThreshold,
+  shouldCompactAtThreshold,
+} from "@/lib/compaction-settings";
 import { compactSkillsForPrompt, filterSkillsByState } from "@/lib/skills";
 import type { SkillPermission } from "@/lib/skill-permission";
 import {
@@ -131,6 +139,7 @@ import {
   type QuestionAnswer,
 } from "@/lib/pi/question-prompt";
 import { registerWebUiQuestionHandler } from "@/lib/pi/webui-question-bridge";
+import { getSetting } from "@/lib/pi/web-settings";
 import { listSubagentRuns } from "@/lib/pi/subagent-runs";
 import { stopRunningSubagentRuns } from "@/lib/pi/stop-subagent-runs";
 import { getCachedUsage, invalidateCachedUsage } from "@/lib/codexbar/cache";
@@ -245,6 +254,10 @@ type LiveRuntime = {
   skillPermissionRef: { current: SkillPermission };
   unsubscribe: () => void;
   promptChain: Promise<void>;
+  /** Compaction started after the last settled response; prompts wait for it. */
+  autoCompactionPromise: Promise<void> | null;
+  /** Prevent the settled event from starting auto-compaction during a manual abort. */
+  manualCompactionInProgress: boolean;
   /** A prompt has been accepted and is about to start or is still running. */
   promptActive: boolean;
   /** Assistant throughput samples keyed by message.timestamp (ms). */
@@ -1432,6 +1445,75 @@ function mapCompactionError(error: unknown): Error {
   return error instanceof Error ? error : new Error(message);
 }
 
+function applySessionCompactionSettings(
+  session: AgentSession,
+  enabledOverride?: boolean,
+): void {
+  const action = parseCompactionAction(
+    getSetting(COMPACTION_ACTION_SETTING_KEY),
+  );
+  const threshold = parseCompactionThreshold(
+    getSetting(COMPACTION_THRESHOLD_SETTING_KEY),
+  );
+  const contextWindow = Number(session.model?.contextWindow ?? 0);
+  const settingsManager = session.settingsManager;
+  if (
+    !settingsManager ||
+    typeof settingsManager.applyOverrides !== "function"
+  ) {
+    return;
+  }
+  settingsManager.applyOverrides({
+    compaction: {
+      enabled: enabledOverride ?? action === "auto",
+      ...(contextWindow > 0
+        ? { reserveTokens: reserveTokensForThreshold(contextWindow, threshold) }
+        : {}),
+    },
+  });
+}
+
+function scheduleAutoCompaction(live: LiveRuntime): void {
+  if (
+    live.autoCompactionPromise ||
+    live.manualCompactionInProgress ||
+    live.manualAbortedAssistantId ||
+    live.session.isCompacting
+  ) {
+    return;
+  }
+  const action = parseCompactionAction(
+    getSetting(COMPACTION_ACTION_SETTING_KEY),
+  );
+  const threshold = parseCompactionThreshold(
+    getSetting(COMPACTION_THRESHOLD_SETTING_KEY),
+  );
+  let percent: number | null | undefined;
+  try {
+    percent = live.session.getContextUsage()?.percent;
+  } catch {
+    percent = undefined;
+  }
+  if (!shouldCompactAtThreshold(action, percent, threshold)) return;
+
+  const operation = Promise.resolve()
+    .then(() => live.session.compact())
+    .then(() => undefined)
+    .catch((error) => {
+      console.warn(
+        `[leafcode-pi] automatic compaction failed for ${live.taskId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    })
+    .finally(() => {
+      if (live.autoCompactionPromise === operation) {
+        live.autoCompactionPromise = null;
+      }
+    });
+  live.autoCompactionPromise = operation;
+}
+
 function openSettingsManager() {
   const pi = state().pi;
   if (!pi)
@@ -1582,6 +1664,8 @@ async function attachSession(
     // next turn. The current run owns this promise, so follow-ups submitted
     // during session creation still wait for it.
     promptChain: existing?.promptChain ?? Promise.resolve(),
+    autoCompactionPromise: null,
+    manualCompactionInProgress: false,
     promptActive: existing?.promptActive ?? false,
     throughputByStartedAt:
       existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
@@ -1668,6 +1752,7 @@ async function attachSession(
           );
         });
       }
+      scheduleAutoCompaction(live);
     }
     if (
       event.type === "compaction_end" &&
@@ -1893,6 +1978,7 @@ async function createSession(options: {
   // Agent-defined tools may include `subagent`; enforce the user choice after
   // the full extension registry is ready, including the initial turn.
   applySubagentPermission(result.session, options.subagentPermission);
+  applySessionCompactionSettings(result.session);
   return { session: result.session, skillPermissionRef };
 }
 
@@ -4748,11 +4834,16 @@ function queuePrompt(
   }
   let activeLive = live;
   const runPrompt = async () => {
+    const pendingCompaction = live.autoCompactionPromise;
+    if (pendingCompaction) await pendingCompaction;
     activeLive = await prepareLiveForPrompt(live, !meta?.streamingBehavior);
+    const activeCompaction = activeLive.autoCompactionPromise;
+    if (activeCompaction) await activeCompaction;
     applySubagentPermission(activeLive.session, meta?.subagentPermission);
     if (meta?.permissionMode) {
       applyPermissionMode(activeLive.session, meta.permissionMode);
     }
+    applySessionCompactionSettings(activeLive.session);
     const options = buildPromptOptions({
       images,
       streamingBehavior: meta?.streamingBehavior,
@@ -5197,6 +5288,7 @@ export async function setTaskModel(
 
   const live = await ensureLive(id);
   await live.session.setModel(model);
+  applySessionCompactionSettings(live.session);
   const ids = modelId(live.session.model ?? model);
   const current = isThinkingLevel(live.session.thinkingLevel)
     ? live.session.thinkingLevel
@@ -5269,7 +5361,11 @@ export async function compactTask(
   customInstructions?: string,
 ): Promise<TaskDetail> {
   const live = await ensureLive(id);
-  if (live.session.isCompacting) {
+  if (
+    live.session.isCompacting ||
+    live.autoCompactionPromise ||
+    live.manualCompactionInProgress
+  ) {
     throw Object.assign(new Error("コンテキスト圧縮は既に実行中です"), {
       status: 409,
     });
@@ -5278,10 +5374,13 @@ export async function compactTask(
   // hang watchdog replay that operation after compaction succeeds or fails.
   disarmTaskHangWatch(id);
   const instructions = customInstructions?.trim();
+  live.manualCompactionInProgress = true;
   try {
     await live.session.compact(instructions || undefined);
   } catch (error) {
     throw mapCompactionError(error);
+  } finally {
+    live.manualCompactionInProgress = false;
   }
   return getTaskDetail(id);
 }
@@ -5478,9 +5577,11 @@ export async function setCompactionEnabled(
   await ensureRuntime();
   const settings = openSettingsManager();
   settings.setCompactionEnabled(enabled);
+  settings.applyOverrides({ compaction: { enabled } });
   await settings.flush();
   for (const live of state().live.values()) {
     live.session.setAutoCompactionEnabled(enabled);
+    applySessionCompactionSettings(live.session, enabled);
   }
   return settings.getCompactionSettings();
 }
