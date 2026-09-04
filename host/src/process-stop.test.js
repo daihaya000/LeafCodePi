@@ -2,16 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { hardKillTree, softKillTree, stopProcessTreeGracefully } from "./process-stop.js";
 
+const EXTERNAL_PID = process.pid + 1;
+
 test("Linux soft kill targets the detached process group", () => {
   const calls = [];
   assert.equal(
-    softKillTree(42, {
+    softKillTree(EXTERNAL_PID, {
       platform: "linux",
       kill: (pid, signal) => calls.push([pid, signal]),
     }),
     true,
   );
-  assert.deepEqual(calls, [[-42, "SIGTERM"]]);
+  assert.deepEqual(calls, [[-EXTERNAL_PID, "SIGTERM"]]);
 });
 
 test("Linux refuses PID 1 instead of broadcasting kill(-1)", () => {
@@ -30,15 +32,13 @@ test("process controls refuse the host PID", async () => {
   const calls = [];
   const deps = {
     platform: "linux",
-    selfPid: 42,
     kill: (pid, signal) => calls.push([pid, signal]),
   };
-  assert.equal(softKillTree(42, deps), false);
-  assert.equal(hardKillTree(42, deps), false);
+  assert.equal(softKillTree(process.pid, deps), false);
+  assert.equal(hardKillTree(process.pid, deps), false);
   assert.equal(
     await stopProcessTreeGracefully({
-      pid: 42,
-      selfPid: 42,
+      pid: process.pid,
       isAlive: () => {
         throw new Error("must not inspect the host PID");
       },
@@ -57,7 +57,7 @@ test("process controls refuse the host PID", async () => {
 test("Linux kill falls back to the process when it is not a group leader", () => {
   const calls = [];
   assert.equal(
-    hardKillTree(42, {
+    hardKillTree(EXTERNAL_PID, {
       platform: "linux",
       kill: (pid, signal) => {
         calls.push([pid, signal]);
@@ -66,14 +66,14 @@ test("Linux kill falls back to the process when it is not a group leader", () =>
     }),
     true,
   );
-  assert.deepEqual(calls, [[-42, "SIGKILL"], [42, "SIGKILL"]]);
+  assert.deepEqual(calls, [[-EXTERNAL_PID, "SIGKILL"], [EXTERNAL_PID, "SIGKILL"]]);
 });
 
 test("stopProcessTreeGracefully uses Linux signals and escalates", async () => {
   let alive = true;
   const signals = [];
   const result = await stopProcessTreeGracefully({
-    pid: 42,
+    pid: EXTERNAL_PID,
     platform: "linux",
     isAlive: () => alive,
     kill: (pid, signal) => {
@@ -85,12 +85,12 @@ test("stopProcessTreeGracefully uses Linux signals and escalates", async () => {
     pollMs: 0,
   });
   assert.equal(result, "hard");
-  assert.deepEqual(signals, [[-42, "SIGTERM"], [-42, "SIGKILL"]]);
+  assert.deepEqual(signals, [[-EXTERNAL_PID, "SIGTERM"], [-EXTERNAL_PID, "SIGKILL"]]);
 });
 
 test("stopProcessTreeGracefully reports alive when hard kill fails", async () => {
   const result = await stopProcessTreeGracefully({
-    pid: 42,
+    pid: EXTERNAL_PID,
     platform: "linux",
     isAlive: () => true,
     kill: () => {},
