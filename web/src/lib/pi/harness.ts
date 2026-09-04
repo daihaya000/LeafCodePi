@@ -216,6 +216,8 @@ import type {
   UiMessage,
 } from "@/lib/types";
 
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
 type PiModule = typeof import("@earendil-works/pi-coding-agent");
 
 type AgentSession = Awaited<
@@ -1866,6 +1868,27 @@ export function syncSessionName(
     sessionManager.appendSessionInfo(sessionName);
 }
 
+type GoalLoopTurnRoutingContext = {
+  prepareGoalLoopTurn?: () => Promise<boolean | "retry">;
+};
+
+function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void {
+  return (pi) => {
+    pi.on("session_start", (_event, ctx) => {
+      (ctx as GoalLoopTurnRoutingContext).prepareGoalLoopTurn = async () => {
+        const before = state().live.get(taskId);
+        // A replacement session emits session_start before attachSession(). Let
+        // its Goal Loop retry after the harness has subscribed to the session.
+        if (!before || before.session.sessionManager !== ctx.sessionManager) {
+          return "retry";
+        }
+        const after = await prepareLiveForPrompt(before, true);
+        return after.session === before.session;
+      };
+    });
+  };
+}
+
 async function createSession(options: {
   cwd: string;
   sessionFile?: string | null;
@@ -1879,6 +1902,8 @@ async function createSession(options: {
   accountId?: string | null;
   /** pi-subagents agent running as the main session persona. */
   agentName?: string | null;
+  /** Task id used to prepare the next Goal Loop turn before sending it. */
+  taskId?: string;
   /** Goal Loop sessions intentionally do not inherit WebUI compaction settings. */
   goalLoop?: boolean;
 }): Promise<SessionSetup> {
@@ -1919,7 +1944,10 @@ async function createSession(options: {
     cwd: options.cwd,
     agentDir,
     additionalExtensionPaths: bundled.map((entry) => entry.filePath),
-    extensionFactories: [registerDeferredTools],
+    extensionFactories: [
+      registerDeferredTools,
+      ...(options.taskId ? [registerGoalLoopTurnRouting(options.taskId)] : []),
+    ],
     skillsOverride: (base) => {
       if (agentOptions?.noSkills || skillPermissionRef.current === "deny") {
         return { skills: [], diagnostics: base.diagnostics };
@@ -2541,6 +2569,9 @@ async function ensureLive(
     }
     const project = task.projectId ? getProject(task.projectId) : undefined;
     const cwd = project?.rootPath ?? task.directory;
+    const persistedGoalLoop = task.sessionId
+      ? readGoalLoopState(cwd, task.sessionId)
+      : null;
     const modelRoute = await resolveConcreteModel(
       task.providerID && task.modelID
         ? modelValue(task.providerID, task.modelID)
@@ -2565,6 +2596,8 @@ async function ensureLive(
       skillPermission: task.skillPermission,
       permissionMode: task.permissionMode,
       agentName: task.agent ?? null,
+      taskId,
+      goalLoop: isGoalLoopLiveStatus(persistedGoalLoop?.status),
     });
     if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
       try {
@@ -4738,6 +4771,7 @@ export async function createTask(input: {
       skillPermission: input.skillPermission,
       // The selected agent talks as the main persona for this whole session.
       agentName: input.agent ?? null,
+      taskId: task.id,
       goalLoop: Boolean(input.goalLoop),
     });
     // createAgentSession may normalize the level from its model metadata. Keep
@@ -4802,6 +4836,7 @@ async function replaceLiveForRoute(
       ? live.session.thinkingLevel
       : task.thinkingLevel,
   );
+  const goalLoop = isActiveGoalLoopSession(live.session);
   const setup = await createSession({
     cwd: project?.rootPath ?? task.directory,
     sessionFile,
@@ -4812,6 +4847,8 @@ async function replaceLiveForRoute(
     skillPermission: live.skillPermission,
     permissionMode: task.permissionMode,
     agentName: task.agent ?? null,
+    taskId: task.id,
+    goalLoop,
   });
 
   const routeIds = modelId(route.model);
@@ -4842,19 +4879,21 @@ async function replaceLiveForRoute(
   }
 }
 
-/** Select a fresh account/provider before a queued/next user turn. */
+/** Select a fresh account/provider before a queued user or Goal Loop turn. */
 async function prepareLiveForPrompt(
   live: LiveRuntime,
   reroute: boolean,
 ): Promise<LiveRuntime> {
   const currentLive = state().live.get(live.taskId) ?? live;
   const task = getTask(currentLive.taskId);
+  const isGoalLoopTurn = isActiveGoalLoopSession(currentLive.session);
   const canRoute = Boolean(
     reroute &&
       task?.providerID &&
       task.modelID &&
       !currentLive.session.isStreaming &&
-      currentLive.session.messages.some((message) => message.role === "user") &&
+      (isGoalLoopTurn ||
+        currentLive.session.messages.some((message) => message.role === "user")) &&
       (isAccountRoutingProvider(task.providerID) &&
         accountRoutingMode(task.providerID) === "integrated" &&
         !task.accountIdExplicit),
@@ -4879,7 +4918,8 @@ async function prepareLiveForPrompt(
         accountRoutingMode(latestTask.providerID) !== "integrated" ||
         latestTask.accountIdExplicit ||
         latestLive.session.isStreaming ||
-        !latestLive.session.messages.some((message) => message.role === "user")
+        (!isActiveGoalLoopSession(latestLive.session) &&
+          !latestLive.session.messages.some((message) => message.role === "user"))
       ) {
         setTaskStatus(latestTask.id, "working");
         return latestLive;

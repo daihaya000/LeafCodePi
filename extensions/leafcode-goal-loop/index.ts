@@ -89,11 +89,16 @@ const TERMINAL = new Set<GoalLoopStatus>(["completed", "blocked", "stopped"]);
 
 const runtimes = new Map<string, Runtime>();
 
+type GoalLoopTurnRoutingContext = ExtensionContext & {
+  /** Returns false when routing replaced this session, or retry when not attached yet. */
+  prepareGoalLoopTurn?: () => Promise<boolean | "retry">;
+};
+
 type Runtime = {
   key: string;
   cwd: string;
   sessionId: string;
-  ctx: ExtensionContext;
+  ctx: GoalLoopTurnRoutingContext;
   pi: ExtensionAPI;
   awaitingTurn: boolean;
   pausedTurnPending: boolean;
@@ -812,15 +817,55 @@ function schedule(runtime: Runtime, delay = 250): void {
       schedule(runtime, 500);
       return;
     }
-    sendTurn(runtime);
+    void sendTurn(runtime);
   }, delay);
   runtime.timer.unref?.();
 }
 
-function sendTurn(runtime: Runtime): void {
+async function sendTurn(runtime: Runtime): Promise<void> {
   if (runtime.disposed || runtime.awaitingTurn) return;
-  const loop = currentLoop(runtime);
+  let loop = currentLoop(runtime);
   if (!loop || TERMINAL.has(loop.status) || loop.status === "paused") return;
+
+  if (loop.status === "queued") {
+    const retryingUnreadableResult = loop.unreadableStreak === 1;
+    if (loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns && !retryingUnreadableResult) {
+      loop.status = "paused";
+      loop.pauseReason = "turn_limit";
+      loop.error = "最大ターン数に到達したため一時停止しました。";
+      writeLoop(loop);
+      updateUI(runtime, loop);
+      return;
+    }
+  }
+
+  const prepareGoalLoopTurn = runtime.ctx.prepareGoalLoopTurn;
+  if (prepareGoalLoopTurn) {
+    try {
+      const prepared = await prepareGoalLoopTurn();
+      if (prepared === false) return;
+      if (prepared === "retry") {
+        schedule(runtime, 250);
+        return;
+      }
+    } catch (error) {
+      pauseLoop(
+        runtime,
+        "scheduler_error",
+        `ターン開始前のアカウント準備に失敗しました。${
+          error instanceof Error ? ` ${error.message}` : ` ${String(error)}`
+        }`,
+      );
+      return;
+    }
+    if (runtime.disposed) return;
+    loop = currentLoop(runtime);
+    if (!loop || TERMINAL.has(loop.status) || loop.status === "paused") return;
+    if (!runtime.ctx.isIdle() || runtime.ctx.hasPendingMessages()) {
+      schedule(runtime, 500);
+      return;
+    }
+  }
 
   let prompt: string;
   let kind: GoalLoopTurnKind;

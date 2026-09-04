@@ -459,10 +459,15 @@ test("waits for agent_end so tool turns do not stop the loop before the result J
   let busy = false;
   let turnIndex = 0;
   let sendCount = 0;
+  let prepareCount = 0;
 
   const ctx = {
     cwd,
     mode: "rpc",
+    prepareGoalLoopTurn: async () => {
+      prepareCount += 1;
+      return true;
+    },
     hasUI: false,
     isIdle: () => !busy,
     hasPendingMessages: () => false,
@@ -534,6 +539,7 @@ test("waits for agent_end so tool turns do not stop the loop before the result J
       readFileSync(join(cwd, ".pi", "goals-loop", "live-session.json"), "utf8"),
     );
     assert.equal(sendCount, 2);
+    assert.equal(prepareCount, 2);
     assert.equal(loop.status, "blocked");
     assert.equal(loop.progress[0].summary, "after tool");
   } finally {
