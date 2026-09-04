@@ -8,21 +8,35 @@ const REMOTE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
-    directory?: string;
-    remote?: string;
-    branch?: string;
-    setUpstream?: boolean;
-    force?: boolean;
+    directory?: unknown;
+    remote?: unknown;
+    branch?: unknown;
+    setUpstream?: unknown;
+    force?: unknown;
   } | null;
 
-  const directoryError = gitDirectoryError(body?.directory);
+  if (!body || typeof body.directory !== "string") {
+    return NextResponse.json({ error: "directory is required" }, { status: 400 });
+  }
+  const directoryError = gitDirectoryError(body.directory);
   if (directoryError) {
     return NextResponse.json(
       { error: directoryError },
       { status: directoryError === "directory is not allowed" ? 403 : 400 },
     );
   }
-  const { directory, remote: remoteRaw, branch: branchRaw, setUpstream, force } = body!;
+  if (
+    (body.remote !== undefined && typeof body.remote !== "string") ||
+    (body.branch !== undefined && typeof body.branch !== "string") ||
+    (body.setUpstream !== undefined && typeof body.setUpstream !== "boolean") ||
+    (body.force !== undefined && typeof body.force !== "boolean")
+  ) {
+    return NextResponse.json({ error: "invalid push options" }, { status: 400 });
+  }
+  const remoteRaw = body.remote as string | undefined;
+  const branchRaw = body.branch as string | undefined;
+  const setUpstream = body.setUpstream === true;
+  const force = body.force === true;
 
   const remote = remoteRaw?.trim() || "origin";
   if (!REMOTE_RE.test(remote)) {
@@ -52,7 +66,7 @@ export async function POST(req: NextRequest) {
     args.push(remote, "HEAD");
   }
 
-  const result = await runGit(directory!, args);
+  const result = await runGit(body.directory, args);
   if (result.code !== 0) {
     return NextResponse.json(
       {
