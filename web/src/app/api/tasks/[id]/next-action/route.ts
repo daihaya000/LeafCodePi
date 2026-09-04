@@ -46,11 +46,17 @@ export async function POST(
   }
   const body = (() => {
     try {
-      return JSON.parse(raw) as Record<string, unknown>;
+      const parsed: unknown = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : null;
     } catch {
-      return {};
+      return null;
     }
   })();
+  if (!body) {
+    return NextResponse.json({ error: "リクエストボディが不正です" }, { status: 400 });
+  }
   const { id } = await params;
   const task = getTask(id);
   if (!task) return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });

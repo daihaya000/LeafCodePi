@@ -165,4 +165,13 @@ describe("/api/tasks/[id]/next-action", () => {
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: "直接生成に失敗しました: test failure" });
   });
+
+  it("rejects a non-object request body before reading fields", async () => {
+    const response = await POST(
+      request(null),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(400);
+  });
 });
