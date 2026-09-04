@@ -1,3 +1,17 @@
+## 2026-09-05: permission-gate ループ tick 4
+
+残抜けを追加修正:
+
+- `systemctl reboot` / `loginctl poweroff` / `init 0`
+- `pwsh -NoProfile -Command`・`bash --noprofile -c`・`cmd /k`・未引用 `iex`
+- `find / -delete`・`rm -rf /*`
+- `Select-String -Path .env` / `rg --glob .env*`
+- `\\?\C:\Windows` write、`/dev/null` write 過検知、任意 `dd` 過検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 3
 
 残 FP/FN を追加修正:

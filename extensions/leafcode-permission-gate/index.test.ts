@@ -164,6 +164,16 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("bash -lc 'shutdown now'").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("wmic os call reboot").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("iex 'shutdown /s'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("systemctl reboot").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("pwsh -NoProfile -Command Stop-Computer").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("bash --noprofile --norc -c 'shutdown now'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("cmd /k shutdown /s").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("find / -delete").some((match) => match.label === "system path mutation"));
+    assert.ok(matchSystemSafetyCommand("rm -rf /*").some((match) => match.label === "system path mutation"));
+    assert.ok(matchSystemSafetyCommand("iex Stop-Computer").some((match) => match.label === "OS shutdown/restart"));
+    assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);
+    assert.deepEqual(matchSystemSafetyPath("/dev/null"), []);
+    assert.ok(matchSystemSafetyPath("\\\\?\\C:\\Windows\\System32\\foo").some((match) => match.category === "os"));
     assert.ok(
       configuredSafetyMatches(
         { mode: "allow", systemSafety: "standard" },
@@ -789,6 +799,15 @@ describe("LeafCode permission gate", () => {
         freshContext(cwd, sessionManager),
       );
       assert.equal((grepEnvGlob as { block?: boolean } | undefined)?.block, true);
+
+      const selectStringEnv = await handlers.get("tool_call")?.(
+        {
+          toolName: "powershell",
+          input: { command: "Select-String -Path .env -Pattern x" },
+        },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((selectStringEnv as { block?: boolean } | undefined)?.block, true);
 
       const findEnv = await handlers.get("tool_call")?.(
         { toolName: "find", input: { pattern: ".env*" } },
