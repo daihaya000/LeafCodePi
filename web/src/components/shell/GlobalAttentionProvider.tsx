@@ -33,6 +33,20 @@ function attentionItemKey(item: AttentionItemDto): string {
   return `${item.taskId}:${item.kinds.join("+")}`;
 }
 
+/** Drop resolved items so a later request on the same task can alert again. */
+export function takeFreshAttentionItems(
+  seen: Set<string>,
+  next: AttentionItemDto[],
+): AttentionItemDto[] {
+  const nextKeys = new Set(next.map(attentionItemKey));
+  for (const key of [...seen]) {
+    if (!nextKeys.has(key)) seen.delete(key);
+  }
+  const fresh = next.filter((item) => !seen.has(attentionItemKey(item)));
+  for (const item of next) seen.add(attentionItemKey(item));
+  return fresh;
+}
+
 function hasEditingFocus(): boolean {
   const focused = document.activeElement;
   return (
@@ -83,8 +97,8 @@ export function GlobalAttentionProvider() {
         if (closed) return;
         const next = data.attention ?? [];
         // 新規アイテム（種類の増分も含む）だけ検出して音を鳴らす。
-        const fresh = next.filter((item) => !seenIdsRef.current.has(attentionItemKey(item)));
-        for (const item of next) seenIdsRef.current.add(attentionItemKey(item));
+        // 解消済みキーは捨てる。残すと同じタスクの次の承認で音もモーダルも出ない。
+        const fresh = takeFreshAttentionItems(seenIdsRef.current, next);
         // 実質的な内容が変わらなければ state 参照を維持し、モーダルの再レンダーを避ける。
         const key = next.map((item) => attentionItemKey(item)).join("|");
         // tryAutoOpen は itemsRef を見る。setItems の effect を待つと、

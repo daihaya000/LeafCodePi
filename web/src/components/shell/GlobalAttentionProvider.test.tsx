@@ -17,7 +17,7 @@ vi.mock("next/navigation", () => ({
   usePathname: () => window.location.pathname,
 }));
 
-import { GlobalAttentionProvider } from "./GlobalAttentionProvider";
+import { GlobalAttentionProvider, takeFreshAttentionItems } from "./GlobalAttentionProvider";
 
 const taskDetail = (taskId: string) => ({
   id: taskId,
@@ -225,5 +225,48 @@ describe("GlobalAttentionProvider", () => {
     expect(body).toMatch(/このタスクの画面で応答できます/);
     expect(body).not.toMatch(/Aを許可しますか/);
     expect(mocks.playAttentionRequiredSound).toHaveBeenCalled();
+  });
+
+  it("alerts again after the previous request on the same task is gone", async () => {
+    let attention: { taskId: string; title: string; kinds: string[] }[] = [
+      { taskId: "task-a", title: "タスクA", kinds: ["permission"] },
+    ];
+    mocks.getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/tasks") return { attention };
+      if (path === "/api/tasks/task-a") return { task: taskDetail("task-a") };
+      throw new Error(`unexpected: ${path}`);
+    });
+    render(<GlobalAttentionProvider />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(mocks.playAttentionRequiredSound).toHaveBeenCalledTimes(1);
+
+    attention = [];
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    attention = [{ taskId: "task-a", title: "タスクA", kinds: ["permission"] }];
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(mocks.playAttentionRequiredSound).toHaveBeenCalledTimes(2);
+    expect(document.body.textContent ?? "").toMatch(/承認・回答が必要です/);
+  });
+});
+
+describe("takeFreshAttentionItems", () => {
+  it("forgets resolved keys so the same task can alert again", () => {
+    const seen = new Set<string>();
+    const item = { taskId: "task-a", title: "A", kinds: ["permission"] as const };
+    expect(takeFreshAttentionItems(seen, [item])).toEqual([item]);
+    expect(takeFreshAttentionItems(seen, [item])).toEqual([]);
+    expect(takeFreshAttentionItems(seen, [])).toEqual([]);
+    expect(takeFreshAttentionItems(seen, [item])).toEqual([item]);
   });
 });
