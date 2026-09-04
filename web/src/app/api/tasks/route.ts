@@ -21,6 +21,7 @@ import {
 } from "@/lib/auto-model";
 import { parseDirectModelKey } from "@/lib/direct-generation";
 import { isPromptImageList } from "@/lib/prompt-images";
+import { isThinkingLevel } from "@/lib/thinking-levels";
 import { resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import {
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
       projectId?: string | null;
       prompt?: string;
       model?: string;
-      thinkingLevel?: ThinkingLevel;
+      thinkingLevel?: unknown;
       auto?: unknown;
       autoOptimize?: unknown;
       autoRouteOverrides?: unknown;
@@ -101,6 +102,10 @@ export async function POST(req: NextRequest) {
       typeof body.projectId === "string" && body.projectId.trim()
         ? body.projectId.trim()
         : null;
+    const thinkingLevelInput = body.thinkingLevel;
+    if (thinkingLevelInput !== undefined && !isThinkingLevel(thinkingLevelInput)) {
+      return NextResponse.json({ error: "invalid thinkingLevel" }, { status: 400 });
+    }
     if (body.model !== undefined && typeof body.model !== "string") {
       return NextResponse.json({ error: "invalid model" }, { status: 400 });
     }
@@ -194,7 +199,7 @@ export async function POST(req: NextRequest) {
       };
     }
     let model = body.model;
-    let thinkingLevel = body.thinkingLevel;
+    let thinkingLevel: ThinkingLevel | undefined = thinkingLevelInput;
     let accountId =
       typeof body.accountId === "string" && body.accountId.trim()
         ? body.accountId.trim()

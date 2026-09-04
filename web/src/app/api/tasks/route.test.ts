@@ -269,4 +269,16 @@ describe("POST /api/tasks", () => {
     expect(response.status).toBe(400);
     expect(mocks.createTask).not.toHaveBeenCalled();
   });
+
+  it("rejects an invalid thinking level before creating a task", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({ projectId: null, prompt: "作業", thinkingLevel: "invalid" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.createTask).not.toHaveBeenCalled();
+  });
 });
