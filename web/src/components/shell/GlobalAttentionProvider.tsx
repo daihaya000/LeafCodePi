@@ -29,6 +29,11 @@ import type {
 
 const POLL_INTERVAL_MS = 4_000;
 
+/** Task composer sits in the same corner; lift the bell above the send button. */
+export const ATTENTION_BELL_BOTTOM_HOME = "bottom-[max(1rem,env(safe-area-inset-bottom))]";
+export const ATTENTION_BELL_BOTTOM_TASK =
+  "bottom-[max(5.5rem,calc(env(safe-area-inset-bottom)+4.5rem))]";
+
 function attentionItemKey(item: AttentionItemDto): string {
   return `${item.taskId}:${item.kinds.join("+")}`;
 }
@@ -271,7 +276,10 @@ export function GlobalAttentionProvider() {
         type="button"
         aria-label={`承認・回答が必要なタスク ${reopenableCount} 件`}
         onClick={() => setOpen(true)}
-        className="fixed right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[80] flex h-12 min-w-12 items-center justify-center gap-1 rounded-full border border-warning/40 bg-warning-bg px-3 text-sm font-semibold text-warning shadow-lg"
+        className={cx(
+          "fixed right-4 z-[80] flex h-12 min-w-12 items-center justify-center gap-1 rounded-full border border-warning/40 bg-warning-bg px-3 text-sm font-semibold text-warning shadow-lg",
+          activeTaskId ? ATTENTION_BELL_BOTTOM_TASK : ATTENTION_BELL_BOTTOM_HOME,
+        )}
       >
         <BellRing className="h-4 w-4" aria-hidden="true" />
         <span>{reopenableCount}</span>

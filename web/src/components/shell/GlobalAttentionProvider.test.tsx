@@ -17,7 +17,13 @@ vi.mock("next/navigation", () => ({
   usePathname: () => window.location.pathname,
 }));
 
-import { GlobalAttentionProvider, attentionItemStillOpen, takeFreshAttentionItems } from "./GlobalAttentionProvider";
+import {
+  ATTENTION_BELL_BOTTOM_HOME,
+  ATTENTION_BELL_BOTTOM_TASK,
+  GlobalAttentionProvider,
+  attentionItemStillOpen,
+  takeFreshAttentionItems,
+} from "./GlobalAttentionProvider";
 
 const taskDetail = (taskId: string) => ({
   id: taskId,
@@ -315,10 +321,27 @@ describe("GlobalAttentionProvider", () => {
     });
     expect(document.body.textContent ?? "").not.toMatch(/承認・回答が必要です/);
     const reopen = screen.getByRole("button", { name: "承認・回答が必要なタスク 1 件" });
+    expect(reopen.className).toContain(ATTENTION_BELL_BOTTOM_HOME);
+    expect(reopen.className).not.toContain(ATTENTION_BELL_BOTTOM_TASK);
     await act(async () => {
       reopen.click();
     });
     expect(document.body.textContent ?? "").toMatch(/承認・回答が必要です/);
+  });
+
+  it("lifts the reopen bell above the task composer send button", async () => {
+    window.history.pushState({}, "", "/task/task-b");
+    render(<GlobalAttentionProvider />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      screen.getByRole("button", { name: "後で" }).click();
+    });
+    const reopen = screen.getByRole("button", { name: "承認・回答が必要なタスク 1 件" });
+    expect(reopen.className).toContain(ATTENTION_BELL_BOTTOM_TASK);
+    expect(reopen.className).not.toContain(ATTENTION_BELL_BOTTOM_HOME);
   });
 
   it("does not show a reopen control when only the active task needs attention", async () => {
