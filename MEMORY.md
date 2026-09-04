@@ -1,3 +1,7 @@
+## 2026-09-05: 発見→修正ループ Tick 43
+
+**復元しても開いているタブが読み取り専用のまま** — `archiveTask` は SSE を出すが `restoreTask` は status だけ戻す。履歴タブの TaskView は `archived` のまま Composer を閉じたまま。復元時も snapshot を送る。
+
 ## 2026-09-05: 発見→修正ループ Tick 42
 
 **アーカイブ履歴タブが他操作で閉じる** — デスクトップの存在確認が archived 除外リストなので、履歴として開いたタブが `tasks-changed` のたびに削除扱いになる。archived を含め、新規アーカイブと完全削除だけ閉じる。

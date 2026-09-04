@@ -10,7 +10,7 @@ import {
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, archiveTask, getTaskDetail, isLiveBusyForReplace, markTaskWorkingIfIdle, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, archiveTask, getTaskDetail, isLiveBusyForReplace, markTaskWorkingIfIdle, restoreTask, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const previousHarness = (globalThis as Record<string, unknown>)[GLOBAL_KEY];
@@ -478,6 +478,32 @@ describe("archiveTask", () => {
     assert.equal(detail.isStreaming, false);
     assert.equal(live.has(task.id), false);
     assert.equal(emitted.at(-1), "archived");
+  });
+
+  it("emits restored so an open archived view can unlock the composer", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-restore-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "demo", rootPath: root });
+    const task = insertTask({ project, title: "restore archived" });
+    const live = new Map();
+    const events = new EventEmitter();
+    const emitted: Array<{ eventType?: string; status?: string }> = [];
+    events.on(task.id, (payload: { eventType?: string; task?: { status?: string } }) => {
+      emitted.push({ eventType: payload.eventType, status: payload.task?.status });
+    });
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      live,
+      events,
+    };
+
+    await archiveTask(task.id);
+    const restored = restoreTask(task.id);
+
+    assert.equal(restored.status, "idle");
+    assert.equal(getTask(task.id)?.status, "idle");
+    assert.equal(emitted.at(-1)?.eventType, "restored");
+    assert.equal(emitted.at(-1)?.status, "idle");
   });
 
   it("returns archived transcript without recreating a live session", async () => {

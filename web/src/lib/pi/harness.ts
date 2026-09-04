@@ -5962,7 +5962,19 @@ export function restoreTask(id: string): TaskSummary {
     throw Object.assign(new Error("アーカイブされたタスクのみ復元できます"), {
       status: 400,
     });
-  return patchTask(id, { status: "idle" }) ?? task;
+  const restored = patchTask(id, { status: "idle" }) ?? task;
+  // 開いたままの履歴タブが archived のまま残ると Composer が読み取り専用のまま。
+  emit(id, {
+    type: "snapshot",
+    task: toSummary(restored),
+    isStreaming: false,
+    isCompacting: false,
+    goalLoop: null,
+    permissionRequest: null,
+    questionRequest: null,
+    eventType: "restored",
+  });
+  return restored;
 }
 
 export function destroyTask(id: string): { ok: true } {
