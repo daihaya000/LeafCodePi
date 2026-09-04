@@ -249,7 +249,11 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("julia -e 'run(`shutdown now`)'").some((match) => match.label === "OS shutdown/restart"));
     assert.deepEqual(matchSystemSafetyCommand("echo rm -rf /"), []);
     assert.deepEqual(matchSystemSafetyCommand("echo iex 'shutdown /s'"), []);
+    assert.deepEqual(matchSystemSafetyCommand("echo 'rm -rf / ; shutdown now'"), []);
+    assert.ok(matchSystemSafetyCommand("echo foo; shutdown now").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("elixir -e 'System.cmd(\"shutdown\", [\"now\"])'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("erl -eval 'os:cmd(\"shutdown now\").'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("deno eval \"new Deno.Command('shutdown',{args:['now']}).outputSync()\"").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);

@@ -120,7 +120,7 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
 ];
 
 /** Soft shell wrappers: re-scan the nested payload, do not hard-gate the wrapper alone. */
-const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh|dash|ash|ksh|fish|csh|tcsh|tclsh|wish)(?:\.exe)?\b|(?:powershell|pwsh)(?:\.exe)?\b|cmd(?:\.exe)?\b|(?:python|python3|node|perl|ruby|php|lua|Rscript|julia|elixir|bun|deno)(?:\.exe)?\b|\bscript(?:\.exe)?\b|\bosascript\b|\bssh(?:\.exe)?\b|\bansible\b|\bexpect\b|\b(?:at|batch)\b|(?:Invoke-Expression|\biex|eval)\b|\bschtasks(?:\.exe)?\b)/i;
+const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh|dash|ash|ksh|fish|csh|tcsh|tclsh|wish)(?:\.exe)?\b|(?:powershell|pwsh)(?:\.exe)?\b|cmd(?:\.exe)?\b|(?:python|python3|node|perl|ruby|php|lua|Rscript|julia|elixir|bun|deno|erl)(?:\.exe)?\b|\bscript(?:\.exe)?\b|\bosascript\b|\bssh(?:\.exe)?\b|\bansible\b|\bexpect\b|\b(?:at|batch)\b|(?:Invoke-Expression|\biex|eval)\b|\bschtasks(?:\.exe)?\b)/i;
 const FIND_MUTATING_ACTION_PATTERN = /\bfind\b[^\r\n]*\s-(?:delete|exec|execdir|ok|okdir)\b/i;
 
 const MUTATING_COMMAND_PATTERN = /\b(?:rm|mv|cp|mkdir|touch|install|truncate|shred|unlink|del|erase|rd|rmdir|copy|move|rename|Set-Content|Add-Content|Clear-Content|Clear-Item|Out-File|Export-Csv|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|Expand-Archive|Set-Item|Set-ItemProperty|New-ItemProperty|Remove-ItemProperty|ri|ni|mi|ci|tar|unzip|tee|rsync|ln|mount|umount|chmod|chown|setfacl|robocopy|xcopy)\b|\b(?:sed|perl)\b[^\r\n]*(?:\s-i\b|--in-place\b)|\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:-O\b|--output\b|-OutFile\b)\s*\S+|(?<![0-9])>{1,2}(?!&)|[0-9]>{1,2}(?!&)/i;
@@ -382,8 +382,9 @@ function extractNestedShellCommands(command: string): string[] {
   if (
     !NESTED_SHELL_WRAPPER_PATTERN.test(command)
     && !/[-\/](?:EncodedCommand|enc|encoded|ec|e)\b/i.test(command)
-    && !/\b(?:os\.system|os\.execute|subprocess\.|child_process|execSync|execFile|passthru)\b/i.test(command)
+    && !/\b(?:os\.system|os\.execute|subprocess\.|child_process|execSync|execFile|passthru|Deno\.Command|Bun\.spawn)\b/i.test(command)
     && !/\b(?:system|exec|passthru|shell_exec)\s*\(/i.test(command)
+    && !/\bos:cmd\s*\(/i.test(command)
     && !/\bdo\s+shell\s+script\b/i.test(command)
     && !/\|\s*(?:(?:env|busybox|nice|time|xargs)\s+)*(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:bash|sh|zsh|dash|ash|pwsh|powershell|cmd)\b/i.test(command)
   ) {
@@ -404,7 +405,8 @@ function extractNestedShellCommands(command: string): string[] {
     // cmd /c /k /r and git-bash //c
     /\bcmd(?:\.exe)?\b(?:\s+\S+)*?\s+\/\/?[ckr]\s+(['"])([\s\S]*?)\1/gi,
     // Interpreters with leading -r / --eval / -p flags
-    /\b(?:python|python3|node|perl|ruby|php|lua|Rscript|julia|elixir|bun|deno)(?:\.exe)?\b[^\r\n]*?\s+(?:-e|--eval|-p|-c|-r|eval)\s+(['"])([\s\S]*?)\1/gi,
+    // Interpreters with leading -r / --eval / -p flags
+    /\b(?:python|python3|node|perl|ruby|php|lua|Rscript|julia|elixir|bun|deno|erl)(?:\.exe)?\b[^\r\n]*?\s+(?:-e|--eval|-p|-c|-r|eval)\s+(['"])([\s\S]*?)\1/gi,
     // script(1) -c '...'
     /\bscript(?:\.exe)?\b[^\r\n]*?-c\s+(['"])([\s\S]*?)\1/gi,
     // schtasks /tr "payload"
@@ -464,6 +466,16 @@ function extractNestedShellCommands(command: string): string[] {
   for (const match of command.matchAll(
     /\bdo\s+shell\s+script\s+(['"])([\s\S]*?)\1/gi,
   )) {
+    push(match[2]);
+  }
+  // Deno.Command('shutdown', ...) / Bun.spawn([...]) first argv
+  for (const match of command.matchAll(
+    /\b(?:Deno\.Command|Bun\.spawn(?:Sync)?)\s*\(\s*(['"])([^'"]+)\1/gi,
+  )) {
+    push(match[2]);
+  }
+  // Erlang os:cmd("...")
+  for (const match of command.matchAll(/\bos:cmd\s*\(\s*(['"])([\s\S]*?)\1/gi)) {
     push(match[2]);
   }
   // Julia run(`cmd`) / Cmd literals
@@ -536,6 +548,11 @@ function matchSystemSafetyCommandInner(command: string, depth: number): SystemSa
   // Decode obfuscation the same way protected-path scanning does, so
   // `& ('Stop-' + 'Computer')` still hits the shutdown rule at low/standard.
   const masked = maskHeredocBodies(command);
+  const docsOnly = isDocumentationOnlyCommand(masked);
+  // Plain `echo 'shutdown; rm -rf /'` is documentation — do not classify the quoted body.
+  if (docsOnly) {
+    return [];
+  }
   const decoded = collapseConcatenatedStrings(decodeCharCodes(masked));
   // Strip incidental quotes around command tokens: `"shutdown" /s`
   const normalized = decoded.replace(/\u0000/g, " ").replace(/(["'])(shutdown|reboot|poweroff|halt|Stop-Computer|Restart-Computer)\1/gi, "$2");
@@ -548,11 +565,8 @@ function matchSystemSafetyCommandInner(command: string, depth: number): SystemSa
     if (rule.pattern.test(normalized)) pushSafetyMatch(matches, rule);
   }
 
-  const docsOnly = isDocumentationOnlyCommand(masked);
-  const mutating = !docsOnly && (
-    MUTATING_COMMAND_PATTERN.test(normalized)
-    || FIND_MUTATING_ACTION_PATTERN.test(normalized)
-  );
+  const mutating = MUTATING_COMMAND_PATTERN.test(normalized)
+    || FIND_MUTATING_ACTION_PATTERN.test(normalized);
   // Home / Users paths are normal coding targets on Windows. Do not hard-gate them;
   // destructive cases still hit DANGEROUS_PATTERNS / protected-paths.
   if (mutating && SYSTEM_COMMAND_PATH_PATTERN.test(normalized)) {
@@ -575,7 +589,7 @@ function matchSystemSafetyCommandInner(command: string, depth: number): SystemSa
   }
 
   // Allow deeper nesting (bash -c "bash -c \"bash -c shutdown\"") without unbounded recursion.
-  if (!docsOnly && depth < 4) {
+  if (depth < 4) {
     for (const nested of extractNestedShellCommands(masked)) {
       for (const match of matchSystemSafetyCommandInner(nested, depth + 1)) {
         pushSafetyMatch(matches, match);
@@ -589,8 +603,8 @@ function matchSystemSafetyCommandInner(command: string, depth: number): SystemSa
         }
       }
     }
-    // at/batch heredocs schedule real commands; scan bodies before they are masked away.
-    if (/\b(?:at|batch)\b/i.test(command)) {
+    // at/batch/deno heredocs may schedule or embed real commands; scan bodies before they are masked away.
+    if (/\b(?:at|batch|deno)\b/i.test(command)) {
       for (const match of command.matchAll(
         /(<<-?\s*['"]?)(\w+)(['"]?[^\r\n]*\r?\n)([\s\S]*?)(\r?\n\2\b)/gi,
       )) {

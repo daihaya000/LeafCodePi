@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 15
+
+- FP: `echo '…; shutdown…'`（documentation-only はルール分類自体をスキップ）
+- FN: `erl os:cmd` / `Deno.Command` / `deno <<EOF` heredoc 本文
+- 実コマンド `echo foo; shutdown` は引き続き検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 14
 
 - FP: `echo rm -rf /` / `echo iex 'shutdown'`（documentation-only はネスト展開・パス変異ゲートをスキップ）
