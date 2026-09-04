@@ -3,6 +3,7 @@ import {
   shouldAutoSendQueuedFollowUp,
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
+  shouldQueueFollowUp,
 } from "./queued-follow-up";
 
 const idle = {
@@ -13,6 +14,34 @@ const idle = {
   goalLoopLive: false,
   stopRequested: false,
 };
+
+describe("queued follow-up enqueue", () => {
+  it("queues a follow-up only while working in queue mode", () => {
+    expect(
+      shouldQueueFollowUp({ working: true, deliveryMode: "queue", goalLoopEnabled: false }),
+    ).toBe(true);
+    expect(
+      shouldQueueFollowUp({ working: true, deliveryMode: "steer", goalLoopEnabled: false }),
+    ).toBe(false);
+    expect(
+      shouldQueueFollowUp({ working: false, deliveryMode: "queue", goalLoopEnabled: false }),
+    ).toBe(false);
+  });
+
+  it("does not queue while a Goal loop is on, because drain never runs", () => {
+    expect(
+      shouldQueueFollowUp({ working: true, deliveryMode: "queue", goalLoopEnabled: true }),
+    ).toBe(false);
+    expect(
+      shouldQueueFollowUp({
+        working: true,
+        deliveryMode: "queue",
+        goalLoopEnabled: false,
+        goalLoopLive: true,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("queued follow-up drain", () => {
   it("drains the next item once the run is idle", () => {

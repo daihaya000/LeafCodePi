@@ -114,6 +114,7 @@ import {
   shouldAutoSendQueuedFollowUp,
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
+  shouldQueueFollowUp,
 } from "@/lib/queued-follow-up";
 import { isHangRetryUserMessage } from "@/lib/hang-retry";
 import { mergeTaskDelta, type TaskDeltaState } from "@/lib/task-delta";
@@ -1344,7 +1345,14 @@ export const TaskView = memo(function TaskView({
     const submittedPrompt = prompt;
     const submittedAttachments = attachments;
     let optimistic = false;
-    if (working && deliveryMode === "queue") {
+    if (
+      shouldQueueFollowUp({
+        working,
+        deliveryMode,
+        goalLoopEnabled,
+        goalLoopLive,
+      })
+    ) {
       setQueuedFollowUps((current) => [
         ...current,
         {
@@ -1356,6 +1364,10 @@ export const TaskView = memo(function TaskView({
       setPrompt("");
       setAttachments([]);
       setError(null);
+      return;
+    }
+    if (working && (goalLoopEnabled || goalLoopLive)) {
+      setError("Goal loop の実行中は追加の送信はできません");
       return;
     }
     const wasStopped = stopRequestedRef.current;
@@ -2857,7 +2869,7 @@ export const TaskView = memo(function TaskView({
                 type="submit"
                 aria-label="送信"
                 busy={submitting}
-                disabled={compacting || agentChanging || (!prompt.trim() && attachments.length === 0)}
+                disabled={compacting || agentChanging || ((goalLoopEnabled || goalLoopLive) && working) || (!prompt.trim() && attachments.length === 0)}
               >
                 {!submitting && <ArrowUp className="h-4.5 w-4.5" />}
               </Button>

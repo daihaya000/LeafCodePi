@@ -1,3 +1,7 @@
+## 2026-09-05: 発見→修正ループ Tick 36
+
+**Goal loop ON のまま実行中に送るとキューに埋まって動かない** — working + キュー分岐が Goal loop より先に走り、drain は `goalLoopEnabled` で永久停止する。Goal loop 中はキューせず、送信も拒否する。
+
 ## 2026-09-05: 発見→修正ループ Tick 35
 
 **送信受理後も停止ボタンが出ない** — queuePrompt は promptActive にするが status は agent_start / 圧縮後まで idle。HTTP も idle のまま返すので、圧縮待ちのあいだ停止できず設定 UI も開いたまま。受理時点で working にし、クライアントも応答の task を反映する。

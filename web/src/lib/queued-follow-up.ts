@@ -3,6 +3,20 @@
  * the server already clearQueue()s on stop, but queuedFollowUps live only in TaskView.
  */
 
+export function shouldQueueFollowUp(input: {
+  working: boolean;
+  deliveryMode: "queue" | "steer";
+  goalLoopEnabled: boolean;
+  goalLoopLive?: boolean;
+}): boolean {
+  return (
+    input.working &&
+    input.deliveryMode === "queue" &&
+    !input.goalLoopEnabled &&
+    !input.goalLoopLive
+  );
+}
+
 export function shouldDrainQueuedFollowUp(input: {
   working: boolean;
   submitting: boolean;
