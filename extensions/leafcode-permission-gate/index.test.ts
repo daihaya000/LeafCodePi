@@ -258,6 +258,10 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("lxc exec u -- shutdown now").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("firejail --noprofile shutdown now").some((match) => match.label === "OS shutdown/restart"));
     assert.deepEqual(matchSystemSafetyPath("src/lib/utils.ts"), []);
+    assert.ok(matchSystemSafetyCommand("virsh shutdown domain").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("qm shutdown 100").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("VBoxManage controlvm x poweroff").some((match) => match.label === "OS shutdown/restart"));
+    assert.deepEqual(matchSystemSafetyCommand("echo virsh shutdown domain"), []);
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);

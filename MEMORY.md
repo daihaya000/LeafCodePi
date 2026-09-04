@@ -1,3 +1,12 @@
+## 2026-09-05: permission-gate ループ tick 17
+
+- FN: VM 管理の電源操作 — `virsh` / `qm` / `pct` / `VBoxManage controlvm … poweroff`
+- `echo virsh shutdown` はコマンド位置化で非検知のまま
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 16
 
 - FN: `nerdctl` / `lxc` / `machinectl` / `firejail` / `ctr` soft-prefix
