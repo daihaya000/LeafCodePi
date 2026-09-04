@@ -47,10 +47,8 @@ import {
   AUTO_MODEL_VALUE,
   autoModelValue,
   autoVariantToThinkingLevel,
-  chooseAutoModel,
-  classifyPrompt,
+  type AutoDecision,
   type AutoOptimizeMode,
-  type AutoProviderUsage,
 } from "@/lib/auto-model";
 import {
   AUTO_OPTIMIZE_SETTING_KEY,
@@ -65,6 +63,7 @@ import {
   writeAutoSettingToServer,
 } from "@/lib/auto-settings";
 import {
+  AUTO_TASK_PROMPT_MAX,
   readAutoTaskRecord,
   writeAutoTaskRecord,
   type AutoTaskRecord,
@@ -435,7 +434,6 @@ export const TaskView = memo(function TaskView({
   } | null>(null);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
-  const [autoUsage, setAutoUsage] = useState<AutoProviderUsage>({});
   const [modelSelection, setModelSelection] = useState("");
   const [autoOptimizeMode, setAutoOptimizeMode] = useState<AutoOptimizeMode>(
     () => readAutoOptimizeMode(),
@@ -725,7 +723,6 @@ export const TaskView = memo(function TaskView({
     setSessionHydrating(true);
     setSseReconnecting(false);
     setModelsLoading(true);
-    setAutoUsage({});
 
     const connect = () => {
       if (closed) return;
@@ -931,15 +928,13 @@ export const TaskView = memo(function TaskView({
     // The SSE endpoint sends the initial full snapshot; avoid a duplicate task-detail request.
     connect();
 
-    void getJson<{ models: ModelOption[]; autoUsage?: AutoProviderUsage }>("/api/models").then((result) => {
+    void getJson<{ models: ModelOption[] }>("/api/models").then((result) => {
       if (!closed) {
         setModels(result.models);
-        setAutoUsage(result.autoUsage ?? {});
         setModelsLoading(false);
       }
     }).catch(() => {
       if (!closed) {
-        setAutoUsage({});
         setModelsLoading(false);
       }
       /* models are optional for the timeline */
@@ -1344,31 +1339,15 @@ export const TaskView = memo(function TaskView({
         })
         .filter((item): item is { mimeType: string; data: string } => item !== null);
       const isAuto = modelValue === AUTO_MODEL_VALUE;
-      const autoDecision =
-        isAuto
-          ? chooseAutoModel({
-              models,
-              tier: classifyPrompt(prompt, {
-                hasImages: images.length > 0,
-                attachmentCount: images.length,
-                historyMessageCount: messages.length,
-                recentFailure: task?.status === "error" || Boolean(task?.error),
-              }),
-              hasImages: images.length > 0,
-              mode: autoOptimizeMode,
-              usage: autoUsage,
-              config: autoRouteConfig,
-            })
-          : undefined;
-      if (isAuto && !autoDecision) {
-        throw new Error(
-          "Auto で選択可能なモデルがありません。プロバイダ接続とモデル有効化を確認してください。",
-        );
-      }
       let resolvedAgent: string | null | undefined;
+      let resolvedAutoDecision: AutoDecision | undefined;
       if (goalLoopEnabled) {
         if (images.length > 0) throw new Error("Goal loop の開始では画像添付は使えません");
-        const result = await sendJson<{ loop: GoalLoopDto | null; agent?: string | null }>(
+        const result = await sendJson<{
+          loop: GoalLoopDto | null;
+          agent?: string | null;
+          autoDecision?: AutoDecision;
+        }>(
           `/api/tasks/${taskId}/goal-loop`,
           {
             action: "start",
@@ -1378,18 +1357,17 @@ export const TaskView = memo(function TaskView({
             cooldownSeconds: goalLoopCooldownSeconds,
             forceFullRun: goalLoopForceFullRun,
             ...(agentSelection ? { agent: agentSelection } : {}),
-            ...(autoDecision ? { auto: true } : {}),
-            ...(autoDecision
+            ...(isAuto
               ? {
-                  model: autoModelValue(autoDecision),
-                  ...(autoVariantToThinkingLevel(autoDecision.variant)
-                    ? { thinkingLevel: autoVariantToThinkingLevel(autoDecision.variant) }
-                    : {}),
+                  auto: true,
+                  autoOptimize: autoOptimizeMode,
+                  autoRouteOverrides: autoRouteConfig,
                 }
               : {}),
           },
         );
         resolvedAgent = result.agent;
+        resolvedAutoDecision = result.autoDecision;
         setGoalLoopEnabled(false);
       } else {
         const optimisticId = `optimistic:${taskId}:${nextOptimisticMessageIdRef.current++}`;
@@ -1422,16 +1400,17 @@ export const TaskView = memo(function TaskView({
         setPrompt("");
         setAttachments([]);
         optimistic = true;
-        const result = await sendJson<{ task: TaskSummary }>(`/api/tasks/${taskId}/prompt`, {
+        const result = await sendJson<{
+          task: TaskSummary;
+          autoDecision?: AutoDecision;
+        }>(`/api/tasks/${taskId}/prompt`, {
           prompt: submittedPrompt,
           images,
-          ...(autoDecision
+          ...(isAuto
             ? {
                 auto: true,
-                model: autoModelValue(autoDecision),
-                ...(autoVariantToThinkingLevel(autoDecision.variant)
-                  ? { thinkingLevel: autoVariantToThinkingLevel(autoDecision.variant) }
-                  : {}),
+                autoOptimize: autoOptimizeMode,
+                autoRouteOverrides: autoRouteConfig,
               }
             : {}),
           ...(agentSelection ? { agent: agentSelection } : {}),
@@ -1441,6 +1420,18 @@ export const TaskView = memo(function TaskView({
           ...(working && deliveryMode === "steer" ? { streamingBehavior: "steer" } : {}),
         });
         resolvedAgent = result.task.agent ?? null;
+        resolvedAutoDecision = result.autoDecision;
+      }
+      if (isAuto && resolvedAutoDecision) {
+        const nextRecord: AutoTaskRecord = {
+          decision: resolvedAutoDecision,
+          ...(!images.length && submittedPrompt.length <= AUTO_TASK_PROMPT_MAX
+            ? { prompt: submittedPrompt }
+            : {}),
+          ...(resolvedAgent?.trim() ? { agent: resolvedAgent.trim() } : {}),
+        };
+        writeAutoTaskRecord(taskId, nextRecord);
+        setAutoRecord(nextRecord);
       }
       if (resolvedAgent !== undefined) {
         const nextAgent = resolvedAgent?.trim() || DEFAULT_AGENT;
@@ -1481,6 +1472,7 @@ export const TaskView = memo(function TaskView({
       previousStatus === undefined ||
       previousStatus === "error" ||
       currentStatus !== "error" ||
+      task?.limitError === true ||
       !escalation ||
       autoRecord?.retried ||
       !autoRecord.prompt ||
@@ -1505,6 +1497,7 @@ export const TaskView = memo(function TaskView({
     void sendJson(`/api/tasks/${taskId}/prompt`, {
       prompt: autoRecord.prompt,
       auto: true,
+      autoRetry: true,
       model: autoModelValue(escalation),
       ...(retryThinkingLevel ? { thinkingLevel: retryThinkingLevel } : {}),
       ...(autoRecord.agent ? { agent: autoRecord.agent } : {}),
@@ -1528,6 +1521,7 @@ export const TaskView = memo(function TaskView({
     permissionMode,
     skillPermission,
     subagentPermission,
+    task?.limitError,
     task?.status,
     taskId,
   ]);

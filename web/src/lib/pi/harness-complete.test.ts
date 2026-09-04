@@ -352,9 +352,11 @@ describe("completeModelText", () => {
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
     const agentDir = useTestAgentDir(dir);
-    const anthropic = createAccount({ label: "Claude", providers: ["anthropic"] });
+    const anthropic = createAccount({ label: "Claude 1", providers: ["anthropic"] });
+    const anthropicSecond = createAccount({ label: "Claude 2", providers: ["anthropic"] });
     const codex = createAccount({ label: "Codex", providers: ["openai-codex"] });
     storeAccountProviderAuth(anthropic.id, agentDir);
+    storeAccountProviderAuth(anthropicSecond.id, agentDir);
     const codexAuthPath = accountAuthPath(codex.id, agentDir);
     mkdirSync(dirname(codexAuthPath), { recursive: true });
     writeFileSync(
@@ -380,6 +382,11 @@ describe("completeModelText", () => {
           : undefined,
       completeSimple: async () => {
         calls.push(accountId);
+        if (providerID === "anthropic") {
+          throw Object.assign(new Error("HTTP 429 Too Many Requests"), {
+            status: 429,
+          });
+        }
         return success;
       },
     });
@@ -405,9 +412,9 @@ describe("completeModelText", () => {
       modelRuntime: limitRuntime,
       accountRuntimes: new AccountRuntimeManager(
         async (accountId) =>
-          (accountId === anthropic.id
-            ? makeAccountRuntime(anthropic.id, "anthropic", "claude-sonnet")
-            : makeAccountRuntime(codex.id, "openai-codex", "codex-model")) as never,
+          (accountId === codex.id
+            ? makeAccountRuntime(codex.id, "openai-codex", "codex-model")
+            : makeAccountRuntime(accountId, "anthropic", "claude-sonnet")) as never,
       ),
       initPromise: null,
       initError: null,
@@ -425,6 +432,6 @@ describe("completeModelText", () => {
       }),
       "代替",
     );
-    assert.deepEqual(calls, ["default", codex.id]);
+    assert.deepEqual(calls, [anthropic.id, anthropicSecond.id, codex.id]);
   });
 });

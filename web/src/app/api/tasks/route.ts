@@ -1,20 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listAccounts } from "@/lib/accounts";
 import { listTasks } from "@/lib/store";
 import {
   createTask,
   destroyArchivedTasksByProject,
   getTaskSummariesWithTodoProgress,
-  listModelsForAccounts,
   jsonError,
+  resolveAutoModel,
   listPendingAttention,
 } from "@/lib/pi/harness";
 import {
   autoModelValue,
-  autoProviderUsageFromModels,
   autoVariantToThinkingLevel,
-  chooseAutoModel,
-  classifyPrompt,
   AUTO_MODEL_VALUE,
   DEFAULT_AUTO_OPTIMIZE_MODE,
   isAutoOptimizeMode,
@@ -211,29 +207,17 @@ export async function POST(req: NextRequest) {
         ? undefined
         : normalizeAutoRouteConfig(body.autoRouteOverrides);
     if (body.auto === true) {
-      const accounts = listAccounts();
-      const models = await listModelsForAccounts(
-        accounts.map((account) => ({
-          id: account.id,
-          label: account.label,
-          providers: account.providers,
-        })),
-      );
       const hasImages = Boolean(body.images?.length);
       autoDecision =
-        chooseAutoModel({
-          models,
-          tier: classifyPrompt(body.prompt, {
-            hasImages,
-            attachmentCount: body.images?.length ?? 0,
-          }),
+        (await resolveAutoModel({
+          prompt: body.prompt,
           hasImages,
+          attachmentCount: body.images?.length ?? 0,
           mode: isAutoOptimizeMode(body.autoOptimize)
             ? body.autoOptimize
             : DEFAULT_AUTO_OPTIMIZE_MODE,
-          usage: autoProviderUsageFromModels(models),
           config: autoRouteConfig,
-        }) ?? undefined;
+        })) ?? undefined;
       if (!autoDecision) {
         throw Object.assign(
           new Error(
@@ -272,6 +256,7 @@ export async function POST(req: NextRequest) {
       images: body.images,
       ...(agent ? { agent } : {}),
       accountId,
+      accountIdExplicit: body.auto !== true,
       subagentPermission: body.subagentPermission,
       permissionMode: body.permissionMode,
       skillPermission: body.skillPermission,

@@ -331,6 +331,13 @@ describe("integrated session routing", () => {
     expect(fakePi.sessions[1]).toMatchObject({ accountId: low.id });
     expect(fakePi.sessions[1]?.prompts).toEqual(["次の確認"]);
     assert.equal(getTask(task.id)?.accountId, low.id);
+
+    await promptTask(task.id, "Auto指定アカウントで続行", undefined, {
+      model: `${high.id}::anthropic::claude-sonnet`,
+      accountIdExplicit: false,
+    });
+    await waitFor(() => getTask(task.id)?.accountId === high.id && fakePi.sessions.length === 3);
+    expect(fakePi.sessions[2]).toMatchObject({ accountId: high.id });
   });
 
   it("crosses to another provider at the next turn after a limit response", async () => {

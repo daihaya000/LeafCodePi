@@ -49,6 +49,8 @@ export type TaskSummary = {
   createdAt: string;
   updatedAt: string;
   error?: string | null;
+  /** 直前の失敗がプロバイダー利用制限であることを示す一時的なUIヒント。 */
+  limitError?: boolean;
   todoProgress?: TodoProgressDto;
   /** 左メニューで使う軽量な Goal Loop 進捗。詳細状態は TaskDetail.goalLoop に保持する。 */
   goalLoopSummary?: GoalLoopSummaryDto;

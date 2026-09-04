@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   listPendingAttention: vi.fn(),
   listAccounts: vi.fn(),
   resolveAutoAgent: vi.fn(),
+  resolveAutoModel: vi.fn(),
   parseDirectModelKey: vi.fn(),
   loadAgentDefinition: vi.fn(),
   getCachedUsage: vi.fn(),
@@ -32,6 +33,7 @@ describe("POST /api/tasks", () => {
   beforeEach(() => {
     mocks.createTask.mockReset();
     mocks.resolveAutoAgent.mockReset();
+    mocks.resolveAutoModel.mockReset();
     mocks.parseDirectModelKey.mockReset();
     mocks.listModelsForAccounts.mockReset();
     mocks.listAccounts.mockReset();
@@ -81,6 +83,14 @@ describe("POST /api/tasks", () => {
 
   it("keeps an explicit Auto route authoritative when Auto resolves to a fixed-model agent", async () => {
     mocks.resolveAutoAgent.mockResolvedValue("build");
+    mocks.resolveAutoModel.mockResolvedValue({
+      providerID: "openai-codex",
+      modelID: "gpt-5.6-sol",
+      variant: "medium",
+      tier: "light",
+      mode: "balanced",
+      reason: "test",
+    });
     mocks.loadAgentDefinition.mockReturnValue({ model: "openai-codex/gpt-5.6-luna" });
     mocks.listModelsForAccounts.mockResolvedValue([
       {

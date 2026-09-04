@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getTask: vi.fn(),
   readSessionConversation: vi.fn(),
   resolveAutoAgent: vi.fn(),
+  resolveAutoModel: vi.fn(),
   promptTask: vi.fn(),
   jsonError: vi.fn((error: unknown) => ({
     error: error instanceof Error ? error.message : String(error),
@@ -20,6 +21,7 @@ vi.mock("@/lib/auto-agent", () => ({ resolveAutoAgent: mocks.resolveAutoAgent })
 vi.mock("@/lib/pi/harness", () => ({
   jsonError: mocks.jsonError,
   promptTask: mocks.promptTask,
+  resolveAutoModel: mocks.resolveAutoModel,
 }));
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
@@ -38,6 +40,7 @@ describe("POST /api/tasks/[id]/prompt", () => {
     mocks.getTask.mockReset();
     mocks.readSessionConversation.mockReset();
     mocks.resolveAutoAgent.mockReset();
+    mocks.resolveAutoModel.mockReset();
     mocks.promptTask.mockReset();
     mocks.getTask.mockReturnValue({
       id: "task-1",
@@ -50,6 +53,14 @@ describe("POST /api/tasks/[id]/prompt", () => {
       { role: "assistant", text: "設計を確認します" },
     ]);
     mocks.resolveAutoAgent.mockResolvedValue("reviewer");
+    mocks.resolveAutoModel.mockResolvedValue({
+      providerID: "openai-codex",
+      modelID: "gpt-5.6-sol",
+      variant: "medium",
+      tier: "heavy",
+      mode: "balanced",
+      reason: "test",
+    });
     mocks.promptTask.mockResolvedValue({ id: "task-1", agent: "reviewer" });
   });
 
@@ -100,6 +111,33 @@ describe("POST /api/tasks/[id]/prompt", () => {
         agent: "build",
         model: "openai-codex::gpt-5.6-sol",
         thinkingLevel: "medium",
+        accountIdExplicit: false,
+      }),
+    );
+  });
+
+  it("keeps an explicit Auto retry route without resolving Auto again", async () => {
+    const response = await POST(
+      request({
+        prompt: "再試行",
+        auto: true,
+        autoRetry: true,
+        model: "anthropic::claude-sonnet-5",
+        thinkingLevel: "high",
+      }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.resolveAutoModel).not.toHaveBeenCalled();
+    expect(mocks.promptTask).toHaveBeenCalledWith(
+      "task-1",
+      "再試行",
+      undefined,
+      expect.objectContaining({
+        model: "anthropic::claude-sonnet-5",
+        thinkingLevel: "high",
+        accountIdExplicit: false,
       }),
     );
   });
@@ -113,7 +151,14 @@ describe("POST /api/tasks/[id]/prompt", () => {
     });
 
     const response = await POST(
-      request({ prompt: "続けて", agent: AUTO_AGENT_VALUE, streamingBehavior: "steer" }),
+      request({
+        prompt: "続けて",
+        agent: AUTO_AGENT_VALUE,
+        auto: true,
+        model: "anthropic::stale-model",
+        thinkingLevel: "high",
+        streamingBehavior: "steer",
+      }),
       { params: Promise.resolve({ id: "task-1" }) },
     );
 
@@ -123,7 +168,12 @@ describe("POST /api/tasks/[id]/prompt", () => {
       "task-1",
       "続けて",
       undefined,
-      expect.objectContaining({ agent: "build", streamingBehavior: "steer" }),
+      expect.objectContaining({
+        agent: "build",
+        model: undefined,
+        thinkingLevel: undefined,
+        streamingBehavior: "steer",
+      }),
     );
   });
 

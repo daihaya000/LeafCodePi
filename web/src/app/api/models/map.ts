@@ -11,7 +11,12 @@ function usageKey(providerId: string, accountId?: string | null): string {
 
 /** Attach CodexBar usage percent / maxed flag to matching model options. */
 export function attachCodexBarUsage<
-  T extends { providerID: string; accountId?: string | null },
+  T extends {
+    providerID: string;
+    accountId?: string | null;
+    codexbarMaxed?: boolean;
+    codexbarStale?: boolean;
+  },
 >(options: T[], providers: CodexBarProvider[]): T[] {
   if (providers.length === 0) return options;
   const byKey = new Map(
@@ -20,7 +25,12 @@ export function attachCodexBarUsage<
   return options.map((option) => {
     // Integrated options already carry the selected candidate's strict-TTL usage;
     // never overwrite it with CodexBar's aggregate parent row.
-    if ("routingMode" in option && option.routingMode === "integrated") return option;
+    if (
+      ("routingMode" in option && option.routingMode === "integrated") ||
+      (option.codexbarMaxed === true && option.codexbarStale !== true)
+    ) {
+      return option;
+    }
     const provider = byKey.get(usageKey(option.providerID, option.accountId));
     if (!provider) return option;
     return {

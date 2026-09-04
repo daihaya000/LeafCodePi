@@ -8,10 +8,19 @@ import {
   goalLoopCommand,
   goalLoopState,
   jsonError,
+  resolveAutoModel,
   setTaskAgent,
   setTaskModel,
   setTaskThinkingLevel,
 } from "@/lib/pi/harness";
+import {
+  autoModelValue,
+  autoVariantToThinkingLevel,
+  DEFAULT_AUTO_OPTIMIZE_MODE,
+  isAutoOptimizeMode,
+  normalizeAutoRouteConfig,
+  type AutoDecision,
+} from "@/lib/auto-model";
 import {
   clampGoalLoopCooldownSeconds,
   clampGoalLoopMaxTurns,
@@ -33,6 +42,8 @@ type Body = {
   model?: string;
   thinkingLevel?: string;
   auto?: unknown;
+  autoOptimize?: unknown;
+  autoRouteOverrides?: unknown;
   agent?: string;
 };
 
@@ -81,12 +92,52 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (body?.auto !== undefined && typeof body.auto !== "boolean") {
       return NextResponse.json({ error: "invalid auto" }, { status: 400 });
     }
+    if (body?.autoOptimize !== undefined && !isAutoOptimizeMode(body.autoOptimize)) {
+      return NextResponse.json({ error: "invalid autoOptimize" }, { status: 400 });
+    }
+    if (
+      (body?.autoOptimize !== undefined || body?.autoRouteOverrides !== undefined) &&
+      body?.auto !== true
+    ) {
+      return NextResponse.json({ error: "Auto設定にはautoが必要です" }, { status: 400 });
+    }
+    const currentTask = getTask(id);
+    if (!currentTask) {
+      return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });
+    }
+    let model = body?.model;
+    let thinkingLevel = body?.thinkingLevel;
+    let autoDecision: AutoDecision | undefined;
+    if (body?.auto === true && currentTask.status !== "working") {
+      autoDecision =
+        (await resolveAutoModel({
+          prompt: goal,
+          hasImages: false,
+          historyMessageCount: readSessionConversation(currentTask.sessionFile).length,
+          recentFailure:
+            currentTask.status === "error" || Boolean(currentTask.error),
+          mode: isAutoOptimizeMode(body.autoOptimize)
+            ? body.autoOptimize
+            : DEFAULT_AUTO_OPTIMIZE_MODE,
+          config:
+            body.autoRouteOverrides === undefined
+              ? undefined
+              : normalizeAutoRouteConfig(body.autoRouteOverrides),
+        })) ?? undefined;
+      if (!autoDecision) {
+        return NextResponse.json(
+          { error: "Auto で選択可能なモデルがありません" },
+          { status: 400 },
+        );
+      }
+      model = autoModelValue(autoDecision);
+      thinkingLevel = autoVariantToThinkingLevel(autoDecision.variant);
+    } else if (currentTask.status === "working") {
+      model = undefined;
+      thinkingLevel = undefined;
+    }
     let agent = body?.agent?.trim() || undefined;
     if (agent === AUTO_AGENT_VALUE) {
-      const currentTask = getTask(id);
-      if (!currentTask) {
-        return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });
-      }
       if (currentTask.status === "working") {
         agent = currentTask.agent?.trim() || undefined;
       } else {
@@ -98,7 +149,7 @@ export async function POST(req: NextRequest, { params }: Params) {
                 ...(currentTask.accountId ? { accountId: currentTask.accountId } : {}),
               }
             : undefined;
-        const requestedModel = parseDirectModelKey(body?.model) ?? taskModel;
+        const requestedModel = parseDirectModelKey(model) ?? taskModel;
         agent = await resolveAutoAgent({
           conversation: readSessionConversation(currentTask.sessionFile),
           prompt: goal,
@@ -110,8 +161,10 @@ export async function POST(req: NextRequest, { params }: Params) {
         await setTaskAgent(id, agent);
       }
     }
-    if (body?.model) await setTaskModel(id, body.model);
-    if (body?.thinkingLevel) await setTaskThinkingLevel(id, body.thinkingLevel);
+    if (model) {
+      await setTaskModel(id, model, { accountIdExplicit: body?.auto !== true });
+    }
+    if (thinkingLevel) await setTaskThinkingLevel(id, thinkingLevel);
     const loop = await goalLoopCommand(id, {
       action: "start",
       goal,
@@ -120,7 +173,11 @@ export async function POST(req: NextRequest, { params }: Params) {
       cooldownSeconds: clampGoalLoopCooldownSeconds(body?.cooldownSeconds),
       forceFullRun: body?.forceFullRun === true,
     });
-    return NextResponse.json({ loop, agent: getTask(id)?.agent ?? null });
+    return NextResponse.json({
+      loop,
+      agent: getTask(id)?.agent ?? null,
+      ...(autoDecision ? { autoDecision } : {}),
+    });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

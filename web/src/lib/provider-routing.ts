@@ -124,10 +124,20 @@ export function setAccountRoutingMode(
 }
 
 const LIMIT_MARK_TTL_MS = 5 * 60 * 1000;
-const providerLimitMarks = new Map<
-  string,
-  { markedAt: number; expiresAt: number; resetAt: string | null }
->();
+type ProviderLimitMark = {
+  markedAt: number;
+  expiresAt: number;
+  resetAt: string | null;
+};
+const PROVIDER_LIMIT_MARKS_KEY = "__leafcodeProviderLimitMarks";
+type ProviderLimitGlobal = typeof globalThis & {
+  [PROVIDER_LIMIT_MARKS_KEY]?: Map<string, ProviderLimitMark>;
+};
+
+function providerLimitStore(): Map<string, ProviderLimitMark> {
+  const globalRef = globalThis as ProviderLimitGlobal;
+  return (globalRef[PROVIDER_LIMIT_MARKS_KEY] ??= new Map());
+}
 
 function providerLimitKey(providerId: string, accountId?: string | null): string {
   return accountId ? `${accountId}::${providerId}` : providerId;
@@ -159,7 +169,7 @@ function messageOf(error: unknown): string {
 export function isProviderLimitError(error: unknown): boolean {
   const status = statusOf(error);
   if (status === 402 || status === 429) return true;
-  return /GoUsageLimitError|FreeUsageLimitError|usage[_ ]limit[_ ](?:reached|exceeded)|usage_not_included|monthly usage limit reached|available balance|insufficient[_ ]quota|out of budget|quota exceeded|billing|rate[ ._-]?limit|too many requests/i.test(
+  return /^(?:402|429)\b|(?:HTTP(?: status)?|status(?: code)?)\s*[:=]?\s*(?:402|429)\b|GoUsageLimitError|FreeUsageLimitError|usage[_ ]limit[_ ](?:reached|exceeded)|usage_not_included|monthly usage limit reached|available balance|insufficient[_ ]quota|out of budget|quota exceeded|billing|rate[ ._-]?limit|too many requests/i.test(
     messageOf(error),
   );
 }
@@ -175,7 +185,7 @@ export function markProviderLimited(
   const expiresAt = Number.isFinite(parsedReset) && parsedReset > nowMs
     ? parsedReset
     : nowMs + LIMIT_MARK_TTL_MS;
-  providerLimitMarks.set(providerLimitKey(providerId, accountId), {
+  providerLimitStore().set(providerLimitKey(providerId, accountId), {
     markedAt: nowMs,
     expiresAt,
     resetAt: Number.isFinite(parsedReset) && parsedReset > nowMs ? resetAt! : null,
@@ -188,10 +198,11 @@ export function providerLimitMark(
   nowMs = Date.now(),
 ): { markedAt: number; expiresAt: number; resetAt: string | null } | null {
   const key = providerLimitKey(providerId, accountId);
-  const mark = providerLimitMarks.get(key);
+  const marks = providerLimitStore();
+  const mark = marks.get(key);
   if (!mark) return null;
   if (mark.expiresAt <= nowMs) {
-    providerLimitMarks.delete(key);
+    marks.delete(key);
     return null;
   }
   return mark;
@@ -201,7 +212,7 @@ export function clearProviderLimit(
   providerId: string,
   accountId?: string | null,
 ): void {
-  providerLimitMarks.delete(providerLimitKey(providerId, accountId));
+  providerLimitStore().delete(providerLimitKey(providerId, accountId));
 }
 
 export type RoutingUsage = Pick<
@@ -320,5 +331,5 @@ export function chooseRoutingCandidate<T>(
 /** Test helper: reset process-local settings and limit state. */
 export function __resetProviderRoutingQueueForTests(): void {
   writeQueue = Promise.resolve();
-  providerLimitMarks.clear();
+  providerLimitStore().clear();
 }

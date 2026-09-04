@@ -76,6 +76,17 @@ describe("attachCodexBarUsage", () => {
     expect(mapped).toMatchObject({ codexbarUsedPercent: 20, codexbarMaxed: false });
   });
 
+  it("does not overwrite a fresh runtime limit mark with stale display usage", () => {
+    const option: ModelOption = {
+      ...model("anthropic"),
+      codexbarUsedPercent: 100,
+      codexbarMaxed: true,
+      codexbarStale: false,
+    };
+    const [mapped] = attachCodexBarUsage([option], [provider("anthropic", 10)]);
+    expect(mapped).toMatchObject({ codexbarUsedPercent: 100, codexbarMaxed: true });
+  });
+
   it("returns options unchanged when usage is empty or unknown", () => {
     const options = [model("llama-server"), model("anthropic")];
     expect(attachCodexBarUsage(options, [])).toBe(options);

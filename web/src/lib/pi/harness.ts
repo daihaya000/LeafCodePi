@@ -135,6 +135,14 @@ import { listSubagentRuns } from "@/lib/pi/subagent-runs";
 import { stopRunningSubagentRuns } from "@/lib/pi/stop-subagent-runs";
 import { getCachedUsage, invalidateCachedUsage } from "@/lib/codexbar/cache";
 import type { CodexBarProvider } from "@/lib/codexbar";
+import {
+  autoProviderUsageFromModels,
+  chooseAutoModel,
+  classifyPrompt,
+  type AutoDecision,
+  type AutoOptimizeMode,
+  type AutoRouteConfig,
+} from "@/lib/auto-model";
 import { clearProviderCache } from "@/lib/codexbar/provider-cache";
 import {
   accountRoutingMode,
@@ -1599,12 +1607,7 @@ async function attachSession(
     const ids = modelId(session.model);
     if (event.type === "agent_end" && ids.providerID) {
       if (limitMessage) {
-        const usage = usageForProvider(ids.providerID, live.accountId);
-        markProviderLimited(
-          ids.providerID,
-          live.accountId,
-          usage?.resetsAt ?? null,
-        );
+        markRouteLimited(ids.providerID, live.accountId);
         live.pendingProviderFallback = {
           providerID: ids.providerID,
           modelID: ids.modelID ?? "",
@@ -1618,7 +1621,7 @@ async function attachSession(
           live.restoreAutoRetry = true;
         }
       } else if (!event.willRetry) {
-        clearProviderLimit(ids.providerID, live.accountId);
+        clearRouteLimit(ids.providerID, live.accountId);
       }
     }
 
@@ -1937,6 +1940,28 @@ function usageForProvider(
   );
 }
 
+function markRouteLimited(
+  providerID: string,
+  accountId?: string | null,
+): void {
+  const usage = usageForProvider(providerID, accountId);
+  markProviderLimited(
+    providerID,
+    accountId,
+    usage?.maxed && !usage.stale ? usage.resetsAt : null,
+  );
+  invalidateHealthCache();
+}
+
+function clearRouteLimit(
+  providerID: string,
+  accountId?: string | null,
+): void {
+  if (!providerLimitMark(providerID, accountId)) return;
+  clearProviderLimit(providerID, accountId);
+  invalidateHealthCache();
+}
+
 function futureReset(resetAt: string | null | undefined, nowMs = Date.now()): boolean {
   if (!resetAt) return false;
   const parsed = Date.parse(resetAt);
@@ -2123,8 +2148,7 @@ async function resolveProviderFallbackRoutes(
   // integrated provider a chance; only then do we cross the provider boundary.
   if (
     source.accountId &&
-    isAccountRoutingProvider(source.providerID) &&
-    accountRoutingMode(source.providerID) === "integrated"
+    isAccountRoutingProvider(source.providerID)
   ) {
     try {
       const route = await resolveIntegratedModelRoute(
@@ -2178,16 +2202,17 @@ export async function resolveProviderFallbackModels(
 async function resolveConcreteModel(
   value: string | undefined,
   requestedAccountId?: string | null,
-  options?: { strictAccountId?: boolean },
+  options?: { strictAccountId?: boolean; accountIdExplicit?: boolean },
 ): Promise<ConcreteModelRoute | undefined> {
   await ensureRuntime();
   const parsed = parseModelValue(value);
   if (!parsed) return undefined;
 
   const explicitAccountId = parsed.accountId;
+  const accountIdExplicit =
+    options?.accountIdExplicit ?? Boolean(explicitAccountId);
   const requested = requestedAccountId?.trim() || explicitAccountId;
-  const strictAccountId =
-    options?.strictAccountId === true || Boolean(explicitAccountId);
+  const strictAccountId = options?.strictAccountId ?? accountIdExplicit;
   if (requested && isAccountRoutingProvider(parsed.providerID)) {
     const account = getAccount(requested);
     if (!account) {
@@ -2217,10 +2242,10 @@ async function resolveConcreteModel(
   }
 
   if (
-    !explicitAccountId &&
+    !accountIdExplicit &&
     isAccountRoutingProvider(parsed.providerID) &&
     runsThroughAccounts(parsed.providerID) &&
-    accountRoutingMode(parsed.providerID) === "integrated"
+    listAccounts().some((account) => accountHasProvider(account, parsed.providerID))
   ) {
     return resolveIntegratedModelRoute(parsed.providerID, parsed.modelID);
   }
@@ -2249,12 +2274,13 @@ async function resolveConcreteModelWithFallback(
 ): Promise<ConcreteModelRoute | undefined> {
   const parsed = parseModelValue(value);
   if (!parsed) return undefined;
-  const explicit = Boolean(parsed.accountId) || options?.accountIdExplicit === true;
+  const explicit = options?.accountIdExplicit ?? Boolean(parsed.accountId);
   let sourceError: unknown;
   let route: ConcreteModelRoute | undefined;
   try {
     route = await resolveConcreteModel(value, requestedAccountId, {
       strictAccountId: options?.strictAccountId,
+      accountIdExplicit: explicit,
     });
     if (
       route &&
@@ -2272,7 +2298,12 @@ async function resolveConcreteModelWithFallback(
     sourceError = error;
   }
   if (route) return route;
-  if (options?.allowProviderFallback === false || explicit) {
+  if (
+    options?.allowProviderFallback === false ||
+    explicit ||
+    !sourceError ||
+    !isProviderLimitError(sourceError)
+  ) {
     if (sourceError) throw sourceError;
     return undefined;
   }
@@ -2299,8 +2330,12 @@ function toGoalLoopSummary(
 }
 
 function toSummary(task: TaskSummary): TaskSummary {
+  const limitError =
+    task.status === "error" && isProviderLimitError(task.error)
+      ? { limitError: true }
+      : {};
   const live = state().live.get(task.id);
-  if (!live) return task;
+  if (!live) return { ...task, ...limitError };
   const ids = modelId(live.session.model);
   const todoProgress = todoProgressFromTodos(
     todosFromPiMessages(live.session.messages),
@@ -2324,6 +2359,7 @@ function toSummary(task: TaskSummary): TaskSummary {
     providerID: ids.providerID ?? task.providerID,
     modelID: ids.modelID ?? task.modelID,
     thinkingLevel: thinking,
+    ...limitError,
     ...(todoProgress ? { todoProgress } : {}),
     ...(goalLoopSummary ? { goalLoopSummary } : {}),
   };
@@ -2864,6 +2900,28 @@ function applyLimitMark(option: ModelOption): ModelOption {
   };
 }
 
+function applyRoutingUsage(
+  option: ModelOption,
+  usageProviders: readonly CodexBarProvider[],
+): ModelOption {
+  const marked = applyLimitMark(option);
+  if (marked.codexbarMaxed === true && marked.codexbarStale !== true) {
+    return marked;
+  }
+  const usage = usageProviders.find(
+    (provider) =>
+      provider.id === option.providerID &&
+      (provider.accountId ?? null) === (option.accountId ?? null),
+  );
+  if (!usage) return marked;
+  return {
+    ...marked,
+    codexbarUsedPercent: usage.usedPercent,
+    codexbarMaxed: usage.maxed,
+    ...(usage.stale ? { codexbarStale: true } : {}),
+  };
+}
+
 function integratedOption(
   records: readonly AccountModelRecord[],
   usageProviders: readonly CodexBarProvider[],
@@ -2946,14 +3004,17 @@ function workingTaskCounts(
  */
 async function buildModelsForAccounts(
   accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
+  usageTtlMs = 30 * 60 * 1000,
 ): Promise<ModelOption[]> {
+  const usageProviders =
+    getCachedUsage(Date.now(), usageTtlMs)?.providers ?? [];
   const [sharedOptions, records] = await Promise.all([
     listModels()
       .catch(() => [])
       .then((options) =>
         options
           .filter((option) => !runsThroughAccounts(option.providerID))
-          .map(applyLimitMark),
+          .map((option) => applyRoutingUsage(option, usageProviders)),
       ),
     collectAccountModelRecords(accounts),
   ]);
@@ -2975,20 +3036,21 @@ async function buildModelsForAccounts(
       integrated.set(key, group);
     } else {
       separate.push(
-        applyLimitMark({
-          ...record.option,
-          value: `${record.accountId}::${record.option.value}`,
-          accountId: record.accountId,
-          accountLabel: record.accountLabel,
-        }),
+        applyRoutingUsage(
+          {
+            ...record.option,
+            value: `${record.accountId}::${record.option.value}`,
+            accountId: record.accountId,
+            accountLabel: record.accountLabel,
+          },
+          usageProviders,
+        ),
       );
     }
   }
 
   // The picker may display the same 30-minute last-good window as /api/models;
-  // execution routing below deliberately uses getCachedUsage's strict 5-minute TTL.
-  const usageProviders =
-    getCachedUsage(Date.now(), 30 * 60 * 1000)?.providers ?? [];
+  // resolveAutoModel deliberately supplies the strict 5-minute TTL.
   const workingCounts = workingTaskCounts([
     ...new Set(records.map((record) => record.option.providerID)),
   ]);
@@ -3079,6 +3141,36 @@ async function buildModelsForAccounts(
       ? (accountIndex.get(b.accountId) ?? accounts.length)
       : -1;
     return aAccount - bAccount;
+  });
+}
+
+export async function resolveAutoModel(input: {
+  prompt: string;
+  hasImages: boolean;
+  attachmentCount?: number;
+  historyMessageCount?: number;
+  recentFailure?: boolean;
+  mode: AutoOptimizeMode;
+  config?: AutoRouteConfig;
+}): Promise<AutoDecision | null> {
+  const accounts = listAccounts().map((account) => ({
+    id: account.id,
+    label: account.label,
+    providers: account.providers,
+  }));
+  const models = await buildModelsForAccounts(accounts, 5 * 60 * 1000);
+  return chooseAutoModel({
+    models,
+    tier: classifyPrompt(input.prompt, {
+      hasImages: input.hasImages,
+      attachmentCount: input.attachmentCount ?? 0,
+      historyMessageCount: input.historyMessageCount ?? 0,
+      recentFailure: input.recentFailure === true,
+    }),
+    hasImages: input.hasImages,
+    mode: input.mode,
+    usage: autoProviderUsageFromModels(models),
+    config: input.config,
   });
 }
 
@@ -3200,38 +3292,39 @@ export async function completeModelText(options: {
     );
 
   const sourceRef = routeModelRef(sourceRoute);
-  try {
-    return await completeModelTextOnRoute(sourceRoute, options, system, prompt);
-  } catch (error) {
-    if (!isProviderLimitError(error) || options.accountIdExplicit === true) {
-      throw error;
-    }
-    if (sourceRef) {
-      markProviderLimited(sourceRef.providerID, sourceRef.accountId ?? null);
-    }
-    const fallbacks = sourceRef
-      ? await resolveProviderFallbackRoutes(sourceRef)
-      : [];
-    let lastError: unknown = error;
-    for (const route of fallbacks) {
-      const ids = modelId(route.model);
-      if (
-        sourceRef &&
-        ids.providerID === sourceRef.providerID &&
-        ids.modelID === sourceRef.modelID &&
-        route.accountId === sourceRef.accountId
-      ) {
-        continue;
+  const attempted = new Set<string>();
+  let route: ConcreteModelRoute | undefined = sourceRoute;
+  let lastError: unknown;
+  while (route) {
+    const routeRef = routeModelRef(route);
+    const routeKey = routeRef
+      ? `${routeRef.accountId ?? ""}::${routeRef.providerID}::${routeRef.modelID}`
+      : "";
+    if (!routeRef || attempted.has(routeKey)) break;
+    attempted.add(routeKey);
+    try {
+      return await completeModelTextOnRoute(route, options, system, prompt);
+    } catch (error) {
+      lastError = error;
+      if (!isProviderLimitError(error) || options.accountIdExplicit === true) {
+        throw error;
       }
-      try {
-        return await completeModelTextOnRoute(route, options, system, prompt);
-      } catch (fallbackError) {
-        lastError = fallbackError;
-        if (!isProviderLimitError(fallbackError)) throw fallbackError;
-      }
+      markRouteLimited(routeRef.providerID, routeRef.accountId ?? null);
+      const fallbacks = sourceRef
+        ? await resolveProviderFallbackRoutes(sourceRef)
+        : [];
+      route = fallbacks.find((candidate) => {
+        const candidateRef = routeModelRef(candidate);
+        return (
+          candidateRef !== null &&
+          !attempted.has(
+            `${candidateRef.accountId ?? ""}::${candidateRef.providerID}::${candidateRef.modelID}`,
+          )
+        );
+      });
     }
-    throw lastError;
   }
+  throw lastError ?? new Error("利用可能なフォールバックモデルがありません");
 }
 
 async function completeModelTextOnRoute(
@@ -4227,6 +4320,7 @@ export async function createTask(input: {
   skillPermission?: SkillPermission;
   /** 利用する認証アカウント（docs/plans/multi-account.md）。未指定 = 既定。 */
   accountId?: string;
+  accountIdExplicit?: boolean;
   goalLoop?: {
     acceptance?: string[];
     maxTurns?: number;
@@ -4295,8 +4389,10 @@ export async function createTask(input: {
           input.model,
           requestedAccountId ?? null,
           {
-            strictAccountId: true,
-            accountIdExplicit: Boolean(requestedAccountId),
+            strictAccountId:
+              input.accountIdExplicit ?? Boolean(requestedAccountId),
+            accountIdExplicit:
+              input.accountIdExplicit ?? Boolean(requestedAccountId),
             allowProviderFallback: true,
           },
         );
@@ -4304,12 +4400,13 @@ export async function createTask(input: {
           throw Object.assign(new Error("モデルが見つかりません"), {
             status: 400,
           });
+        const routeIds = modelId(route.model);
         if (
           route.accountId &&
-          parsed &&
-          isAccountRoutingProvider(parsed.providerID)
+          routeIds.providerID &&
+          isAccountRoutingProvider(routeIds.providerID)
         ) {
-          reserveRoute(parsed.providerID, route.accountId);
+          reserveRoute(routeIds.providerID, route.accountId);
         }
         try {
           if (project) patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
@@ -4320,10 +4417,10 @@ export async function createTask(input: {
         } catch (error) {
           if (
             route.accountId &&
-            parsed &&
-            isAccountRoutingProvider(parsed.providerID)
+            routeIds.providerID &&
+            isAccountRoutingProvider(routeIds.providerID)
           ) {
-            releaseRoute(parsed.providerID, route.accountId);
+            releaseRoute(routeIds.providerID, route.accountId);
           }
           throw error;
         }
@@ -4331,13 +4428,14 @@ export async function createTask(input: {
     );
     modelRoute = routed.route;
     concreteAccountId = routed.route.accountId;
+    const routeIds = modelId(modelRoute.model);
     if (
       modelRoute.accountId &&
-      parsed &&
-      isAccountRoutingProvider(parsed.providerID)
+      routeIds.providerID &&
+      isAccountRoutingProvider(routeIds.providerID)
     ) {
       reservedAccount = {
-        providerID: parsed.providerID,
+        providerID: routeIds.providerID,
         accountId: modelRoute.accountId,
       };
     }
@@ -4697,6 +4795,7 @@ export async function promptTask(
     permissionMode?: "allow" | "ask" | "deny";
     skillPermission?: SkillPermission;
     streamingBehavior?: "steer" | "followUp";
+    accountIdExplicit?: boolean;
   },
 ): Promise<TaskSummary> {
   if (options?.agent !== undefined) {
@@ -4723,9 +4822,12 @@ export async function promptTask(
     const unchanged =
       requested !== null &&
       task.providerID === requested.providerID &&
-      task.modelID === requested.modelID;
+      task.modelID === requested.modelID &&
+      (!requested.accountId || task.accountId === requested.accountId);
     if (!unchanged) {
-      await setTaskModel(id, options.model);
+      await setTaskModel(id, options.model, {
+        accountIdExplicit: options.accountIdExplicit,
+      });
       modelChanged = true;
     }
   }
@@ -4962,6 +5064,7 @@ export async function setTaskAgent(
 export async function setTaskModel(
   id: string,
   modelValueRaw: string,
+  options?: { accountIdExplicit?: boolean },
 ): Promise<TaskSummary> {
   const task = getTask(id);
   const parsed = parseModelValue(modelValueRaw);
@@ -4972,7 +5075,8 @@ export async function setTaskModel(
     `${parsed.providerID}::${parsed.modelID}`,
     () =>
       resolveConcreteModelWithFallback(modelValueRaw, parsed.accountId ?? null, {
-        accountIdExplicit: Boolean(parsed.accountId),
+        accountIdExplicit:
+          options?.accountIdExplicit ?? Boolean(parsed.accountId),
         allowProviderFallback: true,
       }),
   );
@@ -4980,6 +5084,7 @@ export async function setTaskModel(
     throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
   const targetAccountId = modelRoute.accountId;
   const model = modelRoute.model;
+  const targetIds = modelId(model);
   const levels = thinkingLevelsForModel(model);
 
   // アカウント切替はセッションの再作成が必要。実行中（ストリーミング中）は拒否し、
@@ -5001,8 +5106,8 @@ export async function setTaskModel(
       ? current
       : defaultThinkingLevel(levels);
     const updatedTask = patchTask(id, {
-      providerID: parsed.providerID,
-      modelID: parsed.modelID,
+      providerID: targetIds.providerID ?? parsed.providerID,
+      modelID: targetIds.modelID ?? parsed.modelID,
       thinkingLevel,
       accountId: targetAccountId ?? undefined,
     });

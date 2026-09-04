@@ -182,14 +182,20 @@ const AUTO_USAGE_LIMIT_PERCENT = 90;
 export type AutoProviderUsageSource = {
   id: string;
   accountId?: string | null;
+  modelID?: string | null;
   usedPercent?: number | null;
   limited?: boolean;
   maxed?: boolean;
   stale?: boolean;
 };
 
-function autoProviderUsageKey(providerID: string, accountId?: string): string {
-  return accountId ? `${accountId}::${providerID}` : providerID;
+function autoProviderUsageKey(
+  providerID: string,
+  accountId?: string,
+  modelID?: string,
+): string {
+  const providerKey = accountId ? `${accountId}::${providerID}` : providerID;
+  return modelID ? `${providerKey}::${modelID}` : providerKey;
 }
 
 function mergeAutoProviderUsage(
@@ -206,7 +212,11 @@ function mergeAutoProviderUsage(
     source.maxed === true ||
     (usedPercent !== null && usedPercent >= AUTO_USAGE_LIMIT_PERCENT);
   if (usedPercent === null && !limited) return;
-  const key = autoProviderUsageKey(source.id, source.accountId ?? undefined);
+  const key = autoProviderUsageKey(
+    source.id,
+    source.accountId ?? undefined,
+    source.modelID ?? undefined,
+  );
   const previous = usage[key];
   const mergedPercent =
     previous?.usedPercent == null
@@ -239,6 +249,7 @@ export function autoProviderUsageFromModels(
     models.map((model) => ({
       id: model.providerID,
       accountId: model.accountId,
+      modelID: model.modelID,
       usedPercent: model.codexbarUsedPercent,
       maxed: model.codexbarMaxed,
       stale: model.codexbarStale,
@@ -583,8 +594,19 @@ function usageForCandidate(
   if (!usage) return undefined;
   return (
     (candidate.accountId
+      ? usage[
+          autoProviderUsageKey(
+            candidate.providerID,
+            candidate.accountId,
+            candidate.modelID,
+          )
+        ]
+      : undefined) ??
+    usage[autoProviderUsageKey(candidate.providerID, undefined, candidate.modelID)] ??
+    (candidate.accountId
       ? usage[autoProviderUsageKey(candidate.providerID, candidate.accountId)]
-      : undefined) ?? usage[candidate.providerID]
+      : undefined) ??
+    usage[candidate.providerID]
   );
 }
 

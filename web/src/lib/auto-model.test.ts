@@ -204,7 +204,10 @@ describe("chooseAutoModel", () => {
       }),
     ]);
     expect(usage).toEqual({
-      "account-a::provider": { usedPercent: 90, limited: true },
+      "account-a::provider::claude-haiku-4-5": {
+        usedPercent: 90,
+        limited: true,
+      },
     });
 
     const accountDecision = chooseAutoModel({
@@ -240,6 +243,44 @@ describe("chooseAutoModel", () => {
       },
     });
     expect(accountDecision).toMatchObject({ accountId: "account-b" });
+
+    const modelScopedUsage = autoProviderUsageFromModels([
+      model("claude-haiku-4-5", {
+        providerID: "provider",
+        codexbarMaxed: true,
+      }),
+      model("claude-sonnet-5", {
+        providerID: "provider",
+        codexbarUsedPercent: 10,
+      }),
+    ]);
+    const modelScopedDecision = chooseAutoModel({
+      models: [
+        model("claude-haiku-4-5", { providerID: "provider" }),
+        model("claude-sonnet-5", { providerID: "provider" }),
+      ],
+      tier: "light",
+      hasImages: false,
+      usage: modelScopedUsage,
+      config: {
+        version: 2,
+        modes: {
+          cost: {
+            light: {
+              candidates: [
+                { kind: "model", providerID: "provider", modelID: "claude-haiku-4-5" },
+                { kind: "model", providerID: "provider", modelID: "claude-sonnet-5" },
+              ],
+            },
+          },
+        },
+      },
+    });
+    expect(modelScopedDecision).toMatchObject({
+      providerID: "provider",
+      modelID: "claude-sonnet-5",
+      candidateIndex: 1,
+    });
 
     const decision = chooseAutoModel({
       models: [

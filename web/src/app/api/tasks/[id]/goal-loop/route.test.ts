@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getTask: vi.fn(),
   readSessionConversation: vi.fn(),
   resolveAutoAgent: vi.fn(),
+  resolveAutoModel: vi.fn(),
   goalLoopCommand: vi.fn(),
   goalLoopState: vi.fn(),
   setTaskAgent: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock("@/lib/pi/harness", () => ({
   goalLoopCommand: mocks.goalLoopCommand,
   goalLoopState: mocks.goalLoopState,
   jsonError: mocks.jsonError,
+  resolveAutoModel: mocks.resolveAutoModel,
   setTaskAgent: mocks.setTaskAgent,
   setTaskModel: mocks.setTaskModel,
   setTaskThinkingLevel: mocks.setTaskThinkingLevel,
@@ -56,6 +58,7 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     mocks.getTask.mockReset();
     mocks.readSessionConversation.mockReset();
     mocks.resolveAutoAgent.mockReset();
+    mocks.resolveAutoModel.mockReset();
     mocks.goalLoopCommand.mockReset();
     mocks.goalLoopState.mockReset();
     mocks.setTaskAgent.mockReset();
@@ -68,6 +71,14 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
       { role: "assistant", text: "問題を確認します" },
     ]);
     mocks.resolveAutoAgent.mockResolvedValue("reviewer");
+    mocks.resolveAutoModel.mockResolvedValue({
+      providerID: "openai-codex",
+      modelID: "gpt-5.6-sol",
+      variant: "medium",
+      tier: "heavy",
+      mode: "balanced",
+      reason: "test",
+    });
     mocks.setTaskAgent.mockImplementation(async (_id: string, agent: string) => {
       task = { ...task, agent };
       return task;
@@ -127,6 +138,7 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     expect(mocks.setTaskModel).toHaveBeenCalledWith(
       "task-1",
       "openai-codex::gpt-5.6-sol",
+      { accountIdExplicit: false },
     );
     expect(mocks.setTaskThinkingLevel).toHaveBeenCalledWith("task-1", "medium");
   });

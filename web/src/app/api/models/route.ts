@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listAccounts } from "@/lib/accounts";
-import { autoProviderUsageFromProviders } from "@/lib/auto-model";
 import { listModelsForAccounts, jsonError } from "@/lib/pi/harness";
 import { getCachedUsage } from "@/lib/codexbar/cache";
 import { attachCodexBarUsage } from "./map";
@@ -34,10 +33,8 @@ export async function GET(req: NextRequest) {
       })),
     );
     const displayProviders = getCachedUsage(now, USAGE_MAX_AGE_MS)?.providers ?? [];
-    const routingProviders = getCachedUsage(now)?.providers ?? [];
     return NextResponse.json({
       models: attachCodexBarUsage(models, displayProviders),
-      autoUsage: autoProviderUsageFromProviders(routingProviders),
     });
   } catch (error) {
     const { error: message, status } = jsonError(error);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, it } from "vitest";
+import { afterEach, describe, it, vi } from "vitest";
 import {
   __resetProviderRoutingQueueForTests,
   accountRoutingMode,
@@ -156,9 +156,23 @@ describe("provider limit detection and marks", () => {
       isProviderLimitError("insufficient_quota"),
       true,
     );
+    assert.equal(isProviderLimitError("HTTP 429 Too Many Requests"), true);
+    assert.equal(isProviderLimitError("status code 402"), true);
+    assert.equal(isProviderLimitError("model-429-preview was not found"), false);
     assert.equal(isProviderLimitError("500 internal"), false);
     assert.equal(isProviderLimitError({ status: 503 }), false);
     assert.equal(isProviderLimitError({ errorMessage: "invalid api key" }), false);
+  });
+
+  it("shares marks across module reloads", async () => {
+    markProviderLimited("openai-codex", "account-a", null, 1_000);
+    vi.resetModules();
+    const reloaded = await import("./provider-routing");
+    assert.notEqual(
+      reloaded.providerLimitMark("openai-codex", "account-a", 1_001),
+      null,
+    );
+    reloaded.clearProviderLimit("openai-codex", "account-a");
   });
 
   it("excludes a provider/account until the reset time or TTL", () => {
