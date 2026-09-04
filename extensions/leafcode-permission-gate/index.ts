@@ -11,9 +11,8 @@
  */
 
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 import { requestWebUiPermission } from "./webui-bridge";
 
 export type PermissionMode = "allow" | "ask" | "deny";
@@ -71,14 +70,20 @@ export function isLeafCodePiStopCommand(command: string, pid = process.pid): boo
  * Commands in these categories are never covered by permission mode "allow".
  * They may inspect the machine, but a mutation still needs a preflight and an
  * explicit approval for that exact operation.
+ *
+ * Keep this list to machine-breaking / persistent system changes and obfuscated
+ * execution. Everyday coding-agent shell (`node -e`, `bash -c ls`, `Start-Process`
+ * without elevation, home-directory mkdir/cp) must NOT hard-gate here.
  */
 const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
   { category: "os", label: "OS shutdown/restart", pattern: /\b(?:shutdown(?:\.exe)?|reboot|poweroff|halt|Stop-Computer|Restart-Computer|logoff(?:\.exe)?)\b/i },
-  { category: "os", label: "privilege elevation", pattern: /\b(?:sudo|doas|pkexec|runas(?:\.exe)?)\b/i },
+  { category: "os", label: "privilege elevation", pattern: /\b(?:sudo|doas|pkexec|runas(?:\.exe)?)\b|\bStart-Process\b[^\r\n]*-Verb\s+RunAs\b/i },
   { category: "os", label: "system policy/account/firewall change", pattern: /\b(?:Set-ExecutionPolicy|setx|icacls|net(?:\.exe)?\s+(?:user|localgroup)|(?:New|Remove|Add|Disable|Enable)-Local(?:User|GroupMember)|(?:New|Set|Remove)-(?:NetFirewallRule|WindowsOptionalFeature)|(?:Enable|Disable)-WindowsOptionalFeature|dism(?:\.exe)?\b[^\r\n]*\/(?:enable-feature|disable-feature|add-package|remove-package)|msiexec(?:\.exe)?\b[^\r\n]*\/(?:i|uninstall))\b/i },
   { category: "os", label: "system package change", pattern: /\b(?:apt(?:-get)?|dnf|yum|pacman|zypper|apk|brew|winget|choco)\b[^\r\n]*(?:install|remove|purge|upgrade|update|add|delete|uninstall|-[SRU][A-Za-z]*)\b|\b(?:npm|pnpm|yarn|pip|pip3)\b[^\r\n]*(?:--global|\s-g\b)\b/i },
   { category: "os", label: "scheduled task change", pattern: /\b(?:Register|Unregister|New|Remove)-ScheduledTask\b|\bschtasks(?:\.exe)?\b[^\r\n]*\/(?:create|delete|change|run)\b|\bcrontab\s+(?:-e|-r)\b/i },
-  { category: "os", label: "dynamic/elevated script execution", pattern: /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*-(?:EncodedCommand|enc)\b|\b(?:python|python3|node|perl|ruby)\b\s+(?:-e|-c)\b|\b(?:Invoke-Expression|Invoke-Command|Start-Process|Set-Alias|New-Alias|iex|eval)\b|\b(?:bash|sh|zsh|pwsh|powershell|cmd)\s+(?:-c|\/c)\b|(?:^|[;|&\r\n])\s*&\s*(?:\(|['"$])|(?:^|[;|&\r\n])\s*[\'"]?\$(?:\{)?[A-Za-z_]\w*\}?[\'"]?\s+/i },
+  // Obfuscated / encoded execution only. Plain `node -e`, `bash -c`, aliases, and
+  // unelevated Start-Process are normal agent tools and stay out of this gate.
+  { category: "os", label: "dynamic/elevated script execution", pattern: /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*-(?:EncodedCommand|enc)\b|\b(?:Invoke-Expression|\biex\b)\b|(?<![-/])\beval\b|\bInvoke-Command\b[^\r\n]*(?:-ComputerName|-Session)\b|(?:^|[;|&\r\n])\s*&\s*(?:\(|['"])|(?:^|[;|&\r\n])\s*["']?\$(?:\{)?[A-Za-z_]\w*\}?["']?\s+(?:stop|start|restart|kill|terminate|disable|enable|delete|remove|uninstall|format|erase|wipe|shutdown|reboot)\b/i },
   { category: "os", label: "downloaded script execution", pattern: /\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:\|\s*(?:sh|bash|zsh|pwsh|powershell|cmd|iex|Invoke-Expression)\b|(?:-o|--output)\s*-\s*&&)/i },
   { category: "kernel", label: "kernel/module change", pattern: /\b(?:modprobe|insmod|rmmod|kexec)\b|\bsysctl\b[^\r\n]*(?:-w|--write)\b|\bdkms\b[^\r\n]*\b(?:install|remove|autoinstall)\b|\b(?:load|unload|install|remove|update)\s+(?:the\s+)?(?:kernel|module)s?\b/i },
   { category: "driver", label: "device-driver change", pattern: /\bpnputil(?:\.exe)?\b[^\r\n]*\/(?:add-driver|delete-driver)\b|\bdevcon(?:\.exe)?\s+(?:install|remove|update)\b|\bdism(?:\.exe)?\b[^\r\n]*\/(?:add-driver|remove-driver)\b|\b(?:Add|Remove|Install|Uninstall)-WindowsDriver\b|\b(?:install|uninstall|remove|update|load)\s+(?:the\s+)?(?:device\s+)?driver(?:s)?\b/i },
@@ -88,6 +93,9 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
   { category: "disk", label: "disk/partition/volume change", pattern: /\b(?:dd|mkfs(?:\.\w+)?|fdisk|sfdisk|parted|cfdisk|sgdisk|wipefs|diskpart(?:\.exe)?|format(?:\.com|\.exe)?|diskutil)\b|\b(?:Clear|Initialize|Set|New|Remove)-(?:Disk|Partition|Volume)\b|\b(?:Format|Resize|New|Remove|Set)-Volume\b|\b(?:format|erase|wipe|partition|resize|initialize)\s+(?:the\s+)?(?:disk|drive|volume|partition)s?\b/i },
   { category: "firmware", label: "firmware/BIOS update", pattern: /\bfwupdmgr\b[^\r\n]*\b(?:install|update|refresh)\b|\bflashrom\b[^\r\n]*(?:-w|--write|\bwrite\b)|\b(?:flash|update|write|set)[ -]*(?:bios|uefi|firmware)\b|\b(?:Update|Set|Write)-Firmware\b|\b(?:flash|update|write|install|erase)\s+(?:the\s+)?(?:firmware|bios|uefi)\b/i }
 ];
+
+/** Soft shell wrappers: re-scan the nested payload, do not hard-gate the wrapper alone. */
+const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh)\s+-c|(?:powershell|pwsh)(?:\.exe)?\s+-(?:c|Command|EncodedCommand|enc)|cmd(?:\.exe)?\s+\/c|(?:python|python3|node|perl|ruby)\s+(?:-e|-c))\b/i;
 
 const MUTATING_COMMAND_PATTERN = /\b(?:rm|mv|cp|mkdir|touch|install|truncate|shred|unlink|del|erase|rd|rmdir|copy|move|rename|Set-Content|Add-Content|Clear-Content|Clear-Item|Out-File|Export-Csv|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|Expand-Archive|Set-Item|Set-ItemProperty|New-ItemProperty|Remove-ItemProperty|ri|ni|mi|ci|tar|unzip|tee|rsync|ln|mount|umount|chmod|chown|setfacl|robocopy|xcopy)\b|\b(?:sed|perl)\b[^\r\n]*(?:\s-i\b|--in-place\b)|\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:-O\b|--output\b|-OutFile\b)\s*\S+|(?<![0-9])>{1,2}(?!&)|[0-9]>{1,2}(?!&)/i;
 const USER_DATA_COMMAND_PATH_PATTERN = /(?:~(?:[A-Za-z0-9._-]+)?(?:[\\/]|$)|(?:%(?:USERPROFILE|APPDATA|LOCALAPPDATA|HOMEDRIVE|HOMEPATH)%|\$(?:\{)?(?:env:)?(?:USERPROFILE|HOME|APPDATA|LOCALAPPDATA|HOMEDRIVE|HOMEPATH)\}?)(?:[\\/]|$)|(?:[A-Za-z]:[\\/]|\/)(?:Users|home|Documents and Settings)(?:[\\/]|$))/i;
@@ -183,6 +191,8 @@ const DISK_PATH_PATTERN = /^(?:\/dev\/(?:sd|nvme|vd|xvd|mmcblk|disk)|\/\/\.\/phy
 const FIRMWARE_PATH_PATTERN = /(?:^|\/)(?:firmware|bios)(?:\/|$)/i;
 const REGISTRY_PATH_PATTERN = /^(?:registry::|(?:hkey_(?:local_machine|current_user|classes_root|users|current_config)|hk(?:lm|cu|cr|u|cc))(?:[\/:]|$))/i;
 
+// Only real command-bearing fields. prompt/message/query must not trigger hard-gates
+// from prose like "do not run Stop-Computer".
 const COMMAND_INPUT_KEYS = new Set([
   "command",
   "cmd",
@@ -191,14 +201,8 @@ const COMMAND_INPUT_KEYS = new Set([
   "script",
   "code",
   "shell",
-  "action",
-  "operation",
   "args",
   "parameters",
-  "task",
-  "prompt",
-  "message",
-  "query",
 ]);
 const PATH_INPUT_KEYS = new Set([
   "path",
@@ -219,8 +223,9 @@ const PATH_INPUT_KEYS = new Set([
   "registrypath",
 ]);
 const CUSTOM_SYSTEM_TOOL_RULES: readonly SystemSafetyRule[] = [
-  { category: "os", label: "custom system-command tool", pattern: /(?:^|[_:.-])(?:shell|terminal|powershell|bash|cmd|run|exec|execute)(?:[_:.-]|$)/i },
-  { category: "os", label: "custom command-execution tool", pattern: /(?:^|[_:.-])(?:run|exec|execute)[_-](?:command|shell|script)(?:[_:.-]|$)/i },
+  // Narrow names: bare "run"/"execute" false-positives docker/blender MCP tools.
+  { category: "os", label: "custom system-command tool", pattern: /(?:^|[_:.-])(?:shell|terminal|powershell|bash|cmd)(?:[_:.-]|$)|(?:^|[_:.-])exec(?:[_:.-]|$)/i },
+  { category: "os", label: "custom command-execution tool", pattern: /(?:^|[_:.-])(?:run|exec|execute)[_-](?:command|shell|script|code)(?:[_:.-]|$)/i },
   { category: "kernel", label: "custom kernel mutation tool", pattern: /(?:kernel.*(?:load|unload|write|update)|(?:load|unload|write|update).*kernel)/i },
   { category: "driver", label: "custom driver mutation tool", pattern: /(?:driver.*(?:install|uninstall|remove|update|write)|(?:install|uninstall|remove|update|write).*driver)/i },
   { category: "registry", label: "custom registry mutation tool", pattern: /(?:(?:registry|reg).*?(?:add|set|write|delete|remove|import|update)|(?:add|set|write|delete|remove|import|update).*?(?:registry|reg))/i },
@@ -229,8 +234,14 @@ const CUSTOM_SYSTEM_TOOL_RULES: readonly SystemSafetyRule[] = [
   { category: "disk", label: "custom disk mutation tool", pattern: /(?:(?:disk|partition|volume).*?(?:write|erase|format|wipe|create|delete|resize)|(?:write|erase|format|wipe|create|delete|resize).*?(?:disk|partition|volume))/i },
   { category: "firmware", label: "custom firmware mutation tool", pattern: /(?:(?:firmware|bios|uefi).*?(?:flash|write|update|install|erase)|(?:flash|write|update|install|erase).*?(?:firmware|bios|uefi))/i },
 ];
-const CUSTOM_COMMAND_TOOL_PATTERN = /(?:^|[_:.-])(?:shell|terminal|powershell|bash|cmd|run|exec|execute)(?:[_:.-]|$)|(?:^|[_:.-])(?:run|exec|execute)[_-](?:command|shell|script|code)(?:[_:.-]|$)|(?:^|[_:.-])(?:python|node|perl|ruby|eval|script)[_-](?:exec|run|evaluate)?(?:[_:.-]|$)/i;
+const CUSTOM_COMMAND_TOOL_PATTERN = /(?:^|[_:.-])(?:shell|terminal|powershell|bash|cmd)(?:[_:.-]|$)|(?:^|[_:.-])exec(?:[_:.-]|$)|(?:^|[_:.-])(?:run|exec|execute)[_-](?:command|shell|script|code)(?:[_:.-]|$)|(?:^|[_:.-])(?:python|node|perl|ruby|eval|script)[_-](?:exec|run|evaluate)(?:[_:.-]|$)/i;
 const CUSTOM_PATH_MUTATION_TOOL_PATTERN = /(?:^|[_:.-])(?:write|edit|delete|remove|move|copy|create|install|uninstall|update|set|format|erase|wipe|flash)(?:[_:.-]|$)/i;
+
+function looksLikePath(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 512 || /[\r\n]/.test(trimmed)) return false;
+  return /[\\/]|^~|^[A-Za-z]:|^%|^\$(?:\{)?(?:env:)?(?:USERPROFILE|HOME|WINDIR|SYSTEMROOT)|^(?:HK(?:LM|CU|CR|U|CC)|HKEY_|Registry::)/i.test(trimmed);
+}
 
 type RecordLike = Record<string, unknown>;
 
@@ -259,7 +270,32 @@ function isReadOnlyDiskInspection(command: string): boolean {
   ].some((pattern) => pattern.test(normalized));
 }
 
-export function matchSystemSafetyCommand(command: string): SystemSafetyMatch[] {
+/** Pull nested payloads from soft wrappers like `bash -c '...'` / `node -e "..."`. */
+function extractNestedShellCommands(command: string): string[] {
+  if (!NESTED_SHELL_WRAPPER_PATTERN.test(command)) return [];
+  const nested: string[] = [];
+  const quoted = [
+    /\b(?:bash|sh|zsh)\s+-c\s+(['"])([\s\S]*?)\1/gi,
+    /\b(?:powershell|pwsh)(?:\.exe)?\s+-(?:c|Command)\s+(['"])([\s\S]*?)\1/gi,
+    /\bcmd(?:\.exe)?\s+\/c\s+(['"])([\s\S]*?)\1/gi,
+    /\b(?:python|python3|node|perl|ruby)\s+(?:-e|-c)\s+(['"])([\s\S]*?)\1/gi,
+  ];
+  for (const pattern of quoted) {
+    for (const match of command.matchAll(pattern)) {
+      if (match[2]?.trim()) nested.push(match[2]);
+    }
+  }
+  // Unquoted `cmd /c ...` / `bash -c ...` remainder of the segment
+  for (const match of command.matchAll(/\b(?:bash|sh|zsh)\s+-c\s+(?!['"])(\S+)/gi)) {
+    if (match[1]) nested.push(match[1]);
+  }
+  for (const match of command.matchAll(/\bcmd(?:\.exe)?\s+\/c\s+(?!['"])(.+?)(?=$|[;&\n])/gi)) {
+    if (match[1]?.trim()) nested.push(match[1].trim());
+  }
+  return [...new Set(nested)];
+}
+
+function matchSystemSafetyCommandInner(command: string, depth: number): SystemSafetyMatch[] {
   const normalized = command.replace(/\u0000/g, " ");
   const matches: SystemSafetyMatch[] = [];
   if (isLeafCodePiStopCommand(normalized)) {
@@ -271,9 +307,8 @@ export function matchSystemSafetyCommand(command: string): SystemSafetyMatch[] {
   }
 
   const mutating = MUTATING_COMMAND_PATTERN.test(normalized);
-  if (mutating && USER_DATA_COMMAND_PATH_PATTERN.test(normalized)) {
-    pushSafetyMatch(matches, { category: "user-data", label: "user data path mutation" });
-  }
+  // Home / Users paths are normal coding targets on Windows. Do not hard-gate them;
+  // destructive cases still hit DANGEROUS_PATTERNS / protected-paths.
   if (mutating && SYSTEM_COMMAND_PATH_PATTERN.test(normalized)) {
     pushSafetyMatch(matches, { category: "os", label: "system path mutation" });
   }
@@ -292,7 +327,19 @@ export function matchSystemSafetyCommand(command: string): SystemSafetyMatch[] {
   if (mutating && FIRMWARE_COMMAND_PATH_PATTERN.test(normalized)) {
     pushSafetyMatch(matches, { category: "firmware", label: "firmware path mutation" });
   }
+
+  if (depth < 2) {
+    for (const nested of extractNestedShellCommands(normalized)) {
+      for (const match of matchSystemSafetyCommandInner(nested, depth + 1)) {
+        pushSafetyMatch(matches, match);
+      }
+    }
+  }
   return matches;
+}
+
+export function matchSystemSafetyCommand(command: string): SystemSafetyMatch[] {
+  return matchSystemSafetyCommandInner(command, 0);
 }
 
 function normalizePathCandidate(value: string): string {
@@ -307,27 +354,6 @@ function pathCandidates(filePath: string, cwd: string): string[] {
     /* malformed paths remain covered by the raw candidate */
   }
   return [...new Set(candidates)];
-}
-
-function isInsideWorkspace(filePath: string, cwd: string): boolean {
-  try {
-    const workspace = realpathSync.native(cwd);
-    const target = resolvePath(cwd, filePath);
-    let existingAncestor = target;
-    while (!existsSync(existingAncestor)) {
-      const parent = dirname(existingAncestor);
-      if (parent === existingAncestor) return false;
-      existingAncestor = parent;
-    }
-    const resolvedTarget = resolvePath(
-      realpathSync.native(existingAncestor),
-      relative(existingAncestor, target),
-    );
-    const fromWorkspace = relative(workspace, resolvedTarget);
-    return fromWorkspace === "" || (!fromWorkspace.startsWith("..") && !isAbsolute(fromWorkspace));
-  } catch {
-    return false;
-  }
 }
 
 export function matchSystemSafetyPath(filePath: string, cwd = process.cwd()): SystemSafetyMatch[] {
@@ -401,9 +427,8 @@ export function matchSystemSafetyForTool(
     const filePath = asRecord(input)?.path;
     if (typeof filePath !== "string") return [];
     const matches = matchSystemSafetyPath(filePath, cwd);
-    return isInsideWorkspace(filePath, cwd)
-      ? matches.filter((match) => match.category !== "user-data")
-      : matches;
+    // user-data is informational for path classification only; never hard-gate it.
+    return matches.filter((match) => match.category !== "user-data");
   }
   if (toolName === "read" || toolName === "grep" || toolName === "find" || toolName === "ls") return [];
 
@@ -413,17 +438,25 @@ export function matchSystemSafetyForTool(
   }
   const commands: string[] = typeof input === "string" ? [input] : [];
   collectStringFields(input, COMMAND_INPUT_KEYS, commands);
-  const allStrings: string[] = [];
-  collectLeafStrings(input, allStrings);
-  for (const command of [...new Set([...commands, ...allStrings, commands.length > 1 ? commands.join(" ") : ""])]) {
+  for (const command of [...new Set(commands)]) {
     if (!command) continue;
     for (const match of matchSystemSafetyCommand(command)) pushSafetyMatch(matches, match);
   }
-  const paths: string[] = typeof input === "string" ? [input] : [];
+  const paths: string[] = typeof input === "string" && looksLikePath(input) ? [input] : [];
   collectStringFields(input, PATH_INPUT_KEYS, paths);
-  if (CUSTOM_PATH_MUTATION_TOOL_PATTERN.test(toolName)) collectLeafStrings(input, paths);
+  if (CUSTOM_PATH_MUTATION_TOOL_PATTERN.test(toolName)) {
+    const leafs: string[] = [];
+    collectLeafStrings(input, leafs);
+    for (const leaf of leafs) {
+      if (looksLikePath(leaf)) paths.push(leaf);
+    }
+  }
   for (const filePath of [...new Set(paths)]) {
-    for (const match of matchSystemSafetyPath(filePath, cwd)) pushSafetyMatch(matches, match);
+    if (!looksLikePath(filePath)) continue;
+    for (const match of matchSystemSafetyPath(filePath, cwd)) {
+      if (match.category === "user-data") continue;
+      pushSafetyMatch(matches, match);
+    }
   }
   if (CUSTOM_COMMAND_TOOL_PATTERN.test(toolName) && commands.length === 0) {
     pushSafetyMatch(matches, { category: "os", label: "custom command execution" });
@@ -471,14 +504,14 @@ function isReadOnlyInvestigation(
   const command = asRecord(input)?.command;
   if (typeof command !== "string" || matchedDanger(command).dangerous || MUTATING_COMMAND_PATTERN.test(command)) return false;
   const rules: Array<[SystemSafetyCategory, RegExp]> = [
-    ["os", /\b(?:Get-ComputerInfo|systeminfo|uname|sw_vers)\b/i],
+    ["os", /\b(?:Get-ComputerInfo|systeminfo|uname|sw_vers|ver\b|hostname|Get-CimInstance\b[^\r\n]*Win32_OperatingSystem)\b/i],
     ["user-data", USER_DATA_COMMAND_PATH_PATTERN],
     ["kernel", /\b(?:uname|lsmod|modinfo|sysctl\s+-a|Get-CimInstance)\b/i],
     ["driver", /\b(?:driverquery|lsmod|modinfo|pnputil(?:\.exe)?\s+\/(?:enum-drivers|enum-devices))\b/i],
     ["registry", /\b(?:reg(?:\.exe)?\s+query|Get-(?:Item|ItemProperty)\b[^\r\n]*(?:HK(?:LM|CU|CR|U|CC)|Registry::))\b/i],
     ["service", /\b(?:Get-Service|systemctl\s+(?:status|show|list)|sc(?:\.exe)?\s+query|service\s+\S+\s+status)\b/i],
     ["boot", /\b(?:bcdedit(?:\.exe)?\s+\/enum|efibootmgr\s*$)\b/i],
-    ["disk", /\b(?:lsblk|findmnt)\b/i],
+    ["disk", /\b(?:lsblk|findmnt|Get-Disk|Get-Volume|Get-Partition)\b/i],
     ["firmware", /\b(?:dmidecode|fwupdmgr\s+(?:get-devices|get-updates))\b/i],
   ];
   return (isReadOnlyDiskInspection(command) && categories.has("disk"))

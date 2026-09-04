@@ -682,3 +682,19 @@ turn 2 の合成ベンチマークでは、履歴100/1,000/5,000件を各200回 
 `permission-gate.json` の保存先をプロジェクト内の `.pi/leafcode/` から `dataDir()`（既定 `%APPDATA%\leafcode-pi`）へ移動。拡張側も同じ保存先を読み、`bindExtensions()` 後に明示モードを再適用してセッション開始時の上書きを防止。既存のプロジェクト `.pi` 生成物は削除。コミット `802aafd`。
 
 検証: permission-gate関連5 tests、host 114 tests、lint成功。Web全体は既存の Auto モデル設定テスト1件、typecheckは同設定の既存型エラー3件で失敗。
+
+## 2026-09-04: System safety guard の過検知を緩和
+
+観点: hard-gate がコーディングエージェントの日常操作（`node -e` / `bash -c` / `Start-Process` / ホーム配下の mkdir・書き込み / MCP の run・execute 名 / プロンプト文面の危険語）まで調査→計画→明示承認フローに巻き込んでいた。
+
+### 変更
+- `dynamic/elevated script execution` を EncodedCommand / iex / eval / 難読化呼び出し / 変数+危険動詞 / リモート Invoke-Command に限定
+- ソフトラッパー（`bash -c` / `node -e` 等）は外側だけでは hard せず、ネスト中身を再分類
+- user-data（Users/home 配下の変更）を hard-gate から外す（破壊的操作は DANGEROUS_PATTERNS / protected-paths で継続保護）
+- MCP ツール名の単独 `run`/`execute` マッチを削除。`prompt`/`message`/`query` をコマンド走査キーから除外し全 leaf 文字列スキャンを廃止
+- 調査 allowlist を OS/disk 向けに少し拡張
+
+### 維持
+- OS 停止・権限昇格・パッケージ/サービス/レジストリ/disk/firmware、`"$x" stop`、`& ('Stop-'+'Computer')`、curl|sh、LeafCodePi 自己停止禁止
+
+検証: `extensions/leafcode-permission-gate` 7 tests、`pi-args.test.ts` 3 tests 成功。
