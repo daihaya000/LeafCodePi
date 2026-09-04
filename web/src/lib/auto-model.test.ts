@@ -574,6 +574,38 @@ describe("chooseAutoModel", () => {
     ).toBeNull();
   });
 
+  it("never sets an escalation that equals the chosen model", () => {
+    // A single model has nowhere to escalate to, so escalation must be absent.
+    // If it pointed at itself, the Auto retry would loop on the same model.
+    const single = chooseAutoModel({
+      models: [model("claude-haiku-4-5", { thinkingLevels: ["minimal"] })],
+      tier: "light",
+      hasImages: false,
+    });
+    expect(single).not.toBeNull();
+    expect(single!.modelID).toBe("claude-haiku-4-5");
+    expect(single!.escalation).toBeUndefined();
+
+    // Several models on one provider: escalation must differ from the choice.
+    const multi = chooseAutoModel({
+      models: [
+        model("claude-haiku-4-5", { thinkingLevels: ["minimal"] }),
+        model("claude-opus-5", { thinkingLevels: ["high"] }),
+      ],
+      tier: "light",
+      hasImages: false,
+    });
+    expect(multi).not.toBeNull();
+    expect(multi!.escalation).toBeDefined();
+    const sameTarget =
+      multi!.escalation!.providerID === multi!.providerID &&
+      multi!.escalation!.modelID === multi!.modelID;
+    // Escalation only differs by accountId or variant when the model matches.
+    expect(
+      sameTarget && multi!.escalation!.variant === multi!.variant,
+    ).toBe(false);
+  });
+
   it("builds the model value with and without an account", () => {
     expect(autoModelValue({ providerID: "openai", modelID: "gpt-5" })).toBe(
       "openai::gpt-5",
