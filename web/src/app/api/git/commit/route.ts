@@ -13,9 +13,13 @@ export async function POST(req: NextRequest) {
     message?: string;
     paths?: string[];
     all?: boolean;
-    agent?: string;
+    agent?: unknown;
   } | null;
 
+  const agent = body?.agent;
+  if (agent !== undefined && typeof agent !== "string") {
+    return NextResponse.json({ error: "invalid agent" }, { status: 400 });
+  }
   if (!body?.directory || !body.message?.trim()) {
     return NextResponse.json(
       { error: "directory and message are required" },
@@ -66,7 +70,7 @@ export async function POST(req: NextRequest) {
     commitArgs.push("--", ...body.paths);
   }
 
-  const agentName = body.agent?.trim() || "build";
+  const agentName = (typeof agent === "string" ? agent.trim() : "") || "build";
   const gitEnv: Record<string, string> | undefined = SAFE_AGENT.test(agentName)
     ? {
         GIT_AUTHOR_NAME: agentName,
