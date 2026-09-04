@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
-    directory?: string;
+    directory?: unknown;
     branch?: unknown;
     into?: unknown;
     noFf?: unknown;
@@ -21,19 +21,20 @@ export async function POST(req: NextRequest) {
   } | null;
   const branch = typeof body?.branch === "string" ? body.branch.trim() : "";
   const noFf = body?.noFf;
+  const directory = body?.directory;
   const messageValue = body?.message;
   if (messageValue !== undefined && typeof messageValue !== "string") {
     return NextResponse.json({ error: "message must be a string" }, { status: 400 });
   }
   const message = typeof messageValue === "string" ? messageValue.trim() : "";
 
-  if (!body?.directory || !branch) {
+  if (typeof directory !== "string" || !directory || !branch) {
     return NextResponse.json(
       { error: "directory and branch are required" },
       { status: 400 },
     );
   }
-  const directoryError = gitDirectoryError(body.directory);
+  const directoryError = gitDirectoryError(directory);
   if (directoryError) {
     return NextResponse.json(
       { error: directoryError },
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "noFf must be a boolean" }, { status: 400 });
   }
 
-  const head = await runGit(body.directory, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const head = await runGit(directory, ["rev-parse", "--abbrev-ref", "HEAD"]);
   if (head.code !== 0) {
     return NextResponse.json(
       { error: head.stderr.trim() || "cannot read HEAD" },
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest) {
   const currentBranch = head.stdout.trim();
 
   if (into === "branch") {
-    const co = await runGit(body.directory, ["checkout", branch]);
+    const co = await runGit(directory, ["checkout", branch]);
     if (co.code !== 0) {
       const stderr = co.stderr.trim();
       const inUseElsewhere = /already checked out|already used by worktree/i.test(stderr);
@@ -87,10 +88,10 @@ export async function POST(req: NextRequest) {
     if (noFf) args.push("--no-ff");
     if (message) args.push("-m", message);
     args.push(currentBranch);
-    const merge = await runGit(body.directory, args);
+    const merge = await runGit(directory, args);
     if (merge.code !== 0) {
-      await runGit(body.directory, ["merge", "--abort"]).catch(() => undefined);
-      const back = await runGit(body.directory, ["checkout", currentBranch]);
+      await runGit(directory, ["merge", "--abort"]).catch(() => undefined);
+      const back = await runGit(directory, ["checkout", currentBranch]);
       if (back.code !== 0) {
         return NextResponse.json(
           {
@@ -112,7 +113,7 @@ export async function POST(req: NextRequest) {
         { status: 409 },
       );
     }
-    const restore = await runGit(body.directory, ["checkout", currentBranch]);
+    const restore = await runGit(directory, ["checkout", currentBranch]);
     if (restore.code !== 0) {
       return NextResponse.json(
         {
@@ -140,9 +141,9 @@ export async function POST(req: NextRequest) {
   if (noFf) args.push("--no-ff");
   if (message) args.push("-m", message);
   args.push(branch);
-  const merge = await runGit(body.directory, args);
+  const merge = await runGit(directory, args);
   if (merge.code !== 0) {
-    await runGit(body.directory, ["merge", "--abort"]).catch(() => undefined);
+    await runGit(directory, ["merge", "--abort"]).catch(() => undefined);
     return NextResponse.json(
       {
         error: merge.stderr.trim() || merge.stdout.trim() || "merge failed",
