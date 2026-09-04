@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 2
+
+権限モードが `permission-gate.json` の単一 `mode` で全タスク共有だった。`sessions[sessionId]` を優先し、デフォルト `mode` は新規セッション専用にした。`session_start` が全体デフォルトで上書きしない。回帰: `permission-gate-config.test.ts` / `index.test.ts`。
+
 ## 2026-09-04: 発見→修正ループ Tick 1
 
 ループ: 2分間隔、センチネル `AGENT_LOOP_TICK_findfix`、ユーザー停止指示まで継続。

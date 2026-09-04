@@ -58,4 +58,29 @@ describe("permission-gate-config", () => {
       assert.equal(JSON.parse(raw).mode, "deny");
     });
   });
+
+  it("keeps per-session modes isolated from the default and each other", () => {
+    withTempDataDir(() => {
+      writePermissionGateConfig("allow");
+      applyPermissionMode({ sessionId: "task-a" }, "deny");
+      applyPermissionMode({ sessionManager: { getSessionId: () => "task-b" } }, "ask");
+
+      assert.equal(readPermissionGateConfig(), "allow");
+      assert.equal(readPermissionGateConfig("task-a"), "deny");
+      assert.equal(readPermissionGateConfig("task-b"), "ask");
+      assert.equal(readPermissionGateConfig("task-c"), "allow");
+
+      const raw = JSON.parse(readFileSync(permissionGateConfigPath(), "utf8")) as {
+        mode: string;
+        sessions: Record<string, string>;
+      };
+      assert.equal(raw.mode, "allow");
+      assert.equal(raw.sessions["task-a"], "deny");
+      assert.equal(raw.sessions["task-b"], "ask");
+
+      writePermissionGateConfig("ask");
+      assert.equal(readPermissionGateConfig(), "ask");
+      assert.equal(readPermissionGateConfig("task-a"), "deny");
+    });
+  });
 });

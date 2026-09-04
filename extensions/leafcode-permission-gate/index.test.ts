@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -416,6 +416,63 @@ describe("LeafCode permission gate", () => {
         freshContext(cwd, sessionManager),
       );
       assert.equal((shellOk as { block?: boolean } | undefined)?.block, undefined);
+    } finally {
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(appDir, { recursive: true, force: true });
+    }
+  });
+
+  it("isolates deny to the session that set it", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-isolate-"));
+    const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-isolate-data-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = appDir;
+    const handlers = new Map<string, Handler>();
+    const commands = new Map<string, (args: string, ctx: ExtensionContext) => Promise<void>>();
+    const pi = {
+      on: (name: string, handler: Handler) => handlers.set(name, handler),
+      registerCommand: (name: string, spec: { handler: (args: string, ctx: ExtensionContext) => Promise<void> }) =>
+        commands.set(name, spec.handler),
+    } as unknown as ExtensionAPI;
+    permissionGate(pi);
+    const sessionA = {
+      getSessionId: () => "session-a",
+      getSessionName: () => "A",
+    };
+    const sessionB = {
+      getSessionId: () => "session-b",
+      getSessionName: () => "B",
+    };
+
+    try {
+      writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "allow" }), "utf8");
+      const denyCtx = {
+        cwd,
+        hasUI: true,
+        sessionManager: sessionA,
+        ui: { notify: () => undefined, select: async () => "No" },
+      } as unknown as ExtensionContext;
+      await commands.get("leafcode-permission")?.("deny", denyCtx);
+
+      const denied = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "echo secret" } },
+        freshContext(cwd, sessionA),
+      );
+      const allowed = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "echo secret" } },
+        freshContext(cwd, sessionB),
+      );
+      assert.equal((denied as { block?: boolean } | undefined)?.block, true);
+      assert.equal((allowed as { block?: boolean } | undefined)?.block, undefined);
+
+      const stored = JSON.parse(readFileSync(join(appDir, "permission-gate.json"), "utf8")) as {
+        mode: string;
+        sessions: Record<string, string>;
+      };
+      assert.equal(stored.mode, "allow");
+      assert.equal(stored.sessions["session-a"], "deny");
     } finally {
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;

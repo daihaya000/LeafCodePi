@@ -19,6 +19,7 @@ export type PermissionMode = "allow" | "ask" | "deny";
 
 type StoredConfig = {
   mode: PermissionMode;
+  sessions?: Record<string, PermissionMode>;
 };
 
 const CONFIG_FILE = "permission-gate.json";
@@ -137,41 +138,63 @@ function configPath(): string {
   return join(leafcodeDataDir(), CONFIG_FILE);
 }
 
+function parseMode(value: unknown): PermissionMode | undefined {
+  if (value === "allow" || value === "ask" || value === "deny") return value;
+  return undefined;
+}
+
 function readConfig(): StoredConfig {
   try {
     const { readFileSync } = require("node:fs");
-    const raw = JSON.parse(readFileSync(configPath(), "utf8"));
-    if (raw && (raw.mode === "allow" || raw.mode === "ask" || raw.mode === "deny")) {
-      return { mode: raw.mode };
+    const raw = JSON.parse(readFileSync(configPath(), "utf8")) as {
+      mode?: unknown;
+      sessions?: unknown;
+    };
+    const mode = parseMode(raw?.mode) ?? "allow";
+    const sessions: Record<string, PermissionMode> = {};
+    if (raw?.sessions && typeof raw.sessions === "object" && !Array.isArray(raw.sessions)) {
+      for (const [key, value] of Object.entries(raw.sessions as Record<string, unknown>)) {
+        const parsed = parseMode(value);
+        if (parsed) sessions[key] = parsed;
+      }
     }
+    return Object.keys(sessions).length > 0 ? { mode, sessions } : { mode };
   } catch {
     /* ignore */
   }
   return { mode: "allow" };
 }
 
-function writeConfig(mode: PermissionMode): void {
+function writeConfig(mode: PermissionMode, sessionId?: string): void {
   try {
     const { mkdirSync, writeFileSync } = require("node:fs");
     const { dirname } = require("node:path");
     const file = configPath();
+    const current = readConfig();
+    const next: StoredConfig = sessionId
+      ? { mode: current.mode, sessions: { ...current.sessions, [sessionId]: mode } }
+      : { mode, sessions: current.sessions };
     mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, `${JSON.stringify({ mode }, null, 2)}\n`, "utf8");
-  } catch {
-    /* ignore */
+    writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  } catch (error) {
+    console.warn("[leafcode-permission-gate] failed to persist permission mode:", error);
   }
 }
 
 /**
  * Pi recreates ExtensionContext per event (createContext()), so mode cannot
  * live on the ctx object. Persist to disk and re-read on every tool_call.
+ * Session-scoped entries win; `mode` is only the default for new sessions.
  */
-function sessionMode(_ctx: ExtensionContext): PermissionMode {
-  return readConfig().mode;
+function sessionMode(ctx: ExtensionContext): PermissionMode {
+  const config = readConfig();
+  const sessionId = extensionSessionId(ctx);
+  if (sessionId && config.sessions?.[sessionId]) return config.sessions[sessionId];
+  return config.mode;
 }
 
-function setSessionMode(_ctx: ExtensionContext, mode: PermissionMode): void {
-  writeConfig(mode);
+function setSessionMode(ctx: ExtensionContext, mode: PermissionMode): void {
+  writeConfig(mode, extensionSessionId(ctx) || undefined);
 }
 
 export function getPermissionMode(ctx: ExtensionContext): PermissionMode {
@@ -746,14 +769,8 @@ export default function (pi: ExtensionAPI): void {
     pendingInvestigationCalls.clear();
   };
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async () => {
     resetSafetyFlow();
-    try {
-      const config = readConfig();
-      setSessionMode(ctx, config.mode);
-    } catch {
-      setSessionMode(ctx, "allow");
-    }
   });
 
   pi.on("input", (event) => {
