@@ -289,6 +289,12 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("vagrant halt").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("vagrant destroy -f").some((match) => match.label === "OS shutdown/restart"));
     assert.deepEqual(matchSystemSafetyCommand("echo vagrant halt"), []);
+    assert.ok(matchSystemSafetyCommand("kind delete cluster").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("k3d cluster stop my").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("docker desktop stop").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("orb stop").some((match) => match.label === "OS shutdown/restart"));
+    assert.deepEqual(matchSystemSafetyCommand("kind create cluster"), []);
+    assert.deepEqual(matchSystemSafetyCommand("echo kind delete cluster"), []);
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);

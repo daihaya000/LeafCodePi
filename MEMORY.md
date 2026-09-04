@@ -1,3 +1,12 @@
+## 2026-09-05: permission-gate ループ tick 22
+
+- FN: `kind`/`k3d` cluster delete|stop、`docker desktop stop`、`orb stop`
+- `kind create` / `echo kind delete` は非検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 21
 
 - FN: `terragrunt destroy`、`vagrant halt` / `destroy` / `suspend`
