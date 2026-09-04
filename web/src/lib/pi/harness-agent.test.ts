@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
-import { getTask, insertTask, upsertProject } from "@/lib/store";
+import { getTask, insertTask, patchTask, upsertProject } from "@/lib/store";
 import {
   armTaskHangWatch,
   getTaskHangWatch,
@@ -472,6 +472,55 @@ describe("archiveTask", () => {
     assert.equal(detail.status, "archived");
     assert.equal(detail.isStreaming, false);
     assert.equal(live.has(task.id), false);
+  });
+
+  it("returns archived transcript without recreating a live session", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-archive-history-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "demo", rootPath: root });
+    const task = insertTask({ project, title: "archive history" });
+    const sessionFile = join(root, "session.jsonl");
+    writeFileSync(sessionFile, "{}\n", "utf8");
+    patchTask(task.id, { sessionFile, status: "archived" });
+    const live = new Map();
+    let opened = 0;
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      live,
+      events: new EventEmitter(),
+      pi: {
+        SessionManager: {
+          open: (file: string) => {
+            opened += 1;
+            assert.equal(file, sessionFile);
+            return {
+              buildSessionContext: () => ({
+                messages: [
+                  { role: "user", content: "保存された会話", timestamp: 1 },
+                  {
+                    role: "assistant",
+                    content: [{ type: "text", text: "応答" }],
+                    timestamp: 2,
+                  },
+                ],
+              }),
+            };
+          },
+        },
+      },
+    };
+
+    const detail = await getTaskDetail(task.id);
+
+    assert.equal(opened, 1);
+    assert.equal(detail.status, "archived");
+    assert.equal(detail.isStreaming, false);
+    assert.equal(live.has(task.id), false);
+    assert.equal(detail.messages.length, 2);
+    assert.equal(detail.messages[0]?.role, "user");
+    const userText = detail.messages[0]?.parts.find((part) => part.type === "text");
+    assert.equal(userText && "text" in userText ? userText.text : undefined, "保存された会話");
+    assert.equal(detail.messages[1]?.role, "assistant");
   });
 
   it("aborts a running session before marking the task archived", async () => {

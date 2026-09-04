@@ -1,3 +1,7 @@
+## 2026-09-05: 発見→修正ループ Tick 40
+
+**アーカイブを開くと会話が空になる** — Tick 39 は live 再生成を止めたが、履歴も bootstrap の空配列のまま返していた。SSE ready がタイムラインを消す。session ファイルを読み取り専用で射影する。
+
 ## 2026-09-05: 発見→修正ループ Tick 39
 
 **実行中タスクのアーカイブがセッションを起こし直す** — `archiveTask` は `disposeLive` だけで abort せず、`ensureLive` も `archived` を見ない。SSE の ready がセッションを再作成し、Goal loop やキューが動き続ける。アーカイブ前に abort し、archived なら live を作らない。

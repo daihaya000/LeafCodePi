@@ -4247,6 +4247,53 @@ export function getTaskSummaries(includeArchived = false): TaskSummary[] {
   return listTasks(includeArchived).map(toSummary);
 }
 
+function readOfflineSessionSnapshot(sessionFile: string): {
+  messages: UiMessage[];
+  todos: TodoDto[];
+} {
+  const sessionManager = state().pi.SessionManager.open(sessionFile);
+  const context = sessionManager.buildSessionContext?.() ?? { messages: [] };
+  const raw = Array.isArray(context.messages) ? context.messages : [];
+  const messages = snapshotMessages({
+    messages: raw,
+    agent: { state: { streamingMessage: undefined } },
+    sessionManager: {
+      getLeafId: () => {
+        try {
+          return typeof sessionManager.getLeafId === "function"
+            ? sessionManager.getLeafId()
+            : null;
+        } catch {
+          return null;
+        }
+      },
+      getBranch: () => {
+        try {
+          return typeof sessionManager.getBranch === "function"
+            ? sessionManager.getBranch()
+            : [];
+        } catch {
+          return [];
+        }
+      },
+    },
+  } as AgentSession);
+  return { messages, todos: todosFromPiMessages(raw) };
+}
+
+async function readArchivedTaskSnapshot(task: TaskSummary): Promise<{
+  messages: UiMessage[];
+  todos: TodoDto[];
+}> {
+  if (!task.sessionFile) return { messages: [], todos: [] };
+  try {
+    await loadPi();
+    return readOfflineSessionSnapshot(task.sessionFile);
+  } catch {
+    return { messages: [], todos: [] };
+  }
+}
+
 export function readTodoProgress(
   pi: PiModule,
   task: TaskSummary,
@@ -4360,12 +4407,15 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   if (task.status === "archived") {
+    const offline = await readArchivedTaskSnapshot(task);
     return {
       ...getTaskBootstrap(id),
+      messages: offline.messages,
+      todos: offline.todos,
+      isStreaming: false,
       permissionRequest: ensurePermissionPromptService().pendingForTask(id),
       questionRequest: ensureQuestionPromptService().pendingForTask(id),
       goalLoop: null,
-      todos: [],
       hangRetryCount: task.hangRetryCount || 0,
       revertLeafId: task.revertLeafId ?? null,
       manualAbortedAssistantId: task.manualAbortedAssistantId ?? null,
