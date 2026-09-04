@@ -1,3 +1,14 @@
+## 2026-09-05: permission-gate ループ tick 44
+
+- FN: `zfs rollback`、`geom … destroy`、`growfs`/`tunefs`/`resize2fs`/`xfs_growfs`/`lvresize`/`pvresize`
+- FN: `dmsetup remove`、`losetup -d`、`camcontrol eject`、`cryptsetup close|luksClose`
+- FP: `zfs|zpool destroy -n`（dry-run）
+- RAID show/config 読み取りは過検知なし（確認済み）
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 43
 
 - FN: `geli init|attach|detach`、`bsdlabel -w|-R`、`glabel destroy|create`、`gpart add`、`newfs_ufs`
