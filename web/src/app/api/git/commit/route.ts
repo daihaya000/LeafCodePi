@@ -9,7 +9,7 @@ const SAFE_AGENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
-    directory?: string;
+    directory?: unknown;
     message?: unknown;
     paths?: unknown;
     all?: boolean;
@@ -29,13 +29,14 @@ export async function POST(req: NextRequest) {
   }
   const validPaths = Array.isArray(paths) ? paths as string[] : undefined;
   const message = body?.message;
-  if (!body?.directory || typeof message !== "string" || !message.trim()) {
+  const directory = body?.directory;
+  if (typeof directory !== "string" || !directory || typeof message !== "string" || !message.trim()) {
     return NextResponse.json(
       { error: "directory and message are required" },
       { status: 400 },
     );
   }
-  const directoryError = gitDirectoryError(body.directory);
+  const directoryError = gitDirectoryError(directory);
   if (directoryError) {
     return NextResponse.json(
       { error: directoryError },
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
 
   // Stage — require an explicit all:true or a non-empty paths list.
   if (body.all === true) {
-    const add = await runGit(body.directory, ["add", "-A", "--", "."]);
+    const add = await runGit(directory, ["add", "-A", "--", "."]);
     if (add.code !== 0) {
       return NextResponse.json(
         { error: add.stderr.trim() || "git add failed" },
@@ -60,7 +61,7 @@ export async function POST(req: NextRequest) {
       const err = commitPathError(p);
       if (err) return NextResponse.json({ error: err }, { status: 400 });
     }
-    const add = await runGit(body.directory, ["add", "--", ...validPaths]);
+    const add = await runGit(directory, ["add", "--", ...validPaths]);
     if (add.code !== 0) {
       return NextResponse.json(
         { error: add.stderr.trim() || "git add failed" },
@@ -89,7 +90,7 @@ export async function POST(req: NextRequest) {
       }
     : undefined;
 
-  const commit = await runGit(body.directory, commitArgs, undefined, gitEnv);
+  const commit = await runGit(directory, commitArgs, undefined, gitEnv);
   if (commit.code !== 0) {
     return NextResponse.json(
       {
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const log = await runGit(body.directory, ["log", "-1", "--oneline"]);
+  const log = await runGit(directory, ["log", "-1", "--oneline"]);
   return NextResponse.json({
     ok: true,
     summary: log.stdout.trim() || commit.stdout.trim(),
