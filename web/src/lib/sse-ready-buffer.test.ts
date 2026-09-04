@@ -120,6 +120,19 @@ describe("sse-ready-buffer", () => {
       shouldFlushPendingAfterReady(
         {
           type: "snapshot",
+          eventType: "hang_abort",
+          messages: [
+            { id: "history", createdAt: 1 },
+            { id: "latest", createdAt: 5 },
+          ],
+        },
+        ready,
+      ),
+    ).toBe(true);
+    expect(
+      shouldFlushPendingAfterReady(
+        {
+          type: "snapshot",
           eventType: "stale",
           messages: [{ id: "stale", createdAt: 2 }],
         },

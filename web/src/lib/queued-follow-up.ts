@@ -42,3 +42,8 @@ export function shouldAutoSendQueuedFollowUp(input: {
     !input.stopRequested
   );
 }
+
+/** Hang abort/retry must drop the client queue before the idle window can drain it. */
+export function shouldClearQueuedFollowUpOnEvent(eventType: string | undefined): boolean {
+  return eventType === "hang_abort" || eventType === "hang_retry";
+}

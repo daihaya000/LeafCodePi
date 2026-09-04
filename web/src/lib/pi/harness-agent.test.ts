@@ -233,10 +233,14 @@ describe("abortTask", () => {
     const task = insertTask({ project, title: "hang abort task" });
     let abortCount = 0;
     let clearQueueCount = 0;
+    const eventTypes: string[] = [];
+    let hangAbortBeforeSessionAbort = false;
     const session = {
+      sessionId: "hang-abort-session",
       messages: [{ role: "user", content: "作業", timestamp: 1 }],
       agent: { state: { streamingMessage: undefined } },
       isStreaming: true,
+      isCompacting: false,
       sessionManager: {
         getLeafId: () => null,
         getBranch: () => [],
@@ -248,10 +252,12 @@ describe("abortTask", () => {
         return { steering: ["steer"], followUp: ["follow"] };
       },
       abort: async () => {
+        hangAbortBeforeSessionAbort = eventTypes.includes("hang_abort");
         abortCount += 1;
       },
     };
     const live = new Map([[task.id, {
+      taskId: task.id,
       accountId: null,
       session,
       skillPermission: "allow",
@@ -271,9 +277,13 @@ describe("abortTask", () => {
       hangRetryCount: 0,
       reasoningFallbackTried: false,
     }]]);
+    const events = new EventEmitter();
+    events.on(task.id, (payload: { eventType?: string }) => {
+      if (payload.eventType) eventTypes.push(payload.eventType);
+    });
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
       live,
-      events: new EventEmitter(),
+      events,
     };
 
     armTaskHangWatch({ taskId: task.id, prompt: "作業" });
@@ -283,6 +293,8 @@ describe("abortTask", () => {
     assert.equal(clearQueueCount, 1);
     assert.equal(getTask(task.id)?.status, "idle");
     assert.ok(getTaskHangWatch(task.id));
+    assert.equal(eventTypes[0], "hang_abort");
+    assert.equal(hangAbortBeforeSessionAbort, true);
   });
 
   it("stops a queued Goal Loop before aborting an idle session", async () => {

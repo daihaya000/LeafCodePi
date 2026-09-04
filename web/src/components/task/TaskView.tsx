@@ -112,6 +112,7 @@ import {
 } from "@/lib/aborted-resume";
 import {
   shouldAutoSendQueuedFollowUp,
+  shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
 } from "@/lib/queued-follow-up";
 import { isHangRetryUserMessage } from "@/lib/hang-retry";
@@ -846,12 +847,12 @@ export const TaskView = memo(function TaskView({
           if ("manualAbortedAssistantId" in payload) {
             setManualAbortedAssistantId(payload.manualAbortedAssistantId ?? null);
           }
+          if (shouldClearQueuedFollowUpOnEvent(payload.eventType)) {
+            setQueuedFollowUps([]);
+            setQueuedAutoSend(false);
+          }
           if (typeof payload.hangRetryCount === "number") {
             setHangRetryCount(payload.hangRetryCount);
-            if (payload.eventType === "hang_retry") {
-              setQueuedFollowUps([]);
-              setQueuedAutoSend(false);
-            }
           }
           if ("revertLeafId" in payload) {
             setTask((current) => {

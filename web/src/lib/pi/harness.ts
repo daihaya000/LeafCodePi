@@ -5247,6 +5247,9 @@ export function clearSessionQueue(session: { clearQueue?: () => unknown }): void
  */
 export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
   const live = state().live.get(taskId);
+  // Tell the client before idle snapshots from abort() so queued follow-ups
+  // cannot drain in the wait-for-idle window before hang_retry.
+  if (live) emitTaskSnapshot(live, "hang_abort");
   clearPendingAttentionForTask(taskId);
   if (live) {
     const msgs = snapshotMessages(

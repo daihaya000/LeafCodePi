@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 30
+
+**ハング abort の idle 窓で follow-up が自動送信される** — watchdog は abort 後に idle を待ってから再送する。クライアントは `hang_retry` までキューを残し、その間の idle で drain していた。abort の前に `hang_abort` を送り、キューを先に捨てる。
+
 ## 2026-09-04: 発見→修正ループ Tick 29
 
 **送信直後のアカウント切替が進行中プロンプトを壊す** — `setTaskModel` は `isStreaming` だけ見て `disposeLive` していた。`promptActive` や圧縮中はストリーム前でもセッションを捨て、応答が欠ける。エージェント切替と同じく busy なら 409 にし、モデル選択も working 中は閉じる。

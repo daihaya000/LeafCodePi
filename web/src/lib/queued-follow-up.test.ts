@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   shouldAutoSendQueuedFollowUp,
+  shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
 } from "./queued-follow-up";
 
@@ -72,5 +73,14 @@ describe("queued follow-up auto-send", () => {
         hasContent: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("queued follow-up hang events", () => {
+  it("clears the client queue on hang abort, before hang retry", () => {
+    expect(shouldClearQueuedFollowUpOnEvent("hang_abort")).toBe(true);
+    expect(shouldClearQueuedFollowUpOnEvent("hang_retry")).toBe(true);
+    expect(shouldClearQueuedFollowUpOnEvent("abort")).toBe(false);
+    expect(shouldClearQueuedFollowUpOnEvent(undefined)).toBe(false);
   });
 });
