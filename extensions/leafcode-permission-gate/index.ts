@@ -56,7 +56,8 @@ const LEAFCODE_PI_PROCESS_TARGET_PATTERN = /\b(?:leafcodepi|leafcode[-_ ]?pi(?:[
 const SELF_PID_REFERENCE_PATTERN = /(?:%(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID)%|\$(?:\$|(?:\{)?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?)|\bprocess\.(?:pid|ppid)\b|\b(?:os\.)?getpid\s*\(\s*\))/i;
 // Child `process.exit()` does not stop LeafCodePi; only kill/getpid self-targets do.
 const INLINE_SELF_TERMINATION_PATTERN = /\b(?:node|node\.exe|bun|deno)\b[^\r\n]*(?:process\s*[.]\s*(?:kill|abort)\s*\(|process\s*\[[^\]]+\]\s*\(|os\s*[.]\s*kill\s*\(\s*(?:os\.)?getpid)/i;
-const BROAD_KILL_TARGET_PATTERN = /\b(?:kill|pkill)\b[^\r\n]*(?:^|\s)(?:--\s*)?-1(?:\s|$)/im;
+// Only `kill -- -1` / `kill -1` as the sole target (broadcast), not `kill -1 <pid>` (signal 1).
+const BROAD_KILL_TARGET_PATTERN = /\b(?:kill|pkill)\b[^\r\n]*(?:^|\s)--\s*-1(?:\s|$)|(?:^|[;&|\r\n]\s*)(?:kill|pkill)\s+-1\s*$/im;
 
 /**
  * Return true when a command can terminate LeafCodePi itself. This is kept
@@ -83,9 +84,18 @@ export function isLeafCodePiStopCommand(command: string, pid = process.pid): boo
  * without elevation, home-directory mkdir/cp) must NOT hard-gate here.
  */
 const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
-  // Word-boundary alone false-positives `git log --grep=shutdown`; require command position.
-  { category: "os", label: "OS shutdown/restart", pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:sudo\s+)?(?:shutdown(?:\.exe)?|reboot|poweroff|halt)(?:\.exe)?\b|\b(?:Stop-Computer|Restart-Computer|logoff(?:\.exe)?)\b/i },
-  { category: "os", label: "privilege elevation", pattern: /\b(?:sudo|doas|pkexec|runas(?:\.exe)?)\b|\bStart-Process\b[^\r\n]*-Verb\s+RunAs\b/i },
+  // Require command position / path-qualified binaries — not `git log --grep=shutdown` / `echo Stop-Computer`.
+  {
+    category: "os",
+    label: "OS shutdown/restart",
+    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:sudo\s+)?(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:Windows[\\/]System32[\\/])?(?:shutdown|reboot|poweroff|halt)(?:\.exe)?\b|\b(?:wmic(?:\.exe)?\b[^\r\n]*\b(?:os|computersystem)\b[^\r\n]*\bcall\s+(?:reboot|shutdown)\b)|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:Stop-Computer|Restart-Computer|logoff(?:\.exe)?)\b|\bStart-Process\b[^\r\n]*\b(?:shutdown|reboot)(?:\.exe)?\b/i,
+  },
+  // Same command-position rule as shutdown — not `git log --grep=sudo` / `npm install sudo-prompt`.
+  {
+    category: "os",
+    label: "privilege elevation",
+    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:sudo|doas|pkexec|runas(?:\.exe)?)\b|\bStart-Process\b[^\r\n]*-Verb\s+RunAs\b/i,
+  },
   { category: "os", label: "system policy/account/firewall change", pattern: /\b(?:Set-ExecutionPolicy|setx|icacls|net(?:\.exe)?\s+(?:user|localgroup)|(?:New|Remove|Add|Disable|Enable)-Local(?:User|GroupMember)|(?:New|Set|Remove)-(?:NetFirewallRule|WindowsOptionalFeature)|(?:Enable|Disable)-WindowsOptionalFeature|dism(?:\.exe)?\b[^\r\n]*\/(?:enable-feature|disable-feature|add-package|remove-package)|msiexec(?:\.exe)?\b[^\r\n]*\/(?:i|uninstall))\b/i },
   { category: "os", label: "system package change", pattern: /\b(?:apt(?:-get)?|dnf|yum|pacman|zypper|apk|brew|winget|choco)\b[^\r\n]*(?:install|remove|purge|upgrade|update|add|delete|uninstall|-[SRU][A-Za-z]*)\b|\b(?:npm|pnpm|yarn|pip|pip3)\b[^\r\n]*(?:--global|\s-g\b)\b/i },
   { category: "os", label: "scheduled task change", pattern: /\b(?:Register|Unregister|New|Remove)-ScheduledTask\b|\bschtasks(?:\.exe)?\b[^\r\n]*\/(?:create|delete|change|run)\b|\bcrontab\s+(?:-e|-r)\b/i },
@@ -102,18 +112,20 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
   // Require bootloader/configuration — bare "update boot" is a commit message / package name.
   { category: "boot", label: "boot configuration change", pattern: /\b(?:bcdboot(?:\.exe)?|grub-install|update-grub|update-initramfs)\b|\bbootrec(?:\.exe)?\b[^\r\n]*\/(?:fixmbr|fixboot|rebuildbcd)\b|\befibootmgr\b[^\r\n]*(?:\s-[cCbBdDoOnN]|--(?:create|delete|disk|bootorder|bootnext))\b|\breagentc(?:\.exe)?\b[^\r\n]*\/(?:enable|disable|setreimage|boottore)\b|\bbootcfg(?:\.exe)?\b[^\r\n]*\/(?:add|delete|raw)\b|\bbcdedit(?:\.exe)?\b[^\r\n]*\/(?:set|delete(?:value)?|create|import|export|store|timeout|default|displayorder|bootsequence|ems|dbgsettings|hypervisorsettings)\b|\b(?:change|modify|update|repair|write|set)\s+(?:the\s+)?boot(?:loader|configuration)\b/i },
   // Bare `format` / `npm run format` must not match; require format.com/exe or a drive letter arg.
-  // No trailing \b after `C:` — `:` is non-word so `\b` never matches there.
-  { category: "disk", label: "disk/partition/volume change", pattern: /\b(?:dd|mkfs(?:\.\w+)?|fdisk|sfdisk|parted|cfdisk|sgdisk|wipefs|diskpart(?:\.exe)?|diskutil)\b|\bformat(?:\.com|\.exe)\b|\bformat\s+[A-Za-z]:(?:\s|$|\/)|\b(?:Clear|Initialize|Set|New|Remove)-(?:Disk|Partition|Volume)\b|\b(?:Format|Resize|New|Remove|Set)-Volume\b|\b(?:format|erase|wipe|partition|resize|initialize)\s+(?:the\s+)?(?:disk|drive|volume|partition)s?\b/i },
+  // Allow switches before the drive: `format /FS:NTFS C:`
+  { category: "disk", label: "disk/partition/volume change", pattern: /\b(?:dd|mkfs(?:\.\w+)?|fdisk|sfdisk|parted|cfdisk|sgdisk|wipefs|diskpart(?:\.exe)?|diskutil)\b|\bformat(?:\.com|\.exe)\b|\bformat(?:\s+[\/\-][A-Za-z0-9:]+)*\s+[A-Za-z]:(?:\s|$|\/)|\b(?:Clear|Initialize|Set|New|Remove)-(?:Disk|Partition|Volume)\b|\b(?:Format|Resize|New|Remove|Set)-Volume\b|\b(?:format|erase|wipe|partition|resize|initialize)\s+(?:the\s+)?(?:disk|drive|volume|partition)s?\b/i },
   // Require flash/write/the firmware — bare "npm install firmware" is a package name.
   { category: "firmware", label: "firmware/BIOS update", pattern: /\bfwupdmgr\b[^\r\n]*\b(?:install|update|refresh)\b|\bflashrom\b[^\r\n]*(?:-w|--write|\bwrite\b)|\b(?:flash|update|write|set)[ -]*(?:bios|uefi)\b|\b(?:flash|write)\s+(?:the\s+)?firmware\b|\b(?:Update|Set|Write)-Firmware\b|\b(?:flash|update|write|install|erase)\s+the\s+(?:firmware|bios|uefi)\b/i }
 ];
 
 /** Soft shell wrappers: re-scan the nested payload, do not hard-gate the wrapper alone. */
-const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh)\s+-c|(?:powershell|pwsh)(?:\.exe)?\s+-(?:c|Command|EncodedCommand|enc)|cmd(?:\.exe)?\s+\/c|(?:python|python3|node|perl|ruby)\s+(?:-e|-c))\b/i;
+const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh)\s+-[^\s]*c[^\s]*\b|(?:powershell|pwsh)(?:\.exe)?\s+-(?:c|Command|EncodedCommand|enc)|cmd(?:\.exe)?\s+\/c|(?:python|python3|node|perl|ruby)\s+(?:-e|-c))\b/i;
 
 const MUTATING_COMMAND_PATTERN = /\b(?:rm|mv|cp|mkdir|touch|install|truncate|shred|unlink|del|erase|rd|rmdir|copy|move|rename|Set-Content|Add-Content|Clear-Content|Clear-Item|Out-File|Export-Csv|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|Expand-Archive|Set-Item|Set-ItemProperty|New-ItemProperty|Remove-ItemProperty|ri|ni|mi|ci|tar|unzip|tee|rsync|ln|mount|umount|chmod|chown|setfacl|robocopy|xcopy)\b|\b(?:sed|perl)\b[^\r\n]*(?:\s-i\b|--in-place\b)|\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:-O\b|--output\b|-OutFile\b)\s*\S+|(?<![0-9])>{1,2}(?!&)|[0-9]>{1,2}(?!&)/i;
 const USER_DATA_COMMAND_PATH_PATTERN = /(?:~(?:[A-Za-z0-9._-]+)?(?:[\\/]|$)|(?:%(?:USERPROFILE|APPDATA|LOCALAPPDATA|HOMEDRIVE|HOMEPATH)%|\$(?:\{)?(?:env:)?(?:USERPROFILE|HOME|APPDATA|LOCALAPPDATA|HOMEDRIVE|HOMEPATH)\}?)(?:[\\/]|$)|(?:[A-Za-z]:[\\/]|\/)(?:Users|home|Documents and Settings)(?:[\\/]|$))/i;
-const SYSTEM_COMMAND_PATH_PATTERN = /(?:%(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA)%|\$(?:\{)?(?:env:)?(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA)\}?|(?:[A-Za-z]:[\\/]|\/)(?:Windows|Program Files(?: \(x86\))?|ProgramData|EFI|etc|boot|dev|sys|proc|usr|var|opt|root|sbin|bin|lib)(?:[\\/]|$)|(?:^|[\s"'=])\/(?:[\s"';&|]|$)|(?:^|[\s"'=])[A-Za-z]:[\\/](?:[\s"';&|]|$))/i;
+// Absolute OS roots only — not project-relative `src/lib` / `docs/dev` / Windows `C:\dev`.
+// `/dev/null` and friends are not system mutations.
+const SYSTEM_COMMAND_PATH_PATTERN = /(?:%(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA)%|\$(?:\{)?(?:env:)?(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA)\}?|[A-Za-z]:[\\/](?:Windows|Program Files(?: \(x86\))?|ProgramData|EFI)(?:[\\/]|$)|(?:^|[\s"'=<>])\/(?:etc|boot|sys|proc|usr|var|opt|root|sbin|bin|lib)(?:[\\/]|$)|(?:^|[\s"'=<>])\/dev\/(?!null(?:\b|$)|zero(?:\b|$)|stdin(?:\b|$)|stdout(?:\b|$)|stderr(?:\b|$)|fd(?:[\\/]|$)|tty(?:\b|$)|random(?:\b|$)|urandom(?:\b|$))|(?:^|[\s"'=])\/(?:[\s"';&|]|$)|(?:^|[\s"'=])[A-Za-z]:[\\/](?:[\s"';&|]|$))/i;
 const KERNEL_COMMAND_PATH_PATTERN = /(?:\/(?:proc\/sys|sys)(?:[\\/]|$)|\/(?:lib|usr\/lib)\/modules(?:[\\/]|$)|(?:[A-Za-z]:[\\/]Windows[\\/]System32[\\/]drivers)(?:[\\/]|$))/i;
 // Project paths like src/modules must not count as driver mutations.
 const DRIVER_COMMAND_PATH_PATTERN = /(?:\/(?:lib|usr\/lib)\/modules(?:[\\/]|$)|(?:[A-Za-z]:[\\/]Windows[\\/]System32[\\/]drivers)(?:[\\/]|$))/i;
@@ -365,26 +377,37 @@ function isReadOnlyDiskInspection(command: string): boolean {
 
 /** Pull nested payloads from soft wrappers like `bash -c '...'` / `node -e "..."` / EncodedCommand. */
 function extractNestedShellCommands(command: string): string[] {
-  if (!NESTED_SHELL_WRAPPER_PATTERN.test(command) && !/-(?:EncodedCommand|enc)\b/i.test(command)) {
+  if (
+    !NESTED_SHELL_WRAPPER_PATTERN.test(command)
+    && !/-(?:EncodedCommand|enc)\b/i.test(command)
+    && !/\b(?:Invoke-Expression|\biex)\b/i.test(command)
+  ) {
     return [];
   }
   const nested: string[] = [];
   const quoted = [
-    /\b(?:bash|sh|zsh)\s+-c\s+(['"])([\s\S]*?)\1/gi,
+    /\b(?:bash|sh|zsh)\s+-[^\s]*c[^\s]*\s+(['"])([\s\S]*?)\1/gi,
     /\b(?:powershell|pwsh)(?:\.exe)?\s+-(?:c|Command)\s+(['"])([\s\S]*?)\1/gi,
     /\bcmd(?:\.exe)?\s+\/c\s+(['"])([\s\S]*?)\1/gi,
     /\b(?:python|python3|node|perl|ruby)\s+(?:-e|-c)\s+(['"])([\s\S]*?)\1/gi,
+    /\b(?:Invoke-Expression|\biex)\b\s+(['"])([\s\S]*?)\1/gi,
   ];
   for (const pattern of quoted) {
     for (const match of command.matchAll(pattern)) {
       if (match[2]?.trim()) nested.push(match[2]);
     }
   }
-  // Unquoted `cmd /c ...` / `bash -c ...` remainder of the segment
-  for (const match of command.matchAll(/\b(?:bash|sh|zsh)\s+-c\s+(?!['"])(\S+)/gi)) {
+  // Unquoted `cmd /c ...` / `bash -c ...` / `bash -lc ...` remainder of the segment
+  for (const match of command.matchAll(/\b(?:bash|sh|zsh)\s+-[^\s]*c[^\s]*\s+(?!['"])(\S+)/gi)) {
     if (match[1]) nested.push(match[1]);
   }
   for (const match of command.matchAll(/\bcmd(?:\.exe)?\s+\/c\s+(?!['"])(.+?)(?=$|[;&\n])/gi)) {
+    if (match[1]?.trim()) nested.push(match[1].trim());
+  }
+  // Unquoted powershell -Command / -c remainder
+  for (const match of command.matchAll(
+    /\b(?:powershell|pwsh)(?:\.exe)?\s+-(?:c|Command)\s+(?!['"])(.+?)(?=$|[;&\n])/gi,
+  )) {
     if (match[1]?.trim()) nested.push(match[1].trim());
   }
   // PowerShell -EncodedCommand is UTF-16LE base64 of the script body.
@@ -853,6 +876,12 @@ function collapseConcatenatedStrings(command: string): string {
     text = text.replace(/(['"])([^'"]*)\1\s*\+\s*(\.[A-Za-z0-9._-]*)/g, "$2$3");
     text = text.replace(/([A-Za-z0-9._-]+)\s*-join\s*(['"])\2/gi, "$1");
   }
+  // Unwrap PowerShell call-operator forms: & ('Stop-Computer') → Stop-Computer
+  previous = "";
+  while (previous !== text) {
+    previous = text;
+    text = text.replace(/&\s*\(\s*(['"])([^'"]*)\1\s*\)/g, "$2");
+  }
   return text;
 }
 
@@ -911,17 +940,45 @@ function isReadOnlyFileCommand(command: string): boolean {
 
 /**
  * `.git` / `node_modules` may be inspected read-only under normal agent workflows
- * (`git show`, `cat .git/HEAD`, `ls node_modules`). Secrets stay blocked even for reads.
+ * (`git show`, `cat .git/HEAD`, `ls node_modules`).
+ * Searching for the string `.env` via grep/rg is allowed; opening the secret file is not.
  */
 function allowsReadOnlyProtectedPathAccess(
   command: string,
   reason: string,
 ): boolean {
-  const relaxable = reason.includes('".git/"') || reason.includes('"node_modules/"');
-  if (!relaxable) return false;
+  const relaxableGitOrModules = reason.includes('".git/"') || reason.includes('"node_modules/"');
+  const secretMention = isSecretProtectedReason(reason);
+  if (!relaxableGitOrModules && !secretMention) return false;
   if (MUTATING_COMMAND_PATTERN.test(command) || matchedDanger(command).dangerous) return false;
-  if (isReadOnlyGitCommand(command)) return true;
-  return isReadOnlyFileCommand(command);
+  if (relaxableGitOrModules) {
+    if (isReadOnlyGitCommand(command)) return true;
+    return isReadOnlyFileCommand(command);
+  }
+  // Secret string search in docs/code — not `cat .env` / `grep x .env`.
+  if (!/\b(?:grep|egrep|fgrep|rg|findstr|Select-String)\b/i.test(command)) return false;
+  if (secretAppearsAsFileOperand(command)) return false;
+  return true;
+}
+
+/** True when a secret path is a file being read/searched-in, not a grep pattern. */
+function secretAppearsAsFileOperand(command: string): boolean {
+  if (/(?:^|[\s])(?:cat|head|tail|less|more|type|Get-Content|gc)\b[^\r\n]*\.env\b/i.test(command)) {
+    return true;
+  }
+  if (/[<>]\s*(?:\.[\\/])?\.env\b/i.test(command)) return true;
+  // `grep PATTERN .env` / `rg PATTERN path/.env` — secret is a path operand after the pattern.
+  if (/\b(?:grep|egrep|fgrep|rg|findstr)\b(?:\s+-[A-Za-z0-9]+|\s+--\S+)*\s+\S+[^\r\n]*?(?:^|[\s])(?:\.[\\/])?(?:[\w.-]+[\\/])*\.env(?:\.[\w.-]+)?(?:[\s"';&|]|$)/im.test(command)) {
+    // Heuristic: if `.env` is the first positional arg after options, it is the pattern.
+    const grepHead = command.match(
+      /\b(?:grep|egrep|fgrep|rg|findstr)\b((?:\s+-[A-Za-z0-9]+|\s+--\S+)*)\s+(\S+)/i,
+    );
+    if (grepHead && /^["']?\.env(?:\.[\w.-]+)?["']?$/i.test(grepHead[2])) {
+      return false;
+    }
+    return true;
+  }
+  return false;
 }
 
 /** Detect shell commands that write or touch protected paths (bypass of write/edit gate). */

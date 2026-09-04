@@ -89,6 +89,16 @@ describe("system safety classifier", () => {
       "git log --grep=shutdown",
       "echo halt",
       "git commit -m \"update boot\"",
+      "echo hi >/dev/null",
+      "ls 2>/dev/null",
+      "echo x > src/lib/utils.ts",
+      "mkdir src/lib",
+      "mkdir C:\\dev\\project",
+      "git log --grep=sudo",
+      "npm install sudo-prompt",
+      "echo Stop-Computer",
+      "grep .env README.md",
+      "kill -1 1234",
     ];
     for (const command of allowed) {
       assert.deepEqual(
@@ -149,11 +159,22 @@ describe("system safety classifier", () => {
 
     assert.ok(matchSystemSafetyCommand("format C:").some((match) => match.category === "disk"));
     assert.ok(matchSystemSafetyCommand("format C: /Q").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("format /FS:NTFS C:").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("/sbin/shutdown -h now").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("bash -lc 'shutdown now'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("wmic os call reboot").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("iex 'shutdown /s'").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(
       configuredSafetyMatches(
         { mode: "allow", systemSafety: "standard" },
         matchSystemSafetyCommand("rm -rf /"),
       ).some((match) => match.label === "system path mutation"),
+    );
+    assert.ok(
+      configuredSafetyMatches(
+        { mode: "allow", systemSafety: "standard" },
+        matchSystemSafetyCommand("iex 'shutdown /s'"),
+      ).some((match) => match.label === "OS shutdown/restart"),
     );
   });
 
@@ -168,6 +189,8 @@ describe("system safety classifier", () => {
     assert.equal(isLeafCodePiStopCommand("node -e \"process.exit()\""), false);
     assert.equal(isLeafCodePiStopCommand("wmic process where name='node.exe' get processid"), false);
     assert.equal(isLeafCodePiStopCommand("wmic process where name='node.exe' delete"), true);
+    assert.equal(isLeafCodePiStopCommand("kill -1 1234"), false);
+    assert.equal(isLeafCodePiStopCommand("kill -- -1"), true);
     assert.equal(isLeafCodePiStopCommand("taskkill /F /PID 2468", 1357), false);
     assert.equal(isLeafCodePiStopCommand("Get-Process node"), false);
   });

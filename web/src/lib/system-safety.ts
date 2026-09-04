@@ -25,7 +25,7 @@ export const SYSTEM_SAFETY_LEVEL_OPTIONS: ReadonlyArray<{
   {
     value: "low",
     label: "軽め",
-    description: "停止・権限昇格・カーネル/ドライバ/boot/disk/firmware のみ確認",
+    description: "致命的な機械操作のみ確認（標準と同じフィルタ。将来の差別化用）",
   },
   {
     value: "standard",

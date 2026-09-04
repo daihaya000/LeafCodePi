@@ -1,3 +1,17 @@
+## 2026-09-05: permission-gate ループ tick 3
+
+残 FP/FN を追加修正:
+
+- `>/dev/null`・`src/lib`・`C:\dev` の system path 過検知（絶対 OS パスのみ）
+- `sudo`/`Stop-Computer` の anywhere 過検知 → コマンド位置
+- `/sbin/shutdown`・`bash -lc`・`wmic os call reboot`・`iex 'shutdown'`・`format /FS:NTFS C:` の抜け
+- `kill -1 <pid>` 自己停止誤検知、`grep .env README` 誤ブロック
+- UI: low と standard が同フィルタである旨を説明に反映
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate 残バグ（ループ tick）
 
 526e15b 後の再調査で修正:
