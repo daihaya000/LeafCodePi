@@ -4251,7 +4251,13 @@ function readOfflineSessionSnapshot(sessionFile: string): {
   messages: UiMessage[];
   todos: TodoDto[];
 } {
-  const sessionManager = state().pi.SessionManager.open(sessionFile);
+  const pi = state().pi;
+  if (!pi) {
+    throw Object.assign(new Error("Pi ランタイムが初期化されていません"), {
+      status: 503,
+    });
+  }
+  const sessionManager = pi.SessionManager.open(sessionFile);
   const context = sessionManager.buildSessionContext?.() ?? { messages: [] };
   const raw = Array.isArray(context.messages) ? context.messages : [];
   const messages = snapshotMessages({

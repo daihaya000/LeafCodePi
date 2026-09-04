@@ -16,6 +16,11 @@ import {
 } from "./hang-watchdog";
 import type { UiMessage } from "../types";
 
+type ResumeCapture = {
+  prompt: string;
+  images?: { mimeType: string; data: string }[];
+};
+
 afterEach(() => {
   stopHangWatchdogForTests();
   vi.useRealTimers();
@@ -289,7 +294,8 @@ describe("hang-watchdog helpers", () => {
       "utf8",
     );
     const images = [{ mimeType: "image/png", data: "abc" }];
-    let resumed: { prompt: string; images?: { mimeType: string; data: string }[] } | null = null;
+    // Assertion prevents CFA from narrowing to null across the resume callback.
+    let resumed = null as ResumeCapture | null;
     registerHangWatchdogHooks({
       getLive: () => ({ isStreaming: false, isCompacting: false, messages: [] }),
       abortTask: async () => undefined,
@@ -321,7 +327,7 @@ describe("hang-watchdog helpers", () => {
       "utf8",
     );
     const images = [{ mimeType: "image/png", data: "abc" }];
-    let resumed: { prompt: string; images?: { mimeType: string; data: string }[] } | null = null;
+    let resumed = null as ResumeCapture | null;
     registerHangWatchdogHooks({
       getLive: () => ({ isStreaming: false, isCompacting: false, messages: [] }),
       abortTask: async () => undefined,

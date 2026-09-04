@@ -17,6 +17,7 @@ vi.mock("next/navigation", () => ({
   usePathname: () => window.location.pathname,
 }));
 
+import type { AttentionItemDto } from "@/lib/types";
 import {
   ATTENTION_BELL_BOTTOM_HOME,
   ATTENTION_BELL_BOTTOM_TASK,
@@ -389,7 +390,7 @@ describe("GlobalAttentionProvider", () => {
 describe("takeFreshAttentionItems", () => {
   it("forgets resolved keys so the same task can alert again", () => {
     const seen = new Set<string>();
-    const item = { taskId: "task-a", title: "A", kinds: ["permission"] as const };
+    const item: AttentionItemDto = { taskId: "task-a", title: "A", kinds: ["permission"] };
     expect(takeFreshAttentionItems(seen, [item])).toEqual([item]);
     expect(takeFreshAttentionItems(seen, [item])).toEqual([]);
     expect(takeFreshAttentionItems(seen, [])).toEqual([]);
@@ -398,7 +399,7 @@ describe("takeFreshAttentionItems", () => {
 });
 
 describe("attentionItemStillOpen", () => {
-  const item = { taskId: "task-a", title: "A", kinds: ["permission"] as const };
+  const item: AttentionItemDto = { taskId: "task-a", title: "A", kinds: ["permission"] };
 
   it("keeps items whose details are not loaded yet", () => {
     expect(attentionItemStillOpen(item, undefined)).toBe(true);
@@ -415,7 +416,11 @@ describe("attentionItemStillOpen", () => {
   });
 
   it("keeps a combined item until every kind is cleared", () => {
-    const both = { taskId: "task-a", title: "A", kinds: ["permission", "question"] as const };
+    const both: AttentionItemDto = {
+      taskId: "task-a",
+      title: "A",
+      kinds: ["permission", "question"],
+    };
     expect(
       attentionItemStillOpen(both, {
         permissionRequest: null,
