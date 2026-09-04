@@ -46,6 +46,8 @@ export type TaskSummary = {
   skillPermission?: "allow" | "deny";
   /** このタスクのツール承認モード。未設定の旧タスクは Composer 既定。 */
   permissionMode?: "allow" | "ask" | "deny";
+  /** 巻き戻し前の leaf。ある間は「復元」できる。 */
+  revertLeafId?: string | null;
   /** pi-subagents agent running as the main session persona (null = default). */
   agent?: string | null;
   createdAt: string;

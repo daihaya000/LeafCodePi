@@ -87,6 +87,7 @@ export async function GET(
           questionRequest: detail.questionRequest ?? pendingQuestionForTask(id),
           manualAbortedAssistantId: detail.manualAbortedAssistantId ?? null,
           hangRetryCount: detail.hangRetryCount ?? 0,
+          revertLeafId: detail.revertLeafId ?? null,
           eventType: "ready",
         });
         if (TASK_SSE_PERF_ENABLED) {

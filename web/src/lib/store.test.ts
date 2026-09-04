@@ -89,6 +89,11 @@ describe("store", () => {
     store.patchTask(withAccount.id, { accountId: undefined });
     expect(store.getTask(withAccount.id)?.accountId).toBeUndefined();
 
+    store.patchTask(withAccount.id, { revertLeafId: "leaf-tip" });
+    expect(store.getTask(withAccount.id)?.revertLeafId).toBe("leaf-tip");
+    store.patchTask(withAccount.id, { revertLeafId: null });
+    expect(store.getTask(withAccount.id)?.revertLeafId).toBeNull();
+
     rmSync(dir, { recursive: true, force: true });
   });
 

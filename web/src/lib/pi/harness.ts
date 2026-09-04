@@ -447,6 +447,7 @@ function permissionSnapshotExtras(taskId: string): Record<string, unknown> {
     ),
     manualAbortedAssistantId: live.manualAbortedAssistantId,
     hangRetryCount: live.hangRetryCount,
+    revertLeafId: live.revertLeafId,
   };
 }
 
@@ -1363,6 +1364,7 @@ function emitTaskSnapshot(
     ),
     manualAbortedAssistantId: live.manualAbortedAssistantId,
     hangRetryCount: live.hangRetryCount,
+    revertLeafId: live.revertLeafId,
     eventType,
     ...extra,
   });
@@ -1709,7 +1711,7 @@ async function attachSession(
     pendingSnapshotEventType: null,
     pendingSnapshotIsDelta: false,
     pendingSnapshotExtra: undefined,
-    revertLeafId: null,
+    revertLeafId: existing?.revertLeafId ?? getTask(taskId)?.revertLeafId ?? null,
     manualAbortedAssistantId: null,
     hangRetryCount: 0,
     reasoningFallbackTried: false,
@@ -4367,6 +4369,7 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
   let todos: TodoDto[] = [];
   let manualAbortedAssistantId: string | null = null;
   let hangRetryCount = 0;
+  let revertLeafId: string | null = task.revertLeafId ?? null;
   try {
     const live = await ensureLive(id);
     const fields = sessionSnapshotFields(
@@ -4385,6 +4388,7 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
     todos = fields.todos;
     manualAbortedAssistantId = live.manualAbortedAssistantId;
     hangRetryCount = live.hangRetryCount;
+    revertLeafId = live.revertLeafId ?? revertLeafId;
   } catch (error) {
     if (error && typeof error === "object" && "status" in error) throw error;
     throw Object.assign(
@@ -4404,6 +4408,7 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
     questionRequest: ensureQuestionPromptService().pendingForTask(id),
     manualAbortedAssistantId,
     hangRetryCount,
+    revertLeafId,
   };
 }
 
@@ -5066,7 +5071,7 @@ export async function promptTask(
   }
   const live = await ensureLive(id);
   applySubagentPermission(live.session, options?.subagentPermission);
-  live.revertLeafId = null;
+  persistRevertLeafId(id, null);
   queuePrompt(live, prompt, images, {
     agent: options?.agent,
     subagentPermission: options?.subagentPermission,
@@ -5525,6 +5530,7 @@ export async function revertTask(
     });
   }
   live.revertLeafId = captureRevertLeafId(previousLeafId);
+  persistRevertLeafId(id, live.revertLeafId);
   const taskDetail = await getTaskDetail(id);
   emit(id, {
     type: "snapshot",
@@ -5537,6 +5543,7 @@ export async function revertTask(
       live.toolPartialOutputByCallId,
       { accountId: live.accountId, byMessageId: live.accountByMessageId },
     ),
+    revertLeafId: live.revertLeafId,
     eventType: "revert",
   });
   return {
@@ -5618,6 +5625,16 @@ export function imagesFromEntry(entry: {
   return images;
 }
 
+/** Persist the pre-revert leaf so restore survives reload and session replace. */
+export function persistRevertLeafId(
+  taskId: string,
+  revertLeafId: string | null,
+): void {
+  const live = state().live.get(taskId);
+  if (live) live.revertLeafId = revertLeafId;
+  patchTask(taskId, { revertLeafId });
+}
+
 /** unrevert 用: navigateTree の前に leaf id を保存する（後だと巻き戻し後の位置になる）。 */
 export function captureRevertLeafId(
   leafIdBeforeNavigate: string | null,
@@ -5627,16 +5644,14 @@ export function captureRevertLeafId(
 
 /** 巻き戻し取消: revert 前の leaf へ戻す。 */
 export async function unrevertTask(id: string): Promise<TaskDetail> {
-  const live = state().live.get(id);
-  if (!live)
-    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  const target = live.revertLeafId;
+  const live = await ensureLive(id);
+  const target = live.revertLeafId ?? getTask(id)?.revertLeafId ?? null;
   if (!target) {
     throw Object.assign(new Error("巻き戻しの対象がありません"), {
       status: 400,
     });
   }
-  live.revertLeafId = null;
+  persistRevertLeafId(id, null);
   await live.session.navigateTree(target);
   const taskDetail = await getTaskDetail(id);
   emit(id, {
@@ -5650,6 +5665,7 @@ export async function unrevertTask(id: string): Promise<TaskDetail> {
       live.toolPartialOutputByCallId,
       { accountId: live.accountId, byMessageId: live.accountByMessageId },
     ),
+    revertLeafId: null,
     eventType: "unrevert",
   });
   return taskDetail;

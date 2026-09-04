@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 12
+
+**巻き戻しの復元がリロード後に消える** — `isReverted` はクライアント専用、`revertLeafId` も live メモリだけだった。リロードやエージェント切替で復元 UI が消え、unrevert は 404 になった。leaf をタスク記録へ保存し、SSE ready からバナーを復元する。unrevert は `ensureLive` を使う。
+
 ## 2026-09-04: 発見→修正ループ Tick 11
 
 **steer がストリーム開始前に並列 prompt になる** — `promptActive` だけで promptChain を迂回していた。新規タスク作成直後など UI は working だが未ストリームの窓で割り込み送信すると、先発が `Agent is already processing` で落ちる。迂回は `isStreaming` のときだけ。未ストリームなら通常の次ターンとして chain する。

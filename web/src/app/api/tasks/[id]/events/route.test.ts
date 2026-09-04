@@ -235,6 +235,7 @@ describe("/api/tasks/[id]/events", () => {
       status: "idle",
       manualAbortedAssistantId: "",
       hangRetryCount: 2,
+      revertLeafId: "leaf-tip",
     });
     mocks.getTaskBootstrap.mockReturnValue(bootstrap);
     mocks.getTaskDetail.mockResolvedValue(detail);
@@ -251,6 +252,8 @@ describe("/api/tasks/[id]/events", () => {
     expect(readyPayload.eventType).toBe("ready");
     expect(readyPayload.manualAbortedAssistantId).toBe("");
     expect(readyPayload.hangRetryCount).toBe(2);
+    expect(readyPayload.revertLeafId).toBe("leaf-tip");
+    expect(readyPayload.task).toMatchObject({ revertLeafId: "leaf-tip" });
     expect(readyPayload.task).not.toHaveProperty("manualAbortedAssistantId");
     expect(readyPayload.task).not.toHaveProperty("hangRetryCount");
     await reader.cancel();

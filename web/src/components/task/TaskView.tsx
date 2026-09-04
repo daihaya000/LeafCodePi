@@ -257,6 +257,7 @@ function sameTaskDetail(a: TaskDetail | null, b: TaskDetail): boolean {
     a.sessionId === b.sessionId &&
     a.sessionFile === b.sessionFile &&
     a.updatedAt === b.updatedAt &&
+    a.revertLeafId === b.revertLeafId &&
     a.isStreaming === b.isStreaming &&
     a.isCompacting === b.isCompacting &&
     a.contextUsage === b.contextUsage &&
@@ -452,7 +453,6 @@ export const TaskView = memo(function TaskView({
   );
   const [isCompacting, setIsCompacting] = useState(Boolean(cachedSession?.isCompacting));
   const [compactingLocal, setCompactingLocal] = useState(false);
-  const [isReverted, setIsReverted] = useState(false);
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
   const [revertBusy, setRevertBusy] = useState(false);
   const revertEntryRef = useRef<{ messageId: string; message: UiMessage | undefined } | null>(null);
@@ -761,6 +761,7 @@ export const TaskView = memo(function TaskView({
           error?: string;
           manualAbortedAssistantId?: string | null;
           hangRetryCount?: number;
+          revertLeafId?: string | null;
           permissionRequest?: PermissionRequestDto | null;
           questionRequest?: QuestionRequestDto | null;
           eventType?: string;
@@ -839,6 +840,14 @@ export const TaskView = memo(function TaskView({
           }
           if (typeof payload.hangRetryCount === "number") {
             setHangRetryCount(payload.hangRetryCount);
+          }
+          if ("revertLeafId" in payload) {
+            setTask((current) => {
+              if (!current) return current;
+              const nextId = payload.revertLeafId ?? null;
+              if ((current.revertLeafId ?? null) === nextId) return current;
+              return { ...current, revertLeafId: nextId };
+            });
           }
           if ("permissionRequest" in payload) {
             setPermissionRequest((current) =>
@@ -1071,7 +1080,6 @@ export const TaskView = memo(function TaskView({
     setGoalLoopCooldownSeconds(0);
     setGoalLoopForceFullRun(false);
     setSessionHydrating(true);
-    setIsReverted(false);
     setRevertConfirmOpen(false);
     setRevertBusy(false);
     revertEntryRef.current = null;
@@ -1165,6 +1173,7 @@ export const TaskView = memo(function TaskView({
 
   const compacting = isCompacting || compactingLocal;
   const working = Boolean(task?.status === "working" || task?.isStreaming);
+  const isReverted = Boolean(task?.revertLeafId);
 
   // PartView は memo 化されており onRevert の参照比較でスキップ判定する。
   // inline arrow のままだと毎レンダー新参照になり、stabilizeUiMessages の
@@ -1274,7 +1283,6 @@ export const TaskView = memo(function TaskView({
         `/api/tasks/${taskId}/revert`,
         { entryId: target.messageId },
       );
-      setIsReverted(true);
       if (target.message) {
         setPrompt(
           target.message.parts
@@ -1309,7 +1317,6 @@ export const TaskView = memo(function TaskView({
         `/api/tasks/${taskId}/unrevert`,
         {},
       );
-      setIsReverted(false);
       applyDetail(result.task);
       notifyTasksChanged();
     } catch (err) {
@@ -1453,7 +1460,6 @@ export const TaskView = memo(function TaskView({
       }
       setPrompt("");
       setAttachments([]);
-      setIsReverted(false);
       notifyTasksChanged();
     } catch (err) {
       if (wasStopped) {

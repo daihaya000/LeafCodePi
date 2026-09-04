@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { captureRevertLeafId, imagesFromEntry, messageEntryById } from "./harness";
+import { captureRevertLeafId, imagesFromEntry, messageEntryById, persistRevertLeafId } from "./harness";
 
 describe("captureRevertLeafId", () => {
   it("keeps the pre-navigate leaf id (not the post-navigate position)", () => {
@@ -8,6 +8,26 @@ describe("captureRevertLeafId", () => {
     const afterNavigate = "leaf-at-parent-user-message";
     assert.equal(captureRevertLeafId(before), before);
     assert.notEqual(captureRevertLeafId(before), afterNavigate);
+  });
+});
+
+describe("persistRevertLeafId", () => {
+  it("writes the leaf onto the task record so restore survives a live restart", async () => {
+    const { mkdirSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = join(tmpdir(), `leafcode-pi-revert-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const { upsertProject, insertTask, getTask } = await import("@/lib/store");
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = insertTask({ project, title: "revert persist" });
+
+    persistRevertLeafId(task.id, "leaf-tip");
+    assert.equal(getTask(task.id)?.revertLeafId, "leaf-tip");
+    persistRevertLeafId(task.id, null);
+    assert.equal(getTask(task.id)?.revertLeafId, null);
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 

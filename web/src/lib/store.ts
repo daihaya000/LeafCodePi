@@ -188,6 +188,7 @@ export function patchTask(
       | "accountId"
       | "skillPermission"
       | "permissionMode"
+      | "revertLeafId"
       | "agent"
       | "error"
     >
