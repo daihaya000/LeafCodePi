@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 14
+
+**ハング abort が steer/follow-up キューを残す** — 手動停止は `clearQueue` するが、watchdog の abort は `session.abort()` だけだった。ハング再送と同時に古い割り込みが走ることがある。ハング abort でもキューを捨て、クライアントは `hang_retry` で queuedFollowUps を空にする。
+
 ## 2026-09-04: 発見→修正ループ Tick 13
 
 **応答前停止の再開目印がリロードで消える** — Tick 9 で ready に載せたが、`manualAbortedAssistantId=""` は live メモリだけだった。エージェント切替やプロセス再起動で再開ボタンが消える。`revertLeafId` と同じくタスク記録へ保存し、attachSession で復元する。

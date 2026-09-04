@@ -674,40 +674,7 @@ async function ensureRuntime(): Promise<void> {
           ),
         };
       },
-      abortTask: async (taskId) => {
-        const live = current.live.get(taskId);
-        if (live) {
-          const msgs = snapshotMessages(
-            live.session,
-            live.throughputByStartedAt,
-            live.toolStartedAt,
-            live.toolEndedAt,
-            live.toolPartialOutputByCallId,
-            false,
-            { accountId: live.accountId, byMessageId: live.accountByMessageId },
-          );
-          let promptIndex = -1;
-          for (let i = msgs.length - 1; i >= 0; i -= 1) {
-            if (msgs[i]?.role === "user") {
-              promptIndex = i;
-              break;
-            }
-          }
-          const turnAssistants =
-            promptIndex >= 0
-              ? msgs
-                  .slice(promptIndex + 1)
-                  .filter((m) => m.role === "assistant")
-              : [];
-          persistManualAbortedAssistantId(
-            taskId,
-            turnAssistants.at(-1)?.id ?? "",
-          );
-          await stopSubagentRunsForTask(live, msgs);
-          await live.session.abort();
-        }
-        setTaskStatus(taskId, "idle");
-      },
+      abortTask: abortLiveForHangWatchdog,
       resumePrompt: (taskId, input) => {
         const live = current.live.get(taskId);
         if (!live) return;
@@ -5242,12 +5209,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
     await stopSubagentRunsForTask(live, msgs);
     // abort() stops the current run but keeps steer/follow-up queues; clear
     // them or the post-run handler will continue with queued messages.
-    try {
-      live.session.clearQueue?.();
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      console.warn(`[abort] clearQueue failed: ${reason}`);
-    }
+    clearSessionQueue(live.session);
     await live.session.abort();
   }
   const task = setTaskStatus(id, "idle");
@@ -5257,6 +5219,52 @@ export async function abortTask(id: string): Promise<TaskSummary> {
   // working のまま残り、停止ボタンが再表示される。
   if (live) emitTaskSnapshot(live, "abort");
   return toSummary(task);
+}
+
+/** abort() leaves steer/follow-up queues; drop them so a later run cannot drain stale work. */
+export function clearSessionQueue(session: { clearQueue?: () => unknown }): void {
+  try {
+    session.clearQueue?.();
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`[abort] clearQueue failed: ${reason}`);
+  }
+}
+
+/**
+ * Hang watchdog abort: stop the stuck turn without disarming resume or
+ * goal-loop teardown used by a user stop. Still clear SDK queues so a
+ * hang retry cannot also drain leftover steer/follow-up prompts.
+ */
+export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
+  const live = state().live.get(taskId);
+  if (live) {
+    const msgs = snapshotMessages(
+      live.session,
+      live.throughputByStartedAt,
+      live.toolStartedAt,
+      live.toolEndedAt,
+      live.toolPartialOutputByCallId,
+      false,
+      { accountId: live.accountId, byMessageId: live.accountByMessageId },
+    );
+    let promptIndex = -1;
+    for (let i = msgs.length - 1; i >= 0; i -= 1) {
+      if (msgs[i]?.role === "user") {
+        promptIndex = i;
+        break;
+      }
+    }
+    const turnAssistants =
+      promptIndex >= 0
+        ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant")
+        : [];
+    persistManualAbortedAssistantId(taskId, turnAssistants.at(-1)?.id ?? "");
+    await stopSubagentRunsForTask(live, msgs);
+    clearSessionQueue(live.session);
+    await live.session.abort();
+  }
+  setTaskStatus(taskId, "idle");
 }
 
 /** Session entry customType for the hidden agent-switch boundary notice. */

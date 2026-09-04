@@ -10,7 +10,7 @@ import {
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortTask, setTaskAgent } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, setTaskAgent } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const previousHarness = (globalThis as Record<string, unknown>)[GLOBAL_KEY];
@@ -202,6 +202,66 @@ describe("abortTask", () => {
     assert.equal(getTaskHangWatch(task.id), null);
     assert.equal(getTask(task.id)?.status, "idle");
     assert.equal(getTask(task.id)?.manualAbortedAssistantId, "");
+  });
+
+  it("clears steer/follow-up queues when the hang watchdog aborts", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-hang-abort-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "demo", rootPath: root });
+    const task = insertTask({ project, title: "hang abort task" });
+    let abortCount = 0;
+    let clearQueueCount = 0;
+    const session = {
+      messages: [{ role: "user", content: "作業", timestamp: 1 }],
+      agent: { state: { streamingMessage: undefined } },
+      isStreaming: true,
+      sessionManager: {
+        getLeafId: () => null,
+        getBranch: () => [],
+        getCwd: () => root,
+      },
+      extensionRunner: { getCommand: () => undefined },
+      clearQueue: () => {
+        clearQueueCount += 1;
+        return { steering: ["steer"], followUp: ["follow"] };
+      },
+      abort: async () => {
+        abortCount += 1;
+      },
+    };
+    const live = new Map([[task.id, {
+      accountId: null,
+      session,
+      skillPermission: "allow",
+      skillPermissionRef: { current: "allow" },
+      unsubscribe: () => {},
+      promptChain: Promise.resolve(),
+      promptActive: true,
+      throughputByStartedAt: new Map(),
+      persistedThroughputKeys: new Set(),
+      toolStartedAt: new Map(),
+      toolEndedAt: new Map(),
+      toolPartialOutputByCallId: new Map(),
+      snapshotTimer: null,
+      pendingSnapshotEventType: null,
+      revertLeafId: null,
+      manualAbortedAssistantId: null,
+      hangRetryCount: 0,
+      reasoningFallbackTried: false,
+    }]]);
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      live,
+      events: new EventEmitter(),
+    };
+
+    armTaskHangWatch({ taskId: task.id, prompt: "作業" });
+    await abortLiveForHangWatchdog(task.id);
+
+    assert.equal(abortCount, 1);
+    assert.equal(clearQueueCount, 1);
+    assert.equal(getTask(task.id)?.status, "idle");
+    assert.ok(getTaskHangWatch(task.id));
   });
 
   it("stops a queued Goal Loop before aborting an idle session", async () => {

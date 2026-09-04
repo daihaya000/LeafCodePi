@@ -6,6 +6,7 @@ import {
   applyThroughput,
   applyToolTiming,
   buildPromptOptions,
+  clearSessionQueue,
   isReasoningMandatoryError,
   reasoningFallbackLevel,
   resolveStreamingBehaviorForPrompt,
@@ -101,6 +102,26 @@ describe("buildPromptOptions", () => {
     assert.equal(resolveStreamingBehaviorForPrompt("steer", false), undefined);
     assert.equal(resolveStreamingBehaviorForPrompt("steer", true), "steer");
     assert.equal(resolveStreamingBehaviorForPrompt(undefined, true), undefined);
+  });
+});
+
+describe("clearSessionQueue", () => {
+  it("swallows clearQueue failures so abort can still proceed", () => {
+    assert.doesNotThrow(() =>
+      clearSessionQueue({
+        clearQueue: () => {
+          throw new Error("queue locked");
+        },
+      }),
+    );
+    let calls = 0;
+    clearSessionQueue({
+      clearQueue: () => {
+        calls += 1;
+      },
+    });
+    assert.equal(calls, 1);
+    clearSessionQueue({});
   });
 });
 

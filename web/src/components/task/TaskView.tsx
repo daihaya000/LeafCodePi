@@ -840,6 +840,10 @@ export const TaskView = memo(function TaskView({
           }
           if (typeof payload.hangRetryCount === "number") {
             setHangRetryCount(payload.hangRetryCount);
+            if (payload.eventType === "hang_retry") {
+              setQueuedFollowUps([]);
+              setQueuedAutoSend(false);
+            }
           }
           if ("revertLeafId" in payload) {
             setTask((current) => {
