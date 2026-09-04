@@ -7,6 +7,7 @@ import { describe, it } from "vitest";
 import permissionGate, {
   configuredSafetyMatches,
   isLeafCodePiStopCommand,
+  matchDangerousCommand,
   matchSystemSafetyCommand,
   matchSystemSafetyForTool,
   matchSystemSafetyPath,
@@ -537,6 +538,11 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyPath("\\\\?\\C:\\Windows\\System32\\foo").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("echo Stop-Computer"), []);
     assert.deepEqual(matchSystemSafetyCommand("git log --grep=sudo"), []);
+    assert.equal(matchDangerousCommand("git log --grep=sudo").dangerous, false);
+    assert.equal(matchDangerousCommand("git log --grep=shutdown").dangerous, false);
+    assert.equal(matchDangerousCommand("git show HEAD").dangerous, false);
+    assert.ok(matchDangerousCommand("sudo id").dangerous);
+    assert.ok(matchDangerousCommand("git push --force").dangerous);
     assert.ok(
       configuredSafetyMatches(
         { mode: "allow", systemSafety: "standard" },
@@ -620,6 +626,11 @@ describe("LeafCode permission gate", () => {
         askCall,
       );
       assert.equal((dangerous as { block?: boolean } | undefined)?.block, true);
+      const gitLog = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "git log --grep=sudo -n 5" } },
+        askCall,
+      );
+      assert.equal((gitLog as { block?: boolean } | undefined)?.block, undefined);
     } finally {
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;

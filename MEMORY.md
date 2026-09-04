@@ -1,3 +1,13 @@
+## 2026-09-05: git log を安全ガードから除外
+
+- 原因: ask モード `DANGEROUS_PATTERNS` の `\bsudo\b` 等が `git log --grep=sudo` に誤ヒット
+- 対応: 読み取り専用 git（`git log` / `git show` 等）を system-safety・dangerous・`.git` 保護パス緩和から除外
+- `git push --force` / `git reset --hard` は従来どおり検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 45
 
 - FP: `command -v growfs|resize2fs|…`（soft-prefix が `-v` を食う）→ `-v`/`--help`/`--version` を wrapper 引数から除外

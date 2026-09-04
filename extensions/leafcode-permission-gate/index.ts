@@ -594,6 +594,10 @@ function matchSystemSafetyCommandInner(command: string, depth: number): SystemSa
   if (docsOnly) {
     return [];
   }
+  // Read-only git porcelain (`git log`, `git show`, …) is everyday agent work — never system-safety gate.
+  if (isReadOnlyGitCommand(masked) || isReadOnlyGitCommand(command)) {
+    return [];
+  }
   const decoded = collapseConcatenatedStrings(decodeCharCodes(masked));
   // Strip incidental quotes around command tokens: `"shutdown" /s`
   const normalized = decoded.replace(/\u0000/g, " ").replace(/(["'])(shutdown|reboot|poweroff|halt|Stop-Computer|Restart-Computer)\1/gi, "$2");
@@ -1145,9 +1149,9 @@ function allowsReadOnlyProtectedPathAccess(
   const relaxableGitOrModules = reason.includes('".git/"') || reason.includes('"node_modules/"');
   const secretMention = isSecretProtectedReason(reason);
   if (!relaxableGitOrModules && !secretMention) return false;
+  if (relaxableGitOrModules && isReadOnlyGitCommand(command)) return true;
   if (MUTATING_COMMAND_PATTERN.test(command) || matchedDanger(command).dangerous) return false;
   if (relaxableGitOrModules) {
-    if (isReadOnlyGitCommand(command)) return true;
     return isReadOnlyFileCommand(command);
   }
   // Secret string search in docs/code — not `cat .env` / `grep x .env`.
@@ -1193,11 +1197,20 @@ function commandTouchesProtectedPath(command: string): { protected: boolean; rea
 }
 
 function matchedDanger(command: string): { dangerous: boolean; labels: string[] } {
+  // `git log --grep=sudo` must not trip ask-mode `\bsudo\b` / other incidental matches.
+  if (isReadOnlyGitCommand(command)) {
+    return { dangerous: false, labels: [] };
+  }
   const labels = DANGEROUS_PATTERNS
     .filter(({ label }) => !(label === "partition tool" && isReadOnlyDiskInspection(command)))
     .filter(({ pattern }) => pattern.test(command))
     .map((d) => d.label);
   return { dangerous: labels.length > 0, labels };
+}
+
+/** Ask-mode dangerous-command labels (exported for tests). */
+export function matchDangerousCommand(command: string): { dangerous: boolean; labels: string[] } {
+  return matchedDanger(command);
 }
 
 function extensionSessionId(ctx: ExtensionContext): string {
