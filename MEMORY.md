@@ -1,3 +1,12 @@
+## 2026-09-05: permission-gate ループ tick 16
+
+- FN: `nerdctl` / `lxc` / `machinectl` / `firejail` / `ctr` soft-prefix
+- FP: 相対パス `src/lib/...` が cwd∈Users だけで user-data になるのを防止
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 15
 
 - FP: `echo '…; shutdown…'`（documentation-only はルール分類自体をスキップ）

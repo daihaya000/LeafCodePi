@@ -254,6 +254,10 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("elixir -e 'System.cmd(\"shutdown\", [\"now\"])'").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("erl -eval 'os:cmd(\"shutdown now\").'").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("deno eval \"new Deno.Command('shutdown',{args:['now']}).outputSync()\"").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("nerdctl exec c shutdown now").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("lxc exec u -- shutdown now").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("firejail --noprofile shutdown now").some((match) => match.label === "OS shutdown/restart"));
+    assert.deepEqual(matchSystemSafetyPath("src/lib/utils.ts"), []);
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);
