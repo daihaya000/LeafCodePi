@@ -1,3 +1,7 @@
+## 2026-09-05: 発見→修正ループ Tick 39
+
+**実行中タスクのアーカイブがセッションを起こし直す** — `archiveTask` は `disposeLive` だけで abort せず、`ensureLive` も `archived` を見ない。SSE の ready がセッションを再作成し、Goal loop やキューが動き続ける。アーカイブ前に abort し、archived なら live を作らない。
+
 ## 2026-09-05: 発見→修正ループ Tick 38
 
 **steer の楽観ユーザー行が停止後も残る** — 割り込み送信は履歴に載る前に SDK キューへ入る。abort / hang abort はサーバーキューを捨てるが、クライアントの pending 行は user 件数増まで残す。タイムラインに存在しない文が残る。停止・hang イベントで pending も捨てる。

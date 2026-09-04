@@ -50,7 +50,7 @@ export async function DELETE(
     if (hard) {
       return NextResponse.json(destroyTask(id));
     }
-    return NextResponse.json({ task: archiveTask(id) });
+    return NextResponse.json({ task: await archiveTask(id) });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

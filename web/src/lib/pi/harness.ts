@@ -2486,14 +2486,27 @@ function toSummary(task: TaskSummary): TaskSummary {
   };
 }
 
+function throwIfTaskArchived(taskId: string): void {
+  const task = getTask(taskId);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (task.status === "archived") {
+    throw Object.assign(new Error("アーカイブされたタスクです"), {
+      status: 409,
+    });
+  }
+}
+
 async function ensureLive(
   taskId: string,
   options?: { allowDuringPromotion?: boolean },
 ): Promise<LiveRuntime> {
+  throwIfTaskArchived(taskId);
   if (!options?.allowDuringPromotion) {
     const promotion = promoteInflight.get(taskId);
     if (promotion) await promotion.catch(() => undefined);
   }
+  throwIfTaskArchived(taskId);
   const current = state();
   const existing = current.live.get(taskId);
   if (existing) return existing;
@@ -2502,6 +2515,7 @@ async function ensureLive(
   const inflight = ensureLiveInflight.get(taskId);
   if (inflight) {
     await inflight;
+    throwIfTaskArchived(taskId);
     if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
       return ensureLive(taskId, options);
     }
@@ -2511,12 +2525,18 @@ async function ensureLive(
   }
 
   const promise = (async () => {
+    throwIfTaskArchived(taskId);
     const again = state().live.get(taskId);
     if (again) return again;
 
     const task = getTask(taskId);
     if (!task)
       throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+    if (task.status === "archived") {
+      throw Object.assign(new Error("アーカイブされたタスクです"), {
+        status: 409,
+      });
+    }
     const project = task.projectId ? getProject(task.projectId) : undefined;
     const cwd = project?.rootPath ?? task.directory;
     const modelRoute = await resolveConcreteModel(
@@ -4339,6 +4359,18 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (task.status === "archived") {
+    return {
+      ...getTaskBootstrap(id),
+      permissionRequest: ensurePermissionPromptService().pendingForTask(id),
+      questionRequest: ensureQuestionPromptService().pendingForTask(id),
+      goalLoop: null,
+      todos: [],
+      hangRetryCount: task.hangRetryCount || 0,
+      revertLeafId: task.revertLeafId ?? null,
+      manualAbortedAssistantId: task.manualAbortedAssistantId ?? null,
+    };
+  }
   let messages: UiMessage[] = [];
   let isStreaming = false;
   let isCompacting = false;
@@ -5841,12 +5873,24 @@ export async function setCompactionEnabled(
   return settings.getCompactionSettings();
 }
 
-export function archiveTask(id: string): TaskSummary {
-  disposeLive(id);
-  const task = setTaskStatus(id, "archived");
+export async function archiveTask(id: string): Promise<TaskSummary> {
+  const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  return task;
+  if (task.status === "archived") return toSummary(task);
+  if (state().live.get(id)) {
+    try {
+      await abortTask(id);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`[archive] abort before archive failed: ${reason}`);
+    }
+  }
+  disposeLive(id);
+  const archived = setTaskStatus(id, "archived");
+  if (!archived)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  return archived;
 }
 
 export function restoreTask(id: string): TaskSummary {
