@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 37
+
+- FN: `swapoff` / `mkswap` / `blkdiscard`（disk、VAR=val・busybox soft-prefix 対応）
+- help / `echo swapoff` は非検知
+- 調査: Windows `Remove-Item C:\Windows` は既に system path mutation で standard ゲート済み；low===standard 差分なし
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 36
 
 - FN: `FOO=1` / `env FOO=1` 前置きが security・disk tail・launchctl をすり抜け → VAR=val soft-prefix 統一

@@ -422,6 +422,19 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("FOO=1 launchctl bootstrap gui/501/com.evil").some((match) => match.label === "scheduled task change"));
     assert.deepEqual(matchSystemSafetyCommand("zfs list"), []);
     assert.deepEqual(matchSystemSafetyCommand("xfs_repair /dev/sda1"), []);
+    assert.ok(matchSystemSafetyCommand("swapoff -a").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("mkswap /dev/sda2").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("blkdiscard /dev/sda").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("FOO=1 swapoff -a").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("busybox mkswap /dev/sda2").some((match) => match.category === "disk"));
+    assert.ok(
+      configuredSafetyMatches(
+        { mode: "allow", systemSafety: "standard" },
+        matchSystemSafetyCommand("blkdiscard -f /dev/nvme0n1"),
+      ).some((match) => match.category === "disk"),
+    );
+    assert.deepEqual(matchSystemSafetyCommand("swapoff --help"), []);
+    assert.deepEqual(matchSystemSafetyCommand("echo swapoff -a"), []);
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);
