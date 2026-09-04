@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 43
+
+- FN: `geli init|attach|detach`、`bsdlabel -w|-R`、`glabel destroy|create`、`gpart add`、`newfs_ufs`
+- FN: `arcconf`/`ssacli`/`hpacucli` 破壊操作
+- FP: bare `diskshadow` → `/s` 必須、`newfs -N` dry-run 除外
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 42
 
 - FN: FreeBSD `camcontrol format` / `gpart destroy|delete|create` / `newfs`、`diskshadow`、`Remove|New|Resize-VHD`

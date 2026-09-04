@@ -492,6 +492,18 @@ describe("system safety classifier", () => {
     );
     assert.deepEqual(matchSystemSafetyCommand("diskpart list vdisk"), []);
     assert.deepEqual(matchSystemSafetyCommand("gpart show ada0"), []);
+    assert.ok(matchSystemSafetyCommand("geli init -s 4096 da0").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("bsdlabel -w ada0s1 auto").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("glabel destroy backup").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("ssacli ctrl slot=0 logicaldrive 1 delete forced").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("arcconf DELETE 1 logicaldrive 0").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("ssh root@fbsd geli init da0").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("newfs_ufs /dev/da0").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("gpart add -t freebsd-ufs ada0").some((match) => match.category === "disk"));
+    assert.deepEqual(matchSystemSafetyCommand("diskshadow"), []);
+    assert.deepEqual(matchSystemSafetyCommand("newfs -N /dev/da0"), []);
+    assert.deepEqual(matchSystemSafetyCommand("geli list"), []);
+    assert.ok(matchSystemSafetyCommand("diskshadow /s wipe.txt").some((match) => match.category === "disk"));
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);
