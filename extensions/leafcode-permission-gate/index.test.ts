@@ -206,6 +206,15 @@ describe("system safety classifier", () => {
     // ANSI-C octal: \164 → t, so shu\164down → shutdown (not shut\164down → shuttdown)
     assert.ok(matchSystemSafetyCommand("bash -c $'shu\\164down now'").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("ruby -rjson -e 'system(\"shutdown now\")'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("dash -c \"shutdown now\"").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("ash -c 'shutdown now'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("setsid shutdown now").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("xargs shutdown").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("php -r 'system(\"shutdown now\");'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("bash -c \"bash -c 'bash -c shutdown now'\"").some((match) => match.label === "OS shutdown/restart"));
+    assert.deepEqual(matchSystemSafetyCommand("command -v shutdown"), []);
+    assert.deepEqual(matchSystemSafetyCommand("echo format C:"), []);
+    assert.deepEqual(matchSystemSafetyCommand("shutdown-manager --version"), []);
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);

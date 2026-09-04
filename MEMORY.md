@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 9
+
+- FP: `command -v shutdown`（soft-prefix の `-v`/`--help` 除外）、`echo format C:`（format をコマンド位置化）
+- FP: `shutdown-manager`（`(?![\w-])` 境界）
+- FN: `dash`/`ash`/`ksh -c`、`setsid`/`xargs`、`php -r` + `system(`、ネスト深度 2→4
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 8
 
 - PS `-WindowStyle Hidden -Command` / `/Command` / `-e` EncodedCommand、`cmd /r`

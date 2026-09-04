@@ -89,13 +89,14 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
     category: "os",
     label: "OS shutdown/restart",
     // Soft prefixes may wrap the binary (flags only — not path args); still not `echo Stop-Computer`.
-    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|call|start|stdbuf|wsl(?:\.exe)?)(?:\s+--?[\w.-]+(?:=\S+)?|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+-\w+\s+\S+)*\s+)*(?:sudo\s+)?(?:\\\\[?.]\\)?(?:%(?:WINDIR|SYSTEMROOT)%[\\/]|\$(?:\{)?(?:env:)?(?:WINDIR|SYSTEMROOT|SystemRoot)\}?[\\/])?(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:Windows[\\/]System32[\\/])?["']?(?:shutdown|reboot|poweroff|halt)["']?(?:\.exe)?\b|\b(?:systemctl|loginctl)\b[^\r\n]*\b(?:reboot|poweroff|halt|hibernate)\b|\b(?:wmic(?:\.exe)?\b[^\r\n]*\b(?:os|computersystem)\b[^\r\n]*\bcall\s+(?:reboot|shutdown)\b)|\b(?:Invoke-CimMethod|Get-CimInstance|Get-WmiObject)\b[^\r\n]*\b(?:Win32(?:_OperatingSystem)?|Win32Shutdown|Reboot|Shutdown)\b|\.\s*Reboot\s*\(|\brundll32(?:\.exe)?\b[^\r\n]*\bExitWindowsEx\b|\b(?:dbus-send|busctl)\b[^\r\n]*\b(?:Reboot|PowerOff)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*|[{]\s*|&\s*[{]\s*|\\)(?:[\w.]+\\)?(?:Stop-Computer|Restart-Computer|logoff(?:\.exe)?)\b|\b(?:Start-Process|saps)\b[^\r\n]*\b(?:Stop-Computer|shutdown|reboot)(?:\.exe)?\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:init|telinit)\s+[06]\b/i,
+    // Exclude -v/-V/--help/--version so `command -v shutdown` is not treated as running shutdown.
+    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|call|start|stdbuf|setsid|xargs|wsl(?:\.exe)?)(?:\s+(?!-[vV]\b|--(?:help|version)\b)--?[\w.-]+(?:=\S+)?|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+(?!-[vV]\b)-\w+\s+\S+)*\s+)*(?:sudo\s+)?(?:\\\\[?.]\\)?(?:%(?:WINDIR|SYSTEMROOT)%[\\/]|\$(?:\{)?(?:env:)?(?:WINDIR|SYSTEMROOT|SystemRoot)\}?[\\/])?(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:Windows[\\/]System32[\\/])?["']?(?:shutdown|reboot|poweroff|halt)["']?(?:\.exe)?(?![\w-])|\b(?:systemctl|loginctl)\b[^\r\n]*\b(?:reboot|poweroff|halt|hibernate)\b|\b(?:wmic(?:\.exe)?\b[^\r\n]*\b(?:os|computersystem)\b[^\r\n]*\bcall\s+(?:reboot|shutdown)\b)|\b(?:Invoke-CimMethod|Get-CimInstance|Get-WmiObject)\b[^\r\n]*\b(?:Win32(?:_OperatingSystem)?|Win32Shutdown|Reboot|Shutdown)\b|\.\s*Reboot\s*\(|\brundll32(?:\.exe)?\b[^\r\n]*\bExitWindowsEx\b|\b(?:dbus-send|busctl)\b[^\r\n]*\b(?:Reboot|PowerOff)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*|[{]\s*|&\s*[{]\s*|\\)(?:[\w.]+\\)?(?:Stop-Computer|Restart-Computer|logoff(?:\.exe)?)\b|\b(?:Start-Process|saps)\b[^\r\n]*\b(?:Stop-Computer|shutdown|reboot)(?:\.exe)?(?![\w-])|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:init|telinit)\s+[06]\b/i,
   },
   // Same soft-prefix + command-position rule — not `git log --grep=sudo` / `npm install sudo-prompt`.
   {
     category: "os",
     label: "privilege elevation",
-    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|stdbuf|call|start|wsl(?:\.exe)?)(?:\s+--?[\w.-]+(?:=\S+)?|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+-\w+\s+\S+)*\s+)*(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:sudo|doas|pkexec|runas|sudoedit|gsudo|su)(?:\.exe)?\b|\b(?:Start-Process|saps)\b[^\r\n]*-Verb\s*:?\s*['"]?RunAs['"]?\b/i,
+    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|stdbuf|call|start|setsid|xargs|wsl(?:\.exe)?)(?:\s+(?!-[vV]\b|--(?:help|version)\b)--?[\w.-]+(?:=\S+)?|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+(?!-[vV]\b)-\w+\s+\S+)*\s+)*(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:sudo|doas|pkexec|runas|sudoedit|gsudo|su)(?:\.exe)?\b|\b(?:Start-Process|saps)\b[^\r\n]*-Verb\s*:?\s*['"]?RunAs['"]?\b/i,
   },
   { category: "os", label: "system policy/account/firewall change", pattern: /\b(?:Set-ExecutionPolicy|setx|icacls|net(?:\.exe)?\s+(?:user|localgroup)|(?:New|Remove|Add|Disable|Enable)-Local(?:User|GroupMember)|(?:New|Set|Remove)-(?:NetFirewallRule|WindowsOptionalFeature)|(?:Enable|Disable)-WindowsOptionalFeature|dism(?:\.exe)?\b[^\r\n]*\/(?:enable-feature|disable-feature|add-package|remove-package)|msiexec(?:\.exe)?\b[^\r\n]*\/(?:i|uninstall))\b/i },
   { category: "os", label: "system package change", pattern: /\b(?:apt(?:-get)?|dnf|yum|pacman|zypper|apk|brew|winget|choco)\b[^\r\n]*(?:install|remove|purge|upgrade|update|add|delete|uninstall|-[SRU][A-Za-z]*)\b|\b(?:npm|pnpm|yarn|pip|pip3)\b[^\r\n]*(?:--global|\s-g\b)\b/i },
@@ -115,13 +116,14 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
   // Bare `format` / `npm run format` must not match; require format.com/exe or a drive letter arg.
   // Allow switches before the drive: `format /FS:NTFS C:`
   // Bare `dd` of project files is normal; require device/raw/OS targets.
-  { category: "disk", label: "disk/partition/volume change", pattern: /\b(?:mkfs(?:\.\w+)?|fdisk|sfdisk|parted|cfdisk|sgdisk|wipefs|diskpart(?:\.exe)?|diskutil)\b|\bdd\b[^\r\n]*\b(?:if|of)=(?:\/(?:dev|etc|boot|sys|proc|usr|var|opt|root|sbin|bin|lib|private)\/|\\\\\.\\|[A-Za-z]:[\\/])|\bformat(?:\.com|\.exe)\b|\bformat(?:\s+[\/\-][A-Za-z0-9:]+)*\s+[A-Za-z]:(?:\s|$|\/)|\b(?:Clear|Initialize|Set|New|Remove)-(?:Disk|Partition|Volume)\b|\b(?:Format|Resize|New|Remove|Set)-Volume\b|\b(?:format|erase|wipe|partition|resize|initialize)\s+(?:the\s+)?(?:disk|drive|volume|partition)s?\b/i },
+  // `format C:` / `format.com` require command position — not `echo format C:`.
+  { category: "disk", label: "disk/partition/volume change", pattern: /\b(?:mkfs(?:\.\w+)?|fdisk|sfdisk|parted|cfdisk|sgdisk|wipefs|diskpart(?:\.exe)?|diskutil)\b|\bdd\b[^\r\n]*\b(?:if|of)=(?:\/(?:dev|etc|boot|sys|proc|usr|var|opt|root|sbin|bin|lib|private)\/|\\\\\.\\|[A-Za-z]:[\\/])|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|call|start|stdbuf|setsid)(?:\s+(?!-[vV]\b|--(?:help|version)\b)--?[\w.-]+(?:=\S+)?|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+(?!-[vV]\b)-\w+\s+\S+)*\s+)*(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:format(?:\.com|\.exe)\b|format(?:\s+[\/\-][A-Za-z0-9:]+)*\s+[A-Za-z]:(?:\s|$|\/))|\b(?:Clear|Initialize|Set|New|Remove)-(?:Disk|Partition|Volume)\b|\b(?:Format|Resize|New|Remove|Set)-Volume\b|\b(?:format|erase|wipe|partition|resize|initialize)\s+(?:the\s+)?(?:disk|drive|volume|partition)s?\b/i },
   // Require flash/write/the firmware — bare "npm install firmware" is a package name.
   { category: "firmware", label: "firmware/BIOS update", pattern: /\bfwupdmgr\b[^\r\n]*\b(?:install|update|refresh)\b|\bflashrom\b[^\r\n]*(?:-w|--write|\bwrite\b)|\b(?:flash|update|write|set)[ -]*(?:bios|uefi)\b|\b(?:flash|write)\s+(?:the\s+)?firmware\b|\b(?:Update|Set|Write)-Firmware\b|\b(?:flash|update|write|install|erase)\s+the\s+(?:firmware|bios|uefi)\b/i }
 ];
 
 /** Soft shell wrappers: re-scan the nested payload, do not hard-gate the wrapper alone. */
-const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh)(?:\.exe)?\b|(?:powershell|pwsh)(?:\.exe)?\b|cmd(?:\.exe)?\b|(?:python|python3|node|perl|ruby)(?:\.exe)?\b|(?:Invoke-Expression|\biex|eval)\b)/i;
+const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh|dash|ash|ksh)(?:\.exe)?\b|(?:powershell|pwsh)(?:\.exe)?\b|cmd(?:\.exe)?\b|(?:python|python3|node|perl|ruby|php)(?:\.exe)?\b|(?:Invoke-Expression|\biex|eval)\b)/i;
 const FIND_MUTATING_ACTION_PATTERN = /\bfind\b[^\r\n]*\s-(?:delete|exec|execdir|ok|okdir)\b/i;
 
 const MUTATING_COMMAND_PATTERN = /\b(?:rm|mv|cp|mkdir|touch|install|truncate|shred|unlink|del|erase|rd|rmdir|copy|move|rename|Set-Content|Add-Content|Clear-Content|Clear-Item|Out-File|Export-Csv|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|Expand-Archive|Set-Item|Set-ItemProperty|New-ItemProperty|Remove-ItemProperty|ri|ni|mi|ci|tar|unzip|tee|rsync|ln|mount|umount|chmod|chown|setfacl|robocopy|xcopy)\b|\b(?:sed|perl)\b[^\r\n]*(?:\s-i\b|--in-place\b)|\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:-O\b|--output\b|-OutFile\b)\s*\S+|(?<![0-9])>{1,2}(?!&)|[0-9]>{1,2}(?!&)/i;
@@ -383,8 +385,9 @@ function extractNestedShellCommands(command: string): string[] {
   if (
     !NESTED_SHELL_WRAPPER_PATTERN.test(command)
     && !/[-\/](?:EncodedCommand|enc|encoded|ec|e)\b/i.test(command)
-    && !/\b(?:os\.system|subprocess\.|child_process|execSync|execFile)\b/i.test(command)
-    && !/\|\s*(?:(?:env|busybox|nice|time)\s+)*(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:bash|sh|zsh|pwsh|powershell|cmd)\b/i.test(command)
+    && !/\b(?:os\.system|subprocess\.|child_process|execSync|execFile|passthru)\b/i.test(command)
+    && !/\b(?:system|exec|passthru)\s*\(/i.test(command)
+    && !/\|\s*(?:(?:env|busybox|nice|time|xargs)\s+)*(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:bash|sh|zsh|dash|ash|pwsh|powershell|cmd)\b/i.test(command)
   ) {
     return [];
   }
@@ -394,8 +397,8 @@ function extractNestedShellCommands(command: string): string[] {
     if (payload && !/^\$?['"]$/.test(payload)) nested.push(payload.replace(/^\$/, ""));
   };
   const quoted = [
-    // Flags may appear before -c; allow bash.exe / ANSI-C $'...'
-    /\b(?:bash|sh|zsh)(?:\.exe)?\b[^\r\n]*?-[^\s]*c[^\s]*\s+(\$)?(['"])([\s\S]*?)\2/gi,
+    // Flags may appear before -c; allow bash.exe / dash / ash / ANSI-C $'...'
+    /\b(?:bash|sh|zsh|dash|ash|ksh)(?:\.exe)?\b[^\r\n]*?-[^\s]*c[^\s]*\s+(\$)?(['"])([\s\S]*?)\2/gi,
     // Value-bearing flags before -Command: -WindowStyle Hidden -Command '...'
     // Also slash forms: /Command /c
     /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*?[-\/](?:c|Command)\s+(['"])([\s\S]*?)\1/gi,
@@ -403,7 +406,7 @@ function extractNestedShellCommands(command: string): string[] {
     // cmd /c /k /r and git-bash //c
     /\bcmd(?:\.exe)?\b(?:\s+\S+)*?\s+\/\/?[ckr]\s+(['"])([\s\S]*?)\1/gi,
     // Interpreters with leading -r / --eval / -p flags
-    /\b(?:python|python3|node|perl|ruby)(?:\.exe)?\b[^\r\n]*?\s+(?:-e|--eval|-p|-c)\s+(['"])([\s\S]*?)\1/gi,
+    /\b(?:python|python3|node|perl|ruby|php)(?:\.exe)?\b[^\r\n]*?\s+(?:-e|--eval|-p|-c|-r)\s+(['"])([\s\S]*?)\1/gi,
     /\b(?:Invoke-Expression|\biex|eval)\b\s+(['"])([\s\S]*?)\1/gi,
     /\bInvoke-Command\b[^\r\n]*-ScriptBlock\s*\{([\s\S]*?)\}/gi,
     /\b(?:Start-Process|saps)\b[^\r\n]*-(?:ArgumentList|Args)\s+(['"])([\s\S]*?)\1/gi,
@@ -415,7 +418,7 @@ function extractNestedShellCommands(command: string): string[] {
   }
   for (const match of command.matchAll(/&\s*\{([\s\S]*?)\}/g)) push(match[1]);
   for (const match of command.matchAll(
-    /\b(?:bash|sh|zsh)(?:\.exe)?\b[^\r\n]*?-[^\s]*c[^\s]*\s+(?!['"{$])(\S+)/gi,
+    /\b(?:bash|sh|zsh|dash|ash|ksh)(?:\.exe)?\b[^\r\n]*?-[^\s]*c[^\s]*\s+(?!['"{$])(\S+)/gi,
   )) {
     push(match[1]);
   }
@@ -510,7 +513,8 @@ function matchSystemSafetyCommandInner(command: string, depth: number): SystemSa
     pushSafetyMatch(matches, { category: "firmware", label: "firmware path mutation" });
   }
 
-  if (depth < 2) {
+  // Allow deeper nesting (bash -c "bash -c \"bash -c shutdown\"") without unbounded recursion.
+  if (depth < 4) {
     for (const nested of extractNestedShellCommands(command)) {
       for (const match of matchSystemSafetyCommandInner(nested, depth + 1)) {
         pushSafetyMatch(matches, match);
