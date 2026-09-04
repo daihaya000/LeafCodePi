@@ -10,7 +10,7 @@ const SAFE_AGENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
     directory?: string;
-    message?: string;
+    message?: unknown;
     paths?: unknown;
     all?: boolean;
     agent?: unknown;
@@ -28,7 +28,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "paths must be an array of strings" }, { status: 400 });
   }
   const validPaths = Array.isArray(paths) ? paths as string[] : undefined;
-  if (!body?.directory || !body.message?.trim()) {
+  const message = body?.message;
+  if (!body?.directory || typeof message !== "string" || !message.trim()) {
     return NextResponse.json(
       { error: "directory and message are required" },
       { status: 400 },
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
       { status: directoryError === "directory is not allowed" ? 403 : 400 },
     );
   }
-  if (!SAFE_MSG.test(body.message)) {
+  if (!SAFE_MSG.test(message)) {
     return NextResponse.json({ error: "invalid commit message" }, { status: 400 });
   }
 
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const commitArgs = ["commit", "-m", body.message.trim()];
+  const commitArgs = ["commit", "-m", message.trim()];
   if (!body.all && validPaths?.length) {
     commitArgs.push("--", ...validPaths);
   }

@@ -43,4 +43,13 @@ describe("POST /api/git/commit", () => {
     expect(response.status).toBe(400);
     expect(mocks.runGit).not.toHaveBeenCalled();
   });
+
+  it("rejects a non-string commit message before invoking git", async () => {
+    const response = await POST(
+      request({ directory: "C:\\work", message: 123, paths: ["src/app.ts"] }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.runGit).not.toHaveBeenCalled();
+  });
 });
