@@ -31,7 +31,11 @@ afterEach(() => {
 
 type FixtureCustomMessage = { customType: string; content: unknown; display: boolean };
 
-function fixture(options: { messages?: unknown[] } = {}) {
+function fixture(options: {
+  messages?: unknown[];
+  promptActive?: boolean;
+  isCompacting?: boolean;
+} = {}) {
   const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-agent-"));
   tempDirs.push(root);
   const agentDir = join(root, "agent");
@@ -51,8 +55,10 @@ function fixture(options: { messages?: unknown[] } = {}) {
   const customMessages: FixtureCustomMessage[] = [];
   const live = new Map([[task.id, {
     accountId: null,
+    promptActive: options.promptActive ?? false,
     session: {
       isStreaming: false,
+      isCompacting: options.isCompacting ?? false,
       messages: options.messages ?? [],
       sendCustomMessage: async (message: FixtureCustomMessage) => {
         customMessages.push(message);
@@ -107,6 +113,30 @@ describe("setTaskAgent", () => {
     assert.equal(typeof notice.content, "string");
     assert.match(notice.content as string, /"build"/);
     assert.match(notice.content as string, /"reviewer"/);
+    assert.match(notice.content as string, /after the most recent agent-switch notice/);
+    assert.doesNotMatch(notice.content as string, /Everything above this line/);
+  });
+
+  it.each([
+    ["an accepted prompt", { promptActive: true }],
+    ["compaction", { isCompacting: true }],
+  ])("rejects a persona switch during %s", async (_label, options) => {
+    const state = fixture({
+      ...options,
+      messages: [{ role: "user", content: "作業" }],
+    });
+
+    await assert.rejects(
+      setTaskAgent(state.task.id, "reviewer"),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { status?: number }).status === 409,
+    );
+
+    assert.equal(getTask(state.task.id)?.agent, "build");
+    assert.equal(state.live.has(state.task.id), true);
+    assert.equal(state.disposed, false);
+    assert.equal(state.customMessages.length, 0);
   });
 });
 

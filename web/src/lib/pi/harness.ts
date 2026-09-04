@@ -5045,7 +5045,7 @@ function agentSwitchNotice(previousAgent: string | undefined, nextAgent: string)
   const nextLabel = nextAgent.trim() || "the default assistant persona";
   return [
     `[Session notice] This task's active persona switched from "${previousLabel}" to "${nextLabel}".`,
-    `Everything above this line, including your own prior replies, tool calls, and any self-description, was produced under "${previousLabel}" and does not describe your current role.`,
+    `Messages after the most recent agent-switch notice were produced under "${previousLabel}". Earlier messages may belong to other personas.`,
     `You are now "${nextLabel}". Follow only the system prompt currently in effect; do not refer to yourself by the previous persona's name or claim its tools or responsibilities.`,
   ].join("\n");
 }
@@ -5067,7 +5067,11 @@ export async function setTaskAgent(
   if (normalized === (task.agent?.trim() ?? "")) return toSummary(task);
 
   const live = await ensureLive(id);
-  if (live.session.isStreaming) {
+  if (
+    live.promptActive ||
+    live.session.isStreaming ||
+    live.session.isCompacting
+  ) {
     throw Object.assign(new Error("実行中タスクのエージェントは変更できません"), {
       status: 409,
     });
