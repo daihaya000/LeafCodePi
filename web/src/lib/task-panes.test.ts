@@ -15,6 +15,7 @@ import {
   saveTaskPanes,
   removeTaskEverywhere,
   taskIdFromPathname,
+  taskIdsToAutoClose,
   taskPanesReducer as reducer,
   type PaneLayout,
   type TaskPane,
@@ -715,6 +716,30 @@ describe("restoreTaskPanesForUrl", () => {
   it("保存値なしは null", () => {
     installLocalStorage();
     expect(restoreTaskPanesForUrl("x", true)).toBeNull();
+  });
+});
+
+describe("taskIdsToAutoClose", () => {
+  it("keeps Home and already-archived history tabs", () => {
+    expect(
+      taskIdsToAutoClose({
+        openTaskIds: [HOME_TAB_ID, "history"],
+        existingIds: new Set(["history", "live"]),
+        activeIds: new Set(["live"]),
+        previouslyActiveIds: new Set(["live"]),
+      }),
+    ).toEqual([]);
+  });
+
+  it("closes hard-deleted tabs and tabs that just became archived", () => {
+    expect(
+      taskIdsToAutoClose({
+        openTaskIds: ["gone", "now-archived", "history", HOME_TAB_ID],
+        existingIds: new Set(["now-archived", "history"]),
+        activeIds: new Set(),
+        previouslyActiveIds: new Set(["now-archived"]),
+      }),
+    ).toEqual(["gone", "now-archived"]);
   });
 });
 

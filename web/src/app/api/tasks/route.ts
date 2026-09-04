@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
   // TaskPanesContext のタブ名・存在確認用（todoProgress 計算と toSummary の
   // ライブ走査を伴わない生レコードで返す）。
   if (req.nextUrl.searchParams.get("titles") === "1") {
-    return NextResponse.json({ tasks: listTasks(false) });
+    return NextResponse.json({ tasks: listTasks(includeArchived) });
   }
   return NextResponse.json({ tasks: await getTaskSummariesWithTodoProgress(includeArchived) });
 }

@@ -263,4 +263,74 @@ describe("TaskPanesProvider", () => {
     expect(window.location.pathname).toBe("/");
     expect(window.location.search).toBe("?projectId=project-1");
   });
+
+  it("keeps an archived history tab after an unrelated tasks-changed event", async () => {
+    matches = true;
+    mocks.getJson.mockResolvedValue({
+      tasks: [
+        { id: "live-task", title: "live", status: "idle" },
+        { id: "archived-task", title: "old", status: "archived" },
+      ],
+    });
+    localStorage.setItem(
+      TASK_PANES_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        panes: [{ id: "saved-pane", tabs: ["archived-task"], activeTabId: "archived-task" }],
+        activePaneId: "saved-pane",
+      }),
+    );
+
+    render(
+      <TaskPanesProvider>
+        <Probe />
+      </TaskPanesProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("state").textContent).toBe("true:archived-task");
+    });
+    window.dispatchEvent(new Event("webui:tasks-changed"));
+    await waitFor(() => {
+      expect(mocks.getJson.mock.calls.length).toBeGreaterThan(1);
+    });
+    expect(screen.getByTestId("state").textContent).toBe("true:archived-task");
+    expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks", {
+      titles: "1",
+      archived: "1",
+    });
+  });
+
+  it("closes a tab after it changes from live to archived", async () => {
+    matches = true;
+    mocks.getJson
+      .mockResolvedValueOnce({
+        tasks: [{ id: "live-task", title: "live", status: "idle" }],
+      })
+      .mockResolvedValue({
+        tasks: [{ id: "live-task", title: "live", status: "archived" }],
+      });
+    localStorage.setItem(
+      TASK_PANES_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        panes: [{ id: "saved-pane", tabs: ["live-task"], activeTabId: "live-task" }],
+        activePaneId: "saved-pane",
+      }),
+    );
+
+    render(
+      <TaskPanesProvider>
+        <Probe />
+      </TaskPanesProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("state").textContent).toBe("true:live-task");
+    });
+    window.dispatchEvent(new Event("webui:tasks-changed"));
+    await waitFor(() => {
+      expect(screen.getByTestId("state").textContent).toBe("true:");
+    });
+  });
 });

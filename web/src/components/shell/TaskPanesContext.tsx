@@ -20,6 +20,7 @@ import {
   retargetActiveTab,
   saveTaskPanes,
   taskIdFromPathname,
+  taskIdsToAutoClose,
   taskPanesReducer,
   type TaskPanesAction,
   type TaskPanesState,
@@ -107,13 +108,14 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   );
   const statusMapRef = useRef(new Map<string, TaskStatus>());
   const taskTitlesRef = useRef(new Map<string, string>());
+  const knownActiveTaskIdsRef = useRef(new Set<string>());
   const [titlesVersion, bumpTitlesVersion] = useReducer(
     (count: number) => count + 1,
     0,
   );
-  // タスク削除（アーカイブ/DELETE）時の自動クローズ（仕様 §4）。
-  // tasks-changed 購読で活タスク ID 集合を見て、消えたタブを全ペインから閉じる。
-  // status 報告 map からも除去してタブバッジの残滓を消す。
+  // タスク削除（hard DELETE）と、開いていた非アーカイブタブの新規アーカイブ時に
+  // 自動クローズする（仕様 §4）。サイドバーから開き直した archived 履歴タブは残す。
+  // tasks-changed 購読で存在確認し、status 報告 map からも除去してタブバッジの残滓を消す。
   // 同時に取得した title をセッション名（タブ表示名）map へも反映する。
   useEffect(() => {
     if (!mdUp) return;
@@ -121,7 +123,10 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       void (async () => {
         try {
           // タブ名と存在確認にのみ使う。todoProgress 計算を伴う通常の一覧より軽い。
-          const { tasks } = await getJson<{ tasks: TaskSummary[] }>("/api/tasks", { titles: "1" });
+          const { tasks } = await getJson<{ tasks: TaskSummary[] }>("/api/tasks", {
+            titles: "1",
+            archived: "1",
+          });
           let titlesDirty = false;
           for (const task of tasks) {
             if (taskTitlesRef.current.get(task.id) !== task.title) {
@@ -130,14 +135,25 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
             }
           }
           if (titlesDirty) bumpTitlesVersion();
-          const liveIds = new Set(tasks.map((task) => task.id));
-          const latest = latestStateForRetarget;
-          if (!latest) return;
-          const currentTaskIds = new Set(latest.panes.flatMap((pane) => pane.tabs));
-          // Home タブはタスク実体を持たないため自動クローズ対象外
-          const missingIds = [...currentTaskIds].filter(
-            (taskId) => !liveIds.has(taskId) && taskId !== HOME_TAB_ID,
+          const existingIds = new Set(tasks.map((task) => task.id));
+          const activeIds = new Set(
+            tasks
+              .filter((task) => task.status !== "archived")
+              .map((task) => task.id),
           );
+          const latest = latestStateForRetarget;
+          if (!latest) {
+            knownActiveTaskIdsRef.current = activeIds;
+            return;
+          }
+          const currentTaskIds = latest.panes.flatMap((pane) => pane.tabs);
+          const missingIds = taskIdsToAutoClose({
+            openTaskIds: currentTaskIds,
+            existingIds,
+            activeIds,
+            previouslyActiveIds: knownActiveTaskIdsRef.current,
+          });
+          knownActiveTaskIdsRef.current = activeIds;
           if (missingIds.length === 0) return;
           let next = latest;
           for (const taskId of missingIds) {

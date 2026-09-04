@@ -556,6 +556,25 @@ export function taskPanesReducer(
 }
 
 /**
+ * タブ自動クローズ対象。完全削除された ID と、直前まで非アーカイブだった
+ * タブの新規アーカイブだけを閉じる。最初から archived で開いた履歴タブは残す。
+ */
+export function taskIdsToAutoClose(input: {
+  openTaskIds: readonly string[];
+  existingIds: ReadonlySet<string>;
+  activeIds: ReadonlySet<string>;
+  previouslyActiveIds: ReadonlySet<string>;
+  homeTabId?: string;
+}): string[] {
+  const homeTabId = input.homeTabId ?? HOME_TAB_ID;
+  return input.openTaskIds.filter((taskId) => {
+    if (taskId === homeTabId) return false;
+    if (!input.existingIds.has(taskId)) return true;
+    return input.previouslyActiveIds.has(taskId) && !input.activeIds.has(taskId);
+  });
+}
+
+/**
  * 指定 taskId を全ペインのタブから除去する（タスク削除時の自動クローズ、仕様 §4）。
  * 各ペインで closeTab 相当の挙動（activeTabId 繰り上げ・空きペインの縮退）を
  * 適用した新 state を返す。対象タブがなければ同一参照を返す。
