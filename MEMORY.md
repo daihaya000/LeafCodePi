@@ -1,3 +1,14 @@
+## 2026-09-05: permission-gate ループ tick 34
+
+- FN: `Disable-WindowsDefender` / `Uninstall-WindowsFeature Windows-Defender`
+- FN: `mdadm --stop|--zero-superblock|--remove|--fail|--create`（disk、`--detail` は非検知）
+- FN: `loginctl enable|disable-linger`（scheduled、standard）
+- FN: security software の soft-prefix（`env`/`timeout 5`/`stdbuf` 等）
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 33
 
 - FN: `Set-MpPreference -DisableTamperProtection` / `Add-MpPreference -ExclusionProcess` 等

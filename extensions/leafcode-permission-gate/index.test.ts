@@ -391,6 +391,13 @@ describe("system safety classifier", () => {
     );
     assert.deepEqual(matchSystemSafetyCommand("batch"), []);
     assert.ok(matchSystemSafetyCommand("echo job | batch").some((match) => match.label === "scheduled task change"));
+    assert.ok(matchSystemSafetyCommand("Disable-WindowsDefender").some((match) => match.label === "security software disable"));
+    assert.ok(matchSystemSafetyCommand("Uninstall-WindowsFeature Windows-Defender").some((match) => match.label === "security software disable"));
+    assert.ok(matchSystemSafetyCommand("mdadm --zero-superblock /dev/sda1").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("loginctl enable-linger").some((match) => match.label === "scheduled task change"));
+    assert.ok(matchSystemSafetyCommand("env systemctl stop clamav-daemon").some((match) => match.label === "security software disable"));
+    assert.ok(matchSystemSafetyCommand("timeout 5 sc stop WinDefend").some((match) => match.label === "security software disable"));
+    assert.deepEqual(matchSystemSafetyCommand("mdadm --detail /dev/md0"), []);
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);
