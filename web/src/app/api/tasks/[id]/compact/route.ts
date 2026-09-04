@@ -13,9 +13,15 @@ export async function POST(
   try {
     const { id } = await params;
     const body = (await req.json().catch(() => null)) as
-      | { customInstructions?: string }
+      | { customInstructions?: unknown }
       | null;
-    const task = await compactTask(id, body?.customInstructions);
+    if (body?.customInstructions !== undefined && typeof body.customInstructions !== "string") {
+      return NextResponse.json({ error: "customInstructions must be a string" }, { status: 400 });
+    }
+    const customInstructions = typeof body?.customInstructions === "string"
+      ? body.customInstructions
+      : undefined;
+    const task = await compactTask(id, customInstructions);
     return NextResponse.json({ task });
   } catch (error) {
     const { error: message, status } = jsonError(error);
