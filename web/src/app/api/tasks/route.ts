@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
       agent?: string;
       accountId?: string;
       subagentPermission?: "allow" | "deny";
-      permissionMode?: "allow" | "ask" | "deny";
+      permissionMode?: unknown;
       skillPermission?: "allow" | "deny";
       goalLoop?: {
         enabled?: unknown;
@@ -106,6 +106,15 @@ export async function POST(req: NextRequest) {
     }
     if (body.agent !== undefined && typeof body.agent !== "string") {
       return NextResponse.json({ error: "invalid agent" }, { status: 400 });
+    }
+    const permissionMode = body.permissionMode;
+    if (
+      permissionMode !== undefined &&
+      permissionMode !== "allow" &&
+      permissionMode !== "ask" &&
+      permissionMode !== "deny"
+    ) {
+      return NextResponse.json({ error: "invalid permissionMode" }, { status: 400 });
     }
     if (body.images !== undefined && !isPromptImageList(body.images)) {
       return NextResponse.json({ error: "invalid images" }, { status: 400 });
@@ -255,7 +264,7 @@ export async function POST(req: NextRequest) {
       accountId,
       accountIdExplicit: body.auto !== true,
       subagentPermission: body.subagentPermission,
-      permissionMode: body.permissionMode,
+      permissionMode,
       skillPermission: body.skillPermission,
       goalLoop,
     });
