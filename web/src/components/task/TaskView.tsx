@@ -19,7 +19,7 @@ import {
 import { Composer, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
-import { pasteImage } from "@/lib/clipboard-image";
+import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { DiffPane } from "@/components/task/DiffPane";
 import { NextAction } from "@/components/task/NextAction";
@@ -1171,6 +1171,7 @@ export const TaskView = memo(function TaskView({
   }, [scheduleScrollToBottom, taskId]);
 
   function addImageFiles(files: FileList) {
+    if (!canAttachComposerImages({ goalLoopEnabled, compacting: isCompacting || compactingLocal })) return;
     Array.from(files).forEach((file) => {
       if (!file.type.startsWith("image/")) return;
       const reader = new FileReader();
@@ -2607,6 +2608,7 @@ export const TaskView = memo(function TaskView({
             onChange: (event) => setPrompt(event.target.value),
             onValueChange: setPrompt,
             onPaste: (event) => {
+              if (!canAttachComposerImages({ goalLoopEnabled, compacting })) return;
               if (pasteImage(addImageFiles, event)) event.preventDefault();
             },
             onCompositionStart: () => {
@@ -2637,8 +2639,8 @@ export const TaskView = memo(function TaskView({
           references={{ skills, agents }}
           attachmentControl={{
             inputRef: fileInputRef,
-            inputDisabled: compacting || goalLoopEnabled,
-            buttonDisabled: compacting || goalLoopEnabled,
+            inputDisabled: !canAttachComposerImages({ goalLoopEnabled, compacting }),
+            buttonDisabled: !canAttachComposerImages({ goalLoopEnabled, compacting }),
             buttonTitle: "画像を添付",
             onFilesSelected: addImageFiles,
             onTrigger: () => fileInputRef.current?.click(),

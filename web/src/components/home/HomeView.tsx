@@ -9,7 +9,7 @@ import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { Composer, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { NextTaskSuggest } from "@/components/home/NextTaskSuggest";
-import { pasteImage } from "@/lib/clipboard-image";
+import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
@@ -255,6 +255,7 @@ export function HomeView({
   }, [health?.engineOk, refresh]);
 
   function addImageFiles(files: FileList) {
+    if (!canAttachComposerImages({ goalLoopEnabled, submitting })) return;
     Array.from(files).forEach((file) => {
       if (!file.type.startsWith("image/")) return;
       const reader = new FileReader();
@@ -412,6 +413,7 @@ export function HomeView({
                 onChange: (event) => setPrompt(event.target.value),
                 onValueChange: setPrompt,
                 onPaste: (event) => {
+                  if (!canAttachComposerImages({ goalLoopEnabled, submitting })) return;
                   if (pasteImage(addImageFiles, event)) event.preventDefault();
                 },
                 onCompositionStart: () => {
@@ -432,8 +434,8 @@ export function HomeView({
               references={{ skills, agents }}
               attachmentControl={{
                 inputRef: fileInputRef,
-                inputDisabled: submitting || goalLoopEnabled,
-                buttonDisabled: submitting || goalLoopEnabled,
+                inputDisabled: !canAttachComposerImages({ goalLoopEnabled, submitting }),
+                buttonDisabled: !canAttachComposerImages({ goalLoopEnabled, submitting }),
                 buttonTitle: "画像を添付",
                 onFilesSelected: addImageFiles,
                 onTrigger: () => fileInputRef.current?.click(),

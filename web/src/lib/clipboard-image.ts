@@ -3,6 +3,15 @@ type ClipboardEventLike = {
   preventDefault: () => void;
 };
 
+/** Composer の画像添付が今受けられるか（ボタン無効と同じ条件）。 */
+export function canAttachComposerImages(input: {
+  goalLoopEnabled?: boolean;
+  compacting?: boolean;
+  submitting?: boolean;
+}): boolean {
+  return !input.goalLoopEnabled && !input.compacting && !input.submitting;
+}
+
 /**
  * クリップボードに画像があれば抽出して onFiles へ渡し true を返す。
  * 画像以外のペースト（テキストなど）では何もせず false を返す。
