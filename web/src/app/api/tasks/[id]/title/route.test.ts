@@ -109,4 +109,13 @@ describe("/api/tasks/[id]/title", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("rejects a non-object request body before reading fields", async () => {
+    const response = await POST(
+      request(null),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(400);
+  });
 });
