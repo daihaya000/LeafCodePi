@@ -1,3 +1,14 @@
+## 2026-09-05: permission-gate ループ tick 33
+
+- FN: `Set-MpPreference -DisableTamperProtection` / `Add-MpPreference -ExclusionProcess` 等
+- FN: `systemctl --user enable|mask`（scheduled、standard）、`systemctl --user` 一般操作（service）
+- FN: `systemctl stop clamav-daemon|falcon-sensor|mdatp` 等（security software disable、standard）
+- FP: 素の `batch` → パイプ経由のみに限定
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 32
 
 - FN: `crontab /tmp/…` / `env crontab -e` / `at -f … now` / `batch` / `anacron -f`（scheduled、**standard でもゲート**）

@@ -379,6 +379,18 @@ describe("system safety classifier", () => {
     );
     assert.deepEqual(matchSystemSafetyCommand("crontab -l"), []);
     assert.deepEqual(matchSystemSafetyCommand("Get-MpPreference"), []);
+    assert.ok(matchSystemSafetyCommand("Set-MpPreference -DisableTamperProtection $true").some((match) => match.label === "security software disable"));
+    assert.ok(matchSystemSafetyCommand("Add-MpPreference -ExclusionProcess powershell.exe").some((match) => match.label === "security software disable"));
+    assert.ok(matchSystemSafetyCommand("systemctl --user enable evil.service").some((match) => match.label === "scheduled task change"));
+    assert.ok(matchSystemSafetyCommand("systemctl stop falcon-sensor").some((match) => match.label === "security software disable"));
+    assert.ok(
+      configuredSafetyMatches(
+        { mode: "allow", systemSafety: "standard" },
+        matchSystemSafetyCommand("systemctl stop clamav-daemon"),
+      ).some((match) => match.label === "security software disable"),
+    );
+    assert.deepEqual(matchSystemSafetyCommand("batch"), []);
+    assert.ok(matchSystemSafetyCommand("echo job | batch").some((match) => match.label === "scheduled task change"));
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);
