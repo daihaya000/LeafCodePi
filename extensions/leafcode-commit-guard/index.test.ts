@@ -78,4 +78,32 @@ describe("leafcode-commit-guard", () => {
 
     expect(sendMessage).toHaveBeenCalledOnce();
   });
+
+  it("does not drop a gate that settles before a slow session_start finishes", async () => {
+    const handlers = new Map<string, Handler>();
+    const sendMessage = vi.fn();
+    let resolveStart: ((value: { stdout: string; stderr: string; code: number; killed: boolean }) => void) | undefined;
+    const startStatus = new Promise<{ stdout: string; stderr: string; code: number; killed: boolean }>((resolve) => {
+      resolveStart = resolve;
+    });
+    const exec = vi
+      .fn()
+      .mockImplementationOnce(() => startStatus)
+      .mockResolvedValueOnce({ stdout: " M src/example.ts\n", stderr: "", code: 0, killed: false });
+    const pi = {
+      on: (event: string, handler: Handler) => handlers.set(event, handler),
+      exec,
+      sendMessage,
+    } as unknown as ExtensionAPI;
+    const ctx = { cwd: process.cwd(), hasUI: false } as unknown as ExtensionContext;
+
+    registerCommitGuard(pi);
+    const started = handlers.get("session_start")?.({}, ctx);
+    handlers.get("agent_end")?.({ messages: mutationMessages("edit") });
+    await handlers.get("agent_settled")?.({}, ctx);
+    expect(sendMessage).not.toHaveBeenCalled();
+    resolveStart?.({ stdout: "", stderr: "", code: 0, killed: false });
+    await started;
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
 });

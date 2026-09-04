@@ -112,4 +112,20 @@ describe("store", () => {
     expect(store.getTask(task.id)!.updatedAt).not.toBe(first);
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it("stores permissionMode on the task without sharing a global default", async () => {
+    const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const store = await import("./store");
+    const project = store.upsertProject({ name: "demo", rootPath: "C:\\tmp\\demo" });
+    const denied = store.insertTask({ project, title: "deny-task", permissionMode: "deny" });
+    const allowed = store.insertTask({ project, title: "allow-task", permissionMode: "allow" });
+    expect(store.getTask(denied.id)?.permissionMode).toBe("deny");
+    expect(store.getTask(allowed.id)?.permissionMode).toBe("allow");
+    store.patchTask(denied.id, { permissionMode: "ask" });
+    expect(store.getTask(denied.id)?.permissionMode).toBe("ask");
+    expect(store.getTask(allowed.id)?.permissionMode).toBe("allow");
+    rmSync(dir, { recursive: true, force: true });
+  });
 });

@@ -120,20 +120,11 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
   let initialStatusText: string | undefined;
   let mutationObserved = false;
   let reminderSent = false;
+  let sessionStartGeneration = 0;
+  let sessionReady = false;
+  let pendingSettledCtx: ExtensionContext | null = null;
 
-  pi.on("session_start", async (_event, ctx) => {
-    const status = await gitStatus(pi, ctx.cwd);
-    initiallyDirty = status === undefined ? undefined : isDirty(status);
-    initialStatusText = status;
-    mutationObserved = false;
-    reminderSent = false;
-  });
-
-  pi.on("agent_end", (event) => {
-    if (hasPotentialRepoMutation(event.messages)) mutationObserved = true;
-  });
-
-  pi.on("agent_settled", async (_event, ctx) => {
+  const runCommitGate = async (ctx: ExtensionContext): Promise<void> => {
     const status = await gitStatus(pi, ctx.cwd);
     if (!isDirty(status)) {
       mutationObserved = false;
@@ -165,5 +156,38 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
     } catch (error) {
       console.error("Failed to enqueue the Git commit gate:", error);
     }
+  };
+
+  pi.on("session_start", async (_event, ctx) => {
+    const generation = ++sessionStartGeneration;
+    sessionReady = false;
+    const status = await gitStatus(pi, ctx.cwd);
+    if (generation !== sessionStartGeneration) return;
+    if (mutationObserved || reminderSent) {
+      initiallyDirty = false;
+    } else {
+      initiallyDirty = status === undefined ? undefined : isDirty(status);
+      mutationObserved = false;
+      reminderSent = false;
+    }
+    initialStatusText = status;
+    sessionReady = true;
+    if (pendingSettledCtx) {
+      const pending = pendingSettledCtx;
+      pendingSettledCtx = null;
+      await runCommitGate(pending);
+    }
+  });
+
+  pi.on("agent_end", (event) => {
+    if (hasPotentialRepoMutation(event.messages)) mutationObserved = true;
+  });
+
+  pi.on("agent_settled", async (_event, ctx) => {
+    if (!sessionReady) {
+      pendingSettledCtx = ctx;
+      return;
+    }
+    await runCommitGate(ctx);
   });
 }

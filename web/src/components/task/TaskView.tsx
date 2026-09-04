@@ -146,7 +146,6 @@ import {
 } from "@/lib/skill-permission";
 import {
   readPermissionMode,
-  writePermissionMode,
   type PermissionMode,
 } from "@/lib/permission-gate";
 import type {
@@ -679,6 +678,7 @@ export const TaskView = memo(function TaskView({
     setPermissionRequest(detail.permissionRequest ?? null);
     setQuestionRequest(detail.questionRequest ?? null);
     setSkillPermission(detail.skillPermission ?? readSkillPermission());
+    setPermissionMode(detail.permissionMode ?? readPermissionMode());
     // セッション人格は作成時固定。Auto 選択中は送信待ちの選択を維持する。
     const nextAgent = detail.agent?.trim() || DEFAULT_AGENT;
     setAgent(nextAgent);
@@ -1417,7 +1417,6 @@ export const TaskView = memo(function TaskView({
             : {}),
           ...(agentSelection ? { agent: agentSelection } : {}),
           subagentPermission,
-          permissionMode,
           skillPermission,
           ...(working && deliveryMode === "steer" ? { streamingBehavior: "steer" } : {}),
         });
@@ -1507,7 +1506,6 @@ export const TaskView = memo(function TaskView({
       ...(retryThinkingLevel ? { thinkingLevel: retryThinkingLevel } : {}),
       ...(autoRecord.agent ? { agent: autoRecord.agent } : {}),
       subagentPermission,
-      permissionMode,
       skillPermission,
     })
       .then(() => {
@@ -1523,7 +1521,6 @@ export const TaskView = memo(function TaskView({
     autoRecord,
     autoRetrying,
     messages,
-    permissionMode,
     skillPermission,
     subagentPermission,
     task?.limitError,
@@ -1650,7 +1647,6 @@ export const TaskView = memo(function TaskView({
           ? { model: `${target.model.providerID}::${target.model.modelID}` }
           : {}),
         subagentPermission,
-        permissionMode,
       });
       setManualAbortedAssistantId(null);
       notifyTasksChanged();
@@ -1663,7 +1659,7 @@ export const TaskView = memo(function TaskView({
     } finally {
       setResumingTurn(false);
     }
-  }, [permissionMode, resumingTurn, subagentPermission, taskId, working]);
+  }, [resumingTurn, subagentPermission, taskId, working]);
 
   // タスクのアカウントを切替えるモデルも選べる（setTaskModel が再作成を担う）ため
   // 他アカウントのモデルも含めて全候補を出す。並び順は /api/models の providerOrder 準拠。
@@ -2688,12 +2684,19 @@ export const TaskView = memo(function TaskView({
                 value={permissionMode}
                 disabled={working || compacting}
                 onChange={(mode) => {
+                  const previous = permissionMode;
                   setPermissionMode(mode);
-                  writePermissionMode(mode);
                   void (async () => {
                     try {
-                      await sendJson(`/api/tasks/${taskId}/permission-mode`, { mode });
+                      const { task: updated } = await sendJson<{ task: TaskSummary }>(
+                        `/api/tasks/${taskId}/permission-mode`,
+                        { mode },
+                      );
+                      setPermissionMode(updated.permissionMode ?? mode);
+                      setTask((current) => (current ? { ...current, ...updated } : current));
+                      setError(null);
                     } catch (err) {
+                      setPermissionMode(previous);
                       setError(err instanceof Error ? err.message : "権限モードの更新に失敗しました");
                     }
                   })();

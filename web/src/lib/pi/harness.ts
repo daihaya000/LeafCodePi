@@ -4557,6 +4557,9 @@ export async function createTask(input: {
       ...(input.skillPermission
         ? { skillPermission: input.skillPermission }
         : {}),
+      ...(input.permissionMode
+        ? { permissionMode: input.permissionMode }
+        : {}),
     });
   };
   let modelRoute: ConcreteModelRoute | undefined;
@@ -4896,9 +4899,6 @@ function queuePrompt(
     const activeCompaction = activeLive.autoCompactionPromise;
     if (activeCompaction) await activeCompaction;
     applySubagentPermission(activeLive.session, meta?.subagentPermission);
-    if (meta?.permissionMode) {
-      applyPermissionMode(activeLive.session, meta.permissionMode);
-    }
     applySessionCompactionSettings(activeLive.session);
     const options = buildPromptOptions({
       images,
@@ -5029,14 +5029,10 @@ export async function promptTask(
   applySubagentPermission(live.session, options?.subagentPermission);
   if (options?.skillPermission)
     await applyLiveSkillPermission(live, options.skillPermission);
-  if (options?.permissionMode) {
-    applyPermissionMode(live.session, options.permissionMode);
-  }
   live.revertLeafId = null;
   queuePrompt(live, prompt, images, {
     agent: options?.agent,
     subagentPermission: options?.subagentPermission,
-    permissionMode: options?.permissionMode,
     streamingBehavior: options?.streamingBehavior,
   });
   return toSummary(getTask(id)!);
@@ -5079,7 +5075,7 @@ export async function setTaskPermissionMode(
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   applyPermissionMode(live.session, mode);
-  return toSummary(task);
+  return patchTask(id, { permissionMode: mode }) ?? task;
 }
 
 /**

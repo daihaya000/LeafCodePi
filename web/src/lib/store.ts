@@ -140,6 +140,7 @@ export function insertTask(input: {
   accountId?: string;
   agent?: string;
   skillPermission?: "allow" | "deny";
+  permissionMode?: "allow" | "ask" | "deny";
 }): TaskSummary {
   const store = readStore();
   const now = new Date().toISOString();
@@ -158,6 +159,7 @@ export function insertTask(input: {
     thinkingLevel: input.thinkingLevel,
     ...(input.accountId ? { accountId: input.accountId } : {}),
     ...(input.skillPermission ? { skillPermission: input.skillPermission } : {}),
+    ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
     ...(input.agent ? { agent: input.agent } : {}),
     createdAt: now,
     updatedAt: now,
@@ -185,6 +187,7 @@ export function patchTask(
       | "thinkingLevel"
       | "accountId"
       | "skillPermission"
+      | "permissionMode"
       | "agent"
       | "error"
     >

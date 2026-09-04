@@ -1,3 +1,8 @@
+## 2026-09-04: 発見→修正ループ Tick 3
+
+1. **権限モードが毎プロンプトで潰される** — TaskView が共有 localStorage を既存タスクへ再送していた。モード変更は `/permission-mode` のみ。タスクレコードに `permissionMode` を保存し、プロンプト経路では再適用しない。
+2. **commit-guard の遅い session_start** — git status 完了前の `agent_settled` をキューし、遅延初期化でゲート状態をリセットしない。
+
 ## 2026-09-04: 発見→修正ループ Tick 2
 
 権限モードが `permission-gate.json` の単一 `mode` で全タスク共有だった。`sessions[sessionId]` を優先し、デフォルト `mode` は新規セッション専用にした。`session_start` が全体デフォルトで上書きしない。回帰: `permission-gate-config.test.ts` / `index.test.ts`。
