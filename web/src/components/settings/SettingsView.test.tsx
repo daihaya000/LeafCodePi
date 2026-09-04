@@ -33,29 +33,29 @@ vi.mock("@/components/settings/GenerationModelSettings", () => ({
 vi.mock("@/components/settings/BrowserSettings", () => ({
   BrowserSettings: () => {
     mountCounts.basic += 1;
-    return <h2>ブラウザ設定</h2>;
+    return <h3>ブラウザ設定</h3>;
   },
 }));
 vi.mock("@/components/settings/SystemSafetySettings", () => ({
-  SystemSafetySettings: () => <h2>システム安全ガード</h2>,
+  SystemSafetySettings: () => <h3>システム安全ガード</h3>,
 }));
 vi.mock("@/components/settings/NotificationSoundSettings", () => ({
-  NotificationSoundSettings: () => <h2>通知音</h2>,
+  NotificationSoundSettings: () => <h3>通知音</h3>,
 }));
 vi.mock("@/components/settings/NavigatorSettings", () => ({
-  NavigatorSettings: () => <h2>ナビゲーター</h2>,
+  NavigatorSettings: () => <h3>ナビゲーター</h3>,
 }));
 vi.mock("@/components/settings/ReasoningTranslationSettings", () => ({
   ReasoningTranslationSettings: () => {
     mountCounts.response += 1;
-    return <h2>思考要約の翻訳</h2>;
+    return <h3>思考要約の翻訳</h3>;
   },
 }));
 vi.mock("@/components/settings/CompactionSettings", () => ({
-  CompactionSettings: () => <h2>コンテキスト圧縮</h2>,
+  CompactionSettings: () => <h3>コンテキスト圧縮</h3>,
 }));
 vi.mock("@/components/settings/HangTimeoutSettings", () => ({
-  HangTimeoutSettings: () => <h2>ハング判定</h2>,
+  HangTimeoutSettings: () => <h3>ハング判定</h3>,
 }));
 vi.mock("@/components/settings/AgentsMdSettings", () => ({
   AgentsMdSettings: () => <h2>AGENTS.md</h2>,
@@ -190,14 +190,19 @@ describe("SettingsView", () => {
     expect(html).toContain('id="settings-tab-models" type="button" role="tab" aria-label="モデルタブ" aria-selected="false"');
   });
 
-  it("エンジンタブ内にサブタブを置かず、基本・応答設定をすべて表示する", () => {
+  it("エンジンタブを役割ごとのグループに分け、関連設定をまとめて表示する", () => {
     render(<SettingsView />);
 
-    expect(screen.queryByRole("navigation", { name: "エンジン設定" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "ローカル LLM" })).toBeNull();
+    const enginePanel = screen.getByRole("tabpanel");
+    expect(
+      Array.from(enginePanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
+        (heading) => heading.textContent,
+      ),
+    ).toEqual(["ランタイム", "アクセスと安全", "応答", "表示と通知"]);
     expect(screen.getByRole("heading", { name: "システム安全ガード" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Pi Coding Agent" }).tagName).toBe("H3");
     expect(mountCounts.basic).toBe(1);
     expect(mountCounts.response).toBe(1);
   });

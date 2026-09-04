@@ -45,7 +45,7 @@ export function BrowserSettings() {
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
-      <h2 className="text-sm font-semibold">ブラウザ</h2>
+      <h3 className="text-sm font-semibold">ブラウザ</h3>
       <p className="mt-1 text-xs text-muted">
         EXE 起動時にブラウザを自動で開きます。デフォルトはオフです。設定は次回の EXE 起動から反映されます。
       </p>

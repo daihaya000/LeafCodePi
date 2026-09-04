@@ -115,7 +115,7 @@ export function ReasoningTranslationSettings() {
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
-      <h2 className="text-sm font-semibold">思考要約の翻訳</h2>
+      <h3 className="text-sm font-semibold">思考要約の翻訳</h3>
       <p className="mt-1 text-xs text-muted">
         英語の思考要約を、このPC上のローカル翻訳エンジンで日本語表示します。外部サービスへは送信しません。
         思考欄の編集ボタンで保存した修正訳は、すべてのセッションで再利用されます。

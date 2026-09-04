@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { ProviderAuthPanel } from "@/components/settings/ProviderAuthPanel";
 import { ProviderModelsPanel } from "@/components/settings/ProviderModelsPanel";
@@ -73,6 +73,25 @@ function tabFromHash(hash: string): Tab | null {
   const key = hash.replace(/^#/, "");
   if (!key) return "engine";
   return CURRENT_HASH_TAB[key] ?? MIGRATED_HASH_TAB[key] ?? null;
+}
+
+type EngineGroupProps = {
+  id: string;
+  title: string;
+  description: string;
+  children: ReactNode;
+};
+
+function EngineGroup({ id, title, description, children }: EngineGroupProps) {
+  return (
+    <section aria-labelledby={id} className="space-y-3">
+      <header className="px-1">
+        <h2 id={id} className="text-base font-semibold">{title}</h2>
+        <p className="mt-1 text-xs text-muted">{description}</p>
+      </header>
+      {children}
+    </section>
+  );
 }
 
 export function SettingsView() {
@@ -213,50 +232,89 @@ export function SettingsView() {
               role="tabpanel"
               aria-labelledby="settings-tab-engine"
               hidden={tab !== "engine"}
-              className="space-y-4"
+              className="space-y-8"
             >
-              <div className="rounded-2xl border border-border bg-surface p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold">Pi Coding Agent</h2>
-                  <Badge
-                    tone={
-                      health === null && !error
-                        ? "neutral"
-                        : health?.engineOk
-                          ? "success"
-                          : "warning"
-                    }
-                    pulse={(health === null && !error) || !health?.engineOk}
-                  >
-                    {health === null && !error ? "確認中" : health?.engineOk ? "利用可" : "未接続"}
-                  </Badge>
+              <EngineGroup
+                id="engine-runtime-heading"
+                title="ランタイム"
+                description="Pi Coding Agent の状態を確認し、WebUI とトレイホストを管理します。"
+              >
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-2xl border border-border bg-surface p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h3 className="text-sm font-semibold">Pi Coding Agent</h3>
+                      <Badge
+                        tone={
+                          health === null && !error
+                            ? "neutral"
+                            : health?.engineOk
+                              ? "success"
+                              : "warning"
+                        }
+                        pulse={(health === null && !error) || !health?.engineOk}
+                      >
+                        {health === null && !error ? "確認中" : health?.engineOk ? "利用可" : "未接続"}
+                      </Badge>
+                    </div>
+                    <dl className="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
+                      <dt className="text-muted">エンジン</dt>
+                      <dd>Pi SDK（プロセス内埋め込み）</dd>
+                      <dt className="text-muted">バージョン</dt>
+                      <dd className="font-mono">{health?.version ?? "—"}</dd>
+                      <dt className="text-muted">データ</dt>
+                      <dd className="break-all font-mono text-xs">{health?.dataDir ?? "—"}</dd>
+                      <dt className="text-muted">有効モデル数</dt>
+                      <dd>{health?.modelCount ?? 0}</dd>
+                    </dl>
+                    {health?.error && <p role="alert" className="mt-3 text-sm text-danger">{health.error}</p>}
+                    {error && <p role="alert" className="mt-3 text-sm text-danger">{error}</p>}
+                  </div>
+                  <HostRestartPanel onRestarted={reload} />
                 </div>
-                <dl className="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
-                  <dt className="text-muted">エンジン</dt>
-                  <dd>Pi SDK（プロセス内埋め込み）</dd>
-                  <dt className="text-muted">バージョン</dt>
-                  <dd className="font-mono">{health?.version ?? "—"}</dd>
-                  <dt className="text-muted">データ</dt>
-                  <dd className="break-all font-mono text-xs">{health?.dataDir ?? "—"}</dd>
-                  <dt className="text-muted">有効モデル数</dt>
-                  <dd>{health?.modelCount ?? 0}</dd>
-                </dl>
-                {health?.error && <p role="alert" className="mt-3 text-sm text-danger">{health.error}</p>}
-                {error && <p role="alert" className="mt-3 text-sm text-danger">{error}</p>}
-              </div>
+              </EngineGroup>
 
-              <HostRestartPanel onRestarted={reload} />
-              <WebUiAuthSettings />
-              <SystemSafetySettings />
-              <BrowserSettings />
-              <NotificationSoundSettings />
-              <NavigatorSettings />
-              <div className="rounded-2xl border border-border bg-surface p-4 text-sm text-muted">
-                テーマはサイドバー右下のアイコンから切り替えます（ライト / ダーク / システム）。
-              </div>
-              <ReasoningTranslationSettings />
-              <CompactionSettings />
-              <HangTimeoutSettings />
+              <EngineGroup
+                id="engine-access-heading"
+                title="アクセスと安全"
+                description="WebUI への接続方法と、システム操作に対する安全ガードを設定します。"
+              >
+                <div className="space-y-4">
+                  <WebUiAuthSettings />
+                  <SystemSafetySettings />
+                </div>
+              </EngineGroup>
+
+              <EngineGroup
+                id="engine-response-heading"
+                title="応答"
+                description="翻訳、コンテキスト節約、自動再開など、応答時の動作を設定します。"
+              >
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <div className="xl:col-span-2">
+                    <ReasoningTranslationSettings />
+                  </div>
+                  <CompactionSettings />
+                  <HangTimeoutSettings />
+                </div>
+              </EngineGroup>
+
+              <EngineGroup
+                id="engine-display-heading"
+                title="表示と通知"
+                description="起動時の表示、通知音、メッセージ移動ボタンを設定します。"
+              >
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <BrowserSettings />
+                  <NavigatorSettings />
+                  <NotificationSoundSettings />
+                  <div className="rounded-2xl border border-border bg-surface p-4">
+                    <h3 className="text-sm font-semibold">テーマ</h3>
+                    <p className="mt-1 text-xs text-muted">
+                      サイドバー右下のアイコンから、ライト / ダーク / システムを切り替えます。
+                    </p>
+                  </div>
+                </div>
+              </EngineGroup>
             </section>
           )}
 

@@ -96,7 +96,7 @@ export function WebUiAuthSettings() {
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold">WebUI アクセス</h2>
+          <h3 className="text-sm font-semibold">WebUI アクセス</h3>
           <p className="mt-1 text-xs text-muted">
             リモート接続時のアクセスゲートとトークンを設定します。トークン本文は表示・保存結果に返しません。
           </p>

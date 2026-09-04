@@ -20,11 +20,14 @@ export function NavigatorSettings() {
   }, []);
 
   return (
-    <section>
-      <h2 className="mb-3 text-sm font-semibold text-muted">UI</h2>
-      <div className="rounded-xl border border-border bg-surface px-4 py-3">
-        <label className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
-          <span className="shrink-0 text-sm text-muted">メッセージ移動ボタンの不透明度</span>
+    <div className="rounded-2xl border border-border bg-surface p-4">
+      <h3 className="text-sm font-semibold">ナビゲーション</h3>
+      <p className="mt-1 text-xs text-muted">
+        タスク画面のメッセージ移動ボタンの見え方を設定します。
+      </p>
+      <label className="mt-4 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+        <span className="shrink-0 text-sm text-muted">不透明度</span>
+        <span className="flex min-w-0 flex-1 items-center gap-3">
           <input
             type="range"
             min={MIN_SCROLL_BUTTON_OPACITY}
@@ -36,18 +39,17 @@ export function NavigatorSettings() {
               const value = Number(event.target.value);
               if (Number.isFinite(value)) writeScrollButtonOpacity(value);
             }}
-            className="w-full max-w-[14rem] accent-accent"
+            className="min-w-0 flex-1 accent-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           />
-          <span className="w-12 font-mono text-xs text-muted">{Math.round(opacity * 100)}%</span>
-        </label>
-        <p className="mt-2 text-[11px] text-muted">
-          タスク画面右下のメッセージ移動ボタンの不透明度です（
-          {Math.round(MIN_SCROLL_BUTTON_OPACITY * 100)}〜{Math.round(MAX_SCROLL_BUTTON_OPACITY * 100)}
-          %）。値を下げると背後のメッセージが見えやすくなります。ホバー時は一時的に不透明になります。
-        </p>
-      </div>
-      {/* 初期値の明示（本家と同じ 60%）。 */}
-      <p className="mt-1 text-[11px] text-muted">既定値 {Math.round(DEFAULT_SCROLL_BUTTON_OPACITY * 100)}%</p>
-    </section>
+          <output className="w-12 shrink-0 text-right font-mono text-sm text-text">
+            {Math.round(opacity * 100)}%
+          </output>
+        </span>
+      </label>
+      <p className="mt-2.5 text-[11px] text-muted">
+        値を下げると背後のメッセージが見えやすくなります。ホバー時は一時的に不透明になります。
+        既定値は{Math.round(DEFAULT_SCROLL_BUTTON_OPACITY * 100)}%です。
+      </p>
+    </div>
   );
 }

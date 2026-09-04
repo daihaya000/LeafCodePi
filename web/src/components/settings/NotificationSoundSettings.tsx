@@ -88,12 +88,12 @@ export function NotificationSoundSettings() {
   };
 
   return (
-    <section>
-      <h2 className="mb-3 text-sm font-semibold text-muted">通知音</h2>
-      <p className="mb-3 text-xs text-muted">
+    <div className="rounded-2xl border border-border bg-surface p-4">
+      <h3 className="text-sm font-semibold">通知音</h3>
+      <p className="mt-1 text-xs text-muted">
         タスク完了時と、許可・質問の表示時に鳴る音を設定します。
       </p>
-      <div className="rounded-xl border border-border bg-surface px-4 py-3">
+      <div className="mt-4 space-y-3">
         <label className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
           <span className="shrink-0 text-sm text-muted">通知音の種類</span>
           <select
@@ -111,7 +111,7 @@ export function NotificationSoundSettings() {
           </select>
         </label>
 
-        <label className="mt-3 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+        <label className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
           <span className="shrink-0 text-sm text-muted">音量</span>
           <span className="flex min-w-0 flex-1 items-center gap-3">
             <input
@@ -135,29 +135,29 @@ export function NotificationSoundSettings() {
             </output>
           </span>
         </label>
-
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={volume === 0}
-            onClick={playSessionCompleteSound}
-          >
-            完了音を再生
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={volume === 0}
-            onClick={playAttentionRequiredSound}
-          >
-            注意音を再生
-          </Button>
-        </div>
-        <p id="notification-sound-help" className="mt-2.5 text-[11px] text-muted">
-          変更は即座に反映され、自動で保存されます。音量が0%のときは通知音は鳴りません。
-        </p>
       </div>
-    </section>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={volume === 0}
+          onClick={playSessionCompleteSound}
+        >
+          完了音を再生
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={volume === 0}
+          onClick={playAttentionRequiredSound}
+        >
+          注意音を再生
+        </Button>
+      </div>
+      <p id="notification-sound-help" className="mt-2.5 text-[11px] text-muted">
+        変更は即座に反映され、自動で保存されます。音量が0%のときは通知音は鳴りません。
+      </p>
+    </div>
   );
 }

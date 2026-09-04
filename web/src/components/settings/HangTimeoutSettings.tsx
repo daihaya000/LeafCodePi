@@ -96,7 +96,7 @@ export function HangTimeoutSettings() {
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
-      <h2 className="text-sm font-semibold">ハング判定</h2>
+      <h3 className="text-sm font-semibold">ハング判定</h3>
       <p className="mt-1 text-xs text-muted">
         応答がない状態がこの時間続いた場合、自動停止して設定した方法で再開します（Goal Loop は対象外）。
       </p>

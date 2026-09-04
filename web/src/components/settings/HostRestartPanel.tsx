@@ -116,7 +116,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
-      <h2 className="text-sm font-semibold">再起動</h2>
+      <h3 className="text-sm font-semibold">再起動</h3>
       <p className="mt-1 text-xs text-muted">
         {hostOk === null
           ? "接続を確認しています…"

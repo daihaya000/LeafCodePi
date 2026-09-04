@@ -32,17 +32,16 @@ describe("CompactionSettings", () => {
     sendJson.mockReset();
   });
 
-  it("狭い画面ではラベルと入力を縦に並べ、入力幅をコンテナ内に収める", async () => {
+  it("入力を共通のグリッドに並べ、コンテナ内で伸縮させる", async () => {
     render(<CompactionSettings />);
 
     const action = await screen.findByLabelText("動作");
     const threshold = screen.getByLabelText("コンテキスト使用率の閾値");
 
-    expect(action.parentElement?.className).toContain("flex-col");
+    expect(action.parentElement?.className).toContain("block");
     expect(action.className).toContain("w-full");
-    expect(action.className).not.toContain("w-84");
-    expect(threshold.parentElement?.parentElement?.className).toContain("flex-col");
     expect(threshold.className).toContain("min-w-0");
-    expect(threshold.className).not.toContain("w-60");
+    expect(threshold.parentElement?.className).toContain("flex");
+    expect(action.parentElement?.parentElement?.className).toContain("grid");
   });
 });

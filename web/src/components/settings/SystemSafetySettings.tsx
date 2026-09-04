@@ -71,7 +71,7 @@ export function SystemSafetySettings() {
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
-      <h2 className="text-sm font-semibold">システム安全ガード</h2>
+      <h3 className="text-sm font-semibold">システム安全ガード</h3>
       <p className="mt-1 text-xs text-muted">
         OS・サービス・ディスクなどへの危険な変更をどの程度止めるかを選びます。どの度合いでも
         `.env` / `.ssh` などの保護パスと LeafCodePi 自身の停止禁止は続きます。既定は標準です。
