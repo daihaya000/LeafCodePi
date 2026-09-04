@@ -1,3 +1,12 @@
+## 2026-09-05: permission-gate ループ tick 27
+
+- FN: `mokutil --disable-validation`（boot）、`firmwarepasswd -delete`（firmware）、`spctl --master-disable`（policy）
+- list/status/check / 散文検索は非検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 26
 
 - FN: `csrutil disable` / `nvram -c|-d` / `bless --setBoot`（boot）

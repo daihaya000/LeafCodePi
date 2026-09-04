@@ -324,6 +324,12 @@ describe("system safety classifier", () => {
     assert.deepEqual(matchSystemSafetyCommand("csrutil status"), []);
     assert.deepEqual(matchSystemSafetyCommand("nvram -p"), []);
     assert.deepEqual(matchSystemSafetyCommand("echo csrutil disable"), []);
+    assert.ok(matchSystemSafetyCommand("mokutil --disable-validation").some((match) => match.category === "boot"));
+    assert.ok(matchSystemSafetyCommand("firmwarepasswd -delete").some((match) => match.category === "firmware"));
+    assert.ok(matchSystemSafetyCommand("spctl --master-disable").some((match) => match.label === "system policy/account/firewall change"));
+    assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
+    assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
+    assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);
