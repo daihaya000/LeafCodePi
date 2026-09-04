@@ -112,10 +112,13 @@ afterEach(() => {
 });
 
 describe("Sidebar project ordering", () => {
-  it("sets a project icon from the expanded sidebar", async () => {
+  it("uses the displayed project icon as the file picker", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
     const input = (await screen.findByLabelText("Project Aのアイコンを設定")) as HTMLInputElement;
+    const picker = input.parentElement;
+    expect(picker?.tagName).toBe("LABEL");
+    expect(picker?.title).toBe("Project Aのアイコンを設定");
 
     fireEvent.change(input!, {
       target: { files: [new File(["icon"], "icon.png", { type: "image/png" })] },

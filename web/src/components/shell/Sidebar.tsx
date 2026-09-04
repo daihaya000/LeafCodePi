@@ -6,8 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
   Archive,
-  Image as ImageIcon,
-  ImageOff,
   ArchiveRestore,
   ChevronRight,
   Cpu,
@@ -154,6 +152,45 @@ function ProjectIcon({ project, className }: { project: Pick<ProjectDto, "id" | 
     <img src={project.icon} alt="" className={cx("rounded-md object-cover", className)} />
   ) : (
     <span className={cx(projectIconTone(project.id), className)}>{projectInitial(project.name)}</span>
+  );
+}
+
+const PROJECT_ICON_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
+
+function ProjectIconPicker({
+  project,
+  className,
+  iconClassName,
+  onFileChange,
+  role,
+}: {
+  project: Pick<ProjectDto, "id" | "name" | "icon">;
+  className?: string;
+  iconClassName?: string;
+  onFileChange: (file: File | null) => void;
+  role?: "menuitem";
+}) {
+  return (
+    <label
+      role={role}
+      title={`${project.name}のアイコンを設定`}
+      className={cx(
+        "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md text-muted has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-inset has-[:focus-visible]:ring-primary",
+        className,
+      )}
+    >
+      <ProjectIcon project={project} className={iconClassName} />
+      <input
+        type="file"
+        aria-label={`${project.name}のアイコンを設定`}
+        accept={PROJECT_ICON_ACCEPT}
+        className="sr-only"
+        onChange={(event) => {
+          onFileChange(event.target.files?.[0] ?? null);
+          event.currentTarget.value = "";
+        }}
+      />
+    </label>
   );
 }
 
@@ -921,12 +958,6 @@ const SidebarView = memo(function SidebarView({
     reader.readAsDataURL(file);
   }
 
-  async function clearProjectIcon(project: ProjectDto) {
-    await runAction(`icon:${project.id}`, () =>
-      sendJson("/api/projects", { id: project.id, icon: null }, "PATCH"),
-    );
-  }
-
   const cancelProjectTaskMenuHide = useCallback(() => {
     if (projectTaskMenuHideTimerRef.current === null) return;
     clearTimeout(projectTaskMenuHideTimerRef.current);
@@ -1248,15 +1279,17 @@ const SidebarView = memo(function SidebarView({
                     >
                       <ChevronRight className={cx("h-3.5 w-3.5 transition", open && "rotate-90")} />
                     </button>
+                    <ProjectIconPicker
+                      project={project}
+                      className="h-11 w-11 hover:bg-surface-2 hover:text-text md:h-8 md:w-8"
+                      iconClassName="flex h-5 w-5 items-center justify-center rounded-md border text-[10px] font-medium"
+                      onFileChange={(file) => void setProjectIcon(project, file)}
+                    />
                     <button
                       type="button"
                       onClick={() => openProject(project.id)}
                       className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 text-left"
                     >
-                      <ProjectIcon
-                        project={project}
-                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[10px] font-medium"
-                      />
                       <span className="min-w-0 flex-1 truncate text-sm">{project.name}</span>
                       {running > 0 && (
                         <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-working px-1 text-[10px] font-semibold text-primary-fg">
@@ -1264,33 +1297,6 @@ const SidebarView = memo(function SidebarView({
                         </span>
                       )}
                     </button>
-                    <label
-                      title="プロジェクトアイコンを設定"
-                      className="inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted hover:text-text has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-inset has-[:focus-visible]:ring-primary md:h-8 md:w-8"
-                    >
-                      <ImageIcon className="h-3.5 w-3.5" />
-                      <input
-                        type="file"
-                        aria-label={`${project.name}のアイコンを設定`}
-                        accept="image/png,image/jpeg,image/gif,image/webp"
-                        className="sr-only"
-                        onChange={(event) => {
-                          void setProjectIcon(project, event.target.files?.[0] ?? null);
-                          event.currentTarget.value = "";
-                        }}
-                      />
-                    </label>
-                    {project.icon && (
-                      <button
-                        type="button"
-                        aria-label={`${project.name}のアイコンを削除`}
-                        title="プロジェクトアイコンを削除"
-                        onClick={() => void clearProjectIcon(project)}
-                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted hover:text-text md:h-8 md:w-8"
-                      >
-                        <ImageOff className="h-3.5 w-3.5" />
-                      </button>
-                    )}
                     <button
                       type="button"
                       aria-label={`${project.name}に新規タスクを作成`}
@@ -1671,43 +1677,16 @@ const SidebarView = memo(function SidebarView({
           }}
         >
           <div className="flex items-center gap-1 px-2 py-1">
-            <ProjectIcon
+            <ProjectIconPicker
               project={projectTaskMenuProject}
-              className="flex h-7 w-7 shrink-0 items-center justify-center border text-xs font-medium"
+              role="menuitem"
+              className="h-8 w-8 hover:bg-surface-2 hover:text-text"
+              iconClassName="flex h-7 w-7 items-center justify-center border text-xs font-medium"
+              onFileChange={(file) => void setProjectIcon(projectTaskMenuProject, file)}
             />
             <p className="min-w-0 flex-1 truncate text-sm font-medium text-muted">
               {projectTaskMenuProject.name}
             </p>
-            <label
-              role="menuitem"
-              title="プロジェクトアイコンを設定"
-              aria-label="プロジェクトアイコンを設定"
-              className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-inset has-[:focus-visible]:ring-primary"
-            >
-              <ImageIcon className="h-4 w-4" />
-              <input
-                type="file"
-                aria-label="プロジェクトアイコンを設定"
-                accept="image/png,image/jpeg,image/gif,image/webp"
-                className="sr-only"
-                onChange={(event) => {
-                  void setProjectIcon(projectTaskMenuProject, event.target.files?.[0] ?? null);
-                  event.currentTarget.value = "";
-                }}
-              />
-            </label>
-            {projectTaskMenuProject.icon && (
-              <button
-                type="button"
-                role="menuitem"
-                aria-label="プロジェクトアイコンを削除"
-                title="プロジェクトアイコンを削除"
-                onClick={() => void clearProjectIcon(projectTaskMenuProject)}
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"
-              >
-                <ImageOff className="h-4 w-4" />
-              </button>
-            )}
             <button
               type="button"
               role="menuitem"
