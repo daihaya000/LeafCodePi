@@ -398,6 +398,20 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("env systemctl stop clamav-daemon").some((match) => match.label === "security software disable"));
     assert.ok(matchSystemSafetyCommand("timeout 5 sc stop WinDefend").some((match) => match.label === "security software disable"));
     assert.deepEqual(matchSystemSafetyCommand("mdadm --detail /dev/md0"), []);
+    assert.ok(matchSystemSafetyCommand("launchctl bootstrap gui/501/com.evil").some((match) => match.label === "scheduled task change"));
+    assert.ok(matchSystemSafetyCommand("launchctl load ~/Library/LaunchAgents/x.plist").some((match) => match.label === "scheduled task change"));
+    assert.ok(matchSystemSafetyCommand("vgremove -f vg0").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("cryptsetup luksFormat /dev/sda1").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("Remove-WindowsCapability -Name Windows.Defender~~~~").some((match) => match.label === "security software disable"));
+    assert.ok(matchSystemSafetyCommand("Set-MpPreference -EnableControlledFolderAccess Disabled").some((match) => match.label === "security software disable"));
+    assert.ok(matchSystemSafetyCommand("Remove-WindowsFeature Windows-Defender").some((match) => match.label === "security software disable"));
+    assert.ok(
+      configuredSafetyMatches(
+        { mode: "allow", systemSafety: "standard" },
+        matchSystemSafetyCommand("launchctl bootstrap gui/501/com.evil"),
+      ).some((match) => match.label === "scheduled task change"),
+    );
+    assert.deepEqual(matchSystemSafetyCommand("cryptsetup status /dev/sda1"), []);
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);

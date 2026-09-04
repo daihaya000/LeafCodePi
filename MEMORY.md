@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 35
+
+- FN: `launchctl bootstrap|load|enable|…` を scheduled（standard）に昇格パリティ
+- FN: `vgremove`/`lvremove`/`pvremove`、`cryptsetup luksFormat|luksErase|…`（disk）
+- FN: `Remove-WindowsCapability` / `Remove-WindowsFeature Windows-Defender`、`Set-MpPreference -EnableControlledFolderAccess Disabled`
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 34
 
 - FN: `Disable-WindowsDefender` / `Uninstall-WindowsFeature Windows-Defender`
