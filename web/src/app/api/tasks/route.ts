@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
       variant?: unknown;
       images?: { mimeType: string; data: string }[];
       agent?: string;
-      accountId?: string;
+      accountId?: unknown;
       subagentPermission?: unknown;
       permissionMode?: unknown;
       skillPermission?: unknown;
@@ -200,10 +200,11 @@ export async function POST(req: NextRequest) {
     }
     let model = body.model;
     let thinkingLevel: ThinkingLevel | undefined = thinkingLevelInput;
-    let accountId =
-      typeof body.accountId === "string" && body.accountId.trim()
-        ? body.accountId.trim()
-        : undefined;
+    const accountIdInput = body.accountId;
+    if (accountIdInput !== undefined && typeof accountIdInput !== "string") {
+      return NextResponse.json({ error: "invalid accountId" }, { status: 400 });
+    }
+    let accountId = accountIdInput?.trim() || undefined;
     const requestedModel =
       body.model && body.model !== AUTO_MODEL_VALUE
         ? parseDirectModelKey(body.model)
