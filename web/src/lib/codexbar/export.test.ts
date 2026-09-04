@@ -19,6 +19,7 @@ function snap(partial: Partial<UsageSnapshot> & Pick<UsageSnapshot, "windows">):
     sourceLabel: null,
     updatedAt: new Date("2026-08-21T00:00:00Z"),
     isStale: false,
+    rateLimitResetCreditsAvailable: null,
     ...partial,
   };
 }
@@ -217,5 +218,30 @@ describe("buildSnapshotFile", () => {
     expect(file.schema).toBe("codexbar.usage-snapshot/v1");
     expect(file.subscriptionTotalMonthlyUsd).toBe(45);
     expect(file.providers).toHaveLength(2);
+  });
+});
+
+describe("buildEntry reset credits", () => {
+  it("forwards rateLimitResetCreditsAvailable", () => {
+    const entry = buildEntry(
+      "openai-codex",
+      snap({
+        providerId: "openai-codex",
+        providerName: "Codex",
+        windows: [
+          {
+            id: "codex-primary",
+            title: "5時間",
+            usedPercent: 40,
+            resetsAt: null,
+            windowDurationMs: null,
+            countsTowardLimit: true,
+          },
+        ],
+        rateLimitResetCreditsAvailable: 3,
+      }),
+      null,
+    );
+    expect(entry?.resetCreditsAvailable).toBe(3);
   });
 });

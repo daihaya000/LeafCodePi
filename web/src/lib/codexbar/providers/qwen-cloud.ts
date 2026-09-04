@@ -149,6 +149,7 @@ function emptyCredits(): Pick<
   | "creditsTitle"
   | "creditsUsed"
   | "creditsLimit"
+  | "rateLimitResetCreditsAvailable"
 > {
   return {
     creditsBalance: null,
@@ -157,6 +158,7 @@ function emptyCredits(): Pick<
     creditsTitle: null,
     creditsUsed: null,
     creditsLimit: null,
+    rateLimitResetCreditsAvailable: null,
   };
 }
 
@@ -731,6 +733,7 @@ export function parseQwenUsage(
         : `Coding Plan API (${displayRegionName(region)})`,
     updatedAt: new Date(),
     isStale: false,
+    rateLimitResetCreditsAvailable: null,
   };
 }
 
@@ -820,6 +823,7 @@ export function parseQwenConsoleUsage(
     sourceLabel: `QwenCloud 請求ページ (${displayRegionName(region)})`,
     updatedAt: new Date(),
     isStale: false,
+    rateLimitResetCreditsAvailable: null,
   };
 }
 

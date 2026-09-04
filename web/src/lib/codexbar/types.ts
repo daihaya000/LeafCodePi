@@ -54,6 +54,11 @@ export type UsageSnapshot = {
   sourceLabel: string | null;
   updatedAt: Date;
   isStale: boolean;
+  /**
+   * Banked Codex rate-limit resets still available to redeem.
+   * Null when the provider does not expose this benefit.
+   */
+  rateLimitResetCreditsAvailable: number | null;
 };
 
 export type ProviderFetchResult = {

@@ -35,6 +35,7 @@ function snap(id = "claude"): UsageSnapshot {
     sourceLabel: "test",
     updatedAt: new Date("2026-08-21T00:00:00Z"),
     isStale: false,
+    rateLimitResetCreditsAvailable: null,
   };
 }
 

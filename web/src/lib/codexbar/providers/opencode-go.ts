@@ -343,6 +343,7 @@ export function createOpenCodeGoProvider(scope: UsageScope): IUsageProvider {
         sourceLabel: "OpenCode Go page",
         updatedAt: new Date(),
         isStale: false,
+        rateLimitResetCreditsAvailable: null,
       } satisfies UsageSnapshot;
     },
   };

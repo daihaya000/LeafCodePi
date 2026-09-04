@@ -328,6 +328,7 @@ export function parseClaudeUsageJson(
     sourceLabel: "OAuth API",
     updatedAt: new Date(),
     isStale: false,
+    rateLimitResetCreditsAvailable: null,
   };
 }
 

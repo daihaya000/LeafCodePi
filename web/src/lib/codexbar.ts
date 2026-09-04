@@ -78,6 +78,11 @@ export type CodexBarProvider = {
   windows: CodexBarWindow[];
   /** Optional monetary credit allowance, separate from rate-limit windows. */
   credits: CodexBarCredits | null;
+  /**
+   * Banked Codex rate-limit resets still available (openai-codex only).
+   * Null/undefined when unknown or not applicable.
+   */
+  resetCreditsAvailable?: number | null;
 };
 
 export type CodexBarUsage = {
@@ -272,6 +277,7 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
         error: asString(p.error),
         windows,
         credits,
+        resetCreditsAvailable: asNumber(p.resetCreditsAvailable),
       };
     });
 
@@ -342,6 +348,7 @@ function emptyProvider(id: string): CodexBarProvider {
     error: null,
     windows: [],
     credits: null,
+    resetCreditsAvailable: null,
   };
 }
 

@@ -4,13 +4,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CodexBarUsage } from "@/lib/codexbar";
 import { CodexBarWidget } from "./CodexBarWidget";
 
-const { useCodexUsage, useCodexProviders } = vi.hoisted(() => ({
+const { useCodexUsage, useCodexProviders, getJson, sendJson } = vi.hoisted(() => ({
   useCodexUsage: vi.fn(),
   useCodexProviders: vi.fn(),
+  getJson: vi.fn(),
+  sendJson: vi.fn(),
 }));
 
 vi.mock("./use-codex-usage", () => ({ useCodexUsage }));
 vi.mock("./use-codex-providers", () => ({ useCodexProviders }));
+vi.mock("@/lib/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/client")>();
+  return {
+    ...actual,
+    getJson,
+    sendJson,
+  };
+});
 
 const usage: CodexBarUsage = {
   available: true,
@@ -32,6 +42,27 @@ const usage: CodexBarUsage = {
       error: null,
       windows: [],
       credits: null,
+    },
+  ],
+};
+
+const usageWithReset: CodexBarUsage = {
+  ...usage,
+  providers: [
+    {
+      ...usage.providers[0],
+      usedPercent: 95,
+      limited: true,
+      windows: [
+        {
+          id: "codex-primary",
+          title: "5時間",
+          usedPercent: 95,
+          resetsAt: null,
+          windowMinutes: 300,
+        },
+      ],
+      resetCreditsAvailable: 2,
     },
   ],
 };
@@ -61,6 +92,8 @@ const accountUsage: CodexBarUsage = {
 describe("CodexBarWidget", () => {
   beforeEach(() => {
     localStorage.clear();
+    getJson.mockReset();
+    sendJson.mockReset();
     useCodexUsage.mockReturnValue({
       usage,
       loadError: null,
@@ -128,5 +161,45 @@ describe("CodexBarWidget", () => {
     const update = screen.getByText(/^更新 /);
     expect(update.parentElement?.className).toContain("border-b");
     expect(update.parentElement?.className).not.toContain("border-t");
+  });
+
+  it("shows reset credit controls and does not POST when confirm is cancelled", async () => {
+    localStorage.setItem("webui:codexbar:collapsed", "0");
+    localStorage.setItem("webui:codexbar:providers", JSON.stringify({}));
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    useCodexUsage.mockReturnValue({
+      usage: usageWithReset,
+      loadError: null,
+      refreshing: false,
+      refresh,
+      now: Date.now(),
+    });
+    getJson.mockResolvedValueOnce({
+      availableCount: 2,
+      credits: [
+        {
+          id: "RateLimitResetCredit_1",
+          title: "Full reset",
+          expiresAt: "2026-10-01T00:00:00Z",
+          status: "available",
+        },
+      ],
+      accountId: null,
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    render(<CodexBarWidget />);
+
+    await waitFor(() => expect(screen.getByText("CodexBar 利用状況")).toBeTruthy());
+    expect(screen.getByText(/リセット権/)).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Codex の使用量リセット権を使う" }),
+    );
+
+    await waitFor(() => expect(getJson).toHaveBeenCalled());
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(sendJson).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 });

@@ -19,6 +19,7 @@ import {
   useCodexProviders,
   type ConfigProvider,
 } from "@/components/codexbar/use-codex-providers";
+import { ApiError, getJson, sendJson } from "@/lib/client";
 import {
   clampPercent,
   formatPlanBadge,
@@ -37,6 +38,30 @@ import {
   type CodexBarProviderGroup,
   type UsageTone,
 } from "@/lib/codexbar";
+
+type ResetCreditDto = {
+  id: string;
+  title: string | null;
+  description: string | null;
+  expiresAt: string | null;
+  grantedAt: string | null;
+  status: string | null;
+};
+
+type ResetCreditsListResponse = {
+  availableCount: number;
+  credits: ResetCreditDto[];
+  accountId: string | null;
+};
+
+type ResetCreditsConsumeResponse = {
+  ok: boolean;
+  code: string;
+  message: string;
+  windowsReset: number | null;
+  creditId: string;
+  accountId: string | null;
+};
 
 const COLLAPSED_KEY = "webui:codexbar:collapsed";
 const PROVIDERS_KEY = "webui:codexbar:providers";
@@ -347,6 +372,60 @@ function CreditsRow({ credits }: { credits: CodexBarCredits }) {
   );
 }
 
+function formatResetExpiry(expiresAt: string | null, now: number): string {
+  if (!expiresAt) return "期限不明";
+  const ms = Date.parse(expiresAt);
+  if (!Number.isFinite(ms)) return "期限不明";
+  const delta = ms - now;
+  if (delta <= 0) return "期限切れ間近";
+  return `期限 ${formatResetsIn(expiresAt, now) ?? expiresAt}`;
+}
+
+function ResetCreditsRow({
+  available,
+  busy,
+  status,
+  onRedeem,
+}: {
+  available: number;
+  busy: boolean;
+  status: string | null;
+  onRedeem: () => void;
+}) {
+  if (available <= 0) return null;
+  return (
+    <div className="flex flex-col gap-1 border-t border-border pt-1.5">
+      <div className="flex items-center justify-between gap-2 text-[11px]">
+        <span className="truncate text-muted">
+          リセット権 <span className="font-mono text-text">{available}</span>
+        </span>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onRedeem();
+          }}
+          disabled={busy}
+          aria-label="Codex の使用量リセット権を使う"
+          className={cx(
+            "shrink-0 rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium",
+            busy
+              ? "cursor-wait text-faint"
+              : "text-text hover:bg-surface-3",
+          )}
+        >
+          {busy ? "処理中…" : "使う"}
+        </button>
+      </div>
+      {status && (
+        <p role="status" className="text-[10px] text-faint">
+          {status}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ProviderRow({
   p,
   now,
@@ -356,6 +435,9 @@ function ProviderRow({
   labelOverride,
   hideIcon = false,
   unconfigured = false,
+  resetBusy = false,
+  resetStatus = null,
+  onRedeemReset,
 }: {
   p: CodexBarProvider;
   now: number;
@@ -365,6 +447,9 @@ function ProviderRow({
   labelOverride?: string;
   hideIcon?: boolean;
   unconfigured?: boolean;
+  resetBusy?: boolean;
+  resetStatus?: string | null;
+  onRedeemReset?: (provider: CodexBarProvider) => void;
 }) {
   const tone = usageTone(p);
   const contentIndent = hideIcon ? undefined : "pl-6";
@@ -451,6 +536,16 @@ function ProviderRow({
             </div>
           )}
           {p.credits && <CreditsRow credits={p.credits} />}
+          {p.id === "openai-codex" &&
+            (p.resetCreditsAvailable ?? 0) > 0 &&
+            onRedeemReset && (
+              <ResetCreditsRow
+                available={p.resetCreditsAvailable ?? 0}
+                busy={resetBusy}
+                status={resetStatus}
+                onRedeem={() => onRedeemReset(p)}
+              />
+            )}
         </div>
       ) : (
         <div className={contentIndent}>
@@ -469,6 +564,9 @@ function ProviderGroupRow({
   onToggle,
   childCollapsed,
   onToggleChild,
+  resetBusyKey,
+  resetStatusByKey,
+  onRedeemReset,
 }: {
   group: CodexBarProviderGroup;
   now: number;
@@ -477,6 +575,9 @@ function ProviderGroupRow({
   onToggle: () => void;
   childCollapsed: (key: string) => boolean;
   onToggleChild: (key: string) => void;
+  resetBusyKey: string | null;
+  resetStatusByKey: Record<string, string>;
+  onRedeemReset: (provider: CodexBarProvider) => void;
 }) {
   const p = group.provider;
   const tone = usageTone(p);
@@ -538,6 +639,9 @@ function ProviderGroupRow({
                 labelOverride={row.label}
                 hideIcon
                 unconfigured={!row.configured || row.provider === null}
+                resetBusy={resetBusyKey === key}
+                resetStatus={resetStatusByKey[key] ?? null}
+                onRedeemReset={onRedeemReset}
               />
             );
           })}
@@ -560,6 +664,8 @@ export function CodexBarWidget({
   const [twoColumn, setTwoColumn] = useState(true);
   const [providerCollapsed, setProviderCollapsed] = useState<Record<string, boolean>>({});
   const [draggingProviderId, setDraggingProviderId] = useState<string | null>(null);
+  const [resetBusyKey, setResetBusyKey] = useState<string | null>(null);
+  const [resetStatusByKey, setResetStatusByKey] = useState<Record<string, string>>({});
   const {
     settingsOpen,
     providerSettings,
@@ -576,6 +682,79 @@ export function CodexBarWidget({
   const providerGroups = useMemo(
     () => (usage ? groupCodexBarProviders(usage) : []),
     [usage],
+  );
+
+  const redeemResetCredit = useCallback(
+    async (provider: CodexBarProvider) => {
+      if (provider.id !== "openai-codex") return;
+      const key = provider.instanceId ?? `default:${provider.id}`;
+      if (resetBusyKey) return;
+
+      setResetBusyKey(key);
+      setResetStatusByKey((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+
+      try {
+        const list = await getJson<ResetCreditsListResponse>(
+          "/api/codexbar/reset-credits",
+          provider.accountId ? { accountId: provider.accountId } : undefined,
+        );
+        const credit = list.credits[0];
+        if (!credit) {
+          setResetStatusByKey((prev) => ({
+            ...prev,
+            [key]: "利用可能なリセット権がありません。",
+          }));
+          return;
+        }
+
+        const usageLine =
+          provider.usedPercent === null
+            ? "現在の使用率: —"
+            : `現在の使用率: ${Math.round(provider.usedPercent)}%`;
+        const title = credit.title?.trim() || "使用量リセット";
+        const expiry = formatResetExpiry(credit.expiresAt, Date.now());
+        const confirmed = window.confirm(
+          `${title} を消費します。この操作は取り消せません。\n\n${usageLine}\n${expiry}\n\nリセット権を使いますか？`,
+        );
+        if (!confirmed) {
+          setResetStatusByKey((prev) => ({
+            ...prev,
+            [key]: "キャンセルしました。",
+          }));
+          return;
+        }
+
+        const result = await sendJson<ResetCreditsConsumeResponse>(
+          "/api/codexbar/reset-credits",
+          {
+            creditId: credit.id,
+            accountId: provider.accountId ?? undefined,
+          },
+        );
+        setResetStatusByKey((prev) => ({
+          ...prev,
+          [key]: result.message,
+        }));
+        if (result.ok) {
+          await refresh(true);
+        }
+      } catch (error) {
+        const message =
+          error instanceof ApiError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : "リセット権の使用に失敗しました";
+        setResetStatusByKey((prev) => ({ ...prev, [key]: message }));
+      } finally {
+        setResetBusyKey((current) => (current === key ? null : current));
+      }
+    },
+    [refresh, resetBusyKey],
   );
 
   useEffect(() => {
@@ -860,6 +1039,9 @@ export function CodexBarWidget({
                   onToggle={() => toggleProvider(group.id)}
                   childCollapsed={(key) => !!providerCollapsed[key]}
                   onToggleChild={toggleProvider}
+                  resetBusyKey={resetBusyKey}
+                  resetStatusByKey={resetStatusByKey}
+                  onRedeemReset={redeemResetCredit}
                 />
               ) : (
                 <ProviderRow
@@ -869,6 +1051,16 @@ export function CodexBarWidget({
                   collapsed={!!providerCollapsed[group.id]}
                   onToggle={() => toggleProvider(group.id)}
                   compact={twoColumn}
+                  resetBusy={
+                    resetBusyKey ===
+                    (group.provider.instanceId ?? `default:${group.provider.id}`)
+                  }
+                  resetStatus={
+                    resetStatusByKey[
+                      group.provider.instanceId ?? `default:${group.provider.id}`
+                    ] ?? null
+                  }
+                  onRedeemReset={redeemResetCredit}
                 />
               ),
             )}

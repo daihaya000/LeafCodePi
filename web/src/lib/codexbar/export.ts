@@ -48,6 +48,8 @@ export type ExportEntry = {
   error: string | null;
   windows: ExportWindow[];
   credits: ExportCredits | null;
+  /** Banked Codex rate-limit resets available; null when N/A. */
+  resetCreditsAvailable: number | null;
 };
 
 export type ExportScope = {
@@ -171,6 +173,7 @@ export function buildEntry(
           balance: snapshot.creditsBalance,
         }
       : null,
+    resetCreditsAvailable: snapshot?.rateLimitResetCreditsAvailable ?? null,
   };
 }
 

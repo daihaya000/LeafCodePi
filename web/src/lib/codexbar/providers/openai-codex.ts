@@ -207,6 +207,13 @@ function parseUsageBody(root: Record<string, unknown>, auth: CodexAuth): UsageSn
   const creditsEl = asRecord(root.credits);
   if (creditsEl) credits = flexibleNumber(creditsEl.balance);
 
+  let rateLimitResetCreditsAvailable: number | null = null;
+  const resetCredits = asRecord(root.rate_limit_reset_credits);
+  if (resetCredits) {
+    const count = flexibleNumber(resetCredits.available_count);
+    if (count !== null) rateLimitResetCreditsAvailable = Math.max(0, Math.trunc(count));
+  }
+
   return {
     providerId: "openai-codex",
     providerName: "Codex",
@@ -222,6 +229,7 @@ function parseUsageBody(root: Record<string, unknown>, auth: CodexAuth): UsageSn
     sourceLabel: "OAuth API",
     updatedAt: new Date(),
     isStale: false,
+    rateLimitResetCreditsAvailable,
   };
 }
 
@@ -311,6 +319,7 @@ function tryLoadFromSessionLogs(): UsageSnapshot | null {
           sourceLabel: "local session log",
           updatedAt,
           isStale: true,
+          rateLimitResetCreditsAvailable: null,
         };
       } catch {
         continue;
@@ -481,6 +490,142 @@ export const openaiCodexProvider = createOpenaiCodexProvider({
   accountLabel: null,
   authPath: null,
 });
+
+/** Credentials for ChatGPT WHAM endpoints (usage / reset credits). */
+export type CodexWhamCredentials = {
+  accessToken: string;
+  /** ChatGPT-Account-Id header value (not LeafCode account id). */
+  chatgptAccountId: string | null;
+};
+
+export type CodexWhamAuthSession = {
+  credentials: CodexWhamCredentials;
+  /** LeafCode multi-account id, or null for default/CLI auth. */
+  leafcodeAccountId: string | null;
+  /** Cache instance key for openai-codex. */
+  instanceId: string;
+  refresh(signal?: AbortSignal): Promise<CodexWhamCredentials | null>;
+};
+
+/**
+ * Resolve OAuth for WHAM calls.
+ * - With leafcodeAccountId: Pi account auth.json only.
+ * - Without: Pi default auth, then ~/.codex/auth.json fallback.
+ */
+export async function resolveOpenaiCodexWhamAuth(
+  leafcodeAccountId?: string | null,
+): Promise<CodexWhamAuthSession | null> {
+  const accountId = leafcodeAccountId?.trim() || null;
+
+  if (accountId) {
+    const { getAccount, accountAuthPath, resolvePiAgentDir } = await import(
+      "@/lib/accounts"
+    );
+    const account = getAccount(accountId);
+    if (!account) {
+      throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
+    }
+    const agentDir = await resolvePiAgentDir();
+    const piPath = accountAuthPath(accountId, agentDir);
+    const auth = loadAuthFromPi(piPath);
+    if (!auth) return null;
+    return {
+      credentials: {
+        accessToken: auth.accessToken,
+        chatgptAccountId: auth.accountId,
+      },
+      leafcodeAccountId: accountId,
+      instanceId: `account:${accountId}:openai-codex`,
+      async refresh(signal) {
+        const refreshed = await tryRefreshTokensInPi(auth, signal, piPath);
+        if (!refreshed) return null;
+        return {
+          accessToken: refreshed.accessToken,
+          chatgptAccountId: refreshed.accountId,
+        };
+      },
+    };
+  }
+
+  const piAuth = loadAuthFromPi();
+  if (piAuth) {
+    return {
+      credentials: {
+        accessToken: piAuth.accessToken,
+        chatgptAccountId: piAuth.accountId,
+      },
+      leafcodeAccountId: null,
+      instanceId: "default:openai-codex",
+      async refresh(signal) {
+        const refreshed = await tryRefreshTokensInPi(piAuth, signal);
+        if (!refreshed) return null;
+        return {
+          accessToken: refreshed.accessToken,
+          chatgptAccountId: refreshed.accountId,
+        };
+      },
+    };
+  }
+
+  const cliAuth = loadAuth();
+  if (!cliAuth) return null;
+  return {
+    credentials: {
+      accessToken: cliAuth.accessToken,
+      chatgptAccountId: cliAuth.accountId,
+    },
+    leafcodeAccountId: null,
+    instanceId: "default:openai-codex",
+    async refresh(signal) {
+      const refreshed = await tryRefreshTokens(cliAuth, signal);
+      if (!refreshed) return null;
+      return {
+        accessToken: refreshed.accessToken,
+        chatgptAccountId: refreshed.accountId,
+      };
+    },
+  };
+}
+
+/**
+ * Run a WHAM call with one automatic OAuth refresh on 401/403.
+ * `run` should throw ProviderError("__unauthorized__") (or return status) via the callback result.
+ */
+export async function withOpenaiCodexWhamAuth<T>(
+  leafcodeAccountId: string | null | undefined,
+  run: (credentials: CodexWhamCredentials, signal?: AbortSignal) => Promise<T>,
+  options?: {
+    signal?: AbortSignal;
+    isUnauthorized?: (error: unknown) => boolean;
+  },
+): Promise<{ result: T; session: CodexWhamAuthSession }> {
+  const session = await resolveOpenaiCodexWhamAuth(leafcodeAccountId);
+  if (!session) {
+    throw Object.assign(
+      new Error(
+        leafcodeAccountId
+          ? "このアカウントの Codex 認証情報がありません。先に WebUI でログインしてください。"
+          : "Codex の認証情報が見つかりません。WebUI の「サブスクでログイン」または `codex` CLI でサインインしてください。",
+      ),
+      { status: 401 },
+    );
+  }
+
+  const isUnauthorized =
+    options?.isUnauthorized ??
+    ((error: unknown) =>
+      error instanceof ProviderError && error.message === "__unauthorized__");
+
+  try {
+    return { result: await run(session.credentials, options?.signal), session };
+  } catch (error) {
+    if (!isUnauthorized(error)) throw error;
+    const refreshed = await session.refresh(options?.signal);
+    if (!refreshed) throw error;
+    session.credentials = refreshed;
+    return { result: await run(refreshed, options?.signal), session };
+  }
+}
 
 /** Exported for unit tests. */
 export function parseCodexUsageJson(json: string, auth?: Partial<CodexAuth>): UsageSnapshot {

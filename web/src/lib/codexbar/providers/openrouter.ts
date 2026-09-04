@@ -75,6 +75,7 @@ export function parseOpenRouterKeyJson(json: string): UsageSnapshot {
     sourceLabel: "openrouter.ai/api/v1/key",
     updatedAt: new Date(),
     isStale: false,
+    rateLimitResetCreditsAvailable: null,
   };
 }
 

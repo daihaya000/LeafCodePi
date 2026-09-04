@@ -391,6 +391,7 @@ export function parseSyntheticQuotasJson(json: string): UsageSnapshot {
     sourceLabel: "api.synthetic.new/v2/quotas",
     updatedAt: new Date(),
     isStale: false,
+    rateLimitResetCreditsAvailable: null,
   };
 }
 

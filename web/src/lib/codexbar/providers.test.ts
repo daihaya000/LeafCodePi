@@ -185,6 +185,24 @@ describe("parseCodexUsageJson", () => {
     expect(snap.windows[0].title).toBe("5時間");
     expect(snap.windows[1].title).toBe("週間");
     expect(snap.creditsBalance).toBe(3.5);
+    expect(snap.rateLimitResetCreditsAvailable).toBeNull();
+  });
+
+  it("parses banked rate-limit reset available_count", () => {
+    const snap = parseCodexUsageJson(
+      JSON.stringify({
+        plan_type: "plus",
+        rate_limit: {
+          primary_window: {
+            used_percent: 90,
+            reset_at: 1755760000,
+            limit_window_seconds: 18000,
+          },
+        },
+        rate_limit_reset_credits: { available_count: 2 },
+      }),
+    );
+    expect(snap.rateLimitResetCreditsAvailable).toBe(2);
   });
 });
 

@@ -259,6 +259,7 @@ export function createOllamaCloudProvider(scope: UsageScope): IUsageProvider {
         sourceLabel: "ollama.com/settings",
         updatedAt: new Date(),
         isStale: false,
+        rateLimitResetCreditsAvailable: null,
       } satisfies UsageSnapshot;
     },
   };

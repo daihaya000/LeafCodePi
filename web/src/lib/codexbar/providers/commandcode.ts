@@ -232,6 +232,7 @@ export function parseCommandCodeSnapshot(
     sourceLabel: "Command Code API",
     updatedAt: new Date(),
     isStale: false,
+    rateLimitResetCreditsAvailable: null,
   };
 }
 

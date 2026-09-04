@@ -323,6 +323,7 @@ export function parseCursorUsageSummary(
     sourceLabel: "Cursor.app + usage-summary",
     updatedAt: new Date(),
     isStale: false,
+    rateLimitResetCreditsAvailable: null,
   };
 }
 
