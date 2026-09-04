@@ -10,11 +10,12 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const body = (await req.json().catch(() => null)) as { entryId?: string } | null;
-    if (!body?.entryId) {
+    const body = (await req.json().catch(() => null)) as { entryId?: unknown } | null;
+    const entryId = typeof body?.entryId === "string" ? body.entryId.trim() : "";
+    if (!entryId) {
       return NextResponse.json({ error: "entryId が指定されていません" }, { status: 400 });
     }
-    const result = await revertTask(id, body.entryId);
+    const result = await revertTask(id, entryId);
     return NextResponse.json(result);
   } catch (error) {
     const { error: message, status } = jsonError(error);
