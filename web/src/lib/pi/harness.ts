@@ -5029,8 +5029,6 @@ export async function promptTask(
   }
   const live = await ensureLive(id);
   applySubagentPermission(live.session, options?.subagentPermission);
-  if (options?.skillPermission)
-    await applyLiveSkillPermission(live, options.skillPermission);
   live.revertLeafId = null;
   queuePrompt(live, prompt, images, {
     agent: options?.agent,

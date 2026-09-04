@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 6
+
+**スキル権限が毎プロンプトで潰される** — permissionMode と同じ。TaskView が共有 localStorage を既存タスクへ再送し、live セッションのスキル許可を上書きしていた。変更は `/skill-permission` のみ。タスク切替時はキャッシュから復元する。
+
 ## 2026-09-04: 発見→修正ループ Tick 5
 
 **セッション再接続で権限モードが落ちる** — `ensureLive` / アカウント切替が `task.permissionMode` を渡していなかった。sessionId が変わると `sessions[oldId]` が当たらず既定 allow に戻る。再接続時にタスク保存値を新しい sessionId へ書き戻す。

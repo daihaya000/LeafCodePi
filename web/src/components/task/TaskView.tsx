@@ -141,7 +141,6 @@ import {
 } from "@/lib/subagent-permission";
 import {
   readSkillPermission,
-  writeSkillPermission,
   type SkillPermission,
 } from "@/lib/skill-permission";
 import {
@@ -1079,6 +1078,8 @@ export const TaskView = memo(function TaskView({
     setPermissionRequest(null);
     setQuestionRequest(null);
     setPermissionBusy(false);
+    setSkillPermission(cached?.skillPermission ?? readSkillPermission());
+    setPermissionMode(cached?.permissionMode ?? readPermissionMode());
     const nextAgent = cached?.agent?.trim() || DEFAULT_AGENT;
     setAgent(nextAgent);
     setAgentSelection((current) =>
@@ -1417,7 +1418,6 @@ export const TaskView = memo(function TaskView({
             : {}),
           ...(agentSelection ? { agent: agentSelection } : {}),
           subagentPermission,
-          skillPermission,
           ...(working && deliveryMode === "steer" ? { streamingBehavior: "steer" } : {}),
         });
         resolvedAgent = result.task.agent ?? null;
@@ -1506,7 +1506,6 @@ export const TaskView = memo(function TaskView({
       ...(retryThinkingLevel ? { thinkingLevel: retryThinkingLevel } : {}),
       ...(autoRecord.agent ? { agent: autoRecord.agent } : {}),
       subagentPermission,
-      skillPermission,
     })
       .then(() => {
         setAutoRetryNotice(retryNotice);
@@ -1521,7 +1520,6 @@ export const TaskView = memo(function TaskView({
     autoRecord,
     autoRetrying,
     messages,
-    skillPermission,
     subagentPermission,
     task?.limitError,
     task?.status,
@@ -2709,12 +2707,12 @@ export const TaskView = memo(function TaskView({
                 onChange={(permission) => {
                   void (async () => {
                     try {
-                      await sendJson(
+                      const { task: updated } = await sendJson<{ task: TaskSummary }>(
                         `/api/tasks/${taskId}/skill-permission`,
                         { permission },
                       );
-                      setSkillPermission(permission);
-                      writeSkillPermission(permission);
+                      setSkillPermission(updated.skillPermission ?? permission);
+                      setTask((current) => (current ? { ...current, ...updated } : current));
                       setError(null);
                     } catch (err) {
                       setError(err instanceof Error ? err.message : "スキル権限の更新に失敗しました");
