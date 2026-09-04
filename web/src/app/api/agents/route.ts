@@ -49,6 +49,13 @@ export async function POST(request: Request) {
     ) {
       return NextResponse.json({ error: "tools は文字列配列が必要です" }, { status: 400 });
     }
+    const fallbackModels = body.fallbackModels as unknown;
+    if (
+      fallbackModels !== undefined &&
+      (!Array.isArray(fallbackModels) || fallbackModels.some((model) => typeof model !== "string"))
+    ) {
+      return NextResponse.json({ error: "fallbackModels は文字列配列が必要です" }, { status: 400 });
+    }
     const result = createAgent(normalize(body as AgentDraft));
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
