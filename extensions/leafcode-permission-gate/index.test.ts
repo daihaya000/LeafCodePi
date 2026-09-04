@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, it } from "vitest";
-import permissionGate, { matchSystemSafetyCommand, matchSystemSafetyForTool, matchSystemSafetyPath } from "./index";
+import permissionGate, { isLeafCodePiStopCommand, matchSystemSafetyCommand, matchSystemSafetyForTool, matchSystemSafetyPath } from "./index";
 
 type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown>;
 
@@ -49,6 +49,17 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyForTool("mcp__server__file_tool", { target: "C:\\Windows\\System32\\config" }).some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyForTool("read", { path: "/etc/os-release" }), []);
     assert.deepEqual(matchSystemSafetyForTool("write", { path: "review-temp.ts" }, process.cwd()), []);
+  });
+
+  it("recognizes LeafCodePi self-termination targets", () => {
+    assert.equal(isLeafCodePiStopCommand("taskkill /F /IM LeafCodePi.exe"), true);
+    assert.equal(isLeafCodePiStopCommand("Stop-Process -Name node -Force"), true);
+    assert.equal(isLeafCodePiStopCommand("kill -TERM 2468", 2468), true);
+    assert.equal(isLeafCodePiStopCommand("taskkill /F /PID $PPID"), true);
+    assert.equal(isLeafCodePiStopCommand("kill -9 $$"), true);
+    assert.equal(isLeafCodePiStopCommand("node -e \"process.exit()\""), true);
+    assert.equal(isLeafCodePiStopCommand("taskkill /F /PID 2468", 1357), false);
+    assert.equal(isLeafCodePiStopCommand("Get-Process node"), false);
   });
 });
 
@@ -179,6 +190,14 @@ describe("LeafCode permission gate", () => {
       assert.equal((direct as { block?: boolean } | undefined)?.block, true);
       assert.equal((direct as { terminate?: boolean } | undefined)?.terminate, true);
       assert.match(String((direct as { reason?: string } | undefined)?.reason), /read-only/);
+
+      const selfStop = await handlers.get("tool_call")?.(
+        { toolCallId: "self-stop", toolName: "powershell", input: { command: `taskkill /F /PID ${process.pid}` } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((selfStop as { block?: boolean } | undefined)?.block, true);
+      assert.equal((selfStop as { terminate?: boolean } | undefined)?.terminate, true);
+      assert.match(String((selfStop as { reason?: string } | undefined)?.reason), /prohibited/);
 
       await handlers.get("tool_call")?.(
         { toolCallId: "unrelated-read", toolName: "read", input: { path: "README.md" } },

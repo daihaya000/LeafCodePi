@@ -44,6 +44,29 @@ export type SystemSafetyMatch = {
 
 type SystemSafetyRule = SystemSafetyMatch & { pattern: RegExp };
 
+const LEAFCODE_PI_STOP_LABEL = "LeafCodePi process termination";
+const LEAFCODE_PI_STOP_REASON = "LeafCodePi process termination is prohibited.";
+const PROCESS_TERMINATION_COMMAND_PATTERN = /\b(?:taskkill(?:\.exe)?|Stop-Process|Stop-Service|pkill|killall|kill|wmic(?:\.exe)?)\b|\b(?:sc(?:\.exe)?|systemctl|service|launchctl|rc-service)\b[^\r\n]*(?:\b(?:stop|terminate|kill|bootout|unload|delete)\b)/i;
+const LEAFCODE_PI_PROCESS_TARGET_PATTERN = /\b(?:leafcodepi|leafcode[-_ ]?pi(?:[-_ ]?(?:host|server))?)(?:\.exe|\.service)?\b|\bhost[\\/]src[\\/]index\.js\b/i;
+const SELF_PID_REFERENCE_PATTERN = /(?:%(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID)%|\$(?:\$|(?:\{)?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?)|\bprocess\.(?:pid|ppid)\b|\b(?:os\.)?getpid\s*\(\s*\))/i;
+const INLINE_SELF_TERMINATION_PATTERN = /\b(?:node|node\.exe|bun|deno)\b[^\r\n]*(?:process\s*[.]\s*(?:kill|exit|abort)\s*\(|process\s*\[[^\]]+\]\s*\(|os\s*[.]\s*kill\s*\(\s*(?:os\.)?getpid)/i;
+const BROAD_KILL_TARGET_PATTERN = /\b(?:kill|pkill)\b[^\r\n]*(?:^|\s)(?:--\s*)?-1(?:\s|$)/im;
+
+/**
+ * Return true when a command can terminate LeafCodePi itself. This is kept
+ * separate from the normal approval flow: self-termination is never allowed.
+ */
+export function isLeafCodePiStopCommand(command: string, pid = process.pid): boolean {
+  const normalized = command.replace(/\u0000/g, " ");
+  if (INLINE_SELF_TERMINATION_PATTERN.test(normalized)) return true;
+  if (!PROCESS_TERMINATION_COMMAND_PATTERN.test(normalized)) return false;
+  if (LEAFCODE_PI_PROCESS_TARGET_PATTERN.test(normalized)) return true;
+  if (SELF_PID_REFERENCE_PATTERN.test(normalized) || BROAD_KILL_TARGET_PATTERN.test(normalized)) return true;
+  if (Number.isSafeInteger(pid) && pid > 0 && new RegExp(`\\b${pid}\\b`).test(normalized)) return true;
+  // LeafCodePi runs on Node; stopping every Node process would include it.
+  return /\b(?:node|node\.exe|nodejs)\b/i.test(normalized);
+}
+
 /**
  * Commands in these categories are never covered by permission mode "allow".
  * They may inspect the machine, but a mutation still needs a preflight and an
@@ -239,6 +262,9 @@ function isReadOnlyDiskInspection(command: string): boolean {
 export function matchSystemSafetyCommand(command: string): SystemSafetyMatch[] {
   const normalized = command.replace(/\u0000/g, " ");
   const matches: SystemSafetyMatch[] = [];
+  if (isLeafCodePiStopCommand(normalized)) {
+    pushSafetyMatch(matches, { category: "os", label: LEAFCODE_PI_STOP_LABEL });
+  }
   for (const rule of SYSTEM_SAFETY_RULES) {
     if (rule.category === "disk" && isReadOnlyDiskInspection(normalized)) continue;
     if (rule.pattern.test(normalized)) pushSafetyMatch(matches, rule);
@@ -701,6 +727,11 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("tool_call", async (event, ctx) => {
     const mode = sessionMode(ctx);
+    const safetyMatches = matchSystemSafetyForTool(event.toolName, event.input, ctx.cwd);
+    if (safetyMatches.some((match) => match.label === LEAFCODE_PI_STOP_LABEL)) {
+      resetSafetyFlow();
+      return { block: true, terminate: true, reason: LEAFCODE_PI_STOP_REASON };
+    }
     if (mode !== "deny" && pendingSafetyKey && isReadOnlyInvestigation(
       event.toolName,
       event.input,
@@ -709,7 +740,6 @@ export default function (pi: ExtensionAPI): void {
     )) {
       pendingInvestigationCalls.add(event.toolCallId);
     }
-    const safetyMatches = matchSystemSafetyForTool(event.toolName, event.input, ctx.cwd);
 
     if (event.toolName === "bash" || event.toolName === "powershell") {
       if (mode === "deny") {
@@ -800,6 +830,10 @@ export default function (pi: ExtensionAPI): void {
       return blockedUserBashResult(`Shell command touches ${protectedPath.reason}`);
     }
     const safetyMatches = matchSystemSafetyCommand(event.command);
+    if (safetyMatches.some((match) => match.label === LEAFCODE_PI_STOP_LABEL)) {
+      resetSafetyFlow();
+      return blockedUserBashResult(LEAFCODE_PI_STOP_REASON);
+    }
     if (safetyMatches.length > 0) {
       const decision = await requireSystemApproval(ctx, mode, event.command, `user_bash:${event.command}`, safetyMatches);
       return decision ? blockedUserBashResult(decision.reason) : undefined;
