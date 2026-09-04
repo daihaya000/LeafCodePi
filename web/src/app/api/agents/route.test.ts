@@ -31,4 +31,13 @@ describe("POST /api/agents", () => {
     expect(response.status).toBe(400);
     expect(mocks.createAgent).not.toHaveBeenCalled();
   });
+
+  it("rejects a non-string description before creating an agent", async () => {
+    const response = await POST(
+      request({ name: "reviewer", systemPrompt: "Review", description: 123 }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.createAgent).not.toHaveBeenCalled();
+  });
 });

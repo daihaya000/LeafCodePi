@@ -32,6 +32,9 @@ export async function POST(request: Request) {
     if (typeof body.systemPrompt !== "string") {
       return NextResponse.json({ error: "systemPrompt が必要です" }, { status: 400 });
     }
+    if (body.description !== undefined && typeof body.description !== "string") {
+      return NextResponse.json({ error: "description は文字列が必要です" }, { status: 400 });
+    }
     const result = createAgent(normalize(body as AgentDraft));
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
