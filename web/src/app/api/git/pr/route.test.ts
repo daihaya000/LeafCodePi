@@ -16,11 +16,13 @@ const spawnMock = vi.hoisted(() => vi.fn(() => {
 
 vi.mock("node:child_process", () => ({ spawn: spawnMock }));
 
-vi.mock("@/lib/git", () => ({
+const gitMocks = vi.hoisted(() => ({
   assertSafeBranchName: vi.fn(),
   gitDirectoryError: vi.fn(() => null),
-  runGit: vi.fn(),
+  runGit: vi.fn(() => Promise.resolve({ code: 0, stdout: "", stderr: "" })),
 }));
+
+vi.mock("@/lib/git", () => gitMocks);
 
 import { POST } from "./route";
 
@@ -47,5 +49,14 @@ describe("POST /api/git/pr", () => {
     );
 
     expect(response.status).toBe(400);
+  });
+
+  it("rejects a non-boolean push flag before invoking GitHub CLI", async () => {
+    const response = await POST(
+      request({ directory: "C:\\work", title: "title", push: "false" }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(gitMocks.runGit).not.toHaveBeenCalled();
   });
 });

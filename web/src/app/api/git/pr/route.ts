@@ -75,9 +75,13 @@ export async function POST(req: NextRequest) {
     title?: unknown;
     body?: unknown;
     base?: string;
-    push?: boolean;
+    push?: unknown;
   } | null;
   const title = typeof body?.title === "string" ? body.title.trim() : "";
+  const push = body?.push;
+  if (push !== undefined && typeof push !== "boolean") {
+    return NextResponse.json({ error: "push must be a boolean" }, { status: 400 });
+  }
   const descriptionValue = body?.body;
   if (descriptionValue !== undefined && typeof descriptionValue !== "string") {
     return NextResponse.json({ error: "body must be a string" }, { status: 400 });
@@ -125,7 +129,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (body.push !== false) {
+  if (push !== false) {
     const push = await runGit(body.directory, ["push", "-u", "origin", "HEAD"]);
     if (push.code !== 0) {
       return NextResponse.json(
