@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
 import {
   autoTaskStorageKey,
   readAutoTaskRecord,
+  resolveModelValue,
+  shouldAutoRetryEscalate,
   writeAutoTaskRecord,
 } from "@/lib/auto-task-record";
 import type { AutoTaskRecord } from "@/lib/auto-task-record";
@@ -73,5 +76,62 @@ describe("auto-task-record", () => {
       }),
     );
     expect(readAutoTaskRecord("task-1")).toBeNull();
+  });
+
+  it("keeps Auto visible when the task has a concrete resolved model", () => {
+    expect(
+      resolveModelValue({
+        modelSelection: "",
+        hasAutoRecord: true,
+        accountTaskModelValue: "account-1::anthropic::claude-opus-5",
+        plainTaskModelValue: "anthropic::claude-opus-5",
+        firstModelValue: "openai-codex::gpt-5",
+      }),
+    ).toBe(AUTO_MODEL_VALUE);
+  });
+
+  it("uses the concrete model fallback order without an Auto record", () => {
+    const input = {
+      modelSelection: "",
+      hasAutoRecord: false,
+      accountTaskModelValue: "account-1::anthropic::claude-opus-5",
+      plainTaskModelValue: "anthropic::claude-opus-5",
+      firstModelValue: "openai-codex::gpt-5",
+    };
+    expect(resolveModelValue(input)).toBe(input.accountTaskModelValue);
+    expect(
+      resolveModelValue({ ...input, accountTaskModelValue: undefined }),
+    ).toBe(input.plainTaskModelValue);
+    expect(
+      resolveModelValue({
+        ...input,
+        accountTaskModelValue: undefined,
+        plainTaskModelValue: "",
+      }),
+    ).toBe(input.firstModelValue);
+  });
+
+  it("blocks escalation retries after a provider limit", () => {
+    const eligible = {
+      previousStatus: "idle" as const,
+      currentStatus: "error" as const,
+      limitError: false,
+      hasEscalation: true,
+      retried: false,
+      hasPrompt: true,
+      autoRetrying: false,
+      userMessageCount: 1,
+      hasCompletedAssistantText: false,
+    };
+    expect(shouldAutoRetryEscalate(eligible)).toBe(true);
+    expect(
+      shouldAutoRetryEscalate({ ...eligible, limitError: true }),
+    ).toBe(false);
+    expect(
+      shouldAutoRetryEscalate({ ...eligible, userMessageCount: 2 }),
+    ).toBe(false);
+    expect(
+      shouldAutoRetryEscalate({ ...eligible, hasCompletedAssistantText: true }),
+    ).toBe(false);
   });
 });

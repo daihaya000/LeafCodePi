@@ -65,6 +65,8 @@ import {
 import {
   AUTO_TASK_PROMPT_MAX,
   readAutoTaskRecord,
+  resolveModelValue,
+  shouldAutoRetryEscalate,
   writeAutoTaskRecord,
   type AutoTaskRecord,
 } from "@/lib/auto-task-record";
@@ -1468,25 +1470,28 @@ export const TaskView = memo(function TaskView({
     const currentStatus = task?.status;
     autoRetryStatusRef.current = currentStatus;
     const escalation = autoRecord?.decision.escalation;
-    if (
-      previousStatus === undefined ||
-      previousStatus === "error" ||
-      currentStatus !== "error" ||
-      task?.limitError === true ||
-      !escalation ||
-      autoRecord?.retried ||
-      !autoRecord.prompt ||
-      autoRetrying
-    ) {
-      return;
-    }
     const userMessages = messages.filter((message) => message.role === "user");
     const hasCompletedAssistant = messages.some(
       (message) =>
         message.role === "assistant" &&
         message.parts.some((part) => part.type === "text" && part.text.trim()),
     );
-    if (userMessages.length > 1 || hasCompletedAssistant) return;
+    if (
+      !shouldAutoRetryEscalate({
+        previousStatus,
+        currentStatus,
+        limitError: task?.limitError === true,
+        hasEscalation: Boolean(escalation),
+        retried: autoRecord?.retried,
+        hasPrompt: Boolean(autoRecord?.prompt),
+        autoRetrying,
+        userMessageCount: userMessages.length,
+        hasCompletedAssistantText: hasCompletedAssistant,
+      })
+    ) {
+      return;
+    }
+    if (!autoRecord || !escalation || !autoRecord.prompt) return;
 
     const nextRecord: AutoTaskRecord = { ...autoRecord, retried: true };
     if (!writeAutoTaskRecord(taskId, nextRecord)) return;
@@ -1673,9 +1678,13 @@ export const TaskView = memo(function TaskView({
        )
      : undefined;
   const modelOptions = useMemo(() => [AUTO_MODEL_OPTION, ...models], [models]);
-  const modelValue =
-    modelSelection ||
-    (autoRecord ? AUTO_MODEL_VALUE : accountTaskModel?.value ?? (plainTaskModelValue || models[0]?.value || ""));
+  const modelValue = resolveModelValue({
+    modelSelection,
+    hasAutoRecord: Boolean(autoRecord),
+    accountTaskModelValue: accountTaskModel?.value,
+    plainTaskModelValue,
+    firstModelValue: models[0]?.value,
+  });
   const selectedModel =
     modelValue === AUTO_MODEL_VALUE
       ? AUTO_MODEL_OPTION

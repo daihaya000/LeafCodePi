@@ -1,9 +1,11 @@
 import {
+  AUTO_MODEL_VALUE,
   DEFAULT_AUTO_OPTIMIZE_MODE,
   isAutoOptimizeMode,
   isAutoVariant,
   type AutoDecision,
 } from "@/lib/auto-model";
+import type { TaskStatus } from "@/lib/types";
 
 export type AutoTaskRecord = {
   decision: AutoDecision;
@@ -14,6 +16,47 @@ export type AutoTaskRecord = {
 };
 
 export const AUTO_TASK_PROMPT_MAX = 16_000;
+
+export function resolveModelValue(input: {
+  modelSelection: string;
+  hasAutoRecord: boolean;
+  accountTaskModelValue?: string;
+  plainTaskModelValue: string;
+  firstModelValue?: string;
+}): string {
+  return (
+    input.modelSelection ||
+    (input.hasAutoRecord
+      ? AUTO_MODEL_VALUE
+      : input.accountTaskModelValue ??
+        (input.plainTaskModelValue || input.firstModelValue || ""))
+  );
+}
+
+export function shouldAutoRetryEscalate(input: {
+  previousStatus?: TaskStatus;
+  currentStatus?: TaskStatus;
+  limitError: boolean;
+  hasEscalation: boolean;
+  retried?: boolean;
+  hasPrompt: boolean;
+  autoRetrying: boolean;
+  userMessageCount: number;
+  hasCompletedAssistantText: boolean;
+}): boolean {
+  return (
+    input.previousStatus !== undefined &&
+    input.previousStatus !== "error" &&
+    input.currentStatus === "error" &&
+    !input.limitError &&
+    input.hasEscalation &&
+    !input.retried &&
+    input.hasPrompt &&
+    !input.autoRetrying &&
+    input.userMessageCount <= 1 &&
+    !input.hasCompletedAssistantText
+  );
+}
 
 export function autoTaskStorageKey(taskId: string): string {
   return `webui:auto-task:${taskId}`;

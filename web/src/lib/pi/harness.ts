@@ -2466,7 +2466,7 @@ async function ensureLive(
   const epoch = ensureLiveEpoch.get(taskId) ?? 0;
   const inflight = ensureLiveInflight.get(taskId);
   if (inflight) {
-    const live = await inflight;
+    await inflight;
     if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
       return ensureLive(taskId, options);
     }
