@@ -295,6 +295,12 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("orb stop").some((match) => match.label === "OS shutdown/restart"));
     assert.deepEqual(matchSystemSafetyCommand("kind create cluster"), []);
     assert.deepEqual(matchSystemSafetyCommand("echo kind delete cluster"), []);
+    assert.ok(matchSystemSafetyCommand("podman machine stop").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("rdctl shutdown").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("vmrun stop x.vmx").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("finch vm stop").some((match) => match.label === "OS shutdown/restart"));
+    assert.deepEqual(matchSystemSafetyCommand("podman machine start"), []);
+    assert.deepEqual(matchSystemSafetyCommand("echo podman machine stop"), []);
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);

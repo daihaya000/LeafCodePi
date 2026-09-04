@@ -1,3 +1,12 @@
+## 2026-09-05: permission-gate ループ tick 23
+
+- FN: `podman machine stop|rm`、`rdctl shutdown`、`finch vm stop`、`utmctl`/`prlctl`/`vmrun` stop
+- `podman machine start` / `echo podman machine stop` は非検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 22
 
 - FN: `kind`/`k3d` cluster delete|stop、`docker desktop stop`、`orb stop`
