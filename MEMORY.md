@@ -1,3 +1,12 @@
+## 2026-09-05: permission-gate ループ tick 24
+
+- FN: `wsl --shutdown|--terminate|--unregister`、`vssadmin delete shadows`、`cipher /w`
+- FP: `cp /etc/os-release .`（OS外へのコピーアウト）、`format.com /?` など disk help
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 23
 
 - FN: `podman machine stop|rm`、`rdctl shutdown`、`finch vm stop`、`utmctl`/`prlctl`/`vmrun` stop

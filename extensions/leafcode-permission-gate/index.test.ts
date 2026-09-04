@@ -301,6 +301,14 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("finch vm stop").some((match) => match.label === "OS shutdown/restart"));
     assert.deepEqual(matchSystemSafetyCommand("podman machine start"), []);
     assert.deepEqual(matchSystemSafetyCommand("echo podman machine stop"), []);
+    assert.ok(matchSystemSafetyCommand("wsl --shutdown").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("wsl --terminate Ubuntu").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("wsl --unregister Ubuntu").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("vssadmin delete shadows /all /quiet").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("cipher /w:C:").some((match) => match.category === "disk"));
+    assert.deepEqual(matchSystemSafetyCommand("format.com /?"), []);
+    assert.deepEqual(matchSystemSafetyCommand("cp /etc/os-release ."), []);
+    assert.ok(matchSystemSafetyCommand("cp file.txt /etc/cron.d/x").some((match) => match.label === "system path mutation"));
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);
