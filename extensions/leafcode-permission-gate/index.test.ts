@@ -194,6 +194,18 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("Start-Process -Verb:RunAs cmd").some((match) => match.label === "privilege elevation"));
     assert.ok(matchSystemSafetyCommand("python -c \"import subprocess; subprocess.run(['shutdown','now'])\"").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("\\\\?\\C:\\Windows\\System32\\shutdown.exe /s").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("powershell -WindowStyle Hidden -Command Stop-Computer").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("cmd /r shutdown /s").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("Start-Process cmd -Verb 'RunAs'").some((match) => match.label === "privilege elevation"));
+    assert.ok(matchSystemSafetyCommand("PATH=/sbin shutdown -h now").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("echo shutdown now | env bash").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("wsl sudo id").some((match) => match.label === "privilege elevation"));
+    assert.ok(matchSystemSafetyCommand("node -e \"require('child_process').execSync('shutdown now')\"").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("python -c \"subprocess.run(('shutdown','now'))\"").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("cmd /c shut^down /s").some((match) => match.label === "OS shutdown/restart"));
+    // ANSI-C octal: \164 → t, so shu\164down → shutdown (not shut\164down → shuttdown)
+    assert.ok(matchSystemSafetyCommand("bash -c $'shu\\164down now'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("ruby -rjson -e 'system(\"shutdown now\")'").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);

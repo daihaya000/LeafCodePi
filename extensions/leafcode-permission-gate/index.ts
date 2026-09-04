@@ -89,13 +89,13 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
     category: "os",
     label: "OS shutdown/restart",
     // Soft prefixes may wrap the binary (flags only — not path args); still not `echo Stop-Computer`.
-    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|call|start|stdbuf|wsl(?:\.exe)?)(?:\s+--?[\w.-]+(?:=\S+)?|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+-\w+\s+\S+)*\s+)*(?:sudo\s+)?(?:\\\\[?.]\\)?(?:%(?:WINDIR|SYSTEMROOT)%[\\/]|\$(?:\{)?(?:env:)?(?:WINDIR|SYSTEMROOT|SystemRoot)\}?[\\/])?(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:Windows[\\/]System32[\\/])?["']?(?:shutdown|reboot|poweroff|halt)["']?(?:\.exe)?\b|\b(?:systemctl|loginctl)\b[^\r\n]*\b(?:reboot|poweroff|halt|hibernate)\b|\b(?:wmic(?:\.exe)?\b[^\r\n]*\b(?:os|computersystem)\b[^\r\n]*\bcall\s+(?:reboot|shutdown)\b)|\b(?:Invoke-CimMethod|Get-CimInstance|Get-WmiObject)\b[^\r\n]*\b(?:Win32(?:_OperatingSystem)?|Win32Shutdown|Reboot|Shutdown)\b|\.\s*Reboot\s*\(|\brundll32(?:\.exe)?\b[^\r\n]*\bExitWindowsEx\b|\b(?:dbus-send|busctl)\b[^\r\n]*\b(?:Reboot|PowerOff)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*|[{]\s*|&\s*[{]\s*|\\)(?:[\w.]+\\)?(?:Stop-Computer|Restart-Computer|logoff(?:\.exe)?)\b|\b(?:Start-Process|saps)\b[^\r\n]*\b(?:Stop-Computer|shutdown|reboot)(?:\.exe)?\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:init|telinit)\s+[06]\b/i,
+    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|call|start|stdbuf|wsl(?:\.exe)?)(?:\s+--?[\w.-]+(?:=\S+)?|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+-\w+\s+\S+)*\s+)*(?:sudo\s+)?(?:\\\\[?.]\\)?(?:%(?:WINDIR|SYSTEMROOT)%[\\/]|\$(?:\{)?(?:env:)?(?:WINDIR|SYSTEMROOT|SystemRoot)\}?[\\/])?(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:Windows[\\/]System32[\\/])?["']?(?:shutdown|reboot|poweroff|halt)["']?(?:\.exe)?\b|\b(?:systemctl|loginctl)\b[^\r\n]*\b(?:reboot|poweroff|halt|hibernate)\b|\b(?:wmic(?:\.exe)?\b[^\r\n]*\b(?:os|computersystem)\b[^\r\n]*\bcall\s+(?:reboot|shutdown)\b)|\b(?:Invoke-CimMethod|Get-CimInstance|Get-WmiObject)\b[^\r\n]*\b(?:Win32(?:_OperatingSystem)?|Win32Shutdown|Reboot|Shutdown)\b|\.\s*Reboot\s*\(|\brundll32(?:\.exe)?\b[^\r\n]*\bExitWindowsEx\b|\b(?:dbus-send|busctl)\b[^\r\n]*\b(?:Reboot|PowerOff)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*|[{]\s*|&\s*[{]\s*|\\)(?:[\w.]+\\)?(?:Stop-Computer|Restart-Computer|logoff(?:\.exe)?)\b|\b(?:Start-Process|saps)\b[^\r\n]*\b(?:Stop-Computer|shutdown|reboot)(?:\.exe)?\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:init|telinit)\s+[06]\b/i,
   },
   // Same soft-prefix + command-position rule — not `git log --grep=sudo` / `npm install sudo-prompt`.
   {
     category: "os",
     label: "privilege elevation",
-    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|stdbuf)(?:\s+--?[\w.-]+(?:=\S+)?|\s+\d+)*\s+)*(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:sudo|doas|pkexec|runas|sudoedit|gsudo|su)(?:\.exe)?\b|\b(?:Start-Process|saps)\b[^\r\n]*-Verb\s*:?\s*RunAs\b/i,
+    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|stdbuf|call|start|wsl(?:\.exe)?)(?:\s+--?[\w.-]+(?:=\S+)?|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+-\w+\s+\S+)*\s+)*(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:sudo|doas|pkexec|runas|sudoedit|gsudo|su)(?:\.exe)?\b|\b(?:Start-Process|saps)\b[^\r\n]*-Verb\s*:?\s*['"]?RunAs['"]?\b/i,
   },
   { category: "os", label: "system policy/account/firewall change", pattern: /\b(?:Set-ExecutionPolicy|setx|icacls|net(?:\.exe)?\s+(?:user|localgroup)|(?:New|Remove|Add|Disable|Enable)-Local(?:User|GroupMember)|(?:New|Set|Remove)-(?:NetFirewallRule|WindowsOptionalFeature)|(?:Enable|Disable)-WindowsOptionalFeature|dism(?:\.exe)?\b[^\r\n]*\/(?:enable-feature|disable-feature|add-package|remove-package)|msiexec(?:\.exe)?\b[^\r\n]*\/(?:i|uninstall))\b/i },
   { category: "os", label: "system package change", pattern: /\b(?:apt(?:-get)?|dnf|yum|pacman|zypper|apk|brew|winget|choco)\b[^\r\n]*(?:install|remove|purge|upgrade|update|add|delete|uninstall|-[SRU][A-Za-z]*)\b|\b(?:npm|pnpm|yarn|pip|pip3)\b[^\r\n]*(?:--global|\s-g\b)\b/i },
@@ -121,7 +121,7 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
 ];
 
 /** Soft shell wrappers: re-scan the nested payload, do not hard-gate the wrapper alone. */
-const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh)(?:\.exe)?\b|(?:powershell|pwsh)(?:\.exe)?\b|cmd(?:\.exe)?\b|(?:python|python3|node|perl|ruby)\s+(?:-e|-c)|(?:Invoke-Expression|\biex|eval)\b)/i;
+const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh)(?:\.exe)?\b|(?:powershell|pwsh)(?:\.exe)?\b|cmd(?:\.exe)?\b|(?:python|python3|node|perl|ruby)(?:\.exe)?\b|(?:Invoke-Expression|\biex|eval)\b)/i;
 const FIND_MUTATING_ACTION_PATTERN = /\bfind\b[^\r\n]*\s-(?:delete|exec|execdir|ok|okdir)\b/i;
 
 const MUTATING_COMMAND_PATTERN = /\b(?:rm|mv|cp|mkdir|touch|install|truncate|shred|unlink|del|erase|rd|rmdir|copy|move|rename|Set-Content|Add-Content|Clear-Content|Clear-Item|Out-File|Export-Csv|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|Expand-Archive|Set-Item|Set-ItemProperty|New-ItemProperty|Remove-ItemProperty|ri|ni|mi|ci|tar|unzip|tee|rsync|ln|mount|umount|chmod|chown|setfacl|robocopy|xcopy)\b|\b(?:sed|perl)\b[^\r\n]*(?:\s-i\b|--in-place\b)|\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:-O\b|--output\b|-OutFile\b)\s*\S+|(?<![0-9])>{1,2}(?!&)|[0-9]>{1,2}(?!&)/i;
@@ -382,103 +382,94 @@ function isReadOnlyDiskInspection(command: string): boolean {
 function extractNestedShellCommands(command: string): string[] {
   if (
     !NESTED_SHELL_WRAPPER_PATTERN.test(command)
-    && !/-(?:EncodedCommand|enc|encoded|ec)\b/i.test(command)
-    && !/\b(?:os\.system|subprocess\.|child_process\.|execSync)\b/i.test(command)
-    && !/\|\s*(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:bash|sh|zsh|pwsh|powershell|cmd)\b/i.test(command)
+    && !/[-\/](?:EncodedCommand|enc|encoded|ec|e)\b/i.test(command)
+    && !/\b(?:os\.system|subprocess\.|child_process|execSync|execFile)\b/i.test(command)
+    && !/\|\s*(?:(?:env|busybox|nice|time)\s+)*(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:bash|sh|zsh|pwsh|powershell|cmd)\b/i.test(command)
   ) {
     return [];
   }
   const nested: string[] = [];
+  const push = (value: string | undefined) => {
+    const payload = value?.trim();
+    if (payload && !/^\$?['"]$/.test(payload)) nested.push(payload.replace(/^\$/, ""));
+  };
   const quoted = [
-    // Flags may appear before -c; allow bash.exe / sh.exe / ANSI-C $'...'
-    /\b(?:bash|sh|zsh)(?:\.exe)?\b(?:\s+--?[\w-]+(?:=\S+)?)*\s+-[^\s]*c[^\s]*\s+(\$)?(['"])([\s\S]*?)\2/gi,
-    // Flags may appear before -Command: `pwsh -NoProfile -Command '...'`
-    /\b(?:powershell|pwsh)(?:\.exe)?\b(?:\s+-\w+[^\s]*)*\s+-(?:c|Command)\s+(['"])([\s\S]*?)\1/gi,
-    // ScriptBlock form: powershell -Command { Stop-Computer }
-    /\b(?:powershell|pwsh)(?:\.exe)?\b(?:\s+-\w+[^\s]*)*\s+-(?:c|Command)\s+\{([\s\S]*?)\}/gi,
-    // cmd /c and git-bash cmd //c
-    /\bcmd(?:\.exe)?\s+\/\/?[ck]\s+(['"])([\s\S]*?)\1/gi,
-    /\b(?:python|python3|node|perl|ruby)\s+(?:-e|-c)\s+(['"])([\s\S]*?)\1/gi,
+    // Flags may appear before -c; allow bash.exe / ANSI-C $'...'
+    /\b(?:bash|sh|zsh)(?:\.exe)?\b[^\r\n]*?-[^\s]*c[^\s]*\s+(\$)?(['"])([\s\S]*?)\2/gi,
+    // Value-bearing flags before -Command: -WindowStyle Hidden -Command '...'
+    // Also slash forms: /Command /c
+    /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*?[-\/](?:c|Command)\s+(['"])([\s\S]*?)\1/gi,
+    /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*?[-\/](?:c|Command)\s+\{([\s\S]*?)\}/gi,
+    // cmd /c /k /r and git-bash //c
+    /\bcmd(?:\.exe)?\b(?:\s+\S+)*?\s+\/\/?[ckr]\s+(['"])([\s\S]*?)\1/gi,
+    // Interpreters with leading -r / --eval / -p flags
+    /\b(?:python|python3|node|perl|ruby)(?:\.exe)?\b[^\r\n]*?\s+(?:-e|--eval|-p|-c)\s+(['"])([\s\S]*?)\1/gi,
     /\b(?:Invoke-Expression|\biex|eval)\b\s+(['"])([\s\S]*?)\1/gi,
-    // Invoke-Command -ScriptBlock { ... }
     /\bInvoke-Command\b[^\r\n]*-ScriptBlock\s*\{([\s\S]*?)\}/gi,
-    // Start-Process ... -ArgumentList payload
     /\b(?:Start-Process|saps)\b[^\r\n]*-(?:ArgumentList|Args)\s+(['"])([\s\S]*?)\1/gi,
   ];
   for (const pattern of quoted) {
     for (const match of command.matchAll(pattern)) {
-      // Groups vary: (optional $, quote, body) or (quote, body) or (body)
-      const payload = (match[3] ?? match[2] ?? match[1])?.trim();
-      if (payload && !/^\$?['"]$/.test(payload)) nested.push(payload.replace(/^\$/, ""));
+      push(match[3] ?? match[2] ?? match[1]);
     }
   }
-  // PowerShell call/scriptblock forms: &{ Stop-Computer } / & { Stop-Computer }
-  for (const match of command.matchAll(/&\s*\{([\s\S]*?)\}/g)) {
-    if (match[1]?.trim()) nested.push(match[1].trim());
+  for (const match of command.matchAll(/&\s*\{([\s\S]*?)\}/g)) push(match[1]);
+  for (const match of command.matchAll(
+    /\b(?:bash|sh|zsh)(?:\.exe)?\b[^\r\n]*?-[^\s]*c[^\s]*\s+(?!['"{$])(\S+)/gi,
+  )) {
+    push(match[1]);
+  }
+  for (const match of command.matchAll(/\bcmd(?:\.exe)?\b(?:\s+\S+)*?\s+\/\/?[ckr]\s+(?!['"])(.+?)(?=$|[;&\n])/gi)) {
+    push(match[1]);
   }
   for (const match of command.matchAll(
-    /\b(?:bash|sh|zsh)(?:\.exe)?\b(?:\s+--?[\w-]+(?:=\S+)?)*\s+-[^\s]*c[^\s]*\s+(?!['"{$])(\S+)/gi,
+    /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*?[-\/](?:c|Command)\s+(?!['"{])(.+?)(?=$|[;&\n])/gi,
   )) {
-    if (match[1]) nested.push(match[1]);
+    push(match[1]);
   }
-  for (const match of command.matchAll(/\bcmd(?:\.exe)?\s+\/\/?[ck]\s+(?!['"])(.+?)(?=$|[;&\n])/gi)) {
-    if (match[1]?.trim()) nested.push(match[1].trim());
-  }
-  for (const match of command.matchAll(
-    /\b(?:powershell|pwsh)(?:\.exe)?\b(?:\s+-\w+[^\s]*)*\s+-(?:c|Command)\s+(?!['"{])(.+?)(?=$|[;&\n])/gi,
-  )) {
-    if (match[1]?.trim()) nested.push(match[1].trim());
-  }
-  // Unquoted iex / Invoke-Expression / eval payload
   for (const match of command.matchAll(
     /\b(?:Invoke-Expression|\biex|eval)\b\s+(?!['"])(.+?)(?=$|[;&\n])/gi,
   )) {
-    if (match[1]?.trim()) nested.push(match[1].trim());
+    push(match[1]);
   }
-  // Unquoted Start-Process -ArgumentList
   for (const match of command.matchAll(
     /\b(?:Start-Process|saps)\b[^\r\n]*-(?:ArgumentList|Args)\s+(?!['"])(\S+)/gi,
   )) {
-    if (match[1]?.trim()) nested.push(match[1].trim());
+    push(match[1]);
   }
-  // Extract shell payloads from language runtimes: os.system('shutdown'), execSync('...')
   for (const match of command.matchAll(
-    /\b(?:os\.system|os\.popen|os\.execl|subprocess\.(?:call|run|Popen|check_call|check_output)|child_process\.(?:exec|execSync|spawn|spawnSync)|system|exec)\s*\(\s*(['"])([\s\S]*?)\1/gi,
+    /\b(?:os\.system|os\.popen|os\.execl|subprocess\.(?:call|run|Popen|check_call|check_output)|(?:require\s*\(\s*['"]child_process['"]\s*\)\s*\.)?(?:exec|execSync|execFile|spawn|spawnSync)|child_process\.(?:exec|execSync|execFile|spawn|spawnSync)|system|exec)\s*\(\s*(['"])([\s\S]*?)\1/gi,
   )) {
-    if (match[2]?.trim()) nested.push(match[2].trim());
+    push(match[2]);
   }
-  // List/argv form: subprocess.run(['shutdown','now']) / spawn('shutdown', ['/s'])
   for (const match of command.matchAll(
-    /\b(?:subprocess\.(?:call|run|Popen|check_call|check_output)|(?:require\s*\(\s*['"]child_process['"]\s*\)\s*\.)?(?:exec|execSync|spawn|spawnSync)|os\.execl)\s*\(\s*\[\s*(['"])([^'"]+)\1/gi,
+    /\b(?:subprocess\.(?:call|run|Popen|check_call|check_output)|(?:require\s*\(\s*['"]child_process['"]\s*\)\s*\.)?(?:exec|execSync|execFile|spawn|spawnSync)|os\.execl)\s*\(\s*[\[(]\s*(['"])([^'"]+)\1/gi,
   )) {
-    if (match[2]?.trim()) nested.push(match[2].trim());
+    push(match[2]);
   }
   for (const match of command.matchAll(
-    /\.\s*spawn(?:Sync)?\s*\(\s*(['"])([^'"]+)\1/gi,
+    /\.\s*(?:spawn|execFile)(?:Sync)?\s*\(\s*(['"])([^'"]+)\1/gi,
   )) {
-    if (match[2]?.trim()) nested.push(match[2].trim());
+    push(match[2]);
   }
-  // Pipe-to-shell: `echo shutdown | bash` / `echo ... | /bin/bash` / `... | cmd`
   for (const match of command.matchAll(
-    /(?:^|[;&|\r\n]\s*)(?:echo|printf|print)\b([^|\r\n]*)\|\s*(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:bash|sh|zsh|pwsh|powershell|cmd)(?:\.exe)?\b/gi,
+    /(?:^|[;&|\r\n]\s*)(?:echo|printf|print)\b([^|\r\n]*)\|\s*(?:(?:env|busybox|nice|time)\s+)*(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:bash|sh|zsh|pwsh|powershell|cmd)(?:\.exe)?\b/gi,
   )) {
-    const echoed = (match[1] ?? "").replace(/^['"\s]+|['"\s]+$/g, "").trim();
-    if (echoed) nested.push(echoed);
+    push((match[1] ?? "").replace(/^['"\s]+|['"\s]+$/g, ""));
   }
-  // PowerShell -EncodedCommand / -encoded / -ec is UTF-16LE base64 of the script body.
   for (const match of command.matchAll(
-    /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*-(?:EncodedCommand|enc|encoded|ec)\s+([A-Za-z0-9+/=]+)/gi,
+    /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*[-\/](?:EncodedCommand|enc|encoded|ec|e)\s+([A-Za-z0-9+/=]+)/gi,
   )) {
     const encoded = match[1];
     if (!encoded) continue;
     try {
       const decoded = Buffer.from(encoded, "base64").toString("utf16le");
-      if (decoded.trim()) nested.push(decoded);
+      push(decoded);
     } catch {
       /* ignore malformed base64 */
     }
   }
-  return [...new Set(nested)];
+  return [...new Set(nested.filter(Boolean))];
 }
 
 function matchSystemSafetyCommandInner(command: string, depth: number): SystemSafetyMatch[] {
@@ -923,6 +914,13 @@ function decodeCharCodes(command: string): string {
   });
   text = text.replace(/\\x([0-9a-fA-F]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
   text = text.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+  // ANSI-C / shell octal escapes: \164 → t
+  text = text.replace(/\\([0-7]{1,3})/g, (full, oct: string) => {
+    const code = parseInt(oct, 8);
+    return Number.isInteger(code) && code <= 255 ? String.fromCharCode(code) : full;
+  });
+  // cmd.exe caret escapes: shut^down → shutdown
+  text = text.replace(/\^(.)/g, "$1");
   return text;
 }
 

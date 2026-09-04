@@ -1,3 +1,15 @@
+## 2026-09-05: permission-gate ループ tick 8
+
+- PS `-WindowStyle Hidden -Command` / `/Command` / `-e` EncodedCommand、`cmd /r`
+- `PATH=/sbin shutdown`、`echo | env bash`、`wsl sudo`、`-Verb 'RunAs'`
+- `require('child_process').execSync` / argv tuple `subprocess.run((...))`
+- cmd caret `shut^down`、ANSI-C octal `shu\164down`、`ruby -rjson -e`
+- soft-prefix に env 代入・`call`/`start`/`wsl` を elevation 側でも揃える
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 7
 
 - `echo | cmd` / `| /bin/bash`、パス付き `/usr/bin/sudo`
