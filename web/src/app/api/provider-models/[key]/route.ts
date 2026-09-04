@@ -11,7 +11,11 @@ export async function PATCH(
 ) {
   try {
     const { key } = await params;
-    const body = (await req.json()) as {
+    const raw = await req.json().catch(() => null);
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return NextResponse.json({ error: "リクエストボディが不正です" }, { status: 400 });
+    }
+    const body = raw as {
       enabled?: boolean;
       accountId?: string;
       modelIds?: unknown;
