@@ -185,6 +185,15 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("echo shutdown now | bash").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("\"shutdown\" /s").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("gsudo id").some((match) => match.label === "privilege elevation"));
+    assert.ok(matchSystemSafetyCommand("/usr/bin/sudo reboot").some((match) => match.label === "privilege elevation"));
+    assert.ok(matchSystemSafetyCommand("echo shutdown /s | cmd").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("echo shutdown now | /bin/bash").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("start /b shutdown /s").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("bash -c $'shutdown now'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("cmd //c shutdown /s").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("Start-Process -Verb:RunAs cmd").some((match) => match.label === "privilege elevation"));
+    assert.ok(matchSystemSafetyCommand("python -c \"import subprocess; subprocess.run(['shutdown','now'])\"").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("\\\\?\\C:\\Windows\\System32\\shutdown.exe /s").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);

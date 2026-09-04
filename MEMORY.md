@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 7
+
+- `echo | cmd` / `| /bin/bash`、パス付き `/usr/bin/sudo`
+- `subprocess.run(['shutdown'])`、`start /b` / `""`、`bash -c $'...'`、`cmd //c`
+- `Start-Process -Verb:RunAs` / `saps`、`\\?\...\shutdown.exe`、`busctl`
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 6
 
 - `$env:WINDIR\...\shutdown.exe`、モジュール修飾 `Stop-Computer`
