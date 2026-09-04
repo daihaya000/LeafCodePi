@@ -21,11 +21,15 @@ export async function POST(
   try {
     const { id } = await params;
     const body = (await req.json().catch(() => null)) as
-      | { requestId?: unknown; answers?: unknown; reject?: boolean }
+      | { requestId?: unknown; answers?: unknown; reject?: unknown }
       | null;
     const requestId = typeof body?.requestId === "string" ? body.requestId.trim() : "";
     if (!requestId) {
       return NextResponse.json({ error: "requestId is required" }, { status: 400 });
+    }
+
+    if (body?.reject !== undefined && typeof body.reject !== "boolean") {
+      return NextResponse.json({ error: "reject must be a boolean" }, { status: 400 });
     }
 
     let answer: QuestionAnswer | null = null;

@@ -36,4 +36,14 @@ describe("POST /api/tasks/[id]/question", () => {
     expect(response.status).toBe(400);
     expect(mocks.respondToQuestionPrompt).not.toHaveBeenCalled();
   });
+
+  it("rejects a non-boolean reject flag before responding", async () => {
+    const response = await POST(
+      request({ requestId: "request-1", reject: "false", answers: [["Yes"]] }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.respondToQuestionPrompt).not.toHaveBeenCalled();
+  });
 });
