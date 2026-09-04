@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
     directory?: string;
     branch?: string;
-    into?: "current" | "branch";
+    into?: unknown;
     noFf?: boolean;
     message?: string;
   } | null;
@@ -44,7 +44,11 @@ export async function POST(req: NextRequest) {
   }
 
   const branch = body.branch.trim();
-  const into = body.into ?? "current";
+  const intoRaw = body.into;
+  if (intoRaw !== undefined && intoRaw !== "current" && intoRaw !== "branch") {
+    return NextResponse.json({ error: "invalid merge direction" }, { status: 400 });
+  }
+  const into = intoRaw === "branch" ? "branch" : "current";
 
   const head = await runGit(body.directory, ["rev-parse", "--abbrev-ref", "HEAD"]);
   if (head.code !== 0) {
