@@ -15,6 +15,7 @@ import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
 import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
 import { buildHostRestartScript } from "./host-restart.js";
+import { autoUpdatePi } from "./pi-update.js";
 import { createTranslationService } from "./translation-service.js";
 import { withLocalLeafcodeTempEnv } from "./tray-temp.js";
 import {
@@ -147,6 +148,7 @@ const logWriter = createLogFileWriter(DATA_DIR);
 let webProc = null;
 let webBuildProc = null;
 let webBuildPromise = null;
+let piUpdateAttempted = false;
 /** @type {import("systray2").default | null} */
 let systray = null;
 let quitting = false;
@@ -357,16 +359,21 @@ function runNodeScript(args, options) {
 }
 
 function installWebIfNeeded() {
-  if (existsSync(join(WEB_DIR, "node_modules", "next"))) return;
-  log("Installing web dependencies...");
-  const result = spawnSync(npmCmd(), ["install"], {
-    cwd: WEB_DIR,
-    shell: true,
-    windowsHide: true,
-    stdio: "inherit",
-  });
-  if (result.status !== 0) {
-    throw new Error(`npm install (web) exited ${result.status}`);
+  if (!existsSync(join(WEB_DIR, "node_modules", "next"))) {
+    log("Installing web dependencies...");
+    const result = spawnSync(npmCmd(), ["install"], {
+      cwd: WEB_DIR,
+      shell: true,
+      windowsHide: true,
+      stdio: "inherit",
+    });
+    if (result.status !== 0) {
+      throw new Error(`npm install (web) exited ${result.status}`);
+    }
+  }
+  if (!piUpdateAttempted) {
+    piUpdateAttempted = true;
+    autoUpdatePi({ webDir: WEB_DIR, log, error });
   }
 }
 
