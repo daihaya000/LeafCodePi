@@ -3,6 +3,7 @@ import {
   findResumableTurn,
   isAbortedAssistantMessage,
   MESSAGE_ABORTED_ERROR,
+  shouldAttachResumeImages,
   shouldAutoResumeSilentTurn,
 } from "./aborted-resume";
 import type { UiMessage } from "./types";
@@ -212,5 +213,42 @@ describe("findResumableTurn", () => {
     expect(target?.files).toEqual([
       { uri: "data:image/png;base64,abc", mime: "image/png", name: "a.png" },
     ]);
+  });
+
+  it("resumes an image-only prompt after abort or a silent turn", () => {
+    const imageOnly: UiMessage = {
+      id: "u1",
+      role: "user",
+      createdAt: 1,
+      parts: [
+        {
+          id: "i1",
+          type: "image",
+          url: "data:image/png;base64,abc",
+          mime: "image/png",
+          filename: "a.png",
+        },
+      ],
+    };
+    expect(findResumableTurn([imageOnly], { manualAbortedAssistantId: "" })).toEqual({
+      reason: "aborted",
+      messageId: "u1",
+      text: "",
+      files: [{ uri: "data:image/png;base64,abc", mime: "image/png", name: "a.png" }],
+    });
+    expect(findResumableTurn([imageOnly, emptyAssistant("a1")])).toMatchObject({
+      reason: "silent",
+      messageId: "a1",
+      text: "",
+      files: [{ uri: "data:image/png;base64,abc", mime: "image/png", name: "a.png" }],
+    });
+    expect(findResumableTurn([userMessage("u1", "")])).toBeNull();
+  });
+
+  it("keeps image-only attachments when resume mode is continue", () => {
+    expect(shouldAttachResumeImages("same", "見て", 1)).toBe(true);
+    expect(shouldAttachResumeImages("continue", "見て", 1)).toBe(false);
+    expect(shouldAttachResumeImages("continue", "", 1)).toBe(true);
+    expect(shouldAttachResumeImages("continue", "", 0)).toBe(false);
   });
 });

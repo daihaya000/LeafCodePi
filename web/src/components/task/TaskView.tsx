@@ -106,6 +106,7 @@ import {
 } from "@/lib/task-session-cache";
 import {
   findResumableTurn,
+  shouldAttachResumeImages,
   shouldAutoResumeSilentTurn,
   type ResumableTurn,
 } from "@/lib/aborted-resume";
@@ -1699,15 +1700,15 @@ export const TaskView = memo(function TaskView({
     stickRef.current = true;
     try {
       const resumeMode = readAutoResumeMode();
-      const images = resumeMode === "continue"
-        ? []
-        : target.files
+      const images = shouldAttachResumeImages(resumeMode, target.text, target.files.length)
+        ? target.files
             .map((file) => {
               const comma = file.uri.indexOf(",");
               if (comma < 0) return null;
               return { mimeType: file.mime, data: file.uri.slice(comma + 1) };
             })
-            .filter((item): item is { mimeType: string; data: string } => item !== null);
+            .filter((item): item is { mimeType: string; data: string } => item !== null)
+        : [];
       await sendJson(`/api/tasks/${taskId}/prompt`, {
         prompt: autoResumePrompt(resumeMode, target.text),
         images,

@@ -142,7 +142,8 @@ export function findResumableTurn(
   if (!prompt) return null;
 
   const text = promptTextOf(prompt);
-  if (!text) return null;
+  const files = promptFilesOf(prompt);
+  if (!text && files.length === 0) return null;
 
   const manualRaw = options?.manualAbortedAssistantId;
   // 手動停止が応答生成開始前だと assistant メッセージが 1 件も無い。harness は
@@ -153,7 +154,7 @@ export function findResumableTurn(
       reason: "aborted",
       messageId: prompt.id,
       text,
-      files: promptFilesOf(prompt),
+      files,
     };
   }
   if (turnLength === 0) return null;
@@ -165,7 +166,7 @@ export function findResumableTurn(
     reason,
     messageId: source.id,
     text,
-    files: promptFilesOf(prompt),
+    files,
     ...(source.provider && source.model
       ? { model: { providerID: source.provider, modelID: source.model } }
       : {}),
@@ -210,6 +211,17 @@ export function findResumableTurn(
     if (message && (hasTurnOutput(message) || hasPendingTool(message))) return null;
   }
   return build(messages[messages.length - 1]!, "silent");
+}
+
+/** Image-only turns still need attachments on resume, even in continue mode. */
+export function shouldAttachResumeImages(
+  mode: "same" | "continue",
+  text: string,
+  fileCount: number,
+): boolean {
+  if (fileCount <= 0) return false;
+  if (mode === "same") return true;
+  return !text.trim();
 }
 
 /** ターンにユーザー可視の応答があるか（watchdog 用）。 */

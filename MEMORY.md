@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 17
+
+**画像のみのプロンプトが再開できない** — Composer と prompt API は本文なし画像を許可するが、`findResumableTurn` が空テキストで即 null にしていた。中断/無言終了後に再開ボタンも自動再開も出ない。添付があれば再開対象にし、continue モードでも画像のみなら画像を付けたまま再送する。
+
 ## 2026-09-04: 発見→修正ループ Tick 16
 
 **停止後も許可/質問カードが残る** — abort は SDK キューを捨てるが、permission/question の in-memory pending は残していた。停止後も承認 UI と GlobalAttention がゴーストになり、次の許可要求が古い要求の後ろに積まれる。タスク単位で pending を deny/null して resolved を送る。
