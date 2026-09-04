@@ -174,4 +174,53 @@ describe("/api/tasks/[id]/events", () => {
     expect(leftover).toBeNull();
     await reader.cancel();
   });
+
+  it("flushes a buffered permission request after ready even when messages match", async () => {
+    const messages = [
+      { id: "u1", role: "user" as const, createdAt: 1, parts: [{ id: "p1", type: "text" as const, text: "質問" }] },
+    ];
+    const bootstrap = task({ messages: [], isStreaming: true });
+    const detail = task({ messages, isStreaming: true, status: "working" });
+    let resolveDetail!: (value: TaskDetail) => void;
+    let listener!: (payload: Record<string, unknown>) => void;
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail.mockReturnValue(
+      new Promise<TaskDetail>((resolve) => {
+        resolveDetail = resolve;
+      }),
+    );
+    mocks.subscribeTask.mockImplementation((_id: string, callback: typeof listener) => {
+      listener = callback;
+      return vi.fn();
+    });
+
+    const response = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const reader = response.body!.getReader();
+    await readChunk(reader);
+
+    listener({
+      type: "snapshot",
+      eventType: "permission_request",
+      messages,
+      permissionRequest: {
+        id: "req-1",
+        sessionId: "session-1",
+        command: "Stop-Computer",
+        labels: ["os"],
+        message: "許可しますか",
+      },
+    });
+    resolveDetail(detail);
+
+    const readyChunk = await readChunk(reader);
+    expect(eventData(readyChunk).eventType).toBe("ready");
+    const permissionChunk = await readChunk(reader);
+    const permissionPayload = eventData(permissionChunk);
+    expect(permissionPayload.eventType).toBe("permission_request");
+    expect(permissionPayload.permissionRequest).toMatchObject({ id: "req-1" });
+    await reader.cancel();
+  });
 });

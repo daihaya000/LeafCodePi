@@ -31,12 +31,35 @@ export function isFresherMessageList(
 /**
  * After the ready snapshot, only flush buffered events that are still newer.
  * Older snapshots would rewind the client; stale deltas would overwrite the tip.
+ * Control events (permission, hang retry, errors) must still flush even when
+ * the message list is unchanged — ready does not always carry those fields.
  */
+export const SSE_CONTROL_SNAPSHOT_EVENT_TYPES = new Set([
+  "permission_request",
+  "permission_resolved",
+  "question_request",
+  "question_resolved",
+  "hang_retry",
+  "error",
+  "thinking_level_changed",
+  "agent_changed",
+  "revert",
+  "unrevert",
+  "abort",
+  "provider_fallback",
+  "provider_routed",
+  "project_promoted",
+]);
+
 export function shouldFlushPendingAfterReady(
   payload: Record<string, unknown>,
   readyRank: MessageListRank,
 ): boolean {
   if (payload.type === "snapshot") {
+    const eventType = payload.eventType;
+    if (typeof eventType === "string" && SSE_CONTROL_SNAPSHOT_EVENT_TYPES.has(eventType)) {
+      return true;
+    }
     return isFresherMessageList(rankMessageList(payload.messages), readyRank);
   }
   if (payload.type === "delta") {

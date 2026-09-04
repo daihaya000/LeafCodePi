@@ -81,4 +81,49 @@ describe("sse-ready-buffer", () => {
       ),
     ).toBe(false);
   });
+
+  it("keeps control snapshots even when the message list is not newer", () => {
+    const ready = rankMessageList([
+      { id: "history", createdAt: 1 },
+      { id: "latest", createdAt: 5 },
+    ]);
+    expect(
+      shouldFlushPendingAfterReady(
+        {
+          type: "snapshot",
+          eventType: "permission_request",
+          messages: [
+            { id: "history", createdAt: 1 },
+            { id: "latest", createdAt: 5 },
+          ],
+          permissionRequest: { id: "req-1" },
+        },
+        ready,
+      ),
+    ).toBe(true);
+    expect(
+      shouldFlushPendingAfterReady(
+        {
+          type: "snapshot",
+          eventType: "hang_retry",
+          hangRetryCount: 2,
+          messages: [
+            { id: "history", createdAt: 1 },
+            { id: "latest", createdAt: 5 },
+          ],
+        },
+        ready,
+      ),
+    ).toBe(true);
+    expect(
+      shouldFlushPendingAfterReady(
+        {
+          type: "snapshot",
+          eventType: "stale",
+          messages: [{ id: "stale", createdAt: 2 }],
+        },
+        ready,
+      ),
+    ).toBe(false);
+  });
 });

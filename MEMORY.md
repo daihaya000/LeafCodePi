@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 7
+
+**SSE ready 後に承認/ハング再試行イベントが捨てられる** — `shouldFlushPendingAfterReady` がメッセージ履歴の新しさだけで判断していた。fetch 中に届いた `permission_request` / `hang_retry` などは ready と同じ履歴だと破棄され、カードや再試行表示が消えた。制御イベントは履歴が同じでも flush する。
+
 ## 2026-09-04: 発見→修正ループ Tick 6
 
 **スキル権限が毎プロンプトで潰される** — permissionMode と同じ。TaskView が共有 localStorage を既存タスクへ再送し、live セッションのスキル許可を上書きしていた。変更は `/skill-permission` のみ。タスク切替時はキャッシュから復元する。
