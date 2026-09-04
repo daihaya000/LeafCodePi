@@ -11,8 +11,9 @@
  */
 
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve as resolvePath } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { requestWebUiPermission } from "./webui-bridge";
 
 export type PermissionMode = "allow" | "ask" | "deny";
@@ -54,7 +55,7 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
   { category: "os", label: "system policy/account/firewall change", pattern: /\b(?:Set-ExecutionPolicy|setx|icacls|net(?:\.exe)?\s+(?:user|localgroup)|(?:New|Remove|Add|Disable|Enable)-Local(?:User|GroupMember)|(?:New|Set|Remove)-(?:NetFirewallRule|WindowsOptionalFeature)|(?:Enable|Disable)-WindowsOptionalFeature|dism(?:\.exe)?\b[^\r\n]*\/(?:enable-feature|disable-feature|add-package|remove-package)|msiexec(?:\.exe)?\b[^\r\n]*\/(?:i|uninstall))\b/i },
   { category: "os", label: "system package change", pattern: /\b(?:apt(?:-get)?|dnf|yum|pacman|zypper|apk|brew|winget|choco)\b[^\r\n]*(?:install|remove|purge|upgrade|update|add|delete|uninstall|-[SRU][A-Za-z]*)\b|\b(?:npm|pnpm|yarn|pip|pip3)\b[^\r\n]*(?:--global|\s-g\b)\b/i },
   { category: "os", label: "scheduled task change", pattern: /\b(?:Register|Unregister|New|Remove)-ScheduledTask\b|\bschtasks(?:\.exe)?\b[^\r\n]*\/(?:create|delete|change|run)\b|\bcrontab\s+(?:-e|-r)\b/i },
-  { category: "os", label: "dynamic/elevated script execution", pattern: /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*-(?:EncodedCommand|enc)\b|\b(?:python|python3|node|perl|ruby)\b\s+(?:-e|-c)\b|\b(?:Invoke-Expression|iex|eval)\b|\b(?:bash|sh|zsh|pwsh|powershell|cmd)\s+(?:-c|\/c)\b/i },
+  { category: "os", label: "dynamic/elevated script execution", pattern: /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*-(?:EncodedCommand|enc)\b|\b(?:python|python3|node|perl|ruby)\b\s+(?:-e|-c)\b|\b(?:Invoke-Expression|Invoke-Command|Start-Process|Set-Alias|New-Alias|iex|eval)\b|\b(?:bash|sh|zsh|pwsh|powershell|cmd)\s+(?:-c|\/c)\b|(?:^|[;|&\r\n])\s*&\s*(?:\(|['"$])|(?:^|[;|&\r\n])\s*[\'"]?\$(?:\{)?[A-Za-z_]\w*\}?[\'"]?\s+/i },
   { category: "os", label: "downloaded script execution", pattern: /\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:\|\s*(?:sh|bash|zsh|pwsh|powershell|cmd|iex|Invoke-Expression)\b|(?:-o|--output)\s*-\s*&&)/i },
   { category: "kernel", label: "kernel/module change", pattern: /\b(?:modprobe|insmod|rmmod|kexec)\b|\bsysctl\b[^\r\n]*(?:-w|--write)\b|\bdkms\b[^\r\n]*\b(?:install|remove|autoinstall)\b|\b(?:load|unload|install|remove|update)\s+(?:the\s+)?(?:kernel|module)s?\b/i },
   { category: "driver", label: "device-driver change", pattern: /\bpnputil(?:\.exe)?\b[^\r\n]*\/(?:add-driver|delete-driver)\b|\bdevcon(?:\.exe)?\s+(?:install|remove|update)\b|\bdism(?:\.exe)?\b[^\r\n]*\/(?:add-driver|remove-driver)\b|\b(?:Add|Remove|Install|Uninstall)-WindowsDriver\b|\b(?:install|uninstall|remove|update|load)\s+(?:the\s+)?(?:device\s+)?driver(?:s)?\b/i },
@@ -229,8 +230,8 @@ function isReadOnlyDiskInspection(command: string): boolean {
     /^diskutil\s+list(?:\s+\S+)?$/i,
     /^diskutil\s+info\s+\S+$/i,
     /^diskutil\s+apfs\s+list(?:\s+\S+)?$/i,
-    /^(?:fdisk|sfdisk)\s+(?:-l|--list)(?:\s+\S+)*$/i,
-    /^parted\s+(?:(?:-l|--list)|\S+(?:\s+\S+)*\s+print)$/i,
+    /^(?:fdisk|sfdisk)\s+(?:-l|--list)(?:\s+\S+)?$/i,
+    /^parted\s+(?:(?:-l|--list)|\S+\s+print)$/i,
     /^sgdisk\s+(?:-p|--print)(?:\s+\S+)*$/i,
   ].some((pattern) => pattern.test(normalized));
 }
@@ -280,6 +281,27 @@ function pathCandidates(filePath: string, cwd: string): string[] {
     /* malformed paths remain covered by the raw candidate */
   }
   return [...new Set(candidates)];
+}
+
+function isInsideWorkspace(filePath: string, cwd: string): boolean {
+  try {
+    const workspace = realpathSync.native(cwd);
+    const target = resolvePath(cwd, filePath);
+    let existingAncestor = target;
+    while (!existsSync(existingAncestor)) {
+      const parent = dirname(existingAncestor);
+      if (parent === existingAncestor) return false;
+      existingAncestor = parent;
+    }
+    const resolvedTarget = resolvePath(
+      realpathSync.native(existingAncestor),
+      relative(existingAncestor, target),
+    );
+    const fromWorkspace = relative(workspace, resolvedTarget);
+    return fromWorkspace === "" || (!fromWorkspace.startsWith("..") && !isAbsolute(fromWorkspace));
+  } catch {
+    return false;
+  }
 }
 
 export function matchSystemSafetyPath(filePath: string, cwd = process.cwd()): SystemSafetyMatch[] {
@@ -351,7 +373,11 @@ export function matchSystemSafetyForTool(
   }
   if (toolName === "write" || toolName === "edit") {
     const filePath = asRecord(input)?.path;
-    return typeof filePath === "string" ? matchSystemSafetyPath(filePath, cwd) : [];
+    if (typeof filePath !== "string") return [];
+    const matches = matchSystemSafetyPath(filePath, cwd);
+    return isInsideWorkspace(filePath, cwd)
+      ? matches.filter((match) => match.category !== "user-data")
+      : matches;
   }
   if (toolName === "read" || toolName === "grep" || toolName === "find" || toolName === "ls") return [];
 
@@ -403,12 +429,34 @@ function hasSafetyPlan(messages: AgentEndEvent["messages"]): boolean {
   return messages.some((message) => message.role === "assistant" && hasSafetyPlanText(messageText(message)));
 }
 
-function isReadOnlyInvestigation(toolName: string, input: unknown): boolean {
-  if (toolName === "read" || toolName === "grep" || toolName === "find" || toolName === "ls") return true;
+function isReadOnlyInvestigation(
+  toolName: string,
+  input: unknown,
+  categories: ReadonlySet<SystemSafetyCategory>,
+  cwd: string,
+): boolean {
+  if (toolName === "read" || toolName === "grep" || toolName === "find" || toolName === "ls") {
+    const paths: string[] = [];
+    collectStringFields(input, PATH_INPUT_KEYS, paths);
+    return (paths.length > 0 ? paths : [cwd]).some((filePath) => matchSystemSafetyPath(filePath, cwd)
+      .some((match) => categories.has(match.category)));
+  }
   if (toolName !== "bash" && toolName !== "powershell") return false;
   const command = asRecord(input)?.command;
   if (typeof command !== "string" || matchedDanger(command).dangerous || MUTATING_COMMAND_PATTERN.test(command)) return false;
-  return /\b(?:Get-(?:Content|Item|ItemProperty|Service|ComputerInfo|CimInstance)|cat|head|tail|less|more|type|dir|ls|find|grep|rg|systemctl\s+(?:status|show|list)|sc\s+query|reg\s+query|bcdedit\s+\/enum|diskutil\s+(?:list|info)|lsblk|findmnt|dmidecode)\b/i.test(command);
+  const rules: Array<[SystemSafetyCategory, RegExp]> = [
+    ["os", /\b(?:Get-ComputerInfo|systeminfo|uname|sw_vers)\b/i],
+    ["user-data", USER_DATA_COMMAND_PATH_PATTERN],
+    ["kernel", /\b(?:uname|lsmod|modinfo|sysctl\s+-a|Get-CimInstance)\b/i],
+    ["driver", /\b(?:driverquery|lsmod|modinfo|pnputil(?:\.exe)?\s+\/(?:enum-drivers|enum-devices))\b/i],
+    ["registry", /\b(?:reg(?:\.exe)?\s+query|Get-(?:Item|ItemProperty)\b[^\r\n]*(?:HK(?:LM|CU|CR|U|CC)|Registry::))\b/i],
+    ["service", /\b(?:Get-Service|systemctl\s+(?:status|show|list)|sc(?:\.exe)?\s+query|service\s+\S+\s+status)\b/i],
+    ["boot", /\b(?:bcdedit(?:\.exe)?\s+\/enum|efibootmgr\s*$)\b/i],
+    ["disk", /\b(?:lsblk|findmnt)\b/i],
+    ["firmware", /\b(?:dmidecode|fwupdmgr\s+(?:get-devices|get-updates))\b/i],
+  ];
+  return (isReadOnlyDiskInspection(command) && categories.has("disk"))
+    || rules.some(([category, pattern]) => categories.has(category) && pattern.test(command));
 }
 
 function operationIdentity(toolName: string, input: unknown): string {
@@ -567,12 +615,14 @@ export default function (pi: ExtensionAPI): void {
   let safetyInvestigationObserved = false;
   let safetyPlanPresented = false;
   let pendingSafetyKey = "";
+  const pendingSafetyCategories = new Set<SystemSafetyCategory>();
   const pendingInvestigationCalls = new Set<string>();
 
   const resetSafetyFlow = (): void => {
     safetyInvestigationObserved = false;
     safetyPlanPresented = false;
     pendingSafetyKey = "";
+    pendingSafetyCategories.clear();
     pendingInvestigationCalls.clear();
   };
 
@@ -630,6 +680,7 @@ export default function (pi: ExtensionAPI): void {
     if (pendingSafetyKey !== operationKey) {
       resetSafetyFlow();
       pendingSafetyKey = operationKey;
+      for (const match of safetyMatches) pendingSafetyCategories.add(match.category);
       return {
         block: true,
         terminate: true,
@@ -650,7 +701,12 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("tool_call", async (event, ctx) => {
     const mode = sessionMode(ctx);
-    if (mode !== "deny" && pendingSafetyKey && isReadOnlyInvestigation(event.toolName, event.input)) {
+    if (mode !== "deny" && pendingSafetyKey && isReadOnlyInvestigation(
+      event.toolName,
+      event.input,
+      pendingSafetyCategories,
+      ctx.cwd,
+    )) {
       pendingInvestigationCalls.add(event.toolCallId);
     }
     const safetyMatches = matchSystemSafetyForTool(event.toolName, event.input, ctx.cwd);

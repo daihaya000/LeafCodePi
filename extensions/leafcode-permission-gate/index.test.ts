@@ -25,6 +25,8 @@ describe("system safety classifier", () => {
       ["bcdedit /set {default} recoveryenabled no", "boot"],
       ["diskpart /s mutate-disk.txt", "disk"],
       ["fwupdmgr update", "firmware"],
+      ["& ('Stop-' + 'Computer') -Force", "os"],
+      ["x=systemctl; \"$x\" stop sshd", "os"],
     ];
     for (const [command, category] of cases) {
       assert.ok(
@@ -39,12 +41,14 @@ describe("system safety classifier", () => {
     assert.deepEqual(matchSystemSafetyCommand("fdisk -l /dev/sda"), []);
     assert.ok(matchSystemSafetyCommand("fdisk -l /dev/sda && dd if=/dev/zero of=/dev/sda").some((match) => match.category === "disk"));
     assert.ok(matchSystemSafetyCommand("diskutil list; diskutil eraseDisk APFS Empty /dev/disk2").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("parted /dev/sda resizepart 1 100% print").some((match) => match.category === "disk"));
     assert.ok(matchSystemSafetyPath("C:\\Windows\\System32\\drivers\\example.sys").some((match) => match.category === "driver"));
     assert.ok(matchSystemSafetyPath("C:\\Users\\Daichi\\Documents\\report.txt").some((match) => match.category === "user-data"));
     assert.ok(matchSystemSafetyForTool("mcp__server__registry_set", { path: "HKLM\\Software\\LeafCode" }).some((match) => match.category === "registry"));
     assert.ok(matchSystemSafetyForTool("mcp__server__exec", { payload: { command: "systemctl stop leafcode.service" } }).some((match) => match.category === "service"));
     assert.ok(matchSystemSafetyForTool("mcp__server__file_tool", { target: "C:\\Windows\\System32\\config" }).some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyForTool("read", { path: "/etc/os-release" }), []);
+    assert.deepEqual(matchSystemSafetyForTool("write", { path: "review-temp.ts" }, process.cwd()), []);
   });
 });
 
@@ -177,7 +181,15 @@ describe("LeafCode permission gate", () => {
       assert.match(String((direct as { reason?: string } | undefined)?.reason), /read-only/);
 
       await handlers.get("tool_call")?.(
-        { toolCallId: "failed-read", toolName: "read", input: { path: "/missing" } },
+        { toolCallId: "unrelated-read", toolName: "read", input: { path: "README.md" } },
+        freshContext(cwd, sessionManager),
+      );
+      await handlers.get("tool_result")?.(
+        { toolCallId: "unrelated-read", toolName: "read", isError: false },
+        freshContext(cwd, sessionManager),
+      );
+      await handlers.get("tool_call")?.(
+        { toolCallId: "failed-read", toolName: "read", input: { path: "/etc/missing" } },
         freshContext(cwd, sessionManager),
       );
       await handlers.get("tool_result")?.(
