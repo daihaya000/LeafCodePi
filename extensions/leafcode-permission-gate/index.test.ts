@@ -262,6 +262,13 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("qm shutdown 100").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("VBoxManage controlvm x poweroff").some((match) => match.label === "OS shutdown/restart"));
     assert.deepEqual(matchSystemSafetyCommand("echo virsh shutdown domain"), []);
+    assert.ok(matchSystemSafetyCommand("aws ec2 stop-instances --instance-ids i-x").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("az vm deallocate -g g -n n").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("gcloud compute instances stop x").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("Stop-VM -Name x -Force").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("xl shutdown domain").some((match) => match.label === "OS shutdown/restart"));
+    assert.deepEqual(matchSystemSafetyCommand("echo aws ec2 stop-instances --instance-ids i-x"), []);
+    assert.deepEqual(matchSystemSafetyCommand("Get-Help Stop-VM"), []);
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);

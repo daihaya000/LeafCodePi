@@ -1,3 +1,12 @@
+## 2026-09-05: permission-gate ループ tick 18
+
+- FN: クラウド／HV 電源操作 — `aws ec2 stop/reboot` / `az vm` / `gcloud compute instances` / `nova` / `openstack server` / `xl`/`xe` / `Stop-VM`
+- `echo aws …` / `Get-Help Stop-VM` は非検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 17
 
 - FN: VM 管理の電源操作 — `virsh` / `qm` / `pct` / `VBoxManage controlvm … poweroff`
