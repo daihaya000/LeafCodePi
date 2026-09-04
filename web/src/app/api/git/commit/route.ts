@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     directory?: unknown;
     message?: unknown;
     paths?: unknown;
-    all?: boolean;
+    all?: unknown;
     agent?: unknown;
   } | null;
 
@@ -28,6 +28,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "paths must be an array of strings" }, { status: 400 });
   }
   const validPaths = Array.isArray(paths) ? paths as string[] : undefined;
+  const all = body?.all;
+  if (all !== undefined && typeof all !== "boolean") {
+    return NextResponse.json({ error: "all must be a boolean" }, { status: 400 });
+  }
   const message = body?.message;
   const directory = body?.directory;
   if (typeof directory !== "string" || !directory || typeof message !== "string" || !message.trim()) {
@@ -48,7 +52,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Stage — require an explicit all:true or a non-empty paths list.
-  if (body.all === true) {
+  if (all === true) {
     const add = await runGit(directory, ["add", "-A", "--", "."]);
     if (add.code !== 0) {
       return NextResponse.json(
@@ -76,7 +80,7 @@ export async function POST(req: NextRequest) {
   }
 
   const commitArgs = ["commit", "-m", message.trim()];
-  if (!body.all && validPaths?.length) {
+  if (!all && validPaths?.length) {
     commitArgs.push("--", ...validPaths);
   }
 
