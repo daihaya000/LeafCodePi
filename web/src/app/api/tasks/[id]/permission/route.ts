@@ -11,10 +11,10 @@ export async function POST(
   try {
     const { id } = await params;
     const body = (await req.json().catch(() => null)) as {
-      requestId?: string;
+      requestId?: unknown;
       approved?: boolean;
     } | null;
-    const requestId = body?.requestId?.trim();
+    const requestId = typeof body?.requestId === "string" ? body.requestId.trim() : "";
     if (!requestId) {
       return NextResponse.json({ error: "requestId is required" }, { status: 400 });
     }
