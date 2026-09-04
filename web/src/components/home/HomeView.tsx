@@ -267,7 +267,7 @@ export function HomeView({
   }
 
   async function submit() {
-    if (!prompt.trim() || projectId === undefined || submitting) return;
+    if ((!prompt.trim() && attachments.length === 0) || projectId === undefined || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -527,7 +527,7 @@ export function HomeView({
                   aria-label="タスク開始"
                   className="shrink-0"
                   busy={submitting}
-                  disabled={!prompt.trim() || projectId === undefined || submitting || health?.engineOk === false}
+                  disabled={(!prompt.trim() && attachments.length === 0) || projectId === undefined || submitting || health?.engineOk === false}
                 >
                   {!submitting && <ArrowUp className="h-4.5 w-4.5" />}
                 </Button>

@@ -102,8 +102,7 @@ export async function POST(req: NextRequest) {
       !body ||
       (body.projectId !== null &&
         (typeof body.projectId !== "string" || !body.projectId.trim())) ||
-      typeof body.prompt !== "string" ||
-      !body.prompt.trim()
+      (body.prompt !== undefined && typeof body.prompt !== "string")
     ) {
       return NextResponse.json(
         { error: "projectId（null可）と prompt が必要です" },
@@ -126,6 +125,13 @@ export async function POST(req: NextRequest) {
     ) {
       return NextResponse.json({ error: "invalid images" }, { status: 400 });
     }
+    if (!body.prompt?.trim() && !body.images?.length) {
+      return NextResponse.json(
+        { error: "projectId（null可）と prompt が必要です" },
+        { status: 400 },
+      );
+    }
+    const prompt = body.prompt ?? "";
     if (body.auto !== undefined && typeof body.auto !== "boolean") {
       return NextResponse.json({ error: "invalid auto" }, { status: 400 });
     }
@@ -216,7 +222,7 @@ export async function POST(req: NextRequest) {
       const hasImages = Boolean(body.images?.length);
       autoDecision =
         (await resolveAutoModel({
-          prompt: body.prompt,
+          prompt,
           hasImages,
           attachmentCount: body.images?.length ?? 0,
           mode: isAutoOptimizeMode(body.autoOptimize)
@@ -248,7 +254,7 @@ export async function POST(req: NextRequest) {
           : requestedModel;
       agent = await resolveAutoAgent({
         conversation: [],
-        prompt: body.prompt,
+        prompt,
         hasImages: Boolean(body.images?.length),
         ...(selectionModel ? { requestedModel: selectionModel } : {}),
         ...(accountId ? { accountId } : {}),
@@ -256,7 +262,7 @@ export async function POST(req: NextRequest) {
     }
     const task = await createTask({
       projectId,
-      prompt: body.prompt,
+      prompt,
       ...(model && model !== AUTO_MODEL_VALUE ? { model } : {}),
       ...(thinkingLevel ? { thinkingLevel } : {}),
       images: body.images,

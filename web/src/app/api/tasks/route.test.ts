@@ -199,4 +199,38 @@ describe("POST /api/tasks", () => {
       expect(mocks.createTask).not.toHaveBeenCalled();
     }
   });
+
+  it("creates a task from images when the prompt is empty", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: null,
+          prompt: "",
+          images: [{ mimeType: "image/png", data: "abc" }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.createTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: null,
+        prompt: "",
+        images: [{ mimeType: "image/png", data: "abc" }],
+      }),
+    );
+  });
+
+  it("rejects an empty prompt when there are no images", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({ projectId: null, prompt: "   " }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.createTask).not.toHaveBeenCalled();
+  });
 });
