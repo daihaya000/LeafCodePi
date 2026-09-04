@@ -465,6 +465,19 @@ describe("system safety classifier", () => {
     assert.deepEqual(matchSystemSafetyCommand("format C: /?"), []);
     assert.deepEqual(matchSystemSafetyCommand("smartctl --sanitize status /dev/sda"), []);
     assert.deepEqual(matchSystemSafetyCommand("defrag C: /A"), []);
+    assert.ok(matchSystemSafetyCommand("storcli /c0 /e252 /s0 start erase").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("perccli /c0 /v0 del force").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("MegaCli -CfgLdDel -Lall -a0").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("hdparm --security-erase").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("fsutil volume format C:").some((match) => match.category === "disk"));
+    assert.ok(
+      configuredSafetyMatches(
+        { mode: "allow", systemSafety: "standard" },
+        matchSystemSafetyCommand("storcli64 /c0 /e252 /s0 start secureerase"),
+      ).some((match) => match.category === "disk"),
+    );
+    assert.deepEqual(matchSystemSafetyCommand("cipher /w:C: /?"), []);
+    assert.deepEqual(matchSystemSafetyCommand("fsutil fsinfo ntfsinfo C:"), []);
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);

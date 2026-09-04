@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 41
+
+- FN: `storcli`/`perccli`/`MegaCli` の erase/secureerase/CfgLdDel/del force/init full
+- FN: `hdparm --security-erase`（デバイス省略含む）、`fsutil volume format`
+- FP: `cipher /w:… /?`（ヘルプ）
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 40
 
 - FN: `smartctl --sanitize`（status 除外）、`sg_sanitize`、`Remove-StoragePool|Remove-VirtualDisk`
