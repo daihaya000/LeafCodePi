@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { BellRing } from "lucide-react";
 import { Button, cx } from "@/components/ui";
 import { PermissionAdvice } from "@/components/task/PermissionAdvice";
@@ -44,6 +44,8 @@ function hasEditingFocus(): boolean {
 
 export function GlobalAttentionProvider() {
   const router = useRouter();
+  const pathname = usePathname();
+  const activeTaskId = taskIdFromPathname(pathname);
   const [items, setItems] = useState<AttentionItemDto[]>([]);
   const [details, setDetails] = useState<Record<string, TaskDetail>>({});
   const [open, setOpen] = useState(false);
@@ -91,8 +93,8 @@ export function GlobalAttentionProvider() {
         }
 
         if (fresh.length > 0) {
-          const activeTaskId = taskIdFromPathname(window.location.pathname);
-          const onlyActive = fresh.every((item) => item.taskId === activeTaskId);
+          const currentTaskId = taskIdFromPathname(window.location.pathname);
+          const onlyActive = fresh.every((item) => item.taskId === currentTaskId);
           // 表示中タスク自身の要求は TaskView インライン UI が担当する。
           // 音もモーダルも二重化しない（両方「許可」できてしまう）。
           if (!onlyActive) {
@@ -227,6 +229,7 @@ export function GlobalAttentionProvider() {
             const detail = details[item.taskId];
             const question = detail?.questionRequest;
             const permission = detail?.permissionRequest;
+            const handledInline = item.taskId === activeTaskId;
             return (
               <li key={item.taskId} className="rounded-xl border border-border bg-surface-2 p-3">
                 <div className="mb-2 flex items-center gap-2">
@@ -239,7 +242,10 @@ export function GlobalAttentionProvider() {
                     開く
                   </Button>
                 </div>
-                {question && (
+                {handledInline && (question || permission || !detail) && (
+                  <p className="text-xs text-muted">このタスクの画面で応答できます</p>
+                )}
+                {!handledInline && question && (
                   <QuestionCard
                     request={question}
                     onReply={(request, answers) => respondToQuestion(item.taskId, request, answers)}
@@ -256,7 +262,7 @@ export function GlobalAttentionProvider() {
                     }
                   />
                 )}
-                {permission && (
+                {!handledInline && permission && (
                   <div className="rounded-lg border border-warning/30 bg-warning-bg px-3 py-3 text-sm">
                     <p className="whitespace-pre-wrap break-words text-warning">{permission.message}</p>
                     <pre className="mt-2 max-h-32 overflow-auto rounded border border-border bg-surface px-2 py-1.5 font-mono text-xs text-text">
@@ -285,7 +291,7 @@ export function GlobalAttentionProvider() {
                     </div>
                   </div>
                 )}
-                {!detail && <p className="text-xs text-muted">内容を読み込んでいます…</p>}
+                {!handledInline && !detail && <p className="text-xs text-muted">内容を読み込んでいます…</p>}
               </li>
             );
           })}

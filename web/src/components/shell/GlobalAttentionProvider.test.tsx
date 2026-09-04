@@ -4,14 +4,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
+  sendJson: vi.fn(),
   playAttentionRequiredSound: vi.fn(),
 }));
 
-vi.mock("@/lib/client", () => ({ getJson: mocks.getJson }));
+vi.mock("@/lib/client", () => ({ getJson: mocks.getJson, sendJson: mocks.sendJson }));
 vi.mock("@/lib/session-complete-sound", () => ({
   playAttentionRequiredSound: mocks.playAttentionRequiredSound,
 }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => window.location.pathname,
+}));
 
 import { GlobalAttentionProvider } from "./GlobalAttentionProvider";
 
@@ -39,7 +43,9 @@ describe("GlobalAttentionProvider", () => {
     vi.useFakeTimers();
     window.history.pushState({}, "", "/");
     mocks.getJson.mockReset();
+    mocks.sendJson.mockReset();
     mocks.playAttentionRequiredSound.mockReset();
+    mocks.sendJson.mockResolvedValue({ advice: "" });
     mocks.getJson.mockImplementation(async (path: string) => {
       if (path === "/api/tasks") {
         return { attention: [{ taskId: "task-a", title: "タスクA", kinds: ["permission"] }] };
@@ -130,5 +136,67 @@ describe("GlobalAttentionProvider", () => {
       ([path]) => path === "/api/tasks/task-a",
     );
     expect(detailCalls.length).toBe(2);
+  });
+
+  it("does not duplicate the active task permission UI when another task also needs attention", async () => {
+    window.history.pushState({}, "", "/task/task-a");
+    mocks.getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/tasks") {
+        return {
+          attention: [
+            { taskId: "task-a", title: "タスクA", kinds: ["permission"] },
+            { taskId: "task-b", title: "タスクB", kinds: ["permission"] },
+          ],
+        };
+      }
+      if (path === "/api/tasks/task-a") {
+        return {
+          task: {
+            ...taskDetail("task-a"),
+            title: "タスクA",
+            permissionRequest: {
+              id: "req-a",
+              sessionId: "sess-a",
+              message: "Aを許可しますか",
+              command: "Stop-Computer -Force",
+              labels: ["os"],
+            },
+          },
+        };
+      }
+      if (path === "/api/tasks/task-b") {
+        return {
+          task: {
+            ...taskDetail("task-b"),
+            title: "タスクB",
+            permissionRequest: {
+              id: "req-b",
+              sessionId: "sess-b",
+              message: "Bを許可しますか",
+              command: "echo b",
+              labels: [],
+            },
+          },
+        };
+      }
+      throw new Error(`unexpected: ${path}`);
+    });
+
+    render(<GlobalAttentionProvider />);
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    await vi.advanceTimersByTimeAsync(0);
+    await act(async () => {
+      window.dispatchEvent(new Event("focusout"));
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    const body = document.body.textContent ?? "";
+    expect(body).toMatch(/承認・回答が必要です/);
+    expect(body).toMatch(/Bを許可しますか/);
+    expect(body).toMatch(/このタスクの画面で応答できます/);
+    expect(body).not.toMatch(/Aを許可しますか/);
+    expect(mocks.playAttentionRequiredSound).toHaveBeenCalled();
   });
 });
