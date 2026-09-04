@@ -10,7 +10,7 @@ import {
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, isLiveBusyForReplace, setTaskAgent } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, isLiveBusyForReplace, setTaskAgent, throwIfBusyForModelChange } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const previousHarness = (globalThis as Record<string, unknown>)[GLOBAL_KEY];
@@ -158,6 +158,17 @@ describe("isLiveBusyForReplace", () => {
       isLiveBusyForReplace({ promptActive: false, session: {} }),
       false,
     );
+  });
+
+  it("blocks same-account model changes during an accepted prompt", () => {
+    assert.throws(
+      () => throwIfBusyForModelChange({ promptActive: true, session: {} }),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { status?: number }).status === 409 &&
+        /モデルは変更できません/.test(error.message),
+    );
+    throwIfBusyForModelChange({ promptActive: false, session: {} });
   });
 });
 

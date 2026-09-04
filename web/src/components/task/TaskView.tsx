@@ -2651,7 +2651,7 @@ export const TaskView = memo(function TaskView({
               <ModelSelect
                 value={modelValue}
                 options={modelOptions}
-                disabled={working || compacting}
+                disabled={working || compacting || submitting}
                 loading={modelsLoading}
                 onChange={(value) => {
                   if (value === AUTO_MODEL_VALUE) {

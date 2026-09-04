@@ -5311,6 +5311,17 @@ export function isLiveBusyForReplace(live: {
   return Boolean(live.promptActive || live.session.isStreaming || live.session.isCompacting);
 }
 
+export function throwIfBusyForModelChange(live: {
+  promptActive?: boolean;
+  session: { isStreaming?: boolean; isCompacting?: boolean };
+}): void {
+  if (isLiveBusyForReplace(live)) {
+    throw Object.assign(new Error("実行中タスクのモデルは変更できません"), {
+      status: 409,
+    });
+  }
+}
+
 export async function setTaskAgent(
   id: string,
   agentName: string,
@@ -5412,6 +5423,7 @@ export async function setTaskModel(
   }
 
   const live = await ensureLive(id);
+  throwIfBusyForModelChange(live);
   await live.session.setModel(model);
   applySessionCompactionSettings(live.session);
   const ids = modelId(live.session.model ?? model);
