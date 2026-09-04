@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 5
+
+**セッション再接続で権限モードが落ちる** — `ensureLive` / アカウント切替が `task.permissionMode` を渡していなかった。sessionId が変わると `sessions[oldId]` が当たらず既定 allow に戻る。再接続時にタスク保存値を新しい sessionId へ書き戻す。
+
 ## 2026-09-04: 発見→修正ループ Tick 4
 
 **GlobalAttention の二重承認 UI** — 表示中タスクと別タスクが同時に attention になると、モーダルが TaskView と同じ許可/質問カードを描画していた。表示中タスクはバッジと「開く」のみにし、操作 UI はインライン側に任せる。

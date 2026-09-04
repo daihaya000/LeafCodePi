@@ -83,4 +83,13 @@ describe("permission-gate-config", () => {
       assert.equal(readPermissionGateConfig("task-a"), "deny");
     });
   });
+
+  it("rebinds a stored task mode onto a new session id after reopen", () => {
+    withTempDataDir(() => {
+      applyPermissionMode({ sessionId: "old-session" }, "deny");
+      applyPermissionMode({ sessionId: "new-session" }, "deny");
+      assert.equal(readPermissionGateConfig("new-session"), "deny");
+      assert.equal(readPermissionGateConfig(), "allow");
+    });
+  });
 });

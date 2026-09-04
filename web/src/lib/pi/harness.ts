@@ -2561,6 +2561,7 @@ async function ensureLive(
       model,
       thinkingLevel: task.thinkingLevel,
       skillPermission: task.skillPermission,
+      permissionMode: task.permissionMode,
       agentName: task.agent ?? null,
     });
     if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
@@ -4720,6 +4721,7 @@ async function replaceLiveForRoute(
     model: route.model,
     thinkingLevel,
     skillPermission: live.skillPermission,
+    permissionMode: task.permissionMode,
     agentName: task.agent ?? null,
   });
 
