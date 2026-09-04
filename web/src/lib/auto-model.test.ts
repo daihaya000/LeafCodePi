@@ -526,6 +526,54 @@ describe("chooseAutoModel", () => {
     expect(autoVariantToThinkingLevel("bogus" as never)).toBeUndefined();
   });
 
+  it("restricts candidates to image-capable models only", () => {
+    // For ModelOption inputs, image support comes from input.includes("image")
+    // (auto-model.ts:731), NOT from option.capabilities, which is only read for
+    // provider-shaped candidates.
+    const vision = model("claude-haiku-4-5", { input: ["text", "image"] });
+    const textOnly = model("aaa-text-only-nano", { input: ["text"] });
+    const attachmentOnly = model("attach-only-flash", { input: ["text", "image"] });
+
+    // With images, only image-capable models remain eligible.
+    const withImages = chooseAutoModel({
+      models: [vision, textOnly, attachmentOnly],
+      tier: "light",
+      hasImages: true,
+      mode: "cost",
+    });
+    expect(withImages?.modelID).toBe("claude-haiku-4-5");
+    expect(withImages?.reason).toContain("画像対応モデルに限定");
+
+    // Without images the text-only model stays eligible (it is simply not the
+    // winner here), and the image-limitation note is absent.
+    const withoutImages = chooseAutoModel({
+      models: [vision, textOnly, attachmentOnly],
+      tier: "light",
+      hasImages: false,
+      mode: "cost",
+    });
+    expect(withoutImages?.modelID).toBe("claude-haiku-4-5");
+    expect(withoutImages?.reason).not.toContain("画像対応モデルに限定");
+
+    // The attachment capability also satisfies the image filter.
+    expect(
+      chooseAutoModel({
+        models: [attachmentOnly],
+        tier: "light",
+        hasImages: true,
+      })?.modelID,
+    ).toBe("attach-only-flash");
+
+    // No image-capable candidate means no decision at all.
+    expect(
+      chooseAutoModel({
+        models: [textOnly],
+        tier: "light",
+        hasImages: true,
+      }),
+    ).toBeNull();
+  });
+
   it("builds the model value with and without an account", () => {
     expect(autoModelValue({ providerID: "openai", modelID: "gpt-5" })).toBe(
       "openai::gpt-5",
