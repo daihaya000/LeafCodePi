@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  bufferPendingSsePayload,
   isFresherMessageList,
   rankMessageList,
   shouldFlushPendingAfterReady,
@@ -125,5 +126,52 @@ describe("sse-ready-buffer", () => {
         ready,
       ),
     ).toBe(false);
+  });
+
+  it("keeps control snapshots when a later history snapshot coalesces", () => {
+    const pending: Record<string, unknown>[] = [];
+    bufferPendingSsePayload(pending, {
+      type: "snapshot",
+      eventType: "permission_request",
+      permissionRequest: { id: "req-1" },
+    });
+    bufferPendingSsePayload(pending, {
+      type: "delta",
+      message: { id: "live" },
+    });
+    bufferPendingSsePayload(pending, {
+      type: "snapshot",
+      eventType: "intermediate",
+      messages: [{ id: "m2", createdAt: 2 }],
+    });
+    expect(pending.map((item) => item.eventType ?? item.type)).toEqual([
+      "permission_request",
+      "intermediate",
+    ]);
+  });
+
+  it("replaces the same control event type and coalesces trailing deltas", () => {
+    const pending: Record<string, unknown>[] = [];
+    bufferPendingSsePayload(pending, {
+      type: "snapshot",
+      eventType: "permission_request",
+      permissionRequest: { id: "req-1" },
+    });
+    bufferPendingSsePayload(pending, {
+      type: "snapshot",
+      eventType: "permission_request",
+      permissionRequest: { id: "req-2" },
+    });
+    bufferPendingSsePayload(pending, {
+      type: "delta",
+      message: { id: "d1" },
+    });
+    bufferPendingSsePayload(pending, {
+      type: "delta",
+      message: { id: "d2" },
+    });
+    expect(pending).toHaveLength(2);
+    expect(pending[0]).toMatchObject({ permissionRequest: { id: "req-2" } });
+    expect(pending[1]).toMatchObject({ type: "delta", message: { id: "d2" } });
   });
 });

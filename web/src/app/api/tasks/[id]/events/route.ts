@@ -8,6 +8,7 @@ import {
 } from "@/lib/pi/harness";
 import { createSseWriter } from "@/lib/sse-writer";
 import {
+  bufferPendingSsePayload,
   rankMessageList,
   shouldFlushPendingAfterReady,
 } from "@/lib/sse-ready-buffer";
@@ -40,20 +41,9 @@ export async function GET(
           : 0;
         unsubscribe = subscribeTask(id, (payload) => {
           if (!ready) {
-            // Keep the ready snapshot before live updates. A full snapshot
-            // supersedes every buffered update; only the latest delta after it
-            // can still add information before the stream becomes ready.
-            if (payload.type !== "delta") {
-              pendingPayloads.length = 0;
-              pendingPayloads.push(payload);
-            } else {
-              const previous = pendingPayloads.at(-1);
-              if (previous?.type === "delta") {
-                pendingPayloads[pendingPayloads.length - 1] = payload;
-              } else {
-                pendingPayloads.push(payload);
-              }
-            }
+            // History snapshots still coalesce, but control events (permission,
+            // hang retry, errors) must survive until the ready snapshot flushes.
+            bufferPendingSsePayload(pendingPayloads, payload);
             return;
           }
           sse?.send(payload.type === "delta" ? "delta" : "snapshot", payload);

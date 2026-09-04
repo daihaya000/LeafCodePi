@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 8
+
+**SSE ready 待ち中に承認イベントが後続スナップショットで消える** — 非 delta が来るたびに pending を全クリアしていた。`permission_request` の直後の履歴 snapshot で許可カードが消え、応答後の `permission_resolved` も落ちてカードが固まる。制御イベントは coalesce 時に残す。
+
 ## 2026-09-04: 発見→修正ループ Tick 7
 
 **SSE ready 後に承認/ハング再試行イベントが捨てられる** — `shouldFlushPendingAfterReady` がメッセージ履歴の新しさだけで判断していた。fetch 中に届いた `permission_request` / `hang_retry` などは ready と同じ履歴だと破棄され、カードや再試行表示が消えた。制御イベントは履歴が同じでも flush する。

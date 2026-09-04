@@ -51,6 +51,50 @@ export const SSE_CONTROL_SNAPSHOT_EVENT_TYPES = new Set([
   "project_promoted",
 ]);
 
+export function isControlSnapshot(payload: Record<string, unknown>): boolean {
+  return (
+    payload.type === "snapshot" &&
+    typeof payload.eventType === "string" &&
+    SSE_CONTROL_SNAPSHOT_EVENT_TYPES.has(payload.eventType)
+  );
+}
+
+/**
+ * Coalesce live events while the ready snapshot is still being fetched.
+ * History snapshots still replace earlier history + trailing deltas, but
+ * control events (permission, hang retry, errors) stay until flush.
+ */
+export function bufferPendingSsePayload(
+  pending: Record<string, unknown>[],
+  payload: Record<string, unknown>,
+): void {
+  if (payload.type === "delta") {
+    const previous = pending.at(-1);
+    if (previous?.type === "delta") {
+      pending[pending.length - 1] = payload;
+    } else {
+      pending.push(payload);
+    }
+    return;
+  }
+
+  if (isControlSnapshot(payload)) {
+    const existing = pending.findIndex(
+      (item) => item.type === "snapshot" && item.eventType === payload.eventType,
+    );
+    if (existing >= 0) {
+      pending[existing] = payload;
+    } else {
+      pending.push(payload);
+    }
+    return;
+  }
+
+  const kept = pending.filter(isControlSnapshot);
+  pending.length = 0;
+  pending.push(...kept, payload);
+}
+
 export function shouldFlushPendingAfterReady(
   payload: Record<string, unknown>,
   readyRank: MessageListRank,
