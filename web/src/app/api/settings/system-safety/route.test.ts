@@ -30,10 +30,10 @@ describe("/api/settings/system-safety", () => {
     rmSync(appDir, { recursive: true, force: true });
   });
 
-  it("defaults to strict and can change levels via PATCH", async () => {
+  it("defaults to standard and can change levels via PATCH", async () => {
     const initial = await GET();
     assert.equal(initial.status, 200);
-    assert.deepEqual(await initial.json(), { level: "strict", systemSafety: true });
+    assert.deepEqual(await initial.json(), { level: "standard", systemSafety: true });
 
     const low = await PATCH(request({ level: "low" }));
     assert.equal(low.status, 200);

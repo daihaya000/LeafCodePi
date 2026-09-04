@@ -911,3 +911,8 @@ turn 2 の合成ベンチマークでは、履歴100/1,000/5,000件を各200回 
 `permission-gate.json` の `systemSafety` は string level。旧 boolean は off/strict に互換変換。API は `{ level, systemSafety }` を返す。
 
 検証: web 関連 30 tests、permission-gate 11 tests 成功。
+## 2026-09-05: 安全ガード既定を標準にしスライダUI化
+
+システム安全ガードのデフォルトを `strict` から `standard` に変更。設定UIは select から range スライダ（無効→軽め→標準→厳格）へ。旧 boolean `true` も standard へマップ。
+
+検証: web 関連 14 tests、permission-gate 11 tests 成功。

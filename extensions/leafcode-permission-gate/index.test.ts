@@ -386,7 +386,11 @@ describe("LeafCode permission gate", () => {
     };
 
     try {
-      writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "allow" }), "utf8");
+      writeFileSync(
+        join(appDir, "permission-gate.json"),
+        JSON.stringify({ mode: "allow", systemSafety: "strict" }),
+        "utf8",
+      );
       await handlers.get("session_start")?.({}, freshContext(cwd, sessionManager));
 
       const direct = await handlers.get("tool_call")?.(

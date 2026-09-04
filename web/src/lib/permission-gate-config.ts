@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { PermissionMode } from "@/lib/permission-gate";
 import { dataDir } from "@/lib/paths";
 import {
+  DEFAULT_SYSTEM_SAFETY_LEVEL,
   parseSystemSafetyLevel,
   systemSafetyEnabled,
   type SystemSafetyLevel,
@@ -110,10 +111,10 @@ export function applyPermissionMode(
   writePermissionGateConfig(mode, sessionIdOf(session));
 }
 
-/** System safety hard-gate level. Missing config defaults to strict. */
+/** System safety hard-gate level. Missing config defaults to standard. */
 export function readSystemSafetyLevel(): SystemSafetyLevel {
   const stored = readStoredConfig();
-  return stored.systemSafety === undefined ? "strict" : stored.systemSafety;
+  return stored.systemSafety === undefined ? DEFAULT_SYSTEM_SAFETY_LEVEL : stored.systemSafety;
 }
 
 /** System safety hard-gate is on unless level is off. */
@@ -137,6 +138,6 @@ export function writeSystemSafetyLevel(level: SystemSafetyLevel): SystemSafetyLe
 
 /** Persist system-safety toggle without changing permission modes. */
 export function writeSystemSafetyEnabled(enabled: boolean): boolean {
-  writeSystemSafetyLevel(enabled ? "strict" : "off");
+  writeSystemSafetyLevel(enabled ? DEFAULT_SYSTEM_SAFETY_LEVEL : "off");
   return enabled;
 }

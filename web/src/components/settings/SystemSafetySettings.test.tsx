@@ -14,7 +14,7 @@ describe("SystemSafetySettings", () => {
   beforeEach(() => {
     getJson.mockReset();
     sendJson.mockReset();
-    getJson.mockResolvedValue({ level: "strict", systemSafety: true });
+    getJson.mockResolvedValue({ level: "standard", systemSafety: true });
     sendJson.mockResolvedValue({ level: "low", systemSafety: true });
   });
 
@@ -22,14 +22,15 @@ describe("SystemSafetySettings", () => {
     cleanup();
   });
 
-  it("loads the current level and can change intensity", async () => {
+  it("loads the current level and can change intensity with the slider", async () => {
     render(<SystemSafetySettings />);
 
-    const select = await screen.findByRole("combobox", { name: "システム安全ガードの度合い" });
-    await waitFor(() => expect((select as HTMLSelectElement).value).toBe("strict"));
-    expect(screen.getByText(/調査・影響\/復旧計画・明示承認/)).toBeTruthy();
+    const slider = await screen.findByRole("slider", { name: "システム安全ガードの度合い" });
+    await waitFor(() => expect((slider as HTMLInputElement).value).toBe("2"));
+    expect(slider.getAttribute("aria-valuetext")).toBe("標準");
+    expect(screen.getByText(/確認ダイアログ1回（調査・計画は不要）/)).toBeTruthy();
 
-    fireEvent.change(select, { target: { value: "low" } });
+    fireEvent.change(slider, { target: { value: "1" } });
 
     await waitFor(() => {
       expect(sendJson).toHaveBeenCalledWith(
@@ -38,21 +39,21 @@ describe("SystemSafetySettings", () => {
         "PATCH",
       );
     });
-    await waitFor(() => expect((select as HTMLSelectElement).value).toBe("low"));
-    expect(screen.getByText(/確認ダイアログ1回/)).toBeTruthy();
+    await waitFor(() => expect((slider as HTMLInputElement).value).toBe("1"));
+    expect(slider.getAttribute("aria-valuetext")).toBe("軽め");
   });
 
-  it("rolls back the select when saving fails", async () => {
+  it("rolls back the slider when saving fails", async () => {
     sendJson.mockRejectedValue(new Error("保存失敗"));
     render(<SystemSafetySettings />);
 
-    const select = await screen.findByRole("combobox", { name: "システム安全ガードの度合い" });
-    await waitFor(() => expect((select as HTMLSelectElement).value).toBe("strict"));
-    fireEvent.change(select, { target: { value: "off" } });
+    const slider = await screen.findByRole("slider", { name: "システム安全ガードの度合い" });
+    await waitFor(() => expect((slider as HTMLInputElement).value).toBe("2"));
+    fireEvent.change(slider, { target: { value: "0" } });
 
     await waitFor(() => {
       expect(screen.getByRole("alert").textContent).toContain("保存失敗");
     });
-    expect((select as HTMLSelectElement).value).toBe("strict");
+    expect((slider as HTMLInputElement).value).toBe("2");
   });
 });

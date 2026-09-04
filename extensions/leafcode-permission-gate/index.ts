@@ -10,7 +10,7 @@
  * 未設定時は "allow"（許可）。
  * システム安全ガードの度合いは、データディレクトリの `permission-gate.json` で
  * `"systemSafety": "off"|"low"|"standard"|"strict"`（または旧 boolean）を設定する。
- * 保護パスと LeafCodePi 自己終了の禁止はどの度合いでも継続。
+ * 未設定時の既定は `standard`。保護パスと LeafCodePi 自己終了の禁止はどの度合いでも継続。
  */
 
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -150,7 +150,7 @@ function parseMode(value: unknown): PermissionMode | undefined {
 
 function parseSystemSafetyLevel(value: unknown): SystemSafetyLevel | undefined {
   if (value === false) return "off";
-  if (value === true) return "strict";
+  if (value === true) return "standard";
   if (value === "off" || value === "low" || value === "standard" || value === "strict") return value;
   return undefined;
 }
@@ -160,7 +160,7 @@ function safetyConfigOf(level: SystemSafetyLevel | undefined): { systemSafety?: 
 }
 
 function systemSafetyLevelOf(config: StoredConfig): SystemSafetyLevel {
-  return config.systemSafety ?? "strict";
+  return config.systemSafety ?? "standard";
 }
 
 /** Critical machine-breaking matches kept at the "low" intensity. */

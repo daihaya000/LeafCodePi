@@ -1,7 +1,9 @@
 import type { PermissionMode } from "@/lib/permission-gate";
 
-/** System safety hard-gate intensity. Boolean legacy values map to off/strict. */
+/** System safety hard-gate intensity. Boolean legacy values map to off/standard. */
 export type SystemSafetyLevel = "off" | "low" | "standard" | "strict";
+
+export const DEFAULT_SYSTEM_SAFETY_LEVEL: SystemSafetyLevel = "standard";
 
 export const SYSTEM_SAFETY_LEVELS: readonly SystemSafetyLevel[] = [
   "off",
@@ -41,16 +43,25 @@ export function isSystemSafetyLevel(value: unknown): value is SystemSafetyLevel 
   return value === "off" || value === "low" || value === "standard" || value === "strict";
 }
 
-/** Normalize persisted boolean/string/missing values to a level. Default is strict. */
+/** Normalize persisted boolean/string/missing values to a level. Default is standard. */
 export function parseSystemSafetyLevel(value: unknown): SystemSafetyLevel {
   if (value === false) return "off";
-  if (value === true) return "strict";
+  if (value === true) return DEFAULT_SYSTEM_SAFETY_LEVEL;
   if (isSystemSafetyLevel(value)) return value;
-  return "strict";
+  return DEFAULT_SYSTEM_SAFETY_LEVEL;
 }
 
 export function systemSafetyEnabled(level: SystemSafetyLevel): boolean {
   return level !== "off";
+}
+
+export function systemSafetyLevelIndex(level: SystemSafetyLevel): number {
+  const index = SYSTEM_SAFETY_LEVELS.indexOf(level);
+  return index >= 0 ? index : SYSTEM_SAFETY_LEVELS.indexOf(DEFAULT_SYSTEM_SAFETY_LEVEL);
+}
+
+export function systemSafetyLevelFromIndex(index: number): SystemSafetyLevel {
+  return SYSTEM_SAFETY_LEVELS[index] ?? DEFAULT_SYSTEM_SAFETY_LEVEL;
 }
 
 export type PermissionGateStoredConfig = {

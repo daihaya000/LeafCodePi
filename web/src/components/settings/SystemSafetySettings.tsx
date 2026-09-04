@@ -4,8 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import {
+  DEFAULT_SYSTEM_SAFETY_LEVEL,
   SYSTEM_SAFETY_LEVEL_OPTIONS,
+  SYSTEM_SAFETY_LEVELS,
   isSystemSafetyLevel,
+  systemSafetyLevelFromIndex,
+  systemSafetyLevelIndex,
   type SystemSafetyLevel,
 } from "@/lib/system-safety";
 
@@ -16,11 +20,11 @@ type SystemSafetyDto = {
 
 function levelFromDto(config: SystemSafetyDto): SystemSafetyLevel {
   if (isSystemSafetyLevel(config.level)) return config.level;
-  return config.systemSafety === false ? "off" : "strict";
+  return config.systemSafety === false ? "off" : DEFAULT_SYSTEM_SAFETY_LEVEL;
 }
 
 export function SystemSafetySettings() {
-  const [level, setLevel] = useState<SystemSafetyLevel>("strict");
+  const [level, setLevel] = useState<SystemSafetyLevel>(DEFAULT_SYSTEM_SAFETY_LEVEL);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -63,35 +67,55 @@ export function SystemSafetySettings() {
   };
 
   const selected = SYSTEM_SAFETY_LEVEL_OPTIONS.find((option) => option.value === level);
+  const index = systemSafetyLevelIndex(level);
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h2 className="text-sm font-semibold">システム安全ガード</h2>
       <p className="mt-1 text-xs text-muted">
         OS・サービス・ディスクなどへの危険な変更をどの程度止めるかを選びます。どの度合いでも
-        `.env` / `.ssh` などの保護パスと LeafCodePi 自身の停止禁止は続きます。
+        `.env` / `.ssh` などの保護パスと LeafCodePi 自身の停止禁止は続きます。既定は標準です。
       </p>
-      <div className="mt-4 flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-4">
-        <label htmlFor="system-safety-level" className="text-sm text-muted sm:w-48 sm:shrink-0">
-          度合い
-        </label>
-        <select
+      <div className="mt-4 flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label htmlFor="system-safety-level" className="text-sm text-muted">
+            度合い
+          </label>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-text" aria-live="polite">
+              {selected?.label ?? level}
+            </span>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => reload()}>
+              再読込
+            </Button>
+          </div>
+        </div>
+        <input
           id="system-safety-level"
-          aria-label="システム安全ガードの度合い"
-          className="h-12 min-w-0 w-full rounded-xl border border-border bg-surface px-4 text-base sm:h-14 sm:max-w-sm sm:px-5 sm:text-lg"
-          value={level}
+          type="range"
+          min={0}
+          max={SYSTEM_SAFETY_LEVELS.length - 1}
+          step={1}
+          value={index}
           disabled={busy || !loaded}
-          onChange={(event) => void commit(event.target.value as SystemSafetyLevel)}
-        >
-          {SYSTEM_SAFETY_LEVEL_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
+          aria-label="システム安全ガードの度合い"
+          aria-valuetext={selected?.label ?? level}
+          list="system-safety-level-marks"
+          onChange={(event) => void commit(systemSafetyLevelFromIndex(Number(event.target.value)))}
+          className="w-full accent-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-40"
+        />
+        <datalist id="system-safety-level-marks">
+          {SYSTEM_SAFETY_LEVELS.map((value, markIndex) => (
+            <option key={value} value={markIndex} label={SYSTEM_SAFETY_LEVEL_OPTIONS[markIndex]?.label} />
           ))}
-        </select>
-        <Button variant="ghost" size="sm" disabled={busy} onClick={() => reload()}>
-          再読込
-        </Button>
+        </datalist>
+        <div className="flex justify-between gap-2 text-[11px] text-muted" aria-hidden="true">
+          {SYSTEM_SAFETY_LEVEL_OPTIONS.map((option) => (
+            <span key={option.value} className="min-w-0 flex-1 text-center first:text-left last:text-right">
+              {option.label}
+            </span>
+          ))}
+        </div>
       </div>
       {selected && <p className="mt-3 text-xs text-muted">{selected.description}</p>}
       {level === "off" && (
