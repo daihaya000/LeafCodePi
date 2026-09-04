@@ -130,4 +130,13 @@ describe("/api/projects/[id]/next-task", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("rejects a non-object request body before reading fields", async () => {
+    const response = await POST(
+      request(null),
+      { params: Promise.resolve({ id: "project-1" }) },
+    );
+
+    expect(response.status).toBe(400);
+  });
 });
