@@ -42,6 +42,9 @@ export async function POST(request: Request) {
     if (body.thinking !== undefined && body.thinking !== false && !isThinkingLevel(body.thinking)) {
       return NextResponse.json({ error: "thinking が不正です" }, { status: 400 });
     }
+    if (body.systemPromptMode !== undefined && body.systemPromptMode !== "replace" && body.systemPromptMode !== "append") {
+      return NextResponse.json({ error: "systemPromptMode が不正です" }, { status: 400 });
+    }
     const aliases = body.aliases as unknown;
     if (
       aliases !== undefined &&
