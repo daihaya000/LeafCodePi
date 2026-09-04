@@ -1392,3 +1392,7 @@ turn 2 の合成ベンチマークでは、履歴100/1,000/5,000件を各200回 
 - `.env` / `.ssh` / `.aws` は読み取りもブロック維持
 
 検証: permission-gate 11 tests、SystemSafetySettings / system-safety 3 tests 成功。
+
+## 2026-09-05: safety-gate ループ停止
+
+ユーザー「終了」により AGENT_LOOP_TICK_safetygate（2分間隔）を停止。端末 status=aborted、PID 29240 は既に不在。ギャップ調査・修正は継続しない。
