@@ -51,7 +51,7 @@ type SystemSafetyRule = SystemSafetyMatch & { pattern: RegExp };
 
 const LEAFCODE_PI_STOP_LABEL = "LeafCodePi process termination";
 const LEAFCODE_PI_STOP_REASON = "LeafCodePi process termination is prohibited.";
-const PROCESS_TERMINATION_COMMAND_PATTERN = /\b(?:taskkill(?:\.exe)?|Stop-Process|Stop-Service|pkill|killall|kill|wmic(?:\.exe)?)\b|\b(?:sc(?:\.exe)?|systemctl|service|launchctl|rc-service)\b[^\r\n]*(?:\b(?:stop|terminate|kill|bootout|unload|delete)\b)/i;
+const PROCESS_TERMINATION_COMMAND_PATTERN = /\b(?:taskkill(?:\.exe)?|Stop-Process|Stop-Service|pkill|killall|kill)\b|\bwmic(?:\.exe)?\b[^\r\n]*\b(?:call\s+terminate|delete)\b|\b(?:sc(?:\.exe)?|systemctl|service|launchctl|rc-service)\b[^\r\n]*(?:\b(?:stop|terminate|kill|bootout|unload|delete)\b)/i;
 const LEAFCODE_PI_PROCESS_TARGET_PATTERN = /\b(?:leafcodepi|leafcode[-_ ]?pi(?:[-_ ]?(?:host|server))?)(?:\.exe|\.service)?\b|\bhost[\\/]src[\\/]index\.js\b/i;
 const SELF_PID_REFERENCE_PATTERN = /(?:%(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID)%|\$(?:\$|(?:\{)?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?)|\bprocess\.(?:pid|ppid)\b|\b(?:os\.)?getpid\s*\(\s*\))/i;
 // Child `process.exit()` does not stop LeafCodePi; only kill/getpid self-targets do.
@@ -83,7 +83,8 @@ export function isLeafCodePiStopCommand(command: string, pid = process.pid): boo
  * without elevation, home-directory mkdir/cp) must NOT hard-gate here.
  */
 const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
-  { category: "os", label: "OS shutdown/restart", pattern: /\b(?:shutdown(?:\.exe)?|reboot|poweroff|halt|Stop-Computer|Restart-Computer|logoff(?:\.exe)?)\b/i },
+  // Word-boundary alone false-positives `git log --grep=shutdown`; require command position.
+  { category: "os", label: "OS shutdown/restart", pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:sudo\s+)?(?:shutdown(?:\.exe)?|reboot|poweroff|halt)(?:\.exe)?\b|\b(?:Stop-Computer|Restart-Computer|logoff(?:\.exe)?)\b/i },
   { category: "os", label: "privilege elevation", pattern: /\b(?:sudo|doas|pkexec|runas(?:\.exe)?)\b|\bStart-Process\b[^\r\n]*-Verb\s+RunAs\b/i },
   { category: "os", label: "system policy/account/firewall change", pattern: /\b(?:Set-ExecutionPolicy|setx|icacls|net(?:\.exe)?\s+(?:user|localgroup)|(?:New|Remove|Add|Disable|Enable)-Local(?:User|GroupMember)|(?:New|Set|Remove)-(?:NetFirewallRule|WindowsOptionalFeature)|(?:Enable|Disable)-WindowsOptionalFeature|dism(?:\.exe)?\b[^\r\n]*\/(?:enable-feature|disable-feature|add-package|remove-package)|msiexec(?:\.exe)?\b[^\r\n]*\/(?:i|uninstall))\b/i },
   { category: "os", label: "system package change", pattern: /\b(?:apt(?:-get)?|dnf|yum|pacman|zypper|apk|brew|winget|choco)\b[^\r\n]*(?:install|remove|purge|upgrade|update|add|delete|uninstall|-[SRU][A-Za-z]*)\b|\b(?:npm|pnpm|yarn|pip|pip3)\b[^\r\n]*(?:--global|\s-g\b)\b/i },
@@ -93,14 +94,18 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
   { category: "os", label: "dynamic/elevated script execution", pattern: /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*-(?:EncodedCommand|enc)\b|\b(?:Invoke-Expression|\biex\b)\b|(?<![-/])\beval\b|\bInvoke-Command\b[^\r\n]*(?:-ComputerName|-Session)\b|(?:^|[;|&\r\n])\s*&\s*(?:\(|['"])|(?:^|[;|&\r\n])\s*["']?\$(?:\{)?[A-Za-z_]\w*\}?["']?\s+(?:stop|start|restart|kill|terminate|disable|enable|delete|remove|uninstall|format|erase|wipe|shutdown|reboot)\b/i },
   { category: "os", label: "downloaded script execution", pattern: /\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:\|\s*(?:sh|bash|zsh|pwsh|powershell|cmd|iex|Invoke-Expression)\b|(?:-o|--output)\s*-\s*&&)/i },
   // Require "kernel" (or load/unload module) — bare "install modules" is a package name, not sysadmin.
-  { category: "kernel", label: "kernel/module change", pattern: /\b(?:modprobe|insmod|rmmod|kexec)\b|\bsysctl\b[^\r\n]*(?:-w|--write)\b|\bdkms\b[^\r\n]*\b(?:install|remove|autoinstall)\b|\b(?:load|unload|install|remove|update)\s+(?:the\s+)?kernel(?:\s+modules?)?\b|\b(?:load|unload)\s+(?:the\s+)?modules?\b/i },
-  { category: "driver", label: "device-driver change", pattern: /\bpnputil(?:\.exe)?\b[^\r\n]*\/(?:add-driver|delete-driver)\b|\bdevcon(?:\.exe)?\s+(?:install|remove|update)\b|\bdism(?:\.exe)?\b[^\r\n]*\/(?:add-driver|remove-driver)\b|\b(?:Add|Remove|Install|Uninstall)-WindowsDriver\b|\b(?:install|uninstall|remove|update|load)\s+(?:the\s+)?(?:device\s+)?driver(?:s)?\b/i },
+  { category: "kernel", label: "kernel/module change", pattern: /\b(?:modprobe|insmod|rmmod|kexec)\b|\bsysctl\b[^\r\n]*(?:-w|--write)\b|\bdkms\b[^\r\n]*\b(?:install|remove|autoinstall)\b|\b(?:load|unload)\s+(?:the\s+)?kernel(?:\s+modules?)?\b|\b(?:install|remove|update)\s+the\s+kernel(?:\s+modules?)?\b|\b(?:load|unload)\s+(?:the\s+)?modules?\b/i },
+  // Bare "install driver" / "npm install driver" is a package name; require device-driver wording or tools.
+  { category: "driver", label: "device-driver change", pattern: /\bpnputil(?:\.exe)?\b[^\r\n]*\/(?:add-driver|delete-driver)\b|\bdevcon(?:\.exe)?\s+(?:install|remove|update)\b|\bdism(?:\.exe)?\b[^\r\n]*\/(?:add-driver|remove-driver)\b|\b(?:Add|Remove|Install|Uninstall)-WindowsDriver\b|\b(?:install|uninstall|remove|update|load)\s+(?:the\s+)?device\s+drivers?\b/i },
   { category: "registry", label: "Windows registry change", pattern: /\breg(?:\.exe)?\s+(?:add|delete|import|copy|restore|load|unload)\b|\b(?:New-ItemProperty|Set-ItemProperty|Remove-ItemProperty|New-Item|Remove-Item)\b[^\r\n]*(?:HK(?:LM|CU|CR|U|CC)\b|Registry::|CurrentControlSet|Software[\\/]Classes)|\b(?:add|set|write|delete|remove|import|update)\s+(?:the\s+)?(?:Windows\s+)?registry\b/i },
   { category: "service", label: "service/daemon change", pattern: /\bsc(?:\.exe)?\s+(?:create|config|delete|start|stop|failure|privs)\b|\b(?:New|Remove|Set|Start|Stop|Restart)-(?:Windows)?Service\b|\bsystemctl\s+(?:enable|disable|start|stop|restart|mask|unmask|link|preset)\b|\bservice\s+\S+\s+(?:start|stop|restart)\b|\b(?:launchctl\s+(?:load|unload|bootstrap|bootout|enable|disable)|rc-service\s+\S+\s+(?:start|stop|restart))\b|\b(?:start|stop|restart|enable|disable)\s+(?:the\s+)?(?:service|daemon)s?\b|\b(?:start|stop|restart|enable|disable)[_-](?:service|daemon)s?\b/i },
-  { category: "boot", label: "boot configuration change", pattern: /\b(?:bcdboot(?:\.exe)?|grub-install|update-grub|update-initramfs)\b|\bbootrec(?:\.exe)?\b[^\r\n]*\/(?:fixmbr|fixboot|rebuildbcd)\b|\befibootmgr\b[^\r\n]*(?:\s-[cCbBdDoOnN]|--(?:create|delete|disk|bootorder|bootnext))\b|\breagentc(?:\.exe)?\b[^\r\n]*\/(?:enable|disable|setreimage|boottore)\b|\bbootcfg(?:\.exe)?\b[^\r\n]*\/(?:add|delete|raw)\b|\bbcdedit(?:\.exe)?\b[^\r\n]*\/(?:set|delete(?:value)?|create|import|export|store|timeout|default|displayorder|bootsequence|ems|dbgsettings|hypervisorsettings)\b|\b(?:change|modify|update|repair|write|set)\s+(?:the\s+)?boot(?:loader|configuration)?\b/i },
+  // Require bootloader/configuration — bare "update boot" is a commit message / package name.
+  { category: "boot", label: "boot configuration change", pattern: /\b(?:bcdboot(?:\.exe)?|grub-install|update-grub|update-initramfs)\b|\bbootrec(?:\.exe)?\b[^\r\n]*\/(?:fixmbr|fixboot|rebuildbcd)\b|\befibootmgr\b[^\r\n]*(?:\s-[cCbBdDoOnN]|--(?:create|delete|disk|bootorder|bootnext))\b|\breagentc(?:\.exe)?\b[^\r\n]*\/(?:enable|disable|setreimage|boottore)\b|\bbootcfg(?:\.exe)?\b[^\r\n]*\/(?:add|delete|raw)\b|\bbcdedit(?:\.exe)?\b[^\r\n]*\/(?:set|delete(?:value)?|create|import|export|store|timeout|default|displayorder|bootsequence|ems|dbgsettings|hypervisorsettings)\b|\b(?:change|modify|update|repair|write|set)\s+(?:the\s+)?boot(?:loader|configuration)\b/i },
   // Bare `format` / `npm run format` must not match; require format.com/exe or a drive letter arg.
-  { category: "disk", label: "disk/partition/volume change", pattern: /\b(?:dd|mkfs(?:\.\w+)?|fdisk|sfdisk|parted|cfdisk|sgdisk|wipefs|diskpart(?:\.exe)?|diskutil)\b|\bformat(?:\.com|\.exe)\b|\bformat\s+[A-Za-z]:\b|\b(?:Clear|Initialize|Set|New|Remove)-(?:Disk|Partition|Volume)\b|\b(?:Format|Resize|New|Remove|Set)-Volume\b|\b(?:format|erase|wipe|partition|resize|initialize)\s+(?:the\s+)?(?:disk|drive|volume|partition)s?\b/i },
-  { category: "firmware", label: "firmware/BIOS update", pattern: /\bfwupdmgr\b[^\r\n]*\b(?:install|update|refresh)\b|\bflashrom\b[^\r\n]*(?:-w|--write|\bwrite\b)|\b(?:flash|update|write|set)[ -]*(?:bios|uefi|firmware)\b|\b(?:Update|Set|Write)-Firmware\b|\b(?:flash|update|write|install|erase)\s+(?:the\s+)?(?:firmware|bios|uefi)\b/i }
+  // No trailing \b after `C:` — `:` is non-word so `\b` never matches there.
+  { category: "disk", label: "disk/partition/volume change", pattern: /\b(?:dd|mkfs(?:\.\w+)?|fdisk|sfdisk|parted|cfdisk|sgdisk|wipefs|diskpart(?:\.exe)?|diskutil)\b|\bformat(?:\.com|\.exe)\b|\bformat\s+[A-Za-z]:(?:\s|$|\/)|\b(?:Clear|Initialize|Set|New|Remove)-(?:Disk|Partition|Volume)\b|\b(?:Format|Resize|New|Remove|Set)-Volume\b|\b(?:format|erase|wipe|partition|resize|initialize)\s+(?:the\s+)?(?:disk|drive|volume|partition)s?\b/i },
+  // Require flash/write/the firmware — bare "npm install firmware" is a package name.
+  { category: "firmware", label: "firmware/BIOS update", pattern: /\bfwupdmgr\b[^\r\n]*\b(?:install|update|refresh)\b|\bflashrom\b[^\r\n]*(?:-w|--write|\bwrite\b)|\b(?:flash|update|write|set)[ -]*(?:bios|uefi)\b|\b(?:flash|write)\s+(?:the\s+)?firmware\b|\b(?:Update|Set|Write)-Firmware\b|\b(?:flash|update|write|install|erase)\s+the\s+(?:firmware|bios|uefi)\b/i }
 ];
 
 /** Soft shell wrappers: re-scan the nested payload, do not hard-gate the wrapper alone. */
@@ -108,7 +113,7 @@ const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh)\s+-c|(?:powershell|pw
 
 const MUTATING_COMMAND_PATTERN = /\b(?:rm|mv|cp|mkdir|touch|install|truncate|shred|unlink|del|erase|rd|rmdir|copy|move|rename|Set-Content|Add-Content|Clear-Content|Clear-Item|Out-File|Export-Csv|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|Expand-Archive|Set-Item|Set-ItemProperty|New-ItemProperty|Remove-ItemProperty|ri|ni|mi|ci|tar|unzip|tee|rsync|ln|mount|umount|chmod|chown|setfacl|robocopy|xcopy)\b|\b(?:sed|perl)\b[^\r\n]*(?:\s-i\b|--in-place\b)|\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:-O\b|--output\b|-OutFile\b)\s*\S+|(?<![0-9])>{1,2}(?!&)|[0-9]>{1,2}(?!&)/i;
 const USER_DATA_COMMAND_PATH_PATTERN = /(?:~(?:[A-Za-z0-9._-]+)?(?:[\\/]|$)|(?:%(?:USERPROFILE|APPDATA|LOCALAPPDATA|HOMEDRIVE|HOMEPATH)%|\$(?:\{)?(?:env:)?(?:USERPROFILE|HOME|APPDATA|LOCALAPPDATA|HOMEDRIVE|HOMEPATH)\}?)(?:[\\/]|$)|(?:[A-Za-z]:[\\/]|\/)(?:Users|home|Documents and Settings)(?:[\\/]|$))/i;
-const SYSTEM_COMMAND_PATH_PATTERN = /(?:%(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA)%|\$(?:\{)?(?:env:)?(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA)\}?|(?:[A-Za-z]:[\\/]|\/)(?:Windows|Program Files(?: \(x86\))?|ProgramData|EFI|etc|boot|dev|sys|proc|usr|var|opt|root|sbin|bin|lib)(?:[\\/]|$)|(?:^|[\\s"'=])\/(?:[\\s"';&|]|$)|(?:^|[\\s"'=])[A-Za-z]:[\\/](?:[\\s"';&|]|$))/i;
+const SYSTEM_COMMAND_PATH_PATTERN = /(?:%(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA)%|\$(?:\{)?(?:env:)?(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA)\}?|(?:[A-Za-z]:[\\/]|\/)(?:Windows|Program Files(?: \(x86\))?|ProgramData|EFI|etc|boot|dev|sys|proc|usr|var|opt|root|sbin|bin|lib)(?:[\\/]|$)|(?:^|[\s"'=])\/(?:[\s"';&|]|$)|(?:^|[\s"'=])[A-Za-z]:[\\/](?:[\s"';&|]|$))/i;
 const KERNEL_COMMAND_PATH_PATTERN = /(?:\/(?:proc\/sys|sys)(?:[\\/]|$)|\/(?:lib|usr\/lib)\/modules(?:[\\/]|$)|(?:[A-Za-z]:[\\/]Windows[\\/]System32[\\/]drivers)(?:[\\/]|$))/i;
 // Project paths like src/modules must not count as driver mutations.
 const DRIVER_COMMAND_PATH_PATTERN = /(?:\/(?:lib|usr\/lib)\/modules(?:[\\/]|$)|(?:[A-Za-z]:[\\/]Windows[\\/]System32[\\/]drivers)(?:[\\/]|$))/i;
@@ -179,8 +184,13 @@ function isLowIntensityMatch(match: SystemSafetyMatch): boolean {
   ) {
     return true;
   }
-  return match.category === "os"
-    && (match.label === "OS shutdown/restart" || match.label === "privilege elevation");
+  if (match.category === "os") {
+    return match.label === "OS shutdown/restart"
+      || match.label === "privilege elevation"
+      || match.label === "protected OS path"
+      || match.label === "system path mutation";
+  }
+  return false;
 }
 
 function readConfig(): StoredConfig {
@@ -753,6 +763,57 @@ function isSecretProtectedReason(reason?: string): boolean {
     || reason.includes("auth.json");
 }
 
+const SECRET_PATH_INPUT_KEYS = new Set([
+  "path",
+  "filepath",
+  "file_path",
+  "target",
+  "glob",
+  "include",
+  "file",
+  "directory",
+  "dir",
+  "location",
+  "root",
+]);
+
+function secretPathFromCandidate(candidate: string): { protected: boolean; reason?: string } {
+  const asPath = isProtectedPath(candidate);
+  if (asPath.protected && isSecretProtectedReason(asPath.reason)) return asPath;
+  // Globs like `.env*` / `**/.ssh/**` are not valid path segments for isProtectedPath.
+  if (/(?:^|[\\/])\.env(?:\.|[*?]|$)/i.test(candidate) || /^\.env(?:\.[\w.-]*)?[*?]?$/i.test(candidate.trim())) {
+    return { protected: true, reason: 'protected path ".env*"' };
+  }
+  if (/(?:^|[\\/])\.ssh(?:[\\/]|[*?]|$)/i.test(candidate) || /^\.ssh(?:[\\/].*)?[*?]?$/i.test(candidate.trim())) {
+    return { protected: true, reason: 'protected path ".ssh/"' };
+  }
+  if (/(?:^|[\\/])\.aws(?:[\\/]|[*?]|$)/i.test(candidate) || /^\.aws(?:[\\/].*)?[*?]?$/i.test(candidate.trim())) {
+    return { protected: true, reason: 'protected path ".aws/"' };
+  }
+  if (/(?:^|[\\/])\.pi[\\/]agent[\\/]auth\.json$/i.test(candidate) || /auth\.json$/i.test(candidate.trim())) {
+    // Only treat clear auth.json path targets as secret, not arbitrary "auth.json" prose in patterns.
+    if (/auth\.json/i.test(candidate) && (/[\\/]/.test(candidate) || /^\.?pi\b/i.test(candidate) || candidate.trim() === "auth.json")) {
+      return { protected: true, reason: 'protected path ".pi/agent/auth.json"' };
+    }
+  }
+  return { protected: false };
+}
+
+/** Block when tool inputs name secret paths (e.g. grep glob=".env*", path=".env.local"). */
+function toolInputTouchesSecretPath(toolName: string, input: unknown): { protected: boolean; reason?: string } {
+  const candidates: string[] = [];
+  collectStringFields(input, SECRET_PATH_INPUT_KEYS, candidates);
+  // `find` uses `pattern` as a filename glob; `grep` uses it as content — only check find.
+  if (toolName === "find") {
+    collectStringFields(input, new Set(["pattern"]), candidates);
+  }
+  for (const candidate of [...new Set(candidates)]) {
+    const hit = secretPathFromCandidate(candidate);
+    if (hit.protected) return hit;
+  }
+  return { protected: false };
+}
+
 function decodeCharCodes(command: string): string {
   let text = command;
   text = text.replace(/String\.fromCharCode\s*\(([\d,\s]+)\)/gi, (full, nums: string) => {
@@ -833,7 +894,7 @@ function matchProtectedPathLiteral(command: string): { protected: boolean; reaso
 // Bare `git stash` defaults to push. Keep list/show/get/branch as read-only.
 const GIT_MUTATING_SUBCOMMAND_PATTERN = /\bgit(?:\.exe)?\b[^\r\n]*\b(?:commit|push|add|reset|clean|rebase|merge|cherry-pick|am|apply|checkout|switch|restore|init|clone|fetch|pull|gc|repack|filter-branch|update-ref|branch\s+-[dDmM]|tag\s+-[dD]|stash(?!\s+(?:list|show|get|branch)\b)|remote\s+(?:add|remove|rm|rename|set-url)|config\s+(?!--(?:get|list)))\b/i;
 const GIT_COMMAND_PATTERN = /(^|[;&|\n])\s*git(?:\.exe)?\b/i;
-const READ_ONLY_FILE_COMMAND_PATTERN = /(^|[;&|\n])\s*(?:cat|head|tail|less|more|type|Get-Content|gc|Get-ChildItem|gci|ls|dir|Get-Item|gi|Test-Path|rg|grep|findstr|find|Select-String)\b/i;
+const READ_ONLY_FILE_COMMAND_PATTERN = /(^|[;&|\n])\s*(?:cat|head|tail|less|more|type|Get-Content|gc|Get-ChildItem|gci|ls|dir|Get-Item|gi|Test-Path|rg|grep|findstr|find|Select-String|cd|Set-Location|Push-Location|Pop-Location|pushd|popd)\b/i;
 const FIND_MUTATING_ACTION_PATTERN = /\bfind\b[^\r\n]*\s-(?:delete|exec|execdir|ok|okdir)\b/i;
 
 function isReadOnlyGitCommand(command: string): boolean {
@@ -1077,15 +1138,15 @@ export default function (pi: ExtensionAPI): void {
       || event.toolName === "find"
       || event.toolName === "ls"
     ) {
-      const path = (event.input as { path?: string }).path ?? "";
-      if (path) {
-        const check = isProtectedPath(path);
-        if (check.protected && isSecretProtectedReason(check.reason)) {
-          if (ctx.hasUI) {
-            ctx.ui.notify(`Blocked read of ${check.reason}`, "warning");
-          }
-          return { block: true, reason: `Path "${path}" is protected (${check.reason})` };
+      const secret = toolInputTouchesSecretPath(event.toolName, event.input);
+      if (secret.protected) {
+        if (ctx.hasUI) {
+          ctx.ui.notify(`Blocked read of ${secret.reason}`, "warning");
         }
+        return {
+          block: true,
+          reason: `Path is protected (${secret.reason})`,
+        };
       }
     }
 

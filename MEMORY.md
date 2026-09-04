@@ -1,3 +1,19 @@
+## 2026-09-05: permission-gate 残バグ（ループ tick）
+
+526e15b 後の再調査で修正:
+
+- `format C:` 回帰（`:` 後の `\b` が死んでいた）
+- grep/find の glob・pattern 経由の `.env*` 読み取り抜け
+- `npm install firmware/driver`・`git log --grep=shutdown` 過検知
+- `rm -rf /` が system path に当たらない（`[\\s]` 文字クラスバグ）
+- `cd node_modules && npm test` 誤ブロック
+- `wmic … get` の自己停止誤検知
+- standard で `/etc` 等 OS パス write が確認なしだった件
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate / 安全ガード不整合修正
 
 `/loop 2m` で system safety / permission-gate の実バグを一括修正。

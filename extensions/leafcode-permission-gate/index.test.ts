@@ -83,6 +83,12 @@ describe("system safety classifier", () => {
       "mkdir src/firmware",
       "install modules",
       "npm install modules",
+      "npm install firmware",
+      "npm install driver",
+      "npm update kernel",
+      "git log --grep=shutdown",
+      "echo halt",
+      "git commit -m \"update boot\"",
     ];
     for (const command of allowed) {
       assert.deepEqual(
@@ -140,6 +146,15 @@ describe("system safety classifier", () => {
       configuredSafetyMatches({ mode: "allow", systemSafety: "standard" }, encodedMatches)
         .some((match) => match.label === "OS shutdown/restart"),
     );
+
+    assert.ok(matchSystemSafetyCommand("format C:").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("format C: /Q").some((match) => match.category === "disk"));
+    assert.ok(
+      configuredSafetyMatches(
+        { mode: "allow", systemSafety: "standard" },
+        matchSystemSafetyCommand("rm -rf /"),
+      ).some((match) => match.label === "system path mutation"),
+    );
   });
 
   it("recognizes LeafCodePi self-termination targets", () => {
@@ -151,6 +166,8 @@ describe("system safety classifier", () => {
     assert.equal(isLeafCodePiStopCommand("node -e \"process.kill(process.pid)\""), true);
     // Child process.exit does not terminate the LeafCodePi host.
     assert.equal(isLeafCodePiStopCommand("node -e \"process.exit()\""), false);
+    assert.equal(isLeafCodePiStopCommand("wmic process where name='node.exe' get processid"), false);
+    assert.equal(isLeafCodePiStopCommand("wmic process where name='node.exe' delete"), true);
     assert.equal(isLeafCodePiStopCommand("taskkill /F /PID 2468", 1357), false);
     assert.equal(isLeafCodePiStopCommand("Get-Process node"), false);
   });
@@ -737,6 +754,50 @@ describe("LeafCode permission gate", () => {
         freshContext(cwd, sessionManager),
       );
       assert.equal(envVarNoise, undefined);
+
+      const cdNodeModules = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "cd node_modules && npm test" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal(cdNodeModules, undefined);
+
+      const grepEnvGlob = await handlers.get("tool_call")?.(
+        { toolName: "grep", input: { pattern: "SECRET", glob: ".env*" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((grepEnvGlob as { block?: boolean } | undefined)?.block, true);
+
+      const findEnv = await handlers.get("tool_call")?.(
+        { toolName: "find", input: { pattern: ".env*" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((findEnv as { block?: boolean } | undefined)?.block, true);
+
+      const grepCode = await handlers.get("tool_call")?.(
+        { toolName: "grep", input: { pattern: "SECRET", path: "src" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal(grepCode, undefined);
+
+      let osWritePrompt = "";
+      const osWriteContext = {
+        cwd,
+        hasUI: true,
+        sessionManager,
+        ui: {
+          select: async (message: string) => {
+            osWritePrompt = message;
+            return "No";
+          },
+          notify: () => undefined,
+        },
+      } as unknown as ExtensionContext;
+      const osWrite = await handlers.get("tool_call")?.(
+        { toolName: "write", input: { path: "/etc/passwd", content: "x" } },
+        osWriteContext,
+      );
+      assert.equal((osWrite as { block?: boolean } | undefined)?.block, true);
+      assert.match(osWritePrompt, /明示的に許可/);
     } finally {
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
