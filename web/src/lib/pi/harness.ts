@@ -258,6 +258,10 @@ type LiveRuntime = {
   autoCompactionPromise: Promise<void> | null;
   /** Prevent the settled event from starting auto-compaction during a manual abort. */
   manualCompactionInProgress: boolean;
+  /** Native Pi compaction already ran during the current agent run. */
+  nativeCompactionAttempted: boolean;
+  /** The current agent run belongs to an active Goal Loop turn. */
+  goalLoopTurnActive: boolean;
   /** A prompt has been accepted and is about to start or is still running. */
   promptActive: boolean;
   /** Assistant throughput samples keyed by message.timestamp (ms). */
@@ -1445,9 +1449,25 @@ function mapCompactionError(error: unknown): Error {
   return error instanceof Error ? error : new Error(message);
 }
 
+function isActiveGoalLoopSession(session: AgentSession): boolean {
+  try {
+    const loop = readGoalLoopState(
+      session.sessionManager.getCwd(),
+      session.sessionId,
+    );
+    return Boolean(
+      loop &&
+        ["queued", "running", "verifying_completed"].includes(loop.status),
+    );
+  } catch {
+    return false;
+  }
+}
+
 function applySessionCompactionSettings(
   session: AgentSession,
   enabledOverride?: boolean,
+  skipGoalLoop = false,
 ): void {
   const action = parseCompactionAction(
     getSetting(COMPACTION_ACTION_SETTING_KEY),
@@ -1455,6 +1475,7 @@ function applySessionCompactionSettings(
   const threshold = parseCompactionThreshold(
     getSetting(COMPACTION_THRESHOLD_SETTING_KEY),
   );
+  const goalLoopActive = skipGoalLoop || isActiveGoalLoopSession(session);
   const contextWindow = Number(session.model?.contextWindow ?? 0);
   const settingsManager = session.settingsManager;
   if (
@@ -1465,8 +1486,8 @@ function applySessionCompactionSettings(
   }
   settingsManager.applyOverrides({
     compaction: {
-      enabled: enabledOverride ?? action === "auto",
-      ...(contextWindow > 0
+      enabled: goalLoopActive ? false : (enabledOverride ?? action === "auto"),
+      ...(contextWindow > 0 && !goalLoopActive
         ? { reserveTokens: reserveTokensForThreshold(contextWindow, threshold) }
         : {}),
     },
@@ -1478,7 +1499,10 @@ function scheduleAutoCompaction(live: LiveRuntime): void {
     live.autoCompactionPromise ||
     live.manualCompactionInProgress ||
     live.manualAbortedAssistantId ||
-    live.session.isCompacting
+    live.nativeCompactionAttempted ||
+    live.goalLoopTurnActive ||
+    live.session.isCompacting ||
+    isActiveGoalLoopSession(live.session)
   ) {
     return;
   }
@@ -1576,7 +1600,12 @@ async function fallbackProviderAfterLimit(
     await withRouteLock(
       `${task.providerID}::${task.modelID}`,
       async () => {
-        const currentLive = state().live.get(task.id) ?? live;
+        let currentLive = state().live.get(task.id) ?? live;
+        const pendingCompaction = currentLive.autoCompactionPromise;
+        if (pendingCompaction) {
+          await pendingCompaction.catch(() => undefined);
+          currentLive = state().live.get(task.id) ?? currentLive;
+        }
         const latestTask = getTask(task.id);
         if (
           !latestTask ||
@@ -1666,6 +1695,8 @@ async function attachSession(
     promptChain: existing?.promptChain ?? Promise.resolve(),
     autoCompactionPromise: null,
     manualCompactionInProgress: false,
+    nativeCompactionAttempted: false,
+    goalLoopTurnActive: false,
     promptActive: existing?.promptActive ?? false,
     throughputByStartedAt:
       existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
@@ -1687,6 +1718,21 @@ async function attachSession(
   };
 
   const unsubscribe = session.subscribe((event) => {
+    if (event.type === "agent_start") {
+      live.nativeCompactionAttempted = false;
+      live.goalLoopTurnActive = isActiveGoalLoopSession(session);
+      applySessionCompactionSettings(
+        session,
+        undefined,
+        live.goalLoopTurnActive,
+      );
+    }
+    if (event.type === "compaction_start" && event.reason !== "manual") {
+      live.nativeCompactionAttempted = true;
+    }
+    if (event.type === "agent_end" && isActiveGoalLoopSession(session)) {
+      live.goalLoopTurnActive = true;
+    }
     const limitMessage = lastAssistantLimitError(event);
     const ids = modelId(session.model);
     if (event.type === "agent_end" && ids.providerID) {
@@ -1709,6 +1755,11 @@ async function attachSession(
       }
     }
 
+    const harnessAutoCompactionError =
+      event.type === "compaction_end" &&
+      !event.aborted &&
+      Boolean(event.errorMessage) &&
+      live.autoCompactionPromise !== null;
     const syncTask =
       event.type === "agent_start" ||
       event.type === "agent_settled" ||
@@ -1716,7 +1767,7 @@ async function attachSession(
       (event.type === "compaction_end" &&
         !event.aborted &&
         Boolean(event.errorMessage) &&
-        event.reason !== "manual");
+        (event.reason !== "manual" || harnessAutoCompactionError));
     // Message/tool deltas arrive much more often than task metadata changes.
     // Avoid a synchronous store read for every token; status/identity changes
     // still use the existing path below.
@@ -1741,6 +1792,9 @@ async function attachSession(
         session.setAutoRetryEnabled(true);
         live.restoreAutoRetry = false;
       }
+      const goalLoopTurnActive = live.goalLoopTurnActive;
+      live.goalLoopTurnActive = false;
+      if (!goalLoopTurnActive) scheduleAutoCompaction(live);
       const pending = live.pendingProviderFallback;
       live.pendingProviderFallback = null;
       if (pending && pending.modelID) {
@@ -1752,13 +1806,12 @@ async function attachSession(
           );
         });
       }
-      scheduleAutoCompaction(live);
     }
     if (
       event.type === "compaction_end" &&
       !event.aborted &&
       event.errorMessage &&
-      event.reason !== "manual"
+      (event.reason !== "manual" || harnessAutoCompactionError)
     ) {
       setTaskStatus(taskId, "error", event.errorMessage);
     }
@@ -1844,6 +1897,8 @@ async function createSession(options: {
   accountId?: string | null;
   /** pi-subagents agent running as the main session persona. */
   agentName?: string | null;
+  /** Goal Loop sessions intentionally do not inherit WebUI compaction settings. */
+  goalLoop?: boolean;
 }): Promise<SessionSetup> {
   const pi = await loadPi();
   await ensureRuntime();
@@ -1978,7 +2033,7 @@ async function createSession(options: {
   // Agent-defined tools may include `subagent`; enforce the user choice after
   // the full extension registry is ready, including the initial turn.
   applySubagentPermission(result.session, options.subagentPermission);
-  applySessionCompactionSettings(result.session);
+  applySessionCompactionSettings(result.session, undefined, options.goalLoop === true);
   return { session: result.session, skillPermissionRef };
 }
 
@@ -4590,6 +4645,7 @@ export async function createTask(input: {
       skillPermission: input.skillPermission,
       // The selected agent talks as the main persona for this whole session.
       agentName: input.agent ?? null,
+      goalLoop: Boolean(input.goalLoop),
     });
     // createAgentSession may normalize the level from its model metadata. Keep
     // the user's Auto effort in the session; the provider clamps at request time.
