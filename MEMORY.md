@@ -1,3 +1,14 @@
+## 2026-09-05: permission-gate ループ tick 36
+
+- FN: `FOO=1` / `env FOO=1` 前置きが security・disk tail・launchctl をすり抜け → VAR=val soft-prefix 統一
+- FN: `zfs destroy` / `zpool destroy` / `btrfs subvolume delete` / `xfs_repair -L`（disk）
+- FN: `Remove-MpPreference -ThreatID*`（security software disable）
+- list / `-L` なし xfs_repair は非検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 35
 
 - FN: `launchctl bootstrap|load|enable|…` を scheduled（standard）に昇格パリティ

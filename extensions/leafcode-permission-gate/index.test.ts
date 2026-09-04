@@ -412,6 +412,16 @@ describe("system safety classifier", () => {
       ).some((match) => match.label === "scheduled task change"),
     );
     assert.deepEqual(matchSystemSafetyCommand("cryptsetup status /dev/sda1"), []);
+    assert.ok(matchSystemSafetyCommand("FOO=1 Set-MpPreference -DisableRealtimeMonitoring $true").some((match) => match.label === "security software disable"));
+    assert.ok(matchSystemSafetyCommand("env FOO=1 Set-MpPreference -DisableRealtimeMonitoring $true").some((match) => match.label === "security software disable"));
+    assert.ok(matchSystemSafetyCommand("FOO=1 vgremove vg0").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("zfs destroy tank/data").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("btrfs subvolume delete /mnt/snap").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("xfs_repair -L /dev/sda1").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("Remove-MpPreference -ThreatIDDefaultAction_1").some((match) => match.label === "security software disable"));
+    assert.ok(matchSystemSafetyCommand("FOO=1 launchctl bootstrap gui/501/com.evil").some((match) => match.label === "scheduled task change"));
+    assert.deepEqual(matchSystemSafetyCommand("zfs list"), []);
+    assert.deepEqual(matchSystemSafetyCommand("xfs_repair /dev/sda1"), []);
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);
