@@ -899,3 +899,15 @@ turn 2 の合成ベンチマークでは、履歴100/1,000/5,000件を各200回 
 設定 > エンジン に「システム安全ガード」トグルを追加。`permission-gate.json` の `systemSafety: false` を API (`/api/settings/system-safety`) 経由で読み書きする。無効時も保護パスと LeafCodePi 自己停止禁止は維持。デフォルトは有効。
 
 検証: permission-gate-config / system-safety API / SystemSafetySettings / SettingsView / extension index の関連テスト成功。
+## 2026-09-05: システム安全ガードの度合い調整
+
+設定 > エンジンの安全ガードを ON/OFF から 4 段階へ変更。
+
+- `off`: 無効（保護パス・自己停止禁止は継続）
+- `low`: 停止/権限昇格/kernel/driver/boot/disk/firmware のみ、確認1回
+- `standard`: OS変更系すべて、確認1回（調査・計画なし）
+- `strict`: 従来どおり調査→計画→明示承認（デフォルト）
+
+`permission-gate.json` の `systemSafety` は string level。旧 boolean は off/strict に互換変換。API は `{ level, systemSafety }` を返す。
+
+検証: web 関連 30 tests、permission-gate 11 tests 成功。

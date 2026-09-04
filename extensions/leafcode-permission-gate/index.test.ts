@@ -260,6 +260,115 @@ describe("LeafCode permission gate", () => {
     }
   });
 
+  it("low intensity only hard-gates critical machine changes with a single approval", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-low-safety-"));
+    const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-low-safety-data-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = appDir;
+    const handlers = new Map<string, Handler>();
+    const pi = {
+      on: (name: string, handler: Handler) => handlers.set(name, handler),
+      registerCommand: () => undefined,
+    } as unknown as ExtensionAPI;
+    permissionGate(pi);
+    const sessionManager = {
+      getSessionId: () => "low-safety-session",
+      getSessionName: () => "Low safety",
+    };
+
+    try {
+      writeFileSync(
+        join(appDir, "permission-gate.json"),
+        JSON.stringify({ mode: "allow", systemSafety: "low" }),
+        "utf8",
+      );
+      await handlers.get("session_start")?.({}, freshContext(cwd, sessionManager));
+
+      const service = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "systemctl stop sshd" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal(service, undefined);
+
+      let prompt = "";
+      const approvalContext = {
+        cwd,
+        hasUI: true,
+        sessionManager,
+        ui: {
+          select: async (message: string) => {
+            prompt = message;
+            return "No";
+          },
+          notify: () => undefined,
+        },
+      } as unknown as ExtensionContext;
+      const shutdown = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "Stop-Computer -Force" } },
+        approvalContext,
+      );
+      assert.equal((shutdown as { block?: boolean } | undefined)?.block, true);
+      assert.match(prompt, /明示的に許可/);
+      assert.doesNotMatch(String((shutdown as { reason?: string } | undefined)?.reason ?? ""), /read-only/);
+    } finally {
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(appDir, { recursive: true, force: true });
+    }
+  });
+
+  it("standard intensity asks once for service changes without an investigation plan", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-standard-safety-"));
+    const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-standard-safety-data-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = appDir;
+    const handlers = new Map<string, Handler>();
+    const pi = {
+      on: (name: string, handler: Handler) => handlers.set(name, handler),
+      registerCommand: () => undefined,
+    } as unknown as ExtensionAPI;
+    permissionGate(pi);
+    const sessionManager = {
+      getSessionId: () => "standard-safety-session",
+      getSessionName: () => "Standard safety",
+    };
+
+    try {
+      writeFileSync(
+        join(appDir, "permission-gate.json"),
+        JSON.stringify({ mode: "allow", systemSafety: "standard" }),
+        "utf8",
+      );
+      await handlers.get("session_start")?.({}, freshContext(cwd, sessionManager));
+
+      let prompt = "";
+      const approvalContext = {
+        cwd,
+        hasUI: true,
+        sessionManager,
+        ui: {
+          select: async (message: string) => {
+            prompt = message;
+            return "Yes";
+          },
+          notify: () => undefined,
+        },
+      } as unknown as ExtensionContext;
+      const service = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "systemctl stop sshd" } },
+        approvalContext,
+      );
+      assert.equal(service, undefined);
+      assert.match(prompt, /明示的に許可/);
+    } finally {
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(appDir, { recursive: true, force: true });
+    }
+  });
+
   it("requires read-only investigation, an impact/recovery plan, and explicit approval for system changes", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-safety-"));
     const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-safety-data-"));

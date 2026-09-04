@@ -14,47 +14,45 @@ describe("SystemSafetySettings", () => {
   beforeEach(() => {
     getJson.mockReset();
     sendJson.mockReset();
-    getJson.mockResolvedValue({ systemSafety: true });
-    sendJson.mockResolvedValue({ systemSafety: false });
+    getJson.mockResolvedValue({ level: "strict", systemSafety: true });
+    sendJson.mockResolvedValue({ level: "low", systemSafety: true });
   });
 
   afterEach(() => {
     cleanup();
   });
 
-  it("loads the current setting and can disable system safety", async () => {
+  it("loads the current level and can change intensity", async () => {
     render(<SystemSafetySettings />);
 
-    const toggle = await screen.findByRole("switch", { name: "システム安全ガードを有効化" });
-    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
-    expect(screen.getByText("有効")).toBeTruthy();
+    const select = await screen.findByRole("combobox", { name: "システム安全ガードの度合い" });
+    await waitFor(() => expect((select as HTMLSelectElement).value).toBe("strict"));
+    expect(screen.getByText(/調査・影響\/復旧計画・明示承認/)).toBeTruthy();
 
-    fireEvent.click(toggle);
+    fireEvent.change(select, { target: { value: "low" } });
 
     await waitFor(() => {
       expect(sendJson).toHaveBeenCalledWith(
         "/api/settings/system-safety",
-        { systemSafety: false },
+        { level: "low" },
         "PATCH",
       );
     });
-    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("false"));
-    expect(screen.getByText("無効")).toBeTruthy();
-    expect(screen.getByText(/無効中は OS 変更系コマンド/)).toBeTruthy();
+    await waitFor(() => expect((select as HTMLSelectElement).value).toBe("low"));
+    expect(screen.getByText(/確認ダイアログ1回/)).toBeTruthy();
   });
 
-  it("rolls back the switch when saving fails", async () => {
+  it("rolls back the select when saving fails", async () => {
     sendJson.mockRejectedValue(new Error("保存失敗"));
     render(<SystemSafetySettings />);
 
-    const toggle = await screen.findByRole("switch", { name: "システム安全ガードを有効化" });
-    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
-    fireEvent.click(toggle);
+    const select = await screen.findByRole("combobox", { name: "システム安全ガードの度合い" });
+    await waitFor(() => expect((select as HTMLSelectElement).value).toBe("strict"));
+    fireEvent.change(select, { target: { value: "off" } });
 
     await waitFor(() => {
       expect(screen.getByRole("alert").textContent).toContain("保存失敗");
     });
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByText("有効")).toBeTruthy();
+    expect((select as HTMLSelectElement).value).toBe("strict");
   });
 });

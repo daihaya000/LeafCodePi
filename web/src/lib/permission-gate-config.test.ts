@@ -8,8 +8,10 @@ import {
   permissionGateConfigPath,
   readPermissionGateConfig,
   readSystemSafetyEnabled,
+  readSystemSafetyLevel,
   writePermissionGateConfig,
   writeSystemSafetyEnabled,
+  writeSystemSafetyLevel,
 } from "./permission-gate-config";
 
 function withTempDataDir<T>(run: (projectDir: string, appDir: string) => T): T {
@@ -52,24 +54,44 @@ describe("permission-gate-config", () => {
       writePermissionGateConfig("ask");
       assert.deepEqual(JSON.parse(readFileSync(permissionGateConfigPath(), "utf8")), {
         mode: "ask",
-        systemSafety: false,
+        systemSafety: "off",
       });
     });
   });
 
-  it("reads and writes the system safety toggle independently of permission mode", () => {
+  it("reads and writes system safety levels independently of permission mode", () => {
     withTempDataDir(() => {
+      assert.equal(readSystemSafetyLevel(), "strict");
       assert.equal(readSystemSafetyEnabled(), true);
       writePermissionGateConfig("deny");
-      assert.equal(writeSystemSafetyEnabled(false), false);
-      assert.equal(readSystemSafetyEnabled(), false);
+      assert.equal(writeSystemSafetyLevel("low"), "low");
+      assert.equal(readSystemSafetyLevel(), "low");
       assert.equal(readPermissionGateConfig(), "deny");
       assert.deepEqual(JSON.parse(readFileSync(permissionGateConfigPath(), "utf8")), {
         mode: "deny",
-        systemSafety: false,
+        systemSafety: "low",
       });
+      assert.equal(writeSystemSafetyEnabled(false), false);
+      assert.equal(readSystemSafetyLevel(), "off");
       assert.equal(writeSystemSafetyEnabled(true), true);
-      assert.equal(readSystemSafetyEnabled(), true);
+      assert.equal(readSystemSafetyLevel(), "strict");
+    });
+  });
+
+  it("migrates legacy boolean systemSafety values", () => {
+    withTempDataDir(() => {
+      writeFileSync(
+        permissionGateConfigPath(),
+        JSON.stringify({ mode: "allow", systemSafety: true }),
+        "utf8",
+      );
+      assert.equal(readSystemSafetyLevel(), "strict");
+      writeFileSync(
+        permissionGateConfigPath(),
+        JSON.stringify({ mode: "allow", systemSafety: false }),
+        "utf8",
+      );
+      assert.equal(readSystemSafetyLevel(), "off");
     });
   });
 

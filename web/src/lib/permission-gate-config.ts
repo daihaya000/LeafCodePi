@@ -2,6 +2,11 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PermissionMode } from "@/lib/permission-gate";
 import { dataDir } from "@/lib/paths";
+import {
+  parseSystemSafetyLevel,
+  systemSafetyEnabled,
+  type SystemSafetyLevel,
+} from "@/lib/system-safety";
 
 const CONFIG_FILE = "permission-gate.json";
 /** Must match extensions/leafcode-permission-gate/index.ts SESSION_KEY. */
@@ -9,7 +14,7 @@ export const PERMISSION_GATE_SESSION_KEY = "leafcode-permission-gate";
 
 type StoredConfig = {
   mode: PermissionMode;
-  systemSafety?: boolean;
+  systemSafety?: SystemSafetyLevel;
   sessions?: Record<string, PermissionMode>;
 };
 
@@ -24,6 +29,10 @@ function parseMode(value: unknown): PermissionMode | undefined {
   return undefined;
 }
 
+function safetyConfigOf(level: SystemSafetyLevel | undefined): { systemSafety?: SystemSafetyLevel } {
+  return level === undefined ? {} : { systemSafety: level };
+}
+
 function readStoredConfig(): StoredConfig {
   try {
     const raw = JSON.parse(readFileSync(permissionGateConfigPath(), "utf8")) as {
@@ -32,7 +41,8 @@ function readStoredConfig(): StoredConfig {
       sessions?: unknown;
     };
     const mode = parseMode(raw.mode) ?? "allow";
-    const systemSafety = typeof raw.systemSafety === "boolean" ? raw.systemSafety : undefined;
+    const hasSafety = Object.prototype.hasOwnProperty.call(raw, "systemSafety");
+    const systemSafety = hasSafety ? parseSystemSafetyLevel(raw.systemSafety) : undefined;
     const sessions: Record<string, PermissionMode> = {};
     if (raw.sessions && typeof raw.sessions === "object" && !Array.isArray(raw.sessions)) {
       for (const [key, value] of Object.entries(raw.sessions as Record<string, unknown>)) {
@@ -40,10 +50,9 @@ function readStoredConfig(): StoredConfig {
         if (parsed) sessions[key] = parsed;
       }
     }
-    const safetyConfig = systemSafety === undefined ? {} : { systemSafety };
     return Object.keys(sessions).length > 0
-      ? { mode, ...safetyConfig, sessions }
-      : { mode, ...safetyConfig };
+      ? { mode, ...safetyConfigOf(systemSafety), sessions }
+      : { mode, ...safetyConfigOf(systemSafety) };
   } catch {
     /* missing or invalid */
   }
@@ -83,10 +92,9 @@ export function writePermissionGateConfig(
   const file = permissionGateConfigPath();
   mkdirSync(dataDir(), { recursive: true });
   const current = readStoredConfig();
-  const safetyConfig = current.systemSafety === undefined ? {} : { systemSafety: current.systemSafety };
   const next: StoredConfig = sessionId
-    ? { mode: current.mode, ...safetyConfig, sessions: { ...current.sessions, [sessionId]: mode } }
-    : { mode, ...safetyConfig, sessions: current.sessions };
+    ? { mode: current.mode, ...safetyConfigOf(current.systemSafety), sessions: { ...current.sessions, [sessionId]: mode } }
+    : { mode, ...safetyConfigOf(current.systemSafety), sessions: current.sessions };
   writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, "utf8");
 }
 
@@ -102,21 +110,33 @@ export function applyPermissionMode(
   writePermissionGateConfig(mode, sessionIdOf(session));
 }
 
-/** System safety hard-gate is on unless explicitly disabled in permission-gate.json. */
-export function readSystemSafetyEnabled(): boolean {
-  return readStoredConfig().systemSafety !== false;
+/** System safety hard-gate level. Missing config defaults to strict. */
+export function readSystemSafetyLevel(): SystemSafetyLevel {
+  const stored = readStoredConfig();
+  return stored.systemSafety === undefined ? "strict" : stored.systemSafety;
 }
 
-/** Persist system-safety toggle without changing permission modes. */
-export function writeSystemSafetyEnabled(enabled: boolean): boolean {
+/** System safety hard-gate is on unless level is off. */
+export function readSystemSafetyEnabled(): boolean {
+  return systemSafetyEnabled(readSystemSafetyLevel());
+}
+
+/** Persist system-safety level without changing permission modes. */
+export function writeSystemSafetyLevel(level: SystemSafetyLevel): SystemSafetyLevel {
   const file = permissionGateConfigPath();
   mkdirSync(dataDir(), { recursive: true });
   const current = readStoredConfig();
   const next: StoredConfig = {
     mode: current.mode,
-    systemSafety: enabled,
+    systemSafety: level,
     ...(current.sessions ? { sessions: current.sessions } : {}),
   };
   writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  return level;
+}
+
+/** Persist system-safety toggle without changing permission modes. */
+export function writeSystemSafetyEnabled(enabled: boolean): boolean {
+  writeSystemSafetyLevel(enabled ? "strict" : "off");
   return enabled;
 }

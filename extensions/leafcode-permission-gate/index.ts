@@ -8,9 +8,9 @@
  *
  * WebUI からは `/api/tasks/:id/permission` で承認モードを設定する。
  * 未設定時は "allow"（許可）。
- * システム安全ガードだけを無効化する場合は、データディレクトリの
- * `permission-gate.json` に `"systemSafety": false` を設定する（保護パスと
- * LeafCodePi 自己終了の禁止は継続）。
+ * システム安全ガードの度合いは、データディレクトリの `permission-gate.json` で
+ * `"systemSafety": "off"|"low"|"standard"|"strict"`（または旧 boolean）を設定する。
+ * 保護パスと LeafCodePi 自己終了の禁止はどの度合いでも継続。
  */
 
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -19,10 +19,11 @@ import { join, resolve as resolvePath } from "node:path";
 import { requestWebUiPermission } from "./webui-bridge";
 
 export type PermissionMode = "allow" | "ask" | "deny";
+export type SystemSafetyLevel = "off" | "low" | "standard" | "strict";
 
 type StoredConfig = {
   mode: PermissionMode;
-  systemSafety?: boolean;
+  systemSafety?: SystemSafetyLevel;
   sessions?: Record<string, PermissionMode>;
 };
 
@@ -147,6 +148,37 @@ function parseMode(value: unknown): PermissionMode | undefined {
   return undefined;
 }
 
+function parseSystemSafetyLevel(value: unknown): SystemSafetyLevel | undefined {
+  if (value === false) return "off";
+  if (value === true) return "strict";
+  if (value === "off" || value === "low" || value === "standard" || value === "strict") return value;
+  return undefined;
+}
+
+function safetyConfigOf(level: SystemSafetyLevel | undefined): { systemSafety?: SystemSafetyLevel } {
+  return level === undefined ? {} : { systemSafety: level };
+}
+
+function systemSafetyLevelOf(config: StoredConfig): SystemSafetyLevel {
+  return config.systemSafety ?? "strict";
+}
+
+/** Critical machine-breaking matches kept at the "low" intensity. */
+function isLowIntensityMatch(match: SystemSafetyMatch): boolean {
+  if (match.label === LEAFCODE_PI_STOP_LABEL) return true;
+  if (
+    match.category === "disk"
+    || match.category === "firmware"
+    || match.category === "boot"
+    || match.category === "kernel"
+    || match.category === "driver"
+  ) {
+    return true;
+  }
+  return match.category === "os"
+    && (match.label === "OS shutdown/restart" || match.label === "privilege elevation");
+}
+
 function readConfig(): StoredConfig {
   try {
     const { readFileSync } = require("node:fs");
@@ -156,7 +188,8 @@ function readConfig(): StoredConfig {
       sessions?: unknown;
     };
     const mode = parseMode(raw?.mode) ?? "allow";
-    const systemSafety = typeof raw?.systemSafety === "boolean" ? raw.systemSafety : undefined;
+    const hasSafety = raw != null && Object.prototype.hasOwnProperty.call(raw, "systemSafety");
+    const systemSafety = hasSafety ? parseSystemSafetyLevel(raw.systemSafety) : undefined;
     const sessions: Record<string, PermissionMode> = {};
     if (raw?.sessions && typeof raw.sessions === "object" && !Array.isArray(raw.sessions)) {
       for (const [key, value] of Object.entries(raw.sessions as Record<string, unknown>)) {
@@ -164,10 +197,9 @@ function readConfig(): StoredConfig {
         if (parsed) sessions[key] = parsed;
       }
     }
-    const safetyConfig = systemSafety === undefined ? {} : { systemSafety };
     return Object.keys(sessions).length > 0
-      ? { mode, ...safetyConfig, sessions }
-      : { mode, ...safetyConfig };
+      ? { mode, ...safetyConfigOf(systemSafety), sessions }
+      : { mode, ...safetyConfigOf(systemSafety) };
   } catch {
     /* ignore */
   }
@@ -180,10 +212,9 @@ function writeConfig(mode: PermissionMode, sessionId?: string): void {
     const { dirname } = require("node:path");
     const file = configPath();
     const current = readConfig();
-    const safetyConfig = current.systemSafety === undefined ? {} : { systemSafety: current.systemSafety };
     const next: StoredConfig = sessionId
-      ? { mode: current.mode, ...safetyConfig, sessions: { ...current.sessions, [sessionId]: mode } }
-      : { mode, ...safetyConfig, sessions: current.sessions };
+      ? { mode: current.mode, ...safetyConfigOf(current.systemSafety), sessions: { ...current.sessions, [sessionId]: mode } }
+      : { mode, ...safetyConfigOf(current.systemSafety), sessions: current.sessions };
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, "utf8");
   } catch (error) {
@@ -206,8 +237,14 @@ function configuredSafetyMatches(
   config: StoredConfig,
   matches: readonly SystemSafetyMatch[],
 ): readonly SystemSafetyMatch[] {
-  if (config.systemSafety !== false) return matches;
-  return matches.filter((match) => match.label === LEAFCODE_PI_STOP_LABEL);
+  const level = systemSafetyLevelOf(config);
+  if (level === "off") {
+    return matches.filter((match) => match.label === LEAFCODE_PI_STOP_LABEL);
+  }
+  if (level === "low") {
+    return matches.filter((match) => isLowIntensityMatch(match));
+  }
+  return matches;
 }
 
 function setSessionMode(ctx: ExtensionContext, mode: PermissionMode): void {
@@ -818,6 +855,7 @@ export default function (pi: ExtensionAPI): void {
   const requireSystemApproval = async (
     ctx: ExtensionContext,
     mode: PermissionMode,
+    level: SystemSafetyLevel,
     operation: string,
     identity: string,
     safetyMatches: readonly SystemSafetyMatch[],
@@ -830,6 +868,12 @@ export default function (pi: ExtensionAPI): void {
         terminate: true,
         reason: `${preflightRequiredReason(operation, safetyMatches)}\nPermission mode is deny.`,
       };
+    }
+    // low/standard: one-shot explicit approval without investigation/plan gates.
+    if (level === "low" || level === "standard") {
+      const result = await requireSystemSafetyApproval(ctx, operation, safetyMatches);
+      resetSafetyFlow();
+      return result;
     }
     if (pendingSafetyKey !== operationKey) {
       resetSafetyFlow();
@@ -856,6 +900,7 @@ export default function (pi: ExtensionAPI): void {
   pi.on("tool_call", async (event, ctx) => {
     const config = readConfig();
     const mode = sessionMode(ctx, config);
+    const level = systemSafetyLevelOf(config);
     const safetyMatches = configuredSafetyMatches(
       config,
       matchSystemSafetyForTool(event.toolName, event.input, ctx.cwd),
@@ -864,7 +909,7 @@ export default function (pi: ExtensionAPI): void {
       resetSafetyFlow();
       return { block: true, terminate: true, reason: LEAFCODE_PI_STOP_REASON };
     }
-    if (mode !== "deny" && pendingSafetyKey && isReadOnlyInvestigation(
+    if (level === "strict" && mode !== "deny" && pendingSafetyKey && isReadOnlyInvestigation(
       event.toolName,
       event.input,
       pendingSafetyCategories,
@@ -891,6 +936,7 @@ export default function (pi: ExtensionAPI): void {
       if (safetyMatches.length > 0) return requireSystemApproval(
         ctx,
         mode,
+        level,
         operationText(event.toolName, event.input),
         operationIdentity(event.toolName, event.input),
         safetyMatches,
@@ -935,6 +981,7 @@ export default function (pi: ExtensionAPI): void {
       if (safetyMatches.length > 0) return requireSystemApproval(
         ctx,
         mode,
+        level,
         operationText(event.toolName, event.input),
         operationIdentity(event.toolName, event.input),
         safetyMatches,
@@ -945,6 +992,7 @@ export default function (pi: ExtensionAPI): void {
     if (safetyMatches.length > 0) return requireSystemApproval(
       ctx,
       mode,
+      level,
       operationText(event.toolName, event.input),
       operationIdentity(event.toolName, event.input),
       safetyMatches,
@@ -955,6 +1003,7 @@ export default function (pi: ExtensionAPI): void {
   pi.on("user_bash", async (event, ctx) => {
     const config = readConfig();
     const mode = sessionMode(ctx, config);
+    const level = systemSafetyLevelOf(config);
     if (mode === "deny") {
       return blockedUserBashResult("Shell execution blocked (permission mode: deny)");
     }
@@ -971,7 +1020,14 @@ export default function (pi: ExtensionAPI): void {
       return blockedUserBashResult(LEAFCODE_PI_STOP_REASON);
     }
     if (safetyMatches.length > 0) {
-      const decision = await requireSystemApproval(ctx, mode, event.command, `user_bash:${event.command}`, safetyMatches);
+      const decision = await requireSystemApproval(
+        ctx,
+        mode,
+        level,
+        event.command,
+        `user_bash:${event.command}`,
+        safetyMatches,
+      );
       return decision ? blockedUserBashResult(decision.reason) : undefined;
     }
     const { dangerous, labels } = matchedDanger(event.command);
