@@ -42,6 +42,13 @@ export async function POST(request: Request) {
     ) {
       return NextResponse.json({ error: "aliases は文字列配列が必要です" }, { status: 400 });
     }
+    const tools = body.tools as unknown;
+    if (
+      tools !== undefined &&
+      (!Array.isArray(tools) || tools.some((tool) => typeof tool !== "string"))
+    ) {
+      return NextResponse.json({ error: "tools は文字列配列が必要です" }, { status: 400 });
+    }
     const result = createAgent(normalize(body as AgentDraft));
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
