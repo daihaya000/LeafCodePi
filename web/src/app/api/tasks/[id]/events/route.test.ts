@@ -224,6 +224,46 @@ describe("/api/tasks/[id]/events", () => {
     await reader.cancel();
   });
 
+  it("puts pending attention and abort state on the bootstrap snapshot", async () => {
+    mocks.getTaskBootstrap.mockReturnValue(
+      task({
+        messages: [],
+        isStreaming: true,
+        manualAbortedAssistantId: "",
+        hangRetryCount: 2,
+        revertLeafId: "leaf-tip",
+      }),
+    );
+    mocks.pendingPermissionForTask.mockReturnValue({
+      id: "req-1",
+      sessionId: "sess-1",
+      message: "許可しますか",
+      command: "echo hi",
+      labels: [],
+    });
+    mocks.pendingQuestionForTask.mockReturnValue({
+      id: "q-1",
+      sessionId: "sess-1",
+      questions: [{ question: "どれですか", options: [] }],
+    });
+    mocks.getTaskDetail.mockReturnValue(new Promise<TaskDetail>(() => undefined));
+    mocks.subscribeTask.mockReturnValue(vi.fn());
+
+    const response = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const reader = response.body!.getReader();
+    const bootstrapPayload = eventData(await readChunk(reader));
+    expect(bootstrapPayload.eventType).toBe("bootstrap");
+    expect(bootstrapPayload.permissionRequest).toMatchObject({ id: "req-1" });
+    expect(bootstrapPayload.questionRequest).toMatchObject({ id: "q-1" });
+    expect(bootstrapPayload.manualAbortedAssistantId).toBe("");
+    expect(bootstrapPayload.hangRetryCount).toBe(2);
+    expect(bootstrapPayload.revertLeafId).toBe("leaf-tip");
+    await reader.cancel();
+  });
+
   it("puts abort and hang retry state on the ready snapshot", async () => {
     const messages = [
       { id: "u1", role: "user" as const, createdAt: 1, parts: [{ id: "p1", type: "text" as const, text: "質問" }] },

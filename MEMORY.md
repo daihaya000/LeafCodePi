@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 24
+
+**タスク切替直後に承認カードが消える** — SSE の bootstrap は履歴を空で先に送るが、pending の permission/question と abort/hang 状態を載せていなかった。ensureLive 待ちの間、切替先タスクの承認 UI が見えない。in-memory pending とタスク記録の再開目印を bootstrap に載せる。
+
 ## 2026-09-04: 発見→修正ループ Tick 23
 
 **同じタスクの 2 回目の承認で音もモーダルも出ない** — `seenIds` が解消後も `taskId:permission` を残していた。次の許可要求は fresh にならず、音も自動オープンも起きない。現在の attention に無いキーは捨てる。

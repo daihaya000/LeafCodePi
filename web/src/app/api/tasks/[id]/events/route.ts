@@ -54,6 +54,11 @@ export async function GET(
           messages: bootstrap.messages,
           isStreaming: bootstrap.isStreaming,
           isCompacting: bootstrap.isCompacting,
+          permissionRequest: pendingPermissionForTask(id),
+          questionRequest: pendingQuestionForTask(id),
+          manualAbortedAssistantId: bootstrap.manualAbortedAssistantId ?? null,
+          hangRetryCount: bootstrap.hangRetryCount ?? 0,
+          revertLeafId: bootstrap.revertLeafId ?? null,
           eventType: "bootstrap",
         });
         if (sse.closed) return;
