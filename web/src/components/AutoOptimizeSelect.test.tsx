@@ -19,4 +19,23 @@ describe("AutoOptimizeSelect", () => {
     fireEvent.click(screen.getByRole("option", { name: "知能優先" }));
     expect(onChange).toHaveBeenCalledWith("intelligence");
   });
+
+  it("renders the current mode as the button label", () => {
+    const onChange = vi.fn();
+    render(<AutoOptimizeSelect value="intelligence" onChange={onChange} />);
+    // GhostSelect is a custom listbox, so the selection shows on the trigger.
+    expect(screen.getByRole("button", { name: "Auto の最適化" }).textContent).toContain(
+      "知能優先",
+    );
+  });
+
+  it("stays closed and inert while disabled", () => {
+    const onChange = vi.fn();
+    render(<AutoOptimizeSelect value="cost" onChange={onChange} disabled />);
+    const trigger = screen.getByRole("button", { name: "Auto の最適化" });
+    expect(trigger.hasAttribute("disabled") || trigger.getAttribute("aria-disabled")).toBeTruthy();
+    fireEvent.click(trigger);
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });
