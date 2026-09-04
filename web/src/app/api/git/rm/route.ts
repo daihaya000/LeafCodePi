@@ -22,14 +22,15 @@ function errorResponse(error: string, status: number): NextResponse {
  */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
-    directory?: string;
+    directory?: unknown;
     path?: string;
   } | null;
+  const directory = body?.directory;
 
-  if (!body?.directory || !body.path) {
+  if (typeof directory !== "string" || !directory || !body.path) {
     return errorResponse("directory and path are required", 400);
   }
-  const directoryError = gitDirectoryError(body.directory);
+  const directoryError = gitDirectoryError(directory);
   if (directoryError) {
     return errorResponse(
       directoryError,
@@ -41,22 +42,22 @@ export async function POST(req: NextRequest) {
     return errorResponse(pathErr, 400);
   }
 
-  const abs = path.resolve(body.directory, body.path);
-  if (!isUnder(body.directory, abs)) {
+  const abs = path.resolve(directory, body.path);
+  if (!isUnder(directory, abs)) {
     return errorResponse("file path is outside the project", 403);
   }
   if (!fs.existsSync(abs)) {
     return errorResponse("file was not found", 404);
   }
 
-  const tracked = await runGit(body.directory, [
+  const tracked = await runGit(directory, [
     "ls-files",
     "--error-unmatch",
     "--",
     body.path,
   ]);
   if (tracked.code === 0) {
-    const rm = await runGit(body.directory, ["rm", "-f", "--", body.path]);
+    const rm = await runGit(directory, ["rm", "-f", "--", body.path]);
     if (rm.code !== 0) {
       return errorResponse(rm.stderr.trim() || "git rm failed", 500);
     }
