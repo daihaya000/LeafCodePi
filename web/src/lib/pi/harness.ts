@@ -5940,6 +5940,17 @@ export async function archiveTask(id: string): Promise<TaskSummary> {
   const archived = setTaskStatus(id, "archived");
   if (!archived)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  // live 破棄後も購読中の TaskView が idle のまま残ると Composer が送れてしまう。
+  emit(id, {
+    type: "snapshot",
+    task: toSummary(archived),
+    isStreaming: false,
+    isCompacting: false,
+    goalLoop: null,
+    permissionRequest: null,
+    questionRequest: null,
+    eventType: "archived",
+  });
   return archived;
 }
 

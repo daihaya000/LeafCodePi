@@ -459,9 +459,14 @@ describe("archiveTask", () => {
     const project = upsertProject({ name: "demo", rootPath: root });
     const task = insertTask({ project, title: "archive idle" });
     const live = new Map();
+    const events = new EventEmitter();
+    const emitted: string[] = [];
+    events.on(task.id, (payload: { eventType?: string; task?: { status?: string } }) => {
+      if (payload.eventType) emitted.push(payload.eventType);
+    });
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
       live,
-      events: new EventEmitter(),
+      events,
     };
 
     const archived = await archiveTask(task.id);
@@ -472,6 +477,7 @@ describe("archiveTask", () => {
     assert.equal(detail.status, "archived");
     assert.equal(detail.isStreaming, false);
     assert.equal(live.has(task.id), false);
+    assert.equal(emitted.at(-1), "archived");
   });
 
   it("returns archived transcript without recreating a live session", async () => {

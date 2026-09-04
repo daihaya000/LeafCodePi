@@ -1178,7 +1178,7 @@ export const TaskView = memo(function TaskView({
   }, [scheduleScrollToBottom, taskId]);
 
   function addImageFiles(files: FileList) {
-    if (!canAttachComposerImages({ goalLoopEnabled, compacting: isCompacting || compactingLocal })) return;
+    if (!canAttachComposerImages({ goalLoopEnabled, compacting: isCompacting || compactingLocal, archived: task?.status === "archived" })) return;
     Array.from(files).forEach((file) => {
       if (!file.type.startsWith("image/")) return;
       const reader = new FileReader();
@@ -1191,6 +1191,7 @@ export const TaskView = memo(function TaskView({
   }
 
   const compacting = isCompacting || compactingLocal;
+  const archived = task?.status === "archived";
   const working = Boolean(task?.status === "working" || task?.isStreaming);
   const isReverted = Boolean(task?.revertLeafId);
 
@@ -1199,6 +1200,10 @@ export const TaskView = memo(function TaskView({
   // 参照安定化が無効化されるため useCallback で安定させる。
   const requestRevert = useCallback(
     (target: UiMessage) => {
+      if (archived) {
+        setError("アーカイブ済みのタスクは巻き戻せません");
+        return;
+      }
       if (working) {
         setError("実行中は巻き戻せません。停止してからお試しください");
         return;
@@ -1206,7 +1211,7 @@ export const TaskView = memo(function TaskView({
       revertEntryRef.current = { messageId: target.id, message: target };
       setRevertConfirmOpen(true);
     },
-    [working],
+    [archived, working],
   );
   const goalLoopLive = Boolean(
     task?.goalLoop && ["queued", "running", "verifying_completed"].includes(task.goalLoop.status),
@@ -1294,7 +1299,7 @@ export const TaskView = memo(function TaskView({
 
   async function revert() {
     const target = revertEntryRef.current;
-    if (!target || revertBusy || working) return;
+    if (!target || revertBusy || working || archived) return;
     setRevertBusy(true);
     setError(null);
     try {
@@ -1328,7 +1333,7 @@ export const TaskView = memo(function TaskView({
   }
 
   async function unrevert() {
-    if (revertBusy) return;
+    if (revertBusy || archived) return;
     setRevertBusy(true);
     setError(null);
     try {
@@ -1346,7 +1351,7 @@ export const TaskView = memo(function TaskView({
   }
 
   async function submit() {
-    if ((!prompt.trim() && attachments.length === 0) || submitting || compacting || agentChanging) return;
+    if ((!prompt.trim() && attachments.length === 0) || submitting || compacting || agentChanging || archived) return;
     const submittedPrompt = prompt;
     const submittedAttachments = attachments;
     let optimistic = false;
@@ -1634,6 +1639,7 @@ export const TaskView = memo(function TaskView({
   ]);
 
   async function goalLoopAction(action: "pause" | "resume" | "stop" | "complete", maxTurns?: number) {
+    if (archived) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -1652,7 +1658,7 @@ export const TaskView = memo(function TaskView({
   }
 
   async function compact() {
-    if (compacting) return;
+    if (compacting || archived) return;
     setCompactingLocal(true);
     setIsCompacting(true);
     setError(null);
@@ -1685,7 +1691,7 @@ export const TaskView = memo(function TaskView({
   }
 
   async function abortWorking() {
-    if (stopRequestedRef.current) return;
+    if (archived || stopRequestedRef.current) return;
     stopRequestedRef.current = true;
     setStopRequested(true);
     // Match server abortTask clearQueue: client-only follow-ups must not
@@ -1710,7 +1716,7 @@ export const TaskView = memo(function TaskView({
   }
 
   const resumeTurn = useCallback(async (target: ResumableTurn, manual = false) => {
-    if (working || resumingTurn) return;
+    if (working || resumingTurn || archived) return;
     const wasStopped = stopRequestedRef.current;
     if (manual) {
       stopRequestedRef.current = false;
@@ -1749,7 +1755,7 @@ export const TaskView = memo(function TaskView({
     } finally {
       setResumingTurn(false);
     }
-  }, [resumingTurn, subagentPermission, taskId, working]);
+  }, [archived, resumingTurn, subagentPermission, taskId, working]);
 
   // タスクのアカウントを切替えるモデルも選べる（setTaskModel が再作成を担う）ため
   // 他アカウントのモデルも含めて全候補を出す。並び順は /api/models の providerOrder 準拠。
@@ -1942,6 +1948,7 @@ export const TaskView = memo(function TaskView({
     !compacting &&
     !sseReconnecting &&
     !working &&
+    !archived &&
     !goalLoopLive;
   const autoResumeSilentTurn = shouldAutoResumeSilentTurn({
     target: resumeTarget,
@@ -2138,7 +2145,7 @@ export const TaskView = memo(function TaskView({
               title="コンテキスト圧縮"
               aria-label="コンテキスト圧縮"
               busy={compacting}
-              disabled={!task || working || compacting}
+              disabled={!task || working || compacting || archived}
               className="h-11 w-11 md:h-9 md:w-9"
               onClick={() => void compact()}
             >
@@ -2151,7 +2158,7 @@ export const TaskView = memo(function TaskView({
               aria-label={isReverted ? "巻き戻しを取消" : "巻き戻す"}
               busy={revertBusy}
               aria-pressed={isReverted}
-              disabled={!task || !(isReverted || lastUserMessage) || working || compacting}
+              disabled={!task || !(isReverted || lastUserMessage) || working || compacting || archived}
               className={cx(
                 "h-11 w-11 md:h-9 md:w-9",
                 isReverted && "bg-surface-2 text-text",
@@ -2563,7 +2570,7 @@ export const TaskView = memo(function TaskView({
             {error}
           </p>
         )}
-        {goalLoopVisible && (
+        {goalLoopVisible && !archived && (
           <GoalLoopPanel
             loop={task?.goalLoop}
             busy={submitting}
@@ -2571,14 +2578,14 @@ export const TaskView = memo(function TaskView({
             onResume={(maxTurns) => void goalLoopAction("resume", maxTurns)}
           />
         )}
-        {goalLoopEnabled && (
+        {goalLoopEnabled && !archived && (
           <div className="mx-auto max-w-5xl">
             <GoalLoopOptions
               acceptance={goalLoopAcceptance}
               maxTurns={goalLoopMaxTurns}
               cooldownSeconds={goalLoopCooldownSeconds}
               forceFullRun={goalLoopForceFullRun}
-              disabled={submitting || working}
+              disabled={submitting || working || archived}
               onAcceptanceChange={setGoalLoopAcceptance}
               onMaxTurnsChange={setGoalLoopMaxTurns}
               onCooldownSecondsChange={setGoalLoopCooldownSeconds}
@@ -2600,7 +2607,7 @@ export const TaskView = memo(function TaskView({
             sessionId={task.sessionId}
             model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
             invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
-            disabled={compacting}
+            disabled={compacting || archived}
             onApply={(suggestion) => {
               setPrompt(suggestion);
               textareaRef.current?.focus();
@@ -2620,6 +2627,7 @@ export const TaskView = memo(function TaskView({
           onRemoveAttachment={(index) =>
             setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))
           }
+          attachmentRemovalDisabled={archived}
           textarea={{
             ref: textareaRef,
             value: prompt,
@@ -2628,7 +2636,7 @@ export const TaskView = memo(function TaskView({
             onChange: (event) => setPrompt(event.target.value),
             onValueChange: setPrompt,
             onPaste: (event) => {
-              if (!canAttachComposerImages({ goalLoopEnabled, compacting })) return;
+              if (!canAttachComposerImages({ goalLoopEnabled, compacting, archived })) return;
               if (pasteImage(addImageFiles, event)) event.preventDefault();
             },
             onCompositionStart: () => {
@@ -2648,19 +2656,21 @@ export const TaskView = memo(function TaskView({
                 void submit();
               }
             },
-            placeholder: compacting
-              ? "圧縮中です…"
-              : working
-                ? "実行中です。送信するとフォローアップになります…"
-                : "続きを指示…（Ctrl+Enter）",
+            placeholder: archived
+              ? "アーカイブ済み（読み取り専用）"
+              : compacting
+                ? "圧縮中です…"
+                : working
+                  ? "実行中です。送信するとフォローアップになります…"
+                  : "続きを指示…（Ctrl+Enter）",
             className: "w-full resize-none bg-transparent py-1.5 text-base outline-none placeholder:text-faint",
-            disabled: compacting,
+            disabled: compacting || archived,
           }}
           references={{ skills, agents }}
           attachmentControl={{
             inputRef: fileInputRef,
-            inputDisabled: !canAttachComposerImages({ goalLoopEnabled, compacting }),
-            buttonDisabled: !canAttachComposerImages({ goalLoopEnabled, compacting }),
+            inputDisabled: !canAttachComposerImages({ goalLoopEnabled, compacting, archived }),
+            buttonDisabled: !canAttachComposerImages({ goalLoopEnabled, compacting, archived }),
             buttonTitle: "画像を添付",
             onFilesSelected: addImageFiles,
             onTrigger: () => fileInputRef.current?.click(),
@@ -2670,7 +2680,7 @@ export const TaskView = memo(function TaskView({
               <ModelSelect
                 value={modelValue}
                 options={modelOptions}
-                disabled={working || compacting || submitting || goalLoopLive}
+                disabled={working || compacting || submitting || goalLoopLive || archived}
                 loading={modelsLoading}
                 onChange={(value) => {
                   if (value === AUTO_MODEL_VALUE) {
@@ -2704,7 +2714,7 @@ export const TaskView = memo(function TaskView({
               {modelValue === AUTO_MODEL_VALUE ? (
                 <AutoOptimizeSelect
                   value={autoOptimizeMode}
-                  disabled={compacting}
+                  disabled={compacting || archived}
                   onChange={(value) => {
                     setAutoOptimizeMode(value);
                     writeAutoOptimizeMode(value);
@@ -2715,7 +2725,7 @@ export const TaskView = memo(function TaskView({
                 <ThinkingSelect
                   levels={thinkingLevels}
                   value={thinkingValue}
-                  disabled={working || compacting || submitting}
+                  disabled={working || compacting || submitting || archived}
                   onChange={(value) => {
                     void (async () => {
                       try {
@@ -2739,7 +2749,7 @@ export const TaskView = memo(function TaskView({
                 <AgentSelect
                   value={agentSelection}
                   agents={agents}
-                  disabled={working || compacting || agentChanging || goalLoopLive}
+                  disabled={working || compacting || agentChanging || goalLoopLive || archived}
                   onChange={(value) => {
                     if (value === AUTO_AGENT_VALUE) {
                       setAgentSelection(value);
@@ -2773,7 +2783,7 @@ export const TaskView = memo(function TaskView({
               )}
               <PermissionSelect
                 value={permissionMode}
-                disabled={working || compacting || submitting}
+                disabled={working || compacting || submitting || archived}
                 onChange={(mode) => {
                   const previous = permissionMode;
                   setPermissionMode(mode);
@@ -2796,7 +2806,7 @@ export const TaskView = memo(function TaskView({
               />
               <SkillPermissionSelect
                 value={skillPermission}
-                disabled={working || compacting || submitting}
+                disabled={working || compacting || submitting || archived}
                 onChange={(permission) => {
                   void (async () => {
                     try {
@@ -2816,7 +2826,7 @@ export const TaskView = memo(function TaskView({
               />
               <SubagentPermissionSelect
                 value={subagentPermission}
-                disabled={working || compacting}
+                disabled={working || compacting || archived}
                 onChange={(mode) => {
                   setSubagentPermission(mode);
                   writeSubagentPermission(mode);
@@ -2825,12 +2835,12 @@ export const TaskView = memo(function TaskView({
               />
               <GoalLoopToggle
                 enabled={goalLoopEnabled}
-                disabled={submitting || working || agentChanging || Boolean(task?.goalLoop && !["completed", "blocked", "stopped"].includes(task.goalLoop.status))}
+                disabled={archived || submitting || working || agentChanging || Boolean(task?.goalLoop && !["completed", "blocked", "stopped"].includes(task.goalLoop.status))}
                 onToggle={() => setGoalLoopEnabled((value) => !value)}
               />
               <GhostSelect
                 value={deliveryMode}
-                disabled={!task || compacting}
+                disabled={!task || compacting || archived}
                 aria-label="送信方式"
                 title={deliveryMode === "queue" ? "現在の処理後に送信" : "実行中の処理へ割り込み"}
                 icon={
@@ -2875,7 +2885,7 @@ export const TaskView = memo(function TaskView({
                 type="submit"
                 aria-label="送信"
                 busy={submitting}
-                disabled={compacting || agentChanging || ((goalLoopEnabled || goalLoopLive) && working) || (!prompt.trim() && attachments.length === 0)}
+                disabled={archived || compacting || agentChanging || ((goalLoopEnabled || goalLoopLive) && working) || (!prompt.trim() && attachments.length === 0)}
               >
                 {!submitting && <ArrowUp className="h-4.5 w-4.5" />}
               </Button>

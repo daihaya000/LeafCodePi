@@ -8,8 +8,14 @@ export function canAttachComposerImages(input: {
   goalLoopEnabled?: boolean;
   compacting?: boolean;
   submitting?: boolean;
+  archived?: boolean;
 }): boolean {
-  return !input.goalLoopEnabled && !input.compacting && !input.submitting;
+  return (
+    !input.goalLoopEnabled &&
+    !input.compacting &&
+    !input.submitting &&
+    !input.archived
+  );
 }
 
 /**

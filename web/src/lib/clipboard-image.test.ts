@@ -7,5 +7,6 @@ describe("canAttachComposerImages", () => {
     expect(canAttachComposerImages({ goalLoopEnabled: true })).toBe(false);
     expect(canAttachComposerImages({ compacting: true })).toBe(false);
     expect(canAttachComposerImages({ submitting: true })).toBe(false);
+    expect(canAttachComposerImages({ archived: true })).toBe(false);
   });
 });
