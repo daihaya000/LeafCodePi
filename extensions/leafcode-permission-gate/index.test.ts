@@ -535,6 +535,18 @@ describe("LeafCode permission gate", () => {
       );
       assert.equal((envLocal as { block?: boolean } | undefined)?.block, true);
 
+      for (const path of [".ENV.local", ".GIT/config", "Node_Modules/pkg", ".SSH/id_rsa", ".AWS/credentials", ".PI/AGENT/AUTH.JSON"]) {
+        const mixedCase = await handlers.get("tool_call")?.(
+          { toolName: "write", input: { path, content: "SECRET=1" } },
+          freshContext(cwd, sessionManager),
+        );
+        assert.equal(
+          (mixedCase as { block?: boolean } | undefined)?.block,
+          true,
+          `mixed-case protected path should be blocked: ${path}`,
+        );
+      }
+
       const shellEnv = await handlers.get("tool_call")?.(
         {
           toolName: "powershell",

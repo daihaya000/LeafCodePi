@@ -693,18 +693,22 @@ function blockedUserBashResult(reason: string) {
 function isProtectedPath(path: string): { protected: boolean; reason?: string } {
   const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
   const segments = normalized.split("/").filter(Boolean);
+  const protectedSegments = segments.map((segment) => segment.toLowerCase());
+  // Windows paths are case-insensitive; use the same protection on every platform
+  // so a path's casing cannot bypass the guard when a project moves between hosts.
   // Match `.env`, `.env.local`, `.env.production`, etc.
-  if (segments.some((segment) => segment === ".env" || segment.startsWith(".env."))) {
+  if (protectedSegments.some((segment) => segment === ".env" || segment.startsWith(".env."))) {
     return { protected: true, reason: 'protected path ".env*"' };
   }
-  if (segments.includes(".git")) return { protected: true, reason: 'protected path ".git/"' };
-  if (segments.includes("node_modules")) {
+  if (protectedSegments.includes(".git")) return { protected: true, reason: 'protected path ".git/"' };
+  if (protectedSegments.includes("node_modules")) {
     return { protected: true, reason: 'protected path "node_modules/"' };
   }
-  if (segments.includes(".ssh")) return { protected: true, reason: 'protected path ".ssh/"' };
-  if (segments.includes(".aws")) return { protected: true, reason: 'protected path ".aws/"' };
+  if (protectedSegments.includes(".ssh")) return { protected: true, reason: 'protected path ".ssh/"' };
+  if (protectedSegments.includes(".aws")) return { protected: true, reason: 'protected path ".aws/"' };
   const authPath = ".pi/agent/auth.json";
-  if (normalized === authPath || normalized.endsWith(`/${authPath}`)) {
+  const normalizedLower = normalized.toLowerCase();
+  if (normalizedLower === authPath || normalizedLower.endsWith(`/${authPath}`)) {
     return { protected: true, reason: `protected path "${authPath}"` };
   }
   return { protected: false };
