@@ -4,6 +4,7 @@
  */
 import { NextResponse } from "next/server";
 import { agentsErrorStatus, createAgent, listAgents, type AgentDraft } from "@/lib/agents";
+import { isThinkingLevel } from "@/lib/thinking-levels";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +38,9 @@ export async function POST(request: Request) {
     }
     if (body.model !== undefined && typeof body.model !== "string") {
       return NextResponse.json({ error: "model は文字列が必要です" }, { status: 400 });
+    }
+    if (body.thinking !== undefined && body.thinking !== false && !isThinkingLevel(body.thinking)) {
+      return NextResponse.json({ error: "thinking が不正です" }, { status: 400 });
     }
     const aliases = body.aliases as unknown;
     if (

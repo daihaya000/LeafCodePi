@@ -76,4 +76,13 @@ describe("POST /api/agents", () => {
     expect(response.status).toBe(400);
     expect(mocks.createAgent).not.toHaveBeenCalled();
   });
+
+  it("rejects an invalid thinking value before creating an agent", async () => {
+    const response = await POST(
+      request({ name: "reviewer", systemPrompt: "Review", thinking: "invalid" }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.createAgent).not.toHaveBeenCalled();
+  });
 });
