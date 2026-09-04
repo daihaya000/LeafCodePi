@@ -455,6 +455,16 @@ describe("system safety classifier", () => {
     assert.deepEqual(matchSystemSafetyCommand("dd if=/dev/zero of=image.img"), []);
     assert.ok(matchSystemSafetyCommand("dd if=image.img of=/dev/sda").some((match) => match.category === "disk"));
     assert.deepEqual(matchSystemSafetyCommand("badblocks -n /dev/sda"), []);
+    assert.ok(matchSystemSafetyCommand("smartctl --sanitize a /dev/sda").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("Remove-StoragePool -FriendlyName Pool0").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("Remove-VirtualDisk -FriendlyName VD0").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("defrag C: /W").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("Optimize-Volume -DriveLetter C -WipeFreeSpace").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("sdelete -z C:").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("sg_sanitize --overwrite /dev/sda").some((match) => match.category === "disk"));
+    assert.deepEqual(matchSystemSafetyCommand("format C: /?"), []);
+    assert.deepEqual(matchSystemSafetyCommand("smartctl --sanitize status /dev/sda"), []);
+    assert.deepEqual(matchSystemSafetyCommand("defrag C: /A"), []);
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);

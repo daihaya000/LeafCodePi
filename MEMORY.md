@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 40
+
+- FN: `smartctl --sanitize`（status 除外）、`sg_sanitize`、`Remove-StoragePool|Remove-VirtualDisk`
+- FN: `defrag /W`、`Optimize-Volume -WipeFreeSpace`、`sdelete -z|-c`（cipher /w 同系）
+- FP: `format C: /?` 等ドライブ文字付き help
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 39
 
 - FN: `badblocks -w`、`Reset|Clear-PhysicalDisk`、`Clear-FileStorageTier`、`hdparm --security-set-pass|--user-master-password`
