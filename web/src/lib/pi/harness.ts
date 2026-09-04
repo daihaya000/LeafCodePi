@@ -4365,6 +4365,8 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
   let contextUsage: ContextUsageDto | undefined;
   let goalLoop: GoalLoopDto | null = null;
   let todos: TodoDto[] = [];
+  let manualAbortedAssistantId: string | null = null;
+  let hangRetryCount = 0;
   try {
     const live = await ensureLive(id);
     const fields = sessionSnapshotFields(
@@ -4381,6 +4383,8 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
     contextUsage = fields.contextUsage;
     goalLoop = fields.goalLoop;
     todos = fields.todos;
+    manualAbortedAssistantId = live.manualAbortedAssistantId;
+    hangRetryCount = live.hangRetryCount;
   } catch (error) {
     if (error && typeof error === "object" && "status" in error) throw error;
     throw Object.assign(
@@ -4398,6 +4402,8 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
     todos,
     permissionRequest: ensurePermissionPromptService().pendingForTask(id),
     questionRequest: ensureQuestionPromptService().pendingForTask(id),
+    manualAbortedAssistantId,
+    hangRetryCount,
   };
 }
 

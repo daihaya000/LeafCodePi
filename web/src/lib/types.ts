@@ -272,6 +272,9 @@ export type TaskDetail = TaskSummary & {
   todos?: TodoDto[];
   permissionRequest?: PermissionRequestDto | null;
   questionRequest?: QuestionRequestDto | null;
+  /** Empty string means abort before any assistant message existed. */
+  manualAbortedAssistantId?: string | null;
+  hangRetryCount?: number;
 };
 
 export type PermissionRequestDto = {

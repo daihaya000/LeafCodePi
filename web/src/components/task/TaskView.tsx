@@ -676,6 +676,12 @@ export const TaskView = memo(function TaskView({
     setSessionHydrating(false);
     setPermissionRequest(detail.permissionRequest ?? null);
     setQuestionRequest(detail.questionRequest ?? null);
+    if ("manualAbortedAssistantId" in detail) {
+      setManualAbortedAssistantId(detail.manualAbortedAssistantId ?? null);
+    }
+    if (typeof detail.hangRetryCount === "number") {
+      setHangRetryCount(detail.hangRetryCount);
+    }
     setSkillPermission(detail.skillPermission ?? readSkillPermission());
     setPermissionMode(detail.permissionMode ?? readPermissionMode());
     // セッション人格は作成時固定。Auto 選択中は送信待ちの選択を維持する。

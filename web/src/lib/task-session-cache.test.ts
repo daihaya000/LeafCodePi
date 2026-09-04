@@ -82,7 +82,13 @@ describe("task session cache", () => {
 
   it("round-trips a task snapshot without storing duplicate TaskDetail fields", () => {
     saveTaskSessionCache({
-      task,
+      task: {
+        ...task,
+        permissionRequest: { id: "req-1" },
+        questionRequest: { id: "q-1" },
+        manualAbortedAssistantId: "",
+        hangRetryCount: 2,
+      } as TaskSummary,
       messages,
       isStreaming: false,
       isCompacting: false,
@@ -100,6 +106,9 @@ describe("task session cache", () => {
     });
     const stored = JSON.parse(localStorage.getItem(TASK_SESSION_CACHE_STORAGE_KEY) ?? "{}");
     expect(stored.entries[task.id].task.messages).toBeUndefined();
+    expect(stored.entries[task.id].task.manualAbortedAssistantId).toBeUndefined();
+    expect(stored.entries[task.id].task.hangRetryCount).toBeUndefined();
+    expect(stored.entries[task.id].task.permissionRequest).toBeUndefined();
   });
 
   it("ignores malformed, expired, and structurally unsafe entries", () => {

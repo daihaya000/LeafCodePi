@@ -224,6 +224,38 @@ describe("/api/tasks/[id]/events", () => {
     await reader.cancel();
   });
 
+  it("puts abort and hang retry state on the ready snapshot", async () => {
+    const messages = [
+      { id: "u1", role: "user" as const, createdAt: 1, parts: [{ id: "p1", type: "text" as const, text: "質問" }] },
+    ];
+    const bootstrap = task({ messages: [], isStreaming: true });
+    const detail = task({
+      messages,
+      isStreaming: false,
+      status: "idle",
+      manualAbortedAssistantId: "",
+      hangRetryCount: 2,
+    });
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail.mockResolvedValue(detail);
+    mocks.subscribeTask.mockReturnValue(vi.fn());
+
+    const response = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const reader = response.body!.getReader();
+    await readChunk(reader);
+    const readyChunk = await readChunk(reader);
+    const readyPayload = eventData(readyChunk);
+    expect(readyPayload.eventType).toBe("ready");
+    expect(readyPayload.manualAbortedAssistantId).toBe("");
+    expect(readyPayload.hangRetryCount).toBe(2);
+    expect(readyPayload.task).not.toHaveProperty("manualAbortedAssistantId");
+    expect(readyPayload.task).not.toHaveProperty("hangRetryCount");
+    await reader.cancel();
+  });
+
   it("keeps a buffered permission request when a later history snapshot arrives", async () => {
     const messages = [
       { id: "u1", role: "user" as const, createdAt: 1, parts: [{ id: "p1", type: "text" as const, text: "質問" }] },

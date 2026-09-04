@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 9
+
+**SSE ready に中断 ID が無く「再開」が消える** — 応答前に停止すると harness は `manualAbortedAssistantId=""` を置くが、ready も `getTaskDetail` も載せていなかった。再接続でクライアントが null にリセットされ、再開ボタンが消える。`hangRetryCount` も同様に ready へ載せる。
+
 ## 2026-09-04: 発見→修正ループ Tick 8
 
 **SSE ready 待ち中に承認イベントが後続スナップショットで消える** — 非 delta が来るたびに pending を全クリアしていた。`permission_request` の直後の履歴 snapshot で許可カードが消え、応答後の `permission_resolved` も落ちてカードが固まる。制御イベントは coalesce 時に残す。

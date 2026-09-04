@@ -219,6 +219,8 @@ export function saveTaskSessionCache(snapshot: TaskSessionCacheSnapshot): void {
   delete summary.todos;
   delete summary.permissionRequest;
   delete summary.questionRequest;
+  delete summary.manualAbortedAssistantId;
+  delete summary.hangRetryCount;
   const entries = loadEntries();
   entries[summary.id] = {
     ...snapshot,

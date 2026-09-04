@@ -69,6 +69,8 @@ export async function GET(
           "todos",
           "permissionRequest",
           "questionRequest",
+          "manualAbortedAssistantId",
+          "hangRetryCount",
         ]) {
           delete (taskSummary as Record<string, unknown>)[key];
         }
@@ -83,6 +85,8 @@ export async function GET(
           todos: detail.todos,
           permissionRequest: detail.permissionRequest ?? pendingPermissionForTask(id),
           questionRequest: detail.questionRequest ?? pendingQuestionForTask(id),
+          manualAbortedAssistantId: detail.manualAbortedAssistantId ?? null,
+          hangRetryCount: detail.hangRetryCount ?? 0,
           eventType: "ready",
         });
         if (TASK_SSE_PERF_ENABLED) {
