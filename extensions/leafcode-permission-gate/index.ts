@@ -98,13 +98,13 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
     label: "privilege elevation",
     pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|stdbuf|call|start|setsid|xargs|flock|ionice|nsenter|unshare|chroot|watch|systemd-run|parallel|spawn|ssh(?:\.exe)?|docker(?:\.exe)?|podman(?:\.exe)?|kubectl|wsl(?:\.exe)?)(?:\s+(?!-[vV]\b|--(?:help|version)\b)--?[\w.-]+(?:=\S+)?|\s+--(?=\s)|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+(?!-[vV]\b)-\w+\s+\S+|\s+(?!(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:shutdown|reboot|poweroff|halt|sudo|doas|pkexec|runas|gsudo|su)(?:\.exe)?(?![\w-]))(?:(?:~\/?|%[\w]+%|\$\{?[\w:]+\}?|\.\.?\/|[A-Za-z]:[\\/]|\/)[A-Za-z0-9_./\\:%~${}$-]*|[A-Za-z_][\w.@-]*))*\s+)*(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:sudo|doas|pkexec|runas|sudoedit|gsudo|su)(?:\.exe)?\b|\b(?:Start-Process|saps)\b[^\r\n]*-Verb\s*:?\s*['"]?RunAs['"]?\b/i,
   },
-  { category: "os", label: "system policy/account/firewall change", pattern: /\b(?:Set-ExecutionPolicy|setx|icacls|net(?:\.exe)?\s+(?:user|localgroup)|(?:New|Remove|Add|Disable|Enable)-Local(?:User|GroupMember)|(?:New|Set|Remove)-(?:NetFirewallRule|WindowsOptionalFeature)|(?:Enable|Disable)-WindowsOptionalFeature|dism(?:\.exe)?\b[^\r\n]*\/(?:enable-feature|disable-feature|add-package|remove-package)|msiexec(?:\.exe)?\b[^\r\n]*\/(?:i|uninstall))\b/i },
+  { category: "os", label: "system policy/account/firewall change", pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:Set-ExecutionPolicy|setx|icacls|net(?:\.exe)?\s+(?:user|localgroup)|(?:New|Remove|Add|Disable|Enable)-Local(?:User|GroupMember)|(?:New|Set|Remove)-(?:NetFirewallRule|WindowsOptionalFeature)|(?:Enable|Disable)-WindowsOptionalFeature)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)dism(?:\.exe)?\b[^\r\n]*\/(?:enable-feature|disable-feature|add-package|remove-package)|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)msiexec(?:\.exe)?\b[^\r\n]*\/(?:i|uninstall)\b/i },
   { category: "os", label: "system package change", pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:apt(?:-get)?|dnf|yum|pacman|zypper|apk|brew|winget|choco)(?:\.exe)?\b[^\r\n]*(?:install|remove|purge|upgrade|update|add|delete|uninstall|-[SRU][A-Za-z]*)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:npm|pnpm|yarn|pip|pip3)\b[^\r\n]*(?:--global|\s-g\b)\b/i },
   { category: "os", label: "scheduled task change", pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:Register|Unregister|New|Remove)-ScheduledTask\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)schtasks(?:\.exe)?\b[^\r\n]*\/(?:create|delete|change|run)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)crontab\s+(?:-e|-r)\b/i },
   // Obfuscated / encoded execution only. Plain `node -e`, `bash -c`, aliases, and
   // unelevated Start-Process are normal agent tools and stay out of this gate.
-  { category: "os", label: "dynamic/elevated script execution", pattern: /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*-(?:EncodedCommand|enc)\b|\b(?:Invoke-Expression|\biex\b)\b|(?<![-/])\beval\b|\bInvoke-Command\b[^\r\n]*(?:-ComputerName|-Session)\b|(?:^|[;|&\r\n])\s*&\s*(?:\(|['"])|(?:^|[;|&\r\n])\s*["']?\$(?:\{)?[A-Za-z_]\w*\}?["']?\s+(?:stop|start|restart|kill|terminate|disable|enable|delete|remove|uninstall|format|erase|wipe|shutdown|reboot)\b/i },
-  { category: "os", label: "downloaded script execution", pattern: /\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:\|\s*(?:sh|bash|zsh|pwsh|powershell|cmd|iex|Invoke-Expression)\b|(?:-o|--output)\s*-\s*&&)/i },
+  { category: "os", label: "dynamic/elevated script execution", pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*-(?:EncodedCommand|enc)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:Invoke-Expression|\biex\b)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?<![-/])eval\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)Invoke-Command\b[^\r\n]*(?:-ComputerName|-Session)\b|(?:^|[;|&\r\n])\s*&\s*(?:\(|['"])|(?:^|[;|&\r\n])\s*["']?\$(?:\{)?[A-Za-z_]\w*\}?["']?\s+(?:stop|start|restart|kill|terminate|disable|enable|delete|remove|uninstall|format|erase|wipe|shutdown|reboot)\b/i },
+  { category: "os", label: "downloaded script execution", pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:\|\s*(?:sh|bash|zsh|pwsh|powershell|cmd|iex|Invoke-Expression)\b|(?:-o|--output)\s*-\s*&&)/i },
   // Require "kernel" (or load/unload module) — bare "install modules" is a package name, not sysadmin.
   { category: "kernel", label: "kernel/module change", pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:modprobe|insmod|rmmod|kexec)(?:\.exe)?\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)sysctl\b[^\r\n]*(?:-w|--write|[^\r\n]*=)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)dkms\b[^\r\n]*\b(?:install|remove|autoinstall)\b|\b(?:load|unload)\s+(?:the\s+)?kernel(?:\s+modules?)?\b|\b(?:install|remove|update)\s+the\s+kernel(?:\s+modules?)?\b|\b(?:load|unload)\s+(?:the\s+)?modules?\b/i },
   // Bare "install driver" / "npm install driver" is a package name; require device-driver wording or tools.
@@ -120,7 +120,7 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
 ];
 
 /** Soft shell wrappers: re-scan the nested payload, do not hard-gate the wrapper alone. */
-const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh|dash|ash|ksh|fish|csh|tcsh)(?:\.exe)?\b|(?:powershell|pwsh)(?:\.exe)?\b|cmd(?:\.exe)?\b|(?:python|python3|node|perl|ruby|php|lua)(?:\.exe)?\b|\bscript(?:\.exe)?\b|\bosascript\b|\bssh(?:\.exe)?\b|\bansible\b|\bexpect\b|\b(?:at|batch)\b|(?:Invoke-Expression|\biex|eval)\b|\bschtasks(?:\.exe)?\b)/i;
+const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh|dash|ash|ksh|fish|csh|tcsh|tclsh|wish)(?:\.exe)?\b|(?:powershell|pwsh)(?:\.exe)?\b|cmd(?:\.exe)?\b|(?:python|python3|node|perl|ruby|php|lua|Rscript|julia)(?:\.exe)?\b|\bscript(?:\.exe)?\b|\bosascript\b|\bssh(?:\.exe)?\b|\bansible\b|\bexpect\b|\b(?:at|batch)\b|(?:Invoke-Expression|\biex|eval)\b|\bschtasks(?:\.exe)?\b)/i;
 const FIND_MUTATING_ACTION_PATTERN = /\bfind\b[^\r\n]*\s-(?:delete|exec|execdir|ok|okdir)\b/i;
 
 const MUTATING_COMMAND_PATTERN = /\b(?:rm|mv|cp|mkdir|touch|install|truncate|shred|unlink|del|erase|rd|rmdir|copy|move|rename|Set-Content|Add-Content|Clear-Content|Clear-Item|Out-File|Export-Csv|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|Expand-Archive|Set-Item|Set-ItemProperty|New-ItemProperty|Remove-ItemProperty|ri|ni|mi|ci|tar|unzip|tee|rsync|ln|mount|umount|chmod|chown|setfacl|robocopy|xcopy)\b|\b(?:sed|perl)\b[^\r\n]*(?:\s-i\b|--in-place\b)|\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:-O\b|--output\b|-OutFile\b)\s*\S+|(?<![0-9])>{1,2}(?!&)|[0-9]>{1,2}(?!&)/i;
@@ -404,7 +404,7 @@ function extractNestedShellCommands(command: string): string[] {
     // cmd /c /k /r and git-bash //c
     /\bcmd(?:\.exe)?\b(?:\s+\S+)*?\s+\/\/?[ckr]\s+(['"])([\s\S]*?)\1/gi,
     // Interpreters with leading -r / --eval / -p flags
-    /\b(?:python|python3|node|perl|ruby|php|lua)(?:\.exe)?\b[^\r\n]*?\s+(?:-e|--eval|-p|-c|-r)\s+(['"])([\s\S]*?)\1/gi,
+    /\b(?:python|python3|node|perl|ruby|php|lua|Rscript|julia)(?:\.exe)?\b[^\r\n]*?\s+(?:-e|--eval|-p|-c|-r)\s+(['"])([\s\S]*?)\1/gi,
     // script(1) -c '...'
     /\bscript(?:\.exe)?\b[^\r\n]*?-c\s+(['"])([\s\S]*?)\1/gi,
     // schtasks /tr "payload"
@@ -465,6 +465,20 @@ function extractNestedShellCommands(command: string): string[] {
     /\bdo\s+shell\s+script\s+(['"])([\s\S]*?)\1/gi,
   )) {
     push(match[2]);
+  }
+  // Julia run(`cmd`) / Cmd literals
+  for (const match of command.matchAll(/\brun\s*\(\s*`([^`]+)`\s*\)/gi)) {
+    push(match[1]);
+  }
+  // tclsh/wish here-strings: tclsh <<< 'exec shutdown'
+  for (const match of command.matchAll(
+    /\b(?:tclsh|wish)(?:\.exe)?\b[^\r\n]*<<<\s*(['"])([\s\S]*?)\1/gi,
+  )) {
+    push(match[2]);
+  }
+  // tcl exec payload
+  for (const match of command.matchAll(/\bexec\s+((?:shutdown|reboot|poweroff|halt)\b[^\r\n]*)/gi)) {
+    push(match[1]);
   }
   for (const match of command.matchAll(
     /(?:^|[;&|\r\n]\s*)(?:echo|printf|print)\b([^|\r\n]*)\|\s*(?:at|batch)\b/gi,

@@ -1,3 +1,12 @@
+## 2026-09-05: permission-gate ループ tick 13
+
+- FP: `echo Set-ExecutionPolicy` / `msiexec` / `net user` / `curl|bash` など（policy・download をコマンド位置化）
+- FN: `tclsh <<< 'exec …'` / `julia -e 'run(\`…\`)'` / `Rscript -e`
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 12
 
 - FP: `echo systemctl/reg/modprobe/bcdedit/fwupdmgr/apt`、`Get-Help New-Service`（各ルールをコマンド位置化）
