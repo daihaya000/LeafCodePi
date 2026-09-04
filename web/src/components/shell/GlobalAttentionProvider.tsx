@@ -162,8 +162,7 @@ export function GlobalAttentionProvider() {
         if (!closed) timer = setTimeout(loop, POLL_INTERVAL_MS);
       });
     };
-    void poll();
-    timer = setTimeout(loop, POLL_INTERVAL_MS);
+    loop();
     return () => {
       closed = true;
       if (timer) clearTimeout(timer);

@@ -62,6 +62,49 @@ describe("GlobalAttentionProvider", () => {
     vi.useRealTimers();
   });
 
+  it("does not start a second poll while the first is still in flight", async () => {
+    let attentionCalls = 0;
+    let releaseFirst: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    mocks.getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/tasks") {
+        attentionCalls += 1;
+        if (attentionCalls === 1) await firstGate;
+        return { attention: [{ taskId: "task-a", title: "タスクA", kinds: ["permission"] }] };
+      }
+      if (path === "/api/tasks/task-a") {
+        return { task: taskDetail("task-a") };
+      }
+      throw new Error(`unexpected: ${path}`);
+    });
+
+    render(<GlobalAttentionProvider />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(attentionCalls).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+    });
+    expect(attentionCalls).toBe(1);
+
+    await act(async () => {
+      releaseFirst();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(mocks.playAttentionRequiredSound).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(attentionCalls).toBe(2);
+    expect(mocks.playAttentionRequiredSound).toHaveBeenCalledTimes(1);
+  });
+
   it("does not auto-open when the fresh attention is only for the active task", async () => {
     window.history.pushState({}, "", "/task/task-a");
     render(<GlobalAttentionProvider />);
