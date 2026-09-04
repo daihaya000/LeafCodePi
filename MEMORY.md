@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 11
+
+- FP: `echo mkfs` / `echo diskpart` / `Get-Command Format-Volume`（disk 系をコマンド位置化）
+- FN: `osascript` / `ssh` / `lua` / `parallel` / `at` heredoc・`echo|at`
+- soft-prefix のホスト名・パス引数を復元（`flock /tmp/l`・`ssh localhost`）
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 10
 
 - FP: heredoc 本文の `shutdown`（`maskHeredocBodies`）

@@ -225,6 +225,13 @@ describe("system safety classifier", () => {
     assert.deepEqual(matchSystemSafetyCommand("echo format C:"), []);
     assert.deepEqual(matchSystemSafetyCommand("shutdown-manager --version"), []);
     assert.deepEqual(matchSystemSafetyCommand("cat <<EOF\nshutdown now\nEOF"), []);
+    assert.deepEqual(matchSystemSafetyCommand("echo mkfs.ext4 /dev/sda1"), []);
+    assert.deepEqual(matchSystemSafetyCommand("Get-Command Format-Volume"), []);
+    assert.ok(matchSystemSafetyCommand("osascript -e 'do shell script \"shutdown now\"'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("ssh localhost shutdown now").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("lua -e 'os.execute(\"shutdown now\")'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("parallel shutdown ::: now").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("at now <<EOF\nshutdown -h now\nEOF").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);

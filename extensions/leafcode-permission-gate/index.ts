@@ -90,13 +90,13 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
     label: "OS shutdown/restart",
     // Soft prefixes may wrap the binary (flags only — not path args); still not `echo Stop-Computer`.
     // Exclude -v/-V/--help/--version so `command -v shutdown` is not treated as running shutdown.
-    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|call|start|stdbuf|setsid|xargs|flock|ionice|nsenter|unshare|chroot|watch|systemd-run|wsl(?:\.exe)?)(?:\s+(?!-[vV]\b|--(?:help|version)\b)--?[\w.-]+(?:=\S+)?|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+(?!-[vV]\b)-\w+\s+\S+|\s+(?!(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:shutdown|reboot|poweroff|halt|sudo|doas|pkexec|runas|gsudo|su)(?:\.exe)?(?![\w-]))(?:~\/?|%[\w]+%|\$\{?[\w:]+\}?|\.\.?\/|[A-Za-z]:[\\/]|\/)[A-Za-z0-9_./\\:%~${}$-]*)*\s+)*(?:sudo\s+)?(?:\\\\[?.]\\)?(?:%(?:WINDIR|SYSTEMROOT)%[\\/]|\$(?:\{)?(?:env:)?(?:WINDIR|SYSTEMROOT|SystemRoot)\}?[\\/])?(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:Windows[\\/]System32[\\/])?["']?(?:shutdown|reboot|poweroff|halt)["']?(?:\.exe)?(?![\w-])|\b(?:systemctl|loginctl)\b[^\r\n]*\b(?:reboot|poweroff|halt|hibernate)\b|\bgnome-session-quit\b[^\r\n]*--(?:power-off|reboot)\b|\b(?:wmic(?:\.exe)?\b[^\r\n]*\b(?:os|computersystem)\b[^\r\n]*\bcall\s+(?:reboot|shutdown)\b)|\b(?:Invoke-CimMethod|Get-CimInstance|Get-WmiObject)\b[^\r\n]*\b(?:Win32(?:_OperatingSystem)?|Win32Shutdown|Reboot|Shutdown)\b|\.\s*Reboot\s*\(|\brundll32(?:\.exe)?\b[^\r\n]*\bExitWindowsEx\b|\b(?:dbus-send|busctl)\b[^\r\n]*\b(?:Reboot|PowerOff)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*|[{]\s*|&\s*[{]\s*|\\)(?:[\w.]+\\)?(?:Stop-Computer|Restart-Computer|logoff(?:\.exe)?)\b|\b(?:Start-Process|saps)\b[^\r\n]*\b(?:Stop-Computer|shutdown|reboot)(?:\.exe)?(?![\w-])|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:init|telinit)\s+[06]\b/i,
+    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|call|start|stdbuf|setsid|xargs|flock|ionice|nsenter|unshare|chroot|watch|systemd-run|parallel|ssh(?:\.exe)?|wsl(?:\.exe)?)(?:\s+(?!-[vV]\b|--(?:help|version)\b)--?[\w.-]+(?:=\S+)?|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+(?!-[vV]\b)-\w+\s+\S+|\s+(?!(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:shutdown|reboot|poweroff|halt|sudo|doas|pkexec|runas|gsudo|su)(?:\.exe)?(?![\w-]))(?:(?:~\/?|%[\w]+%|\$\{?[\w:]+\}?|\.\.?\/|[A-Za-z]:[\\/]|\/)[A-Za-z0-9_./\\:%~${}$-]*|[A-Za-z_][\w.@-]*))*\s+)*(?:sudo\s+)?(?:\\\\[?.]\\)?(?:%(?:WINDIR|SYSTEMROOT)%[\\/]|\$(?:\{)?(?:env:)?(?:WINDIR|SYSTEMROOT|SystemRoot)\}?[\\/])?(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:Windows[\\/]System32[\\/])?["']?(?:shutdown|reboot|poweroff|halt)["']?(?:\.exe)?(?![\w-])|\b(?:systemctl|loginctl)\b[^\r\n]*\b(?:reboot|poweroff|halt|hibernate)\b|\bgnome-session-quit\b[^\r\n]*--(?:power-off|reboot)\b|\bosascript\b[\s\S]{0,200}\b(?:shut\s+down|restart)\b|\b(?:wmic(?:\.exe)?\b[^\r\n]*\b(?:os|computersystem)\b[^\r\n]*\bcall\s+(?:reboot|shutdown)\b)|\b(?:Invoke-CimMethod|Get-CimInstance|Get-WmiObject)\b[^\r\n]*\b(?:Win32(?:_OperatingSystem)?|Win32Shutdown|Reboot|Shutdown)\b|\.\s*Reboot\s*\(|\brundll32(?:\.exe)?\b[^\r\n]*\bExitWindowsEx\b|\b(?:dbus-send|busctl)\b[^\r\n]*\b(?:Reboot|PowerOff)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*|[{]\s*|&\s*[{]\s*|\\)(?:[\w.]+\\)?(?:Stop-Computer|Restart-Computer|logoff(?:\.exe)?)\b|\b(?:Start-Process|saps)\b[^\r\n]*\b(?:Stop-Computer|shutdown|reboot)(?:\.exe)?(?![\w-])|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:init|telinit)\s+[06]\b/i,
   },
   // Same soft-prefix + command-position rule — not `git log --grep=sudo` / `npm install sudo-prompt`.
   {
     category: "os",
     label: "privilege elevation",
-    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|stdbuf|call|start|setsid|xargs|flock|ionice|nsenter|unshare|chroot|watch|systemd-run|wsl(?:\.exe)?)(?:\s+(?!-[vV]\b|--(?:help|version)\b)--?[\w.-]+(?:=\S+)?|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+(?!-[vV]\b)-\w+\s+\S+|\s+(?!(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:shutdown|reboot|poweroff|halt|sudo|doas|pkexec|runas|gsudo|su)(?:\.exe)?(?![\w-]))(?:~\/?|%[\w]+%|\$\{?[\w:]+\}?|\.\.?\/|[A-Za-z]:[\\/]|\/)[A-Za-z0-9_./\\:%~${}$-]*)*\s+)*(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:sudo|doas|pkexec|runas|sudoedit|gsudo|su)(?:\.exe)?\b|\b(?:Start-Process|saps)\b[^\r\n]*-Verb\s*:?\s*['"]?RunAs['"]?\b/i,
+    pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|stdbuf|call|start|setsid|xargs|flock|ionice|nsenter|unshare|chroot|watch|systemd-run|parallel|ssh(?:\.exe)?|wsl(?:\.exe)?)(?:\s+(?!-[vV]\b|--(?:help|version)\b)--?[\w.-]+(?:=\S+)?|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+(?!-[vV]\b)-\w+\s+\S+|\s+(?!(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:shutdown|reboot|poweroff|halt|sudo|doas|pkexec|runas|gsudo|su)(?:\.exe)?(?![\w-]))(?:(?:~\/?|%[\w]+%|\$\{?[\w:]+\}?|\.\.?\/|[A-Za-z]:[\\/]|\/)[A-Za-z0-9_./\\:%~${}$-]*|[A-Za-z_][\w.@-]*))*\s+)*(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:sudo|doas|pkexec|runas|sudoedit|gsudo|su)(?:\.exe)?\b|\b(?:Start-Process|saps)\b[^\r\n]*-Verb\s*:?\s*['"]?RunAs['"]?\b/i,
   },
   { category: "os", label: "system policy/account/firewall change", pattern: /\b(?:Set-ExecutionPolicy|setx|icacls|net(?:\.exe)?\s+(?:user|localgroup)|(?:New|Remove|Add|Disable|Enable)-Local(?:User|GroupMember)|(?:New|Set|Remove)-(?:NetFirewallRule|WindowsOptionalFeature)|(?:Enable|Disable)-WindowsOptionalFeature|dism(?:\.exe)?\b[^\r\n]*\/(?:enable-feature|disable-feature|add-package|remove-package)|msiexec(?:\.exe)?\b[^\r\n]*\/(?:i|uninstall))\b/i },
   { category: "os", label: "system package change", pattern: /\b(?:apt(?:-get)?|dnf|yum|pacman|zypper|apk|brew|winget|choco)\b[^\r\n]*(?:install|remove|purge|upgrade|update|add|delete|uninstall|-[SRU][A-Za-z]*)\b|\b(?:npm|pnpm|yarn|pip|pip3)\b[^\r\n]*(?:--global|\s-g\b)\b/i },
@@ -113,17 +113,14 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
   { category: "service", label: "service/daemon change", pattern: /\bsc(?:\.exe)?\s+(?:create|config|delete|start|stop|failure|privs)\b|\b(?:New|Remove|Set|Start|Stop|Restart)-(?:Windows)?Service\b|\bsystemctl\s+(?:enable|disable|start|stop|restart|mask|unmask|link|preset)\b|\bservice\s+\S+\s+(?:start|stop|restart)\b|\b(?:launchctl\s+(?:load|unload|bootstrap|bootout|enable|disable)|rc-service\s+\S+\s+(?:start|stop|restart))\b|\b(?:start|stop|restart|enable|disable)\s+(?:the\s+)?(?:service|daemon)s?\b|\b(?:start|stop|restart|enable|disable)[_-](?:service|daemon)s?\b/i },
   // Require bootloader/configuration — bare "update boot" is a commit message / package name.
   { category: "boot", label: "boot configuration change", pattern: /\b(?:bcdboot(?:\.exe)?|grub-install|update-grub|update-initramfs)\b|\bbootrec(?:\.exe)?\b[^\r\n]*\/(?:fixmbr|fixboot|rebuildbcd)\b|\befibootmgr\b[^\r\n]*(?:\s-[cCbBdDoOnN]|--(?:create|delete|disk|bootorder|bootnext))\b|\breagentc(?:\.exe)?\b[^\r\n]*\/(?:enable|disable|setreimage|boottore)\b|\bbootcfg(?:\.exe)?\b[^\r\n]*\/(?:add|delete|raw)\b|\bbcdedit(?:\.exe)?\b[^\r\n]*[\/-](?:set|delete(?:value)?|create|import|export|store|timeout|default|displayorder|bootsequence|ems|dbgsettings|hypervisorsettings)\b|\b(?:change|modify|update|repair|write|set)\s+(?:the\s+)?boot(?:loader|configuration)\b/i },
-  // Bare `format` / `npm run format` must not match; require format.com/exe or a drive letter arg.
-  // Allow switches before the drive: `format /FS:NTFS C:`
-  // Bare `dd` of project files is normal; require device/raw/OS targets.
-  // `format C:` / `format.com` require command position — not `echo format C:`.
-  { category: "disk", label: "disk/partition/volume change", pattern: /\b(?:mkfs(?:\.\w+)?|fdisk|sfdisk|parted|cfdisk|sgdisk|wipefs|diskpart(?:\.exe)?|diskutil)\b|\bdd\b[^\r\n]*\b(?:if|of)=(?:\/(?:dev|etc|boot|sys|proc|usr|var|opt|root|sbin|bin|lib|private)\/|\\\\\.\\|[A-Za-z]:[\\/])|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|call|start|stdbuf|setsid)(?:\s+(?!-[vV]\b|--(?:help|version)\b)--?[\w.-]+(?:=\S+)?|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+(?!-[vV]\b)-\w+\s+\S+|\s+(?!(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:shutdown|reboot|poweroff|halt|sudo|doas|pkexec|runas|gsudo|su)(?:\.exe)?(?![\w-]))(?:~\/?|%[\w]+%|\$\{?[\w:]+\}?|\.\.?\/|[A-Za-z]:[\\/]|\/)[A-Za-z0-9_./\\:%~${}$-]*)*\s+)*(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:format(?:\.com|\.exe)\b|format(?:\s+[\/\-][A-Za-z0-9:]+)*\s+[A-Za-z]:(?:\s|$|\/))|\b(?:Clear|Initialize|Set|New|Remove)-(?:Disk|Partition|Volume)\b|\b(?:Format|Resize|New|Remove|Set)-Volume\b|\b(?:format|erase|wipe|partition|resize|initialize)\s+(?:the\s+)?(?:disk|drive|volume|partition)s?\b/i },
+  // `format C:` / mkfs / diskpart / *-Volume require command position — not `echo mkfs` / `Get-Command Format-Volume`.
+  { category: "disk", label: "disk/partition/volume change", pattern: /(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|call|start|stdbuf|setsid)(?:\s+(?!-[vV]\b|--(?:help|version)\b)--?[\w.-]+(?:=\S+)?|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+(?!-[vV]\b)-\w+\s+\S+|\s+(?!(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:shutdown|reboot|poweroff|halt|sudo|doas|pkexec|runas|gsudo|su)(?:\.exe)?(?![\w-]))(?:(?:~\/?|%[\w]+%|\$\{?[\w:]+\}?|\.\.?\/|[A-Za-z]:[\\/]|\/)[A-Za-z0-9_./\\:%~${}$-]*|[A-Za-z_][\w.@-]*))*\s+)*(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:mkfs(?:\.\w+)?|fdisk|sfdisk|parted|cfdisk|sgdisk|wipefs|diskpart(?:\.exe)?|diskutil)(?:\.exe)?\b|\bdd\b[^\r\n]*\b(?:if|of)=(?:\/(?:dev|etc|boot|sys|proc|usr|var|opt|root|sbin|bin|lib|private)\/|\\\\\.\\|[A-Za-z]:[\\/])|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:(?:[\w.]+=\S+\s+)*)?(?:(?:env|busybox|timeout|exec|nohup|nice|command|time|call|start|stdbuf|setsid)(?:\s+(?!-[vV]\b|--(?:help|version)\b)--?[\w.-]+(?:=\S+)?|\s+\/[A-Za-z]+\b|\s+""|\s+\d+|\s+(?!-[vV]\b)-\w+\s+\S+|\s+(?!(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:shutdown|reboot|poweroff|halt|sudo|doas|pkexec|runas|gsudo|su)(?:\.exe)?(?![\w-]))(?:(?:~\/?|%[\w]+%|\$\{?[\w:]+\}?|\.\.?\/|[A-Za-z]:[\\/]|\/)[A-Za-z0-9_./\\:%~${}$-]*|[A-Za-z_][\w.@-]*))*\s+)*(?:[A-Za-z]:[\\/])?(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:format(?:\.com|\.exe)\b|format(?:\s+[\/\-][A-Za-z0-9:]+)*\s+[A-Za-z]:(?:\s|$|\/))|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:Clear|Initialize|Set|New|Remove)-(?:Disk|Partition|Volume)\b|(?:^|[;&|\r\n]\s*|&&\s*|\|\|\s*)(?:Format|Resize|New|Remove|Set)-Volume\b|\b(?:format|erase|wipe|partition|resize|initialize)\s+(?:the\s+)?(?:disk|drive|volume|partition)s?\b/i },
   // Require flash/write/the firmware — bare "npm install firmware" is a package name.
   { category: "firmware", label: "firmware/BIOS update", pattern: /\bfwupdmgr\b[^\r\n]*\b(?:install|update|refresh)\b|\bflashrom\b[^\r\n]*(?:-w|--write|\bwrite\b)|\b(?:flash|update|write|set)[ -]*(?:bios|uefi)\b|\b(?:flash|write)\s+(?:the\s+)?firmware\b|\b(?:Update|Set|Write)-Firmware\b|\b(?:flash|update|write|install|erase)\s+the\s+(?:firmware|bios|uefi)\b/i }
 ];
 
 /** Soft shell wrappers: re-scan the nested payload, do not hard-gate the wrapper alone. */
-const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh|dash|ash|ksh|fish|csh|tcsh)(?:\.exe)?\b|(?:powershell|pwsh)(?:\.exe)?\b|cmd(?:\.exe)?\b|(?:python|python3|node|perl|ruby|php)(?:\.exe)?\b|\bscript(?:\.exe)?\b|(?:Invoke-Expression|\biex|eval)\b|\bschtasks(?:\.exe)?\b)/i;
+const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh|dash|ash|ksh|fish|csh|tcsh)(?:\.exe)?\b|(?:powershell|pwsh)(?:\.exe)?\b|cmd(?:\.exe)?\b|(?:python|python3|node|perl|ruby|php|lua)(?:\.exe)?\b|\bscript(?:\.exe)?\b|\bosascript\b|\bssh(?:\.exe)?\b|\b(?:at|batch)\b|(?:Invoke-Expression|\biex|eval)\b|\bschtasks(?:\.exe)?\b)/i;
 const FIND_MUTATING_ACTION_PATTERN = /\bfind\b[^\r\n]*\s-(?:delete|exec|execdir|ok|okdir)\b/i;
 
 const MUTATING_COMMAND_PATTERN = /\b(?:rm|mv|cp|mkdir|touch|install|truncate|shred|unlink|del|erase|rd|rmdir|copy|move|rename|Set-Content|Add-Content|Clear-Content|Clear-Item|Out-File|Export-Csv|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|Expand-Archive|Set-Item|Set-ItemProperty|New-ItemProperty|Remove-ItemProperty|ri|ni|mi|ci|tar|unzip|tee|rsync|ln|mount|umount|chmod|chown|setfacl|robocopy|xcopy)\b|\b(?:sed|perl)\b[^\r\n]*(?:\s-i\b|--in-place\b)|\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:-O\b|--output\b|-OutFile\b)\s*\S+|(?<![0-9])>{1,2}(?!&)|[0-9]>{1,2}(?!&)/i;
@@ -385,8 +382,9 @@ function extractNestedShellCommands(command: string): string[] {
   if (
     !NESTED_SHELL_WRAPPER_PATTERN.test(command)
     && !/[-\/](?:EncodedCommand|enc|encoded|ec|e)\b/i.test(command)
-    && !/\b(?:os\.system|subprocess\.|child_process|execSync|execFile|passthru)\b/i.test(command)
-    && !/\b(?:system|exec|passthru)\s*\(/i.test(command)
+    && !/\b(?:os\.system|os\.execute|subprocess\.|child_process|execSync|execFile|passthru)\b/i.test(command)
+    && !/\b(?:system|exec|passthru|shell_exec)\s*\(/i.test(command)
+    && !/\bdo\s+shell\s+script\b/i.test(command)
     && !/\|\s*(?:(?:env|busybox|nice|time|xargs)\s+)*(?:[\\/]*(?:[\w.-]+[\\/])*)?(?:bash|sh|zsh|dash|ash|pwsh|powershell|cmd)\b/i.test(command)
   ) {
     return [];
@@ -406,11 +404,15 @@ function extractNestedShellCommands(command: string): string[] {
     // cmd /c /k /r and git-bash //c
     /\bcmd(?:\.exe)?\b(?:\s+\S+)*?\s+\/\/?[ckr]\s+(['"])([\s\S]*?)\1/gi,
     // Interpreters with leading -r / --eval / -p flags
-    /\b(?:python|python3|node|perl|ruby|php)(?:\.exe)?\b[^\r\n]*?\s+(?:-e|--eval|-p|-c|-r)\s+(['"])([\s\S]*?)\1/gi,
+    /\b(?:python|python3|node|perl|ruby|php|lua)(?:\.exe)?\b[^\r\n]*?\s+(?:-e|--eval|-p|-c|-r)\s+(['"])([\s\S]*?)\1/gi,
     // script(1) -c '...'
     /\bscript(?:\.exe)?\b[^\r\n]*?-c\s+(['"])([\s\S]*?)\1/gi,
     // schtasks /tr "payload"
     /\bschtasks(?:\.exe)?\b[^\r\n]*\/tr\s+(['"])([\s\S]*?)\1/gi,
+    // osascript -e '...'
+    /\bosascript\b[^\r\n]*?-e\s+(['"])([\s\S]*?)\1/gi,
+    // ssh user@host 'remote command'
+    /\bssh(?:\.exe)?\b[^\r\n]*?\s+(['"])([\s\S]*?)\1/gi,
     /\b(?:Invoke-Expression|\biex|eval)\b\s+(['"])([\s\S]*?)\1/gi,
     /\bInvoke-Command\b[^\r\n]*-ScriptBlock\s*\{([\s\S]*?)\}/gi,
     /\b(?:Start-Process|saps)\b[^\r\n]*-(?:ArgumentList|Args)\s+(['"])([\s\S]*?)\1/gi,
@@ -451,9 +453,19 @@ function extractNestedShellCommands(command: string): string[] {
     push(match[1]);
   }
   for (const match of command.matchAll(
-    /\b(?:os\.system|os\.popen|os\.execl|subprocess\.(?:call|run|Popen|check_call|check_output)|(?:require\s*\(\s*['"]child_process['"]\s*\)\s*\.)?(?:exec|execSync|execFile|spawn|spawnSync)|child_process\.(?:exec|execSync|execFile|spawn|spawnSync)|system|exec|passthru|shell_exec|popen)\s*\(\s*(['"])([\s\S]*?)\1/gi,
+    /\b(?:os\.system|os\.popen|os\.execl|os\.execute|subprocess\.(?:call|run|Popen|check_call|check_output)|(?:require\s*\(\s*['"]child_process['"]\s*\)\s*\.)?(?:exec|execSync|execFile|spawn|spawnSync)|child_process\.(?:exec|execSync|execFile|spawn|spawnSync)|system|exec|passthru|shell_exec|popen)\s*\(\s*(['"])([\s\S]*?)\1/gi,
   )) {
     push(match[2]);
+  }
+  for (const match of command.matchAll(
+    /\bdo\s+shell\s+script\s+(['"])([\s\S]*?)\1/gi,
+  )) {
+    push(match[2]);
+  }
+  for (const match of command.matchAll(
+    /(?:^|[;&|\r\n]\s*)(?:echo|printf|print)\b([^|\r\n]*)\|\s*(?:at|batch)\b/gi,
+  )) {
+    push((match[1] ?? "").replace(/^['"\s]+|['"\s]+$/g, ""));
   }
   for (const match of command.matchAll(
     /\b(?:subprocess\.(?:call|run|Popen|check_call|check_output)|(?:require\s*\(\s*['"]child_process['"]\s*\)\s*\.)?(?:exec|execSync|execFile|spawn|spawnSync)|os\.execl)\s*\(\s*[\[(]\s*(['"])([^'"]+)\1/gi,
@@ -545,6 +557,18 @@ function matchSystemSafetyCommandInner(command: string, depth: number): SystemSa
       for (const nested of extractNestedShellCommands(decoded)) {
         for (const match of matchSystemSafetyCommandInner(nested, depth + 1)) {
           pushSafetyMatch(matches, match);
+        }
+      }
+    }
+    // at/batch heredocs schedule real commands; scan bodies before they are masked away.
+    if (/\b(?:at|batch)\b/i.test(command)) {
+      for (const match of command.matchAll(
+        /(<<-?\s*['"]?)(\w+)(['"]?[^\r\n]*\r?\n)([\s\S]*?)(\r?\n\2\b)/gi,
+      )) {
+        const body = match[4]?.trim();
+        if (!body) continue;
+        for (const nestedMatch of matchSystemSafetyCommandInner(body, depth + 1)) {
+          pushSafetyMatch(matches, nestedMatch);
         }
       }
     }
