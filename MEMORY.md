@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 30
+
+- FN: `ufw disable` / `Set-NetFirewallProfile -Enabled False` / `firewall-cmd --panic-on|--set-default-zone=drop` / `iptables -P … DROP`
+- FN: `bootctl install` / `systemd-boot install` / `sbsign` / `dracut --regenerate-all`（standard でもゲート）
+- FN: `dscl -delete /Users/` / `sysadminctl -deleteUser` / `profiles remove` / `security authorizationdb write|remove` / `userdel|deluser`
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 29
 
 - FN: `Set-SecureBootUEFI` / `Confirm-SecureBootUEFI` / `update-secureboot-policy`、`tpm2_clear`/`Clear-Tpm`/`Initialize-Tpm`（boot）

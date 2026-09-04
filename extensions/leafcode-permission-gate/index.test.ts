@@ -342,6 +342,16 @@ describe("system safety classifier", () => {
     assert.deepEqual(matchSystemSafetyCommand("Get-SecureBootUEFI"), []);
     assert.deepEqual(matchSystemSafetyCommand("npm run build -- --global"), []);
     assert.ok(matchSystemSafetyCommand("npm install -g typescript").some((match) => match.label === "system package change"));
+    assert.ok(matchSystemSafetyCommand("ufw disable").some((match) => match.label === "system policy/account/firewall change"));
+    assert.ok(matchSystemSafetyCommand("Set-NetFirewallProfile -Enabled False").some((match) => match.label === "system policy/account/firewall change"));
+    assert.ok(matchSystemSafetyCommand("iptables -P INPUT DROP").some((match) => match.label === "system policy/account/firewall change"));
+    assert.ok(matchSystemSafetyCommand("bootctl install").some((match) => match.category === "boot"));
+    assert.ok(matchSystemSafetyCommand("sbsign --key k.pem --cert c.pem vmlinuz.efi").some((match) => match.category === "boot"));
+    assert.ok(matchSystemSafetyCommand("dracut --regenerate-all").some((match) => match.category === "boot"));
+    assert.ok(matchSystemSafetyCommand("dscl . -delete /Users/testuser").some((match) => match.label === "system policy/account/firewall change"));
+    assert.ok(matchSystemSafetyCommand("userdel testuser").some((match) => match.label === "system policy/account/firewall change"));
+    assert.deepEqual(matchSystemSafetyCommand("ufw status"), []);
+    assert.deepEqual(matchSystemSafetyCommand("bootctl status"), []);
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);
