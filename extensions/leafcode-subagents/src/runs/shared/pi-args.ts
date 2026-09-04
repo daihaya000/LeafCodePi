@@ -403,6 +403,13 @@ export function resolveLeafcodePermissionGateExtension(): string | undefined {
 		: undefined;
 }
 
+export function requireLeafcodePermissionGateExtension(extensionPath: string | undefined): string {
+	if (!extensionPath) {
+		throw new Error("System safety guard extension is unavailable; refusing to launch a child.");
+	}
+	return extensionPath;
+}
+
 /**
  * Resolve the permission-system extension entry point when installed.
  * Returns the absolute path to the extension's main module, or undefined
@@ -538,18 +545,17 @@ export function resolvePiLaunchToolPlan(
 				].filter((tool) => tool !== "contact_supervisor" && (!legacySupervisorPairing || tool !== "intercom"))),
 			]
 		: [];
-	const leafcodePermissionGateExt = resolveLeafcodePermissionGateExtension();
+	const leafcodePermissionGateExt = requireLeafcodePermissionGateExtension(
+		resolveLeafcodePermissionGateExtension(),
+	);
 	const permSystemExt = capabilityCeiling?.denyExtensions
 		? undefined
 		: resolvePermissionSystemExtension();
-	if (!leafcodePermissionGateExt && !permSystemExt) {
-		throw new Error("System safety guard extension is unavailable; refusing to launch a child.");
-	}
 	const runtimeExtensions = [
 		PROMPT_RUNTIME_EXTENSION_PATH,
 		...(fanoutAuthorized ? [FANOUT_CHILD_EXTENSION_PATH] : []),
 		// Keep the in-repo system safety guard even when user extensions are denied.
-		...(leafcodePermissionGateExt ? [leafcodePermissionGateExt] : []),
+		leafcodePermissionGateExt,
 		...(permSystemExt ? [permSystemExt] : []),
 	];
 	const disableAmbientExtensions =

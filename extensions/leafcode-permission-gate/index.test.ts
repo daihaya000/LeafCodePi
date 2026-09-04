@@ -37,11 +37,14 @@ describe("system safety classifier", () => {
     assert.deepEqual(matchSystemSafetyCommand("systemctl status leafcode.service"), []);
     assert.deepEqual(matchSystemSafetyCommand("bcdedit /enum"), []);
     assert.deepEqual(matchSystemSafetyCommand("fdisk -l /dev/sda"), []);
+    assert.ok(matchSystemSafetyCommand("fdisk -l /dev/sda && dd if=/dev/zero of=/dev/sda").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("diskutil list; diskutil eraseDisk APFS Empty /dev/disk2").some((match) => match.category === "disk"));
     assert.ok(matchSystemSafetyPath("C:\\Windows\\System32\\drivers\\example.sys").some((match) => match.category === "driver"));
     assert.ok(matchSystemSafetyPath("C:\\Users\\Daichi\\Documents\\report.txt").some((match) => match.category === "user-data"));
     assert.ok(matchSystemSafetyForTool("mcp__server__registry_set", { path: "HKLM\\Software\\LeafCode" }).some((match) => match.category === "registry"));
     assert.ok(matchSystemSafetyForTool("mcp__server__exec", { payload: { command: "systemctl stop leafcode.service" } }).some((match) => match.category === "service"));
     assert.ok(matchSystemSafetyForTool("mcp__server__file_tool", { target: "C:\\Windows\\System32\\config" }).some((match) => match.category === "os"));
+    assert.deepEqual(matchSystemSafetyForTool("read", { path: "/etc/os-release" }), []);
   });
 });
 
@@ -173,14 +176,12 @@ describe("LeafCode permission gate", () => {
       assert.equal((direct as { terminate?: boolean } | undefined)?.terminate, true);
       assert.match(String((direct as { reason?: string } | undefined)?.reason), /read-only/);
 
-      const directUserBash = await handlers.get("user_bash")?.(
-        { command: "systemctl stop leafcode.service", cwd },
+      await handlers.get("tool_call")?.(
+        { toolCallId: "failed-read", toolName: "read", input: { path: "/missing" } },
         freshContext(cwd, sessionManager),
       );
-      assert.match(String((directUserBash as { result?: { output?: string } } | undefined)?.result?.output), /System safety guard/);
-
-      await handlers.get("tool_call")?.(
-        { toolName: "read", input: { path: "/etc/os-release" } },
+      await handlers.get("tool_result")?.(
+        { toolCallId: "failed-read", toolName: "read", isError: true },
         freshContext(cwd, sessionManager),
       );
       await handlers.get("message_end")?.(
@@ -192,7 +193,6 @@ describe("LeafCode permission gate", () => {
         },
         freshContext(cwd, sessionManager),
       );
-      await handlers.get("input")?.({ text: "はい", source: "interactive" }, freshContext(cwd, sessionManager));
 
       let prompt = "";
       const approvalContext = {
@@ -207,12 +207,52 @@ describe("LeafCode permission gate", () => {
           notify: () => undefined,
         },
       } as unknown as ExtensionContext;
+      const afterFailedRead = await handlers.get("tool_call")?.(
+        { toolCallId: "unsafe-after-failure", toolName: "bash", input: { command: "Stop-Computer -Force" } },
+        approvalContext,
+      );
+      assert.equal((afterFailedRead as { block?: boolean } | undefined)?.block, true);
+      assert.equal(prompt, "");
+
+      await handlers.get("tool_call")?.(
+        { toolCallId: "successful-read", toolName: "read", input: { path: "/etc/os-release" } },
+        freshContext(cwd, sessionManager),
+      );
+      await handlers.get("tool_result")?.(
+        { toolCallId: "successful-read", toolName: "read", isError: false },
+        freshContext(cwd, sessionManager),
+      );
+      await handlers.get("message_end")?.(
+        {
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "対象はこの端末です。影響は再起動です。失敗時はバックアップから復旧します。" }],
+          },
+        },
+        freshContext(cwd, sessionManager),
+      );
+      await handlers.get("input")?.({ text: "はい", source: "interactive" }, freshContext(cwd, sessionManager));
+
       const denied = await handlers.get("tool_call")?.(
-        { toolName: "bash", input: { command: "Stop-Computer -Force" } },
+        { toolCallId: "unsafe-approved-flow", toolName: "bash", input: { command: "Stop-Computer -Force" } },
         approvalContext,
       );
       assert.equal((denied as { block?: boolean } | undefined)?.block, true);
       assert.match(prompt, /明示的に許可/);
+
+      const directUserBash = await handlers.get("user_bash")?.(
+        { command: "systemctl stop leafcode.service", cwd },
+        freshContext(cwd, sessionManager),
+      );
+      assert.match(String((directUserBash as { result?: { output?: string } } | undefined)?.result?.output), /System safety guard/);
+
+      const customTool = await handlers.get("tool_call")?.(
+        { toolCallId: "custom-secret", toolName: "mcp__server__exec", input: { token: "top-secret" } },
+        freshContext(cwd, sessionManager),
+      );
+      const customReason = String((customTool as { reason?: string } | undefined)?.reason);
+      assert.match(customReason, /details redacted/);
+      assert.doesNotMatch(customReason, /top-secret/);
     } finally {
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;

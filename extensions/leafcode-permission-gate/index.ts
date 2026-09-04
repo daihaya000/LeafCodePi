@@ -223,8 +223,16 @@ function pushSafetyMatch(matches: SystemSafetyMatch[], match: SystemSafetyMatch)
 }
 
 function isReadOnlyDiskInspection(command: string): boolean {
-  if (/\bdiskutil\s+(?:list|info|apfs\s+list)\b/i.test(command)) return true;
-  return /\b(?:fdisk|sfdisk|parted|cfdisk|sgdisk)\b[^\r\n]*\s(?:-l|--list|--print|-p|print)\b/i.test(command);
+  const normalized = command.trim();
+  if (/[\r\n;&|`]/.test(normalized)) return false;
+  return [
+    /^diskutil\s+list(?:\s+\S+)?$/i,
+    /^diskutil\s+info\s+\S+$/i,
+    /^diskutil\s+apfs\s+list(?:\s+\S+)?$/i,
+    /^(?:fdisk|sfdisk)\s+(?:-l|--list)(?:\s+\S+)*$/i,
+    /^parted\s+(?:(?:-l|--list)|\S+(?:\s+\S+)*\s+print)$/i,
+    /^sgdisk\s+(?:-p|--print)(?:\s+\S+)*$/i,
+  ].some((pattern) => pattern.test(normalized));
 }
 
 export function matchSystemSafetyCommand(command: string): SystemSafetyMatch[] {
@@ -345,6 +353,7 @@ export function matchSystemSafetyForTool(
     const filePath = asRecord(input)?.path;
     return typeof filePath === "string" ? matchSystemSafetyPath(filePath, cwd) : [];
   }
+  if (toolName === "read" || toolName === "grep" || toolName === "find" || toolName === "ls") return [];
 
   const matches: SystemSafetyMatch[] = [];
   for (const rule of CUSTOM_SYSTEM_TOOL_RULES) {
@@ -402,6 +411,14 @@ function isReadOnlyInvestigation(toolName: string, input: unknown): boolean {
   return /\b(?:Get-(?:Content|Item|ItemProperty|Service|ComputerInfo|CimInstance)|cat|head|tail|less|more|type|dir|ls|find|grep|rg|systemctl\s+(?:status|show|list)|sc\s+query|reg\s+query|bcdedit\s+\/enum|diskutil\s+(?:list|info)|lsblk|findmnt|dmidecode)\b/i.test(command);
 }
 
+function operationIdentity(toolName: string, input: unknown): string {
+  try {
+    return `${toolName}:${JSON.stringify(input) ?? ""}`;
+  } catch {
+    return `${toolName}:unserializable`;
+  }
+}
+
 function operationText(toolName: string, input: unknown): string {
   const record = asRecord(input);
   if (toolName === "bash" || toolName === "powershell") {
@@ -418,15 +435,15 @@ function operationText(toolName: string, input: unknown): string {
   const paths: string[] = [];
   collectStringFields(input, PATH_INPUT_KEYS, paths);
   if (paths[0]) return `${toolName}: ${paths[0]}`;
-  try {
-    return `${toolName}: ${(JSON.stringify(input) ?? "").slice(0, 2000)}`;
-  } catch {
-    return toolName;
-  }
+  return `${toolName}: details redacted`;
 }
 
 function safetyLabels(matches: readonly SystemSafetyMatch[]): string[] {
   return [...new Set(matches.map((match) => `${match.category}: ${match.label}`))];
+}
+
+function safetyKey(matches: readonly SystemSafetyMatch[]): string {
+  return [...new Set(matches.map((match) => match.category))].sort().join("|");
 }
 
 function preflightRequiredReason(operation: string, matches: readonly SystemSafetyMatch[]): string {
@@ -549,12 +566,18 @@ function extensionSessionId(ctx: ExtensionContext): string {
 export default function (pi: ExtensionAPI): void {
   let safetyInvestigationObserved = false;
   let safetyPlanPresented = false;
-  let safetyFlowActive = false;
+  let pendingSafetyKey = "";
+  const pendingInvestigationCalls = new Set<string>();
 
-  pi.on("session_start", async (_event, ctx) => {
+  const resetSafetyFlow = (): void => {
     safetyInvestigationObserved = false;
     safetyPlanPresented = false;
-    safetyFlowActive = false;
+    pendingSafetyKey = "";
+    pendingInvestigationCalls.clear();
+  };
+
+  pi.on("session_start", async (_event, ctx) => {
+    resetSafetyFlow();
     try {
       const config = readConfig();
       setSessionMode(ctx, config.mode);
@@ -564,47 +587,53 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("input", (event) => {
-    if (event.source === "extension") return;
-    const hasPlan = hasSafetyPlanText(event.text);
-    if (!safetyFlowActive) {
-      safetyInvestigationObserved = false;
-      safetyPlanPresented = hasPlan;
-      return;
-    }
-    if (hasPlan) {
+    if (event.source === "extension" || !pendingSafetyKey) return;
+    if (safetyInvestigationObserved && hasSafetyPlanText(event.text)) {
       safetyPlanPresented = true;
       return;
     }
     if (safetyInvestigationObserved && safetyPlanPresented && isExplicitApprovalText(event.text)) return;
-    safetyInvestigationObserved = false;
-    safetyPlanPresented = false;
-    safetyFlowActive = false;
+    resetSafetyFlow();
   });
 
   pi.on("message_end", (event) => {
-    if (safetyFlowActive && event.message.role === "assistant" && hasSafetyPlanText(messageText(event.message))) {
+    if (pendingSafetyKey && safetyInvestigationObserved && event.message.role === "assistant" && hasSafetyPlanText(messageText(event.message))) {
       safetyPlanPresented = true;
     }
   });
 
   pi.on("agent_end", (event) => {
-    if (safetyFlowActive && hasSafetyPlan(event.messages)) {
-      safetyPlanPresented = true;
-    }
+    if (pendingSafetyKey && safetyInvestigationObserved && hasSafetyPlan(event.messages)) safetyPlanPresented = true;
+  });
+
+  pi.on("tool_result", (event) => {
+    if (!pendingInvestigationCalls.delete(event.toolCallId)) return;
+    if (!event.isError && pendingSafetyKey) safetyInvestigationObserved = true;
   });
 
   const requireSystemApproval = async (
     ctx: ExtensionContext,
     mode: PermissionMode,
     operation: string,
+    identity: string,
     safetyMatches: readonly SystemSafetyMatch[],
   ): Promise<{ block: true; terminate: true; reason: string } | undefined> => {
-    safetyFlowActive = true;
+    const operationKey = `${safetyKey(safetyMatches)}\n${identity}`;
     if (mode === "deny") {
+      resetSafetyFlow();
       return {
         block: true,
         terminate: true,
         reason: `${preflightRequiredReason(operation, safetyMatches)}\nPermission mode is deny.`,
+      };
+    }
+    if (pendingSafetyKey !== operationKey) {
+      resetSafetyFlow();
+      pendingSafetyKey = operationKey;
+      return {
+        block: true,
+        terminate: true,
+        reason: preflightRequiredReason(operation, safetyMatches),
       };
     }
     if (!safetyInvestigationObserved || !safetyPlanPresented) {
@@ -615,19 +644,14 @@ export default function (pi: ExtensionAPI): void {
       };
     }
     const result = await requireSystemSafetyApproval(ctx, operation, safetyMatches);
-    if (!result) {
-      safetyInvestigationObserved = false;
-      safetyPlanPresented = false;
-      safetyFlowActive = false;
-    }
+    resetSafetyFlow();
     return result;
   };
 
   pi.on("tool_call", async (event, ctx) => {
     const mode = sessionMode(ctx);
-    if (mode !== "deny" && isReadOnlyInvestigation(event.toolName, event.input)) {
-      safetyInvestigationObserved = true;
-      safetyFlowActive = true;
+    if (mode !== "deny" && pendingSafetyKey && isReadOnlyInvestigation(event.toolName, event.input)) {
+      pendingInvestigationCalls.add(event.toolCallId);
     }
     const safetyMatches = matchSystemSafetyForTool(event.toolName, event.input, ctx.cwd);
 
@@ -646,7 +670,13 @@ export default function (pi: ExtensionAPI): void {
           reason: `Shell command touches ${protectedPath.reason}`,
         };
       }
-      if (safetyMatches.length > 0) return requireSystemApproval(ctx, mode, operationText(event.toolName, event.input), safetyMatches);
+      if (safetyMatches.length > 0) return requireSystemApproval(
+        ctx,
+        mode,
+        operationText(event.toolName, event.input),
+        operationIdentity(event.toolName, event.input),
+        safetyMatches,
+      );
       const { dangerous, labels } = matchedDanger(command);
       if (dangerous) {
         if (mode === "ask") {
@@ -684,11 +714,23 @@ export default function (pi: ExtensionAPI): void {
         }
         return { block: true, reason: `Path "${path}" is protected (${check.reason})` };
       }
-      if (safetyMatches.length > 0) return requireSystemApproval(ctx, mode, operationText(event.toolName, event.input), safetyMatches);
+      if (safetyMatches.length > 0) return requireSystemApproval(
+        ctx,
+        mode,
+        operationText(event.toolName, event.input),
+        operationIdentity(event.toolName, event.input),
+        safetyMatches,
+      );
       return undefined;
     }
 
-    if (safetyMatches.length > 0) return requireSystemApproval(ctx, mode, operationText(event.toolName, event.input), safetyMatches);
+    if (safetyMatches.length > 0) return requireSystemApproval(
+      ctx,
+      mode,
+      operationText(event.toolName, event.input),
+      operationIdentity(event.toolName, event.input),
+      safetyMatches,
+    );
     return undefined;
   });
 
@@ -697,17 +739,13 @@ export default function (pi: ExtensionAPI): void {
     if (mode === "deny") {
       return blockedUserBashResult("Shell execution blocked (permission mode: deny)");
     }
-    if (isReadOnlyInvestigation("bash", { command: event.command })) {
-      safetyInvestigationObserved = true;
-      safetyFlowActive = true;
-    }
     const protectedPath = commandTouchesProtectedPath(event.command);
     if (protectedPath.protected) {
       return blockedUserBashResult(`Shell command touches ${protectedPath.reason}`);
     }
     const safetyMatches = matchSystemSafetyCommand(event.command);
     if (safetyMatches.length > 0) {
-      const decision = await requireSystemApproval(ctx, mode, event.command, safetyMatches);
+      const decision = await requireSystemApproval(ctx, mode, event.command, `user_bash:${event.command}`, safetyMatches);
       return decision ? blockedUserBashResult(decision.reason) : undefined;
     }
     const { dangerous, labels } = matchedDanger(event.command);

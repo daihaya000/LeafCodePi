@@ -3,7 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
-import { resolveLeafcodePermissionGateExtension, resolvePiLaunchToolPlan } from "./pi-args.ts";
+import {
+	requireLeafcodePermissionGateExtension,
+	resolveLeafcodePermissionGateExtension,
+	resolvePiLaunchToolPlan,
+} from "./pi-args.ts";
 
 const tempDirs: string[] = [];
 const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -29,6 +33,10 @@ describe("resolvePiLaunchToolPlan", () => {
 	});
 
 	it("keeps the in-repo system safety guard in child launches", () => {
+		assert.throws(
+			() => requireLeafcodePermissionGateExtension(undefined),
+			/System safety guard extension is unavailable/,
+		);
 		const guard = resolveLeafcodePermissionGateExtension();
 		assert.ok(guard);
 		const plan = resolvePiLaunchToolPlan({
