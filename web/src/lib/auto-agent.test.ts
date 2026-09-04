@@ -2,17 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   listAgents: vi.fn(),
-  loadAgentDefinition: vi.fn(),
   getSetting: vi.fn(),
   parseDirectModelKey: vi.fn(),
   buildDirectGenerationCandidates: vi.fn(),
   generateDirectTextWithFallbackResult: vi.fn(),
 }));
 
-vi.mock("@/lib/agents", () => ({
-  listAgents: mocks.listAgents,
-  loadAgentDefinition: mocks.loadAgentDefinition,
-}));
+vi.mock("@/lib/agents", () => ({ listAgents: mocks.listAgents }));
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 vi.mock("@/lib/direct-generation", () => ({
   parseDirectModelKey: mocks.parseDirectModelKey,
@@ -34,7 +30,6 @@ const candidates: AutoAgentCandidate[] = [
 
 beforeEach(() => {
   mocks.listAgents.mockReset();
-  mocks.loadAgentDefinition.mockReset();
   mocks.getSetting.mockReset();
   mocks.parseDirectModelKey.mockReset();
   mocks.buildDirectGenerationCandidates.mockReset();
@@ -58,7 +53,6 @@ beforeEach(() => {
     agentsDir: "",
   });
   mocks.getSetting.mockReturnValue(null);
-  mocks.loadAgentDefinition.mockReturnValue(undefined);
   mocks.parseDirectModelKey.mockReturnValue(undefined);
   mocks.buildDirectGenerationCandidates.mockReturnValue([]);
 });
@@ -86,13 +80,15 @@ describe("auto-agent", () => {
     expect(parseAutoAgentResponse("reviewer", candidates)).toBeUndefined();
   });
 
-  it("uses a bounded system prompt when an agent has no description", async () => {
+  it("does not expose an agent system prompt when its description is empty", async () => {
     mocks.listAgents.mockReturnValue({
-      agents: [{ name: "custom", description: "", enabled: true }],
+      agents: [{
+        name: "custom",
+        description: "",
+        enabled: true,
+        systemPrompt: "SECRET_INTERNAL_INSTRUCTION",
+      }],
       agentsDir: "",
-    });
-    mocks.loadAgentDefinition.mockReturnValue({
-      systemPrompt: "このエージェントはデータベース移行を安全に進めます。" + "x".repeat(1_000),
     });
     const model = { providerID: "p", modelID: "m" };
     mocks.buildDirectGenerationCandidates.mockReturnValue([{ model }]);
@@ -106,8 +102,8 @@ describe("auto-agent", () => {
     ).resolves.toBe("custom");
 
     const generated = mocks.generateDirectTextWithFallbackResult.mock.calls[0]?.[0];
-    expect(generated.prompt).toContain("データベース移行を安全に進めます");
-    expect(generated.prompt).not.toContain("x".repeat(601));
+    expect(generated.prompt).toContain("（説明なし）");
+    expect(generated.prompt).not.toContain("SECRET_INTERNAL_INSTRUCTION");
   });
 
   it("uses the configured direct model and prompt and ignores disabled agents", async () => {
@@ -190,5 +186,68 @@ describe("auto-agent", () => {
       resolveAutoAgent({ conversation: [], prompt: "実装して" }),
     ).resolves.toBe("build");
     expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when no enabled agent exists", async () => {
+    mocks.listAgents.mockReturnValue({ agents: [], agentsDir: "" });
+
+    await expect(
+      resolveAutoAgent({ conversation: [], prompt: "実装して" }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
+  });
+
+  it("bounds candidates and keeps build available as the fallback", async () => {
+    const model = { providerID: "p", modelID: "m" };
+    mocks.listAgents.mockReturnValue({
+      agents: [
+        ...Array.from({ length: 30 }, (_, index) => ({
+          name: `agent-${index}`,
+          description: "x".repeat(600),
+          enabled: true,
+        })),
+        { name: "build", description: "実装", enabled: true },
+      ],
+      agentsDir: "",
+    });
+    mocks.buildDirectGenerationCandidates.mockReturnValue([{ model }]);
+    mocks.generateDirectTextWithFallbackResult.mockResolvedValue({
+      text: '{"agent":"build"}',
+      model,
+    });
+
+    await expect(
+      resolveAutoAgent({ conversation: [], prompt: "実装して" }),
+    ).resolves.toBe("build");
+
+    const generated = mocks.generateDirectTextWithFallbackResult.mock.calls[0]?.[0];
+    const agentData = JSON.parse(
+      generated.prompt.match(/<agents>\n([\s\S]*?)\n<\/agents>/)?.[1] ?? "[]",
+    );
+    expect(agentData).toHaveLength(24);
+    expect(agentData.some((agent: { name?: string }) => agent.name === "build")).toBe(true);
+    expect(agentData[0]?.name).toBe("agent-0");
+  });
+
+  it("uses one deadline across direct-generation fallbacks", async () => {
+    vi.useFakeTimers();
+    try {
+      const model = { providerID: "p", modelID: "m" };
+      mocks.buildDirectGenerationCandidates.mockReturnValue([{ model }]);
+      mocks.generateDirectTextWithFallbackResult.mockImplementation(
+        ({ signal }: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(new Error("aborted")), {
+              once: true,
+            });
+          }),
+      );
+
+      const result = resolveAutoAgent({ conversation: [], prompt: "実装して" });
+      await vi.advanceTimersByTimeAsync(30_000);
+      await expect(result).resolves.toBe("build");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

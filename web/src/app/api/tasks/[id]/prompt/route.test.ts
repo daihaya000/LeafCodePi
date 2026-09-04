@@ -7,9 +7,13 @@ const mocks = vi.hoisted(() => ({
   resolveAutoAgent: vi.fn(),
   resolveAutoModel: vi.fn(),
   promptTask: vi.fn(),
+  validateTaskModelSelection: vi.fn(),
   jsonError: vi.fn((error: unknown) => ({
     error: error instanceof Error ? error.message : String(error),
-    status: 500,
+    status:
+      typeof error === "object" && error !== null && "status" in error
+        ? Number(error.status)
+        : 500,
   })),
 }));
 
@@ -22,6 +26,7 @@ vi.mock("@/lib/pi/harness", () => ({
   jsonError: mocks.jsonError,
   promptTask: mocks.promptTask,
   resolveAutoModel: mocks.resolveAutoModel,
+  validateTaskModelSelection: mocks.validateTaskModelSelection,
 }));
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
@@ -42,6 +47,7 @@ describe("POST /api/tasks/[id]/prompt", () => {
     mocks.resolveAutoAgent.mockReset();
     mocks.resolveAutoModel.mockReset();
     mocks.promptTask.mockReset();
+    mocks.validateTaskModelSelection.mockReset();
     mocks.getTask.mockReturnValue({
       id: "task-1",
       status: "idle",
@@ -62,6 +68,7 @@ describe("POST /api/tasks/[id]/prompt", () => {
       reason: "test",
     });
     mocks.promptTask.mockResolvedValue({ id: "task-1", agent: "reviewer" });
+    mocks.validateTaskModelSelection.mockResolvedValue(undefined);
   });
 
   it("resolves Auto from the persisted conversation and passes the real agent", async () => {
@@ -175,6 +182,27 @@ describe("POST /api/tasks/[id]/prompt", () => {
         streamingBehavior: "steer",
       }),
     );
+  });
+
+  it("validates a requested model before exposing history to Auto agent", async () => {
+    mocks.validateTaskModelSelection.mockRejectedValue(
+      Object.assign(new Error("モデルが見つかりません"), { status: 400 }),
+    );
+
+    const response = await POST(
+      request({
+        prompt: "秘密の作業",
+        agent: AUTO_AGENT_VALUE,
+        model: "missing::model",
+      }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.validateTaskModelSelection).toHaveBeenCalledWith("missing::model");
+    expect(mocks.readSessionConversation).not.toHaveBeenCalled();
+    expect(mocks.resolveAutoAgent).not.toHaveBeenCalled();
+    expect(mocks.promptTask).not.toHaveBeenCalled();
   });
 
   it("rejects a non-string agent value", async () => {

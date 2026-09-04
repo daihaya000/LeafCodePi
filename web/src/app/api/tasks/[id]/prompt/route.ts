@@ -4,7 +4,12 @@ import { readSessionConversation } from "@/lib/direct-session";
 import { parseDirectModelKey } from "@/lib/direct-generation";
 import { resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
-import { jsonError, promptTask, resolveAutoModel } from "@/lib/pi/harness";
+import {
+  jsonError,
+  promptTask,
+  resolveAutoModel,
+  validateTaskModelSelection,
+} from "@/lib/pi/harness";
 import {
   autoModelValue,
   autoVariantToThinkingLevel,
@@ -45,6 +50,9 @@ export async function POST(
     if (body?.agent !== undefined && typeof body.agent !== "string") {
       return NextResponse.json({ error: "invalid agent" }, { status: 400 });
     }
+    if (body?.model !== undefined && typeof body.model !== "string") {
+      return NextResponse.json({ error: "invalid model" }, { status: 400 });
+    }
     if (body?.auto !== undefined && typeof body.auto !== "boolean") {
       return NextResponse.json({ error: "invalid auto" }, { status: 400 });
     }
@@ -72,11 +80,18 @@ export async function POST(
     if (!currentTask) {
       return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });
     }
+    const canSwitchRoute =
+      currentTask.status !== "working" && body?.streamingBehavior === undefined;
+    if (
+      canSwitchRoute &&
+      body.model &&
+      (body.auto !== true || body.autoRetry === true)
+    ) {
+      await validateTaskModelSelection(body.model);
+    }
     let model = body?.model;
     let thinkingLevel = body?.thinkingLevel;
     let autoDecision: AutoDecision | undefined;
-    const canSwitchRoute =
-      currentTask.status !== "working" && body?.streamingBehavior === undefined;
     if (body?.auto === true && canSwitchRoute && body.autoRetry !== true) {
       autoDecision =
         (await resolveAutoModel({

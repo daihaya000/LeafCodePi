@@ -12,7 +12,7 @@ import { parseCodexBarSnapshot } from "@/lib/codexbar";
 import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { setAccountRoutingMode, __resetProviderRoutingQueueForTests } from "@/lib/provider-routing";
 import { AccountRuntimeManager } from "./account-runtime-manager";
-import { completeModelText } from "./harness";
+import { completeModelText, validateTaskModelSelection } from "./harness";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
@@ -99,6 +99,28 @@ afterEach(() => {
 });
 
 describe("completeModelText", () => {
+  it("validates a concrete model without generating text", async () => {
+    const calls = installRuntime(
+      assistant({ content: [{ type: "text", text: "unused" }] }),
+    );
+
+    await validateTaskModelSelection("anthropic::claude-sonnet");
+    await assert.rejects(
+      validateTaskModelSelection("missing::model"),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { status?: number }).status === 400,
+    );
+    const account = createAccount({ label: "専用", providers: ["anthropic"] });
+    await assert.rejects(
+      validateTaskModelSelection("shared-provider::shared-model", account.id),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { status?: number }).status === 400,
+    );
+    assert.equal(calls.length, 0);
+  });
+
   it("returns text on success", async () => {
     installRuntime(
       assistant({ content: [{ type: "text", text: " 更新 foo " }] }),

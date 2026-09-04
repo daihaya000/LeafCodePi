@@ -5,26 +5,23 @@ const mocks = vi.hoisted(() => ({
   createTask: vi.fn(),
   destroyArchivedTasksByProject: vi.fn(),
   getTaskSummariesWithTodoProgress: vi.fn(),
-  listModelsForAccounts: vi.fn(),
   listPendingAttention: vi.fn(),
-  listAccounts: vi.fn(),
   resolveAutoAgent: vi.fn(),
   resolveAutoModel: vi.fn(),
   parseDirectModelKey: vi.fn(),
-  loadAgentDefinition: vi.fn(),
-  getCachedUsage: vi.fn(),
+  validateTaskModelSelection: vi.fn(),
   jsonError: vi.fn((error: unknown) => ({
     error: error instanceof Error ? error.message : String(error),
-    status: 500,
+    status:
+      typeof error === "object" && error !== null && "status" in error
+        ? Number(error.status)
+        : 500,
   })),
 }));
 
 vi.mock("@/lib/pi/harness", () => mocks);
-vi.mock("@/lib/accounts", () => ({ listAccounts: mocks.listAccounts }));
 vi.mock("@/lib/auto-agent", () => ({ resolveAutoAgent: mocks.resolveAutoAgent }));
 vi.mock("@/lib/direct-generation", () => ({ parseDirectModelKey: mocks.parseDirectModelKey }));
-vi.mock("@/lib/agents", () => ({ loadAgentDefinition: mocks.loadAgentDefinition }));
-vi.mock("@/lib/codexbar/cache", () => ({ getCachedUsage: mocks.getCachedUsage }));
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { POST } from "./route";
@@ -35,13 +32,9 @@ describe("POST /api/tasks", () => {
     mocks.resolveAutoAgent.mockReset();
     mocks.resolveAutoModel.mockReset();
     mocks.parseDirectModelKey.mockReset();
-    mocks.listModelsForAccounts.mockReset();
-    mocks.listAccounts.mockReset();
-    mocks.loadAgentDefinition.mockReset();
-    mocks.getCachedUsage.mockReset();
+    mocks.validateTaskModelSelection.mockReset();
     mocks.parseDirectModelKey.mockReturnValue(undefined);
-    mocks.listAccounts.mockReturnValue([]);
-    mocks.getCachedUsage.mockReturnValue(undefined);
+    mocks.validateTaskModelSelection.mockResolvedValue(undefined);
     mocks.createTask.mockResolvedValue({ id: "task-1" });
   });
 
@@ -81,7 +74,7 @@ describe("POST /api/tasks", () => {
     expect(mocks.createTask.mock.calls[0]?.[0].agent).not.toBe(AUTO_AGENT_VALUE);
   });
 
-  it("keeps an explicit Auto route authoritative when Auto resolves to a fixed-model agent", async () => {
+  it("keeps an explicit Auto route authoritative when resolving Auto agent", async () => {
     mocks.resolveAutoAgent.mockResolvedValue("build");
     mocks.resolveAutoModel.mockResolvedValue({
       providerID: "openai-codex",
@@ -91,17 +84,6 @@ describe("POST /api/tasks", () => {
       mode: "balanced",
       reason: "test",
     });
-    mocks.loadAgentDefinition.mockReturnValue({ model: "openai-codex/gpt-5.6-luna" });
-    mocks.listModelsForAccounts.mockResolvedValue([
-      {
-        value: "openai-codex::gpt-5.6-sol",
-        label: "GPT-5.6 Sol",
-        providerID: "openai-codex",
-        modelID: "gpt-5.6-sol",
-        thinkingLevels: ["minimal", "low", "medium", "high", "xhigh", "max"],
-      },
-    ]);
-
     const response = await POST(
       new NextRequest("http://localhost/api/tasks", {
         method: "POST",
@@ -172,6 +154,33 @@ describe("POST /api/tasks", () => {
     );
 
     expect(response.status).toBe(400);
+    expect(mocks.resolveAutoAgent).not.toHaveBeenCalled();
+    expect(mocks.createTask).not.toHaveBeenCalled();
+  });
+
+  it("validates a requested model before resolving Auto agent", async () => {
+    mocks.validateTaskModelSelection.mockRejectedValue(
+      Object.assign(new Error("モデルが見つかりません"), { status: 400 }),
+    );
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: null,
+          prompt: "秘密の作業",
+          agent: AUTO_AGENT_VALUE,
+          model: "missing::model",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.validateTaskModelSelection).toHaveBeenCalledWith(
+      "missing::model",
+      null,
+      { accountIdExplicit: false },
+    );
     expect(mocks.resolveAutoAgent).not.toHaveBeenCalled();
     expect(mocks.createTask).not.toHaveBeenCalled();
   });

@@ -7,6 +7,7 @@ import {
   jsonError,
   resolveAutoModel,
   listPendingAttention,
+  validateTaskModelSelection,
 } from "@/lib/pi/harness";
 import {
   autoModelValue,
@@ -199,6 +200,11 @@ export async function POST(req: NextRequest) {
         { error: "モデルとアカウントの指定が一致しません" },
         { status: 400 },
       );
+    }
+    if (body.model && body.auto !== true) {
+      await validateTaskModelSelection(body.model, accountId ?? null, {
+        accountIdExplicit: Boolean(accountId || requestedModel?.accountId),
+      });
     }
     let agent = body.agent?.trim() || undefined;
     let autoDecision: AutoDecision | undefined;

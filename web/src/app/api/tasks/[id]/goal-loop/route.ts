@@ -12,6 +12,7 @@ import {
   setTaskAgent,
   setTaskModel,
   setTaskThinkingLevel,
+  validateTaskModelSelection,
 } from "@/lib/pi/harness";
 import {
   autoModelValue,
@@ -89,6 +90,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (body?.agent !== undefined && typeof body.agent !== "string") {
       return NextResponse.json({ error: "invalid agent" }, { status: 400 });
     }
+    if (body?.model !== undefined && typeof body.model !== "string") {
+      return NextResponse.json({ error: "invalid model" }, { status: 400 });
+    }
     if (body?.auto !== undefined && typeof body.auto !== "boolean") {
       return NextResponse.json({ error: "invalid auto" }, { status: 400 });
     }
@@ -104,6 +108,13 @@ export async function POST(req: NextRequest, { params }: Params) {
     const currentTask = getTask(id);
     if (!currentTask) {
       return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });
+    }
+    if (
+      currentTask.status !== "working" &&
+      body?.model &&
+      body.auto !== true
+    ) {
+      await validateTaskModelSelection(body.model);
     }
     let model = body?.model;
     let thinkingLevel = body?.thinkingLevel;
@@ -157,9 +168,9 @@ export async function POST(req: NextRequest, { params }: Params) {
           ...(currentTask.accountId ? { accountId: currentTask.accountId } : {}),
         });
       }
-      if (agent && agent !== (currentTask.agent?.trim() || undefined)) {
-        await setTaskAgent(id, agent);
-      }
+    }
+    if (agent && agent !== (currentTask.agent?.trim() || undefined)) {
+      await setTaskAgent(id, agent);
     }
     if (model) {
       await setTaskModel(id, model, { accountIdExplicit: body?.auto !== true });

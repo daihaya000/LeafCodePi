@@ -11,11 +11,14 @@ const mocks = vi.hoisted(() => ({
   setTaskAgent: vi.fn(),
   setTaskModel: vi.fn(),
   setTaskThinkingLevel: vi.fn(),
+  validateTaskModelSelection: vi.fn(),
   jsonError: vi.fn((error: unknown) => ({
     error: error instanceof Error ? error.message : String(error),
-    status: 500,
+    status:
+      typeof error === "object" && error !== null && "status" in error
+        ? Number(error.status)
+        : 500,
   })),
-  loadAgentDefinition: vi.fn(),
 }));
 
 vi.mock("@/lib/store", () => ({ getTask: mocks.getTask }));
@@ -23,7 +26,6 @@ vi.mock("@/lib/direct-session", () => ({
   readSessionConversation: mocks.readSessionConversation,
 }));
 vi.mock("@/lib/auto-agent", () => ({ resolveAutoAgent: mocks.resolveAutoAgent }));
-vi.mock("@/lib/agents", () => ({ loadAgentDefinition: mocks.loadAgentDefinition }));
 vi.mock("@/lib/pi/harness", () => ({
   goalLoopCommand: mocks.goalLoopCommand,
   goalLoopState: mocks.goalLoopState,
@@ -32,6 +34,7 @@ vi.mock("@/lib/pi/harness", () => ({
   setTaskAgent: mocks.setTaskAgent,
   setTaskModel: mocks.setTaskModel,
   setTaskThinkingLevel: mocks.setTaskThinkingLevel,
+  validateTaskModelSelection: mocks.validateTaskModelSelection,
 }));
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
@@ -64,7 +67,7 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     mocks.setTaskAgent.mockReset();
     mocks.setTaskModel.mockReset();
     mocks.setTaskThinkingLevel.mockReset();
-    mocks.loadAgentDefinition.mockReset();
+    mocks.validateTaskModelSelection.mockReset();
     mocks.getTask.mockImplementation(() => task);
     mocks.readSessionConversation.mockReturnValue([
       { role: "user", text: "調査する" },
@@ -84,7 +87,7 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
       return task;
     });
     mocks.goalLoopCommand.mockResolvedValue({ id: "loop-1", status: "queued" });
-    mocks.loadAgentDefinition.mockReturnValue(undefined);
+    mocks.validateTaskModelSelection.mockResolvedValue(undefined);
   });
 
   it("resolves Auto before starting Goal Loop and returns the selected agent", async () => {
@@ -117,9 +120,8 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     });
   });
 
-  it("applies the Auto-selected model and effort even when the resolved agent has a model", async () => {
+  it("applies the Auto-selected model and effort with the resolved agent", async () => {
     mocks.resolveAutoAgent.mockResolvedValue("build");
-    mocks.loadAgentDefinition.mockReturnValue({ model: "openai-codex/gpt-5.6-luna" });
 
     const response = await POST(
       request({
@@ -141,6 +143,39 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
       { accountIdExplicit: false },
     );
     expect(mocks.setTaskThinkingLevel).toHaveBeenCalledWith("task-1", "medium");
+  });
+
+  it("applies an explicitly selected agent before starting Goal Loop", async () => {
+    const response = await POST(
+      request({ action: "start", goal: "レビューする", agent: "reviewer" }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.setTaskAgent).toHaveBeenCalledWith("task-1", "reviewer");
+    expect(mocks.goalLoopCommand).toHaveBeenCalled();
+  });
+
+  it("validates a requested model before exposing history to Auto agent", async () => {
+    mocks.validateTaskModelSelection.mockRejectedValue(
+      Object.assign(new Error("モデルが見つかりません"), { status: 400 }),
+    );
+
+    const response = await POST(
+      request({
+        action: "start",
+        goal: "秘密の作業",
+        agent: AUTO_AGENT_VALUE,
+        model: "missing::model",
+      }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.validateTaskModelSelection).toHaveBeenCalledWith("missing::model");
+    expect(mocks.readSessionConversation).not.toHaveBeenCalled();
+    expect(mocks.resolveAutoAgent).not.toHaveBeenCalled();
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
   });
 
   it("rejects a non-string agent value", async () => {

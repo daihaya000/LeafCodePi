@@ -4308,6 +4308,47 @@ export async function goalLoopCommand(
   );
 }
 
+/** Validate a browser-selected model before any prompt is sent to a generation model. */
+export async function validateTaskModelSelection(
+  value: string,
+  requestedAccountId?: string | null,
+  options?: { accountIdExplicit?: boolean },
+): Promise<void> {
+  const parsed = parseModelValue(value);
+  if (!parsed) {
+    throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+  }
+  const requested = requestedAccountId?.trim() || parsed.accountId;
+  if (requestedAccountId && parsed.accountId && requestedAccountId !== parsed.accountId) {
+    throw Object.assign(new Error("モデルとアカウントの指定が一致しません"), {
+      status: 400,
+    });
+  }
+  if (requested && !getAccount(requested)) {
+    throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
+  }
+  if (requested && !isAccountRoutingProvider(parsed.providerID)) {
+    throw Object.assign(
+      new Error("共有プロバイダーにはアカウントを指定できません"),
+      { status: 400 },
+    );
+  }
+  const accountIdExplicit =
+    options?.accountIdExplicit ?? Boolean(requested);
+  const route = await withRouteLock(
+    `${parsed.providerID}::${parsed.modelID}`,
+    () =>
+      resolveConcreteModelWithFallback(value, requested ?? null, {
+        strictAccountId: accountIdExplicit,
+        accountIdExplicit,
+        allowProviderFallback: true,
+      }),
+  );
+  if (!route) {
+    throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+  }
+}
+
 export async function createTask(input: {
   projectId: string | null;
   prompt: string;

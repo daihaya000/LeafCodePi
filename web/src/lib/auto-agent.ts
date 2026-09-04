@@ -1,4 +1,4 @@
-import { listAgents, loadAgentDefinition } from "@/lib/agents";
+import { listAgents } from "@/lib/agents";
 import {
   buildDirectGenerationCandidates,
   generateDirectTextWithFallbackResult,
@@ -17,6 +17,8 @@ import { AUTO_AGENT_VALUE, DEFAULT_AGENT } from "@/lib/default-agent";
 
 const MAX_TRANSCRIPT_CHARS = 16_000;
 const MAX_DESCRIPTION_CHARS = 600;
+const MAX_CANDIDATES = 24;
+const AUTO_AGENT_TIMEOUT_MS = 30_000;
 const AUTO_AGENT_PROMPT_SETTING_KEY = "auto-agent-prompt";
 
 export const AUTO_AGENT_SYSTEM_INSTRUCTION = [
@@ -61,36 +63,28 @@ function dataSafe(text: string): string {
   return text.replace(/<\//g, "＜/");
 }
 
-function definitionDescription(name: string): string | undefined {
-  try {
-    const systemPrompt = loadAgentDefinition(name)?.systemPrompt.trim();
-    return systemPrompt ? truncate(systemPrompt, MAX_DESCRIPTION_CHARS) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function enabledCandidates(): AutoAgentCandidate[] {
-  try {
-    return listAgents().agents
-      .filter((agent) => {
-        const name = agent.name.trim();
-        return agent.enabled && name && name !== AUTO_AGENT_VALUE;
-      })
-      .map((agent) => {
-        const name = agent.name.trim();
-        const description = agent.description?.trim() || definitionDescription(name);
-        return {
-          name,
-          ...(description ? { description: truncate(description, MAX_DESCRIPTION_CHARS) } : {}),
-          canModifyFiles:
-            !agent.tools?.length ||
-            agent.tools.some((tool) => ["edit", "write"].includes(tool.trim().toLowerCase())),
-        };
-      });
-  } catch {
-    return [];
-  }
+  const candidates = listAgents().agents
+    .filter((agent) => {
+      const name = agent.name.trim();
+      return agent.enabled && name && name !== AUTO_AGENT_VALUE;
+    })
+    .map((agent) => {
+      const name = agent.name.trim();
+      const description = agent.description?.trim();
+      return {
+        name,
+        ...(description ? { description: truncate(description, MAX_DESCRIPTION_CHARS) } : {}),
+        canModifyFiles:
+          !agent.tools?.length ||
+          agent.tools.some((tool) => ["edit", "write"].includes(tool.trim().toLowerCase())),
+      };
+    });
+  const limited = candidates.slice(0, MAX_CANDIDATES);
+  const fallback = candidates.find((agent) => agent.name === DEFAULT_AGENT);
+  return fallback && !limited.includes(fallback)
+    ? [...limited.slice(0, -1), fallback]
+    : limited;
 }
 
 function fallbackAgent(candidates: readonly AutoAgentCandidate[]): string | undefined {
@@ -172,10 +166,14 @@ export function parseAutoAgentResponse(
 }
 
 /** Resolve the Auto sentinel without exposing transcript or agent definitions to the browser. */
-export async function resolveAutoAgent(options: AutoAgentOptions): Promise<string | undefined> {
+export async function resolveAutoAgent(options: AutoAgentOptions): Promise<string> {
   const candidates = enabledCandidates();
   const fallback = fallbackAgent(candidates);
-  if (!fallback) return undefined;
+  if (!fallback) {
+    throw Object.assign(new Error("Auto で選択可能なエージェントがありません"), {
+      status: 400,
+    });
+  }
 
   const prompt = buildSelectionPrompt(
     options.conversation,
@@ -201,6 +199,8 @@ export async function resolveAutoAgent(options: AutoAgentOptions): Promise<strin
   });
   if (directCandidates.length === 0) return fallback;
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AUTO_AGENT_TIMEOUT_MS);
   try {
     const generated = await generateDirectTextWithFallbackResult({
       candidates: directCandidates,
@@ -209,10 +209,13 @@ export async function resolveAutoAgent(options: AutoAgentOptions): Promise<strin
       prompt,
       maxTokens: 96,
       temperature: 0,
-      timeoutMs: 30_000,
+      timeoutMs: AUTO_AGENT_TIMEOUT_MS,
+      signal: controller.signal,
     });
     return parseSelectionResponse(generated.text, candidates) ?? fallback;
   } catch {
     return fallback;
+  } finally {
+    clearTimeout(timeout);
   }
 }
