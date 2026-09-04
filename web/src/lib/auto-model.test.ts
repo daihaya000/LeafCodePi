@@ -3,6 +3,8 @@ import {
   AUTO_MODEL_VALUE,
   autoProviderUsageFromProviders,
   autoProviderUsageFromModels,
+  autoModelValue,
+  autoVariantToThinkingLevel,
   chooseAutoModel,
   classifyPrompt,
   formatAutoDecisionNotice,
@@ -478,5 +480,33 @@ describe("chooseAutoModel", () => {
     expect(AUTO_MODEL_VALUE).toBe("auto");
     expect(AUTO_MODEL_VALUE).not.toContain("::");
     expect(modelCostTier("gpt_5_6_sol")).toBe("premium");
+  });
+
+  it("maps Auto variants to Pi thinking levels", () => {
+    // Effort levels Pi understands.
+    for (const variant of ["minimal", "low", "medium", "high", "xhigh", "max"] as const) {
+      expect(autoVariantToThinkingLevel(variant)).toBe(variant);
+    }
+    expect(autoVariantToThinkingLevel("off")).toBe("off");
+    // "none", "" and the provider-only "thinking" have no ThinkingLevel equivalent,
+    // so they must yield undefined and let the provider default apply.
+    for (const variant of ["none", "", "thinking"] as const) {
+      expect(autoVariantToThinkingLevel(variant)).toBeUndefined();
+    }
+    // Unknown values must not leak through.
+    expect(autoVariantToThinkingLevel("bogus" as never)).toBeUndefined();
+  });
+
+  it("builds the model value with and without an account", () => {
+    expect(autoModelValue({ providerID: "openai", modelID: "gpt-5" })).toBe(
+      "openai::gpt-5",
+    );
+    expect(
+      autoModelValue({ providerID: "openai", modelID: "gpt-5", accountId: "acct-1" }),
+    ).toBe("acct-1::openai::gpt-5");
+    // An empty accountId must not emit a leading separator.
+    expect(
+      autoModelValue({ providerID: "openai", modelID: "gpt-5", accountId: "" }),
+    ).toBe("openai::gpt-5");
   });
 });
