@@ -1,3 +1,12 @@
+## 2026-09-05: permission-gate ループ tick 14
+
+- FP: `echo rm -rf /` / `echo iex 'shutdown'`（documentation-only はネスト展開・パス変異ゲートをスキップ）
+- FN: `elixir System.cmd` / `bun`/`deno` ラッパ認識
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 13
 
 - FP: `echo Set-ExecutionPolicy` / `msiexec` / `net user` / `curl|bash` など（policy・download をコマンド位置化）

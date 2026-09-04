@@ -120,7 +120,7 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
 ];
 
 /** Soft shell wrappers: re-scan the nested payload, do not hard-gate the wrapper alone. */
-const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh|dash|ash|ksh|fish|csh|tcsh|tclsh|wish)(?:\.exe)?\b|(?:powershell|pwsh)(?:\.exe)?\b|cmd(?:\.exe)?\b|(?:python|python3|node|perl|ruby|php|lua|Rscript|julia)(?:\.exe)?\b|\bscript(?:\.exe)?\b|\bosascript\b|\bssh(?:\.exe)?\b|\bansible\b|\bexpect\b|\b(?:at|batch)\b|(?:Invoke-Expression|\biex|eval)\b|\bschtasks(?:\.exe)?\b)/i;
+const NESTED_SHELL_WRAPPER_PATTERN = /\b(?:(?:bash|sh|zsh|dash|ash|ksh|fish|csh|tcsh|tclsh|wish)(?:\.exe)?\b|(?:powershell|pwsh)(?:\.exe)?\b|cmd(?:\.exe)?\b|(?:python|python3|node|perl|ruby|php|lua|Rscript|julia|elixir|bun|deno)(?:\.exe)?\b|\bscript(?:\.exe)?\b|\bosascript\b|\bssh(?:\.exe)?\b|\bansible\b|\bexpect\b|\b(?:at|batch)\b|(?:Invoke-Expression|\biex|eval)\b|\bschtasks(?:\.exe)?\b)/i;
 const FIND_MUTATING_ACTION_PATTERN = /\bfind\b[^\r\n]*\s-(?:delete|exec|execdir|ok|okdir)\b/i;
 
 const MUTATING_COMMAND_PATTERN = /\b(?:rm|mv|cp|mkdir|touch|install|truncate|shred|unlink|del|erase|rd|rmdir|copy|move|rename|Set-Content|Add-Content|Clear-Content|Clear-Item|Out-File|Export-Csv|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|Expand-Archive|Set-Item|Set-ItemProperty|New-ItemProperty|Remove-ItemProperty|ri|ni|mi|ci|tar|unzip|tee|rsync|ln|mount|umount|chmod|chown|setfacl|robocopy|xcopy)\b|\b(?:sed|perl)\b[^\r\n]*(?:\s-i\b|--in-place\b)|\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:-O\b|--output\b|-OutFile\b)\s*\S+|(?<![0-9])>{1,2}(?!&)|[0-9]>{1,2}(?!&)/i;
@@ -404,7 +404,7 @@ function extractNestedShellCommands(command: string): string[] {
     // cmd /c /k /r and git-bash //c
     /\bcmd(?:\.exe)?\b(?:\s+\S+)*?\s+\/\/?[ckr]\s+(['"])([\s\S]*?)\1/gi,
     // Interpreters with leading -r / --eval / -p flags
-    /\b(?:python|python3|node|perl|ruby|php|lua|Rscript|julia)(?:\.exe)?\b[^\r\n]*?\s+(?:-e|--eval|-p|-c|-r)\s+(['"])([\s\S]*?)\1/gi,
+    /\b(?:python|python3|node|perl|ruby|php|lua|Rscript|julia|elixir|bun|deno)(?:\.exe)?\b[^\r\n]*?\s+(?:-e|--eval|-p|-c|-r|eval)\s+(['"])([\s\S]*?)\1/gi,
     // script(1) -c '...'
     /\bscript(?:\.exe)?\b[^\r\n]*?-c\s+(['"])([\s\S]*?)\1/gi,
     // schtasks /tr "payload"
@@ -457,7 +457,7 @@ function extractNestedShellCommands(command: string): string[] {
     push(match[1]);
   }
   for (const match of command.matchAll(
-    /\b(?:os\.system|os\.popen|os\.execl|os\.execute|subprocess\.(?:call|run|Popen|check_call|check_output)|(?:require\s*\(\s*['"]child_process['"]\s*\)\s*\.)?(?:exec|execSync|execFile|spawn|spawnSync)|child_process\.(?:exec|execSync|execFile|spawn|spawnSync)|system|exec|passthru|shell_exec|popen)\s*\(\s*(['"])([\s\S]*?)\1/gi,
+    /\b(?:os\.system|os\.popen|os\.execl|os\.execute|System\.cmd|subprocess\.(?:call|run|Popen|check_call|check_output)|(?:require\s*\(\s*['"]child_process['"]\s*\)\s*\.)?(?:exec|execSync|execFile|spawn|spawnSync)|child_process\.(?:exec|execSync|execFile|spawn|spawnSync)|system|exec|passthru|shell_exec|popen)\s*\(\s*(['"])([\s\S]*?)\1/gi,
   )) {
     push(match[2]);
   }
@@ -515,6 +515,14 @@ function extractNestedShellCommands(command: string): string[] {
   return [...new Set(nested.filter(Boolean))];
 }
 
+/** `echo …` / `Write-Host …` with no unquoted shell operators — do not unwrap or path-gate. */
+function isDocumentationOnlyCommand(command: string): boolean {
+  const trimmed = command.trim();
+  if (!/^(?:echo|printf|print|Write-Host|Write-Output)\b/i.test(trimmed)) return false;
+  const unquoted = trimmed.replace(/(['"])(?:\\.|(?!\1)[\s\S])*\1/g, '""');
+  return !/[;&|]/.test(unquoted);
+}
+
 /** Drop heredoc bodies so `cat <<EOF` + shutdown text is not treated as running shutdown. */
 function maskHeredocBodies(command: string): string {
   return command.replace(
@@ -540,8 +548,11 @@ function matchSystemSafetyCommandInner(command: string, depth: number): SystemSa
     if (rule.pattern.test(normalized)) pushSafetyMatch(matches, rule);
   }
 
-  const mutating = MUTATING_COMMAND_PATTERN.test(normalized)
-    || FIND_MUTATING_ACTION_PATTERN.test(normalized);
+  const docsOnly = isDocumentationOnlyCommand(masked);
+  const mutating = !docsOnly && (
+    MUTATING_COMMAND_PATTERN.test(normalized)
+    || FIND_MUTATING_ACTION_PATTERN.test(normalized)
+  );
   // Home / Users paths are normal coding targets on Windows. Do not hard-gate them;
   // destructive cases still hit DANGEROUS_PATTERNS / protected-paths.
   if (mutating && SYSTEM_COMMAND_PATH_PATTERN.test(normalized)) {
@@ -564,7 +575,7 @@ function matchSystemSafetyCommandInner(command: string, depth: number): SystemSa
   }
 
   // Allow deeper nesting (bash -c "bash -c \"bash -c shutdown\"") without unbounded recursion.
-  if (depth < 4) {
+  if (!docsOnly && depth < 4) {
     for (const nested of extractNestedShellCommands(masked)) {
       for (const match of matchSystemSafetyCommandInner(nested, depth + 1)) {
         pushSafetyMatch(matches, match);
