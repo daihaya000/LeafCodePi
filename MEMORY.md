@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 10
+
+- FP: heredoc 本文の `shutdown`（`maskHeredocBodies`）
+- FN: `flock`/`ionice`/`nsenter`/`unshare`/`chroot`/`watch`/`systemd-run` soft-prefix + パス引数
+- FN: `script -c` / `fish`/`csh` / `schtasks /tr` / `passthru` / `gnome-session-quit`
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 9
 
 - FP: `command -v shutdown`（soft-prefix の `-v`/`--help` 除外）、`echo format C:`（format をコマンド位置化）

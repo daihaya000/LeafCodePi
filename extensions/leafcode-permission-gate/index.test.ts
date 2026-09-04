@@ -212,9 +212,19 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("xargs shutdown").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("php -r 'system(\"shutdown now\");'").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("bash -c \"bash -c 'bash -c shutdown now'\"").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("flock /tmp/l shutdown now").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("script -c 'shutdown now' /dev/null").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("gnome-session-quit --power-off").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("fish -c 'shutdown now'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("php -r 'passthru(\"reboot\");'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(
+      matchSystemSafetyCommand("schtasks /create /tn x /tr \"shutdown /s\" /sc once")
+        .some((match) => match.label === "OS shutdown/restart"),
+    );
     assert.deepEqual(matchSystemSafetyCommand("command -v shutdown"), []);
     assert.deepEqual(matchSystemSafetyCommand("echo format C:"), []);
     assert.deepEqual(matchSystemSafetyCommand("shutdown-manager --version"), []);
+    assert.deepEqual(matchSystemSafetyCommand("cat <<EOF\nshutdown now\nEOF"), []);
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);
