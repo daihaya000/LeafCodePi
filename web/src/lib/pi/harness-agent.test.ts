@@ -10,7 +10,7 @@ import {
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, isLiveBusyForReplace, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForThinkingChange } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, isLiveBusyForReplace, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const previousHarness = (globalThis as Record<string, unknown>)[GLOBAL_KEY];
@@ -180,6 +180,25 @@ describe("isLiveBusyForReplace", () => {
         /思考レベルは変更できません/.test(error.message),
     );
     throwIfBusyForThinkingChange({ promptActive: false, session: {} });
+  });
+
+  it("blocks permission and skill-permission changes during an accepted prompt", () => {
+    assert.throws(
+      () => throwIfBusyForPermissionChange({ promptActive: true, session: {} }),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { status?: number }).status === 409 &&
+        /権限モードは変更できません/.test(error.message),
+    );
+    assert.throws(
+      () => throwIfBusyForSkillPermissionChange({ promptActive: true, session: {} }),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { status?: number }).status === 409 &&
+        /スキル権限は変更できません/.test(error.message),
+    );
+    throwIfBusyForPermissionChange({ promptActive: false, session: {} });
+    throwIfBusyForSkillPermissionChange({ promptActive: false, session: {} });
   });
 });
 

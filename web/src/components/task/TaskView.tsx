@@ -2754,7 +2754,7 @@ export const TaskView = memo(function TaskView({
               )}
               <PermissionSelect
                 value={permissionMode}
-                disabled={working || compacting}
+                disabled={working || compacting || submitting}
                 onChange={(mode) => {
                   const previous = permissionMode;
                   setPermissionMode(mode);
@@ -2777,7 +2777,7 @@ export const TaskView = memo(function TaskView({
               />
               <SkillPermissionSelect
                 value={skillPermission}
-                disabled={working || compacting}
+                disabled={working || compacting || submitting}
                 onChange={(permission) => {
                   void (async () => {
                     try {

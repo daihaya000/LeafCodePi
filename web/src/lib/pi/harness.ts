@@ -5079,6 +5079,7 @@ export async function setTaskSkillPermission(
   permission: SkillPermission,
 ): Promise<TaskSummary> {
   const live = await ensureLive(id);
+  throwIfBusyForSkillPermissionChange(live);
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
@@ -5091,6 +5092,7 @@ export async function setTaskPermissionMode(
   mode: "allow" | "ask" | "deny",
 ): Promise<TaskSummary> {
   const live = await ensureLive(id);
+  throwIfBusyForPermissionChange(live);
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
@@ -5323,6 +5325,20 @@ export function throwIfBusyForThinkingChange(live: {
   session: { isStreaming?: boolean; isCompacting?: boolean };
 }): void {
   throwIfBusyForFieldChange(live, "思考レベル");
+}
+
+export function throwIfBusyForPermissionChange(live: {
+  promptActive?: boolean;
+  session: { isStreaming?: boolean; isCompacting?: boolean };
+}): void {
+  throwIfBusyForFieldChange(live, "権限モード");
+}
+
+export function throwIfBusyForSkillPermissionChange(live: {
+  promptActive?: boolean;
+  session: { isStreaming?: boolean; isCompacting?: boolean };
+}): void {
+  throwIfBusyForFieldChange(live, "スキル権限");
 }
 
 function throwIfBusyForFieldChange(
