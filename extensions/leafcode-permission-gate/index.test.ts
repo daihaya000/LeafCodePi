@@ -4,7 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, it } from "vitest";
-import permissionGate, { isLeafCodePiStopCommand, matchSystemSafetyCommand, matchSystemSafetyForTool, matchSystemSafetyPath } from "./index";
+import permissionGate, {
+  configuredSafetyMatches,
+  isLeafCodePiStopCommand,
+  matchSystemSafetyCommand,
+  matchSystemSafetyForTool,
+  matchSystemSafetyPath,
+} from "./index";
 
 type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown>;
 
@@ -69,6 +75,14 @@ describe("system safety classifier", () => {
       "Set-Content C:\\Users\\Daichi\\Documents\\x.txt hi",
       "touch ~/foo",
       'node --eval "1"',
+      "npm run format",
+      "npm run format:check",
+      "git format-patch HEAD~1",
+      "mkdir ./modules",
+      "mkdir src/modules",
+      "mkdir src/firmware",
+      "install modules",
+      "npm install modules",
     ];
     for (const command of allowed) {
       assert.deepEqual(
@@ -76,10 +90,23 @@ describe("system safety classifier", () => {
         [],
         `everyday command should not hard-gate: ${command}`,
       );
+      assert.deepEqual(
+        configuredSafetyMatches({ mode: "allow", systemSafety: "standard" }, matchSystemSafetyCommand(command)),
+        [],
+        `everyday command should stay clear at standard: ${command}`,
+      );
     }
 
     assert.deepEqual(
       matchSystemSafetyForTool("write", { path: "C:\\Users\\Daichi\\Documents\\notes.txt" }, process.cwd()),
+      [],
+    );
+    assert.deepEqual(
+      matchSystemSafetyForTool("write", { path: "src/modules/foo.ts" }, process.cwd()),
+      [],
+    );
+    assert.deepEqual(
+      matchSystemSafetyForTool("write", { path: "src/firmware/main.c" }, process.cwd()),
       [],
     );
     assert.deepEqual(
@@ -99,13 +126,31 @@ describe("system safety classifier", () => {
     );
   });
 
+  it("keeps obfuscated shutdown at low/standard after decoding", () => {
+    const obfuscated = "& ('Stop-' + 'Computer') -Force";
+    const matches = matchSystemSafetyCommand(obfuscated);
+    assert.ok(matches.some((match) => match.label === "OS shutdown/restart"));
+    const kept = configuredSafetyMatches({ mode: "allow", systemSafety: "standard" }, matches);
+    assert.ok(kept.some((match) => match.label === "OS shutdown/restart"));
+
+    const encoded = `powershell.exe -EncodedCommand ${Buffer.from("Stop-Computer -Force", "utf16le").toString("base64")}`;
+    const encodedMatches = matchSystemSafetyCommand(encoded);
+    assert.ok(encodedMatches.some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(
+      configuredSafetyMatches({ mode: "allow", systemSafety: "standard" }, encodedMatches)
+        .some((match) => match.label === "OS shutdown/restart"),
+    );
+  });
+
   it("recognizes LeafCodePi self-termination targets", () => {
     assert.equal(isLeafCodePiStopCommand("taskkill /F /IM LeafCodePi.exe"), true);
     assert.equal(isLeafCodePiStopCommand("Stop-Process -Name node -Force"), true);
     assert.equal(isLeafCodePiStopCommand("kill -TERM 2468", 2468), true);
     assert.equal(isLeafCodePiStopCommand("taskkill /F /PID $PPID"), true);
     assert.equal(isLeafCodePiStopCommand("kill -9 $$"), true);
-    assert.equal(isLeafCodePiStopCommand("node -e \"process.exit()\""), true);
+    assert.equal(isLeafCodePiStopCommand("node -e \"process.kill(process.pid)\""), true);
+    // Child process.exit does not terminate the LeafCodePi host.
+    assert.equal(isLeafCodePiStopCommand("node -e \"process.exit()\""), false);
     assert.equal(isLeafCodePiStopCommand("taskkill /F /PID 2468", 1357), false);
     assert.equal(isLeafCodePiStopCommand("Get-Process node"), false);
   });
@@ -241,11 +286,23 @@ describe("LeafCode permission gate", () => {
       );
       assert.equal(allowed, undefined);
 
+      const allowedShutdown = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "Stop-Computer -Force" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal(allowedShutdown, undefined);
+
       const allowedUserBash = await handlers.get("user_bash")?.(
         { command: "systemctl stop sshd" },
         freshContext(cwd, sessionManager),
       );
       assert.equal(allowedUserBash, undefined);
+
+      const selfStop = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "taskkill /F /IM LeafCodePi.exe" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((selfStop as { block?: boolean } | undefined)?.block, true);
 
       const protectedWrite = await handlers.get("tool_call")?.(
         { toolName: "write", input: { path: ".env.local", content: "SECRET=1" } },
@@ -368,6 +425,26 @@ describe("LeafCode permission gate", () => {
       );
       assert.equal(gitShow, undefined);
       assert.equal(prompt, "");
+
+      let shutdownPrompt = "";
+      const shutdownContext = {
+        cwd,
+        hasUI: true,
+        sessionManager,
+        ui: {
+          select: async (message: string) => {
+            shutdownPrompt = message;
+            return "No";
+          },
+          notify: () => undefined,
+        },
+      } as unknown as ExtensionContext;
+      const shutdown = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "Stop-Computer -Force" } },
+        shutdownContext,
+      );
+      assert.equal((shutdown as { block?: boolean } | undefined)?.block, true);
+      assert.match(shutdownPrompt, /明示的に許可/);
     } finally {
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
@@ -621,6 +698,45 @@ describe("LeafCode permission gate", () => {
         freshContext(cwd, sessionManager),
       );
       assert.equal((mutateGit as { block?: boolean } | undefined)?.block, true);
+
+      const findDelete = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "find .git -delete" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((findDelete as { block?: boolean } | undefined)?.block, true);
+
+      const gitStash = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "git --git-dir=.git stash" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((gitStash as { block?: boolean } | undefined)?.block, true);
+
+      const gitStashList = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "git --git-dir=.git stash list" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal(gitStashList, undefined);
+
+      const readEnv = await handlers.get("tool_call")?.(
+        { toolName: "read", input: { path: ".env.local" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((readEnv as { block?: boolean } | undefined)?.block, true);
+
+      const readGitHeadTool = await handlers.get("tool_call")?.(
+        { toolName: "read", input: { path: ".git/HEAD" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal(readGitHeadTool, undefined);
+
+      const envVarNoise = await handlers.get("tool_call")?.(
+        {
+          toolName: "bash",
+          input: { command: "node -e \"console.log(process.env.NODE_MODULES)\"" },
+        },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal(envVarNoise, undefined);
     } finally {
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;

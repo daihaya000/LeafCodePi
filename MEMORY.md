@@ -1,3 +1,23 @@
+## 2026-09-05: permission-gate / 安全ガード不整合修正
+
+`/loop 2m` で system safety / permission-gate の実バグを一括修正。
+
+**過検知（default standard）**
+- bare `format`（`npm run format` 等）が disk 扱い → `format.com`/`format.exe`/ドライブ引数のみ
+- プロジェクト `src/modules` / `src/firmware` が driver/firmware → OS パスに限定
+- `install modules` が kernel 扱い → `kernel` / load|unload module のみ
+
+**抜け**
+- Pi `read`/`grep`/`find`/`ls` が `.env` 等を読める → 秘密パスは読み取りもブロック（`.git`/`node_modules` は許可）
+- `& ('Stop-'+'Computer')` / EncodedCommand が low/standard で落ちる → 保護パスと同じデコード＋UTF-16LE 展開
+- `find .git -delete` / bare `git stash` が読み取り扱い → ブロック
+- 子 `process.exit()` を自己停止扱い → 除外
+- `process.env.NODE_MODULES` が node_modules 保護ヒット → パス境界必須
+
+検証: extension 12 / web safety 14 テストパス。ループ PID 29240 継続中。
+
+---
+
 ## 2026-09-05: 本番ビルド型エラー修正
 
 `npm run build` が TypeScript チェックで失敗。

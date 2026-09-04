@@ -54,7 +54,8 @@ const LEAFCODE_PI_STOP_REASON = "LeafCodePi process termination is prohibited.";
 const PROCESS_TERMINATION_COMMAND_PATTERN = /\b(?:taskkill(?:\.exe)?|Stop-Process|Stop-Service|pkill|killall|kill|wmic(?:\.exe)?)\b|\b(?:sc(?:\.exe)?|systemctl|service|launchctl|rc-service)\b[^\r\n]*(?:\b(?:stop|terminate|kill|bootout|unload|delete)\b)/i;
 const LEAFCODE_PI_PROCESS_TARGET_PATTERN = /\b(?:leafcodepi|leafcode[-_ ]?pi(?:[-_ ]?(?:host|server))?)(?:\.exe|\.service)?\b|\bhost[\\/]src[\\/]index\.js\b/i;
 const SELF_PID_REFERENCE_PATTERN = /(?:%(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID)%|\$(?:\$|(?:\{)?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?)|\bprocess\.(?:pid|ppid)\b|\b(?:os\.)?getpid\s*\(\s*\))/i;
-const INLINE_SELF_TERMINATION_PATTERN = /\b(?:node|node\.exe|bun|deno)\b[^\r\n]*(?:process\s*[.]\s*(?:kill|exit|abort)\s*\(|process\s*\[[^\]]+\]\s*\(|os\s*[.]\s*kill\s*\(\s*(?:os\.)?getpid)/i;
+// Child `process.exit()` does not stop LeafCodePi; only kill/getpid self-targets do.
+const INLINE_SELF_TERMINATION_PATTERN = /\b(?:node|node\.exe|bun|deno)\b[^\r\n]*(?:process\s*[.]\s*(?:kill|abort)\s*\(|process\s*\[[^\]]+\]\s*\(|os\s*[.]\s*kill\s*\(\s*(?:os\.)?getpid)/i;
 const BROAD_KILL_TARGET_PATTERN = /\b(?:kill|pkill)\b[^\r\n]*(?:^|\s)(?:--\s*)?-1(?:\s|$)/im;
 
 /**
@@ -91,12 +92,14 @@ const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
   // unelevated Start-Process are normal agent tools and stay out of this gate.
   { category: "os", label: "dynamic/elevated script execution", pattern: /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*-(?:EncodedCommand|enc)\b|\b(?:Invoke-Expression|\biex\b)\b|(?<![-/])\beval\b|\bInvoke-Command\b[^\r\n]*(?:-ComputerName|-Session)\b|(?:^|[;|&\r\n])\s*&\s*(?:\(|['"])|(?:^|[;|&\r\n])\s*["']?\$(?:\{)?[A-Za-z_]\w*\}?["']?\s+(?:stop|start|restart|kill|terminate|disable|enable|delete|remove|uninstall|format|erase|wipe|shutdown|reboot)\b/i },
   { category: "os", label: "downloaded script execution", pattern: /\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:\|\s*(?:sh|bash|zsh|pwsh|powershell|cmd|iex|Invoke-Expression)\b|(?:-o|--output)\s*-\s*&&)/i },
-  { category: "kernel", label: "kernel/module change", pattern: /\b(?:modprobe|insmod|rmmod|kexec)\b|\bsysctl\b[^\r\n]*(?:-w|--write)\b|\bdkms\b[^\r\n]*\b(?:install|remove|autoinstall)\b|\b(?:load|unload|install|remove|update)\s+(?:the\s+)?(?:kernel|module)s?\b/i },
+  // Require "kernel" (or load/unload module) — bare "install modules" is a package name, not sysadmin.
+  { category: "kernel", label: "kernel/module change", pattern: /\b(?:modprobe|insmod|rmmod|kexec)\b|\bsysctl\b[^\r\n]*(?:-w|--write)\b|\bdkms\b[^\r\n]*\b(?:install|remove|autoinstall)\b|\b(?:load|unload|install|remove|update)\s+(?:the\s+)?kernel(?:\s+modules?)?\b|\b(?:load|unload)\s+(?:the\s+)?modules?\b/i },
   { category: "driver", label: "device-driver change", pattern: /\bpnputil(?:\.exe)?\b[^\r\n]*\/(?:add-driver|delete-driver)\b|\bdevcon(?:\.exe)?\s+(?:install|remove|update)\b|\bdism(?:\.exe)?\b[^\r\n]*\/(?:add-driver|remove-driver)\b|\b(?:Add|Remove|Install|Uninstall)-WindowsDriver\b|\b(?:install|uninstall|remove|update|load)\s+(?:the\s+)?(?:device\s+)?driver(?:s)?\b/i },
   { category: "registry", label: "Windows registry change", pattern: /\breg(?:\.exe)?\s+(?:add|delete|import|copy|restore|load|unload)\b|\b(?:New-ItemProperty|Set-ItemProperty|Remove-ItemProperty|New-Item|Remove-Item)\b[^\r\n]*(?:HK(?:LM|CU|CR|U|CC)\b|Registry::|CurrentControlSet|Software[\\/]Classes)|\b(?:add|set|write|delete|remove|import|update)\s+(?:the\s+)?(?:Windows\s+)?registry\b/i },
   { category: "service", label: "service/daemon change", pattern: /\bsc(?:\.exe)?\s+(?:create|config|delete|start|stop|failure|privs)\b|\b(?:New|Remove|Set|Start|Stop|Restart)-(?:Windows)?Service\b|\bsystemctl\s+(?:enable|disable|start|stop|restart|mask|unmask|link|preset)\b|\bservice\s+\S+\s+(?:start|stop|restart)\b|\b(?:launchctl\s+(?:load|unload|bootstrap|bootout|enable|disable)|rc-service\s+\S+\s+(?:start|stop|restart))\b|\b(?:start|stop|restart|enable|disable)\s+(?:the\s+)?(?:service|daemon)s?\b|\b(?:start|stop|restart|enable|disable)[_-](?:service|daemon)s?\b/i },
   { category: "boot", label: "boot configuration change", pattern: /\b(?:bcdboot(?:\.exe)?|grub-install|update-grub|update-initramfs)\b|\bbootrec(?:\.exe)?\b[^\r\n]*\/(?:fixmbr|fixboot|rebuildbcd)\b|\befibootmgr\b[^\r\n]*(?:\s-[cCbBdDoOnN]|--(?:create|delete|disk|bootorder|bootnext))\b|\breagentc(?:\.exe)?\b[^\r\n]*\/(?:enable|disable|setreimage|boottore)\b|\bbootcfg(?:\.exe)?\b[^\r\n]*\/(?:add|delete|raw)\b|\bbcdedit(?:\.exe)?\b[^\r\n]*\/(?:set|delete(?:value)?|create|import|export|store|timeout|default|displayorder|bootsequence|ems|dbgsettings|hypervisorsettings)\b|\b(?:change|modify|update|repair|write|set)\s+(?:the\s+)?boot(?:loader|configuration)?\b/i },
-  { category: "disk", label: "disk/partition/volume change", pattern: /\b(?:dd|mkfs(?:\.\w+)?|fdisk|sfdisk|parted|cfdisk|sgdisk|wipefs|diskpart(?:\.exe)?|format(?:\.com|\.exe)?|diskutil)\b|\b(?:Clear|Initialize|Set|New|Remove)-(?:Disk|Partition|Volume)\b|\b(?:Format|Resize|New|Remove|Set)-Volume\b|\b(?:format|erase|wipe|partition|resize|initialize)\s+(?:the\s+)?(?:disk|drive|volume|partition)s?\b/i },
+  // Bare `format` / `npm run format` must not match; require format.com/exe or a drive letter arg.
+  { category: "disk", label: "disk/partition/volume change", pattern: /\b(?:dd|mkfs(?:\.\w+)?|fdisk|sfdisk|parted|cfdisk|sgdisk|wipefs|diskpart(?:\.exe)?|diskutil)\b|\bformat(?:\.com|\.exe)\b|\bformat\s+[A-Za-z]:\b|\b(?:Clear|Initialize|Set|New|Remove)-(?:Disk|Partition|Volume)\b|\b(?:Format|Resize|New|Remove|Set)-Volume\b|\b(?:format|erase|wipe|partition|resize|initialize)\s+(?:the\s+)?(?:disk|drive|volume|partition)s?\b/i },
   { category: "firmware", label: "firmware/BIOS update", pattern: /\bfwupdmgr\b[^\r\n]*\b(?:install|update|refresh)\b|\bflashrom\b[^\r\n]*(?:-w|--write|\bwrite\b)|\b(?:flash|update|write|set)[ -]*(?:bios|uefi|firmware)\b|\b(?:Update|Set|Write)-Firmware\b|\b(?:flash|update|write|install|erase)\s+(?:the\s+)?(?:firmware|bios|uefi)\b/i }
 ];
 
@@ -107,10 +110,11 @@ const MUTATING_COMMAND_PATTERN = /\b(?:rm|mv|cp|mkdir|touch|install|truncate|shr
 const USER_DATA_COMMAND_PATH_PATTERN = /(?:~(?:[A-Za-z0-9._-]+)?(?:[\\/]|$)|(?:%(?:USERPROFILE|APPDATA|LOCALAPPDATA|HOMEDRIVE|HOMEPATH)%|\$(?:\{)?(?:env:)?(?:USERPROFILE|HOME|APPDATA|LOCALAPPDATA|HOMEDRIVE|HOMEPATH)\}?)(?:[\\/]|$)|(?:[A-Za-z]:[\\/]|\/)(?:Users|home|Documents and Settings)(?:[\\/]|$))/i;
 const SYSTEM_COMMAND_PATH_PATTERN = /(?:%(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA)%|\$(?:\{)?(?:env:)?(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA)\}?|(?:[A-Za-z]:[\\/]|\/)(?:Windows|Program Files(?: \(x86\))?|ProgramData|EFI|etc|boot|dev|sys|proc|usr|var|opt|root|sbin|bin|lib)(?:[\\/]|$)|(?:^|[\\s"'=])\/(?:[\\s"';&|]|$)|(?:^|[\\s"'=])[A-Za-z]:[\\/](?:[\\s"';&|]|$))/i;
 const KERNEL_COMMAND_PATH_PATTERN = /(?:\/(?:proc\/sys|sys)(?:[\\/]|$)|\/(?:lib|usr\/lib)\/modules(?:[\\/]|$)|(?:[A-Za-z]:[\\/]Windows[\\/]System32[\\/]drivers)(?:[\\/]|$))/i;
-const DRIVER_COMMAND_PATH_PATTERN = /(?:[\\/]drivers(?:[\\/]|$)|[\\/]modules(?:[\\/]|$))/i;
+// Project paths like src/modules must not count as driver mutations.
+const DRIVER_COMMAND_PATH_PATTERN = /(?:\/(?:lib|usr\/lib)\/modules(?:[\\/]|$)|(?:[A-Za-z]:[\\/]Windows[\\/]System32[\\/]drivers)(?:[\\/]|$))/i;
 const BOOT_COMMAND_PATH_PATTERN = /(?:\/(?:boot|efi)(?:[\\/]|$)|(?:[A-Za-z]:[\\/])(?:boot|efi)(?:[\\/]|$))/i;
 const DISK_COMMAND_PATH_PATTERN = /(?:\/dev\/(?:sd|nvme|vd|xvd|mmcblk|disk)|\\\\\.\\physicaldrive)/i;
-const FIRMWARE_COMMAND_PATH_PATTERN = /(?:^|[\\/])firmware(?:[\\/]|$)/i;
+const FIRMWARE_COMMAND_PATH_PATTERN = /(?:\/sys\/firmware(?:[\\/]|$)|\/sys\/devices\/virtual\/dmi(?:[\\/]|$)|(?:[A-Za-z]:[\\/](?:Windows[\\/]System32[\\/])?firmware)(?:[\\/]|$))/i;
 
 const DANGEROUS_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /\brm\s+(-[rf]*|--recursive|--force)/i, label: "rm -rf / rm --recursive" },
@@ -233,7 +237,7 @@ function sessionMode(ctx: ExtensionContext, config = readConfig()): PermissionMo
   return config.mode;
 }
 
-function configuredSafetyMatches(
+export function configuredSafetyMatches(
   config: StoredConfig,
   matches: readonly SystemSafetyMatch[],
 ): readonly SystemSafetyMatch[] {
@@ -264,10 +268,10 @@ export function setPermissionMode(ctx: ExtensionContext, mode: PermissionMode): 
 const USER_DATA_PATH_PATTERN = /^(?:~(?:[A-Za-z0-9._-]+)?(?:\/|$)|%(?:userprofile|appdata|localappdata|homedrive|homepath)%(?:\/|$)|\$(?:\{)?(?:env:)?(?:userprofile|home|appdata|localappdata|homedrive|homepath)\}?(?:\/|$)|(?:[a-z]:\/|\/)(?:users|home|documents and settings)(?:\/|$))/i;
 const OS_PATH_PATTERN = /^(?:%(?:windir|systemroot|programfiles|programdata)%(?:\/|$)|\$(?:\{)?(?:env:)?(?:windir|systemroot|programfiles|programdata)\}?(?:\/|$)|[a-z]:\/(?:windows|program files(?: \(x86\))?|programdata|efi)(?:\/|$)|[a-z]:\/$|\/(?:etc|boot|dev|sys|proc|usr|var|opt|root|sbin|bin|lib)(?:\/|$)|\/$)/i;
 const KERNEL_PATH_PATTERN = /^(?:\/(?:proc\/sys|sys|lib\/modules|usr\/lib\/modules)(?:\/|$)|[a-z]:\/windows\/system32\/drivers(?:\/|$))/i;
-const DRIVER_PATH_PATTERN = /(?:^|\/)drivers(?:\/|$)|(?:^|\/)modules(?:\/|$)/i;
+const DRIVER_PATH_PATTERN = /^(?:\/(?:lib\/modules|usr\/lib\/modules)(?:\/|$)|[a-z]:\/windows\/system32\/drivers(?:\/|$))/i;
 const BOOT_PATH_PATTERN = /^(?:\/(?:boot|efi)(?:\/|$)|[a-z]:\/(?:boot|efi)(?:\/|$))/i;
 const DISK_PATH_PATTERN = /^(?:\/dev\/(?:sd|nvme|vd|xvd|mmcblk|disk)|\/\/\.\/physicaldrive)/i;
-const FIRMWARE_PATH_PATTERN = /(?:^|\/)(?:firmware|bios)(?:\/|$)/i;
+const FIRMWARE_PATH_PATTERN = /^(?:\/sys\/firmware(?:\/|$)|\/sys\/devices\/virtual\/dmi(?:\/|$)|[a-z]:\/(?:windows\/system32\/)?firmware(?:\/|$))/i;
 const REGISTRY_PATH_PATTERN = /^(?:registry::|(?:hkey_(?:local_machine|current_user|classes_root|users|current_config)|hk(?:lm|cu|cr|u|cc))(?:[\/:]|$))/i;
 
 // Only real command-bearing fields. prompt/message/query must not trigger hard-gates
@@ -349,9 +353,11 @@ function isReadOnlyDiskInspection(command: string): boolean {
   ].some((pattern) => pattern.test(normalized));
 }
 
-/** Pull nested payloads from soft wrappers like `bash -c '...'` / `node -e "..."`. */
+/** Pull nested payloads from soft wrappers like `bash -c '...'` / `node -e "..."` / EncodedCommand. */
 function extractNestedShellCommands(command: string): string[] {
-  if (!NESTED_SHELL_WRAPPER_PATTERN.test(command)) return [];
+  if (!NESTED_SHELL_WRAPPER_PATTERN.test(command) && !/-(?:EncodedCommand|enc)\b/i.test(command)) {
+    return [];
+  }
   const nested: string[] = [];
   const quoted = [
     /\b(?:bash|sh|zsh)\s+-c\s+(['"])([\s\S]*?)\1/gi,
@@ -371,11 +377,27 @@ function extractNestedShellCommands(command: string): string[] {
   for (const match of command.matchAll(/\bcmd(?:\.exe)?\s+\/c\s+(?!['"])(.+?)(?=$|[;&\n])/gi)) {
     if (match[1]?.trim()) nested.push(match[1].trim());
   }
+  // PowerShell -EncodedCommand is UTF-16LE base64 of the script body.
+  for (const match of command.matchAll(
+    /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*-(?:EncodedCommand|enc)\s+([A-Za-z0-9+/=]+)/gi,
+  )) {
+    const encoded = match[1];
+    if (!encoded) continue;
+    try {
+      const decoded = Buffer.from(encoded, "base64").toString("utf16le");
+      if (decoded.trim()) nested.push(decoded);
+    } catch {
+      /* ignore malformed base64 */
+    }
+  }
   return [...new Set(nested)];
 }
 
 function matchSystemSafetyCommandInner(command: string, depth: number): SystemSafetyMatch[] {
-  const normalized = command.replace(/\u0000/g, " ");
+  // Decode obfuscation the same way protected-path scanning does, so
+  // `& ('Stop-' + 'Computer')` still hits the shutdown rule at low/standard.
+  const decoded = collapseConcatenatedStrings(decodeCharCodes(command));
+  const normalized = decoded.replace(/\u0000/g, " ");
   const matches: SystemSafetyMatch[] = [];
   if (isLeafCodePiStopCommand(normalized)) {
     pushSafetyMatch(matches, { category: "os", label: LEAFCODE_PI_STOP_LABEL });
@@ -408,9 +430,17 @@ function matchSystemSafetyCommandInner(command: string, depth: number): SystemSa
   }
 
   if (depth < 2) {
-    for (const nested of extractNestedShellCommands(normalized)) {
+    for (const nested of extractNestedShellCommands(command)) {
       for (const match of matchSystemSafetyCommandInner(nested, depth + 1)) {
         pushSafetyMatch(matches, match);
+      }
+    }
+    // Also scan the decoded form for nested wrappers that appeared after concat collapse.
+    if (decoded !== command) {
+      for (const nested of extractNestedShellCommands(decoded)) {
+        for (const match of matchSystemSafetyCommandInner(nested, depth + 1)) {
+          pushSafetyMatch(matches, match);
+        }
       }
     }
   }
@@ -714,6 +744,15 @@ function isProtectedPath(path: string): { protected: boolean; reason?: string } 
   return { protected: false };
 }
 
+/** Secrets stay blocked even for Pi `read`/`grep`/`ls`; `.git` / `node_modules` may be inspected. */
+function isSecretProtectedReason(reason?: string): boolean {
+  if (!reason) return false;
+  return reason.includes('".env*"')
+    || reason.includes('".ssh/"')
+    || reason.includes('".aws/"')
+    || reason.includes("auth.json");
+}
+
 function decodeCharCodes(command: string): string {
   let text = command;
   text = text.replace(/String\.fromCharCode\s*\(([\d,\s]+)\)/gi, (full, nums: string) => {
@@ -780,7 +819,8 @@ function matchProtectedPathLiteral(command: string): { protected: boolean; reaso
   if (/(?:^|[^A-Za-z0-9])\.aws(?:$|[^A-Za-z0-9])/i.test(command)) {
     return { protected: true, reason: 'protected path ".aws/"' };
   }
-  if (/(?:^|[^A-Za-z0-9])node_modules(?:$|[^A-Za-z0-9])/i.test(command)) {
+  // Require a path-like boundary so `process.env.NODE_MODULES` is not a hit.
+  if (/(?:^|[\\/'":=\s])node_modules(?:[\\/'"\s]|$)/i.test(command)) {
     return { protected: true, reason: 'protected path "node_modules/"' };
   }
   if (/(?:^|[^A-Za-z0-9])\.pi[\\/]agent[\\/]auth\.json(?:$|[^A-Za-z0-9])/i.test(command)) {
@@ -790,13 +830,22 @@ function matchProtectedPathLiteral(command: string): { protected: boolean; reaso
 }
 
 /** Read-only git porcelain used constantly by agents; never treat as a protected-path hit. */
-const GIT_MUTATING_SUBCOMMAND_PATTERN = /\bgit(?:\.exe)?\b[^\r\n]*\b(?:commit|push|add|reset|clean|rebase|merge|cherry-pick|am|apply|checkout|switch|restore|init|clone|fetch|pull|gc|repack|filter-branch|update-ref|branch\s+-[dDmM]|tag\s+-[dD]|stash\s+(?:push|pop|drop|clear|apply|save)|remote\s+(?:add|remove|rm|rename|set-url)|config\s+(?!--(?:get|list)))\b/i;
+// Bare `git stash` defaults to push. Keep list/show/get/branch as read-only.
+const GIT_MUTATING_SUBCOMMAND_PATTERN = /\bgit(?:\.exe)?\b[^\r\n]*\b(?:commit|push|add|reset|clean|rebase|merge|cherry-pick|am|apply|checkout|switch|restore|init|clone|fetch|pull|gc|repack|filter-branch|update-ref|branch\s+-[dDmM]|tag\s+-[dD]|stash(?!\s+(?:list|show|get|branch)\b)|remote\s+(?:add|remove|rm|rename|set-url)|config\s+(?!--(?:get|list)))\b/i;
 const GIT_COMMAND_PATTERN = /(^|[;&|\n])\s*git(?:\.exe)?\b/i;
 const READ_ONLY_FILE_COMMAND_PATTERN = /(^|[;&|\n])\s*(?:cat|head|tail|less|more|type|Get-Content|gc|Get-ChildItem|gci|ls|dir|Get-Item|gi|Test-Path|rg|grep|findstr|find|Select-String)\b/i;
+const FIND_MUTATING_ACTION_PATTERN = /\bfind\b[^\r\n]*\s-(?:delete|exec|execdir|ok|okdir)\b/i;
 
 function isReadOnlyGitCommand(command: string): boolean {
   if (!GIT_COMMAND_PATTERN.test(command)) return false;
   return !GIT_MUTATING_SUBCOMMAND_PATTERN.test(command);
+}
+
+function isReadOnlyFileCommand(command: string): boolean {
+  if (!READ_ONLY_FILE_COMMAND_PATTERN.test(command)) return false;
+  // Unix `find .git -delete` is a mutation despite the command name.
+  if (FIND_MUTATING_ACTION_PATTERN.test(command)) return false;
+  return true;
 }
 
 /**
@@ -811,7 +860,7 @@ function allowsReadOnlyProtectedPathAccess(
   if (!relaxable) return false;
   if (MUTATING_COMMAND_PATTERN.test(command) || matchedDanger(command).dangerous) return false;
   if (isReadOnlyGitCommand(command)) return true;
-  return READ_ONLY_FILE_COMMAND_PATTERN.test(command);
+  return isReadOnlyFileCommand(command);
 }
 
 /** Detect shell commands that write or touch protected paths (bypass of write/edit gate). */
@@ -1020,6 +1069,24 @@ export default function (pi: ExtensionAPI): void {
         safetyMatches,
       );
       return undefined;
+    }
+
+    if (
+      event.toolName === "read"
+      || event.toolName === "grep"
+      || event.toolName === "find"
+      || event.toolName === "ls"
+    ) {
+      const path = (event.input as { path?: string }).path ?? "";
+      if (path) {
+        const check = isProtectedPath(path);
+        if (check.protected && isSecretProtectedReason(check.reason)) {
+          if (ctx.hasUI) {
+            ctx.ui.notify(`Blocked read of ${check.reason}`, "warning");
+          }
+          return { block: true, reason: `Path "${path}" is protected (${check.reason})` };
+        }
+      }
     }
 
     if (safetyMatches.length > 0) return requireSystemApproval(
