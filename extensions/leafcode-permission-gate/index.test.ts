@@ -232,6 +232,14 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("lua -e 'os.execute(\"shutdown now\")'").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("parallel shutdown ::: now").some((match) => match.label === "OS shutdown/restart"));
     assert.ok(matchSystemSafetyCommand("at now <<EOF\nshutdown -h now\nEOF").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("docker exec c shutdown now").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("kubectl exec pod -- shutdown now").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("ansible localhost -a 'shutdown now'").some((match) => match.label === "OS shutdown/restart"));
+    assert.ok(matchSystemSafetyCommand("expect -c 'spawn shutdown now'").some((match) => match.label === "OS shutdown/restart"));
+    assert.deepEqual(matchSystemSafetyCommand("echo systemctl restart nginx"), []);
+    assert.deepEqual(matchSystemSafetyCommand("echo reg add HKLM\\Software"), []);
+    assert.deepEqual(matchSystemSafetyCommand("Get-Help New-Service"), []);
+    assert.deepEqual(matchSystemSafetyCommand("echo modprobe foo"), []);
     assert.ok(matchSystemSafetyCommand("bcdedit -set {default} recoveryenabled no").some((match) => match.category === "boot"));
     assert.ok(matchSystemSafetyPath("/private/etc/passwd").some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyCommand("dd if=README.md of=copy.md"), []);

@@ -1,3 +1,12 @@
+## 2026-09-05: permission-gate ループ tick 12
+
+- FP: `echo systemctl/reg/modprobe/bcdedit/fwupdmgr/apt`、`Get-Help New-Service`（各ルールをコマンド位置化）
+- FN: `docker exec` / `kubectl exec --` / `ansible -a` / `expect -c 'spawn …'`
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 11
 
 - FP: `echo mkfs` / `echo diskpart` / `Get-Command Format-Volume`（disk 系をコマンド位置化）
