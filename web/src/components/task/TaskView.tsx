@@ -109,6 +109,10 @@ import {
   shouldAutoResumeSilentTurn,
   type ResumableTurn,
 } from "@/lib/aborted-resume";
+import {
+  shouldAutoSendQueuedFollowUp,
+  shouldDrainQueuedFollowUp,
+} from "@/lib/queued-follow-up";
 import { isHangRetryUserMessage } from "@/lib/hang-retry";
 import { mergeTaskDelta, type TaskDeltaState } from "@/lib/task-delta";
 
@@ -1533,24 +1537,64 @@ export const TaskView = memo(function TaskView({
   ]);
 
   useEffect(() => {
-    if (working || submitting || queuedAutoSend || goalLoopEnabled || goalLoopLive) return;
+    if (
+      !shouldDrainQueuedFollowUp({
+        working,
+        submitting,
+        queuedAutoSend,
+        goalLoopEnabled,
+        goalLoopLive,
+        stopRequested,
+        hasQueuedItem: queuedFollowUps.length > 0,
+      })
+    ) {
+      return;
+    }
     const next = queuedFollowUps[0];
     if (!next) return;
     setQueuedFollowUps((current) => current.filter((item) => item.id !== next.id));
     setPrompt(next.text);
     setAttachments(next.attachments);
     setQueuedAutoSend(true);
-  }, [goalLoopEnabled, goalLoopLive, queuedAutoSend, queuedFollowUps, submitting, working]);
+  }, [
+    goalLoopEnabled,
+    goalLoopLive,
+    queuedAutoSend,
+    queuedFollowUps,
+    stopRequested,
+    submitting,
+    working,
+  ]);
 
   useEffect(() => {
-    if (!queuedAutoSend || working || submitting || goalLoopEnabled || goalLoopLive) return;
-    if (!prompt.trim() && attachments.length === 0) {
-      setQueuedAutoSend(false);
+    if (
+      !shouldAutoSendQueuedFollowUp({
+        queuedAutoSend,
+        working,
+        submitting,
+        goalLoopEnabled,
+        goalLoopLive,
+        stopRequested,
+        hasContent: Boolean(prompt.trim() || attachments.length > 0),
+      })
+    ) {
+      if (queuedAutoSend && (stopRequested || (!prompt.trim() && attachments.length === 0))) {
+        setQueuedAutoSend(false);
+      }
       return;
     }
     setQueuedAutoSend(false);
     void submitRef.current();
-  }, [attachments.length, goalLoopEnabled, goalLoopLive, prompt, queuedAutoSend, submitting, working]);
+  }, [
+    attachments.length,
+    goalLoopEnabled,
+    goalLoopLive,
+    prompt,
+    queuedAutoSend,
+    stopRequested,
+    submitting,
+    working,
+  ]);
 
   async function goalLoopAction(action: "pause" | "resume" | "stop" | "complete", maxTurns?: number) {
     setSubmitting(true);
@@ -1607,6 +1651,10 @@ export const TaskView = memo(function TaskView({
     if (stopRequestedRef.current) return;
     stopRequestedRef.current = true;
     setStopRequested(true);
+    // Match server abortTask clearQueue: client-only follow-ups must not
+    // auto-send when working flips to idle.
+    setQueuedFollowUps([]);
+    setQueuedAutoSend(false);
     try {
       setError(null);
       const result = await sendJson<{ task: TaskSummary }>(`/api/tasks/${taskId}/abort`, {});

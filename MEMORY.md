@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 10
+
+**停止後にキュー待ち follow-up が自動送信される** — サーバーは abort 時に `clearQueue` するが、TaskView の `queuedFollowUps` は残ったまま working→idle で drain→submit していた。停止時にキューを捨て、drain/auto-send は `stopRequested` 中は動かない。
+
 ## 2026-09-04: 発見→修正ループ Tick 9
 
 **SSE ready に中断 ID が無く「再開」が消える** — 応答前に停止すると harness は `manualAbortedAssistantId=""` を置くが、ready も `getTaskDetail` も載せていなかった。再接続でクライアントが null にリセットされ、再開ボタンが消える。`hangRetryCount` も同様に ready へ載せる。
