@@ -90,4 +90,73 @@ describe("AutoRouteOverridesEditor", () => {
       },
     });
   });
+
+  it("follows the external mode prop after a local mode switch", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <AutoRouteOverridesEditor
+        mode="cost"
+        config={{ version: 2, modes: {} }}
+        models={[]}
+        onChange={onChange}
+      />,
+    );
+    // The editor keeps its own edit-mode, seeded from the prop. The active
+    // (prop) mode is also marked with "*", so match by prefix.
+    const pressedName = () =>
+      screen
+        .getAllByRole("button")
+        .filter((button) => button.getAttribute("aria-pressed") === "true")
+        .map((button) => button.textContent ?? "");
+    expect(pressedName()).toEqual(["コスト優先*"]);
+    // Locally switching to another mode is allowed.
+    fireEvent.click(screen.getByRole("button", { name: "知能優先" }));
+    expect(pressedName()).toEqual(["知能優先"]);
+    // A later prop change wins again (useEffect(() => setEditMode(mode), [mode])).
+    rerender(
+      <AutoRouteOverridesEditor
+        mode="balanced"
+        config={{ version: 2, modes: {} }}
+        models={[]}
+        onChange={onChange}
+      />,
+    );
+    expect(pressedName()).toEqual(["バランス*"]);
+  });
+
+  it("offers a global reset only when an override exists", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <AutoRouteOverridesEditor
+        mode="cost"
+        config={{ version: 2, modes: {} }}
+        models={[]}
+        onChange={onChange}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "全モードの設定をリセット" }),
+    ).toBeNull();
+
+    rerender(
+      <AutoRouteOverridesEditor
+        mode="cost"
+        config={{
+          version: 2,
+          modes: {
+            cost: {
+              light: {
+                candidates: [{ kind: "model", providerID: "p", modelID: "m" }],
+              },
+            },
+          },
+        }}
+        models={[]}
+        onChange={onChange}
+      />,
+    );
+    const reset = screen.getByRole("button", { name: "全モードの設定をリセット" });
+    fireEvent.click(reset);
+    expect(onChange).toHaveBeenCalledWith({ version: 2, modes: {} });
+  });
 });
