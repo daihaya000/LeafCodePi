@@ -245,4 +245,16 @@ describe("POST /api/tasks", () => {
     expect(response.status).toBe(400);
     expect(mocks.createTask).not.toHaveBeenCalled();
   });
+
+  it("rejects an invalid skill permission before creating a task", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({ projectId: null, prompt: "作業", skillPermission: "invalid" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.createTask).not.toHaveBeenCalled();
+  });
 });
