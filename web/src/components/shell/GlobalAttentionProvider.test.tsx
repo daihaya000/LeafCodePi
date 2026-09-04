@@ -77,15 +77,42 @@ describe("GlobalAttentionProvider", () => {
     expect(document.body.textContent ?? "").not.toMatch(/承認・回答が必要です/);
   });
 
+  it("auto-opens as soon as another task needs attention", async () => {
+    render(<GlobalAttentionProvider />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(mocks.playAttentionRequiredSound).toHaveBeenCalled();
+    expect(document.body.textContent ?? "").toMatch(/承認・回答が必要です/);
+  });
+
+  it("waits for focusout before opening while an input is focused", async () => {
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    render(<GlobalAttentionProvider />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(document.body.textContent ?? "").not.toMatch(/承認・回答が必要です/);
+
+    await act(async () => {
+      input.blur();
+      window.dispatchEvent(new Event("focusout"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(document.body.textContent ?? "").toMatch(/承認・回答が必要です/);
+    input.remove();
+  });
+
   it("does not refetch task details when the attention list is unchanged", async () => {
     render(<GlobalAttentionProvider />);
 
-    // First poll resolves the fresh attention item (auto-open retry armed).
-    await vi.advanceTimersByTimeAsync(4_000);
-    await vi.advanceTimersByTimeAsync(0);
-    // Focus-out retries auto-open → modal opens → details fetched once.
     await act(async () => {
-      window.dispatchEvent(new Event("focusout"));
       await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(0);
     });

@@ -87,6 +87,9 @@ export function GlobalAttentionProvider() {
         for (const item of next) seenIdsRef.current.add(attentionItemKey(item));
         // 実質的な内容が変わらなければ state 参照を維持し、モーダルの再レンダーを避ける。
         const key = next.map((item) => attentionItemKey(item)).join("|");
+        // tryAutoOpen は itemsRef を見る。setItems の effect を待つと、
+        // 入力中でなくてもモーダルが focusout まで開かない。
+        itemsRef.current = next;
         if (key !== itemsKeyRef.current) {
           itemsKeyRef.current = key;
           setItems(next);
