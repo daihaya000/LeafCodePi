@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
-import { resolvePiLaunchToolPlan } from "./pi-args.ts";
+import { resolveLeafcodePermissionGateExtension, resolvePiLaunchToolPlan } from "./pi-args.ts";
 
 const tempDirs: string[] = [];
 const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -26,6 +26,23 @@ describe("resolvePiLaunchToolPlan", () => {
 			() => resolvePiLaunchToolPlan({ tools: ["read"], cwd: dir }),
 			/Retired extension 'leafcode-collaboration'/,
 		);
+	});
+
+	it("keeps the in-repo system safety guard in child launches", () => {
+		const guard = resolveLeafcodePermissionGateExtension();
+		assert.ok(guard);
+		const plan = resolvePiLaunchToolPlan({
+			tools: ["bash"],
+			cwd: process.cwd(),
+			capabilityCeiling: {
+				version: 1,
+				denyExtensions: true,
+				sources: ["test"],
+			},
+		});
+
+		assert.ok(plan.runtimeExtensions.includes(guard));
+		assert.ok(plan.extensionArgs.includes(guard));
 	});
 
 	it("filters an explicitly retired extension while keeping extension isolation", () => {

@@ -175,6 +175,15 @@ const FANOUT_CHILD_EXTENSION_PATH = path.join(
 	"extension",
 	"fanout-child.ts",
 );
+const LEAFCODE_PERMISSION_GATE_EXTENSION_PATH = path.join(
+	path.dirname(fileURLToPath(import.meta.url)),
+	"..",
+	"..",
+	"..",
+	"..",
+	"leafcode-permission-gate",
+	"index.ts",
+);
 export const SUBAGENT_CHILD_ENV = "PI_SUBAGENT_CHILD";
 export const SUBAGENT_ORCHESTRATOR_TARGET_ENV =
 	"PI_SUBAGENT_ORCHESTRATOR_TARGET";
@@ -387,6 +396,13 @@ export function projectLaunchResolvedChildExtensions(
 	};
 }
 
+/** The in-repo guard is runtime safety infrastructure, not an optional child extension. */
+export function resolveLeafcodePermissionGateExtension(): string | undefined {
+	return fs.existsSync(LEAFCODE_PERMISSION_GATE_EXTENSION_PATH)
+		? path.resolve(LEAFCODE_PERMISSION_GATE_EXTENSION_PATH)
+		: undefined;
+}
+
 /**
  * Resolve the permission-system extension entry point when installed.
  * Returns the absolute path to the extension's main module, or undefined
@@ -522,12 +538,18 @@ export function resolvePiLaunchToolPlan(
 				].filter((tool) => tool !== "contact_supervisor" && (!legacySupervisorPairing || tool !== "intercom"))),
 			]
 		: [];
+	const leafcodePermissionGateExt = resolveLeafcodePermissionGateExtension();
 	const permSystemExt = capabilityCeiling?.denyExtensions
 		? undefined
 		: resolvePermissionSystemExtension();
+	if (!leafcodePermissionGateExt && !permSystemExt) {
+		throw new Error("System safety guard extension is unavailable; refusing to launch a child.");
+	}
 	const runtimeExtensions = [
 		PROMPT_RUNTIME_EXTENSION_PATH,
 		...(fanoutAuthorized ? [FANOUT_CHILD_EXTENSION_PATH] : []),
+		// Keep the in-repo system safety guard even when user extensions are denied.
+		...(leafcodePermissionGateExt ? [leafcodePermissionGateExt] : []),
 		...(permSystemExt ? [permSystemExt] : []),
 	];
 	const disableAmbientExtensions =

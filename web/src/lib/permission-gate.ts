@@ -16,12 +16,12 @@ export const PERMISSION_OPTIONS: {
   {
     value: "allow",
     label: "許可",
-    title: "危険な操作も確認なしで実行します",
+    title: "通常の危険操作は確認なし。OS等の変更は調査・計画・明示承認が必須です",
   },
   {
     value: "ask",
     label: "確認",
-    title: "危険な操作の前に確認ダイアログを出します",
+    title: "危険な操作の前に確認。OS等の変更は調査・計画・明示承認が必須です",
   },
   {
     value: "deny",

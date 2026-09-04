@@ -2,6 +2,7 @@
  * LeafCode Permission Gate for Pi
  *
  * - 危険なシェルコマンド実行前に承認ダイアログを出す (permission-gate)
+ * - user_bash と tool_call の OS 等への変更を調査・計画・明示承認で保護する (system-safety)
  * - 保護パスへの write/edit をブロックする (protected-paths)
  * - WebUI の Composer から設定される「承認モード」に連動して動作を切り替える
  *
@@ -9,9 +10,9 @@
  * 未設定時は "allow"（許可）。
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 import { requestWebUiPermission } from "./webui-bridge";
 
 export type PermissionMode = "allow" | "ask" | "deny";
@@ -23,6 +24,55 @@ type StoredConfig = {
 const CONFIG_FILE = "permission-gate.json";
 /** Kept for WebUI applyPermissionMode / docs; mode is file-backed, not ctx-backed. */
 export const SESSION_KEY = "leafcode-permission-gate";
+
+export type SystemSafetyCategory =
+  | "os"
+  | "user-data"
+  | "kernel"
+  | "driver"
+  | "registry"
+  | "service"
+  | "boot"
+  | "disk"
+  | "firmware";
+
+export type SystemSafetyMatch = {
+  category: SystemSafetyCategory;
+  label: string;
+};
+
+type SystemSafetyRule = SystemSafetyMatch & { pattern: RegExp };
+
+/**
+ * Commands in these categories are never covered by permission mode "allow".
+ * They may inspect the machine, but a mutation still needs a preflight and an
+ * explicit approval for that exact operation.
+ */
+const SYSTEM_SAFETY_RULES: readonly SystemSafetyRule[] = [
+  { category: "os", label: "OS shutdown/restart", pattern: /\b(?:shutdown(?:\.exe)?|reboot|poweroff|halt|Stop-Computer|Restart-Computer|logoff(?:\.exe)?)\b/i },
+  { category: "os", label: "privilege elevation", pattern: /\b(?:sudo|doas|pkexec|runas(?:\.exe)?)\b/i },
+  { category: "os", label: "system policy/account/firewall change", pattern: /\b(?:Set-ExecutionPolicy|setx|icacls|net(?:\.exe)?\s+(?:user|localgroup)|(?:New|Remove|Add|Disable|Enable)-Local(?:User|GroupMember)|(?:New|Set|Remove)-(?:NetFirewallRule|WindowsOptionalFeature)|(?:Enable|Disable)-WindowsOptionalFeature|dism(?:\.exe)?\b[^\r\n]*\/(?:enable-feature|disable-feature|add-package|remove-package)|msiexec(?:\.exe)?\b[^\r\n]*\/(?:i|uninstall))\b/i },
+  { category: "os", label: "system package change", pattern: /\b(?:apt(?:-get)?|dnf|yum|pacman|zypper|apk|brew|winget|choco)\b[^\r\n]*(?:install|remove|purge|upgrade|update|add|delete|uninstall|-[SRU][A-Za-z]*)\b|\b(?:npm|pnpm|yarn|pip|pip3)\b[^\r\n]*(?:--global|\s-g\b)\b/i },
+  { category: "os", label: "scheduled task change", pattern: /\b(?:Register|Unregister|New|Remove)-ScheduledTask\b|\bschtasks(?:\.exe)?\b[^\r\n]*\/(?:create|delete|change|run)\b|\bcrontab\s+(?:-e|-r)\b/i },
+  { category: "os", label: "dynamic/elevated script execution", pattern: /\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n]*-(?:EncodedCommand|enc)\b|\b(?:python|python3|node|perl|ruby)\b\s+(?:-e|-c)\b|\b(?:Invoke-Expression|iex|eval)\b|\b(?:bash|sh|zsh|pwsh|powershell|cmd)\s+(?:-c|\/c)\b/i },
+  { category: "os", label: "downloaded script execution", pattern: /\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:\|\s*(?:sh|bash|zsh|pwsh|powershell|cmd|iex|Invoke-Expression)\b|(?:-o|--output)\s*-\s*&&)/i },
+  { category: "kernel", label: "kernel/module change", pattern: /\b(?:modprobe|insmod|rmmod|kexec)\b|\bsysctl\b[^\r\n]*(?:-w|--write)\b|\bdkms\b[^\r\n]*\b(?:install|remove|autoinstall)\b|\b(?:load|unload|install|remove|update)\s+(?:the\s+)?(?:kernel|module)s?\b/i },
+  { category: "driver", label: "device-driver change", pattern: /\bpnputil(?:\.exe)?\b[^\r\n]*\/(?:add-driver|delete-driver)\b|\bdevcon(?:\.exe)?\s+(?:install|remove|update)\b|\bdism(?:\.exe)?\b[^\r\n]*\/(?:add-driver|remove-driver)\b|\b(?:Add|Remove|Install|Uninstall)-WindowsDriver\b|\b(?:install|uninstall|remove|update|load)\s+(?:the\s+)?(?:device\s+)?driver(?:s)?\b/i },
+  { category: "registry", label: "Windows registry change", pattern: /\breg(?:\.exe)?\s+(?:add|delete|import|copy|restore|load|unload)\b|\b(?:New-ItemProperty|Set-ItemProperty|Remove-ItemProperty|New-Item|Remove-Item)\b[^\r\n]*(?:HK(?:LM|CU|CR|U|CC)\b|Registry::|CurrentControlSet|Software[\\/]Classes)|\b(?:add|set|write|delete|remove|import|update)\s+(?:the\s+)?(?:Windows\s+)?registry\b/i },
+  { category: "service", label: "service/daemon change", pattern: /\bsc(?:\.exe)?\s+(?:create|config|delete|start|stop|failure|privs)\b|\b(?:New|Remove|Set|Start|Stop|Restart)-(?:Windows)?Service\b|\bsystemctl\s+(?:enable|disable|start|stop|restart|mask|unmask|link|preset)\b|\bservice\s+\S+\s+(?:start|stop|restart)\b|\b(?:launchctl\s+(?:load|unload|bootstrap|bootout|enable|disable)|rc-service\s+\S+\s+(?:start|stop|restart))\b|\b(?:start|stop|restart|enable|disable)\s+(?:the\s+)?(?:service|daemon)s?\b|\b(?:start|stop|restart|enable|disable)[_-](?:service|daemon)s?\b/i },
+  { category: "boot", label: "boot configuration change", pattern: /\b(?:bcdboot(?:\.exe)?|grub-install|update-grub|update-initramfs)\b|\bbootrec(?:\.exe)?\b[^\r\n]*\/(?:fixmbr|fixboot|rebuildbcd)\b|\befibootmgr\b[^\r\n]*(?:\s-[cCbBdDoOnN]|--(?:create|delete|disk|bootorder|bootnext))\b|\breagentc(?:\.exe)?\b[^\r\n]*\/(?:enable|disable|setreimage|boottore)\b|\bbootcfg(?:\.exe)?\b[^\r\n]*\/(?:add|delete|raw)\b|\bbcdedit(?:\.exe)?\b[^\r\n]*\/(?:set|delete(?:value)?|create|import|export|store|timeout|default|displayorder|bootsequence|ems|dbgsettings|hypervisorsettings)\b|\b(?:change|modify|update|repair|write|set)\s+(?:the\s+)?boot(?:loader|configuration)?\b/i },
+  { category: "disk", label: "disk/partition/volume change", pattern: /\b(?:dd|mkfs(?:\.\w+)?|fdisk|sfdisk|parted|cfdisk|sgdisk|wipefs|diskpart(?:\.exe)?|format(?:\.com|\.exe)?|diskutil)\b|\b(?:Clear|Initialize|Set|New|Remove)-(?:Disk|Partition|Volume)\b|\b(?:Format|Resize|New|Remove|Set)-Volume\b|\b(?:format|erase|wipe|partition|resize|initialize)\s+(?:the\s+)?(?:disk|drive|volume|partition)s?\b/i },
+  { category: "firmware", label: "firmware/BIOS update", pattern: /\bfwupdmgr\b[^\r\n]*\b(?:install|update|refresh)\b|\bflashrom\b[^\r\n]*(?:-w|--write|\bwrite\b)|\b(?:flash|update|write|set)[ -]*(?:bios|uefi|firmware)\b|\b(?:Update|Set|Write)-Firmware\b|\b(?:flash|update|write|install|erase)\s+(?:the\s+)?(?:firmware|bios|uefi)\b/i }
+];
+
+const MUTATING_COMMAND_PATTERN = /\b(?:rm|mv|cp|mkdir|touch|install|truncate|shred|unlink|del|erase|rd|rmdir|copy|move|rename|Set-Content|Add-Content|Clear-Content|Clear-Item|Out-File|Export-Csv|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|Expand-Archive|Set-Item|Set-ItemProperty|New-ItemProperty|Remove-ItemProperty|ri|ni|mi|ci|tar|unzip|tee|rsync|ln|mount|umount|chmod|chown|setfacl|robocopy|xcopy)\b|\b(?:sed|perl)\b[^\r\n]*(?:\s-i\b|--in-place\b)|\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^\r\n]*(?:-O\b|--output\b|-OutFile\b)\s*\S+|(?<![0-9])>{1,2}(?!&)|[0-9]>{1,2}(?!&)/i;
+const USER_DATA_COMMAND_PATH_PATTERN = /(?:~(?:[A-Za-z0-9._-]+)?(?:[\\/]|$)|(?:%(?:USERPROFILE|APPDATA|LOCALAPPDATA|HOMEDRIVE|HOMEPATH)%|\$(?:\{)?(?:env:)?(?:USERPROFILE|HOME|APPDATA|LOCALAPPDATA|HOMEDRIVE|HOMEPATH)\}?)(?:[\\/]|$)|(?:[A-Za-z]:[\\/]|\/)(?:Users|home|Documents and Settings)(?:[\\/]|$))/i;
+const SYSTEM_COMMAND_PATH_PATTERN = /(?:%(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA)%|\$(?:\{)?(?:env:)?(?:WINDIR|SYSTEMROOT|PROGRAMFILES|PROGRAMDATA)\}?|(?:[A-Za-z]:[\\/]|\/)(?:Windows|Program Files(?: \(x86\))?|ProgramData|EFI|etc|boot|dev|sys|proc|usr|var|opt|root|sbin|bin|lib)(?:[\\/]|$)|(?:^|[\\s"'=])\/(?:[\\s"';&|]|$)|(?:^|[\\s"'=])[A-Za-z]:[\\/](?:[\\s"';&|]|$))/i;
+const KERNEL_COMMAND_PATH_PATTERN = /(?:\/(?:proc\/sys|sys)(?:[\\/]|$)|\/(?:lib|usr\/lib)\/modules(?:[\\/]|$)|(?:[A-Za-z]:[\\/]Windows[\\/]System32[\\/]drivers)(?:[\\/]|$))/i;
+const DRIVER_COMMAND_PATH_PATTERN = /(?:[\\/]drivers(?:[\\/]|$)|[\\/]modules(?:[\\/]|$))/i;
+const BOOT_COMMAND_PATH_PATTERN = /(?:\/(?:boot|efi)(?:[\\/]|$)|(?:[A-Za-z]:[\\/])(?:boot|efi)(?:[\\/]|$))/i;
+const DISK_COMMAND_PATH_PATTERN = /(?:\/dev\/(?:sd|nvme|vd|xvd|mmcblk|disk)|\\\\\.\\physicaldrive)/i;
+const FIRMWARE_COMMAND_PATH_PATTERN = /(?:^|[\\/])firmware(?:[\\/]|$)/i;
 
 const DANGEROUS_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /\brm\s+(-[rf]*|--recursive|--force)/i, label: "rm -rf / rm --recursive" },
@@ -100,6 +150,343 @@ export function setPermissionMode(ctx: ExtensionContext, mode: PermissionMode): 
   setSessionMode(ctx, mode);
 }
 
+const USER_DATA_PATH_PATTERN = /^(?:~(?:[A-Za-z0-9._-]+)?(?:\/|$)|%(?:userprofile|appdata|localappdata|homedrive|homepath)%(?:\/|$)|\$(?:\{)?(?:env:)?(?:userprofile|home|appdata|localappdata|homedrive|homepath)\}?(?:\/|$)|(?:[a-z]:\/|\/)(?:users|home|documents and settings)(?:\/|$))/i;
+const OS_PATH_PATTERN = /^(?:%(?:windir|systemroot|programfiles|programdata)%(?:\/|$)|\$(?:\{)?(?:env:)?(?:windir|systemroot|programfiles|programdata)\}?(?:\/|$)|[a-z]:\/(?:windows|program files(?: \(x86\))?|programdata|efi)(?:\/|$)|[a-z]:\/$|\/(?:etc|boot|dev|sys|proc|usr|var|opt|root|sbin|bin|lib)(?:\/|$)|\/$)/i;
+const KERNEL_PATH_PATTERN = /^(?:\/(?:proc\/sys|sys|lib\/modules|usr\/lib\/modules)(?:\/|$)|[a-z]:\/windows\/system32\/drivers(?:\/|$))/i;
+const DRIVER_PATH_PATTERN = /(?:^|\/)drivers(?:\/|$)|(?:^|\/)modules(?:\/|$)/i;
+const BOOT_PATH_PATTERN = /^(?:\/(?:boot|efi)(?:\/|$)|[a-z]:\/(?:boot|efi)(?:\/|$))/i;
+const DISK_PATH_PATTERN = /^(?:\/dev\/(?:sd|nvme|vd|xvd|mmcblk|disk)|\/\/\.\/physicaldrive)/i;
+const FIRMWARE_PATH_PATTERN = /(?:^|\/)(?:firmware|bios)(?:\/|$)/i;
+const REGISTRY_PATH_PATTERN = /^(?:registry::|(?:hkey_(?:local_machine|current_user|classes_root|users|current_config)|hk(?:lm|cu|cr|u|cc))(?:[\/:]|$))/i;
+
+const COMMAND_INPUT_KEYS = new Set([
+  "command",
+  "cmd",
+  "commandline",
+  "command_line",
+  "script",
+  "code",
+  "shell",
+  "action",
+  "operation",
+  "args",
+  "parameters",
+  "task",
+  "prompt",
+  "message",
+  "query",
+]);
+const PATH_INPUT_KEYS = new Set([
+  "path",
+  "filepath",
+  "file_path",
+  "target",
+  "destination",
+  "source",
+  "file",
+  "directory",
+  "dir",
+  "location",
+  "root",
+  "volume",
+  "device",
+  "key",
+  "registry",
+  "registrypath",
+]);
+const CUSTOM_SYSTEM_TOOL_RULES: readonly SystemSafetyRule[] = [
+  { category: "os", label: "custom system-command tool", pattern: /(?:^|[_:.-])(?:shell|terminal|powershell|bash|cmd|run|exec|execute)(?:[_:.-]|$)/i },
+  { category: "os", label: "custom command-execution tool", pattern: /(?:^|[_:.-])(?:run|exec|execute)[_-](?:command|shell|script)(?:[_:.-]|$)/i },
+  { category: "kernel", label: "custom kernel mutation tool", pattern: /(?:kernel.*(?:load|unload|write|update)|(?:load|unload|write|update).*kernel)/i },
+  { category: "driver", label: "custom driver mutation tool", pattern: /(?:driver.*(?:install|uninstall|remove|update|write)|(?:install|uninstall|remove|update|write).*driver)/i },
+  { category: "registry", label: "custom registry mutation tool", pattern: /(?:(?:registry|reg).*?(?:add|set|write|delete|remove|import|update)|(?:add|set|write|delete|remove|import|update).*?(?:registry|reg))/i },
+  { category: "service", label: "custom service mutation tool", pattern: /(?:(?:service|systemd).*?(?:create|config|start|stop|restart|enable|disable|delete|remove)|(?:create|config|start|stop|restart|enable|disable|delete|remove).*?(?:service|systemd))/i },
+  { category: "boot", label: "custom boot mutation tool", pattern: /(?:boot.*?(?:write|set|update|install|repair|delete)|(?:write|set|update|install|repair|delete).*?boot)/i },
+  { category: "disk", label: "custom disk mutation tool", pattern: /(?:(?:disk|partition|volume).*?(?:write|erase|format|wipe|create|delete|resize)|(?:write|erase|format|wipe|create|delete|resize).*?(?:disk|partition|volume))/i },
+  { category: "firmware", label: "custom firmware mutation tool", pattern: /(?:(?:firmware|bios|uefi).*?(?:flash|write|update|install|erase)|(?:flash|write|update|install|erase).*?(?:firmware|bios|uefi))/i },
+];
+const CUSTOM_COMMAND_TOOL_PATTERN = /(?:^|[_:.-])(?:shell|terminal|powershell|bash|cmd|run|exec|execute)(?:[_:.-]|$)|(?:^|[_:.-])(?:run|exec|execute)[_-](?:command|shell|script|code)(?:[_:.-]|$)|(?:^|[_:.-])(?:python|node|perl|ruby|eval|script)[_-](?:exec|run|evaluate)?(?:[_:.-]|$)/i;
+const CUSTOM_PATH_MUTATION_TOOL_PATTERN = /(?:^|[_:.-])(?:write|edit|delete|remove|move|copy|create|install|uninstall|update|set|format|erase|wipe|flash)(?:[_:.-]|$)/i;
+
+type RecordLike = Record<string, unknown>;
+
+function asRecord(value: unknown): RecordLike | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as RecordLike
+    : undefined;
+}
+
+function pushSafetyMatch(matches: SystemSafetyMatch[], match: SystemSafetyMatch): void {
+  if (!matches.some((current) => current.category === match.category && current.label === match.label)) {
+    matches.push(match);
+  }
+}
+
+function isReadOnlyDiskInspection(command: string): boolean {
+  if (/\bdiskutil\s+(?:list|info|apfs\s+list)\b/i.test(command)) return true;
+  return /\b(?:fdisk|sfdisk|parted|cfdisk|sgdisk)\b[^\r\n]*\s(?:-l|--list|--print|-p|print)\b/i.test(command);
+}
+
+export function matchSystemSafetyCommand(command: string): SystemSafetyMatch[] {
+  const normalized = command.replace(/\u0000/g, " ");
+  const matches: SystemSafetyMatch[] = [];
+  for (const rule of SYSTEM_SAFETY_RULES) {
+    if (rule.category === "disk" && isReadOnlyDiskInspection(normalized)) continue;
+    if (rule.pattern.test(normalized)) pushSafetyMatch(matches, rule);
+  }
+
+  const mutating = MUTATING_COMMAND_PATTERN.test(normalized);
+  if (mutating && USER_DATA_COMMAND_PATH_PATTERN.test(normalized)) {
+    pushSafetyMatch(matches, { category: "user-data", label: "user data path mutation" });
+  }
+  if (mutating && SYSTEM_COMMAND_PATH_PATTERN.test(normalized)) {
+    pushSafetyMatch(matches, { category: "os", label: "system path mutation" });
+  }
+  if (mutating && KERNEL_COMMAND_PATH_PATTERN.test(normalized)) {
+    pushSafetyMatch(matches, { category: "kernel", label: "kernel path mutation" });
+  }
+  if (mutating && DRIVER_COMMAND_PATH_PATTERN.test(normalized)) {
+    pushSafetyMatch(matches, { category: "driver", label: "driver/module path mutation" });
+  }
+  if (mutating && BOOT_COMMAND_PATH_PATTERN.test(normalized)) {
+    pushSafetyMatch(matches, { category: "boot", label: "boot path mutation" });
+  }
+  if (mutating && DISK_COMMAND_PATH_PATTERN.test(normalized)) {
+    pushSafetyMatch(matches, { category: "disk", label: "device path mutation" });
+  }
+  if (mutating && FIRMWARE_COMMAND_PATH_PATTERN.test(normalized)) {
+    pushSafetyMatch(matches, { category: "firmware", label: "firmware path mutation" });
+  }
+  return matches;
+}
+
+function normalizePathCandidate(value: string): string {
+  return value.trim().replace(/^["']|["']$/g, "").replace(/\\/g, "/");
+}
+
+function pathCandidates(filePath: string, cwd: string): string[] {
+  const candidates = [normalizePathCandidate(filePath)];
+  try {
+    candidates.push(normalizePathCandidate(resolvePath(cwd, filePath)));
+  } catch {
+    /* malformed paths remain covered by the raw candidate */
+  }
+  return [...new Set(candidates)];
+}
+
+export function matchSystemSafetyPath(filePath: string, cwd = process.cwd()): SystemSafetyMatch[] {
+  const matches: SystemSafetyMatch[] = [];
+  for (const candidate of pathCandidates(filePath, cwd)) {
+    if (USER_DATA_PATH_PATTERN.test(candidate)) {
+      pushSafetyMatch(matches, { category: "user-data", label: "user data path" });
+    }
+    if (OS_PATH_PATTERN.test(candidate)) {
+      pushSafetyMatch(matches, { category: "os", label: "protected OS path" });
+    }
+    if (KERNEL_PATH_PATTERN.test(candidate)) {
+      pushSafetyMatch(matches, { category: "kernel", label: "kernel path" });
+    }
+    if (DRIVER_PATH_PATTERN.test(candidate)) {
+      pushSafetyMatch(matches, { category: "driver", label: "driver/module path" });
+    }
+    if (BOOT_PATH_PATTERN.test(candidate)) {
+      pushSafetyMatch(matches, { category: "boot", label: "boot path" });
+    }
+    if (DISK_PATH_PATTERN.test(candidate)) {
+      pushSafetyMatch(matches, { category: "disk", label: "physical disk path" });
+    }
+    if (FIRMWARE_PATH_PATTERN.test(candidate)) {
+      pushSafetyMatch(matches, { category: "firmware", label: "firmware path" });
+    }
+    if (REGISTRY_PATH_PATTERN.test(candidate)) {
+      pushSafetyMatch(matches, { category: "registry", label: "registry path" });
+    }
+  }
+  return matches;
+}
+
+function collectLeafStrings(value: unknown, output: string[]): void {
+  if (typeof value === "string") {
+    output.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectLeafStrings(item, output);
+    return;
+  }
+  const record = asRecord(value);
+  if (record) {
+    for (const child of Object.values(record)) collectLeafStrings(child, output);
+  }
+}
+
+function collectStringFields(value: unknown, keys: ReadonlySet<string>, output: string[]): void {
+  const record = asRecord(value);
+  if (!record) {
+    if (Array.isArray(value)) for (const item of value) collectStringFields(item, keys, output);
+    return;
+  }
+  for (const [key, child] of Object.entries(record)) {
+    if (keys.has(key.toLowerCase())) collectLeafStrings(child, output);
+    else collectStringFields(child, keys, output);
+  }
+}
+
+export function matchSystemSafetyForTool(
+  toolName: string,
+  input: unknown,
+  cwd = process.cwd(),
+): SystemSafetyMatch[] {
+  if (toolName === "bash" || toolName === "powershell") {
+    const command = asRecord(input)?.command;
+    return typeof command === "string" ? matchSystemSafetyCommand(command) : [];
+  }
+  if (toolName === "write" || toolName === "edit") {
+    const filePath = asRecord(input)?.path;
+    return typeof filePath === "string" ? matchSystemSafetyPath(filePath, cwd) : [];
+  }
+
+  const matches: SystemSafetyMatch[] = [];
+  for (const rule of CUSTOM_SYSTEM_TOOL_RULES) {
+    if (rule.pattern.test(toolName)) pushSafetyMatch(matches, rule);
+  }
+  const commands: string[] = typeof input === "string" ? [input] : [];
+  collectStringFields(input, COMMAND_INPUT_KEYS, commands);
+  const allStrings: string[] = [];
+  collectLeafStrings(input, allStrings);
+  for (const command of [...new Set([...commands, ...allStrings, commands.length > 1 ? commands.join(" ") : ""])]) {
+    if (!command) continue;
+    for (const match of matchSystemSafetyCommand(command)) pushSafetyMatch(matches, match);
+  }
+  const paths: string[] = typeof input === "string" ? [input] : [];
+  collectStringFields(input, PATH_INPUT_KEYS, paths);
+  if (CUSTOM_PATH_MUTATION_TOOL_PATTERN.test(toolName)) collectLeafStrings(input, paths);
+  for (const filePath of [...new Set(paths)]) {
+    for (const match of matchSystemSafetyPath(filePath, cwd)) pushSafetyMatch(matches, match);
+  }
+  if (CUSTOM_COMMAND_TOOL_PATTERN.test(toolName) && commands.length === 0) {
+    pushSafetyMatch(matches, { category: "os", label: "custom command execution" });
+  }
+  return matches;
+}
+
+function messageText(value: unknown): string {
+  const record = asRecord(value);
+  if (!record) return "";
+  const content = record.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.map((part) => {
+    const block = asRecord(part);
+    return block?.type === "text" && typeof block.text === "string" ? block.text : "";
+  }).join("\n");
+}
+
+function hasSafetyPlanText(text: string): boolean {
+  return /(?:影響|impact|scope|対象)/iu.test(text) && /(?:復旧|ロールバック|recovery|rollback|restore|backup)/iu.test(text);
+}
+
+function isExplicitApprovalText(text: string): boolean {
+  return /^(?:yes|y|はい|承認(?:します)?|許可(?:します)?|実行(?:して|します)?|進めて|続行)(?:[!！。、,，\s]|$)/iu.test(text.trim());
+}
+
+function hasSafetyPlan(messages: AgentEndEvent["messages"]): boolean {
+  return messages.some((message) => message.role === "assistant" && hasSafetyPlanText(messageText(message)));
+}
+
+function isReadOnlyInvestigation(toolName: string, input: unknown): boolean {
+  if (toolName === "read" || toolName === "grep" || toolName === "find" || toolName === "ls") return true;
+  if (toolName !== "bash" && toolName !== "powershell") return false;
+  const command = asRecord(input)?.command;
+  if (typeof command !== "string" || matchedDanger(command).dangerous || MUTATING_COMMAND_PATTERN.test(command)) return false;
+  return /\b(?:Get-(?:Content|Item|ItemProperty|Service|ComputerInfo|CimInstance)|cat|head|tail|less|more|type|dir|ls|find|grep|rg|systemctl\s+(?:status|show|list)|sc\s+query|reg\s+query|bcdedit\s+\/enum|diskutil\s+(?:list|info)|lsblk|findmnt|dmidecode)\b/i.test(command);
+}
+
+function operationText(toolName: string, input: unknown): string {
+  const record = asRecord(input);
+  if (toolName === "bash" || toolName === "powershell") {
+    const command = record?.command;
+    if (typeof command === "string") return command;
+  }
+  if (toolName === "write" || toolName === "edit") {
+    const filePath = record?.path;
+    if (typeof filePath === "string") return `${toolName}: ${filePath}`;
+  }
+  const commands: string[] = typeof input === "string" ? [input] : [];
+  collectStringFields(input, COMMAND_INPUT_KEYS, commands);
+  if (commands[0]) return `${toolName}: ${commands.join(" ")}`;
+  const paths: string[] = [];
+  collectStringFields(input, PATH_INPUT_KEYS, paths);
+  if (paths[0]) return `${toolName}: ${paths[0]}`;
+  try {
+    return `${toolName}: ${(JSON.stringify(input) ?? "").slice(0, 2000)}`;
+  } catch {
+    return toolName;
+  }
+}
+
+function safetyLabels(matches: readonly SystemSafetyMatch[]): string[] {
+  return [...new Set(matches.map((match) => `${match.category}: ${match.label}`))];
+}
+
+function preflightRequiredReason(operation: string, matches: readonly SystemSafetyMatch[]): string {
+  return [
+    `System safety guard blocked this operation: ${operation}`,
+    `検出: ${safetyLabels(matches).join(", ")}`,
+    "実行前に read-only の調査を行い、対象・影響範囲・失敗時の復旧手順をユーザーへ提示してください。",
+    "その内容を確認したユーザーが、この操作を明示承認するまで実行・再試行しないでください。",
+  ].join("\n");
+}
+
+async function requireSystemSafetyApproval(
+  ctx: ExtensionContext,
+  operation: string,
+  matches: readonly SystemSafetyMatch[],
+): Promise<{ block: true; reason: string; terminate: true } | undefined> {
+  const labels = safetyLabels(matches);
+  const message = [
+    "システム安全ガード: OS・ユーザーデータ・カーネル・ドライバー・レジストリ・サービス・boot・disk・firmware に影響する可能性があります。",
+    "read-only 調査と、対象・影響範囲・失敗時の復旧手順の提示を確認しました。",
+    `検出: ${labels.join(", ")}`,
+    `対象: ${operation}`,
+    "この操作を今回1回だけ明示的に許可しますか?",
+  ].join("\n");
+  try {
+    if (!ctx.hasUI) {
+      const approved = await requestWebUiPermission({
+        sessionId: extensionSessionId(ctx),
+        command: operation,
+        labels,
+        message,
+      });
+      if (approved === true) return undefined;
+      return {
+        block: true,
+        terminate: true,
+        reason: approved === null
+          ? "System safety guard blocked the operation (no UI for explicit approval)"
+          : "System safety guard: operation denied by user",
+      };
+    }
+    const choice = await ctx.ui.select(message, ["Yes", "No"]);
+    if (choice === "Yes") return undefined;
+    return { block: true, terminate: true, reason: "System safety guard: operation denied by user" };
+  } catch {
+    return { block: true, terminate: true, reason: "System safety guard blocked the operation (approval prompt failed)" };
+  }
+}
+
+function blockedUserBashResult(reason: string) {
+  return {
+    result: {
+      output: reason,
+      exitCode: 126,
+      cancelled: false,
+      truncated: false,
+    },
+  };
+}
+
 function isProtectedPath(path: string): { protected: boolean; reason?: string } {
   const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
   const segments = normalized.split("/").filter(Boolean);
@@ -144,7 +531,10 @@ function commandTouchesProtectedPath(command: string): { protected: boolean; rea
 }
 
 function matchedDanger(command: string): { dangerous: boolean; labels: string[] } {
-  const labels = DANGEROUS_PATTERNS.filter(({ pattern }) => pattern.test(command)).map((d) => d.label);
+  const labels = DANGEROUS_PATTERNS
+    .filter(({ label }) => !(label === "partition tool" && isReadOnlyDiskInspection(command)))
+    .filter(({ pattern }) => pattern.test(command))
+    .map((d) => d.label);
   return { dangerous: labels.length > 0, labels };
 }
 
@@ -157,7 +547,14 @@ function extensionSessionId(ctx: ExtensionContext): string {
 }
 
 export default function (pi: ExtensionAPI): void {
+  let safetyInvestigationObserved = false;
+  let safetyPlanPresented = false;
+  let safetyFlowActive = false;
+
   pi.on("session_start", async (_event, ctx) => {
+    safetyInvestigationObserved = false;
+    safetyPlanPresented = false;
+    safetyFlowActive = false;
     try {
       const config = readConfig();
       setSessionMode(ctx, config.mode);
@@ -166,9 +563,75 @@ export default function (pi: ExtensionAPI): void {
     }
   });
 
+  pi.on("input", (event) => {
+    if (event.source === "extension") return;
+    const hasPlan = hasSafetyPlanText(event.text);
+    if (!safetyFlowActive) {
+      safetyInvestigationObserved = false;
+      safetyPlanPresented = hasPlan;
+      return;
+    }
+    if (hasPlan) {
+      safetyPlanPresented = true;
+      return;
+    }
+    if (safetyInvestigationObserved && safetyPlanPresented && isExplicitApprovalText(event.text)) return;
+    safetyInvestigationObserved = false;
+    safetyPlanPresented = false;
+    safetyFlowActive = false;
+  });
+
+  pi.on("message_end", (event) => {
+    if (safetyFlowActive && event.message.role === "assistant" && hasSafetyPlanText(messageText(event.message))) {
+      safetyPlanPresented = true;
+    }
+  });
+
+  pi.on("agent_end", (event) => {
+    if (safetyFlowActive && hasSafetyPlan(event.messages)) {
+      safetyPlanPresented = true;
+    }
+  });
+
+  const requireSystemApproval = async (
+    ctx: ExtensionContext,
+    mode: PermissionMode,
+    operation: string,
+    safetyMatches: readonly SystemSafetyMatch[],
+  ): Promise<{ block: true; terminate: true; reason: string } | undefined> => {
+    safetyFlowActive = true;
+    if (mode === "deny") {
+      return {
+        block: true,
+        terminate: true,
+        reason: `${preflightRequiredReason(operation, safetyMatches)}\nPermission mode is deny.`,
+      };
+    }
+    if (!safetyInvestigationObserved || !safetyPlanPresented) {
+      return {
+        block: true,
+        terminate: true,
+        reason: preflightRequiredReason(operation, safetyMatches),
+      };
+    }
+    const result = await requireSystemSafetyApproval(ctx, operation, safetyMatches);
+    if (!result) {
+      safetyInvestigationObserved = false;
+      safetyPlanPresented = false;
+      safetyFlowActive = false;
+    }
+    return result;
+  };
+
   pi.on("tool_call", async (event, ctx) => {
+    const mode = sessionMode(ctx);
+    if (mode !== "deny" && isReadOnlyInvestigation(event.toolName, event.input)) {
+      safetyInvestigationObserved = true;
+      safetyFlowActive = true;
+    }
+    const safetyMatches = matchSystemSafetyForTool(event.toolName, event.input, ctx.cwd);
+
     if (event.toolName === "bash" || event.toolName === "powershell") {
-      const mode = sessionMode(ctx);
       if (mode === "deny") {
         return { block: true, reason: "Shell execution blocked (permission mode: deny)" };
       }
@@ -183,6 +646,7 @@ export default function (pi: ExtensionAPI): void {
           reason: `Shell command touches ${protectedPath.reason}`,
         };
       }
+      if (safetyMatches.length > 0) return requireSystemApproval(ctx, mode, operationText(event.toolName, event.input), safetyMatches);
       const { dangerous, labels } = matchedDanger(command);
       if (dangerous) {
         if (mode === "ask") {
@@ -220,9 +684,51 @@ export default function (pi: ExtensionAPI): void {
         }
         return { block: true, reason: `Path "${path}" is protected (${check.reason})` };
       }
+      if (safetyMatches.length > 0) return requireSystemApproval(ctx, mode, operationText(event.toolName, event.input), safetyMatches);
       return undefined;
     }
 
+    if (safetyMatches.length > 0) return requireSystemApproval(ctx, mode, operationText(event.toolName, event.input), safetyMatches);
+    return undefined;
+  });
+
+  pi.on("user_bash", async (event, ctx) => {
+    const mode = sessionMode(ctx);
+    if (mode === "deny") {
+      return blockedUserBashResult("Shell execution blocked (permission mode: deny)");
+    }
+    if (isReadOnlyInvestigation("bash", { command: event.command })) {
+      safetyInvestigationObserved = true;
+      safetyFlowActive = true;
+    }
+    const protectedPath = commandTouchesProtectedPath(event.command);
+    if (protectedPath.protected) {
+      return blockedUserBashResult(`Shell command touches ${protectedPath.reason}`);
+    }
+    const safetyMatches = matchSystemSafetyCommand(event.command);
+    if (safetyMatches.length > 0) {
+      const decision = await requireSystemApproval(ctx, mode, event.command, safetyMatches);
+      return decision ? blockedUserBashResult(decision.reason) : undefined;
+    }
+    const { dangerous, labels } = matchedDanger(event.command);
+    if (dangerous && mode === "ask") {
+      const prompt = `危険なコマンドを検出しました:\n  ${event.command}\n\n許可しますか?`;
+      if (!ctx.hasUI) {
+        const approved = await requestWebUiPermission({
+          sessionId: extensionSessionId(ctx),
+          command: event.command,
+          labels,
+          message: prompt,
+        });
+        return approved === true ? undefined : blockedUserBashResult(
+          approved === null
+            ? "Dangerous command blocked (no UI for confirmation)"
+            : "Blocked by user",
+        );
+      }
+      const choice = await ctx.ui.select(prompt, ["Yes", "No"]);
+      if (choice !== "Yes") return blockedUserBashResult("Blocked by user");
+    }
     return undefined;
   });
 

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, it } from "vitest";
-import permissionGate from "./index";
+import permissionGate, { matchSystemSafetyCommand, matchSystemSafetyForTool, matchSystemSafetyPath } from "./index";
 
 type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown>;
 
@@ -12,6 +12,38 @@ function freshContext(cwd: string, sessionManager: ExtensionContext["sessionMana
   // Pi's ExtensionRunner.createContext() returns a new object per event.
   return { cwd, hasUI: false, sessionManager } as ExtensionContext;
 }
+
+describe("system safety classifier", () => {
+  it("covers OS, user data, kernel, driver, registry, service, boot, disk, and firmware mutations", () => {
+    const cases: Array<[string, string]> = [
+      ["Stop-Computer -Force", "os"],
+      ["Remove-Item -Force $env:USERPROFILE\\Documents\\report.txt", "user-data"],
+      ["modprobe v4l2loopback", "kernel"],
+      ["pnputil /add-driver driver.inf /install", "driver"],
+      ["reg.exe add HKLM\\Software\\LeafCode /v Enabled /t REG_DWORD /d 1", "registry"],
+      ["systemctl stop leafcode.service", "service"],
+      ["bcdedit /set {default} recoveryenabled no", "boot"],
+      ["diskpart /s mutate-disk.txt", "disk"],
+      ["fwupdmgr update", "firmware"],
+    ];
+    for (const [command, category] of cases) {
+      assert.ok(
+        matchSystemSafetyCommand(command).some((match) => match.category === category),
+        `${category} was not detected in: ${command}`,
+      );
+    }
+
+    assert.deepEqual(matchSystemSafetyCommand("cat /etc/hosts"), []);
+    assert.deepEqual(matchSystemSafetyCommand("systemctl status leafcode.service"), []);
+    assert.deepEqual(matchSystemSafetyCommand("bcdedit /enum"), []);
+    assert.deepEqual(matchSystemSafetyCommand("fdisk -l /dev/sda"), []);
+    assert.ok(matchSystemSafetyPath("C:\\Windows\\System32\\drivers\\example.sys").some((match) => match.category === "driver"));
+    assert.ok(matchSystemSafetyPath("C:\\Users\\Daichi\\Documents\\report.txt").some((match) => match.category === "user-data"));
+    assert.ok(matchSystemSafetyForTool("mcp__server__registry_set", { path: "HKLM\\Software\\LeafCode" }).some((match) => match.category === "registry"));
+    assert.ok(matchSystemSafetyForTool("mcp__server__exec", { payload: { command: "systemctl stop leafcode.service" } }).some((match) => match.category === "service"));
+    assert.ok(matchSystemSafetyForTool("mcp__server__file_tool", { target: "C:\\Windows\\System32\\config" }).some((match) => match.category === "os"));
+  });
+});
 
 describe("LeafCode permission gate", () => {
   it("applies deny across separate ExtensionContext instances (Pi createContext)", async () => {
@@ -105,6 +137,82 @@ describe("LeafCode permission gate", () => {
         freshContext(cwd, sessionManager),
       );
       assert.equal((denied as { block?: boolean } | undefined)?.block, true);
+    } finally {
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(appDir, { recursive: true, force: true });
+    }
+  });
+
+  it("requires read-only investigation, an impact/recovery plan, and explicit approval for system changes", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-safety-"));
+    const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-safety-data-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = appDir;
+    const handlers = new Map<string, Handler>();
+    const pi = {
+      on: (name: string, handler: Handler) => handlers.set(name, handler),
+      registerCommand: () => undefined,
+    } as unknown as ExtensionAPI;
+    permissionGate(pi);
+    const sessionManager = {
+      getSessionId: () => "safety-session",
+      getSessionName: () => "Safety",
+    };
+
+    try {
+      writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "allow" }), "utf8");
+      await handlers.get("session_start")?.({}, freshContext(cwd, sessionManager));
+
+      const direct = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "Stop-Computer -Force" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((direct as { block?: boolean } | undefined)?.block, true);
+      assert.equal((direct as { terminate?: boolean } | undefined)?.terminate, true);
+      assert.match(String((direct as { reason?: string } | undefined)?.reason), /read-only/);
+
+      const directUserBash = await handlers.get("user_bash")?.(
+        { command: "systemctl stop leafcode.service", cwd },
+        freshContext(cwd, sessionManager),
+      );
+      assert.match(String((directUserBash as { result?: { output?: string } } | undefined)?.result?.output), /System safety guard/);
+
+      await handlers.get("tool_call")?.(
+        { toolName: "read", input: { path: "/etc/os-release" } },
+        freshContext(cwd, sessionManager),
+      );
+      await handlers.get("message_end")?.(
+        {
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "対象はこの端末です。影響は再起動です。失敗時はバックアップから復旧します。" }],
+          },
+        },
+        freshContext(cwd, sessionManager),
+      );
+      await handlers.get("input")?.({ text: "はい", source: "interactive" }, freshContext(cwd, sessionManager));
+
+      let prompt = "";
+      const approvalContext = {
+        cwd,
+        hasUI: true,
+        sessionManager,
+        ui: {
+          select: async (message: string) => {
+            prompt = message;
+            return "No";
+          },
+          notify: () => undefined,
+        },
+      } as unknown as ExtensionContext;
+      const denied = await handlers.get("tool_call")?.(
+        { toolName: "bash", input: { command: "Stop-Computer -Force" } },
+        approvalContext,
+      );
+      assert.equal((denied as { block?: boolean } | undefined)?.block, true);
+      assert.match(prompt, /明示的に許可/);
     } finally {
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
