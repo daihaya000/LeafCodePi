@@ -426,6 +426,7 @@ type PermissionPromptService = ReturnType<typeof createPermissionPromptService>;
 let permissionPromptService: PermissionPromptService | null = null;
 
 function resolveTaskIdFromSession(sessionId: string): string | null {
+  if (!sessionId) return null;
   return taskIdForSession(
     sessionId,
     [...state().live.values()].map((live) => ({

@@ -45,6 +45,27 @@ describe("createPermissionPromptService", () => {
     expect(service.respond("task-a", "missing", true)).toBe(false);
   });
 
+  it("returns null (not false) when session cannot be mapped to a task", async () => {
+    const emit = vi.fn();
+    const service = createPermissionPromptService({
+      resolveTaskId: () => null,
+      emit,
+      snapshotExtras: () => ({}),
+    });
+
+    await expect(
+      service.handleRequest({
+        id: "req-orphan",
+        sessionId: "unknown",
+        command: "rm -rf /",
+        labels: ["rm -rf"],
+        message: "allow?",
+      }),
+    ).resolves.toBeNull();
+    expect(emit).not.toHaveBeenCalled();
+    expect(service.pendingForTask("task-a")).toBeNull();
+  });
+
   it("queues concurrent requests instead of auto-denying the first", async () => {
     const emit = vi.fn();
     const service = createPermissionPromptService({

@@ -1,3 +1,14 @@
+## 2026-09-05: high-usage ループ tick 1 — permission silent deny
+
+- ループ: `AGENT_LOOP_TICK_highusage_bugs`（2分間隔、PID 14868）開始
+- バグ: sessionId→taskId 未解決時、`permission-prompt.handleRequest` が `false`（ユーザー拒否）を返していた
+- 影響: WebUI に確認ダイアログが出ず、permission-gate が「Blocked by user」と誤表示
+- 修正: `null`（no UI）を返すよう変更（`question-prompt` と同セマンティクス）
+- 併せて空 sessionId は bridge 側で即 `null`、`resolveTaskIdFromSession` も空文字を拒否
+- 検証: `permission-prompt.test.ts` 7/7 パス
+
+---
+
 ## 2026-09-05: git log を安全ガードから除外
 
 - 原因: ask モード `DANGEROUS_PATTERNS` の `\bsudo\b` 等が `git log --grep=sudo` に誤ヒット

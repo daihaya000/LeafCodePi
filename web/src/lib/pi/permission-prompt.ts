@@ -70,7 +70,8 @@ export function createPermissionPromptService(options: {
   emit: PermissionPromptEmit;
   snapshotExtras: (taskId: string) => Record<string, unknown>;
 }): {
-  handleRequest: (input: Omit<PermissionRequestDto, "id"> & { id: string }) => Promise<boolean>;
+  /** Resolves null when the session cannot be mapped to a WebUI task (no dialog). */
+  handleRequest: (input: Omit<PermissionRequestDto, "id"> & { id: string }) => Promise<boolean | null>;
   respond: (taskId: string, requestId: string, approved: boolean) => boolean;
   pendingForTask: (taskId: string) => PermissionRequestDto | null;
   pendingTaskIds: () => Set<string>;
@@ -87,9 +88,12 @@ export function createPermissionPromptService(options: {
   }
   pushSnapshotGlobal = pushSnapshot;
 
-  function handleRequest(input: Omit<PermissionRequestDto, "id"> & { id: string }): Promise<boolean> {
+  function handleRequest(
+    input: Omit<PermissionRequestDto, "id"> & { id: string },
+  ): Promise<boolean | null> {
     const taskId = options.resolveTaskId(input.sessionId);
-    if (!taskId) return Promise.resolve(false);
+    // Match question-prompt: unmapped session ≠ user denial (false).
+    if (!taskId) return Promise.resolve(null);
 
     const request: PermissionRequestDto = {
       id: input.id,

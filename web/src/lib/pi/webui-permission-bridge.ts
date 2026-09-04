@@ -8,7 +8,7 @@ export type WebUiPermissionRequest = {
   message: string;
 };
 
-type WebUiPermissionHandler = (request: WebUiPermissionRequest) => Promise<boolean>;
+type WebUiPermissionHandler = (request: WebUiPermissionRequest) => Promise<boolean | null>;
 
 /** Must match extensions/leafcode-permission-gate/webui-bridge.ts */
 const GLOBAL_KEY = "__leafcodeWebUiPermissionHandler" as const;
@@ -33,6 +33,7 @@ export async function requestWebUiPermission(input: {
   labels: string[];
   message: string;
 }): Promise<boolean | null> {
+  if (!input.sessionId) return null;
   const handler = readHandler();
   if (!handler) return null;
   return handler({
