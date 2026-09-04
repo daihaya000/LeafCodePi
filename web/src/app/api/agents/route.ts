@@ -51,6 +51,9 @@ export async function POST(request: Request) {
     if (body.inheritProjectContext !== undefined && typeof body.inheritProjectContext !== "boolean") {
       return NextResponse.json({ error: "inheritProjectContext はbooleanが必要です" }, { status: 400 });
     }
+    if (body.inheritSkills !== undefined && typeof body.inheritSkills !== "boolean") {
+      return NextResponse.json({ error: "inheritSkills はbooleanが必要です" }, { status: 400 });
+    }
     const aliases = body.aliases as unknown;
     if (
       aliases !== undefined &&
