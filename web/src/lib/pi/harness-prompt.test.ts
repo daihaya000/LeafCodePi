@@ -8,6 +8,8 @@ import {
   buildPromptOptions,
   isReasoningMandatoryError,
   reasoningFallbackLevel,
+  resolveStreamingBehaviorForPrompt,
+  shouldBypassPromptChain,
   syncSessionName,
 } from "./harness";
 import type { ThroughputTiming } from "@/lib/token-throughput";
@@ -86,6 +88,19 @@ describe("buildPromptOptions", () => {
       buildPromptOptions({ isHangRetry: false, isStreaming: true }),
       { streamingBehavior: "followUp" },
     );
+  });
+
+  it("does not bypass the prompt chain before the current turn is streaming", () => {
+    assert.equal(shouldBypassPromptChain("steer", false), false);
+    assert.equal(shouldBypassPromptChain("steer", true), true);
+    assert.equal(shouldBypassPromptChain("followUp", true), true);
+    assert.equal(shouldBypassPromptChain(undefined, true), false);
+  });
+
+  it("drops steer once the current turn is no longer streaming", () => {
+    assert.equal(resolveStreamingBehaviorForPrompt("steer", false), undefined);
+    assert.equal(resolveStreamingBehaviorForPrompt("steer", true), "steer");
+    assert.equal(resolveStreamingBehaviorForPrompt(undefined, true), undefined);
   });
 });
 

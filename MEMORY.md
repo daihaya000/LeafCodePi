@@ -1,3 +1,7 @@
+## 2026-09-04: 発見→修正ループ Tick 11
+
+**steer がストリーム開始前に並列 prompt になる** — `promptActive` だけで promptChain を迂回していた。新規タスク作成直後など UI は working だが未ストリームの窓で割り込み送信すると、先発が `Agent is already processing` で落ちる。迂回は `isStreaming` のときだけ。未ストリームなら通常の次ターンとして chain する。
+
 ## 2026-09-04: 発見→修正ループ Tick 10
 
 **停止後にキュー待ち follow-up が自動送信される** — サーバーは abort 時に `clearQueue` するが、TaskView の `queuedFollowUps` は残ったまま working→idle で drain→submit していた。停止時にキューを捨て、drain/auto-send は `stopRequested` 中は動かない。

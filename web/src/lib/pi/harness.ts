@@ -4868,6 +4868,25 @@ export function buildPromptOptions({
   return options;
 }
 
+/** Only inject steer/follow-up into a turn that is already streaming. */
+export function shouldBypassPromptChain(
+  streamingBehavior: "steer" | "followUp" | undefined,
+  isStreaming: boolean,
+): boolean {
+  return Boolean(streamingBehavior && isStreaming);
+}
+
+/**
+ * Drop steer/follow-up once the current turn is no longer streaming so a
+ * queued interrupt becomes a normal next prompt instead of a parallel run.
+ */
+export function resolveStreamingBehaviorForPrompt(
+  streamingBehavior: "steer" | "followUp" | undefined,
+  isStreaming: boolean,
+): "steer" | "followUp" | undefined {
+  return isStreaming ? streamingBehavior : undefined;
+}
+
 function queuePrompt(
   live: LiveRuntime,
   prompt: string,
@@ -4884,9 +4903,7 @@ function queuePrompt(
   const isHangRetry =
     meta?.isHangRetry === true || prompt.startsWith(HANG_RETRY_PREFIX);
   live.manualAbortedAssistantId = null;
-  // Steer/follow-up must not replace the hang-watch resume prompt. Re-arming
-  // with the short steer text would resume the wrong turn after a hang.
-  if (!meta?.streamingBehavior) {
+  const armHangWatchForPrompt = () => {
     armTaskHangWatch({
       taskId: live.taskId,
       prompt,
@@ -4898,20 +4915,37 @@ function queuePrompt(
       ...(meta?.permissionMode ? { permissionMode: meta.permissionMode } : {}),
       isHangRetry,
     });
+  };
+  // Steer/follow-up must not replace the hang-watch resume prompt. Re-arming
+  // with the short steer text would resume the wrong turn after a hang.
+  if (!meta?.streamingBehavior) {
+    armHangWatchForPrompt();
   }
   let activeLive = live;
   const runPrompt = async () => {
     const pendingCompaction = live.autoCompactionPromise;
     if (pendingCompaction) await pendingCompaction;
-    activeLive = await prepareLiveForPrompt(live, !meta?.streamingBehavior);
+    const currentLive = state().live.get(live.taskId) ?? live;
+    const streamingBehavior = resolveStreamingBehaviorForPrompt(
+      meta?.streamingBehavior,
+      currentLive.session.isStreaming,
+    );
+    activeLive = await prepareLiveForPrompt(live, !streamingBehavior);
     const activeCompaction = activeLive.autoCompactionPromise;
     if (activeCompaction) await activeCompaction;
     applySubagentPermission(activeLive.session, meta?.subagentPermission);
     applySessionCompactionSettings(activeLive.session);
+    const finalBehavior = resolveStreamingBehaviorForPrompt(
+      meta?.streamingBehavior,
+      activeLive.session.isStreaming,
+    );
+    if (meta?.streamingBehavior && !finalBehavior) {
+      armHangWatchForPrompt();
+    }
     const options = buildPromptOptions({
       images,
-      streamingBehavior: meta?.streamingBehavior,
-      isStreaming: live.session.isStreaming,
+      streamingBehavior: finalBehavior,
+      isStreaming: activeLive.session.isStreaming,
       isHangRetry,
     });
     try {
@@ -4953,12 +4987,9 @@ function queuePrompt(
     });
   };
   // A steering request must reach the SDK while the current turn is still
-  // running. The normal prompt chain is retained for idle submissions so two
-  // simultaneous starts cannot race each other.
-  if (
-    meta?.streamingBehavior &&
-    (live.session.isStreaming || live.promptActive)
-  ) {
+  // streaming. promptActive alone is not enough: prepareLive/compaction has
+  // not opened a stream yet, and a parallel prompt races the in-flight start.
+  if (shouldBypassPromptChain(meta?.streamingBehavior, live.session.isStreaming)) {
     void runPrompt().catch(handlePromptError);
     return;
   }
