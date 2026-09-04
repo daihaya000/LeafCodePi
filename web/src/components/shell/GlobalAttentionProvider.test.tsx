@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -257,6 +257,35 @@ describe("GlobalAttentionProvider", () => {
     });
     expect(mocks.playAttentionRequiredSound).toHaveBeenCalledTimes(2);
     expect(document.body.textContent ?? "").toMatch(/承認・回答が必要です/);
+  });
+
+  it("lets the user reopen dismissed attention for another task", async () => {
+    render(<GlobalAttentionProvider />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(document.body.textContent ?? "").toMatch(/承認・回答が必要です/);
+
+    await act(async () => {
+      screen.getByRole("button", { name: "後で" }).click();
+    });
+    expect(document.body.textContent ?? "").not.toMatch(/承認・回答が必要です/);
+    const reopen = screen.getByRole("button", { name: "承認・回答が必要なタスク 1 件" });
+    await act(async () => {
+      reopen.click();
+    });
+    expect(document.body.textContent ?? "").toMatch(/承認・回答が必要です/);
+  });
+
+  it("does not show a reopen control when only the active task needs attention", async () => {
+    window.history.pushState({}, "", "/task/task-a");
+    render(<GlobalAttentionProvider />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.queryByRole("button", { name: /承認・回答が必要なタスク/ })).toBeNull();
   });
 });
 

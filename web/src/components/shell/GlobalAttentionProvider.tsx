@@ -216,7 +216,22 @@ export function GlobalAttentionProvider() {
     router.push(`/task/${taskId}`);
   };
 
-  if (!open || items.length === 0) return null;
+  const reopenableCount = items.filter((item) => item.taskId !== activeTaskId).length;
+  if (items.length === 0) return null;
+  if (!open) {
+    if (reopenableCount === 0) return null;
+    return (
+      <button
+        type="button"
+        aria-label={`承認・回答が必要なタスク ${reopenableCount} 件`}
+        onClick={() => setOpen(true)}
+        className="fixed right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[80] flex h-12 min-w-12 items-center justify-center gap-1 rounded-full border border-warning/40 bg-warning-bg px-3 text-sm font-semibold text-warning shadow-lg"
+      >
+        <BellRing className="h-4 w-4" aria-hidden="true" />
+        <span>{reopenableCount}</span>
+      </button>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
