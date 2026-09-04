@@ -35,6 +35,13 @@ export async function POST(request: Request) {
     if (body.description !== undefined && typeof body.description !== "string") {
       return NextResponse.json({ error: "description は文字列が必要です" }, { status: 400 });
     }
+    const aliases = body.aliases as unknown;
+    if (
+      aliases !== undefined &&
+      (!Array.isArray(aliases) || aliases.some((alias) => typeof alias !== "string"))
+    ) {
+      return NextResponse.json({ error: "aliases は文字列配列が必要です" }, { status: 400 });
+    }
     const result = createAgent(normalize(body as AgentDraft));
     return NextResponse.json(result, { status: 201 });
   } catch (error) {

@@ -40,4 +40,13 @@ describe("POST /api/agents", () => {
     expect(response.status).toBe(400);
     expect(mocks.createAgent).not.toHaveBeenCalled();
   });
+
+  it("rejects aliases containing non-string values before creating an agent", async () => {
+    const response = await POST(
+      request({ name: "reviewer", systemPrompt: "Review", aliases: [123] }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.createAgent).not.toHaveBeenCalled();
+  });
 });
