@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
     directory?: string;
     message?: string;
-    paths?: string[];
+    paths?: unknown;
     all?: boolean;
     agent?: unknown;
   } | null;
@@ -20,6 +20,14 @@ export async function POST(req: NextRequest) {
   if (agent !== undefined && typeof agent !== "string") {
     return NextResponse.json({ error: "invalid agent" }, { status: 400 });
   }
+  const paths = body?.paths;
+  if (
+    paths !== undefined &&
+    (!Array.isArray(paths) || paths.some((path) => typeof path !== "string"))
+  ) {
+    return NextResponse.json({ error: "paths must be an array of strings" }, { status: 400 });
+  }
+  const validPaths = Array.isArray(paths) ? paths as string[] : undefined;
   if (!body?.directory || !body.message?.trim()) {
     return NextResponse.json(
       { error: "directory and message are required" },
@@ -46,12 +54,12 @@ export async function POST(req: NextRequest) {
         { status: 500 },
       );
     }
-  } else if (body.paths?.length) {
-    for (const p of body.paths) {
+  } else if (validPaths?.length) {
+    for (const p of validPaths) {
       const err = commitPathError(p);
       if (err) return NextResponse.json({ error: err }, { status: 400 });
     }
-    const add = await runGit(body.directory, ["add", "--", ...body.paths]);
+    const add = await runGit(body.directory, ["add", "--", ...validPaths]);
     if (add.code !== 0) {
       return NextResponse.json(
         { error: add.stderr.trim() || "git add failed" },
@@ -66,8 +74,8 @@ export async function POST(req: NextRequest) {
   }
 
   const commitArgs = ["commit", "-m", body.message.trim()];
-  if (!body.all && body.paths?.length) {
-    commitArgs.push("--", ...body.paths);
+  if (!body.all && validPaths?.length) {
+    commitArgs.push("--", ...validPaths);
   }
 
   const agentName = (typeof agent === "string" ? agent.trim() : "") || "build";
