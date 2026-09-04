@@ -361,6 +361,24 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("aa-disable /usr/sbin/httpd").some((match) => match.label === "system policy/account/firewall change"));
     assert.deepEqual(matchSystemSafetyCommand("nft list ruleset"), []);
     assert.deepEqual(matchSystemSafetyCommand("sestatus"), []);
+    assert.ok(matchSystemSafetyCommand("crontab /tmp/evil").some((match) => match.label === "scheduled task change"));
+    assert.ok(matchSystemSafetyCommand("env crontab -e").some((match) => match.label === "scheduled task change"));
+    assert.ok(matchSystemSafetyCommand("at -f /tmp/job now").some((match) => match.label === "scheduled task change"));
+    assert.ok(matchSystemSafetyCommand("Set-MpPreference -DisableRealtimeMonitoring $true").some((match) => match.label === "security software disable"));
+    assert.ok(
+      configuredSafetyMatches(
+        { mode: "allow", systemSafety: "standard" },
+        matchSystemSafetyCommand("crontab /tmp/evil"),
+      ).some((match) => match.label === "scheduled task change"),
+    );
+    assert.ok(
+      configuredSafetyMatches(
+        { mode: "allow", systemSafety: "standard" },
+        matchSystemSafetyCommand("Set-MpPreference -DisableRealtimeMonitoring $true"),
+      ).some((match) => match.label === "security software disable"),
+    );
+    assert.deepEqual(matchSystemSafetyCommand("crontab -l"), []);
+    assert.deepEqual(matchSystemSafetyCommand("Get-MpPreference"), []);
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);

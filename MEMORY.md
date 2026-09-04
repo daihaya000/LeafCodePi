@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 32
+
+- FN: `crontab /tmp/…` / `env crontab -e` / `at -f … now` / `batch` / `anacron -f`（scheduled、**standard でもゲート**）
+- FN: `Set-MpPreference -Disable*` / `Add-MpPreference -ExclusionPath` / `sc stop WinDefend`（security software disable、standard）
+- `crontab -l` / `Get-MpPreference` は非検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 31
 
 - FN: `echo … > /etc/…` が docsOnly 扱いで path mutation をすり抜け → リダイレクトを docsOnly 除外
