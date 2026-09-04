@@ -515,6 +515,17 @@ describe("system safety classifier", () => {
     assert.deepEqual(matchSystemSafetyCommand("zpool destroy -n tank"), []);
     assert.ok(matchSystemSafetyCommand("zfs destroy tank/data").some((match) => match.category === "disk"));
     assert.deepEqual(matchSystemSafetyCommand("losetup -a"), []);
+    assert.deepEqual(matchSystemSafetyCommand("command -v growfs"), []);
+    assert.deepEqual(matchSystemSafetyCommand("command -v resize2fs"), []);
+    assert.ok(matchSystemSafetyCommand("cryptsetup open /dev/sda1 crypt").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("cryptsetup luksOpen /dev/sda1 crypt").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("lvextend -l +100%FREE /dev/vg0/lv0").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("lvcreate -L 10G -n lv0 vg0").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("pvcreate /dev/sdb").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("vgcreate vg0 /dev/sdb").some((match) => match.category === "disk"));
+    assert.ok(matchSystemSafetyCommand("tune2fs -O ^has_journal /dev/sda1").some((match) => match.category === "disk"));
+    assert.deepEqual(matchSystemSafetyCommand("resize2fs --help"), []);
+    assert.ok(matchSystemSafetyCommand("cryptsetup close crypt").some((match) => match.category === "disk"));
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);

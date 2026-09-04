@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 45
+
+- FP: `command -v growfs|resize2fs|…`（soft-prefix が `-v` を食う）→ `-v`/`--help`/`--version` を wrapper 引数から除外
+- FN: `cryptsetup open|luksOpen`（close と対称）、`lvextend|lvreduce|lvcreate|pvcreate|vgcreate|lvchange|vgchange`、`tune2fs`
+- help: resize 系 `--help` を非検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 44
 
 - FN: `zfs rollback`、`geom … destroy`、`growfs`/`tunefs`/`resize2fs`/`xfs_growfs`/`lvresize`/`pvresize`
