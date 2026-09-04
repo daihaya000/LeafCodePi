@@ -94,4 +94,13 @@ describe("POST /api/agents", () => {
     expect(response.status).toBe(400);
     expect(mocks.createAgent).not.toHaveBeenCalled();
   });
+
+  it("rejects a non-boolean async flag before creating an agent", async () => {
+    const response = await POST(
+      request({ name: "reviewer", systemPrompt: "Review", async: "true" }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.createAgent).not.toHaveBeenCalled();
+  });
 });

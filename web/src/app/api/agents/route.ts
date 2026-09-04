@@ -45,6 +45,9 @@ export async function POST(request: Request) {
     if (body.systemPromptMode !== undefined && body.systemPromptMode !== "replace" && body.systemPromptMode !== "append") {
       return NextResponse.json({ error: "systemPromptMode が不正です" }, { status: 400 });
     }
+    if (body.async !== undefined && typeof body.async !== "boolean") {
+      return NextResponse.json({ error: "async はbooleanが必要です" }, { status: 400 });
+    }
     const aliases = body.aliases as unknown;
     if (
       aliases !== undefined &&
