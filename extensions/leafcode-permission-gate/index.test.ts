@@ -375,6 +375,42 @@ describe("LeafCode permission gate", () => {
       );
       assert.equal((shellEnv as { block?: boolean } | undefined)?.block, true);
 
+      const pythonChr = await handlers.get("tool_call")?.(
+        {
+          toolName: "bash",
+          input: { command: "python -c \"open(chr(46)+'env','w').write('x')\"" },
+        },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((pythonChr as { block?: boolean } | undefined)?.block, true);
+
+      const pwshChar = await handlers.get("tool_call")?.(
+        {
+          toolName: "powershell",
+          input: { command: "Set-Content -LiteralPath ([string][char]46 + 'env') -Value SECRET" },
+        },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((pwshChar as { block?: boolean } | undefined)?.block, true);
+
+      const nodeConcat = await handlers.get("tool_call")?.(
+        {
+          toolName: "bash",
+          input: { command: "node -e \"require('fs').writeFileSync('.'+'env','x')\"" },
+        },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((nodeConcat as { block?: boolean } | undefined)?.block, true);
+
+      const hexEscape = await handlers.get("tool_call")?.(
+        {
+          toolName: "bash",
+          input: { command: "printf x > \\x2eenv" },
+        },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((hexEscape as { block?: boolean } | undefined)?.block, true);
+
       const shellOk = await handlers.get("tool_call")?.(
         { toolName: "bash", input: { command: "echo hello" } },
         freshContext(cwd, sessionManager),

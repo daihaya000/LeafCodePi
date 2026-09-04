@@ -8,7 +8,7 @@
     "host": "npm --prefix host start",
     "icons": "node scripts/gen-icons.mjs",
     "lint": "npm --prefix web run lint",
-    "test": "npm --prefix web test && npm --prefix host test",
+    "test": "npm --prefix web test && npm --prefix host test && npm --prefix extensions/leafcode-goal-loop test",
     "typecheck": "npm --prefix web run typecheck && npm run typecheck:todowrite",
     "typecheck:todowrite": "npm --prefix extensions/leafcode-todowrite run typecheck",
     "check": "npm run typecheck && npm run lint && npm test"

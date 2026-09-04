@@ -631,25 +631,86 @@ function isProtectedPath(path: string): { protected: boolean; reason?: string } 
   return { protected: false };
 }
 
-/** Detect shell commands that write or touch protected paths (bypass of write/edit gate). */
-function commandTouchesProtectedPath(command: string): { protected: boolean; reason?: string } {
-  if (/(?:^|[\\/\s"'])\.env(?:\.[\w.-]+)?(?:$|[\\/\s"':=])/i.test(command)) {
+function decodeCharCodes(command: string): string {
+  let text = command;
+  text = text.replace(/String\.fromCharCode\s*\(([\d,\s]+)\)/gi, (full, nums: string) => {
+    const codes = nums.split(",").map((part) => Number(part.trim()));
+    if (codes.length === 0 || codes.some((code) => !Number.isInteger(code) || code < 0 || code > 255)) {
+      return full;
+    }
+    return codes.map((code) => String.fromCharCode(code)).join("");
+  });
+  text = text.replace(/\b(?:chr|fromCharCode)\s*\(\s*(\d+)\s*\)/gi, (full, raw: string) => {
+    const code = Number(raw);
+    return Number.isInteger(code) && code >= 0 && code <= 255 ? String.fromCharCode(code) : full;
+  });
+  text = text.replace(/\[char\[\]\]\s*\(([\d,\s]+)\)/gi, (full, nums: string) => {
+    const codes = nums.split(",").map((part) => Number(part.trim()));
+    if (codes.length === 0 || codes.some((code) => !Number.isInteger(code) || code < 0 || code > 255)) {
+      return full;
+    }
+    return codes.map((code) => String.fromCharCode(code)).join("");
+  });
+  text = text.replace(/\[(?:string\s*)?char\]\s*(\d+)/gi, (full, raw: string) => {
+    const code = Number(raw);
+    return Number.isInteger(code) && code >= 0 && code <= 255 ? String.fromCharCode(code) : full;
+  });
+  text = text.replace(/\\x([0-9a-fA-F]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+  text = text.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+  return text;
+}
+
+function collapseConcatenatedStrings(command: string): string {
+  let text = command;
+  let previous = "";
+  while (previous !== text) {
+    previous = text;
+    text = text.replace(/(['"])([^'"]*)\1\s*\+\s*(['"])([^'"]*)\3/g, "$1$2$4$1");
+    text = text.replace(/(\.[A-Za-z0-9._-]*)\s*\+\s*(['"])([^'"]*)\2/g, "$1$3");
+    text = text.replace(/(['"])([^'"]*)\1\s*\+\s*(\.[A-Za-z0-9._-]*)/g, "$2$3");
+    text = text.replace(/([A-Za-z0-9._-]+)\s*-join\s*(['"])\2/gi, "$1");
+  }
+  return text;
+}
+
+function commandVariantsForProtectedPath(command: string): string[] {
+  const decoded = collapseConcatenatedStrings(decodeCharCodes(command));
+  const variants = [command, decoded];
+  for (const source of [command, decoded]) {
+    for (const nested of extractNestedShellCommands(source)) {
+      variants.push(nested, collapseConcatenatedStrings(decodeCharCodes(nested)));
+    }
+  }
+  return [...new Set(variants.filter(Boolean))];
+}
+
+function matchProtectedPathLiteral(command: string): { protected: boolean; reason?: string } {
+  if (/(?:^|[^A-Za-z0-9])\.env(?:\.[\w.-]+)?(?:$|[^A-Za-z0-9])/i.test(command)) {
     return { protected: true, reason: 'protected path ".env*"' };
   }
-  if (/(?:^|[\\/\s"'])\.git(?:$|[\\/\s"'])/i.test(command)) {
+  if (/(?:^|[^A-Za-z0-9])\.git(?:$|[^A-Za-z0-9])/i.test(command)) {
     return { protected: true, reason: 'protected path ".git/"' };
   }
-  if (/(?:^|[\\/\s"'])\.ssh(?:$|[\\/\s"'])/i.test(command)) {
+  if (/(?:^|[^A-Za-z0-9])\.ssh(?:$|[^A-Za-z0-9])/i.test(command)) {
     return { protected: true, reason: 'protected path ".ssh/"' };
   }
-  if (/(?:^|[\\/\s"'])\.aws(?:$|[\\/\s"'])/i.test(command)) {
+  if (/(?:^|[^A-Za-z0-9])\.aws(?:$|[^A-Za-z0-9])/i.test(command)) {
     return { protected: true, reason: 'protected path ".aws/"' };
   }
-  if (/(?:^|[\\/\s"'])node_modules(?:$|[\\/\s"'])/i.test(command)) {
+  if (/(?:^|[^A-Za-z0-9])node_modules(?:$|[^A-Za-z0-9])/i.test(command)) {
     return { protected: true, reason: 'protected path "node_modules/"' };
   }
-  if (/(?:^|[\\/\s"'])\.pi[\\/]agent[\\/]auth\.json(?:$|[\\/\s"'])/i.test(command)) {
+  if (/(?:^|[^A-Za-z0-9])\.pi[\\/]agent[\\/]auth\.json(?:$|[^A-Za-z0-9])/i.test(command)) {
     return { protected: true, reason: 'protected path ".pi/agent/auth.json"' };
+  }
+  return { protected: false };
+}
+
+/** Detect shell commands that write or touch protected paths (bypass of write/edit gate). */
+function commandTouchesProtectedPath(command: string): { protected: boolean; reason?: string } {
+  for (const variant of commandVariantsForProtectedPath(command)) {
+    const match = matchProtectedPathLiteral(variant);
+    if (match.protected) return match;
   }
   return { protected: false };
 }

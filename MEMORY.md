@@ -1,3 +1,14 @@
+## 2026-09-04: 発見→修正ループ Tick 1
+
+ループ: 2分間隔、センチネル `AGENT_LOOP_TICK_findfix`、ユーザー停止指示まで継続。
+
+1. **保護パス難読化バイパス** — `chr(46)+'env'` / `[char]46` / `'.'+'env'` / `\x2e` をデコードして再検査。`index.test.ts` に回帰を追加。
+2. **README** — 権限の簡易承認 UI は実装済みなので「未実装」から外した。
+3. **goal-loop テスト** — `package.json` に `test` を追加し、ルート `npm test` に含めた。
+4. **leafcode-question の typebox 未宣言** — `package.json` に dependency を追加（peer ツリーを引く lockfile は作らない）。
+
+次 tick 候補: 権限モードがプロセス全体の単一ファイル（並行タスク干渉）、`writeConfig` 失敗の握りつぶし、未使用 SESSION_KEY、ルート typecheck の拡張カバレッジ。
+
 ## 2026-09-04: バグハント残件6件を修正
 
 1. **Sidebar refresh stale** — `refreshGenRef` で古い poll 応答を破棄

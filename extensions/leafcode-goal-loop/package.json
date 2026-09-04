@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "LeafCode-style Goal Loop with full-run mode for Pi",
+  "scripts": {
+    "test": "node --test index.test.mjs"
+  },
   "pi": {
     "extensions": ["index.ts"]
   },
