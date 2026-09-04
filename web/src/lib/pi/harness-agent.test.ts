@@ -10,7 +10,7 @@ import {
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, isLiveBusyForReplace, setTaskAgent, throwIfBusyForModelChange } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, isLiveBusyForReplace, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForThinkingChange } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const previousHarness = (globalThis as Record<string, unknown>)[GLOBAL_KEY];
@@ -169,6 +169,17 @@ describe("isLiveBusyForReplace", () => {
         /モデルは変更できません/.test(error.message),
     );
     throwIfBusyForModelChange({ promptActive: false, session: {} });
+  });
+
+  it("blocks thinking-level changes during an accepted prompt", () => {
+    assert.throws(
+      () => throwIfBusyForThinkingChange({ promptActive: true, session: {} }),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { status?: number }).status === 409 &&
+        /思考レベルは変更できません/.test(error.message),
+    );
+    throwIfBusyForThinkingChange({ promptActive: false, session: {} });
   });
 });
 

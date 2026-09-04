@@ -5315,8 +5315,25 @@ export function throwIfBusyForModelChange(live: {
   promptActive?: boolean;
   session: { isStreaming?: boolean; isCompacting?: boolean };
 }): void {
+  throwIfBusyForFieldChange(live, "モデル");
+}
+
+export function throwIfBusyForThinkingChange(live: {
+  promptActive?: boolean;
+  session: { isStreaming?: boolean; isCompacting?: boolean };
+}): void {
+  throwIfBusyForFieldChange(live, "思考レベル");
+}
+
+function throwIfBusyForFieldChange(
+  live: {
+    promptActive?: boolean;
+    session: { isStreaming?: boolean; isCompacting?: boolean };
+  },
+  fieldLabel: string,
+): void {
   if (isLiveBusyForReplace(live)) {
-    throw Object.assign(new Error("実行中タスクのモデルは変更できません"), {
+    throw Object.assign(new Error(`実行中タスクの${fieldLabel}は変更できません`), {
       status: 409,
     });
   }
@@ -5470,6 +5487,7 @@ export async function setTaskThinkingLevel(
     throw Object.assign(new Error("thinkingLevel が不正です"), { status: 400 });
   }
   const live = await ensureLive(id);
+  throwIfBusyForThinkingChange(live);
   live.session.setThinkingLevel(levelRaw);
   const thinkingLevel = isThinkingLevel(live.session.thinkingLevel)
     ? live.session.thinkingLevel

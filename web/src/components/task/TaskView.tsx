@@ -2696,7 +2696,7 @@ export const TaskView = memo(function TaskView({
                 <ThinkingSelect
                   levels={thinkingLevels}
                   value={thinkingValue}
-                  disabled={compacting}
+                  disabled={working || compacting || submitting}
                   onChange={(value) => {
                     void (async () => {
                       try {
