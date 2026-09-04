@@ -101,3 +101,22 @@ export function applyPermissionMode(
   }
   writePermissionGateConfig(mode, sessionIdOf(session));
 }
+
+/** System safety hard-gate is on unless explicitly disabled in permission-gate.json. */
+export function readSystemSafetyEnabled(): boolean {
+  return readStoredConfig().systemSafety !== false;
+}
+
+/** Persist system-safety toggle without changing permission modes. */
+export function writeSystemSafetyEnabled(enabled: boolean): boolean {
+  const file = permissionGateConfigPath();
+  mkdirSync(dataDir(), { recursive: true });
+  const current = readStoredConfig();
+  const next: StoredConfig = {
+    mode: current.mode,
+    systemSafety: enabled,
+    ...(current.sessions ? { sessions: current.sessions } : {}),
+  };
+  writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  return enabled;
+}

@@ -7,7 +7,9 @@ import {
   applyPermissionMode,
   permissionGateConfigPath,
   readPermissionGateConfig,
+  readSystemSafetyEnabled,
   writePermissionGateConfig,
+  writeSystemSafetyEnabled,
 } from "./permission-gate-config";
 
 function withTempDataDir<T>(run: (projectDir: string, appDir: string) => T): T {
@@ -52,6 +54,22 @@ describe("permission-gate-config", () => {
         mode: "ask",
         systemSafety: false,
       });
+    });
+  });
+
+  it("reads and writes the system safety toggle independently of permission mode", () => {
+    withTempDataDir(() => {
+      assert.equal(readSystemSafetyEnabled(), true);
+      writePermissionGateConfig("deny");
+      assert.equal(writeSystemSafetyEnabled(false), false);
+      assert.equal(readSystemSafetyEnabled(), false);
+      assert.equal(readPermissionGateConfig(), "deny");
+      assert.deepEqual(JSON.parse(readFileSync(permissionGateConfigPath(), "utf8")), {
+        mode: "deny",
+        systemSafety: false,
+      });
+      assert.equal(writeSystemSafetyEnabled(true), true);
+      assert.equal(readSystemSafetyEnabled(), true);
     });
   });
 

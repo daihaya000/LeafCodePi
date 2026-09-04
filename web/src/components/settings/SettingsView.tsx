@@ -21,6 +21,7 @@ import { WebUiAuthSettings } from "@/components/settings/WebUiAuthSettings";
 import { ReasoningTranslationSettings } from "@/components/settings/ReasoningTranslationSettings";
 import { HangTimeoutSettings } from "@/components/settings/HangTimeoutSettings";
 import { NotificationSoundSettings } from "@/components/settings/NotificationSoundSettings";
+import { SystemSafetySettings } from "@/components/settings/SystemSafetySettings";
 import { Badge, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import type { HealthDto, ProviderAuthDto } from "@/lib/types";
@@ -246,6 +247,7 @@ export function SettingsView() {
 
               <HostRestartPanel onRestarted={reload} />
               <WebUiAuthSettings />
+              <SystemSafetySettings />
               <BrowserSettings />
               <NotificationSoundSettings />
               <NavigatorSettings />

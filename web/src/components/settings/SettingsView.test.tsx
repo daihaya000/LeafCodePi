@@ -36,6 +36,9 @@ vi.mock("@/components/settings/BrowserSettings", () => ({
     return <h2>ブラウザ設定</h2>;
   },
 }));
+vi.mock("@/components/settings/SystemSafetySettings", () => ({
+  SystemSafetySettings: () => <h2>システム安全ガード</h2>,
+}));
 vi.mock("@/components/settings/NotificationSoundSettings", () => ({
   NotificationSoundSettings: () => <h2>通知音</h2>,
 }));
@@ -192,6 +195,7 @@ describe("SettingsView", () => {
 
     expect(screen.queryByRole("navigation", { name: "エンジン設定" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "ローカル LLM" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "システム安全ガード" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
     expect(mountCounts.basic).toBe(1);

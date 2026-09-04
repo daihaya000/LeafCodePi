@@ -894,3 +894,8 @@ turn 2 の合成ベンチマークでは、履歴100/1,000/5,000件を各200回 
 - OS 停止・権限昇格・パッケージ/サービス/レジストリ/disk/firmware、`"$x" stop`、`& ('Stop-'+'Computer')`、curl|sh、LeafCodePi 自己停止禁止
 
 検証: `extensions/leafcode-permission-gate` 7 tests、`pi-args.test.ts` 3 tests 成功。
+## 2026-09-05: システム安全ガードを設定から無効化可能に
+
+設定 > エンジン に「システム安全ガード」トグルを追加。`permission-gate.json` の `systemSafety: false` を API (`/api/settings/system-safety`) 経由で読み書きする。無効時も保護パスと LeafCodePi 自己停止禁止は維持。デフォルトは有効。
+
+検証: permission-gate-config / system-safety API / SystemSafetySettings / SettingsView / extension index の関連テスト成功。
