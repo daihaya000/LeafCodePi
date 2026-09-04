@@ -1545,6 +1545,7 @@ function lastAssistantLimitError(event: unknown): string | null {
 
 function canAutoFallbackTask(task: TaskSummary, providerID: string): boolean {
   if (task.providerID !== providerID) return false;
+  if (task.accountIdExplicit) return false;
   if (!task.accountId) return true;
   return (
     isAccountRoutingProvider(providerID) &&
@@ -1587,6 +1588,7 @@ async function fallbackProviderAfterLimit(
           !latestTask.modelID ||
           latestTask.providerID !== pending.providerID ||
           latestTask.modelID !== pending.modelID ||
+          !canAutoFallbackTask(latestTask, pending.providerID) ||
           currentLive.session.isStreaming
         ) {
           return;
@@ -4595,6 +4597,8 @@ export async function createTask(input: {
     });
   const parsed = parseModelValue(input.model);
   const requestedAccountId = input.accountId?.trim() || parsed?.accountId;
+  const requestedAccountExplicit =
+    input.accountIdExplicit ?? Boolean(requestedAccountId);
   if (
     input.accountId &&
     parsed?.accountId &&
@@ -4622,6 +4626,7 @@ export async function createTask(input: {
   const insertStoredTask = (
     model: Model | undefined,
     accountId: string | null,
+    accountIdExplicit: boolean,
   ): TaskSummary => {
     const selectedIds = modelId(model);
     return insertTask({
@@ -4631,6 +4636,7 @@ export async function createTask(input: {
       providerID: selectedIds.providerID ?? parsed?.providerID,
       modelID: selectedIds.modelID ?? parsed?.modelID,
       ...(accountId ? { accountId } : {}),
+      ...(accountId && accountIdExplicit ? { accountIdExplicit: true } : {}),
       ...(input.agent ? { agent: input.agent.trim() } : {}),
       ...(input.skillPermission
         ? { skillPermission: input.skillPermission }
@@ -4652,10 +4658,8 @@ export async function createTask(input: {
           input.model,
           requestedAccountId ?? null,
           {
-            strictAccountId:
-              input.accountIdExplicit ?? Boolean(requestedAccountId),
-            accountIdExplicit:
-              input.accountIdExplicit ?? Boolean(requestedAccountId),
+            strictAccountId: requestedAccountExplicit,
+            accountIdExplicit: requestedAccountExplicit,
             allowProviderFallback: true,
           },
         );
@@ -4675,7 +4679,11 @@ export async function createTask(input: {
           if (project) patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
           return {
             route,
-            task: insertStoredTask(route.model, route.accountId),
+            task: insertStoredTask(
+              route.model,
+              route.accountId,
+              requestedAccountExplicit,
+            ),
           };
         } catch (error) {
           if (
@@ -4705,7 +4713,11 @@ export async function createTask(input: {
     task = routed.task;
   } else {
     if (project) patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
-    task = insertStoredTask(undefined, concreteAccountId);
+    task = insertStoredTask(
+      undefined,
+      concreteAccountId,
+      requestedAccountExplicit,
+    );
   }
   const model = modelRoute?.model;
   const requestedThinking = isThinkingLevel(input.thinkingLevel)
@@ -4844,7 +4856,8 @@ async function prepareLiveForPrompt(
       !currentLive.session.isStreaming &&
       currentLive.session.messages.some((message) => message.role === "user") &&
       (isAccountRoutingProvider(task.providerID) &&
-        accountRoutingMode(task.providerID) === "integrated"),
+        accountRoutingMode(task.providerID) === "integrated" &&
+        !task.accountIdExplicit),
   );
   if (!canRoute || !task?.providerID || !task.modelID) {
     setTaskStatus(currentLive.taskId, "working");
@@ -4864,6 +4877,7 @@ async function prepareLiveForPrompt(
         !latestTask.modelID ||
         !isAccountRoutingProvider(latestTask.providerID) ||
         accountRoutingMode(latestTask.providerID) !== "integrated" ||
+        latestTask.accountIdExplicit ||
         latestLive.session.isStreaming ||
         !latestLive.session.messages.some((message) => message.role === "user")
       ) {
@@ -5143,11 +5157,14 @@ export async function promptTask(
   let modelChanged = false;
   if (options?.model) {
     const requested = parseModelValue(options.model);
+    const requestedAccountExplicit =
+      options.accountIdExplicit ?? Boolean(requested?.accountId);
     const unchanged =
       requested !== null &&
       task.providerID === requested.providerID &&
       task.modelID === requested.modelID &&
-      (!requested.accountId || task.accountId === requested.accountId);
+      (!requested.accountId || task.accountId === requested.accountId) &&
+      Boolean(task.accountIdExplicit) === requestedAccountExplicit;
     if (!unchanged) {
       await setTaskModel(id, options.model, {
         accountIdExplicit: options.accountIdExplicit,
@@ -5551,12 +5568,13 @@ export async function setTaskModel(
   if (!task || !parsed) {
     throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
   }
+  const accountIdExplicit =
+    options?.accountIdExplicit ?? Boolean(parsed.accountId);
   const modelRoute = await withRouteLock(
     `${parsed.providerID}::${parsed.modelID}`,
     () =>
       resolveConcreteModelWithFallback(modelValueRaw, parsed.accountId ?? null, {
-        accountIdExplicit:
-          options?.accountIdExplicit ?? Boolean(parsed.accountId),
+        accountIdExplicit,
         allowProviderFallback: true,
       }),
   );
@@ -5591,6 +5609,8 @@ export async function setTaskModel(
       modelID: targetIds.modelID ?? parsed.modelID,
       thinkingLevel,
       accountId: targetAccountId ?? undefined,
+      accountIdExplicit:
+        targetAccountId && accountIdExplicit ? true : undefined,
     });
     if (!updatedTask)
       throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
@@ -5620,6 +5640,8 @@ export async function setTaskModel(
     providerID: ids.providerID ?? parsed.providerID,
     modelID: ids.modelID ?? parsed.modelID,
     thinkingLevel,
+    accountIdExplicit:
+      live.accountId && accountIdExplicit ? true : undefined,
   });
   if (!updatedTask)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });

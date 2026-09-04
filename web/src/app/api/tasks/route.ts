@@ -276,7 +276,7 @@ export async function POST(req: NextRequest) {
       images: body.images,
       ...(agent ? { agent } : {}),
       accountId,
-      accountIdExplicit: body.auto !== true,
+      ...(body.auto === true ? { accountIdExplicit: false } : {}),
       subagentPermission,
       permissionMode,
       skillPermission,

@@ -173,7 +173,11 @@ export async function POST(req: NextRequest, { params }: Params) {
       await setTaskAgent(id, agent);
     }
     if (model) {
-      await setTaskModel(id, model, { accountIdExplicit: body?.auto !== true });
+      await setTaskModel(
+        id,
+        model,
+        body?.auto === true ? { accountIdExplicit: false } : undefined,
+      );
     }
     if (thinkingLevel) await setTaskThinkingLevel(id, thinkingLevel);
     const loop = await goalLoopCommand(id, {

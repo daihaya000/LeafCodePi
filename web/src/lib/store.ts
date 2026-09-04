@@ -138,6 +138,7 @@ export function insertTask(input: {
   providerID?: string;
   modelID?: string;
   accountId?: string;
+  accountIdExplicit?: boolean;
   agent?: string;
   skillPermission?: "allow" | "deny";
   permissionMode?: "allow" | "ask" | "deny";
@@ -158,6 +159,9 @@ export function insertTask(input: {
     modelID: input.modelID,
     thinkingLevel: input.thinkingLevel,
     ...(input.accountId ? { accountId: input.accountId } : {}),
+    ...(input.accountId && input.accountIdExplicit
+      ? { accountIdExplicit: true }
+      : {}),
     ...(input.skillPermission ? { skillPermission: input.skillPermission } : {}),
     ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
     ...(input.agent ? { agent: input.agent } : {}),
@@ -186,6 +190,7 @@ export function patchTask(
       | "modelID"
       | "thinkingLevel"
       | "accountId"
+      | "accountIdExplicit"
       | "skillPermission"
       | "permissionMode"
       | "revertLeafId"

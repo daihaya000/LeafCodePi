@@ -42,6 +42,8 @@ export type TaskSummary = {
   thinkingLevel?: ThinkingLevel;
   /** このタスクで使う認証アカウント（docs/plans/multi-account.md）。未設定 = 既定（~/.pi/agent/auth.json）。 */
   accountId?: string;
+  /** accountId がユーザー指定なら true。Auto で選ばれたアカウントは false。 */
+  accountIdExplicit?: boolean;
   /** Composer からのスキル使用許可。未設定の旧タスクは許可扱い。 */
   skillPermission?: "allow" | "deny";
   /** このタスクのツール承認モード。未設定の旧タスクは Composer 既定。 */

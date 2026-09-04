@@ -83,6 +83,16 @@ describe("store", () => {
     });
     expect(store.getTask(withAccount.id)?.accountId).toBe("acc-1");
 
+    const explicit = store.insertTask({
+      project,
+      title: "explicit account",
+      accountId: "acc-1",
+      accountIdExplicit: true,
+    });
+    expect(store.getTask(explicit.id)?.accountIdExplicit).toBe(true);
+    store.patchTask(explicit.id, { accountIdExplicit: undefined });
+    expect(store.getTask(explicit.id)?.accountIdExplicit).toBeUndefined();
+
     // patch で切替・既定への復帰ができる
     store.patchTask(withAccount.id, { accountId: "acc-2" });
     expect(store.getTask(withAccount.id)?.accountId).toBe("acc-2");

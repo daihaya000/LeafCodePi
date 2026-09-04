@@ -6,12 +6,18 @@ import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const fakePi = vi.hoisted(() => {
+  type FakeEvent = {
+    type: string;
+    willRetry?: boolean;
+    messages?: unknown[];
+  };
   const histories = new Map<string, unknown[]>();
   const sessions: {
     accountId: string | null;
     file: string;
     prompts: string[];
     disposed: boolean;
+    emit?: (event: FakeEvent) => void;
   }[] = [];
 
   function manager(cwd: string, file: string) {
@@ -55,13 +61,23 @@ const fakePi = vi.hoisted(() => {
       modelRuntime?: { accountId?: string };
     }) => {
       const manager = options.sessionManager;
-      const entry = {
+      const entry: {
+        accountId: string | null;
+        file: string;
+        prompts: string[];
+        disposed: boolean;
+        emit?: (event: FakeEvent) => void;
+      } = {
         accountId: options.modelRuntime?.accountId ?? null,
         file: manager.__file,
         prompts: [] as string[],
         disposed: false,
       };
-      const listeners = new Set<(event: { type: string; willRetry?: boolean }) => void>();
+      const listeners = new Set<(event: FakeEvent) => void>();
+      const emit = (event: FakeEvent) => {
+        for (const listener of listeners) listener(event);
+      };
+      entry.emit = emit;
       let streaming = false;
       const session = {
         sessionFile: manager.__file,
@@ -78,7 +94,7 @@ const fakePi = vi.hoisted(() => {
         get isCompacting() {
           return false;
         },
-        subscribe: (listener: (event: { type: string; willRetry?: boolean }) => void) => {
+        subscribe: (listener: (event: FakeEvent) => void) => {
           listeners.add(listener);
           return () => listeners.delete(listener);
         },
@@ -96,14 +112,12 @@ const fakePi = vi.hoisted(() => {
         },
         prompt: async (text: string) => {
           streaming = true;
-          for (const listener of listeners) listener({ type: "agent_start" });
+          emit({ type: "agent_start" });
           entry.prompts.push(text);
           manager.history.push({ role: "user", content: text, timestamp: Date.now() });
           streaming = false;
-          for (const listener of listeners) {
-            listener({ type: "agent_end", willRetry: false });
-            listener({ type: "agent_settled" });
-          }
+          emit({ type: "agent_end", willRetry: false });
+          emit({ type: "agent_settled" });
         },
       };
       sessions.push(entry);
@@ -338,6 +352,59 @@ describe("integrated session routing", () => {
     });
     await waitFor(() => getTask(task.id)?.accountId === high.id && fakePi.sessions.length === 3);
     expect(fakePi.sessions[2]).toMatchObject({ accountId: high.id });
+  });
+
+  it("keeps an explicitly selected account for later prompts", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-explicit-account-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+
+    const first = createAccount({ label: "固定アカウント", providers: ["anthropic"] });
+    const other = createAccount({ label: "別アカウント", providers: ["anthropic"] });
+    storeProviderAuth(first.id, agentDir);
+    storeProviderAuth(other.id, agentDir);
+    installHarness(new Map([[first.id, runtime(first.id)], [other.id, runtime(other.id)]]));
+    await setAccountRoutingMode("anthropic", "integrated");
+    setCachedUsage(
+      parseCodexBarSnapshot({
+        providers: [
+          { codexBarProviderId: "anthropic", accountId: first.id, usedPercent: 80 },
+          { codexBarProviderId: "anthropic", accountId: other.id, usedPercent: 20 },
+        ],
+      }),
+    );
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "固定して開始",
+      model: `${first.id}::anthropic::claude-sonnet`,
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    assert.equal(getTask(task.id)?.accountId, first.id);
+    assert.equal(getTask(task.id)?.accountIdExplicit, true);
+    assert.equal(fakePi.sessions.length, 1);
+
+    await promptTask(task.id, "固定したまま続行");
+    await waitFor(() => getTask(task.id)?.status === "idle");
+
+    assert.equal(fakePi.sessions.length, 1);
+    expect(fakePi.sessions[0]?.prompts).toEqual(["固定して開始", "固定したまま続行"]);
+    assert.equal(getTask(task.id)?.accountId, first.id);
+
+    // 明示アカウントのリミットでも別アカウントへ自動フォールバックしない。
+    fakePi.sessions[0]?.emit?.({
+      type: "agent_end",
+      willRetry: false,
+      messages: [{ role: "assistant", errorMessage: "HTTP 429 Too Many Requests" }],
+    });
+    fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(fakePi.sessions.length, 1);
+    assert.equal(getTask(task.id)?.accountId, first.id);
   });
 
   it("crosses to another provider at the next turn after a limit response", async () => {
