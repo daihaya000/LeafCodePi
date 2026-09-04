@@ -190,6 +190,7 @@ export function patchTask(
       | "permissionMode"
       | "revertLeafId"
       | "manualAbortedAssistantId"
+      | "hangRetryCount"
       | "agent"
       | "error"
     >

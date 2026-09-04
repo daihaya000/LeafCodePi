@@ -50,6 +50,8 @@ export type TaskSummary = {
   revertLeafId?: string | null;
   /** 空文字は応答開始前の停止。再開ボタンの目印。 */
   manualAbortedAssistantId?: string | null;
+  /** 直近のハング自動再開回数。セッション差し替え後も通知を残す。 */
+  hangRetryCount?: number;
   /** pi-subagents agent running as the main session persona (null = default). */
   agent?: string | null;
   createdAt: string;

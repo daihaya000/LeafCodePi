@@ -99,6 +99,11 @@ describe("store", () => {
     store.patchTask(withAccount.id, { manualAbortedAssistantId: null });
     expect(store.getTask(withAccount.id)?.manualAbortedAssistantId).toBeNull();
 
+    store.patchTask(withAccount.id, { hangRetryCount: 2 });
+    expect(store.getTask(withAccount.id)?.hangRetryCount).toBe(2);
+    store.patchTask(withAccount.id, { hangRetryCount: 0 });
+    expect(store.getTask(withAccount.id)?.hangRetryCount).toBe(0);
+
     rmSync(dir, { recursive: true, force: true });
   });
 

@@ -686,9 +686,9 @@ async function ensureRuntime(): Promise<void> {
         });
       },
       notifyHangRetry: (taskId, retryCount) => {
+        persistHangRetryCount(taskId, retryCount);
         const live = current.live.get(taskId);
         if (!live) return;
-        live.hangRetryCount = retryCount;
         emitTaskSnapshot(live, "hang_retry", { hangRetryCount: retryCount });
       },
     });
@@ -1686,7 +1686,8 @@ async function attachSession(
       existing?.manualAbortedAssistantId ??
       getTask(taskId)?.manualAbortedAssistantId ??
       null,
-    hangRetryCount: 0,
+    hangRetryCount:
+      existing?.hangRetryCount ?? getTask(taskId)?.hangRetryCount ?? 0,
     reasoningFallbackTried: false,
     pendingProviderFallback: existing?.pendingProviderFallback ?? null,
     restoreAutoRetry: false,
@@ -4361,7 +4362,7 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
     goalLoop = fields.goalLoop;
     todos = fields.todos;
     manualAbortedAssistantId = live.manualAbortedAssistantId ?? manualAbortedAssistantId;
-    hangRetryCount = live.hangRetryCount;
+    hangRetryCount = live.hangRetryCount || task.hangRetryCount || 0;
     revertLeafId = live.revertLeafId ?? revertLeafId;
   } catch (error) {
     if (error && typeof error === "object" && "status" in error) throw error;
@@ -4882,6 +4883,9 @@ function queuePrompt(
   const isHangRetry =
     meta?.isHangRetry === true || prompt.startsWith(HANG_RETRY_PREFIX);
   persistManualAbortedAssistantId(live.taskId, null);
+  if (!isHangRetry && !meta?.streamingBehavior) {
+    persistHangRetryCount(live.taskId, 0);
+  }
   const armHangWatchForPrompt = () => {
     armTaskHangWatch({
       taskId: live.taskId,
@@ -5663,6 +5667,13 @@ export function persistManualAbortedAssistantId(
   const live = state().live.get(taskId);
   if (live) live.manualAbortedAssistantId = manualAbortedAssistantId;
   patchTask(taskId, { manualAbortedAssistantId });
+}
+
+/** Persist hang retries so the notice survives reload and session replace. */
+export function persistHangRetryCount(taskId: string, hangRetryCount: number): void {
+  const live = state().live.get(taskId);
+  if (live) live.hangRetryCount = hangRetryCount;
+  patchTask(taskId, { hangRetryCount });
 }
 
 /** unrevert 用: navigateTree の前に leaf id を保存する（後だと巻き戻し後の位置になる）。 */

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { captureRevertLeafId, imagesFromEntry, messageEntryById, persistManualAbortedAssistantId, persistRevertLeafId } from "./harness";
+import { captureRevertLeafId, imagesFromEntry, messageEntryById, persistHangRetryCount, persistManualAbortedAssistantId, persistRevertLeafId } from "./harness";
 
 describe("captureRevertLeafId", () => {
   it("keeps the pre-navigate leaf id (not the post-navigate position)", () => {
@@ -47,6 +47,26 @@ describe("persistManualAbortedAssistantId", () => {
     assert.equal(getTask(task.id)?.manualAbortedAssistantId, "");
     persistManualAbortedAssistantId(task.id, null);
     assert.equal(getTask(task.id)?.manualAbortedAssistantId, null);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("persistHangRetryCount", () => {
+  it("writes the retry count onto the task record so the notice survives a live restart", async () => {
+    const { mkdirSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = join(tmpdir(), `leafcode-pi-hang-retry-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const { upsertProject, insertTask, getTask } = await import("@/lib/store");
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = insertTask({ project, title: "hang retry persist" });
+
+    persistHangRetryCount(task.id, 2);
+    assert.equal(getTask(task.id)?.hangRetryCount, 2);
+    persistHangRetryCount(task.id, 0);
+    assert.equal(getTask(task.id)?.hangRetryCount, 0);
     rmSync(dir, { recursive: true, force: true });
   });
 });
