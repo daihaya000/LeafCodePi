@@ -352,6 +352,15 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyCommand("userdel testuser").some((match) => match.label === "system policy/account/firewall change"));
     assert.deepEqual(matchSystemSafetyCommand("ufw status"), []);
     assert.deepEqual(matchSystemSafetyCommand("bootctl status"), []);
+    assert.ok(matchSystemSafetyCommand('echo "* * * * * root id" > /etc/cron.d/evil').some((match) => match.label === "system path mutation"));
+    assert.deepEqual(matchSystemSafetyCommand("echo hello world"), []);
+    assert.ok(matchSystemSafetyCommand("nft flush ruleset").some((match) => match.label === "system policy/account/firewall change"));
+    assert.ok(matchSystemSafetyCommand("pfctl -d").some((match) => match.label === "system policy/account/firewall change"));
+    assert.ok(matchSystemSafetyCommand("iptables -F").some((match) => match.label === "system policy/account/firewall change"));
+    assert.ok(matchSystemSafetyCommand("setenforce 0").some((match) => match.label === "system policy/account/firewall change"));
+    assert.ok(matchSystemSafetyCommand("aa-disable /usr/sbin/httpd").some((match) => match.label === "system policy/account/firewall change"));
+    assert.deepEqual(matchSystemSafetyCommand("nft list ruleset"), []);
+    assert.deepEqual(matchSystemSafetyCommand("sestatus"), []);
     assert.deepEqual(matchSystemSafetyCommand("mokutil --list-enrolled"), []);
     assert.deepEqual(matchSystemSafetyCommand("firmwarepasswd -check"), []);
     assert.deepEqual(matchSystemSafetyCommand("spctl --status"), []);

@@ -1,3 +1,13 @@
+## 2026-09-05: permission-gate ループ tick 31
+
+- FN: `echo … > /etc/…` が docsOnly 扱いで path mutation をすり抜け → リダイレクトを docsOnly 除外
+- FN: `nft flush/delete`、`pfctl -d|-F all`、`iptables -F|-X`、`setenforce 0`、`aa-disable|complain|remove`、`apparmor_parser -R`
+- list/status / 素の `echo hello` は非検知
+
+検証: extension 12 テストパス。
+
+---
+
 ## 2026-09-05: permission-gate ループ tick 30
 
 - FN: `ufw disable` / `Set-NetFirewallProfile -Enabled False` / `firewall-cmd --panic-on|--set-default-zone=drop` / `iptables -P … DROP`
