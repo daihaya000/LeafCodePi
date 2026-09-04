@@ -1,14 +1,16 @@
 import { execSync as defaultExecSync } from "node:child_process";
 
-function asPid(pid) {
+function asPid(pid, selfPid = process.pid) {
   const n = Number(pid);
-  // On POSIX kill(-1, signal) broadcasts to every process the caller may signal.
-  if (!Number.isInteger(n) || n <= 1) return null;
+  const ownPid = Number(selfPid);
+  // Never signal this host itself. On POSIX kill(-1, signal) broadcasts to
+  // every process the caller may signal.
+  if (!Number.isInteger(n) || n <= 1 || n === ownPid) return null;
   return n;
 }
 
 function signalProcessTree(pid, signal, deps) {
-  const id = asPid(pid);
+  const id = asPid(pid, deps.selfPid);
   if (!id) return false;
   const platform = deps.platform ?? process.platform;
   if (platform === "win32") {
@@ -62,14 +64,15 @@ function sleep(ms) {
  *   softWaitMs?: number,
  *   pollMs?: number,
  *   platform?: string,
+ *   selfPid?: number,
  *   kill?: (pid: number, signal: string) => void,
  * }} input
  */
 export async function stopProcessTreeGracefully(input) {
-  const pid = asPid(input.pid);
+  const pid = asPid(input.pid, input.selfPid);
   if (!pid) return "gone";
-  const softKill = input.softKill ?? ((id) => softKillTree(id, { platform: input.platform, kill: input.kill }));
-  const hardKill = input.hardKill ?? ((id) => hardKillTree(id, { platform: input.platform, kill: input.kill }));
+  const softKill = input.softKill ?? ((id) => softKillTree(id, { platform: input.platform, selfPid: input.selfPid, kill: input.kill }));
+  const hardKill = input.hardKill ?? ((id) => hardKillTree(id, { platform: input.platform, selfPid: input.selfPid, kill: input.kill }));
   const isAlive =
     input.isAlive ??
     ((id) => {

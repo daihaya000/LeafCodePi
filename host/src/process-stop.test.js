@@ -26,6 +26,34 @@ test("Linux refuses PID 1 instead of broadcasting kill(-1)", () => {
   assert.deepEqual(calls, []);
 });
 
+test("process controls refuse the host PID", async () => {
+  const calls = [];
+  const deps = {
+    platform: "linux",
+    selfPid: 42,
+    kill: (pid, signal) => calls.push([pid, signal]),
+  };
+  assert.equal(softKillTree(42, deps), false);
+  assert.equal(hardKillTree(42, deps), false);
+  assert.equal(
+    await stopProcessTreeGracefully({
+      pid: 42,
+      selfPid: 42,
+      isAlive: () => {
+        throw new Error("must not inspect the host PID");
+      },
+      softKill: () => {
+        throw new Error("must not soft-kill the host PID");
+      },
+      hardKill: () => {
+        throw new Error("must not hard-kill the host PID");
+      },
+    }),
+    "gone",
+  );
+  assert.deepEqual(calls, []);
+});
+
 test("Linux kill falls back to the process when it is not a group leader", () => {
   const calls = [];
   assert.equal(
