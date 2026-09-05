@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 41-45 — ストリーム開始前の steer が通常プロンプト化
+
+- バグ: `prompt_accepted` 後で `isStreaming` 前の steer が promptChain に載り、ターン終了後の通常プロンプトとして実行され得た
+- 修正: steer/followUp は常に chain bypass、`waitForSessionStreaming` でストリーム開始を待ち、開始しなければ drop。UI も `isStreaming` 基準で steer 判定
+- 検証: `harness-prompt.test.ts` + `queued-follow-up.test.ts` 35/35 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 40 — SSE再接続で hang_abort 取りこぼし
 
 - バグ: リスナー0件の間に `hang_abort` が drop され、クライアント queue が残り hang resume と二重送信し得た

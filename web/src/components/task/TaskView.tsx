@@ -1458,7 +1458,7 @@ export const TaskView = memo(function TaskView({
         resolvedAutoDecision = result.autoDecision;
         setGoalLoopEnabled(false);
       } else {
-        const isSteer = working && deliveryMode === "steer";
+        const isSteer = Boolean(task?.isStreaming) && deliveryMode === "steer";
         const optimisticId = `optimistic:${taskId}:${nextOptimisticMessageIdRef.current++}`;
         const optimisticMessage: UiMessage = {
           id: optimisticId,
@@ -1486,7 +1486,7 @@ export const TaskView = memo(function TaskView({
         // row would never clear via baselineUserCount and would ghost forever.
         if (
           shouldShowOptimisticPendingUser({
-            working,
+            isStreaming: Boolean(task?.isStreaming),
             deliveryMode,
           })
         ) {

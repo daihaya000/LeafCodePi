@@ -5002,23 +5002,49 @@ export function buildPromptOptions({
   return options;
 }
 
-/** Only inject steer/follow-up into a turn that is already streaming. */
+/** Only steer/follow-up injects skip the serial prompt chain (wait for stream in runPrompt). */
 export function shouldBypassPromptChain(
   streamingBehavior: "steer" | "followUp" | undefined,
-  isStreaming: boolean,
 ): boolean {
-  return Boolean(streamingBehavior && isStreaming);
+  return Boolean(streamingBehavior);
 }
 
 /**
  * Drop steer/follow-up once the current turn is no longer streaming so a
- * queued interrupt becomes a normal next prompt instead of a parallel run.
+ * late interrupt becomes a no-op instead of a parallel run or next-turn prompt.
  */
 export function resolveStreamingBehaviorForPrompt(
   streamingBehavior: "steer" | "followUp" | undefined,
   isStreaming: boolean,
 ): "steer" | "followUp" | undefined {
   return isStreaming ? streamingBehavior : undefined;
+}
+
+export const STEER_STREAM_WAIT_MS = 30_000;
+export const STEER_STREAM_POLL_MS = 50;
+
+/** Wait until the live session is streaming, or give up (caller drops the inject). */
+export async function waitForSessionStreaming(
+  isStreaming: () => boolean,
+  stillActive: () => boolean,
+  options?: {
+    timeoutMs?: number;
+    pollMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+  },
+): Promise<boolean> {
+  if (isStreaming()) return true;
+  const timeoutMs = options?.timeoutMs ?? STEER_STREAM_WAIT_MS;
+  const pollMs = options?.pollMs ?? STEER_STREAM_POLL_MS;
+  const sleep =
+    options?.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!stillActive()) return false;
+    await sleep(pollMs);
+    if (isStreaming()) return true;
+  }
+  return isStreaming();
 }
 
 /** Accepting a prompt must show as working before compaction / agent_start. */
@@ -5080,7 +5106,17 @@ function queuePrompt(
     const pendingCompaction = live.autoCompactionPromise;
     if (pendingCompaction) await pendingCompaction;
     if (!stillQueued()) return;
-    const currentLive = state().live.get(live.taskId) ?? live;
+    let currentLive = state().live.get(live.taskId) ?? live;
+    if (meta?.streamingBehavior && !currentLive.session.isStreaming) {
+      // prompt_accepted makes working=true before the SDK stream opens; wait
+      // so steer is not serialized onto promptChain as a post-turn prompt.
+      const started = await waitForSessionStreaming(
+        () => (state().live.get(live.taskId) ?? live).session.isStreaming,
+        stillQueued,
+      );
+      if (!started || !stillQueued()) return;
+      currentLive = state().live.get(live.taskId) ?? live;
+    }
     const streamingBehavior = resolveStreamingBehaviorForPrompt(
       meta?.streamingBehavior,
       currentLive.session.isStreaming,
@@ -5097,7 +5133,9 @@ function queuePrompt(
       activeLive.session.isStreaming,
     );
     if (meta?.streamingBehavior && !finalBehavior) {
-      armHangWatchForPrompt();
+      // Stream never opened / already ended — drop the interrupt; do not
+      // re-arm hang-watch with the short steer text as a new turn.
+      return;
     }
     const options = buildPromptOptions({
       images,
@@ -5164,9 +5202,9 @@ function queuePrompt(
     });
   };
   // A steering request must reach the SDK while the current turn is still
-  // streaming. promptActive alone is not enough: prepareLive/compaction has
-  // not opened a stream yet, and a parallel prompt races the in-flight start.
-  if (shouldBypassPromptChain(meta?.streamingBehavior, live.session.isStreaming)) {
+  // streaming. Bypass the serial chain even before isStreaming flips true —
+  // runPrompt waits for the stream so we do not enqueue a post-turn prompt.
+  if (shouldBypassPromptChain(meta?.streamingBehavior)) {
     void runPrompt().catch(handlePromptError);
     return;
   }

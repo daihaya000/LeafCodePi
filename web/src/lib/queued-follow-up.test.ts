@@ -171,13 +171,13 @@ describe("queued follow-up hang events", () => {
 
   it("does not show an optimistic user row for steer sends", () => {
     expect(
-      shouldShowOptimisticPendingUser({ working: true, deliveryMode: "steer" }),
+      shouldShowOptimisticPendingUser({ isStreaming: true, deliveryMode: "steer" }),
     ).toBe(false);
     expect(
-      shouldShowOptimisticPendingUser({ working: true, deliveryMode: "queue" }),
+      shouldShowOptimisticPendingUser({ isStreaming: true, deliveryMode: "queue" }),
     ).toBe(true);
     expect(
-      shouldShowOptimisticPendingUser({ working: false, deliveryMode: "steer" }),
+      shouldShowOptimisticPendingUser({ isStreaming: false, deliveryMode: "steer" }),
     ).toBe(true);
   });
 });

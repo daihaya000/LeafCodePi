@@ -14,6 +14,7 @@ import {
   resolveStreamingBehaviorForPrompt,
   shouldBypassPromptChain,
   syncSessionName,
+  waitForSessionStreaming,
 } from "./harness";
 import type { ThroughputTiming } from "@/lib/token-throughput";
 import type { UiMessage } from "@/lib/types";
@@ -103,17 +104,42 @@ describe("buildPromptOptions", () => {
     );
   });
 
-  it("does not bypass the prompt chain before the current turn is streaming", () => {
-    assert.equal(shouldBypassPromptChain("steer", false), false);
-    assert.equal(shouldBypassPromptChain("steer", true), true);
-    assert.equal(shouldBypassPromptChain("followUp", true), true);
-    assert.equal(shouldBypassPromptChain(undefined, true), false);
+  it("bypasses the prompt chain for steer even before streaming starts", () => {
+    assert.equal(shouldBypassPromptChain("steer"), true);
+    assert.equal(shouldBypassPromptChain("followUp"), true);
+    assert.equal(shouldBypassPromptChain(undefined), false);
   });
 
   it("drops steer once the current turn is no longer streaming", () => {
     assert.equal(resolveStreamingBehaviorForPrompt("steer", false), undefined);
     assert.equal(resolveStreamingBehaviorForPrompt("steer", true), "steer");
     assert.equal(resolveStreamingBehaviorForPrompt(undefined, true), undefined);
+  });
+
+  it("waits for the session stream before injecting steer", async () => {
+    let streaming = false;
+    let ticks = 0;
+    const ok = await waitForSessionStreaming(
+      () => streaming,
+      () => true,
+      {
+        timeoutMs: 1_000,
+        pollMs: 1,
+        sleep: async () => {
+          ticks += 1;
+          if (ticks >= 3) streaming = true;
+        },
+      },
+    );
+    assert.equal(ok, true);
+    assert.ok(ticks >= 3);
+
+    const abandoned = await waitForSessionStreaming(
+      () => false,
+      () => false,
+      { timeoutMs: 100, pollMs: 1, sleep: async () => undefined },
+    );
+    assert.equal(abandoned, false);
   });
 });
 
