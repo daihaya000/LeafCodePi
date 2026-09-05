@@ -118,6 +118,7 @@ import {
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
   shouldQueueFollowUp,
+  shouldSendSteerBehavior,
   shouldShowOptimisticPendingUser,
 } from "@/lib/queued-follow-up";
 import { isHangRetryUserMessage } from "@/lib/hang-retry";
@@ -1458,7 +1459,9 @@ export const TaskView = memo(function TaskView({
         resolvedAutoDecision = result.autoDecision;
         setGoalLoopEnabled(false);
       } else {
-        const isSteer = Boolean(task?.isStreaming) && deliveryMode === "steer";
+        // working covers prompt_accepted→stream gap; isStreaming alone misses it
+        // and would POST a normal chained prompt instead of steer.
+        const isSteer = shouldSendSteerBehavior({ working, deliveryMode });
         const optimisticId = `optimistic:${taskId}:${nextOptimisticMessageIdRef.current++}`;
         const optimisticMessage: UiMessage = {
           id: optimisticId,
@@ -1486,7 +1489,7 @@ export const TaskView = memo(function TaskView({
         // row would never clear via baselineUserCount and would ghost forever.
         if (
           shouldShowOptimisticPendingUser({
-            isStreaming: Boolean(task?.isStreaming),
+            working,
             deliveryMode,
           })
         ) {

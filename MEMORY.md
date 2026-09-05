@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 46-49 — クライアントがストリーム前 steer を通常送信
+
+- バグ: UI の `isSteer` が `isStreaming` のみ参照し、`prompt_accepted`〜stream 間の割り込みが `streamingBehavior` なしで POST → 通常 promptChain 化
+- 修正: `shouldSendSteerBehavior` / optimistic 判定を `working` 基準に（サーバ側 wait と接続）
+- 検証: `queued-follow-up.test.ts` 16/16 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 41-45 — ストリーム開始前の steer が通常プロンプト化
 
 - バグ: `prompt_accepted` 後で `isStreaming` 前の steer が promptChain に載り、ターン終了後の通常プロンプトとして実行され得た

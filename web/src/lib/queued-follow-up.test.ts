@@ -6,6 +6,7 @@ import {
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
   shouldQueueFollowUp,
+  shouldSendSteerBehavior,
   shouldShowOptimisticPendingUser,
 } from "./queued-follow-up";
 
@@ -171,13 +172,19 @@ describe("queued follow-up hang events", () => {
 
   it("does not show an optimistic user row for steer sends", () => {
     expect(
-      shouldShowOptimisticPendingUser({ isStreaming: true, deliveryMode: "steer" }),
+      shouldShowOptimisticPendingUser({ working: true, deliveryMode: "steer" }),
     ).toBe(false);
     expect(
-      shouldShowOptimisticPendingUser({ isStreaming: true, deliveryMode: "queue" }),
+      shouldShowOptimisticPendingUser({ working: true, deliveryMode: "queue" }),
     ).toBe(true);
     expect(
-      shouldShowOptimisticPendingUser({ isStreaming: false, deliveryMode: "steer" }),
+      shouldShowOptimisticPendingUser({ working: false, deliveryMode: "steer" }),
     ).toBe(true);
+  });
+
+  it("sends steer while working even before the stream opens", () => {
+    expect(shouldSendSteerBehavior({ working: true, deliveryMode: "steer" })).toBe(true);
+    expect(shouldSendSteerBehavior({ working: false, deliveryMode: "steer" })).toBe(false);
+    expect(shouldSendSteerBehavior({ working: true, deliveryMode: "queue" })).toBe(false);
   });
 });
