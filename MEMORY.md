@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 11-13 — hang が権限待ちを誤 abort
+
+- バグ: hang watchdog が permission/question 待ちを無応答とみなし、`clearPendingAttentionForTask` で承認を自動拒否
+- 修正: `hasPendingAttention` 中は hang 判定をスキップし進捗時刻を更新
+- 検証: `hang-watchdog.test.ts` 11/11 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 8-10 — ready が解決済み権限を復活
 
 - バグ: ready が `detail.permissionRequest ?? live` で、取得中に解決済みでも古い要求オブジェクトを優先（pair-cancel 後は resolved も無いためゴーストダイアログが残る）

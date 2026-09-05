@@ -266,6 +266,48 @@ describe("hang-watchdog helpers", () => {
     }
   });
 
+  it("does not abort while a permission or question prompt is waiting", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-pending-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    fs.writeFileSync(
+      path.join(root, "web-settings.json"),
+      JSON.stringify({ version: 1, "hang-timeout": 60_000 }),
+      "utf8",
+    );
+    const messages = turnWithTools("powershell");
+    let abortCount = 0;
+    registerHangWatchdogHooks({
+      getLive: () => ({
+        isStreaming: true,
+        isCompacting: false,
+        messages,
+        hasPendingAttention: true,
+      }),
+      abortTask: async () => {
+        abortCount += 1;
+      },
+      resumePrompt: () => undefined,
+      notifyHangRetry: () => undefined,
+    });
+    try {
+      armTaskHangWatch({ taskId: "task-pending", prompt: "作業", startedAt: 1 });
+      await runHangWatchdogTick();
+      vi.setSystemTime(1_200_000);
+      await runHangWatchdogTick();
+
+      expect(abortCount).toBe(0);
+      expect(getTaskHangWatch("task-pending")).not.toBeNull();
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("arms an image-only prompt", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-image-only-arm-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;

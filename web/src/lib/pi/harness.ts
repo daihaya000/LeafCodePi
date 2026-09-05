@@ -677,6 +677,9 @@ async function ensureRuntime(): Promise<void> {
             false,
             { accountId: live.accountId, byMessageId: live.accountByMessageId },
           ),
+          hasPendingAttention:
+            pendingPermissionForTask(taskId) !== null ||
+            pendingQuestionForTask(taskId) !== null,
         };
       },
       abortTask: abortLiveForHangWatchdog,

@@ -57,6 +57,8 @@ export type HangWatchdogHooks = {
     isStreaming: boolean;
     isCompacting: boolean;
     messages: UiMessage[];
+    /** True while WebUI permission/question dialogs are waiting on the user. */
+    hasPendingAttention?: boolean;
   } | null;
   abortTask: (taskId: string) => Promise<void>;
   resumePrompt: (
@@ -365,12 +367,18 @@ async function evaluateWatch(row: TaskHangWatchRow, timeoutMs: number): Promise<
     return;
   }
 
-  const { messages, isStreaming, isCompacting } = live;
+  const { messages, isStreaming, isCompacting, hasPendingAttention } = live;
   // Compaction temporarily makes the session idle-looking while the previous
   // turn is being rewritten. Never abort or resume against that intermediate
   // transcript; the next tick will evaluate the compacted branch.
   if (isCompacting) return;
   if (turnHasOnlyActiveSubagentTool(messages, row.startedAt)) return;
+  // Permission/question UI waits on the user — that is not a hung model turn.
+  // Keep the hang clock fresh so answering does not immediately trip abort.
+  if (hasPendingAttention) {
+    recordProgress(row.taskId, Date.now(), progressFingerprint(messages));
+    return;
+  }
 
   const fingerprint = progressFingerprint(messages);
   const activityAt = Math.max(latestActivityAt(messages, row.startedAt), row.startedAt);
