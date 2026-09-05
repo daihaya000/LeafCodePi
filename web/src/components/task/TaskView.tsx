@@ -988,11 +988,18 @@ export const TaskView = memo(function TaskView({
               current === AUTO_AGENT_VALUE ? current : nextAgent,
             );
           }
-          setTask((current) => {
-            const next = mergeTaskDelta(current, payload);
-            if (!current || !next) return next;
-            return sameTaskDetail(current, next) ? current : next;
-          });
+          if (
+            payload.task ||
+            "isStreaming" in payload ||
+            "isCompacting" in payload ||
+            "contextUsage" in payload
+          ) {
+            setTask((current) => {
+              const next = mergeTaskDelta(current, payload);
+              if (!current || !next) return next;
+              return sameTaskDetail(current, next) ? current : next;
+            });
+          }
           if (payload.message) {
             setMessages((prev) => upsertUiMessage(prev, payload.message!));
           }
