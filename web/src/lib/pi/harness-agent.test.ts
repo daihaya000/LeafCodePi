@@ -364,10 +364,21 @@ describe("abortTask", () => {
     }]]);
     const events = new EventEmitter();
     let hangAbortManualId: string | null | undefined;
-    events.on(task.id, (payload: { eventType?: string; manualAbortedAssistantId?: string | null }) => {
+    let hangAbortStreaming: boolean | undefined;
+    let hangIdleStatus: string | undefined;
+    events.on(task.id, (payload: {
+      eventType?: string;
+      manualAbortedAssistantId?: string | null;
+      isStreaming?: boolean;
+      task?: { status?: string };
+    }) => {
       if (payload.eventType) eventTypes.push(payload.eventType);
       if (payload.eventType === "hang_abort") {
         hangAbortManualId = payload.manualAbortedAssistantId;
+        hangAbortStreaming = payload.isStreaming;
+      }
+      if (payload.eventType === "hang_idle") {
+        hangIdleStatus = payload.task?.status;
       }
     });
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
@@ -383,7 +394,10 @@ describe("abortTask", () => {
     assert.equal(getTask(task.id)?.status, "idle");
     assert.ok(getTaskHangWatch(task.id));
     assert.equal(eventTypes[0], "hang_abort");
+    assert.ok(eventTypes.includes("hang_idle"));
     assert.equal(hangAbortBeforeSessionAbort, true);
+    assert.equal(hangAbortStreaming, false);
+    assert.equal(hangIdleStatus, "idle");
     assert.equal(getTask(task.id)?.manualAbortedAssistantId, "");
     assert.equal(hangAbortManualId, "");
   });

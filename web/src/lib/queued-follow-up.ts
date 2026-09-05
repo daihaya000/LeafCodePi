@@ -94,7 +94,12 @@ export function shouldSendSteerBehavior(input: {
 
 /** Abort / hang abort/retry must drop the client queue before the idle window can drain it. */
 export function shouldClearQueuedFollowUpOnEvent(eventType: string | undefined): boolean {
-  return eventType === "abort" || eventType === "hang_abort" || eventType === "hang_retry";
+  return (
+    eventType === "abort" ||
+    eventType === "hang_abort" ||
+    eventType === "hang_idle" ||
+    eventType === "hang_retry"
+  );
 }
 
 /**
@@ -109,5 +114,10 @@ export function shouldClearQueuedFollowUpOnAbortState(
 
 /** Steer optimistic rows never landed in history if abort cleared the SDK queue. */
 export function shouldClearPendingUserMessageOnEvent(eventType: string | undefined): boolean {
-  return eventType === "abort" || eventType === "hang_abort" || eventType === "hang_retry";
+  return (
+    eventType === "abort" ||
+    eventType === "hang_abort" ||
+    eventType === "hang_idle" ||
+    eventType === "hang_retry"
+  );
 }

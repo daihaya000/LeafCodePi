@@ -2510,7 +2510,9 @@ function toSummary(task: TaskSummary): TaskSummary {
       : task.thinkingLevel;
   return {
     ...task,
-    status: live.session.isStreaming ? "working" : task.status,
+    // After an explicit idle/error/archived write, do not re-promote to working
+    // from a stale session.isStreaming flag (hang abort / Stop races).
+    status: resolveSummaryStatus(task.status, live.session.isStreaming),
     sessionId: live.session.sessionId ?? task.sessionId,
     sessionFile: live.session.sessionFile ?? task.sessionFile,
     providerID: ids.providerID ?? task.providerID,
@@ -2520,6 +2522,21 @@ function toSummary(task: TaskSummary): TaskSummary {
     ...(todoProgress ? { todoProgress } : {}),
     ...(goalLoopSummary ? { goalLoopSummary } : {}),
   };
+}
+
+/** Prefer persisted terminal statuses over a stale session.isStreaming flag. */
+export function resolveSummaryStatus(
+  taskStatus: TaskSummary["status"],
+  isStreaming: boolean,
+): TaskSummary["status"] {
+  if (
+    taskStatus === "idle" ||
+    taskStatus === "error" ||
+    taskStatus === "archived"
+  ) {
+    return taskStatus;
+  }
+  return isStreaming ? "working" : taskStatus;
 }
 
 function throwIfTaskArchived(taskId: string): void {
@@ -5592,9 +5609,10 @@ export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
     // Persist before hang_abort so SSE (and ready-buffer flush) carries the
     // early-abort "" sentinel / assistant id — same order as abortTask.
     persistManualAbortedAssistantId(taskId, turnAssistants.at(-1)?.id ?? "");
-    // Emit before idle snapshots from abort() so queued follow-ups cannot
-    // drain in the wait-for-idle window before hang_retry.
-    emitTaskSnapshot(live, "hang_abort");
+    // Emit before idle so queued follow-ups cannot drain in the wait-for-idle
+    // window before hang_retry. Force isStreaming false — session.abort has
+    // not run yet and a truthy flag would leave the client looking busy.
+    emitTaskSnapshot(live, "hang_abort", { isStreaming: false });
     await stopSubagentRunsForTask(live, msgs);
     clearSessionQueue(live.session);
     cancelHarnessPrompt(live);
@@ -5602,6 +5620,16 @@ export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
     await live.session.abort();
   }
   setTaskStatus(taskId, "idle");
+  // hang_abort above still carried status=working from the store. Tell the
+  // client we are idle even when resume is deferred (waitForIdle failure).
+  const idleLive = state().live.get(taskId) ?? live;
+  if (idleLive) {
+    emitTaskSnapshot(idleLive, "hang_idle", {
+      isStreaming: false,
+      permissionRequest: null,
+      questionRequest: null,
+    });
+  }
 }
 
 /** Session entry customType for the hidden agent-switch boundary notice. */

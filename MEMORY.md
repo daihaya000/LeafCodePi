@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 54-55 — hang_abort後の偽working残留
+
+- バグ: hang watchdog abort が idle を SSE せず、かつ `toSummary` が残存 isStreaming で status を working に押し上げ、クライアントが busy のまま残り得た
+- 修正: `hang_idle` スナップショットを追加、`hang_abort` で isStreaming:false。`resolveSummaryStatus` は idle/error/archived を再昇格しない
+- 検証: harness-agent / harness-prompt / queued-follow-up 59/59 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 52-53 — abort後のthrottled deltaとhang retryの誤followUp
 
 - バグ: Stop/hang_abort 後も pending snapshot タイマーが pre-abort の `isStreaming:true` delta を送り得た。また hang retry が残存 isStreaming で followUp 注入され得た

@@ -17,6 +17,7 @@ import {
   syncSessionName,
   waitForSessionStreaming,
   cancelPendingTaskSnapshot,
+  resolveSummaryStatus,
 } from "./harness";
 import type { ThroughputTiming } from "@/lib/token-throughput";
 import type { UiMessage } from "@/lib/types";
@@ -200,6 +201,16 @@ describe("cancelPendingTaskSnapshot", () => {
     assert.equal(live.pendingSnapshotIsDelta, false);
     assert.equal(live.pendingSnapshotExtra, undefined);
     assert.equal(cancelPendingTaskSnapshot(live), false);
+  });
+});
+
+describe("resolveSummaryStatus", () => {
+  it("does not re-promote idle/error/archived from a stale stream flag", () => {
+    assert.equal(resolveSummaryStatus("idle", true), "idle");
+    assert.equal(resolveSummaryStatus("error", true), "error");
+    assert.equal(resolveSummaryStatus("archived", true), "archived");
+    assert.equal(resolveSummaryStatus("working", true), "working");
+    assert.equal(resolveSummaryStatus("working", false), "working");
   });
 });
 
