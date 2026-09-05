@@ -16,6 +16,8 @@ const fakePi = vi.hoisted(() => {
     accountId: string | null;
     file: string;
     prompts: string[];
+    events: string[];
+    reloads: number;
     disposed: boolean;
     emit?: (event: FakeEvent) => void;
   }[] = [];
@@ -65,12 +67,16 @@ const fakePi = vi.hoisted(() => {
         accountId: string | null;
         file: string;
         prompts: string[];
+        events: string[];
+        reloads: number;
         disposed: boolean;
         emit?: (event: FakeEvent) => void;
       } = {
         accountId: options.modelRuntime?.accountId ?? null,
         file: manager.__file,
         prompts: [] as string[],
+        events: [] as string[],
+        reloads: 0,
         disposed: false,
       };
       const listeners = new Set<(event: FakeEvent) => void>();
@@ -99,6 +105,10 @@ const fakePi = vi.hoisted(() => {
           return () => listeners.delete(listener);
         },
         bindExtensions: async () => undefined,
+        reload: async () => {
+          entry.reloads += 1;
+          entry.events.push("reload");
+        },
         dispose: () => {
           entry.disposed = true;
         },
@@ -111,6 +121,7 @@ const fakePi = vi.hoisted(() => {
           session.thinkingLevel = level;
         },
         prompt: async (text: string) => {
+          entry.events.push("prompt");
           streaming = true;
           emit({ type: "agent_start" });
           entry.prompts.push(text);
@@ -216,6 +227,31 @@ afterEach(() => {
 });
 
 describe("integrated session routing", () => {
+  it("applies prompt permissions before queueing and persists them on the task", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-prompt-permissions-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "最初の確認" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    const session = fakePi.sessions[0]!;
+
+    await promptTask(task.id, "権限付きで続行", undefined, {
+      permissionMode: "deny",
+      skillPermission: "deny",
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+
+    assert.equal(getTask(task.id)?.permissionMode, "deny");
+    assert.equal(getTask(task.id)?.skillPermission, "deny");
+    assert.equal(session.reloads, 1);
+    assert.deepEqual(session.events, ["prompt", "reload", "prompt"]);
+  });
+
   it("applies Composer effort instead of the directly selected agent's subagent default", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-auto-agent-routing-"));
     tempDirs.push(dir);

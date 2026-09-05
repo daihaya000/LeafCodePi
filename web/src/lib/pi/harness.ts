@@ -5342,12 +5342,19 @@ export async function promptTask(
   ) {
     await setTaskThinkingLevel(id, options.thinkingLevel);
   }
+  if (options?.permissionMode !== undefined) {
+    await setTaskPermissionMode(id, options.permissionMode);
+  }
+  if (options?.skillPermission !== undefined) {
+    await setTaskSkillPermission(id, options.skillPermission);
+  }
   const live = await ensureLive(id);
   applySubagentPermission(live.session, options?.subagentPermission);
   persistRevertLeafId(id, null);
   queuePrompt(live, prompt, images, {
     agent: options?.agent,
     subagentPermission: options?.subagentPermission,
+    permissionMode: options?.permissionMode,
     streamingBehavior: options?.streamingBehavior,
   });
   return toSummary(getTask(id)!);
@@ -6107,6 +6114,25 @@ export function captureRevertLeafId(
   return leafIdBeforeNavigate;
 }
 
+/**
+ * Restore the exact original leaf after navigateTree's editor-oriented user
+ * target handling, then rebuild the public agent transcript from the session tree.
+ */
+export function restoreExactSessionLeaf(
+  session: Pick<AgentSession, "sessionManager" | "agent">,
+  targetId: string,
+): void {
+  if (session.sessionManager.getLeafId() === targetId) return;
+  if (!session.sessionManager.getEntry(targetId)) {
+    throw new Error(`Entry ${targetId} not found`);
+  }
+  session.sessionManager.branch(targetId);
+  session.agent.state.messages = session.sessionManager.buildSessionContext().messages;
+  if (session.sessionManager.getLeafId() !== targetId) {
+    throw new Error(`Failed to restore entry ${targetId}`);
+  }
+}
+
 /** 巻き戻し取消: revert 前の leaf へ戻す。 */
 export async function unrevertTask(id: string): Promise<TaskDetail> {
   const live = await ensureLive(id);
@@ -6116,8 +6142,14 @@ export async function unrevertTask(id: string): Promise<TaskDetail> {
       status: 400,
     });
   }
+  const result = await live.session.navigateTree(target);
+  if (result.cancelled || result.aborted) {
+    throw Object.assign(new Error("巻き戻しの復元がキャンセルされました"), {
+      status: 400,
+    });
+  }
+  restoreExactSessionLeaf(live.session, target);
   persistRevertLeafId(id, null);
-  await live.session.navigateTree(target);
   const taskDetail = await getTaskDetail(id);
   emit(id, {
     type: "snapshot",
