@@ -74,6 +74,33 @@ function createTreeState(): TaskPanesState {
   };
 }
 
+function createThreePaneState(): TaskPanesState {
+  const panes = Array.from({ length: 3 }, (_, index) => ({
+    id: `pane-${index + 1}`,
+    tabs: [`task-${index + 1}`],
+    activeTabId: `task-${index + 1}`,
+  }));
+  const leaf = (paneId: string): PaneLayout => ({ type: "pane", paneId });
+  return {
+    panes,
+    activePaneId: "pane-1",
+    layout: {
+      type: "split",
+      id: "root",
+      orientation: "row",
+      children: [
+        {
+          type: "split",
+          id: "left",
+          orientation: "row",
+          children: [leaf("pane-1"), leaf("pane-2")],
+        },
+        leaf("pane-3"),
+      ],
+    },
+  };
+}
+
 describe("TaskPanesHost lazy tab mounting", () => {
   beforeEach(() => {
     mocks.useTaskPanes.mockReturnValue({
@@ -100,6 +127,29 @@ describe("TaskPanesHost lazy tab mounting", () => {
       expect(screen.getAllByTestId("dynamic-pane")).toHaveLength(1);
     });
     expect(screen.getByTestId("dynamic-pane").getAttribute("data-task-id")).toBe("active");
+  });
+
+  it("3 ペインは初期表示で各ペインを均等幅にする", () => {
+    mocks.useTaskPanes.mockReturnValue({
+      state: createThreePaneState(),
+      statusFor: () => null,
+      reportStatus: vi.fn(),
+      dispatch: vi.fn(),
+      retargetToUrl: vi.fn(),
+      activeTaskId: "task-1",
+      titleFor: () => null,
+      mdUp: true,
+    });
+
+    const { container } = render(<TaskPanesHost />);
+    const flexChildren = Array.from(container.querySelectorAll<HTMLElement>("div")).filter(
+      (element) => element.style.flexGrow !== "",
+    );
+    expect(flexChildren).toHaveLength(4);
+    expect(Number(flexChildren[0]?.style.flexGrow)).toBeCloseTo(2 / 3);
+    expect(Number(flexChildren[1]?.style.flexGrow)).toBeCloseTo(1 / 2);
+    expect(Number(flexChildren[2]?.style.flexGrow)).toBeCloseTo(1 / 2);
+    expect(Number(flexChildren[3]?.style.flexGrow)).toBeCloseTo(1 / 3);
   });
 
   it("分割ツリーでは各境界を表示し、上下境界を局所的に高さとして操作できる", () => {

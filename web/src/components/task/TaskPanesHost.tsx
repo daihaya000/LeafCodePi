@@ -360,7 +360,10 @@ function PaneLayoutBranch({ layout, ...props }: PaneBranchProps & { layout: Pane
     );
   }
 
-  const ratio = Math.max(0.05, Math.min(0.95, props.splitRatios[layout.id] ?? 0.5));
+  const firstPaneCount = paneIdsInLayout(layout.children[0]).length;
+  const totalPaneCount = firstPaneCount + paneIdsInLayout(layout.children[1]).length;
+  const defaultRatio = firstPaneCount / totalPaneCount;
+  const ratio = Math.max(0.05, Math.min(0.95, props.splitRatios[layout.id] ?? defaultRatio));
   const axis = layout.orientation === "row" ? "x" : "y";
   const sizeLabel = axis === "x" ? "幅" : "高さ";
   return (
