@@ -1,5 +1,14 @@
 # MEMORY
 
+## 2026-09-05 — leafcode-commit-guard を WebUI 依存に固定
+
+- `web/src/lib/extensions.ts` の `OPTIONAL_LEAFCODE_EXTENSIONS` から `leafcode-commit-guard` を除外（空 Set）。
+- `isWebUiRequiredExtension("leafcode-commit-guard") === true` となり、拡張機能画面で「WebUI が依存するため無効化できません」表示・トグル OFF 不可。
+- `CommitGuardSettings` も同様にロック表示へ変更。
+- 関連テスト・README を更新済み。
+
+---
+
 ## 2026-09-05 — settle-followup-claim.ts 用途
 
 - 役割: `leafcode-todowrite` と `leafcode-commit-guard` が `agent_settled` で送る follow-up を、1 サイクルにつき 1 本だけにする共有クレーム
