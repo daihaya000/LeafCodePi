@@ -1638,6 +1638,7 @@ export const TaskView = memo(function TaskView({
         resumingTurn,
         sessionHydrating,
         sseReconnecting,
+        compacting,
       })
     ) {
       return;
@@ -1649,6 +1650,7 @@ export const TaskView = memo(function TaskView({
     setAttachments(next.attachments);
     setQueuedAutoSend(true);
   }, [
+    compacting,
     goalLoopEnabled,
     goalLoopLive,
     queuedAutoSend,
@@ -1674,6 +1676,7 @@ export const TaskView = memo(function TaskView({
         resumingTurn,
         sessionHydrating,
         sseReconnecting,
+        compacting,
       })
     ) {
       if (queuedAutoSend && (stopRequested || (!prompt.trim() && attachments.length === 0))) {
@@ -1685,6 +1688,7 @@ export const TaskView = memo(function TaskView({
     void submitRef.current();
   }, [
     attachments.length,
+    compacting,
     goalLoopEnabled,
     goalLoopLive,
     prompt,

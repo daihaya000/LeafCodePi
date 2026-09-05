@@ -16,6 +16,15 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 57 — 圧縮中の follow-up drain/auto-send
+
+- バグ: `shouldDrainQueuedFollowUp` / `shouldAutoSendQueuedFollowUp` が `compacting` を見ず、submit は compacting で no-op → キュー項目が消え composer に取り残され得た（silent resume は既に抑止）
+- 修正: drain/auto-send に `compacting` ゲートを追加し TaskView から渡す
+- 検証: `queued-follow-up.test.ts` 18/18 パス
+- 備考: この tick で 2 分バグ狩りループを停止
+
+---
+
 ## 2026-09-05: high-usage ループ tick 56 — hang_idle が SSE ready バッファで破棄される
 
 - バグ: `hang_idle` が control イベント集合に無く、ready 後 flush で履歴が古ければ破棄され、再接続中に idle 遷移がクライアントへ届かない

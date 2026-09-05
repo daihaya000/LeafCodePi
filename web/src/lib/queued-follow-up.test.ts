@@ -101,6 +101,16 @@ describe("queued follow-up drain", () => {
       }),
     ).toBe(false);
   });
+
+  it("does not drain while context compaction is running", () => {
+    expect(
+      shouldDrainQueuedFollowUp({
+        ...idle,
+        compacting: true,
+        hasQueuedItem: true,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("queued follow-up auto-send", () => {
@@ -142,6 +152,17 @@ describe("queued follow-up auto-send", () => {
         ...idle,
         queuedAutoSend: true,
         hasContent: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not auto-send while context compaction is running", () => {
+    expect(
+      shouldAutoSendQueuedFollowUp({
+        ...idle,
+        queuedAutoSend: true,
+        hasContent: true,
+        compacting: true,
       }),
     ).toBe(false);
   });

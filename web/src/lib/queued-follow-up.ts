@@ -31,6 +31,8 @@ export function shouldDrainQueuedFollowUp(input: {
   resumingTurn?: boolean;
   sessionHydrating?: boolean;
   sseReconnecting?: boolean;
+  /** Match submit()/silent resume — do not pop the queue while compacting. */
+  compacting?: boolean;
 }): boolean {
   return (
     input.hasQueuedItem &&
@@ -42,7 +44,8 @@ export function shouldDrainQueuedFollowUp(input: {
     !input.stopRequested &&
     !input.resumingTurn &&
     !input.sessionHydrating &&
-    !input.sseReconnecting
+    !input.sseReconnecting &&
+    !input.compacting
   );
 }
 
@@ -57,6 +60,8 @@ export function shouldAutoSendQueuedFollowUp(input: {
   resumingTurn?: boolean;
   sessionHydrating?: boolean;
   sseReconnecting?: boolean;
+  /** Match submit() — compacting makes auto-send a silent no-op and drops the item. */
+  compacting?: boolean;
 }): boolean {
   return (
     input.queuedAutoSend &&
@@ -68,7 +73,8 @@ export function shouldAutoSendQueuedFollowUp(input: {
     !input.stopRequested &&
     !input.resumingTurn &&
     !input.sessionHydrating &&
-    !input.sseReconnecting
+    !input.sseReconnecting &&
+    !input.compacting
   );
 }
 
