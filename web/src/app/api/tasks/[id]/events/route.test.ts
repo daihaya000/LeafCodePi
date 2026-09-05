@@ -426,4 +426,77 @@ describe("/api/tasks/[id]/events", () => {
     expect(eventData(hangChunk).eventType).toBe("hang_retry");
     await reader.cancel();
   });
+
+  it("uses live pending on ready even when detail still has a resolved request", async () => {
+    const messages = [
+      { id: "u1", role: "user" as const, createdAt: 1, parts: [{ id: "p1", type: "text" as const, text: "質問" }] },
+    ];
+    const stalePermission = {
+      id: "req-stale",
+      sessionId: "session-1",
+      command: "Stop-Computer",
+      labels: ["os"],
+      message: "許可しますか",
+    };
+    const bootstrap = task({ messages: [], isStreaming: true });
+    const detail = task({
+      messages,
+      isStreaming: true,
+      status: "working",
+      permissionRequest: stalePermission,
+    });
+    let resolveDetail!: (value: TaskDetail) => void;
+    let listener!: (payload: Record<string, unknown>) => void;
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail.mockReturnValue(
+      new Promise<TaskDetail>((resolve) => {
+        resolveDetail = resolve;
+      }),
+    );
+    mocks.subscribeTask.mockImplementation((_id: string, callback: typeof listener) => {
+      listener = callback;
+      return vi.fn();
+    });
+    mocks.pendingPermissionForTask.mockReturnValue(stalePermission);
+
+    const response = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const reader = response.body!.getReader();
+    await readChunk(reader);
+
+    listener({
+      type: "snapshot",
+      eventType: "permission_request",
+      messages,
+      permissionRequest: stalePermission,
+    });
+    // User answered while detail was still loading — live pending cleared,
+    // buffered request+resolved cancel out.
+    mocks.pendingPermissionForTask.mockReturnValue(null);
+    listener({
+      type: "snapshot",
+      eventType: "permission_resolved",
+      messages,
+      permissionRequest: null,
+    });
+    resolveDetail(detail);
+
+    const readyChunk = await readChunk(reader);
+    const readyPayload = eventData(readyChunk);
+    expect(readyPayload.eventType).toBe("ready");
+    expect(readyPayload.permissionRequest).toBeNull();
+
+    // No ghost permission_* after ready — next live event is first.
+    listener({
+      type: "snapshot",
+      eventType: "hang_retry",
+      hangRetryCount: 1,
+      messages,
+    });
+    const hangChunk = await readChunk(reader);
+    expect(eventData(hangChunk).eventType).toBe("hang_retry");
+    await reader.cancel();
+  });
 });

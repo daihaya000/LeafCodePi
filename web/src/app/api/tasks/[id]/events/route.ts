@@ -88,8 +88,10 @@ export async function GET(
           contextUsage: detail.contextUsage,
           goalLoop: detail.goalLoop,
           todos: detail.todos,
-          permissionRequest: detail.permissionRequest ?? pendingPermissionForTask(id),
-          questionRequest: detail.questionRequest ?? pendingQuestionForTask(id),
+          // Prefer live pending at send time (same as bootstrap). Detail may be
+          // stale if the user answered while getTaskDetail was in flight.
+          permissionRequest: pendingPermissionForTask(id),
+          questionRequest: pendingQuestionForTask(id),
           manualAbortedAssistantId: detail.manualAbortedAssistantId ?? null,
           hangRetryCount: detail.hangRetryCount ?? 0,
           revertLeafId: detail.revertLeafId ?? null,

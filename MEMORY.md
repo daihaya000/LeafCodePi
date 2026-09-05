@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 8-10 — ready が解決済み権限を復活
+
+- バグ: ready が `detail.permissionRequest ?? live` で、取得中に解決済みでも古い要求オブジェクトを優先（pair-cancel 後は resolved も無いためゴーストダイアログが残る）
+- 修正: bootstrap と同様、ready 送信直前の live pending のみ使用
+- 検証: `events/route.test.ts` 8/8 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 6-7 — stopRequested ラッチ残留
 
 - バグ: abort 成功後も `stopRequested` が true のまま → Goal Loop 再開などで再 working 時に Stop が無効・`abortWorking` 即 return
