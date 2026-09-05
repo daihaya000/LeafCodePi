@@ -2815,35 +2815,6 @@ export const TaskView = memo(function TaskView({
             onTrigger: () => fileInputRef.current?.click(),
           }}
           settingsGroups={[
-            ...(task?.sessionId
-              ? [
-                  {
-                    id: "next-action",
-                    label: "次の指示",
-                    content: (
-                      <NextAction
-                        taskId={taskId}
-                        sessionId={task.sessionId}
-                        model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
-                        invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
-                        disabled={compacting || archived}
-                        onApply={(suggestion) => {
-                          if (
-                            prompt.trim() &&
-                            typeof window !== "undefined" &&
-                            !window.confirm("現在の入力内容を提案で置き換えますか？")
-                          ) {
-                            return false;
-                          }
-                          setPrompt(suggestion);
-                          textareaRef.current?.focus();
-                          return true;
-                        }}
-                      />
-                    ),
-                  },
-                ]
-              : []),
             {
               id: "execution",
               label: "実行設定",
@@ -3080,6 +3051,35 @@ export const TaskView = memo(function TaskView({
                 </>
               ),
             },
+            ...(task?.sessionId
+              ? [
+                  {
+                    id: "next-action",
+                    label: "次の指示",
+                    content: (
+                      <NextAction
+                        taskId={taskId}
+                        sessionId={task.sessionId}
+                        model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
+                        invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
+                        disabled={compacting || archived}
+                        onApply={(suggestion) => {
+                          if (
+                            prompt.trim() &&
+                            typeof window !== "undefined" &&
+                            !window.confirm("現在の入力内容を提案で置き換えますか？")
+                          ) {
+                            return false;
+                          }
+                          setPrompt(suggestion);
+                          textareaRef.current?.focus();
+                          return true;
+                        }}
+                      />
+                    ),
+                  },
+                ]
+              : []),
           ]}
           action={
             working && !prompt.trim() && attachments.length === 0 ? (
