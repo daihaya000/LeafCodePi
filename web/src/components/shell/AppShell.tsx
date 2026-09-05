@@ -10,7 +10,7 @@ import { writeSkillPermission } from "@/lib/skill-permission";
 import { writeSubagentPermission } from "@/lib/subagent-permission";
 import { Sidebar } from "./Sidebar";
 import { ShellProvider, useShellMobileNav } from "./ShellContext";
-import { TaskPanesProvider } from "./TaskPanesContext";
+import { TaskPanesProvider, useTaskPanes } from "./TaskPanesContext";
 import { TaskPanesHost } from "@/components/task/TaskPanesHost";
 import { cx } from "@/components/ui";
 import { isSplitHostPath } from "@/lib/task-panes";
@@ -34,22 +34,30 @@ function initializeComposerDefaults(): void {
   writeSubagentPermission("deny");
 }
 
-function AppShellInner({ children }: { children: React.ReactNode }) {
-  const { mobileNavOpen, closeMobileNav } = useShellMobileNav();
+function AppShellContent({
+  children,
+  mobileNavOpen,
+  closeMobileNav,
+}: {
+  children: React.ReactNode;
+  mobileNavOpen: boolean;
+  closeMobileNav: () => void;
+}) {
   const pathname = usePathname();
+  const { mdUp } = useTaskPanes();
+  const splitHomeOwnsContent = pathname === "/" && mdUp;
   return (
-    <div className="flex h-dvh flex-col bg-bg text-text md:flex-row">
-      {/* Sidebar も provider 由来の activeTaskId でハイライトするためこの内側で囲む */}
-      <TaskPanesProvider>
-        <Sidebar mobileOpen={mobileNavOpen} onClose={closeMobileNav} />
-        <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-          <section aria-label="メインコンテンツ" className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            {/* task / 「/」（新規作成タブ）では panes ホストが描画を担う。
-                page 側の内容はモバイル（md未満）でのみ出す（「/」の HomeView 用）。
-                settings では従来どおり page の内容を出す。 */}
-            <Suspense fallback={null}>
-              <TaskPanesHost />
-            </Suspense>
+    <>
+      <Sidebar mobileOpen={mobileNavOpen} onClose={closeMobileNav} />
+      <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        <section aria-label="メインコンテンツ" className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {/* task / 「/」（新規作成タブ）では panes ホストが描画を担う。
+              page 側の内容はモバイル（md未満）でのみ出す（「/」の HomeView 用）。
+              settings では従来どおり page の内容を出す。 */}
+          <Suspense fallback={null}>
+            <TaskPanesHost />
+          </Suspense>
+          {!splitHomeOwnsContent && (
             <div
               className={cx(
                 "flex min-h-0 min-w-0 flex-1 flex-col",
@@ -58,8 +66,25 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
             >
               {children}
             </div>
-          </section>
-        </div>
+          )}
+        </section>
+      </div>
+    </>
+  );
+}
+
+function AppShellInner({ children }: { children: React.ReactNode }) {
+  const { mobileNavOpen, closeMobileNav } = useShellMobileNav();
+  return (
+    <div className="flex h-dvh flex-col bg-bg text-text md:flex-row">
+      {/* Sidebar も provider 由来の activeTaskId でハイライトするためこの内側で囲む */}
+      <TaskPanesProvider>
+        <AppShellContent
+          mobileNavOpen={mobileNavOpen}
+          closeMobileNav={closeMobileNav}
+        >
+          {children}
+        </AppShellContent>
       </TaskPanesProvider>
     </div>
   );

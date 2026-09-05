@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   usePathname: vi.fn(() => "/"),
+  useTaskPanes: vi.fn(() => ({ mdUp: true })),
 }));
 
 vi.mock("next/navigation", () => ({ usePathname: mocks.usePathname }));
@@ -15,6 +16,7 @@ vi.mock("./ShellContext", () => ({
 }));
 vi.mock("./TaskPanesContext", () => ({
   TaskPanesProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+  useTaskPanes: mocks.useTaskPanes,
 }));
 vi.mock("@/components/task/TaskPanesHost", () => ({
   TaskPanesHost: () => <div data-testid="task-panes" />,
@@ -30,6 +32,7 @@ describe("AppShell", () => {
 
   beforeEach(() => {
     mocks.usePathname.mockReturnValue("/");
+    mocks.useTaskPanes.mockReturnValue({ mdUp: true });
   });
 
   it("Composer の既定値を WebUI 起動時に初期化する", () => {
@@ -50,20 +53,29 @@ describe("AppShell", () => {
     expect(localStorage.getItem("webui:subagent-permission")).toBe("deny");
   });
 
-  it("split host が有効な画面の page 内容をデスクトップで重ねて表示しない", () => {
+  it("split host が有効な画面の page 内容をデスクトップではマウントしない", () => {
     render(
       <AppShell>
         <div data-testid="page-content" />
       </AppShell>,
     );
 
-    const pageContent = screen.getByTestId("page-content");
-    const pageWrapper = pageContent.parentElement;
-    expect(pageWrapper?.className.split(/\s+/)).toContain("md:hidden");
-    expect(pageWrapper?.className.split(/\s+/)).not.toContain("max-md:hidden");
+    expect(screen.queryByTestId("page-content")).toBeNull();
   });
 
-  it("モバイルの task 画面では空の page wrapper が高さを奪わない", () => {
+  it("モバイルの Home では page 内容をマウントする", () => {
+    mocks.useTaskPanes.mockReturnValue({ mdUp: false });
+    render(
+      <AppShell>
+        <div data-testid="page-content" />
+      </AppShell>,
+    );
+
+    const pageWrapper = screen.getByTestId("page-content").parentElement;
+    expect(pageWrapper?.className.split(/\s+/)).toContain("md:hidden");
+  });
+
+  it("task 画面の page wrapper は空でも高さを奪わない", () => {
     mocks.usePathname.mockReturnValue("/task/task-a");
     render(
       <AppShell>
