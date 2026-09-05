@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 30-32 — silent resume × queue 二重 POST
+
+- バグ: silent 終了の idle 遷移で自動再開と queued follow-up drain/auto-send が同時発火し `/prompt` が二重送信され得た
+- 修正: キュー優先で silent auto-resume を抑止、drain/auto-send/submit は `resumingTurn` 中も抑止
+- 検証: `aborted-resume.test.ts` + `queued-follow-up.test.ts` 32/32 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 26-29 — steer 後の optimistic ゴースト行
 
 - バグ: steer 送信でも `pendingUserMessage` を立て、履歴に user が増えないため成功後もタイムライン末尾にゴースト行が残る

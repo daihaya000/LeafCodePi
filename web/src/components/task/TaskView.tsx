@@ -1370,7 +1370,16 @@ export const TaskView = memo(function TaskView({
   }
 
   async function submit() {
-    if ((!prompt.trim() && attachments.length === 0) || submitting || compacting || agentChanging || archived) return;
+    if (
+      (!prompt.trim() && attachments.length === 0) ||
+      submitting ||
+      resumingTurn ||
+      compacting ||
+      agentChanging ||
+      archived
+    ) {
+      return;
+    }
     const submittedPrompt = prompt;
     const submittedAttachments = attachments;
     let optimistic = false;
@@ -1617,6 +1626,7 @@ export const TaskView = memo(function TaskView({
         goalLoopLive,
         stopRequested,
         hasQueuedItem: queuedFollowUps.length > 0,
+        resumingTurn,
       })
     ) {
       return;
@@ -1632,6 +1642,7 @@ export const TaskView = memo(function TaskView({
     goalLoopLive,
     queuedAutoSend,
     queuedFollowUps,
+    resumingTurn,
     stopRequested,
     submitting,
     working,
@@ -1647,6 +1658,7 @@ export const TaskView = memo(function TaskView({
         goalLoopLive,
         stopRequested,
         hasContent: Boolean(prompt.trim() || attachments.length > 0),
+        resumingTurn,
       })
     ) {
       if (queuedAutoSend && (stopRequested || (!prompt.trim() && attachments.length === 0))) {
@@ -1662,6 +1674,7 @@ export const TaskView = memo(function TaskView({
     goalLoopLive,
     prompt,
     queuedAutoSend,
+    resumingTurn,
     stopRequested,
     submitting,
     working,
@@ -1995,6 +2008,8 @@ export const TaskView = memo(function TaskView({
     stopRequested,
     resumingTurn,
     currentPromptIsHangRetry,
+    hasQueuedFollowUp: queuedFollowUps.length > 0,
+    queuedAutoSend,
   });
   useEffect(() => {
     if (!autoResumeSilentTurn || !resumeTarget) return;

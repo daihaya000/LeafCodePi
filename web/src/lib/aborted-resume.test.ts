@@ -121,6 +121,40 @@ describe("findResumableTurn", () => {
     ).toBe(false);
   });
 
+  it("does not auto-resume silent turns when a queued follow-up is pending", () => {
+    const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")]);
+    expect(
+      shouldAutoResumeSilentTurn({
+        target,
+        showResume: true,
+        active: true,
+        sessionHydrating: false,
+        compacting: false,
+        sseReconnecting: false,
+        taskStatus: "idle",
+        stopRequested: false,
+        resumingTurn: false,
+        currentPromptIsHangRetry: false,
+        hasQueuedFollowUp: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoResumeSilentTurn({
+        target,
+        showResume: true,
+        active: true,
+        sessionHydrating: false,
+        compacting: false,
+        sseReconnecting: false,
+        taskStatus: "idle",
+        stopRequested: false,
+        resumingTurn: false,
+        currentPromptIsHangRetry: false,
+        queuedAutoSend: true,
+      }),
+    ).toBe(false);
+  });
+
   it("clears stopRequested only when a new run starts after idle", () => {
     expect(shouldClearStopRequestedOnWorkingTransition(false, true, true)).toBe(true);
     expect(shouldClearStopRequestedOnWorkingTransition(true, true, true)).toBe(false);

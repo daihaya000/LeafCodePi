@@ -72,6 +72,16 @@ describe("queued follow-up drain", () => {
       }),
     ).toBe(false);
   });
+
+  it("does not drain while a silent resume is in flight", () => {
+    expect(
+      shouldDrainQueuedFollowUp({
+        ...idle,
+        resumingTurn: true,
+        hasQueuedItem: true,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("queued follow-up auto-send", () => {
@@ -92,6 +102,17 @@ describe("queued follow-up auto-send", () => {
         queuedAutoSend: true,
         stopRequested: true,
         hasContent: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not auto-send while a silent resume is in flight", () => {
+    expect(
+      shouldAutoSendQueuedFollowUp({
+        ...idle,
+        queuedAutoSend: true,
+        hasContent: true,
+        resumingTurn: true,
       }),
     ).toBe(false);
   });

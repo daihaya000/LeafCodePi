@@ -28,6 +28,7 @@ export function shouldDrainQueuedFollowUp(input: {
   goalLoopLive: boolean;
   stopRequested: boolean;
   hasQueuedItem: boolean;
+  resumingTurn?: boolean;
 }): boolean {
   return (
     input.hasQueuedItem &&
@@ -36,7 +37,8 @@ export function shouldDrainQueuedFollowUp(input: {
     !input.queuedAutoSend &&
     !input.goalLoopEnabled &&
     !input.goalLoopLive &&
-    !input.stopRequested
+    !input.stopRequested &&
+    !input.resumingTurn
   );
 }
 
@@ -48,6 +50,7 @@ export function shouldAutoSendQueuedFollowUp(input: {
   goalLoopLive: boolean;
   stopRequested: boolean;
   hasContent: boolean;
+  resumingTurn?: boolean;
 }): boolean {
   return (
     input.queuedAutoSend &&
@@ -56,7 +59,8 @@ export function shouldAutoSendQueuedFollowUp(input: {
     !input.submitting &&
     !input.goalLoopEnabled &&
     !input.goalLoopLive &&
-    !input.stopRequested
+    !input.stopRequested &&
+    !input.resumingTurn
   );
 }
 

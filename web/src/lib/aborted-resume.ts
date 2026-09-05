@@ -55,6 +55,9 @@ export function shouldAutoResumeSilentTurn(input: {
   stopRequested: boolean;
   resumingTurn: boolean;
   currentPromptIsHangRetry: boolean;
+  /** Client queue must win over silent auto-resume of the prior prompt. */
+  hasQueuedFollowUp?: boolean;
+  queuedAutoSend?: boolean;
 }): boolean {
   return Boolean(
     input.showResume &&
@@ -66,7 +69,9 @@ export function shouldAutoResumeSilentTurn(input: {
       input.taskStatus === "idle" &&
       !input.stopRequested &&
       !input.resumingTurn &&
-      !input.currentPromptIsHangRetry,
+      !input.currentPromptIsHangRetry &&
+      !input.hasQueuedFollowUp &&
+      !input.queuedAutoSend,
   );
 }
 
