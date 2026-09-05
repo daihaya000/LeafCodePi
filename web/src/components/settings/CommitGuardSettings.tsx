@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button, Switch } from "@/components/ui";
-import { getJson, sendJson } from "@/lib/client";
+import { getJson } from "@/lib/client";
 
 const EXTENSION_ID = "leafcode-commit-guard";
 
@@ -10,34 +10,36 @@ type ExtensionDto = {
   id: string;
   name: string;
   enabled: boolean;
+  required?: boolean;
 };
 
 type ExtensionsResponse = {
   extensions: ExtensionDto[];
 };
 
-function enabledFromList(extensions: ExtensionDto[]): boolean | null {
-  const entry = extensions.find((extension) => extension.id === EXTENSION_ID || extension.name === EXTENSION_ID);
-  return entry ? entry.enabled : null;
+function findEntry(extensions: ExtensionDto[]): ExtensionDto | null {
+  return extensions.find((extension) => extension.id === EXTENSION_ID || extension.name === EXTENSION_ID) ?? null;
 }
 
 export function CommitGuardSettings() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [available, setAvailable] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [required, setRequired] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   const reload = useCallback(() => {
     void getJson<ExtensionsResponse>("/api/extensions")
       .then((result) => {
-        const next = enabledFromList(result.extensions);
-        if (next === null) {
+        const entry = findEntry(result.extensions);
+        if (!entry) {
           setAvailable(false);
           setEnabled(false);
+          setRequired(false);
         } else {
           setAvailable(true);
-          setEnabled(next);
+          setEnabled(entry.enabled);
+          setRequired(entry.required !== false);
         }
         setLoaded(true);
         setError(null);
@@ -52,28 +54,6 @@ export function CommitGuardSettings() {
     reload();
   }, [reload]);
 
-  const toggle = async (next: boolean) => {
-    if (!available || busy || enabled === null || next === enabled) return;
-    setBusy(true);
-    setError(null);
-    const previous = enabled;
-    setEnabled(next);
-    try {
-      const result = await sendJson<ExtensionsResponse & { enabled?: boolean }>(
-        `/api/extensions/${encodeURIComponent(EXTENSION_ID)}`,
-        { enabled: next },
-        "PATCH",
-      );
-      const fromList = enabledFromList(result.extensions);
-      setEnabled(fromList ?? result.enabled ?? next);
-    } catch (err) {
-      setEnabled(previous);
-      setError(err instanceof Error ? err.message : "コミットガード設定の保存に失敗しました");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const statusLabel = !loaded
     ? "読込中"
     : !available
@@ -84,6 +64,8 @@ export function CommitGuardSettings() {
           ? "有効"
           : "無効";
 
+  const locked = required && enabled === true;
+
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h3 className="text-sm font-semibold">コミットガード</h3>
@@ -93,18 +75,22 @@ export function CommitGuardSettings() {
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <Switch
           checked={enabled === true}
-          onChange={() => void toggle(!(enabled === true))}
+          onChange={() => {}}
           label="コミットガードを有効にする"
-          busy={busy || !loaded}
-          disabled={!available || !loaded || enabled === null}
+          busy={!loaded}
+          disabled={!available || !loaded || enabled === null || locked}
+          title={locked ? "WebUI が依存する拡張機能のため無効化できません" : undefined}
         />
         <span className="text-sm text-text" aria-live="polite">
           {statusLabel}
         </span>
-        <Button variant="ghost" size="sm" disabled={busy} onClick={() => reload()}>
+        <Button variant="ghost" size="sm" onClick={() => reload()}>
           再読込
         </Button>
       </div>
+      {locked && (
+        <p className="mt-2 text-xs text-muted">WebUI が依存するため無効化できません</p>
+      )}
       {!available && loaded && (
         <p className="mt-2 text-xs text-muted">
           <span className="font-mono">{EXTENSION_ID}</span> が見つからないため切り替えできません。
