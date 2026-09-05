@@ -213,6 +213,25 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(screen.queryByRole("heading", { name: "ログインアカウント" })).toBeNull();
   });
 
+  it("keeps long account labels separate from their action buttons", async () => {
+    const longLabel = "daihayao000@gmail.com";
+    mockAccountsApi([{ ...accounts[0], label: longLabel }]);
+    render(
+      <ProviderAuthPanel
+        providers={[providers[1]]}
+        onChanged={() => {}}
+      />,
+    );
+
+    const codex = await accountRegion("OpenAI Codex");
+    const label = await within(codex).findByText(longLabel);
+    const accountRow = label.parentElement?.parentElement;
+    expect(accountRow?.className).toContain("flex-col");
+    expect(
+      within(codex).getByRole("button", { name: "再ログイン" }),
+    ).toBeTruthy();
+  });
+
   it("changes the routing mode from the provider section", async () => {
     mockAccountsApi([
       ...accounts,

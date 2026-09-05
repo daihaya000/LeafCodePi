@@ -927,7 +927,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                   );
                   return (
                     <li key={account.id} className="px-3 py-2">
-                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                      <div className="flex flex-col gap-1">
                         {editingAccountId === account.id ? (
                           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                             <input
@@ -957,7 +957,10 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                         ) : (
                           <>
                             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                              <span className="text-sm font-medium">
+                              <span
+                                className="min-w-0 break-all text-sm font-medium"
+                                title={account.label}
+                              >
                                 {account.label}
                               </span>
                               {account.note && (
