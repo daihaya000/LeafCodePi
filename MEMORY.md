@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 14-17 — Goal Loop 開始後の旧 hang watch
+
+- バグ: `goalLoopCommand` が `queuePrompt` を経由せず、直前チャットの hang watch が残り旧プロンプトで resume → Goal が abort で一時停止
+- 修正: `session.prompt` 直前に `disarmTaskHangWatch(taskId)`
+- 検証: `hang-watchdog.test.ts` + `goal-loop/route.test.ts` 16/16 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 11-13 — hang が権限待ちを誤 abort
 
 - バグ: hang watchdog が permission/question 待ちを無応答とみなし、`clearPendingAttentionForTask` で承認を自動拒否

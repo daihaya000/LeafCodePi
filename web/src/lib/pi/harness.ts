@@ -4559,6 +4559,9 @@ export async function goalLoopCommand(
   } else {
     command = `/goal-${input.action}`;
   }
+  // Goal Loop does not go through queuePrompt, so a leftover chat hang watch
+  // would keep the old prompt and resume it mid-loop (aborting Goal as "user").
+  disarmTaskHangWatch(taskId);
   await live.session.prompt(command);
   return readGoalLoopState(
     live.session.sessionManager.getCwd(),
