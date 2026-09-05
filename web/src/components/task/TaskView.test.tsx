@@ -80,4 +80,46 @@ describe("TaskView draft submission", () => {
     expect(input.value).toBe("next draft");
     expect(screen.getByRole("img", { name: "next.png" })).toBeTruthy();
   });
+
+  it("keeps permission actions available when the message is long", async () => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource | null = null;
+
+      constructor() {
+        super();
+        TestEventSource.latest = this;
+      }
+
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    mocks.sendJson.mockResolvedValue({ advice: "" });
+    render(<TaskView taskId={task.id} mdUp />);
+    const source = TestEventSource.latest;
+    if (!source) throw new Error("EventSource was not created");
+
+    const message = Array.from({ length: 100 }, (_, index) => `安全ガード ${index}`).join("\n");
+    await act(async () => {
+      source.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "ready",
+          task: { ...task, sessionId: "session-1", messages: [], isStreaming: false },
+          messages: [],
+          permissionRequest: {
+            id: "request-1",
+            sessionId: "session-1",
+            command: "echo test",
+            labels: ["os"],
+            message,
+          },
+        }),
+      }));
+    });
+
+    const dialog = await screen.findByRole("alertdialog", { name: "危険なコマンドの確認" });
+    const messageNode = dialog.querySelector("p");
+    expect(messageNode?.className).toContain("max-h-32");
+    expect(messageNode?.className).toContain("overflow-auto");
+    expect(screen.getByRole("button", { name: "許可" })).toBeTruthy();
+  });
 });

@@ -2458,7 +2458,7 @@ export const TaskView = memo(function TaskView({
             aria-label="危険なコマンドの確認"
             className="mx-auto mb-2 max-w-5xl rounded-lg border border-warning/30 bg-warning-bg px-3 py-3 text-sm text-warning"
           >
-            <p className="whitespace-pre-wrap break-all">{permissionRequest.message}</p>
+            <p className="max-h-32 overflow-auto whitespace-pre-wrap break-all">{permissionRequest.message}</p>
             {permissionRequest.labels.length > 0 && (
               <p className="mt-1 text-xs text-muted">
                 検出: {permissionRequest.labels.join(", ")}
