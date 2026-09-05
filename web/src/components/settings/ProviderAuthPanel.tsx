@@ -12,6 +12,7 @@ import type {
 } from "@/lib/pi/auth-login";
 import type { ProviderAuthDto } from "@/lib/types";
 import type { AccountRoutingMode } from "@/lib/provider-routing";
+import type { CodexBarUsage } from "@/lib/codexbar";
 
 type LoginUiState = {
   providerId: string;
@@ -103,6 +104,48 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   const [cookieInput, setCookieInput] = useState("");
   const [cookieBusy, setCookieBusy] = useState<string | null>(null);
   const [cookieErrors, setCookieErrors] = useState<Record<string, string>>({});
+  const [codexResetCredits, setCodexResetCredits] = useState<{
+    defaultCount: number;
+    byAccount: Record<string, number>;
+  }>({ defaultCount: 0, byAccount: {} });
+
+  useEffect(() => {
+    if (!providers.some((provider) => provider.id === "openai-codex")) {
+      setCodexResetCredits({ defaultCount: 0, byAccount: {} });
+      return;
+    }
+
+    let active = true;
+    void getJson<CodexBarUsage>("/api/codexbar/usage")
+      .then((usage) => {
+        if (!active) return;
+        const next = {
+          defaultCount: 0,
+          byAccount: {} as Record<string, number>,
+        };
+        const usageProviders = Array.isArray(usage.providers)
+          ? usage.providers
+          : [];
+        for (const provider of usageProviders) {
+          if (provider.id !== "openai-codex") continue;
+          const count = provider.resetCreditsAvailable ?? 0;
+          if (count <= 0) continue;
+          if (provider.accountId) {
+            next.byAccount[provider.accountId] =
+              (next.byAccount[provider.accountId] ?? 0) + count;
+          } else {
+            next.defaultCount += count;
+          }
+        }
+        setCodexResetCredits(next);
+      })
+      .catch(() => {
+        if (active) setCodexResetCredits({ defaultCount: 0, byAccount: {} });
+      });
+    return () => {
+      active = false;
+    };
+  }, [providers]);
 
   const refreshAccounts = useCallback(async () => {
     try {
@@ -752,6 +795,15 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                           削除
                         </Button>
                       </div>
+                      {providerId === "openai-codex" &&
+                        (codexResetCredits.byAccount[account.id] ?? 0) > 0 && (
+                          <p className="mt-1.5 text-xs text-muted">
+                            リセット権{" "}
+                            <span className="font-mono text-text">
+                              {codexResetCredits.byAccount[account.id]}
+                            </span>
+                          </p>
+                        )}
                       {(providerId === "ollama-cloud" ||
                         providerId === "opencode-go") && (
                         <div className="mt-2 border-t border-border pt-2">
@@ -965,6 +1017,11 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
               provider={provider}
               disabled={Boolean(login)}
               onChanged={onChanged}
+              resetCreditsAvailable={
+                provider.id === "openai-codex"
+                  ? codexResetCredits.defaultCount
+                  : null
+              }
               onOAuth={
                 provider.oauthAvailable
                   ? () => void beginLogin(provider, "oauth")
@@ -1191,6 +1248,7 @@ function ProviderRow({
   onApiKey,
   onLogout,
   accountControls,
+  resetCreditsAvailable,
   onChanged,
 }: {
   provider: ProviderAuthDto;
@@ -1199,6 +1257,7 @@ function ProviderRow({
   onApiKey?: () => void;
   onLogout?: () => void;
   accountControls?: ReactNode;
+  resetCreditsAvailable?: number | null;
   onChanged: () => void;
 }) {
   const accountManaged = isAccountProviderId(provider.id);
@@ -1215,6 +1274,15 @@ function ProviderRow({
             <span className="text-sm font-medium">{provider.name}</span>
             <span className="font-mono text-xs text-muted">{provider.id}</span>
             <Badge tone={badge.tone}>{badge.label}</Badge>
+            {provider.id === "openai-codex" &&
+              (resetCreditsAvailable ?? 0) > 0 && (
+                <span className="text-xs text-muted">
+                  リセット権{" "}
+                  <span className="font-mono text-text">
+                    {resetCreditsAvailable}
+                  </span>
+                </span>
+              )}
           </div>
           {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
         </div>

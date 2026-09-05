@@ -320,6 +320,34 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     ).toBeNull();
   });
 
+  it("shows Codex reset credits from the CodexBar usage snapshot", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/accounts")) {
+        return Promise.resolve(jsonResponse({ accounts: [] }));
+      }
+      if (url.endsWith("/api/codexbar/usage")) {
+        return Promise.resolve(
+          jsonResponse({
+            providers: [
+              { id: "openai-codex", resetCreditsAvailable: 2 },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    render(
+      <ProviderAuthPanel
+        providers={[providers[1]]}
+        onChanged={() => {}}
+      />,
+    );
+
+    const resetCredits = await screen.findByText("リセット権");
+    expect(resetCredits.parentElement?.textContent).toContain("2");
+  });
+
   it("shows registered providers first without an other-providers section", () => {
     mockAccountsApi();
     render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
