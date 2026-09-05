@@ -1,8 +1,14 @@
 import type { UiMessage } from "@/lib/types";
 
+const messageFingerprintCache = new WeakMap<UiMessage, string>();
+
 function messageFingerprint(message: UiMessage): string {
-  // SSE messages are JSON DTOs. Length/suffix fingerprints can hide real edits.
-  return JSON.stringify(message);
+  // SSE DTOs are immutable; cache fingerprints so the previous delta is not serialized again.
+  const cached = messageFingerprintCache.get(message);
+  if (cached !== undefined) return cached;
+  const fingerprint = JSON.stringify(message);
+  messageFingerprintCache.set(message, fingerprint);
+  return fingerprint;
 }
 
 /**

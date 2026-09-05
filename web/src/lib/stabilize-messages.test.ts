@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   messageRenderKey,
   stabilizeUiMessages,
@@ -152,6 +152,22 @@ describe("stabilizeUiMessages", () => {
 });
 
 describe("upsertUiMessage", () => {
+  it("reuses the previous delta fingerprint on the next update", () => {
+    const stringify = vi.spyOn(JSON, "stringify");
+    try {
+      const first = textMessage("a", "first");
+      const second = textMessage("a", "second");
+      const third = textMessage("a", "third");
+
+      const afterSecond = upsertUiMessage([first], second);
+      expect(stringify).toHaveBeenCalledTimes(2);
+      upsertUiMessage(afterSecond, third);
+      expect(stringify).toHaveBeenCalledTimes(3);
+    } finally {
+      stringify.mockRestore();
+    }
+  });
+
   it("updates only the delta message without fingerprinting the full history", () => {
     const first = textMessage("a", "hello");
     const second = textMessage("b", "world");
