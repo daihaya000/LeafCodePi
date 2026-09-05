@@ -345,9 +345,64 @@ describe("/api/tasks/[id]/events", () => {
         { id: "a1", role: "assistant", createdAt: 2, parts: [] },
       ],
     });
+    resolveDetail(detail);
+
+    const readyChunk = await readChunk(reader);
+    expect(eventData(readyChunk).eventType).toBe("ready");
+    const permissionChunk = await readChunk(reader);
+    expect(eventData(permissionChunk).eventType).toBe("permission_request");
+    const intermediateChunk = await readChunk(reader);
+    expect(eventData(intermediateChunk).eventType).toBe("intermediate");
+    await reader.cancel();
+  });
+
+  it("cancels a buffered permission request when resolved arrives before ready", async () => {
+    const messages = [
+      { id: "u1", role: "user" as const, createdAt: 1, parts: [{ id: "p1", type: "text" as const, text: "質問" }] },
+    ];
+    const bootstrap = task({ messages: [], isStreaming: true });
+    const detail = task({ messages, isStreaming: true, status: "working" });
+    let resolveDetail!: (value: TaskDetail) => void;
+    let listener!: (payload: Record<string, unknown>) => void;
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail.mockReturnValue(
+      new Promise<TaskDetail>((resolve) => {
+        resolveDetail = resolve;
+      }),
+    );
+    mocks.subscribeTask.mockImplementation((_id: string, callback: typeof listener) => {
+      listener = callback;
+      return vi.fn();
+    });
+
+    const response = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const reader = response.body!.getReader();
+    await readChunk(reader);
+
+    listener({
+      type: "snapshot",
+      eventType: "permission_request",
+      messages,
+      permissionRequest: {
+        id: "req-1",
+        sessionId: "session-1",
+        command: "Stop-Computer",
+        labels: ["os"],
+        message: "許可しますか",
+      },
+    });
     listener({
       type: "snapshot",
       eventType: "permission_resolved",
+      messages,
+      permissionRequest: null,
+    });
+    listener({
+      type: "snapshot",
+      eventType: "intermediate",
       messages: [
         ...messages,
         { id: "a1", role: "assistant", createdAt: 2, parts: [] },
@@ -357,12 +412,18 @@ describe("/api/tasks/[id]/events", () => {
 
     const readyChunk = await readChunk(reader);
     expect(eventData(readyChunk).eventType).toBe("ready");
-    const permissionChunk = await readChunk(reader);
-    expect(eventData(permissionChunk).eventType).toBe("permission_request");
     const intermediateChunk = await readChunk(reader);
     expect(eventData(intermediateChunk).eventType).toBe("intermediate");
-    const resolvedChunk = await readChunk(reader);
-    expect(eventData(resolvedChunk).eventType).toBe("permission_resolved");
+
+    // Next live event proves no ghost permission_* was queued ahead of it.
+    listener({
+      type: "snapshot",
+      eventType: "hang_retry",
+      hangRetryCount: 1,
+      messages,
+    });
+    const hangChunk = await readChunk(reader);
+    expect(eventData(hangChunk).eventType).toBe("hang_retry");
     await reader.cancel();
   });
 });

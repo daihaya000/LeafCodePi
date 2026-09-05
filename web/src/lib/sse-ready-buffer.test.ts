@@ -200,4 +200,54 @@ describe("sse-ready-buffer", () => {
     expect(pending[0]).toMatchObject({ permissionRequest: { id: "req-2" } });
     expect(pending[1]).toMatchObject({ type: "delta", message: { id: "d2" } });
   });
+
+  it("cancels a buffered permission request when resolved arrives", () => {
+    const pending: Record<string, unknown>[] = [];
+    bufferPendingSsePayload(pending, {
+      type: "snapshot",
+      eventType: "permission_request",
+      permissionRequest: { id: "req-1" },
+    });
+    bufferPendingSsePayload(pending, {
+      type: "snapshot",
+      eventType: "permission_resolved",
+      permissionRequest: null,
+    });
+    expect(pending).toEqual([]);
+  });
+
+  it("drops a stale resolved when a newer permission request arrives", () => {
+    const pending: Record<string, unknown>[] = [];
+    bufferPendingSsePayload(pending, {
+      type: "snapshot",
+      eventType: "permission_request",
+      permissionRequest: { id: "req-a" },
+    });
+    bufferPendingSsePayload(pending, {
+      type: "snapshot",
+      eventType: "permission_resolved",
+      permissionRequest: null,
+    });
+    bufferPendingSsePayload(pending, {
+      type: "snapshot",
+      eventType: "permission_request",
+      permissionRequest: { id: "req-b" },
+    });
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      eventType: "permission_request",
+      permissionRequest: { id: "req-b" },
+    });
+  });
+
+  it("keeps a resolved clear when no request was buffered", () => {
+    const pending: Record<string, unknown>[] = [];
+    bufferPendingSsePayload(pending, {
+      type: "snapshot",
+      eventType: "permission_resolved",
+      permissionRequest: null,
+    });
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ eventType: "permission_resolved" });
+  });
 });

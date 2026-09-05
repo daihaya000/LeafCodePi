@@ -16,6 +16,15 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 2 — SSE permission pair cancel
+
+- ループ: 旧 PID 37224 が aborted → PID 31976 で再起動
+- バグ: ready 前バッファが `permission_request` / `permission_resolved` を打ち消さず、ゴーストダイアログや新リクエスト消失が起き得た（question_* も同様）
+- 修正: `sse-ready-buffer.ts` で request↔resolved をペアキャンセル
+- 検証: `sse-ready-buffer.test.ts` + `events/route.test.ts` 16/16 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 1 — permission silent deny
 
 - ループ: `AGENT_LOOP_TICK_highusage_bugs`（2分間隔、PID 14868）開始

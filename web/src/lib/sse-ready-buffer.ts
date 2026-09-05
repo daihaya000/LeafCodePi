@@ -61,10 +61,34 @@ export function isControlSnapshot(payload: Record<string, unknown>): boolean {
   );
 }
 
+const REQUEST_EVENT_FOR_RESOLVED: Record<string, string> = {
+  permission_resolved: "permission_request",
+  question_resolved: "question_request",
+};
+
+const RESOLVED_EVENT_FOR_REQUEST: Record<string, string> = {
+  permission_request: "permission_resolved",
+  question_request: "question_resolved",
+};
+
+function removeControlEvent(
+  pending: Record<string, unknown>[],
+  eventType: string,
+): boolean {
+  const index = pending.findIndex(
+    (item) => item.type === "snapshot" && item.eventType === eventType,
+  );
+  if (index < 0) return false;
+  pending.splice(index, 1);
+  return true;
+}
+
 /**
  * Coalesce live events while the ready snapshot is still being fetched.
  * History snapshots still replace earlier history + trailing deltas, but
  * control events (permission, hang retry, errors) stay until flush.
+ * Request/resolved pairs cancel out so a stale resolved cannot clear a newer
+ * request, and a resolved request does not flash after ready.
  */
 export function bufferPendingSsePayload(
   pending: Record<string, unknown>[],
@@ -81,8 +105,21 @@ export function bufferPendingSsePayload(
   }
 
   if (isControlSnapshot(payload)) {
+    const eventType = payload.eventType as string;
+    const requestPair = REQUEST_EVENT_FOR_RESOLVED[eventType];
+    if (requestPair) {
+      // Resolved cancels a buffered request → net no-op (no flash after ready).
+      if (removeControlEvent(pending, requestPair)) return;
+    } else {
+      const resolvedPair = RESOLVED_EVENT_FOR_REQUEST[eventType];
+      if (resolvedPair) {
+        // Newer request supersedes a buffered resolved clear.
+        removeControlEvent(pending, resolvedPair);
+      }
+    }
+
     const existing = pending.findIndex(
-      (item) => item.type === "snapshot" && item.eventType === payload.eventType,
+      (item) => item.type === "snapshot" && item.eventType === eventType,
     );
     if (existing >= 0) {
       pending[existing] = payload;
