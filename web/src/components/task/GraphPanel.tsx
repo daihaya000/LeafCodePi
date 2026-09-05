@@ -382,12 +382,15 @@ export function GraphPanel({
   directory,
   refreshKey,
   working = false,
+  active = true,
 }: {
   directory: string;
   /** Bump this to force an immediate refetch (e.g. after commit/merge/revert). */
   refreshKey?: number;
   /** Whether the agent is currently running; used to poll faster while it may be committing. */
   working?: boolean;
+  /** Hidden task tabs stay mounted but must not keep polling. */
+  active?: boolean;
 }) {
   const [payload, setPayload] = useState<GraphLogPayload | null>(null);
   const [repositories, setRepositories] = useState<GraphRepository[]>([]);
@@ -546,18 +549,22 @@ export function GraphPanel({
   // while the agent is actively working, since that's when a commit is most
   // likely to land.
   useEffect(() => {
-    const delay = working ? POLL_ACTIVE_MS : POLL_IDLE_MS;
-    const id = setInterval(() => {
+    if (!active) return;
+    const refresh = () => {
       if (document.visibilityState !== "visible" || busyRef.current) return;
       void loadRef.current({
         limit: Math.max(commitCountRef.current, DEFAULT_LIMIT),
         silent: true,
       });
-    }, delay);
+    };
+    refresh();
+    const delay = working ? POLL_ACTIVE_MS : POLL_IDLE_MS;
+    const id = setInterval(refresh, delay);
     return () => clearInterval(id);
-  }, [working]);
+  }, [active, working]);
 
   useEffect(() => {
+    if (!active) return;
     const onVisible = () => {
       if (document.visibilityState === "visible" && !busyRef.current) {
         void loadRef.current({
@@ -568,7 +575,7 @@ export function GraphPanel({
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, []);
+  }, [active]);
 
   const rows = useMemo(
     () => (payload ? layoutGraph(payload.commits) : []),

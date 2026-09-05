@@ -2505,7 +2505,7 @@ export const TaskView = memo(function TaskView({
             storageKey="webui.graphpanel.width"
             onWidthChange={onGraphPanelWidthChange}
           >
-            <GraphPanel directory={task.directory} working={working} />
+            <GraphPanel directory={task.directory} working={working} active={active} />
           </SidePanel>
         )}
         {diffOpen && task?.directory && (
