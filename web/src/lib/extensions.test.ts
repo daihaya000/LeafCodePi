@@ -73,6 +73,19 @@ describe("filterExtensionsByState", () => {
     ]);
   });
 
+  it("keeps settle-followup-claim even if stale state tries to disable it", () => {
+    const filtered = filterExtensionsByState(
+      [
+        { path: "C:\\pi\\extensions\\settle-followup-claim.ts" },
+        { path: "C:\\pi\\extensions\\other.js" },
+      ],
+      { disabled: { "settle-followup-claim": true, other: true } },
+    );
+    assert.deepEqual(filtered.map((entry) => entry.path), [
+      "C:\\pi\\extensions\\settle-followup-claim.ts",
+    ]);
+  });
+
   it("drops retired extensions even when no state disables them", () => {
     const filtered = filterExtensionsByState(
       [
@@ -163,6 +176,7 @@ describe("listExtensions / setExtensionEnabled", () => {
     writeExtension(join(agent, "extensions"), "leafcode-subagents");
     writeExtension(join(agent, "extensions"), "leafcode-custom");
     writeExtension(join(agent, "extensions"), "leafcode-commit-guard");
+    writeFileSync(join(agent, "extensions", "settle-followup-claim.ts"), "export {};\n", "utf8");
 
     const listed = listExtensions(agent);
     const required = listed.extensions.find((e) => e.name === "leafcode-todowrite");
@@ -170,15 +184,18 @@ describe("listExtensions / setExtensionEnabled", () => {
     assert.equal(listed.extensions.find((e) => e.name === "leafcode-subagents")?.required, true);
     assert.equal(listed.extensions.find((e) => e.name === "leafcode-custom")?.required, true);
     assert.equal(listed.extensions.find((e) => e.name === "leafcode-commit-guard")?.required, true);
+    assert.equal(listed.extensions.find((e) => e.name === "settle-followup-claim")?.required, true);
     assert.equal(listed.extensions.find((e) => e.name === "one")?.required, false);
 
     assert.throws(() => setExtensionEnabled("leafcode-todowrite", false, agent), /無効化できません/);
     assert.throws(() => setExtensionEnabled("leafcode-subagents", false, agent), /無効化できません/);
     assert.throws(() => setExtensionEnabled("leafcode-custom", false, agent), /無効化できません/);
     assert.throws(() => setExtensionEnabled("leafcode-commit-guard", false, agent), /無効化できません/);
+    assert.throws(() => setExtensionEnabled("settle-followup-claim", false, agent), /無効化できません/);
     // 無効化禁止の後も有効状態は維持される。
     assert.equal(listExtensions(agent).extensions.find((e) => e.name === "leafcode-todowrite")?.enabled, true);
     assert.equal(listExtensions(agent).extensions.find((e) => e.name === "leafcode-commit-guard")?.enabled, true);
+    assert.equal(listExtensions(agent).extensions.find((e) => e.name === "settle-followup-claim")?.enabled, true);
   });
 
   it("prefers bundled repo extensions over same-name global copies", () => {

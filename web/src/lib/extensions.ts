@@ -103,8 +103,15 @@ const BUNDLED_REPLACED_EXTENSION_NAMES = new Set(["pi-mcp-adapter"]);
  */
 const OPTIONAL_LEAFCODE_EXTENSIONS = new Set<string>([]);
 
+/**
+ * leafcode- 以外で WebUI が依存するエントリ。
+ * settle-followup-claim は todowrite / commit-guard の settle 排他用共有モジュール。
+ */
+const WEBUI_REQUIRED_EXTENSION_NAMES = new Set(["settle-followup-claim"]);
+
 /** LeafCodePi の WebUI が依存する拡張。無効化禁止。 */
 export function isWebUiRequiredExtension(name: string): boolean {
+  if (WEBUI_REQUIRED_EXTENSION_NAMES.has(name)) return true;
   return name.startsWith("leafcode-") && !OPTIONAL_LEAFCODE_EXTENSIONS.has(name);
 }
 

@@ -1,5 +1,13 @@
 # MEMORY
 
+## 2026-09-05 — settle-followup-claim を WebUI 依存に追加
+
+- `isWebUiRequiredExtension` に `WEBUI_REQUIRED_EXTENSION_NAMES`（`settle-followup-claim`）を追加。leafcode- 接頭辞なしでも無効化不可。
+- todowrite / commit-guard の settle 排他モジュールが拡張一覧から OFF できない。
+- テスト・README を更新。
+
+---
+
 ## 2026-09-05 — leafcode-commit-guard を WebUI 依存に固定
 
 - `web/src/lib/extensions.ts` の `OPTIONAL_LEAFCODE_EXTENSIONS` から `leafcode-commit-guard` を除外（空 Set）。
