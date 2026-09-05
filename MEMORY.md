@@ -1,3 +1,27 @@
+# MEMORY
+
+## 2026-09-05 — commit-gate 偽陽性/偽陰性の修正
+
+### 根本原因
+1. `git status` 失敗（timeout/kill/非0）を clean 扱いし、`mutationObserved` / `reminderSent` を消していた（OneDrive で起きやすい偽陰性）
+2. 遅い `session_start` が in-flight 時に `initiallyDirty=false` へ押し下げ、事前 dirty + soft shell（npm 等）で偽陽性ゲート
+3. soft ヒューリスティック単独で事前 dirty ツリーでも発火していた（fingerprint 主信号と矛盾）
+4. `reminderSent` が全 clean まで張り付き、部分 commit 後の新規差分で再武装しなかった
+
+### 修正
+- unknown status は early-return（フラグを触らない）。`killed` も失敗扱い。timeout 15s
+- hard（edit/write/subagent）と soft（shell ヒューリスティック）を分離。事前 dirty は fingerprint 変化 or hard のみ
+- late `session_start` は in-flight フラグを保持し、`initiallyDirty` を false 強制しない／baseline を上書きしない
+- clean 成功時は baseline を同期。reminder 後に fingerprint が動いたら再武装
+
+### 検証
+`npx --prefix extensions/leafcode-todowrite vitest run --dir extensions/leafcode-commit-guard` → 10/10 PASS
+
+### ファイル
+- `extensions/leafcode-commit-guard/index.ts`
+- `extensions/leafcode-commit-guard/index.test.ts`
+
+---
 ## 2026-09-05 — エージェント一覧の二列表示
 
 - 設定画面のエージェント（subagents）一覧を、拡張機能一覧と同じく `grid gap-2 sm:grid-cols-2` に変更した。

@@ -47,6 +47,7 @@ const MUTATING_SHELL_PATTERNS = [
 ];
 
 type RecordLike = Record<string, unknown>;
+export type RepoMutationKind = "none" | "soft" | "hard";
 
 function asRecord(value: unknown): RecordLike | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -67,48 +68,64 @@ function shellMayMutate(command: string): boolean {
   return MUTATING_SHELL_PATTERNS.some((pattern) => pattern.test(command));
 }
 
-/** Exported for the focused regression tests and future guard integrations. */
-export function hasPotentialRepoMutation(messages: AgentEndEvent["messages"]): boolean {
+/**
+ * hard = edit/write/subagent/unknown tools (tree likely changed even if porcelain is stable)
+ * soft = shell heuristics only (npm install etc.; often gitignored → fingerprint is authority)
+ */
+export function classifyRepoMutation(messages: AgentEndEvent["messages"]): RepoMutationKind {
+  let soft = false;
   for (const message of messages) {
     if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
     for (const part of message.content) {
       if (part.type !== "toolCall") continue;
-      if (part.name === "edit" || part.name === "write" || part.name === "subagent") return true;
+      if (part.name === "edit" || part.name === "write" || part.name === "subagent") return "hard";
       if (part.name === "bash" || part.name === "powershell") {
-        if (shellMayMutate(commandText(part.arguments))) return true;
+        if (shellMayMutate(commandText(part.arguments))) soft = true;
         continue;
       }
-      if (!READ_ONLY_TOOLS.has(part.name)) return true;
+      if (!READ_ONLY_TOOLS.has(part.name)) return "hard";
     }
   }
-  return false;
+  return soft ? "soft" : "none";
+}
+
+/** Exported for the focused regression tests and future guard integrations. */
+export function hasPotentialRepoMutation(messages: AgentEndEvent["messages"]): boolean {
+  return classifyRepoMutation(messages) !== "none";
 }
 
 export function shouldRequestCommitGate(input: {
   initiallyDirty: boolean | undefined;
   dirty: boolean;
-  mutationObserved: boolean;
+  statusChanged: boolean;
+  hardMutation: boolean;
   reminderSent: boolean;
 }): boolean {
-  return input.dirty
-    && !input.reminderSent
-    && (input.initiallyDirty === false || input.mutationObserved);
+  if (!input.dirty || input.reminderSent) return false;
+  // Clean start: any dirt is enough (fingerprint/heuristic optional).
+  if (input.initiallyDirty === false) return true;
+  // Dirty or unknown baseline: fingerprint change is primary; hard tools are backup.
+  // Soft shell heuristics alone must not fire (npm/ci on a pre-dirty tree).
+  return input.statusChanged || input.hardMutation;
 }
 
 async function gitStatus(pi: ExtensionAPI, cwd: string): Promise<string | undefined> {
   try {
     const result = await pi.exec("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
       cwd,
-      timeout: 5_000,
+      // OneDrive / large trees often exceed 5s; treat timeout as unknown, not clean.
+      timeout: 15_000,
     });
-    return result.code === 0 ? result.stdout : undefined;
+    const killed = Boolean((result as { killed?: boolean }).killed);
+    if (killed || result.code !== 0) return undefined;
+    return result.stdout;
   } catch {
     return undefined;
   }
 }
 
-function isDirty(status: string | undefined): boolean {
-  return status !== undefined && status.trim().length > 0;
+function isDirty(status: string): boolean {
+  return status.trim().length > 0;
 }
 
 export default function registerCommitGuard(pi: ExtensionAPI): void {
@@ -118,31 +135,53 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
 
   let initiallyDirty: boolean | undefined;
   let initialStatusText: string | undefined;
+  let hardMutationObserved = false;
   let mutationObserved = false;
   let reminderSent = false;
+  let lastRemindedStatus: string | undefined;
   let sessionStartGeneration = 0;
   let sessionReady = false;
   let pendingSettledCtx: ExtensionContext | null = null;
 
+  const resetCleanBaseline = (status: string): void => {
+    hardMutationObserved = false;
+    mutationObserved = false;
+    reminderSent = false;
+    lastRemindedStatus = undefined;
+    initiallyDirty = false;
+    initialStatusText = status;
+  };
+
   const runCommitGate = async (ctx: ExtensionContext): Promise<void> => {
     const status = await gitStatus(pi, ctx.cwd);
+    // Unknown git status must not look like a clean tree (would wipe gate state).
+    if (status === undefined) return;
+
     if (!isDirty(status)) {
-      mutationObserved = false;
-      reminderSent = false;
+      resetCleanBaseline(status);
       return;
     }
-    // Dirty fingerprint change is the primary signal; shell heuristics are backup.
+
+    // Re-arm when the dirty fingerprint moves after a prior reminder (partial
+    // commit leaving pre-existing dirt, then new task edits).
+    if (reminderSent && lastRemindedStatus !== undefined && status !== lastRemindedStatus) {
+      reminderSent = false;
+    }
+
+    // Dirty fingerprint change is the primary signal; hard tools are backup.
     const statusChanged =
-      initialStatusText !== undefined && status !== undefined && status !== initialStatusText;
+      initialStatusText !== undefined && status !== initialStatusText;
     if (!shouldRequestCommitGate({
       initiallyDirty,
       dirty: true,
-      mutationObserved: mutationObserved || statusChanged,
+      statusChanged,
+      hardMutation: hardMutationObserved,
       reminderSent,
     })) return;
 
     // Set before enqueueing because sendMessage is non-idempotent.
     reminderSent = true;
+    lastRemindedStatus = status;
     try {
       pi.sendMessage(
         {
@@ -163,14 +202,24 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
     sessionReady = false;
     const status = await gitStatus(pi, ctx.cwd);
     if (generation !== sessionStartGeneration) return;
-    if (mutationObserved || reminderSent) {
-      initiallyDirty = false;
+
+    const inFlight = mutationObserved || hardMutationObserved || reminderSent;
+    if (inFlight) {
+      // Preserve gate state across a late/slow session_start. Do not force
+      // initiallyDirty=false (that turns pre-existing dirt into a false positive)
+      // and do not overwrite the baseline fingerprint mid-flight.
+      if (status !== undefined) {
+        if (initiallyDirty === undefined) initiallyDirty = isDirty(status);
+        if (initialStatusText === undefined) initialStatusText = status;
+      }
     } else {
       initiallyDirty = status === undefined ? undefined : isDirty(status);
+      hardMutationObserved = false;
       mutationObserved = false;
       reminderSent = false;
+      lastRemindedStatus = undefined;
+      initialStatusText = status;
     }
-    initialStatusText = status;
     sessionReady = true;
     if (pendingSettledCtx) {
       const pending = pendingSettledCtx;
@@ -180,7 +229,13 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
   });
 
   pi.on("agent_end", (event) => {
-    if (hasPotentialRepoMutation(event.messages)) mutationObserved = true;
+    const kind = classifyRepoMutation(event.messages);
+    if (kind === "hard") {
+      hardMutationObserved = true;
+      mutationObserved = true;
+    } else if (kind === "soft") {
+      mutationObserved = true;
+    }
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
