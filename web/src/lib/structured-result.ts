@@ -24,7 +24,7 @@ function asOptionalText(value: unknown): string | undefined {
 export function parseStructuredResult(text: string): StructuredResult | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
-  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1];
+  const fenced = [...trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi)].at(-1)?.[1];
   const candidate = (fenced ?? trimmed).trim();
   if (!candidate.startsWith("{") || !candidate.endsWith("}")) return null;
 

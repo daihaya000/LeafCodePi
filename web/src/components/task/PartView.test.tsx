@@ -214,12 +214,14 @@ describe("PartView structured result", () => {
         {
           id: "result-text",
           type: "text",
-          text: JSON.stringify({
-            status: "progress",
-            summary: "テストを実行しました",
-            next: "失敗箇所を確認します",
-            evidence: "24件成功",
-          }),
+          text: `todo実態: 完了1件（対象テスト）\n\n\`\`\`json
+${JSON.stringify({
+  status: "progress",
+  summary: "テストを実行しました",
+  next: "失敗箇所を確認します",
+  evidence: "24件成功",
+})}
+\`\`\``,
         },
       ],
     };
