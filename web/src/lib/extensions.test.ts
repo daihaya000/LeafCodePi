@@ -59,6 +59,19 @@ describe("filterExtensionsByState", () => {
     assert.deepEqual(filtered.map((entry) => entry.path), ["C:\\pi\\extensions\\leafcode-goal-loop\\index.ts"]);
   });
 
+  it("drops optional leafcode-commit-guard when disabled in state", () => {
+    const filtered = filterExtensionsByState(
+      [
+        { path: "C:\\pi\\extensions\\leafcode-commit-guard\\index.ts" },
+        { path: "C:\\pi\\extensions\\leafcode-todowrite\\index.ts" },
+      ],
+      { disabled: { "leafcode-commit-guard": true } },
+    );
+    assert.deepEqual(filtered.map((entry) => entry.path), [
+      "C:\\pi\\extensions\\leafcode-todowrite\\index.ts",
+    ]);
+  });
+
   it("drops retired extensions even when no state disables them", () => {
     const filtered = filterExtensionsByState(
       [
@@ -148,12 +161,14 @@ describe("listExtensions / setExtensionEnabled", () => {
     writeExtension(join(agent, "extensions"), "leafcode-todowrite");
     writeExtension(join(agent, "extensions"), "leafcode-subagents");
     writeExtension(join(agent, "extensions"), "leafcode-custom");
+    writeExtension(join(agent, "extensions"), "leafcode-commit-guard");
 
     const listed = listExtensions(agent);
     const required = listed.extensions.find((e) => e.name === "leafcode-todowrite");
     assert.equal(required?.required, true);
     assert.equal(listed.extensions.find((e) => e.name === "leafcode-subagents")?.required, true);
     assert.equal(listed.extensions.find((e) => e.name === "leafcode-custom")?.required, true);
+    assert.equal(listed.extensions.find((e) => e.name === "leafcode-commit-guard")?.required, false);
     assert.equal(listed.extensions.find((e) => e.name === "one")?.required, false);
 
     assert.throws(() => setExtensionEnabled("leafcode-todowrite", false, agent), /無効化できません/);
@@ -161,6 +176,10 @@ describe("listExtensions / setExtensionEnabled", () => {
     assert.throws(() => setExtensionEnabled("leafcode-custom", false, agent), /無効化できません/);
     // 無効化禁止の後も有効状態は維持される。
     assert.equal(listExtensions(agent).extensions.find((e) => e.name === "leafcode-todowrite")?.enabled, true);
+
+    // コミットガードは任意なので無効化できる。
+    const disabled = setExtensionEnabled("leafcode-commit-guard", false, agent);
+    assert.equal(disabled.extensions.find((e) => e.name === "leafcode-commit-guard")?.enabled, false);
   });
 
   it("prefers bundled repo extensions over same-name global copies", () => {

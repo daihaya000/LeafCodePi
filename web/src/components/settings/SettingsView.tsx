@@ -22,6 +22,7 @@ import { ReasoningTranslationSettings } from "@/components/settings/ReasoningTra
 import { HangTimeoutSettings } from "@/components/settings/HangTimeoutSettings";
 import { NotificationSoundSettings } from "@/components/settings/NotificationSoundSettings";
 import { SystemSafetySettings } from "@/components/settings/SystemSafetySettings";
+import { CommitGuardSettings } from "@/components/settings/CommitGuardSettings";
 import { Badge, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import type { HealthDto, ProviderAuthDto } from "@/lib/types";
@@ -276,11 +277,12 @@ export function SettingsView() {
               <SettingsGroup
                 id="engine-access-heading"
                 title="アクセスと安全"
-                description="WebUI への接続方法と、システム操作に対する安全ガードを設定します。"
+                description="WebUI への接続方法と、システム操作・コミットに対する安全ガードを設定します。"
               >
                 <div className="space-y-4">
                   <WebUiAuthSettings />
                   <SystemSafetySettings />
+                  <CommitGuardSettings />
                 </div>
               </SettingsGroup>
 

@@ -97,9 +97,15 @@ const emptyState = (): ExtensionsState => {
 const RETIRED_EXTENSION_NAMES = new Set(["leafcode-collaboration"]);
 const BUNDLED_REPLACED_EXTENSION_NAMES = new Set(["pi-mcp-adapter"]);
 
+/**
+ * WebUI 本体が動かなくても切ってよい leafcode 拡張。
+ * コミットガードは任意の安全機能なので設定から無効化できる。
+ */
+const OPTIONAL_LEAFCODE_EXTENSIONS = new Set(["leafcode-commit-guard"]);
+
 /** LeafCodePi の WebUI が依存する拡張。無効化禁止。 */
 export function isWebUiRequiredExtension(name: string): boolean {
-  return name.startsWith("leafcode-");
+  return name.startsWith("leafcode-") && !OPTIONAL_LEAFCODE_EXTENSIONS.has(name);
 }
 
 function atomicWrite(filePath: string, content: string): void {

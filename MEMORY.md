@@ -1,5 +1,16 @@
 # MEMORY
 
+## 2026-09-05 — コミットガードを設定から無効化
+
+- **要望**: コミットGUARDを設定画面から無効化できるようにする。
+- **原因**: `isWebUiRequiredExtension()` が全 `leafcode-*` を WebUI 必須扱いし、拡張一覧でも無効化できなかった。
+- **対応**:
+  - `leafcode-commit-guard` を optional 例外に追加（`web/src/lib/extensions.ts`）。
+  - 設定 → エンジン → アクセスと安全 に「コミットガード」スイッチ（`CommitGuardSettings`）を追加。
+  - 内部は既存の `/api/extensions/:name` PATCH + `extensions-state.json` を再利用し、開いているセッションへ即時反映。
+- **既定**: 有効。無効化すると拡張がロードされず、未コミット時のフォローアップは出ない。
+
+---
 ## 2026-09-05 — commit-gate 偽陽性/偽陰性の修正
 
 ### 根本原因
