@@ -955,9 +955,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           を登録できます。Ollama Cloud / LeafCodeCloud の API URL は各行で変更でき、
           次回起動から反映されます。
         </p>
-        <ul className="space-y-1.5">
+        <ul className="grid gap-3 lg:grid-cols-2">
           {orderedProviders.length === 0 && (
-            <li className="text-sm text-muted">プロバイダーが見つかりません</li>
+            <li className="text-sm text-muted lg:col-span-2">プロバイダーが見つかりません</li>
           )}
           {orderedProviders.map((provider) => (
             <ProviderRow
