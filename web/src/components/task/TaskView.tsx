@@ -1631,6 +1631,19 @@ export const TaskView = memo(function TaskView({
     const currentStatus = task?.status;
     autoRetryStatusRef.current = currentStatus;
     const escalation = autoRecord?.decision.escalation;
+    // Message deltas are frequent; only scan the full history on an eligible error transition.
+    if (
+      previousStatus === undefined ||
+      previousStatus === "error" ||
+      currentStatus !== "error" ||
+      task?.limitError === true ||
+      !escalation ||
+      autoRecord?.retried ||
+      !autoRecord?.prompt ||
+      autoRetrying
+    ) {
+      return;
+    }
     const userMessages = messages.filter((message) => message.role === "user");
     const hasCompletedAssistant = messages.some(
       (message) =>
@@ -1641,7 +1654,7 @@ export const TaskView = memo(function TaskView({
       !shouldAutoRetryEscalate({
         previousStatus,
         currentStatus,
-        limitError: task?.limitError === true,
+        limitError: false,
         hasEscalation: Boolean(escalation),
         retried: autoRecord?.retried,
         hasPrompt: Boolean(autoRecord?.prompt),
