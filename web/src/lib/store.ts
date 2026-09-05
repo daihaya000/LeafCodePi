@@ -92,6 +92,7 @@ export function upsertProject(input: {
   const now = new Date().toISOString();
   if (existing) {
     existing.lastOpenedAt = now;
+    existing.archived = false;
     if (typeof input.favorite === "boolean") existing.favorite = input.favorite;
     writeStore(store);
     return existing;

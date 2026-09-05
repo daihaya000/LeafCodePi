@@ -16,6 +16,23 @@ describe("store", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("re-adding an archived project restores it", async () => {
+    const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const store = await import("./store");
+    const project = store.upsertProject({ name: "demo", rootPath: "C:\\tmp\\demo" });
+
+    store.patchProject(project.id, { archived: true });
+    expect(store.listProjects()).toHaveLength(0);
+
+    const reopened = store.upsertProject({ name: "demo", rootPath: "C:\\tmp\\demo" });
+    expect(reopened.id).toBe(project.id);
+    expect(reopened.archived).toBe(false);
+    expect(store.listProjects()).toHaveLength(1);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("archives, restores, deletes and destroys tasks and projects", async () => {
     const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}`);
     mkdirSync(dir, { recursive: true });
