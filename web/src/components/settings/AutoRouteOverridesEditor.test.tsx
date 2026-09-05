@@ -25,7 +25,7 @@ describe("AutoRouteOverridesEditor", () => {
       />,
     );
 
-    expect(screen.getAllByRole("button", { name: "候補を追加" })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: "候補を追加" })).toHaveLength(9);
     fireEvent.click(screen.getAllByRole("button", { name: "候補を追加" })[0]!);
 
     expect(onChange).toHaveBeenCalledWith({
@@ -91,7 +91,7 @@ describe("AutoRouteOverridesEditor", () => {
     });
   });
 
-  it("follows the external mode prop after a local mode switch", () => {
+  it("shows all modes and tiers in a three-by-three layout", () => {
     const onChange = vi.fn();
     const { rerender } = render(
       <AutoRouteOverridesEditor
@@ -101,34 +101,22 @@ describe("AutoRouteOverridesEditor", () => {
         onChange={onChange}
       />,
     );
-    const modeGroup = screen.getByRole("group", { name: "Autoルーティング設定のモード" });
-    expect(modeGroup.className).toContain("grid-cols-3");
-    expect(within(modeGroup).getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "コスト優先*",
-      "バランス",
-      "知能優先",
-    ]);
-    // The editor keeps its own edit-mode, seeded from the prop. The active
-    // (prop) mode is also marked with "*", so match by prefix.
-    const pressedName = () =>
-      screen
-        .getAllByRole("button")
-        .filter((button) => button.getAttribute("aria-pressed") === "true")
-        .map((button) => button.textContent ?? "");
-    expect(pressedName()).toEqual(["コスト優先*"]);
-    // Locally switching to another mode is allowed.
-    fireEvent.click(screen.getByRole("button", { name: "知能優先" }));
-    expect(pressedName()).toEqual(["知能優先"]);
-    // A later prop change wins again (useEffect(() => setEditMode(mode), [mode])).
+    const modeGrid = screen.getByRole("group", { name: "Auto ルーティング設定一覧" });
+    expect(modeGrid.className).toContain("grid-cols-3");
+    expect(within(modeGrid).getAllByRole("button", { name: "候補を追加" })).toHaveLength(9);
+    const modeLabels = () =>
+      Array.from(modeGrid.children).map((column) => column.querySelector("p")?.textContent ?? "");
+    expect(modeLabels()).toEqual(["コスト優先*", "バランス", "知能優先"]);
+
     rerender(
       <AutoRouteOverridesEditor
-        mode="balanced"
+        mode="intelligence"
         config={{ version: 2, modes: {} }}
         models={[]}
         onChange={onChange}
       />,
     );
-    expect(pressedName()).toEqual(["バランス*"]);
+    expect(modeLabels()).toEqual(["コスト優先", "バランス", "知能優先*"]);
   });
 
   it("offers a global reset only when an override exists", () => {

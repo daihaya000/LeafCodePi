@@ -72,14 +72,13 @@ describe("AutoModelSettings", () => {
     );
     render(<AutoModelSettings />);
     await waitFor(() => expect(screen.queryByText("モデルを読み込み中…")).toBeNull());
-    const pressed = screen
-      .getAllByRole("button")
-      .filter((button) => button.getAttribute("aria-pressed") === "true")
-      .map((button) => button.textContent ?? "");
+    const routeModeLabels = Array.from(
+      screen.getByRole("group", { name: "Auto ルーティング設定一覧" }).children,
+    ).map((column) => column.querySelector("p")?.textContent ?? "");
     // The active-mode marker "*" is expected here because the component's own
     // mode state (kept local, from the stored setting) matches the editor's
     // current mode prop.
-    expect(pressed).toEqual(["知能優先*"]);
+    expect(routeModeLabels).toContain("知能優先*");
   });
 
   it("restores a valid server mode when the local mode is invalid", async () => {

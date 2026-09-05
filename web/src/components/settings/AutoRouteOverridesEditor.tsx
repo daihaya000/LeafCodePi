@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { ChevronDown, ChevronUp, Plus, RotateCcw, X } from "lucide-react";
 import { IntelligenceSelect } from "@/components/IntelligenceSelect";
 import { ModelSelect } from "@/components/ModelSelect";
-import { Button, cx } from "@/components/ui";
+import { Button } from "@/components/ui";
 import {
   AUTO_OPTIMIZE_MODES,
   autoOptimizeModeLabel,
@@ -458,22 +458,16 @@ export function AutoRouteOverridesEditor({
   providers?: AutoRouteProviders;
   onChange: (next: AutoRouteConfig) => void;
 }) {
-  const [editMode, setEditMode] = useState<AutoOptimizeMode>(mode);
-  useEffect(() => setEditMode(mode), [mode]);
   const source = useMemo<AutoRouteSource>(
     () => models ?? providers ?? [],
     [models, providers],
   );
   const modelOptions = useMemo(() => autoRouteModelOptions(source), [source]);
   const hasAnyOverride = !isAutoRouteConfigEmpty(config);
-  const modeHasOverride = TIERS.some(
-    (tier) => !cellMatchesPreset(editMode, tier, config.modes[editMode]?.[tier]),
-  );
 
-  const setModeConfig = (nextModeRoute: AutoModeRoute | undefined) => {
+  const resetModeConfig = (targetMode: AutoOptimizeMode) => {
     const modes = { ...config.modes };
-    if (!nextModeRoute || Object.keys(nextModeRoute).length === 0) delete modes[editMode];
-    else modes[editMode] = nextModeRoute;
+    delete modes[targetMode];
     onChange(normalizeAutoRouteConfig({ version: 2, modes }));
   };
 
@@ -494,61 +488,51 @@ export function AutoRouteOverridesEditor({
         )}
       </div>
       <div className="space-y-4 rounded-lg border border-border bg-surface-2 px-3 py-3">
-        <div className="space-y-2">
-          <div
-            role="group"
-            aria-label="Autoルーティング設定のモード"
-            className="grid grid-cols-3 gap-1 rounded-lg bg-surface-3 p-1"
-          >
-            {AUTO_OPTIMIZE_MODES.map((candidateMode) => {
-              const selected = candidateMode === editMode;
-              return (
-                <button
-                  key={candidateMode}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => setEditMode(candidateMode)}
-                  className={cx(
-                    "min-h-11 rounded-md px-2 py-2 text-xs font-medium transition-colors",
-                    selected
-                      ? "bg-primary text-primary-fg"
-                      : "text-muted hover:bg-surface hover:text-text",
-                  )}
-                >
-                  {autoOptimizeModeLabel(candidateMode)}
-                  {candidateMode === mode && <span className="ml-1">*</span>}
-                </button>
-              );
-            })}
-          </div>
-          {modeHasOverride && (
-            <div className="flex justify-end">
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label={`${autoOptimizeModeLabel(editMode)}モードをリセット`}
-                onClick={() => setModeConfig(undefined)}
-              >
-                <RotateCcw className="h-3 w-3" />
-                このモードをリセット
-              </Button>
-            </div>
-          )}
-        </div>
         <p className="text-xs text-muted">
-          タブで編集対象のモードを選べます。未編集のtierはそのモードの初期値のまま動きます。
+          各モードのtier設定を一覧で編集できます。*は現在の最適化方針です。未編集のtierはそのモードの初期値のまま動きます。
         </p>
-        {TIERS.map((tier) => (
-          <TierEditor
-            key={tier}
-            mode={editMode}
-            tier={tier}
-            config={config}
-            source={source}
-            modelOptions={modelOptions}
-            onChange={onChange}
-          />
-        ))}
+        <div
+          role="group"
+          aria-label="Auto ルーティング設定一覧"
+          className="grid grid-cols-3 gap-3"
+        >
+          {AUTO_OPTIMIZE_MODES.map((candidateMode) => {
+            const hasModeOverride = TIERS.some(
+              (tier) => !cellMatchesPreset(candidateMode, tier, config.modes[candidateMode]?.[tier]),
+            );
+            return (
+              <div key={candidateMode} className="min-w-0 space-y-2">
+                <div className="flex min-h-9 items-center justify-between gap-1">
+                  <p className="min-w-0 truncate text-xs font-semibold text-muted">
+                    {autoOptimizeModeLabel(candidateMode)}
+                    {candidateMode === mode && <span className="ml-1">*</span>}
+                  </p>
+                  {hasModeOverride && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`${autoOptimizeModeLabel(candidateMode)}モードをリセット`}
+                      onClick={() => resetModeConfig(candidateMode)}
+                    >
+                      <RotateCcw className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+                {TIERS.map((tier) => (
+                  <TierEditor
+                    key={`${candidateMode}-${tier}`}
+                    mode={candidateMode}
+                    tier={tier}
+                    config={config}
+                    source={source}
+                    modelOptions={modelOptions}
+                    onChange={onChange}
+                  />
+                ))}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
