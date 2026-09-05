@@ -222,7 +222,7 @@ export function formatElapsed(ms: number): string {
   return `${seconds}s`;
 }
 
-/** 実行中は 500ms 毎に、終了後は固定値で経過時間を返す。 */
+/** 実行中は秒表示に合わせて 1 秒毎に、終了後は固定値で経過時間を返す。 */
 function useElapsedMs(startedAtMs: number | undefined, endedAtMs: number | undefined): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -230,7 +230,7 @@ function useElapsedMs(startedAtMs: number | undefined, endedAtMs: number | undef
       setNow(endedAtMs);
       return;
     }
-    const timer = window.setInterval(() => setNow(Date.now()), 500);
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [endedAtMs]);
   if (startedAtMs === undefined) return 0;
