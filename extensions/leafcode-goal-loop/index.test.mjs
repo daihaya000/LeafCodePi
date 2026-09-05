@@ -693,6 +693,74 @@ test("does not finalize before a compaction retry has fully settled", async () =
   }
 });
 
+test("requeues a Goal loop provider-limit turn when a fallback route is available", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-provider-fallback-"));
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  let canRetryCount = 0;
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    canRetryGoalLoopProviderLimit: async () => {
+      canRetryCount += 1;
+      return true;
+    },
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "provider-fallback-session",
+      getBranch: () => [],
+    },
+    ui: {
+      setStatus: () => {},
+      setWidget: () => {},
+      notify: () => {},
+    },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand(name, options) { commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage() {
+      sendCount += 1;
+      busy = true;
+      busy = false;
+    },
+  };
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 1 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{ role: "assistant", stopReason: "error", errorMessage: "usage limit reached", content: [] }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+
+    const loop = JSON.parse(
+      readFileSync(join(cwd, ".pi", "goals-loop", "provider-fallback-session.json"), "utf8"),
+    );
+    assert.equal(canRetryCount, 1);
+    assert.equal(sendCount, 1);
+    assert.equal(loop.status, "queued");
+    assert.equal(loop.pauseReason, "");
+    assert.equal(loop.turnCount, 0);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("pauses a Goal loop after a final provider error instead of scheduling another turn", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-provider-error-"));
   const handlers = new Map();

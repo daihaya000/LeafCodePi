@@ -92,6 +92,8 @@ const runtimes = new Map<string, Runtime>();
 type GoalLoopTurnRoutingContext = ExtensionContext & {
   /** Returns false when routing replaced this session, or retry when not attached yet. */
   prepareGoalLoopTurn?: () => Promise<boolean | "retry">;
+  /** Checks whether a provider-limit turn can be retried on a fallback route. */
+  canRetryGoalLoopProviderLimit?: () => Promise<boolean>;
 };
 
 type Runtime = {
@@ -690,7 +692,7 @@ function errorFromAgentMessages(messages: unknown[]): string | null {
   return null;
 }
 
-function settleAwaitingTurn(runtime: Runtime): void {
+async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
   if (!runtime.awaitingTurn) {
     clearPendingAgentRun(runtime);
     return;
@@ -711,6 +713,31 @@ function settleAwaitingTurn(runtime: Runtime): void {
     return;
   }
   if (error) {
+    let canRetry = false;
+    try {
+      canRetry = await runtime.ctx.canRetryGoalLoopProviderLimit?.() ?? false;
+    } catch {
+      canRetry = false;
+    }
+    if (canRetry) {
+      clearTimer(runtime);
+      runtime.awaitingTurn = false;
+      runtime.awaitingTurnIndex = undefined;
+      runtime.pausedTurnIndex = undefined;
+      clearPendingAgentRun(runtime);
+      if (loop.turnKind === "goal") {
+        loop.turnCount = Math.max(0, loop.turnCount - 1);
+      }
+      loop.status = loop.turnKind === "verification" ? "verifying_completed" : "queued";
+      loop.pauseReason = "";
+      loop.error = "";
+      loop.nextTurnAt = null;
+      writeLoop(loop);
+      updateUI(runtime, loop);
+      appendSnapshot(runtime, loop);
+      schedule(runtime);
+      return;
+    }
     pauseLoop(runtime, "scheduler_error", error);
     clearPendingAgentRun(runtime);
     return;
@@ -1352,7 +1379,7 @@ export default function (pi: ExtensionAPI): void {
       return;
     }
     if (current.awaitingTurn && loop.status === "running") {
-      settleAwaitingTurn(current);
+      await settleAwaitingTurn(current);
       return;
     }
     clearPendingAgentRun(current);

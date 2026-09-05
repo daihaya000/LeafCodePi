@@ -1467,7 +1467,7 @@ function applySessionCompactionSettings(
   }
   settingsManager.applyOverrides({
     compaction: {
-      enabled: goalLoopActive ? false : (enabledOverride ?? action === "auto"),
+      enabled: goalLoopActive ? true : (enabledOverride ?? action === "auto"),
       ...(contextWindow > 0 && !goalLoopActive
         ? { reserveTokens: reserveTokensForThreshold(contextWindow, threshold) }
         : {}),
@@ -1876,12 +1876,14 @@ export function syncSessionName(
 
 type GoalLoopTurnRoutingContext = {
   prepareGoalLoopTurn?: () => Promise<boolean | "retry">;
+  canRetryGoalLoopProviderLimit?: () => Promise<boolean>;
 };
 
 function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void {
   return (pi) => {
     pi.on("session_start", (_event, ctx) => {
-      (ctx as GoalLoopTurnRoutingContext).prepareGoalLoopTurn = async () => {
+      const routingContext = ctx as GoalLoopTurnRoutingContext;
+      routingContext.prepareGoalLoopTurn = async () => {
         const before = state().live.get(taskId);
         // A replacement session emits session_start before attachSession(). Let
         // its Goal Loop retry after the harness has subscribed to the session.
@@ -1890,6 +1892,26 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
         }
         const after = await prepareLiveForPrompt(before, true);
         return after.session === before.session;
+      };
+      routingContext.canRetryGoalLoopProviderLimit = async () => {
+        const live = state().live.get(taskId);
+        const task = getTask(taskId);
+        const pending = live?.pendingProviderFallback;
+        if (
+          !live ||
+          live.session.sessionManager !== ctx.sessionManager ||
+          !task ||
+          !pending?.modelID ||
+          !canAutoFallbackTask(task, pending.providerID)
+        ) {
+          return false;
+        }
+        const routes = await resolveProviderFallbackRoutes({
+          providerID: pending.providerID,
+          modelID: pending.modelID,
+          ...(live.accountId ? { accountId: live.accountId } : {}),
+        });
+        return routes.length > 0;
       };
     });
   };
@@ -1910,7 +1932,7 @@ async function createSession(options: {
   agentName?: string | null;
   /** Task id used to prepare the next Goal Loop turn before sending it. */
   taskId?: string;
-  /** Goal Loop sessions intentionally do not inherit WebUI compaction settings. */
+  /** Goal Loop sessions use Pi native compaction instead of WebUI threshold settings. */
   goalLoop?: boolean;
 }): Promise<SessionSetup> {
   const pi = await loadPi();

@@ -19,6 +19,7 @@ const fakePi = vi.hoisted(() => {
     events: string[];
     reloads: number;
     disposed: boolean;
+    compactionEnabledHistory: boolean[];
     emit?: (event: FakeEvent) => void;
   }[] = [];
 
@@ -70,6 +71,7 @@ const fakePi = vi.hoisted(() => {
         events: string[];
         reloads: number;
         disposed: boolean;
+        compactionEnabledHistory: boolean[];
         emit?: (event: FakeEvent) => void;
       } = {
         accountId: options.modelRuntime?.accountId ?? null,
@@ -78,6 +80,7 @@ const fakePi = vi.hoisted(() => {
         events: [] as string[],
         reloads: 0,
         disposed: false,
+        compactionEnabledHistory: [],
       };
       const listeners = new Set<(event: FakeEvent) => void>();
       const emit = (event: FakeEvent) => {
@@ -105,6 +108,13 @@ const fakePi = vi.hoisted(() => {
           return () => listeners.delete(listener);
         },
         bindExtensions: async () => undefined,
+        settingsManager: {
+          applyOverrides: (overrides: { compaction?: { enabled?: boolean } }) => {
+            if (typeof overrides.compaction?.enabled === "boolean") {
+              entry.compactionEnabledHistory.push(overrides.compaction.enabled);
+            }
+          },
+        },
         reload: async () => {
           entry.reloads += 1;
           entry.events.push("reload");
@@ -227,6 +237,24 @@ afterEach(() => {
 });
 
 describe("integrated session routing", () => {
+  it("keeps Pi native compaction enabled for a Goal Loop session", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-loop-compaction-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    await createTask({
+      projectId: project.id,
+      prompt: "Goal loop context compaction",
+      goalLoop: { maxTurns: 1 },
+    });
+
+    assert.equal(fakePi.sessions[0]?.compactionEnabledHistory[0], true);
+  });
+
   it("applies prompt permissions before queueing and persists them on the task", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-prompt-permissions-"));
     tempDirs.push(dir);
