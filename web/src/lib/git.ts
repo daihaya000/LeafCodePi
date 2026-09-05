@@ -62,11 +62,13 @@ export function runGit(
       reject(new Error(`git timed out after ${timeoutMs}ms: git ${args.join(" ")}`));
     }, timeoutMs);
     if (typeof timer.unref === "function") timer.unref();
-    child.stdout.on("data", (c) => {
-      stdout += String(c);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (c: string) => {
+      stdout += c;
     });
-    child.stderr.on("data", (c) => {
-      stderr += String(c);
+    child.stderr.on("data", (c: string) => {
+      stderr += c;
     });
     child.on("error", (err) => {
       if (settled) return;

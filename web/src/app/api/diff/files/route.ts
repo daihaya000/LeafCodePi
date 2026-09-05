@@ -65,23 +65,20 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 件数のみ必要な呼び出し（TaskView の 4 秒ポーリング等）は diff パースや
-    // untracked ファイル読み込みをせず、status porcelain の行数だけで返す。
+    // status also validates repositories without a first commit (HEAD is unborn).
+    const status = await runGit(dir, ["status", "--porcelain", "-uall"]);
+    if (status.code !== 0) {
+      return NextResponse.json(emptyPayload({ error: status.stderr.trim() || "git status failed" }));
+    }
+    const head = await runGit(dir, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+    const branch = head.code === 0 ? head.stdout.trim() || null : "HEAD";
+
+    // 件数ポーリングでは diff パース・untracked ファイル読み込みを省略する。
     if (countOnly) {
-      const head = await runGit(dir, ["rev-parse", "--abbrev-ref", "HEAD"]);
-      if (head.code !== 0) {
-        return NextResponse.json(
-          emptyPayload({ error: head.stderr.trim() || "not a git repository" }),
-        );
-      }
-      const status = await runGit(dir, ["status", "--porcelain", "-uall"]);
-      if (status.code !== 0) {
-        return NextResponse.json(emptyPayload({ error: status.stderr.trim() || "git status failed" }));
-      }
       const count = status.stdout.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
       return NextResponse.json({
         git: true,
-        branch: head.stdout.trim() || null,
+        branch,
         count,
         files: [],
         additions: 0,
@@ -89,22 +86,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const head = await runGit(dir, ["rev-parse", "--abbrev-ref", "HEAD"]);
-    if (head.code !== 0) {
-      return NextResponse.json(
-        emptyPayload({ error: head.stderr.trim() || "not a git repository" }),
-      );
-    }
-    const branch = head.stdout.trim() || null;
-
-    // Untracked files as synthetic all-added entries. porcelain は untracked を
-    // 含む全変更の1行リストで、clean 時は空。まず status を実行し、diff より
-    // 軽い (diff は全ファイルの内容比較が必要なため)。変更がなければ
-    // そのまま空の files を返して git diff HEAD をスキップする。
-    const status = await runGit(dir, ["status", "--porcelain", "-uall"]);
-    if (status.code !== 0) {
-      return NextResponse.json(emptyPayload({ error: status.stderr.trim() || "git status failed" }));
-    }
+    // Clean worktrees need no expensive diff.
     const hasTrackedChanges = status.stdout.split(/\r?\n/).some((line) => line && !line.startsWith("??"));
     const files: DiffFile[] = [];
     if (hasTrackedChanges) {

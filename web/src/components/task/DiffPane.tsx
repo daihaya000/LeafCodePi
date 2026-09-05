@@ -372,10 +372,11 @@ export function DiffPane({
   }, [payload, filter]);
 
   const hasChanges = files.length > 0;
-  const selectedPaths = useMemo(
-    () => files.filter((f) => !deselected[f.path]).map((f) => f.path),
+  const selectedFiles = useMemo(
+    () => files.filter((f) => !deselected[f.path]),
     [files, deselected],
   );
+  const selectedPaths = selectedFiles.map((f) => f.path);
   const allExpanded = files.length > 0 && files.every((f) => expanded[f.path]);
   const allSelected = files.length > 0 && selectedPaths.length === files.length;
   const selectAllFiles = useCallback(
@@ -430,9 +431,9 @@ export function DiffPane({
         directory,
         message: commitMsg.trim(),
         agent,
+        // A displayed selection never authorizes files added after the snapshot.
+        paths: selectedFiles.flatMap((file) => file.oldPath ? [file.oldPath, file.path] : [file.path]),
       };
-      if (selectedPaths.length === payload.files.length) body.all = true;
-      else body.paths = selectedPaths;
       const res = await sendJson<{ summary?: string }>(
         "/api/git/commit",
         body,
@@ -647,7 +648,7 @@ export function DiffPane({
               !branches?.hasRemote ||
               busy ||
               hasChanges ||
-              (branches?.ahead !== undefined && branches.ahead <= 0)
+              (Boolean(branches?.upstream) && branches?.ahead !== undefined && branches.ahead <= 0)
             }
             title={
               !branches?.hasRemote
@@ -680,6 +681,7 @@ export function DiffPane({
             placeholder="コミットメッセージ"
             className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong"
             onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
               if (
                 e.key === "Enter" &&
                 commitMsg.trim() &&

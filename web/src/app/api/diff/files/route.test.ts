@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -96,6 +96,25 @@ describe("GET /api/diff/files", () => {
     expect(payload.files).toEqual([]);
     // count モードでは git diff を一切実行しない。
     expect(callsWith(["diff"]).length).toBe(0);
+  });
+
+  it("lists staged and untracked changes before the first commit", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-diff-initial-"));
+    tempDirs.push(dir);
+    const { runGit } = await vi.importActual<typeof import("@/lib/git")>("@/lib/git");
+    expect((await runGit(dir, ["init"])).code).toBe(0);
+    writeFileSync(join(dir, "staged.txt"), "staged\n");
+    writeFileSync(join(dir, "new.txt"), "new\n");
+    expect((await runGit(dir, ["add", "--", "staged.txt"])).code).toBe(0);
+    mocks.runGit.mockImplementation(runGit);
+
+    const payload = await getFiles(dir);
+    expect(payload.git).toBe(true);
+    expect(payload.files).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "staged.txt", additions: 1 }),
+      expect.objectContaining({ path: "new.txt", additions: 1, untracked: true }),
+    ]));
+    expect(await getFileCount(dir)).toMatchObject({ git: true, count: 2 });
   });
 
   it("returns git:false for a non-repository directory", async () => {

@@ -1,3 +1,5 @@
+import { lstatSync } from "node:fs";
+import { resolve } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { commitPathError, gitDirectoryError, runGit } from "@/lib/git";
 
@@ -65,12 +67,17 @@ export async function POST(req: NextRequest) {
       const err = commitPathError(p);
       if (err) return NextResponse.json({ error: err }, { status: 400 });
     }
-    const add = await runGit(directory, ["add", "--", ...validPaths]);
-    if (add.code !== 0) {
-      return NextResponse.json(
-        { error: add.stderr.trim() || "git add failed" },
-        { status: 500 },
-      );
+    // A staged rename has already removed its old path from the index.
+    // Stage existing paths (including new files); commit --paths records deletions.
+    const stagePaths = validPaths.filter((p) => lstatSync(resolve(directory, p), { throwIfNoEntry: false }));
+    if (stagePaths.length > 0) {
+      const add = await runGit(directory, ["--literal-pathspecs", "add", "--", ...stagePaths]);
+      if (add.code !== 0) {
+        return NextResponse.json(
+          { error: add.stderr.trim() || "git add failed" },
+          { status: 500 },
+        );
+      }
     }
   } else {
     return NextResponse.json(
@@ -79,7 +86,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const commitArgs = ["commit", "-m", message.trim()];
+  const commitArgs = ["--literal-pathspecs", "commit", "-m", message.trim()];
   if (!all && validPaths?.length) {
     commitArgs.push("--", ...validPaths);
   }

@@ -127,6 +127,69 @@ describe("DiffPane 全選択", () => {
     expect(screen.getByRole("button", { name: "コミット (1)" })).toBeTruthy();
   });
 
+  it("commits explicit displayed paths even when every file is selected", async () => {
+    mocks.sendJson.mockResolvedValue({ summary: "ok" });
+    render(<DiffPane directory={"C:\\repo"} />);
+    await screen.findByText("a.ts");
+    fireEvent.click(screen.getByRole("button", { name: "Commit パネル" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "コミットメッセージ" }), { target: { value: "更新" } });
+    fireEvent.click(screen.getByRole("button", { name: "コミット (2)" }));
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      "/api/git/commit",
+      { directory: "C:\\repo", message: "更新", paths: ["src/a.ts", "src/b.ts"], agent: undefined },
+      "POST",
+    ));
+  });
+
+  it("includes the old path when committing only a rename", async () => {
+    const base = mocks.getJson.getMockImplementation()!;
+    mocks.getJson.mockImplementation((url: string) => url === "/api/diff/files"
+      ? Promise.resolve({ git: true, files: [{ ...files[0], oldPath: "src/old.ts" }, files[1]], additions: 1, deletions: 2 })
+      : base(url));
+    mocks.sendJson.mockResolvedValue({ summary: "ok" });
+    render(<DiffPane directory="C:\\repo" />);
+    await screen.findByText("a.ts");
+    fireEvent.click(screen.getByRole("checkbox", { name: "src/b.ts をコミット対象にする" }));
+    fireEvent.click(screen.getByRole("button", { name: "Commit パネル" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "コミットメッセージ" }), { target: { value: "名前変更" } });
+    fireEvent.click(screen.getByRole("button", { name: "コミット (1)" }));
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      "/api/git/commit", expect.objectContaining({ paths: ["src/old.ts", "src/a.ts"] }), "POST",
+    ));
+  });
+
+  it("allows the first push without an upstream", async () => {
+    mocks.getJson.mockImplementation((url: string) => Promise.resolve(
+      url === "/api/git/branches"
+        ? { current: "main", branches: ["main"], hasRemote: true, upstream: null, ahead: -1 }
+        : url === "/api/diff/files"
+          ? { git: true, files: [], additions: 0, deletions: 0 }
+          : { available: false },
+    ));
+    mocks.sendJson.mockResolvedValue({ summary: "ok" });
+    render(<DiffPane directory={"C:\\repo"} />);
+    const push = screen.getByRole("button", { name: "現在のブランチをプッシュ" }) as HTMLButtonElement;
+    await waitFor(() => expect(push.disabled).toBe(false));
+    fireEvent.click(push);
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      "/api/git/push", { directory: "C:\\repo", setUpstream: true }, "POST",
+    ));
+  });
+
+  it("does not commit on an IME confirmation Enter", async () => {
+    mocks.sendJson.mockResolvedValue({ summary: "ok" });
+    render(<DiffPane directory="C:\\repo" />);
+    await screen.findByText("a.ts");
+    fireEvent.click(screen.getByRole("button", { name: "Commit パネル" }));
+    const input = screen.getByRole("textbox", { name: "コミットメッセージ" });
+    fireEvent.change(input, { target: { value: "変更" } });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+    expect(mocks.sendJson).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledOnce());
+  });
+
   it("変更のみ表示でコンテキスト行が隠れ、変更行は残る", async () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/diff/files") {

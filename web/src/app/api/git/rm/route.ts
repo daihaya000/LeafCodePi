@@ -49,14 +49,20 @@ export async function POST(req: NextRequest) {
   if (!fs.existsSync(abs)) {
     return errorResponse("file was not found", 404);
   }
+  try {
+    // Check the parent: removing a symlink itself is safe, following one is not.
+    if (!isUnder(fs.realpathSync.native(directory), fs.realpathSync.native(path.dirname(abs)))) {
+      return errorResponse("file path is outside the project", 403);
+    }
+  } catch {
+    return errorResponse("file path could not be resolved", 403);
+  }
 
-  const tracked = await runGit(directory, [
-    "ls-files",
-    "--error-unmatch",
-    "--",
-    body.path,
-  ]);
-  if (tracked.code === 0) {
+  const tracked = await runGit(directory, ["ls-files", "-z", "--", body.path]);
+  if (tracked.code !== 0) {
+    return errorResponse(tracked.stderr.trim() || "git ls-files failed", 500);
+  }
+  if (tracked.stdout) {
     const rm = await runGit(directory, ["rm", "-f", "--", body.path]);
     if (rm.code !== 0) {
       return errorResponse(rm.stderr.trim() || "git rm failed", 500);
