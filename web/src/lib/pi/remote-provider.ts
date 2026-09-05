@@ -22,7 +22,7 @@ type ModelRow = {
   provider: string;
   baseUrl: string;
   reasoning: boolean;
-  input: ["text"];
+  input: ("text" | "image")[];
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
   contextWindow: number;
   maxTokens: number;
@@ -45,7 +45,8 @@ export function modelRows(
   return body.data.flatMap((row) => {
     if (!isRecord(row) || typeof row.id !== "string" || !row.id.trim()) return [];
     const contextWindow = REMOTE_CONTEXT_WINDOW;
-    const reasoning = /qwen3|deepseek-r1|thinking|leafmodel/i.test(row.id);
+    const imageInput = /leafmodel/i.test(row.id);
+    const reasoning = /qwen3|deepseek-r1|thinking/i.test(row.id) || imageInput;
     return [{
       id: row.id,
       name: row.id,
@@ -53,7 +54,7 @@ export function modelRows(
       provider: REMOTE_PROVIDER_ID,
       baseUrl,
       reasoning,
-      input: ["text"],
+      input: imageInput ? ["text", "image"] : ["text"],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow,
       maxTokens: Math.min(contextWindow, 32_768),

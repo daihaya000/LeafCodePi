@@ -30,6 +30,7 @@ describe("remote-provider", () => {
   it("marks LeafModel as a reasoning model so effort options are available", () => {
     expect(modelRows({ data: [{ id: "LeafModel" }] })[0]).toMatchObject({
       reasoning: true,
+      input: ["text", "image"],
     });
   });
 
