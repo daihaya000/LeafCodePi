@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   shouldAutoSendQueuedFollowUp,
   shouldClearPendingUserMessageOnEvent,
+  shouldClearQueuedFollowUpOnAbortState,
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
   shouldQueueFollowUp,
@@ -82,6 +83,23 @@ describe("queued follow-up drain", () => {
       }),
     ).toBe(false);
   });
+
+  it("does not drain while SSE is reconnecting or hydrating", () => {
+    expect(
+      shouldDrainQueuedFollowUp({
+        ...idle,
+        sseReconnecting: true,
+        hasQueuedItem: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldDrainQueuedFollowUp({
+        ...idle,
+        sessionHydrating: true,
+        hasQueuedItem: true,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("queued follow-up auto-send", () => {
@@ -134,6 +152,13 @@ describe("queued follow-up hang events", () => {
     expect(shouldClearQueuedFollowUpOnEvent("hang_retry")).toBe(true);
     expect(shouldClearQueuedFollowUpOnEvent("abort")).toBe(true);
     expect(shouldClearQueuedFollowUpOnEvent(undefined)).toBe(false);
+  });
+
+  it("clears the client queue when ready carries an abort sentinel", () => {
+    expect(shouldClearQueuedFollowUpOnAbortState("")).toBe(true);
+    expect(shouldClearQueuedFollowUpOnAbortState("a1")).toBe(true);
+    expect(shouldClearQueuedFollowUpOnAbortState(null)).toBe(false);
+    expect(shouldClearQueuedFollowUpOnAbortState(undefined)).toBe(false);
   });
 
   it("clears steer optimistic rows when abort drops the server queue", () => {

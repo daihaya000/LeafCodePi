@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 40 — SSE再接続で hang_abort 取りこぼし
+
+- バグ: リスナー0件の間に `hang_abort` が drop され、クライアント queue が残り hang resume と二重送信し得た
+- 修正: ready 等で `manualAbortedAssistantId != null` なら queue クリア、drain/auto-send は hydrating/reconnecting 中も抑止
+- 検証: `queued-follow-up.test.ts` 15/15 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 36-39 — hang_abort が sentinel より先に emit
 
 - バグ: `abortLiveForHangWatchdog` が persist 前に `hang_abort` を送り、SSE flush で `manualAbortedAssistantId: null` が正しい `""` を上書きし再開 UI が消える

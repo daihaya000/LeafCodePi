@@ -29,6 +29,8 @@ export function shouldDrainQueuedFollowUp(input: {
   stopRequested: boolean;
   hasQueuedItem: boolean;
   resumingTurn?: boolean;
+  sessionHydrating?: boolean;
+  sseReconnecting?: boolean;
 }): boolean {
   return (
     input.hasQueuedItem &&
@@ -38,7 +40,9 @@ export function shouldDrainQueuedFollowUp(input: {
     !input.goalLoopEnabled &&
     !input.goalLoopLive &&
     !input.stopRequested &&
-    !input.resumingTurn
+    !input.resumingTurn &&
+    !input.sessionHydrating &&
+    !input.sseReconnecting
   );
 }
 
@@ -51,6 +55,8 @@ export function shouldAutoSendQueuedFollowUp(input: {
   stopRequested: boolean;
   hasContent: boolean;
   resumingTurn?: boolean;
+  sessionHydrating?: boolean;
+  sseReconnecting?: boolean;
 }): boolean {
   return (
     input.queuedAutoSend &&
@@ -60,7 +66,9 @@ export function shouldAutoSendQueuedFollowUp(input: {
     !input.goalLoopEnabled &&
     !input.goalLoopLive &&
     !input.stopRequested &&
-    !input.resumingTurn
+    !input.resumingTurn &&
+    !input.sessionHydrating &&
+    !input.sseReconnecting
   );
 }
 
@@ -75,6 +83,16 @@ export function shouldShowOptimisticPendingUser(input: {
 /** Abort / hang abort/retry must drop the client queue before the idle window can drain it. */
 export function shouldClearQueuedFollowUpOnEvent(eventType: string | undefined): boolean {
   return eventType === "abort" || eventType === "hang_abort" || eventType === "hang_retry";
+}
+
+/**
+ * Hang abort may be dropped while SSE has no listeners (reconnect gap).
+ * Ready/bootstrap still carries the abort sentinel — clear the client queue then.
+ */
+export function shouldClearQueuedFollowUpOnAbortState(
+  manualAbortedAssistantId: string | null | undefined,
+): boolean {
+  return manualAbortedAssistantId != null;
 }
 
 /** Steer optimistic rows never landed in history if abort cleared the SDK queue. */

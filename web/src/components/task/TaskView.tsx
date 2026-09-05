@@ -114,6 +114,7 @@ import {
 import {
   shouldAutoSendQueuedFollowUp,
   shouldClearPendingUserMessageOnEvent,
+  shouldClearQueuedFollowUpOnAbortState,
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
   shouldQueueFollowUp,
@@ -852,7 +853,11 @@ export const TaskView = memo(function TaskView({
           if ("manualAbortedAssistantId" in payload) {
             setManualAbortedAssistantId(payload.manualAbortedAssistantId ?? null);
           }
-          if (shouldClearQueuedFollowUpOnEvent(payload.eventType)) {
+          if (
+            shouldClearQueuedFollowUpOnEvent(payload.eventType) ||
+            ("manualAbortedAssistantId" in payload &&
+              shouldClearQueuedFollowUpOnAbortState(payload.manualAbortedAssistantId))
+          ) {
             setQueuedFollowUps([]);
             setQueuedAutoSend(false);
           }
@@ -1627,6 +1632,8 @@ export const TaskView = memo(function TaskView({
         stopRequested,
         hasQueuedItem: queuedFollowUps.length > 0,
         resumingTurn,
+        sessionHydrating,
+        sseReconnecting,
       })
     ) {
       return;
@@ -1643,6 +1650,8 @@ export const TaskView = memo(function TaskView({
     queuedAutoSend,
     queuedFollowUps,
     resumingTurn,
+    sessionHydrating,
+    sseReconnecting,
     stopRequested,
     submitting,
     working,
@@ -1659,6 +1668,8 @@ export const TaskView = memo(function TaskView({
         stopRequested,
         hasContent: Boolean(prompt.trim() || attachments.length > 0),
         resumingTurn,
+        sessionHydrating,
+        sseReconnecting,
       })
     ) {
       if (queuedAutoSend && (stopRequested || (!prompt.trim() && attachments.length === 0))) {
@@ -1675,6 +1686,8 @@ export const TaskView = memo(function TaskView({
     prompt,
     queuedAutoSend,
     resumingTurn,
+    sessionHydrating,
+    sseReconnecting,
     stopRequested,
     submitting,
     working,
