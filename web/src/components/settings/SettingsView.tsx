@@ -75,14 +75,14 @@ function tabFromHash(hash: string): Tab | null {
   return CURRENT_HASH_TAB[key] ?? MIGRATED_HASH_TAB[key] ?? null;
 }
 
-type EngineGroupProps = {
+type SettingsGroupProps = {
   id: string;
   title: string;
   description: string;
   children: ReactNode;
 };
 
-function EngineGroup({ id, title, description, children }: EngineGroupProps) {
+function SettingsGroup({ id, title, description, children }: SettingsGroupProps) {
   return (
     <section aria-labelledby={id} className="space-y-3">
       <header className="px-1">
@@ -234,7 +234,7 @@ export function SettingsView() {
               hidden={tab !== "engine"}
               className="space-y-8"
             >
-              <EngineGroup
+              <SettingsGroup
                 id="engine-runtime-heading"
                 title="ランタイム"
                 description="Pi Coding Agent の状態を確認し、WebUI とトレイホストを管理します。"
@@ -271,9 +271,9 @@ export function SettingsView() {
                   </div>
                   <HostRestartPanel onRestarted={reload} />
                 </div>
-              </EngineGroup>
+              </SettingsGroup>
 
-              <EngineGroup
+              <SettingsGroup
                 id="engine-access-heading"
                 title="アクセスと安全"
                 description="WebUI への接続方法と、システム操作に対する安全ガードを設定します。"
@@ -282,9 +282,9 @@ export function SettingsView() {
                   <WebUiAuthSettings />
                   <SystemSafetySettings />
                 </div>
-              </EngineGroup>
+              </SettingsGroup>
 
-              <EngineGroup
+              <SettingsGroup
                 id="engine-response-heading"
                 title="応答"
                 description="翻訳、コンテキスト節約、自動再開など、応答時の動作を設定します。"
@@ -296,9 +296,9 @@ export function SettingsView() {
                   <CompactionSettings />
                   <HangTimeoutSettings />
                 </div>
-              </EngineGroup>
+              </SettingsGroup>
 
-              <EngineGroup
+              <SettingsGroup
                 id="engine-display-heading"
                 title="表示と通知"
                 description="起動時の表示、通知音、メッセージ移動ボタンを設定します。"
@@ -314,7 +314,7 @@ export function SettingsView() {
                     </p>
                   </div>
                 </div>
-              </EngineGroup>
+              </SettingsGroup>
             </section>
           )}
 
@@ -324,33 +324,52 @@ export function SettingsView() {
               role="tabpanel"
               aria-labelledby="settings-tab-models"
               hidden={tab !== "models"}
-              className="space-y-4"
+              className="space-y-8"
             >
-              <nav
-                aria-label="モデル設定内"
-                className="flex flex-wrap gap-2 rounded-xl border border-border bg-surface p-2 text-xs"
+              <SettingsGroup
+                id="models-catalog-heading"
+                title="モデルカタログ"
+                description="利用可能なモデルの有効状態、表示順、コンテキストサイズを管理します。"
               >
-                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#models-catalog">モデル一覧</a>
-                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#models-local">ローカルLLM</a>
-                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#models-auto">Autoモデル</a>
-                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#models-generation">生成モデル</a>
-                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#models-providers">プロバイダー</a>
-              </nav>
-              <div id="models-catalog" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
-                <ProviderModelsPanel refreshToken={modelsRevision} />
-              </div>
-              <div id="models-local" className="scroll-mt-24">
-                <LlamaServerSettings active={tab === "models"} />
-              </div>
-              <div id="models-auto" className="scroll-mt-24">
-                <AutoModelSettings refreshToken={modelsRevision} />
-              </div>
-              <div id="models-generation" className="scroll-mt-24">
-                <GenerationModelSettings refreshToken={modelsRevision} />
-              </div>
-              <div id="models-providers" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
-                <ProviderAuthPanel providers={providers} onChanged={onProviderChanged} />
-              </div>
+                <div id="models-catalog" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
+                  <ProviderModelsPanel refreshToken={modelsRevision} />
+                </div>
+              </SettingsGroup>
+
+              <SettingsGroup
+                id="models-local-heading"
+                title="ローカル推論"
+                description="llama-server のモデル、起動状態、推論パラメータを設定します。"
+              >
+                <div id="models-local" className="scroll-mt-24">
+                  <LlamaServerSettings active={tab === "models"} />
+                </div>
+              </SettingsGroup>
+
+              <SettingsGroup
+                id="models-generation-heading"
+                title="自動選択と生成"
+                description="自動ルーティングと、タイトル・提案などに使う生成モデルを設定します。"
+              >
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <div id="models-auto" className="scroll-mt-24">
+                    <AutoModelSettings refreshToken={modelsRevision} />
+                  </div>
+                  <div id="models-generation" className="scroll-mt-24">
+                    <GenerationModelSettings refreshToken={modelsRevision} />
+                  </div>
+                </div>
+              </SettingsGroup>
+
+              <SettingsGroup
+                id="models-providers-heading"
+                title="プロバイダー接続"
+                description="各プロバイダーのログイン、APIキー、アカウント、接続先を管理します。"
+              >
+                <div id="models-providers" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
+                  <ProviderAuthPanel providers={providers} onChanged={onProviderChanged} />
+                </div>
+              </SettingsGroup>
             </section>
           )}
 
@@ -360,10 +379,22 @@ export function SettingsView() {
               role="tabpanel"
               aria-labelledby="settings-tab-agents"
               hidden={tab !== "agents"}
-              className="space-y-4"
+              className="space-y-8"
             >
-              <AgentsSettings />
-              <AgentsMdSettings />
+              <SettingsGroup
+                id="agents-management-heading"
+                title="エージェント運用"
+                description="サブエージェントの有効状態、モデル、Effort、定義を管理します。"
+              >
+                <AgentsSettings />
+              </SettingsGroup>
+              <SettingsGroup
+                id="agents-instructions-heading"
+                title="共通指示"
+                description="すべてのプロジェクトとセッションに適用する AGENTS.md を編集します。"
+              >
+                <AgentsMdSettings />
+              </SettingsGroup>
             </section>
           )}
 
@@ -373,29 +404,42 @@ export function SettingsView() {
               role="tabpanel"
               aria-labelledby="settings-tab-extensions"
               hidden={tab !== "extensions"}
-              className="space-y-4"
+              className="space-y-8"
             >
-              <nav
-                aria-label="拡張設定内"
-                className="flex flex-wrap gap-2 rounded-xl border border-border bg-surface p-2 text-xs"
+              <SettingsGroup
+                id="extensions-management-heading"
+                title="拡張機能の管理"
+                description="拡張機能を有効化・無効化し、現在の読み込み先を確認します。"
               >
-                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#extensions-list">拡張機能</a>
-                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#extensions-skills">スキル</a>
-                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#extensions-mcp">MCP</a>
-                <a className="rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-text" href="#extensions-memory">メモリ</a>
-              </nav>
-              <div id="extensions-list" className="scroll-mt-24">
-                <ExtensionsSettings />
-              </div>
-              <div id="extensions-skills" className="scroll-mt-24">
-                <SkillsSettings />
-              </div>
-              <div id="extensions-mcp" className="scroll-mt-24">
-                <McpSettings />
-              </div>
-              <div id="extensions-memory" className="scroll-mt-24">
-                <MemorySettings />
-              </div>
+                <div id="extensions-list" className="scroll-mt-24">
+                  <ExtensionsSettings />
+                </div>
+              </SettingsGroup>
+
+              <SettingsGroup
+                id="extensions-tools-heading"
+                title="スキルと連携"
+                description="スキルと MCP サーバーの有効状態をまとめて管理します。"
+              >
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <div id="extensions-skills" className="scroll-mt-24">
+                    <SkillsSettings />
+                  </div>
+                  <div id="extensions-mcp" className="scroll-mt-24">
+                    <McpSettings />
+                  </div>
+                </div>
+              </SettingsGroup>
+
+              <SettingsGroup
+                id="extensions-memory-heading"
+                title="メモリ"
+                description="永続メモリの動作、容量、保存タイミングを設定し、保存済みデータを検索します。"
+              >
+                <div id="extensions-memory" className="scroll-mt-24">
+                  <MemorySettings />
+                </div>
+              </SettingsGroup>
             </section>
           )}
         </div>

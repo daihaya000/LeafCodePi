@@ -535,7 +535,7 @@ export function ProviderModelsPanel({
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h2 className="mb-1 text-sm font-semibold">モデル</h2>
+          <h3 className="mb-1 text-sm font-semibold">モデル</h3>
           <p className="text-xs text-muted">
             無効にしたモデルはホームとタスクの選択から外れます。ドラッグまたは上下ボタンで並び替えできます。
             {providers.length > 0 && `（${providers.length} モデル枠・有効 ${enabledCount} モデル）`}

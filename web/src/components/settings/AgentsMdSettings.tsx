@@ -82,7 +82,7 @@ export function AgentsMdSettings() {
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold">カスタム指示（AGENTS.md）</h2>
+          <h3 className="text-sm font-semibold">カスタム指示（AGENTS.md）</h3>
           <p className="mt-1 text-xs text-muted">
             全プロジェクト共通の指示です。Pi は <span className="font-mono">~/.pi/agent/AGENTS.md</span>{" "}
             を読み込みます。保存すると開いているセッションにも即時反映され（進行中の応答の次のターンから）。

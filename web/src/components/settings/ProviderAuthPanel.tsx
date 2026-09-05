@@ -940,7 +940,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="mb-2 text-sm font-semibold">プロバイダー</h2>
+        <h3 className="mb-2 text-sm font-semibold">プロバイダー</h3>
         <p className="mb-3 text-xs text-muted">
           Claude Pro/Max（Anthropic）、ChatGPT Plus/Pro（OpenAI
           Codex）、Cursor、OpenCode、Command Code（Go プラン可）、および Ollama

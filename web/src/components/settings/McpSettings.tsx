@@ -63,7 +63,7 @@ export function McpSettings() {
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">MCP サーバー</h2>
+        <h3 className="text-sm font-semibold">MCP サーバー</h3>
         <Button variant="secondary" size="sm" onClick={() => reload()} disabled={loading || Boolean(busyId)}>
           再読込
         </Button>

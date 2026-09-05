@@ -251,7 +251,7 @@ export const GenerationModelSettings = memo(function GenerationModelSettings({
 
   return (
     <section aria-labelledby="generation-model-heading" className="rounded-2xl border border-border bg-surface p-4">
-      <h2 id="generation-model-heading" className="text-sm font-semibold">生成モデル</h2>
+      <h3 id="generation-model-heading" className="text-sm font-semibold">生成モデル</h3>
       <p className="mt-1 text-xs text-muted">
         タイトル、NextAction、NextTask、コミットメッセージの提案に使うモデルです。未設定時は画面で選択したモデルを使います。認証済みのAPI・サブスク・ローカルプロバイダーを選択できます。
       </p>

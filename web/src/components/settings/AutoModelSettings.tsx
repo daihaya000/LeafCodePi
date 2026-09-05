@@ -108,7 +108,7 @@ export function AutoModelSettings({ refreshToken = 0 }: { refreshToken?: number 
 
   return (
     <section aria-labelledby="auto-mode-heading" className="rounded-2xl border border-border bg-surface p-4">
-      <h2 id="auto-mode-heading" className="text-sm font-semibold">Autoモデル</h2>
+      <h3 id="auto-mode-heading" className="text-sm font-semibold">Autoモデル</h3>
       <p className="mt-1 text-xs text-muted">
         Autoはタスクごとにモデルを選びます。最適化方針はcomposerのeffort欄からも変更できます。
       </p>

@@ -367,7 +367,7 @@ export function LlamaServerSettings(
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold">ローカル LLM (llama-server)</h2>
+          <h3 className="text-sm font-semibold">ローカル LLM (llama-server)</h3>
           <p className="mt-1 text-xs text-muted">
             ローカルモデルを起動・停止します。起動時にモデルがロードされ、停止時にアンロードされます。
           </p>

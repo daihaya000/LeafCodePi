@@ -205,7 +205,7 @@ export function MemorySettings() {
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold">メモリ</h2>
+          <h3 className="text-sm font-semibold">メモリ</h3>
           <p className="mt-1 text-xs text-muted">
             永続メモリ、学習ループ、保存タイミングを設定します。パス・正規表現・カスタム本文は設定ファイルで管理します。
           </p>

@@ -14,21 +14,21 @@ vi.mock("@/lib/client", () => ({ getJson }));
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuHeader: () => null }));
 vi.mock("@/components/settings/HostRestartPanel", () => ({ HostRestartPanel: () => null }));
 vi.mock("@/components/settings/LlamaServerSettings", () => ({
-  LlamaServerSettings: () => <h2>ローカル LLM</h2>,
+  LlamaServerSettings: () => <h3>ローカル LLM</h3>,
 }));
 vi.mock("@/components/settings/ProviderModelsPanel", () => ({
-  ProviderModelsPanel: () => <h2>モデル</h2>,
+  ProviderModelsPanel: () => <h3>モデル</h3>,
 }));
 vi.mock("@/components/settings/ProviderAuthPanel", () => ({
   ProviderAuthPanel: ({ providers }: { providers: unknown[] }) => (
     <>
-      <h2>プロバイダー</h2>
+      <h3>プロバイダー</h3>
       <span data-testid="provider-count">{providers.length}</span>
     </>
   ),
 }));
 vi.mock("@/components/settings/GenerationModelSettings", () => ({
-  GenerationModelSettings: () => <h2>生成モデル</h2>,
+  GenerationModelSettings: () => <h3>生成モデル</h3>,
 }));
 vi.mock("@/components/settings/BrowserSettings", () => ({
   BrowserSettings: () => {
@@ -58,7 +58,7 @@ vi.mock("@/components/settings/HangTimeoutSettings", () => ({
   HangTimeoutSettings: () => <h3>ハング判定</h3>,
 }));
 vi.mock("@/components/settings/AgentsMdSettings", () => ({
-  AgentsMdSettings: () => <h2>AGENTS.md</h2>,
+  AgentsMdSettings: () => <h3>AGENTS.md</h3>,
 }));
 vi.mock("@/components/settings/MemorySettings", () => ({
   MemorySettings: () => {
@@ -67,23 +67,23 @@ vi.mock("@/components/settings/MemorySettings", () => ({
     }, []);
     return (
       <>
-        <h2>メモリ</h2>
+        <h3>メモリ</h3>
         <input aria-label="メモリ設定の下書き" defaultValue="" />
       </>
     );
   },
 }));
 vi.mock("@/components/settings/SkillsSettings", () => ({
-  SkillsSettings: () => <h2>スキル</h2>,
+  SkillsSettings: () => <h3>スキル</h3>,
 }));
 vi.mock("@/components/settings/AgentsSettings", () => ({
-  AgentsSettings: () => <h2>エージェント</h2>,
+  AgentsSettings: () => <h3>エージェント</h3>,
 }));
 vi.mock("@/components/settings/ExtensionsSettings", () => ({
-  ExtensionsSettings: () => <h2>拡張機能</h2>,
+  ExtensionsSettings: () => <h3>拡張機能</h3>,
 }));
 vi.mock("@/components/settings/McpSettings", () => ({
-  McpSettings: () => <h2>MCPサーバー</h2>,
+  McpSettings: () => <h3>MCPサーバー</h3>,
 }));
 
 describe("SettingsView", () => {
@@ -100,18 +100,24 @@ describe("SettingsView", () => {
     getJson.mockReset();
   });
 
-  it("モデルタブをモデル、ローカルLLM、Autoモデル、生成モデル、プロバイダーの順に表示する", () => {
+  it("モデルタブを役割ごとのグループに分けて表示する", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^モデルタブ$/ }));
 
-    expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
+    const modelsPanel = screen.getByRole("tabpanel");
+    expect(
+      Array.from(modelsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
+        (heading) => heading.textContent,
+      ),
+    ).toEqual(["モデルカタログ", "ローカル推論", "自動選択と生成", "プロバイダー接続"]);
+    expect(Array.from(modelsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "モデル",
       "ローカル LLM",
       "Autoモデル",
       "生成モデル",
       "プロバイダー",
     ]);
-    expect(within(screen.getByRole("navigation", { name: "モデル設定内" })).getAllByRole("link")).toHaveLength(5);
+    expect(screen.queryByRole("navigation", { name: "モデル設定内" })).toBeNull();
   });
 
   it("ヘルス取得が遅くてもプロバイダー一覧を先に反映する", async () => {
@@ -217,11 +223,17 @@ describe("SettingsView", () => {
     expect(window.location.hash).toBe("#engine");
   });
 
-  it("エージェントタブにAGENTS.mdとエージェントだけを表示する", () => {
+  it("エージェントタブを運用と共通指示のグループに分ける", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^エージェントタブ$/ }));
 
-    expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
+    const agentsPanel = screen.getByRole("tabpanel");
+    expect(
+      Array.from(agentsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
+        (heading) => heading.textContent,
+      ),
+    ).toEqual(["エージェント運用", "共通指示"]);
+    expect(Array.from(agentsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "エージェント",
       "AGENTS.md",
     ]);
@@ -229,17 +241,23 @@ describe("SettingsView", () => {
     expect(screen.queryByRole("heading", { name: "スキル" })).toBeNull();
   });
 
-  it("拡張タブに拡張機能・メモリ・スキル・MCPサーバーを表示する", () => {
+  it("拡張タブを管理、連携、メモリのグループに分ける", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^拡張タブ$/ }));
 
-    expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
+    const extensionsPanel = screen.getByRole("tabpanel");
+    expect(
+      Array.from(extensionsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
+        (heading) => heading.textContent,
+      ),
+    ).toEqual(["拡張機能の管理", "スキルと連携", "メモリ"]);
+    expect(Array.from(extensionsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "拡張機能",
       "スキル",
       "MCPサーバー",
       "メモリ",
     ]);
-    expect(within(screen.getByRole("navigation", { name: "拡張設定内" })).getAllByRole("link")).toHaveLength(4);
+    expect(screen.queryByRole("navigation", { name: "拡張設定内" })).toBeNull();
   });
 
   it("旧 #general-basic / #general-response ハッシュからエンジンタブにリダイレクトする", () => {

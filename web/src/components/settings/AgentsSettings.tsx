@@ -609,7 +609,7 @@ export function AgentsSettings() {
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">エージェント（subagents）</h2>
+        <h3 className="text-sm font-semibold">エージェント（subagents）</h3>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" onClick={() => reload()} disabled={loading || Boolean(busyId)}>
             再読込
