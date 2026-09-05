@@ -194,7 +194,7 @@ export function NextAction({
           className="h-11 min-w-0 px-3 md:h-8 md:px-2.5"
         >
           {state.kind !== "loading" && <Sparkles className="h-3.5 w-3.5" />}
-          {state.kind === "success" ? "提案を表示" : "次の指示を提案"}
+          {state.kind === "success" ? "提案を表示" : "提案"}
         </Button>
         {state.kind === "loading" && (
           <span role="status" aria-live="polite" className="sr-only">
