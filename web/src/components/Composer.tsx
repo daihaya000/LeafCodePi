@@ -15,6 +15,7 @@ import type {
   RefObject,
   UIEventHandler,
 } from "react";
+import { createPortal } from "react-dom";
 import { Paperclip, UsersRound, Wrench, X } from "lucide-react";
 import {
   composerReferenceToolNames,
@@ -38,6 +39,82 @@ export type ComposerReferences = {
   skills?: readonly ComposerReference[];
   agents?: readonly ComposerReference[];
 };
+
+export function ImageLightbox({
+  src,
+  alt,
+  className,
+  triggerClassName,
+}: {
+  src: string;
+  alt: string;
+  className: string;
+  triggerClassName?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const focusTimer = window.setTimeout(() => closeButtonRef.current?.focus(), 0);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", onKeyDown);
+      if (previousFocus && document.contains(previousFocus)) previousFocus.focus();
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={`${alt}を拡大表示`}
+        title="クリックで拡大表示"
+        onClick={() => setOpen(true)}
+        className={`block cursor-zoom-in border-0 bg-transparent p-0 ${triggerClassName ?? ""}`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={alt} className={className} />
+      </button>
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${alt}（拡大表示）`}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
+            onClick={() => setOpen(false)}
+          >
+            <button
+              ref={closeButtonRef}
+              type="button"
+              aria-label="画像を閉じる"
+              onClick={() => setOpen(false)}
+              className="absolute top-4 right-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={src}
+              alt={alt}
+              className="max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] rounded-lg object-contain shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            />
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
 
 type ComposerProps = {
   className: string;
@@ -184,8 +261,11 @@ export function Composer({
               key={`${attachment.uri}-${index}`}
               className="relative inline-flex overflow-hidden rounded-lg border border-border"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={attachment.uri} alt={attachment.name ?? "添付"} className="h-16 w-16 object-cover" />
+              <ImageLightbox
+                src={attachment.uri}
+                alt={attachment.name ?? "添付画像"}
+                className="h-16 w-16 object-cover"
+              />
               <button
                 type="button"
                 disabled={attachmentRemovalDisabled}

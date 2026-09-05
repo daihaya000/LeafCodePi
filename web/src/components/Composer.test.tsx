@@ -2,16 +2,22 @@
 import { useRef, useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { Composer } from "./Composer";
+import { Composer, type ComposerAttachment } from "./Composer";
 
-function TestComposer({ value }: { value: string }) {
+function TestComposer({
+  value,
+  attachments = [],
+}: {
+  value: string;
+  attachments?: ComposerAttachment[];
+}) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
     <Composer
       className=""
-      attachments={[]}
+      attachments={attachments}
       onRemoveAttachment={() => {}}
       textarea={{
         ref: textareaRef,
@@ -57,6 +63,21 @@ describe("Composer", () => {
     view.rerender(<TestComposer value="一行目" />);
 
     expect(textarea.style.height).not.toBe("0px");
+  });
+
+  it("opens an attached image and closes it with Escape", () => {
+    render(
+      <TestComposer
+        value=""
+        attachments={[{ uri: "data:image/png;base64,abc", mime: "image/png", name: "shot.png" }]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "shot.pngを拡大表示" }));
+    expect(screen.getByRole("dialog", { name: "shot.png（拡大表示）" })).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "shot.png（拡大表示）" })).toBeNull();
   });
 
   it("suggests and highlights slash skill references", () => {

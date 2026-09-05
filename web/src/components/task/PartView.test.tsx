@@ -149,6 +149,33 @@ describe("PartView response metadata", () => {
     expect(screen.getByText("仕事用")).toBeTruthy();
     expect(screen.getByText("build").querySelector('[data-agent-icon="build"]')).not.toBeNull();
   });
+
+  it("opens timeline images for enlarged viewing", () => {
+    render(
+      <PartView
+        message={{
+          id: "user-image",
+          role: "user",
+          createdAt: 1,
+          parts: [
+            {
+              id: "image-1",
+              type: "image",
+              url: "data:image/png;base64,abc",
+              mime: "image/png",
+              filename: "shot.png",
+            },
+          ],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "shot.pngを拡大表示" }));
+    expect(screen.getByRole("dialog", { name: "shot.png（拡大表示）" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "画像を閉じる" }));
+    expect(screen.queryByRole("dialog", { name: "shot.png（拡大表示）" })).toBeNull();
+  });
 });
 
 describe("PartView memo", () => {

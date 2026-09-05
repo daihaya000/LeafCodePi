@@ -23,6 +23,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { AgentRoleIcon } from "@/components/AgentSelect";
+import { ImageLightbox } from "@/components/Composer";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ReferenceHighlight, type ReferenceHighlightReferences } from "@/components/ReferenceHighlight";
 import { Button, cx, formatMessageTime } from "@/components/ui";
@@ -967,15 +968,12 @@ export const PartView = memo(
           }
           if (part.type === "image") {
             return (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <ImageLightbox
                 key={part.id}
                 src={part.url}
                 alt={part.filename ?? "画像"}
-                className={cx(
-                  "max-h-64 rounded-xl border border-border",
-                  isUser && "ml-auto",
-                )}
+                className="max-h-64 rounded-xl border border-border"
+                triggerClassName={isUser ? "ml-auto" : undefined}
               />
             );
           }
