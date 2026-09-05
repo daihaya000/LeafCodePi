@@ -1,9 +1,9 @@
 ## 2026-09-05 — エージェント一覧の二列表示
 
-- 設定画面のエージェント（subagents）一覧を、拡張機能一覧と同じく grid gap-2 sm:grid-cols-2 に変更した。
-- 対象: web/src/components/settings/AgentsSettings.tsx
-- テスト: AgentsSettings.test.tsx で sm:grid-cols-2 を検証。
-- 併せて CodexBar の二列グリッドを items-start → items-stretch に揃え（カード高さ揃え）。
+- 設定画面のエージェント（subagents）一覧を、拡張機能一覧と同じく `grid gap-2 sm:grid-cols-2` に変更した。
+- 対象: `web/src/components/settings/AgentsSettings.tsx`
+- テスト: `AgentsSettings.test.tsx` で `sm:grid-cols-2` を検証。
+- 併せて CodexBar の二列グリッドを `items-start` → `items-stretch` に揃え（カード高さ揃え）。
 
 ---
 
