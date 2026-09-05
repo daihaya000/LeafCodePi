@@ -43,6 +43,7 @@ export const SSE_CONTROL_SNAPSHOT_EVENT_TYPES = new Set([
   "question_resolved",
   "hang_retry",
   "hang_abort",
+  "hang_idle",
   "error",
   "thinking_level_changed",
   "agent_changed",

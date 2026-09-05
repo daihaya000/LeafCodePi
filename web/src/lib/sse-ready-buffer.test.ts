@@ -201,6 +201,23 @@ describe("sse-ready-buffer", () => {
     expect(prepared).not.toHaveProperty("todos");
     expect(prepared).not.toHaveProperty("contextUsage");
 
+    const hangIdle = preparePendingPayloadForReadyFlush(
+      {
+        type: "snapshot",
+        eventType: "hang_idle",
+        messages: [{ id: "history", createdAt: 1 }],
+        isStreaming: false,
+        task: { status: "idle" },
+      },
+      ready,
+    );
+    expect(hangIdle).toMatchObject({
+      eventType: "hang_idle",
+      isStreaming: false,
+      task: { status: "idle" },
+    });
+    expect(hangIdle).not.toHaveProperty("messages");
+
     const fresher = preparePendingPayloadForReadyFlush(
       {
         type: "snapshot",

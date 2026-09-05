@@ -5561,6 +5561,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
   // 全購読先へ最終状態を送る。idle 保存前に送ると、停止要求元以外のペインが
   // working のまま残り、停止ボタンが再表示される。
   if (live) emitTaskSnapshot(live, "abort", {
+    isStreaming: false,
     permissionRequest: null,
     questionRequest: null,
   });

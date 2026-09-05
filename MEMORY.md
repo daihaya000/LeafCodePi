@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 56 — hang_idle が SSE ready バッファで破棄される
+
+- バグ: `hang_idle` が control イベント集合に無く、ready 後 flush で履歴が古ければ破棄され、再接続中に idle 遷移がクライアントへ届かない
+- 修正: `hang_idle` を `SSE_CONTROL_SNAPSHOT_EVENT_TYPES` に追加。手動 abort でも `isStreaming:false` を明示
+- 検証: `sse-ready-buffer.test.ts` + `harness-agent.test.ts` 31/31 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 54-55 — hang_abort後の偽working残留
 
 - バグ: hang watchdog abort が idle を SSE せず、かつ `toSummary` が残存 isStreaming で status を working に押し上げ、クライアントが busy のまま残り得た
