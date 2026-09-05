@@ -2083,10 +2083,12 @@ export const TaskView = memo(function TaskView({
   }, [pendingUserDelivered]);
   const resumeTarget = useMemo(
     () =>
-      findResumableTurn(visibleMessages, {
-        manualAbortedAssistantId,
-      }),
-    [visibleMessages, manualAbortedAssistantId],
+      working
+        ? null
+        : findResumableTurn(visibleMessages, {
+            manualAbortedAssistantId,
+          }),
+    [visibleMessages, manualAbortedAssistantId, working],
   );
   const showResume =
     active &&
