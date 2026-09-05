@@ -60,6 +60,14 @@ export function shouldAutoSendQueuedFollowUp(input: {
   );
 }
 
+/** Steer injects into the live turn and does not append a user history row. */
+export function shouldShowOptimisticPendingUser(input: {
+  working: boolean;
+  deliveryMode: "queue" | "steer";
+}): boolean {
+  return !(input.working && input.deliveryMode === "steer");
+}
+
 /** Abort / hang abort/retry must drop the client queue before the idle window can drain it. */
 export function shouldClearQueuedFollowUpOnEvent(eventType: string | undefined): boolean {
   return eventType === "abort" || eventType === "hang_abort" || eventType === "hang_retry";

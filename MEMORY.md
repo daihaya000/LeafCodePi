@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 26-29 — steer 後の optimistic ゴースト行
+
+- バグ: steer 送信でも `pendingUserMessage` を立て、履歴に user が増えないため成功後もタイムライン末尾にゴースト行が残る
+- 修正: steer 時は optimistic user 行を出さない（`shouldShowOptimisticPendingUser`）
+- 検証: `queued-follow-up.test.ts` 11/11 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 21-25 — 早期 abort で自動圧縮が止まらない
 
 - バグ: 応答前 Stop で `manualAbortedAssistantId === ""` なのに truthy 判定のため `scheduleAutoCompaction` が圧縮を実行し再開可能なターンを壊し得た

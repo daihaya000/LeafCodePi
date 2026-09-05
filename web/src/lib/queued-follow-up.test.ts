@@ -5,6 +5,7 @@ import {
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
   shouldQueueFollowUp,
+  shouldShowOptimisticPendingUser,
 } from "./queued-follow-up";
 
 const idle = {
@@ -120,5 +121,17 @@ describe("queued follow-up hang events", () => {
     expect(shouldClearPendingUserMessageOnEvent("hang_retry")).toBe(true);
     expect(shouldClearPendingUserMessageOnEvent("prompt_accepted")).toBe(false);
     expect(shouldClearPendingUserMessageOnEvent(undefined)).toBe(false);
+  });
+
+  it("does not show an optimistic user row for steer sends", () => {
+    expect(
+      shouldShowOptimisticPendingUser({ working: true, deliveryMode: "steer" }),
+    ).toBe(false);
+    expect(
+      shouldShowOptimisticPendingUser({ working: true, deliveryMode: "queue" }),
+    ).toBe(true);
+    expect(
+      shouldShowOptimisticPendingUser({ working: false, deliveryMode: "steer" }),
+    ).toBe(true);
   });
 });

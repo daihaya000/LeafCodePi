@@ -117,6 +117,7 @@ import {
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
   shouldQueueFollowUp,
+  shouldShowOptimisticPendingUser,
 } from "@/lib/queued-follow-up";
 import { isHangRetryUserMessage } from "@/lib/hang-retry";
 import { mergeTaskDelta, type TaskDeltaState } from "@/lib/task-delta";
@@ -1443,6 +1444,7 @@ export const TaskView = memo(function TaskView({
         resolvedAutoDecision = result.autoDecision;
         setGoalLoopEnabled(false);
       } else {
+        const isSteer = working && deliveryMode === "steer";
         const optimisticId = `optimistic:${taskId}:${nextOptimisticMessageIdRef.current++}`;
         const optimisticMessage: UiMessage = {
           id: optimisticId,
@@ -1466,10 +1468,19 @@ export const TaskView = memo(function TaskView({
             filename: attachment.name,
           });
         });
-        setPendingUserMessage({
-          message: optimisticMessage,
-          baselineUserCount: messages.filter((message) => message.role === "user").length,
-        });
+        // Steer does not append a user message to history, so an optimistic
+        // row would never clear via baselineUserCount and would ghost forever.
+        if (
+          shouldShowOptimisticPendingUser({
+            working,
+            deliveryMode,
+          })
+        ) {
+          setPendingUserMessage({
+            message: optimisticMessage,
+            baselineUserCount: messages.filter((message) => message.role === "user").length,
+          });
+        }
         setPrompt("");
         setAttachments([]);
         optimistic = true;
@@ -1488,7 +1499,7 @@ export const TaskView = memo(function TaskView({
             : {}),
           ...(agentSelection ? { agent: agentSelection } : {}),
           subagentPermission,
-          ...(working && deliveryMode === "steer" ? { streamingBehavior: "steer" } : {}),
+          ...(isSteer ? { streamingBehavior: "steer" } : {}),
         });
         resolvedAgent = result.task.agent ?? null;
         resolvedAutoDecision = result.autoDecision;
