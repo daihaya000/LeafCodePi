@@ -160,6 +160,33 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
   let pendingSettledCtx: ExtensionContext | null = null;
   let gateRunning = false;
   let queuedSettledCtx: ExtensionContext | null = null;
+  let baselineCapture: Promise<void> | null = null;
+
+  const hasBaseline = (): boolean =>
+    initiallyDirty !== undefined || initialStatusText !== undefined;
+
+  const adoptBaseline = (status: string | undefined): void => {
+    if (hasBaseline()) return;
+    initiallyDirty = status === undefined ? undefined : isDirty(status);
+    initialStatusText = status;
+  };
+
+  const ensureBaselineBeforeMutation = async (cwd: string): Promise<void> => {
+    if (hasBaseline()) return;
+    if (baselineCapture) {
+      await baselineCapture;
+      return;
+    }
+    baselineCapture = (async () => {
+      const status = await gitStatus(pi, cwd);
+      adoptBaseline(status);
+    })();
+    try {
+      await baselineCapture;
+    } finally {
+      baselineCapture = null;
+    }
+  };
 
   const resetCleanBaseline = (status: string): void => {
     hardMutationObserved = false;
@@ -257,6 +284,13 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
     sessionReady = false;
     const reason = sessionStartReason(event);
     const recovering = reason === "reload" || reason === "resume";
+    const inFlightAtStart = mutationObserved || hardMutationObserved || reminderSent;
+    // Idle re-entry: drop a prior session baseline before re-probing. Keep any
+    // baseline if gate work is already in flight (late/slow start race).
+    if (!inFlightAtStart) {
+      initiallyDirty = undefined;
+      initialStatusText = undefined;
+    }
     const status = await gitStatus(pi, ctx.cwd);
     if (generation !== sessionStartGeneration) return;
 
@@ -265,13 +299,8 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
       // Preserve gate state across a late/slow session_start. Do not force
       // initiallyDirty=false (that turns pre-existing dirt into a false positive)
       // and do not overwrite an existing baseline fingerprint mid-flight.
-      // Adopting the first successful status when baseline is still unset avoids
-      // soft-only false positives on pre-dirty trees (at the cost of a rare
-      // clean→dirty soft false negative when the probe races the mutation).
-      if (status !== undefined) {
-        if (initiallyDirty === undefined) initiallyDirty = isDirty(status);
-        if (initialStatusText === undefined) initialStatusText = status;
-      }
+      // tool_call may already have snapped a pre-mutation baseline.
+      adoptBaseline(status);
     } else if (recovering && status !== undefined && isDirty(status)) {
       // Remount wiped in-memory flags. Conservatively treat dirty reload/resume
       // as a clean-start dirt signal so task work is not absorbed as baseline.
@@ -284,12 +313,12 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
       lastRemindedStatus = undefined;
       initialStatusText = "";
     } else {
-      initiallyDirty = status === undefined ? undefined : isDirty(status);
+      // Fresh start — keep a pre-tool baseline if tool_call won the race.
+      adoptBaseline(status);
       hardMutationObserved = false;
       mutationObserved = false;
       reminderSent = false;
       lastRemindedStatus = undefined;
-      initialStatusText = status;
     }
     sessionReady = true;
     if (pendingSettledCtx) {
@@ -297,6 +326,21 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
       pendingSettledCtx = null;
       await runCommitGate(pending);
     }
+  });
+
+  // Snapshot porcelain before the first mutating tool so a slow session_start
+  // cannot adopt post-mutation dirt as the "initial" baseline.
+  pi.on("tool_call", async (event, ctx) => {
+    if (hasBaseline()) return;
+    const name = event.toolName;
+    if (READ_ONLY_TOOLS.has(name)) return;
+    if (name === "bash" || name === "powershell") {
+      if (!shellMayMutate(commandText(event.input))) return;
+    } else if (!HARD_MUTATING_TOOLS.has(name)) {
+      // Unknown tools are soft: still need a pre-execution snapshot when the
+      // session_start probe has not finished yet.
+    }
+    await ensureBaselineBeforeMutation(ctx.cwd);
   });
 
   pi.on("agent_end", (event) => {

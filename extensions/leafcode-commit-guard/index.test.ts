@@ -269,6 +269,37 @@ describe("leafcode-commit-guard", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it("fires when soft dirt races a slow session_start on an originally clean tree", async () => {
+    let resolveStart: ((value: { stdout: string; stderr: string; code: number; killed: boolean }) => void) | undefined;
+    const startStatus = new Promise<{ stdout: string; stderr: string; code: number; killed: boolean }>((resolve) => {
+      resolveStart = resolve;
+    });
+    const dirty = { stdout: "?? node_modules/.package-lock.json\n", stderr: "", code: 0, killed: false };
+    const exec = vi
+      .fn()
+      // session_start probe (slow)
+      .mockImplementationOnce(() => startStatus)
+      // tool_call pre-mutation snapshot (clean)
+      .mockResolvedValueOnce({ stdout: "", stderr: "", code: 0, killed: false })
+      // settle after mutation
+      .mockResolvedValueOnce(dirty);
+    const { handlers, sendMessage, pi } = createPi(exec);
+
+    registerCommitGuard(pi);
+    const started = handlers.get("session_start")?.({}, ctx);
+    await handlers.get("tool_call")?.(
+      { toolName: "bash", input: { command: "npm ci" } },
+      ctx,
+    );
+    handlers.get("agent_end")?.({ messages: mutationMessages("bash", { command: "npm ci" }) });
+    await handlers.get("agent_settled")?.({}, ctx);
+    // Late probe returns post-mutation dirt — must not replace the clean snapshot.
+    resolveStart?.(dirty);
+    await started;
+
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
+
   it("fires on soft dirt when session_start git status failed permanently", async () => {
     const exec = vi
       .fn()

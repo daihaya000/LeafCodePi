@@ -1,5 +1,12 @@
 # MEMORY
 
+## 2026-09-05 — commit-guard ループ tick 2+: late soft FN
+
+- **修正**: 最初の mutating `tool_call` 前に porcelain をスナップショット。遅い `session_start` が post-mutation dirty を baseline にしない。
+- idle な `session_start` 再入場では旧 baseline をクリアし、tool_call が勝った場合は上書きしない（`adoptBaseline`）。
+- 検証: commit-guard 18/18 PASS（clean tree + soft 競合の回帰を追加）
+
+---
 ## 2026-09-05 — commit-guard 残存バグ修正（ループ tick 1）
 
 監査で挙がった明確バグを実装側で除去。検証: `vitest` commit-guard 17 + CommitGuardSettings 3 = 20 PASS。
