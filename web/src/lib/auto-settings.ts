@@ -91,7 +91,20 @@ export function writeAutoRouteConfig(config: AutoRouteConfig): void {
 }
 
 export function hasStoredAutoSetting(key: AutoSettingKey): boolean {
-  return syncByKey[key].read() !== null;
+  const raw = syncByKey[key].read();
+  if (raw === null) return false;
+  switch (key) {
+    case AUTO_OPTIMIZE_SETTING_KEY:
+      return isAutoOptimizeMode(raw);
+    case AUTO_SHOW_MODEL_SETTING_KEY:
+      return raw === "1";
+    case AUTO_ROUTE_OVERRIDES_SETTING_KEY:
+      try {
+        return !isAutoRouteConfigEmpty(normalizeAutoRouteConfig(JSON.parse(raw)));
+      } catch {
+        return false;
+      }
+  }
 }
 
 export function subscribeAutoSetting(

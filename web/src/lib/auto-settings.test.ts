@@ -126,6 +126,7 @@ describe("auto-settings", () => {
       "turbo",
     );
     expect(readAutoOptimizeMode()).toBe("cost");
+    expect(hasStoredAutoSetting(AUTO_OPTIMIZE_SETTING_KEY)).toBe(false);
 
     // Corrupt JSON for the route config yields the empty config, not a throw.
     globalThis.localStorage.setItem(
@@ -133,6 +134,7 @@ describe("auto-settings", () => {
       "{not json",
     );
     expect(readAutoRouteConfig()).toEqual({ version: 2, modes: {} });
+    expect(hasStoredAutoSetting(AUTO_ROUTE_OVERRIDES_SETTING_KEY)).toBe(false);
 
     // JSON of the wrong shape is also normalized away.
     globalThis.localStorage.setItem(
@@ -140,6 +142,7 @@ describe("auto-settings", () => {
       '"a string"',
     );
     expect(readAutoRouteConfig()).toEqual({ version: 2, modes: {} });
+    expect(hasStoredAutoSetting(AUTO_ROUTE_OVERRIDES_SETTING_KEY)).toBe(false);
   });
 
   it("reports no stored setting for keys that were never written", () => {

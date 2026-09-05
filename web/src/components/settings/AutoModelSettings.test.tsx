@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const client = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn() }));
@@ -80,5 +80,96 @@ describe("AutoModelSettings", () => {
     // mode state (kept local, from the stored setting) matches the editor's
     // current mode prop.
     expect(pressed).toEqual(["知能優先*"]);
+  });
+
+  it("restores a valid server mode when the local mode is invalid", async () => {
+    localStorage.setItem("webui:auto-optimize", "invalid");
+    client.getJson.mockImplementation((path: string) => {
+      if (path === "/api/models") return Promise.resolve({ models: [] });
+      if (path === "/api/settings/auto-optimize") return Promise.resolve({ value: "intelligence" });
+      return Promise.resolve({ value: null });
+    });
+
+    render(<AutoModelSettings />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Auto の最適化" }).textContent).toContain("知能優先");
+    });
+  });
+
+  it("restores a valid server route when the local route config is corrupt", async () => {
+    localStorage.setItem("webui:auto-route-overrides", "{broken");
+    const routeConfig = JSON.stringify({
+      version: 2,
+      modes: {
+        cost: {
+          light: {
+            candidates: [{ kind: "model", providerID: "provider", modelID: "model-a" }],
+          },
+        },
+      },
+    });
+    client.getJson.mockImplementation((path: string) => {
+      if (path === "/api/models") {
+        return Promise.resolve({
+          models: [{
+            value: "provider::model-a",
+            label: "Model A",
+            providerID: "provider",
+            modelID: "model-a",
+          }],
+        });
+      }
+      if (path === "/api/settings/auto-optimize") return Promise.resolve({ value: "cost" });
+      if (path === "/api/settings/auto-route-overrides") return Promise.resolve({ value: routeConfig });
+      return Promise.resolve({ value: null });
+    });
+
+    render(<AutoModelSettings />);
+    await waitFor(() => expect(screen.getByText("Model A")).toBeTruthy());
+  });
+
+  it("keeps a route edit made before server settings resolve", async () => {
+    let resolveServerRoute!: (value: string | null) => void;
+    const serverRoute = new Promise<string | null>((resolve) => {
+      resolveServerRoute = resolve;
+    });
+    const modelA = {
+      value: "provider::model-a",
+      label: "Model A",
+      providerID: "provider",
+      modelID: "model-a",
+    };
+    const modelB = {
+      value: "provider::model-b",
+      label: "Model B",
+      providerID: "provider",
+      modelID: "model-b",
+    };
+    client.getJson.mockImplementation((path: string) => {
+      if (path === "/api/models") return Promise.resolve({ models: [modelA, modelB] });
+      if (path === "/api/settings/auto-optimize") return Promise.resolve({ value: "cost" });
+      if (path === "/api/settings/auto-route-overrides") return serverRoute.then((value) => ({ value }));
+      return Promise.resolve({ value: null });
+    });
+
+    render(<AutoModelSettings />);
+    const addButtons = await screen.findAllByRole("button", { name: "候補を追加" });
+    fireEvent.click(addButtons[0]!);
+    const candidate = await screen.findByRole("button", { name: "候補1のモデル" });
+    expect(candidate.textContent).toContain("Model A");
+
+    await act(async () => {
+      resolveServerRoute(JSON.stringify({
+        version: 2,
+        modes: {
+          cost: {
+            light: {
+              candidates: [{ kind: "model", providerID: "provider", modelID: "model-b" }],
+            },
+          },
+        },
+      }));
+    });
+    await waitFor(() => expect(candidate.textContent).toContain("Model A"));
   });
 });
