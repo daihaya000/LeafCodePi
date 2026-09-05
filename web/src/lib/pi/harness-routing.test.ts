@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -11,7 +11,16 @@ const fakePi = vi.hoisted(() => {
     willRetry?: boolean;
     messages?: unknown[];
   };
+  type FakeExtensionHandler = (event: unknown, ctx: Record<string, unknown>) => unknown;
+  type FakeExtensionApi = {
+    on: (name: string, handler: FakeExtensionHandler) => void;
+    registerTool: (...args: unknown[]) => void;
+    getActiveTools: () => string[];
+    setActiveTools: (names: string[]) => void;
+  };
+  type FakeInlineExtension = (pi: FakeExtensionApi) => void | Promise<void>;
   const histories = new Map<string, unknown[]>();
+  const sessionIds = new Map<string, string>();
   const sessions: {
     accountId: string | null;
     file: string;
@@ -19,7 +28,10 @@ const fakePi = vi.hoisted(() => {
     events: string[];
     reloads: number;
     disposed: boolean;
+    initialMessageCount: number;
+    customMessages: unknown[];
     compactionEnabledHistory: boolean[];
+    routingContext?: Record<string, unknown>;
     emit?: (event: FakeEvent) => void;
   }[] = [];
 
@@ -27,13 +39,17 @@ const fakePi = vi.hoisted(() => {
     let name: string | undefined;
     const history = histories.get(file) ?? [];
     histories.set(file, history);
+    const sessionId = sessionIds.get(file) ?? `session-${sessionIds.size + 1}`;
+    sessionIds.set(file, sessionId);
     return {
       __file: file,
+      __sessionId: sessionId,
       getSessionName: () => name,
       appendSessionInfo: (next: string) => {
         name = next;
       },
       getCwd: () => cwd,
+      getSessionId: () => sessionId,
       getEntries: () => [],
       getLeafId: () => null,
       getBranch: () => [],
@@ -44,10 +60,16 @@ const fakePi = vi.hoisted(() => {
 
   return {
     sessions,
+    reset: () => {
+      sessions.length = 0;
+      histories.clear();
+      sessionIds.clear();
+    },
     getAgentDir: () => process.env.PI_CODING_AGENT_DIR ?? "",
     DefaultResourceLoader: class {
-      constructor(...args: unknown[]) {
-        void args;
+      extensionFactories: FakeInlineExtension[];
+      constructor(options: { extensionFactories?: FakeInlineExtension[] }) {
+        this.extensionFactories = options.extensionFactories ?? [];
       }
       async reload() {}
       getExtensions() {
@@ -62,6 +84,7 @@ const fakePi = vi.hoisted(() => {
       sessionManager: ReturnType<typeof manager>;
       model?: unknown;
       modelRuntime?: { accountId?: string };
+      resourceLoader?: { extensionFactories?: FakeInlineExtension[] };
     }) => {
       const manager = options.sessionManager;
       const entry: {
@@ -71,7 +94,10 @@ const fakePi = vi.hoisted(() => {
         events: string[];
         reloads: number;
         disposed: boolean;
+        initialMessageCount: number;
+        customMessages: unknown[];
         compactionEnabledHistory: boolean[];
+        routingContext?: Record<string, unknown>;
         emit?: (event: FakeEvent) => void;
       } = {
         accountId: options.modelRuntime?.accountId ?? null,
@@ -80,6 +106,8 @@ const fakePi = vi.hoisted(() => {
         events: [] as string[],
         reloads: 0,
         disposed: false,
+        initialMessageCount: manager.history.length,
+        customMessages: [],
         compactionEnabledHistory: [],
       };
       const listeners = new Set<(event: FakeEvent) => void>();
@@ -88,9 +116,29 @@ const fakePi = vi.hoisted(() => {
       };
       entry.emit = emit;
       let streaming = false;
+      const extensionHandlers = new Map<string, FakeExtensionHandler[]>();
+      let activeTools: string[] = [];
+      const extensionApi: FakeExtensionApi = {
+        on: (name, handler) => {
+          extensionHandlers.set(name, [
+            ...(extensionHandlers.get(name) ?? []),
+            handler,
+          ]);
+        },
+        registerTool: () => undefined,
+        getActiveTools: () => activeTools,
+        setActiveTools: (names) => {
+          activeTools = names;
+        },
+      };
+      const extensionContext = {
+        cwd: manager.getCwd(),
+        sessionManager: manager,
+      };
+      entry.routingContext = extensionContext;
       const session = {
         sessionFile: manager.__file,
-        sessionId: `session-${sessions.length + 1}`,
+        sessionId: manager.__sessionId,
         sessionManager: manager,
         messages: manager.history,
         agent: { state: { errorMessage: undefined, streamingMessage: undefined } },
@@ -107,7 +155,14 @@ const fakePi = vi.hoisted(() => {
           listeners.add(listener);
           return () => listeners.delete(listener);
         },
-        bindExtensions: async () => undefined,
+        bindExtensions: async () => {
+          for (const factory of options.resourceLoader?.extensionFactories ?? []) {
+            await factory(extensionApi);
+          }
+          for (const handler of extensionHandlers.get("session_start") ?? []) {
+            await handler({}, extensionContext);
+          }
+        },
         settingsManager: {
           applyOverrides: (overrides: { compaction?: { enabled?: boolean } }) => {
             if (typeof overrides.compaction?.enabled === "boolean") {
@@ -140,6 +195,10 @@ const fakePi = vi.hoisted(() => {
           emit({ type: "agent_end", willRetry: false });
           emit({ type: "agent_settled" });
         },
+        sendCustomMessage: async (message: unknown) => {
+          entry.customMessages.push(message);
+          manager.history.push({ role: "custom", content: message, timestamp: Date.now() });
+        },
       };
       sessions.push(entry);
       return { session };
@@ -149,6 +208,9 @@ const fakePi = vi.hoisted(() => {
 
 vi.mock("@earendil-works/pi-coding-agent", () => fakePi);
 
+const autoAgentMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/auto-agent", () => ({ resolveAutoAgent: autoAgentMock }));
+
 import { createAccount, accountAuthPath, __resetPiAgentDirCacheForTests } from "@/lib/accounts";
 import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
@@ -156,6 +218,7 @@ import { upsertProject, getTask } from "@/lib/store";
 import type { ThinkingLevel } from "@/lib/types";
 import { setAccountRoutingMode, __resetProviderRoutingQueueForTests, markProviderLimited } from "@/lib/provider-routing";
 import { AccountRuntimeManager } from "./account-runtime-manager";
+import { goalLoopStateFile } from "./goal-loop-state";
 import { createTask, promptTask, resolveProviderFallbackModels } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
@@ -233,7 +296,8 @@ afterEach(() => {
   if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
   else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-  fakePi.sessions.length = 0;
+  fakePi.reset();
+  autoAgentMock.mockReset();
 });
 
 describe("integrated session routing", () => {
@@ -253,6 +317,95 @@ describe("integrated session routing", () => {
     });
 
     assert.equal(fakePi.sessions[0]?.compactionEnabledHistory[0], true);
+  });
+
+  it("reselects the Auto agent before every Goal Loop turn and keeps the transcript", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-auto-agent-goal-loop-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+    mkdirSync(join(agentDir, "agents"), { recursive: true });
+    for (const name of ["build", "reviewer"]) {
+      writeFileSync(
+        join(agentDir, "agents", `${name}.md`),
+        `---\nname: ${name}\n---\n`,
+        "utf8",
+      );
+    }
+    installHarness(new Map());
+    autoAgentMock
+      .mockResolvedValueOnce("reviewer")
+      .mockResolvedValueOnce("build");
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "最初の確認",
+      agent: "build",
+      goalLoop: { maxTurns: 2, autoAgent: true },
+    });
+    const sessionId = task.sessionId;
+    assert.ok(sessionId);
+    const loopFile = goalLoopStateFile(dir, sessionId);
+    mkdirSync(dirname(loopFile), { recursive: true });
+    writeFileSync(
+      loopFile,
+      JSON.stringify({
+        id: sessionId,
+        sessionId,
+        cwd: dir,
+        status: "queued",
+        goal: "Goal loop",
+        acceptance: [],
+        maxTurns: 2,
+        cooldownSeconds: 0,
+        nextTurnAt: null,
+        forceFullRun: false,
+        autoAgent: true,
+        turnCount: 0,
+        turnKind: "goal",
+        pauseReason: "",
+        error: "",
+        progress: [],
+        summary: "",
+        evidence: "",
+        blockedReason: "",
+        rejectedClaims: 0,
+        unreadableStreak: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }),
+      "utf8",
+    );
+
+    type PrepareTurn = (prompt: string) => Promise<boolean | "retry">;
+    const firstPrepare = fakePi.sessions[0]?.routingContext
+      ?.prepareGoalLoopTurn as PrepareTurn;
+    assert.equal(await firstPrepare("turn 1"), false);
+    assert.equal(fakePi.sessions.length, 2);
+    assert.equal(getTask(task.id)?.agent, "reviewer");
+    expect(fakePi.sessions[0]).toMatchObject({
+      file: fakePi.sessions[1]?.file,
+      disposed: true,
+      customMessages: [{ customType: "leafcode-pi.agent-switch" }],
+    });
+    assert.equal(fakePi.sessions[1]?.initialMessageCount, 2);
+
+    const secondPrepare = fakePi.sessions[1]?.routingContext
+      ?.prepareGoalLoopTurn as PrepareTurn;
+    assert.equal(await secondPrepare("turn 2"), false);
+    assert.equal(fakePi.sessions.length, 3);
+    assert.equal(getTask(task.id)?.agent, "build");
+    expect(fakePi.sessions[1]).toMatchObject({
+      file: fakePi.sessions[2]?.file,
+      disposed: true,
+      customMessages: [{ customType: "leafcode-pi.agent-switch" }],
+    });
+    assert.equal(fakePi.sessions[2]?.initialMessageCount, 3);
+    expect(autoAgentMock).toHaveBeenCalledTimes(2);
+    assert.equal(JSON.parse(readFileSync(loopFile, "utf8")).autoAgent, true);
   });
 
   it("applies prompt permissions before queueing and persists them on the task", async () => {

@@ -112,7 +112,11 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     expect(mocks.setTaskAgent).toHaveBeenCalledWith("task-1", "reviewer");
     expect(mocks.goalLoopCommand).toHaveBeenCalledWith(
       "task-1",
-      expect.objectContaining({ action: "start", goal: "テストを追加する" }),
+      expect.objectContaining({
+        action: "start",
+        goal: "テストを追加する",
+        autoAgent: true,
+      }),
     );
     expect(await response.json()).toEqual({
       loop: { id: "loop-1", status: "queued" },

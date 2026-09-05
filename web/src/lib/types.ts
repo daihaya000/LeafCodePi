@@ -96,6 +96,8 @@ export type GoalLoopDto = {
   /** クールタイム終了時刻。待機不要なら null。 */
   nextTurnAt: string | null;
   forceFullRun: boolean;
+  /** Auto agent selection is re-evaluated before every Goal Loop turn. */
+  autoAgent?: boolean;
   turnCount: number;
   turnKind: "goal" | "verification";
   pauseReason: string;

@@ -221,6 +221,7 @@ export async function POST(req: NextRequest) {
       });
     }
     let agent = body.agent?.trim() || undefined;
+    const autoAgentRequested = agent === AUTO_AGENT_VALUE;
     let autoDecision: AutoDecision | undefined;
     const autoRouteConfig: AutoRouteConfig | undefined =
       body.autoRouteOverrides === undefined
@@ -280,7 +281,9 @@ export async function POST(req: NextRequest) {
       subagentPermission,
       permissionMode,
       skillPermission,
-      goalLoop,
+      goalLoop: goalLoop
+        ? { ...goalLoop, autoAgent: autoAgentRequested }
+        : undefined,
     });
     return NextResponse.json({ task, ...(autoDecision ? { autoDecision } : {}) });
   } catch (error) {

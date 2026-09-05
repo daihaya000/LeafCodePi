@@ -74,6 +74,30 @@ describe("POST /api/tasks", () => {
     expect(mocks.createTask.mock.calls[0]?.[0].agent).not.toBe(AUTO_AGENT_VALUE);
   });
 
+  it("marks a task Goal Loop for per-turn Auto agent routing", async () => {
+    mocks.resolveAutoAgent.mockResolvedValue("reviewer");
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: null,
+          prompt: "Goal loopを進める",
+          agent: AUTO_AGENT_VALUE,
+          goalLoop: { enabled: true, maxTurns: 2 },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.createTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agent: "reviewer",
+        goalLoop: expect.objectContaining({ maxTurns: 2, autoAgent: true }),
+      }),
+    );
+  });
+
   it("keeps an explicit Auto route authoritative when resolving Auto agent", async () => {
     mocks.resolveAutoAgent.mockResolvedValue("build");
     mocks.resolveAutoModel.mockResolvedValue({

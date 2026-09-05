@@ -189,12 +189,13 @@ test("completes a turn-limited loop and allows a new loop", async () => {
     assert.equal(completed.status, "completed");
     assert.match(notices.at(-1).message, /新しい Goal loop/);
 
-    const payload = Buffer.from(JSON.stringify({ goal: "new goal", maxTurns: 1 })).toString("base64url");
+    const payload = Buffer.from(JSON.stringify({ goal: "new goal", maxTurns: 1, autoAgent: true })).toString("base64url");
     await commands.get("goal-start")?.(payload, ctx);
     const restarted = JSON.parse(
       readFileSync(join(cwd, ".pi", "goals-loop", "complete-session.json"), "utf8"),
     );
     assert.equal(restarted.goal, "new goal");
+    assert.equal(restarted.autoAgent, true);
     assert.ok(restarted.status === "queued" || restarted.status === "running");
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
@@ -460,12 +461,14 @@ test("waits for agent_end so tool turns do not stop the loop before the result J
   let turnIndex = 0;
   let sendCount = 0;
   let prepareCount = 0;
+  const preparePrompts = [];
 
   const ctx = {
     cwd,
     mode: "rpc",
-    prepareGoalLoopTurn: async () => {
+    prepareGoalLoopTurn: async (prompt) => {
       prepareCount += 1;
+      preparePrompts.push(prompt);
       return true;
     },
     hasUI: false,
@@ -531,15 +534,20 @@ test("waits for agent_end so tool turns do not stop the loop before the result J
       goal: "demo",
       maxTurns: 2,
       forceFullRun: true,
+      autoAgent: true,
     })).toString("base64url");
     await commands.get("goal-start")?.(payload, ctx);
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await new Promise((resolve) => setTimeout(resolve, 1200));
 
     const loop = JSON.parse(
       readFileSync(join(cwd, ".pi", "goals-loop", "live-session.json"), "utf8"),
     );
     assert.equal(sendCount, 2);
     assert.equal(prepareCount, 2);
+    assert.equal(preparePrompts.length, 2);
+    assert.match(preparePrompts[0], /Goal:\s+demo/);
+    assert.match(preparePrompts[1], /Continue the persistent goal loop/);
+    assert.equal(loop.autoAgent, true);
     assert.equal(loop.status, "blocked");
     assert.equal(loop.progress[0].summary, "after tool");
   } finally {

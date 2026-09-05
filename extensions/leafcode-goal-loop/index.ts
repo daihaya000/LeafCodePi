@@ -55,6 +55,8 @@ export type GoalLoop = {
   cooldownSeconds: number;
   nextTurnAt: string | null;
   forceFullRun: boolean;
+  /** Re-select the main persona before every Goal Loop turn. */
+  autoAgent?: boolean;
   turnCount: number;
   turnKind: GoalLoopTurnKind;
   pauseReason: GoalLoopPauseReason;
@@ -91,7 +93,7 @@ const runtimes = new Map<string, Runtime>();
 
 type GoalLoopTurnRoutingContext = ExtensionContext & {
   /** Returns false when routing replaced this session, or retry when not attached yet. */
-  prepareGoalLoopTurn?: () => Promise<boolean | "retry">;
+  prepareGoalLoopTurn?: (prompt: string) => Promise<boolean | "retry">;
   /** Checks whether a provider-limit turn can be retried on a fallback route. */
   canRetryGoalLoopProviderLimit?: () => Promise<boolean>;
 };
@@ -279,6 +281,7 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     cooldownSeconds: clampCooldownSeconds(raw.cooldownSeconds),
     nextTurnAt: typeof raw.nextTurnAt === "string" ? raw.nextTurnAt : null,
     forceFullRun: raw.forceFullRun === true,
+    autoAgent: raw.autoAgent === true,
     turnCount: Math.max(0, Math.trunc(Number(raw.turnCount) || 0)),
     turnKind: normalizeTurnKind(raw.turnKind),
     pauseReason: normalizePauseReason(raw.pauseReason),
@@ -866,10 +869,20 @@ async function sendTurn(runtime: Runtime): Promise<void> {
     }
   }
 
+  const routingTurn = loop.status === "queued"
+    ? loop.unreadableStreak === 1
+      ? loop.turnCount
+      : loop.turnCount + 1
+    : loop.turnCount;
+  const routingPrompt = loop.status === "verifying_completed"
+    ? buildVerificationPrompt(loop)
+    : routingTurn === 1 && loop.unreadableStreak === 0
+      ? buildGoalPrompt(loop, routingTurn)
+      : buildGoalContinuationPrompt(loop, routingTurn);
   const prepareGoalLoopTurn = runtime.ctx.prepareGoalLoopTurn;
   if (prepareGoalLoopTurn) {
     try {
-      const prepared = await prepareGoalLoopTurn();
+      const prepared = await prepareGoalLoopTurn(routingPrompt);
       if (prepared === false) return;
       if (prepared === "retry") {
         schedule(runtime, 250);
@@ -879,7 +892,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       pauseLoop(
         runtime,
         "scheduler_error",
-        `ターン開始前のアカウント準備に失敗しました。${
+        `ターン開始前のルーティング準備に失敗しました。${
           error instanceof Error ? ` ${error.message}` : ` ${String(error)}`
         }`,
       );
@@ -978,6 +991,7 @@ function startLoop(
     maxTurns?: unknown;
     cooldownSeconds?: unknown;
     forceFullRun?: unknown;
+    autoAgent?: unknown;
   },
 ): GoalLoop | null {
   const goal = config.goal.trim().slice(0, MAX_GOAL_CHARS);
@@ -1000,6 +1014,7 @@ function startLoop(
     cooldownSeconds: clampCooldownSeconds(config.cooldownSeconds),
     nextTurnAt: null,
     forceFullRun: config.forceFullRun === true,
+    autoAgent: config.autoAgent === true,
     turnCount: 0,
     turnKind: "goal",
     pauseReason: "",
@@ -1181,6 +1196,7 @@ function decodeStartConfig(args: string): {
   maxTurns?: unknown;
   cooldownSeconds?: unknown;
   forceFullRun?: unknown;
+  autoAgent?: unknown;
 } | null {
   try {
     const decoded = Buffer.from(args.trim(), "base64url").toString("utf8");
@@ -1192,6 +1208,7 @@ function decodeStartConfig(args: string): {
       maxTurns: raw.maxTurns,
       cooldownSeconds: raw.cooldownSeconds,
       forceFullRun: raw.forceFullRun,
+      autoAgent: raw.autoAgent,
     };
   } catch {
     return null;

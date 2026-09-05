@@ -148,6 +148,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       thinkingLevel = undefined;
     }
     let agent = body?.agent?.trim() || undefined;
+    const autoAgentRequested = agent === AUTO_AGENT_VALUE;
     if (agent === AUTO_AGENT_VALUE) {
       if (currentTask.status === "working") {
         agent = currentTask.agent?.trim() || undefined;
@@ -187,6 +188,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       maxTurns: clampGoalLoopMaxTurns(body?.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS),
       cooldownSeconds: clampGoalLoopCooldownSeconds(body?.cooldownSeconds),
       forceFullRun: body?.forceFullRun === true,
+      autoAgent: autoAgentRequested,
     });
     return NextResponse.json({
       loop,

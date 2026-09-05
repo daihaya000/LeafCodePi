@@ -40,6 +40,7 @@ import {
   toolResultText,
   titleFromPrompt,
 } from "@/lib/pi/messages";
+import { readSessionConversation } from "@/lib/direct-session";
 import {
   buildProviderModelsCatalog,
   enabledModelOptionsFromCatalog,
@@ -1875,7 +1876,7 @@ export function syncSessionName(
 }
 
 type GoalLoopTurnRoutingContext = {
-  prepareGoalLoopTurn?: () => Promise<boolean | "retry">;
+  prepareGoalLoopTurn?: (prompt: string) => Promise<boolean | "retry">;
   canRetryGoalLoopProviderLimit?: () => Promise<boolean>;
 };
 
@@ -1883,7 +1884,7 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
   return (pi) => {
     pi.on("session_start", (_event, ctx) => {
       const routingContext = ctx as GoalLoopTurnRoutingContext;
-      routingContext.prepareGoalLoopTurn = async () => {
+      routingContext.prepareGoalLoopTurn = async (prompt) => {
         const before = state().live.get(taskId);
         // A replacement session emits session_start before attachSession(). Let
         // its Goal Loop retry after the harness has subscribed to the session.
@@ -1891,7 +1892,22 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
           return "retry";
         }
         const after = await prepareLiveForPrompt(before, true);
-        return after.session === before.session;
+        if (after.session !== before.session) return false;
+        if (isLiveBusyForReplace(after)) return "retry";
+        const loop = readGoalLoopState(
+          after.session.sessionManager.getCwd(),
+          after.session.sessionId,
+        );
+        if (loop?.autoAgent !== true) return true;
+        const task = getTask(taskId);
+        if (!task) {
+          throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+        }
+        const routed = await prepareAutoAgentForGoalLoop(after, task, prompt);
+        if (routed === "retry") return "retry";
+        if (routed.session === after.session) return true;
+        emitTaskSnapshot(routed, "agent_routed");
+        return false;
       };
       routingContext.canRetryGoalLoopProviderLimit = async () => {
         const live = state().live.get(taskId);
@@ -4578,6 +4594,7 @@ export async function goalLoopCommand(
         maxTurns?: number;
         cooldownSeconds?: number;
         forceFullRun?: boolean;
+        autoAgent?: boolean;
       }
     | { action: "pause" | "resume" | "stop" | "complete"; maxTurns?: number },
 ): Promise<GoalLoopDto | null> {
@@ -4591,6 +4608,7 @@ export async function goalLoopCommand(
         maxTurns: input.maxTurns,
         cooldownSeconds: input.cooldownSeconds,
         forceFullRun: input.forceFullRun === true,
+        autoAgent: input.autoAgent === true,
       }),
       "utf8",
     ).toString("base64url");
@@ -4669,6 +4687,7 @@ export async function createTask(input: {
     maxTurns?: number;
     cooldownSeconds?: number;
     forceFullRun?: boolean;
+    autoAgent?: boolean;
   };
 }): Promise<TaskSummary> {
   const project = input.projectId ? getProject(input.projectId) ?? null : null;
@@ -4847,6 +4866,7 @@ export async function createTask(input: {
         maxTurns: input.goalLoop.maxTurns,
         cooldownSeconds: input.goalLoop.cooldownSeconds,
         forceFullRun: input.goalLoop.forceFullRun,
+        autoAgent: input.goalLoop.autoAgent === true,
       });
     } else {
       queuePrompt(live, input.prompt, input.images, {
@@ -4925,6 +4945,84 @@ async function replaceLiveForRoute(
     });
     throw error;
   }
+}
+
+/** Reopen the same transcript with a newly selected main persona. */
+async function replaceLiveForAgent(
+  live: LiveRuntime,
+  task: TaskSummary,
+  agentName: string,
+): Promise<LiveRuntime> {
+  const project = task.projectId ? getProject(task.projectId) : undefined;
+  const sessionFile = live.session.sessionFile ?? task.sessionFile;
+  if (!sessionFile) {
+    throw new Error("セッションのエージェントを切り替えられません");
+  }
+  if (live.session.messages.length > 0) {
+    await live.session.sendCustomMessage({
+      customType: AGENT_SWITCH_CUSTOM_TYPE,
+      content: agentSwitchNotice(task.agent?.trim(), agentName),
+      display: false,
+    });
+  }
+  const thinkingLevel =
+    typeof live.session.thinkingLevel === "string" &&
+    isThinkingLevel(live.session.thinkingLevel)
+      ? live.session.thinkingLevel
+      : task.thinkingLevel;
+  const setup = await createSession({
+    cwd: project?.rootPath ?? task.directory,
+    sessionFile,
+    sessionName: task.title,
+    accountId: live.accountId,
+    model: live.session.model ?? undefined,
+    thinkingLevel,
+    skillPermission: live.skillPermission,
+    permissionMode: task.permissionMode,
+    agentName,
+    taskId: task.id,
+    goalLoop: true,
+  });
+  const updatedTask = patchTask(task.id, { agent: agentName });
+  if (!updatedTask) {
+    setup.session.dispose();
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  }
+  try {
+    return await attachSession(task.id, setup.session, setup.skillPermissionRef);
+  } catch (error) {
+    setup.session.dispose();
+    patchTask(task.id, { agent: task.agent ?? null });
+    throw error;
+  }
+}
+
+async function prepareAutoAgentForGoalLoop(
+  live: LiveRuntime,
+  task: TaskSummary,
+  prompt: string,
+): Promise<LiveRuntime | "retry"> {
+  if (isLiveBusyForReplace(live)) return "retry";
+  const ids = modelId(live.session.model);
+  const requestedModel =
+    ids.providerID && ids.modelID
+      ? {
+          providerID: ids.providerID,
+          modelID: ids.modelID,
+          ...(live.accountId ? { accountId: live.accountId } : {}),
+        }
+      : undefined;
+  const { resolveAutoAgent } = await import("@/lib/auto-agent");
+  const selected = await resolveAutoAgent({
+    conversation: readSessionConversation(
+      live.session.sessionFile ?? task.sessionFile,
+    ),
+    prompt,
+    ...(requestedModel ? { requestedModel } : {}),
+    ...(live.accountId ? { accountId: live.accountId } : {}),
+  });
+  if (selected === (task.agent?.trim() ?? "")) return live;
+  return replaceLiveForAgent(live, task, selected);
 }
 
 /** Select a fresh account/provider before a queued user or Goal Loop turn. */
