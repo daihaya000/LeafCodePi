@@ -358,7 +358,7 @@ export function Composer({
           disabled={textarea.disabled}
           readOnly={textarea.readOnly}
           placeholder={textarea.placeholder}
-          className={`${textarea.className} relative z-10 max-h-60 overflow-y-auto text-transparent caret-text selection:bg-primary/20 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-accent focus-visible:outline-offset-2`}
+          className={`${textarea.className} relative z-10 max-h-60 overflow-y-auto text-transparent caret-text selection:bg-primary/20 focus-visible:outline-none`}
           style={textarea.style}
           onChange={(event) => {
             textarea.onChange(event);

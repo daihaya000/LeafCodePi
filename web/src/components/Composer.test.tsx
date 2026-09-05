@@ -101,8 +101,8 @@ describe("Composer", () => {
     view.rerender(<TestComposer value="一行目\n二行目" />);
 
     expect(textarea.style.height).toBe("72px");
-    expect(textarea.className).toContain("focus-visible:outline-accent");
-    expect(textarea.className).not.toContain("focus-visible:outline-none");
+    expect(textarea.className).toContain("focus-visible:outline-none");
+    expect(textarea.className).not.toContain("focus-visible:outline-accent");
   });
 
   it("does not persist a zero height when the textarea has no layout yet", () => {
