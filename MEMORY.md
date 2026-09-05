@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 33-35 — 早期 abort sentinel の早期クリア
+
+- バグ: `queuePrompt` 先頭で `manualAbortedAssistantId` を null にするため、epoch 失効や prompt 失敗後に `""` sentinel が消え再開 UI が消える
+- 修正: クリアを `session.prompt` 直前に移し、開始前失敗時は以前の sentinel を復元
+- 検証: harness-agent / harness-revert / aborted-resume 50/50 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 30-32 — silent resume × queue 二重 POST
 
 - バグ: silent 終了の idle 遷移で自動再開と queued follow-up drain/auto-send が同時発火し `/prompt` が二重送信され得た

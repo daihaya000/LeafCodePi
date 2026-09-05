@@ -5044,7 +5044,9 @@ function queuePrompt(
   applySubagentPermission(live.session, meta?.subagentPermission);
   const isHangRetry =
     meta?.isHangRetry === true || prompt.startsWith(HANG_RETRY_PREFIX);
-  persistManualAbortedAssistantId(live.taskId, null);
+  // Do not clear manualAbortedAssistantId until the turn actually starts.
+  // Clearing at queue time drops the early-abort "" sentinel when this prompt
+  // is later abandoned (stale epoch) or fails before producing history.
   if (!isHangRetry && !meta?.streamingBehavior) {
     persistHangRetryCount(live.taskId, 0);
   }
@@ -5103,14 +5105,24 @@ function queuePrompt(
       isStreaming: activeLive.session.isStreaming,
       isHangRetry,
     });
+    const previousManualAbort =
+      (state().live.get(live.taskId) ?? activeLive).manualAbortedAssistantId ?? null;
+    persistManualAbortedAssistantId(live.taskId, null);
+    const restoreManualAbortIfPromptNeverStarted = () => {
+      // Abort bumped the epoch and wrote its own sentinel — leave it alone.
+      if (!stillQueued()) return;
+      persistManualAbortedAssistantId(live.taskId, previousManualAbort);
+    };
     try {
       await activeLive.session.prompt(prompt, options);
     } catch (error) {
       if (!stillQueued()) return;
       // 一部モデル（o系/gpt-5-pro 等）は思考オフ不可の 400 を返す。
       // 思考レベルを引き上げて同じプロンプトを一度だけ再試行する。
-      if (!isReasoningMandatoryError(error) || activeLive.reasoningFallbackTried)
+      if (!isReasoningMandatoryError(error) || activeLive.reasoningFallbackTried) {
+        restoreManualAbortIfPromptNeverStarted();
         throw error;
+      }
       activeLive.reasoningFallbackTried = true;
       const level = reasoningFallbackLevel(activeLive.session.model);
       if (activeLive.session.thinkingLevel !== level)
@@ -5119,8 +5131,16 @@ function queuePrompt(
       emitTaskSnapshot(activeLive, "thinking_level_changed", {
         thinkingLevel: level,
       });
-      if (!stillQueued()) return;
-      await activeLive.session.prompt(prompt, options);
+      if (!stillQueued()) {
+        restoreManualAbortIfPromptNeverStarted();
+        return;
+      }
+      try {
+        await activeLive.session.prompt(prompt, options);
+      } catch (retryError) {
+        restoreManualAbortIfPromptNeverStarted();
+        throw retryError;
+      }
     }
   };
   const handlePromptError = (error: unknown) => {
