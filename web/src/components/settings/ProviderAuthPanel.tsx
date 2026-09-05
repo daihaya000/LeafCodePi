@@ -112,7 +112,7 @@ function UsageBar({ percent }: { percent: number | null | undefined }) {
   const normalizedPercent = percent ?? null;
   const tone = percentTone(normalizedPercent);
   return (
-    <div className="mt-2">
+    <div className="mt-1">
       <div className="mb-1 flex items-center justify-between gap-2 text-xs">
         <span className="text-muted">使用量</span>
         <span className={cx("font-mono", usageTextClass[tone])}>
@@ -850,34 +850,32 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     return (
       <section
         aria-label={`${provider.name} の追加アカウント`}
-        className="mt-3 border-t border-border pt-3"
+        className="mt-2"
       >
-        {providerAccounts.length >= 2 && (
-          <div className="mb-2" aria-busy={savingMode || undefined}>
-            <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-muted">
-              <input
-                type="checkbox"
-                checked={mode === "integrated"}
-                disabled={modeDisabled}
-                onChange={(event) =>
-                  void changeRoutingMode(
-                    providerId,
-                    event.target.checked ? "integrated" : "separate",
-                  )
-                }
-                className="h-4 w-4 accent-accent"
-              />
-              <span>統合</span>
-            </label>
-            {routingErrors[providerId] && (
-              <p className="text-xs text-danger" role="alert">
-                {routingErrors[providerId]}
-              </p>
+        <div
+          className="flex flex-wrap items-center justify-between gap-2"
+          aria-busy={savingMode || undefined}
+        >
+          <div className="flex items-center gap-3">
+            <h3 className="text-xs font-semibold text-muted">アカウント</h3>
+            {providerAccounts.length >= 2 && (
+              <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-muted">
+                <input
+                  type="checkbox"
+                  checked={mode === "integrated"}
+                  disabled={modeDisabled}
+                  onChange={(event) =>
+                    void changeRoutingMode(
+                      providerId,
+                      event.target.checked ? "integrated" : "separate",
+                    )
+                  }
+                  className="h-4 w-4 accent-accent"
+                />
+                <span>統合</span>
+              </label>
             )}
           </div>
-        )}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-xs font-semibold text-muted">アカウント</h3>
           {!isCreating && (
             <Button
               size="sm"
@@ -893,6 +891,11 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
             </Button>
           )}
         </div>
+        {routingErrors[providerId] && (
+          <p className="mt-1 text-xs text-danger" role="alert">
+            {routingErrors[providerId]}
+          </p>
+        )}
         {accountsError && (
           <p role="alert" className="mt-2 text-xs text-danger">{accountsError}</p>
         )}
@@ -924,47 +927,99 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                   );
                   return (
                     <li key={account.id} className="px-3 py-2">
-                      {editingAccountId === account.id ? (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <input
-                            className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-3 py-1.5 text-sm outline-none focus:border-accent"
-                            value={editLabel}
-                            onChange={(event) =>
-                              setEditLabel(event.target.value)
-                            }
-                            aria-label={`${provider.name} のアカウント名`}
-                            autoFocus
-                          />
-                          <Button
-                            size="sm"
-                            disabled={accountBusy || !editLabel.trim()}
-                            onClick={() => void saveAccountLabel(account.id)}
-                          >
-                            保存
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setEditingAccountId(null)}
-                          >
-                            キャンセル
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium">
-                            {account.label}
-                          </span>
-                          {account.note && (
-                            <span className="text-xs text-muted">
-                              {account.note}
-                            </span>
-                          )}
-                          <Badge tone={authenticated ? "success" : "neutral"}>
-                            {authenticated ? "認証済" : "未ログイン"}
-                          </Badge>
-                        </div>
-                      )}
+                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                        {editingAccountId === account.id ? (
+                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                            <input
+                              className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-3 py-1.5 text-sm outline-none focus:border-accent"
+                              value={editLabel}
+                              onChange={(event) =>
+                                setEditLabel(event.target.value)
+                              }
+                              aria-label={`${provider.name} のアカウント名`}
+                              autoFocus
+                            />
+                            <Button
+                              size="sm"
+                              disabled={accountBusy || !editLabel.trim()}
+                              onClick={() => void saveAccountLabel(account.id)}
+                            >
+                              保存
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setEditingAccountId(null)}
+                            >
+                              キャンセル
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium">
+                                {account.label}
+                              </span>
+                              {account.note && (
+                                <span className="text-xs text-muted">
+                                  {account.note}
+                                </span>
+                              )}
+                              <Badge tone={authenticated ? "success" : "neutral"}>
+                                {authenticated ? "認証済" : "未ログイン"}
+                              </Badge>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {accountAuthType && (
+                                <Button
+                                  size="sm"
+                                  disabled={Boolean(login) || accountBusy}
+                                  onClick={() =>
+                                    void beginLogin(
+                                      provider,
+                                      accountAuthType,
+                                      account.id,
+                                    )
+                                  }
+                                >
+                                  {authenticated ? "再ログイン" : "ログイン"}
+                                </Button>
+                              )}
+                              {piAuthenticated && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={Boolean(login) || accountBusy}
+                                  onClick={() =>
+                                    void logoutFor(providerId, account.id)
+                                  }
+                                >
+                                  ログアウト
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={accountBusy}
+                                onClick={() => {
+                                  setEditingAccountId(account.id);
+                                  setEditLabel(account.label);
+                                }}
+                              >
+                                名前変更
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={accountBusy}
+                                onClick={() => void removeAccount(account)}
+                              >
+                                削除
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                       {usage && <UsageBar percent={usage.usedPercent} />}
                       {usage && (
                         <ResetCreditsControl
@@ -976,54 +1031,6 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                           onRedeem={redeemResetCredit}
                         />
                       )}
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {accountAuthType && (
-                          <Button
-                            size="sm"
-                            disabled={Boolean(login) || accountBusy}
-                            onClick={() =>
-                              void beginLogin(
-                                provider,
-                                accountAuthType,
-                                account.id,
-                              )
-                            }
-                          >
-                            {authenticated ? "再ログイン" : "ログイン"}
-                          </Button>
-                        )}
-                        {piAuthenticated && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={Boolean(login) || accountBusy}
-                            onClick={() =>
-                              void logoutFor(providerId, account.id)
-                            }
-                          >
-                            ログアウト
-                          </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={accountBusy}
-                          onClick={() => {
-                            setEditingAccountId(account.id);
-                            setEditLabel(account.label);
-                          }}
-                        >
-                          名前変更
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={accountBusy}
-                          onClick={() => void removeAccount(account)}
-                        >
-                          削除
-                        </Button>
-                      </div>
                       {(providerId === "ollama-cloud" ||
                         providerId === "opencode-go") && (
                         <div className="mt-2 border-t border-border pt-2">
