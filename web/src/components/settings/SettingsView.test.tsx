@@ -112,10 +112,9 @@ describe("SettingsView", () => {
       Array.from(modelsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
         (heading) => heading.textContent,
       ),
-    ).toEqual(["モデルカタログ", "ローカル推論", "自動選択と生成", "プロバイダー接続"]);
+    ).toEqual(["モデルカタログ", "自動選択と生成", "プロバイダー接続"]);
     expect(Array.from(modelsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "モデル",
-      "ローカル LLM",
       "Autoモデル",
       "生成モデル",
       "プロバイダー",
@@ -207,8 +206,10 @@ describe("SettingsView", () => {
       Array.from(enginePanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
         (heading) => heading.textContent,
       ),
-    ).toEqual(["ランタイム", "アクセスと安全", "応答", "表示と通知"]);
+    ).toEqual(["ランタイム", "アクセスと安全", "応答", "表示と通知", "ローカル推論", "メモリ"]);
     expect(screen.getByRole("heading", { name: "システム安全ガード" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "ローカル LLM" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "メモリ", level: 2 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "コミットガード" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
@@ -245,7 +246,7 @@ describe("SettingsView", () => {
     expect(screen.queryByRole("heading", { name: "スキル" })).toBeNull();
   });
 
-  it("拡張タブを管理、連携、メモリのグループに分ける", () => {
+  it("拡張タブを管理、連携のグループに分ける", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^拡張タブ$/ }));
 
@@ -254,13 +255,13 @@ describe("SettingsView", () => {
       Array.from(extensionsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
         (heading) => heading.textContent,
       ),
-    ).toEqual(["拡張機能の管理", "スキルと連携", "メモリ"]);
+    ).toEqual(["拡張機能の管理", "スキルと連携"]);
     expect(Array.from(extensionsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "拡張機能",
       "スキル",
       "MCPサーバー",
-      "メモリ",
     ]);
+    expect(screen.queryByRole("heading", { name: "メモリ" })).toBeNull();
     expect(screen.queryByRole("navigation", { name: "拡張設定内" })).toBeNull();
   });
 
@@ -300,6 +301,22 @@ describe("SettingsView", () => {
     expect(document.getElementById("extensions-skills")).not.toBeNull();
   });
 
+  it("移動したローカル推論のハッシュからエンジンタブを開く", () => {
+    window.history.replaceState(null, "", "/settings#models-local");
+    render(<SettingsView />);
+
+    expect(screen.getByRole("tab", { name: "エンジンタブ" }).getAttribute("aria-selected")).toBe("true");
+    expect(document.getElementById("models-local")).not.toBeNull();
+  });
+
+  it("移動したメモリのハッシュからエンジンタブを開く", () => {
+    window.history.replaceState(null, "", "/settings#extensions-memory");
+    render(<SettingsView />);
+
+    expect(screen.getByRole("tab", { name: "エンジンタブ" }).getAttribute("aria-selected")).toBe("true");
+    expect(document.getElementById("extensions-memory")?.closest('[role="tabpanel"]')?.id).toBe("settings-panel-engine");
+  });
+
   it("設定以外のハッシュ変更では選択タブを変更しない", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: "エージェントタブ" }));
@@ -327,14 +344,13 @@ describe("SettingsView", () => {
 
   it("一度開いたタブを非表示で保持し、切替後も下書きを残す", () => {
     render(<SettingsView />);
-    fireEvent.click(screen.getByRole("tab", { name: "拡張タブ" }));
     const draft = screen.getByLabelText("メモリ設定の下書き") as HTMLInputElement;
     fireEvent.change(draft, { target: { value: "未保存の設定" } });
 
-    fireEvent.click(screen.getByRole("tab", { name: "エンジンタブ" }));
+    fireEvent.click(screen.getByRole("tab", { name: "モデルタブ" }));
     expect(draft.closest('[role="tabpanel"]')?.hasAttribute("hidden")).toBe(true);
 
-    fireEvent.click(screen.getByRole("tab", { name: "拡張タブ" }));
+    fireEvent.click(screen.getByRole("tab", { name: "エンジンタブ" }));
     expect(screen.getByLabelText("メモリ設定の下書き")).toBe(draft);
     expect(draft.value).toBe("未保存の設定");
     expect(mountCounts.memory).toBe(1);

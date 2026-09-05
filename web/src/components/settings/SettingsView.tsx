@@ -47,7 +47,7 @@ const CURRENT_HASH_TAB: Readonly<Record<string, Tab>> = {
   engine: "engine",
   models: "models",
   "models-catalog": "models",
-  "models-local": "models",
+  "models-local": "engine",
   "models-auto": "models",
   "models-generation": "models",
   "models-providers": "models",
@@ -56,7 +56,7 @@ const CURRENT_HASH_TAB: Readonly<Record<string, Tab>> = {
   "extensions-list": "extensions",
   "extensions-skills": "extensions",
   "extensions-mcp": "extensions",
-  "extensions-memory": "extensions",
+  "extensions-memory": "engine",
 };
 
 // 廃止した「一般」カテゴリとエンジンサブタブの旧ハッシュを移行先へ届ける。
@@ -317,6 +317,26 @@ export function SettingsView() {
                   </div>
                 </div>
               </SettingsGroup>
+
+              <SettingsGroup
+                id="models-local-heading"
+                title="ローカル推論"
+                description="llama-server のモデル、起動状態、推論パラメータを設定します。"
+              >
+                <div id="models-local" className="scroll-mt-24">
+                  <LlamaServerSettings active={tab === "engine"} />
+                </div>
+              </SettingsGroup>
+
+              <SettingsGroup
+                id="extensions-memory-heading"
+                title="メモリ"
+                description="永続メモリの動作、容量、保存タイミングを設定し、保存済みデータを検索します。"
+              >
+                <div id="extensions-memory" className="scroll-mt-24">
+                  <MemorySettings />
+                </div>
+              </SettingsGroup>
             </section>
           )}
 
@@ -335,16 +355,6 @@ export function SettingsView() {
               >
                 <div id="models-catalog" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
                   <ProviderModelsPanel refreshToken={modelsRevision} />
-                </div>
-              </SettingsGroup>
-
-              <SettingsGroup
-                id="models-local-heading"
-                title="ローカル推論"
-                description="llama-server のモデル、起動状態、推論パラメータを設定します。"
-              >
-                <div id="models-local" className="scroll-mt-24">
-                  <LlamaServerSettings active={tab === "models"} />
                 </div>
               </SettingsGroup>
 
@@ -430,16 +440,6 @@ export function SettingsView() {
                   <div id="extensions-mcp" className="scroll-mt-24">
                     <McpSettings />
                   </div>
-                </div>
-              </SettingsGroup>
-
-              <SettingsGroup
-                id="extensions-memory-heading"
-                title="メモリ"
-                description="永続メモリの動作、容量、保存タイミングを設定し、保存済みデータを検索します。"
-              >
-                <div id="extensions-memory" className="scroll-mt-24">
-                  <MemorySettings />
                 </div>
               </SettingsGroup>
             </section>
