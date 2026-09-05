@@ -1367,23 +1367,6 @@ export const TaskView = memo(function TaskView({
     }).catch(() => undefined);
   }, [task?.sessionId, taskId, working]);
 
-  // 末尾のユーザーメッセージを共有し、deltaごとの後方走査を1回に抑える。
-  const { lastUserMessage, currentPromptIsHangRetry } = useMemo(() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (message?.role === "user") {
-        return {
-          lastUserMessage: message,
-          currentPromptIsHangRetry: isHangRetryUserMessage(message),
-        };
-      }
-    }
-    return {
-      lastUserMessage: undefined,
-      currentPromptIsHangRetry: false,
-    };
-  }, [messages]);
-
   async function revert() {
     const target = revertEntryRef.current;
     if (!target || revertBusy || working || archived) return;
@@ -2027,6 +2010,8 @@ export const TaskView = memo(function TaskView({
     userMessageIds,
     navigationMessageIds,
     stats,
+    lastUserMessage,
+    currentPromptIsHangRetry,
   } = useMemo(() => {
     const visible: UiMessage[] = [];
     const userIds: string[] = [];
@@ -2037,8 +2022,15 @@ export const TaskView = memo(function TaskView({
     let rateCount = 0;
     let durationMs = 0;
     let prevCreatedAt: number | null = null;
+    let lastUserMessage: UiMessage | undefined;
+    let currentPromptIsHangRetry = false;
     for (const message of messages) {
-      if (isHangRetryUserMessage(message)) {
+      const hangRetry = isHangRetryUserMessage(message);
+      if (message.role === "user") {
+        lastUserMessage = message;
+        currentPromptIsHangRetry = hangRetry;
+      }
+      if (hangRetry) {
         detectedHangRetryCount += 1;
         continue;
       }
@@ -2064,6 +2056,8 @@ export const TaskView = memo(function TaskView({
       detectedHangRetryCount,
       userMessageIds: userIds,
       navigationMessageIds: userIds.length > 0 ? userIds : fallbackIds,
+      lastUserMessage,
+      currentPromptIsHangRetry,
       stats: {
         totalTokens,
         avgRate,
