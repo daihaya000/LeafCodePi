@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 18-20 — control flush の履歴巻き戻し
+
+- バグ: ready 後に flush する control snapshot がバッファ時点の古い `messages` を載せたまま送られ、TaskView がタイムラインを巻き戻す
+- 修正: `preparePendingPayloadForReadyFlush` で ready より古ければ messages/todos/contextUsage を除去してから送信
+- 検証: `sse-ready-buffer.test.ts` + `events/route.test.ts` 19/19 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 14-17 — Goal Loop 開始後の旧 hang watch
 
 - バグ: `goalLoopCommand` が `queuePrompt` を経由せず、直前チャットの hang watch が残り旧プロンプトで resume → Goal が abort で一時停止

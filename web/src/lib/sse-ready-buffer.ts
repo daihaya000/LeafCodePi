@@ -162,3 +162,24 @@ export function shouldFlushPendingAfterReady(
   }
   return true;
 }
+
+/**
+ * Control events must still flush after ready, but their embedded history may
+ * be older than the ready snapshot. Strip stale timeline fields so TaskView
+ * applies permission/hang state without rewinding messages.
+ */
+export function preparePendingPayloadForReadyFlush(
+  payload: Record<string, unknown>,
+  readyRank: MessageListRank,
+): Record<string, unknown> | null {
+  if (!shouldFlushPendingAfterReady(payload, readyRank)) return null;
+  if (!isControlSnapshot(payload)) return payload;
+  if (isFresherMessageList(rankMessageList(payload.messages), readyRank)) {
+    return payload;
+  }
+  const next = { ...payload };
+  delete next.messages;
+  delete next.todos;
+  delete next.contextUsage;
+  return next;
+}

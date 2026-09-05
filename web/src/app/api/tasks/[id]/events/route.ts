@@ -9,8 +9,8 @@ import {
 import { createSseWriter } from "@/lib/sse-writer";
 import {
   bufferPendingSsePayload,
+  preparePendingPayloadForReadyFlush,
   rankMessageList,
-  shouldFlushPendingAfterReady,
 } from "@/lib/sse-ready-buffer";
 
 export const runtime = "nodejs";
@@ -111,9 +111,11 @@ export async function GET(
           if (sse.closed) break;
           // Ready is authoritative for full history. Only flush buffered
           // events that are still newer so an older mid-fetch snapshot cannot
-          // rewind the client after ready.
-          if (!shouldFlushPendingAfterReady(payload, readyRank)) continue;
-          sse.send(payload.type === "delta" ? "delta" : "snapshot", payload);
+          // rewind the client after ready. Control events still flush, but
+          // stale embedded messages are stripped.
+          const prepared = preparePendingPayloadForReadyFlush(payload, readyRank);
+          if (!prepared) continue;
+          sse.send(prepared.type === "delta" ? "delta" : "snapshot", prepared);
         }
         pendingPayloads.length = 0;
       } catch (error) {

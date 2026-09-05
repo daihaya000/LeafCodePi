@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   bufferPendingSsePayload,
   isFresherMessageList,
+  preparePendingPayloadForReadyFlush,
   rankMessageList,
   shouldFlushPendingAfterReady,
 } from "./sse-ready-buffer";
@@ -174,6 +175,50 @@ describe("sse-ready-buffer", () => {
         ready,
       ),
     ).toBe(false);
+  });
+
+  it("strips stale messages from control payloads flushed after ready", () => {
+    const ready = rankMessageList([
+      { id: "history", createdAt: 1 },
+      { id: "latest", createdAt: 5 },
+    ]);
+    const prepared = preparePendingPayloadForReadyFlush(
+      {
+        type: "snapshot",
+        eventType: "permission_request",
+        messages: [{ id: "history", createdAt: 1 }],
+        todos: [],
+        contextUsage: { used: 1, limit: 2 },
+        permissionRequest: { id: "req-1" },
+      },
+      ready,
+    );
+    expect(prepared).toMatchObject({
+      eventType: "permission_request",
+      permissionRequest: { id: "req-1" },
+    });
+    expect(prepared).not.toHaveProperty("messages");
+    expect(prepared).not.toHaveProperty("todos");
+    expect(prepared).not.toHaveProperty("contextUsage");
+
+    const fresher = preparePendingPayloadForReadyFlush(
+      {
+        type: "snapshot",
+        eventType: "permission_request",
+        messages: [
+          { id: "history", createdAt: 1 },
+          { id: "latest", createdAt: 5 },
+          { id: "newer", createdAt: 6 },
+        ],
+        permissionRequest: { id: "req-2" },
+      },
+      ready,
+    );
+    expect(fresher).toMatchObject({
+      eventType: "permission_request",
+      permissionRequest: { id: "req-2" },
+    });
+    expect(fresher?.messages).toHaveLength(3);
   });
 
   it("keeps control snapshots when a later history snapshot coalesces", () => {
