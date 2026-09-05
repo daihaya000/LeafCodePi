@@ -114,6 +114,7 @@ import {
   registerHangWatchdogHooks,
   startHangWatchdog,
 } from "@/lib/pi/hang-watchdog";
+import { blocksAutoCompactionAfterManualAbort } from "@/lib/aborted-resume";
 import { HANG_RETRY_PREFIX } from "@/lib/hang-retry";
 import {
   createPermissionPromptService,
@@ -1478,7 +1479,8 @@ function scheduleAutoCompaction(live: LiveRuntime): void {
   if (
     live.autoCompactionPromise ||
     live.manualCompactionInProgress ||
-    live.manualAbortedAssistantId ||
+    // "" = abort before any assistant message; still blocks auto-compact.
+    blocksAutoCompactionAfterManualAbort(live.manualAbortedAssistantId) ||
     live.nativeCompactionAttempted ||
     live.goalLoopTurnActive ||
     live.session.isCompacting ||

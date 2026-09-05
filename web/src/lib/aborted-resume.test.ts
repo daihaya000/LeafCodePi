@@ -3,6 +3,7 @@ import {
   findResumableTurn,
   isAbortedAssistantMessage,
   MESSAGE_ABORTED_ERROR,
+  blocksAutoCompactionAfterManualAbort,
   shouldAttachResumeImages,
   shouldAutoResumeSilentTurn,
   shouldClearStopRequestedOnWorkingTransition,
@@ -125,6 +126,13 @@ describe("findResumableTurn", () => {
     expect(shouldClearStopRequestedOnWorkingTransition(true, true, true)).toBe(false);
     expect(shouldClearStopRequestedOnWorkingTransition(true, false, true)).toBe(false);
     expect(shouldClearStopRequestedOnWorkingTransition(false, true, false)).toBe(false);
+  });
+
+  it("blocks auto-compaction for early abort sentinel and assistant ids", () => {
+    expect(blocksAutoCompactionAfterManualAbort("")).toBe(true);
+    expect(blocksAutoCompactionAfterManualAbort("a1")).toBe(true);
+    expect(blocksAutoCompactionAfterManualAbort(null)).toBe(false);
+    expect(blocksAutoCompactionAfterManualAbort(undefined)).toBe(false);
   });
 
   it("returns silent resume for empty assistant turn", () => {

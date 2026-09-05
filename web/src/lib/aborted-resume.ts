@@ -34,6 +34,16 @@ export type FindResumableTurnOptions = {
   manualAbortedAssistantId?: string | null;
 };
 
+/**
+ * Empty string means abort before any assistant message existed.
+ * Both "" and non-empty ids must block auto-compaction so the turn stays resumable.
+ */
+export function blocksAutoCompactionAfterManualAbort(
+  manualAbortedAssistantId: string | null | undefined,
+): boolean {
+  return manualAbortedAssistantId != null;
+}
+
 export function shouldAutoResumeSilentTurn(input: {
   target: ResumableTurn | null;
   showResume: boolean;

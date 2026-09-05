@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 21-25 — 早期 abort で自動圧縮が止まらない
+
+- バグ: 応答前 Stop で `manualAbortedAssistantId === ""` なのに truthy 判定のため `scheduleAutoCompaction` が圧縮を実行し再開可能なターンを壊し得た
+- 修正: `blocksAutoCompactionAfterManualAbort`（`!= null`）で空文字 sentinel もブロック
+- 検証: `aborted-resume.test.ts` 18/18 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 18-20 — control flush の履歴巻き戻し
 
 - バグ: ready 後に flush する control snapshot がバッファ時点の古い `messages` を載せたまま送られ、TaskView がタイムラインを巻き戻す
