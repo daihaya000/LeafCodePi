@@ -36,4 +36,13 @@ describe("mergeTaskDelta", () => {
 
     expect(mergeTaskDelta(current, {})).toBe(current);
   });
+
+  it("ignores stale isStreaming after the task is already idle", () => {
+    const current = task({ status: "idle", isStreaming: false });
+
+    expect(mergeTaskDelta(current, { isStreaming: true })).toMatchObject({
+      status: "idle",
+      isStreaming: false,
+    });
+  });
 });

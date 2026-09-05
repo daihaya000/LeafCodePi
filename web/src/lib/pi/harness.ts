@@ -5023,7 +5023,19 @@ export function resolveStreamingBehaviorForPrompt(
 export const STEER_STREAM_WAIT_MS = 30_000;
 export const STEER_STREAM_POLL_MS = 50;
 
-/** Wait until the live session is streaming, or give up (caller drops the inject). */
+/**
+ * Wait for the stream only while the accepted prompt is still active.
+ * If promptActive is already false, the turn ended (or never started) —
+ * callers should demote steer to a normal chained prompt instead of waiting.
+ */
+export function shouldWaitForSteerStream(input: {
+  isStreaming: boolean;
+  promptActive: boolean;
+}): boolean {
+  return !input.isStreaming && input.promptActive;
+}
+
+/** Wait until the live session is streaming, or give up (caller demotes/drops). */
 export async function waitForSessionStreaming(
   isStreaming: () => boolean,
   stillActive: () => boolean,
@@ -5101,6 +5113,18 @@ function queuePrompt(
       startedEpoch,
       (state().live.get(live.taskId) ?? live).promptEpoch,
     );
+  const demoteInterruptToNormalPrompt = () => {
+    // Stream ended (or never opened) while the client still looked "working".
+    // Run as the next serial turn instead of silently dropping the text.
+    queuePrompt(live, prompt, images, {
+      ...(meta?.agent ? { agent: meta.agent } : {}),
+      ...(meta?.subagentPermission
+        ? { subagentPermission: meta.subagentPermission }
+        : {}),
+      ...(meta?.permissionMode ? { permissionMode: meta.permissionMode } : {}),
+      ...(meta?.isHangRetry ? { isHangRetry: true } : {}),
+    });
+  };
   const runPrompt = async () => {
     if (!stillQueued()) return;
     const pendingCompaction = live.autoCompactionPromise;
@@ -5108,13 +5132,28 @@ function queuePrompt(
     if (!stillQueued()) return;
     let currentLive = state().live.get(live.taskId) ?? live;
     if (meta?.streamingBehavior && !currentLive.session.isStreaming) {
+      if (
+        !shouldWaitForSteerStream({
+          isStreaming: currentLive.session.isStreaming,
+          promptActive: currentLive.promptActive,
+        })
+      ) {
+        demoteInterruptToNormalPrompt();
+        return;
+      }
       // prompt_accepted makes working=true before the SDK stream opens; wait
       // so steer is not serialized onto promptChain as a post-turn prompt.
       const started = await waitForSessionStreaming(
         () => (state().live.get(live.taskId) ?? live).session.isStreaming,
-        stillQueued,
+        () =>
+          stillQueued() &&
+          Boolean((state().live.get(live.taskId) ?? live).promptActive),
       );
-      if (!started || !stillQueued()) return;
+      if (!stillQueued()) return;
+      if (!started) {
+        demoteInterruptToNormalPrompt();
+        return;
+      }
       currentLive = state().live.get(live.taskId) ?? live;
     }
     const streamingBehavior = resolveStreamingBehaviorForPrompt(
@@ -5133,8 +5172,7 @@ function queuePrompt(
       activeLive.session.isStreaming,
     );
     if (meta?.streamingBehavior && !finalBehavior) {
-      // Stream never opened / already ended — drop the interrupt; do not
-      // re-arm hang-watch with the short steer text as a new turn.
+      demoteInterruptToNormalPrompt();
       return;
     }
     const options = buildPromptOptions({

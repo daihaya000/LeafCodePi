@@ -15,6 +15,7 @@ import {
   shouldBypassPromptChain,
   syncSessionName,
   waitForSessionStreaming,
+  shouldWaitForSteerStream,
 } from "./harness";
 import type { ThroughputTiming } from "@/lib/token-throughput";
 import type { UiMessage } from "@/lib/types";
@@ -140,6 +141,21 @@ describe("buildPromptOptions", () => {
       { timeoutMs: 100, pollMs: 1, sleep: async () => undefined },
     );
     assert.equal(abandoned, false);
+  });
+
+  it("waits for steer only while the accepted prompt is still active", () => {
+    assert.equal(
+      shouldWaitForSteerStream({ isStreaming: false, promptActive: true }),
+      true,
+    );
+    assert.equal(
+      shouldWaitForSteerStream({ isStreaming: true, promptActive: true }),
+      false,
+    );
+    assert.equal(
+      shouldWaitForSteerStream({ isStreaming: false, promptActive: false }),
+      false,
+    );
   });
 });
 

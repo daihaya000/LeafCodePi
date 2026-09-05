@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 51 — 偽workingのsteer黙殺とidle後の偽isStreaming
+
+- バグ: ターン終了後に status が working のまま残ると steer が wait→drop で消える。また idle 後の古い isStreaming:true デルタでクライアントが busy 扱いになる
+- 修正: promptActive が無い steer は通常プロンプトへ降格。`mergeTaskDelta` は status≠working なら isStreaming を無視
+- 検証: `harness-prompt.test.ts` + `task-delta.test.ts` 24/24 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 50 — Stop後の古い isStreaming で stopRequested 解除
 
 - バグ: abort 後に遅延した `isStreaming:true` デルタで複合 `working` が点灯し、`shouldClearStopRequestedOnWorkingTransition` がラッチを解除 → キュー drain/auto-send が再開し得た

@@ -14,10 +14,15 @@ export function mergeTaskDelta(
 ): TaskDetail | null {
   if (!current) {
     if (!payload.task) return current;
+    const status = payload.task.status;
+    const isStreaming =
+      status === "working"
+        ? (payload.isStreaming ?? status === "working")
+        : false;
     return {
       ...payload.task,
       messages: [],
-      isStreaming: payload.isStreaming ?? payload.task.status === "working",
+      isStreaming,
       isCompacting: Boolean(payload.isCompacting),
     };
   }
@@ -31,12 +36,21 @@ export function mergeTaskDelta(
     return current;
   }
 
+  const nextStatus = payload.task?.status ?? current.status;
+  let isStreaming = current.isStreaming;
+  if ("isStreaming" in payload) {
+    isStreaming = payload.isStreaming ?? current.isStreaming;
+  } else if (payload.task && "status" in payload.task) {
+    isStreaming = nextStatus === "working" ? current.isStreaming : false;
+  }
+  // Throttled pre-abort deltas can arrive after an idle snapshot. Streaming
+  // without status working would make the client treat the task as busy.
+  if (nextStatus !== "working") isStreaming = false;
+
   return {
     ...current,
     ...(payload.task ?? {}),
-    ...("isStreaming" in payload
-      ? { isStreaming: payload.isStreaming ?? current.isStreaming }
-      : {}),
+    isStreaming,
     ...("isCompacting" in payload
       ? { isCompacting: payload.isCompacting ?? current.isCompacting }
       : {}),
