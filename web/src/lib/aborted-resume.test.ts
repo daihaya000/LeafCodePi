@@ -155,11 +155,13 @@ describe("findResumableTurn", () => {
     ).toBe(false);
   });
 
-  it("clears stopRequested only when a new run starts after idle", () => {
+  it("clears stopRequested only when task.status becomes working", () => {
     expect(shouldClearStopRequestedOnWorkingTransition(false, true, true)).toBe(true);
     expect(shouldClearStopRequestedOnWorkingTransition(true, true, true)).toBe(false);
     expect(shouldClearStopRequestedOnWorkingTransition(true, false, true)).toBe(false);
     expect(shouldClearStopRequestedOnWorkingTransition(false, true, false)).toBe(false);
+    // Stale isStreaming while status stays idle must not clear the latch.
+    expect(shouldClearStopRequestedOnWorkingTransition(false, false, true)).toBe(false);
   });
 
   it("blocks auto-compaction for early abort sentinel and assistant ids", () => {

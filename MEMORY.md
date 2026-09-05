@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 50 — Stop後の古い isStreaming で stopRequested 解除
+
+- バグ: abort 後に遅延した `isStreaming:true` デルタで複合 `working` が点灯し、`shouldClearStopRequestedOnWorkingTransition` がラッチを解除 → キュー drain/auto-send が再開し得た
+- 修正: ラッチ解除を `task.status === "working"` 遷移のみに限定（stale stream ではクリアしない）
+- 検証: `aborted-resume.test.ts` + `queued-follow-up.test.ts` 35/35 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 46-49 — クライアントがストリーム前 steer を通常送信
 
 - バグ: UI の `isSteer` が `isStreaming` のみ参照し、`prompt_accepted`〜stream 間の割り込みが `streamingBehavior` なしで POST → 通常 promptChain 化

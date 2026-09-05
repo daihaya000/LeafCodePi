@@ -76,15 +76,17 @@ export function shouldAutoResumeSilentTurn(input: {
 }
 
 /**
- * After a successful Stop, stopRequested stays true to block silent auto-resume.
- * When a new run starts (idle → working), clear that latch so Stop works again.
+ * After a successful Stop, stopRequested stays true to block silent auto-resume
+ * and queued follow-up drain. Clear only when task.status becomes "working"
+ * (a real new run / prompt_accepted) — not when a stale SSE delta sets
+ * isStreaming while status is still idle (composite `working` would flicker).
  */
 export function shouldClearStopRequestedOnWorkingTransition(
-  wasWorking: boolean,
-  working: boolean,
+  wasStatusWorking: boolean,
+  statusWorking: boolean,
   stopRequested: boolean,
 ): boolean {
-  return !wasWorking && working && stopRequested;
+  return !wasStatusWorking && statusWorking && stopRequested;
 }
 
 const ABORT_ERROR_PATTERN =

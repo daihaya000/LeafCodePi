@@ -496,7 +496,7 @@ export const TaskView = memo(function TaskView({
   const [manualAbortedAssistantId, setManualAbortedAssistantId] = useState<string | null>(null);
   const [stopRequested, setStopRequested] = useState(false);
   const stopRequestedRef = useRef(false);
-  const prevWorkingRef = useRef(false);
+  const prevStatusWorkingRef = useRef(false);
   const autoResumeKeyRef = useRef<string | null>(null);
   const [hangRetryCount, setHangRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -1118,7 +1118,7 @@ export const TaskView = memo(function TaskView({
     setManualAbortedAssistantId(null);
     stopRequestedRef.current = false;
     setStopRequested(false);
-    prevWorkingRef.current = false;
+    prevStatusWorkingRef.current = false;
     setHangRetryCount(0);
     setError(null);
     setPermissionRequest(null);
@@ -1202,23 +1202,24 @@ export const TaskView = memo(function TaskView({
 
   const compacting = isCompacting || compactingLocal;
   const archived = task?.status === "archived";
-  const working = Boolean(task?.status === "working" || task?.isStreaming);
+  const statusWorking = task?.status === "working";
+  const working = Boolean(statusWorking || task?.isStreaming);
   const isReverted = Boolean(task?.revertLeafId);
 
   useEffect(() => {
-    const wasWorking = prevWorkingRef.current;
-    prevWorkingRef.current = working;
+    const wasStatusWorking = prevStatusWorkingRef.current;
+    prevStatusWorkingRef.current = Boolean(statusWorking);
     if (
       shouldClearStopRequestedOnWorkingTransition(
-        wasWorking,
-        working,
+        wasStatusWorking,
+        Boolean(statusWorking),
         stopRequestedRef.current,
       )
     ) {
       stopRequestedRef.current = false;
       setStopRequested(false);
     }
-  }, [working]);
+  }, [statusWorking]);
 
   // PartView は memo 化されており onRevert の参照比較でスキップ判定する。
   // inline arrow のままだと毎レンダー新参照になり、stabilizeUiMessages の
