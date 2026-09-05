@@ -169,7 +169,7 @@ function messageOf(error: unknown): string {
 export function isProviderLimitError(error: unknown): boolean {
   const status = statusOf(error);
   if (status === 402 || status === 429) return true;
-  return /^(?:402|429)\b|(?:HTTP(?: status)?|status(?: code)?)\s*[:=]?\s*(?:402|429)\b|GoUsageLimitError|FreeUsageLimitError|usage[_ ]limit[_ ](?:reached|exceeded)|usage_not_included|monthly usage limit reached|available balance|insufficient[_ ]quota|out of budget|quota exceeded|billing|rate[ ._-]?limit|too many requests/i.test(
+  return /^(?:402|429)\b|(?:HTTP(?: status)?|status(?: code)?)\s*[:=]?\s*(?:402|429)\b|GoUsageLimitError|FreeUsageLimitError|usage[_ ]limit(?:[_ ]has[_ ]been)?[_ ](?:reached|exceeded)|usage_not_included|monthly usage limit reached|available balance|insufficient[_ ]quota|out of budget|quota exceeded|billing|rate[ ._-]?limit|too many requests/i.test(
     messageOf(error),
   );
 }

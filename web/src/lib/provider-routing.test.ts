@@ -153,6 +153,10 @@ describe("provider limit detection and marks", () => {
       true,
     );
     assert.equal(
+      isProviderLimitError("Codex error: The usage limit has been reached"),
+      true,
+    );
+    assert.equal(
       isProviderLimitError("insufficient_quota"),
       true,
     );

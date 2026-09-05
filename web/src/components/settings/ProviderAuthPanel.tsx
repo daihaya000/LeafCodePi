@@ -1245,7 +1245,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
             次回起動から反映されます。
           </p>
         </details>
-        <ul className="grid items-start gap-3 lg:grid-cols-2">
+        <ul className="grid items-stretch gap-3 lg:grid-cols-2">
           {orderedProviders.length === 0 && (
             <li className="text-sm text-muted lg:col-span-2">プロバイダーが見つかりません</li>
           )}

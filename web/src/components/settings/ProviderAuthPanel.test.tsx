@@ -447,7 +447,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     const providerList = heading.parentElement?.querySelector("ul");
     expect(providerList).toBeTruthy();
     expect(providerList?.className).toContain("lg:grid-cols-2");
-    expect(providerList?.className).toContain("items-start");
+    expect(providerList?.className).toContain("items-stretch");
     expect(providerList?.className).not.toContain("overflow-y-auto");
     expect(providerList?.className).not.toContain("max-h-72");
     expect(
