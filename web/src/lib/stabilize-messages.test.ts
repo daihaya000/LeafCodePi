@@ -64,6 +64,29 @@ describe("messageRenderKey", () => {
 });
 
 describe("stabilizeUiMessages", () => {
+  it.each(["text", "thinking", "image", "input", "output", "error", "subagentRunIds"] as const)(
+    "compares the full %s value in snapshots and deltas",
+    (field) => {
+      const message = (prefix: string): UiMessage => {
+        const value = prefix + "same suffix".repeat(10);
+        const part = field === "text" || field === "thinking"
+          ? { type: field, id: "part", text: value }
+          : field === "image"
+            ? { type: "image" as const, id: "part", url: value, mime: "image/png" }
+            : { type: "tool" as const, id: "part", callID: "call", tool: "bash", state: {
+                status: "running" as const,
+                [field]: field === "input" ? { command: value } : field === "subagentRunIds" ? [value] : value,
+              } };
+        return { id: "a", role: "assistant", createdAt: 1, parts: [part] };
+      };
+      const previous = [message("a")];
+      const next = message("b");
+      expect(stabilizeUiMessages(previous, [next])[0]).toBe(next);
+      expect(upsertUiMessage(previous, next)[0]).toBe(next);
+      expect(upsertUiMessage(previous, structuredClone(previous[0]!))).toBe(previous);
+    },
+  );
+
   it("reuses references when content is unchanged", () => {
     const prev = [textMessage("a", "hello"), textMessage("b", "world")];
     const next = [textMessage("a", "hello"), textMessage("b", "world")];

@@ -16,6 +16,12 @@ describe("webUiAuthRequired", () => {
     vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN", "secret");
     expect(webUiAuthRequired()).toBe(true);
   });
+
+  it("remains required when the token is missing", () => {
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required");
+    vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN", "");
+    expect(webUiAuthRequired()).toBe(true);
+  });
 });
 
 describe("tokensMatch", () => {

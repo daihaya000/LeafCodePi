@@ -164,7 +164,7 @@ export function QuestionCard({
           aria-label={`${question.header ?? question.question}（自由入力）`}
           onChange={(e) => setCustom(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key !== "Enter") return;
+            if (e.key !== "Enter" || e.nativeEvent.isComposing || e.keyCode === 229) return;
             e.preventDefault();
             const value = custom.trim();
             if (!value) return;

@@ -1389,7 +1389,7 @@ export const TaskView = memo(function TaskView({
     }
     const submittedPrompt = prompt;
     const submittedAttachments = attachments;
-    let optimistic = false;
+    let draftCleared = false;
     if (
       shouldQueueFollowUp({
         working,
@@ -1433,6 +1433,9 @@ export const TaskView = memo(function TaskView({
       let resolvedAutoDecision: AutoDecision | undefined;
       if (goalLoopEnabled) {
         if (images.length > 0) throw new Error("Goal loop の開始では画像添付は使えません");
+        setPrompt("");
+        setAttachments([]);
+        draftCleared = true;
         const result = await sendJson<{
           loop: GoalLoopDto | null;
           agent?: string | null;
@@ -1501,7 +1504,7 @@ export const TaskView = memo(function TaskView({
         }
         setPrompt("");
         setAttachments([]);
-        optimistic = true;
+        draftCleared = true;
         const result = await sendJson<{
           task: TaskSummary;
           autoDecision?: AutoDecision;
@@ -1541,15 +1544,14 @@ export const TaskView = memo(function TaskView({
           agentSelection === AUTO_AGENT_VALUE ? AUTO_AGENT_VALUE : nextAgent,
         );
       }
-      setPrompt("");
-      setAttachments([]);
+      // The composer is editable during the request; do not clear its next draft.
       notifyTasksChanged();
     } catch (err) {
       if (wasStopped) {
         stopRequestedRef.current = true;
         setStopRequested(true);
       }
-      if (optimistic) {
+      if (draftCleared) {
         setPendingUserMessage(null);
         setPrompt((current) => current || submittedPrompt);
         setAttachments((current) =>

@@ -2,10 +2,8 @@ export const WEBUI_AUTH_COOKIE = "leafcode-pi-token";
 
 /** Remote bind requires token auth when host sets LEAFCODE_PI_WEBUI_AUTH=required. */
 export function webUiAuthRequired(): boolean {
-  return (
-    process.env.LEAFCODE_PI_WEBUI_AUTH === "required" &&
-    Boolean(process.env.LEAFCODE_PI_WEBUI_TOKEN?.trim())
-  );
+  // A missing token is a broken auth configuration, not permission to bypass it.
+  return process.env.LEAFCODE_PI_WEBUI_AUTH === "required";
 }
 
 export function expectedWebUiToken(): string {

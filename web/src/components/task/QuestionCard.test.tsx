@@ -25,6 +25,20 @@ describe("QuestionCard", () => {
     cleanup();
   });
 
+  it("does not submit custom input when Enter confirms IME composition", async () => {
+    const current = request("q-ime");
+    current.questions[0]!.custom = true;
+    const onReply = vi.fn(async () => undefined);
+    render(<QuestionCard request={current} onReply={onReply} onReject={vi.fn()} />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "回答" } });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+    expect(onReply).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onReply).toHaveBeenCalledWith(current, [["回答"]]));
+  });
+
   it("ignores stale reply completion after the request id changes", async () => {
     let resolveReply!: () => void;
     const onReply = vi.fn(

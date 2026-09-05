@@ -1,54 +1,8 @@
-import type { UiMessage, UiPart } from "@/lib/types";
-
-function boundedJsonFingerprint(value: object | undefined): string {
-  if (value === undefined) return "";
-  const json = JSON.stringify(value);
-  return `${json.length}:${json.slice(-48)}`;
-}
-
-function partFingerprint(part: UiPart): string {
-  if (part.type === "text" || part.type === "thinking") {
-    return `${part.type}:${part.id}:${part.text.length}:${part.text.slice(-48)}`;
-  }
-  if (part.type === "image") {
-    return `${part.type}:${part.id}:${part.url.length}`;
-  }
-  const state = part.state;
-  // ToolCard renders these fields directly; omitting them drops input-only SSE deltas.
-  return [
-    part.type,
-    part.id,
-    part.tool,
-    state.status,
-    boundedJsonFingerprint(state.input),
-    state.output?.length ?? 0,
-    state.output?.slice(-48) ?? "",
-    state.title ?? "",
-    state.error?.length ?? 0,
-    state.error?.slice(-48) ?? "",
-    state.startedAtMs ?? "",
-    state.endedAtMs ?? "",
-    boundedJsonFingerprint(state.subagentRunIds),
-  ].join(":");
-}
+import type { UiMessage } from "@/lib/types";
 
 function messageFingerprint(message: UiMessage): string {
-  return [
-    message.id,
-    message.role,
-    message.error ?? "",
-    message.accountId ?? "",
-    message.model ?? "",
-    message.provider ?? "",
-    message.hangRetry ? "1" : "0",
-    message.createdAt ?? "",
-    message.responseDurationMs ?? "",
-    message.diagnostics ? JSON.stringify(message.diagnostics) : "",
-    message.outputTokens ?? "",
-    message.tokensPerSecond ?? "",
-    message.tokensPerSecondDecode ? "1" : "0",
-    message.parts.map(partFingerprint).join("|"),
-  ].join("#");
+  // SSE messages are JSON DTOs. Length/suffix fingerprints can hide real edits.
+  return JSON.stringify(message);
 }
 
 /**
