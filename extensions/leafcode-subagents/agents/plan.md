@@ -1,7 +1,7 @@
 ---
 name: plan
 description: Read-only codebase analysis that produces an implementation plan before changes
-tools: read, memory_search, session_search, question, grep, find, ls, web_search, source_check, fetch_content, get_search_content
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, web_search, source_check, fetch_content, get_search_content, todowrite
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
