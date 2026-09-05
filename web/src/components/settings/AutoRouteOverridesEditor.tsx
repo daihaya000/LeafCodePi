@@ -494,37 +494,45 @@ export function AutoRouteOverridesEditor({
         )}
       </div>
       <div className="space-y-4 rounded-lg border border-border bg-surface-2 px-3 py-3">
-        <div className="flex flex-wrap items-center gap-1">
-          {AUTO_OPTIMIZE_MODES.map((candidateMode) => {
-            const selected = candidateMode === editMode;
-            return (
-              <button
-                key={candidateMode}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => setEditMode(candidateMode)}
-                className={cx(
-                  "rounded-md px-2.5 py-1 text-xs",
-                  selected
-                    ? "bg-primary text-primary-fg"
-                    : "bg-surface-2 text-muted hover:bg-surface-3 hover:text-text",
-                )}
-              >
-                {autoOptimizeModeLabel(candidateMode)}
-                {candidateMode === mode && <span className="ml-1">*</span>}
-              </button>
-            );
-          })}
+        <div className="space-y-2">
+          <div
+            role="group"
+            aria-label="Autoルーティング設定のモード"
+            className="grid grid-cols-3 gap-1 rounded-lg bg-surface-3 p-1"
+          >
+            {AUTO_OPTIMIZE_MODES.map((candidateMode) => {
+              const selected = candidateMode === editMode;
+              return (
+                <button
+                  key={candidateMode}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => setEditMode(candidateMode)}
+                  className={cx(
+                    "min-h-11 rounded-md px-2 py-2 text-xs font-medium transition-colors",
+                    selected
+                      ? "bg-primary text-primary-fg"
+                      : "text-muted hover:bg-surface hover:text-text",
+                  )}
+                >
+                  {autoOptimizeModeLabel(candidateMode)}
+                  {candidateMode === mode && <span className="ml-1">*</span>}
+                </button>
+              );
+            })}
+          </div>
           {modeHasOverride && (
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={`${autoOptimizeModeLabel(editMode)}モードをリセット`}
-              onClick={() => setModeConfig(undefined)}
-            >
-              <RotateCcw className="h-3 w-3" />
-              このモードをリセット
-            </Button>
+            <div className="flex justify-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={`${autoOptimizeModeLabel(editMode)}モードをリセット`}
+                onClick={() => setModeConfig(undefined)}
+              >
+                <RotateCcw className="h-3 w-3" />
+                このモードをリセット
+              </Button>
+            </div>
           )}
         </div>
         <p className="text-xs text-muted">

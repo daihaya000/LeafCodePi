@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AutoRouteOverridesEditor } from "./AutoRouteOverridesEditor";
 
@@ -101,6 +101,13 @@ describe("AutoRouteOverridesEditor", () => {
         onChange={onChange}
       />,
     );
+    const modeGroup = screen.getByRole("group", { name: "Autoルーティング設定のモード" });
+    expect(modeGroup.className).toContain("grid-cols-3");
+    expect(within(modeGroup).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "コスト優先*",
+      "バランス",
+      "知能優先",
+    ]);
     // The editor keeps its own edit-mode, seeded from the prop. The active
     // (prop) mode is also marked with "*", so match by prefix.
     const pressedName = () =>
