@@ -2881,7 +2881,7 @@ export const TaskView = memo(function TaskView({
                     }
                   })();
                 }}
-                className="h-11 w-full min-w-0 md:h-8 md:w-auto md:max-w-[12rem] md:shrink"
+                className="h-11 w-full md:h-8 md:w-max md:shrink-0"
               />
               {modelValue === AUTO_MODEL_VALUE ? (
                 <AutoOptimizeSelect
@@ -2899,7 +2899,7 @@ export const TaskView = memo(function TaskView({
                   levels={thinkingLevels}
                   value={thinkingValue}
                   disabled={working || compacting || submitting || archived}
-                  className="h-11 w-full md:h-8 md:w-auto md:max-w-[8rem] md:shrink"
+                  className="h-11 w-full md:h-8 md:w-max md:shrink-0"
                   onChange={(value) => {
                     void (async () => {
                       try {
@@ -2952,7 +2952,7 @@ export const TaskView = memo(function TaskView({
                       })
                       .finally(() => setAgentChanging(false));
                   }}
-                  className="h-11 w-full min-w-0 md:h-8 md:w-auto md:max-w-40 md:shrink"
+                  className="h-11 w-full md:h-8 md:w-max md:shrink-0"
                 />
               )}
                 </>
@@ -3065,7 +3065,7 @@ export const TaskView = memo(function TaskView({
                   )
                 }
                 valueLabel={deliveryMode === "queue" ? "キュー" : "割り込み"}
-                className="h-11 w-full md:h-8 md:max-w-[8rem] md:shrink-0"
+                className="h-11 w-full md:h-8 md:w-max md:shrink-0"
                 onChange={(value) => {
                   if (value === "queue" || value === "steer") setDeliveryMode(value);
                 }}
