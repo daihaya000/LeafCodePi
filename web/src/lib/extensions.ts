@@ -99,9 +99,9 @@ const BUNDLED_REPLACED_EXTENSION_NAMES = new Set(["pi-mcp-adapter"]);
 
 /**
  * WebUI 本体が動かなくても切ってよい leafcode 拡張。
- * コミットガードは任意の安全機能なので設定から無効化できる。
+ * leafcode-* は原則 WebUI 依存（無効化禁止）。例外だけここに列挙する。
  */
-const OPTIONAL_LEAFCODE_EXTENSIONS = new Set(["leafcode-commit-guard"]);
+const OPTIONAL_LEAFCODE_EXTENSIONS = new Set<string>([]);
 
 /** LeafCodePi の WebUI が依存する拡張。無効化禁止。 */
 export function isWebUiRequiredExtension(name: string): boolean {

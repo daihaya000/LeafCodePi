@@ -62,7 +62,7 @@ LeafCodePi には次の Pi 拡張を同梱しています。WebUI と連携す�
 
 | 拡張 | 役割 |
 | --- | --- |
-| `leafcode-commit-guard` | 未コミット変更を検出したときのコミット確認（設定から無効化可） |
+| `leafcode-commit-guard` | 未コミット変更を検出したときのコミット確認（WebUI 依存・無効化不可） |
 | `leafcode-goal-loop` | Goal Loop と完走モード |
 | `leafcode-memory` | 永続メモリ、セッション検索、手続き型スキル |
 | `leafcode-mcp-adapter` | MCP サーバー接続とツール呼び出し |
