@@ -322,27 +322,51 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     ).toBeNull();
   });
 
-  it("shows Codex reset credits and usage from the CodexBar usage snapshot", async () => {
-    fetchMock.mockImplementation((input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith("/api/accounts")) {
-        return Promise.resolve(jsonResponse({ accounts: [] }));
-      }
-      if (url.endsWith("/api/codexbar/usage")) {
-        return Promise.resolve(
-          jsonResponse({
-            providers: [
-              {
-                id: "openai-codex",
-                usedPercent: 80,
-                resetCreditsAvailable: 2,
-              },
-            ],
-          }),
-        );
-      }
-      return Promise.resolve(jsonResponse({}));
-    });
+  it("shows and uses Codex reset credits from the CodexBar usage snapshot", async () => {
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const pathname = new URL(url, "http://localhost").pathname;
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (pathname === "/api/accounts") {
+          return Promise.resolve(jsonResponse({ accounts: [] }));
+        }
+        if (pathname === "/api/codexbar/usage") {
+          return Promise.resolve(
+            jsonResponse({
+              providers: [
+                {
+                  id: "openai-codex",
+                  usedPercent: 80,
+                  resetCreditsAvailable: 2,
+                },
+              ],
+            }),
+          );
+        }
+        if (pathname === "/api/codexbar/reset-credits" && method === "GET") {
+          return Promise.resolve(
+            jsonResponse({
+              availableCount: 2,
+              accountId: null,
+              credits: [
+                {
+                  id: "credit-1",
+                  title: "使用量リセット",
+                  expiresAt: null,
+                },
+              ],
+            }),
+          );
+        }
+        if (pathname === "/api/codexbar/reset-credits" && method === "POST") {
+          return Promise.resolve(
+            jsonResponse({ ok: true, message: "リセットしました。" }),
+          );
+        }
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
     render(
       <ProviderAuthPanel
         providers={[providers[1]]}
@@ -354,6 +378,31 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(resetCredits.parentElement?.textContent).toContain("2");
     expect(screen.getByText("使用量")).toBeTruthy();
     expect(screen.getByText("80%")).toBeTruthy();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Codex の使用量リセット権を使う",
+      }),
+    );
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(
+        ([input, requestInit]) =>
+          new URL(String(input), "http://localhost").pathname ===
+            "/api/codexbar/reset-credits" &&
+          (requestInit?.method ?? "GET") === "POST",
+      );
+      expect(post).toBeTruthy();
+      expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+        creditId: "credit-1",
+      });
+    });
+    expect(await screen.findByText("リセットしました。")).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).includes("/api/codexbar/usage?refresh=1"),
+      ),
+    ).toBe(true);
+    confirmSpy.mockRestore();
   });
 
   it("shows registered providers first without an other-providers section", () => {

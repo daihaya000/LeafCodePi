@@ -14,6 +14,7 @@ import type { ProviderAuthDto } from "@/lib/types";
 import type { AccountRoutingMode } from "@/lib/provider-routing";
 import {
   clampPercent,
+  formatResetsIn,
   percentTone,
   type CodexBarProvider,
   type CodexBarUsage,
@@ -34,6 +35,21 @@ type LoginUiState = {
   busy: boolean;
   error: string | null;
   warning: string | null;
+};
+
+type ResetCreditDto = {
+  id: string;
+  title: string | null;
+  expiresAt: string | null;
+};
+
+type ResetCreditsListResponse = {
+  credits: ResetCreditDto[];
+};
+
+type ResetCreditsConsumeResponse = {
+  ok: boolean;
+  message: string;
 };
 
 function authBadge(provider: ProviderAuthDto) {
@@ -113,6 +129,61 @@ function UsageBar({ percent }: { percent: number | null | undefined }) {
   );
 }
 
+function formatResetExpiry(expiresAt: string | null): string {
+  if (!expiresAt) return "期限不明";
+  const now = Date.now();
+  const ms = Date.parse(expiresAt);
+  if (!Number.isFinite(ms)) return "期限不明";
+  if (ms <= now) return "期限切れ間近";
+  return `期限 ${formatResetsIn(expiresAt, now) ?? expiresAt}`;
+}
+
+function resetCreditKey(provider: CodexBarProvider): string {
+  return (
+    provider.instanceId ??
+    `${provider.accountId ?? "default"}:${provider.id}`
+  );
+}
+
+function ResetCreditsControl({
+  provider,
+  busy,
+  status,
+  onRedeem,
+}: {
+  provider: CodexBarProvider;
+  busy: boolean;
+  status: string | null;
+  onRedeem: (provider: CodexBarProvider) => void;
+}) {
+  const available = provider.resetCreditsAvailable ?? 0;
+  if (provider.id !== "openai-codex" || available <= 0) return null;
+  return (
+    <div className="mt-1.5 flex flex-col gap-1 border-t border-border pt-1.5">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="text-muted">
+          リセット権 <span className="font-mono text-text">{available}</span>
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          busy={busy}
+          disabled={busy}
+          onClick={() => onRedeem(provider)}
+          aria-label="Codex の使用量リセット権を使う"
+        >
+          {busy ? "処理中…" : "使う"}
+        </Button>
+      </div>
+      {status && (
+        <p role="status" className="text-xs text-muted">
+          {status}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function findProviderUsage(
   usage: CodexBarUsage | null,
   providerId: string,
@@ -164,6 +235,16 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   const [cookieBusy, setCookieBusy] = useState<string | null>(null);
   const [cookieErrors, setCookieErrors] = useState<Record<string, string>>({});
   const [codexBarUsage, setCodexBarUsage] = useState<CodexBarUsage | null>(null);
+  const [resetBusyKey, setResetBusyKey] = useState<string | null>(null);
+  const [resetStatusByKey, setResetStatusByKey] = useState<Record<string, string>>({});
+  const loadCodexBarUsage = useCallback(
+    (force = false) =>
+      getJson<CodexBarUsage>(
+        "/api/codexbar/usage",
+        force ? { refresh: "1" } : undefined,
+      ),
+    [],
+  );
 
   useEffect(() => {
     if (providers.length === 0) {
@@ -172,7 +253,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     }
 
     let active = true;
-    void getJson<CodexBarUsage>("/api/codexbar/usage")
+    void loadCodexBarUsage()
       .then((usage) => {
         if (active) setCodexBarUsage(usage);
       })
@@ -182,7 +263,84 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     return () => {
       active = false;
     };
-  }, [providers]);
+  }, [loadCodexBarUsage, providers]);
+
+  const redeemResetCredit = useCallback(
+    async (provider: CodexBarProvider) => {
+      if (provider.id !== "openai-codex" || resetBusyKey) return;
+      const key = resetCreditKey(provider);
+      setResetBusyKey(key);
+      setResetStatusByKey((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+
+      try {
+        const list = await getJson<ResetCreditsListResponse>(
+          "/api/codexbar/reset-credits",
+          provider.accountId
+            ? { accountId: provider.accountId }
+            : undefined,
+        );
+        const credit = list.credits?.[0];
+        if (!credit) {
+          setResetStatusByKey((current) => ({
+            ...current,
+            [key]: "利用可能なリセット権がありません。",
+          }));
+          return;
+        }
+
+        const usageLine =
+          provider.usedPercent == null
+            ? "現在の使用率: —"
+            : `現在の使用率: ${Math.round(provider.usedPercent)}%`;
+        const title = credit.title?.trim() || "使用量リセット";
+        const confirmed = window.confirm(
+          `${title} を消費します。この操作は取り消せません。\n\n${usageLine}\n${formatResetExpiry(credit.expiresAt)}\n\nリセット権を使いますか？`,
+        );
+        if (!confirmed) {
+          setResetStatusByKey((current) => ({
+            ...current,
+            [key]: "キャンセルしました。",
+          }));
+          return;
+        }
+
+        const result = await sendJson<ResetCreditsConsumeResponse>(
+          "/api/codexbar/reset-credits",
+          {
+            creditId: credit.id,
+            accountId: provider.accountId ?? undefined,
+          },
+        );
+        setResetStatusByKey((current) => ({
+          ...current,
+          [key]: result.message,
+        }));
+        if (result.ok) {
+          try {
+            setCodexBarUsage(await loadCodexBarUsage(true));
+          } catch {
+            // Keep the successful result visible if the follow-up refresh fails.
+          }
+        }
+      } catch (error) {
+        const message =
+          error instanceof ApiError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : "リセット権の使用に失敗しました";
+        setResetStatusByKey((current) => ({ ...current, [key]: message }));
+      } finally {
+        setResetBusyKey((current) => (current === key ? null : current));
+      }
+    },
+    [loadCodexBarUsage, resetBusyKey],
+  );
+
   const refreshAccounts = useCallback(async () => {
     try {
       const res = await getJson<{ accounts: AccountRecord[] }>("/api/accounts");
@@ -789,6 +947,16 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                         </div>
                       )}
                       {usage && <UsageBar percent={usage.usedPercent} />}
+                      {usage && (
+                        <ResetCreditsControl
+                          provider={usage}
+                          busy={resetBusyKey === resetCreditKey(usage)}
+                          status={
+                            resetStatusByKey[resetCreditKey(usage)] ?? null
+                          }
+                          onRedeem={redeemResetCredit}
+                        />
+                      )}
                       <div className="mt-1.5 flex flex-wrap gap-1">
                         {accountAuthType && (
                           <Button
@@ -837,15 +1005,6 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                           削除
                         </Button>
                       </div>
-                      {providerId === "openai-codex" &&
-                        (usage?.resetCreditsAvailable ?? 0) > 0 && (
-                          <p className="mt-1.5 text-xs text-muted">
-                            リセット権{" "}
-                            <span className="font-mono text-text">
-                              {usage?.resetCreditsAvailable}
-                            </span>
-                          </p>
-                        )}
                       {(providerId === "ollama-cloud" ||
                         providerId === "opencode-go") && (
                         <div className="mt-2 border-t border-border pt-2">
@@ -1053,27 +1212,34 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           {orderedProviders.length === 0 && (
             <li className="text-sm text-muted lg:col-span-2">プロバイダーが見つかりません</li>
           )}
-          {orderedProviders.map((provider) => (
-            <ProviderRow
-              key={provider.id}
-              provider={provider}
-              disabled={Boolean(login)}
-              onChanged={onChanged}
-              usage={findProviderUsage(codexBarUsage, provider.id)}
-              onOAuth={
-                provider.oauthAvailable
-                  ? () => void beginLogin(provider, "oauth")
-                  : undefined
-              }
-              onApiKey={
-                provider.methods?.includes("api_key")
-                  ? () => void beginLogin(provider, "api_key")
-                  : undefined
-              }
-              onLogout={() => void logout(provider)}
-              accountControls={renderAccountControls(provider)}
-            />
-          ))}
+          {orderedProviders.map((provider) => {
+            const usage = findProviderUsage(codexBarUsage, provider.id);
+            const resetKey = usage ? resetCreditKey(usage) : null;
+            return (
+              <ProviderRow
+                key={provider.id}
+                provider={provider}
+                disabled={Boolean(login)}
+                onChanged={onChanged}
+                usage={usage}
+                resetBusy={resetKey === resetBusyKey}
+                resetStatus={resetKey ? resetStatusByKey[resetKey] ?? null : null}
+                onRedeemReset={redeemResetCredit}
+                onOAuth={
+                  provider.oauthAvailable
+                    ? () => void beginLogin(provider, "oauth")
+                    : undefined
+                }
+                onApiKey={
+                  provider.methods?.includes("api_key")
+                    ? () => void beginLogin(provider, "api_key")
+                    : undefined
+                }
+                onLogout={() => void logout(provider)}
+                accountControls={renderAccountControls(provider)}
+              />
+            );
+          })}
         </ul>
       </div>
 
@@ -1287,6 +1453,9 @@ function ProviderRow({
   onLogout,
   accountControls,
   usage,
+  resetBusy = false,
+  resetStatus = null,
+  onRedeemReset,
   onChanged,
 }: {
   provider: ProviderAuthDto;
@@ -1296,6 +1465,9 @@ function ProviderRow({
   onLogout?: () => void;
   accountControls?: ReactNode;
   usage?: CodexBarProvider | null;
+  resetBusy?: boolean;
+  resetStatus?: string | null;
+  onRedeemReset?: (provider: CodexBarProvider) => void;
   onChanged: () => void;
 }) {
   const accountManaged = isAccountProviderId(provider.id);
@@ -1312,15 +1484,6 @@ function ProviderRow({
             <span className="text-sm font-medium">{provider.name}</span>
             <span className="font-mono text-xs text-muted">{provider.id}</span>
             <Badge tone={badge.tone}>{badge.label}</Badge>
-            {provider.id === "openai-codex" &&
-              (usage?.resetCreditsAvailable ?? 0) > 0 && (
-                <span className="text-xs text-muted">
-                  リセット権{" "}
-                  <span className="font-mono text-text">
-                    {usage?.resetCreditsAvailable}
-                  </span>
-                </span>
-              )}
           </div>
           {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
         </div>
@@ -1353,6 +1516,14 @@ function ProviderRow({
         </div>
       </div>
       {usage && <UsageBar percent={usage.usedPercent} />}
+      {usage && onRedeemReset && (
+        <ResetCreditsControl
+          provider={usage}
+          busy={resetBusy}
+          status={resetStatus}
+          onRedeem={onRedeemReset}
+        />
+      )}
       {accountControls}
       {provider.baseUrl != null && (
         <BaseUrlEditor
