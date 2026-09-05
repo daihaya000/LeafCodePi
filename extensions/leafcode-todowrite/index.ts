@@ -158,6 +158,7 @@ function reconstructState(ctx: ExtensionContext): TodoItem[] {
 export default function (pi: ExtensionAPI): void {
   let todos: TodoItem[] = [];
   let gate = createTodoGateState();
+  let commitGuardTurn = false;
 
   const resetGate = (prompt = "") => {
     gate = createTodoGateState(prompt);
@@ -174,8 +175,13 @@ export default function (pi: ExtensionAPI): void {
   pi.on("input", (event) => {
     if (event.source !== "extension" && event.streamingBehavior === undefined) resetGate(event.text);
   });
+  pi.on("message_start", (event) => {
+    if (event.message.role === "custom" && event.message.customType === "leafcode-commit-gate") {
+      commitGuardTurn = true;
+    }
+  });
   pi.on("tool_call", (event) => {
-    if (gate.openedThisTask || !gateEnabled()) return;
+    if (commitGuardTurn || gate.openedThisTask || !gateEnabled()) return;
     const action = classifyToolForTodoGate(event.toolName, event.input);
     if (action === "allow") return;
     if (action === "count") {
@@ -186,6 +192,9 @@ export default function (pi: ExtensionAPI): void {
     return { block: true, reason: TODO_GATE_REASON };
   });
   pi.on("agent_settled", (_event, ctx) => {
+    const wasCommitGuardTurn = commitGuardTurn;
+    commitGuardTurn = false;
+    if (wasCommitGuardTurn) return;
     if (
       gate.openedThisTask ||
       !gate.violationObserved ||
