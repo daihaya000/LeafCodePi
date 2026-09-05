@@ -89,7 +89,7 @@ export function ExtensionsSettings() {
           などを追加してください。
         </p>
       ) : (
-        <ul className="mt-3 space-y-2">
+        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
           {extensions.map((extension) => (
             <li
               key={extension.id}

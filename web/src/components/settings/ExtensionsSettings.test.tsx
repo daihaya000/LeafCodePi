@@ -39,6 +39,7 @@ describe("ExtensionsSettings", () => {
     const list = toggle.closest("ul");
     expect(list?.className).not.toContain("max-h-");
     expect(list?.className).not.toContain("overflow-y-auto");
+    expect(list?.className).toContain("sm:grid-cols-2");
     expect((toggle as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByText("WebUI が依存するため有効化が必要です")).toBeTruthy();
 
