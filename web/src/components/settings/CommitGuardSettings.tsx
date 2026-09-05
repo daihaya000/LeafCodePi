@@ -9,7 +9,7 @@ type CommitGuardDto = {
 };
 
 export function CommitGuardSettings() {
-  const [enabled, setEnabled] = useState(true);
+  const [enabled, setEnabled] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -23,6 +23,7 @@ export function CommitGuardSettings() {
       })
       .catch((err) => {
         setLoaded(true);
+        setEnabled(null);
         setError(err instanceof Error ? err.message : "コミットガード設定の取得に失敗しました");
       });
   }, []);
@@ -32,7 +33,7 @@ export function CommitGuardSettings() {
   }, [reload]);
 
   const toggle = async (next: boolean) => {
-    if (busy || next === enabled) return;
+    if (busy || enabled === null || next === enabled) return;
     setBusy(true);
     setError(null);
     const previous = enabled;
@@ -52,6 +53,8 @@ export function CommitGuardSettings() {
     }
   };
 
+  const ready = loaded && enabled !== null;
+
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h3 className="text-sm font-semibold">コミットガード</h3>
@@ -60,14 +63,14 @@ export function CommitGuardSettings() {
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <Switch
-          checked={enabled}
-          onChange={() => void toggle(!enabled)}
+          checked={enabled === true}
+          onChange={() => void toggle(!(enabled === true))}
           label="コミットガードを有効にする"
           busy={busy || !loaded}
-          disabled={!loaded}
+          disabled={!ready}
         />
         <span className="text-sm text-text" aria-live="polite">
-          {!loaded ? "読込中" : enabled ? "有効" : "無効"}
+          {!loaded ? "読込中" : enabled === null ? "不明" : enabled ? "有効" : "無効"}
         </span>
         <Button variant="ghost" size="sm" disabled={busy} onClick={() => reload()}>
           再読込

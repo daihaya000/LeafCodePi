@@ -98,21 +98,25 @@ const RETIRED_EXTENSION_NAMES = new Set(["leafcode-collaboration"]);
 const BUNDLED_REPLACED_EXTENSION_NAMES = new Set(["pi-mcp-adapter"]);
 
 /**
+ * Shared TypeScript modules under extensions/ that are imported by other
+ * extensions but are not Pi extension factories (no `export default` register).
+ * Must not appear in discovery / additionalExtensionPaths.
+ */
+const SHARED_NON_EXTENSION_NAMES = new Set(["settle-followup-claim"]);
+
+/**
  * WebUI 本体が動かなくても切ってよい leafcode 拡張。
  * leafcode-* は原則 WebUI 依存（無効化禁止）。例外だけここに列挙する。
  */
 const OPTIONAL_LEAFCODE_EXTENSIONS = new Set<string>([]);
 
-/**
- * leafcode- 以外で WebUI が依存するエントリ。
- * settle-followup-claim は todowrite / commit-guard の settle 排他用共有モジュール。
- */
-const WEBUI_REQUIRED_EXTENSION_NAMES = new Set(["settle-followup-claim"]);
-
 /** LeafCodePi の WebUI が依存する拡張。無効化禁止。 */
 export function isWebUiRequiredExtension(name: string): boolean {
-  if (WEBUI_REQUIRED_EXTENSION_NAMES.has(name)) return true;
   return name.startsWith("leafcode-") && !OPTIONAL_LEAFCODE_EXTENSIONS.has(name);
+}
+
+export function isSharedNonExtensionModule(name: string): boolean {
+  return SHARED_NON_EXTENSION_NAMES.has(name);
 }
 
 function atomicWrite(filePath: string, content: string): void {
@@ -165,6 +169,7 @@ export function filterExtensionsByState<T extends { path: string }>(
   return extensions.filter((extension) => {
     const name = basenameKey(extension.path);
     return !RETIRED_EXTENSION_NAMES.has(name) &&
+      !SHARED_NON_EXTENSION_NAMES.has(name) &&
       (isWebUiRequiredExtension(name) || state.disabled[name] !== true);
   });
 }
@@ -287,7 +292,9 @@ function discoverExtensionsInDir(dir: string): DiscoveredEntry[] {
     const entryPath = join(dir, name);
     // 1. Direct files: *.ts / *.js
     if (isFile(entryPath) && /\.(ts|js|mjs|cjs)$/i.test(name)) {
-      entries.push({ name: basenameKey(entryPath), filePath: entryPath });
+      const key = basenameKey(entryPath);
+      if (SHARED_NON_EXTENSION_NAMES.has(key)) continue;
+      entries.push({ name: key, filePath: entryPath });
       continue;
     }
     // 2 & 3. Subdirectories with index or a pi.extensions manifest.
@@ -365,6 +372,7 @@ export function listExtensions(
 
   const extensions = [...byName.values()]
     .filter((entry) => !RETIRED_EXTENSION_NAMES.has(entry.name))
+    .filter((entry) => !SHARED_NON_EXTENSION_NAMES.has(entry.name))
     .filter((entry) => !(BUNDLED_REPLACED_EXTENSION_NAMES.has(entry.name) && byName.has("leafcode-mcp-adapter")))
     .map(
       (entry): ExtensionDto => ({

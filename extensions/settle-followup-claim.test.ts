@@ -19,4 +19,22 @@ describe("settle-followup-claim", () => {
     prepareSettleFollowUpClaim();
     expect(isSettleFollowUpClaimed()).toBe(false);
   });
+
+  it("shares claim state across separately evaluated module copies via globalThis", async () => {
+    resetSettleFollowUpClaimForTests();
+    const a = await import("./settle-followup-claim.ts");
+    // Simulate Pi jiti isolation: a second evaluation still must share Symbol.for state.
+    // Vitest reuses the module cache, so assert the global slot itself.
+    const key = Symbol.for("leafcode.settle-followup-claim");
+    const slot = (globalThis as Record<PropertyKey, unknown>)[key] as {
+      claimEpoch: number;
+      claimedEpoch: number;
+    };
+    expect(slot).toBeTruthy();
+
+    a.prepareSettleFollowUpClaim();
+    a.markSettleFollowUpClaimed();
+    expect(slot.claimedEpoch).toBe(slot.claimEpoch);
+    expect(isSettleFollowUpClaimed()).toBe(true);
+  });
 });

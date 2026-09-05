@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -168,15 +168,44 @@ function leafcodeDataDir(): string {
 /**
  * Feature toggle only — the extension stays loaded for WebUI. Default: on.
  * Reads the same file as web/src/lib/commit-guard-config.ts.
+ * One-shot: stale extensions-state disabled → write commit-guard.json enabled:false.
  */
 export function isCommitGuardFeatureEnabled(): boolean {
   try {
-    const file = join(leafcodeDataDir(), CONFIG_FILE);
-    if (!existsSync(file)) return DEFAULT_FEATURE_ENABLED;
-    const raw = JSON.parse(readFileSync(file, "utf8")) as { enabled?: unknown };
-    return typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_FEATURE_ENABLED;
+    const dir = leafcodeDataDir();
+    const file = join(dir, CONFIG_FILE);
+    if (existsSync(file)) {
+      const raw = JSON.parse(readFileSync(file, "utf8")) as { enabled?: unknown };
+      return typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_FEATURE_ENABLED;
+    }
+    return migrateStaleExtensionDisable(dir) ?? DEFAULT_FEATURE_ENABLED;
   } catch {
     return DEFAULT_FEATURE_ENABLED;
+  }
+}
+
+function migrateStaleExtensionDisable(dir: string): boolean | null {
+  try {
+    const statePath = join(dir, "extensions-state.json");
+    if (!existsSync(statePath)) return null;
+    const parsed = JSON.parse(readFileSync(statePath, "utf8")) as {
+      disabled?: Record<string, unknown>;
+    };
+    if (parsed.disabled?.["leafcode-commit-guard"] !== true) return null;
+
+    mkdirSync(dir, { recursive: true });
+    const configPath = join(dir, CONFIG_FILE);
+    const tmp = join(dir, `.${Date.now()}.${process.pid}.commit-guard.tmp`);
+    writeFileSync(tmp, `${JSON.stringify({ enabled: false }, null, 2)}\n`, "utf8");
+    renameSync(tmp, configPath);
+
+    delete parsed.disabled["leafcode-commit-guard"];
+    const stateTmp = join(dir, `.${Date.now()}.${process.pid}.ext-state.tmp`);
+    writeFileSync(stateTmp, `${JSON.stringify({ disabled: parsed.disabled ?? {} }, null, 2)}\n`, "utf8");
+    renameSync(stateTmp, statePath);
+    return false;
+  } catch {
+    return null;
   }
 }
 
@@ -247,8 +276,7 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
   };
 
   const evaluateCommitGate = async (ctx: ExtensionContext): Promise<void> => {
-    // Extension remains registered; settings only disable the settle follow-up.
-    if (!isCommitGuardFeatureEnabled()) return;
+    const featureEnabled = isCommitGuardFeatureEnabled();
 
     const status = await gitStatus(pi, ctx.cwd);
     // Unknown git status must not look like a clean tree (would wipe gate state).
@@ -261,10 +289,10 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
 
     // Task dirt was committed away: fingerprint matches the pre-task baseline.
     // Clear sticky hard/soft flags so pre-existing dirt alone does not re-fire.
-    // Exception: hard tools with unchanged porcelain still need one gate before
-    // any reminder has been sent (edit/write may not move porcelain).
+    // Exception (feature on only): hard tools with unchanged porcelain still need
+    // one gate before any reminder has been sent (edit/write may not move porcelain).
     if (initialStatusText !== undefined && status === initialStatusText) {
-      if (!(hardMutationObserved && !reminderSent)) {
+      if (!(featureEnabled && hardMutationObserved && !reminderSent)) {
         clearTaskMutationFlags();
         return;
       }
@@ -275,6 +303,9 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
     if (reminderSent && lastRemindedStatus !== undefined && status !== lastRemindedStatus) {
       reminderSent = false;
     }
+
+    // Feature off: keep baseline/fingerprint maintenance above, but never enqueue.
+    if (!featureEnabled) return;
 
     // Dirty fingerprint change is the primary signal; hard tools are backup.
     const statusChanged =

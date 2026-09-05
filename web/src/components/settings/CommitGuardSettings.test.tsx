@@ -42,13 +42,16 @@ describe("CommitGuardSettings", () => {
     expect(screen.getByText("無効")).toBeTruthy();
   });
 
-  it("marks loaded and shows an error when the initial fetch fails", async () => {
+  it("keeps the switch disabled and shows unknown when the initial fetch fails", async () => {
     getJson.mockRejectedValue(new Error("取得失敗"));
     render(<CommitGuardSettings />);
 
     await waitFor(() => {
       expect(screen.getByRole("alert").textContent).toContain("取得失敗");
     });
-    expect(screen.queryByText("読込中")).toBeNull();
+    const toggle = screen.getByRole("switch", { name: "コミットガードを有効にする" });
+    expect(toggle).toHaveProperty("disabled", true);
+    expect(screen.getByText("不明")).toBeTruthy();
+    expect(sendJson).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -152,7 +152,51 @@ describe("leafcode-commit-guard", () => {
     await handlers.get("agent_settled")?.({}, ctx);
 
     expect(sendMessage).not.toHaveBeenCalled();
-    expect(exec).toHaveBeenCalledTimes(1);
+    // session_start + settle still probe git so baseline stays accurate.
+    expect(exec).toHaveBeenCalledTimes(2);
+  });
+
+  it("migrates a stale extension-disable flag into feature off on the agent path", async () => {
+    writeFileSync(
+      join(dataDir, "extensions-state.json"),
+      `${JSON.stringify({ disabled: { "leafcode-commit-guard": true } }, null, 2)}\n`,
+      "utf8",
+    );
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: "", stderr: "", code: 0, killed: false })
+      .mockResolvedValueOnce({ stdout: " M src/example.ts\n", stderr: "", code: 0, killed: false });
+    const { handlers, sendMessage, pi } = createPi(exec);
+
+    registerCommitGuard(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    handlers.get("agent_end")?.({ messages: mutationMessages("edit") });
+    await handlers.get("agent_settled")?.({}, ctx);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    const config = JSON.parse(readFileSync(join(dataDir, "commit-guard.json"), "utf8")) as { enabled?: boolean };
+    expect(config.enabled).toBe(false);
+  });
+
+  it("does not false-positive after re-enabling when feature-off cleared sticky hard flags", async () => {
+    const dirty = " M preexisting.ts\n";
+    writeFileSync(join(dataDir, "commit-guard.json"), `${JSON.stringify({ enabled: false }, null, 2)}\n`, "utf8");
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: dirty, stderr: "", code: 0, killed: false })
+      .mockResolvedValueOnce({ stdout: dirty, stderr: "", code: 0, killed: false })
+      .mockResolvedValueOnce({ stdout: dirty, stderr: "", code: 0, killed: false });
+    const { handlers, sendMessage, pi } = createPi(exec);
+
+    registerCommitGuard(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    handlers.get("agent_end")?.({ messages: mutationMessages("edit") });
+    await handlers.get("agent_settled")?.({}, ctx);
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    writeFileSync(join(dataDir, "commit-guard.json"), `${JSON.stringify({ enabled: true }, null, 2)}\n`, "utf8");
+    await handlers.get("agent_settled")?.({}, ctx);
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("treats a dirty fingerprint change as mutation even without shell heuristics", async () => {
