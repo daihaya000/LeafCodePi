@@ -1,5 +1,13 @@
 # MEMORY
 
+## 2026-09-05 — settle-followup-claim.ts 用途
+
+- 役割: `leafcode-todowrite` と `leafcode-commit-guard` が `agent_settled` で送る follow-up を、1 サイクルにつき 1 本だけにする共有クレーム
+- 流れ: 各拡張が `agent_end` で `prepareSettleFollowUpClaim()` → settle 時に `isSettleFollowUpClaimed()` でスキップ判定 → `sendMessage` 成功後に `markSettleFollowUpClaimed()`
+- 背景: `hasPendingMessages` は `triggerTurn` 即実行では効かないため、モジュール共有の epoch カウンタで排他
+
+---
+
 ## 2026-09-05 — commit-guard ループ終了（tick 9–13）
 
 - 最終監査: **NO_CLEAR_BUGS_REMAINING**（回帰 41/41 PASS）
