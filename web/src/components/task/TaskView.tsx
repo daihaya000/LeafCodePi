@@ -2753,19 +2753,6 @@ export const TaskView = memo(function TaskView({
             }
           />
         </div>
-        {task?.sessionId && (
-          <NextAction
-            taskId={taskId}
-            sessionId={task.sessionId}
-            model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
-            invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
-            disabled={compacting || archived}
-            onApply={(suggestion) => {
-              setPrompt(suggestion);
-              textareaRef.current?.focus();
-            }}
-          />
-        )}
         <Composer
           form={{
             ariaLabel: "フォローアップ",
@@ -2828,6 +2815,27 @@ export const TaskView = memo(function TaskView({
             onTrigger: () => fileInputRef.current?.click(),
           }}
           settingsGroups={[
+            ...(task?.sessionId
+              ? [
+                  {
+                    id: "next-action",
+                    label: "次の指示",
+                    content: (
+                      <NextAction
+                        taskId={taskId}
+                        sessionId={task.sessionId}
+                        model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
+                        invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
+                        disabled={compacting || archived}
+                        onApply={(suggestion) => {
+                          setPrompt(suggestion);
+                          textareaRef.current?.focus();
+                        }}
+                      />
+                    ),
+                  },
+                ]
+              : []),
             {
               id: "execution",
               label: "実行設定",

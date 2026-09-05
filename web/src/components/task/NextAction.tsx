@@ -105,7 +105,7 @@ export function NextAction({
   }, [disabled, model, previous, taskId]);
 
   return (
-    <section className="mx-auto mt-2 mb-2 w-full max-w-5xl" aria-label="次の一手">
+    <section className="min-w-0 w-full md:w-auto" aria-label="次の一手">
       {state.kind === "idle" && (
         <Button variant="secondary" size="sm" disabled={disabled} onClick={() => void generate()}>
           <Sparkles className="h-3.5 w-3.5" />
