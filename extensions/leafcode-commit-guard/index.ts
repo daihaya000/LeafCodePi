@@ -39,7 +39,7 @@ const READ_ONLY_TOOLS = new Set([
 const HARD_MUTATING_TOOLS = new Set(["edit", "write", "subagent"]);
 
 const MUTATING_SHELL_PATTERNS = [
-  /\bgit\s+(?:add|commit|apply|checkout|switch|restore|reset|clean|stash|merge|rebase|cherry-pick|mv|rm)\b/i,
+  /\bgit\s+(?:add|commit|apply|checkout|switch|restore|reset|clean|stash|merge|rebase|cherry-pick|pull|am|revert|mv|rm)\b/i,
   /\b(?:Set-Content|Add-Content|Out-File|Clear-Content|Export-Csv|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item)\b/i,
   // File redirects (`>` / `>>`) but not fd redirects like `2>&1`.
   /(?<![0-9])>{1,2}(?!&)/,
@@ -242,6 +242,10 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
       softMutation: mutationObserved,
       reminderSent,
     })) return;
+
+    // Another follow-up (e.g. todowrite gate) already queued — defer so we do
+    // not stack two triggered turns. Retry on the next settle.
+    if (typeof ctx.hasPendingMessages === "function" && ctx.hasPendingMessages()) return;
 
     // Latch only after a successful enqueue — failures must retry next settle.
     try {

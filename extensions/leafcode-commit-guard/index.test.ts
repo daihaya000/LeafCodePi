@@ -26,7 +26,11 @@ function createPi(exec: ReturnType<typeof vi.fn>) {
   return { handlers, sendMessage, pi };
 }
 
-const ctx = { cwd: process.cwd(), hasUI: false } as unknown as ExtensionContext;
+const ctx = {
+  cwd: process.cwd(),
+  hasUI: false,
+  hasPendingMessages: () => false,
+} as unknown as ExtensionContext;
 
 describe("leafcode-commit-guard", () => {
   it("recognizes file edits and mutating shell commands but not read-only git commands", () => {
@@ -399,5 +403,33 @@ describe("leafcode-commit-guard", () => {
     await handlers.get("agent_settled")?.({}, ctx);
 
     expect(sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it("defers when another follow-up is already pending", async () => {
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: "", stderr: "", code: 0, killed: false })
+      .mockResolvedValueOnce({ stdout: " M src/example.ts\n", stderr: "", code: 0, killed: false })
+      .mockResolvedValueOnce({ stdout: " M src/example.ts\n", stderr: "", code: 0, killed: false });
+    const { handlers, sendMessage, pi } = createPi(exec);
+    let pending = true;
+    const pendingCtx = {
+      ...ctx,
+      hasPendingMessages: () => pending,
+    } as unknown as ExtensionContext;
+
+    registerCommitGuard(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    handlers.get("agent_end")?.({ messages: mutationMessages("edit") });
+    await handlers.get("agent_settled")?.({}, pendingCtx);
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    pending = false;
+    await handlers.get("agent_settled")?.({}, pendingCtx);
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it("classifies git pull as a soft mutating shell command", () => {
+    expect(classifyRepoMutation(mutationMessages("bash", { command: "git pull --ff-only" }))).toBe("soft");
   });
 });

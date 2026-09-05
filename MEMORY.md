@@ -1,5 +1,12 @@
 # MEMORY
 
+## 2026-09-05 — commit-guard ループ tick 6
+
+- **二重 follow-up**: todowrite gate が先にキュー済みのとき `ctx.hasPendingMessages()` で commit-gate を延期（次 settle で再試行）
+- **soft ヒューリスティック**: `git pull` / `am` / `revert` を mutating shell に追加
+- 検証: commit-guard 20/20 PASS
+
+---
 ## 2026-09-05 — commit-guard ループ tick 2+: late soft FN
 
 - **修正**: 最初の mutating `tool_call` 前に porcelain をスナップショット。遅い `session_start` が post-mutation dirty を baseline にしない。
