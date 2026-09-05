@@ -180,6 +180,26 @@ describe("findResumableTurn", () => {
     });
   });
 
+  it("preserves the assistant account when preparing a resume", () => {
+    const target = findResumableTurn([
+      userMessage("u1"),
+      {
+        ...emptyAssistant("a1"),
+        provider: "anthropic",
+        model: "claude-sonnet",
+        accountId: "acc-1",
+      },
+    ]);
+    expect(target).toMatchObject({
+      reason: "silent",
+      model: {
+        providerID: "anthropic",
+        modelID: "claude-sonnet",
+        accountId: "acc-1",
+      },
+    });
+  });
+
   it("does not auto-resume while context compaction is running", () => {
     const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")]);
     assertAutoResume(target, false, false, true);

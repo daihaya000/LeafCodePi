@@ -26,7 +26,7 @@ export type ResumableTurn = {
   /** 元のプロンプトに添付されていた画像。 */
   files: { uri: string; mime: string; name?: string }[];
   /** そのターンのモデル（あれば同じモデルで再送する）。 */
-  model?: { providerID: string; modelID: string };
+  model?: { providerID: string; modelID: string; accountId?: string };
 };
 
 export type FindResumableTurnOptions = {
@@ -197,7 +197,13 @@ export function findResumableTurn(
     text,
     files,
     ...(source.provider && source.model
-      ? { model: { providerID: source.provider, modelID: source.model } }
+      ? {
+          model: {
+            providerID: source.provider,
+            modelID: source.model,
+            ...(source.accountId ? { accountId: source.accountId } : {}),
+          },
+        }
       : {}),
   });
 

@@ -1810,7 +1810,11 @@ export const TaskView = memo(function TaskView({
         prompt: autoResumePrompt(resumeMode, target.text),
         images,
         ...(target.model
-          ? { model: `${target.model.providerID}::${target.model.modelID}` }
+          ? {
+              model: target.model.accountId
+                ? `${target.model.accountId}::${target.model.providerID}::${target.model.modelID}`
+                : `${target.model.providerID}::${target.model.modelID}`,
+            }
           : {}),
         subagentPermission,
       });
