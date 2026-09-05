@@ -405,6 +405,38 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     confirmSpy.mockRestore();
   });
 
+  it("orders enabled providers like the model catalog", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/provider-models")) {
+        return Promise.resolve(
+          jsonResponse({
+            providers: [
+              { id: "anthropic", enabled: true },
+              { id: "openai-codex", enabled: true },
+              { id: "llama-server", enabled: false },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/api/accounts")) {
+        return Promise.resolve(jsonResponse({ accounts: [] }));
+      }
+      return Promise.resolve(jsonResponse({ providers: [] }));
+    });
+    render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
+
+    const heading = screen.getByRole("heading", { name: "プロバイダー" });
+    const providerList = heading.parentElement?.querySelector("ul");
+    await waitFor(() => {
+      expect(
+        Array.from(providerList?.children ?? []).map(
+          (row) => row.querySelector("span.text-sm.font-medium")?.textContent,
+        ),
+      ).toEqual(["Anthropic", "OpenAI Codex", "llama-server"]);
+    });
+  });
+
   it("shows registered providers first without an other-providers section", () => {
     mockAccountsApi();
     render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);

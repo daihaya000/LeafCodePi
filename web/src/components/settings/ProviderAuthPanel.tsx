@@ -52,6 +52,11 @@ type ResetCreditsConsumeResponse = {
   message: string;
 };
 
+type ModelProviderSummary = {
+  id: string;
+  enabled: boolean;
+};
+
 function authBadge(provider: ProviderAuthDto) {
   if (provider.subscription)
     return { tone: "success" as const, label: "サブスク認証済" };
@@ -235,6 +240,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   const [cookieBusy, setCookieBusy] = useState<string | null>(null);
   const [cookieErrors, setCookieErrors] = useState<Record<string, string>>({});
   const [codexBarUsage, setCodexBarUsage] = useState<CodexBarUsage | null>(null);
+  const [enabledProviderOrder, setEnabledProviderOrder] = useState<string[]>([]);
   const [resetBusyKey, setResetBusyKey] = useState<string | null>(null);
   const [resetStatusByKey, setResetStatusByKey] = useState<Record<string, string>>({});
   const loadCodexBarUsage = useCallback(
@@ -264,6 +270,33 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
       active = false;
     };
   }, [loadCodexBarUsage, providers]);
+
+  useEffect(() => {
+    if (providers.length === 0) {
+      setEnabledProviderOrder([]);
+      return;
+    }
+
+    let active = true;
+    void getJson<{ providers?: ModelProviderSummary[] }>("/api/provider-models")
+      .then((result) => {
+        if (!active) return;
+        const order: string[] = [];
+        const seen = new Set<string>();
+        for (const provider of result.providers ?? []) {
+          if (!provider.enabled || seen.has(provider.id)) continue;
+          seen.add(provider.id);
+          order.push(provider.id);
+        }
+        setEnabledProviderOrder(order);
+      })
+      .catch(() => {
+        if (active) setEnabledProviderOrder([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [providers]);
 
   const redeemResetCredit = useCallback(
     async (provider: CodexBarProvider) => {
@@ -1186,9 +1219,17 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     );
   }
 
-  const orderedProviders = [...providers].sort(
-    (a, b) => Number(b.authenticated) - Number(a.authenticated),
+  const enabledProviderRanks = new Map(
+    enabledProviderOrder.map((providerId, index) => [providerId, index]),
   );
+  const orderedProviders = [...providers].sort((a, b) => {
+    const aRank = enabledProviderRanks.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+    const bRank = enabledProviderRanks.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+    return (
+      aRank - bRank ||
+      Number(b.authenticated) - Number(a.authenticated)
+    );
+  });
 
   return (
     <div className="space-y-4">
