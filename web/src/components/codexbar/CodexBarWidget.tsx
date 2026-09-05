@@ -1025,7 +1025,7 @@ export function CodexBarWidget({
         {!loadError && usage && usage.available && providerGroups.length > 0 && (
           <ul
             className={cx(
-              twoColumn ? "grid grid-cols-2 items-start gap-2" : "space-y-2.5",
+              twoColumn ? "grid grid-cols-2 items-stretch gap-2" : "space-y-2.5",
             )}
           >
             {providerGroups.map((group) =>

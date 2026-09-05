@@ -157,7 +157,9 @@ describe("CodexBarWidget", () => {
 
     await waitFor(() => expect(screen.getByText("CodexBar 利用状況")).toBeTruthy());
 
-    expect(screen.getByRole("list").className).toContain("grid-cols-2");
+    const providerGrid = screen.getByRole("list");
+    expect(providerGrid.className).toContain("grid-cols-2");
+    expect(providerGrid.className).toContain("items-stretch");
     const update = screen.getByText(/^更新 /);
     expect(update.parentElement?.className).toContain("border-b");
     expect(update.parentElement?.className).not.toContain("border-t");
