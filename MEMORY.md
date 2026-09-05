@@ -1,5 +1,36 @@
 # MEMORY
 
+## 2026-09-05 — commit-guard 残存バグ監査
+
+監査対象: `extensions/leafcode-commit-guard`、todowrite 連携、`CommitGuardSettings`、`OPTIONAL_LEAFCODE_EXTENSIONS`。
+既修正（unknown git=clean、late session_start の initiallyDirty=false 強制、soft 単独 on pre-dirty、reminderSent 再武装）以外の残件。
+
+### 明確な誤動作（Clear）
+1. **HIGH FP**: 事前 dirty + hard 編集 → gate → タスク分だけ commit して fingerprint が baseline に戻ると、`hardMutationObserved` が sticky のまま + re-arm で再発火（`runCommitGate` 167-180 / `shouldRequestCommitGate`）。
+2. **HIGH/MED FN**: `session.reload()`（拡張トグル・skill 権限変更等）で拡張が再マウントされフラグが初期化。dirty 作業中の reload は現在 dirty を新 baseline にし、以降の settle が無発火。
+3. **MED FN**: 遅い `session_start` + soft が先に tree を dirty 化 → in-flight 分岐が post-mutation status を baseline に固定 → soft-only の clean→dirty が落ちる。
+4. **MED FN**: `session_start` の git 失敗で `initiallyDirty`/`initialStatusText` が undefined のまま → statusChanged 不能、soft も無視。
+5. **MED FN**: `reminderSent=true` を `sendMessage` 成功前に立てるため、enqueue 失敗後は fingerprint 変化まで再送しない。
+6. **MED race**: 並行 `runCommitGate` に in-flight ロック無し → 二重 follow-up 可。
+7. **MED FP**: 未知ツール名はすべて hard（`classifyRepoMutation`）。pre-dirty + porcelain 不変でも発火。
+8. **LOW UI**: `CommitGuardSettings` の GET 失敗時 `loaded` が立たず Switch が永久 disabled。ロード前に「有効」表示フラッシュ。
+
+### 推測（Speculative）
+- 同一 settle で commit-gate と todowrite-gate が両方 enqueue。
+- reload 中に旧 runner の非同期 `runCommitGate` が残る。
+- clean start の「any dirt」は外部/IDE 編集でも発火（コメント上は意図、文言は overclaim）。
+
+### 欠測テスト
+- baseline 復帰後に hard sticky で再発火しないこと
+- reload/session_start remount 後もタスク差分を失わないこと
+- late start + soft on originally-clean
+- git 失敗 baseline + soft dirt
+- sendMessage 失敗後の再試行
+- 並行 settle の単発化
+- 未知 read-ish ツールが pre-dirty で FP しないこと
+- CommitGuardSettings の load 失敗 UX
+
+---
 ## 2026-09-05 — コミットガードを設定から無効化
 
 - **要望**: コミットGUARDを設定画面から無効化できるようにする。
