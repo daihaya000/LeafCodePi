@@ -337,9 +337,6 @@ function SidePanel({
   useEffect(() => {
     setWidth(readSidePanelWidth(storageKey));
   }, [storageKey]);
-  useEffect(() => {
-    onWidthChange?.(width);
-  }, [onWidthChange, width]);
   return (
     <div
       className="relative flex h-full min-h-0 shrink-0 flex-col border-b border-border md:h-72 lg:h-auto lg:w-(--panel-width) lg:border-b-0 lg:border-l"
@@ -355,17 +352,19 @@ function SidePanel({
           event.preventDefault();
           const startX = event.clientX;
           const startWidth = width;
+          let nextWidth = width;
           const onMove = (move: PointerEvent) => {
-            const next = Math.min(
+            nextWidth = Math.min(
               SIDE_PANEL_MAX_WIDTH,
               Math.max(SIDE_PANEL_MIN_WIDTH, startWidth - (move.clientX - startX)),
             );
-            setWidth(next);
-            localStorage.setItem(storageKey, String(next));
+            setWidth(nextWidth);
           };
           const onUp = () => {
             window.removeEventListener("pointermove", onMove);
             window.removeEventListener("pointerup", onUp);
+            localStorage.setItem(storageKey, String(nextWidth));
+            onWidthChange?.(nextWidth);
           };
           window.addEventListener("pointermove", onMove);
           window.addEventListener("pointerup", onUp);
