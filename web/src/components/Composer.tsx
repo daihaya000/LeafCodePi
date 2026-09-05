@@ -230,6 +230,17 @@ export function Composer({
   }, [settingsOpen]);
 
   useEffect(() => {
+    if (!settingsOpen) return;
+    const focusTimer = window.setTimeout(() => {
+      const firstControl = settingsPanelRef.current?.querySelector<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]):not([hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      firstControl?.focus();
+    }, 0);
+    return () => window.clearTimeout(focusTimer);
+  }, [settingsOpen]);
+
+  useEffect(() => {
     setActiveSuggestion(0);
   }, [currentToken?.kind, currentToken?.query]);
 
@@ -347,7 +358,7 @@ export function Composer({
           disabled={textarea.disabled}
           readOnly={textarea.readOnly}
           placeholder={textarea.placeholder}
-          className={`${textarea.className} relative z-10 max-h-60 overflow-y-auto text-transparent caret-text selection:bg-primary/20 focus-visible:outline-none`}
+          className={`${textarea.className} relative z-10 max-h-60 overflow-y-auto text-transparent caret-text selection:bg-primary/20 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-accent focus-visible:outline-offset-2`}
           style={textarea.style}
           onChange={(event) => {
             textarea.onChange(event);

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { useRef, useState } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Composer, type ComposerAttachment } from "./Composer";
 
@@ -101,7 +101,8 @@ describe("Composer", () => {
     view.rerender(<TestComposer value="一行目\n二行目" />);
 
     expect(textarea.style.height).toBe("72px");
-    expect(textarea.className).toContain("focus-visible:outline-none");
+    expect(textarea.className).toContain("focus-visible:outline-accent");
+    expect(textarea.className).not.toContain("focus-visible:outline-none");
   });
 
   it("does not persist a zero height when the textarea has no layout yet", () => {
@@ -114,7 +115,7 @@ describe("Composer", () => {
     expect(textarea.style.height).not.toBe("0px");
   });
 
-  it("opens and closes grouped settings without losing values", () => {
+  it("opens and closes grouped settings without losing values", async () => {
     render(<SettingsComposer />);
 
     const trigger = screen.getByRole("button", { name: "タスク設定" });
@@ -127,6 +128,7 @@ describe("Composer", () => {
     fireEvent.click(trigger);
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByRole("heading", { name: "実行設定" })).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("モデル設定")));
     expect(screen.getByRole("heading", { name: "権限設定" })).toBeTruthy();
 
     const model = screen.getByLabelText("モデル設定") as HTMLInputElement;

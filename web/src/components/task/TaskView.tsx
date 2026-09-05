@@ -2828,8 +2828,16 @@ export const TaskView = memo(function TaskView({
                         invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
                         disabled={compacting || archived}
                         onApply={(suggestion) => {
+                          if (
+                            prompt.trim() &&
+                            typeof window !== "undefined" &&
+                            !window.confirm("現在の入力内容を提案で置き換えますか？")
+                          ) {
+                            return false;
+                          }
                           setPrompt(suggestion);
                           textareaRef.current?.focus();
+                          return true;
                         }}
                       />
                     ),
