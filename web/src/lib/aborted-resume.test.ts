@@ -5,6 +5,7 @@ import {
   MESSAGE_ABORTED_ERROR,
   shouldAttachResumeImages,
   shouldAutoResumeSilentTurn,
+  shouldClearStopRequestedOnWorkingTransition,
 } from "./aborted-resume";
 import type { UiMessage } from "./types";
 
@@ -117,6 +118,13 @@ describe("findResumableTurn", () => {
         currentPromptIsHangRetry: false,
       }),
     ).toBe(false);
+  });
+
+  it("clears stopRequested only when a new run starts after idle", () => {
+    expect(shouldClearStopRequestedOnWorkingTransition(false, true, true)).toBe(true);
+    expect(shouldClearStopRequestedOnWorkingTransition(true, true, true)).toBe(false);
+    expect(shouldClearStopRequestedOnWorkingTransition(true, false, true)).toBe(false);
+    expect(shouldClearStopRequestedOnWorkingTransition(false, true, false)).toBe(false);
   });
 
   it("returns silent resume for empty assistant turn", () => {

@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 6-7 — stopRequested ラッチ残留
+
+- バグ: abort 成功後も `stopRequested` が true のまま → Goal Loop 再開などで再 working 時に Stop が無効・`abortWorking` 即 return
+- 修正: idle→working 遷移でラッチ解除 + goal-loop resume 成功時も解除（自動再開抑制は idle 中は維持）
+- 検証: `aborted-resume.test.ts` 17/17 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 5 — ready 後の tip delta 巻き戻し
 
 - バグ: `shouldFlushPendingAfterReady` が同一 createdAt・異なる id（msg-N vs entry id）の delta を flush し、`upsertUiMessage` の renderKey 経由で先端が巻き戻る

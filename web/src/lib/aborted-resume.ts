@@ -60,6 +60,18 @@ export function shouldAutoResumeSilentTurn(input: {
   );
 }
 
+/**
+ * After a successful Stop, stopRequested stays true to block silent auto-resume.
+ * When a new run starts (idle → working), clear that latch so Stop works again.
+ */
+export function shouldClearStopRequestedOnWorkingTransition(
+  wasWorking: boolean,
+  working: boolean,
+  stopRequested: boolean,
+): boolean {
+  return !wasWorking && working && stopRequested;
+}
+
 const ABORT_ERROR_PATTERN =
   /abort|cancelled|canceled|messageabortederror/i;
 

@@ -108,6 +108,7 @@ import {
   findResumableTurn,
   shouldAttachResumeImages,
   shouldAutoResumeSilentTurn,
+  shouldClearStopRequestedOnWorkingTransition,
   type ResumableTurn,
 } from "@/lib/aborted-resume";
 import {
@@ -492,6 +493,7 @@ export const TaskView = memo(function TaskView({
   const [manualAbortedAssistantId, setManualAbortedAssistantId] = useState<string | null>(null);
   const [stopRequested, setStopRequested] = useState(false);
   const stopRequestedRef = useRef(false);
+  const prevWorkingRef = useRef(false);
   const autoResumeKeyRef = useRef<string | null>(null);
   const [hangRetryCount, setHangRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -1109,6 +1111,7 @@ export const TaskView = memo(function TaskView({
     setManualAbortedAssistantId(null);
     stopRequestedRef.current = false;
     setStopRequested(false);
+    prevWorkingRef.current = false;
     setHangRetryCount(0);
     setError(null);
     setPermissionRequest(null);
@@ -1194,6 +1197,21 @@ export const TaskView = memo(function TaskView({
   const archived = task?.status === "archived";
   const working = Boolean(task?.status === "working" || task?.isStreaming);
   const isReverted = Boolean(task?.revertLeafId);
+
+  useEffect(() => {
+    const wasWorking = prevWorkingRef.current;
+    prevWorkingRef.current = working;
+    if (
+      shouldClearStopRequestedOnWorkingTransition(
+        wasWorking,
+        working,
+        stopRequestedRef.current,
+      )
+    ) {
+      stopRequestedRef.current = false;
+      setStopRequested(false);
+    }
+  }, [working]);
 
   // PartView は memo 化されており onRevert の参照比較でスキップ判定する。
   // inline arrow のままだと毎レンダー新参照になり、stabilizeUiMessages の
@@ -1648,6 +1666,11 @@ export const TaskView = memo(function TaskView({
         { action, ...(maxTurns !== undefined ? { maxTurns } : {}) },
         "PATCH",
       );
+      if (action === "resume") {
+        // Prior Stop left stopRequested latched; resume starts a new run.
+        stopRequestedRef.current = false;
+        setStopRequested(false);
+      }
       setTask((current) => (current ? { ...current, goalLoop: result.loop } : current));
       notifyTasksChanged();
     } catch (err) {
