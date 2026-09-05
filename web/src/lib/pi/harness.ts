@@ -4998,7 +4998,9 @@ export function buildPromptOptions({
     }));
   }
   if (streamingBehavior) options.streamingBehavior = streamingBehavior;
-  else if (isStreaming) options.streamingBehavior = "followUp";
+  // Hang retries must start a fresh turn after abort — never inject as followUp
+  // if isStreaming is still briefly true.
+  else if (isStreaming && !isHangRetry) options.streamingBehavior = "followUp";
   return options;
 }
 
@@ -5468,6 +5470,31 @@ function cancelHarnessPrompt(live: LiveRuntime): void {
   live.promptActive = false;
 }
 
+/**
+ * Drop a throttled snapshot/delta without flushing. Abort already emits a
+ * final idle snapshot; flushing the pending timer afterward can re-send a
+ * pre-abort isStreaming:true delta.
+ */
+export function cancelPendingTaskSnapshot(live: {
+  snapshotTimer: ReturnType<typeof setTimeout> | null;
+  pendingSnapshotEventType: string | null;
+  pendingSnapshotIsDelta: boolean;
+  pendingSnapshotExtra: Record<string, unknown> | undefined;
+}): boolean {
+  if (!live.snapshotTimer) {
+    live.pendingSnapshotEventType = null;
+    live.pendingSnapshotExtra = undefined;
+    live.pendingSnapshotIsDelta = false;
+    return false;
+  }
+  clearTimeout(live.snapshotTimer);
+  live.snapshotTimer = null;
+  live.pendingSnapshotEventType = null;
+  live.pendingSnapshotExtra = undefined;
+  live.pendingSnapshotIsDelta = false;
+  return true;
+}
+
 export function nextPromptEpoch(current: number | undefined): number {
   return (current || 0) + 1;
 }
@@ -5508,6 +5535,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
     // them or the post-run handler will continue with queued messages.
     clearSessionQueue(live.session);
     cancelHarnessPrompt(live);
+    cancelPendingTaskSnapshot(live);
     await live.session.abort();
   }
   const task = setTaskStatus(id, "idle");
@@ -5570,6 +5598,7 @@ export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
     await stopSubagentRunsForTask(live, msgs);
     clearSessionQueue(live.session);
     cancelHarnessPrompt(live);
+    cancelPendingTaskSnapshot(live);
     await live.session.abort();
   }
   setTaskStatus(taskId, "idle");

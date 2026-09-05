@@ -13,9 +13,10 @@ import {
   reasoningFallbackLevel,
   resolveStreamingBehaviorForPrompt,
   shouldBypassPromptChain,
+  shouldWaitForSteerStream,
   syncSessionName,
   waitForSessionStreaming,
-  shouldWaitForSteerStream,
+  cancelPendingTaskSnapshot,
 } from "./harness";
 import type { ThroughputTiming } from "@/lib/token-throughput";
 import type { UiMessage } from "@/lib/types";
@@ -103,6 +104,10 @@ describe("buildPromptOptions", () => {
       buildPromptOptions({ isHangRetry: false, isStreaming: true }),
       { streamingBehavior: "followUp" },
     );
+    assert.deepEqual(
+      buildPromptOptions({ isHangRetry: true, isStreaming: true }),
+      { source: "extension" },
+    );
   });
 
   it("bypasses the prompt chain for steer even before streaming starts", () => {
@@ -176,6 +181,25 @@ describe("clearSessionQueue", () => {
     });
     assert.equal(calls, 1);
     clearSessionQueue({});
+  });
+});
+
+describe("cancelPendingTaskSnapshot", () => {
+  it("clears a throttled timer without flushing", () => {
+    const live = {
+      snapshotTimer: setTimeout(() => {
+        throw new Error("should not flush");
+      }, 60_000) as ReturnType<typeof setTimeout>,
+      pendingSnapshotEventType: "message_update",
+      pendingSnapshotIsDelta: true,
+      pendingSnapshotExtra: { keep: true },
+    };
+    assert.equal(cancelPendingTaskSnapshot(live), true);
+    assert.equal(live.snapshotTimer, null);
+    assert.equal(live.pendingSnapshotEventType, null);
+    assert.equal(live.pendingSnapshotIsDelta, false);
+    assert.equal(live.pendingSnapshotExtra, undefined);
+    assert.equal(cancelPendingTaskSnapshot(live), false);
   });
 });
 

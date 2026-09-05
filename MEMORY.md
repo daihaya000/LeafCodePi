@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 52-53 — abort後のthrottled deltaとhang retryの誤followUp
+
+- バグ: Stop/hang_abort 後も pending snapshot タイマーが pre-abort の `isStreaming:true` delta を送り得た。また hang retry が残存 isStreaming で followUp 注入され得た
+- 修正: `cancelPendingTaskSnapshot` で abort 時にタイマー破棄。`buildPromptOptions` は hang retry に followUp を付けない
+- 検証: `harness-prompt.test.ts` 22/22 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 51 — 偽workingのsteer黙殺とidle後の偽isStreaming
 
 - バグ: ターン終了後に status が working のまま残ると steer が wait→drop で消える。また idle 後の古い isStreaming:true デルタでクライアントが busy 扱いになる
