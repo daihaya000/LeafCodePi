@@ -877,25 +877,19 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           </div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 className="text-xs font-semibold text-muted">
-              ログインアカウント
-            </h3>
-            <p className="mt-0.5 text-xs text-muted">
-              このプロバイダー用のアカウントを追加・管理します。
-            </p>
-          </div>
+          <h3 className="text-xs font-semibold text-muted">アカウント</h3>
           {!isCreating && (
             <Button
               size="sm"
               variant="ghost"
+              aria-label="アカウントを追加"
               disabled={Boolean(login) || accountBusy}
               onClick={() => {
                 setCreatingFor(providerId);
                 setNewLabel("");
               }}
             >
-              アカウントを追加
+              追加
             </Button>
           )}
         </div>
@@ -906,13 +900,8 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           <p className="mt-2 text-xs text-muted">読み込み中…</p>
         ) : (
           <>
-            {providerAccounts.length === 0 && !isCreating && (
-              <p className="mt-2 text-xs text-muted">
-                アカウントを追加してログインしてください
-              </p>
-            )}
             {providerAccounts.length > 0 && (
-              <ul className="mt-2 space-y-1.5">
+              <ul className="mt-2 divide-y divide-border overflow-hidden rounded-xl bg-surface-2">
                 {providerAccounts.map((account) => {
                   const cookieConfigured =
                     providerId === "ollama-cloud"
@@ -934,10 +923,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                     account.id,
                   );
                   return (
-                    <li
-                      key={account.id}
-                      className="rounded-xl bg-surface-2 px-3 py-2"
-                    >
+                    <li key={account.id} className="px-3 py-2">
                       {editingAccountId === account.id ? (
                         <div className="flex flex-wrap items-center gap-2">
                           <input
@@ -1235,21 +1221,24 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     <div className="space-y-4">
       <div>
         <h3 className="mb-2 text-sm font-semibold">プロバイダー</h3>
-        <p className="mb-3 text-xs text-muted">
-          Claude Pro/Max（Anthropic）、ChatGPT Plus/Pro（OpenAI
-          Codex）、Cursor、OpenCode、Command Code（Go プラン可）、および Ollama
-          Cloud / OpenRouter に対応しています。マルチアカウント対応プロバイダーは
-          アカウントごとに管理します。共有プロバイダーでは環境変数または
-          ~/.pi/agent/auth.json を引き続き使えます。Command Code は{" "}
-          <span className="font-mono">COMMANDCODE_API_KEY</span> /{" "}
-          <span className="font-mono">~/.commandcode/auth.json</span>、Ollama
-          Cloud は <span className="font-mono">OLLAMA_API_KEY</span>{" "}
-          でも設定できます。Ollama Cloud はアカウントごとに cookie
-          も登録できます。OpenCode Go の利用量にもアカウント別 cookie
-          を登録できます。Ollama Cloud / LeafCodeCloud の API URL は各行で変更でき、
-          次回起動から反映されます。
-        </p>
-        <ul className="grid gap-3 lg:grid-cols-2">
+        <details className="mb-3 text-xs text-muted">
+          <summary className="cursor-pointer select-none">対応・設定方法</summary>
+          <p className="mt-2">
+            Claude Pro/Max（Anthropic）、ChatGPT Plus/Pro（OpenAI
+            Codex）、Cursor、OpenCode、Command Code（Go プラン可）、および Ollama
+            Cloud / OpenRouter に対応しています。マルチアカウント対応プロバイダーは
+            アカウントごとに管理します。共有プロバイダーでは環境変数または
+            ~/.pi/agent/auth.json を引き続き使えます。Command Code は{" "}
+            <span className="font-mono">COMMANDCODE_API_KEY</span> /{" "}
+            <span className="font-mono">~/.commandcode/auth.json</span>、Ollama
+            Cloud は <span className="font-mono">OLLAMA_API_KEY</span>{" "}
+            でも設定できます。Ollama Cloud はアカウントごとに cookie
+            も登録できます。OpenCode Go の利用量にもアカウント別 cookie
+            を登録できます。Ollama Cloud / LeafCodeCloud の API URL は各行で変更でき、
+            次回起動から反映されます。
+          </p>
+        </details>
+        <ul className="grid items-start gap-3 lg:grid-cols-2">
           {orderedProviders.length === 0 && (
             <li className="text-sm text-muted lg:col-span-2">プロバイダーが見つかりません</li>
           )}
@@ -1512,9 +1501,7 @@ function ProviderRow({
   onChanged: () => void;
 }) {
   const accountManaged = isAccountProviderId(provider.id);
-  const badge = accountManaged
-    ? { tone: "neutral" as const, label: "アカウントで管理" }
-    : authBadge(provider);
+  const badge = accountManaged ? null : authBadge(provider);
   const hint = accountManaged ? null : sourceHint(provider);
   return (
     <li className="rounded-xl border border-border bg-surface px-2 py-2">
@@ -1524,7 +1511,7 @@ function ProviderRow({
             <ProviderIcon providerID={provider.id} size={16} />
             <span className="text-sm font-medium">{provider.name}</span>
             <span className="font-mono text-xs text-muted">{provider.id}</span>
-            <Badge tone={badge.tone}>{badge.label}</Badge>
+            {badge && <Badge tone={badge.tone}>{badge.label}</Badge>}
           </div>
           {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
         </div>

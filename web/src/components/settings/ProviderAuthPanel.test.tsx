@@ -210,7 +210,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(
       screen.queryByRole("region", { name: "llama-server の追加アカウント" }),
     ).toBeNull();
-    expect(screen.queryByRole("heading", { name: "アカウント" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "ログインアカウント" })).toBeNull();
   });
 
   it("changes the routing mode from the provider section", async () => {
@@ -258,7 +258,9 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
 
     const anthropic = await accountRegion("Anthropic");
     await within(anthropic).findByText("個人用");
-    expect(screen.getAllByText("アカウントで管理")).toHaveLength(2);
+    expect(screen.queryByText("アカウントで管理")).toBeNull();
+    expect(within(anthropic).getByRole("heading", { name: "アカウント" })).toBeTruthy();
+    expect(screen.queryByText("このプロバイダー用のアカウントを追加・管理します。")).toBeNull();
     expect(screen.queryByText("~/.pi/agent/auth.json")).toBeNull();
     expect(screen.getAllByRole("button", { name: /^ログイン$/ })).toHaveLength(
       1,
@@ -282,7 +284,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
       within(openrouter).getByRole("button", { name: "アカウントを追加" }),
     ).toBeTruthy();
     expect(screen.queryByText("環境変数 OPENROUTER_API_KEY")).toBeNull();
-    expect(screen.getByText("アカウントで管理")).toBeTruthy();
+    expect(screen.queryByText("アカウントで管理")).toBeNull();
     expect(screen.queryByRole("button", { name: "API キー" })).toBeNull();
     expect(screen.queryByRole("button", { name: "ログアウト" })).toBeNull();
   });
@@ -445,6 +447,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     const providerList = heading.parentElement?.querySelector("ul");
     expect(providerList).toBeTruthy();
     expect(providerList?.className).toContain("lg:grid-cols-2");
+    expect(providerList?.className).toContain("items-start");
     expect(providerList?.className).not.toContain("overflow-y-auto");
     expect(providerList?.className).not.toContain("max-h-72");
     expect(
