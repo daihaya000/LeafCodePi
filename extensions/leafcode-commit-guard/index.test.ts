@@ -38,6 +38,11 @@ describe("leafcode-commit-guard", () => {
     expect(hasPotentialRepoMutation(mutationMessages("bash", { command: "git status --short 2>&1" }))).toBe(false);
   });
 
+  it("treats unknown tools as soft, not hard", () => {
+    expect(classifyRepoMutation(mutationMessages("browser_click"))).toBe("soft");
+    expect(classifyRepoMutation(mutationMessages("some_future_tool"))).toBe("soft");
+  });
+
   it("requires fingerprint or hard mutation when the session started dirty", () => {
     expect(shouldRequestCommitGate({
       initiallyDirty: false,
@@ -73,6 +78,22 @@ describe("leafcode-commit-guard", () => {
       statusChanged: false,
       hardMutation: true,
       reminderSent: true,
+    })).toBe(false);
+    expect(shouldRequestCommitGate({
+      initiallyDirty: undefined,
+      dirty: true,
+      statusChanged: false,
+      hardMutation: false,
+      softMutation: true,
+      reminderSent: false,
+    })).toBe(true);
+    expect(shouldRequestCommitGate({
+      initiallyDirty: undefined,
+      dirty: true,
+      statusChanged: false,
+      hardMutation: false,
+      softMutation: false,
+      reminderSent: false,
     })).toBe(false);
   });
 
@@ -130,6 +151,22 @@ describe("leafcode-commit-guard", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it("does not fire on unknown soft tools alone when the tree was already dirty", async () => {
+    const dirty = " M preexisting.ts\n";
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: dirty, stderr: "", code: 0, killed: false })
+      .mockResolvedValueOnce({ stdout: dirty, stderr: "", code: 0, killed: false });
+    const { handlers, sendMessage, pi } = createPi(exec);
+
+    registerCommitGuard(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    handlers.get("agent_end")?.({ messages: mutationMessages("browser_click") });
+    await handlers.get("agent_settled")?.({}, ctx);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
   it("fires on hard edits even when porcelain stays unchanged on a pre-dirty tree", async () => {
     const dirty = " M preexisting.ts\n";
     const exec = vi
@@ -144,6 +181,27 @@ describe("leafcode-commit-guard", () => {
     await handlers.get("agent_settled")?.({}, ctx);
 
     expect(sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it("does not re-fire after task dirt is committed back to the baseline fingerprint", async () => {
+    const baseline = " M preexisting.ts\n";
+    const withTask = " M preexisting.ts\n M task.ts\n";
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: baseline, stderr: "", code: 0, killed: false })
+      .mockResolvedValueOnce({ stdout: withTask, stderr: "", code: 0, killed: false })
+      .mockResolvedValueOnce({ stdout: baseline, stderr: "", code: 0, killed: false });
+    const { handlers, sendMessage, pi } = createPi(exec);
+
+    registerCommitGuard(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    handlers.get("agent_end")?.({ messages: mutationMessages("edit") });
+    await handlers.get("agent_settled")?.({}, ctx);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+
+    handlers.get("agent_end")?.({ messages: mutationMessages("edit") });
+    await handlers.get("agent_settled")?.({}, ctx);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 
   it("does not drop a gate that settles before a slow session_start finishes", async () => {
@@ -211,6 +269,21 @@ describe("leafcode-commit-guard", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it("fires on soft dirt when session_start git status failed permanently", async () => {
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: "", stderr: "timeout", code: null, killed: true })
+      .mockResolvedValueOnce({ stdout: "?? node_modules/.package-lock.json\n", stderr: "", code: 0, killed: false });
+    const { handlers, sendMessage, pi } = createPi(exec);
+
+    registerCommitGuard(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    handlers.get("agent_end")?.({ messages: mutationMessages("bash", { command: "npm install lodash" }) });
+    await handlers.get("agent_settled")?.({}, ctx);
+
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
+
   it("re-arms the reminder when the dirty fingerprint changes after a prior gate", async () => {
     const exec = vi
       .fn()
@@ -228,5 +301,72 @@ describe("leafcode-commit-guard", () => {
     handlers.get("agent_end")?.({ messages: mutationMessages("edit") });
     await handlers.get("agent_settled")?.({}, ctx);
     expect(sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries after sendMessage throws without latching reminderSent", async () => {
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: "", stderr: "", code: 0, killed: false })
+      .mockResolvedValue({ stdout: " M src/example.ts\n", stderr: "", code: 0, killed: false });
+    const { handlers, sendMessage, pi } = createPi(exec);
+    sendMessage
+      .mockImplementationOnce(() => {
+        throw new Error("enqueue failed");
+      })
+      .mockImplementation(() => undefined);
+
+    registerCommitGuard(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    handlers.get("agent_end")?.({ messages: mutationMessages("edit") });
+    await handlers.get("agent_settled")?.({}, ctx);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+
+    await handlers.get("agent_settled")?.({}, ctx);
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("serializes concurrent settles so only one follow-up is enqueued", async () => {
+    const dirty = { stdout: " M src/example.ts\n", stderr: "", code: 0, killed: false };
+    let statusCalls = 0;
+    let releaseStatus: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseStatus = resolve;
+    });
+    const exec = vi.fn().mockImplementation(async () => {
+      statusCalls += 1;
+      if (statusCalls === 1) return { stdout: "", stderr: "", code: 0, killed: false };
+      if (statusCalls === 2) {
+        await gate;
+        return dirty;
+      }
+      return dirty;
+    });
+    const { handlers, sendMessage, pi } = createPi(exec);
+
+    registerCommitGuard(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    handlers.get("agent_end")?.({ messages: mutationMessages("edit") });
+
+    const a = handlers.get("agent_settled")?.({}, ctx);
+    const b = handlers.get("agent_settled")?.({}, ctx);
+    releaseStatus?.();
+    await Promise.all([a, b]);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats dirty reload/resume as needing a gate instead of absorbing dirt as baseline", async () => {
+    const dirty = " M task.ts\n";
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: dirty, stderr: "", code: 0, killed: false })
+      .mockResolvedValueOnce({ stdout: dirty, stderr: "", code: 0, killed: false });
+    const { handlers, sendMessage, pi } = createPi(exec);
+
+    registerCommitGuard(pi);
+    await handlers.get("session_start")?.({ reason: "reload" }, ctx);
+    await handlers.get("agent_settled")?.({}, ctx);
+
+    expect(sendMessage).toHaveBeenCalledOnce();
   });
 });

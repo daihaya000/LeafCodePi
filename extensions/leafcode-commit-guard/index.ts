@@ -35,6 +35,9 @@ const READ_ONLY_TOOLS = new Set([
   "subagent_wait",
 ]);
 
+/** Tools that mutate the worktree even when porcelain stays unchanged. */
+const HARD_MUTATING_TOOLS = new Set(["edit", "write", "subagent"]);
+
 const MUTATING_SHELL_PATTERNS = [
   /\bgit\s+(?:add|commit|apply|checkout|switch|restore|reset|clean|stash|merge|rebase|cherry-pick|mv|rm)\b/i,
   /\b(?:Set-Content|Add-Content|Out-File|Clear-Content|Export-Csv|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item)\b/i,
@@ -69,8 +72,8 @@ function shellMayMutate(command: string): boolean {
 }
 
 /**
- * hard = edit/write/subagent/unknown tools (tree likely changed even if porcelain is stable)
- * soft = shell heuristics only (npm install etc.; often gitignored → fingerprint is authority)
+ * hard = edit/write/subagent (tree likely changed even if porcelain is stable)
+ * soft = shell heuristics or other unknown tools (fingerprint is authority)
  */
 export function classifyRepoMutation(messages: AgentEndEvent["messages"]): RepoMutationKind {
   let soft = false;
@@ -78,12 +81,14 @@ export function classifyRepoMutation(messages: AgentEndEvent["messages"]): RepoM
     if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
     for (const part of message.content) {
       if (part.type !== "toolCall") continue;
-      if (part.name === "edit" || part.name === "write" || part.name === "subagent") return "hard";
+      if (HARD_MUTATING_TOOLS.has(part.name)) return "hard";
       if (part.name === "bash" || part.name === "powershell") {
         if (shellMayMutate(commandText(part.arguments))) soft = true;
         continue;
       }
-      if (!READ_ONLY_TOOLS.has(part.name)) return "hard";
+      // Unknown / read-ish tools: soft at most so pre-dirty + stable porcelain
+      // does not false-positive. Fingerprint remains the primary signal.
+      if (!READ_ONLY_TOOLS.has(part.name)) soft = true;
     }
   }
   return soft ? "soft" : "none";
@@ -99,12 +104,18 @@ export function shouldRequestCommitGate(input: {
   dirty: boolean;
   statusChanged: boolean;
   hardMutation: boolean;
+  softMutation?: boolean;
   reminderSent: boolean;
 }): boolean {
   if (!input.dirty || input.reminderSent) return false;
   // Clean start: any dirt is enough (fingerprint/heuristic optional).
   if (input.initiallyDirty === false) return true;
-  // Dirty or unknown baseline: fingerprint change is primary; hard tools are backup.
+  // Unknown baseline (start git failed): hard tools or soft+dirt — fingerprint
+  // cannot be compared, so soft heuristics must count or npm/etc. is silent.
+  if (input.initiallyDirty === undefined) {
+    return input.hardMutation || Boolean(input.softMutation);
+  }
+  // Dirty baseline: fingerprint change is primary; hard tools are backup.
   // Soft shell heuristics alone must not fire (npm/ci on a pre-dirty tree).
   return input.statusChanged || input.hardMutation;
 }
@@ -128,6 +139,11 @@ function isDirty(status: string): boolean {
   return status.trim().length > 0;
 }
 
+function sessionStartReason(event: unknown): string | undefined {
+  const record = asRecord(event);
+  return typeof record?.reason === "string" ? record.reason : undefined;
+}
+
 export default function registerCommitGuard(pi: ExtensionAPI): void {
   // Child subagent sessions share the parent task's repository and must not
   // enqueue their own follow-up turns. The parent session owns the commit gate.
@@ -142,6 +158,8 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
   let sessionStartGeneration = 0;
   let sessionReady = false;
   let pendingSettledCtx: ExtensionContext | null = null;
+  let gateRunning = false;
+  let queuedSettledCtx: ExtensionContext | null = null;
 
   const resetCleanBaseline = (status: string): void => {
     hardMutationObserved = false;
@@ -152,7 +170,14 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
     initialStatusText = status;
   };
 
-  const runCommitGate = async (ctx: ExtensionContext): Promise<void> => {
+  const clearTaskMutationFlags = (): void => {
+    hardMutationObserved = false;
+    mutationObserved = false;
+    reminderSent = false;
+    lastRemindedStatus = undefined;
+  };
+
+  const evaluateCommitGate = async (ctx: ExtensionContext): Promise<void> => {
     const status = await gitStatus(pi, ctx.cwd);
     // Unknown git status must not look like a clean tree (would wipe gate state).
     if (status === undefined) return;
@@ -160,6 +185,17 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
     if (!isDirty(status)) {
       resetCleanBaseline(status);
       return;
+    }
+
+    // Task dirt was committed away: fingerprint matches the pre-task baseline.
+    // Clear sticky hard/soft flags so pre-existing dirt alone does not re-fire.
+    // Exception: hard tools with unchanged porcelain still need one gate before
+    // any reminder has been sent (edit/write may not move porcelain).
+    if (initialStatusText !== undefined && status === initialStatusText) {
+      if (!(hardMutationObserved && !reminderSent)) {
+        clearTaskMutationFlags();
+        return;
+      }
     }
 
     // Re-arm when the dirty fingerprint moves after a prior reminder (partial
@@ -176,12 +212,11 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
       dirty: true,
       statusChanged,
       hardMutation: hardMutationObserved,
+      softMutation: mutationObserved,
       reminderSent,
     })) return;
 
-    // Set before enqueueing because sendMessage is non-idempotent.
-    reminderSent = true;
-    lastRemindedStatus = status;
+    // Latch only after a successful enqueue — failures must retry next settle.
     try {
       pi.sendMessage(
         {
@@ -191,15 +226,37 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
         },
         { triggerTurn: true, deliverAs: "followUp" },
       );
+      reminderSent = true;
+      lastRemindedStatus = status;
       if (ctx.hasUI) ctx.ui.notify("未コミット変更を検出しました。差分確認後にコミットします。", "warning");
     } catch (error) {
       console.error("Failed to enqueue the Git commit gate:", error);
     }
   };
 
-  pi.on("session_start", async (_event, ctx) => {
+  const runCommitGate = async (ctx: ExtensionContext): Promise<void> => {
+    if (gateRunning) {
+      queuedSettledCtx = ctx;
+      return;
+    }
+    gateRunning = true;
+    try {
+      let current: ExtensionContext | null = ctx;
+      while (current) {
+        queuedSettledCtx = null;
+        await evaluateCommitGate(current);
+        current = queuedSettledCtx;
+      }
+    } finally {
+      gateRunning = false;
+    }
+  };
+
+  pi.on("session_start", async (event, ctx) => {
     const generation = ++sessionStartGeneration;
     sessionReady = false;
+    const reason = sessionStartReason(event);
+    const recovering = reason === "reload" || reason === "resume";
     const status = await gitStatus(pi, ctx.cwd);
     if (generation !== sessionStartGeneration) return;
 
@@ -207,11 +264,25 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
     if (inFlight) {
       // Preserve gate state across a late/slow session_start. Do not force
       // initiallyDirty=false (that turns pre-existing dirt into a false positive)
-      // and do not overwrite the baseline fingerprint mid-flight.
+      // and do not overwrite an existing baseline fingerprint mid-flight.
+      // Adopting the first successful status when baseline is still unset avoids
+      // soft-only false positives on pre-dirty trees (at the cost of a rare
+      // clean→dirty soft false negative when the probe races the mutation).
       if (status !== undefined) {
         if (initiallyDirty === undefined) initiallyDirty = isDirty(status);
         if (initialStatusText === undefined) initialStatusText = status;
       }
+    } else if (recovering && status !== undefined && isDirty(status)) {
+      // Remount wiped in-memory flags. Conservatively treat dirty reload/resume
+      // as a clean-start dirt signal so task work is not absorbed as baseline.
+      // Synthetic empty baseline makes current dirt look like a change and avoids
+      // the "status === initialStatusText" early-return swallowing the gate.
+      initiallyDirty = false;
+      hardMutationObserved = false;
+      mutationObserved = false;
+      reminderSent = false;
+      lastRemindedStatus = undefined;
+      initialStatusText = "";
     } else {
       initiallyDirty = status === undefined ? undefined : isDirty(status);
       hardMutationObserved = false;

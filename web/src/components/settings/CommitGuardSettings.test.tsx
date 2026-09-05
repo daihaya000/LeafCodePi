@@ -60,4 +60,17 @@ describe("CommitGuardSettings", () => {
     });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
+
+  it("marks loaded and shows an error when the initial fetch fails", async () => {
+    getJson.mockRejectedValue(new Error("取得失敗"));
+    render(<CommitGuardSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toContain("取得失敗");
+    });
+    const toggle = screen.getByRole("switch", { name: "コミットガードを有効にする" });
+    expect(toggle).toHaveProperty("disabled", true);
+    expect(screen.queryByText("読込中")).toBeNull();
+    expect(screen.getByText("不明")).toBeTruthy();
+  });
 });

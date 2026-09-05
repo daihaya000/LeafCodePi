@@ -1,5 +1,28 @@
 # MEMORY
 
+## 2026-09-05 — commit-guard 残存バグ修正（ループ tick 1）
+
+監査で挙がった明確バグを実装側で除去。検証: `vitest` commit-guard 17 + CommitGuardSettings 3 = 20 PASS。
+
+### 修正
+1. **baseline 復帰 FP**: fingerprint が `initialStatusText` に戻ったら sticky hard/soft をクリア（未 reminder の hard+不変 porcelain は例外で1回ゲート）
+2. **reload/resume FN**: `reason` が reload/resume かつ dirty なら `initiallyDirty=false` + 合成空 baseline で再マウント後もゲート
+3. **unknown baseline + soft FN**: `initiallyDirty === undefined` 時は softMutation でも発火
+4. **sendMessage 失敗 FN**: 成功時のみ `reminderSent` を立て、失敗後は再 settle で再試行
+5. **並行 settle**: `gateRunning` + 最新 ctx キューで単発化
+6. **未知ツール FP**: hard は edit/write/subagent のみ。未知は soft（fingerprint 主）
+7. **Settings UI**: 初期 `enabled=null`（読込中）、GET 失敗でも `loaded` + エラー表示
+
+### 既知の残り
+- late `session_start` と soft が競合し、もともと clean だった tree の soft-only が probe 結果に吸収される FN（pre-dirty FP 回避とのトレードオフ）
+
+### ファイル
+- `extensions/leafcode-commit-guard/index.ts`
+- `extensions/leafcode-commit-guard/index.test.ts`
+- `web/src/components/settings/CommitGuardSettings.tsx`
+- `web/src/components/settings/CommitGuardSettings.test.tsx`
+
+---
 ## 2026-09-05 — commit-guard 残存バグ監査
 
 監査対象: `extensions/leafcode-commit-guard`、todowrite 連携、`CommitGuardSettings`、`OPTIONAL_LEAFCODE_EXTENSIONS`。

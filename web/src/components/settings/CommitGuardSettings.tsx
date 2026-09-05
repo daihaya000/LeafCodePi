@@ -22,7 +22,7 @@ function enabledFromList(extensions: ExtensionDto[]): boolean | null {
 }
 
 export function CommitGuardSettings() {
-  const [enabled, setEnabled] = useState(true);
+  const [enabled, setEnabled] = useState<boolean | null>(null);
   const [available, setAvailable] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +43,7 @@ export function CommitGuardSettings() {
         setError(null);
       })
       .catch((err) => {
+        setLoaded(true);
         setError(err instanceof Error ? err.message : "コミットガード設定の取得に失敗しました");
       });
   }, []);
@@ -52,7 +53,7 @@ export function CommitGuardSettings() {
   }, [reload]);
 
   const toggle = async (next: boolean) => {
-    if (!available || busy || next === enabled) return;
+    if (!available || busy || enabled === null || next === enabled) return;
     setBusy(true);
     setError(null);
     const previous = enabled;
@@ -73,6 +74,16 @@ export function CommitGuardSettings() {
     }
   };
 
+  const statusLabel = !loaded
+    ? "読込中"
+    : !available
+      ? "拡張なし"
+      : enabled === null
+        ? "不明"
+        : enabled
+          ? "有効"
+          : "無効";
+
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h3 className="text-sm font-semibold">コミットガード</h3>
@@ -81,14 +92,14 @@ export function CommitGuardSettings() {
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <Switch
-          checked={enabled}
-          onChange={() => void toggle(!enabled)}
+          checked={enabled === true}
+          onChange={() => void toggle(!(enabled === true))}
           label="コミットガードを有効にする"
           busy={busy || !loaded}
-          disabled={!available || !loaded}
+          disabled={!available || !loaded || enabled === null}
         />
         <span className="text-sm text-text" aria-live="polite">
-          {!available ? "拡張なし" : enabled ? "有効" : "無効"}
+          {statusLabel}
         </span>
         <Button variant="ghost" size="sm" disabled={busy} onClick={() => reload()}>
           再読込
