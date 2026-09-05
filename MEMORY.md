@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 4 — abort 失敗でキュー消失
+
+- バグ: `abortWorking` が API 呼び出し前に queued follow-ups を消し、失敗時は `stopRequested` だけ戻してキューは空のまま
+- 修正: キュークリアを abort 成功後に遅延（リクエスト中は `stopRequested` が drain を阻止）
+- 検証: `queued-follow-up.test.ts` 10/10 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 3 — abort 後の queued follow-up 自動送信
 
 - バグ: SSE `abort` ではクライアントの queued follow-ups を消さず、idle になると auto-send（`hang_abort` / ローカル Stop とは非対称）

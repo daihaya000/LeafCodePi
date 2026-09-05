@@ -1694,14 +1694,14 @@ export const TaskView = memo(function TaskView({
     if (archived || stopRequestedRef.current) return;
     stopRequestedRef.current = true;
     setStopRequested(true);
-    // Match server abortTask clearQueue: client-only follow-ups must not
-    // auto-send when working flips to idle.
-    setQueuedFollowUps([]);
-    setQueuedAutoSend(false);
-    setPendingUserMessage(null);
+    // stopRequested already blocks drain/auto-send. Clear client-only queues only
+    // after abort succeeds so a failed stop does not drop queued follow-ups.
     try {
       setError(null);
       const result = await sendJson<{ task: TaskSummary }>(`/api/tasks/${taskId}/abort`, {});
+      setQueuedFollowUps([]);
+      setQueuedAutoSend(false);
+      setPendingUserMessage(null);
       // TaskSummary does not include the live-session flag. Clear it here so
       // one successful stop cannot leave the local `working` state stale.
       setTask((current) =>

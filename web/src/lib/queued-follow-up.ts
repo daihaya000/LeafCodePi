@@ -1,6 +1,9 @@
 /**
  * Client-side follow-up queue drain. Abort must not let these auto-send:
  * the server already clearQueue()s on stop, but queuedFollowUps live only in TaskView.
+ * TaskView clears the client queue only after abort succeeds (stopRequested blocks
+ * drain during the request); SSE abort/hang events also clear via
+ * shouldClearQueuedFollowUpOnEvent.
  */
 
 export function shouldQueueFollowUp(input: {
