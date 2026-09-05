@@ -31,6 +31,27 @@ afterEach(() => {
 });
 
 describe("TaskView draft submission", () => {
+  it("switches Graph and Diff instead of opening both when the timeline is narrow", () => {
+    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const rect = originalGetBoundingClientRect.call(this);
+      return { ...rect, width: 800, right: rect.left + 800 } as DOMRect;
+    });
+
+    try {
+      render(<TaskView taskId={task.id} mdUp />);
+      const graph = screen.getByRole("button", { name: "コミットグラフ" });
+      const diff = screen.getByRole("button", { name: "Diff パネル" });
+      fireEvent.click(graph);
+      fireEvent.click(diff);
+
+      expect(graph.getAttribute("aria-pressed")).toBe("false");
+      expect(diff.getAttribute("aria-pressed")).toBe("true");
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("preserves a new draft while starting a goal loop", async () => {
     let resolve!: (value: unknown) => void;
     mocks.sendJson.mockReturnValue(new Promise((done) => { resolve = done; }));

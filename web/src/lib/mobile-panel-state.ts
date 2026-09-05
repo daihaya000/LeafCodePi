@@ -8,10 +8,10 @@ export type TaskPanelState = {
 export function toggleTaskPanel(
   state: TaskPanelState,
   panel: TaskPanel,
-  mdUp: boolean,
+  allowMultiplePanels: boolean,
 ): TaskPanelState {
   const nextOpen = panel === "graph" ? !state.graphOpen : !state.diffOpen;
-  if (mdUp) {
+  if (allowMultiplePanels) {
     return panel === "graph"
       ? { ...state, graphOpen: nextOpen }
       : { ...state, diffOpen: nextOpen };
@@ -23,8 +23,8 @@ export function toggleTaskPanel(
 
 export function normalizeTaskPanelState(
   state: TaskPanelState,
-  mdUp: boolean,
+  allowMultiplePanels: boolean,
 ): TaskPanelState {
-  if (mdUp || !state.graphOpen || !state.diffOpen) return state;
+  if (allowMultiplePanels || !state.graphOpen || !state.diffOpen) return state;
   return { ...state, diffOpen: false };
 }

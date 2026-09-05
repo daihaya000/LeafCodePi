@@ -306,17 +306,40 @@ function sameQuestionRequest(
 }
 
 const SIDE_PANEL_MIN_WIDTH = 240;
+const SIDE_PANEL_DEFAULT_WIDTH = 320;
 const SIDE_PANEL_MAX_WIDTH = 640;
+/** Both panels must leave a readable minimum width for the timeline. */
+const TIMELINE_MIN_WIDTH = 480;
+
+function readSidePanelWidth(storageKey: string): number {
+  if (typeof window === "undefined") return SIDE_PANEL_DEFAULT_WIDTH;
+  try {
+    const saved = Number(localStorage.getItem(storageKey));
+    return Number.isFinite(saved) && saved >= SIDE_PANEL_MIN_WIDTH
+      ? Math.min(saved, SIDE_PANEL_MAX_WIDTH)
+      : SIDE_PANEL_DEFAULT_WIDTH;
+  } catch {
+    return SIDE_PANEL_DEFAULT_WIDTH;
+  }
+}
 
 /** 右側パネル（Graph / Diff）の幅を左端ドラッグで調整できるラッパー。 */
-function SidePanel({ storageKey, children }: { storageKey: string; children: React.ReactNode }) {
-  const [width, setWidth] = useState(320);
+function SidePanel({
+  storageKey,
+  children,
+  onWidthChange,
+}: {
+  storageKey: string;
+  children: React.ReactNode;
+  onWidthChange?: (width: number) => void;
+}) {
+  const [width, setWidth] = useState(() => readSidePanelWidth(storageKey));
   useEffect(() => {
-    const saved = Number(localStorage.getItem(storageKey));
-    if (Number.isFinite(saved) && saved >= SIDE_PANEL_MIN_WIDTH) {
-      setWidth(Math.min(saved, SIDE_PANEL_MAX_WIDTH));
-    }
+    setWidth(readSidePanelWidth(storageKey));
   }, [storageKey]);
+  useEffect(() => {
+    onWidthChange?.(width);
+  }, [onWidthChange, width]);
   return (
     <div
       className="relative flex h-full min-h-0 shrink-0 flex-col border-b border-border md:h-72 lg:h-auto lg:w-(--panel-width) lg:border-b-0 lg:border-l"
@@ -480,9 +503,10 @@ export const TaskView = memo(function TaskView({
     diffOpen: false,
   });
   const { graphOpen, diffOpen } = panelState;
-  useEffect(() => {
-    setPanelState((current) => normalizeTaskPanelState(current, mdUp));
-  }, [mdUp]);
+  const [panelWidths, setPanelWidths] = useState(() => ({
+    graph: readSidePanelWidth("webui.graphpanel.width"),
+    diff: readSidePanelWidth("webui.diffpane.width"),
+  }));
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [deliveryMode, setDeliveryMode] = useState<"queue" | "steer">("queue");
   const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>([]);
@@ -584,8 +608,46 @@ export const TaskView = memo(function TaskView({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
+  const taskViewRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const [taskViewWidth, setTaskViewWidth] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    const element = taskViewRef.current;
+    if (!element) return;
+    const update = () => {
+      const width = element.getBoundingClientRect().width;
+      if (width <= 0) return;
+      setTaskViewWidth((current) => (current === width ? current : width));
+    };
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const panelsCanBeSimultaneous =
+    mdUp &&
+    (taskViewWidth === null ||
+      taskViewWidth >= TIMELINE_MIN_WIDTH + panelWidths.graph + panelWidths.diff);
+  useLayoutEffect(() => {
+    setPanelState((current) =>
+      normalizeTaskPanelState(current, panelsCanBeSimultaneous),
+    );
+  }, [panelsCanBeSimultaneous]);
+
+  const onGraphPanelWidthChange = useCallback((width: number) => {
+    setPanelWidths((current) =>
+      current.graph === width ? current : { ...current, graph: width },
+    );
+  }, []);
+  const onDiffPanelWidthChange = useCallback((width: number) => {
+    setPanelWidths((current) =>
+      current.diff === width ? current : { ...current, diff: width },
+    );
+  }, []);
   const stickRef = useRef(true);
   const lastScrollTopRef = useRef(0);
   const previousWorkingRef = useRef(false);
@@ -2129,7 +2191,10 @@ export const TaskView = memo(function TaskView({
   return (
     // min-h-0 flex-1: ペイン section が TaskTabs を持つ場合でも残り高さに収める。
     // h-full だとタブバー分だけはみ出し composer 下端が overflow-hidden で欠ける。
-    <div className={cx("flex min-h-0 min-w-0 flex-1 flex-col", !active && "hidden")}>
+    <div
+      ref={taskViewRef}
+      className={cx("flex min-h-0 min-w-0 flex-1 flex-col", !active && "hidden")}
+    >
       <header
         className="flex min-h-14 shrink-0 items-center gap-2 border-b border-border bg-surface px-3 md:px-4 md:gap-3"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
@@ -2266,7 +2331,9 @@ export const TaskView = memo(function TaskView({
                 graphOpen && "bg-surface-2 text-text",
               )}
               onClick={() =>
-                setPanelState((current) => toggleTaskPanel(current, "graph", mdUp))
+                setPanelState((current) =>
+                  toggleTaskPanel(current, "graph", panelsCanBeSimultaneous),
+                )
               }
             >
               <GitGraph className="h-4 w-4" />
@@ -2283,7 +2350,9 @@ export const TaskView = memo(function TaskView({
                 diffOpen && "bg-surface-2 text-text",
               )}
               onClick={() =>
-                setPanelState((current) => toggleTaskPanel(current, "diff", mdUp))
+                setPanelState((current) =>
+                  toggleTaskPanel(current, "diff", panelsCanBeSimultaneous),
+                )
               }
             >
               <PanelRight className="h-4 w-4" />
@@ -2433,12 +2502,18 @@ export const TaskView = memo(function TaskView({
           </div>
         )}
         {graphOpen && task?.directory && (
-          <SidePanel storageKey="webui.graphpanel.width">
+          <SidePanel
+            storageKey="webui.graphpanel.width"
+            onWidthChange={onGraphPanelWidthChange}
+          >
             <GraphPanel directory={task.directory} working={working} />
           </SidePanel>
         )}
         {diffOpen && task?.directory && (
-          <SidePanel storageKey="webui.diffpane.width">
+          <SidePanel
+            storageKey="webui.diffpane.width"
+            onWidthChange={onDiffPanelWidthChange}
+          >
             <DiffPane
               directory={task.directory}
               agent={task.agent?.trim() || undefined}
