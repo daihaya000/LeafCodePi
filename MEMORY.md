@@ -1,5 +1,12 @@
 # MEMORY
 
+## 2026-09-05 — commit-guard ループ終了（tick 9–13）
+
+- 最終監査: **NO_CLEAR_BUGS_REMAINING**（回帰 41/41 PASS）
+- 残低リスクのみ: シェルヒューリスティック未網羅×unknown baseline、settle claim による他ゲート1サイクル遅延（設計）
+- 2分ループ（PID 35516 / `AGENT_LOOP_TICK_commit_guard_bugs`）を停止
+
+---
 ## 2026-09-05 — commit-guard ループ tick 7-8
 
 - reload/resume で start の git が失敗しても合成 baseline（`initiallyDirty=false`）を適用
