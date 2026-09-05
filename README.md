@@ -92,7 +92,7 @@ pi install ./extensions/leafcode-goal-loop
 Task 画面には本家 LeafCode と同様の折りたたみ式 ToDo 進捗とプログレスバーを表示します。
 
 起票漏れを防ぐため、`in_progress` を含む non-empty の ToDo を登録する前の変更、shell、委譲、memory変更、未分類toolを停止します。
-通常のread-only作業も3回目までに起票が必要です。`AGENTS.md` / `SKILL.md` の確認と制御toolは対象外です。
+`git status` / `git diff` を PowerShell / bash で実行する開始時のGit確認も shell に含まれるため、変更タスクでは初回Git確認より先に `todowrite` を呼びます。通常のread-only作業も3回目までに起票が必要です。`AGENTS.md` / `SKILL.md` の確認と制御toolは対象外です。
 streaming中の `steer` / `followUp` とextension入力は現在のタスクの継続として扱います。
 
 ```powershell
