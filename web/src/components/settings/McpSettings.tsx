@@ -16,6 +16,15 @@ type McpResponse = {
   configPath: string;
 };
 
+const MCP_SERVER_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  fxhoudini: "リモート Houdini のシーン構築、シミュレーション、レンダリングを操作します。",
+  blendermcp: "Blender Lab 公式 MCP で、リモート Blender のシーン・オブジェクト・ドキュメント・レンダリングを操作します。",
+  mayamcp: "PatrickPalmer/MayaMCP で、リモート Maya のシーン構築・モデリング・マテリアルを操作します。",
+  metatrader: "MetaTrader 5 の口座・相場・注文・ポジションを確認・管理します。",
+  "mt5-build": "MQL4/MQL5 のコンパイル、静的検査、デプロイ、Strategy Tester、レポート解析を行います。",
+  "comfy-mcp": "ComfyUI で画像・動画・音声・3D生成、ワークフロー編集、ジョブ監視を行います。",
+};
+
 export function McpSettings() {
   const [servers, setServers] = useState<McpDto[]>([]);
   const [configPath, setConfigPath] = useState<string>("");
@@ -92,7 +101,7 @@ export function McpSettings() {
             <li
               key={server.id}
               aria-busy={busyId === server.id || undefined}
-              className="flex items-center gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5"
+              className="flex items-start gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -106,6 +115,9 @@ export function McpSettings() {
                     {server.enabled ? "有効" : "無効"}
                   </Badge>
                 </div>
+                {MCP_SERVER_DESCRIPTIONS[server.id] && (
+                  <p className="mt-0.5 text-xs break-words text-muted">{MCP_SERVER_DESCRIPTIONS[server.id]}</p>
+                )}
               </div>
               <Switch
                 checked={server.enabled}

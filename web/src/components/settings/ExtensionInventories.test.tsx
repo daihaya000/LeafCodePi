@@ -22,7 +22,14 @@ describe("拡張設定の一覧", () => {
       }
       if (path === "/api/mcp") {
         return Promise.resolve({
-          servers: [{ id: "local", name: "local", enabled: true, source: "stdio" }],
+          servers: [
+            { id: "fxhoudini", name: "fxhoudini", enabled: true, source: "stdio" },
+            { id: "blendermcp", name: "blendermcp", enabled: true, source: "stdio" },
+            { id: "mayamcp", name: "mayamcp", enabled: true, source: "stdio" },
+            { id: "metatrader", name: "metatrader", enabled: true, source: "stdio" },
+            { id: "mt5-build", name: "mt5-build", enabled: false, source: "stdio" },
+            { id: "comfy-mcp", name: "comfy-mcp", enabled: true, source: "stdio" },
+          ],
           configPath: "C:/pi/mcp.json",
         });
       }
@@ -46,13 +53,28 @@ describe("拡張設定の一覧", () => {
     );
 
     await screen.findByRole("switch", { name: "review を無効化" });
-    await screen.findByRole("switch", { name: "local を無効化" });
+    await screen.findByRole("switch", { name: "fxhoudini を無効化" });
 
     for (const heading of ["スキル", "MCP サーバー"]) {
       const list = screen.getByRole("heading", { name: heading }).parentElement?.parentElement?.querySelector("ul");
       expect(list).not.toBeNull();
       expect(list?.className).not.toContain("max-h-");
       expect(list?.className).not.toContain("overflow-y-auto");
+    }
+  });
+
+  it("各MCPサーバーの説明文を表示する", async () => {
+    render(<McpSettings />);
+
+    for (const description of [
+      "リモート Houdini のシーン構築、シミュレーション、レンダリングを操作します。",
+      "Blender Lab 公式 MCP で、リモート Blender のシーン・オブジェクト・ドキュメント・レンダリングを操作します。",
+      "PatrickPalmer/MayaMCP で、リモート Maya のシーン構築・モデリング・マテリアルを操作します。",
+      "MetaTrader 5 の口座・相場・注文・ポジションを確認・管理します。",
+      "MQL4/MQL5 のコンパイル、静的検査、デプロイ、Strategy Tester、レポート解析を行います。",
+      "ComfyUI で画像・動画・音声・3D生成、ワークフロー編集、ジョブ監視を行います。",
+    ]) {
+      expect(await screen.findByText(description)).toBeTruthy();
     }
   });
 });
