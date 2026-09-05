@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
@@ -40,6 +40,16 @@ describe("commit-guard-config", () => {
     assert.equal(raw.enabled, false);
     assert.equal(writeCommitGuardEnabled(true), true);
     assert.equal(readCommitGuardEnabled(), true);
+  });
+
+  it("writes atomically into a missing data dir and leaves no temp file", () => {
+    process.env.LEAFCODE_PI_DATA_DIR = join(data, "nested", "missing");
+    assert.equal(writeCommitGuardEnabled(false), false);
+    assert.equal(readCommitGuardEnabled(), false);
+    const leftovers = readdirSync(join(data, "nested", "missing")).filter((name) =>
+      name.endsWith(".tmp"),
+    );
+    assert.deepEqual(leftovers, []);
   });
 
   it("migrates a stale extension-disable flag into feature off", () => {

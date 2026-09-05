@@ -119,7 +119,8 @@ export function isSharedNonExtensionModule(name: string): boolean {
   return SHARED_NON_EXTENSION_NAMES.has(name);
 }
 
-function atomicWrite(filePath: string, content: string): void {
+/** Readers (incl. the agent-side extensions) must never see a partial file. */
+export function atomicWrite(filePath: string, content: string): void {
   mkdirSync(dirname(filePath), { recursive: true });
   const tmp = join(dirname(filePath), `.${Date.now()}.${process.pid}.tmp`);
   try {

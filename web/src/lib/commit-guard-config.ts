@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { dataDir } from "@/lib/paths";
 import {
+  atomicWrite,
   readExtensionsState,
   writeExtensionsState,
 } from "@/lib/extensions";
@@ -42,10 +43,13 @@ function clearStaleExtensionDisable(): void {
   writeExtensionsState(state);
 }
 
+/**
+ * Atomic: the guard extension re-reads this file on every settle and falls back
+ * to enabled=true on a parse error, so a partial write would re-arm the gate.
+ */
 function writeConfigFile(enabled: boolean): void {
-  mkdirSync(dataDir(), { recursive: true });
   const next: StoredConfig = { enabled: Boolean(enabled) };
-  writeFileSync(commitGuardConfigPath(), `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  atomicWrite(commitGuardConfigPath(), `${JSON.stringify(next, null, 2)}\n`);
 }
 
 /**
