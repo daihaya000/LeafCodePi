@@ -1,5 +1,19 @@
 # MEMORY
 
+## 2026-09-05: commit-guard / settle / todowrite 追加バグ修正
+
+### 修正した具象バグ
+1. **HIGH**: Pi jiti (`moduleCache: false`) で settle-followup-claim のモジュール状態が拡張間で共有されず二重 follow-up し得た → `Symbol.for` + `globalThis` に移行
+2. **HIGH**: 旧 extensions-state disabled の migrate が Web のみで、エージェントは既定 ON のままゲート発火 → 拡張側 `isCommitGuardFeatureEnabled` でも one-shot migrate
+3. **MED**: feature-off 時に git 観測までスキップし、再ONで sticky hard 偽陽性 → settle では baseline 維持し、同一 porcelain では sticky を消す
+4. **MED**: `settle-followup-claim.ts` が拡張として発見され factory エラー → discovery / filter から除外（共有モジュール扱い）
+5. **MED**: 設定 GET 失敗時に UI が「有効」のまま操作可能 → `enabled=null` / 「不明」+ Switch disabled
+
+### 検証
+vitest 80 PASS（commit-guard 25 + todowrite 16 + settle + settings/extensions）
+
+---
+
 ## 2026-09-05: コミットガードは拡張常時ON・機能だけOFF
 
 ### 問題
