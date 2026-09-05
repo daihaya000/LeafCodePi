@@ -223,16 +223,22 @@ export function formatElapsed(ms: number): string {
 }
 
 /** 実行中は秒表示に合わせて 1 秒毎に、終了後は固定値で経過時間を返す。 */
-function useElapsedMs(startedAtMs: number | undefined, endedAtMs: number | undefined): number {
+function useElapsedMs(
+  startedAtMs: number | undefined,
+  endedAtMs: number | undefined,
+  enabled = true,
+): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (endedAtMs !== undefined) {
       setNow(endedAtMs);
       return;
     }
+    if (!enabled) return;
+    setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, [endedAtMs]);
+  }, [enabled, endedAtMs]);
   if (startedAtMs === undefined) return 0;
   return Math.max(0, now - startedAtMs);
 }
@@ -279,7 +285,7 @@ function NestedUserMetaHeader({
 }
 
 /** 子タイムライン。実行中は末尾に追従する（上へスクロールしたら追従しない）。 */
-function NestedRunTimeline({ run }: { run: SubagentRunDto }) {
+function NestedRunTimeline({ run, active }: { run: SubagentRunDto; active: boolean }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
   const visibleMessages = useMemo(
@@ -313,6 +319,7 @@ function NestedRunTimeline({ run }: { run: SubagentRunDto }) {
               message={message}
               modelLabel={run.model}
               agent={run.agent}
+              active={active}
               nested
             />
           </div>
@@ -394,7 +401,7 @@ function NestedAgentPanel({
               {SUBAGENT_STATUS_LABEL[run.status]}
             </span>
           </div>
-          <NestedRunTimeline run={run} />
+          <NestedRunTimeline run={run} active={live} />
         </section>
       ))}
     </div>
@@ -405,10 +412,12 @@ function ToolCard({
   part,
   taskId,
   nested = false,
+  tabActive = true,
 }: {
   part: Extract<UiPart, { type: "tool" }>;
   taskId?: string;
   nested?: boolean;
+  tabActive?: boolean;
 }) {
   const state = part.state;
   const status = state.status;
@@ -448,7 +457,7 @@ function ToolCard({
     if (isShell && active && !wasShellActiveRef.current) setOpen(true);
     wasShellActiveRef.current = isShell && active;
   }, [isShell, active]);
-  const elapsedMs = useElapsedMs(state.startedAtMs, state.endedAtMs);
+  const elapsedMs = useElapsedMs(state.startedAtMs, state.endedAtMs, tabActive);
   const Icon = toolIcon(tool, state.input);
   const summary = toolSummary(tool, state);
   const fields = useMemo(() => toolInputFields(tool, state.input), [tool, state.input]);
@@ -533,7 +542,9 @@ function ToolCard({
           />
         )}
       </button>
-      {showNested && taskId && <NestedAgentPanel taskId={taskId} part={part} live={active} />}
+      {showNested && taskId && (
+        <NestedAgentPanel taskId={taskId} part={part} live={active && tabActive} />
+      )}
       {open && (
         <div
           ref={isShell ? logScrollerRef : undefined}
@@ -711,7 +722,7 @@ function MessageMetaHeader({
 }
 
 /** タイムライン末尾の実行中インジケータ（本家の WorkingProgressPanel 相当の 1 行版）。 */
-export function WorkingRow({ messages }: { messages: UiMessage[] }) {
+export function WorkingRow({ messages, active = true }: { messages: UiMessage[]; active?: boolean }) {
   const running = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
@@ -727,7 +738,7 @@ export function WorkingRow({ messages }: { messages: UiMessage[] }) {
   }, [messages]);
   const startedAtMs =
     running?.state.startedAtMs ?? messages[messages.length - 1]?.createdAt ?? undefined;
-  const elapsedMs = useElapsedMs(startedAtMs, undefined);
+  const elapsedMs = useElapsedMs(startedAtMs, undefined, active);
   const headline = running
     ? `${toolLabel(running.tool, running.state.input)} ${toolSummary(running.tool, running.state)}`
     : "作業中…";
@@ -915,6 +926,7 @@ export const PartView = memo(
     agent,
     accountLabel,
     taskId,
+    active = true,
     nested = false,
     onRevert,
     references,
@@ -926,6 +938,8 @@ export const PartView = memo(
     accountLabel?: string;
     /** サブエージェント入れ子パネルの取得に使う（トップレベルのみ）。 */
     taskId?: string;
+    /** 非表示タブでは表示専用タイマーと子タイムライン取得を止める。 */
+    active?: boolean;
     /** 入れ子タイムライン内での描画（さらに入れ子にはしない）。 */
     nested?: boolean;
     /** ユーザーメッセージの「入力欄に戻す」コールバック（トップレベル user のみ）。 */
@@ -982,7 +996,15 @@ export const PartView = memo(
             part.state.status === "error" || part.state.status === "cancelled"
               ? `${part.id}:expanded`
               : part.id;
-          return <ToolCard key={cardKey} part={part} taskId={taskId} nested={nested} />;
+          return (
+            <ToolCard
+              key={cardKey}
+              part={part}
+              taskId={taskId}
+              nested={nested}
+              tabActive={active}
+            />
+          );
         })}
         {isUser && !nested && onRevert && (
           <button
@@ -1016,6 +1038,7 @@ export const PartView = memo(
     prev.agent === next.agent &&
     prev.accountLabel === next.accountLabel &&
     prev.taskId === next.taskId &&
+    prev.active === next.active &&
     prev.nested === next.nested &&
     prev.onRevert === next.onRevert,
 );

@@ -2427,6 +2427,7 @@ export const TaskView = memo(function TaskView({
                     }
                     references={messageReferences}
                     taskId={taskId}
+                    active={active}
                     onRevert={message.role === "user" ? requestRevert : undefined}
                   />
                 )}
@@ -2440,7 +2441,7 @@ export const TaskView = memo(function TaskView({
                 tone={resumeTarget.reason === "silent" ? "neutral" : "danger"}
               />
             )}
-            {working && <WorkingRow messages={renderedMessages} />}
+            {working && <WorkingRow messages={renderedMessages} active={active} />}
             {task?.todos && <TodoProgressPanel todos={task.todos} />}
             {renderedMessages.length === 0 && (
               <p
