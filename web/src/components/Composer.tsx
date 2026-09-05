@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   ChangeEventHandler,
   ClipboardEventHandler,
@@ -16,7 +16,8 @@ import type {
   UIEventHandler,
 } from "react";
 import { createPortal } from "react-dom";
-import { Paperclip, UsersRound, Wrench, X } from "lucide-react";
+import { Button } from "@/components/ui";
+import { ChevronDown, Paperclip, UsersRound, Wrench, X } from "lucide-react";
 import {
   composerReferenceToolNames,
   composerReferenceValue,
@@ -38,6 +39,12 @@ export type ComposerAttachment = {
 export type ComposerReferences = {
   skills?: readonly ComposerReference[];
   agents?: readonly ComposerReference[];
+};
+
+export type ComposerSettingsGroup = {
+  id: string;
+  label: string;
+  content: ReactNode;
 };
 
 export function ImageLightbox({
@@ -158,7 +165,8 @@ type ComposerProps = {
     onFilesSelected: (files: FileList) => void;
     onTrigger: () => void;
   };
-  toolbar: ReactNode;
+  toolbar?: ReactNode;
+  settingsGroups?: readonly ComposerSettingsGroup[];
   action: ReactNode;
 };
 
@@ -172,9 +180,15 @@ export function Composer({
   references,
   attachmentControl,
   toolbar,
+  settingsGroups,
   action,
 }: ComposerProps) {
   const previewRef = useRef<HTMLDivElement>(null);
+  const settingsPanelRef = useRef<HTMLDivElement>(null);
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
+  const settingsId = useId();
+  const settingsTriggerId = `${settingsId}-trigger`;
+  const settingsPanelId = `${settingsId}-panel`;
   const composingRef = useRef(false);
   const [focused, setFocused] = useState(false);
   const [caret, setCaret] = useState(0);
@@ -193,6 +207,27 @@ export function Composer({
     return filterComposerReferences(source, currentToken.query);
   }, [availableReferences.agents, availableReferences.skills, currentToken]);
   const showSuggestions = focused && !textarea.readOnly && !textarea.disabled && suggestions.length > 0;
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        target !== settingsTriggerRef.current &&
+        !settingsPanelRef.current?.contains(target)
+      ) return;
+      event.preventDefault();
+      setSettingsOpen(false);
+      settingsTriggerRef.current?.focus();
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [settingsOpen]);
 
   useEffect(() => {
     setActiveSuggestion(0);
@@ -251,6 +286,22 @@ export function Composer({
     previewRef.current.scrollTop = textarea.ref.current?.scrollTop ?? 0;
     previewRef.current.scrollLeft = textarea.ref.current?.scrollLeft ?? 0;
   }, [textarea.ref, textarea.value]);
+
+  const attachmentInput = (
+    <input
+      ref={attachmentControl.inputRef}
+      type="file"
+      accept="image/*"
+      multiple
+      hidden
+      disabled={attachmentControl.inputDisabled}
+      onChange={(event) => {
+        if (event.target.files) attachmentControl.onFilesSelected(event.target.files);
+        event.target.value = "";
+      }}
+    />
+  );
+  const hasSettings = (settingsGroups?.length ?? 0) > 0;
 
   const inner = (
     <>
@@ -418,41 +469,81 @@ export function Composer({
           </div>
         )}
       </div>
-      <div className="flex items-center gap-2 pt-1">
-        <div className="relative min-w-0 flex-1 overflow-x-auto">
+      {hasSettings ? (
+        <div className="flex flex-col gap-2 pt-1 md:flex-row md:items-center">
           <div
-            role="group"
-            aria-label="タスク設定"
-            tabIndex={0}
-            className="flex min-w-max items-center gap-2 overflow-x-auto rounded-md [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            ref={settingsPanelRef}
+            id={settingsPanelId}
+            role="region"
+            aria-labelledby={settingsTriggerId}
+            className={`order-1 min-w-0 w-full max-h-[40dvh] overflow-y-auto rounded-xl border border-border bg-surface p-3 ${settingsOpen ? "block" : "hidden"} md:order-2 md:flex md:max-h-none md:flex-1 md:overflow-x-auto md:overflow-y-visible md:rounded-none md:border-0 md:bg-transparent md:p-0`}
           >
-            <input
-              ref={attachmentControl.inputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              hidden
-              disabled={attachmentControl.inputDisabled}
-              onChange={(event) => {
-                if (event.target.files) attachmentControl.onFilesSelected(event.target.files);
-                event.target.value = "";
-              }}
-            />
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:gap-2">
+              {(settingsGroups ?? []).map((group) => (
+                <section key={group.id} className="space-y-2 md:contents">
+                  <h3 className="text-xs font-semibold text-muted md:hidden">{group.label}</h3>
+                  <div className="flex min-w-0 flex-col gap-2 md:contents">{group.content}</div>
+                </section>
+              ))}
+            </div>
+          </div>
+          <div className="order-2 flex min-w-0 items-center gap-2 md:contents">
+            {attachmentInput}
             <button
               type="button"
               disabled={attachmentControl.buttonDisabled}
               title={attachmentControl.buttonTitle}
               aria-label={attachmentControl.buttonTitle}
               onClick={attachmentControl.onTrigger}
-              className="flex h-8 shrink-0 items-center justify-center rounded-lg border border-border bg-bg px-2 text-muted transition-colors hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+              className="order-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border bg-bg text-muted transition-colors hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40 md:order-1 md:h-8 md:w-8"
             >
               <Paperclip className="h-3.5 w-3.5" />
             </button>
-            {toolbar}
+            <Button
+              ref={settingsTriggerRef}
+              variant="secondary"
+              size="md"
+              id={settingsTriggerId}
+              aria-expanded={settingsOpen}
+              aria-controls={settingsPanelId}
+              onClick={() => setSettingsOpen((current) => !current)}
+              className="order-2 h-11 min-w-0 flex-1 justify-between px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:hidden"
+            >
+              <span>タスク設定</span>
+              <ChevronDown
+                aria-hidden="true"
+                className={`h-4 w-4 shrink-0 transition-transform ${settingsOpen ? "rotate-180" : ""}`}
+              />
+            </Button>
+            <div className="order-3 shrink-0">{action}</div>
           </div>
         </div>
-        {action}
-      </div>
+      ) : (
+        <div className="flex items-center gap-2 pt-1">
+          <div className="relative min-w-0 flex-1 overflow-x-auto">
+            <div
+              role="group"
+              aria-label="タスク設定"
+              tabIndex={0}
+              className="flex min-w-max items-center gap-2 overflow-x-auto rounded-md [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
+              {attachmentInput}
+              <button
+                type="button"
+                disabled={attachmentControl.buttonDisabled}
+                title={attachmentControl.buttonTitle}
+                aria-label={attachmentControl.buttonTitle}
+                onClick={attachmentControl.onTrigger}
+                className="flex h-8 shrink-0 items-center justify-center rounded-lg border border-border bg-bg px-2 text-muted transition-colors hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Paperclip className="h-3.5 w-3.5" />
+              </button>
+              {toolbar}
+            </div>
+          </div>
+          {action}
+        </div>
+      )}
     </>
   );
 

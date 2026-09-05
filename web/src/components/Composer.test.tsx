@@ -41,6 +41,55 @@ function TestComposer({
   );
 }
 
+function SettingsComposer() {
+  const [model, setModel] = useState("Auto");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <Composer
+      className=""
+      attachments={[]}
+      onRemoveAttachment={() => {}}
+      textarea={{
+        ref: textareaRef,
+        value: "",
+        rows: 1,
+        ariaLabel: "メッセージ",
+        placeholder: "入力",
+        className: "",
+        onChange: () => {},
+        onKeyDown: () => {},
+      }}
+      attachmentControl={{
+        inputRef,
+        buttonTitle: "画像を添付",
+        onFilesSelected: () => {},
+        onTrigger: () => {},
+      }}
+      settingsGroups={[
+        {
+          id: "execution",
+          label: "実行設定",
+          content: (
+            <input
+              aria-label="モデル設定"
+              value={model}
+              onChange={(event) => setModel(event.target.value)}
+            />
+          ),
+        },
+        {
+          id: "permissions",
+          label: "権限設定",
+          content: <input aria-label="権限設定" value="確認" readOnly />,
+        },
+      ]}
+      action={null}
+    />
+  );
+}
+
 describe("Composer", () => {
   afterEach(cleanup);
 
@@ -63,6 +112,38 @@ describe("Composer", () => {
     view.rerender(<TestComposer value="一行目" />);
 
     expect(textarea.style.height).not.toBe("0px");
+  });
+
+  it("opens and closes grouped settings without losing values", () => {
+    render(<SettingsComposer />);
+
+    const trigger = screen.getByRole("button", { name: "タスク設定" });
+    const panel = document.getElementById(trigger.getAttribute("aria-controls") ?? "");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(panel).not.toBeNull();
+    expect(panel?.getAttribute("role")).toBe("region");
+    expect(panel?.getAttribute("aria-labelledby")).toBe(trigger.id);
+
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("heading", { name: "実行設定" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "権限設定" })).toBeTruthy();
+
+    const model = screen.getByLabelText("モデル設定") as HTMLInputElement;
+    fireEvent.change(model, { target: { value: "Claude" } });
+    model.focus();
+    fireEvent.keyDown(model, { key: "Escape" });
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
+    expect(model.value).toBe("Claude");
+    expect(panel?.className).toContain("hidden");
+
+    fireEvent.click(trigger);
+    expect((screen.getByLabelText("モデル設定") as HTMLInputElement).value).toBe("Claude");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("opens an attached image and closes it with Escape", () => {
