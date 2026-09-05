@@ -13,10 +13,12 @@ export function AutoOptimizeSelect({
   value,
   onChange,
   disabled = false,
+  className,
 }: {
   value: AutoOptimizeMode;
   onChange: (value: AutoOptimizeMode) => void;
   disabled?: boolean;
+  className?: string;
 }) {
   return (
     <GhostSelect
@@ -28,7 +30,7 @@ export function AutoOptimizeSelect({
       onChange={(next) => {
         if (isAutoOptimizeMode(next)) onChange(next);
       }}
-      className="h-8 shrink-0"
+      className={className ?? "h-8 shrink-0"}
     >
       {AUTO_OPTIMIZE_MODES.map((mode) => (
         <option key={mode} value={mode}>

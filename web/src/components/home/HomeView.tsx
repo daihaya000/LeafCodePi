@@ -373,21 +373,6 @@ export function HomeView({
                 ))}
               </GhostSelect>
             </div>
-            {goalLoopEnabled && (
-              <div className="mx-auto max-w-5xl">
-                <GoalLoopOptions
-                  acceptance={goalLoopAcceptance}
-                  maxTurns={goalLoopMaxTurns}
-                  cooldownSeconds={goalLoopCooldownSeconds}
-                  forceFullRun={goalLoopForceFullRun}
-                  disabled={submitting}
-                  onAcceptanceChange={setGoalLoopAcceptance}
-                  onMaxTurnsChange={setGoalLoopMaxTurns}
-                  onCooldownSecondsChange={setGoalLoopCooldownSeconds}
-                  onForceFullRunChange={setGoalLoopForceFullRun}
-                />
-              </div>
-            )}
             <Composer
               form={{
                 ariaLabel: "タスク作成",
@@ -440,8 +425,12 @@ export function HomeView({
                 onFilesSelected: addImageFiles,
                 onTrigger: () => fileInputRef.current?.click(),
               }}
-              toolbar={
-                <>
+              settingsGroups={[
+                {
+                  id: "execution",
+                  label: "実行設定",
+                  content: (
+                    <>
                   <ModelSelect
                     value={model}
                     disabled={submitting}
@@ -451,12 +440,13 @@ export function HomeView({
                       setModel(value);
                       localStorage.setItem(MODEL_KEY, value);
                     }}
-                    className="min-w-0 max-w-[9rem] shrink sm:max-w-48"
+                    className="h-11 w-full min-w-0 md:h-8 md:w-auto md:max-w-48 md:shrink"
                   />
                   {model === AUTO_MODEL_VALUE ? (
                     <AutoOptimizeSelect
                       value={autoOptimizeMode}
                       disabled={submitting}
+                      className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
                       onChange={(value) => {
                         setAutoOptimizeMode(value);
                         writeAutoOptimizeMode(value);
@@ -472,7 +462,7 @@ export function HomeView({
                         setThinkingLevel(value);
                         writeStoredThinkingLevel(value);
                       }}
-                      className="min-w-0 max-w-[7rem] shrink sm:max-w-[8rem]"
+                      className="h-11 w-full min-w-0 md:h-8 md:w-auto md:max-w-[8rem] md:shrink"
                     />
                   )}
                   {agents.length > 0 && (
@@ -484,9 +474,17 @@ export function HomeView({
                         setAgent(value);
                         writeStoredAgent(value);
                       }}
-                      className="min-w-0 max-w-[8rem] shrink sm:max-w-40"
+                      className="h-11 w-full min-w-0 md:h-8 md:w-auto md:max-w-40 md:shrink"
                     />
                   )}
+                    </>
+                  ),
+                },
+                {
+                  id: "permissions",
+                  label: "権限設定",
+                  content: (
+                    <>
                   <PermissionSelect
                     value={permissionMode}
                     disabled={submitting}
@@ -494,7 +492,7 @@ export function HomeView({
                       setPermissionMode(mode);
                       writePermissionMode(mode);
                     }}
-                    className="h-8 shrink-0"
+                    className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
                   />
                   <SkillPermissionSelect
                     value={skillPermission}
@@ -503,7 +501,7 @@ export function HomeView({
                       setSkillPermission(mode);
                       writeSkillPermission(mode);
                     }}
-                    className="h-8 shrink-0"
+                    className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
                   />
                   <SubagentPermissionSelect
                     value={subagentPermission}
@@ -512,22 +510,48 @@ export function HomeView({
                       setSubagentPermission(mode);
                       writeSubagentPermission(mode);
                     }}
-                    className="h-8 shrink-0"
+                    className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
                   />
+                    </>
+                  ),
+                },
+                {
+                  id: "continuation",
+                  label: "継続実行",
+                  content: (
+                    <>
                   <GoalLoopToggle
                     enabled={goalLoopEnabled}
                     disabled={submitting}
                     onToggle={() => setGoalLoopEnabled((value) => !value)}
+                    className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
                   />
-                </>
-              }
+                  {goalLoopEnabled && (
+                    <div className="w-full md:w-auto">
+                      <GoalLoopOptions
+                        acceptance={goalLoopAcceptance}
+                        maxTurns={goalLoopMaxTurns}
+                        cooldownSeconds={goalLoopCooldownSeconds}
+                        forceFullRun={goalLoopForceFullRun}
+                        disabled={submitting}
+                        onAcceptanceChange={setGoalLoopAcceptance}
+                        onMaxTurnsChange={setGoalLoopMaxTurns}
+                        onCooldownSecondsChange={setGoalLoopCooldownSeconds}
+                        onForceFullRunChange={setGoalLoopForceFullRun}
+                      />
+                    </div>
+                  )}
+                    </>
+                  ),
+                },
+              ]}
               action={
                 <Button
                   variant="primary"
                   size="icon"
                   type="submit"
                   aria-label="タスク開始"
-                  className="shrink-0"
+                  className="h-11 w-11 shrink-0 md:h-9 md:w-9"
                   busy={submitting}
                   disabled={(!prompt.trim() && attachments.length === 0) || projectId === undefined || submitting || health?.engineOk === false}
                 >

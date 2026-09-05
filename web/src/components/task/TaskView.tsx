@@ -2745,21 +2745,6 @@ export const TaskView = memo(function TaskView({
             onResume={(maxTurns) => void goalLoopAction("resume", maxTurns)}
           />
         )}
-        {goalLoopEnabled && !archived && (
-          <div className="mx-auto max-w-5xl">
-            <GoalLoopOptions
-              acceptance={goalLoopAcceptance}
-              maxTurns={goalLoopMaxTurns}
-              cooldownSeconds={goalLoopCooldownSeconds}
-              forceFullRun={goalLoopForceFullRun}
-              disabled={submitting || working || archived}
-              onAcceptanceChange={setGoalLoopAcceptance}
-              onMaxTurnsChange={setGoalLoopMaxTurns}
-              onCooldownSecondsChange={setGoalLoopCooldownSeconds}
-              onForceFullRunChange={setGoalLoopForceFullRun}
-            />
-          </div>
-        )}
         <div className="mx-auto max-w-5xl">
           <QueuedFollowUpsNotice
             items={queuedFollowUps}
@@ -2842,8 +2827,12 @@ export const TaskView = memo(function TaskView({
             onFilesSelected: addImageFiles,
             onTrigger: () => fileInputRef.current?.click(),
           }}
-          toolbar={
-            <>
+          settingsGroups={[
+            {
+              id: "execution",
+              label: "実行設定",
+              content: (
+                <>
               <ModelSelect
                 value={modelValue}
                 options={modelOptions}
@@ -2876,12 +2865,13 @@ export const TaskView = memo(function TaskView({
                     }
                   })();
                 }}
-                className="min-w-0 max-w-[10rem] sm:max-w-[12rem]"
+                className="h-11 w-full min-w-0 md:h-8 md:w-auto md:max-w-[12rem] md:shrink"
               />
               {modelValue === AUTO_MODEL_VALUE ? (
                 <AutoOptimizeSelect
                   value={autoOptimizeMode}
                   disabled={compacting || archived}
+                  className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
                   onChange={(value) => {
                     setAutoOptimizeMode(value);
                     writeAutoOptimizeMode(value);
@@ -2893,6 +2883,7 @@ export const TaskView = memo(function TaskView({
                   levels={thinkingLevels}
                   value={thinkingValue}
                   disabled={working || compacting || submitting || archived}
+                  className="h-11 w-full md:h-8 md:w-auto md:max-w-[8rem] md:shrink"
                   onChange={(value) => {
                     void (async () => {
                       try {
@@ -2945,9 +2936,17 @@ export const TaskView = memo(function TaskView({
                       })
                       .finally(() => setAgentChanging(false));
                   }}
-                  className="min-w-0 max-w-[8rem] sm:max-w-40"
+                  className="h-11 w-full min-w-0 md:h-8 md:w-auto md:max-w-40 md:shrink"
                 />
               )}
+                </>
+              ),
+            },
+            {
+              id: "permissions",
+              label: "権限設定",
+              content: (
+                <>
               <PermissionSelect
                 value={permissionMode}
                 disabled={working || compacting || submitting || archived}
@@ -2969,7 +2968,7 @@ export const TaskView = memo(function TaskView({
                     }
                   })();
                 }}
-                className="h-8 shrink-0"
+                className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
               />
               <SkillPermissionSelect
                 value={skillPermission}
@@ -2989,7 +2988,7 @@ export const TaskView = memo(function TaskView({
                     }
                   })();
                 }}
-                className="h-8 shrink-0"
+                className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
               />
               <SubagentPermissionSelect
                 value={subagentPermission}
@@ -2998,13 +2997,45 @@ export const TaskView = memo(function TaskView({
                   setSubagentPermission(mode);
                   writeSubagentPermission(mode);
                 }}
-                className="h-8 shrink-0"
+                className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
               />
+                </>
+              ),
+            },
+            {
+              id: "continuation",
+              label: "継続実行",
+              content: (
+                <>
               <GoalLoopToggle
                 enabled={goalLoopEnabled}
                 disabled={archived || submitting || working || agentChanging || Boolean(task?.goalLoop && !["completed", "blocked", "stopped"].includes(task.goalLoop.status))}
                 onToggle={() => setGoalLoopEnabled((value) => !value)}
+                className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
               />
+              {goalLoopEnabled && !archived && (
+                <div className="w-full md:w-auto">
+                  <GoalLoopOptions
+                    acceptance={goalLoopAcceptance}
+                    maxTurns={goalLoopMaxTurns}
+                    cooldownSeconds={goalLoopCooldownSeconds}
+                    forceFullRun={goalLoopForceFullRun}
+                    disabled={submitting || working || archived}
+                    onAcceptanceChange={setGoalLoopAcceptance}
+                    onMaxTurnsChange={setGoalLoopMaxTurns}
+                    onCooldownSecondsChange={setGoalLoopCooldownSeconds}
+                    onForceFullRunChange={setGoalLoopForceFullRun}
+                  />
+                </div>
+              )}
+                </>
+              ),
+            },
+            {
+              id: "delivery",
+              label: "送信方式",
+              content: (
+                <>
               <GhostSelect
                 value={deliveryMode}
                 disabled={!task || compacting || archived}
@@ -3018,7 +3049,7 @@ export const TaskView = memo(function TaskView({
                   )
                 }
                 valueLabel={deliveryMode === "queue" ? "キュー" : "割り込み"}
-                className="max-w-[8rem] shrink-0"
+                className="h-11 w-full md:h-8 md:max-w-[8rem] md:shrink-0"
                 onChange={(value) => {
                   if (value === "queue" || value === "steer") setDeliveryMode(value);
                 }}
@@ -3030,8 +3061,10 @@ export const TaskView = memo(function TaskView({
                   割り込み
                 </option>
               </GhostSelect>
-            </>
-          }
+                </>
+              ),
+            },
+          ]}
           action={
             working && !prompt.trim() && attachments.length === 0 ? (
               <Button
@@ -3039,6 +3072,7 @@ export const TaskView = memo(function TaskView({
                 size="icon"
                 aria-label="停止"
                 title="停止"
+                className="h-11 w-11 md:h-9 md:w-9"
                 busy={stopRequested}
                 disabled={stopRequested}
                 onClick={() => void abortWorking()}
@@ -3051,6 +3085,7 @@ export const TaskView = memo(function TaskView({
                 size="icon"
                 type="submit"
                 aria-label="送信"
+                className="h-11 w-11 md:h-9 md:w-9"
                 busy={submitting}
                 disabled={archived || compacting || agentChanging || ((goalLoopEnabled || goalLoopLive) && working) || (!prompt.trim() && attachments.length === 0)}
               >
