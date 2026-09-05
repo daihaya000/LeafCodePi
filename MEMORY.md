@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 3 — abort 後の queued follow-up 自動送信
+
+- バグ: SSE `abort` ではクライアントの queued follow-ups を消さず、idle になると auto-send（`hang_abort` / ローカル Stop とは非対称）
+- 修正: `shouldClearQueuedFollowUpOnEvent` に `"abort"` を追加
+- 検証: `queued-follow-up.test.ts` 10/10 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 2 — SSE permission pair cancel
 
 - ループ: 旧 PID 37224 が aborted → PID 31976 で再起動

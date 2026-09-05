@@ -57,9 +57,9 @@ export function shouldAutoSendQueuedFollowUp(input: {
   );
 }
 
-/** Hang abort/retry must drop the client queue before the idle window can drain it. */
+/** Abort / hang abort/retry must drop the client queue before the idle window can drain it. */
 export function shouldClearQueuedFollowUpOnEvent(eventType: string | undefined): boolean {
-  return eventType === "hang_abort" || eventType === "hang_retry";
+  return eventType === "abort" || eventType === "hang_abort" || eventType === "hang_retry";
 }
 
 /** Steer optimistic rows never landed in history if abort cleared the SDK queue. */
