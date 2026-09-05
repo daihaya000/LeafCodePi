@@ -363,7 +363,7 @@ export function SettingsView() {
                 title="自動選択と生成"
                 description="自動ルーティングと、タイトル・提案などに使う生成モデルを設定します。"
               >
-                <div className="grid gap-4 xl:grid-cols-2">
+                <div className="space-y-4">
                   <div id="models-auto" className="scroll-mt-24">
                     <AutoModelSettings refreshToken={modelsRevision} />
                   </div>

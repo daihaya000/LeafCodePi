@@ -120,6 +120,9 @@ describe("SettingsView", () => {
       "プロバイダー",
     ]);
     expect(screen.queryByRole("navigation", { name: "モデル設定内" })).toBeNull();
+    const modelSettings = document.getElementById("models-auto");
+    expect(modelSettings?.parentElement?.className).toContain("space-y-4");
+    expect(modelSettings?.parentElement?.className).not.toContain("xl:grid-cols-2");
   });
 
   it("ヘルス取得が遅くてもプロバイダー一覧を先に反映する", async () => {
