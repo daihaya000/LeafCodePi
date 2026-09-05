@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetSettleFollowUpClaimForTests } from "../settle-followup-claim.ts";
 import registerTodowrite, { normalizeTodos, todowriteTestSeams } from "./index.ts";
 
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
@@ -98,6 +99,9 @@ describe("normalizeTodos", () => {
 });
 
 describe("todowrite omission gate", () => {
+  beforeEach(() => {
+    resetSettleFollowUpClaimForTests();
+  });
   it("allows policy files before blocking the first substantive read for an explicit Todo task", () => {
     const run = fixture();
     run.emit("input", { source: "interactive", text: "ToDo管理を追加", streamingBehavior: undefined });
@@ -245,7 +249,7 @@ describe("todowrite omission gate", () => {
     expect(run.notify).toHaveBeenCalledOnce();
   });
 
-  it("never retries an uncertain reminder delivery", () => {
+  it("retries after sendMessage throws without latching reminderSent", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const sendMessage = vi.fn(() => {
       throw new Error("unknown delivery");
@@ -257,8 +261,8 @@ describe("todowrite omission gate", () => {
       run.emit("agent_settled");
       run.emit("agent_settled");
 
-      expect(sendMessage).toHaveBeenCalledTimes(1);
-      expect(consoleError).toHaveBeenCalledOnce();
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(consoleError).toHaveBeenCalledTimes(2);
     } finally {
       consoleError.mockRestore();
     }

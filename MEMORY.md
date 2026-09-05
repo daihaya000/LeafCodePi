@@ -1,5 +1,14 @@
 # MEMORY
 
+## 2026-09-05 — commit-guard ループ tick 7-8
+
+- reload/resume で start の git が失敗しても合成 baseline（`initiallyDirty=false`）を適用
+- pre-tool snapshot 失敗時は in-flight で post-mutation dirty を baseline にしない
+- `hasPendingMessages` は triggerTurn 即実行のため無効 → `extensions/settle-followup-claim.ts` で todowrite と排他
+- todowrite も enqueue 失敗時は reminderSent を立てず再試行
+- 検証: commit-guard 22 + todowrite 16 = 38 PASS
+
+---
 ## 2026-09-05 — commit-guard ループ tick 6
 
 - **二重 follow-up**: todowrite gate が先にキュー済みのとき `ctx.hasPendingMessages()` で commit-gate を延期（次 settle で再試行）

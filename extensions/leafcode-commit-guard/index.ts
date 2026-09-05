@@ -1,4 +1,9 @@
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+  isSettleFollowUpClaimed,
+  markSettleFollowUpClaimed,
+  prepareSettleFollowUpClaim,
+} from "../settle-followup-claim.ts";
 
 const SUBAGENT_CHILD_ENV = "PI_SUBAGENT_CHILD";
 const COMMIT_GATE_MESSAGE = [
@@ -161,6 +166,7 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
   let gateRunning = false;
   let queuedSettledCtx: ExtensionContext | null = null;
   let baselineCapture: Promise<void> | null = null;
+  let preToolBaselineFailed = false;
 
   const hasBaseline = (): boolean =>
     initiallyDirty !== undefined || initialStatusText !== undefined;
@@ -179,6 +185,10 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
     }
     baselineCapture = (async () => {
       const status = await gitStatus(pi, cwd);
+      if (status === undefined) {
+        if (!hasBaseline()) preToolBaselineFailed = true;
+        return;
+      }
       adoptBaseline(status);
     })();
     try {
@@ -195,6 +205,7 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
     lastRemindedStatus = undefined;
     initiallyDirty = false;
     initialStatusText = status;
+    preToolBaselineFailed = false;
   };
 
   const clearTaskMutationFlags = (): void => {
@@ -243,9 +254,8 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
       reminderSent,
     })) return;
 
-    // Another follow-up (e.g. todowrite gate) already queued — defer so we do
-    // not stack two triggered turns. Retry on the next settle.
-    if (typeof ctx.hasPendingMessages === "function" && ctx.hasPendingMessages()) return;
+    // Another settle-time gate (e.g. todowrite) already fired this turn.
+    if (isSettleFollowUpClaimed()) return;
 
     // Latch only after a successful enqueue — failures must retry next settle.
     try {
@@ -257,6 +267,7 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
         },
         { triggerTurn: true, deliverAs: "followUp" },
       );
+      markSettleFollowUpClaimed();
       reminderSent = true;
       lastRemindedStatus = status;
       if (ctx.hasUI) ctx.ui.notify("未コミット変更を検出しました。差分確認後にコミットします。", "warning");
@@ -303,19 +314,22 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
       // Preserve gate state across a late/slow session_start. Do not force
       // initiallyDirty=false (that turns pre-existing dirt into a false positive)
       // and do not overwrite an existing baseline fingerprint mid-flight.
-      // tool_call may already have snapped a pre-mutation baseline.
-      adoptBaseline(status);
-    } else if (recovering && status !== undefined && isDirty(status)) {
-      // Remount wiped in-memory flags. Conservatively treat dirty reload/resume
-      // as a clean-start dirt signal so task work is not absorbed as baseline.
-      // Synthetic empty baseline makes current dirt look like a change and avoids
-      // the "status === initialStatusText" early-return swallowing the gate.
+      // If a pre-tool snapshot failed and mutations already ran, leave baseline
+      // unknown (soft/hard heuristics still gate) instead of adopting post-mutation dirt.
+      if (!(preToolBaselineFailed && (mutationObserved || hardMutationObserved))) {
+        adoptBaseline(status);
+      }
+    } else if (recovering) {
+      // Remount wiped in-memory flags. Conservatively treat dirty/unknown reload
+      // as needing a gate so task work is not absorbed as baseline — including
+      // when the remount probe itself fails (OneDrive timeout).
       initiallyDirty = false;
       hardMutationObserved = false;
       mutationObserved = false;
       reminderSent = false;
       lastRemindedStatus = undefined;
-      initialStatusText = "";
+      initialStatusText = status !== undefined && !isDirty(status) ? status : "";
+      preToolBaselineFailed = false;
     } else {
       // Fresh start — keep a pre-tool baseline if tool_call won the race.
       adoptBaseline(status);
@@ -323,6 +337,7 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
       mutationObserved = false;
       reminderSent = false;
       lastRemindedStatus = undefined;
+      preToolBaselineFailed = false;
     }
     sessionReady = true;
     if (pendingSettledCtx) {
@@ -348,6 +363,7 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
   });
 
   pi.on("agent_end", (event) => {
+    prepareSettleFollowUpClaim();
     const kind = classifyRepoMutation(event.messages);
     if (kind === "hard") {
       hardMutationObserved = true;

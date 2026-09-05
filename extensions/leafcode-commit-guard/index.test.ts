@@ -1,10 +1,11 @@
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import registerCommitGuard, {
   classifyRepoMutation,
   hasPotentialRepoMutation,
   shouldRequestCommitGate,
 } from "./index.ts";
+import { resetSettleFollowUpClaimForTests } from "../settle-followup-claim.ts";
 
 type Handler = (...args: unknown[]) => unknown;
 
@@ -33,6 +34,9 @@ const ctx = {
 } as unknown as ExtensionContext;
 
 describe("leafcode-commit-guard", () => {
+  beforeEach(() => {
+    resetSettleFollowUpClaimForTests();
+  });
   it("recognizes file edits and mutating shell commands but not read-only git commands", () => {
     expect(hasPotentialRepoMutation(mutationMessages("edit"))).toBe(true);
     expect(classifyRepoMutation(mutationMessages("edit"))).toBe("hard");
@@ -405,31 +409,75 @@ describe("leafcode-commit-guard", () => {
     expect(sendMessage).toHaveBeenCalledOnce();
   });
 
-  it("defers when another follow-up is already pending", async () => {
+  it("defers when another settle follow-up already claimed the turn", async () => {
+    const { markSettleFollowUpClaimed, prepareSettleFollowUpClaim } = await import("../settle-followup-claim.ts");
     const exec = vi
       .fn()
       .mockResolvedValueOnce({ stdout: "", stderr: "", code: 0, killed: false })
       .mockResolvedValueOnce({ stdout: " M src/example.ts\n", stderr: "", code: 0, killed: false })
       .mockResolvedValueOnce({ stdout: " M src/example.ts\n", stderr: "", code: 0, killed: false });
     const { handlers, sendMessage, pi } = createPi(exec);
-    let pending = true;
-    const pendingCtx = {
-      ...ctx,
-      hasPendingMessages: () => pending,
-    } as unknown as ExtensionContext;
 
     registerCommitGuard(pi);
     await handlers.get("session_start")?.({}, ctx);
     handlers.get("agent_end")?.({ messages: mutationMessages("edit") });
-    await handlers.get("agent_settled")?.({}, pendingCtx);
+    // Simulate todowrite (or another gate) winning the settle claim first.
+    prepareSettleFollowUpClaim();
+    markSettleFollowUpClaimed();
+    await handlers.get("agent_settled")?.({}, ctx);
     expect(sendMessage).not.toHaveBeenCalled();
 
-    pending = false;
-    await handlers.get("agent_settled")?.({}, pendingCtx);
+    handlers.get("agent_end")?.({ messages: mutationMessages("edit") });
+    await handlers.get("agent_settled")?.({}, ctx);
     expect(sendMessage).toHaveBeenCalledOnce();
   });
 
   it("classifies git pull as a soft mutating shell command", () => {
     expect(classifyRepoMutation(mutationMessages("bash", { command: "git pull --ff-only" }))).toBe("soft");
+  });
+
+  it("applies remount gate even when reload probe git status fails", async () => {
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: "", stderr: "timeout", code: null, killed: true })
+      .mockResolvedValueOnce({ stdout: " M task.ts\n", stderr: "", code: 0, killed: false });
+    const { handlers, sendMessage, pi } = createPi(exec);
+
+    registerCommitGuard(pi);
+    await handlers.get("session_start")?.({ reason: "reload" }, ctx);
+    await handlers.get("agent_settled")?.({}, ctx);
+
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it("does not adopt post-mutation dirt as baseline when pre-tool snapshot failed", async () => {
+    let resolveStart: ((value: { stdout: string; stderr: string; code: number; killed: boolean }) => void) | undefined;
+    const startStatus = new Promise<{ stdout: string; stderr: string; code: number; killed: boolean }>((resolve) => {
+      resolveStart = resolve;
+    });
+    const dirty = { stdout: "?? node_modules/.package-lock.json\n", stderr: "", code: 0, killed: false };
+    const exec = vi
+      .fn()
+      // session_start probe (slow)
+      .mockImplementationOnce(() => startStatus)
+      // tool_call pre-mutation snapshot fails
+      .mockResolvedValueOnce({ stdout: "", stderr: "timeout", code: null, killed: true })
+      // settle after mutation
+      .mockResolvedValueOnce(dirty);
+    const { handlers, sendMessage, pi } = createPi(exec);
+
+    registerCommitGuard(pi);
+    const started = handlers.get("session_start")?.({}, ctx);
+    await handlers.get("tool_call")?.(
+      { toolName: "bash", input: { command: "npm ci" } },
+      ctx,
+    );
+    handlers.get("agent_end")?.({ messages: mutationMessages("bash", { command: "npm ci" }) });
+    await handlers.get("agent_settled")?.({}, ctx);
+    // Late probe must not adopt dirty as baseline while soft mutation is in flight.
+    resolveStart?.(dirty);
+    await started;
+
+    expect(sendMessage).toHaveBeenCalledOnce();
   });
 });

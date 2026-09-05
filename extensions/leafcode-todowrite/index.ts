@@ -10,6 +10,11 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import {
+  isSettleFollowUpClaimed,
+  markSettleFollowUpClaimed,
+  prepareSettleFollowUpClaim,
+} from "../settle-followup-claim.ts";
 import { normalizeTodos, type TodoItem } from "./state.ts";
 export { normalizeTodos } from "./state.ts";
 export type { TodoItem, TodoPriority, TodoStatus } from "./state.ts";
@@ -191,6 +196,9 @@ export default function (pi: ExtensionAPI): void {
     gate.violationObserved = true;
     return { block: true, reason: TODO_GATE_REASON };
   });
+  pi.on("agent_end", () => {
+    prepareSettleFollowUpClaim();
+  });
   pi.on("agent_settled", (_event, ctx) => {
     const wasCommitGuardTurn = commitGuardTurn;
     commitGuardTurn = false;
@@ -201,9 +209,8 @@ export default function (pi: ExtensionAPI): void {
       gate.reminderSent ||
       !gateEnabled()
     ) return;
+    if (isSettleFollowUpClaimed()) return;
 
-    // Set before enqueueing because sendMessage is non-idempotent.
-    gate.reminderSent = true;
     try {
       pi.sendMessage(
         {
@@ -213,6 +220,8 @@ export default function (pi: ExtensionAPI): void {
         },
         { triggerTurn: true, deliverAs: "followUp" },
       );
+      markSettleFollowUpClaimed();
+      gate.reminderSent = true;
       if (ctx.hasUI) ctx.ui.notify("ToDoを起票してから作業を再開します。", "warning");
     } catch (error) {
       console.error("Failed to enqueue the ToDo gate reminder:", error);

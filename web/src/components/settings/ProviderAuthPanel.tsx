@@ -171,7 +171,7 @@ function ResetCreditsControl({
         </span>
         <Button
           size="sm"
-          variant="ghost"
+          variant="outline"
           busy={busy}
           disabled={busy}
           onClick={() => onRedeem(provider)}
@@ -879,7 +879,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           {!isCreating && (
             <Button
               size="sm"
-              variant="ghost"
+              variant="outline"
               aria-label="アカウントを追加"
               disabled={Boolean(login) || accountBusy}
               onClick={() => {
@@ -988,7 +988,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                               {piAuthenticated && (
                                 <Button
                                   size="sm"
-                                  variant="ghost"
+                                  variant="outline"
                                   disabled={Boolean(login) || accountBusy}
                                   onClick={() =>
                                     void logoutFor(providerId, account.id)
@@ -999,7 +999,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                               )}
                               <Button
                                 size="sm"
-                                variant="ghost"
+                                variant="outline"
                                 disabled={accountBusy}
                                 onClick={() => {
                                   setEditingAccountId(account.id);
@@ -1010,7 +1010,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                               </Button>
                               <Button
                                 size="sm"
-                                variant="ghost"
+                                variant="danger"
                                 disabled={accountBusy}
                                 onClick={() => void removeAccount(account)}
                               >
