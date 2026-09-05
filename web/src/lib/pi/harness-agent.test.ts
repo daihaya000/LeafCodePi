@@ -363,8 +363,12 @@ describe("abortTask", () => {
       reasoningFallbackTried: false,
     }]]);
     const events = new EventEmitter();
-    events.on(task.id, (payload: { eventType?: string }) => {
+    let hangAbortManualId: string | null | undefined;
+    events.on(task.id, (payload: { eventType?: string; manualAbortedAssistantId?: string | null }) => {
       if (payload.eventType) eventTypes.push(payload.eventType);
+      if (payload.eventType === "hang_abort") {
+        hangAbortManualId = payload.manualAbortedAssistantId;
+      }
     });
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
       live,
@@ -380,6 +384,8 @@ describe("abortTask", () => {
     assert.ok(getTaskHangWatch(task.id));
     assert.equal(eventTypes[0], "hang_abort");
     assert.equal(hangAbortBeforeSessionAbort, true);
+    assert.equal(getTask(task.id)?.manualAbortedAssistantId, "");
+    assert.equal(hangAbortManualId, "");
   });
 
   it("stops a queued Goal Loop before aborting an idle session", async () => {

@@ -5463,9 +5463,6 @@ export function clearSessionQueue(session: { clearQueue?: () => unknown }): void
  */
 export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
   const live = state().live.get(taskId);
-  // Tell the client before idle snapshots from abort() so queued follow-ups
-  // cannot drain in the wait-for-idle window before hang_retry.
-  if (live) emitTaskSnapshot(live, "hang_abort");
   clearPendingAttentionForTask(taskId);
   if (live) {
     const msgs = snapshotMessages(
@@ -5488,7 +5485,12 @@ export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
       promptIndex >= 0
         ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant")
         : [];
+    // Persist before hang_abort so SSE (and ready-buffer flush) carries the
+    // early-abort "" sentinel / assistant id — same order as abortTask.
     persistManualAbortedAssistantId(taskId, turnAssistants.at(-1)?.id ?? "");
+    // Emit before idle snapshots from abort() so queued follow-ups cannot
+    // drain in the wait-for-idle window before hang_retry.
+    emitTaskSnapshot(live, "hang_abort");
     await stopSubagentRunsForTask(live, msgs);
     clearSessionQueue(live.session);
     cancelHarnessPrompt(live);
