@@ -115,8 +115,8 @@ export const GenerationModelSettings = memo(function GenerationModelSettings({
         const serverValue = settingResult.status === "fulfilled" ? settingResult.value : null;
         const localValue = readGenerationModel();
         const nextValue =
-          modelOptionForValue(nextModels, serverValue)?.value ??
           modelOptionForValue(nextModels, localValue)?.value ??
+          modelOptionForValue(nextModels, serverValue)?.value ??
           "";
         const serverEffort = effortResult.status === "fulfilled" ? effortResult.value : null;
         const localEffort = readGenerationModelEffort();
@@ -124,8 +124,8 @@ export const GenerationModelSettings = memo(function GenerationModelSettings({
         const serverFallbackValue = fallbackResult.status === "fulfilled" ? fallbackResult.value : null;
         const localFallbackValue = readGenerationFallbackModel();
         const nextFallbackValue =
-          modelOptionForValue(nextModels, serverFallbackValue)?.value ??
           modelOptionForValue(nextModels, localFallbackValue)?.value ??
+          modelOptionForValue(nextModels, serverFallbackValue)?.value ??
           "";
         const preserveValue =
           changedRef.current.value &&

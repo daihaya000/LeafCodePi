@@ -152,6 +152,82 @@ describe("GenerationModelSettings", () => {
     expect(fallbackEffort.textContent).toContain("high");
   });
 
+  it("keeps a model save error when initial settings finish late", async () => {
+    let resolveServerModel!: (value: string | null) => void;
+    mocks.readGenerationModelFromServer.mockReturnValue(
+      new Promise((resolve) => { resolveServerModel = resolve; }),
+    );
+    mocks.writeGenerationModelToServer.mockRejectedValue(new Error("保存失敗"));
+
+    render(<GenerationModelSettings />);
+    const modelSelect = await screen.findByRole("button", { name: "生成モデル" });
+    fireEvent.click(modelSelect);
+    fireEvent.click(screen.getByRole("option", { name: "Claude Sonnet" }));
+    await screen.findByText("生成モデルの保存に失敗しました");
+
+    resolveServerModel(null);
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toContain("生成モデルの保存に失敗しました");
+    });
+  });
+
+  it("keeps a locally selected model after a failed save and remount", async () => {
+    let localValue: string | null = "anthropic::claude-sonnet";
+    mocks.getJson.mockResolvedValue({
+      models: [
+        {
+          value: "anthropic::claude-sonnet",
+          label: "Claude Sonnet",
+          providerID: "anthropic",
+          modelID: "claude-sonnet",
+        },
+        {
+          value: "openai-codex::gpt-5",
+          label: "GPT-5",
+          providerID: "openai-codex",
+          modelID: "gpt-5",
+        },
+      ],
+    });
+    mocks.readGenerationModel.mockImplementation(() => localValue);
+    mocks.writeGenerationModel.mockImplementation((value: string | null) => {
+      localValue = value;
+    });
+    mocks.readGenerationModelFromServer.mockResolvedValue("anthropic::claude-sonnet");
+    mocks.writeGenerationModelToServer.mockRejectedValue(new Error("保存失敗"));
+
+    const first = render(<GenerationModelSettings />);
+    const modelSelect = await screen.findByRole("button", { name: "生成モデル" });
+    fireEvent.click(modelSelect);
+    fireEvent.click(screen.getByRole("option", { name: "GPT-5" }));
+    await screen.findByText("生成モデルの保存に失敗しました");
+    first.unmount();
+
+    render(<GenerationModelSettings />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "生成モデル" }).textContent).toContain("GPT-5");
+    });
+  });
+
+  it("keeps a fallback save error when initial settings finish late", async () => {
+    let resolveServerFallback!: (value: string | null) => void;
+    mocks.readGenerationFallbackModelFromServer.mockReturnValue(
+      new Promise((resolve) => { resolveServerFallback = resolve; }),
+    );
+    mocks.writeGenerationFallbackModelToServer.mockRejectedValue(new Error("保存失敗"));
+
+    render(<GenerationModelSettings />);
+    const fallbackSelect = await screen.findByRole("button", { name: "フォールバック先" });
+    fireEvent.click(fallbackSelect);
+    fireEvent.click(screen.getByRole("option", { name: "Claude Sonnet" }));
+    await screen.findByText("フォールバック先の保存に失敗しました");
+
+    resolveServerFallback(null);
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toContain("フォールバック先の保存に失敗しました");
+    });
+  });
+
   it("localStorageに保存値があってもサーバー相当レンダーは設定値に依存しない", () => {
     mocks.readGenerationModel.mockReturnValue("anthropic::claude-sonnet");
     mocks.readGenerationModelEffort.mockReturnValue("low");
