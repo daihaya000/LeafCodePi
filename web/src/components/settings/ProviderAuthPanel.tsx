@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, type ReactNode, useCallback, useEffect, useState } from "react";
-import { Badge, Button } from "@/components/ui";
+import { Badge, Button, cx } from "@/components/ui";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ApiError, apiUrl, getJson, sendJson } from "@/lib/client";
 import type { AccountProviderId, AccountRecord } from "@/lib/accounts";
@@ -12,7 +12,13 @@ import type {
 } from "@/lib/pi/auth-login";
 import type { ProviderAuthDto } from "@/lib/types";
 import type { AccountRoutingMode } from "@/lib/provider-routing";
-import type { CodexBarUsage } from "@/lib/codexbar";
+import {
+  clampPercent,
+  percentTone,
+  type CodexBarProvider,
+  type CodexBarUsage,
+  type UsageTone,
+} from "@/lib/codexbar";
 
 type LoginUiState = {
   providerId: string;
@@ -69,6 +75,59 @@ function sourceHint(provider: ProviderAuthDto): string | null {
   return provider.authSource ?? null;
 }
 
+const usageBarClass: Record<UsageTone, string> = {
+  ok: "bg-success",
+  warn: "bg-warning",
+  danger: "bg-danger",
+};
+
+const usageTextClass: Record<UsageTone, string> = {
+  ok: "text-muted",
+  warn: "text-warning",
+  danger: "text-danger",
+};
+
+function UsageBar({ percent }: { percent: number | null | undefined }) {
+  const normalizedPercent = percent ?? null;
+  const tone = percentTone(normalizedPercent);
+  return (
+    <div className="mt-2">
+      <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+        <span className="text-muted">使用量</span>
+        <span className={cx("font-mono", usageTextClass[tone])}>
+          {normalizedPercent === null
+            ? "—"
+            : `${Math.round(normalizedPercent)}%`}
+        </span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+        <div
+          className={cx(
+            "h-full rounded-full transition-all",
+            usageBarClass[tone],
+          )}
+          style={{ width: `${clampPercent(normalizedPercent)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function findProviderUsage(
+  usage: CodexBarUsage | null,
+  providerId: string,
+  accountId: string | null = null,
+): CodexBarProvider | null {
+  if (!usage || !Array.isArray(usage.providers)) return null;
+  return (
+    usage.providers.find(
+      (provider) =>
+        provider.id === providerId &&
+        (provider.accountId ?? null) === accountId,
+    ) ?? null
+  );
+}
+
 export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   providers,
   onChanged,
@@ -104,49 +163,26 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   const [cookieInput, setCookieInput] = useState("");
   const [cookieBusy, setCookieBusy] = useState<string | null>(null);
   const [cookieErrors, setCookieErrors] = useState<Record<string, string>>({});
-  const [codexResetCredits, setCodexResetCredits] = useState<{
-    defaultCount: number;
-    byAccount: Record<string, number>;
-  }>({ defaultCount: 0, byAccount: {} });
+  const [codexBarUsage, setCodexBarUsage] = useState<CodexBarUsage | null>(null);
 
   useEffect(() => {
-    if (!providers.some((provider) => provider.id === "openai-codex")) {
-      setCodexResetCredits({ defaultCount: 0, byAccount: {} });
+    if (providers.length === 0) {
+      setCodexBarUsage(null);
       return;
     }
 
     let active = true;
     void getJson<CodexBarUsage>("/api/codexbar/usage")
       .then((usage) => {
-        if (!active) return;
-        const next = {
-          defaultCount: 0,
-          byAccount: {} as Record<string, number>,
-        };
-        const usageProviders = Array.isArray(usage.providers)
-          ? usage.providers
-          : [];
-        for (const provider of usageProviders) {
-          if (provider.id !== "openai-codex") continue;
-          const count = provider.resetCreditsAvailable ?? 0;
-          if (count <= 0) continue;
-          if (provider.accountId) {
-            next.byAccount[provider.accountId] =
-              (next.byAccount[provider.accountId] ?? 0) + count;
-          } else {
-            next.defaultCount += count;
-          }
-        }
-        setCodexResetCredits(next);
+        if (active) setCodexBarUsage(usage);
       })
       .catch(() => {
-        if (active) setCodexResetCredits({ defaultCount: 0, byAccount: {} });
+        if (active) setCodexBarUsage(null);
       });
     return () => {
       active = false;
     };
   }, [providers]);
-
   const refreshAccounts = useCallback(async () => {
     try {
       const res = await getJson<{ accounts: AccountRecord[] }>("/api/accounts");
@@ -701,6 +737,11 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                   const currentCookieKey = cookieKey(providerId, account.id);
                   const cookieEditing = cookieEditingKey === currentCookieKey;
                   const cookieAccountBusy = cookieBusy === currentCookieKey;
+                  const usage = findProviderUsage(
+                    codexBarUsage,
+                    providerId,
+                    account.id,
+                  );
                   return (
                     <li
                       key={account.id}
@@ -747,6 +788,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                           </Badge>
                         </div>
                       )}
+                      {usage && <UsageBar percent={usage.usedPercent} />}
                       <div className="mt-1.5 flex flex-wrap gap-1">
                         {accountAuthType && (
                           <Button
@@ -796,11 +838,11 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                         </Button>
                       </div>
                       {providerId === "openai-codex" &&
-                        (codexResetCredits.byAccount[account.id] ?? 0) > 0 && (
+                        (usage?.resetCreditsAvailable ?? 0) > 0 && (
                           <p className="mt-1.5 text-xs text-muted">
                             リセット権{" "}
                             <span className="font-mono text-text">
-                              {codexResetCredits.byAccount[account.id]}
+                              {usage?.resetCreditsAvailable}
                             </span>
                           </p>
                         )}
@@ -1017,11 +1059,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
               provider={provider}
               disabled={Boolean(login)}
               onChanged={onChanged}
-              resetCreditsAvailable={
-                provider.id === "openai-codex"
-                  ? codexResetCredits.defaultCount
-                  : null
-              }
+              usage={findProviderUsage(codexBarUsage, provider.id)}
               onOAuth={
                 provider.oauthAvailable
                   ? () => void beginLogin(provider, "oauth")
@@ -1248,7 +1286,7 @@ function ProviderRow({
   onApiKey,
   onLogout,
   accountControls,
-  resetCreditsAvailable,
+  usage,
   onChanged,
 }: {
   provider: ProviderAuthDto;
@@ -1257,7 +1295,7 @@ function ProviderRow({
   onApiKey?: () => void;
   onLogout?: () => void;
   accountControls?: ReactNode;
-  resetCreditsAvailable?: number | null;
+  usage?: CodexBarProvider | null;
   onChanged: () => void;
 }) {
   const accountManaged = isAccountProviderId(provider.id);
@@ -1275,11 +1313,11 @@ function ProviderRow({
             <span className="font-mono text-xs text-muted">{provider.id}</span>
             <Badge tone={badge.tone}>{badge.label}</Badge>
             {provider.id === "openai-codex" &&
-              (resetCreditsAvailable ?? 0) > 0 && (
+              (usage?.resetCreditsAvailable ?? 0) > 0 && (
                 <span className="text-xs text-muted">
                   リセット権{" "}
                   <span className="font-mono text-text">
-                    {resetCreditsAvailable}
+                    {usage?.resetCreditsAvailable}
                   </span>
                 </span>
               )}
@@ -1314,6 +1352,7 @@ function ProviderRow({
           )}
         </div>
       </div>
+      {usage && <UsageBar percent={usage.usedPercent} />}
       {accountControls}
       {provider.baseUrl != null && (
         <BaseUrlEditor

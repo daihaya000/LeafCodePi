@@ -157,8 +157,8 @@ async function accountRegion(name: string) {
 describe("ProviderAuthPanel provider-scoped accounts", () => {
   it("edits a provider API URL with PUT", async () => {
     const onChanged = vi.fn();
-    fetchMock.mockResolvedValue(
-      jsonResponse({ baseUrl: "https://custom.example/v1" }),
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(jsonResponse({ baseUrl: "https://custom.example/v1" })),
     );
     render(
       <ProviderAuthPanel
@@ -190,7 +190,9 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
   it("skips account loading when no account-managed provider is available", () => {
     render(<ProviderAuthPanel providers={providers.slice(0, 1)} onChanged={() => {}} />);
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).includes("/api/accounts")),
+    ).toBe(false);
   });
 
   it("shows each account only inside its matching provider", async () => {
@@ -320,7 +322,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     ).toBeNull();
   });
 
-  it("shows Codex reset credits from the CodexBar usage snapshot", async () => {
+  it("shows Codex reset credits and usage from the CodexBar usage snapshot", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/accounts")) {
@@ -330,7 +332,11 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
         return Promise.resolve(
           jsonResponse({
             providers: [
-              { id: "openai-codex", resetCreditsAvailable: 2 },
+              {
+                id: "openai-codex",
+                usedPercent: 80,
+                resetCreditsAvailable: 2,
+              },
             ],
           }),
         );
@@ -346,6 +352,8 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
 
     const resetCredits = await screen.findByText("リセット権");
     expect(resetCredits.parentElement?.textContent).toContain("2");
+    expect(screen.getByText("使用量")).toBeTruthy();
+    expect(screen.getByText("80%")).toBeTruthy();
   });
 
   it("shows registered providers first without an other-providers section", () => {
