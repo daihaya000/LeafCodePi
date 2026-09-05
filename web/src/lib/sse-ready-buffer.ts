@@ -25,7 +25,9 @@ export function isFresherMessageList(
   if (candidate.lastCreatedAt !== baseline.lastCreatedAt) {
     return candidate.lastCreatedAt > baseline.lastCreatedAt;
   }
-  return Boolean(candidate.lastId) && candidate.lastId !== baseline.lastId;
+  // Same length + same tip timestamp: do not treat id churn (msg-N → entry id)
+  // as fresher — ready's persisted id wins.
+  return false;
 }
 
 /**
@@ -154,9 +156,8 @@ export function shouldFlushPendingAfterReady(
     if (createdAt > readyRank.lastCreatedAt) return true;
     // Same tip id = streaming update of the ready tail message.
     if (id && id === readyRank.lastId) return true;
-    if (createdAt === readyRank.lastCreatedAt && id && id !== readyRank.lastId) {
-      return true;
-    }
+    // Same timestamp + different id is usually the projected tip (msg-N) vs
+    // ready's entry id — flushing would rewind the tip via renderKey upsert.
     return false;
   }
   return true;

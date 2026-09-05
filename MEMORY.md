@@ -16,6 +16,14 @@ ChatGPT Codex の banked rate-limit reset（リセット権）を CodexBar か�
 
 ---
 
+## 2026-09-05: high-usage ループ tick 5 — ready 後の tip delta 巻き戻し
+
+- バグ: `shouldFlushPendingAfterReady` が同一 createdAt・異なる id（msg-N vs entry id）の delta を flush し、`upsertUiMessage` の renderKey 経由で先端が巻き戻る
+- 修正: id 相違のみでは flush / fresher とみなさない
+- 検証: `sse-ready-buffer.test.ts` + `events/route.test.ts` 17/17 パス
+
+---
+
 ## 2026-09-05: high-usage ループ tick 4 — abort 失敗でキュー消失
 
 - バグ: `abortWorking` が API 呼び出し前に queued follow-ups を消し、失敗時は `stopRequested` だけ戻してキューは空のまま

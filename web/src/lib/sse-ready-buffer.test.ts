@@ -83,6 +83,28 @@ describe("sse-ready-buffer", () => {
     ).toBe(false);
   });
 
+  it("drops buffered tip deltas that only differ by projected msg id", () => {
+    const ready = rankMessageList([
+      { id: "history", createdAt: 1 },
+      { id: "entry-tip", createdAt: 5 },
+    ]);
+    expect(
+      shouldFlushPendingAfterReady(
+        {
+          type: "delta",
+          message: { id: "msg-2", createdAt: 5, parts: [{ text: "stale" }] },
+        },
+        ready,
+      ),
+    ).toBe(false);
+    expect(
+      isFresherMessageList(
+        { len: 2, lastCreatedAt: 5, lastId: "msg-2" },
+        { len: 2, lastCreatedAt: 5, lastId: "entry-tip" },
+      ),
+    ).toBe(false);
+  });
+
   it("keeps control snapshots even when the message list is not newer", () => {
     const ready = rankMessageList([
       { id: "history", createdAt: 1 },
