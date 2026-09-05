@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   isSettleFollowUpClaimed,
@@ -6,6 +9,9 @@ import {
 } from "../settle-followup-claim.ts";
 
 const SUBAGENT_CHILD_ENV = "PI_SUBAGENT_CHILD";
+/** Must match web/src/lib/commit-guard-config.ts COMMIT_GUARD_CONFIG_FILE. */
+const CONFIG_FILE = "commit-guard.json";
+const DEFAULT_FEATURE_ENABLED = true;
 const COMMIT_GATE_MESSAGE = [
   "Commit gate: this task left uncommitted changes in the Git worktree.",
   "Before finishing, inspect `git status --short`, `git diff`, and `git diff --cached`.",
@@ -149,6 +155,31 @@ function sessionStartReason(event: unknown): string | undefined {
   return typeof record?.reason === "string" ? record.reason : undefined;
 }
 
+function leafcodeDataDir(): string {
+  const override = process.env.LEAFCODE_PI_DATA_DIR?.trim();
+  if (override) return override;
+  if (process.platform === "win32") {
+    const roaming = process.env.APPDATA?.trim();
+    if (roaming) return join(roaming, "leafcode-pi");
+  }
+  return join(homedir(), ".leafcode-pi");
+}
+
+/**
+ * Feature toggle only — the extension stays loaded for WebUI. Default: on.
+ * Reads the same file as web/src/lib/commit-guard-config.ts.
+ */
+export function isCommitGuardFeatureEnabled(): boolean {
+  try {
+    const file = join(leafcodeDataDir(), CONFIG_FILE);
+    if (!existsSync(file)) return DEFAULT_FEATURE_ENABLED;
+    const raw = JSON.parse(readFileSync(file, "utf8")) as { enabled?: unknown };
+    return typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_FEATURE_ENABLED;
+  } catch {
+    return DEFAULT_FEATURE_ENABLED;
+  }
+}
+
 export default function registerCommitGuard(pi: ExtensionAPI): void {
   // Child subagent sessions share the parent task's repository and must not
   // enqueue their own follow-up turns. The parent session owns the commit gate.
@@ -216,6 +247,9 @@ export default function registerCommitGuard(pi: ExtensionAPI): void {
   };
 
   const evaluateCommitGate = async (ctx: ExtensionContext): Promise<void> => {
+    // Extension remains registered; settings only disable the settle follow-up.
+    if (!isCommitGuardFeatureEnabled()) return;
+
     const status = await gitStatus(pi, ctx.cwd);
     // Unknown git status must not look like a clean tree (would wipe gate state).
     if (status === undefined) return;

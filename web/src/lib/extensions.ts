@@ -371,7 +371,7 @@ export function listExtensions(
         id: entry.name,
         name: entry.name,
         description: entry.description,
-        enabled: !isExtensionDisabled(entry.name, state),
+        enabled: isWebUiRequiredExtension(entry.name) || !isExtensionDisabled(entry.name, state),
         filePath: entry.filePath,
         required: isWebUiRequiredExtension(entry.name),
       }),

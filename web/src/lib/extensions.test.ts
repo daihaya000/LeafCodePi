@@ -198,6 +198,15 @@ describe("listExtensions / setExtensionEnabled", () => {
     assert.equal(listExtensions(agent).extensions.find((e) => e.name === "settle-followup-claim")?.enabled, true);
   });
 
+  it("lists required extensions as enabled even when stale disabled state remains", () => {
+    const { agentDir: agent } = fixture();
+    writeExtension(join(agent, "extensions"), "leafcode-commit-guard");
+    writeExtensionsState({ disabled: { "leafcode-commit-guard": true } });
+    const listed = listExtensions(agent);
+    assert.equal(listed.extensions.find((e) => e.name === "leafcode-commit-guard")?.enabled, true);
+    assert.equal(listed.extensions.find((e) => e.name === "leafcode-commit-guard")?.required, true);
+  });
+
   it("prefers bundled repo extensions over same-name global copies", () => {
     const { agentDir: agent } = fixture();
     const bundledRoot = join(data, "repo-extensions");

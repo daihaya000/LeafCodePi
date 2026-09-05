@@ -1,5 +1,8 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import registerCommitGuard, {
   classifyRepoMutation,
   hasPotentialRepoMutation,
@@ -34,8 +37,20 @@ const ctx = {
 } as unknown as ExtensionContext;
 
 describe("leafcode-commit-guard", () => {
+  let previousDataDir: string | undefined;
+  let dataDir: string;
+
   beforeEach(() => {
     resetSettleFollowUpClaimForTests();
+    previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    dataDir = mkdtempSync(join(tmpdir(), "leafcode-commit-guard-ext-"));
+    process.env.LEAFCODE_PI_DATA_DIR = dataDir;
+  });
+
+  afterEach(() => {
+    if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+    else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
   });
   it("recognizes file edits and mutating shell commands but not read-only git commands", () => {
     expect(hasPotentialRepoMutation(mutationMessages("edit"))).toBe(true);
@@ -121,6 +136,23 @@ describe("leafcode-commit-guard", () => {
       expect.objectContaining({ customType: "leafcode-commit-gate", display: false }),
       { triggerTurn: true, deliverAs: "followUp" },
     );
+  });
+
+  it("skips the settle follow-up when the feature toggle is off", async () => {
+    writeFileSync(join(dataDir, "commit-guard.json"), `${JSON.stringify({ enabled: false }, null, 2)}\n`, "utf8");
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: "", stderr: "", code: 0, killed: false })
+      .mockResolvedValueOnce({ stdout: " M src/example.ts\n", stderr: "", code: 0, killed: false });
+    const { handlers, sendMessage, pi } = createPi(exec);
+
+    registerCommitGuard(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    handlers.get("agent_end")?.({ messages: mutationMessages("edit") });
+    await handlers.get("agent_settled")?.({}, ctx);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(exec).toHaveBeenCalledTimes(1);
   });
 
   it("treats a dirty fingerprint change as mutation even without shell heuristics", async () => {
