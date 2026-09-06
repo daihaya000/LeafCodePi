@@ -1,0 +1,93 @@
+﻿{
+    "tools":  {
+                  "r2":  {
+                             "available":  false,
+                             "path":  null
+                         },
+                  "pwntools":  {
+                                   "available":  false,
+                                   "path":  null
+                               },
+                  "jadx":  {
+                               "available":  false,
+                               "path":  null
+                           },
+                  "adb":  {
+                              "available":  false,
+                              "path":  null
+                          },
+                  "garak":  {
+                                "available":  false,
+                                "path":  null
+                            },
+                  "nuclei":  {
+                                 "available":  false,
+                                 "path":  null
+                             },
+                  "nmap":  {
+                               "available":  false,
+                               "path":  null
+                           },
+                  "rabin2":  {
+                                 "available":  false,
+                                 "path":  null
+                             },
+                  "trivy":  {
+                                "available":  false,
+                                "path":  null
+                            },
+                  "yara":  {
+                               "available":  false,
+                               "path":  null
+                           },
+                  "binwalk":  {
+                                  "available":  false,
+                                  "path":  null
+                              },
+                  "syft":  {
+                               "available":  false,
+                               "path":  null
+                           },
+                  "frida":  {
+                                "available":  false,
+                                "path":  null
+                            },
+                  "gdb":  {
+                              "available":  false,
+                              "path":  null
+                          },
+                  "sqlmap":  {
+                                 "available":  false,
+                                 "path":  null
+                             },
+                  "rasm2":  {
+                                "available":  false,
+                                "path":  null
+                            },
+                  "radiff2":  {
+                                  "available":  false,
+                                  "path":  null
+                              },
+                  "ffuf":  {
+                               "available":  false,
+                               "path":  null
+                           },
+                  "ropgadget":  {
+                                    "available":  false,
+                                    "path":  null
+                                },
+                  "python3":  {
+                                  "available":  true,
+                                  "path":  "C:\\Users\\Daichi\\AppData\\Local\\Microsoft\\WindowsApps\\python3.exe"
+                              },
+                  "hashcat":  {
+                                  "available":  false,
+                                  "path":  null
+                              },
+                  "apktool":  {
+                                  "available":  false,
+                                  "path":  null
+                              }
+              },
+    "generated":  "2026-07-12T19:11:54.0924820+09:00"
+}

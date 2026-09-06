@@ -1,0 +1,6 @@
+interface:
+  display_name: "PowerShell Japanese Encoding"
+  short_description: "Prevent Japanese text corruption on Windows"
+  default_prompt: "Use $powershell-japanese-encoding to review the encoding contract before writing or changing Windows PowerShell, batch, CSV, JSON, YAML, or text-file code containing Japanese text."
+policy:
+  allow_implicit_invocation: true

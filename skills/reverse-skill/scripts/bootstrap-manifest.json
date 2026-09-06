@@ -1,0 +1,225 @@
+{
+  "version": "1.0.0",
+  "description": "Reverse-skill bootstrap manifest — capability definitions for on-demand toolchain installation",
+  "capabilities": [
+    {
+      "id": "jadx",
+      "name": "JADX",
+      "purpose": "APK/DEX to Java decompiler",
+      "auto_install": true,
+      "commands": {
+        "linux": "curl -L https://github.com/skylot/jadx/releases/latest/download/jadx-x.x.x.zip -o /tmp/jadx.zip && unzip -o /tmp/jadx.zip -d ~/.local/share/jadx && ln -sf ~/.local/share/jadx/bin/jadx ~/.local/bin/jadx",
+        "macos": "brew install jadx",
+        "windows": "scoop install jadx"
+      }
+    },
+    {
+      "id": "apktool",
+      "name": "Apktool",
+      "purpose": "APK decode/rebuild",
+      "auto_install": true,
+      "commands": {
+        "linux": "curl -L https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -o ~/.local/bin/apktool.jar",
+        "macos": "brew install apktool",
+        "windows": "scoop install apktool"
+      }
+    },
+    {
+      "id": "frida",
+      "name": "Frida",
+      "purpose": "Dynamic instrumentation / hooking",
+      "auto_install": true,
+      "commands": {
+        "all": "pip install frida-tools frida"
+      }
+    },
+    {
+      "id": "adb",
+      "name": "ADB",
+      "purpose": "Android Debug Bridge",
+      "auto_install": true,
+      "commands": {
+        "linux": "sudo apt install -y adb",
+        "macos": "brew install --cask android-platform-tools",
+        "windows": "scoop install adb"
+      }
+    },
+    {
+      "id": "radare2",
+      "name": "radare2",
+      "purpose": "CLI binary analysis / disassembly / patch",
+      "auto_install": true,
+      "commands": {
+        "linux": "git clone https://github.com/radareorg/radare2 /tmp/r2 && cd /tmp/r2 && sys/install.sh",
+        "macos": "brew install radare2",
+        "windows": "scoop install radare2"
+      }
+    },
+    {
+      "id": "ghidra",
+      "name": "Ghidra",
+      "purpose": "NSA reverse engineering suite",
+      "auto_install": false,
+      "commands": {
+        "linux": "Download from https://ghidra-sre.org/",
+        "macos": "brew install --cask ghidra",
+        "windows": "Download from https://ghidra-sre.org/"
+      }
+    },
+    {
+      "id": "ida-pro",
+      "name": "IDA Pro",
+      "purpose": "Commercial disassembler (requires license)",
+      "auto_install": false,
+      "commands": {
+        "all": "Manual install from https://hex-rays.com/"
+      }
+    },
+    {
+      "id": "pwntools",
+      "name": "pwntools",
+      "purpose": "CTF/pwn exploit development",
+      "auto_install": true,
+      "commands": {
+        "all": "pip install pwntools"
+      }
+    },
+    {
+      "id": "gdb-gef",
+      "name": "GDB + GEF",
+      "purpose": "Debugging with GEF extension",
+      "auto_install": true,
+      "commands": {
+        "linux": "sudo apt install -y gdb && bash -c \"$(curl -fsSL https://gef.blah.cat/sh)\"",
+        "macos": "brew install gdb && bash -c \"$(curl -fsSL https://gef.blah.cat/sh)\"",
+        "windows": "Use WSL2 + apt"
+      }
+    },
+    {
+      "id": "ropgadget",
+      "name": "ROPgadget",
+      "purpose": "ROP gadget finder",
+      "auto_install": true,
+      "commands": {
+        "all": "pip install ROPgadget"
+      }
+    },
+    {
+      "id": "nmap",
+      "name": "Nmap",
+      "purpose": "Network scanner",
+      "auto_install": true,
+      "commands": {
+        "linux": "sudo apt install -y nmap",
+        "macos": "brew install nmap",
+        "windows": "scoop install nmap"
+      }
+    },
+    {
+      "id": "nuclei",
+      "name": "Nuclei",
+      "purpose": "Template-based vulnerability scanner",
+      "auto_install": true,
+      "commands": {
+        "linux": "curl -L https://github.com/projectdiscovery/nuclei/releases/latest/download/nuclei-linux-amd64 -o ~/.local/bin/nuclei && chmod +x ~/.local/bin/nuclei",
+        "macos": "brew install nuclei",
+        "windows": "scoop install nuclei"
+      }
+    },
+    {
+      "id": "sqlmap",
+      "name": "SQLMap",
+      "purpose": "SQL injection automation",
+      "auto_install": true,
+      "commands": {
+        "linux": "sudo apt install -y sqlmap",
+        "macos": "brew install sqlmap",
+        "windows": "pip install sqlmap"
+      }
+    },
+    {
+      "id": "ffuf",
+      "name": "FFUF",
+      "purpose": "Web fuzzing",
+      "auto_install": true,
+      "commands": {
+        "linux": "go install github.com/ffuf/ffuf/v2@latest",
+        "macos": "brew install ffuf",
+        "windows": "scoop install ffuf"
+      }
+    },
+    {
+      "id": "hashcat",
+      "name": "Hashcat",
+      "purpose": "GPU password cracking",
+      "auto_install": false,
+      "commands": {
+        "linux": "sudo apt install -y hashcat",
+        "macos": "brew install hashcat",
+        "windows": "Download from https://hashcat.net/hashcat/"
+      }
+    },
+    {
+      "id": "binwalk",
+      "name": "binwalk",
+      "purpose": "Firmware analysis / extraction",
+      "auto_install": true,
+      "commands": {
+        "linux": "sudo apt install -y binwalk",
+        "macos": "brew install binwalk",
+        "windows": "pip install binwalk"
+      }
+    },
+    {
+      "id": "yara",
+      "name": "YARA",
+      "purpose": "Pattern matching for malware",
+      "auto_install": true,
+      "commands": {
+        "linux": "sudo apt install -y yara",
+        "macos": "brew install yara",
+        "windows": "scoop install yara"
+      }
+    },
+    {
+      "id": "trivy",
+      "name": "Trivy",
+      "purpose": "Vulnerability / SBOM scanner",
+      "auto_install": true,
+      "commands": {
+        "linux": "curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh",
+        "macos": "brew install trivy",
+        "windows": "scoop install trivy"
+      }
+    },
+    {
+      "id": "syft",
+      "name": "Syft",
+      "purpose": "SBOM generation",
+      "auto_install": true,
+      "commands": {
+        "linux": "curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh",
+        "macos": "brew install syft",
+        "windows": "scoop install syft"
+      }
+    },
+    {
+      "id": "garak",
+      "name": "garak",
+      "purpose": "LLM vulnerability scanner",
+      "auto_install": true,
+      "commands": {
+        "all": "pip install garak"
+      }
+    },
+    {
+      "id": "dnspy",
+      "name": "dnSpyEx",
+      "purpose": ".NET decompiler/debugger",
+      "auto_install": false,
+      "commands": {
+        "all": "Download from https://github.com/dnSpyEx/dnSpy/releases"
+      }
+    }
+  ]
+}
