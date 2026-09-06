@@ -736,11 +736,6 @@ export function DiffPane({
           >
             {generatingCommitMessage ? "生成中…" : "生成"}
           </Button>
-          {generatingCommitMessage && (
-            <span role="status" aria-live="polite" className="text-xs text-muted">
-              コミットメッセージを生成中…
-            </span>
-          )}
           <Button
             variant="primary"
             size="md"
