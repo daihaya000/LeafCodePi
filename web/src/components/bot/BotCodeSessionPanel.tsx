@@ -30,8 +30,9 @@ export function BotCodeSessionPanel({ botId }: { botId: string }) {
         getJson<{ projects: ProjectDto[] }>("/api/projects"),
       ]);
       setTask(session.task);
-      setProjects(projectResult.projects.filter((project) => !project.archived));
-      setProjectId((current) => current || projectResult.projects.find((project) => !project.archived)?.id || "");
+      const activeProjects = projectResult.projects.filter((project) => !project.archived);
+      setProjects(activeProjects);
+      setProjectId((current) => activeProjects.some((project) => project.id === current) ? current : activeProjects[0]?.id || "");
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Codeセッションを読み込めませんでした");
@@ -79,20 +80,44 @@ export function BotCodeSessionPanel({ botId }: { botId: string }) {
     } finally { setControlBusy(false); }
   };
 
+  const clearLink = async () => {
+    if (controlBusy || !task) return;
+    setControlBusy(true);
+    setError(null);
+    try {
+      await sendJson<{ task: null }>(
+        `/api/bots/${encodeURIComponent(botId)}/code-session`,
+        { action: "clear" },
+        "PATCH",
+      );
+      setTask(null);
+      setFollowUp("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Codeセッションのリンク解除に失敗しました");
+    } finally { setControlBusy(false); }
+  };
+
   return (
     <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="Codeセッション">
       <div>
         <h3 className="text-sm font-medium">Codeセッション</h3>
         <p className="mt-1 text-xs text-muted">Botから既存のCodeタスクを1件だけ起動・監視します。</p>
       </div>
-      {task ? (
+      {task && (
         <div className="rounded-xl border border-border bg-surface p-3 text-xs">
           <div className="flex items-center justify-between gap-2">
             <span className="font-medium">{statusLabel(task.status)}</span>
             <Link className="text-accent hover:underline" href={`/task/${encodeURIComponent(task.id)}`}>Codeを開く</Link>
           </div>
           <p className="mt-1 truncate text-muted" title={task.title}>{task.title}</p>
-          {task.status !== "archived" && (
+          {task.status === "archived" ? (
+            <div className="mt-3 space-y-2">
+              <p className="text-muted">このタスクはアーカイブ済みです。新しいCodeセッションを起動するか、Botとのリンクを解除してください。</p>
+              <div className="flex justify-end">
+                <Button size="sm" variant="ghost" busy={controlBusy} disabled={controlBusy} onClick={() => void clearLink()}>リンクを解除</Button>
+              </div>
+            </div>
+          ) : (
             <div className="mt-3 space-y-2">
               <textarea value={followUp} onChange={(event) => setFollowUp(event.target.value)} rows={2} placeholder="続きの指示（任意）" className="w-full resize-y rounded-lg border border-border bg-bg px-2 py-1.5 text-xs" />
               <div className="flex justify-end gap-2">
@@ -102,8 +127,10 @@ export function BotCodeSessionPanel({ botId }: { botId: string }) {
             </div>
           )}
         </div>
-      ) : (
+      )}
+      {(!task || task.status === "archived") && (
         <>
+          {task?.status === "archived" && <p className="text-xs text-muted">再起動するプロジェクトと指示を選択してください。</p>}
           <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm" aria-label="Codeプロジェクト">
             <option value="">プロジェクトを選択</option>
             {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}

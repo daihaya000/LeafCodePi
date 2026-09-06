@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getBot: vi.fn(),
   patchBot: vi.fn(),
   getTask: vi.fn(),
+  getProject: vi.fn(),
   createTask: vi.fn(),
   abortTask: vi.fn(),
   promptTask: vi.fn(),
@@ -15,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/bots", () => ({ getBot: mocks.getBot, patchBot: mocks.patchBot }));
-vi.mock("@/lib/store", () => ({ getTask: mocks.getTask }));
+vi.mock("@/lib/store", () => ({ getProject: mocks.getProject, getTask: mocks.getTask }));
 vi.mock("@/lib/pi/harness", () => ({
   createTask: mocks.createTask,
   abortTask: mocks.abortTask,
@@ -45,6 +46,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getBot.mockReturnValue({ ...bot });
   mocks.patchBot.mockImplementation((_id: string, patch: Record<string, unknown>) => ({ ...bot, ...patch }));
+  mocks.getProject.mockReturnValue({ id: "project-1", archived: false });
   mocks.getTask.mockReturnValue(undefined);
   mocks.createTask.mockResolvedValue({ id: "code-1", status: "working" });
   mocks.abortTask.mockResolvedValue({ id: "code-1", status: "idle" });
@@ -64,6 +66,42 @@ describe("Bot Code session control", () => {
       permissionMode: "ask",
     });
     expect(mocks.patchBot).toHaveBeenCalledWith("bot-1", { codeSessionTaskId: "code-1" });
+  });
+
+  it("rejects an unknown project before creating a Code task", async () => {
+    mocks.getProject.mockReturnValue(undefined);
+
+    const response = await POST(request("POST", { projectId: "missing", prompt: "起動" }), {
+      params: Promise.resolve({ id: "bot-1" }),
+    });
+
+    expect(response.status).toBe(404);
+    expect(mocks.createTask).not.toHaveBeenCalled();
+  });
+
+  it("rejects an archived project before creating a Code task", async () => {
+    mocks.getProject.mockReturnValue({ id: "archived", archived: true });
+
+    const response = await POST(request("POST", { projectId: "archived", prompt: "起動" }), {
+      params: Promise.resolve({ id: "bot-1" }),
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "アーカイブ済みのプロジェクトではCodeセッションを起動できません" });
+    expect(mocks.createTask).not.toHaveBeenCalled();
+  });
+
+  it("clears an archived linked task", async () => {
+    mocks.getBot.mockReturnValue({ ...bot, codeSessionTaskId: "code-archived" });
+    mocks.getTask.mockReturnValue({ id: "code-archived", status: "archived" });
+
+    const response = await PATCH(request("PATCH", { action: "clear" }), {
+      params: Promise.resolve({ id: "bot-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ task: null });
+    expect(mocks.patchBot).toHaveBeenCalledWith("bot-1", { codeSessionTaskId: null });
   });
 
   it("does not create a second linked task", async () => {

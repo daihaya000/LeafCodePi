@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBot, patchBot } from "@/lib/bots";
-import { getTask } from "@/lib/store";
+import { getProject, getTask } from "@/lib/store";
 import { createTask, abortTask, jsonError, promptTask } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 
@@ -59,6 +59,14 @@ export async function POST(
       if (typeof body?.projectId !== "string" || !body.projectId.trim()) {
         return NextResponse.json({ error: "projectId is required" }, { status: 400 });
       }
+      const projectId = body.projectId.trim();
+      const project = getProject(projectId);
+      if (!project) {
+        return NextResponse.json({ error: "プロジェクトが見つかりません" }, { status: 404 });
+      }
+      if (project.archived) {
+        return NextResponse.json({ error: "アーカイブ済みのプロジェクトではCodeセッションを起動できません" }, { status: 409 });
+      }
       if (typeof body.prompt !== "string" || !body.prompt.trim()) {
         return NextResponse.json({ error: "prompt is required" }, { status: 400 });
       }
@@ -87,7 +95,7 @@ export async function POST(
       if (bot.codeSessionTaskId) patchBot(id, { codeSessionTaskId: null });
 
       const task = await createTask({
-        projectId: body.projectId.trim(),
+        projectId,
         prompt: body.prompt,
         ...(typeof body.model === "string" ? { model: body.model.trim() } : bot.model ? { model: bot.model } : {}),
         ...(isThinkingLevel(body.thinkingLevel)
@@ -121,11 +129,15 @@ export async function PATCH(
     if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
     const taskId = bot.codeSessionTaskId;
     if (!taskId) return NextResponse.json({ error: "Code session not found" }, { status: 404 });
+    const body = (await req.json().catch(() => null)) as { action?: unknown; prompt?: unknown } | null;
+    if (body?.action === "clear" || body?.action === "unlink") {
+      patchBot(id, { codeSessionTaskId: null });
+      return NextResponse.json({ task: null });
+    }
     const task = getTask(taskId);
     if (!task || task.status === "archived") {
       return NextResponse.json({ error: "Code session not found" }, { status: 404 });
     }
-    const body = (await req.json().catch(() => null)) as { action?: unknown; prompt?: unknown } | null;
     if (body?.action === "abort") {
       return NextResponse.json({ task: await abortTask(taskId) });
     }
