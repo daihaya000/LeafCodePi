@@ -38,6 +38,7 @@ export type RoomDto = {
 export type BotDto = {
   id: string;
   name: string;
+  avatarColor: string;
   createdAt: string;
   updatedAt: string;
   model: string | null;

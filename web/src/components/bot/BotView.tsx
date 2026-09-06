@@ -7,15 +7,14 @@ import { getJson, sendJson } from "@/lib/client";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { Button } from "@/components/ui";
+import { BotAvatar } from "@/components/bot/BotAvatar";
+import { BOT_AVATAR_COLORS, randomAvatarColor } from "@/lib/bot-avatar";
 import type { BotDto, ModelOption, PermissionRequestDto, ThinkingLevel, UiMessage } from "@/lib/types";
 
 function textOf(message: UiMessage): string {
   return message.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
 }
 
-function botInitial(name: string): string {
-  return name.trim().slice(0, 1).toUpperCase() || "B";
-}
 
 export function BotView({ id }: { id: string }) {
   const [bot, setBot] = useState<BotDto | null>(null);
@@ -30,6 +29,7 @@ export function BotView({ id }: { id: string }) {
   const [savingSoul, setSavingSoul] = useState(false);
   const [updatingModel, setUpdatingModel] = useState(false);
   const [updatingThinking, setUpdatingThinking] = useState(false);
+  const [updatingColor, setUpdatingColor] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const composingRef = useRef(false);
 
@@ -150,6 +150,18 @@ export function BotView({ id }: { id: string }) {
     } finally { setUpdatingThinking(false); }
   };
 
+  const updateAvatarColor = async (color: string) => {
+    if (color === bot?.avatarColor) return;
+    setUpdatingColor(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { avatarColor: color }, "PATCH");
+      setBot(result.bot);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "\u8272\u306e\u5909\u66f4\u306b\u5931\u6557\u3057\u307e\u3057\u305f");
+    } finally { setUpdatingColor(false); }
+  };
+
   const saveSoul = async () => {
     setSavingSoul(true);
     setError(null);
@@ -166,14 +178,14 @@ export function BotView({ id }: { id: string }) {
     if (!text && !message.error) return null;
     return (
       <div key={message.id} className={`flex items-end gap-2 ${user ? "justify-end" : "justify-start"}`}>
-        {!user && <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/15 text-xs font-semibold text-accent">{botInitial(bot?.name ?? "ボット")}</div>}
+        {!user && <BotAvatar size={28} color={bot?.avatarColor} name={bot?.name} />}
         <div className={`max-w-[min(42rem,88%)] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${user ? "rounded-br-md bg-accent text-white" : "rounded-bl-md border border-border bg-surface"}`}>
           {text && <div className="whitespace-pre-wrap break-words">{text}</div>}
           {message.error && <div className="mt-1 text-xs text-danger">{message.error}</div>}
         </div>
       </div>
     );
-  }), [bot?.name, messages]);
+  }), [bot?.avatarColor, bot?.name, messages]);
 
   if (!bot) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
@@ -181,7 +193,7 @@ export function BotView({ id }: { id: string }) {
     <div className="relative flex h-full min-h-0 flex-col bg-bg">
       <header className="relative flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
         <Link href="/bots" aria-label="ボット一覧へ戻る" className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-text"><ArrowLeft className="h-4 w-4" /></Link>
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/15 font-semibold text-accent">{botInitial(bot.name)}</div>
+        <BotAvatar size={36} color={bot.avatarColor} name={bot.name} />
         <div className="min-w-0 flex-1"><h1 className="truncate font-semibold">{bot.name}</h1><p className="text-xs text-muted">1:1 ボット</p></div>
         <button
           type="button"
@@ -202,8 +214,9 @@ export function BotView({ id }: { id: string }) {
             <button type="button" aria-label="設定を閉じる" onClick={() => setSettingsOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"><X className="h-4 w-4" /></button>
           </div>
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
-            <div className="flex flex-col items-center gap-2 py-2"><div className="flex h-20 w-20 items-center justify-center rounded-full bg-accent/15 text-2xl font-semibold text-accent">{botInitial(bot.name)}</div><p className="text-xs text-muted">ボットのプロフィール</p></div>
+            <div className="flex flex-col items-center gap-2 py-2"><BotAvatar size={80} color={bot.avatarColor} name={bot.name} /><p className="text-xs text-muted">ボットのプロフィール</p></div>
             <label className="block text-sm"><span className="font-medium">名前</span><div className="mt-2 rounded-xl border border-border bg-bg px-3 py-2.5">{bot.name}</div></label>
+            <div className="rounded-2xl border border-border bg-bg p-4"><div className="flex items-center justify-between"><span className="text-sm font-medium">色</span><Button size="sm" variant="ghost" onClick={() => void updateAvatarColor(randomAvatarColor(bot.avatarColor))} busy={updatingColor}>ランダム</Button></div><div role="group" aria-label="ボットの色" className="mt-3 flex flex-wrap gap-2">{BOT_AVATAR_COLORS.map((color) => <button key={color} type="button" aria-label={color} aria-pressed={bot.avatarColor === color} disabled={updatingColor} onClick={() => void updateAvatarColor(color)} className={`h-8 w-8 rounded-full border-2 border-transparent transition-transform hover:scale-110 disabled:opacity-50 ${bot.avatarColor === color ? "border-text ring-2 ring-accent/30" : ""}`} style={{ backgroundColor: color }} />)}</div></div>
             <label className="block text-sm"><span className="font-medium">ラベル</span><div className="mt-2 rounded-xl border border-border bg-bg px-3 py-2.5 text-muted">1:1 アシスタント</div></label>
             <label className="block text-sm"><span className="font-medium">説明 / SOUL.md</span><textarea value={soul} onChange={(event) => setSoul(event.target.value)} rows={9} className="mt-2 w-full resize-y rounded-xl border border-border bg-bg px-3 py-2 font-mono text-xs leading-5 outline-none focus:border-accent" /></label>
             <div className="space-y-3 rounded-2xl border border-border bg-bg p-4"><div><span className="text-sm font-medium">モデル</span><ModelSelect value={modelValue} options={models} loading={modelsLoading} disabled={updatingModel || updatingThinking} onChange={(value) => void updateModel(value)} className="mt-2 h-9 w-full" ariaLabel="ボットのモデル" /></div><div><span className="text-sm font-medium">思考レベル</span><ThinkingSelect levels={thinkingLevels} value={thinkingValue} disabled={updatingModel || updatingThinking} onChange={(value) => void updateThinking(value)} className="mt-2 h-9 w-full" /></div>{(updatingModel || updatingThinking) && <p className="text-xs text-muted">保存中…</p>}</div>
@@ -214,7 +227,7 @@ export function BotView({ id }: { id: string }) {
 
       <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
         <div className="mx-auto max-w-3xl space-y-4">
-          {messages.length === 0 && !sending && <div className="rounded-2xl border border-dashed border-border bg-surface/50 px-5 py-8 text-center"><div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-accent/15 text-lg font-semibold text-accent">{botInitial(bot.name)}</div><p className="font-medium">{bot.name} と話す</p><p className="mt-1 text-sm text-muted">メッセージを送って会話を始めましょう。</p></div>}
+          {messages.length === 0 && !sending && <div className="rounded-2xl border border-dashed border-border bg-surface/50 px-5 py-8 text-center"><BotAvatar size={48} color={bot.avatarColor} name={bot.name} className="mx-auto mb-3" /><p className="font-medium">{bot.name} と話す</p><p className="mt-1 text-sm text-muted">メッセージを送って会話を始めましょう。</p></div>}
           {rendered}
           {permission && <div className="rounded-2xl border border-warning/40 bg-warning-bg p-4 text-xs"><p className="font-medium">権限の確認が必要です</p><p className="mt-1 break-all text-muted">{permission.message}</p><div className="mt-3 flex gap-2"><Button size="sm" onClick={() => void respond(true)}>許可</Button><Button size="sm" variant="ghost" onClick={() => void respond(false)}>拒否</Button></div></div>}
           {sending && <div className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />応答中…</div>}

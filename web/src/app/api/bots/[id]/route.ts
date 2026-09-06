@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { deleteBot, getBot, patchBot, botTaskId } from "@/lib/bots";
 import { resetTaskSession, setTaskModel, setTaskThinkingLevel } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
+import { isAvatarColor } from "@/lib/bot-avatar";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     !body ||
     (body.name !== undefined && typeof body.name !== "string") ||
     (body.soul !== undefined && typeof body.soul !== "string") ||
+    (body.avatarColor !== undefined && !isAvatarColor(body.avatarColor)) ||
     (hasModel && (typeof body.model !== "string" || !body.model.trim())) ||
     (hasThinkingLevel && !isThinkingLevel(body.thinkingLevel))
   ) {
@@ -32,6 +34,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   try {
     const patch: Parameters<typeof patchBot>[1] = {};
     if (body.name !== undefined) patch.name = body.name as string;
+    if (body.avatarColor !== undefined) patch.avatarColor = body.avatarColor as string;
     if (body.soul !== undefined) patch.soul = body.soul as string;
     if (hasModel) {
       // Use the same route validation and live-session update as Code TaskView.
