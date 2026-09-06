@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Settings2, Users, X } from "lucide-react";
@@ -8,6 +8,44 @@ import { getJson, sendJson } from "@/lib/client";
 import type { BotDto, RoomDto } from "@/lib/types";
 import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
+
+type MentionContext = { start: number; end: number; query: string };
+type MentionCandidate = { key: string; value: string; label: string; description: string; bot?: BotDto };
+
+const SPECIAL_MENTIONS: MentionCandidate[] = [
+  { key: "special:here", value: "here", label: "@here", description: "全員にメンション" },
+  { key: "special:channel", value: "channel", label: "@channel", description: "全員にメンション" },
+];
+
+function mentionContextFor(value: string, cursor: number): MentionContext | null {
+  const start = value.lastIndexOf("@", cursor - 1);
+  if (start < 0 || (start > 0 && !/\s/.test(value[start - 1] ?? ""))) return null;
+  const query = value.slice(start + 1, cursor);
+  return /^[^\s@]*$/.test(query) ? { start, end: cursor, query } : null;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function renderMentionText(text: string, bots: BotDto[], keyPrefix: string, mentionClassName?: string): ReactNode[] {
+  const names = ["here", "channel", "everyone", "all", ...bots.map((bot) => bot.name.trim())]
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+  if (names.length === 0) return [text];
+  const pattern = new RegExp(`@(?:${names.map(escapeRegExp).join("|")})(?![A-Za-z0-9_-])`, "giu");
+  const parts: ReactNode[] = [];
+  let last = 0;
+  let index = 0;
+  for (const match of text.matchAll(pattern)) {
+    const start = match.index ?? 0;
+    if (start > last) parts.push(text.slice(last, start));
+    parts.push(<span key={`${keyPrefix}-mention-${index++}`} className={mentionClassName ?? "font-semibold text-accent"}>{match[0]}</span>);
+    last = start + match[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts.length > 0 ? parts : [text];
+}
 
 export function RoomView({ id }: { id: string }) {
   const [room, setRoom] = useState<RoomDto | null>(null);
@@ -18,7 +56,10 @@ export function RoomView({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mentionContext, setMentionContext] = useState<MentionContext | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const composingRef = useRef(false);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
   const router = useRouter();
 
   const load = useCallback(() => {
@@ -49,6 +90,16 @@ export function RoomView({ id }: { id: string }) {
     () => (room ? room.members.map((memberId) => botById.get(memberId)).filter((bot): bot is BotDto => Boolean(bot)) : []),
     [botById, room],
   );
+  const mentionCandidates = useMemo(() => {
+    if (!mentionContext) return [];
+    const query = mentionContext.query.toLocaleLowerCase();
+    const botCandidates = members
+      .filter((bot) => bot.enabled)
+      .map((bot): MentionCandidate => ({ key: `bot:${bot.id}`, value: bot.name, label: `@${bot.name}`, description: "Botにメンション", bot }));
+    return [...SPECIAL_MENTIONS, ...botCandidates].filter((candidate) => !query || candidate.value.toLocaleLowerCase().includes(query));
+  }, [members, mentionContext]);
+
+  useEffect(() => { setMentionIndex(0); }, [mentionContext?.query]);
 
   const saveMembers = async (next: string[]) => {
     if (!room) return;
@@ -71,10 +122,48 @@ export function RoomView({ id }: { id: string }) {
     }
   };
 
+  const insertMention = (candidate: MentionCandidate) => {
+    if (!mentionContext) return;
+    const replacement = `@${candidate.value} `;
+    const nextPrompt = `${prompt.slice(0, mentionContext.start)}${replacement}${prompt.slice(mentionContext.end)}`;
+    const caret = mentionContext.start + replacement.length;
+    setPrompt(nextPrompt);
+    setMentionContext(null);
+    requestAnimationFrame(() => {
+      promptRef.current?.focus();
+      promptRef.current?.setSelectionRange(caret, caret);
+    });
+  };
+
+  const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionCandidates.length > 0 && mentionContext) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        setMentionIndex((current) => (current + (event.key === "ArrowDown" ? 1 : mentionCandidates.length - 1)) % mentionCandidates.length);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMentionContext(null);
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        insertMention(mentionCandidates[mentionIndex] ?? mentionCandidates[0]!);
+        return;
+      }
+    }
+    if (event.key === "Enter" && !event.shiftKey && !composingRef.current) {
+      event.preventDefault();
+      void send();
+    }
+  };
+
   const send = async () => {
     const value = prompt.trim();
     if (!value || busy) return;
     setPrompt("");
+    setMentionContext(null);
     setError(null);
     setBusy(true);
     try {
@@ -100,12 +189,12 @@ export function RoomView({ id }: { id: string }) {
         {!user && <BotAvatar size={28} color={bot?.avatarColor} name={bot?.name ?? message.botName} />}
         <div className={`max-w-[min(42rem,88%)] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${user ? "rounded-br-md bg-accent text-white" : "rounded-bl-md border border-border bg-surface"}`}>
           {!user && <div className="mb-1 text-[11px] text-muted">{bot?.name ?? message.botName ?? "ボット"}</div>}
-          <div className="whitespace-pre-wrap break-words">{text}</div>
+          <div className="whitespace-pre-wrap break-words">{renderMentionText(text, bots, message.id, user ? "rounded bg-white/90 px-0.5 font-semibold text-accent" : undefined)}</div>
           {message.status === "error" && <div className="mt-1 text-xs text-danger">応答に失敗しました</div>}
         </div>
       </div>
     );
-  }), [botById, room?.messages]);
+  }), [botById, bots, room?.messages]);
 
   if (!room) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
@@ -136,7 +225,7 @@ export function RoomView({ id }: { id: string }) {
             <div className="rounded-2xl border border-dashed border-border bg-surface/50 px-5 py-8 text-center">
               <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-success-bg text-success"><Users className="h-5 w-5" /></span>
               <p className="font-medium">{room.name} で話す</p>
-              <p className="mt-1 text-sm text-muted">メンションされたボットだけが応答します。@everyone または「部屋に聞く」で全員に送れます。</p>
+              <p className="mt-1 text-sm text-muted">メンションされたボットだけが応答します。@here / @channel または「部屋に聞く」で全員に送れます。</p>
               {members.length > 0 && <div className="mt-3 flex flex-wrap justify-center gap-2">{members.map((bot) => <span key={bot.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 text-xs"><BotAvatar size={18} color={bot.avatarColor} name={bot.name} />{bot.name}</span>)}</div>}
             </div>
           )}
@@ -148,16 +237,42 @@ export function RoomView({ id }: { id: string }) {
       <div className="shrink-0 border-t border-border bg-bg px-3 py-3">
         <div className="mx-auto max-w-3xl rounded-2xl border border-border bg-surface px-3 py-2 shadow-sm focus-within:border-accent/60">
           <div className="flex items-end gap-2">
-            <textarea
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              onCompositionStart={() => { composingRef.current = true; }}
-              onCompositionEnd={() => { composingRef.current = false; }}
-              onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !composingRef.current) { event.preventDefault(); void send(); } }}
-              placeholder={broadcast ? `${room.name}の全員にメッセージ` : "@ボット名 にメッセージ"}
-              rows={1}
-              className="min-h-10 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none placeholder:text-faint"
-            />
+            <div className="relative min-w-0 flex-1">
+              <textarea
+                ref={promptRef}
+                value={prompt}
+                onChange={(event) => {
+                  setPrompt(event.target.value);
+                  setMentionContext(mentionContextFor(event.target.value, event.target.selectionStart ?? event.target.value.length));
+                }}
+                onCompositionStart={() => { composingRef.current = true; }}
+                onCompositionEnd={() => { composingRef.current = false; }}
+                onKeyDown={handlePromptKeyDown}
+                placeholder={broadcast ? `${room.name}の全員にメッセージ` : "@ボット名 にメッセージ"}
+                aria-autocomplete="list"
+                aria-controls="room-mention-options"
+                rows={1}
+                className="min-h-10 w-full resize-none bg-transparent px-1 py-2 text-sm outline-none placeholder:text-faint"
+              />
+              {mentionCandidates.length > 0 && (
+                <div id="room-mention-options" role="listbox" aria-label="メンション先候補" className="absolute bottom-full left-0 z-20 mb-2 max-h-56 w-full overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+                  {mentionCandidates.map((candidate, index) => (
+                    <button
+                      key={candidate.key}
+                      type="button"
+                      role="option"
+                      aria-selected={index === mentionIndex}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => insertMention(candidate)}
+                      className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left ${index === mentionIndex ? "bg-surface-2" : "hover:bg-surface-2"}`}
+                    >
+                      {candidate.bot ? <BotAvatar size={24} color={candidate.bot.avatarColor} name={candidate.bot.name} /> : <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">@</span>}
+                      <span className="min-w-0"><span className="block truncate text-sm font-medium">{candidate.label}</span><span className="block truncate text-[11px] text-muted">{candidate.description}</span></span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button type="button" aria-label="添付または追加" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted hover:bg-surface-2 hover:text-text"><Plus className="h-4 w-4" /></button>
             <Button onClick={() => void send()} disabled={!prompt.trim() || busy}>送信</Button>
           </div>

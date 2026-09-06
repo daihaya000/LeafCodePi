@@ -27,6 +27,8 @@ describe("room store and mention routing", () => {
     expect(botsForRoomPrompt(room, "hello").bots).toEqual([]);
     expect(botsForRoomPrompt(room, "@Alpha please").bots.map((bot) => bot.id)).toEqual([alpha.id]);
     expect(botsForRoomPrompt(room, "@everyone please").bots.map((bot) => bot.id)).toEqual(expect.arrayContaining([alpha.id, beta.id]));
+    expect(botsForRoomPrompt(room, "@here please").bots.map((bot) => bot.id)).toEqual(expect.arrayContaining([alpha.id, beta.id]));
+    expect(botsForRoomPrompt(room, "@channel please").bots.map((bot) => bot.id)).toEqual(expect.arrayContaining([alpha.id, beta.id]));
   });
   it("answers room prompts in a room session instead of the 1:1 bot session", () => {
     const alpha = createBot({ name: "Alpha" });

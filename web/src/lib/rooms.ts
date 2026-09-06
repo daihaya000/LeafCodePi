@@ -113,7 +113,7 @@ export function subscribeRoom(id: string, listener: (room: RoomDto | null) => vo
 /** User messages address only named members; an empty result intentionally means no bot work. */
 export function botsForRoomPrompt(room: RoomDto, prompt: string, broadcast = false, bots: BotDto[] = listBots()): { bots: BotDto[]; broadcast: boolean } {
   const members = bots.filter((bot) => room.members.includes(bot.id) && bot.enabled);
-  const isBroadcast = broadcast || /(^|\s)@everyone(?:\b|$)/i.test(prompt) || /(^|\s)@all(?:\b|$)/i.test(prompt);
+  const isBroadcast = broadcast || /(^|\s)@(everyone|all|here|channel)(?:\b|$)/i.test(prompt);
   if (isBroadcast) return { bots: members, broadcast: true };
   const lowered = prompt.toLocaleLowerCase();
   return { bots: members.filter((bot) => lowered.includes(`@${bot.name.toLocaleLowerCase()}`) || lowered.includes(`@${bot.id.toLocaleLowerCase()}`)), broadcast: false };
