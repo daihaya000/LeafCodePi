@@ -1,4 +1,4 @@
-import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { dataDir } from "@/lib/paths";
@@ -52,7 +52,9 @@ function touchTaskLease(taskId: string): void {
   const record = readLease(path);
   if (!record || record.token !== PROCESS_TOKEN) return;
   try {
-    writeFileSync(path, `${JSON.stringify({ ...record, heartbeatAt: Date.now() })}\n`, "utf8");
+    const temporary = `${path}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
+    writeFileSync(temporary, `${JSON.stringify({ ...record, heartbeatAt: Date.now() })}\n`, "utf8");
+    renameSync(temporary, path);
   } catch { /* cleanup/reconcile will handle a transient write failure */ }
 }
 
@@ -93,9 +95,13 @@ export function releaseTaskLease(taskId: string): void {
 }
 
 export function hasActiveTaskLease(taskId: string): boolean {
-  const record = readLease(leasePath(taskId));
+  const path = leasePath(taskId);
+  const record = readLease(path);
   if (record?.token === PROCESS_TOKEN) return ownedTasks.has(taskId);
-  return leaseActive(record);
+  if (record) return leaseActive(record);
+  // A just-created lease can be observed between O_EXCL and its payload write.
+  // Treat that short window as owned; stale cleanup handles a crashed writer.
+  try { return Date.now() - statSync(path).mtimeMs <= TASK_LEASE_STALE_MS; } catch { return false; }
 }
 
 export function taskRuntimeLeasePath(taskId: string): string {
