@@ -6,6 +6,7 @@ import { isPromptImageList } from "@/lib/prompt-images";
 import { resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import {
+  isRecoverableResumeSelectionError,
   jsonError,
   promptTask,
   resolveAutoModel,
@@ -44,6 +45,7 @@ export async function POST(
       permissionMode?: unknown;
       skillPermission?: "allow" | "deny";
       streamingBehavior?: "steer" | "followUp";
+      resume?: boolean;
     } | null;
     if (!body?.prompt?.trim() && !body?.images?.length) {
       return NextResponse.json({ error: "prompt が必要です" }, { status: 400 });
@@ -71,6 +73,9 @@ export async function POST(
     }
     if (body?.autoRetry !== undefined && typeof body.autoRetry !== "boolean") {
       return NextResponse.json({ error: "invalid autoRetry" }, { status: 400 });
+    }
+    if (body?.resume !== undefined && typeof body.resume !== "boolean") {
+      return NextResponse.json({ error: "invalid resume" }, { status: 400 });
     }
     if (body?.autoOptimize !== undefined && !isAutoOptimizeMode(body.autoOptimize)) {
       return NextResponse.json({ error: "invalid autoOptimize" }, { status: 400 });
@@ -100,7 +105,16 @@ export async function POST(
       body.model &&
       (body.auto !== true || body.autoRetry === true)
     ) {
-      await validateTaskModelSelection(body.model);
+      try {
+        await validateTaskModelSelection(body.model);
+      } catch (error) {
+        if (
+          body.resume !== true ||
+          !isRecoverableResumeSelectionError(error)
+        ) {
+          throw error;
+        }
+      }
     }
     let model = body?.model;
     let thinkingLevel = body?.thinkingLevel;
@@ -169,6 +183,7 @@ export async function POST(
       permissionMode,
       skillPermission: body.skillPermission,
       streamingBehavior: body.streamingBehavior,
+      ...(body.resume === true ? { resume: true } : {}),
     });
     return NextResponse.json({ task, ...(autoDecision ? { autoDecision } : {}) });
   } catch (error) {

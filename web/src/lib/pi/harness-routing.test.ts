@@ -211,15 +211,25 @@ vi.mock("@earendil-works/pi-coding-agent", () => fakePi);
 const autoAgentMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auto-agent", () => ({ resolveAutoAgent: autoAgentMock }));
 
-import { createAccount, accountAuthPath, __resetPiAgentDirCacheForTests } from "@/lib/accounts";
+import {
+  createAccount,
+  accountAuthPath,
+  deleteAccount,
+  __resetPiAgentDirCacheForTests,
+} from "@/lib/accounts";
 import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
-import { upsertProject, getTask } from "@/lib/store";
+import { patchTask, upsertProject, getTask } from "@/lib/store";
 import type { ThinkingLevel } from "@/lib/types";
 import { setAccountRoutingMode, __resetProviderRoutingQueueForTests, markProviderLimited } from "@/lib/provider-routing";
 import { AccountRuntimeManager } from "./account-runtime-manager";
 import { goalLoopStateFile } from "./goal-loop-state";
-import { createTask, promptTask, resolveProviderFallbackModels } from "./harness";
+import {
+  createTask,
+  getTaskDetail,
+  promptTask,
+  resolveProviderFallbackModels,
+} from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const tempDirs: string[] = [];
@@ -250,6 +260,7 @@ function runtime(accountId: string) {
 function installHarness(runtimes: Map<string, ReturnType<typeof runtime>>) {
   const defaultRuntime = {
     getProvider: (id: string) => ({ id }),
+    getModel: () => undefined,
     registerProvider: () => undefined,
   };
   (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
@@ -284,6 +295,14 @@ function storeProviderAuth(accountId: string, agentDir: string): void {
   const path = accountAuthPath(accountId, agentDir);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify({ anthropic: { type: "api_key", key: "test-key" } }), "utf8");
+}
+
+function dropLiveSessions(): void {
+  const current = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+    live: Map<string, { session: { dispose: () => void } }>;
+  };
+  for (const live of current.live.values()) live.session.dispose();
+  current.live.clear();
 }
 
 afterEach(() => {
@@ -569,6 +588,69 @@ describe("integrated session routing", () => {
     });
     await waitFor(() => getTask(task.id)?.accountId === high.id && fakePi.sessions.length === 3);
     expect(fakePi.sessions[2]).toMatchObject({ accountId: high.id });
+  });
+
+  it("reopens a dynamic task when its saved account and model are stale", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-stale-resume-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+
+    const removed = createAccount({ label: "削除済み", providers: ["anthropic"] });
+    const fallback = createAccount({ label: "再開先", providers: ["anthropic"] });
+    storeProviderAuth(removed.id, agentDir);
+    storeProviderAuth(fallback.id, agentDir);
+    installHarness(
+      new Map([
+        [removed.id, runtime(removed.id)],
+        [fallback.id, runtime(fallback.id)],
+      ]),
+    );
+    await setAccountRoutingMode("anthropic", "integrated");
+    setCachedUsage(
+      parseCodexBarSnapshot({
+        providers: [
+          { codexBarProviderId: "anthropic", accountId: removed.id, usedPercent: 0 },
+          { codexBarProviderId: "anthropic", accountId: fallback.id, usedPercent: 100 },
+        ],
+      }),
+    );
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "再開対象",
+      model: "anthropic::claude-sonnet",
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    assert.equal(getTask(task.id)?.accountId, removed.id);
+
+    deleteAccount(removed.id);
+    dropLiveSessions();
+    await getTaskDetail(task.id);
+    assert.equal(getTask(task.id)?.accountId, fallback.id);
+    expect(fakePi.sessions[1]).toMatchObject({ accountId: fallback.id });
+
+    patchTask(task.id, { modelID: "removed-model" });
+    dropLiveSessions();
+    await getTaskDetail(task.id);
+    expect(fakePi.sessions[2]).toMatchObject({ accountId: fallback.id });
+    patchTask(task.id, { modelID: "claude-sonnet" });
+
+    await promptTask(
+      task.id,
+      "中断したターンを再開",
+      undefined,
+      {
+        model: `${removed.id}::anthropic::claude-sonnet`,
+        resume: true,
+      },
+    );
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    expect(fakePi.sessions[2]?.prompts).toEqual(["中断したターンを再開"]);
+    assert.equal(getTask(task.id)?.accountId, fallback.id);
   });
 
   it("keeps an explicitly selected account for later prompts", async () => {

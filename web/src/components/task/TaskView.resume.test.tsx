@@ -78,7 +78,10 @@ describe("TaskView resume payload", () => {
 
     await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
       `/api/tasks/${task.id}/prompt`,
-      expect.objectContaining({ model: "acc-1::anthropic::claude-sonnet" }),
+      expect.objectContaining({
+        model: "acc-1::anthropic::claude-sonnet",
+        resume: true,
+      }),
     ));
   });
 });

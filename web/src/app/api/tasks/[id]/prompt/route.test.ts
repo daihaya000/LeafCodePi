@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
         ? Number(error.status)
         : 500,
   })),
+  isRecoverableResumeSelectionError: vi.fn(),
 }));
 
 vi.mock("@/lib/store", () => ({ getTask: mocks.getTask }));
@@ -23,6 +24,7 @@ vi.mock("@/lib/direct-session", () => ({
 }));
 vi.mock("@/lib/auto-agent", () => ({ resolveAutoAgent: mocks.resolveAutoAgent }));
 vi.mock("@/lib/pi/harness", () => ({
+  isRecoverableResumeSelectionError: mocks.isRecoverableResumeSelectionError,
   jsonError: mocks.jsonError,
   promptTask: mocks.promptTask,
   resolveAutoModel: mocks.resolveAutoModel,
@@ -48,6 +50,7 @@ describe("POST /api/tasks/[id]/prompt", () => {
     mocks.resolveAutoModel.mockReset();
     mocks.promptTask.mockReset();
     mocks.validateTaskModelSelection.mockReset();
+    mocks.isRecoverableResumeSelectionError.mockReset();
     mocks.getTask.mockReturnValue({
       id: "task-1",
       status: "idle",
@@ -145,6 +148,36 @@ describe("POST /api/tasks/[id]/prompt", () => {
         model: "anthropic::claude-sonnet-5",
         thinkingLevel: "high",
         accountIdExplicit: false,
+      }),
+    );
+  });
+
+  it("passes stale resume model metadata through for server-side recovery", async () => {
+    mocks.validateTaskModelSelection.mockRejectedValue(
+      Object.assign(new Error("モデルが見つかりません"), { status: 400 }),
+    );
+    mocks.isRecoverableResumeSelectionError.mockReturnValue(true);
+
+    const response = await POST(
+      request({
+        prompt: "中断したターンを再開",
+        model: "deleted-account::anthropic::removed-model",
+        resume: true,
+      }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.validateTaskModelSelection).toHaveBeenCalledWith(
+      "deleted-account::anthropic::removed-model",
+    );
+    expect(mocks.promptTask).toHaveBeenCalledWith(
+      "task-1",
+      "中断したターンを再開",
+      undefined,
+      expect.objectContaining({
+        model: "deleted-account::anthropic::removed-model",
+        resume: true,
       }),
     );
   });

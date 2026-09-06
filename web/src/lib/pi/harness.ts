@@ -2453,11 +2453,22 @@ async function resolveConcreteModel(
           entry.option.providerID === parsed.providerID &&
           entry.option.modelID === parsed.modelID,
       );
-      if (!record) return undefined;
-      const model = record.runtime.getModel(parsed.providerID, parsed.modelID);
-      return model
-        ? { accountId: requested, runtime: record.runtime, model: modelWithContextWindow(model, parsed.providerID, parsed.modelID, requested) }
-        : undefined;
+      if (record) {
+        const model = record.runtime.getModel(parsed.providerID, parsed.modelID);
+        if (model) {
+          return {
+            accountId: requested,
+            runtime: record.runtime,
+            model: modelWithContextWindow(
+              model,
+              parsed.providerID,
+              parsed.modelID,
+              requested,
+            ),
+          };
+        }
+      }
+      if (strictAccountId) return undefined;
     }
   }
 
@@ -2680,20 +2691,32 @@ async function ensureLive(
     const persistedGoalLoop = task.sessionId
       ? readGoalLoopState(cwd, task.sessionId)
       : null;
+    const accountIdExplicit = task.accountIdExplicit === true;
     const modelRoute = await resolveConcreteModel(
       task.providerID && task.modelID
         ? modelValue(task.providerID, task.modelID)
         : undefined,
       task.accountId ?? null,
-      { strictAccountId: true },
+      {
+        strictAccountId: accountIdExplicit,
+        accountIdExplicit,
+      },
     );
     const model = modelRoute?.model;
-    if (task.providerID && task.modelID && !modelRoute) {
-      throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+    const taskAccount = task.accountId ? getAccount(task.accountId) : undefined;
+    if (accountIdExplicit && task.accountId && !taskAccount) {
+      throw Object.assign(new Error("アカウントが見つかりません"), {
+        status: 404,
+      });
     }
-    const sessionAccountId =
-      modelRoute?.accountId ??
-      (!task.providerID ? (task.accountId ?? null) : null);
+    const taskAccountForSession =
+      taskAccount &&
+      (!task.providerID ||
+        (isAccountRoutingProvider(task.providerID) &&
+          accountHasProvider(taskAccount, task.providerID)))
+        ? task.accountId ?? null
+        : null;
+    const sessionAccountId = modelRoute?.accountId ?? taskAccountForSession;
     const setup = await createSession({
       cwd,
       sessionFile: task.sessionFile,
@@ -2719,6 +2742,9 @@ async function ensureLive(
       sessionId: setup.session.sessionId,
       sessionFile: setup.session.sessionFile,
       ...modelId(setup.session.model),
+      accountId: sessionAccountId ?? undefined,
+      accountIdExplicit:
+        sessionAccountId && accountIdExplicit ? true : undefined,
     });
     const attached = await attachSession(
       taskId,
@@ -5582,6 +5608,8 @@ export async function promptTask(
     skillPermission?: SkillPermission;
     streamingBehavior?: "steer" | "followUp";
     accountIdExplicit?: boolean;
+    /** Resume may carry a stale model/account from the interrupted message. */
+    resume?: boolean;
   },
 ): Promise<TaskSummary> {
   if (options?.agent !== undefined) {
@@ -5614,10 +5642,19 @@ export async function promptTask(
       (!requested.accountId || task.accountId === requested.accountId) &&
       Boolean(task.accountIdExplicit) === requestedAccountExplicit;
     if (!unchanged) {
-      await setTaskModel(id, options.model, {
-        accountIdExplicit: options.accountIdExplicit,
-      });
-      modelChanged = true;
+      try {
+        await setTaskModel(id, options.model, {
+          accountIdExplicit: options.accountIdExplicit,
+        });
+        modelChanged = true;
+      } catch (error) {
+        if (
+          options.resume !== true ||
+          !isRecoverableResumeSelectionError(error)
+        ) {
+          throw error;
+        }
+      }
     }
   }
   if (
@@ -6734,6 +6771,19 @@ export function listPendingAttention(): AttentionItemDto[] {
       items.push({ taskId: task.id, title: task.title, kinds });
   }
   return items;
+}
+
+export function isRecoverableResumeSelectionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const status =
+    typeof error === "object" && error !== null && "status" in error
+      ? Number(error.status)
+      : 0;
+  return (
+    (status === 400 || status === 404) &&
+    (message === "モデルが見つかりません" ||
+      message === "アカウントが見つかりません")
+  );
 }
 
 export function jsonError(

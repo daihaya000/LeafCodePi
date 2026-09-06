@@ -1873,6 +1873,7 @@ export const TaskView = memo(function TaskView({
       await sendJson(`/api/tasks/${taskId}/prompt`, {
         prompt: autoResumePrompt(resumeMode, target.text),
         images,
+        resume: true,
         ...(target.model
           ? {
               model: target.model.accountId
