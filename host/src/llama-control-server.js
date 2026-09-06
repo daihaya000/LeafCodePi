@@ -219,7 +219,14 @@ export function createLlamaControlServer(handlers) {
                   : undefined,
             }
           : {};
-        const result = await handlers.onLlamaServerStart(config);
+        let result;
+        try {
+          result = await handlers.onLlamaServerStart(config);
+        } catch (err) {
+          res.writeHead(500, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+          return;
+        }
         res.writeHead(result.ok ? 200 : 500, JSON_HEADERS);
         res.end(JSON.stringify(result));
         return;

@@ -250,3 +250,33 @@ test("GET and POST /webui/auth expose safe status and validate updates", async (
     await closeControlServer(server);
   }
 });
+
+test("POST /llama-server/start returns a controlled error when launch fails", async () => {
+  const port = await freePort();
+  const server = createLlamaControlServer({
+    controlPort: port,
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async () => {
+      throw new Error("spawn llama-server ENOENT");
+    },
+    onLlamaServerStop: () => {},
+  });
+  await listenControlServer(server, port);
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/llama-server/start`, {
+      method: "POST",
+      headers: { host: `127.0.0.1:${port}`, "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(res.status, 500);
+    assert.deepEqual(await res.json(), { ok: false, error: "spawn llama-server ENOENT" });
+
+    const status = await fetch(`http://127.0.0.1:${port}/llama-server/status`, {
+      headers: { host: `127.0.0.1:${port}` },
+    });
+    assert.equal(status.status, 200);
+    assert.deepEqual(await status.json(), { ok: true });
+  } finally {
+    await closeControlServer(server);
+  }
+});

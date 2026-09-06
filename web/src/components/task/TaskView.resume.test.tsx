@@ -32,8 +32,9 @@ describe("TaskView resume payload", () => {
   it("keeps the account of the interrupted assistant turn", async () => {
     let latest: EventTarget | null = null;
     class TestEventSource extends EventTarget {
-      constructor(_url: string) {
+      constructor() {
         super();
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
         latest = this;
       }
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   basenameKey,
@@ -15,19 +15,20 @@ import {
   setExtensionEnabled,
   writeExtensionsState,
 } from "./extensions";
+const normalizeTestPath = (value: string): string => value.replace(/[\\/]/g, sep);
 
 describe("basenameKey", () => {
   it("strips the extension from a file path", () => {
-    assert.equal(basenameKey("C:\\pi\\extensions\\ponytail.js"), "ponytail");
+    assert.equal(basenameKey(join("C:", "pi", "extensions", "ponytail.js")), "ponytail");
     assert.equal(basenameKey("C:/pi/extensions/ponytail.ts"), "ponytail");
   });
 
   it("uses the directory name for an index entry", () => {
-    assert.equal(basenameKey("C:\\pi\\extensions\\ponytail\\index.js"), "ponytail");
+    assert.equal(basenameKey(join("C:", "pi", "extensions", "ponytail", "index.js")), "ponytail");
   });
 
   it("handles trailing separators", () => {
-    assert.equal(basenameKey("C:\\pi\\extensions\\ponytail\\"), "ponytail");
+    assert.equal(basenameKey(join("C:", "pi", "extensions", "ponytail") + sep), "ponytail");
   });
 });
 
@@ -35,12 +36,12 @@ describe("filterExtensionsByState", () => {
   it("drops disabled extensions by basename", () => {
     const filtered = filterExtensionsByState(
       [
-        { path: "C:\\pi\\extensions\\ponytail\\index.js" },
-        { path: "C:\\pi\\extensions\\other.js" },
+        { path: join("C:", "pi", "extensions", "ponytail", "index.js") },
+        { path: join("C:", "pi", "extensions", "other.js") },
       ],
       { disabled: { ponytail: true } },
     );
-    assert.deepEqual(filtered.map((e) => e.path), ["C:\\pi\\extensions\\other.js"]);
+    assert.deepEqual(filtered.map((e) => e.path), [join("C:", "pi", "extensions", "other.js")]);
   });
 
   it("keeps everything when nothing is disabled", () => {
@@ -51,64 +52,64 @@ describe("filterExtensionsByState", () => {
   it("keeps required extensions even if stale state tries to disable them", () => {
     const filtered = filterExtensionsByState(
       [
-        { path: "C:\\pi\\extensions\\leafcode-goal-loop\\index.ts" },
-        { path: "C:\\pi\\extensions\\other.js" },
+        { path: join("C:", "pi", "extensions", "leafcode-goal-loop", "index.ts") },
+        { path: join("C:", "pi", "extensions", "other.js") },
       ],
       { disabled: { "leafcode-goal-loop": true, other: true } },
     );
-    assert.deepEqual(filtered.map((entry) => entry.path), ["C:\\pi\\extensions\\leafcode-goal-loop\\index.ts"]);
+    assert.deepEqual(filtered.map((entry) => entry.path), [join("C:", "pi", "extensions", "leafcode-goal-loop", "index.ts")]);
   });
 
   it("keeps leafcode-commit-guard even if stale state tries to disable it", () => {
     const filtered = filterExtensionsByState(
       [
-        { path: "C:\\pi\\extensions\\leafcode-commit-guard\\index.ts" },
-        { path: "C:\\pi\\extensions\\leafcode-todowrite\\index.ts" },
+        { path: join("C:", "pi", "extensions", "leafcode-commit-guard", "index.ts") },
+        { path: join("C:", "pi", "extensions", "leafcode-todowrite", "index.ts") },
       ],
       { disabled: { "leafcode-commit-guard": true } },
     );
     assert.deepEqual(filtered.map((entry) => entry.path), [
-      "C:\\pi\\extensions\\leafcode-commit-guard\\index.ts",
-      "C:\\pi\\extensions\\leafcode-todowrite\\index.ts",
+      join("C:", "pi", "extensions", "leafcode-commit-guard", "index.ts"),
+      join("C:", "pi", "extensions", "leafcode-todowrite", "index.ts"),
     ]);
   });
 
   it("drops shared non-extension modules like settle-followup-claim", () => {
     const filtered = filterExtensionsByState(
       [
-        { path: "C:\\pi\\extensions\\settle-followup-claim.ts" },
-        { path: "C:\\pi\\extensions\\other.js" },
+        { path: join("C:", "pi", "extensions", "settle-followup-claim.ts") },
+        { path: join("C:", "pi", "extensions", "other.js") },
       ],
       { disabled: {} },
     );
     assert.deepEqual(filtered.map((entry) => entry.path), [
-      "C:\\pi\\extensions\\other.js",
+      normalizeTestPath("C:\\pi\\extensions\\other.js"),
     ]);
   });
 
   it("drops test files from extension loading", () => {
     const filtered = filterExtensionsByState(
       [
-        { path: "C:\\pi\\extensions\\accidental.test.ts" },
-        { path: "C:\\pi\\extensions\\accidental.spec.js" },
-        { path: "C:\\pi\\extensions\\other.js" },
+        { path: join("C:", "pi", "extensions", "accidental.test.ts") },
+        { path: join("C:", "pi", "extensions", "accidental.spec.js") },
+        { path: join("C:", "pi", "extensions", "other.js") },
       ],
       { disabled: {} },
     );
     assert.deepEqual(filtered.map((entry) => entry.path), [
-      "C:\\pi\\extensions\\other.js",
+      normalizeTestPath("C:\\pi\\extensions\\other.js"),
     ]);
   });
 
   it("drops retired extensions even when no state disables them", () => {
     const filtered = filterExtensionsByState(
       [
-        { path: "C:\\pi\\extensions\\leafcode-collaboration\\index.ts" },
-        { path: "C:\\pi\\extensions\\other.js" },
+        { path: join("C:", "pi", "extensions", "leafcode-collaboration", "index.ts") },
+        { path: join("C:", "pi", "extensions", "other.js") },
       ],
       { disabled: {} },
     );
-    assert.deepEqual(filtered.map((entry) => entry.path), ["C:\\pi\\extensions\\other.js"]);
+    assert.deepEqual(filtered.map((entry) => entry.path), [join("C:", "pi", "extensions", "other.js")]);
   });
 });
 
@@ -317,48 +318,48 @@ describe("listExtensions / setExtensionEnabled", () => {
 describe("resolvePackageDir", () => {
   it("resolves git:github.com/owner/repo to ~/.pi/agent/git/...", () => {
     assert.equal(
-      resolvePackageDir("git:github.com/DietrichGebert/ponytail", "C:\\pi\\agent"),
-      "C:\\pi\\agent\\git\\github.com\\DietrichGebert\\ponytail",
+      resolvePackageDir("git:github.com/DietrichGebert/ponytail", join("C:", "pi", "agent")),
+      normalizeTestPath("C:\\pi\\agent\\git\\github.com\\DietrichGebert\\ponytail"),
     );
   });
 
   it("resolves https://github.com/owner/repo", () => {
     assert.equal(
-      resolvePackageDir("https://github.com/DietrichGebert/ponytail", "C:\\pi\\agent"),
-      "C:\\pi\\agent\\git\\github.com\\DietrichGebert\\ponytail",
+      resolvePackageDir("https://github.com/DietrichGebert/ponytail", join("C:", "pi", "agent")),
+      normalizeTestPath("C:\\pi\\agent\\git\\github.com\\DietrichGebert\\ponytail"),
     );
   });
 
   it("resolves npm:pkg to ~/.pi/agent/npm/node_modules", () => {
     assert.equal(
-      resolvePackageDir("npm:pi-mcp-adapter", "C:\\pi\\agent"),
-      "C:\\pi\\agent\\npm\\node_modules\\pi-mcp-adapter",
+      resolvePackageDir("npm:pi-mcp-adapter", join("C:", "pi", "agent")),
+      normalizeTestPath("C:\\pi\\agent\\npm\\node_modules\\pi-mcp-adapter"),
     );
   });
 
   it("strips npm version spec", () => {
     assert.equal(
-      resolvePackageDir("npm:pi-mcp-adapter@2.0.0", "C:\\pi\\agent"),
-      "C:\\pi\\agent\\npm\\node_modules\\pi-mcp-adapter",
+      resolvePackageDir("npm:pi-mcp-adapter@2.0.0", join("C:", "pi", "agent")),
+      normalizeTestPath("C:\\pi\\agent\\npm\\node_modules\\pi-mcp-adapter"),
     );
   });
 
   it("resolves scoped npm packages", () => {
     assert.equal(
-      resolvePackageDir("npm:@scope/pkg@1.2.3", "C:\\pi\\agent"),
-      "C:\\pi\\agent\\npm\\node_modules\\@scope\\pkg",
+      resolvePackageDir("npm:@scope/pkg@1.2.3", join("C:", "pi", "agent")),
+      normalizeTestPath("C:\\pi\\agent\\npm\\node_modules\\@scope\\pkg"),
     );
   });
 
   it("resolves local package paths relative to the Pi agent directory", () => {
     assert.equal(
-      resolvePackageDir("..\\..\\OneDrive\\AI\\Pi\\LeafCodePi\\extensions\\leafcode-todowrite", "C:\\Users\\Daichi\\.pi\\agent"),
-      resolve("C:\\Users\\Daichi\\.pi\\agent", "..\\..\\OneDrive\\AI\\Pi\\LeafCodePi\\extensions\\leafcode-todowrite"),
+      resolvePackageDir(join("..", "..", "OneDrive", "AI", "Pi", "LeafCodePi", "extensions", "leafcode-todowrite"), join("C:", "Users", "Daichi", ".pi", "agent")),
+      resolve(join("C:", "Users", "Daichi", ".pi", "agent"), join("..", "..", "OneDrive", "AI", "Pi", "LeafCodePi", "extensions", "leafcode-todowrite")),
     );
   });
 
   it("returns null for unsupported sources", () => {
-    assert.equal(resolvePackageDir("ssh://git@github.com/user/repo", "C:\\pi\\agent"), null);
+    assert.equal(resolvePackageDir("ssh://git@github.com/user/repo", join("C:", "pi", "agent")), null);
   });
 });
 
@@ -379,7 +380,7 @@ describe("readPiSettings", () => {
 
 describe("extensionsStatePath", () => {
   it("lives in the leafcode-pi data dir", () => {
-    assert.equal(extensionsStatePath("C:\\data"), "C:\\data\\extensions-state.json");
+    assert.equal(extensionsStatePath(join("C:", "data")), normalizeTestPath("C:\\data\\extensions-state.json"));
   });
 });
 

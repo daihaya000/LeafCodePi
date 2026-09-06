@@ -12,7 +12,9 @@ function messageContentKey(message: unknown): string {
   if (!message || typeof message !== "object" || Array.isArray(message)) {
     return JSON.stringify(message) ?? "";
   }
-  const { id: _id, createdAt: _createdAt, ...content } = message as Record<string, unknown>;
+  const content = { ...(message as Record<string, unknown>) };
+  delete content.id;
+  delete content.createdAt;
   return JSON.stringify(content) ?? "";
 }
 

@@ -21,7 +21,7 @@ function agentNamed(name: string): string {
 
 describe("agentsDir", () => {
   it("lives in the Pi agent dir", () => {
-    assert.equal(agentsDir("C:\\pi\\agent"), "C:\\pi\\agent\\agents");
+    assert.equal(agentsDir(join("C:", "pi", "agent")), join("C:", "pi", "agent", "agents"));
   });
 });
 

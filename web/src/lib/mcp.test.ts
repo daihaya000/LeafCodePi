@@ -18,7 +18,7 @@ import {
 
 describe("piMcpConfigPath", () => {
   it("lives in the Pi agent dir", () => {
-    assert.equal(piMcpConfigPath("C:\\pi\\agent"), "C:\\pi\\agent\\mcp.json");
+    assert.equal(piMcpConfigPath(join("C:", "pi", "agent")), join("C:", "pi", "agent", "mcp.json"));
   });
 });
 

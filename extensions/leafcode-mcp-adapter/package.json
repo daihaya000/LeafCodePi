@@ -24,7 +24,7 @@
   "license": "MIT",
   "author": "Nico Bailon",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19"
   },
   "bin": {
     "leafcode-mcp-adapter": "cli.js",

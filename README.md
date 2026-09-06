@@ -120,7 +120,7 @@ OpenCode 版 LeafCode にあった worktree 分離、差分ペイン、Caddy は
 | 項目 | 要件 |
 | --- | --- |
 | OS | Windows 10/11 x64、または Linux/macOS |
-| Node.js | 20 以上 |
+| Node.js | 22.19 以上 |
 | Pi 認証 | 設定画面のサブスクログイン（Claude Pro/Max / ChatGPT Plus/Pro）、環境変数、または `~/.pi/agent/auth.json` |
 | Linux/macOS のプロセス検出 | `ss` または `lsof`、`ps`（WebUI の build guard / 停止に使用） |
 | PowerShell（Windows のみ） | Pi 0.84.4 の標準ツール。`pwsh.exe` を優先し、なければ Windows PowerShell を使います |
@@ -135,7 +135,7 @@ OpenCode 版 LeafCode にあった worktree 分離、差分ペイン、Caddy は
 
 ### Linux / macOS
 
-`start.bat` は Windows 専用です。リポジトリ直下で次を実行します。`start.sh` は Node.js 20 以上を確認し、依存関係が無い場合だけ install してから WebUI と host を起動します。
+`start.bat` は Windows 専用です。リポジトリ直下で次を実行します。`start.sh` は Node.js 22.19 以上を確認し、依存関係が無い場合だけ install してから WebUI と host を起動します。
 
 ```bash
 chmod +x start.sh
