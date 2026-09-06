@@ -3,9 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const testState = vi.hoisted(() => ({ root: "" }));
-vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => testState.root }; });
-import { createBot } from "./bots";
-import { botsForRoomPrompt, createRoom, getRoom, patchRoom } from "./rooms";
+vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => testState.root, storePath: () => join(testState.root, "store.json") }; });
+import { botTaskId, createBot, deleteBot } from "./bots";
+import { botsForRoomPrompt, createRoom, deleteRoom, ensureRoomBotTask, getRoom, patchRoom } from "./rooms";
+import { getTask } from "./store";
 
 describe("room store and mention routing", () => {
   let root = "";
@@ -26,5 +27,24 @@ describe("room store and mention routing", () => {
     expect(botsForRoomPrompt(room, "hello").bots).toEqual([]);
     expect(botsForRoomPrompt(room, "@Alpha please").bots.map((bot) => bot.id)).toEqual([alpha.id]);
     expect(botsForRoomPrompt(room, "@everyone please").bots.map((bot) => bot.id)).toEqual(expect.arrayContaining([alpha.id, beta.id]));
+  });
+  it("answers room prompts in a room session instead of the 1:1 bot session", () => {
+    const alpha = createBot({ name: "Alpha" });
+    const room = createRoom({ name: "Team", members: [alpha.id] });
+    const taskId = ensureRoomBotTask(room, alpha);
+    expect(taskId).not.toBe(botTaskId(alpha.id));
+    expect(getTask(taskId)?.botId).toBe(alpha.id);
+    expect(ensureRoomBotTask(room, alpha)).toBe(taskId);
+    expect(deleteRoom(room.id)).toBe(true);
+    expect(getTask(taskId)).toBeUndefined();
+    expect(getTask(botTaskId(alpha.id))).toBeDefined();
+  });
+  it("drops room sessions when the bot is deleted", () => {
+    const alpha = createBot({ name: "Alpha" });
+    const room = createRoom({ members: [alpha.id] });
+    const taskId = ensureRoomBotTask(room, alpha);
+    expect(deleteBot(alpha.id)).toBe(true);
+    expect(getTask(taskId)).toBeUndefined();
+    expect(getTask(botTaskId(alpha.id))).toBeUndefined();
   });
 });

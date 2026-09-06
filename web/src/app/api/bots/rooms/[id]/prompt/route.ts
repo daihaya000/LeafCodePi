@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { botTaskId } from "@/lib/bots";
-import { appendRoomMessage, botsForRoomPrompt, getRoom, updateRoomMessage } from "@/lib/rooms";
+import { appendRoomMessage, botsForRoomPrompt, ensureRoomBotTask, getRoom, updateRoomMessage } from "@/lib/rooms";
 import { getTaskDetail, jsonError, promptTask, subscribeTask } from "@/lib/pi/harness";
 import type { UiMessage } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 function textOf(message: UiMessage): string { return message.parts.filter((part) => part.type === "text").map((part) => part.text).join(""); }
 function latestAssistant(messages: UiMessage[], since: number): UiMessage | undefined { return [...messages].reverse().find((message) => message.role === "assistant" && message.createdAt >= since - 2_000); }
-async function runRoomBot(roomId: string, botId: string, prompt: string, since: number, responseId: string) {
-  const taskId = botTaskId(botId);
+async function runRoomBot(roomId: string, taskId: string, prompt: string, since: number, responseId: string) {
   let closed = false;
   let unsubscribe: () => void = () => undefined;
   const finish = async () => {
@@ -43,7 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!userMessage) return NextResponse.json({ error: "Room not found" }, { status: 404 });
     const routed = botsForRoomPrompt(room, prompt, body.broadcast === true);
     const responses = routed.bots.map((bot) => appendRoomMessage(id, { role: "assistant", botId: bot.id, botName: bot.name, text: "", status: "working" })).filter((item): item is NonNullable<typeof item> => Boolean(item));
-    for (const [index, bot] of routed.bots.entries()) { const response = responses[index]; if (response) void runRoomBot(id, bot.id, prompt, userMessage.createdAt, response.id); }
+    for (const [index, bot] of routed.bots.entries()) { const response = responses[index]; if (response) void runRoomBot(id, ensureRoomBotTask(room, bot), prompt, userMessage.createdAt, response.id); }
     return NextResponse.json({ room: getRoom(id), routedBotIds: routed.bots.map((bot) => bot.id), broadcast: routed.broadcast });
   } catch (error) { const { error: message, status } = jsonError(error); return NextResponse.json({ error: message }, { status }); }
 }

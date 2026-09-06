@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "./paths";
-import { deleteTask, insertBotTask, patchTask } from "./store";
+import { deleteTask, insertBotTask, listTasks, patchTask } from "./store";
 import type { BotDto, BotSkillsConfig, ThinkingLevel } from "./types";
 import { avatarColorForId, isAvatarColor, randomAvatarColor } from "./bot-avatar";
 
@@ -80,7 +80,9 @@ export function patchBot(id: string, patch: Partial<Pick<BotConfig, "name" | "av
 }
 export function deleteBot(id: string): boolean {
   if (!parseConfig(id)) return false;
-  deleteTask(`bot:${id}`); rmSync(botRoot(id), { recursive: true, force: true }); return true;
+  // Removes the 1:1 task and every room session of this bot.
+  for (const task of listTasks(true, "bot")) { if (task.botId === id) deleteTask(task.id); }
+  rmSync(botRoot(id), { recursive: true, force: true }); return true;
 }
 export function botWorkspace(id: string): string { return join(botRoot(id), "workspace"); }
 export function botSoul(id: string): string { return readFileSync(soulPath(id), "utf8"); }

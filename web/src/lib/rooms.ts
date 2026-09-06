@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { dataDir } from "./paths";
-import { getBot, listBots } from "./bots";
+import { botTaskId, botWorkspace, getBot, listBots } from "./bots";
+import { deleteTask, getTask, insertBotTask, listTasks, patchTask } from "./store";
 import type { BotDto, RoomDto, RoomMessage } from "./types";
 
 type RoomFile = RoomDto;
@@ -66,8 +67,25 @@ export function patchRoom(id: string, patch: { name?: string; members?: string[]
 export function deleteRoom(id: string): boolean {
   if (!readRoom(id)) return false;
   rmSync(roomPath(id), { force: true });
+  for (const task of listTasks(true, "bot")) {
+    if (task.id.endsWith(`:room:${id}`)) deleteTask(task.id);
+  }
   roomEvents.emit(id, null);
   return true;
+}
+
+/** Room replies run in their own session so they never land in the bot's 1:1 chat. */
+export function roomBotTaskId(roomId: string, botId: string): string { return `bot:${botId}:room:${roomId}`; }
+
+/** Creates the room session on demand and keeps its model routing in sync with the bot's 1:1 task. */
+export function ensureRoomBotTask(room: RoomDto, bot: BotDto): string {
+  const id = roomBotTaskId(room.id, bot.id);
+  const title = `${bot.name} @ ${room.name}`;
+  insertBotTask({ id, botId: bot.id, name: title, directory: botWorkspace(bot.id), thinkingLevel: bot.thinkingLevel, permissionMode: bot.permissionMode });
+  const base = getTask(botTaskId(bot.id));
+  // ponytail: routing is copied on each prompt; a model change during a live room turn applies from the next turn.
+  if (base) patchTask(id, { title, providerID: base.providerID, modelID: base.modelID, thinkingLevel: base.thinkingLevel, accountId: base.accountId, accountIdExplicit: base.accountIdExplicit, permissionMode: base.permissionMode });
+  return id;
 }
 export function appendRoomMessage(id: string, message: Omit<RoomMessage, "id" | "createdAt"> & { id?: string; createdAt?: number }): RoomMessage | undefined {
   const room = readRoom(id);
