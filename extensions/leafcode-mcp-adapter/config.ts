@@ -55,6 +55,17 @@ export const KNOWN_SERVER_PRESETS: readonly KnownServerPreset[] = [
     entry: { url: "https://api.githubcopilot.com/mcp", auth: "oauth", protocolVersion: "auto" },
   },
   {
+    id: "n8n",
+    name: "n8n",
+    summary: "Build and manage workflows through your n8n instance.",
+    entry: {
+      url: "${N8N_MCP_URL}",
+      auth: "bearer",
+      bearerTokenEnv: "N8N_MCP_ACCESS_TOKEN",
+      protocolVersion: "auto",
+    },
+  },
+  {
     id: "chrome-devtools",
     name: "Chrome DevTools",
     summary: "Inspect and automate a local Chrome browser.",

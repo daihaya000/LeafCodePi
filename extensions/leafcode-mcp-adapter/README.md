@@ -96,6 +96,32 @@ mcp({ tool: "chrome_devtools_take_screenshot", args: { format: "png" } })
 
 Two calls instead of 26 tools cluttering the context.
 
+### n8n
+
+The `/mcp setup` panel includes an n8n preset for the official instance-level MCP server. Set the endpoint and bearer token before connecting:
+
+```powershell
+$env:N8N_MCP_URL = "https://<your-n8n-domain>/mcp-server/http"
+$env:N8N_MCP_ACCESS_TOKEN = "<your-n8n-mcp-token>"
+```
+
+The preset writes this entry to the shared project config:
+
+```json
+{
+  "mcpServers": {
+    "n8n": {
+      "url": "${N8N_MCP_URL}",
+      "auth": "bearer",
+      "bearerTokenEnv": "N8N_MCP_ACCESS_TOKEN",
+      "protocolVersion": "auto"
+    }
+  }
+}
+```
+
+Create the token in n8n under **Settings → Instance-level MCP**. Do not put the token directly in the config file.
+
 ## Config
 
 ### File Layout
@@ -602,7 +628,7 @@ When you change direct-tool toggles in `/mcp`, the extension updates direct tool
 
 **Interactive configuration:** Run `/mcp` to open an interactive panel showing all servers with connection status, tools, and direct/proxy toggles. You can reconnect servers and toggle tools between direct and proxy from the same overlay. For OAuth, press Enter on a server that needs auth or `ctrl+a` on any OAuth server. The Save action defaults to `ctrl+s` and can be remapped with the `mcp.panel.save` keybinding.
 
-**Guided first-run setup:** Run `/mcp setup` to inspect detected shared MCP files, adopt compatibility imports from other hosts, open discovered config paths, preview exact before/after file diffs for writes, scaffold a minimal project `.mcp.json`, add a curated known server (DeepWiki, Context7, Notion, GitHub, or Chrome DevTools), or quick-add RepoPrompt into a standard/shared MCP file.
+**Guided first-run setup:** Run `/mcp setup` to inspect detected shared MCP files, adopt compatibility imports from other hosts, open discovered config paths, preview exact before/after file diffs for writes, scaffold a minimal project `.mcp.json`, add a curated known server (DeepWiki, Context7, Notion, GitHub, n8n, or Chrome DevTools), or quick-add RepoPrompt into a standard/shared MCP file.
 
 **Subagent integration:** If you use the subagent extension, agents can request direct MCP tools in their frontmatter with `mcp:server-name` syntax. See the subagent README for details.
 
