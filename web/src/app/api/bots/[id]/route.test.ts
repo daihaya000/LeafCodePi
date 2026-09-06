@@ -9,7 +9,7 @@ vi.mock("../../../../lib/paths", async (importOriginal) => {
 });
 import { NextRequest } from "next/server";
 import { createBot } from "../../../../lib/bots";
-import { PATCH } from "./route";
+import { GET, PATCH } from "./route";
 
 describe("PATCH /api/bots/[id]", () => {
   let root = "";
@@ -22,6 +22,13 @@ describe("PATCH /api/bots/[id]", () => {
     const valid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ avatarColor: "#ABCDEF" }) }), { params: Promise.resolve({ id: bot.id }) });
     expect(valid.status).toBe(200);
     expect((await valid.json()).bot.avatarColor).toBe("#ABCDEF");
+  });
+  it("persists name and label through PATCH and GET reload", async () => {
+    const bot = createBot({ name: "Profile bot" });
+    const updated = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ name: "Renamed bot", label: "調査アシスタント" }) }), { params: Promise.resolve({ id: bot.id }) });
+    expect(updated.status).toBe(200);
+    const reloaded = await GET(new NextRequest("http://localhost"), { params: Promise.resolve({ id: bot.id }) });
+    expect((await reloaded.json()).bot).toMatchObject({ name: "Renamed bot", label: "調査アシスタント" });
   });
   it("validates, persists, and clears an avatar image", async () => {
     const bot = createBot({ name: "Image patch bot" });

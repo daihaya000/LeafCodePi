@@ -58,6 +58,7 @@ export type RoutineDto = {
 export type BotDto = {
   id: string;
   name: string;
+  label: string;
   avatarColor: string;
   /** アップロードされたアバター画像（data URL）。未設定ならnullでavatarColorのSVGにフォールバック。 */
   avatarImage: string | null;

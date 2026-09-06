@@ -27,9 +27,13 @@ export function BotView({ id }: { id: string }) {
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [prompt, setPrompt] = useState("");
   const [soul, setSoul] = useState("");
+  const [profileName, setProfileName] = useState("");
+  const [profileLabel, setProfileLabel] = useState("");
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [savingSoul, setSavingSoul] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [updatingModel, setUpdatingModel] = useState(false);
   const [updatingThinking, setUpdatingThinking] = useState(false);
   const [updatingColor, setUpdatingColor] = useState(false);
@@ -54,6 +58,8 @@ export function BotView({ id }: { id: string }) {
       .then((result) => {
         setBot(result.bot);
         setSoul(result.bot.soul);
+        setProfileName(result.bot.name);
+        setProfileLabel(result.bot.label);
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "読み込みに失敗しました"));
   }, [id]);
@@ -200,6 +206,22 @@ export function BotView({ id }: { id: string }) {
     reader.readAsDataURL(file);
   };
 
+  const saveProfile = async () => {
+    const name = profileName.trim();
+    const label = profileLabel.trim();
+    if (!name || !label) return;
+    setSavingProfile(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { name, label }, "PATCH");
+      setBot(result.bot);
+      setProfileName(result.bot.name);
+      setProfileLabel(result.bot.label);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "プロフィールの保存に失敗しました");
+    } finally { setSavingProfile(false); }
+  };
+
   const saveSoul = async () => {
     setSavingSoul(true);
     setError(null);
@@ -331,11 +353,11 @@ export function BotView({ id }: { id: string }) {
                 {bot.avatarImage && <button type="button" disabled={updatingImage} onClick={() => void updateAvatarImage(null)} className="text-xs text-danger hover:underline disabled:opacity-50">画像を削除</button>}
               </div>
             </div>
-            <label className="block text-sm"><span className="font-medium">名前</span><div className="mt-2 rounded-xl border border-border bg-bg px-3 py-2.5">{bot.name}</div></label>
+            <label className="block text-sm"><span className="font-medium">名前</span><input value={profileName} onChange={(event) => setProfileName(event.target.value)} aria-label="ボットの名前" className="mt-2 w-full rounded-xl border border-border bg-bg px-3 py-2.5 outline-none focus:border-accent" /></label>
             <div className="rounded-2xl border border-border bg-bg p-4"><div className="flex items-center justify-between"><span className="text-sm font-medium">色</span><Button size="sm" variant="ghost" onClick={() => void updateAvatarColor(randomAvatarColor(bot.avatarColor))} busy={updatingColor}>ランダム</Button></div><div role="group" aria-label="ボットの色" className="mt-3 flex flex-wrap gap-2">{BOT_AVATAR_COLORS.map((color) => <button key={color} type="button" aria-label={color} aria-pressed={bot.avatarColor === color} disabled={updatingColor} onClick={() => void updateAvatarColor(color)} className={`h-8 w-8 rounded-full border-2 border-transparent transition-transform hover:scale-110 disabled:opacity-50 ${bot.avatarColor === color ? "border-text ring-2 ring-accent/30" : ""}`} style={{ backgroundColor: color }} />)}</div></div>
-            <label className="block text-sm"><span className="font-medium">ラベル</span><div className="mt-2 rounded-xl border border-border bg-bg px-3 py-2.5 text-muted">1:1 アシスタント</div></label>
+            <label className="block text-sm"><span className="font-medium">ラベル</span><input value={profileLabel} onChange={(event) => setProfileLabel(event.target.value)} aria-label="ボットのラベル" className="mt-2 w-full rounded-xl border border-border bg-bg px-3 py-2.5 outline-none focus:border-accent" /></label>
             <label className="block text-sm"><span className="font-medium">説明 / SOUL.md</span><textarea value={soul} onChange={(event) => setSoul(event.target.value)} rows={9} className="mt-2 w-full resize-y rounded-xl border border-border bg-bg px-3 py-2 font-mono text-xs leading-5 outline-none focus:border-accent" /></label>
-            <div className="space-y-3 rounded-2xl border border-border bg-bg p-4"><div><span className="text-sm font-medium">モデル</span><ModelSelect value={modelValue} options={models} loading={modelsLoading} disabled={updatingModel || updatingThinking} onChange={(value) => void updateModel(value)} className="mt-2 h-9 w-full" ariaLabel="ボットのモデル" /></div><div><span className="text-sm font-medium">思考レベル</span><ThinkingSelect levels={thinkingLevels} value={thinkingValue} disabled={updatingModel || updatingThinking} onChange={(value) => void updateThinking(value)} className="mt-2 h-9 w-full" /></div>{(updatingModel || updatingThinking) && <p className="text-xs text-muted">保存中…</p>}</div>
+            <div className="flex items-center justify-between rounded-xl border border-border bg-bg px-3 py-2.5 text-sm"><span><span className="font-medium">通知</span><span className="ml-2 text-xs text-muted">このアシスタントについて通知</span></span><button type="button" role="switch" aria-checked={notificationsEnabled} onClick={() => setNotificationsEnabled((enabled) => !enabled)} className={notificationsEnabled ? "relative h-6 w-11 rounded-full bg-accent" : "relative h-6 w-11 rounded-full bg-surface-3"}><span className={notificationsEnabled ? "absolute left-6 top-1 h-4 w-4 rounded-full bg-white" : "absolute left-1 top-1 h-4 w-4 rounded-full bg-white"} /></button></div><div className="flex justify-end"><Button size="sm" onClick={() => void saveProfile()} busy={savingProfile} disabled={!profileName.trim() || !profileLabel.trim()}>プロフィールを保存</Button></div><details><summary className="cursor-pointer text-sm font-semibold text-muted">詳細設定</summary><div className="space-y-3 rounded-2xl border border-border bg-bg p-4"><div><span className="text-sm font-medium">モデル</span><ModelSelect value={modelValue} options={models} loading={modelsLoading} disabled={updatingModel || updatingThinking} onChange={(value) => void updateModel(value)} className="mt-2 h-9 w-full" ariaLabel="ボットのモデル" /></div><div><span className="text-sm font-medium">思考レベル</span><ThinkingSelect levels={thinkingLevels} value={thinkingValue} disabled={updatingModel || updatingThinking} onChange={(value) => void updateThinking(value)} className="mt-2 h-9 w-full" /></div>{(updatingModel || updatingThinking) && <p className="text-xs text-muted">保存中…</p>}</div>
             <div className="flex justify-end"><Button size="sm" onClick={() => void saveSoul()} busy={savingSoul}>変更を保存</Button></div>
             <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="スキル設定"><div><span className="text-sm font-medium">スキルの読み込み</span><select value={bot.skills.mode} disabled={updatingSkills} onChange={(event) => void updateSkills({ ...bot.skills, mode: event.target.value as BotDto["skills"]["mode"] })} className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"><option value="inherit">継承（通常のスキル）</option><option value="include">指定したスキルだけ許可</option><option value="exclude">指定したスキルを除外</option></select></div><label className="block text-xs"><span className="font-medium">許可するスキル名（1行1件）</span><textarea value={bot.skills.include.join("\n")} disabled={updatingSkills} onChange={(event) => setBot({ ...bot, skills: { ...bot.skills, include: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) } })} onBlur={() => void updateSkills(bot.skills)} rows={3} className="mt-1 w-full resize-y rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /></label><label className="block text-xs"><span className="font-medium">除外するスキル名（1行1件）</span><textarea value={bot.skills.exclude.join("\n")} disabled={updatingSkills} onChange={(event) => setBot({ ...bot, skills: { ...bot.skills, exclude: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) } })} onBlur={() => void updateSkills(bot.skills)} rows={3} className="mt-1 w-full resize-y rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /></label><p className="text-[11px] text-muted">inherit は共通設定に従います。保存すると次回の応答から反映されます。</p></section>
             <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="追加ルート設定"><div><span className="text-sm font-medium">追加ルート</span><p className="mt-1 text-xs text-muted">Bot が参照できる絶対パス（Computer 分離は後続フェーズ）</p></div><div className="flex gap-2"><input value={extraRootInput} onChange={(event) => setExtraRootInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addExtraRoot(); } }} placeholder="C:\path\to\root" className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /><Button size="sm" onClick={() => void addExtraRoot()} disabled={!extraRootInput.trim()}>追加</Button></div>{bot.extraRoots.length === 0 ? <p className="text-xs text-muted">追加ルートはありません。</p> : <ul className="space-y-1">{bot.extraRoots.map((root) => <li key={root} className="flex items-center gap-2 rounded-lg bg-surface px-2 py-1.5 text-xs"><span className="min-w-0 flex-1 break-all">{root}</span><button type="button" onClick={() => void removeExtraRoot(root)} className="shrink-0 text-danger hover:underline">削除</button></li>)}</ul>}</section>
@@ -345,6 +367,7 @@ export function BotView({ id }: { id: string }) {
               {routines.length === 0 && <p className="text-xs text-muted">登録されたルーティンはありません。</p>}
               {routines.map((routine) => <div key={routine.id} className="rounded-xl border border-border bg-surface p-3 text-xs"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="font-medium">{routine.name} {routine.enabled ? <span className="text-success">有効</span> : <span className="text-muted">無効</span>}</p><p className="mt-1 font-mono text-muted">{routine.schedule}</p><p className="mt-1 break-words text-muted">{routine.prompt}</p>{routine.failureCount > 0 && <p className="mt-1 text-danger">連続失敗: {routine.failureCount}回</p>}</div><div className="flex shrink-0 flex-col gap-1"><Button size="sm" variant="ghost" disabled={routineBusy === routine.id} onClick={() => void patchRoutine(routine, !routine.enabled)}>{routine.enabled ? "無効化" : "有効化"}</Button><Button size="sm" variant="ghost" disabled={routineBusy === routine.id || !routine.enabled} onClick={() => void runRoutine(routine)}>今すぐ実行</Button><button type="button" disabled={routineBusy === routine.id} onClick={() => void deleteRoutine(routine)} className="px-2 py-1 text-danger hover:underline disabled:opacity-50">削除</button></div></div></div>)}
             </section>
+            </details>
             <div className="border-t border-border pt-4">
               <p className="text-xs text-muted">このBotと関連する会話データも削除されます。</p>
               <Button size="sm" variant="danger" onClick={() => void removeBot()} busy={deleting} className="mt-2">ボットを削除</Button>

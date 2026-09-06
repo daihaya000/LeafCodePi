@@ -7,6 +7,7 @@ const botTestState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => botTestState.root }; });
 import { createBot, deleteBot, getBot, listBots, patchBot } from "./bots";
 import { BOT_AVATAR_COLORS, avatarColorForId } from "./bot-avatar";
+import type { BotDto } from "./types";
 
 describe("bot store", () => {
   let root = "";
@@ -48,6 +49,14 @@ describe("bot store", () => {
     const bot = createBot({ name: "A" });
     expect(patchBot(bot.id, { name: "B", soul: "Be precise" })?.name).toBe("B");
     expect(getBot(bot.id)?.soul).toBe("Be precise"); expect(deleteBot(bot.id)).toBe(true); expect(getBot(bot.id)).toBeUndefined();
+  });
+  it("persists an editable profile label across reloads", () => {
+    const bot = createBot({ name: "Profile bot" });
+    patchBot(bot.id, { name: "Renamed bot", label: "調査アシスタント" });
+    const reloaded = getBot(bot.id) as BotDto & { label: string };
+    expect(reloaded.name).toBe("Renamed bot");
+    expect(reloaded.label).toBe("調査アシスタント");
+    expect(JSON.parse(readFileSync(join(root, "bots", bot.id, "config.json"), "utf8")).label).toBe("調査アシスタント");
   });
   it("starts with no avatar image and persists/clears an uploaded one", () => {
     const bot = createBot({ name: "Image bot" });

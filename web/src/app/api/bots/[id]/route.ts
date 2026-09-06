@@ -33,7 +33,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     : undefined;
   if (
     !body ||
-    (body.name !== undefined && typeof body.name !== "string") ||
+    (body.name !== undefined && (typeof body.name !== "string" || !body.name.trim())) ||
+    (body.label !== undefined && (typeof body.label !== "string" || !body.label.trim())) ||
     (body.soul !== undefined && typeof body.soul !== "string") ||
     (body.avatarColor !== undefined && !isAvatarColor(body.avatarColor)) ||
     (body.avatarImage !== undefined && body.avatarImage !== null && !isAvatarImage(body.avatarImage)) ||
@@ -48,7 +49,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   try {
     const patch: Parameters<typeof patchBot>[1] = {};
-    if (body.name !== undefined) patch.name = body.name as string;
+    if (body.name !== undefined) patch.name = (body.name as string).trim();
+    if (body.label !== undefined) patch.label = (body.label as string).trim();
     if (body.avatarColor !== undefined) patch.avatarColor = body.avatarColor as string;
     if (body.avatarImage !== undefined) patch.avatarImage = body.avatarImage as string | null;
     if (hasSkills) patch.skills = skills as BotSkillsConfig;
