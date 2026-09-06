@@ -37,6 +37,7 @@ import { McpOAuthProvider } from "./mcp-oauth-provider.ts";
 import { extractOAuthConfig, supportsOAuth, type McpOAuthRuntime } from "./mcp-auth-flow.ts";
 import { invalidateAuthEntryCache, type AuthStorageOptions } from "./mcp-auth.ts";
 import { getBearerTokenForUrl } from "./mcp-bearer-store.ts";
+import { getMcpHeadersForUrl } from "./mcp-header-store.ts";
 import { registerSamplingHandler, type ServerSamplingConfig } from "./sampling-handler.ts";
 import {
   handleUrlElicitation,
@@ -854,23 +855,32 @@ export class McpServerManager {
     // mutating the persisted configuration.
     const hasCommandHeader = Object.values(definition.headers ?? {})
       .some(value => value.startsWith("!") && !value.startsWith("!!"));
-    const headers = resolveCommandSecretsRecord(
+    const configuredHeaders = resolveCommandSecretsRecord(
       definition.headers,
       key => `MCP server "${serverName}" HTTP header "${key}"`,
     ) ?? {};
+    const headerStoreSelected = definition.headersStore === true && definition.auth !== "bearer";
+    const storedHeaders = headerStoreSelected
+      ? getMcpHeadersForUrl(serverName, serverUrl) ?? {}
+      : {};
+    // Store-backed headers override same-named config headers. They are bound
+    // to this exact URL and are never copied into a merged config definition.
+    const headers = { ...configuredHeaders, ...storedHeaders };
 
     // Resolve bearer auth before creating requestInit so every attempted
     // transport receives the same headers.
     const commandBearer = definition.bearerToken?.startsWith("!") && !definition.bearerToken.startsWith("!!")
       ? definition.bearerToken
       : undefined;
-    if (definition.auth === "bearer") {
-      const token = commandBearer
-        ? resolveCommandSecret(commandBearer, `MCP server "${serverName}" HTTP bearer token`)
-        : resolveBearerToken(definition)
-          ?? (definition.bearerToken === undefined && definition.bearerTokenEnv === undefined && definition.bearerTokenStore === true
-            ? getBearerTokenForUrl(serverName, serverUrl)
-            : undefined);
+    if (definition.auth === "bearer" && !headerStoreSelected) {
+      // An adapter-owned store is an explicit WebUI choice. Prefer it over
+      // bearer fields inherited from lower-precedence config layers so a saved
+      // token cannot silently fall back to an older environment credential.
+      const token = definition.bearerTokenStore === true
+        ? getBearerTokenForUrl(serverName, serverUrl)
+        : commandBearer
+          ? resolveCommandSecret(commandBearer, `MCP server "${serverName}" HTTP bearer token`)
+          : resolveBearerToken(definition);
       if (token) headers["Authorization"] = `Bearer ${token}`;
     }
 

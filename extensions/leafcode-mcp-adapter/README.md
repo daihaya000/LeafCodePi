@@ -114,6 +114,7 @@ The preset writes this entry to the shared project config:
       "url": "${N8N_MCP_URL}",
       "auth": "bearer",
       "bearerTokenEnv": "N8N_MCP_ACCESS_TOKEN",
+      "httpTransport": "streamable-http",
       "protocolVersion": "auto"
     }
   }
@@ -121,6 +122,10 @@ The preset writes this entry to the shared project config:
 ```
 
 Create the token in n8n under **Settings → Instance-level MCP**. Do not put the token directly in the config file.
+
+### WebUI authentication
+
+Open **Settings → Extensions → MCP サーバー** in LeafCodePi and select **認証設定** for an HTTP server. Bearer tokens and custom HTTP headers are written only to the OS credential store; `mcp.json` receives only non-secret adapter-owned store/mode flags (`bearerTokenStore` or `headersStore`) and never contains those values. OAuth-capable servers can be authorized from the same panel by opening the authorization link and pasting the callback URL or code. Credentials are bound to the server URL, so changing a URL requires saving a new bearer token/header or completing OAuth again.
 
 ## Config
 

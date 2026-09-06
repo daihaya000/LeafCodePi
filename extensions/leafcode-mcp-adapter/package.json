@@ -118,6 +118,8 @@
     "oauth.ts",
     "mcp-auth.ts",
     "mcp-bearer-store.ts",
+    "mcp-header-store.ts",
+    "mcp-webui-bridge.ts",
     "mcp-keyring-helper.cjs",
     "mcp-oauth-provider.ts",
     "mcp-callback-server.ts",

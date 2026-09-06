@@ -3,7 +3,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { McpExtensionState } from "./state.ts";
 import type { DirectToolSpec, McpAdapterOptions, McpConfig, PromptMetadata, ServerEntry } from "./types.ts";
-import type { McpOAuthRuntime } from "./mcp-auth-flow.ts";
+import {
+  completeAuthFromInput,
+  createOAuthRuntime,
+  removeAuth,
+  shutdownOAuth,
+  startAuth,
+  supportsOAuth,
+  type McpOAuthRuntime,
+} from "./mcp-auth-flow.ts";
 import { Type } from "typebox";
 import type { TSchema } from "typebox";
 import { showStatus, showTools, showPrompts, reconnectServer, reconnectServers, authenticateServer, logoutServer, manageBearerToken, openMcpAuthPanel, openMcpPanel, openMcpSetup } from "./commands.ts";
@@ -14,8 +22,17 @@ import { loadMetadataCache, type MetadataCache } from "./metadata-cache.ts";
 import { createPromptCommand, resolveCachedPrompts } from "./prompts.ts";
 import { logger } from "./logger.ts";
 import { executeAuthComplete, executeAuthStart, executeCall, executeConnect, executeDescribe, executeInstructions, executeList, executeSearch, executeStatus, executeUiMessages } from "./proxy-modes.ts";
-import { formatTerminalError, getConfigPathFromArgv, normalizeDirectToolInputSchema, truncateAtWord } from "./utils.ts";
-import { createOAuthRuntime, shutdownOAuth } from "./mcp-auth-flow.ts";
+import { formatTerminalError, getConfigPathFromArgv, normalizeDirectToolInputSchema, resolveServerUrl, truncateAtWord } from "./utils.ts";
+import { inspectAuthForUrl } from "./mcp-auth.ts";
+import { inspectBearerTokenForUrl, removeBearerToken, saveBearerTokenForUrl } from "./mcp-bearer-store.ts";
+import { inspectMcpHeadersForUrl, removeMcpHeaders, saveMcpHeadersForUrl } from "./mcp-header-store.ts";
+import {
+  registerMcpWebUiAuthHandler,
+  unregisterMcpWebUiAuthHandler,
+  type McpWebUiAuthHandler,
+  type McpWebUiAuthRequest,
+  type McpWebUiAuthResponse,
+} from "./mcp-webui-bridge.ts";
 import { createMcpDirectToolCallRenderer, createMcpProxyToolCallRenderer, createMcpToolResultRenderer, resolveMcpToolRenderOptions } from "./tool-result-renderer.ts";
 import { toolErrorOverride } from "./error-signal.ts";
 import { createMcpRuntimeOwner, createOwnedUi, isAbortError, type McpRuntimeOwner } from "./runtime-owner.ts";
@@ -357,6 +374,171 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
     type: "string",
   });
 
+  async function getWebUiAuthState(): Promise<McpExtensionState> {
+    if (state) return state;
+    if (initPromise) {
+      const initialized = await initPromise;
+      return state ?? initialized;
+    }
+    throw new Error("MCP adapter is not initialized. Open a task and retry.");
+  }
+
+  function webUiAuthServer(currentState: McpExtensionState, serverName: string): ServerEntry {
+    const definition = currentState.config.mcpServers[serverName];
+    if (!definition) throw new Error(`MCP server \"${serverName}\" was not found`);
+    return definition;
+  }
+
+  function webUiServerUrl(definition: ServerEntry): string {
+    try {
+      const serverUrl = resolveServerUrl(definition);
+      if (!serverUrl) throw new Error("MCP server has no URL");
+      return serverUrl;
+    } catch {
+      throw new Error("MCP server URL is invalid or unavailable");
+    }
+  }
+
+  const mcpWebUiAuthHandler: McpWebUiAuthHandler = async (
+    request: McpWebUiAuthRequest,
+  ): Promise<McpWebUiAuthResponse> => {
+    const currentState = await getWebUiAuthState();
+    const definition = webUiAuthServer(currentState, request.serverName);
+    const authOptions = currentState.authStorageOptions;
+    const signal = currentState.owner.signal;
+
+    if (request.operation === "bearer-status") {
+      let serverUrl: string;
+      try {
+        serverUrl = webUiServerUrl(definition);
+      } catch {
+        return {
+          ok: true,
+          operation: request.operation,
+          status: "unavailable",
+          message: "MCP server URL is invalid or unavailable",
+        };
+      }
+      const status = inspectBearerTokenForUrl(request.serverName, serverUrl);
+      return { ok: true, operation: request.operation, ...status };
+    }
+
+    if (request.operation === "bearer-save") {
+      if (!request.token.trim() || /[\r\n]/.test(request.token)) {
+        throw new Error("Bearer token is empty or invalid");
+      }
+      saveBearerTokenForUrl(
+        request.serverName,
+        request.token,
+        webUiServerUrl(definition),
+      );
+      return { ok: true, operation: request.operation };
+    }
+
+    if (request.operation === "bearer-remove") {
+      removeBearerToken(request.serverName);
+      return { ok: true, operation: request.operation };
+    }
+
+    if (request.operation === "headers-status") {
+      let serverUrl: string;
+      try {
+        serverUrl = webUiServerUrl(definition);
+      } catch {
+        return {
+          ok: true,
+          operation: request.operation,
+          status: "unavailable",
+          message: "MCP server URL is invalid or unavailable",
+        };
+      }
+      const status = inspectMcpHeadersForUrl(request.serverName, serverUrl);
+      return { ok: true, operation: request.operation, ...status };
+    }
+
+    if (request.operation === "headers-save") {
+      saveMcpHeadersForUrl(
+        request.serverName,
+        request.headers,
+        webUiServerUrl(definition),
+      );
+      return { ok: true, operation: request.operation };
+    }
+
+    if (request.operation === "headers-remove") {
+      removeMcpHeaders(request.serverName);
+      return { ok: true, operation: request.operation };
+    }
+
+    if (request.operation === "oauth-status") {
+      let serverUrl: string;
+      try {
+        serverUrl = webUiServerUrl(definition);
+      } catch {
+        return {
+          ok: true,
+          operation: request.operation,
+          status: "unavailable",
+          message: "MCP server URL is invalid or unavailable",
+        };
+      }
+      const inspected = inspectAuthForUrl(request.serverName, serverUrl, authOptions);
+      if (inspected.status === "unavailable") {
+        return { ok: true, operation: request.operation, status: "unavailable", message: inspected.message };
+      }
+      if (inspected.status === "absent" || !inspected.entry.tokens) {
+        return { ok: true, operation: request.operation, status: "not_authenticated" };
+      }
+      const expiresAt = inspected.entry.tokens.expiresAt;
+      return {
+        ok: true,
+        operation: request.operation,
+        status: expiresAt !== undefined && expiresAt < Date.now() / 1000 ? "expired" : "authenticated",
+      };
+    }
+
+    if (request.operation === "oauth-start") {
+      if (!supportsOAuth(definition)) {
+        throw new Error("This MCP server does not support OAuth authentication");
+      }
+      const result = await startAuth(
+        request.serverName,
+        webUiServerUrl(definition),
+        definition,
+        { authStorageOptions: authOptions, runtime: currentState.oauthRuntime, signal },
+      );
+      return {
+        ok: true,
+        operation: request.operation,
+        authorizationUrl: result.authorizationUrl,
+        status: result.authorizationUrl ? "pending" : "authenticated",
+      };
+    }
+
+    if (request.operation === "oauth-complete") {
+      const status = await completeAuthFromInput(request.serverName, request.input, {
+        authStorageOptions: authOptions,
+        runtime: currentState.oauthRuntime,
+        signal,
+      });
+      return { ok: true, operation: request.operation, status };
+    }
+
+    if (request.operation === "oauth-remove") {
+      await removeAuth(request.serverName, {
+        authStorageOptions: authOptions,
+        runtime: currentState.oauthRuntime,
+        signal,
+      });
+      await currentState.manager.close(request.serverName);
+      updateStatusBar(currentState);
+      return { ok: true, operation: "oauth-remove" };
+    }
+
+    throw new Error("Unsupported MCP authentication operation");
+  };
+  registerMcpWebUiAuthHandler(mcpWebUiAuthHandler);
+
   function startInitialization(ctx: ExtensionContext, owner: McpRuntimeOwner, oauthRuntime: McpOAuthRuntime, generation: number, staleReason: string): Promise<void> {
     owner.addCleanup(() => cleanupMaterializedBinaryResources(owner.signal));
     const promise = initializeMcp(pi, ctx, owner, {
@@ -519,6 +701,7 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
   });
 
   pi.on("session_shutdown", async () => {
+    unregisterMcpWebUiAuthHandler(mcpWebUiAuthHandler);
     ++lifecycleGeneration;
     const currentState = state;
     const owner = currentOwner;

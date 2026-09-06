@@ -62,6 +62,7 @@ export const KNOWN_SERVER_PRESETS: readonly KnownServerPreset[] = [
       url: "${N8N_MCP_URL}",
       auth: "bearer",
       bearerTokenEnv: "N8N_MCP_ACCESS_TOKEN",
+      httpTransport: "streamable-http",
       protocolVersion: "auto",
     },
   },
@@ -487,7 +488,7 @@ function mergeConfigs(base: McpConfig, next: McpConfig): McpConfig {
 // different url, these MUST NOT be inherited from the lower-precedence entry —
 // otherwise the original endpoint's credentials would be shipped to the new
 // url. See the SECURITY note in mergeServerMaps.
-const URL_BOUND_AUTH_FIELDS = ["headers", "bearerToken", "bearerTokenEnv", "bearerTokenStore", "requestHeadersCommand"] as const;
+const URL_BOUND_AUTH_FIELDS = ["headers", "headersStore", "bearerToken", "bearerTokenEnv", "bearerTokenStore", "requestHeadersCommand"] as const;
 
 function mergeServerMaps(
   base: Record<string, ServerEntry>,
@@ -510,7 +511,7 @@ function mergeServerMaps(
     if (existing && typeof definition.command === "string") {
       baseEntry = { ...existing };
       for (const field of [
-        "url", "headers", "requestHeadersCommand", "auth", "bearerToken",
+        "url", "headers", "headersStore", "requestHeadersCommand", "auth", "bearerToken",
         "bearerTokenEnv", "oauth", "httpTransport", "socket",
       ] as const) {
         delete baseEntry[field];
@@ -526,7 +527,7 @@ function mergeServerMaps(
       baseEntry = { ...existing };
       for (const field of [
         "command", "args", "env", "cwd", "pluginDataDir", "literalEnv", "url",
-        "headers", "requestHeadersCommand", "auth", "bearerToken", "bearerTokenEnv",
+        "headers", "headersStore", "requestHeadersCommand", "auth", "bearerToken", "bearerTokenEnv",
         "oauth", "httpTransport",
       ] as const) {
         delete baseEntry[field];

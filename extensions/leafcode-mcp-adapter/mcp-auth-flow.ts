@@ -974,6 +974,10 @@ export function supportsOAuth(definition: ServerEntry): boolean {
   // OAuth requires a URL
   if (!definition.url) return false
 
+  // Store-backed headers are an explicit alternative to OAuth, even when an
+  // inherited lower-precedence config still contains auth: "oauth".
+  if (definition.headersStore === true) return false
+
   // Explicitly disabled via auth: false or oauth: false
   if (definition.auth === false) return false
   if (definition.oauth === false) return false

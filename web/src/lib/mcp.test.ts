@@ -3,7 +3,18 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
-import { listMcpServers, mcpErrorStatus, piMcpConfigPath, setMcpServerEnabled, McpError } from "./mcp";
+import {
+  disableMcpHeadersStore,
+  enableMcpBearerStore,
+  enableMcpHeadersStore,
+  getMcpServerAuth,
+  listMcpServers,
+  mcpErrorStatus,
+  piMcpConfigPath,
+  resolveMcpServerUrl,
+  setMcpServerEnabled,
+  McpError,
+} from "./mcp";
 
 describe("piMcpConfigPath", () => {
   it("lives in the Pi agent dir", () => {
@@ -29,6 +40,12 @@ describe("listMcpServers / setMcpServerEnabled", () => {
         mcpServers: {
           chrome_devtools: { command: "npx", args: ["-y", "chrome-devtools-mcp"] },
           remote: { url: "https://example.com/mcp", disabled: true },
+          bearer: {
+            url: "https://user:password@example.com/mcp?token=secret",
+            auth: "bearer",
+            bearerToken: "secret-token",
+          },
+          oauth: { url: "https://oauth.example.com/mcp", auth: "oauth" },
         },
       }),
       "utf8",
@@ -45,6 +62,53 @@ describe("listMcpServers / setMcpServerEnabled", () => {
     assert.equal(byName.get("remote")?.enabled, false);
     assert.equal(byName.get("remote")?.source, "http");
     assert.equal(result.configPath, join(agentDir, "mcp.json"));
+    const bearer = byName.get("bearer");
+    assert.equal(bearer?.authType, "bearer");
+    assert.equal(bearer?.credentialSource, "config");
+    assert.equal(bearer?.credentialStatus, "present");
+    assert.equal(bearer?.url, "https://example.com/mcp");
+    assert.doesNotMatch(JSON.stringify(result), /secret/);
+  });
+
+  it("stores only the bearer store switch in mcp.json", () => {
+    fixture();
+    enableMcpBearerStore("bearer", agentDir);
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    assert.equal(raw.mcpServers.bearer.auth, "bearer");
+    assert.equal(raw.mcpServers.bearer.bearerTokenStore, true);
+    assert.equal("bearerToken" in raw.mcpServers.bearer, false);
+    assert.doesNotMatch(JSON.stringify(raw), /secret-token/);
+  });
+
+  it("selects store-backed headers as an explicit non-OAuth mode", () => {
+    fixture();
+    enableMcpHeadersStore("oauth", agentDir);
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    assert.equal(raw.mcpServers.oauth.headersStore, true);
+    assert.equal(raw.mcpServers.oauth.auth, false);
+    assert.equal(raw.mcpServers.oauth.oauth, undefined);
+    assert.equal(getMcpServerAuth("oauth", agentDir).authType, "headers");
+
+    disableMcpHeadersStore("oauth", agentDir);
+    const restored = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    assert.equal(restored.mcpServers.oauth.headersStore, undefined);
+    assert.equal(restored.mcpServers.oauth.auth, undefined);
+  });
+
+  it("resolves URL environment variables without exposing secrets", () => {
+    fixture();
+    const previous = process.env.TEST_MCP_URL;
+    process.env.TEST_MCP_URL = "https://example.com/mcp";
+    try {
+      const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+      raw.mcpServers.env_url = { url: "${TEST_MCP_URL}" };
+      writeFileSync(join(agentDir, "mcp.json"), JSON.stringify(raw), "utf8");
+      assert.equal(resolveMcpServerUrl("env_url", agentDir), "https://example.com/mcp");
+      assert.equal(getMcpServerAuth("oauth", agentDir).authType, "oauth");
+    } finally {
+      if (previous === undefined) delete process.env.TEST_MCP_URL;
+      else process.env.TEST_MCP_URL = previous;
+    }
   });
 
   it("disables and enables a server by writing disabled field", () => {
@@ -65,7 +129,7 @@ describe("listMcpServers / setMcpServerEnabled", () => {
     fixture();
     assert.throws(() => setMcpServerEnabled("missing", false, agentDir), McpError);
     assert.throws(() => setMcpServerEnabled("missing", false, agentDir), /見つかりません/);
-    assert.equal(listMcpServers(agentDir).servers.length, 2);
+    assert.equal(listMcpServers(agentDir).servers.length, 4);
   });
 
   it("rejects invalid names", () => {

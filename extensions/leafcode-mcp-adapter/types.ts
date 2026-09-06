@@ -394,6 +394,8 @@ export interface ServerEntry {
   bearerTokenEnv?: string;
   /** Read a static bearer token from the adapter-owned OS credential store. */
   bearerTokenStore?: true;
+  /** Read static HTTP headers from the adapter-owned OS credential store. */
+  headersStore?: true;
   /**
    * OAuth configuration (optional).
    * If not provided, the SDK will attempt dynamic client registration.
