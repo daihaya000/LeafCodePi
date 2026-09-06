@@ -454,11 +454,11 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
         Array.from(providerList?.children ?? []).map(
           (row) => row.querySelector("span.text-sm.font-medium")?.textContent,
         ),
-      ).toEqual(["Anthropic", "OpenAI Codex", "llama-server"]);
+      ).toEqual(["Anthropic", "OpenAI Codex"]);
     });
   });
 
-  it("shows registered providers first without an other-providers section", () => {
+  it("hides unconnected non-highlighted providers", () => {
     mockAccountsApi();
     render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
 
@@ -472,16 +472,45 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(
       screen.queryByRole("heading", { name: "その他のプロバイダー" }),
     ).toBeNull();
-    const registered = screen.getByText("OpenAI Codex");
-    const unregistered = screen.getByText("llama-server", {
-      selector: "span.text-sm.font-medium",
-    });
     expect(
-      Boolean(
-        registered.compareDocumentPosition(unregistered) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-      ),
-    ).toBe(true);
+      screen.queryByText("llama-server", {
+        selector: "span.text-sm.font-medium",
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps connected non-highlighted providers visible", () => {
+    mockAccountsApi();
+    render(
+      <ProviderAuthPanel
+        providers={[
+          {
+            id: "minor-connected",
+            name: "接続済みプロバイダー",
+            authenticated: true,
+            highlighted: false,
+          },
+          {
+            id: "minor-unconnected",
+            name: "未接続プロバイダー",
+            authenticated: false,
+            highlighted: false,
+          },
+        ]}
+        onChanged={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByText("接続済みプロバイダー", {
+        selector: "span.text-sm.font-medium",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("未接続プロバイダー", {
+        selector: "span.text-sm.font-medium",
+      }),
+    ).toBeNull();
   });
 
   it("creates an account for the provider whose add action was used", async () => {

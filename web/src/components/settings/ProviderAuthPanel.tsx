@@ -1218,7 +1218,13 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   const enabledProviderRanks = new Map(
     enabledProviderOrder.map((providerId, index) => [providerId, index]),
   );
-  const orderedProviders = [...providers].sort((a, b) => {
+  const visibleProviders = providers.filter(
+    (provider) =>
+      provider.authenticated ||
+      provider.highlighted === true ||
+      provider.baseUrl != null,
+  );
+  const orderedProviders = [...visibleProviders].sort((a, b) => {
     const aRank = enabledProviderRanks.get(a.id) ?? Number.MAX_SAFE_INTEGER;
     const bRank = enabledProviderRanks.get(b.id) ?? Number.MAX_SAFE_INTEGER;
     return (
