@@ -45,6 +45,60 @@ describe("modelLimitReached", () => {
   it("is false when usage unknown", () => {
     expect(modelLimitReached(option())).toBe(false);
   });
+
+  it("uses the same 90% danger threshold as CodexBar", () => {
+    expect(
+      modelLimitReached(option({ codexbarUsedPercent: 90, codexbarMaxed: false })),
+    ).toBe(true);
+  });
+
+  it("honors an explicit provider limit flag", () => {
+    expect(
+      modelLimitReached(option({ codexbarUsedPercent: 10, codexbarLimited: true })),
+    ).toBe(true);
+  });
+});
+
+describe("integrated model colors", () => {
+  it("uses the integrated percentage instead of the selected candidate", () => {
+    const integrated = option({
+      routingMode: "integrated",
+      codexbarUsedPercent: 100,
+      codexbarMaxed: true,
+      codexbarIntegratedUsedPercent: 60,
+    });
+
+    expect(modelNearLimit(integrated)).toBe(false);
+    expect(modelLimitReached(integrated)).toBe(false);
+  });
+
+  it("uses the integrated percentage thresholds", () => {
+    const nearLimit = option({
+      routingMode: "integrated",
+      codexbarIntegratedUsedPercent: 75,
+    });
+    const limitReached = option({
+      routingMode: "integrated",
+      codexbarIntegratedUsedPercent: 90,
+    });
+
+    expect(modelNearLimit(nearLimit)).toBe(true);
+    expect(modelLimitReached(nearLimit)).toBe(false);
+    expect(modelNearLimit(limitReached)).toBe(false);
+    expect(modelLimitReached(limitReached)).toBe(true);
+  });
+
+  it("does not use candidate usage when integrated usage is unknown", () => {
+    const integrated = option({
+      routingMode: "integrated",
+      codexbarUsedPercent: 100,
+      codexbarMaxed: true,
+      codexbarIntegratedUsedPercent: null,
+    });
+
+    expect(modelNearLimit(integrated)).toBe(false);
+    expect(modelLimitReached(integrated)).toBe(false);
+  });
 });
 
 describe("modelOptionForValue", () => {

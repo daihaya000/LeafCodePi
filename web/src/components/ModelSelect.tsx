@@ -13,7 +13,7 @@ import { createPortal } from "react-dom";
 import { Check, ChevronDown, ImageIcon } from "lucide-react";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { cx, focusAdjacentControl } from "@/components/ui";
-import { providerLabel } from "@/lib/codexbar";
+import { providerLabel, usageTone } from "@/lib/codexbar";
 import type { ModelOption } from "@/lib/types";
 
 export function modelSupportsImage(option: ModelOption | undefined): boolean {
@@ -36,15 +36,31 @@ export function modelOptionForValue(
   );
 }
 
+function modelUsageTone(option: ModelOption | undefined) {
+  if (!option) return null;
+  const hasIntegratedPercent =
+    option.routingMode === "integrated" &&
+    option.codexbarIntegratedUsedPercent !== undefined;
+  return usageTone({
+    usedPercent: hasIntegratedPercent
+      ? option.codexbarIntegratedUsedPercent!
+      : option.codexbarUsedPercent ?? null,
+    limited: hasIntegratedPercent ? false : option.codexbarLimited === true,
+    maxed: hasIntegratedPercent ? false : option.codexbarMaxed === true,
+    error: null,
+    windows: [],
+    credits: null,
+  });
+}
+
 /** Provider rate limit is close (>=75%): render the option in orange. */
 export function modelNearLimit(option: ModelOption | undefined): boolean {
-  if (!option || option.codexbarMaxed) return false;
-  return (option.codexbarUsedPercent ?? 0) >= 75;
+  return modelUsageTone(option) === "warn";
 }
 
 /** Provider hit its limit (100%): render the option in red (still selectable). */
 export function modelLimitReached(option: ModelOption | undefined): boolean {
-  return Boolean(option?.codexbarMaxed);
+  return modelUsageTone(option) === "danger";
 }
 
 /** モデルドロップダウンのグループ見出し（プロバイダ × アカウント）。 */

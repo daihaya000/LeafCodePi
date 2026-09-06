@@ -302,6 +302,7 @@ describe("groupCodexBarProviders", () => {
     expect(group.provider.usedPercent).toBe(60);
     expect(group.provider.limited).toBe(false);
     expect(group.provider.maxed).toBe(false);
+    expect(usageTone(group.provider)).toBe("ok");
     expect(group.limitedCount).toBe(1);
     expect(group.accountRows.map((row) => row.label)).toEqual(["仕事用", "個人用"]);
     expect(group.accountRows.every((row) => row.configured)).toBe(true);
@@ -578,6 +579,7 @@ describe("usageTone", () => {
     ).toBe("ok");
     expect(usageTone({ usedPercent: 10, limited: true, maxed: false, error: null, windows: [], credits: null })).toBe("danger");
     expect(usageTone({ usedPercent: 80, limited: false, maxed: false, error: null, windows: [], credits: null })).toBe("warn");
+    expect(usageTone({ usedPercent: 90, limited: false, maxed: false, error: null, windows: [], credits: null })).toBe("danger");
     expect(usageTone({ usedPercent: 100, limited: false, maxed: false, error: null, windows: [], credits: null })).toBe("danger");
     expect(usageTone({ usedPercent: 20, limited: false, maxed: false, error: null, windows: [], credits: null })).toBe("ok");
     expect(usageTone({ usedPercent: null, limited: false, maxed: false, error: null, windows: [], credits: null })).toBe("ok");

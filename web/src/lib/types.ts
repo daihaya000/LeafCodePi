@@ -230,6 +230,10 @@ export type ModelOption = {
   thinkingLevels?: ThinkingLevel[];
   /** CodexBar usage percent (0..100+) of the backing provider, when known. */
   codexbarUsedPercent?: number | null;
+  /** Average CodexBar usage for an integrated provider, used for picker color only. */
+  codexbarIntegratedUsedPercent?: number | null;
+  /** True when the backing provider is near or at its rate limit. */
+  codexbarLimited?: boolean;
   /** True when the provider hit its rate limit (usage >= 99.5%). */
   codexbarMaxed?: boolean;
   /** True when CodexBar is showing a last-good snapshot after a fetch failure. */

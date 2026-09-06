@@ -8,6 +8,7 @@ function provider(
   usedPercent: number | null,
   maxed = false,
   accountId?: string,
+  limited = false,
 ): CodexBarProvider {
   return {
     id,
@@ -16,7 +17,7 @@ function provider(
     plan: null,
     planMonthlyUsd: null,
     usedPercent,
-    limited: false,
+    limited,
     maxed,
     resetsAt: null,
     updatedAt: null,
@@ -65,6 +66,14 @@ describe("attachCodexBarUsage", () => {
     expect(options.map((option) => option.codexbarUsedPercent)).toEqual([80, 20]);
   });
 
+  it("passes an explicit provider limit flag to model options", () => {
+    const [mapped] = attachCodexBarUsage(
+      [model("anthropic")],
+      [provider("anthropic", 10, false, undefined, true)],
+    );
+    expect(mapped.codexbarLimited).toBe(true);
+  });
+
   it("does not overwrite integrated candidate usage with an aggregate row", () => {
     const option: ModelOption = {
       ...model("openai-codex"),
@@ -74,6 +83,27 @@ describe("attachCodexBarUsage", () => {
     };
     const [mapped] = attachCodexBarUsage([option], [provider("openai-codex", 90, true)]);
     expect(mapped).toMatchObject({ codexbarUsedPercent: 20, codexbarMaxed: false });
+  });
+
+  it("attaches the integrated account average separately from routing usage", () => {
+    const option: ModelOption = {
+      ...model("openai-codex"),
+      routingMode: "integrated",
+      codexbarUsedPercent: 100,
+      codexbarMaxed: true,
+    };
+    const [mapped] = attachCodexBarUsage(
+      [option],
+      [
+        provider("openai-codex", 100, true, "acc-a"),
+        provider("openai-codex", 20, false, "acc-b"),
+      ],
+    );
+    expect(mapped).toMatchObject({
+      codexbarUsedPercent: 100,
+      codexbarMaxed: true,
+      codexbarIntegratedUsedPercent: 60,
+    });
   });
 
   it("does not overwrite a fresh runtime limit mark with stale display usage", () => {
