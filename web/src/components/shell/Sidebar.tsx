@@ -14,6 +14,7 @@ import {
   Loader2,
   Menu,
   Plus,
+  Search,
   Settings,
   Trash2,
   X,
@@ -161,19 +162,49 @@ type AppMode = "code" | "bot";
 
 function ModeSegment({ mode, onChange }: { mode: AppMode; onChange: (mode: AppMode) => void }) {
   return <div className="mx-1 mb-2 grid grid-cols-2 rounded-lg border border-border bg-surface-2 p-0.5">
-    {(["code", "bot"] as const).map((item) => <button key={item} type="button" aria-pressed={mode === item} onClick={() => onChange(item)} className={cx("rounded-md px-2 py-1.5 text-xs font-medium", mode === item ? "bg-surface text-text shadow-sm" : "text-muted hover:text-text")}>{item === "code" ? "Code" : "Bot"}</button>)}
+    {(["code", "bot"] as const).map((item) => <button key={item} type="button" aria-pressed={mode === item} onClick={() => onChange(item)} className={cx("rounded-md px-2 py-1.5 text-xs font-medium", mode === item ? "bg-surface text-text shadow-sm" : "text-muted hover:text-text")}>{item === "code" ? "Code" : "ボット"}</button>)}
   </div>;
 }
 
 function BotSidebarBody({ onClose, onChangeMode, onSettings }: { onClose: () => void; onChangeMode: (mode: AppMode) => void; onSettings: () => void }) {
-  const router = useRouter(); const [bots, setBots] = useState<BotDto[]>([]); const [rooms, setRooms] = useState<RoomDto[]>([]); const [name, setName] = useState(""); const [roomName, setRoomName] = useState(""); const [busy, setBusy] = useState(false);
-  const refresh = useCallback(() => { void Promise.all([getJson<{ bots: BotDto[] }>("/api/bots"), getJson<{ rooms: RoomDto[] }>("/api/bots/rooms")]).then(([botResult, roomResult]) => { setBots(botResult.bots); setRooms(roomResult.rooms); }).catch(() => undefined); }, []);
+  const router = useRouter();
+  const [bots, setBots] = useState<BotDto[]>([]);
+  const [rooms, setRooms] = useState<RoomDto[]>([]);
+  const [name, setName] = useState("");
+  const [roomName, setRoomName] = useState("");
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+  const refresh = useCallback(() => {
+    void Promise.all([getJson<{ bots: BotDto[] }>("/api/bots"), getJson<{ rooms: RoomDto[] }>("/api/bots/rooms")])
+      .then(([botResult, roomResult]) => { setBots(botResult.bots); setRooms(roomResult.rooms); })
+      .catch(() => undefined);
+  }, []);
   useEffect(() => { refresh(); }, [refresh]);
-  async function createBotEntry() { if (busy) return; setBusy(true); try { const r = await sendJson<{ bot: BotDto }>("/api/bots", { name }); setName(""); router.push(`/bots/${r.bot.id}`); } finally { setBusy(false); } }
-  async function createRoomEntry() { if (busy) return; setBusy(true); try { const r = await sendJson<{ room: RoomDto }>("/api/bots/rooms", { name: roomName }); setRoomName(""); router.push(`/bots/rooms/${r.room.id}`); } finally { setBusy(false); } }
-  return <div className="flex h-full min-h-0 flex-col bg-surface"><div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3"><button type="button" aria-label="Close menu" onClick={onClose} className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-surface-2"><Menu className="h-5 w-5 text-muted" /></button><Link href="/bots" onClick={onClose} className="flex min-w-0 items-center gap-2"><img src="/icon.svg" alt="" className="h-6 w-6 rounded-[5px]" /><span className="truncate text-sm font-semibold">LeafCodePi</span></Link></div><div className="min-h-0 flex-1 overflow-y-auto px-2 py-2"><ModeSegment mode="bot" onChange={onChangeMode} /><div className="flex items-center justify-between px-2 py-1"><span className="text-xs font-medium text-muted">ルーム</span><Link href="/bots" onClick={onClose} className="text-xs text-accent">All</Link></div><div className="mt-1 space-y-1">{rooms.map((room) => <button key={room.id} type="button" onClick={() => { router.push(`/bots/rooms/${room.id}`); onClose(); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-success-bg text-xs text-success">#</span><span className="min-w-0 flex-1 truncate">{room.name}</span></button>)}{rooms.length === 0 && <p className="px-2 py-2 text-xs text-muted">ルームなし</p>}</div><div className="mt-1 flex gap-1"><input value={roomName} onChange={(e) => setRoomName(e.target.value)} placeholder="新しいルーム" className="h-8 min-w-0 flex-1 rounded-md border border-border bg-bg px-2 text-xs outline-none focus:border-accent" /><button type="button" onClick={() => void createRoomEntry()} disabled={busy} className="rounded-md bg-accent px-2 text-xs text-white disabled:opacity-50">+</button></div><div className="mt-4 flex items-center justify-between px-2 py-1"><span className="text-xs font-medium text-muted">Bots</span><Link href="/bots" onClick={onClose} className="text-xs text-accent">All</Link></div><div className="mt-1 space-y-1">{bots.map((bot) => <button key={bot.id} type="button" onClick={() => { router.push(`/bots/${bot.id}`); onClose(); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs text-accent">{Array.from(bot.name)[0] ?? "?"}</span><span className="min-w-0 flex-1 truncate">{bot.name}</span></button>)}{bots.length === 0 && <p className="px-2 py-2 text-xs text-muted">No bots yet</p>}</div><div className="mt-3 flex gap-1"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="New bot" className="h-8 min-w-0 flex-1 rounded-md border border-border bg-bg px-2 text-xs outline-none focus:border-accent" /><button type="button" onClick={() => void createBotEntry()} disabled={busy} className="rounded-md bg-accent px-2 text-xs text-white disabled:opacity-50">+</button></div></div><div className="shrink-0 border-t border-border p-2"><button type="button" onClick={onSettings} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-muted hover:bg-surface-2 hover:text-text"><Settings className="h-4 w-4" />Settings</button></div></div>;
+  async function createBotEntry() { if (busy || !name.trim()) return; setBusy(true); try { const r = await sendJson<{ bot: BotDto }>("/api/bots", { name }); setName(""); router.push(`/bots/${r.bot.id}`); onClose(); } finally { setBusy(false); } }
+  async function createRoomEntry() { if (busy || !roomName.trim()) return; setBusy(true); try { const r = await sendJson<{ room: RoomDto }>("/api/bots/rooms", { name: roomName }); setRoomName(""); router.push(`/bots/rooms/${r.room.id}`); onClose(); } finally { setBusy(false); } }
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visibleBots = normalizedQuery ? bots.filter((bot) => bot.name.toLocaleLowerCase().includes(normalizedQuery)) : bots;
+  const visibleRooms = normalizedQuery ? rooms.filter((room) => room.name.toLocaleLowerCase().includes(normalizedQuery)) : rooms;
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-surface">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3">
+        <button type="button" aria-label="メニューを閉じる" onClick={onClose} className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-surface-2"><Menu className="h-5 w-5 text-muted" /></button>
+        <Link href="/bots" onClick={onClose} className="flex min-w-0 items-center gap-2"><img src="/icon.svg" alt="" className="h-6 w-6 rounded-[5px]" /><span className="truncate text-sm font-semibold">ボット</span></Link>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        <ModeSegment mode="bot" onChange={onChangeMode} />
+        <label className="mb-4 flex h-9 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 text-xs text-muted focus-within:border-accent"><Search className="h-3.5 w-3.5 shrink-0" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ボットやルームを検索" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint" /></label>
+        <div className="flex items-center justify-between px-2 py-1"><span className="text-xs font-medium text-muted">ルーム</span><Link href="/bots" onClick={onClose} className="text-xs text-accent">すべて</Link></div>
+        <div className="mt-1 space-y-1">{visibleRooms.map((room) => <button key={room.id} type="button" onClick={() => { router.push(`/bots/rooms/${room.id}`); onClose(); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-success-bg text-xs text-success">#</span><span className="min-w-0 flex-1 truncate">{room.name}</span></button>)}{visibleRooms.length === 0 && <p className="px-2 py-2 text-xs text-muted">ルームはありません</p>}</div>
+        <div className="mt-2 flex gap-1"><input value={roomName} onChange={(event) => setRoomName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void createRoomEntry(); }} placeholder="新しいルーム" className="h-8 min-w-0 flex-1 rounded-md border border-border bg-bg px-2 text-xs outline-none focus:border-accent" /><button type="button" aria-label="ルームを作成" onClick={() => void createRoomEntry()} disabled={busy} className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-accent text-white disabled:opacity-50"><Plus className="h-3.5 w-3.5" /></button></div>
+        <div className="mt-5 flex items-center justify-between px-2 py-1"><span className="text-xs font-medium text-muted">ボット</span><Link href="/bots" onClick={onClose} className="text-xs text-accent">すべて</Link></div>
+        <div className="mt-1 space-y-1">{visibleBots.map((bot) => <button key={bot.id} type="button" onClick={() => { router.push(`/bots/${bot.id}`); onClose(); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs text-accent">{Array.from(bot.name)[0] ?? "?"}</span><span className="min-w-0 flex-1 truncate">{bot.name}</span></button>)}{visibleBots.length === 0 && <p className="px-2 py-2 text-xs text-muted">ボットはありません</p>}</div>
+        <div className="mt-2 flex gap-1"><input value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void createBotEntry(); }} placeholder="新しいボット" className="h-8 min-w-0 flex-1 rounded-md border border-border bg-bg px-2 text-xs outline-none focus:border-accent" /><button type="button" aria-label="ボットを作成" onClick={() => void createBotEntry()} disabled={busy} className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-accent text-white disabled:opacity-50"><Plus className="h-3.5 w-3.5" /></button></div>
+      </div>
+      <div className="shrink-0 border-t border-border p-2"><button type="button" onClick={onSettings} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-muted hover:bg-surface-2 hover:text-text"><Settings className="h-4 w-4" />設定</button></div>
+    </div>
+  );
 }
-
 function ProjectIconPicker({
   project,
   className,
