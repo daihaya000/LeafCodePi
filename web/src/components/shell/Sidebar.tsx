@@ -198,14 +198,9 @@ function countRunningTasks(tasks: TaskSummary[]): number {
   return tasks.filter((task) => task.status === "working").length;
 }
 
-/** 進行中のタスクを最上段に表示する（安定ソートで同順位は元の順序を保つ）。 */
+/** 最新の更新時刻順に表示する（同時刻は元の順序を保つ）。 */
 export function tasksForSidebar(tasks: TaskSummary[]): TaskSummary[] {
-  const working: TaskSummary[] = [];
-  const rest: TaskSummary[] = [];
-  for (const task of tasks) {
-    (task.status === "working" ? working : rest).push(task);
-  }
-  return [...working, ...rest];
+  return [...tasks].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 /** API が新しい順に返すプロジェクト内の、最新の進行中タスクを返す。 */
