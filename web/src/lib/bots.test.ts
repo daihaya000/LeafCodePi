@@ -36,6 +36,13 @@ describe("bot store", () => {
     expect(getBot(bot.id)?.avatarColor).toBe(avatarColorForId(bot.id));
     expect(JSON.parse(readFileSync(configPath, "utf8")).avatarColor).toBe(avatarColorForId(bot.id));
   });
+  it("persists notification preferences across reloads", () => {
+    const bot = createBot({ name: "Notify bot" });
+    expect(bot.notificationsEnabled).toBe(true);
+    patchBot(bot.id, { notificationsEnabled: false });
+    expect(getBot(bot.id)?.notificationsEnabled).toBe(false);
+    expect(JSON.parse(readFileSync(join(root, "bots", bot.id, "config.json"), "utf8")).notificationsEnabled).toBe(false);
+  });
   it("persists per-bot skill rules and extra roots", () => {
     const bot = createBot({ name: "Config bot" });
     const updated = patchBot(bot.id, {

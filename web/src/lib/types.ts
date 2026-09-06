@@ -70,6 +70,8 @@ export type BotDto = {
   skills: BotSkillsConfig;
   extraRoots: string[];
   enabled: boolean;
+  /** Whether notifications for this bot are enabled in the Bot UI. */
+  notificationsEnabled: boolean;
   soul: string;
 };
 

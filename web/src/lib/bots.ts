@@ -45,10 +45,10 @@ function parseConfig(id: string): BotConfig | null {
       thinkingLevel: value.thinkingLevel ?? null, permissionMode: value.permissionMode ?? null,
       skills: normalizeBotSkills(value.skills),
       extraRoots: Array.isArray(value.extraRoots) ? value.extraRoots.filter((item): item is string => typeof item === "string") : [],
-      enabled: value.enabled !== false,
+      enabled: value.enabled !== false, notificationsEnabled: value.notificationsEnabled !== false,
     };
     // Migrate legacy bots once, keeping the fallback stable for every subsequent read.
-    if (!isAvatarColor(value.avatarColor) || typeof value.label !== "string") writeConfig(config);
+    if (!isAvatarColor(value.avatarColor) || typeof value.label !== "string" || typeof value.notificationsEnabled !== "boolean") writeConfig(config);
     return config;
   } catch { return null; }
 }
@@ -74,13 +74,13 @@ export function getBot(id: string): BotDto | undefined {
 export function createBot(input: { name?: string; model?: string | null; thinkingLevel?: ThinkingLevel | null; permissionMode?: BotConfig["permissionMode"] }): BotDto {
   const name = input.name?.trim() || "New bot";
   const id = randomUUID(); const now = new Date().toISOString();
-  const config: BotConfig = { id, name, label: "1:1 アシスタント", avatarColor: randomAvatarColor(), avatarImage: null, createdAt: now, updatedAt: now, model: input.model ?? null, thinkingLevel: input.thinkingLevel ?? null, permissionMode: input.permissionMode ?? null, skills: { ...DEFAULT_SKILLS }, extraRoots: [], enabled: true };
+  const config: BotConfig = { id, name, label: "1:1 アシスタント", avatarColor: randomAvatarColor(), avatarImage: null, createdAt: now, updatedAt: now, model: input.model ?? null, thinkingLevel: input.thinkingLevel ?? null, permissionMode: input.permissionMode ?? null, skills: { ...DEFAULT_SKILLS }, extraRoots: [], enabled: true, notificationsEnabled: true };
   mkdirSync(join(botRoot(id), "workspace"), { recursive: true });
   writeFileSync(soulPath(id), SOUL_TEMPLATE, "utf8"); writeConfig(config);
   insertBotTask({ id: `bot:${id}`, botId: id, name, directory: join(botRoot(id), "workspace"), model: config.model, thinkingLevel: config.thinkingLevel, permissionMode: config.permissionMode });
   return toDto(config);
 }
-export function patchBot(id: string, patch: Partial<Pick<BotConfig, "name" | "label" | "avatarColor" | "avatarImage" | "model" | "thinkingLevel" | "permissionMode" | "skills" | "extraRoots" | "enabled">> & { soul?: string }): BotDto | undefined {
+export function patchBot(id: string, patch: Partial<Pick<BotConfig, "name" | "label" | "avatarColor" | "avatarImage" | "model" | "thinkingLevel" | "permissionMode" | "skills" | "extraRoots" | "enabled" | "notificationsEnabled">> & { soul?: string }): BotDto | undefined {
   const current = parseConfig(id); if (!current) return undefined;
   const next: BotConfig = { ...current, ...patch, skills: patch.skills ?? current.skills, updatedAt: new Date().toISOString() };
   delete (next as Record<string, unknown>).soul;

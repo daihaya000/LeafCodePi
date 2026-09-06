@@ -30,6 +30,16 @@ describe("PATCH /api/bots/[id]", () => {
     const reloaded = await GET(new NextRequest("http://localhost"), { params: Promise.resolve({ id: bot.id }) });
     expect((await reloaded.json()).bot).toMatchObject({ name: "Renamed bot", label: "調査アシスタント" });
   });
+  it("persists notification preferences through PATCH and GET", async () => {
+    const bot = createBot({ name: "Notify patch bot" });
+    const updated = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ notificationsEnabled: false }) }), { params: Promise.resolve({ id: bot.id }) });
+    expect(updated.status).toBe(200);
+    expect((await updated.json()).bot.notificationsEnabled).toBe(false);
+    const reloaded = await GET(new NextRequest("http://localhost"), { params: Promise.resolve({ id: bot.id }) });
+    expect((await reloaded.json()).bot.notificationsEnabled).toBe(false);
+    const invalid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ notificationsEnabled: "no" }) }), { params: Promise.resolve({ id: bot.id }) });
+    expect(invalid.status).toBe(400);
+  });
   it("validates, persists, and clears an avatar image", async () => {
     const bot = createBot({ name: "Image patch bot" });
     const invalid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ avatarImage: "not-a-data-url" }) }), { params: Promise.resolve({ id: bot.id }) });
