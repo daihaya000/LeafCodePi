@@ -6,6 +6,20 @@ import http from "node:http";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const LOCAL_CLIENT_REQUEST_HEADER = "x-leafcode-pi-local-client";
+const RESTART_RESPONSE_GRACE_MS = 100;
+
+function deferRestartUntilResponseSent(res, handler) {
+  let scheduled = false;
+  const schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
+    setTimeout(() => {
+      Promise.resolve(handler()).catch(() => {});
+    }, RESTART_RESPONSE_GRACE_MS);
+  };
+  if (res.writableFinished) schedule();
+  else res.once("finish", schedule);
+}
 
 function localClientCorsHeaders(req, handlers) {
   const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
@@ -251,11 +265,7 @@ export function createLlamaControlServer(handlers) {
         }
         res.writeHead(202, JSON_HEADERS);
         res.end(JSON.stringify({ ok: true, target: "webui", accepted: true }));
-        setImmediate(() => {
-          Promise.resolve()
-            .then(() => handlers.onRestartWebui())
-            .catch(() => {});
-        });
+        deferRestartUntilResponseSent(res, () => handlers.onRestartWebui());
         return;
       }
 
@@ -267,11 +277,7 @@ export function createLlamaControlServer(handlers) {
         }
         res.writeHead(202, JSON_HEADERS);
         res.end(JSON.stringify({ ok: true, target: "host", accepted: true }));
-        setImmediate(() => {
-          Promise.resolve()
-            .then(() => handlers.onRestartHost())
-            .catch(() => {});
-        });
+        deferRestartUntilResponseSent(res, () => handlers.onRestartHost());
         return;
       }
 

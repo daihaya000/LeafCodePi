@@ -70,8 +70,18 @@ function assertBufferIsAsciiOnly(bytes, filePath) {
   }
 }
 
-function assertCrLfOnly(bytes, filePath) {
+function assertArtifactLineEndings(bytes, filePath) {
   const name = relName(filePath);
+  if (process.platform !== "win32") {
+    // Git checkouts on POSIX commonly normalize text files to LF. Reject only
+    // malformed bare CR bytes there; Windows release checkouts stay strict CRLF.
+    for (let i = 0; i < bytes.length; i += 1) {
+      if (bytes[i] === 0x0d && bytes[i + 1] !== 0x0a) {
+        assert.fail(`${name} has a bare CR at offset ${i} (line ${findLineNumber(bytes, i)})`);
+      }
+    }
+    return;
+  }
   for (let i = 0; i < bytes.length; i += 1) {
     if (bytes[i] === 0x0a && (i === 0 || bytes[i - 1] !== 0x0d)) {
       assert.fail(`${name} has a lone LF at offset ${i} (line ${findLineNumber(bytes, i)})`);
@@ -86,23 +96,23 @@ function assertSafeBatchBytes(filePath) {
   const bytes = readFileSync(filePath);
   assertNoBom(bytes, filePath);
   assertBufferIsAsciiOnly(bytes, filePath);
-  assertCrLfOnly(bytes, filePath);
+  assertArtifactLineEndings(bytes, filePath);
 }
 
-test("every on-disk batch file is ASCII-only with CRLF line endings", () => {
+test("every on-disk batch file uses platform-safe line endings", () => {
   const files = listOnDiskBatchFiles();
   assert.ok(files.length > 0, "expected at least one on-disk .bat/.cmd file");
   for (const filePath of files) assertSafeBatchBytes(filePath);
 });
 
-test("tracked batch files are ASCII-only with CRLF when git is available", () => {
+test("tracked batch files use platform-safe line endings when git is available", () => {
   const files = listTrackedBatchFiles();
   for (const filePath of files) assertSafeBatchBytes(filePath);
 });
 
 const messageDir = join(repoRoot, "scripts", "setup-messages");
 
-test("setup message files are UTF-8 without BOM and use CRLF", () => {
+test("setup message files are UTF-8 without BOM and platform-safe line endings", () => {
   const names = readdirSync(messageDir).filter((name) => name.endsWith(".txt"));
   assert.ok(names.length >= 3, `expected setup messages, got ${names.length}`);
   const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -112,7 +122,7 @@ test("setup message files are UTF-8 without BOM and use CRLF", () => {
     assertNoBom(bytes, filePath);
     const text = decoder.decode(bytes);
     assert.ok(bytes.some((byte) => byte > 0x7f), `${name} contains only ASCII`);
-    assertCrLfOnly(bytes, filePath);
+    assertArtifactLineEndings(bytes, filePath);
     assert.ok(text.includes("[LeafCodePi]"), `${name} must mention LeafCodePi`);
   }
 });

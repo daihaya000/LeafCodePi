@@ -155,6 +155,7 @@ let quitting = false;
 let webRestarts = 0;
 let trayRestarts = 0;
 let restarting = false;
+let hostRestarting = false;
 const expectedWebExitPids = new Set();
 
 const statusWebItem = {
@@ -414,7 +415,12 @@ function buildWeb(reason = "missing") {
 async function spawnWeb() {
   installWebIfNeeded();
   let hasBuild = hasProductionBuild();
-  const buildStale = hasBuild && isWebBuildStale(WEB_DIR, webDistDir());
+  const skipStaleBuild = process.env.LEAFCODE_PI_SKIP_STALE_REBUILD === "1";
+  const actualBuildStale = hasBuild && isWebBuildStale(WEB_DIR, webDistDir());
+  const buildStale = !skipStaleBuild && actualBuildStale;
+  if (skipStaleBuild && actualBuildStale) {
+    log("Skipping stale production rebuild during host replacement; serving the existing build");
+  }
   let plan = getWebLaunchPlan(process.env.LEAFCODE_PI_MODE, hasBuild, buildStale);
   if (plan.needsBuild) {
     const rebuildReason = hasBuild && buildStale ? "stale" : "missing";
@@ -613,6 +619,8 @@ async function restartHost() {
     log(`Replacement host launcher spawned (WMI PID ${pid})`);
     await quit();
   } catch (err) {
+    hostRestarting = false;
+    delete process.env.LEAFCODE_PI_SKIP_STALE_REBUILD;
     error(`Host restart failed: ${err instanceof Error ? err.message : String(err)}`);
     try {
       unlinkSync(launcherPath);
@@ -908,7 +916,7 @@ async function quit() {
   const hasBuild = hasProductionBuild();
   const buildStale = hasBuild && isWebBuildStale(WEB_DIR, webDistDir());
   const quitPlan = getWebLaunchPlan(process.env.LEAFCODE_PI_MODE, hasBuild, buildStale);
-  if (quitPlan.needsBuild) {
+  if (!hostRestarting && quitPlan.needsBuild) {
     log("Building the pending production changes before quitting…");
     try {
       await buildWeb(hasBuild && buildStale ? "stale" : "missing");

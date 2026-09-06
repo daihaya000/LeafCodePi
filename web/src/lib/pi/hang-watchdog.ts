@@ -24,6 +24,7 @@ export const HANG_WATCHDOG_INTERVAL_MS = 15_000;
 export const MAX_WATCH_BODY_BYTES = 2_000_000;
 export const HANG_CONFIRM_GRACE_MS = 30_000;
 export const SILENT_RESPONSE_GRACE_MS = 30_000;
+export const MISSING_LIVE_GRACE_MS = 30_000;
 
 export type TaskHangWatchRow = {
   taskId: string;
@@ -39,6 +40,7 @@ export type TaskHangWatchRow = {
   retryUsed: number;
   state: "armed" | "resolving";
   updatedAt: number;
+  missingLiveSince?: number;
 };
 
 export type ArmTaskHangWatchInput = {
@@ -72,6 +74,8 @@ export type HangWatchdogHooks = {
     },
   ) => void;
   notifyHangRetry: (taskId: string, retryCount: number) => void;
+  /** Called when a restart left a watched task without a live session. */
+  onMissingLive?: (taskId: string, reason: string) => void;
 };
 
 type WatchStore = {
@@ -361,10 +365,30 @@ async function evaluateWatch(row: TaskHangWatchRow, timeoutMs: number): Promise<
   if (!hooks) return;
   const live = hooks.getLive(row.taskId);
   if (!live) {
-    // WebUI restart can temporarily detach the session. Keep the persisted
-    // watch so it can resume when the task is reattached.
-    logWatchdog("live session missing — keeping the watch", row);
+    // WebUI restart can temporarily detach the session. Give reattachment a
+    // short grace period, then close the orphan explicitly instead of leaving
+    // a working task and its watch around forever.
+    const now = Date.now();
+    if (row.missingLiveSince === undefined) {
+      row.missingLiveSince = now;
+      row.updatedAt = now;
+      writeStore();
+      logWatchdog("live session missing - waiting for reattachment", row);
+      return;
+    }
+    if (now - row.missingLiveSince < MISSING_LIVE_GRACE_MS) return;
+    disarmTaskHangWatch(row.taskId);
+    hooks.onMissingLive?.(
+      row.taskId,
+      "The live session disappeared during a WebUI restart; the task was stopped.",
+    );
+    logWatchdog("live session missing - stopped the orphaned task", row);
     return;
+  }
+  if (row.missingLiveSince !== undefined) {
+    delete row.missingLiveSince;
+    row.updatedAt = Date.now();
+    writeStore();
   }
 
   const { messages, isStreaming, isCompacting, hasPendingAttention } = live;

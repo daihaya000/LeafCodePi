@@ -720,6 +720,22 @@ async function ensureRuntime(): Promise<void> {
         if (!live) return;
         emitTaskSnapshot(live, "hang_retry", { hangRetryCount: retryCount });
       },
+      onMissingLive: (taskId, reason) => {
+        const task = getTask(taskId);
+        if (!task || task.status !== "working") return;
+        const updated = setTaskStatus(taskId, "error", reason);
+        if (!updated) return;
+        emit(taskId, {
+          type: "snapshot",
+          task: toSummary(updated),
+          isStreaming: false,
+          isCompacting: false,
+          permissionRequest: null,
+          questionRequest: null,
+          eventType: "missing_live_session",
+          error: reason,
+        });
+      },
     });
     startHangWatchdog();
   }

@@ -164,7 +164,7 @@ test("POST /restart/webui returns 202 then invokes handler", async () => {
   const body = await res.json();
   assert.equal(body.ok, true);
   assert.equal(body.target, "webui");
-  await new Promise((r) => setTimeout(r, 50));
+  await new Promise((r) => setTimeout(r, 180));
   assert.equal(called, true);
   await closeControlServer(server);
 });
@@ -187,7 +187,7 @@ test("POST /restart/host returns 202 then invokes handler", async () => {
     headers: { host: `127.0.0.1:${port}` },
   });
   assert.equal(res.status, 202);
-  await new Promise((r) => setTimeout(r, 50));
+  await new Promise((r) => setTimeout(r, 180));
   assert.equal(called, true);
   await closeControlServer(server);
 });

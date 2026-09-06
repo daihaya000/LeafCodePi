@@ -5,6 +5,7 @@ export function buildHostRestartScript({ lockFile, launcherExe, startBat }) {
   return [
     "@echo off",
     "setlocal",
+    "set \"LEAFCODE_PI_SKIP_STALE_REBUILD=1\"",
     `set "LOCK=${lockFile}"`,
     ":wait",
     'if not exist "%LOCK%" goto :launch',

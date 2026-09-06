@@ -296,18 +296,18 @@ function execStub(commandLine, netstat = NETSTAT) {
 
 test("the build guard refuses while next start serves the mirror", () => {
   const serving = execStub(`node ${MIRROR}\\node_modules\\next\\dist\\bin\\next start --port 3010`);
-  assert.equal(productionWebUiIsIdle({ port: 3010, mirrorRoot: MIRROR, exec: serving }), false);
+  assert.equal(productionWebUiIsIdle({ platform: "win32", port: 3010, mirrorRoot: MIRROR, exec: serving }), false);
 });
 
 test("the build guard allows a rebuild while next dev holds the port", () => {
   // dev serves the repository's own output, which the mirror build never touches.
   const dev = execStub("node C:\\repo\\web\\node_modules\\next\\dist\\bin\\next dev --port 3010");
-  assert.equal(productionWebUiIsIdle({ port: 3010, mirrorRoot: MIRROR, exec: dev }), true);
+  assert.equal(productionWebUiIsIdle({ platform: "win32", port: 3010, mirrorRoot: MIRROR, exec: dev }), true);
 });
 
 test("the build guard ignores an unrelated next start from another checkout", () => {
   const other = execStub("node C:\\other\\web\\node_modules\\next\\dist\\bin\\next start --port 3010");
-  assert.equal(productionWebUiIsIdle({ port: 3010, mirrorRoot: MIRROR, exec: other }), true);
+  assert.equal(productionWebUiIsIdle({ platform: "win32", port: 3010, mirrorRoot: MIRROR, exec: other }), true);
 });
 
 test("the build guard fails closed when a listener cannot be identified", () => {

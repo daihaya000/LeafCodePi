@@ -56,6 +56,7 @@ test("host restart relaunches through LeafCodePi.exe when available", () => {
     script.includes(String.raw`start "LeafCodePi" /min "C:\Users\Daichi\LeafCodePi\LeafCodePi.exe"`),
   );
   assert.doesNotMatch(script, /cmd\.exe/);
+  assert.match(script, /LEAFCODE_PI_SKIP_STALE_REBUILD=1/);
 });
 
 test("host restart falls back to start-webui.bat without the native launcher", () => {

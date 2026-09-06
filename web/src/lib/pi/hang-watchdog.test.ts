@@ -6,6 +6,7 @@ import {
   armTaskHangWatch,
   disarmTaskHangWatch,
   estimateWatchBodyBytes,
+  MISSING_LIVE_GRACE_MS,
   getTaskHangWatch,
   progressFingerprint,
   registerHangWatchdogHooks,
@@ -221,6 +222,38 @@ describe("hang-watchdog helpers", () => {
       await resolving;
       expect(resumeCount).toBe(0);
       expect(getTaskHangWatch("cancelled-task")).toBeNull();
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("stops an orphaned watch after the live-session grace period", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-missing-live-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    let reason = "";
+    registerHangWatchdogHooks({
+      getLive: () => null,
+      abortTask: async () => undefined,
+      resumePrompt: () => undefined,
+      notifyHangRetry: () => undefined,
+      onMissingLive: (_taskId, message) => {
+        reason = message;
+      },
+    });
+    try {
+      armTaskHangWatch({ taskId: "missing-live", prompt: "work", startedAt: 1_000_000 });
+      await runHangWatchdogTick();
+      expect(getTaskHangWatch("missing-live")?.missingLiveSince).toBe(1_000_000);
+      vi.setSystemTime(1_000_000 + MISSING_LIVE_GRACE_MS);
+      await runHangWatchdogTick();
+      expect(getTaskHangWatch("missing-live")).toBeNull();
+      expect(reason).toContain("live session disappeared");
     } finally {
       stopHangWatchdogForTests();
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
