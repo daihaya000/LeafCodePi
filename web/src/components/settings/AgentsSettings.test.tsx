@@ -17,15 +17,18 @@ vi.mock("@/components/ModelSelect", () => ({
     disabled,
     onChange,
     ariaLabel,
+    className,
   }: {
     value: string;
     options: ModelOption[];
     disabled?: boolean;
     onChange: (value: string) => void;
     ariaLabel?: string;
+    className?: string;
   }) => (
     <select
       aria-label={ariaLabel}
+      className={className}
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
@@ -104,6 +107,7 @@ describe("AgentsSettings", () => {
     ]);
 
     const model = screen.getByRole("combobox", { name: "enabled のモデル" }) as HTMLSelectElement;
+    expect(model.className).toContain("w-full");
     expect(model.value).toBe("openai-codex::gpt-5.6-luna");
     fireEvent.change(model, { target: { value: "anthropic::claude" } });
 

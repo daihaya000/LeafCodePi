@@ -214,8 +214,8 @@ function CandidateRow({
 }) {
   const effortOptions = effortOptionsFor(candidate, source);
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5">
-      <span className="w-4 shrink-0 text-right text-[10px] text-faint">{index + 1}.</span>
+    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5">
+      <span className="row-span-2 w-4 shrink-0 text-right text-[10px] text-faint">{index + 1}.</span>
       {candidate.kind === "model" && (
         <ModelSelect
           value={`${candidate.providerID}::${candidate.modelID}`}
@@ -232,7 +232,7 @@ function CandidateRow({
               variant: undefined,
             });
           }}
-          className="min-w-0 flex-1"
+          className="min-w-0 w-full"
         />
       )}
       {candidate.kind === "cost" && (
@@ -242,7 +242,7 @@ function CandidateRow({
           onChange={(event) =>
             onChange({ ...candidate, cost: event.target.value as ModelCostTier })
           }
-          className="h-7 min-w-0 flex-1 rounded border border-border bg-surface px-1.5 text-xs text-muted focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+          className="h-7 min-w-0 w-full rounded border border-border bg-surface px-1.5 text-xs text-muted focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
         >
           {COST_TIERS.map((cost) => (
             <option key={cost} value={cost}>{COST_LABEL[cost]}</option>
@@ -250,49 +250,51 @@ function CandidateRow({
         </select>
       )}
       {candidate.kind === "strongest" && (
-        <span className="flex-1 text-xs text-muted">最強候補を優先</span>
+        <span className="min-w-0 truncate text-xs text-muted">最強候補を優先</span>
       )}
-      {effortOptions.length > 0 && (
-        <IntelligenceSelect
-          variants={effortOptions}
-          value={candidate.variant ?? ""}
-          onChange={(value) =>
-            onChange({
-              ...candidate,
-              ...(isIntelligenceVariant(value) ? { variant: value } : { variant: undefined }),
-            })
-          }
-          ariaLabel={`候補${index + 1}のeffort`}
-          className="h-7 shrink-0"
-        />
-      )}
-      <div className="ml-auto flex items-center gap-0.5">
-        <button
-          type="button"
-          aria-label={`候補${index + 1}を上へ`}
-          disabled={index === 0}
-          onClick={() => onMove(-1)}
-          className="inline-flex h-11 w-11 items-center justify-center rounded text-faint hover:bg-surface-3 hover:text-muted disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:h-6 sm:w-6"
-        >
-          <ChevronUp aria-hidden="true" className="h-3 w-3" />
-        </button>
-        <button
-          type="button"
-          aria-label={`候補${index + 1}を下へ`}
-          disabled={isLast}
-          onClick={() => onMove(1)}
-          className="inline-flex h-11 w-11 items-center justify-center rounded text-faint hover:bg-surface-3 hover:text-muted disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:h-6 sm:w-6"
-        >
-          <ChevronDown aria-hidden="true" className="h-3 w-3" />
-        </button>
-        <button
-          type="button"
-          aria-label={`候補${index + 1}を削除`}
-          onClick={onRemove}
-          className="inline-flex h-11 w-11 items-center justify-center rounded text-faint hover:bg-surface-3 hover:text-danger focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:h-6 sm:w-6"
-        >
-          <X aria-hidden="true" className="h-3 w-3" />
-        </button>
+      <div className="col-start-2 flex min-w-0 flex-wrap items-center gap-2">
+        {effortOptions.length > 0 && (
+          <IntelligenceSelect
+            variants={effortOptions}
+            value={candidate.variant ?? ""}
+            onChange={(value) =>
+              onChange({
+                ...candidate,
+                ...(isIntelligenceVariant(value) ? { variant: value } : { variant: undefined }),
+              })
+            }
+            ariaLabel={`候補${index + 1}のeffort`}
+            className="h-7 shrink-0"
+          />
+        )}
+        <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            aria-label={`候補${index + 1}を上へ`}
+            disabled={index === 0}
+            onClick={() => onMove(-1)}
+            className="inline-flex h-11 w-11 items-center justify-center rounded text-faint hover:bg-surface-3 hover:text-muted disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:h-6 sm:w-6"
+          >
+            <ChevronUp aria-hidden="true" className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            aria-label={`候補${index + 1}を下へ`}
+            disabled={isLast}
+            onClick={() => onMove(1)}
+            className="inline-flex h-11 w-11 items-center justify-center rounded text-faint hover:bg-surface-3 hover:text-muted disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:h-6 sm:w-6"
+          >
+            <ChevronDown aria-hidden="true" className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            aria-label={`候補${index + 1}を削除`}
+            onClick={onRemove}
+            className="inline-flex h-11 w-11 items-center justify-center rounded text-faint hover:bg-surface-3 hover:text-danger focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:h-6 sm:w-6"
+          >
+            <X aria-hidden="true" className="h-3 w-3" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -494,7 +496,7 @@ export function AutoRouteOverridesEditor({
         <div
           role="group"
           aria-label="Auto ルーティング設定一覧"
-          className="grid grid-cols-1 gap-3 md:grid-cols-3"
+          className="grid grid-cols-1 gap-3 lg:grid-cols-3"
         >
           {AUTO_OPTIMIZE_MODES.map((candidateMode) => {
             const hasModeOverride = TIERS.some(

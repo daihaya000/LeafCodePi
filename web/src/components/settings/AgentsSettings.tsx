@@ -157,7 +157,7 @@ function AgentModelPicker({
         disabled={loading || busy}
         onChange={(next) => onChange(modelFromSelection(next, options))}
         ariaLabel={`${name} のモデル`}
-        className="min-w-0 flex-1 sm:min-w-48 sm:max-w-md"
+        className="min-w-0 w-full sm:w-auto sm:flex-1 sm:min-w-48 sm:max-w-md"
         title={model ?? "モデルを選択"}
       />
       {model && (

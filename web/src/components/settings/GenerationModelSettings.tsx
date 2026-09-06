@@ -265,7 +265,7 @@ export const GenerationModelSettings = memo(function GenerationModelSettings({
               disabled={loading}
               onChange={change}
               ariaLabel="生成モデル"
-              className="min-w-0 flex-1 sm:min-w-64"
+              className="min-w-0 w-full sm:w-auto sm:flex-1 sm:min-w-64"
               title={selected?.label ?? "生成モデルを選択"}
             />
             {value && (
@@ -292,7 +292,7 @@ export const GenerationModelSettings = memo(function GenerationModelSettings({
               disabled={loading}
               onChange={changeFallback}
               ariaLabel="フォールバック先"
-              className="min-w-0 flex-1 sm:min-w-64"
+              className="min-w-0 w-full sm:w-auto sm:flex-1 sm:min-w-64"
               title={fallbackSelected?.label ?? "フォールバック先を選択"}
             />
             {fallbackValue && (

@@ -74,6 +74,7 @@ describe("GenerationModelSettings", () => {
     render(<GenerationModelSettings />);
     const modelSelect = screen.getByRole("button", { name: "生成モデル" }) as HTMLButtonElement;
     expect(modelSelect.disabled).toBe(true);
+    expect(modelSelect.parentElement?.className).toContain("w-full");
 
     resolveModels({
       models: [

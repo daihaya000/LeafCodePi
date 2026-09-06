@@ -68,6 +68,8 @@ describe("AutoRouteOverridesEditor", () => {
       />,
     );
 
+    const modelButton = screen.getByRole("button", { name: "候補1のモデル" });
+    expect(modelButton.parentElement?.className).toContain("w-full");
     const firstUp = screen.getByRole("button", { name: "候補1を上へ" }) as HTMLButtonElement;
     const firstDown = screen.getByRole("button", { name: "候補1を下へ" }) as HTMLButtonElement;
     const lastDown = screen.getByRole("button", { name: "候補2を下へ" }) as HTMLButtonElement;
@@ -102,7 +104,8 @@ describe("AutoRouteOverridesEditor", () => {
       />,
     );
     const modeGrid = screen.getByRole("group", { name: "Auto ルーティング設定一覧" });
-    expect(modeGrid.className).toContain("grid-cols-3");
+    expect(modeGrid.className).toContain("grid-cols-1");
+    expect(modeGrid.className).toContain("lg:grid-cols-3");
     expect(Array.from(modeGrid.children).every((column) => column.className.includes("border"))).toBe(true);
     expect(within(modeGrid).getAllByRole("button", { name: "候補を追加" })).toHaveLength(9);
     const modeLabels = () =>

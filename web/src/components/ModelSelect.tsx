@@ -253,7 +253,7 @@ export function ModelSelect({
   const menu = open && !isDisabled && (
     <div
       ref={menuRef}
-      className="fixed z-50 w-max max-w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-border bg-surface text-xs shadow-xl"
+      className="fixed z-50 w-max max-w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-surface text-xs shadow-xl"
       style={{
         top: menuPosition?.top ?? 0,
         left: menuPosition?.left ?? 0,
@@ -266,11 +266,11 @@ export function ModelSelect({
         role="listbox"
         aria-label={ariaLabel ?? "モデル"}
         onKeyDown={handleListboxKeyDown}
-        className="max-h-80 overflow-y-auto p-1"
+        className="max-h-[min(20rem,calc(100dvh-2rem))] overflow-y-auto p-1"
       >
         {grouped.map((group) => (
           <div key={group.key}>
-            <div className="px-2 py-1 text-[11px] font-semibold text-faint">
+            <div className="min-w-0 truncate px-2 py-1 text-[11px] font-semibold text-faint" title={group.header}>
               {group.header}
             </div>
             {group.options.map((option) => {

@@ -118,8 +118,12 @@ describe("ModelSelect grouping by account", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "モデル" }));
+    const listbox = screen.getByRole("listbox");
+    expect(listbox.className).toContain("100dvh");
+    expect(listbox.parentElement?.className).toContain("100vw");
     expect(screen.getByText("llama-server")).toBeTruthy();
-    expect(screen.getByText("Codex · 仕事用")).toBeTruthy();
+    const accountGroup = screen.getByText("Codex · 仕事用");
+    expect(accountGroup.className).toContain("truncate");
   });
 
   it("supports arrow, Home/End, Enter, and Escape keyboard operation", () => {
