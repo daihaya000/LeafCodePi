@@ -49,6 +49,20 @@ describe("room store and mention routing", () => {
     expect(getTask(taskId)).toBeUndefined();
     expect(getTask(botTaskId(alpha.id))).toBeUndefined();
   });
+  it("persists relay claims so replay remains blocked after a module reload", async () => {
+    const [source, target] = ["Source", "Target"].map((name) => createBot({ name }));
+    const room = createRoom({ members: [source.id, target.id] });
+    patchRoom(room.id, { botRelayEnabled: true });
+    const token = issueRoomRelayEnvelope(room.id, source.id, [target.id]);
+    const envelope = consumeRoomRelayEnvelope(room.id, token!);
+    expect(envelope).toBeDefined();
+    const relayState = JSON.parse(readFileSync(join(root, "bots", "rooms", room.id, "relay.json"), "utf8")) as { claims: Record<string, string[]> };
+    expect(relayState.claims[envelope!.turnId]).toEqual(expect.arrayContaining([source.id, target.id]));
+    // A fresh module/worker reads the durable claim, rather than an in-process Map.
+    const restartedRooms = await import("./rooms?relay-restart");
+    expect(restartedRooms.consumeRoomRelayEnvelope(room.id, token!)).toBeUndefined();
+    expect(restartedRooms.issueRoomRelayEnvelope(room.id, target.id, [source.id], token!)).toBeUndefined();
+  });
   it("enforces server-side relay depth and turn participants", () => {
     const bots = ["A", "B", "C", "D", "E", "F"].map((name) => createBot({ name }));
     const room = createRoom({ members: bots.map((bot) => bot.id) });

@@ -36,6 +36,7 @@ import { getTaskDetail } from "@/lib/pi/harness";
 import { getTask } from "@/lib/store";
 import { GET as events } from "../events/route";
 import { POST } from "./route";
+import { PATCH } from "../route";
 
 function snapshot(taskId: string, eventType: string, patch: Partial<TaskDetail>) {
   const detail = { ...state.details.get(taskId)!, ...patch };
@@ -176,6 +177,19 @@ describe("room mention responses", () => {
     await vi.waitFor(() => expect(state.completions.has(taskId)).toBe(true));
     finish(taskId, { messages: [assistant("retry", "Recovered")] });
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.at(-1)).toMatchObject({ status: "done", text: "Recovered" }));
+  });
+
+  it("rejects unauthenticated relay enablement and accepts the configured Web UI token", async () => {
+    const { room } = setup(["A", "B"]);
+    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required");
+    vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN", "room-admin-token");
+    const params = { params: Promise.resolve({ id: room.id }) };
+    const unauthenticated = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ botRelayEnabled: true }) }), params);
+    expect(unauthenticated.status).toBe(403);
+    expect(getRoom(room.id)?.botRelayEnabled).toBe(false);
+    const authorized = await PATCH(new NextRequest("http://localhost", { method: "PATCH", headers: { authorization: "Bearer room-admin-token" }, body: JSON.stringify({ botRelayEnabled: true }) }), params);
+    expect(authorized.status).toBe(200);
+    expect(getRoom(room.id)?.botRelayEnabled).toBe(true);
   });
 
   it("allows one directed relay only when the room is explicitly enabled", async () => {

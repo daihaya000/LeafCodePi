@@ -1,4 +1,4 @@
-﻿import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -11,13 +11,54 @@ type RoomFile = RoomDto;
 const roomEvents = new EventEmitter();
 export const MAX_ROOM_RELAY_DEPTH = 3;
 type RoomRelayEnvelope = { roomId: string; sourceBotId: string; targetBotIds: string[]; turnId: string; depth: number; parentId?: string; consumed: boolean; expiresAt: number };
-const relayEnvelopes = new Map<string, RoomRelayEnvelope>();
-const relayTurnClaims = new Map<string, Set<string>>();
+type RoomRelayState = { envelopes: Record<string, RoomRelayEnvelope>; claims: Record<string, string[]> };
 const RELAY_ENVELOPE_TTL_MS = 10 * 60 * 1000;
+
+function relayRoot(roomId: string): string { return join(roomsRoot(), roomId); }
+function relayStatePath(roomId: string): string { assertId(roomId); return join(relayRoot(roomId), "relay.json"); }
+function readRelayState(roomId: string): RoomRelayState {
+  try {
+    const value = JSON.parse(readFileSync(relayStatePath(roomId), "utf8")) as Partial<RoomRelayState>;
+    const envelopes = value.envelopes && typeof value.envelopes === "object" ? value.envelopes : {};
+    const claims = value.claims && typeof value.claims === "object" ? value.claims : {};
+    return { envelopes: envelopes as Record<string, RoomRelayEnvelope>, claims: claims as Record<string, string[]> };
+  } catch { return { envelopes: {}, claims: {} }; }
+}
+function writeRelayState(roomId: string, state: RoomRelayState): void {
+  mkdirSync(relayRoot(roomId), { recursive: true });
+  const path = relayStatePath(roomId);
+  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  // Rename is atomic on the room's local filesystem, so a restart never sees
+  // a half-written claim/envelope file.
+  renameSync(temporary, path);
+}
+
+/** Serialize read/check/write across workers; stale locks are recoverable after a crash. */
+function withRelayLock<T>(roomId: string, action: () => T): T {
+  const root = relayRoot(roomId);
+  const lock = join(root, "relay.lock");
+  mkdirSync(root, { recursive: true });
+  const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch {
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > 30_000) rmSync(lock, { recursive: true, force: true });
+      } catch { /* another worker removed it */ }
+      if (attempt >= 300) throw new Error("relay state is busy");
+      Atomics.wait(waitBuffer, 0, 0, 10);
+    }
+  }
+  try { return action(); } finally { rmSync(lock, { recursive: true, force: true }); }
+}
 
 function relayParticipants(roomId: string, turnId: string): Set<string> {
   const room = getRoom(roomId);
-  const ids = new Set(relayTurnClaims.get(`${roomId}:${turnId}`) ?? []);
+  const state = readRelayState(roomId);
+  const ids = new Set(state.claims[turnId] ?? []);
   for (const message of room?.messages ?? []) {
     if (message.relayTurnId !== turnId) continue;
     if (message.sourceBotId) ids.add(message.sourceBotId);
@@ -28,36 +69,44 @@ function relayParticipants(roomId: string, turnId: string): Set<string> {
 
 /** Server-only capability. The route accepts only the returned opaque envelope, never its fields. */
 export function issueRoomRelayEnvelope(roomId: string, sourceBotId: string, targetBotIds: string[], parentId?: string): string | undefined {
-  const room = getRoom(roomId);
-  if (!room?.botRelayEnabled || !room.members.includes(sourceBotId) || !getBot(sourceBotId)?.enabled) return undefined;
-  const targets = [...new Set(targetBotIds)];
-  if (targets.length === 0 || targets.some((id) => id === sourceBotId || !room.members.includes(id) || !getBot(id)?.enabled)) return undefined;
-  const parent = parentId ? relayEnvelopes.get(parentId) : undefined;
-  if (parentId && (!parent || !parent.consumed || parent.roomId !== roomId || parent.expiresAt <= Date.now() || !parent.targetBotIds.includes(sourceBotId))) return undefined;
-  const depth = parent ? parent.depth + 1 : 0;
-  if (depth > MAX_ROOM_RELAY_DEPTH) return undefined;
-  const turnId = parent?.turnId ?? randomUUID();
-  const participants = relayParticipants(roomId, turnId);
-  if (targets.some((id) => participants.has(id))) return undefined;
-  const token = randomUUID();
-  relayEnvelopes.set(token, { roomId, sourceBotId, targetBotIds: targets, turnId, depth, parentId, consumed: false, expiresAt: Date.now() + RELAY_ENVELOPE_TTL_MS });
-  return token;
+  return withRelayLock(roomId, () => {
+    const room = getRoom(roomId);
+    if (!room?.botRelayEnabled || !room.members.includes(sourceBotId) || !getBot(sourceBotId)?.enabled) return undefined;
+    const targets = [...new Set(targetBotIds)];
+    if (targets.length === 0 || targets.some((id) => id === sourceBotId || !room.members.includes(id) || !getBot(id)?.enabled)) return undefined;
+    const state = readRelayState(roomId);
+    const parent = parentId ? state.envelopes[parentId] : undefined;
+    if (parentId && (!parent || !parent.consumed || parent.roomId !== roomId || parent.expiresAt <= Date.now() || !parent.targetBotIds.includes(sourceBotId))) return undefined;
+    const depth = parent ? parent.depth + 1 : 0;
+    if (depth > MAX_ROOM_RELAY_DEPTH) return undefined;
+    const turnId = parent?.turnId ?? randomUUID();
+    const participants = relayParticipants(roomId, turnId);
+    if (targets.some((id) => participants.has(id))) return undefined;
+    const token = randomUUID();
+    state.envelopes[token] = { roomId, sourceBotId, targetBotIds: targets, turnId, depth, parentId, consumed: false, expiresAt: Date.now() + RELAY_ENVELOPE_TTL_MS };
+    writeRelayState(roomId, state);
+    return token;
+  });
 }
 
 export function consumeRoomRelayEnvelope(roomId: string, token: string): Omit<RoomRelayEnvelope, "parentId" | "consumed" | "expiresAt"> | undefined {
-  const envelope = relayEnvelopes.get(token);
-  const room = getRoom(roomId);
-  if (!room?.botRelayEnabled || !envelope || envelope.roomId !== roomId || envelope.consumed || envelope.expiresAt <= Date.now()) return undefined;
-  const participants = relayParticipants(roomId, envelope.turnId);
-  if (envelope.targetBotIds.some((id) => participants.has(id))) return undefined;
-  envelope.consumed = true;
-  const claimKey = `${roomId}:${envelope.turnId}`;
-  const claims = relayTurnClaims.get(claimKey) ?? new Set<string>();
-  claims.add(envelope.sourceBotId);
-  for (const id of envelope.targetBotIds) claims.add(id);
-  relayTurnClaims.set(claimKey, claims);
-  return { roomId: envelope.roomId, sourceBotId: envelope.sourceBotId, targetBotIds: envelope.targetBotIds, turnId: envelope.turnId, depth: envelope.depth };
+  return withRelayLock(roomId, () => {
+    const state = readRelayState(roomId);
+    const envelope = state.envelopes[token];
+    const room = getRoom(roomId);
+    if (!room?.botRelayEnabled || !envelope || envelope.roomId !== roomId || envelope.consumed || envelope.expiresAt <= Date.now()) return undefined;
+    const participants = relayParticipants(roomId, envelope.turnId);
+    if (envelope.targetBotIds.some((id) => participants.has(id))) return undefined;
+    envelope.consumed = true;
+    const claims = new Set(state.claims[envelope.turnId] ?? []);
+    claims.add(envelope.sourceBotId);
+    for (const id of envelope.targetBotIds) claims.add(id);
+    state.claims[envelope.turnId] = [...claims];
+    writeRelayState(roomId, state);
+    return { roomId: envelope.roomId, sourceBotId: envelope.sourceBotId, targetBotIds: envelope.targetBotIds, turnId: envelope.turnId, depth: envelope.depth };
+  });
 }
+
 roomEvents.setMaxListeners(0);
 
 function roomsRoot(): string { return join(dataDir(), "bots", "rooms"); }
@@ -118,6 +167,7 @@ export function patchRoom(id: string, patch: { name?: string; members?: string[]
 export function deleteRoom(id: string): boolean {
   if (!readRoom(id)) return false;
   rmSync(roomPath(id), { force: true });
+  rmSync(relayRoot(id), { recursive: true, force: true });
   for (const task of listTasks(true, "bot")) {
     if (task.id.endsWith(`:room:${id}`)) deleteTask(task.id);
   }

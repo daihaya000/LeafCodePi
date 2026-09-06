@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteRoom, getRoom, patchRoom } from "@/lib/rooms";
+import { isWebUiRequestAuthorized } from "@/lib/webui-auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 async function idOf(params: Promise<{ id: string }>) { return (await params).id; }
@@ -10,6 +11,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const body = (await req.json().catch(() => null)) as { name?: unknown; members?: unknown; botRelayEnabled?: unknown } | null;
   if (!body || (body.name !== undefined && typeof body.name !== "string") || (body.members !== undefined && (!Array.isArray(body.members) || body.members.some((item) => typeof item !== "string"))) || (body.botRelayEnabled !== undefined && typeof body.botRelayEnabled !== "boolean")) return NextResponse.json({ error: "\u30eb\u30fc\u30e0\u8a2d\u5b9a\u304c\u4e0d\u6b63\u3067\u3059" }, { status: 400 });
+  // Relay administration is a privileged mutation. Do not rely only on the
+  // global proxy: direct route invocation and internal deployments must also
+  // enforce the same Web UI token permission.
+  if (body?.botRelayEnabled !== undefined && !isWebUiRequestAuthorized(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   const room = patchRoom(await idOf(params), { ...(body.name !== undefined ? { name: body.name } : {}), ...(body.members !== undefined ? { members: body.members as string[] } : {}), ...(body.botRelayEnabled !== undefined ? { botRelayEnabled: body.botRelayEnabled } : {}) });
   return room ? NextResponse.json({ room }) : NextResponse.json({ error: "\u30eb\u30fc\u30e0\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
 }
