@@ -4,6 +4,7 @@ import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, us
 import { useRouter } from "next/navigation";
 import { Users, X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
+import { markRead } from "@/lib/bot-unread";
 import type { BotDto, RoomDto } from "@/lib/types";
 import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
@@ -75,6 +76,11 @@ export function RoomView({ id }: { id: string }) {
   }, [id]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    const latest = room?.messages.reduce((value, message) => Math.max(value, message.createdAt), 0) ?? 0;
+    if (latest > 0) markRead("room", id, latest);
+  }, [id, room?.messages]);
 
   useEffect(() => {
     const source = new EventSource(`/api/bots/rooms/${encodeURIComponent(id)}/events?epoch=${Date.now()}`);

@@ -16,7 +16,7 @@ export async function GET() {
   const bots = listBots();
   const botPreviews = await Promise.all(bots.map(async (bot) => {
     const task = getTask(botTaskId(bot.id));
-    let preview: Preview = { lastMessageSummary: null, lastMessageAt: task?.updatedAt ?? null };
+    let preview: Preview = { lastMessageSummary: null, lastMessageAt: null };
     try {
       if (task) {
         const detail = await getTaskDetail(task.id);
@@ -28,7 +28,7 @@ export async function GET() {
   }));
   const rooms = listRooms().map((room) => {
     const message = room.messages[room.messages.length - 1];
-    return { ...room, lastMessageSummary: message ? summarize(message.text) || null : null, lastMessageAt: message ? new Date(message.createdAt).toISOString() : room.updatedAt };
+    return { ...room, lastMessageSummary: message ? summarize(message.text) || null : null, lastMessageAt: message ? new Date(message.createdAt).toISOString() : null };
   });
   return NextResponse.json({ bots: botPreviews, rooms });
 }

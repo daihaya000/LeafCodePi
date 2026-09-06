@@ -14,6 +14,7 @@ import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
 import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
 import { AVATAR_IMAGE_ACCEPT, BOT_AVATAR_COLORS, MAX_AVATAR_IMAGE_BYTES, randomAvatarColor } from "@/lib/bot-avatar";
+import { markRead } from "@/lib/bot-unread";
 import type { BotDto, ModelOption, PermissionRequestDto, RoutineDto, ThinkingLevel, UiMessage } from "@/lib/types";
 
 function textOf(message: UiMessage): string {
@@ -73,6 +74,10 @@ export function BotView({ id }: { id: string }) {
   }, [id]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const latest = messages.reduce((value, message) => Math.max(value, message.createdAt), 0);
+    if (latest > 0) markRead("bot", id, latest);
+  }, [id, messages]);
   const loadRoutines = useCallback(() => getJson<{ routines: RoutineDto[] }>(`/api/bots/${encodeURIComponent(id)}/routines`).then((result) => setRoutines(result.routines)).catch((reason) => setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f")), [id]);
   useEffect(() => { void loadRoutines(); }, [loadRoutines]);
 
