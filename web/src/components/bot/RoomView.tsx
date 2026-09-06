@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Settings2, Users, X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
 import type { BotDto, RoomDto } from "@/lib/types";
@@ -15,8 +16,10 @@ export function RoomView({ id }: { id: string }) {
   const [broadcast, setBroadcast] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const composingRef = useRef(false);
+  const router = useRouter();
 
   const load = useCallback(() => {
     return Promise.all([
@@ -53,6 +56,19 @@ export function RoomView({ id }: { id: string }) {
       const result = await sendJson<{ room: RoomDto }>(`/api/bots/rooms/${encodeURIComponent(id)}`, { members: next }, "PATCH");
       setRoom(result.room);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "メンバーの保存に失敗しました"); }
+  };
+
+  const removeRoom = async () => {
+    if (!room || deleting || !window.confirm(`「${room.name}」を削除しますか？\nこの操作は取り消せません。`)) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await sendJson(`/api/bots/rooms/${encodeURIComponent(id)}`, undefined, "DELETE");
+      router.push("/bots");
+    } catch (reason) {
+      setDeleting(false);
+      setError(reason instanceof Error ? reason.message : "ルームの削除に失敗しました");
+    }
   };
 
   const send = async () => {
@@ -184,6 +200,10 @@ export function RoomView({ id }: { id: string }) {
                 <div><span className="text-sm font-medium">部屋に聞く</span><p className="mt-0.5 text-xs text-muted">有効にすると、メンションなしでもメンバー全員が応答します。</p></div>
                 <Button size="sm" variant={broadcast ? "primary" : "ghost"} onClick={() => setBroadcast((value) => !value)} aria-pressed={broadcast}>{broadcast ? "全員" : "メンション"}</Button>
               </div>
+            </div>
+            <div className="border-t border-border pt-4">
+              <p className="text-xs text-muted">このルームの会話履歴も削除されます。</p>
+              <Button size="sm" variant="danger" onClick={() => void removeRoom()} busy={deleting} className="mt-2">ルームを削除</Button>
             </div>
           </div>
         </aside>
