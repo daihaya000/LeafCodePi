@@ -120,6 +120,44 @@ describe("AgentsSettings", () => {
     });
   });
 
+  it("shows logical model candidates from separate accounts", async () => {
+    const accountModels: ModelOption[] = [
+      {
+        ...models[0],
+        value: "work::openai-codex::gpt-5.6-luna",
+        accountId: "work",
+        accountLabel: "仕事用",
+      },
+      {
+        ...models[0],
+        value: "personal::openai-codex::gpt-5.6-luna",
+        accountId: "personal",
+        accountLabel: "個人用",
+      },
+      {
+        ...models[1],
+        value: "work::anthropic::claude",
+        accountId: "work",
+        accountLabel: "仕事用",
+      },
+    ];
+    getJson.mockImplementation((path: string) =>
+      path === "/api/agents"
+        ? Promise.resolve({ agents, agentsDir: "C:/pi/agent/agents" })
+        : path === "/api/settings/auto-agent-prompt"
+          ? Promise.resolve({ value: null })
+          : Promise.resolve({ models: accountModels }),
+    );
+
+    render(<AgentsSettings />);
+
+    const model = await screen.findByRole("combobox", { name: "enabled のモデル" }) as HTMLSelectElement;
+    expect([...model.options].map((option) => [option.value, option.textContent])).toEqual([
+      ["openai-codex::gpt-5.6-luna", "GPT-5.6 Luna"],
+      ["anthropic::claude", "Claude"],
+    ]);
+  });
+
   it("saves subagent effort independently from the Composer setting", async () => {
     render(<AgentsSettings />);
 

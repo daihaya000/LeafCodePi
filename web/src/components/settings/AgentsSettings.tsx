@@ -84,6 +84,21 @@ function optionsForModel(model: string | undefined, options: readonly ModelOptio
   ];
 }
 
+/** Agent settings save provider/model only, so account-scoped API options are logicalized. */
+function agentModelOptions(options: readonly ModelOption[]): ModelOption[] {
+  const byValue = new Map<string, ModelOption>();
+  for (const option of options) {
+    const normalized = {
+      ...option,
+      value: `${option.providerID}::${option.modelID}`,
+    };
+    delete normalized.accountId;
+    delete normalized.accountLabel;
+    if (!byValue.has(normalized.value)) byValue.set(normalized.value, normalized);
+  }
+  return [...byValue.values()];
+}
+
 function modelFromSelection(value: string, options: readonly ModelOption[]): string | null {
   if (!value) return null;
   const option = options.find((entry) => entry.value === value);
@@ -453,9 +468,7 @@ export function AgentsSettings() {
           );
         }
         if (modelsResult.status === "fulfilled") {
-          // Agent settings cannot pin a different account; separate-mode physical
-          // account options must not be silently flattened into provider/model.
-          setModels(modelsResult.value.models.filter((model) => !model.accountId));
+          setModels(agentModelOptions(modelsResult.value.models));
         } else {
           errors.push("モデル一覧の取得に失敗しました");
         }
