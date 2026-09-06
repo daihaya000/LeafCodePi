@@ -1,4 +1,4 @@
-# LeafCodePi
+﻿# LeafCodePi
 
 [LeafCode](https://github.com/daihaya000/LeafCode) の UI/UX 構造を維持した、[Pi Coding Agent](https://github.com/earendil-works/pi) 向けの最低限フロントエンドです。OpenCode は使いません。Pi SDK（`@earendil-works/pi-coding-agent`）を Next.js の BFF に埋め込み、ブラウザからセッションを操作します。
 
@@ -239,3 +239,8 @@ npm run check
 | `LEAFCODE_PI_LLAMA_SERVER_BIN` | Linux/macOS の llama-server バイナリ（未設定時は PATH の `llama-server`） |
 | `LEAFCODE_PI_LLAMA_MODEL_DIR` | Linux/macOS のモデルディレクトリ（未設定時は `~/models/llm`） |
 | `ANTHROPIC_API_KEY` など | Pi が読むプロバイダーキー |
+
+
+## Bot mode
+
+LeafCodePi also provides a small Bot mode for named 1:1 assistants. Use the Code/Bot switch in the sidebar, create a bot under `/bots`, and edit its `SOUL.md` on the bot page. Bot homes live under the existing data directory (`%APPDATA%\leafcode-pi\bots` on Windows, `~/.leafcode-pi/bots` elsewhere); tools run in each bot's `workspace/`. Rooms and routines are not part of this MVP.

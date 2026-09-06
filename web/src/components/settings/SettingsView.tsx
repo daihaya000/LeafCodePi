@@ -27,19 +27,21 @@ import { Badge, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import type { HealthDto, ProviderAuthDto } from "@/lib/types";
 
-type Tab = "engine" | "models" | "agents" | "extensions";
+type Tab = "engine" | "models" | "agents" | "extensions" | "bots";
 
 const SETTINGS_TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: "engine", label: "エンジン" },
   { id: "models", label: "モデル" },
   { id: "agents", label: "エージェント" },
   { id: "extensions", label: "拡張" },
+  { id: "bots", label: "ボット" },
 ];
 
 const TAB_HASH: Readonly<Record<Tab, string>> = {
   engine: "engine",
   models: "models",
   agents: "agents",
+  bots: "bots",
   extensions: "extensions",
 };
 
@@ -52,6 +54,7 @@ const CURRENT_HASH_TAB: Readonly<Record<string, Tab>> = {
   "models-generation": "models",
   "models-providers": "models",
   agents: "agents",
+  bots: "bots",
   extensions: "extensions",
   "extensions-list": "extensions",
   "extensions-skills": "extensions",
@@ -261,9 +264,9 @@ export function SettingsView() {
                       <dt className="text-muted">エンジン</dt>
                       <dd>Pi SDK（プロセス内埋め込み）</dd>
                       <dt className="text-muted">バージョン</dt>
-                      <dd className="font-mono">{health?.version ?? "—"}</dd>
+                      <dd className="font-mono">{health?.version ?? "-"}</dd>
                       <dt className="text-muted">データ</dt>
-                      <dd className="break-all font-mono text-xs">{health?.dataDir ?? "—"}</dd>
+                      <dd className="break-all font-mono text-xs">{health?.dataDir ?? "-"}</dd>
                       <dt className="text-muted">有効モデル数</dt>
                       <dd>{health?.modelCount ?? 0}</dd>
                     </dl>
@@ -406,6 +409,17 @@ export function SettingsView() {
                 description="すべてのプロジェクトとセッションに適用する AGENTS.md を編集します。"
               >
                 <AgentsMdSettings />
+              </SettingsGroup>
+            </section>
+          )}
+
+          {visitedTabs.has("bots") && (
+            <section id="settings-panel-bots" role="tabpanel" aria-labelledby="settings-tab-bots" hidden={tab !== "bots"} className="space-y-8">
+              <SettingsGroup id="bots-defaults-heading" title="Bot defaults" description="Defaults for new bots. Edit each bot SOUL.md on its bot page.">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="rounded-2xl border border-border bg-surface p-4 text-sm"><span className="font-medium">Permission</span><select defaultValue="allow" className="mt-2 h-9 w-full rounded-lg border border-border bg-bg px-2 text-sm"><option value="allow">Allow</option><option value="ask">Ask</option><option value="deny">Deny</option></select><span className="mt-1 block text-xs text-muted">Placeholder for MVP.</span></label>
+                  <div className="rounded-2xl border border-border bg-surface p-4 text-sm"><span className="font-medium">Skills</span><p className="mt-2 rounded-lg bg-surface-2 px-3 py-2 text-xs">inherit (global skills)</p><span className="mt-1 block text-xs text-muted">Advanced allowlist UI is out of scope.</span></div>
+                </div>
               </SettingsGroup>
             </section>
           )}

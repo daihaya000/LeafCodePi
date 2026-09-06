@@ -13,6 +13,7 @@ import {
   samePath,
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
+import { botAgentPrompt } from "@/lib/bots";
 import {
   deleteProjectRecord,
   deleteTask,
@@ -1917,6 +1918,12 @@ function disposeLive(taskId: string): void {
   }
 }
 
+/** Recreate a bot session so edited SOUL.md is applied on the next reply. */
+export function resetTaskSession(taskId: string): void {
+  disposeLive(taskId);
+  patchTask(taskId, { status: "idle", error: null });
+}
+
 export function syncSessionName(
   sessionManager: {
     getSessionName(): string | undefined;
@@ -2007,6 +2014,8 @@ async function createSession(options: {
   taskId?: string;
   /** Goal Loop sessions use Pi native compaction instead of WebUI threshold settings. */
   goalLoop?: boolean;
+  appendSystemPrompt?: string;
+  noContextFiles?: boolean;
 }): Promise<SessionSetup> {
   const pi = await loadPi();
   await ensureRuntime();
@@ -2084,7 +2093,8 @@ async function createSession(options: {
     ...(agentOptions?.appendSystemPrompt
       ? { appendSystemPrompt: agentOptions.appendSystemPrompt }
       : {}),
-    ...(agentOptions?.noContextFiles ? { noContextFiles: true } : {}),
+    ...(options.appendSystemPrompt ? { appendSystemPrompt: [options.appendSystemPrompt] } : {}),
+    ...(agentOptions?.noContextFiles || options.noContextFiles ? { noContextFiles: true } : {}),
   });
   await resourceLoader.reload();
   const permissionMode =
@@ -2722,6 +2732,7 @@ async function ensureLive(
       });
     }
     const project = task.projectId ? getProject(task.projectId) : undefined;
+    const isBot = task.kind === "bot" && Boolean(task.botId);
     const cwd = project?.rootPath ?? task.directory;
     const persistedGoalLoop = task.sessionId
       ? readGoalLoopState(cwd, task.sessionId)
@@ -2755,7 +2766,8 @@ async function ensureLive(
     const setup = await createSession({
       cwd,
       sessionFile: task.sessionFile,
-      sessionName: task.title,
+      sessionName: isBot ? `bot:${task.title}` : task.title,
+      ...(isBot && task.botId ? { appendSystemPrompt: botAgentPrompt(task.botId), noContextFiles: true } : {}),
       accountId: sessionAccountId,
       model,
       thinkingLevel: task.thinkingLevel,

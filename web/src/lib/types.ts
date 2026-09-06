@@ -11,6 +11,26 @@ export type ThinkingLevel =
 
 export const NO_PROJECT_NAME = "プロジェクトなし";
 
+export type BotSkillsConfig = {
+  mode: "inherit" | "include" | "exclude";
+  include: string[];
+  exclude: string[];
+};
+
+export type BotDto = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  model: string | null;
+  thinkingLevel: ThinkingLevel | null;
+  permissionMode: "allow" | "ask" | "deny" | null;
+  skills: BotSkillsConfig;
+  extraRoots: string[];
+  enabled: boolean;
+  soul: string;
+};
+
 export type ProjectDto = {
   id: string;
   name: string;
@@ -29,6 +49,8 @@ export type TodoProgressDto = {
 
 export type TaskSummary = {
   id: string;
+  kind?: "code" | "bot";
+  botId?: string;
   projectId: string | null;
   projectName: string;
   title: string;

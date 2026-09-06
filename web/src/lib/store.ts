@@ -123,9 +123,32 @@ export function patchProject(
   return project;
 }
 
-export function listTasks(includeArchived = false): TaskSummary[] {
-  const tasks = readStore().tasks;
+export function listTasks(includeArchived = false, kind: "code" | "bot" = "code"): TaskSummary[] {
+  const tasks = readStore().tasks.filter((task) => (task.kind ?? "code") === kind);
   return includeArchived ? tasks : tasks.filter((task) => task.status !== "archived");
+}
+
+export function insertBotTask(input: {
+  id: string; botId: string; name: string; directory: string;
+  model?: string | null; thinkingLevel?: ThinkingLevel | null;
+  permissionMode?: "allow" | "ask" | "deny" | null;
+}): TaskSummary {
+  const store = readStore();
+  const existing = store.tasks.find((task) => task.id === input.id);
+  if (existing) return existing;
+  const now = new Date().toISOString();
+  const task: TaskSummary = {
+    id: input.id, projectId: null, projectName: "Bots", title: input.name,
+    directory: input.directory, isolation: "current_folder", status: "idle",
+    sessionId: null, sessionFile: null, kind: "bot", botId: input.botId,
+    ...(input.model ? { modelID: input.model } : {}),
+    ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+    ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+    createdAt: now, updatedAt: now, error: null,
+  };
+  store.tasks.unshift(task);
+  writeStore(store);
+  return task;
 }
 
 export function getTask(id: string): TaskSummary | undefined {

@@ -27,7 +27,7 @@ import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { HOME_TAB_ID, SETTINGS_TAB_ID } from "@/lib/task-panes";
-import { NO_PROJECT_NAME, type HealthDto, type ProjectDto, type TaskSummary } from "@/lib/types";
+import { NO_PROJECT_NAME, type BotDto, type HealthDto, type ProjectDto, type TaskSummary } from "@/lib/types";
 
 type ProjectTaskMenuState = {
   projectId: string;
@@ -156,6 +156,27 @@ function ProjectIcon({ project, className }: { project: Pick<ProjectDto, "id" | 
 }
 
 const PROJECT_ICON_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
+const MODE_KEY = "leafcodepi.mode";
+type AppMode = "code" | "bot";
+
+function ModeSegment({ mode, onChange }: { mode: AppMode; onChange: (mode: AppMode) => void }) {
+  return <div className="mx-1 mb-2 grid grid-cols-2 rounded-lg border border-border bg-surface-2 p-0.5">
+    {(["code", "bot"] as const).map((item) => <button key={item} type="button" aria-pressed={mode === item} onClick={() => onChange(item)} className={cx("rounded-md px-2 py-1.5 text-xs font-medium", mode === item ? "bg-surface text-text shadow-sm" : "text-muted hover:text-text")}>{item === "code" ? "Code" : "Bot"}</button>)}
+  </div>;
+}
+
+function BotSidebarBody({ onClose, onChangeMode, onSettings }: { onClose: () => void; onChangeMode: (mode: AppMode) => void; onSettings: () => void }) {
+  const router = useRouter(); const [bots, setBots] = useState<BotDto[]>([]); const [name, setName] = useState(""); const [busy, setBusy] = useState(false);
+  const refreshBots = useCallback(() => { void getJson<{ bots: BotDto[] }>("/api/bots").then((r) => setBots(r.bots)).catch(() => undefined); }, []);
+  useEffect(() => { refreshBots(); }, [refreshBots]);
+  async function create() { if (busy) return; setBusy(true); try { const r = await sendJson<{ bot: BotDto }>("/api/bots", { name }); setName(""); router.push(`/bots/${r.bot.id}`); } finally { setBusy(false); } }
+  return <div className="flex h-full min-h-0 flex-col bg-surface">
+    <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3"><button type="button" aria-label="Close menu" onClick={onClose} className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-surface-2"><Menu className="h-5 w-5 text-muted" /></button><Link href="/bots" onClick={onClose} className="flex min-w-0 items-center gap-2"><img src="/icon.svg" alt="" className="h-6 w-6 rounded-[5px]" /><span className="truncate text-sm font-semibold">LeafCodePi</span></Link></div>
+    <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2"><ModeSegment mode="bot" onChange={onChangeMode} /><div className="flex items-center justify-between px-2 py-1"><span className="text-xs font-medium text-muted">Bots</span><Link href="/bots" onClick={onClose} className="text-xs text-accent">All</Link></div><div className="mt-1 space-y-1">{bots.map((bot) => <button key={bot.id} type="button" onClick={() => { router.push(`/bots/${bot.id}`); onClose(); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs text-accent">{Array.from(bot.name)[0] ?? "?"}</span><span className="min-w-0 flex-1 truncate">{bot.name}</span></button>)}{bots.length === 0 && <p className="px-2 py-2 text-xs text-muted">No bots yet</p>}</div><div className="mt-3 flex gap-1"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="New bot" className="h-8 min-w-0 flex-1 rounded-md border border-border bg-bg px-2 text-xs outline-none focus:border-accent" /><button type="button" onClick={() => void create()} disabled={busy} className="rounded-md bg-accent px-2 text-xs text-white disabled:opacity-50">+</button></div></div>
+    <div className="shrink-0 border-t border-border p-2"><button type="button" onClick={onSettings} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-muted hover:bg-surface-2 hover:text-text"><Settings className="h-4 w-4" />Settings</button></div>
+  </div>;
+}
+
 
 function ProjectIconPicker({
   project,
@@ -501,6 +522,7 @@ const SidebarView = memo(function SidebarView({
 }: SidebarProps & SidebarPaneProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const [mode, setMode] = useState<AppMode>("code");
   const mdUp = useIsMdUp();
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [archivedProjects, setArchivedProjects] = useState<ProjectDto[]>([]);
@@ -575,6 +597,9 @@ const SidebarView = memo(function SidebarView({
 
   useEffect(() => {
     try {
+      const storedMode = localStorage.getItem(MODE_KEY);
+      if (storedMode === "bot" || storedMode === "code") setMode(storedMode);
+      if (pathname.startsWith("/bots")) setMode("bot");
       const storedWidth = Number(localStorage.getItem(WIDTH_KEY));
       if (Number.isFinite(storedWidth) && storedWidth >= MIN_WIDTH) setWidth(storedWidth);
       setCollapsed(localStorage.getItem(COLLAPSED_KEY) === "1");
@@ -589,7 +614,14 @@ const SidebarView = memo(function SidebarView({
     return () => {
       window.removeEventListener("webui:tasks-changed", onChange);
     };
-  }, [refresh]);
+  }, [refresh, pathname]);
+
+  const changeMode = useCallback((next: AppMode) => {
+    setMode(next);
+    try { localStorage.setItem(MODE_KEY, next); } catch { /* ignore */ }
+    router.push(next === "bot" ? "/bots" : "/");
+    onClose();
+  }, [onClose, router]);
 
   useEffect(() => {
     const intervalMs = hasWorking ? POLL_WORKING_MS : POLL_IDLE_MS;
@@ -1201,6 +1233,7 @@ const SidebarView = memo(function SidebarView({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+        <ModeSegment mode={mode} onChange={changeMode} />
         <span className="sr-only">
           ドラッグしてプロジェクトを並べ替えます。キーボードではスペースで開始し、上下矢印で移動、スペースで終了します。
         </span>
@@ -1502,6 +1535,8 @@ const SidebarView = memo(function SidebarView({
     ? (tasksByProject.get(projectTaskMenuProject.id) ?? []).slice(0, 20)
     : [];
 
+  const botBody = <BotSidebarBody onClose={onClose} onChangeMode={changeMode} onSettings={openSettings} />;
+
   const collapsedRail = (
     <div className="flex h-full w-20 flex-col items-center bg-surface">
       <div className="flex h-14 w-full items-center justify-center border-b border-border">
@@ -1781,7 +1816,7 @@ const SidebarView = memo(function SidebarView({
         )}
         style={{ width: collapsed ? COLLAPSED_WIDTH : width }}
       >
-        {mdUp ? (collapsed ? collapsedRail : body) : null}
+        {mdUp ? (collapsed ? collapsedRail : mode === "bot" ? botBody : body) : null}
         {mdUp && !collapsed && (
           <div
             role="separator"
@@ -1813,7 +1848,7 @@ const SidebarView = memo(function SidebarView({
           aria-label="ナビゲーション"
           className="fixed inset-y-0 left-0 z-50 w-[min(20rem,85vw)] border-r border-border bg-surface md:hidden animate-[nav-in_0.18s_ease-out]"
         >
-          {body}
+          {mode === "bot" ? botBody : body}
         </aside>
       )}
       {promotionTask && (
