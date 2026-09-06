@@ -212,6 +212,8 @@ export function RoomView({ id }: { id: string }) {
       <BotChatHeader
         title={room.name}
         subtitle={`\u30eb\u30fc\u30e0\u30fb${room.members.length} \u4eba`}
+        members={members}
+        active={working}
         settingsOpen={settingsOpen}
         onSettings={() => setSettingsOpen((open) => !open)}
       />
