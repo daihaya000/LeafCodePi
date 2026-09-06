@@ -8,7 +8,7 @@ import type { BotDto, BotSkillsConfig, ThinkingLevel } from "./types";
 import { avatarColorForId, isAvatarColor, randomAvatarColor } from "./bot-avatar";
 
 export type BotConfig = Omit<BotDto, "soul">;
-const SOUL_TEMPLATE = `# Bot role\n\nYou are a dedicated 1:1 assistant.\n\n## Policy\n- Be concise and useful.\n- Keep file operations inside workspace/ unless explicitly allowed.\n`;
+const SOUL_TEMPLATE = `# ボットの役割\n\nあなたは専属の1対1アシスタントです。\n\n## 方針\n- 簡潔で役に立つ回答をしてください。\n- 明示的に許可されていない限り、ファイル操作は workspace/ 内で行ってください。\n`;
 const DEFAULT_SKILLS: BotSkillsConfig = { mode: "inherit", include: [], exclude: [] };
 
 function botsRoot(): string { return join(dataDir(), "bots"); }

@@ -15,7 +15,7 @@ describe("bot store", () => {
   it("creates the bot home and minimum config", () => {
     const bot = createBot({ name: "Researcher" });
     expect(listBots().map((item) => item.id)).toEqual([bot.id]);
-    expect(readFileSync(join(root, "bots", bot.id, "SOUL.md"), "utf8")).toContain("Bot role");
+    expect(readFileSync(join(root, "bots", bot.id, "SOUL.md"), "utf8")).toContain("ボットの役割");
     const config = JSON.parse(readFileSync(join(root, "bots", bot.id, "config.json"), "utf8"));
     expect(config.skills.mode).toBe("inherit"); expect(config.enabled).toBe(true);
   });
