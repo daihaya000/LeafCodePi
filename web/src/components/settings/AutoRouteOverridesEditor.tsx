@@ -501,7 +501,7 @@ export function AutoRouteOverridesEditor({
               (tier) => !cellMatchesPreset(candidateMode, tier, config.modes[candidateMode]?.[tier]),
             );
             return (
-              <div key={candidateMode} className="min-w-0 space-y-2">
+              <div key={candidateMode} className="min-w-0 space-y-2 rounded-xl border border-border bg-surface p-2">
                 <div className="flex min-h-9 items-center justify-between gap-1">
                   <p className="min-w-0 truncate text-xs font-semibold text-muted">
                     {autoOptimizeModeLabel(candidateMode)}

@@ -103,6 +103,7 @@ describe("AutoRouteOverridesEditor", () => {
     );
     const modeGrid = screen.getByRole("group", { name: "Auto ルーティング設定一覧" });
     expect(modeGrid.className).toContain("grid-cols-3");
+    expect(Array.from(modeGrid.children).every((column) => column.className.includes("border"))).toBe(true);
     expect(within(modeGrid).getAllByRole("button", { name: "候補を追加" })).toHaveLength(9);
     const modeLabels = () =>
       Array.from(modeGrid.children).map((column) => column.querySelector("p")?.textContent ?? "");
