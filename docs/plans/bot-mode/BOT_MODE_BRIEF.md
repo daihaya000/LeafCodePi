@@ -142,13 +142,13 @@ Code 時は現行どおりプロジェクト／タスク。
 ### SOUL.md
 
 - Bot 作成時にテンプレートを置く
-- システム／エージェント指示として Pi セッションに注入（グローバル AGENTS.md と併用。SOUL が Bot 固有）
+- システム／エージェント指示として Pi セッションに注入（SOUL のみ。グローバル AGENTS.md は反映しない）
 
 ### 指示・スキルの優先度
 
-1. グローバル `~/.pi/agent/AGENTS.md`（Code/Bot 共通）
+1. グローバル `~/.pi/agent/AGENTS.md` … **Code 専用**（Bot では読まない）
 2. 有効スキル（Bot は inherit／include／exclude）
-3. プロジェクト AGENTS.md … **Code 専用**（Bot では読まない。初期）
+3. プロジェクト AGENTS.md … **Code 専用**（Bot では読まない）
 4. Bot `SOUL.md`
 5. スレッド／ルームの一時指示（任意・後続可）
 

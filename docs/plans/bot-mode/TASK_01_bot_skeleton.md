@@ -13,7 +13,7 @@ LeafCodePi に Bot モードの最小実用版を入れる。
 - Bot の作成／一覧／削除
 - ボット専用ホーム + SOUL.md
 - `/bots/[id]` で 1:1 チャット（ストリーム・停止・権限は既存流用）
-- グローバル AGENTS.md + SOUL 注入、スキルは `inherit` で可
+- SOUL 注入（グローバル AGENTS.md は反映しない）、スキルは `inherit` で可
 
 ---
 

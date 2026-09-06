@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "./paths";
 import { deleteTask, insertBotTask, listTasks, patchTask } from "./store";
@@ -100,8 +99,5 @@ export function deleteBot(id: string): boolean {
 export function botWorkspace(id: string): string { return join(botRoot(id), "workspace"); }
 export function botSoul(id: string): string { return readFileSync(soulPath(id), "utf8"); }
 export function botTaskId(id: string): string { return `bot:${id}`; }
-export function botAgentPrompt(id: string): string {
-  const globalPath = join(process.env.PI_AGENT_DIR?.trim() || join(homedir(), ".pi", "agent"), "AGENTS.md");
-  let global = ""; try { global = readFileSync(globalPath, "utf8"); } catch { /* optional */ }
-  return [global && `# Global AGENTS.md\n${global}`, `# Bot SOUL.md\n${botSoul(id)}`].filter(Boolean).join("\n\n");
-}
+// Bot mode intentionally does not read the global AGENTS.md: only SOUL.md drives a bot's behavior.
+export function botAgentPrompt(id: string): string { return botSoul(id); }
