@@ -72,6 +72,8 @@ export type BotDto = {
   enabled: boolean;
   /** Whether notifications for this bot are enabled in the Bot UI. */
   notificationsEnabled: boolean;
+  /** The Code task currently controlled by this Bot, when one is linked. */
+  codeSessionTaskId?: string | null;
   soul: string;
 };
 

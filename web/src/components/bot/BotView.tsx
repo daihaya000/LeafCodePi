@@ -12,6 +12,7 @@ import { BotAvatar } from "@/components/bot/BotAvatar";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
+import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
 import { AVATAR_IMAGE_ACCEPT, BOT_AVATAR_COLORS, MAX_AVATAR_IMAGE_BYTES, randomAvatarColor } from "@/lib/bot-avatar";
 import type { BotDto, ModelOption, PermissionRequestDto, RoutineDto, ThinkingLevel, UiMessage } from "@/lib/types";
 
@@ -365,6 +366,7 @@ export function BotView({ id }: { id: string }) {
             <button type="button" aria-label="設定を閉じる" onClick={() => setSettingsOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"><X className="h-4 w-4" /></button>
           </div>
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+            <BotCodeSessionPanel botId={id} />
             <div className="flex flex-col items-center gap-2 py-2">
               <label title="画像を設定" className="cursor-pointer rounded-full has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent">
                 <BotAvatar size={80} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />
