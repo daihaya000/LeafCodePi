@@ -1,8 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  bundledSkillsDir,
   compactSkillsForPrompt,
   filterSkillsByState,
   listSkills,
@@ -12,6 +13,19 @@ import {
   skillsDir,
   writeSkillsState,
 } from "./skills";
+
+describe("bundledSkillsDir", () => {
+  it("returns an absolute path for a relative override", () => {
+    const previous = process.env.LEAFCODE_PI_SKILLS_DIR;
+    try {
+      process.env.LEAFCODE_PI_SKILLS_DIR = ".";
+      expect(bundledSkillsDir()).toBe(resolve(process.cwd()));
+    } finally {
+      if (previous === undefined) delete process.env.LEAFCODE_PI_SKILLS_DIR;
+      else process.env.LEAFCODE_PI_SKILLS_DIR = previous;
+    }
+  });
+});
 
 describe("filterSkillsByState", () => {
   it("drops only disabled names", () => {

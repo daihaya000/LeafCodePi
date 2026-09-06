@@ -185,6 +185,23 @@ function isAgentsSkill(skill: {
     (skill.filePath?.toLowerCase().startsWith(lower) ?? false)
   );
 }
+
+/** Restore bundled skills that Pi deduplicated behind its excluded ~/.agents root. */
+export function mergeBundledSkills<T extends {
+  name: string;
+  baseDir?: string;
+  filePath?: string;
+}>(baseSkills: readonly T[], bundledSkills: readonly T[]): T[] {
+  const merged = baseSkills.filter((skill) => !isAgentsSkill(skill));
+  const names = new Set(merged.map((skill) => skill.name));
+  for (const skill of bundledSkills) {
+    if (!isAgentsSkill(skill) && !names.has(skill.name)) {
+      merged.push(skill);
+      names.add(skill.name);
+    }
+  }
+  return merged;
+}
 import {
   clampThinkingLevelForModel,
   defaultThinkingLevel,
@@ -2037,10 +2054,12 @@ async function createSession(options: {
       if (agentOptions?.noSkills || skillPermissionRef.current === "deny") {
         return { skills: [], diagnostics: base.diagnostics };
       }
+      const bundledSkillResult = bundledSkills
+        ? pi.loadSkillsFromDir({ dir: bundledSkills, source: "bundled" })
+        : undefined;
+      const skills = mergeBundledSkills(base.skills, bundledSkillResult?.skills ?? []);
       return {
-        skills: compactSkillsForPrompt(
-          filterSkillsByState(base.skills).filter((skill) => !isAgentsSkill(skill)),
-        ),
+        skills: compactSkillsForPrompt(filterSkillsByState(skills)),
         diagnostics: base.diagnostics,
       };
     },

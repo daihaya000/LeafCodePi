@@ -19,7 +19,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
@@ -79,8 +79,9 @@ export function bundledSkillsDir(): string | null {
     ? [override]
     : [join(process.cwd(), "skills"), join(process.cwd(), "..", "skills")];
   for (const candidate of candidates) {
+    const absolute = resolve(process.cwd(), candidate);
     try {
-      if (statSync(candidate).isDirectory()) return candidate;
+      if (statSync(absolute).isDirectory()) return absolute;
     } catch {
       /* ignore */
     }

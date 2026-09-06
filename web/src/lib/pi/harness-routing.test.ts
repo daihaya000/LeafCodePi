@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -227,6 +227,7 @@ import { goalLoopStateFile } from "./goal-loop-state";
 import {
   createTask,
   getTaskDetail,
+  mergeBundledSkills,
   promptTask,
   resolveProviderFallbackModels,
 } from "./harness";
@@ -317,6 +318,24 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   fakePi.reset();
   autoAgentMock.mockReset();
+});
+
+describe("mergeBundledSkills", () => {
+  it("restores the bundled copy when Pi deduplicates an excluded ~/.agents skill", () => {
+    const name = "powershell-japanese-encoding";
+    const globalSkill = {
+      name,
+      baseDir: join(homedir(), ".agents", "skills", name),
+      filePath: join(homedir(), ".agents", "skills", name, "SKILL.md"),
+    };
+    const bundledSkill = {
+      name,
+      baseDir: join(process.cwd(), "skills", name),
+      filePath: join(process.cwd(), "skills", name, "SKILL.md"),
+    };
+
+    expect(mergeBundledSkills([globalSkill], [bundledSkill])).toEqual([bundledSkill]);
+  });
 });
 
 describe("integrated session routing", () => {

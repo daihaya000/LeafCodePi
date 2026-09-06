@@ -288,7 +288,13 @@ export async function main(argv = process.argv.slice(2)) {
   // directory. Webpack remains available as an explicit diagnostic fallback.
   const useWebpack = process.env.LEAFCODE_PI_USE_WEBPACK === "1";
   const nextArgs = [nextBin, "build", ...(useWebpack ? ["--webpack"] : [])];
-  const buildOptions = { cwd: mirror.mirrorRoot, env: { ...process.env } };
+  const buildOptions = {
+    cwd: mirror.mirrorRoot,
+    env: {
+      ...process.env,
+      LEAFCODE_PI_SKILLS_DIR: join(REPO_ROOT, "skills"),
+    },
+  };
   console.error(`[build-web] bundler: ${useWebpack ? "webpack" : "turbopack"}`);
 
   // Stash the last good `.next` instead of deleting it: a typecheck/Turbopack
