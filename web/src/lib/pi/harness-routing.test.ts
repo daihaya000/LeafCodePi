@@ -339,6 +339,49 @@ describe("mergeBundledSkills", () => {
 });
 
 describe("integrated session routing", () => {
+  it.each([false, true])("waitForCompletion=%s preserves acceptance versus queue completion", async (waitForCompletion) => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-prompt-completion-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "initial" });
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, { promptChain: Promise<void>; session: { prompt: (text: string) => Promise<void> } }>;
+    };
+    const live = harness.live.get(task.id)!;
+    await live.promptChain;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const original = live.session.prompt.bind(live.session);
+    const prompt = vi.spyOn(live.session, "prompt").mockImplementation(async (text) => {
+      await gate;
+      await original(text);
+    });
+    let returned = false;
+    const pending = promptTask(task.id, "next", undefined, { waitForCompletion }).then((result) => {
+      returned = true;
+      return result;
+    });
+    try {
+      await waitFor(() => prompt.mock.calls.length === 1);
+      expect(returned).toBe(!waitForCompletion);
+      expect(getTask(task.id)?.status).toBe("working");
+      expect((await getTaskDetail(task.id)).isStreaming).toBe(false);
+    } finally {
+      release();
+    }
+    const result = await pending;
+    await live.promptChain;
+    expect(result.status).toBe(waitForCompletion ? "idle" : "working");
+
+    prompt.mockRejectedValueOnce(new Error("Queue failure"));
+    const failed = await promptTask(task.id, "fails", undefined, { waitForCompletion: true });
+    expect(failed).toMatchObject({ status: "error", error: "Queue failure" });
+  });
+
   it("keeps Pi native compaction enabled for a Goal Loop session", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-loop-compaction-"));
     tempDirs.push(dir);

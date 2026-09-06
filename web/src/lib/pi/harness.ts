@@ -5457,7 +5457,7 @@ function queuePrompt(
     isHangRetry?: boolean;
     streamingBehavior?: "steer" | "followUp";
   },
-): void {
+): Promise<void> {
   const hadActivePrompt = live.promptActive || live.session.isStreaming || live.session.isCompacting;
   const pendingSettingsAtQueue = copyPendingLiveSettings(live.pendingSettings);
   const isHangRetry =
@@ -5630,8 +5630,7 @@ function queuePrompt(
   // streaming. Bypass the serial chain even before isStreaming flips true —
   // runPrompt waits for the stream so we do not enqueue a post-turn prompt.
   if (shouldBypassPromptChain(meta?.streamingBehavior)) {
-    void runPrompt().catch(handlePromptError);
-    return;
+    return runPrompt().catch(handlePromptError);
   }
   live.promptActive = true;
   if (markTaskWorkingIfIdle(live.taskId)) {
@@ -5651,6 +5650,7 @@ function queuePrompt(
       }
     });
   live.promptChain = promptChain;
+  return promptChain;
 }
 
 export async function promptTask(
@@ -5668,6 +5668,8 @@ export async function promptTask(
     accountIdExplicit?: boolean;
     /** Resume may carry a stale model/account from the interrupted message. */
     resume?: boolean;
+    /** Wait for this normal prompt's queue entry, including preparation and retries. */
+    waitForCompletion?: boolean;
   },
 ): Promise<TaskSummary> {
   if (options?.agent !== undefined) {
@@ -5730,12 +5732,13 @@ export async function promptTask(
   const live = await ensureLive(id);
   applySubagentPermission(live.session, options?.subagentPermission);
   persistRevertLeafId(id, null);
-  queuePrompt(live, prompt, images, {
+  const completion = queuePrompt(live, prompt, images, {
     agent: options?.agent,
     subagentPermission: options?.subagentPermission,
     permissionMode: options?.permissionMode,
     streamingBehavior: options?.streamingBehavior,
   });
+  if (options?.waitForCompletion) await completion;
   return toSummary(getTask(id)!);
 }
 

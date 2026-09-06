@@ -1,0 +1,208 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { NextRequest } from "next/server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TaskDetail, UiMessage } from "@/lib/types";
+
+const state = vi.hoisted(() => ({
+  root: "",
+  details: new Map<string, TaskDetail>(),
+  listeners: new Map<string, Set<(payload: Record<string, unknown>) => void>>(),
+  completions: new Map<string, () => void>(),
+  promptTask: vi.fn(),
+}));
+vi.mock("@/lib/paths", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/paths")>(),
+  dataDir: () => state.root,
+  storePath: () => join(state.root, "store.json"),
+}));
+vi.mock("@/lib/pi/harness", () => ({
+  getTaskDetail: vi.fn(async (id: string) => state.details.get(id)),
+  promptTask: state.promptTask,
+  subscribeTask: (id: string, listener: (payload: Record<string, unknown>) => void) => {
+    const listeners = state.listeners.get(id) ?? new Set();
+    state.listeners.set(id, listeners);
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  },
+  jsonError: (error: Error) => ({ error: error.message, status: 500 }),
+}));
+
+import { botTaskId, createBot, patchBot } from "@/lib/bots";
+import * as rooms from "@/lib/rooms";
+import { createRoom, ensureRoomBotTask, getRoom } from "@/lib/rooms";
+import { getTaskDetail } from "@/lib/pi/harness";
+import { getTask } from "@/lib/store";
+import { GET as events } from "../events/route";
+import { POST } from "./route";
+
+function snapshot(taskId: string, eventType: string, patch: Partial<TaskDetail>) {
+  const detail = { ...state.details.get(taskId)!, ...patch };
+  state.details.set(taskId, detail);
+  for (const listener of state.listeners.get(taskId) ?? []) {
+    listener({ type: "snapshot", task: detail, ...detail, eventType });
+  }
+}
+function finish(taskId: string, patch: Partial<TaskDetail> = {}) {
+  snapshot(taskId, "agent_settled", { status: "idle", isStreaming: false, isCompacting: false, ...patch });
+  const resolve = state.completions.get(taskId);
+  state.completions.delete(taskId);
+  resolve?.();
+}
+function assistant(id: string, text: string): UiMessage {
+  return { id, role: "assistant", createdAt: Date.now(), parts: [{ id: `${id}-text`, type: "text", text }] };
+}
+function send(id: string, prompt: string, extra: Record<string, unknown> = {}) {
+  return POST(new NextRequest("http://localhost", { method: "POST", body: JSON.stringify({ prompt, ...extra }) }), { params: Promise.resolve({ id }) });
+}
+function setup(names = ["A"]) {
+  const bots = names.map((name) => createBot({ name }));
+  const room = createRoom({ members: bots.map((bot) => bot.id) });
+  const taskIds = bots.map((bot) => ensureRoomBotTask(room, bot));
+  for (const id of taskIds) state.details.set(id, { ...getTask(id)!, messages: [], isStreaming: false, isCompacting: false });
+  return { room, bots, taskIds };
+}
+
+beforeEach(() => {
+  state.root = mkdtempSync(join(tmpdir(), "leafcode-room-prompt-"));
+  state.promptTask.mockImplementation(async (id: string, _prompt: string, _images: unknown, options?: { waitForCompletion?: boolean }) => {
+    snapshot(id, "prompt_accepted", { status: "working", isStreaming: false, error: null });
+    if (options?.waitForCompletion) {
+      await new Promise<void>((resolve) => state.completions.set(id, resolve));
+    }
+    return state.details.get(id);
+  });
+});
+afterEach(async () => {
+  for (const id of state.completions.keys()) finish(id);
+  await new Promise((resolve) => setImmediate(resolve));
+  rmSync(state.root, { recursive: true, force: true });
+  state.details.clear();
+  state.listeners.clear();
+  state.promptTask.mockReset();
+  vi.restoreAllMocks();
+});
+
+describe("room mention responses", () => {
+  it.each(["@here", "@channel", "@everyone", "@all", "@A"])("waits for the actual reply to %s, not an idle-looking snapshot", async (mention) => {
+    const { room, taskIds: [taskId] } = setup();
+    expect((await send(room.id, `${mention} Test`)).status).toBe(200);
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+    expect(getRoom(room.id)?.messages.at(-1)?.status).toBe("working");
+    snapshot(taskId, "provider_routed", { status: "working", isStreaming: false });
+    snapshot(taskId, "compaction_start", { status: "idle", isStreaming: false, isCompacting: true });
+    snapshot(taskId, "agent_end", { isCompacting: false, messages: [assistant("intermediate", "Still continuing")] });
+    expect(getRoom(room.id)?.messages.at(-1)?.status).toBe("working");
+    finish(taskId, { messages: [assistant("reply", "こんにちは 🌿")] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.at(-1)).toMatchObject({ status: "done", text: "こんにちは 🌿" }));
+    expect(state.listeners.get(taskId)?.size ?? 0).toBe(0);
+  });
+
+  it("matches rapid consecutive prompts to their own replies, even at the same timestamp", async () => {
+    const { room, taskIds: [taskId] } = setup();
+    await send(room.id, "@A first");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+    await send(room.id, "@A second");
+    expect(state.promptTask).toHaveBeenCalledTimes(1);
+    const first = assistant("first", "First reply");
+    const second = { ...assistant("second", "Second reply"), createdAt: first.createdAt };
+    finish(taskId, { messages: [first] });
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(2));
+    expect(getRoom(room.id)?.messages.filter((message) => message.role === "assistant")).toMatchObject([
+      { status: "done", text: "First reply" }, { status: "working", text: "" },
+    ]);
+    finish(taskId, { messages: [first, second] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.at(-1)).toMatchObject({ status: "done", text: "Second reply" }));
+  });
+
+  it("does not reuse a recent reply when the next prompt returns no assistant", async () => {
+    const { room, taskIds: [taskId] } = setup();
+    const old = assistant("old", "Previous reply");
+    state.details.get(taskId)!.messages = [old];
+    await send(room.id, "@A next");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+    finish(taskId);
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.at(-1)).toMatchObject({ status: "error", text: "Bot did not return a response." }));
+  });
+
+  it("runs broadcast members independently and never uses their 1:1 tasks", async () => {
+    const { room, bots, taskIds } = setup(["A", "B"]);
+    await send(room.id, "@here Test");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(2));
+    expect(state.promptTask.mock.calls.map(([id]) => id).sort()).toEqual([...taskIds].sort());
+    expect(taskIds).not.toContain(botTaskId(bots[0].id));
+    finish(taskIds[1], { messages: [assistant("b", "B reply")] });
+    finish(taskIds[0], { status: "error", error: "Provider unavailable" });
+    await vi.waitFor(() => {
+      const replies = getRoom(room.id)?.messages.filter((message) => message.role === "assistant") ?? [];
+      expect(replies.find((message) => message.botId === bots[0].id)).toMatchObject({ status: "error", text: "Provider unavailable" });
+      expect(replies.find((message) => message.botId === bots[1].id)).toMatchObject({ status: "done", text: "B reply" });
+    });
+  });
+
+  it("does not serialize the same bot across different rooms", async () => {
+    const { room, bots: [bot], taskIds: [firstTask] } = setup();
+    const other = createRoom({ members: [bot.id] });
+    const otherTask = ensureRoomBotTask(other, bot);
+    state.details.set(otherTask, { ...getTask(otherTask)!, messages: [], isStreaming: false, isCompacting: false });
+    await send(room.id, "@A first room");
+    await send(other.id, "@A second room");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(2));
+    finish(firstTask, { messages: [assistant("first", "First room")] });
+    finish(otherTask, { messages: [assistant("other", "Other room")] });
+    await vi.waitFor(() => expect(getRoom(other.id)?.messages.at(-1)?.text).toBe("Other room"));
+    expect(getRoom(room.id)?.messages.at(-1)?.text).toBe("First room");
+  });
+
+  it.each(["empty", "assistant error", "task error"])("reports %s instead of marking a blank or failed reply done", async (kind) => {
+    const { room, taskIds: [taskId] } = setup();
+    await send(room.id, "@A Test");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+    const reply = assistant("reply", kind === "empty" ? " \n" : "Partial response");
+    if (kind === "assistant error") reply.error = "Provider failed";
+    finish(taskId, { messages: [reply], ...(kind === "task error" ? { status: "error", error: "Provider failed" } : {}) });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.at(-1)).toMatchObject({ status: "error", text: kind === "empty" ? "Bot did not return a response." : "Provider failed" }));
+  });
+
+  it.each(["setup", "initialization", "prompt"])("isolates a %s failure and releases the queue for the next mention", async (phase) => {
+    const { room, taskIds: [taskId] } = setup();
+    if (phase === "setup") vi.spyOn(rooms, "ensureRoomBotTask").mockImplementationOnce(() => { throw new Error("Setup failed"); });
+    if (phase === "initialization") vi.mocked(getTaskDetail).mockRejectedValueOnce(new Error("Setup failed"));
+    if (phase === "prompt") state.promptTask.mockRejectedValueOnce(new Error("Setup failed"));
+    expect((await send(room.id, "@A Test")).status).toBe(200);
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.at(-1)).toMatchObject({ status: "error", text: "Setup failed" }));
+    await send(room.id, "@A Retry");
+    await vi.waitFor(() => expect(state.completions.has(taskId)).toBe(true));
+    finish(taskId, { messages: [assistant("retry", "Recovered")] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.at(-1)).toMatchObject({ status: "done", text: "Recovered" }));
+  });
+
+  it("keeps validation and enabled-member routing in place", async () => {
+    const { room, bots: [bot] } = setup();
+    expect((await send(room.id, " ")).status).toBe(400);
+    expect((await send(room.id, "@here Test", { fromBot: true })).status).toBe(400);
+    expect((await send("missing", "@here Test")).status).toBe(404);
+    patchBot(bot.id, { enabled: false });
+    expect((await (await send(room.id, "@here Test")).json()).routedBotIds).toEqual([]);
+    expect(state.promptTask).not.toHaveBeenCalled();
+  });
+
+  it("delivers the completed reply through the room SSE stream", async () => {
+    const { room, taskIds: [taskId] } = setup();
+    const stream = await events(new NextRequest("http://localhost"), { params: Promise.resolve({ id: room.id }) });
+    const reader = stream.body!.getReader();
+    try {
+      await reader.read(); // initial room snapshot
+      await send(room.id, "@here Test");
+      await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+      await reader.read(); // user message
+      await reader.read(); // working reply
+      finish(taskId, { messages: [assistant("reply", "SSE reply")] });
+      const result = new TextDecoder().decode((await reader.read()).value);
+      expect(result).toContain('"text":"SSE reply","status":"done"');
+    } finally {
+      await reader.cancel();
+    }
+  });
+});
