@@ -1826,7 +1826,10 @@ async function attachSession(
       event as { type: string; [key: string]: unknown },
     );
     if (event.type === "agent_start") {
-      acquireTaskLease(taskId);
+      if (!acquireTaskLease(taskId)) {
+        setTaskStatus(taskId, "error", TASK_LEASE_BUSY_ERROR);
+        return;
+      }
       setTaskStatus(taskId, "working");
     }
     if (
@@ -5298,7 +5301,7 @@ async function prepareLiveForPrompt(
         !task.accountIdExplicit),
   );
   if (!canRoute || !task?.providerID || !task.modelID) {
-    acquireTaskLease(currentLive.taskId);
+    requireTaskLease(currentLive.taskId);
     setTaskStatus(currentLive.taskId, "working");
     return currentLive;
   }
@@ -5321,7 +5324,7 @@ async function prepareLiveForPrompt(
         (!isActiveGoalLoopSession(latestLive.session) &&
           !latestLive.session.messages.some((message) => message.role === "user"))
       ) {
-        acquireTaskLease(latestTask.id);
+        requireTaskLease(latestTask.id);
         setTaskStatus(latestTask.id, "working");
         return latestLive;
       }
@@ -5357,10 +5360,10 @@ async function prepareLiveForPrompt(
         ids.providerID === latestTask.providerID &&
         ids.modelID === latestTask.modelID &&
         route.accountId === (latestTask.accountId ?? null);
+      requireTaskLease(latestTask.id);
       const nextLive = sameRoute
         ? latestLive
         : await replaceLiveForRoute(latestLive, latestTask, route);
-      acquireTaskLease(latestTask.id);
       setTaskStatus(latestTask.id, "working");
       if (nextLive !== latestLive) {
         emitTaskSnapshot(nextLive, "provider_routed");
@@ -5452,6 +5455,14 @@ export async function waitForSessionStreaming(
     if (isStreaming()) return true;
   }
   return isStreaming();
+}
+
+const TASK_LEASE_BUSY_ERROR = "タスクは別のワーカーで実行中です";
+
+function requireTaskLease(taskId: string): void {
+  if (!acquireTaskLease(taskId)) {
+    throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+  }
 }
 
 /** Accepting a prompt must show as working before compaction / agent_start. */

@@ -224,6 +224,7 @@ import type { ThinkingLevel } from "@/lib/types";
 import { setAccountRoutingMode, __resetProviderRoutingQueueForTests, markProviderLimited } from "@/lib/provider-routing";
 import { AccountRuntimeManager } from "./account-runtime-manager";
 import { goalLoopStateFile } from "./goal-loop-state";
+import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
 import {
   createTask,
   getTaskDetail,
@@ -380,6 +381,27 @@ describe("integrated session routing", () => {
     prompt.mockRejectedValueOnce(new Error("Queue failure"));
     const failed = await promptTask(task.id, "fails", undefined, { waitForCompletion: true });
     expect(failed).toMatchObject({ status: "error", error: "Queue failure" });
+  });
+
+  it("fails closed when another worker owns the task lease", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-lease-busy-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "initial" });
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as { live: Map<string, { promptChain: Promise<void> }> };
+    const live = harness.live.get(task.id)!;
+    await live.promptChain;
+    mkdirSync(dirname(taskRuntimeLeasePath(task.id)), { recursive: true });
+    writeFileSync(taskRuntimeLeasePath(task.id), JSON.stringify({ token: "other-worker", pid: process.pid, acquiredAt: Date.now(), heartbeatAt: Date.now() }), "utf8");
+    const before = fakePi.sessions.at(-1)?.prompts.length ?? 0;
+    const result = await promptTask(task.id, "must-not-prompt", undefined, { waitForCompletion: true });
+    expect(fakePi.sessions.at(-1)?.prompts.length ?? 0).toBe(before);
+    expect(result.status).toBe("error");
+    expect(getTask(task.id)?.status).toBe("error");
   });
 
   it("keeps Pi native compaction enabled for a Goal Loop session", async () => {

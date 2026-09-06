@@ -1,8 +1,8 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { acquireTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks, ORPHANED_WORKING_TASK_ERROR } from "./task-runtime-lease";
+import { acquireTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks, taskRuntimeLeasePath, ORPHANED_WORKING_TASK_ERROR } from "./task-runtime-lease";
 import { insertTask, getTask, patchTask } from "./store";
 
 const dirs: string[] = [];
@@ -33,5 +33,24 @@ describe("task runtime restart reconciliation", () => {
     expect(getTask(orphan.id)).toMatchObject({ status: "error", error: ORPHANED_WORKING_TASK_ERROR });
     expect(reconcileOrphanedWorkingTasks()).toEqual([]);
     releaseTaskLease(live.id);
+  });
+
+  it("does not steal a lease whose PID is alive after the heartbeat age threshold", () => {
+    const dir = join(tmpdir(), `leafcode-live-lease-${Date.now()}-${Math.random()}`);
+    dirs.push(dir);
+    mkdirSync(join(dir, "task-leases"), { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    writeFileSync(taskRuntimeLeasePath("busy"), JSON.stringify({ token: "other", pid: process.pid, acquiredAt: Date.now() - 120_000, heartbeatAt: Date.now() - 120_000 }));
+    expect(acquireTaskLease("busy")).toBe(false);
+  });
+
+  it("reclaims a dead stale lease without recursive acquisition", () => {
+    const dir = join(tmpdir(), `leafcode-stale-lease-${Date.now()}-${Math.random()}`);
+    dirs.push(dir);
+    mkdirSync(join(dir, "task-leases"), { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    writeFileSync(taskRuntimeLeasePath("recover"), JSON.stringify({ token: "dead", pid: 999999, acquiredAt: Date.now() - 120_000, heartbeatAt: Date.now() - 120_000 }));
+    expect(acquireTaskLease("recover")).toBe(true);
+    releaseTaskLease("recover");
   });
 });

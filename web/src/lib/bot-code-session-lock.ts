@@ -46,7 +46,9 @@ function isStale(path: string, now: number, staleMs: number): boolean {
   if (!lock) {
     try { return now - statSync(path).mtimeMs > staleMs; } catch { return true; }
   }
-  return !isProcessAlive(lock.pid) || now - lock.acquiredAt > staleMs;
+  // A live owner may legitimately hold the lock for longer than the stale
+  // threshold. Age alone is not evidence that its operation was abandoned.
+  return !isProcessAlive(lock.pid) && now - lock.acquiredAt > staleMs;
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

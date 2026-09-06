@@ -8,6 +8,7 @@ type TaskLeaseRecord = { token: string; pid: number; acquiredAt: number; heartbe
 
 const TASK_LEASE_STALE_MS = 60_000;
 const HEARTBEAT_MS = 15_000;
+const MAX_ACQUIRE_ATTEMPTS = 4;
 const PROCESS_TOKEN = randomUUID();
 const ownedTasks = new Set<string>();
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -62,28 +63,41 @@ function touchTaskLease(taskId: string): void {
 export function acquireTaskLease(taskId: string): boolean {
   mkdirSync(join(dataDir(), "task-leases"), { recursive: true });
   const path = leasePath(taskId);
-  const now = Date.now();
-  const existing = readLease(path);
-  if (existing?.token === PROCESS_TOKEN) {
-    ownedTasks.add(taskId);
-    touchTaskLease(taskId);
-    ensureHeartbeat();
-    return true;
-  }
-  if (leaseActive(existing, now)) return false;
-  try {
-    const fd = openSync(path, "wx");
+  for (let attempt = 0; attempt < MAX_ACQUIRE_ATTEMPTS; attempt += 1) {
+    const now = Date.now();
+    const existing = readLease(path);
+    if (existing?.token === PROCESS_TOKEN) {
+      ownedTasks.add(taskId);
+      touchTaskLease(taskId);
+      ensureHeartbeat();
+      return true;
+    }
+    if (leaseActive(existing, now)) return false;
+    // Reclaim an abandoned record before trying O_EXCL. Keep this loop
+    // bounded: another worker may win the race between unlink and open.
+    let stalePath = Boolean(existing && !processAlive(existing.pid));
+    if (!stalePath) {
+      try { stalePath = now - statSync(path).mtimeMs > TASK_LEASE_STALE_MS; }
+      catch { /* no lease file */ }
+    }
+    if (stalePath) {
+      try { unlinkSync(path); } catch { /* another worker reclaimed it */ }
+    }
     try {
-      writeFileSync(fd, `${JSON.stringify({ token: PROCESS_TOKEN, pid: process.pid, acquiredAt: now, heartbeatAt: now })}\n`, "utf8");
-    } finally { closeSync(fd); }
-  } catch (error) {
-    const code = error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : undefined;
-    if (code === "EEXIST") return acquireTaskLease(taskId);
-    throw error;
+      const fd = openSync(path, "wx");
+      try {
+        writeFileSync(fd, `${JSON.stringify({ token: PROCESS_TOKEN, pid: process.pid, acquiredAt: now, heartbeatAt: now })}\n`, "utf8");
+      } finally { closeSync(fd); }
+      ownedTasks.add(taskId);
+      ensureHeartbeat();
+      return true;
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : undefined;
+      if (code !== "EEXIST") throw error;
+      // Re-read on the next bounded attempt rather than recursing forever.
+    }
   }
-  ownedTasks.add(taskId);
-  ensureHeartbeat();
-  return true;
+  return false;
 }
 
 export function releaseTaskLease(taskId: string): void {
