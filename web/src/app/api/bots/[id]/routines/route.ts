@@ -1,0 +1,8 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createRoutine, ensureRoutineScheduler, listRoutines } from "@/lib/routines";
+import { getBot } from "@/lib/bots";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+async function botId(params: Promise<{ id: string }>) { return (await params).id; }
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) { const id = await botId(params); ensureRoutineScheduler(); if (!getBot(id)) return NextResponse.json({ error: "Bot not found" }, { status: 404 }); return NextResponse.json({ routines: listRoutines(id) }); }
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) { const id = await botId(params); ensureRoutineScheduler(); if (!getBot(id)) return NextResponse.json({ error: "Bot not found" }, { status: 404 }); const body = (await req.json().catch(() => null)) as Record<string, unknown> | null; if (!body || typeof body.name !== "string" || typeof body.prompt !== "string" || typeof body.schedule !== "string" || (body.enabled !== undefined && typeof body.enabled !== "boolean")) return NextResponse.json({ error: "invalid routine" }, { status: 400 }); try { return NextResponse.json({ routine: createRoutine(id, { name: body.name, prompt: body.prompt, schedule: body.schedule, enabled: body.enabled as boolean | undefined }) }, { status: 201 }); } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "invalid routine" }, { status: 400 }); } }

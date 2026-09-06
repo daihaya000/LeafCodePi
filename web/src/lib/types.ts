@@ -35,6 +35,19 @@ export type RoomDto = {
   updatedAt: string;
   messages: RoomMessage[];
 };
+export type RoutineDto = {
+  id: string;
+  botId: string;
+  name: string;
+  prompt: string;
+  schedule: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  failureCount: number;
+  lastRunAt: string | null;
+};
+
 export type BotDto = {
   id: string;
   name: string;

@@ -10,7 +10,7 @@ import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
 import { AVATAR_IMAGE_ACCEPT, BOT_AVATAR_COLORS, MAX_AVATAR_IMAGE_BYTES, randomAvatarColor } from "@/lib/bot-avatar";
-import type { BotDto, ModelOption, PermissionRequestDto, ThinkingLevel, UiMessage } from "@/lib/types";
+import type { BotDto, ModelOption, PermissionRequestDto, RoutineDto, ThinkingLevel, UiMessage } from "@/lib/types";
 
 function textOf(message: UiMessage): string {
   return message.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
@@ -33,6 +33,13 @@ export function BotView({ id }: { id: string }) {
   const [updatingColor, setUpdatingColor] = useState(false);
   const [updatingImage, setUpdatingImage] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [routines, setRoutines] = useState<RoutineDto[]>([]);
+  const [routineFormOpen, setRoutineFormOpen] = useState(false);
+  const [routineName, setRoutineName] = useState("");
+  const [routinePrompt, setRoutinePrompt] = useState("");
+  const [routineSchedule, setRoutineSchedule] = useState("0 * * * *");
+  const [creatingRoutine, setCreatingRoutine] = useState(false);
+  const [routineBusy, setRoutineBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const composingRef = useRef(false);
   const router = useRouter();
@@ -47,6 +54,8 @@ export function BotView({ id }: { id: string }) {
   }, [id]);
 
   useEffect(() => { void load(); }, [load]);
+  const loadRoutines = useCallback(() => getJson<{ routines: RoutineDto[] }>(`/api/bots/${encodeURIComponent(id)}/routines`).then((result) => setRoutines(result.routines)).catch((reason) => setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f")), [id]);
+  useEffect(() => { void loadRoutines(); }, [loadRoutines]);
 
   useEffect(() => {
     let active = true;
@@ -196,6 +205,18 @@ export function BotView({ id }: { id: string }) {
     finally { setSavingSoul(false); }
   };
 
+  const createRoutine = async () => {
+    if (!routineName.trim() || !routinePrompt.trim() || !routineSchedule.trim()) return;
+    if (!window.confirm(`「${routineName.trim()}」を作成しますか？
+スケジュール: ${routineSchedule.trim()}`)) return;
+    setCreatingRoutine(true); setError(null);
+    try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines`, { name: routineName, prompt: routinePrompt, schedule: routineSchedule }, "POST"); setRoutineName(""); setRoutinePrompt(""); setRoutineSchedule("0 * * * *"); setRoutineFormOpen(false); await loadRoutines(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u4f5c\u6210\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); } finally { setCreatingRoutine(false); }
+  };
+  const patchRoutine = async (routine: RoutineDto, enabled: boolean) => { setRoutineBusy(routine.id); setError(null); try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines/${encodeURIComponent(routine.id)}`, { enabled }, "PATCH"); await loadRoutines(); } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u66f4\u65b0\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); } finally { setRoutineBusy(null); } };
+  const deleteRoutine = async (routine: RoutineDto) => { if (!window.confirm(`「${routine.name}」を削除しますか？`)) return; setRoutineBusy(routine.id); setError(null); try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines/${encodeURIComponent(routine.id)}`, undefined, "DELETE"); await loadRoutines(); } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u524a\u9664\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); } finally { setRoutineBusy(null); } };
+  const runRoutine = async (routine: RoutineDto) => { setRoutineBusy(routine.id); setError(null); try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines/${encodeURIComponent(routine.id)}/run`, {}, "POST"); await loadRoutines(); } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u5b9f\u884c\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); } finally { setRoutineBusy(null); } };
+
   const removeBot = async () => {
     if (!bot || deleting || !window.confirm(`「${bot.name}」を削除しますか？\nこの操作は取り消せません。`)) return;
     setDeleting(true);
@@ -294,6 +315,12 @@ export function BotView({ id }: { id: string }) {
             <label className="block text-sm"><span className="font-medium">説明 / SOUL.md</span><textarea value={soul} onChange={(event) => setSoul(event.target.value)} rows={9} className="mt-2 w-full resize-y rounded-xl border border-border bg-bg px-3 py-2 font-mono text-xs leading-5 outline-none focus:border-accent" /></label>
             <div className="space-y-3 rounded-2xl border border-border bg-bg p-4"><div><span className="text-sm font-medium">モデル</span><ModelSelect value={modelValue} options={models} loading={modelsLoading} disabled={updatingModel || updatingThinking} onChange={(value) => void updateModel(value)} className="mt-2 h-9 w-full" ariaLabel="ボットのモデル" /></div><div><span className="text-sm font-medium">思考レベル</span><ThinkingSelect levels={thinkingLevels} value={thinkingValue} disabled={updatingModel || updatingThinking} onChange={(value) => void updateThinking(value)} className="mt-2 h-9 w-full" /></div>{(updatingModel || updatingThinking) && <p className="text-xs text-muted">保存中…</p>}</div>
             <div className="flex justify-end"><Button size="sm" onClick={() => void saveSoul()} busy={savingSoul}>変更を保存</Button></div>
+            <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="ルーティン設定">
+              <div className="flex items-center justify-between gap-2"><div><h3 className="text-sm font-medium">ルーティン</h3><p className="mt-1 text-xs text-muted">5分以上の cron で定期実行します。</p></div><Button size="sm" onClick={() => setRoutineFormOpen((open) => !open)}>ルーティンを作成</Button></div>
+              {routineFormOpen && <div className="space-y-2 rounded-xl border border-accent/40 bg-surface p-3" role="dialog" aria-label="ルーティンを作成"><p className="text-xs font-medium text-accent">ルーティンを作成（確認）</p><input value={routineName} onChange={(event) => setRoutineName(event.target.value)} placeholder="名前（例: 朝の確認）" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><textarea value={routinePrompt} onChange={(event) => setRoutinePrompt(event.target.value)} placeholder="Bot に実行させる指示" rows={3} className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><input value={routineSchedule} onChange={(event) => setRoutineSchedule(event.target.value)} aria-label="cron スケジュール" placeholder="0 * * * *" className="w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent" /><p className="text-[11px] text-muted">形式: 分 時 日 月 曜日（最短間隔 5 分）</p><div className="flex justify-end gap-2"><Button size="sm" variant="ghost" onClick={() => setRoutineFormOpen(false)}>キャンセル</Button><Button size="sm" onClick={() => void createRoutine()} busy={creatingRoutine} disabled={!routineName.trim() || !routinePrompt.trim()}>確認して保存</Button></div></div>}
+              {routines.length === 0 && <p className="text-xs text-muted">登録されたルーティンはありません。</p>}
+              {routines.map((routine) => <div key={routine.id} className="rounded-xl border border-border bg-surface p-3 text-xs"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="font-medium">{routine.name} {routine.enabled ? <span className="text-success">有効</span> : <span className="text-muted">無効</span>}</p><p className="mt-1 font-mono text-muted">{routine.schedule}</p><p className="mt-1 break-words text-muted">{routine.prompt}</p>{routine.failureCount > 0 && <p className="mt-1 text-danger">連続失敗: {routine.failureCount}回</p>}</div><div className="flex shrink-0 flex-col gap-1"><Button size="sm" variant="ghost" disabled={routineBusy === routine.id} onClick={() => void patchRoutine(routine, !routine.enabled)}>{routine.enabled ? "無効化" : "有効化"}</Button><Button size="sm" variant="ghost" disabled={routineBusy === routine.id || !routine.enabled} onClick={() => void runRoutine(routine)}>今すぐ実行</Button><button type="button" disabled={routineBusy === routine.id} onClick={() => void deleteRoutine(routine)} className="px-2 py-1 text-danger hover:underline disabled:opacity-50">削除</button></div></div></div>)}
+            </section>
             <div className="border-t border-border pt-4">
               <p className="text-xs text-muted">このBotと関連する会話データも削除されます。</p>
               <Button size="sm" variant="danger" onClick={() => void removeBot()} busy={deleting} className="mt-2">ボットを削除</Button>
