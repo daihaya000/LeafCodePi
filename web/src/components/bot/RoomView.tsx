@@ -96,7 +96,8 @@ export function RoomView({ id }: { id: string }) {
   const working = room.messages.some((message) => message.status === "working");
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-bg">
+    <div className="flex h-full min-h-0 bg-bg">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="relative flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
         <Link href="/bots" aria-label="ボット一覧へ戻る" className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-text"><ArrowLeft className="h-4 w-4" /></Link>
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-success-bg text-success"><Users className="h-4 w-4" /></span>
@@ -112,41 +113,6 @@ export function RoomView({ id }: { id: string }) {
         </button>
       </header>
 
-      {settingsOpen && (
-        <aside id="room-settings-panel" role="dialog" aria-label="ルーム設定" className="absolute inset-y-0 right-0 z-30 flex w-full max-w-md flex-col border-l border-border bg-surface shadow-2xl">
-          <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
-            <div><h2 className="font-semibold">ルーム設定</h2><p className="mt-0.5 text-xs text-muted">このルームのメンバーと送信先を設定</p></div>
-            <button type="button" aria-label="設定を閉じる" onClick={() => setSettingsOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"><X className="h-4 w-4" /></button>
-          </div>
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
-            <div className="flex flex-col items-center gap-2 py-2"><span className="flex h-20 w-20 items-center justify-center rounded-full bg-success-bg text-success"><Users className="h-8 w-8" /></span><p className="text-xs text-muted">ルームのプロフィール</p></div>
-            <label className="block text-sm"><span className="font-medium">名前</span><div className="mt-2 rounded-xl border border-border bg-bg px-3 py-2.5">{room.name}</div></label>
-            <div className="rounded-2xl border border-border bg-bg p-4">
-              <span className="text-sm font-medium">メンバー</span>
-              <div className="mt-3 space-y-1">
-                {bots.map((bot) => (
-                  <label key={bot.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm hover:bg-surface-2">
-                    <input
-                      type="checkbox"
-                      checked={room.members.includes(bot.id)}
-                      onChange={(event) => void saveMembers(event.target.checked ? [...room.members, bot.id] : room.members.filter((item) => item !== bot.id))}
-                    />
-                    <BotAvatar size={24} color={bot.avatarColor} name={bot.name} />
-                    <span className="min-w-0 flex-1 truncate">{bot.name}</span>
-                  </label>
-                ))}
-                {bots.length === 0 && <p className="px-2 py-2 text-xs text-muted">ボットがありません</p>}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-border bg-bg p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div><span className="text-sm font-medium">部屋に聞く</span><p className="mt-0.5 text-xs text-muted">有効にすると、メンションなしでもメンバー全員が応答します。</p></div>
-                <Button size="sm" variant={broadcast ? "primary" : "ghost"} onClick={() => setBroadcast((value) => !value)} aria-pressed={broadcast}>{broadcast ? "全員" : "メンション"}</Button>
-              </div>
-            </div>
-          </div>
-        </aside>
-      )}
 
       <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
         <div className="mx-auto max-w-3xl space-y-4">
@@ -186,6 +152,42 @@ export function RoomView({ id }: { id: string }) {
         </div>
         {error && <p role="alert" className="mx-auto mt-2 max-w-3xl text-xs text-danger">{error}</p>}
       </div>
+      </div>
+      {settingsOpen && (
+        <aside id="room-settings-panel" aria-label="ルーム設定" className="flex h-full w-[min(100%,22rem)] shrink-0 flex-col border-l border-border bg-surface">
+          <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
+            <div><h2 className="font-semibold">ルーム設定</h2><p className="mt-0.5 text-xs text-muted">このルームのメンバーと送信先を設定</p></div>
+            <button type="button" aria-label="設定を閉じる" onClick={() => setSettingsOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"><X className="h-4 w-4" /></button>
+          </div>
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+            <div className="flex flex-col items-center gap-2 py-2"><span className="flex h-20 w-20 items-center justify-center rounded-full bg-success-bg text-success"><Users className="h-8 w-8" /></span><p className="text-xs text-muted">ルームのプロフィール</p></div>
+            <label className="block text-sm"><span className="font-medium">名前</span><div className="mt-2 rounded-xl border border-border bg-bg px-3 py-2.5">{room.name}</div></label>
+            <div className="rounded-2xl border border-border bg-bg p-4">
+              <span className="text-sm font-medium">メンバー</span>
+              <div className="mt-3 space-y-1">
+                {bots.map((bot) => (
+                  <label key={bot.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm hover:bg-surface-2">
+                    <input
+                      type="checkbox"
+                      checked={room.members.includes(bot.id)}
+                      onChange={(event) => void saveMembers(event.target.checked ? [...room.members, bot.id] : room.members.filter((item) => item !== bot.id))}
+                    />
+                    <BotAvatar size={24} color={bot.avatarColor} name={bot.name} />
+                    <span className="min-w-0 flex-1 truncate">{bot.name}</span>
+                  </label>
+                ))}
+                {bots.length === 0 && <p className="px-2 py-2 text-xs text-muted">ボットがありません</p>}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-border bg-bg p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div><span className="text-sm font-medium">部屋に聞く</span><p className="mt-0.5 text-xs text-muted">有効にすると、メンションなしでもメンバー全員が応答します。</p></div>
+                <Button size="sm" variant={broadcast ? "primary" : "ghost"} onClick={() => setBroadcast((value) => !value)} aria-pressed={broadcast}>{broadcast ? "全員" : "メンション"}</Button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      )}
     </div>
   );
 }
