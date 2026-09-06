@@ -512,7 +512,8 @@ export const TaskView = memo(function TaskView({
   const [queuedAutoSend, setQueuedAutoSend] = useState(false);
   const nextQueueIdRef = useRef(1);
   const nextOptimisticMessageIdRef = useRef(1);
-  const submitRef = useRef<() => Promise<void>>(async () => undefined);
+  const queuedSendRef = useRef<QueuedFollowUp | null>(null);
+  const submitRef = useRef<(queued?: QueuedFollowUp) => Promise<void>>(async () => undefined);
   const [submitting, setSubmitting] = useState(false);
   const [resumingTurn, setResumingTurn] = useState(false);
   const [resumeTurnError, setResumeTurnError] = useState<string | null>(null);
@@ -921,6 +922,7 @@ export const TaskView = memo(function TaskView({
               shouldClearQueuedFollowUpOnAbortState(payload.manualAbortedAssistantId))
           ) {
             setQueuedFollowUps([]);
+            queuedSendRef.current = null;
             setQueuedAutoSend(false);
           }
           if (shouldClearPendingUserMessageOnEvent(payload.eventType)) {
@@ -1178,6 +1180,7 @@ export const TaskView = memo(function TaskView({
     setRevertBusy(false);
     revertEntryRef.current = null;
     setQueuedFollowUps([]);
+    queuedSendRef.current = null;
     setQueuedAutoSend(false);
     setPendingUserMessage(null);
     setSubmitting(false);
@@ -1427,9 +1430,11 @@ export const TaskView = memo(function TaskView({
     }
   }
 
-  async function submit() {
+  async function submit(queued?: QueuedFollowUp) {
+    const submittedPrompt = queued ? queued.text : prompt;
+    const submittedAttachments = queued ? queued.attachments : attachments;
     if (
-      (!prompt.trim() && attachments.length === 0) ||
+      (!submittedPrompt.trim() && submittedAttachments.length === 0) ||
       submitting ||
       resumingTurn ||
       compacting ||
@@ -1438,10 +1443,9 @@ export const TaskView = memo(function TaskView({
     ) {
       return;
     }
-    const submittedPrompt = prompt;
-    const submittedAttachments = attachments;
     let draftCleared = false;
     if (
+      !queued &&
       shouldQueueFollowUp({
         working,
         deliveryMode,
@@ -1472,7 +1476,7 @@ export const TaskView = memo(function TaskView({
     setSubmitting(true);
     setError(null);
     try {
-      const images = attachments
+      const images = submittedAttachments
         .map((attachment) => {
           const comma = attachment.uri.indexOf(",");
           if (comma < 0) return null;
@@ -1553,9 +1557,11 @@ export const TaskView = memo(function TaskView({
             baselineUserCount: messages.filter((message) => message.role === "user").length,
           });
         }
-        setPrompt("");
-        setAttachments([]);
-        draftCleared = true;
+        if (!queued) {
+          setPrompt("");
+          setAttachments([]);
+          draftCleared = true;
+        }
         const result = await sendJson<{
           task: TaskSummary;
           autoDecision?: AutoDecision;
@@ -1601,6 +1607,10 @@ export const TaskView = memo(function TaskView({
       if (wasStopped) {
         stopRequestedRef.current = true;
         setStopRequested(true);
+      }
+      if (queued && !stopRequestedRef.current) {
+        setPendingUserMessage(null);
+        setQueuedFollowUps((current) => [queued, ...current]);
       }
       if (draftCleared) {
         setPendingUserMessage(null);
@@ -1693,6 +1703,9 @@ export const TaskView = memo(function TaskView({
 
   useEffect(() => {
     if (
+      error ||
+      agentChanging ||
+      archived ||
       !shouldDrainQueuedFollowUp({
         working,
         submitting,
@@ -1712,10 +1725,13 @@ export const TaskView = memo(function TaskView({
     const next = queuedFollowUps[0];
     if (!next) return;
     setQueuedFollowUps((current) => current.filter((item) => item.id !== next.id));
-    setPrompt(next.text);
-    setAttachments(next.attachments);
+    // Keep queue payloads separate from the editable composer and its delivery mode.
+    queuedSendRef.current = next;
     setQueuedAutoSend(true);
   }, [
+    error,
+    agentChanging,
+    archived,
     compacting,
     goalLoopEnabled,
     goalLoopLive,
@@ -1738,21 +1754,26 @@ export const TaskView = memo(function TaskView({
         goalLoopEnabled,
         goalLoopLive,
         stopRequested,
-        hasContent: Boolean(prompt.trim() || attachments.length > 0),
+        hasContent: Boolean(queuedSendRef.current),
         resumingTurn,
         sessionHydrating,
         sseReconnecting,
         compacting,
       })
     ) {
-      if (queuedAutoSend && (stopRequested || (!prompt.trim() && attachments.length === 0))) {
+      if (queuedAutoSend && !queuedSendRef.current) {
         setQueuedAutoSend(false);
       }
       return;
     }
+    if (agentChanging || archived) return;
+    const queued = queuedSendRef.current;
+    queuedSendRef.current = null;
     setQueuedAutoSend(false);
-    void submitRef.current();
+    if (queued) void submitRef.current(queued);
   }, [
+    agentChanging,
+    archived,
     attachments.length,
     compacting,
     goalLoopEnabled,
@@ -1834,6 +1855,7 @@ export const TaskView = memo(function TaskView({
       setError(null);
       const result = await sendJson<{ task: TaskSummary }>(`/api/tasks/${taskId}/abort`, {});
       setQueuedFollowUps([]);
+      queuedSendRef.current = null;
       setQueuedAutoSend(false);
       setPendingUserMessage(null);
       // TaskSummary does not include the live-session flag. Clear it here so
@@ -2801,7 +2823,9 @@ export const TaskView = memo(function TaskView({
               : compacting
                 ? "圧縮中です…"
                 : working
-                  ? "実行中です。送信するとフォローアップになります…"
+                  ? deliveryMode === "queue"
+                    ? "実行中です。送信するとキューに追加します…"
+                    : "実行中です。送信すると現在の処理へ割り込みます…"
                   : "続きを指示…（Ctrl+Enter）",
             className: "w-full resize-none bg-transparent py-1.5 text-base outline-none placeholder:text-faint",
             disabled: compacting || archived,
@@ -3101,7 +3125,8 @@ export const TaskView = memo(function TaskView({
                 variant="primary"
                 size="icon"
                 type="submit"
-                aria-label="送信"
+                aria-label={working ? (deliveryMode === "queue" ? "キューに追加" : "割り込みを送信") : "送信"}
+                title={working ? (deliveryMode === "queue" ? "現在の処理後に送信" : "実行中の処理へ割り込み") : "送信"}
                 className="h-11 w-11 md:h-9 md:w-9"
                 busy={submitting}
                 disabled={archived || compacting || agentChanging || ((goalLoopEnabled || goalLoopLive) && working) || (!prompt.trim() && attachments.length === 0)}

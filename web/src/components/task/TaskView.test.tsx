@@ -31,6 +31,56 @@ afterEach(() => {
 });
 
 describe("TaskView draft submission", () => {
+  it.each(["success", "failure"])("sends queued content without replacing the next draft (%s)", async (outcome) => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource;
+      constructor() { super(); TestEventSource.latest = this; }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    if (outcome === "failure") mocks.sendJson.mockRejectedValue(new Error("queue failed"));
+    else mocks.sendJson.mockResolvedValue({ task });
+    render(<TaskView taskId={task.id} mdUp />);
+    const snapshot = async (working: boolean) => {
+      await act(async () => {
+        TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+          data: JSON.stringify({ eventType: "ready", task: { ...task, status: working ? "working" : "idle", isStreaming: working }, messages: [] }),
+        }));
+      });
+    };
+    await snapshot(true);
+    const input = screen.getByRole("textbox", { name: "フォローアップ" }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "queued prompt" } });
+    fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+    expect(mocks.sendJson).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "unfinished draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信方式" }));
+    fireEvent.click(screen.getByRole("option", { name: "割り込み" }));
+    expect(screen.getByRole("button", { name: "割り込みを送信" })).toBeTruthy();
+    await snapshot(false);
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      `/api/tasks/${task.id}/prompt`, expect.objectContaining({ prompt: "queued prompt" }),
+    ));
+    expect(input.value).toBe("unfinished draft");
+    expect(mocks.sendJson).toHaveBeenCalledTimes(1);
+    expect(mocks.sendJson.mock.calls[0][1].streamingBehavior).toBeUndefined();
+    if (outcome === "failure") {
+      expect(await screen.findByText("queue failed")).toBeTruthy();
+      expect(screen.getByText("queued prompt")).toBeTruthy();
+    }
+  });
+  it.each([false, true])("uses steer only while working (working: %s)", async (working) => {
+    saveTaskSessionCache({ task: { ...task, status: working ? "working" : "idle" }, messages: [], isStreaming: working, isCompacting: false });
+    mocks.sendJson.mockResolvedValue({ task });
+    render(<TaskView taskId={task.id} mdUp />);
+    fireEvent.click(screen.getByRole("button", { name: "送信方式" }));
+    fireEvent.click(screen.getByRole("option", { name: "割り込み" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "フォローアップ" }), { target: { value: "instruction" } });
+    fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledTimes(1));
+    expect(mocks.sendJson.mock.calls[0][1].streamingBehavior).toBe(working ? "steer" : undefined);
+  });
+
   it("switches Graph and Diff instead of opening both when the timeline is narrow", () => {
     const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
