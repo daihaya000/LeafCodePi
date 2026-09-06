@@ -69,7 +69,8 @@ export function patchBot(id: string, patch: Partial<Pick<BotConfig, "name" | "mo
   delete (next as Record<string, unknown>).soul;
   writeConfig(next);
   if (patch.soul !== undefined) writeFileSync(soulPath(id), patch.soul, "utf8");
-  patchTask(`bot:${id}`, { title: next.name, modelID: next.model ?? undefined, thinkingLevel: next.thinkingLevel ?? undefined, permissionMode: next.permissionMode ?? undefined });
+  // Model routing is applied by the bot PATCH route through setTaskModel; do not write the logical model key into modelID.
+  patchTask(`bot:${id}`, { title: next.name, thinkingLevel: next.thinkingLevel ?? undefined, permissionMode: next.permissionMode ?? undefined });
   return toDto(next);
 }
 export function deleteBot(id: string): boolean {
