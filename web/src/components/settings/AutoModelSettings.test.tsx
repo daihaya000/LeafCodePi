@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const client = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn() }));
@@ -36,6 +36,25 @@ describe("AutoModelSettings", () => {
     expect(screen.getByText("モデルを読み込み中…")).toBeTruthy();
     await waitFor(() => expect(screen.queryByText("モデルを読み込み中…")).toBeNull());
     expect(screen.getByText("Auto ルーティング設定")).toBeTruthy();
+  });
+
+  it("lists optimization modes in three columns", async () => {
+    client.getJson.mockImplementation((path: string) =>
+      path === "/api/models" ? Promise.resolve({ models: [] }) : Promise.resolve({ value: null }),
+    );
+    render(<AutoModelSettings />);
+    await waitFor(() => expect(screen.queryByText("モデルを読み込み中…")).toBeNull());
+
+    const modeGroup = screen.getByRole("group", { name: "最適化方針" });
+    expect(modeGroup.className).toContain("grid-cols-3");
+    expect(within(modeGroup).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "コスト優先",
+      "バランス",
+      "知能優先",
+    ]);
+
+    fireEvent.click(within(modeGroup).getByRole("button", { name: "知能優先" }));
+    expect(within(modeGroup).getByRole("button", { name: "知能優先" }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("reports a fetch failure without crashing", async () => {
@@ -91,7 +110,8 @@ describe("AutoModelSettings", () => {
 
     render(<AutoModelSettings />);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Auto の最適化" }).textContent).toContain("知能優先");
+      const modeGroup = screen.getByRole("group", { name: "最適化方針" });
+      expect(within(modeGroup).getByRole("button", { name: "知能優先" }).getAttribute("aria-pressed")).toBe("true");
     });
   });
 

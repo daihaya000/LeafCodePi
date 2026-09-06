@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { AutoRouteOverridesEditor } from "@/components/settings/AutoRouteOverridesEditor";
+import { cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import {
   AUTO_OPTIMIZE_SETTING_KEY,
@@ -16,7 +16,13 @@ import {
   writeAutoRouteConfig,
   writeAutoSettingToServer,
 } from "@/lib/auto-settings";
-import { isAutoRouteConfigEmpty, type AutoOptimizeMode, type AutoRouteConfig } from "@/lib/auto-model";
+import {
+  AUTO_OPTIMIZE_MODES,
+  autoOptimizeModeLabel,
+  isAutoRouteConfigEmpty,
+  type AutoOptimizeMode,
+  type AutoRouteConfig,
+} from "@/lib/auto-model";
 import type { ModelOption } from "@/lib/types";
 
 export function AutoModelSettings({ refreshToken = 0 }: { refreshToken?: number }) {
@@ -113,12 +119,31 @@ export function AutoModelSettings({ refreshToken = 0 }: { refreshToken?: number 
         Autoはタスクごとにモデルを選びます。最適化方針はcomposerのeffort欄からも変更できます。
       </p>
       <div className="mt-3 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2">
-          <div>
-            <p className="text-xs font-medium text-text">最適化方針</p>
-            <p className="mt-0.5 text-xs text-muted">コスト、品質、バランスの優先度を選びます。</p>
+        <div className="rounded-lg bg-surface-2 px-3 py-2">
+          <p className="text-xs font-medium text-text">最適化方針</p>
+          <p className="mt-0.5 text-xs text-muted">コスト、品質、バランスの優先度を選びます。</p>
+          <div
+            role="group"
+            aria-label="最適化方針"
+            className="mt-2 grid grid-cols-3 gap-1 rounded-lg bg-surface-3 p-1"
+          >
+            {AUTO_OPTIMIZE_MODES.map((candidateMode) => (
+              <button
+                key={candidateMode}
+                type="button"
+                aria-pressed={mode === candidateMode}
+                onClick={() => changeMode(candidateMode)}
+                className={cx(
+                  "min-h-11 rounded-md px-2 py-2 text-xs font-medium transition-colors",
+                  mode === candidateMode
+                    ? "bg-primary text-primary-fg"
+                    : "text-muted hover:bg-surface hover:text-text",
+                )}
+              >
+                {autoOptimizeModeLabel(candidateMode)}
+              </button>
+            ))}
           </div>
-          <AutoOptimizeSelect value={mode} onChange={changeMode} />
         </div>
         <AutoRouteOverridesEditor mode={mode} models={models} config={routeConfig} onChange={changeRouteConfig} />
       </div>
