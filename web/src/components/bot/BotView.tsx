@@ -9,7 +9,7 @@ import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
-import { BOT_AVATAR_COLORS, randomAvatarColor } from "@/lib/bot-avatar";
+import { AVATAR_IMAGE_ACCEPT, BOT_AVATAR_COLORS, MAX_AVATAR_IMAGE_BYTES, randomAvatarColor } from "@/lib/bot-avatar";
 import type { BotDto, ModelOption, PermissionRequestDto, ThinkingLevel, UiMessage } from "@/lib/types";
 
 function textOf(message: UiMessage): string {
@@ -31,6 +31,7 @@ export function BotView({ id }: { id: string }) {
   const [updatingModel, setUpdatingModel] = useState(false);
   const [updatingThinking, setUpdatingThinking] = useState(false);
   const [updatingColor, setUpdatingColor] = useState(false);
+  const [updatingImage, setUpdatingImage] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const composingRef = useRef(false);
@@ -165,6 +166,26 @@ export function BotView({ id }: { id: string }) {
     } finally { setUpdatingColor(false); }
   };
 
+  const updateAvatarImage = async (image: string | null) => {
+    setUpdatingImage(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { avatarImage: image }, "PATCH");
+      setBot(result.bot);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "画像の変更に失敗しました");
+    } finally { setUpdatingImage(false); }
+  };
+
+  const onAvatarFileChange = (file: File | null) => {
+    if (!file) return;
+    if (!file.type.match(/^image\/(png|jpeg|gif|webp)$/)) { window.alert("PNG・JPEG・GIF・WebP の画像を選択してください。"); return; }
+    if (file.size > MAX_AVATAR_IMAGE_BYTES) { window.alert("2 MB以下の画像を選択してください。"); return; }
+    const reader = new FileReader();
+    reader.onload = () => { void updateAvatarImage(String(reader.result)); };
+    reader.readAsDataURL(file);
+  };
+
   const saveSoul = async () => {
     setSavingSoul(true);
     setError(null);
@@ -194,14 +215,14 @@ export function BotView({ id }: { id: string }) {
     if (!text && !message.error) return null;
     return (
       <div key={message.id} className={`flex items-end gap-2 ${user ? "justify-end" : "justify-start"}`}>
-        {!user && <BotAvatar size={28} color={bot?.avatarColor} name={bot?.name} />}
+        {!user && <BotAvatar size={28} color={bot?.avatarColor} image={bot?.avatarImage} name={bot?.name} />}
         <div className={`max-w-[min(42rem,88%)] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${user ? "rounded-br-md bg-accent text-white" : "rounded-bl-md border border-border bg-surface"}`}>
           {text && <div className="whitespace-pre-wrap break-words">{text}</div>}
           {message.error && <div className="mt-1 text-xs text-danger">{message.error}</div>}
         </div>
       </div>
     );
-  }), [bot?.avatarColor, bot?.name, messages]);
+  }), [bot?.avatarColor, bot?.avatarImage, bot?.name, messages]);
 
   if (!bot) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
@@ -210,7 +231,7 @@ export function BotView({ id }: { id: string }) {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
         <Link href="/bots" aria-label="ボット一覧へ戻る" className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-text"><ArrowLeft className="h-4 w-4" /></Link>
-        <BotAvatar size={36} color={bot.avatarColor} name={bot.name} />
+        <BotAvatar size={36} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />
         <div className="min-w-0 flex-1"><h1 className="truncate font-semibold">{bot.name}</h1><p className="text-xs text-muted">1:1 ボット</p></div>
         <button
           type="button"
@@ -227,7 +248,7 @@ export function BotView({ id }: { id: string }) {
 
       <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
         <div className="mx-auto max-w-3xl space-y-4">
-          {messages.length === 0 && !sending && <div className="rounded-2xl border border-dashed border-border bg-surface/50 px-5 py-8 text-center"><BotAvatar size={48} color={bot.avatarColor} name={bot.name} className="mx-auto mb-3" /><p className="font-medium">{bot.name} と話す</p><p className="mt-1 text-sm text-muted">メッセージを送って会話を始めましょう。</p></div>}
+          {messages.length === 0 && !sending && <div className="rounded-2xl border border-dashed border-border bg-surface/50 px-5 py-8 text-center"><BotAvatar size={48} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} className="mx-auto mb-3" /><p className="font-medium">{bot.name} と話す</p><p className="mt-1 text-sm text-muted">メッセージを送って会話を始めましょう。</p></div>}
           {rendered}
           {permission && <div className="rounded-2xl border border-warning/40 bg-warning-bg p-4 text-xs"><p className="font-medium">権限の確認が必要です</p><p className="mt-1 break-all text-muted">{permission.message}</p><div className="mt-3 flex gap-2"><Button size="sm" onClick={() => void respond(true)}>許可</Button><Button size="sm" variant="ghost" onClick={() => void respond(false)}>拒否</Button></div></div>}
           {sending && <div className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />応答中…</div>}
@@ -257,7 +278,16 @@ export function BotView({ id }: { id: string }) {
             <button type="button" aria-label="設定を閉じる" onClick={() => setSettingsOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"><X className="h-4 w-4" /></button>
           </div>
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
-            <div className="flex flex-col items-center gap-2 py-2"><BotAvatar size={80} color={bot.avatarColor} name={bot.name} /><p className="text-xs text-muted">ボットのプロフィール</p></div>
+            <div className="flex flex-col items-center gap-2 py-2">
+              <label title="画像を設定" className="cursor-pointer rounded-full has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent">
+                <BotAvatar size={80} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />
+                <input type="file" aria-label="ボットの画像を設定" accept={AVATAR_IMAGE_ACCEPT} disabled={updatingImage} className="sr-only" onChange={(event) => { onAvatarFileChange(event.target.files?.[0] ?? null); event.currentTarget.value = ""; }} />
+              </label>
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-muted">タップして画像を設定</p>
+                {bot.avatarImage && <button type="button" disabled={updatingImage} onClick={() => void updateAvatarImage(null)} className="text-xs text-danger hover:underline disabled:opacity-50">画像を削除</button>}
+              </div>
+            </div>
             <label className="block text-sm"><span className="font-medium">名前</span><div className="mt-2 rounded-xl border border-border bg-bg px-3 py-2.5">{bot.name}</div></label>
             <div className="rounded-2xl border border-border bg-bg p-4"><div className="flex items-center justify-between"><span className="text-sm font-medium">色</span><Button size="sm" variant="ghost" onClick={() => void updateAvatarColor(randomAvatarColor(bot.avatarColor))} busy={updatingColor}>ランダム</Button></div><div role="group" aria-label="ボットの色" className="mt-3 flex flex-wrap gap-2">{BOT_AVATAR_COLORS.map((color) => <button key={color} type="button" aria-label={color} aria-pressed={bot.avatarColor === color} disabled={updatingColor} onClick={() => void updateAvatarColor(color)} className={`h-8 w-8 rounded-full border-2 border-transparent transition-transform hover:scale-110 disabled:opacity-50 ${bot.avatarColor === color ? "border-text ring-2 ring-accent/30" : ""}`} style={{ backgroundColor: color }} />)}</div></div>
             <label className="block text-sm"><span className="font-medium">ラベル</span><div className="mt-2 rounded-xl border border-border bg-bg px-3 py-2.5 text-muted">1:1 アシスタント</div></label>

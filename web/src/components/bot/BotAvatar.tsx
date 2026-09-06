@@ -3,12 +3,27 @@ import { cx } from "@/components/ui";
 type BotAvatarProps = {
   size?: number;
   color?: string;
+  /** アップロードされたアバター画像（data URL）。あれば幾何学顔アイコンより優先する。 */
+  image?: string | null;
   name?: string;
   className?: string;
 };
 
-/** Small geometric bot face used consistently throughout Bot mode. */
-export function BotAvatar({ size = 32, color = "#3B82F6", name, className }: BotAvatarProps) {
+/** Small geometric bot face used consistently throughout Bot mode; falls back from an uploaded image. */
+export function BotAvatar({ size = 32, color = "#3B82F6", image, name, className }: BotAvatarProps) {
+  if (image) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={image}
+        alt={name ? `${name}のアバター` : "ボットアバター"}
+        width={size}
+        height={size}
+        className={cx("shrink-0 rounded-full object-cover", className)}
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   return (
     <svg
       aria-label={name ? `${name}のアバター` : "ボットアバター"}

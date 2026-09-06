@@ -186,7 +186,7 @@ export function RoomView({ id }: { id: string }) {
     if (!text) return null;
     return (
       <div key={message.id} className={`flex items-end gap-2 ${user ? "justify-end" : "justify-start"}`}>
-        {!user && <BotAvatar size={28} color={bot?.avatarColor} name={bot?.name ?? message.botName} />}
+        {!user && <BotAvatar size={28} color={bot?.avatarColor} image={bot?.avatarImage} name={bot?.name ?? message.botName} />}
         <div className={`max-w-[min(42rem,88%)] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${user ? "rounded-br-md bg-accent text-white" : "rounded-bl-md border border-border bg-surface"}`}>
           {!user && <div className="mb-1 text-[11px] text-muted">{bot?.name ?? message.botName ?? "ボット"}</div>}
           <div className="whitespace-pre-wrap break-words">{renderMentionText(text, bots, message.id, user ? "rounded bg-white/90 px-0.5 font-semibold text-accent" : undefined)}</div>
@@ -226,7 +226,7 @@ export function RoomView({ id }: { id: string }) {
               <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-success-bg text-success"><Users className="h-5 w-5" /></span>
               <p className="font-medium">{room.name} で話す</p>
               <p className="mt-1 text-sm text-muted">メンションされたボットだけが応答します。@here / @channel または「部屋に聞く」で全員に送れます。</p>
-              {members.length > 0 && <div className="mt-3 flex flex-wrap justify-center gap-2">{members.map((bot) => <span key={bot.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 text-xs"><BotAvatar size={18} color={bot.avatarColor} name={bot.name} />{bot.name}</span>)}</div>}
+              {members.length > 0 && <div className="mt-3 flex flex-wrap justify-center gap-2">{members.map((bot) => <span key={bot.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 text-xs"><BotAvatar size={18} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />{bot.name}</span>)}</div>}
             </div>
           )}
           {rendered}
@@ -266,7 +266,7 @@ export function RoomView({ id }: { id: string }) {
                       onClick={() => insertMention(candidate)}
                       className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left ${index === mentionIndex ? "bg-surface-2" : "hover:bg-surface-2"}`}
                     >
-                      {candidate.bot ? <BotAvatar size={24} color={candidate.bot.avatarColor} name={candidate.bot.name} /> : <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">@</span>}
+                      {candidate.bot ? <BotAvatar size={24} color={candidate.bot.avatarColor} image={candidate.bot.avatarImage} name={candidate.bot.name} /> : <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">@</span>}
                       <span className="min-w-0"><span className="block truncate text-sm font-medium">{candidate.label}</span><span className="block truncate text-[11px] text-muted">{candidate.description}</span></span>
                     </button>
                   ))}
@@ -303,7 +303,7 @@ export function RoomView({ id }: { id: string }) {
                       checked={room.members.includes(bot.id)}
                       onChange={(event) => void saveMembers(event.target.checked ? [...room.members, bot.id] : room.members.filter((item) => item !== bot.id))}
                     />
-                    <BotAvatar size={24} color={bot.avatarColor} name={bot.name} />
+                    <BotAvatar size={24} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />
                     <span className="min-w-0 flex-1 truncate">{bot.name}</span>
                   </label>
                 ))}

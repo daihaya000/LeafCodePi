@@ -23,4 +23,16 @@ describe("PATCH /api/bots/[id]", () => {
     expect(valid.status).toBe(200);
     expect((await valid.json()).bot.avatarColor).toBe("#ABCDEF");
   });
+  it("validates, persists, and clears an avatar image", async () => {
+    const bot = createBot({ name: "Image patch bot" });
+    const invalid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ avatarImage: "not-a-data-url" }) }), { params: Promise.resolve({ id: bot.id }) });
+    expect(invalid.status).toBe(400);
+    const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    const valid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ avatarImage: dataUrl }) }), { params: Promise.resolve({ id: bot.id }) });
+    expect(valid.status).toBe(200);
+    expect((await valid.json()).bot.avatarImage).toBe(dataUrl);
+    const cleared = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ avatarImage: null }) }), { params: Promise.resolve({ id: bot.id }) });
+    expect(cleared.status).toBe(200);
+    expect((await cleared.json()).bot.avatarImage).toBeNull();
+  });
 });

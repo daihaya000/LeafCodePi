@@ -27,3 +27,13 @@ export function randomAvatarColor(exclude?: string): BotAvatarColor {
     : BOT_AVATAR_COLORS;
   return choices[Math.floor(Math.random() * choices.length)]!;
 }
+
+// プロジェクトアイコン（/api/projects）と同じ制約で統一：2 MB相当のbase64長、png/jpeg/gif/webpのみ。
+export const AVATAR_IMAGE_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
+export const MAX_AVATAR_IMAGE_BYTES = 2 * 1024 * 1024;
+const MAX_AVATAR_IMAGE_LENGTH = 3_000_000;
+const AVATAR_IMAGE_PATTERN = /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/;
+
+export function isAvatarImage(value: unknown): value is string {
+  return typeof value === "string" && value.length <= MAX_AVATAR_IMAGE_LENGTH && AVATAR_IMAGE_PATTERN.test(value);
+}

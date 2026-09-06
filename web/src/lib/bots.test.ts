@@ -40,4 +40,21 @@ describe("bot store", () => {
     expect(patchBot(bot.id, { name: "B", soul: "Be precise" })?.name).toBe("B");
     expect(getBot(bot.id)?.soul).toBe("Be precise"); expect(deleteBot(bot.id)).toBe(true); expect(getBot(bot.id)).toBeUndefined();
   });
+  it("starts with no avatar image and persists/clears an uploaded one", () => {
+    const bot = createBot({ name: "Image bot" });
+    expect(bot.avatarImage).toBeNull();
+    const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    expect(patchBot(bot.id, { avatarImage: dataUrl })?.avatarImage).toBe(dataUrl);
+    expect(getBot(bot.id)?.avatarImage).toBe(dataUrl);
+    expect(patchBot(bot.id, { avatarImage: null })?.avatarImage).toBeNull();
+    expect(getBot(bot.id)?.avatarImage).toBeNull();
+  });
+  it("drops an invalid persisted avatar image on read", () => {
+    const bot = createBot({ name: "Bad image bot" });
+    const configPath = join(root, "bots", bot.id, "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.avatarImage = "not-a-data-url";
+    fs.writeFileSync(configPath, JSON.stringify(config));
+    expect(getBot(bot.id)?.avatarImage).toBeNull();
+  });
 });

@@ -39,6 +39,8 @@ export type BotDto = {
   id: string;
   name: string;
   avatarColor: string;
+  /** アップロードされたアバター画像（data URL）。未設定ならnullでavatarColorのSVGにフォールバック。 */
+  avatarImage: string | null;
   createdAt: string;
   updatedAt: string;
   model: string | null;
