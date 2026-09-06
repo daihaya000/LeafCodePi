@@ -592,8 +592,12 @@ export function createLlamaServerService(deps) {
         ownedCommandMarker = launch.binary;
         const started = launchDetached(launch.binary, launch.args);
         ownedPid = started.pid;
-        if (!ownedPid) throw new Error('llama-server did not return a process id');
+        // Always observe the launch promise before validating the PID. A failed
+        // spawn can report no PID and emit `error` on the next tick; throwing
+        // first would leave `started.ready` rejected and crash the host as an
+        // unhandled rejection.
         await started.ready;
+        if (!ownedPid) throw new Error('llama-server did not return a process id');
         ownedStartTime = currentStartTime(ownedPid);
         if (trayEnabled && trayScript) {
           trayCommandMarker = trayScript;
@@ -636,8 +640,10 @@ export function createLlamaServerService(deps) {
           windowsHide: true,
         });
         ownedPid = started.pid;
-        if (!ownedPid) throw new Error('llama-server launcher did not return a process id');
+        // Observe launch failures before validating the PID so a rejected
+        // child readiness promise cannot become an unhandled rejection.
         await started.ready;
+        if (!ownedPid) throw new Error('llama-server launcher did not return a process id');
       }
       ownedStartTime = currentStartTime(ownedPid);
       // Launch the standalone llama-server tray (a separate resident process)

@@ -579,6 +579,43 @@ test('POSIX spawn errors are returned instead of reporting a successful start', 
   assert.match(result.error, /ENOENT/);
 });
 
+test('POSIX spawn errors with no PID do not leave an unhandled rejection', async () => {
+  const listeners = new Map();
+  const child = {
+    pid: undefined,
+    once(event, handler) {
+      const list = listeners.get(event) ?? [];
+      list.push(handler);
+      listeners.set(event, list);
+    },
+    on() { return this; },
+    unref() {},
+  };
+  const svc = createLlamaServerService(makeDeps({
+    platform: 'linux',
+    defaultBin: '/missing/llama-server',
+    defaultModelDir: '/home/test/models',
+    spawn: () => {
+      queueMicrotask(() => {
+        for (const handler of listeners.get('error') ?? []) handler(new Error('ENOENT'));
+      });
+      return child;
+    },
+  }));
+  const unhandled = [];
+  const onUnhandledRejection = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandledRejection);
+  try {
+    const result = await svc.start();
+    assert.equal(result.ok, false);
+    assert.match(result.error, /ENOENT/);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off('unhandledRejection', onUnhandledRejection);
+  }
+});
+
 test('resident POSIX ownership survives host recreation and is stopped once', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'leafcode-pi-owner-'));
   const ownershipFile = join(dir, 'llama-server-owner.json');
