@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -89,6 +89,49 @@ describe("remote-provider", () => {
         name: "LeafCodeCloud",
         baseUrl: REMOTE_PROVIDER_BASE,
         models: [expect.objectContaining({ id: "remote-model" })],
+      }),
+    );
+  });
+
+  it("prefers ~/.pi/agent/auth.json over the env API key", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-rp-"));
+    dirs.push(dir);
+    const agentDir = join(dir, "agent");
+    vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
+    vi.stubEnv(REMOTE_PROVIDER_API_KEY_ENV, "env-key");
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(
+      join(agentDir, "auth.json"),
+      JSON.stringify(
+        { leafcodecloud: { type: "api_key", key: "auth-key" } },
+        null,
+        2,
+      ),
+    );
+
+    const fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ data: [{ id: "auth-model" }] }), {
+        status: 200,
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const registerProvider = vi.fn();
+
+    await syncRemoteProvider({
+      getProvider: () => undefined,
+      registerProvider,
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/models"),
+      expect.objectContaining({
+        headers: { Authorization: "Bearer auth-key" },
+      }),
+    );
+    expect(registerProvider).toHaveBeenCalledWith(
+      "leafcodecloud",
+      expect.objectContaining({
+        models: [expect.objectContaining({ id: "auth-model" })],
       }),
     );
   });

@@ -22,7 +22,8 @@ export type PiAuthProviderId =
   | "commandcode"
   | "cursor"
   | "opencode"
-  | "opencode-go";
+  | "opencode-go"
+  | "leafcodecloud";
 
 export type PiOAuthTokens = {
   access: string;

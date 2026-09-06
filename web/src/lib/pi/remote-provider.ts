@@ -3,12 +3,18 @@ import {
   effectiveBaseUrl,
   REMOTE_PROVIDER_BASE,
 } from "@/lib/provider-endpoints";
+import { readPiApiKey } from "@/lib/codexbar/pi-auth";
 
 export { REMOTE_PROVIDER_BASE } from "@/lib/provider-endpoints";
 
 export const REMOTE_PROVIDER_ID = "leafcodecloud";
 export const REMOTE_PROVIDER_API_KEY_ENV = "LEAFCODECLOUD_API_KEY";
 const REMOTE_CONTEXT_WINDOW = 131_072;
+
+/** Resolve the LeafCodeCloud API key: `~/.pi/agent/auth.json` takes precedence over the env var. */
+function remoteProviderApiKey(): string | undefined {
+  return readPiApiKey(REMOTE_PROVIDER_ID) ?? process.env[REMOTE_PROVIDER_API_KEY_ENV]?.trim();
+}
 
 type RuntimeLike = {
   getProvider: (id: string) => unknown;
@@ -69,7 +75,7 @@ export function modelRows(
 
 async function fetchModels(baseUrl: string): Promise<ModelRow[]> {
   try {
-    const apiKey = process.env[REMOTE_PROVIDER_API_KEY_ENV]?.trim();
+    const apiKey = remoteProviderApiKey();
     if (!apiKey) return [];
     const response = await fetch(`${baseUrl}/models`, {
       cache: "no-store",
@@ -91,7 +97,7 @@ function providerConfig(
     name: "LeafCodeCloud",
     baseUrl,
     api: openAICompletionsApi(),
-    apiKey: process.env[REMOTE_PROVIDER_API_KEY_ENV]?.trim() ?? "",
+    apiKey: remoteProviderApiKey() ?? "",
     models,
   };
 }
