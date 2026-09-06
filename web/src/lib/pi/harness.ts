@@ -13,7 +13,7 @@ import {
   samePath,
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
-import { botAgentPrompt } from "@/lib/bots";
+import { botAgentPrompt, getBot } from "@/lib/bots";
 import {
   deleteProjectRecord,
   deleteTask,
@@ -96,6 +96,7 @@ import {
   bundledSkillsDir,
   compactSkillsForPrompt,
   filterSkillsByState,
+  filterSkillsForBot,
 } from "@/lib/skills";
 import type { SkillPermission } from "@/lib/skill-permission";
 import {
@@ -228,6 +229,7 @@ import type {
   HealthDto,
   ModelOption,
   ProjectDto,
+  BotSkillsConfig,
   ProviderAuthDto,
   PermissionRequestDto,
   QuestionRequestDto,
@@ -2015,6 +2017,7 @@ async function createSession(options: {
   goalLoop?: boolean;
   appendSystemPrompt?: string;
   noContextFiles?: boolean;
+  botSkills?: BotSkillsConfig;
 }): Promise<SessionSetup> {
   const pi = await loadPi();
   await ensureRuntime();
@@ -2067,7 +2070,7 @@ async function createSession(options: {
         : undefined;
       const skills = mergeBundledSkills(base.skills, bundledSkillResult?.skills ?? []);
       return {
-        skills: compactSkillsForPrompt(filterSkillsByState(skills)),
+        skills: compactSkillsForPrompt(filterSkillsForBot(filterSkillsByState(skills), options.botSkills ?? { mode: "inherit", include: [], exclude: [] })),
         diagnostics: base.diagnostics,
       };
     },
@@ -2744,6 +2747,7 @@ async function ensureLive(
     }
     const project = task.projectId ? getProject(task.projectId) : undefined;
     const isBot = task.kind === "bot" && Boolean(task.botId);
+    const bot = isBot && task.botId ? getBot(task.botId) : undefined;
     const cwd = project?.rootPath ?? task.directory;
     const persistedGoalLoop = task.sessionId
       ? readGoalLoopState(cwd, task.sessionId)
@@ -2778,7 +2782,7 @@ async function ensureLive(
       cwd,
       sessionFile: task.sessionFile,
       sessionName: isBot ? `bot:${task.title}` : task.title,
-      ...(isBot && task.botId ? { appendSystemPrompt: botAgentPrompt(task.botId), noContextFiles: true } : {}),
+      ...(isBot && task.botId ? { appendSystemPrompt: botAgentPrompt(task.botId), noContextFiles: true, botSkills: bot?.skills } : {}),
       accountId: sessionAccountId,
       model,
       thinkingLevel: task.thinkingLevel,

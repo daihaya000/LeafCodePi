@@ -6,6 +6,7 @@ import {
   bundledSkillsDir,
   compactSkillsForPrompt,
   filterSkillsByState,
+  filterSkillsForBot,
   listSkills,
   readSkillsState,
   setSkillEnabled,
@@ -41,6 +42,19 @@ describe("filterSkillsByState", () => {
     const out = filterSkillsByState(skills, { disabled: {} });
     expect(out).toEqual(skills);
     expect(out).not.toBe(skills);
+  });
+});
+
+describe("filterSkillsForBot", () => {
+  const skills = [{ name: "a" }, { name: "b" }, { name: "c" }];
+
+  it("supports an explicit include list", () => {
+    expect(filterSkillsForBot(skills, { mode: "include", include: ["c", "a"], exclude: [] }).map((s) => s.name)).toEqual(["a", "c"]);
+  });
+
+  it("supports an explicit exclude list and inherit", () => {
+    expect(filterSkillsForBot(skills, { mode: "exclude", include: [], exclude: ["b"] }).map((s) => s.name)).toEqual(["a", "c"]);
+    expect(filterSkillsForBot(skills, { mode: "inherit", include: [], exclude: ["a"] })).toEqual(skills);
   });
 });
 

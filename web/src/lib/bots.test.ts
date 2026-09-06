@@ -35,6 +35,15 @@ describe("bot store", () => {
     expect(getBot(bot.id)?.avatarColor).toBe(avatarColorForId(bot.id));
     expect(JSON.parse(readFileSync(configPath, "utf8")).avatarColor).toBe(avatarColorForId(bot.id));
   });
+  it("persists per-bot skill rules and extra roots", () => {
+    const bot = createBot({ name: "Config bot" });
+    const updated = patchBot(bot.id, {
+      skills: { mode: "include", include: ["review"], exclude: ["unsafe"] },
+      extraRoots: ["C:\\shared", "/srv/shared"],
+    });
+    expect(updated?.skills).toEqual({ mode: "include", include: ["review"], exclude: ["unsafe"] });
+    expect(getBot(bot.id)?.extraRoots).toEqual(["C:\\shared", "/srv/shared"]);
+  });
   it("patches SOUL and removes a bot", () => {
     const bot = createBot({ name: "A" });
     expect(patchBot(bot.id, { name: "B", soul: "Be precise" })?.name).toBe("B");

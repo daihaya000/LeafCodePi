@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Plus, Settings2, X } from "lucide-react";
+import { X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
+import { BotChatHeader } from "@/components/bot/BotChatHeader";
+import { BotComposer } from "@/components/bot/BotComposer";
 import { AVATAR_IMAGE_ACCEPT, BOT_AVATAR_COLORS, MAX_AVATAR_IMAGE_BYTES, randomAvatarColor } from "@/lib/bot-avatar";
 import type { BotDto, ModelOption, PermissionRequestDto, RoutineDto, ThinkingLevel, UiMessage } from "@/lib/types";
 
@@ -33,8 +35,11 @@ export function BotView({ id }: { id: string }) {
   const [updatingColor, setUpdatingColor] = useState(false);
   const [updatingImage, setUpdatingImage] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [updatingSkills, setUpdatingSkills] = useState(false);
+  const [extraRootInput, setExtraRootInput] = useState("");
   const [routines, setRoutines] = useState<RoutineDto[]>([]);
   const [routineFormOpen, setRoutineFormOpen] = useState(false);
+  const [routineCardOpen, setRoutineCardOpen] = useState(false);
   const [routineName, setRoutineName] = useState("");
   const [routinePrompt, setRoutinePrompt] = useState("");
   const [routineSchedule, setRoutineSchedule] = useState("0 * * * *");
@@ -207,11 +212,34 @@ export function BotView({ id }: { id: string }) {
 
   const createRoutine = async () => {
     if (!routineName.trim() || !routinePrompt.trim() || !routineSchedule.trim()) return;
-    if (!window.confirm(`「${routineName.trim()}」を作成しますか？
-スケジュール: ${routineSchedule.trim()}`)) return;
     setCreatingRoutine(true); setError(null);
-    try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines`, { name: routineName, prompt: routinePrompt, schedule: routineSchedule }, "POST"); setRoutineName(""); setRoutinePrompt(""); setRoutineSchedule("0 * * * *"); setRoutineFormOpen(false); await loadRoutines(); }
+    try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines`, { name: routineName, prompt: routinePrompt, schedule: routineSchedule }, "POST"); setRoutineName(""); setRoutinePrompt(""); setRoutineSchedule("0 * * * *"); setRoutineFormOpen(false); setRoutineCardOpen(false); await loadRoutines(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u4f5c\u6210\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); } finally { setCreatingRoutine(false); }
+  };
+  const updateSkills = async (skills: BotDto["skills"]) => {
+    setUpdatingSkills(true); setError(null);
+    try {
+      const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { skills }, "PATCH");
+      setBot(result.bot);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30b9\u30ad\u30eb\u8a2d\u5b9a\u306e\u4fdd\u5b58\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); }
+    finally { setUpdatingSkills(false); }
+  };
+  const addExtraRoot = async () => {
+    const root = extraRootInput.trim();
+    if (!root || !bot || bot.extraRoots.includes(root)) return;
+    setError(null);
+    try {
+      const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { extraRoots: [...bot.extraRoots, root] }, "PATCH");
+      setBot(result.bot); setExtraRootInput("");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "\u8ffd\u52a0\u30eb\u30fc\u30c8\u306e\u4fdd\u5b58\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); }
+  };
+  const removeExtraRoot = async (root: string) => {
+    if (!bot) return;
+    setError(null);
+    try {
+      const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { extraRoots: bot.extraRoots.filter((item) => item !== root) }, "PATCH");
+      setBot(result.bot);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "\u8ffd\u52a0\u30eb\u30fc\u30c8\u306e\u524a\u9664\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); }
   };
   const patchRoutine = async (routine: RoutineDto, enabled: boolean) => { setRoutineBusy(routine.id); setError(null); try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines/${encodeURIComponent(routine.id)}`, { enabled }, "PATCH"); await loadRoutines(); } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u66f4\u65b0\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); } finally { setRoutineBusy(null); } };
   const deleteRoutine = async (routine: RoutineDto) => { if (!window.confirm(`「${routine.name}」を削除しますか？`)) return; setRoutineBusy(routine.id); setError(null); try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines/${encodeURIComponent(routine.id)}`, undefined, "DELETE"); await loadRoutines(); } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u524a\u9664\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); } finally { setRoutineBusy(null); } };
@@ -250,46 +278,40 @@ export function BotView({ id }: { id: string }) {
   return (
     <div className="flex h-full min-h-0 bg-bg">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
-        <Link href="/bots" aria-label="ボット一覧へ戻る" className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-text"><ArrowLeft className="h-4 w-4" /></Link>
-        <BotAvatar size={36} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />
-        <div className="min-w-0 flex-1"><h1 className="truncate font-semibold">{bot.name}</h1><p className="text-xs text-muted">1:1 ボット</p></div>
-        <button
-          type="button"
-          aria-expanded={settingsOpen}
-          aria-controls="bot-settings-panel"
-          onClick={() => setSettingsOpen((open) => !open)}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-muted hover:bg-surface-2 hover:text-text"
-        >
-          <Settings2 className="h-3.5 w-3.5" />設定
-        </button>
-        {sending && <Button size="sm" variant="ghost" onClick={() => void abort()}>停止</Button>}
-      </header>
+      <BotChatHeader
+        title={bot.name}
+        subtitle="\u4e00\u5bfe\u4e00 \u30dc\u30c3\u30c8"
+        bot={bot}
+        settingsOpen={settingsOpen}
+        onSettings={() => setSettingsOpen((open) => !open)}
+      />
 
 
       <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
         <div className="mx-auto max-w-3xl space-y-4">
           {messages.length === 0 && !sending && <div className="rounded-2xl border border-dashed border-border bg-surface/50 px-5 py-8 text-center"><BotAvatar size={48} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} className="mx-auto mb-3" /><p className="font-medium">{bot.name} と話す</p><p className="mt-1 text-sm text-muted">メッセージを送って会話を始めましょう。</p></div>}
+          {routines.some((routine) => routine.failureCount > 0) && <div role="status" className="rounded-2xl border border-danger/40 bg-danger/5 p-4 text-sm"><p className="font-medium text-danger">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u5b9f\u884c\u306b\u5931\u6557\u3057\u3066\u3044\u307e\u3059"}</p><div className="mt-2 space-y-1 text-xs text-muted">{routines.filter((routine) => routine.failureCount > 0).map((routine) => <p key={routine.id}><span className="font-medium text-text">{routine.name}</span>{"\uFF1A"}{"\u9023\u7d9a\u5931\u6557"} {routine.failureCount}{"\u56de"}{routine.enabled ? "" : "\u3002\u5b89\u5168\u306e\u305f\u3081\u81ea\u52d5\u7684\u306b\u7121\u52b9\u5316\u3057\u307e\u3057\u305f"}</p>)}</div></div>}
+          {routineCardOpen && <div className="rounded-2xl border border-accent/40 bg-surface p-4 shadow-sm" role="dialog" aria-label="ルーティン作成の確認"><p className="font-medium text-accent">ルーティンを作成</p><p className="mt-1 text-xs text-muted">内容を確認してから保存します。</p><div className="mt-3 space-y-2"><input value={routineName} onChange={(event) => setRoutineName(event.target.value)} placeholder="名前（例: 朝の確認）" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><textarea value={routinePrompt} onChange={(event) => setRoutinePrompt(event.target.value)} placeholder="Bot に実行させる指示" rows={3} className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><input value={routineSchedule} onChange={(event) => setRoutineSchedule(event.target.value)} aria-label="cron スケジュール" placeholder="0 * * * *" className="w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent" /><p className="text-[11px] text-muted">形式: 分 時 日 月 曜日（最短間隔 5 分）</p></div><div className="mt-3 flex justify-end gap-2"><Button size="sm" variant="ghost" onClick={() => setRoutineCardOpen(false)}>キャンセル</Button><Button size="sm" onClick={() => void createRoutine()} busy={creatingRoutine} disabled={!routineName.trim() || !routinePrompt.trim() || !routineSchedule.trim()}>この内容で作成</Button></div></div>}
           {rendered}
           {permission && <div className="rounded-2xl border border-warning/40 bg-warning-bg p-4 text-xs"><p className="font-medium">権限の確認が必要です</p><p className="mt-1 break-all text-muted">{permission.message}</p><div className="mt-3 flex gap-2"><Button size="sm" onClick={() => void respond(true)}>許可</Button><Button size="sm" variant="ghost" onClick={() => void respond(false)}>拒否</Button></div></div>}
           {sending && <div className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />応答中…</div>}
         </div>
       </main>
 
-      <div className="shrink-0 border-t border-border bg-bg px-3 py-3">
-        <div className="mx-auto max-w-3xl rounded-2xl border border-border bg-surface px-3 py-2 shadow-sm focus-within:border-accent/60">
-          <div className="flex items-end gap-2">
-            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onCompositionStart={() => { composingRef.current = true; }} onCompositionEnd={() => { composingRef.current = false; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !composingRef.current) { event.preventDefault(); void send(); } }} placeholder={`${bot.name}にメッセージ`} rows={1} className="min-h-10 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none placeholder:text-faint" />
-            <button type="button" aria-label="添付または追加" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted hover:bg-surface-2 hover:text-text"><Plus className="h-4 w-4" /></button>
-            {sending ? <Button onClick={() => void abort()} variant="danger">停止</Button> : <Button onClick={() => void send()} disabled={!prompt.trim()}>送信</Button>}
-          </div>
-          <div className="mt-1 flex items-center justify-between gap-2 px-1 text-[11px] text-muted">
-            <button type="button" onClick={() => setSettingsOpen(true)} className="truncate hover:text-text">モデル: {selectedModel?.label ?? "未選択"}</button>
-            <button type="button" onClick={() => setSettingsOpen(true)} className="shrink-0 hover:text-text">思考: {thinkingValue}</button>
-          </div>
-        </div>
-        {error && <p role="alert" className="mx-auto mt-2 max-w-3xl text-xs text-danger">{error}</p>}
-      </div>
+      <BotComposer
+        value={prompt}
+        onChange={(event) => setPrompt(event.target.value)}
+        onCompositionStart={() => { composingRef.current = true; }}
+        onCompositionEnd={() => { composingRef.current = false; }}
+        onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !composingRef.current) { event.preventDefault(); void send(); } }}
+        placeholder={`${bot.name}\u306b\u30e1\u30c3\u30bb\u30fc\u30b8`}
+        sendDisabled={!prompt.trim()}
+        busy={sending}
+        onSend={() => void send()}
+        onAbort={() => void abort()}
+        footer={<><button type="button" onClick={() => setRoutineCardOpen(true)} className="shrink-0 font-medium text-accent hover:underline">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u4f5c\u6210"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="truncate hover:text-text">{"\u30e2\u30c7\u30eb"}: {selectedModel?.label ?? "\u672a\u9078\u629e"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="shrink-0 hover:text-text">{"\u601d\u8003"}: {thinkingValue}</button></>}
+      />
+      {error && <p role="alert" className="mx-auto -mt-2 mb-2 max-w-3xl px-3 text-xs text-danger">{error}</p>}
       </div>
 
       {settingsOpen && (
@@ -315,6 +337,8 @@ export function BotView({ id }: { id: string }) {
             <label className="block text-sm"><span className="font-medium">説明 / SOUL.md</span><textarea value={soul} onChange={(event) => setSoul(event.target.value)} rows={9} className="mt-2 w-full resize-y rounded-xl border border-border bg-bg px-3 py-2 font-mono text-xs leading-5 outline-none focus:border-accent" /></label>
             <div className="space-y-3 rounded-2xl border border-border bg-bg p-4"><div><span className="text-sm font-medium">モデル</span><ModelSelect value={modelValue} options={models} loading={modelsLoading} disabled={updatingModel || updatingThinking} onChange={(value) => void updateModel(value)} className="mt-2 h-9 w-full" ariaLabel="ボットのモデル" /></div><div><span className="text-sm font-medium">思考レベル</span><ThinkingSelect levels={thinkingLevels} value={thinkingValue} disabled={updatingModel || updatingThinking} onChange={(value) => void updateThinking(value)} className="mt-2 h-9 w-full" /></div>{(updatingModel || updatingThinking) && <p className="text-xs text-muted">保存中…</p>}</div>
             <div className="flex justify-end"><Button size="sm" onClick={() => void saveSoul()} busy={savingSoul}>変更を保存</Button></div>
+            <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="スキル設定"><div><span className="text-sm font-medium">スキルの読み込み</span><select value={bot.skills.mode} disabled={updatingSkills} onChange={(event) => void updateSkills({ ...bot.skills, mode: event.target.value as BotDto["skills"]["mode"] })} className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"><option value="inherit">継承（通常のスキル）</option><option value="include">指定したスキルだけ許可</option><option value="exclude">指定したスキルを除外</option></select></div><label className="block text-xs"><span className="font-medium">許可するスキル名（1行1件）</span><textarea value={bot.skills.include.join("\n")} disabled={updatingSkills} onChange={(event) => setBot({ ...bot, skills: { ...bot.skills, include: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) } })} onBlur={() => void updateSkills(bot.skills)} rows={3} className="mt-1 w-full resize-y rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /></label><label className="block text-xs"><span className="font-medium">除外するスキル名（1行1件）</span><textarea value={bot.skills.exclude.join("\n")} disabled={updatingSkills} onChange={(event) => setBot({ ...bot, skills: { ...bot.skills, exclude: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) } })} onBlur={() => void updateSkills(bot.skills)} rows={3} className="mt-1 w-full resize-y rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /></label><p className="text-[11px] text-muted">inherit は共通設定に従います。保存すると次回の応答から反映されます。</p></section>
+            <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="追加ルート設定"><div><span className="text-sm font-medium">追加ルート</span><p className="mt-1 text-xs text-muted">Bot が参照できる絶対パス（Computer 分離は後続フェーズ）</p></div><div className="flex gap-2"><input value={extraRootInput} onChange={(event) => setExtraRootInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addExtraRoot(); } }} placeholder="C:\path\to\root" className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /><Button size="sm" onClick={() => void addExtraRoot()} disabled={!extraRootInput.trim()}>追加</Button></div>{bot.extraRoots.length === 0 ? <p className="text-xs text-muted">追加ルートはありません。</p> : <ul className="space-y-1">{bot.extraRoots.map((root) => <li key={root} className="flex items-center gap-2 rounded-lg bg-surface px-2 py-1.5 text-xs"><span className="min-w-0 flex-1 break-all">{root}</span><button type="button" onClick={() => void removeExtraRoot(root)} className="shrink-0 text-danger hover:underline">削除</button></li>)}</ul>}</section>
             <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="ルーティン設定">
               <div className="flex items-center justify-between gap-2"><div><h3 className="text-sm font-medium">ルーティン</h3><p className="mt-1 text-xs text-muted">5分以上の cron で定期実行します。</p></div><Button size="sm" onClick={() => setRoutineFormOpen((open) => !open)}>ルーティンを作成</Button></div>
               {routineFormOpen && <div className="space-y-2 rounded-xl border border-accent/40 bg-surface p-3" role="dialog" aria-label="ルーティンを作成"><p className="text-xs font-medium text-accent">ルーティンを作成（確認）</p><input value={routineName} onChange={(event) => setRoutineName(event.target.value)} placeholder="名前（例: 朝の確認）" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><textarea value={routinePrompt} onChange={(event) => setRoutinePrompt(event.target.value)} placeholder="Bot に実行させる指示" rows={3} className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><input value={routineSchedule} onChange={(event) => setRoutineSchedule(event.target.value)} aria-label="cron スケジュール" placeholder="0 * * * *" className="w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent" /><p className="text-[11px] text-muted">形式: 分 時 日 月 曜日（最短間隔 5 分）</p><div className="flex justify-end gap-2"><Button size="sm" variant="ghost" onClick={() => setRoutineFormOpen(false)}>キャンセル</Button><Button size="sm" onClick={() => void createRoutine()} busy={creatingRoutine} disabled={!routineName.trim() || !routinePrompt.trim()}>確認して保存</Button></div></div>}

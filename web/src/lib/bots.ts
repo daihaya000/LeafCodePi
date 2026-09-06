@@ -11,6 +11,18 @@ export type BotConfig = Omit<BotDto, "soul">;
 const SOUL_TEMPLATE = `# ボットの役割\n\nあなたは専属の1対1アシスタントです。\n\n## 方針\n- 簡潔で役に立つ回答をしてください。\n- 明示的に許可されていない限り、ファイル操作は workspace/ 内で行ってください。\n`;
 const DEFAULT_SKILLS: BotSkillsConfig = { mode: "inherit", include: [], exclude: [] };
 
+function normalizeNames(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean))];
+}
+
+export function normalizeBotSkills(value: unknown): BotSkillsConfig {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { ...DEFAULT_SKILLS };
+  const candidate = value as Record<string, unknown>;
+  const mode = candidate.mode === "include" || candidate.mode === "exclude" ? candidate.mode : "inherit";
+  return { mode, include: normalizeNames(candidate.include), exclude: normalizeNames(candidate.exclude) };
+}
+
 function botsRoot(): string { return join(dataDir(), "bots"); }
 function assertId(id: string): void {
   if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) throw new Error("invalid bot id");
@@ -32,7 +44,7 @@ function parseConfig(id: string): BotConfig | null {
       id, name: value.name, avatarColor, avatarImage, createdAt: String(value.createdAt), updatedAt: String(value.updatedAt),
       model: typeof value.model === "string" ? value.model : null,
       thinkingLevel: value.thinkingLevel ?? null, permissionMode: value.permissionMode ?? null,
-      skills: value.skills && typeof value.skills === "object" ? value.skills : { ...DEFAULT_SKILLS },
+      skills: normalizeBotSkills(value.skills),
       extraRoots: Array.isArray(value.extraRoots) ? value.extraRoots.filter((item): item is string => typeof item === "string") : [],
       enabled: value.enabled !== false,
     };

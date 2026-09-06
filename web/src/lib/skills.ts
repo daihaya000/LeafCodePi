@@ -23,6 +23,7 @@ import { dirname, join, resolve } from "node:path";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
+import type { BotSkillsConfig } from "@/lib/types";
 
 export type SkillSource = "pi" | "bundled";
 
@@ -142,6 +143,22 @@ export function filterSkillsByState<T extends { name: string }>(
 ): T[] {
   if (Object.keys(state.disabled).length === 0) return [...skills];
   return skills.filter((skill) => state.disabled[skill.name] !== true);
+}
+
+/** Apply a Bot's per-session inherit/include/exclude allowlist. */
+export function filterSkillsForBot<T extends { name: string }>(
+  skills: readonly T[],
+  config: BotSkillsConfig,
+): T[] {
+  if (config.mode === "include") {
+    const allowed = new Set(config.include);
+    return skills.filter((skill) => allowed.has(skill.name));
+  }
+  if (config.mode === "exclude") {
+    const excluded = new Set(config.exclude);
+    return skills.filter((skill) => !excluded.has(skill.name));
+  }
+  return [...skills];
 }
 
 const MAX_PROMPT_DESCRIPTION_CHARS = 200;
