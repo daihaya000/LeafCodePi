@@ -155,6 +155,11 @@ export function GlobalAttentionProvider() {
             playAttentionRequiredSound();
             autoOpenedRef.current = false;
             tryAutoOpen();
+          } else {
+            // 今は「見た」ことにしない。seen に残すとこのタスクを離れた後も
+            // 二度と fresh 扱いにならず、他タスク化しても永久に音・モーダルが
+            // 出なくなる。離れるまでは onlyActive のまま再スキップされるだけ。
+            for (const item of fresh) seenIdsRef.current.delete(attentionItemKey(item));
           }
         }
       } catch {

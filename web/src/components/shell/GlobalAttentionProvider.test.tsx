@@ -127,6 +127,36 @@ describe("GlobalAttentionProvider", () => {
     expect(document.body.textContent ?? "").not.toMatch(/承認・回答が必要です/);
   });
 
+  it("alerts once the user leaves the task that owned the fresh question", async () => {
+    window.history.pushState({}, "", "/task/task-a");
+    mocks.getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/tasks") {
+        return { attention: [{ taskId: "task-a", title: "タスクA", kinds: ["question"] }] };
+      }
+      if (path === "/api/tasks/task-a") {
+        return { task: taskDetail("task-a") };
+      }
+      throw new Error(`unexpected: ${path}`);
+    });
+    render(<GlobalAttentionProvider />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // アクティブタスク自身の質問なのでインライン UI 任せ、音は鳴らない。
+    expect(mocks.playAttentionRequiredSound).not.toHaveBeenCalled();
+
+    window.history.pushState({}, "", "/task/task-b");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    // タスクBへ移動した後は「他タスクの注意」になるはずなので鳴るべき。
+    expect(mocks.playAttentionRequiredSound).toHaveBeenCalledTimes(1);
+  });
+
   it("auto-opens as soon as another task needs attention", async () => {
     render(<GlobalAttentionProvider />);
 
