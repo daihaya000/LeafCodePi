@@ -73,6 +73,8 @@ LeafCodePi には次の Pi 拡張を同梱しています。WebUI と連携す�
 | `leafcode-todowrite` | OpenCode 互換の ToDo 管理 |
 | `leafcode-web-access` | Web 検索、URL/PDF/GitHub/動画の取得・解析 |
 
+ルートの `skills/` 配下にある `SKILL.md` は LeafCodePi の組み込みスキルとして自動検出され、通常の Pi スキルと同じく設定画面から有効／無効を切り替えられます。
+
 ### Goal Loop
 
 `extensions/leafcode-goal-loop` に LeafCode 互換の Pi 拡張を同梱しています。登録すると Home / Task の Composer に「ループ」「承認条件」「最大ターン」「クールタイム」「完走モード」が表示されます。
@@ -226,6 +228,8 @@ npm run check
 | `LEAFCODE_PI_LLAMA_PORT` | llama-server ポート。既定 **8081** |
 | `LEAFCODE_PI_MODE` | `prod`（既定・start.bat）または `dev` |
 | `LEAFCODE_PI_BUILD_DIR` | production build のミラー先（未設定時は Windows `%LOCALAPPDATA%\leafcode-pi\build\...`、Linux/macOS `$XDG_CACHE_HOME/leafcode-pi/build/...`） |
+| `LEAFCODE_PI_EXTENSIONS_DIR` | 組み込み拡張のディレクトリ（host が自動設定） |
+| `LEAFCODE_PI_SKILLS_DIR` | 組み込みスキルのディレクトリ（host が自動設定、既定はリポジトリの `skills/`） |
 | `XDG_CACHE_HOME` | Linux/macOS の production build ミラー基底ディレクトリ |
 | `LEAFCODE_PI_USE_WEBPACK` | `1` で `next build` を Turbopack でなく webpack で行う（切り分け用） |
 | `LEAFCODE_PI_HEADLESS` | `1` でトレイなし |

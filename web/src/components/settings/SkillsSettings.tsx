@@ -9,18 +9,20 @@ type SkillDto = {
   name: string;
   description?: string;
   enabled: boolean;
-  source: "pi";
+  source: "pi" | "bundled";
   filePath?: string;
 };
 
 type SkillsResponse = {
   skills: SkillDto[];
   skillsDir: string;
+  bundledSkillsDir?: string | null;
 };
 
 export function SkillsSettings() {
   const [skills, setSkills] = useState<SkillDto[]>([]);
   const [skillsPath, setSkillsPath] = useState<string>("");
+  const [bundledSkillsPath, setBundledSkillsPath] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,6 +33,7 @@ export function SkillsSettings() {
       .then((result) => {
         setSkills(result.skills);
         setSkillsPath(result.skillsDir);
+        setBundledSkillsPath(result.bundledSkillsDir ?? null);
         setError(null);
       })
       .catch((err) => {
@@ -71,13 +74,12 @@ export function SkillsSettings() {
         </Button>
       </div>
       <p className="text-xs text-muted">
-        Pi が読むグローバルスキル（
-        <span className="font-mono">~/.pi/agent/skills</span>
-        ）を有効／無効にします。無効化は状態ファイルに記録し、開いているセッションへ即時反映します。
+        Pi のグローバルスキルと LeafCodePi の同梱スキルを有効／無効にします。無効化は状態ファイルに記録し、開いているセッションへ即時反映します。
       </p>
-      {skillsPath && (
+      {(skillsPath || bundledSkillsPath) && (
         <div className="mt-1 space-y-0.5 font-mono text-[11px] text-muted">
-          <p className="break-all">{skillsPath}</p>
+          {skillsPath && <p className="break-all">{skillsPath}</p>}
+          {bundledSkillsPath && <p className="break-all">{bundledSkillsPath}</p>}
         </div>
       )}
       {loading && skills.length === 0 ? (
@@ -86,7 +88,7 @@ export function SkillsSettings() {
         <p className="mt-3 text-sm text-muted">
           スキルがありません。{" "}
           <span className="font-mono">~/.pi/agent/skills/&lt;name&gt;/SKILL.md</span>{" "}
-          などを追加してください。
+          または <span className="font-mono">skills/&lt;name&gt;/SKILL.md</span> を追加してください。
         </p>
       ) : (
         <ul className="mt-3 space-y-2">
@@ -104,7 +106,7 @@ export function SkillsSettings() {
                   <Badge tone={skill.enabled ? "success" : "neutral"}>
                     {skill.enabled ? "有効" : "無効"}
                   </Badge>
-                  <Badge tone="neutral">.pi/agent</Badge>
+                  <Badge tone="neutral">{skill.source === "bundled" ? "LeafCodePi" : ".pi/agent"}</Badge>
                 </div>
                 {skill.description && (
                   <p className="mt-0.5 text-xs break-words text-muted">{skill.description}</p>

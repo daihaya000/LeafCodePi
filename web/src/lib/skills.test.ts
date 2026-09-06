@@ -50,17 +50,19 @@ describe("compactSkillsForPrompt", () => {
 describe("listSkills / setSkillEnabled", () => {
   let agentDir = "";
   let data = "";
+  let bundledDir = "";
   let prevData: string | undefined;
 
   afterEach(() => {
     if (prevData === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
     else process.env.LEAFCODE_PI_DATA_DIR = prevData;
     prevData = undefined;
-    for (const dir of [agentDir, data]) {
+    for (const dir of [agentDir, data, bundledDir]) {
       if (dir) rmSync(dir, { recursive: true, force: true });
     }
     agentDir = "";
     data = "";
+    bundledDir = "";
   });
 
   function writeSkill(root: string, name: string, description: string) {
@@ -75,17 +77,18 @@ describe("listSkills / setSkillEnabled", () => {
   function fixture() {
     agentDir = mkdtempSync(join(tmpdir(), "leafcode-pi-skills-agent-"));
     data = mkdtempSync(join(tmpdir(), "leafcode-pi-skills-data-"));
+    bundledDir = mkdtempSync(join(tmpdir(), "leafcode-pi-skills-bundled-"));
     prevData = process.env.LEAFCODE_PI_DATA_DIR;
     process.env.LEAFCODE_PI_DATA_DIR = data;
     writeSkill(skillsDir(agentDir), "alpha", "alpha from pi");
     writeSkill(skillsDir(agentDir), "beta", "beta from pi");
     writeSkillsState({ disabled: {} });
-    return { agentDir };
+    return { agentDir, bundledDir };
   }
 
   it("lists discovered skills as enabled by default", () => {
     const { agentDir: agent } = fixture();
-    const listed = listSkills(agent);
+    const listed = listSkills(agent, { bundledDir: null });
     expect(listed.skills.map((s) => s.name)).toEqual(["alpha", "beta"]);
     expect(listed.skills.every((s) => s.enabled)).toBe(true);
     expect(listed.skills.every((s) => s.source === "pi")).toBe(true);
@@ -94,17 +97,30 @@ describe("listSkills / setSkillEnabled", () => {
 
   it("toggles skills via skills-state.json", () => {
     const { agentDir: agent } = fixture();
-    let listed = setSkillEnabled("alpha", false, agent);
+    let listed = setSkillEnabled("alpha", false, agent, { bundledDir: null });
     expect(listed.skills.find((s) => s.name === "alpha")?.enabled).toBe(false);
     expect(readSkillsState().disabled).toEqual({ alpha: true });
 
-    listed = setSkillEnabled("alpha", true, agent);
+    listed = setSkillEnabled("alpha", true, agent, { bundledDir: null });
     expect(listed.skills.find((s) => s.name === "alpha")?.enabled).toBe(true);
     expect(readSkillsState().disabled).toEqual({});
   });
 
+  it("lists bundled skills and allows toggling them", () => {
+    const { agentDir: agent, bundledDir: bundled } = fixture();
+    writeSkill(bundled, "built-in", "bundled skill");
+
+    let listed = listSkills(agent, { bundledDir: bundled });
+    expect(listed.skills.map((s) => s.name)).toEqual(["alpha", "beta", "built-in"]);
+    expect(listed.skills.find((s) => s.name === "built-in")?.source).toBe("bundled");
+    expect(listed.bundledSkillsDir).toBe(bundled);
+
+    listed = setSkillEnabled("built-in", false, agent, { bundledDir: bundled });
+    expect(listed.skills.find((s) => s.name === "built-in")?.enabled).toBe(false);
+  });
+
   it("rejects unknown skill names", () => {
     const { agentDir: agent } = fixture();
-    expect(() => setSkillEnabled("missing", false, agent)).toThrow(SkillsError);
+    expect(() => setSkillEnabled("missing", false, agent, { bundledDir: null })).toThrow(SkillsError);
   });
 });

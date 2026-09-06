@@ -91,7 +91,11 @@ import {
   reserveTokensForThreshold,
   shouldCompactAtThreshold,
 } from "@/lib/compaction-settings";
-import { compactSkillsForPrompt, filterSkillsByState } from "@/lib/skills";
+import {
+  bundledSkillsDir,
+  compactSkillsForPrompt,
+  filterSkillsByState,
+} from "@/lib/skills";
 import type { SkillPermission } from "@/lib/skill-permission";
 import {
   needsToolSearch,
@@ -1985,10 +1989,10 @@ async function createSession(options: {
   // skillsOverride re-reads state on every resourceLoader.reload() / session.reload().
   // Also drop any ~/.agents skills Pi loads internally: this harness must not
   // read C:\Users\Daichi\.agents (skills.ts discovery already excludes it).
-  // Bundled LeafCode extensions load straight from this repository's
-  // extensions/ dir; stale same-name copies under ~/.pi are dropped so they
-  // never register duplicate tools.
+  // Bundled LeafCode extensions and skills load straight from this repository;
+  // production WebUI supplies explicit roots because it runs from a mirror.
   const bundled = bundledExtensionEntries();
+  const bundledSkills = bundledSkillsDir();
   const bundledNames = new Set(bundled.map((entry) => entry.name));
   const bundledPaths = new Set(bundled.map((entry) => entry.filePath));
   // Bundled forks replace their upstream npm extensions. Drop those stale
@@ -2008,6 +2012,7 @@ async function createSession(options: {
     cwd: options.cwd,
     agentDir,
     additionalExtensionPaths: bundled.map((entry) => entry.filePath),
+    additionalSkillPaths: bundledSkills ? [bundledSkills] : [],
     extensionFactories: [
       registerDeferredTools,
       ...(options.taskId ? [registerGoalLoopTurnRouting(options.taskId)] : []),

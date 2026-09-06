@@ -494,8 +494,9 @@ async function spawnWeb() {
       LEAFCODE_PI_BIND_HOST: WEBUI_HOST,
       LEAFCODE_PI_WEBUI_AUTH: webUiAuth.authRequired ? "required" : "",
       LEAFCODE_PI_WEBUI_TOKEN: webUiAuth.token ?? "",
-      // Bundled WebUI extensions live in the repo (prod runs from the web/ mirror).
+      // Bundled WebUI extensions and skills live in the repo (prod runs from the web/ mirror).
       LEAFCODE_PI_EXTENSIONS_DIR: join(REPO_ROOT, "extensions"),
+      LEAFCODE_PI_SKILLS_DIR: join(REPO_ROOT, "skills"),
     },
   });
   webProc = child;
