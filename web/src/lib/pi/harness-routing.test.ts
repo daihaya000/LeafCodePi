@@ -672,6 +672,43 @@ describe("integrated session routing", () => {
     assert.equal(getTask(task.id)?.accountId, fallback.id);
   });
 
+  it("still ranks by usage when the 5 minute usage cache has expired", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-stale-usage-routing-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+
+    // 使用量不明で選ばれると登録順の先頭（=使用量大）が選ばれるため、順序を逆にする。
+    const high = createAccount({ label: "使用量大", providers: ["anthropic"] });
+    const low = createAccount({ label: "使用量小", providers: ["anthropic"] });
+    storeProviderAuth(high.id, agentDir);
+    storeProviderAuth(low.id, agentDir);
+    installHarness(new Map([[high.id, runtime(high.id)], [low.id, runtime(low.id)]]));
+    await setAccountRoutingMode("anthropic", "integrated");
+    setCachedUsage(
+      parseCodexBarSnapshot({
+        providers: [
+          { codexBarProviderId: "anthropic", accountId: high.id, usedPercent: 98 },
+          { codexBarProviderId: "anthropic", accountId: low.id, usedPercent: 30 },
+        ],
+      }),
+      Date.now() - 10 * 60 * 1000,
+    );
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "キャッシュ期限切れでも余裕のあるアカウントへ",
+      model: "anthropic::claude-sonnet",
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+
+    assert.equal(getTask(task.id)?.accountId, low.id);
+    expect(fakePi.sessions[0]).toMatchObject({ accountId: low.id });
+  });
+
   it("keeps an explicitly selected account for later prompts", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-explicit-account-"));
     tempDirs.push(dir);

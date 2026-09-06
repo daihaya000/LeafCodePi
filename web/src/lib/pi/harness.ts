@@ -2194,11 +2194,22 @@ function routeLimitError(resetAt: string | null): Error {
   );
 }
 
+/**
+ * ルーティング判断用の使用量 TTL。標準の 5 分キャッシュが切れていると全候補が
+ * 「使用量不明」になり、使用率ではなく稼働タスク数・アカウント登録順で選ばれて
+ * しまうため、表示側と同じ最大 30 分の last-known スナップショットまで許容する。
+ */
+const ROUTING_USAGE_TTL_MS = 30 * 60 * 1000;
+
+function routingUsageProviders(): readonly CodexBarProvider[] {
+  return getCachedUsage(Date.now(), ROUTING_USAGE_TTL_MS)?.providers ?? [];
+}
+
 function usageForProvider(
   providerID: string,
   accountId?: string | null,
 ): CodexBarProvider | undefined {
-  return getCachedUsage()?.providers.find(
+  return routingUsageProviders().find(
     (provider) =>
       provider.id === providerID &&
       (provider.accountId ?? null) === (accountId ?? null),
@@ -2303,7 +2314,7 @@ async function resolveIntegratedModelRoute(
   );
   if (records.length === 0) return undefined;
 
-  const usageProviders = getCachedUsage()?.providers ?? [];
+  const usageProviders = routingUsageProviders();
   const workingCounts = workingTaskCounts([providerID]);
   const candidates: RoutingCandidate<AccountModelRecord>[] = records.map(
     (record) => ({
