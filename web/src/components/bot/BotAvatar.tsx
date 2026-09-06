@@ -7,10 +7,12 @@ type BotAvatarProps = {
   image?: string | null;
   name?: string;
   className?: string;
+  /** Subtle activity cue; intentionally limited to a blink-like loop. */
+  active?: boolean;
 };
 
 /** Small geometric bot face used consistently throughout Bot mode; falls back from an uploaded image. */
-export function BotAvatar({ size = 32, color = "#3B82F6", image, name, className }: BotAvatarProps) {
+export function BotAvatar({ size = 32, color = "#3B82F6", image, name, className, active = false }: BotAvatarProps) {
   if (image) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
@@ -19,7 +21,7 @@ export function BotAvatar({ size = 32, color = "#3B82F6", image, name, className
         alt={name ? `${name}のアバター` : "ボットアバター"}
         width={size}
         height={size}
-        className={cx("shrink-0 rounded-full object-cover", className)}
+        className={cx("shrink-0 rounded-full object-cover", active && "animate-[bot-blink_3.2s_ease-in-out_infinite]", className)}
         style={{ width: size, height: size }}
       />
     );
@@ -31,7 +33,7 @@ export function BotAvatar({ size = 32, color = "#3B82F6", image, name, className
       viewBox="0 0 100 100"
       width={size}
       height={size}
-      className={cx("shrink-0", className)}
+      className={cx("shrink-0", active && "animate-[bot-blink_3.2s_ease-in-out_infinite]", className)}
       style={{ color }}
     >
       <circle cx="50" cy="50" r="50" fill="currentColor" />

@@ -7,6 +7,7 @@ import { getJson, sendJson } from "@/lib/client";
 import type { BotDto, RoomDto } from "@/lib/types";
 import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
+import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
 
@@ -191,7 +192,7 @@ export function RoomView({ id }: { id: string }) {
     if (!text) return null;
     return (
       <div key={message.id} className={`flex items-end gap-2 ${user ? "justify-end" : "justify-start"}`}>
-        {!user && <BotAvatar size={28} color={bot?.avatarColor} image={bot?.avatarImage} name={bot?.name ?? message.botName} />}
+        {!user && <BotAvatar size={28} color={bot?.avatarColor} image={bot?.avatarImage} name={bot?.name ?? message.botName} active={message.status === "working"} />}
         <div className={`max-w-[min(42rem,88%)] rounded-2xl px-3.5 py-2 text-sm leading-6 ${user ? "rounded-br-md bg-bot-user text-white" : "rounded-bl-md border border-bot-outline/70 bg-bot-assistant"}`}>
           {!user && <div className="mb-1 text-[11px] text-muted">{bot?.name ?? message.botName ?? "ボット"}</div>}
           <div className="whitespace-pre-wrap break-words">{renderMentionText(text, bots, message.id, user ? "rounded bg-white/90 px-0.5 font-semibold text-accent" : undefined)}</div>
@@ -218,14 +219,7 @@ export function RoomView({ id }: { id: string }) {
 
       <main className="min-h-0 flex-1 overflow-y-auto bg-bot-chat px-4 py-5">
         <div className="mx-auto max-w-3xl space-y-3">
-          {room.messages.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-bot-outline bg-bot-panel px-5 py-8 text-center">
-              <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-success-bg text-success"><Users className="h-5 w-5" /></span>
-              <p className="font-medium">{room.name} で話す</p>
-              <p className="mt-1 text-sm text-muted">メンションされたボットだけが応答します。@here / @channel または「部屋に聞く」で全員に送れます。</p>
-              {members.length > 0 && <div className="mt-3 flex flex-wrap justify-center gap-2">{members.map((bot) => <span key={bot.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 text-xs"><BotAvatar size={18} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />{bot.name}</span>)}</div>}
-            </div>
-          )}
+          {room.messages.length === 0 && <BotEmptyState icon={<Users className="h-5 w-5" />} title={room.name + " \u3067\u8a71\u3059"} description="\u30e1\u30f3\u30b7\u30e7\u30f3\u3055\u308c\u305f\u30dc\u30c3\u30c8\u3060\u3051\u304c\u5fdc\u7b54\u3057\u307e\u3059\u3002@here / @channel \u307e\u305f\u306f\u300c\u90e8\u5c4b\u306b\u805e\u304f\u300d\u3067\u5168\u54e1\u306b\u9001\u308c\u307e\u3059\u3002">{members.length > 0 && <div className="mt-3 flex flex-wrap justify-center gap-2">{members.map((bot) => <span key={bot.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 text-xs"><BotAvatar size={18} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />{bot.name}</span>)}</div>}</BotEmptyState>}
           {rendered}
           {working && <div className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />応答中…</div>}
         </div>

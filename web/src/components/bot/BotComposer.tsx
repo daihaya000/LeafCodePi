@@ -1,24 +1,9 @@
-﻿"use client";
+"use client";
 
 import type { ChangeEventHandler, CompositionEventHandler, KeyboardEventHandler, ReactNode, RefObject } from "react";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui";
+import { ArrowUp, Plus, Square } from "lucide-react";
 
-export function BotComposer({
-  value,
-  onChange,
-  onKeyDown,
-  onCompositionStart,
-  onCompositionEnd,
-  inputRef,
-  placeholder,
-  sendDisabled,
-  busy,
-  onSend,
-  onAbort,
-  footer,
-  inputOverlay,
-}: {
+type BotComposerProps = {
   value: string;
   onChange: ChangeEventHandler<HTMLTextAreaElement>;
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
@@ -32,7 +17,24 @@ export function BotComposer({
   onAbort?: () => void;
   footer?: ReactNode;
   inputOverlay?: ReactNode;
-}) {
+};
+
+export function BotComposer({
+  value,
+  onChange,
+  onKeyDown,
+  onCompositionStart,
+  onCompositionEnd,
+  inputRef,
+  placeholder,
+  sendDisabled = false,
+  busy = false,
+  onSend,
+  onAbort,
+  footer,
+  inputOverlay,
+}: BotComposerProps) {
+  const canSend = !sendDisabled && !busy;
   return (
     <div className="shrink-0 border-t border-border/70 bg-bot-chat px-4 py-4">
       <div className="bot-composer-shell mx-auto max-w-3xl rounded-[1.35rem] border border-bot-outline bg-bot-panel px-4 py-3 transition-colors focus-within:border-accent/60">
@@ -42,7 +44,11 @@ export function BotComposer({
             {inputOverlay}
           </div>
           <button type="button" aria-label="添付または追加" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-surface-2 hover:text-text"><Plus className="h-4 w-4" /></button>
-          {busy && onAbort ? <Button onClick={onAbort} variant="danger" className="rounded-full px-4">停止</Button> : <Button onClick={onSend} variant="primary" disabled={sendDisabled || busy} className="rounded-full px-4">送信</Button>}
+          {busy && onAbort ? (
+            <button type="button" onClick={onAbort} aria-label="応答を停止" title="応答を停止" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-danger text-white transition-opacity hover:opacity-90"><Square className="h-3.5 w-3.5 fill-current" /></button>
+          ) : (
+            <button type="button" onClick={onSend} aria-label="送信" title={sendDisabled ? "メッセージを入力してください" : "送信"} disabled={!canSend} className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${sendDisabled || busy ? "bg-surface-3 text-muted" : "bg-accent text-white hover:bg-accent/90"}`}><ArrowUp className="h-4 w-4" /></button>
+          )}
         </div>
         {footer && <div className="mt-2 flex items-center justify-between gap-2 px-2 text-[11px] text-muted">{footer}</div>}
       </div>

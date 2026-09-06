@@ -307,6 +307,11 @@ body {
   scrollbar-color: var(--border-strong) transparent;
 }
 
+@keyframes bot-blink {
+  0%, 92%, 100% { opacity: 1; }
+  95% { opacity: 0.68; }
+}
+
 @keyframes pulse-dot {
   0%,
   100% {

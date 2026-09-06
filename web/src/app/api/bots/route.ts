@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createBot, listBots } from "@/lib/bots";
+import { createBot, listBots, patchBot } from "@/lib/bots";
+import { botTemplateById } from "@/lib/bot-marketplace";
 import { getSetting } from "@/lib/pi/web-settings";
 import { parseBotDefaultPermission, parseBotDefaultThinking, BOT_DEFAULT_PERMISSION_KEY, BOT_DEFAULT_THINKING_KEY } from "@/lib/bot-settings";
 
@@ -8,7 +9,12 @@ export const dynamic = "force-dynamic";
 
 export async function GET() { return NextResponse.json({ bots: listBots() }); }
 export async function POST(req: NextRequest) {
-  const body = (await req.json().catch(() => null)) as { name?: unknown } | null;
+  const body = (await req.json().catch(() => null)) as { name?: unknown; templateId?: unknown } | null;
   if (body?.name !== undefined && typeof body.name !== "string") return NextResponse.json({ error: "invalid name" }, { status: 400 });
-  return NextResponse.json({ bot: createBot({ name: body?.name, permissionMode: parseBotDefaultPermission(getSetting(BOT_DEFAULT_PERMISSION_KEY)), thinkingLevel: parseBotDefaultThinking(getSetting(BOT_DEFAULT_THINKING_KEY)) }) }, { status: 201 });
+  if (body?.templateId !== undefined && typeof body.templateId !== "string") return NextResponse.json({ error: "invalid template" }, { status: 400 });
+  const template = typeof body?.templateId === "string" ? botTemplateById(body.templateId) : undefined;
+  if (body?.templateId !== undefined && !template) return NextResponse.json({ error: "unknown template" }, { status: 400 });
+  const created = createBot({ name: body?.name ?? template?.name, permissionMode: parseBotDefaultPermission(getSetting(BOT_DEFAULT_PERMISSION_KEY)), thinkingLevel: parseBotDefaultThinking(getSetting(BOT_DEFAULT_THINKING_KEY)) });
+  const bot = template ? patchBot(created.id, { label: template.label, soul: template.soul }) ?? created : created;
+  return NextResponse.json({ bot }, { status: 201 });
 }
