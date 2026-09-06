@@ -1605,14 +1605,14 @@ function lastAssistantLimitError(event: unknown): string | null {
   return null;
 }
 
+/**
+ * An auto-routed task may leave an exhausted route. Separate mode only means
+ * accounts are not pooled inside that provider, so a limited task there must
+ * still be able to cross to another provider instead of staying stuck.
+ */
 function canAutoFallbackTask(task: TaskSummary, providerID: string): boolean {
   if (task.providerID !== providerID) return false;
-  if (task.accountIdExplicit) return false;
-  if (!task.accountId) return true;
-  return (
-    isAccountRoutingProvider(providerID) &&
-    accountRoutingMode(providerID) === "integrated"
-  );
+  return !task.accountIdExplicit;
 }
 
 async function fallbackProviderAfterLimit(
@@ -2422,9 +2422,11 @@ async function resolveProviderFallbackRoutes(
 
   // A limited concrete account should first give another account in the same
   // integrated provider a chance; only then do we cross the provider boundary.
+  // Separate mode keeps accounts as distinct rows, so it never account-hops.
   if (
     source.accountId &&
-    isAccountRoutingProvider(source.providerID)
+    isAccountRoutingProvider(source.providerID) &&
+    accountRoutingMode(source.providerID) === "integrated"
   ) {
     try {
       const route = await resolveIntegratedModelRoute(
