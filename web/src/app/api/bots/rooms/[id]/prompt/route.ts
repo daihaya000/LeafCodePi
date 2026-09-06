@@ -23,7 +23,10 @@ async function runRoomBot(roomId: string, taskId: string, prompt: string, since:
     }
   };
   unsubscribe = subscribeTask(taskId, (payload) => { if (payload.type === "snapshot") void finish(); });
-  try { await promptTask(taskId, prompt); await finish(); } catch (error) {
+  // promptTask はキューに積むだけで応答完了を待たない。ここで finish() を呼ぶと
+  // 生成開始前の isStreaming:false を誤って「応答なし」と判定してしまう。
+  // 完了は subscribeTask 経由の snapshot イベントに任せる。
+  try { await promptTask(taskId, prompt); } catch (error) {
     updateRoomMessage(roomId, responseId, { text: error instanceof Error ? error.message : String(error), status: "error" });
     closed = true; unsubscribe();
   }
