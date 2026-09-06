@@ -22,6 +22,7 @@ import { ReasoningTranslationSettings } from "@/components/settings/ReasoningTra
 import { HangTimeoutSettings } from "@/components/settings/HangTimeoutSettings";
 import { NotificationSoundSettings } from "@/components/settings/NotificationSoundSettings";
 import { SystemSafetySettings } from "@/components/settings/SystemSafetySettings";
+import { BotDefaultsSettings } from "@/components/settings/BotDefaultsSettings";
 import { CommitGuardSettings } from "@/components/settings/CommitGuardSettings";
 import { Badge, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
@@ -415,11 +416,8 @@ export function SettingsView() {
 
           {visitedTabs.has("bots") && (
             <section id="settings-panel-bots" role="tabpanel" aria-labelledby="settings-tab-bots" hidden={tab !== "bots"} className="space-y-8">
-              <SettingsGroup id="bots-defaults-heading" title="ボットの初期設定" description="新しいボットの初期値です。詳細は各ボットの設定画面で変更できます。">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="rounded-2xl border border-border bg-surface p-4 text-sm"><span className="font-medium">権限</span><select defaultValue="allow" className="mt-2 h-9 w-full rounded-lg border border-border bg-bg px-2 text-sm"><option value="allow">許可</option><option value="ask">確認する</option><option value="deny">拒否</option></select><span className="mt-1 block text-xs text-muted">現在は仮の設定です。</span></label>
-                  <div className="rounded-2xl border border-border bg-surface p-4 text-sm"><span className="font-medium">スキル</span><p className="mt-2 rounded-lg bg-surface-2 px-3 py-2 text-xs">継承（全体スキル）</p><span className="mt-1 block text-xs text-muted">詳細な許可リストの編集は対象外です。</span></div>
-                </div>
+              <SettingsGroup id="bots-defaults-heading" title={"\u30dc\u30c3\u30c8\u306e\u521d\u671f\u8a2d\u5b9a"} description={"\u65b0\u3057\u3044\u30dc\u30c3\u30c8\u306b\u9069\u7528\u3059\u308b\u5171\u901a\u306e\u65e2\u5b9a\u5024\u3067\u3059\u3002\u65e2\u5b58\u306e\u30dc\u30c3\u30c8\u306f\u5909\u66f4\u3057\u307e\u305b\u3093\u3002"}>
+                <BotDefaultsSettings />
               </SettingsGroup>
             </section>
           )}

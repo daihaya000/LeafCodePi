@@ -1,13 +1,14 @@
 "use client";
 
 import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Plus, Settings2, Users, X } from "lucide-react";
+import { Users, X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
 import type { BotDto, RoomDto } from "@/lib/types";
 import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
+import { BotChatHeader } from "@/components/bot/BotChatHeader";
+import { BotComposer } from "@/components/bot/BotComposer";
 
 type MentionContext = { start: number; end: number; query: string };
 type MentionCandidate = { key: string; value: string; label: string; description: string; bot?: BotDto };
@@ -55,6 +56,7 @@ export function RoomView({ id }: { id: string }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [memberSaving, setMemberSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mentionContext, setMentionContext] = useState<MentionContext | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -102,11 +104,14 @@ export function RoomView({ id }: { id: string }) {
   useEffect(() => { setMentionIndex(0); }, [mentionContext?.query]);
 
   const saveMembers = async (next: string[]) => {
-    if (!room) return;
+    if (!room || memberSaving) return;
+    setMemberSaving(true);
+    setError(null);
     try {
       const result = await sendJson<{ room: RoomDto }>(`/api/bots/rooms/${encodeURIComponent(id)}`, { members: next }, "PATCH");
       setRoom(result.room);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "メンバーの保存に失敗しました"); }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30e1\u30f3\u30d0\u30fc\u306e\u4fdd\u5b58\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); }
+    finally { setMemberSaving(false); }
   };
 
   const removeRoom = async () => {
@@ -203,20 +208,12 @@ export function RoomView({ id }: { id: string }) {
   return (
     <div className="flex h-full min-h-0 bg-bg">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="relative flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
-        <Link href="/bots" aria-label="ボット一覧へ戻る" className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-text"><ArrowLeft className="h-4 w-4" /></Link>
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-success-bg text-success"><Users className="h-4 w-4" /></span>
-        <div className="min-w-0 flex-1"><h1 className="truncate font-semibold">{room.name}</h1><p className="text-xs text-muted">ルーム・{room.members.length} 人</p></div>
-        <button
-          type="button"
-          aria-expanded={settingsOpen}
-          aria-controls="room-settings-panel"
-          onClick={() => setSettingsOpen((open) => !open)}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-muted hover:bg-surface-2 hover:text-text"
-        >
-          <Settings2 className="h-3.5 w-3.5" />設定
-        </button>
-      </header>
+      <BotChatHeader
+        title={room.name}
+        subtitle={`\u30eb\u30fc\u30e0\u30fb${room.members.length} \u4eba`}
+        settingsOpen={settingsOpen}
+        onSettings={() => setSettingsOpen((open) => !open)}
+      />
 
 
       <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
@@ -234,55 +231,24 @@ export function RoomView({ id }: { id: string }) {
         </div>
       </main>
 
-      <div className="shrink-0 border-t border-border bg-bg px-3 py-3">
-        <div className="mx-auto max-w-3xl rounded-2xl border border-border bg-surface px-3 py-2 shadow-sm focus-within:border-accent/60">
-          <div className="flex items-end gap-2">
-            <div className="relative min-w-0 flex-1">
-              <textarea
-                ref={promptRef}
-                value={prompt}
-                onChange={(event) => {
-                  setPrompt(event.target.value);
-                  setMentionContext(mentionContextFor(event.target.value, event.target.selectionStart ?? event.target.value.length));
-                }}
-                onCompositionStart={() => { composingRef.current = true; }}
-                onCompositionEnd={() => { composingRef.current = false; }}
-                onKeyDown={handlePromptKeyDown}
-                placeholder={broadcast ? `${room.name}の全員にメッセージ` : "@ボット名 にメッセージ"}
-                aria-autocomplete="list"
-                aria-controls="room-mention-options"
-                rows={1}
-                className="min-h-10 w-full resize-none bg-transparent px-1 py-2 text-sm outline-none placeholder:text-faint"
-              />
-              {mentionCandidates.length > 0 && (
-                <div id="room-mention-options" role="listbox" aria-label="メンション先候補" className="absolute bottom-full left-0 z-20 mb-2 max-h-56 w-full overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
-                  {mentionCandidates.map((candidate, index) => (
-                    <button
-                      key={candidate.key}
-                      type="button"
-                      role="option"
-                      aria-selected={index === mentionIndex}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => insertMention(candidate)}
-                      className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left ${index === mentionIndex ? "bg-surface-2" : "hover:bg-surface-2"}`}
-                    >
-                      {candidate.bot ? <BotAvatar size={24} color={candidate.bot.avatarColor} image={candidate.bot.avatarImage} name={candidate.bot.name} /> : <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">@</span>}
-                      <span className="min-w-0"><span className="block truncate text-sm font-medium">{candidate.label}</span><span className="block truncate text-[11px] text-muted">{candidate.description}</span></span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button type="button" aria-label="添付または追加" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted hover:bg-surface-2 hover:text-text"><Plus className="h-4 w-4" /></button>
-            <Button onClick={() => void send()} disabled={!prompt.trim() || busy}>送信</Button>
-          </div>
-          <div className="mt-1 flex items-center justify-between gap-2 px-1 text-[11px] text-muted">
-            <button type="button" aria-pressed={broadcast} onClick={() => setBroadcast((value) => !value)} className="truncate hover:text-text">送信先: {broadcast ? "全員（部屋に聞く）" : "メンションしたボット"}</button>
-            <button type="button" onClick={() => setSettingsOpen(true)} className="shrink-0 hover:text-text">メンバー: {room.members.length}</button>
-          </div>
-        </div>
-        {error && <p role="alert" className="mx-auto mt-2 max-w-3xl text-xs text-danger">{error}</p>}
-      </div>
+      <BotComposer
+        inputRef={promptRef}
+        value={prompt}
+        onChange={(event) => {
+          setPrompt(event.target.value);
+          setMentionContext(mentionContextFor(event.target.value, event.target.selectionStart ?? event.target.value.length));
+        }}
+        onCompositionStart={() => { composingRef.current = true; }}
+        onCompositionEnd={() => { composingRef.current = false; }}
+        onKeyDown={handlePromptKeyDown}
+        placeholder={broadcast ? `${room.name}\u306e\u5168\u54e1\u306b\u30e1\u30c3\u30bb\u30fc\u30b8` : "@\u30dc\u30c3\u30c8\u540d \u306b\u30e1\u30c3\u30bb\u30fc\u30b8"}
+        sendDisabled={!prompt.trim()}
+        busy={busy}
+        onSend={() => void send()}
+        footer={<><button type="button" aria-pressed={broadcast} onClick={() => setBroadcast((value) => !value)} className={`rounded-full px-2 py-1 font-medium ${broadcast ? "bg-accent/10 text-accent" : "hover:bg-surface-2 hover:text-text"}`}>{broadcast ? "\u90e8\u5c4b\u306b\u805e\u304f\uff08\u5168\u54e1\uff09" : "\u90e8\u5c4b\u306b\u805e\u304f"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="shrink-0 hover:text-text">{`\u30e1\u30f3\u30d0\u30fc: ${room.members.length}`}</button></>}
+        inputOverlay={mentionCandidates.length > 0 ? <div id="room-mention-options" role="listbox" aria-label={"\u30e1\u30f3\u30b7\u30e7\u30f3\u5148\u5019\u88dc"} className="absolute bottom-full left-0 z-20 mb-2 max-h-56 w-full overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">{mentionCandidates.map((candidate, index) => <button key={candidate.key} type="button" role="option" aria-selected={index === mentionIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => insertMention(candidate)} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left ${index === mentionIndex ? "bg-surface-2" : "hover:bg-surface-2"}`}>{candidate.bot ? <BotAvatar size={24} color={candidate.bot.avatarColor} image={candidate.bot.avatarImage} name={candidate.bot.name} /> : <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">@</span>}<span className="min-w-0"><span className="block truncate text-sm font-medium">{candidate.label}</span><span className="block truncate text-[11px] text-muted">{candidate.description}</span></span></button>)}</div> : null}
+      />
+      {error && <p role="alert" className="mx-auto max-w-3xl px-3 pb-2 text-xs text-danger">{error}</p>}
       </div>
       {settingsOpen && (
         <aside id="room-settings-panel" aria-label="ルーム設定" className="flex h-full w-[min(100%,22rem)] shrink-0 flex-col border-l border-border bg-surface">
@@ -294,12 +260,14 @@ export function RoomView({ id }: { id: string }) {
             <div className="flex flex-col items-center gap-2 py-2"><span className="flex h-20 w-20 items-center justify-center rounded-full bg-success-bg text-success"><Users className="h-8 w-8" /></span><p className="text-xs text-muted">ルームのプロフィール</p></div>
             <label className="block text-sm"><span className="font-medium">名前</span><div className="mt-2 rounded-xl border border-border bg-bg px-3 py-2.5">{room.name}</div></label>
             <div className="rounded-2xl border border-border bg-bg p-4">
-              <span className="text-sm font-medium">メンバー</span>
+              <div className="flex items-center justify-between gap-2"><span className="text-sm font-medium">{"\u30e1\u30f3\u30d0\u30fc"}</span><span className="text-xs text-muted">{room.members.length}{"\u4eba\u9078\u629e"}</span></div>
               <div className="mt-3 space-y-1">
                 {bots.map((bot) => (
                   <label key={bot.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm hover:bg-surface-2">
                     <input
                       type="checkbox"
+                      aria-label={`\u30dc\u30c3\u30c8\u540d: ${bot.name} / ${room.members.includes(bot.id) ? "\u8a2d\u5b9a\u6e08\u307f" : "\u8ffd\u52a0"}`}
+                      disabled={memberSaving}
                       checked={room.members.includes(bot.id)}
                       onChange={(event) => void saveMembers(event.target.checked ? [...room.members, bot.id] : room.members.filter((item) => item !== bot.id))}
                     />
