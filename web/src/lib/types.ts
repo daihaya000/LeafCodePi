@@ -17,6 +17,24 @@ export type BotSkillsConfig = {
   exclude: string[];
 };
 
+export type RoomMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  createdAt: number;
+  botId?: string;
+  botName?: string;
+  status?: "working" | "done" | "error";
+};
+
+export type RoomDto = {
+  id: string;
+  name: string;
+  members: string[];
+  createdAt: string;
+  updatedAt: string;
+  messages: RoomMessage[];
+};
 export type BotDto = {
   id: string;
   name: string;
