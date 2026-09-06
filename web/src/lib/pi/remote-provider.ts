@@ -51,8 +51,8 @@ export function modelRows(
   return body.data.flatMap((row) => {
     if (!isRecord(row) || typeof row.id !== "string" || !row.id.trim()) return [];
     const contextWindow = REMOTE_CONTEXT_WINDOW;
-    const imageInput = /leafmodel/i.test(row.id);
-    const reasoning = /qwen3|deepseek-r1|thinking/i.test(row.id) || imageInput;
+    const imageInput = row.supports_image_input === true;
+    const reasoning = /qwen3|deepseek-r1|thinking|leafmodel/i.test(row.id);
     return [{
       id: row.id,
       name: row.id,

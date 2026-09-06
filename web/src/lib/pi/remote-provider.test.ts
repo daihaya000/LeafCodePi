@@ -27,8 +27,16 @@ describe("remote-provider", () => {
     expect(REMOTE_PROVIDER_API_KEY_ENV).toBe("LEAFCODECLOUD_API_KEY");
   });
 
-  it("marks LeafModel as a reasoning model so effort options are available", () => {
-    expect(modelRows({ data: [{ id: "LeafModel" }] })[0]).toMatchObject({
+  it("keeps LeafModel reasoning while following provider image capability", () => {
+    expect(
+      modelRows({ data: [{ id: "LeafModel", supports_image_input: false }] })[0],
+    ).toMatchObject({
+      reasoning: true,
+      input: ["text"],
+    });
+    expect(
+      modelRows({ data: [{ id: "LeafModel", supports_image_input: true }] })[0],
+    ).toMatchObject({
       reasoning: true,
       input: ["text", "image"],
     });
