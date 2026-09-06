@@ -105,6 +105,8 @@ type Runtime = {
   ctx: GoalLoopTurnRoutingContext;
   pi: ExtensionAPI;
   awaitingTurn: boolean;
+  /** Invalidates an in-flight async turn when a new loop replaces it. */
+  turnGeneration: number;
   pausedTurnPending: boolean;
   pendingAgentMessages?: unknown[];
   pendingAgentAborted: boolean;
@@ -854,6 +856,7 @@ function schedule(runtime: Runtime, delay = 250): void {
 
 async function sendTurn(runtime: Runtime): Promise<void> {
   if (runtime.disposed || runtime.awaitingTurn) return;
+  const turnGeneration = runtime.turnGeneration;
   let loop = currentLoop(runtime);
   if (!loop || TERMINAL.has(loop.status) || loop.status === "paused") return;
 
@@ -898,7 +901,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       );
       return;
     }
-    if (runtime.disposed) return;
+    if (runtime.disposed || runtime.turnGeneration !== turnGeneration) return;
     loop = currentLoop(runtime);
     if (!loop || TERMINAL.has(loop.status) || loop.status === "paused") return;
     if (!runtime.ctx.isIdle() || runtime.ctx.hasPendingMessages()) {
@@ -998,6 +1001,9 @@ function startLoop(
   const acceptance = normalizeAcceptance(config.acceptance);
   if (!goal || !acceptance) return null;
 
+  // A pending routing hook may resume after this replacement. Invalidate it
+  // before stopping the old loop so it cannot send the old prompt into the new one.
+  runtime.turnGeneration += 1;
   const previous = currentLoop(runtime);
   if (previous && !TERMINAL.has(previous.status)) stopLoop(runtime);
   clearTimer(runtime);
@@ -1301,6 +1307,7 @@ export default function (pi: ExtensionAPI): void {
       ctx,
       pi,
       awaitingTurn: false,
+      turnGeneration: 0,
       pausedTurnPending: false,
       pausedTurnIndex: undefined,
       disposed: false,

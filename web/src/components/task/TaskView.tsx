@@ -895,7 +895,7 @@ export const TaskView = memo(function TaskView({
                 isStreaming: payload.isStreaming ?? base.isStreaming,
                 isCompacting: payload.isCompacting ?? base.isCompacting,
                 contextUsage: payload.contextUsage ?? base.contextUsage,
-                goalLoop: payload.goalLoop ?? base.goalLoop,
+                goalLoop: "goalLoop" in payload ? payload.goalLoop : base.goalLoop,
                 todos: payload.todos ?? base.todos,
               };
               // 表示に影響しないスナップショット（tool実行中のメッセージ進捗等）は

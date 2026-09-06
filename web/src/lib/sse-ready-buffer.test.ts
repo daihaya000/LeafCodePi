@@ -9,11 +9,12 @@ import {
 
 describe("sse-ready-buffer", () => {
   it("ranks by length then tip createdAt", () => {
-    expect(rankMessageList([{ id: "a", createdAt: 1 }])).toEqual({
+    expect(rankMessageList([{ id: "a", createdAt: 1 }])).toMatchObject({
       len: 1,
       lastCreatedAt: 1,
       lastId: "a",
     });
+    expect(rankMessageList([{ id: "a", createdAt: 1 }]).contentKey).toBe('["{}"]');
     expect(
       isFresherMessageList(
         { len: 2, lastCreatedAt: 1, lastId: "b" },
@@ -26,6 +27,36 @@ describe("sse-ready-buffer", () => {
         { len: 1, lastCreatedAt: 1, lastId: "a" },
       ),
     ).toBe(true);
+  });
+
+  it("keeps same-length, same-timestamp snapshots when content changes", () => {
+    const ready = rankMessageList([
+      { id: "tip", createdAt: 5, role: "assistant", parts: [{ id: "part", type: "text", text: "before" }] },
+    ]);
+    expect(
+      shouldFlushPendingAfterReady(
+        {
+          type: "snapshot",
+          messages: [{ id: "tip", createdAt: 5, role: "assistant", parts: [{ id: "part", type: "text", text: "after" }] }],
+        },
+        ready,
+      ),
+    ).toBe(true);
+    expect(
+      isFresherMessageList(
+        rankMessageList([{ id: "tip", createdAt: 5, role: "assistant", parts: [{ id: "part", type: "text", text: "after" }] }]),
+        ready,
+      ),
+    ).toBe(true);
+  });
+
+  it("treats archived and restored snapshots as control events", () => {
+    const ready = rankMessageList([{ id: "latest", createdAt: 5 }]);
+    for (const eventType of ["archived", "restored"]) {
+      expect(
+        shouldFlushPendingAfterReady({ type: "snapshot", eventType, messages: [{ id: "old", createdAt: 1 }] }, ready),
+      ).toBe(true);
+    }
   });
 
   it("drops snapshots older than the ready tip", () => {

@@ -494,7 +494,7 @@ export function AutoRouteOverridesEditor({
         <div
           role="group"
           aria-label="Auto ルーティング設定一覧"
-          className="grid grid-cols-3 gap-3"
+          className="grid grid-cols-1 gap-3 md:grid-cols-3"
         >
           {AUTO_OPTIMIZE_MODES.map((candidateMode) => {
             const hasModeOverride = TIERS.some(

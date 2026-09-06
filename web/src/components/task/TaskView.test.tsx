@@ -143,4 +143,67 @@ describe("TaskView draft submission", () => {
     expect(messageNode?.className).toContain("overflow-auto");
     expect(screen.getByRole("button", { name: "許可" })).toBeTruthy();
   });
+
+  it("clears goal loop state when a snapshot explicitly sends null", async () => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource | null = null;
+
+      constructor() {
+        super();
+        TestEventSource.latest = this;
+      }
+
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    render(<TaskView taskId={task.id} mdUp />);
+    const source = TestEventSource.latest;
+    if (!source) throw new Error("EventSource was not created");
+
+    const goalLoop = {
+      id: "session-1",
+      sessionId: "session-1",
+      cwd: "",
+      status: "paused",
+      goal: "keep going",
+      acceptance: ["done"],
+      maxTurns: 3,
+      cooldownSeconds: 0,
+      nextTurnAt: null,
+      forceFullRun: false,
+      turnCount: 1,
+      turnKind: "goal",
+      pauseReason: "user",
+      error: "",
+      progress: [],
+      summary: "",
+      evidence: "",
+      blockedReason: "",
+      rejectedClaims: 0,
+      unreadableStreak: 0,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const sendSnapshot = async (payload: unknown) => {
+      await act(async () => {
+        source.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(payload) }));
+      });
+    };
+
+    await sendSnapshot({
+      eventType: "ready",
+      task: { ...task, sessionId: "session-1", messages: [], isStreaming: false },
+      messages: [],
+      goalLoop,
+    });
+    expect(await screen.findByRole("region", { name: "Goal loop" })).toBeTruthy();
+
+    await sendSnapshot({
+      eventType: "restored",
+      task: { ...task, sessionId: "session-1", messages: [], isStreaming: false },
+      messages: [],
+      goalLoop: null,
+    });
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Goal loop" })).toBeNull());
+  });
 });

@@ -4,9 +4,23 @@ export type MessageListRank = {
   len: number;
   lastCreatedAt: number;
   lastId: string;
+  /** Stable content fingerprint, excluding projected id/timestamp churn. */
+  contentKey?: string;
 };
 
-/** Compare message lists by length, then tip timestamp, then tip id. */
+function messageContentKey(message: unknown): string {
+  if (!message || typeof message !== "object" || Array.isArray(message)) {
+    return JSON.stringify(message) ?? "";
+  }
+  const { id: _id, createdAt: _createdAt, ...content } = message as Record<string, unknown>;
+  return JSON.stringify(content) ?? "";
+}
+
+function messageListContentKey(messages: unknown[]): string {
+  return JSON.stringify(messages.map(messageContentKey)) ?? "";
+}
+
+/** Compare message lists by length, tip timestamp, then content. */
 export function rankMessageList(messages: unknown): MessageListRank {
   const list = Array.isArray(messages) ? messages : [];
   const last = list.at(-1) as Partial<UiMessage> | undefined;
@@ -14,6 +28,7 @@ export function rankMessageList(messages: unknown): MessageListRank {
     len: list.length,
     lastCreatedAt: typeof last?.createdAt === "number" ? last.createdAt : 0,
     lastId: typeof last?.id === "string" ? last.id : "",
+    contentKey: messageListContentKey(list),
   };
 }
 
@@ -25,9 +40,9 @@ export function isFresherMessageList(
   if (candidate.lastCreatedAt !== baseline.lastCreatedAt) {
     return candidate.lastCreatedAt > baseline.lastCreatedAt;
   }
-  // Same length + same tip timestamp: do not treat id churn (msg-N → entry id)
-  // as fresher — ready's persisted id wins.
-  return false;
+  // Same length + same tip timestamp: ignore projected id churn, but keep
+  // legitimate content/parts updates that can share both values.
+  return (candidate.contentKey ?? "") !== (baseline.contentKey ?? "");
 }
 
 /**
@@ -54,6 +69,8 @@ export const SSE_CONTROL_SNAPSHOT_EVENT_TYPES = new Set([
   "provider_fallback",
   "provider_routed",
   "project_promoted",
+  "archived",
+  "restored",
 ]);
 
 export function isControlSnapshot(payload: Record<string, unknown>): boolean {
