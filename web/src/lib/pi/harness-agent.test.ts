@@ -120,26 +120,21 @@ describe("setTaskAgent", () => {
   it.each([
     ["an accepted prompt", { promptActive: true }],
     ["compaction", { isCompacting: true }],
-  ])("rejects a persona switch during %s", async (_label, options) => {
+  ])("defers a persona switch during %s", async (_label, options) => {
     const state = fixture({
       ...options,
       messages: [{ role: "user", content: "作業" }],
     });
 
-    await assert.rejects(
-      setTaskAgent(state.task.id, "reviewer"),
-      (error: unknown) =>
-        error instanceof Error &&
-        (error as Error & { status?: number }).status === 409,
-    );
+    await setTaskAgent(state.task.id, "reviewer");
 
-    assert.equal(getTask(state.task.id)?.agent, "build");
+    assert.equal(getTask(state.task.id)?.agent, "reviewer");
     assert.equal(state.live.has(state.task.id), true);
     assert.equal(state.disposed, false);
     assert.equal(state.customMessages.length, 0);
   });
 
-  it("rejects a persona switch while a Goal loop is queued", async () => {
+  it("defers a persona switch while a Goal loop is queued", async () => {
     const state = fixture();
     const sessionId = "goal-switch-session";
     const live = state.live.get(state.task.id) as { session: { sessionId?: string } } | undefined;
@@ -152,15 +147,9 @@ describe("setTaskAgent", () => {
       "utf8",
     );
 
-    await assert.rejects(
-      setTaskAgent(state.task.id, "reviewer"),
-      (error: unknown) =>
-        error instanceof Error &&
-        (error as Error & { status?: number }).status === 409 &&
-        /Goal loop/.test(error.message),
-    );
+    await setTaskAgent(state.task.id, "reviewer");
 
-    assert.equal(getTask(state.task.id)?.agent, "build");
+    assert.equal(getTask(state.task.id)?.agent, "reviewer");
     assert.equal(state.disposed, false);
   });
 });

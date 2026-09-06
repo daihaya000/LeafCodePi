@@ -247,6 +247,19 @@ const NON_RENDERING_SESSION_EVENTS = new Set([
   "entry_appended",
 ]);
 
+type PendingLiveSettings = {
+  model?: {
+    route: ConcreteModelRoute;
+    accountIdExplicit: boolean;
+  };
+  thinkingLevel?: ThinkingLevel;
+  agentName?: string | null;
+  agentPreviousName?: string | null;
+  permissionMode?: "allow" | "ask" | "deny";
+  skillPermission?: SkillPermission;
+  subagentPermission?: "allow" | "deny";
+};
+
 type LiveRuntime = {
   taskId: string;
   /** セッション生成時に使ったアカウント（null = 既定）。破棄時の参照解放に使う。 */
@@ -268,6 +281,8 @@ type LiveRuntime = {
   goalLoopTurnActive: boolean;
   /** A prompt has been accepted and is about to start or is still running. */
   promptActive: boolean;
+  /** Settings selected during the current turn, applied before the next turn. */
+  pendingSettings?: PendingLiveSettings;
   /** Bumped on abort so in-flight promptChain work after await does not resume. */
   promptEpoch: number;
   /** Assistant throughput samples keyed by message.timestamp (ms). */
@@ -1683,6 +1698,7 @@ async function attachSession(
     nativeCompactionAttempted: false,
     goalLoopTurnActive: false,
     promptActive: existing?.promptActive ?? false,
+    pendingSettings: existing?.pendingSettings,
     promptEpoch: existing?.promptEpoch ?? 0,
     throughputByStartedAt:
       existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
@@ -1891,7 +1907,11 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
         if (!before || before.session.sessionManager !== ctx.sessionManager) {
           return "retry";
         }
-        const after = await prepareLiveForPrompt(before, true);
+        const after = await prepareLiveForPrompt(
+          before,
+          true,
+          copyPendingLiveSettings(before.pendingSettings),
+        );
         if (after.session !== before.session) return false;
         if (isLiveBusyForReplace(after)) return "retry";
         const loop = readGoalLoopState(
@@ -2542,12 +2562,34 @@ function toSummary(task: TaskSummary): TaskSummary {
     ),
   );
   const thinking =
-    typeof live.session.thinkingLevel === "string" &&
+    live.pendingSettings?.thinkingLevel ??
+    (typeof live.session.thinkingLevel === "string" &&
     isThinkingLevel(live.session.thinkingLevel)
       ? live.session.thinkingLevel
-      : task.thinkingLevel;
+      : task.thinkingLevel);
+  const pendingModel = live.pendingSettings?.model?.route;
+  const pendingAgent = live.pendingSettings?.agentName;
   return {
     ...task,
+    ...(pendingModel
+      ? {
+          providerID: modelId(pendingModel.model).providerID ?? task.providerID,
+          modelID: modelId(pendingModel.model).modelID ?? task.modelID,
+          ...(pendingModel.accountId
+            ? { accountId: pendingModel.accountId }
+            : { accountId: undefined }),
+          accountIdExplicit: live.pendingSettings?.model?.accountIdExplicit
+            ? true
+            : undefined,
+        }
+      : {}),
+    ...(pendingAgent !== undefined ? { agent: pendingAgent ?? undefined } : {}),
+    ...(live.pendingSettings?.permissionMode !== undefined
+      ? { permissionMode: live.pendingSettings.permissionMode }
+      : {}),
+    ...(live.pendingSettings?.skillPermission !== undefined
+      ? { skillPermission: live.pendingSettings.skillPermission }
+      : {}),
     // After an explicit idle/error/archived write, do not re-promote to working
     // from a stale session.isStreaming flag (hang abort / Stop races).
     status: resolveSummaryStatus(task.status, live.session.isStreaming),
@@ -4977,8 +5019,8 @@ async function replaceLiveForAgent(
     accountId: live.accountId,
     model: live.session.model ?? undefined,
     thinkingLevel,
-    skillPermission: live.skillPermission,
-    permissionMode: task.permissionMode,
+    skillPermission: live.pendingSettings?.skillPermission ?? live.skillPermission,
+    permissionMode: live.pendingSettings?.permissionMode ?? task.permissionMode,
     agentName,
     taskId: task.id,
     goalLoop: true,
@@ -5025,12 +5067,121 @@ async function prepareAutoAgentForGoalLoop(
   return replaceLiveForAgent(live, task, selected);
 }
 
+/** Copy pending settings so changes made after prompt acceptance stay deferred. */
+function copyPendingLiveSettings(
+  pending: PendingLiveSettings | undefined,
+): PendingLiveSettings | undefined {
+  return pending ? { ...pending } : undefined;
+}
+
+function clearAppliedPendingLiveSettings(
+  live: LiveRuntime,
+  applied: PendingLiveSettings,
+): void {
+  const current = live.pendingSettings;
+  if (!current) return;
+  const next = { ...current };
+  for (const key of [
+    "model",
+    "thinkingLevel",
+    "agentName",
+    "agentPreviousName",
+    "permissionMode",
+    "skillPermission",
+    "subagentPermission",
+  ] as const) {
+    if (current[key] === applied[key]) delete next[key];
+  }
+  live.pendingSettings = Object.keys(next).length > 0 ? next : undefined;
+}
+
+function shouldDeferLiveSetting(
+  live: LiveRuntime,
+  task?: {
+    directory: string;
+    sessionId?: string | null;
+    status?: TaskSummary["status"];
+  },
+): boolean {
+  const loop = task
+    ? readGoalLoopState(task.directory, live.session.sessionId ?? task.sessionId)
+    : null;
+  return (
+    isLiveBusyForReplace(live) ||
+    task?.status === "working" ||
+    isActiveGoalLoopSession(live.session) ||
+    isGoalLoopLiveStatus(loop?.status)
+  );
+}
+
+async function applyPendingLiveSettings(
+  live: LiveRuntime,
+  requested: PendingLiveSettings,
+): Promise<LiveRuntime> {
+  let current = state().live.get(live.taskId) ?? live;
+  if (current.session.isStreaming || current.session.isCompacting) return current;
+  const task = getTask(current.taskId);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+
+  if (requested.model) {
+    const currentIds = modelId(current.session.model);
+    const requestedIds = modelId(requested.model.route.model);
+    const sameRoute =
+      current.accountId === requested.model.route.accountId &&
+      currentIds.providerID === requestedIds.providerID &&
+      currentIds.modelID === requestedIds.modelID;
+    if (!sameRoute) {
+      const routeTask =
+        requested.agentName !== undefined
+          ? { ...task, agent: requested.agentPreviousName ?? null }
+          : task;
+      current = await replaceLiveForRoute(current, routeTask, requested.model.route);
+    } else {
+      await current.session.setModel(requested.model.route.model);
+      applySessionCompactionSettings(current.session);
+    }
+  }
+
+  if (requested.thinkingLevel !== undefined) {
+    current.session.setThinkingLevel(requested.thinkingLevel);
+  }
+  if (requested.agentName !== undefined) {
+    const latestTask = getTask(current.taskId);
+    if (!latestTask) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+    const previousAgent = requested.agentPreviousName ?? null;
+    current = await replaceLiveForAgent(
+      current,
+      { ...latestTask, agent: previousAgent },
+      requested.agentName ?? "",
+    );
+  } else {
+    if (requested.permissionMode !== undefined) {
+      applyPermissionMode(current.session, requested.permissionMode);
+    }
+    if (requested.skillPermission !== undefined) {
+      await applyLiveSkillPermission(current, requested.skillPermission);
+    }
+  }
+  if (requested.subagentPermission !== undefined) {
+    applySubagentPermission(current.session, requested.subagentPermission);
+  }
+  if (requested.thinkingLevel !== undefined) {
+    patchTask(current.taskId, { thinkingLevel: requested.thinkingLevel });
+  }
+  clearAppliedPendingLiveSettings(current, requested);
+  return current;
+}
+
 /** Select a fresh account/provider before a queued user or Goal Loop turn. */
 async function prepareLiveForPrompt(
   live: LiveRuntime,
   reroute: boolean,
+  pendingSettings?: PendingLiveSettings,
 ): Promise<LiveRuntime> {
-  const currentLive = state().live.get(live.taskId) ?? live;
+  let currentLive = state().live.get(live.taskId) ?? live;
+  if (pendingSettings) {
+    currentLive = await applyPendingLiveSettings(currentLive, pendingSettings);
+  }
   const task = getTask(currentLive.taskId);
   const isGoalLoopTurn = isActiveGoalLoopSession(currentLive.session);
   const canRoute = Boolean(
@@ -5218,7 +5369,8 @@ function queuePrompt(
     streamingBehavior?: "steer" | "followUp";
   },
 ): void {
-  applySubagentPermission(live.session, meta?.subagentPermission);
+  const hadActivePrompt = live.promptActive || live.session.isStreaming || live.session.isCompacting;
+  const pendingSettingsAtQueue = copyPendingLiveSettings(live.pendingSettings);
   const isHangRetry =
     meta?.isHangRetry === true || prompt.startsWith(HANG_RETRY_PREFIX);
   // Do not clear manualAbortedAssistantId until the turn actually starts.
@@ -5299,7 +5451,14 @@ function queuePrompt(
       meta?.streamingBehavior,
       currentLive.session.isStreaming,
     );
-    activeLive = await prepareLiveForPrompt(live, !streamingBehavior);
+    const pendingSettings = meta?.streamingBehavior
+      ? undefined
+      : hadActivePrompt
+        ? copyPendingLiveSettings((state().live.get(live.taskId) ?? live).pendingSettings)
+        : pendingSettingsAtQueue;
+    activeLive = pendingSettings
+      ? await prepareLiveForPrompt(live, !streamingBehavior, pendingSettings)
+      : await prepareLiveForPrompt(live, !streamingBehavior);
     if (!stillQueued()) return;
     const activeCompaction = activeLive.autoCompactionPromise;
     if (activeCompaction) await activeCompaction;
@@ -5501,10 +5660,12 @@ export async function setTaskSkillPermission(
   permission: SkillPermission,
 ): Promise<TaskSummary> {
   const live = await ensureLive(id);
-  throwIfBusyForSkillPermissionChange(live);
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (shouldDeferLiveSetting(live, task)) {
+    return deferLiveSetting(live, id, { skillPermission: permission }, { skillPermission: permission });
+  }
   await applyLiveSkillPermission(live, permission);
   return patchTask(id, { skillPermission: permission }) ?? task;
 }
@@ -5514,10 +5675,12 @@ export async function setTaskPermissionMode(
   mode: "allow" | "ask" | "deny",
 ): Promise<TaskSummary> {
   const live = await ensureLive(id);
-  throwIfBusyForPermissionChange(live);
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (shouldDeferLiveSetting(live, task)) {
+    return deferLiveSetting(live, id, { permissionMode: mode }, { permissionMode: mode });
+  }
   applyPermissionMode(live.session, mode);
   return patchTask(id, { permissionMode: mode }) ?? task;
 }
@@ -5846,6 +6009,19 @@ function throwIfGoalLoopBlocksSessionReplace(
   }
 }
 
+function deferLiveSetting(
+  live: LiveRuntime,
+  taskId: string,
+  settings: PendingLiveSettings,
+  patch: Parameters<typeof patchTask>[1],
+): TaskSummary {
+  live.pendingSettings = { ...live.pendingSettings, ...settings };
+  const task = patchTask(taskId, patch);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  emitTaskSnapshot(live, "settings_pending");
+  return task;
+}
+
 export async function setTaskAgent(
   id: string,
   agentName: string,
@@ -5863,10 +6039,19 @@ export async function setTaskAgent(
   if (normalized === (task.agent?.trim() ?? "")) return toSummary(task);
 
   const live = await ensureLive(id);
-  if (isLiveBusyForReplace(live)) {
-    throw Object.assign(new Error("実行中タスクのエージェントは変更できません"), {
-      status: 409,
-    });
+  if (shouldDeferLiveSetting(live, task)) {
+    const previousAgent = live.pendingSettings?.agentName !== undefined
+      ? live.pendingSettings.agentPreviousName
+      : task.agent ?? null;
+    return deferLiveSetting(
+      live,
+      id,
+      {
+        agentName: normalized || null,
+        agentPreviousName: previousAgent,
+      },
+      { agent: normalized || null },
+    );
   }
   throwIfGoalLoopBlocksSessionReplace(task, live.session.sessionId);
 
@@ -5917,25 +6102,37 @@ export async function setTaskModel(
   const targetIds = modelId(model);
   const levels = thinkingLevelsForModel(model);
 
-  // アカウント切替はセッションの再作成が必要。promptActive / ストリーム / 圧縮中は拒否し、
-  // それ以外は live セッションを破棄して次回 ensureLive で新しいランタイムから作る。
+  // アカウント切替はセッションの再作成が必要なため、実行中は次ターンへ保留する。
   // 先に ensureLive を待って作成中セッションとの競合をなくす。
   if (targetAccountId !== (task.accountId ?? null)) {
     const live = await ensureLive(id);
-    if (isLiveBusyForReplace(live)) {
-      throw Object.assign(
-        new Error("実行中タスクのアカウントは変更できません"),
-        { status: 409 },
+    const thinkingLevel = (() => {
+      const current = isThinkingLevel(task.thinkingLevel)
+        ? task.thinkingLevel
+        : "off";
+      return levels.includes(current) ? current : defaultThinkingLevel(levels);
+    })();
+    const pendingModel = {
+      route: modelRoute,
+      accountIdExplicit,
+    };
+    if (shouldDeferLiveSetting(live, task)) {
+      return deferLiveSetting(
+        live,
+        id,
+        { model: pendingModel, thinkingLevel },
+        {
+          providerID: targetIds.providerID ?? parsed.providerID,
+          modelID: targetIds.modelID ?? parsed.modelID,
+          thinkingLevel,
+          accountId: targetAccountId ?? undefined,
+          accountIdExplicit:
+            targetAccountId && accountIdExplicit ? true : undefined,
+        },
       );
     }
     throwIfGoalLoopBlocksSessionReplace(task, live.session.sessionId);
     disposeLive(id);
-    const current = isThinkingLevel(task.thinkingLevel)
-      ? task.thinkingLevel
-      : "off";
-    const thinkingLevel = levels.includes(current)
-      ? current
-      : defaultThinkingLevel(levels);
     const updatedTask = patchTask(id, {
       providerID: targetIds.providerID ?? parsed.providerID,
       modelID: targetIds.modelID ?? parsed.modelID,
@@ -5952,7 +6149,30 @@ export async function setTaskModel(
   }
 
   const live = await ensureLive(id);
-  throwIfBusyForModelChange(live);
+  if (shouldDeferLiveSetting(live, task)) {
+    const current = isThinkingLevel(task.thinkingLevel)
+      ? task.thinkingLevel
+      : "off";
+    const thinkingLevel = current && levels.includes(current)
+      ? current
+      : defaultThinkingLevel(levels);
+    const updated = deferLiveSetting(
+      live,
+      id,
+      {
+        model: { route: modelRoute, accountIdExplicit },
+        thinkingLevel,
+      },
+      {
+        providerID: targetIds.providerID ?? parsed.providerID,
+        modelID: targetIds.modelID ?? parsed.modelID,
+        thinkingLevel,
+        accountIdExplicit:
+          live.accountId && accountIdExplicit ? true : undefined,
+      },
+    );
+    return updated;
+  }
   await live.session.setModel(model);
   applySessionCompactionSettings(live.session);
   const ids = modelId(live.session.model ?? model);
@@ -6001,7 +6221,12 @@ export async function setTaskThinkingLevel(
     throw Object.assign(new Error("thinkingLevel が不正です"), { status: 400 });
   }
   const live = await ensureLive(id);
-  throwIfBusyForThinkingChange(live);
+  const currentTask = getTask(id);
+  if (!currentTask)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (shouldDeferLiveSetting(live, currentTask)) {
+    return deferLiveSetting(live, id, { thinkingLevel: levelRaw }, { thinkingLevel: levelRaw });
+  }
   live.session.setThinkingLevel(levelRaw);
   const thinkingLevel = isThinkingLevel(live.session.thinkingLevel)
     ? live.session.thinkingLevel

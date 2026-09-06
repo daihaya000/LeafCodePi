@@ -2823,7 +2823,7 @@ export const TaskView = memo(function TaskView({
               <ModelSelect
                 value={modelValue}
                 options={modelOptions}
-                disabled={working || compacting || submitting || goalLoopLive || archived}
+                disabled={compacting || archived}
                 loading={modelsLoading}
                 onChange={(value) => {
                   if (value === AUTO_MODEL_VALUE) {
@@ -2869,7 +2869,7 @@ export const TaskView = memo(function TaskView({
                 <ThinkingSelect
                   levels={thinkingLevels}
                   value={thinkingValue}
-                  disabled={working || compacting || submitting || archived}
+                  disabled={compacting || archived}
                   className="h-11 w-full md:h-8 md:w-max md:shrink-0"
                   onChange={(value) => {
                     void (async () => {
@@ -2894,7 +2894,7 @@ export const TaskView = memo(function TaskView({
                 <AgentSelect
                   value={agentSelection}
                   agents={agents}
-                  disabled={working || compacting || agentChanging || goalLoopLive || archived}
+                  disabled={compacting || agentChanging || archived}
                   onChange={(value) => {
                     if (value === AUTO_AGENT_VALUE) {
                       setAgentSelection(value);
@@ -2936,7 +2936,7 @@ export const TaskView = memo(function TaskView({
                 <>
               <PermissionSelect
                 value={permissionMode}
-                disabled={working || compacting || submitting || archived}
+                disabled={compacting || archived}
                 onChange={(mode) => {
                   const previous = permissionMode;
                   setPermissionMode(mode);
@@ -2959,7 +2959,7 @@ export const TaskView = memo(function TaskView({
               />
               <SkillPermissionSelect
                 value={skillPermission}
-                disabled={working || compacting || submitting || archived}
+                disabled={compacting || archived}
                 onChange={(permission) => {
                   void (async () => {
                     try {
@@ -2979,7 +2979,7 @@ export const TaskView = memo(function TaskView({
               />
               <SubagentPermissionSelect
                 value={subagentPermission}
-                disabled={working || compacting || archived}
+                disabled={compacting || archived}
                 onChange={(mode) => {
                   setSubagentPermission(mode);
                   writeSubagentPermission(mode);
