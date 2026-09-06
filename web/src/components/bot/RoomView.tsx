@@ -192,7 +192,7 @@ export function RoomView({ id }: { id: string }) {
     return (
       <div key={message.id} className={`flex items-end gap-2 ${user ? "justify-end" : "justify-start"}`}>
         {!user && <BotAvatar size={28} color={bot?.avatarColor} image={bot?.avatarImage} name={bot?.name ?? message.botName} />}
-        <div className={`max-w-[min(42rem,88%)] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${user ? "rounded-br-md bg-accent text-white" : "rounded-bl-md border border-border bg-surface"}`}>
+        <div className={`max-w-[min(42rem,88%)] rounded-2xl px-3.5 py-2 text-sm leading-6 ${user ? "rounded-br-md bg-bot-user text-white" : "rounded-bl-md border border-bot-outline/70 bg-bot-assistant"}`}>
           {!user && <div className="mb-1 text-[11px] text-muted">{bot?.name ?? message.botName ?? "ボット"}</div>}
           <div className="whitespace-pre-wrap break-words">{renderMentionText(text, bots, message.id, user ? "rounded bg-white/90 px-0.5 font-semibold text-accent" : undefined)}</div>
           {message.status === "error" && <div className="mt-1 text-xs text-danger">応答に失敗しました</div>}
@@ -216,10 +216,10 @@ export function RoomView({ id }: { id: string }) {
       />
 
 
-      <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
-        <div className="mx-auto max-w-3xl space-y-4">
+      <main className="min-h-0 flex-1 overflow-y-auto bg-bot-chat px-4 py-5">
+        <div className="mx-auto max-w-3xl space-y-3">
           {room.messages.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-border bg-surface/50 px-5 py-8 text-center">
+            <div className="rounded-2xl border border-dashed border-bot-outline bg-bot-panel px-5 py-8 text-center">
               <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-success-bg text-success"><Users className="h-5 w-5" /></span>
               <p className="font-medium">{room.name} で話す</p>
               <p className="mt-1 text-sm text-muted">メンションされたボットだけが応答します。@here / @channel または「部屋に聞く」で全員に送れます。</p>

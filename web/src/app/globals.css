@@ -32,6 +32,14 @@
   --diff-del-bg: #fef3f2;
   --diff-del-text: #b42318;
   --diff-hunk-bg: #f0f4f8;
+  /* Bot mode: airy light chat surfaces and restrained contrast. */
+  --bot-chat-bg: #fafafa;
+  --bot-panel-bg: #ffffff;
+  --bot-panel-muted: #f4f4f5;
+  --bot-bubble-user: #2563eb;
+  --bot-bubble-assistant: #ffffff;
+  --bot-outline: #e4e4e7;
+  --bot-composer-shadow: 0 8px 28px rgb(24 24 27 / 0.07);
 }
 
 .oyster {
@@ -59,6 +67,13 @@
   --terminal-text: #f4f4f5;
   --terminal-muted: #a1a1aa;
   --terminal-border: #27272a;
+  --bot-chat-bg: #fdfbf7;
+  --bot-panel-bg: #fbf8f2;
+  --bot-panel-muted: #f5f1ea;
+  --bot-bubble-user: #2563eb;
+  --bot-bubble-assistant: #fbf8f2;
+  --bot-outline: #e4ddd0;
+  --bot-composer-shadow: 0 8px 28px rgb(30 27 22 / 0.06);
 }
 
 .dark {
@@ -91,6 +106,13 @@
   --diff-del-bg: #2c1618;
   --diff-del-text: #f87171;
   --diff-hunk-bg: #20242c;
+  --bot-chat-bg: #111113;
+  --bot-panel-bg: #19191d;
+  --bot-panel-muted: #202024;
+  --bot-bubble-user: #60a5fa;
+  --bot-bubble-assistant: #19191d;
+  --bot-outline: #2a2a30;
+  --bot-composer-shadow: 0 8px 28px rgb(0 0 0 / 0.2);
 }
 
 @theme inline {
@@ -123,6 +145,12 @@
   --color-diff-del-bg: var(--diff-del-bg);
   --color-diff-del-text: var(--diff-del-text);
   --color-diff-hunk-bg: var(--diff-hunk-bg);
+  --color-bot-chat: var(--bot-chat-bg);
+  --color-bot-panel: var(--bot-panel-bg);
+  --color-bot-panel-muted: var(--bot-panel-muted);
+  --color-bot-user: var(--bot-bubble-user);
+  --color-bot-assistant: var(--bot-bubble-assistant);
+  --color-bot-outline: var(--bot-outline);
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
@@ -149,6 +177,11 @@ select {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
+}
+
+/* Bot mode keeps the composer visually lifted without changing Code mode surfaces. */
+.bot-composer-shell {
+  box-shadow: var(--bot-composer-shadow);
 }
 
 .task-message-row {
