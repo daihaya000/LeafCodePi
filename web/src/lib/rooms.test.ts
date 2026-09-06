@@ -59,7 +59,8 @@ describe("room store and mention routing", () => {
     const relayState = JSON.parse(readFileSync(join(root, "bots", "rooms", room.id, "relay.json"), "utf8")) as { claims: Record<string, string[]> };
     expect(relayState.claims[envelope!.turnId]).toEqual(expect.arrayContaining([source.id, target.id]));
     // A fresh module/worker reads the durable claim, rather than an in-process Map.
-    const restartedRooms = await import("./rooms?relay-restart");
+    vi.resetModules();
+    const restartedRooms = await import("./rooms");
     expect(restartedRooms.consumeRoomRelayEnvelope(room.id, token!)).toBeUndefined();
     expect(restartedRooms.issueRoomRelayEnvelope(room.id, target.id, [source.id], token!)).toBeUndefined();
   });
