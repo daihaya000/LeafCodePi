@@ -793,16 +793,16 @@ describe("integrated session routing", () => {
     expect(fakePi.sessions[0]?.prompts).toEqual(["固定して開始", "固定したまま続行"]);
     assert.equal(getTask(task.id)?.accountId, first.id);
 
-    // 明示アカウントのリミットでも別アカウントへ自動フォールバックしない。
+    // 明示アカウントでもリミット時だけは別アカウントへ自動フォールバックする。
     fakePi.sessions[0]?.emit?.({
       type: "agent_end",
       willRetry: false,
       messages: [{ role: "assistant", errorMessage: "HTTP 429 Too Many Requests" }],
     });
     fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    assert.equal(fakePi.sessions.length, 1);
-    assert.equal(getTask(task.id)?.accountId, first.id);
+    await waitFor(() => fakePi.sessions.length === 2);
+    expect(fakePi.sessions[1]).toMatchObject({ accountId: other.id });
+    assert.equal(getTask(task.id)?.accountId, other.id);
   });
 
   it("crosses to another provider at the next turn after a limit response", async () => {

@@ -336,7 +336,7 @@ describe("provider limit fallback", () => {
     assert.equal(getTask(task.id)?.providerID, "anthropic");
   });
 
-  it("REPRO: a separate-mode account still crosses to another provider", async () => {
+  it("REPRO: a separate-mode account still falls back after a limit", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-limit-separate-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
@@ -365,12 +365,12 @@ describe("provider limit fallback", () => {
     const task = await createTask({
       projectId: project.id,
       prompt: "start",
-      model: "anthropic::claude-sonnet",
-      accountId: claude.id,
-      accountIdExplicit: false,
+      // An explicitly selected account is still recovered from an exhausted route.
+      model: `${claude.id}::anthropic::claude-sonnet`,
     });
     await waitFor(() => getTask(task.id)?.status === "idle");
     assert.equal(getTask(task.id)?.accountId, claude.id);
+    assert.equal(getTask(task.id)?.accountIdExplicit, true);
 
     fakePi.sessions[0]?.emit?.({
       type: "agent_end",
@@ -380,8 +380,9 @@ describe("provider limit fallback", () => {
     fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
 
     await waitFor(() => fakePi.sessions.length === 2);
-    // Never account-hops inside a separate-mode provider, but leaves the dead route.
-    expect(fakePi.sessions[1]).toMatchObject({ accountId: codex.id, modelID: MODEL_ID });
-    assert.equal(getTask(task.id)?.providerID, PROVIDER);
+    // The other account of the same provider comes before crossing providers.
+    expect(fakePi.sessions[1]).toMatchObject({ accountId: claudeOther.id });
+    assert.equal(getTask(task.id)?.accountId, claudeOther.id);
+    assert.notEqual(getTask(task.id)?.providerID, PROVIDER);
   });
 });

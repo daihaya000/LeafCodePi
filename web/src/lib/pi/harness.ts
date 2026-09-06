@@ -1606,13 +1606,12 @@ function lastAssistantLimitError(event: unknown): string | null {
 }
 
 /**
- * An auto-routed task may leave an exhausted route. Separate mode only means
- * accounts are not pooled inside that provider, so a limited task there must
- * still be able to cross to another provider instead of staying stuck.
+ * A usage limit leaves the route unusable, so recovery beats route stickiness:
+ * an explicitly selected account and a separate-mode provider both fall back
+ * too. Those settings govern normal routing, not an exhausted route.
  */
 function canAutoFallbackTask(task: TaskSummary, providerID: string): boolean {
-  if (task.providerID !== providerID) return false;
-  return !task.accountIdExplicit;
+  return task.providerID === providerID;
 }
 
 async function fallbackProviderAfterLimit(
@@ -2421,12 +2420,11 @@ async function resolveProviderFallbackRoutes(
   const routes: ConcreteModelRoute[] = [];
 
   // A limited concrete account should first give another account in the same
-  // integrated provider a chance; only then do we cross the provider boundary.
-  // Separate mode keeps accounts as distinct rows, so it never account-hops.
+  // provider a chance; only then do we cross the provider boundary. Separate
+  // mode only splits the picker rows, so it still recovers within the provider.
   if (
     source.accountId &&
-    isAccountRoutingProvider(source.providerID) &&
-    accountRoutingMode(source.providerID) === "integrated"
+    isAccountRoutingProvider(source.providerID)
   ) {
     try {
       const route = await resolveIntegratedModelRoute(
@@ -2574,7 +2572,6 @@ async function resolveConcreteModelWithFallback(
     if (
       route &&
       requestedAccountId &&
-      !explicit &&
       isAccountRoutingProvider(parsed.providerID) &&
       providerIsHardLimited(parsed.providerID, requestedAccountId)
     ) {
@@ -2587,9 +2584,10 @@ async function resolveConcreteModelWithFallback(
     sourceError = error;
   }
   if (route) return route;
+  // An explicit account stays strict for ordinary errors, but a usage limit
+  // makes that route unusable, so recovery wins over the pin.
   if (
     options?.allowProviderFallback === false ||
-    explicit ||
     !sourceError ||
     !isProviderLimitError(sourceError)
   ) {
@@ -3677,9 +3675,7 @@ export async function completeModelText(options: {
       return await completeModelTextOnRoute(route, options, system, prompt);
     } catch (error) {
       lastError = error;
-      if (!isProviderLimitError(error) || options.accountIdExplicit === true) {
-        throw error;
-      }
+      if (!isProviderLimitError(error)) throw error;
       markRouteLimited(routeRef.providerID, routeRef.accountId ?? null);
       const fallbacks = sourceRef
         ? await resolveProviderFallbackRoutes(sourceRef)
