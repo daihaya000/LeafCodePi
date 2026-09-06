@@ -79,6 +79,7 @@ import {
   setProviderBaseUrl as setProviderBaseUrlFromEndpoints,
 } from "@/lib/provider-endpoints";
 import { isGoalLoopLiveStatus, readGoalLoopState } from "@/lib/pi/goal-loop-state";
+import { acquireTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import {
   todoProgressFromTodos,
   todosFromPiMessages,
@@ -677,6 +678,7 @@ async function ensureOptionalProviders(
 }
 
 async function ensureRuntime(): Promise<void> {
+  reconcileOrphanedWorkingTasks();
   const current = state();
   if (!current.modelRuntime && !current.initPromise) {
     current.initPromise = (async () => {
@@ -1673,6 +1675,7 @@ async function fallbackProviderAfterLimit(
         }
         const nextLive = await replaceLiveForRoute(currentLive, latestTask, route);
         setTaskStatus(nextLive.taskId, "idle");
+        releaseTaskLease(nextLive.taskId);
         emitTaskSnapshot(nextLive, "provider_fallback", {
           fallbackFrom: `${pending.providerID}::${pending.modelID}`,
         });
@@ -1823,6 +1826,7 @@ async function attachSession(
       event as { type: string; [key: string]: unknown },
     );
     if (event.type === "agent_start") {
+      acquireTaskLease(taskId);
       setTaskStatus(taskId, "working");
     }
     if (
@@ -1831,6 +1835,7 @@ async function attachSession(
     ) {
       const error = session.agent.state.errorMessage ?? null;
       setTaskStatus(taskId, error ? "error" : "idle", error);
+      releaseTaskLease(taskId);
     }
     if (event.type === "agent_settled") {
       if (live.restoreAutoRetry) {
@@ -4473,6 +4478,7 @@ export function archiveProject(id: string): ProjectDto {
 }
 
 export function getTaskSummaries(includeArchived = false): TaskSummary[] {
+  reconcileOrphanedWorkingTasks();
   return listTasks(includeArchived).map(toSummary);
 }
 
@@ -4627,6 +4633,7 @@ export function buildTaskBootstrap(
 }
 
 export function getTaskBootstrap(id: string): TaskDetail {
+  reconcileOrphanedWorkingTasks();
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
@@ -4979,6 +4986,10 @@ export async function createTask(input: {
     if (setup.session.thinkingLevel !== thinkingLevel) {
       setup.session.setThinkingLevel(thinkingLevel);
     }
+    if (!acquireTaskLease(task.id)) {
+      setup.session.dispose();
+      throw Object.assign(new Error("タスクは別のワーカーで実行中です"), { status: 409 });
+    }
     patchTask(task.id, {
       sessionId: setup.session.sessionId,
       sessionFile: setup.session.sessionFile,
@@ -5287,6 +5298,7 @@ async function prepareLiveForPrompt(
         !task.accountIdExplicit),
   );
   if (!canRoute || !task?.providerID || !task.modelID) {
+    acquireTaskLease(currentLive.taskId);
     setTaskStatus(currentLive.taskId, "working");
     return currentLive;
   }
@@ -5309,6 +5321,7 @@ async function prepareLiveForPrompt(
         (!isActiveGoalLoopSession(latestLive.session) &&
           !latestLive.session.messages.some((message) => message.role === "user"))
       ) {
+        acquireTaskLease(latestTask.id);
         setTaskStatus(latestTask.id, "working");
         return latestLive;
       }
@@ -5347,6 +5360,7 @@ async function prepareLiveForPrompt(
       const nextLive = sameRoute
         ? latestLive
         : await replaceLiveForRoute(latestLive, latestTask, route);
+      acquireTaskLease(latestTask.id);
       setTaskStatus(latestTask.id, "working");
       if (nextLive !== latestLive) {
         emitTaskSnapshot(nextLive, "provider_routed");
@@ -5444,6 +5458,7 @@ export async function waitForSessionStreaming(
 export function markTaskWorkingIfIdle(taskId: string): boolean {
   const task = getTask(taskId);
   if (!task || task.status === "working") return false;
+  if (!acquireTaskLease(taskId)) return false;
   setTaskStatus(taskId, "working");
   return true;
 }
@@ -5612,6 +5627,7 @@ function queuePrompt(
     const message = error instanceof Error ? error.message : String(error);
     const currentLive = state().live.get(live.taskId) ?? activeLive;
     setTaskStatus(live.taskId, "error", message);
+    releaseTaskLease(live.taskId);
     emit(live.taskId, {
       type: "snapshot",
       task: toSummary(getTask(live.taskId)!),
@@ -5951,6 +5967,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
     await live.session.abort();
   }
   const task = setTaskStatus(id, "idle");
+  releaseTaskLease(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   // 全購読先へ最終状態を送る。idle 保存前に送ると、停止要求元以外のペインが
@@ -6016,6 +6033,7 @@ export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
     await live.session.abort();
   }
   setTaskStatus(taskId, "idle");
+  releaseTaskLease(taskId);
   // hang_abort above still carried status=working from the store. Tell the
   // client we are idle even when resume is deferred (waitForIdle failure).
   const idleLive = state().live.get(taskId) ?? live;

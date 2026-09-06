@@ -3,27 +3,11 @@ import { getBot, patchBot } from "@/lib/bots";
 import { getProject, getTask } from "@/lib/store";
 import { createTask, abortTask, jsonError, promptTask } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
+import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
+import { withBotCodeSessionLock } from "@/lib/bot-code-session-lock";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-// A Bot owns at most one Code task. Serialize launches in this process so two
-// button/API requests cannot create two linked sessions at the same time.
-const launchLocks = new Map<string, Promise<void>>();
-
-async function withLaunchLock<T>(id: string, operation: () => Promise<T>): Promise<T> {
-  const previous = launchLocks.get(id) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>((resolve) => { release = resolve; });
-  launchLocks.set(id, current);
-  await previous;
-  try {
-    return await operation();
-  } finally {
-    release();
-    if (launchLocks.get(id) === current) launchLocks.delete(id);
-  }
-}
 
 async function botId(params: Promise<{ id: string }>): Promise<string> {
   return (await params).id;
@@ -34,6 +18,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const id = await botId(params);
+  reconcileOrphanedWorkingTasks();
   const bot = getBot(id);
   if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
   const task = bot.codeSessionTaskId ? getTask(bot.codeSessionTaskId) ?? null : null;
@@ -46,7 +31,8 @@ export async function POST(
 ) {
   const id = await botId(params);
   try {
-    return await withLaunchLock(id, async () => {
+    return await withBotCodeSessionLock(id, async () => {
+      reconcileOrphanedWorkingTasks();
       const bot = getBot(id);
       if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
       const body = (await req.json().catch(() => null)) as {
@@ -125,29 +111,32 @@ export async function PATCH(
 ) {
   const id = await botId(params);
   try {
-    const bot = getBot(id);
-    if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
-    const taskId = bot.codeSessionTaskId;
-    if (!taskId) return NextResponse.json({ error: "Code session not found" }, { status: 404 });
-    const body = (await req.json().catch(() => null)) as { action?: unknown; prompt?: unknown } | null;
-    if (body?.action === "clear" || body?.action === "unlink") {
-      patchBot(id, { codeSessionTaskId: null });
-      return NextResponse.json({ task: null });
-    }
-    const task = getTask(taskId);
-    if (!task || task.status === "archived") {
-      return NextResponse.json({ error: "Code session not found" }, { status: 404 });
-    }
-    if (body?.action === "abort") {
-      return NextResponse.json({ task: await abortTask(taskId) });
-    }
-    if (body?.action === "prompt") {
-      if (typeof body.prompt !== "string" || !body.prompt.trim()) {
-        return NextResponse.json({ error: "prompt is required" }, { status: 400 });
+    return await withBotCodeSessionLock(id, async () => {
+      reconcileOrphanedWorkingTasks();
+      const bot = getBot(id);
+      if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
+      const taskId = bot.codeSessionTaskId;
+      if (!taskId) return NextResponse.json({ error: "Code session not found" }, { status: 404 });
+      const body = (await req.json().catch(() => null)) as { action?: unknown; prompt?: unknown } | null;
+      if (body?.action === "clear" || body?.action === "unlink") {
+        patchBot(id, { codeSessionTaskId: null });
+        return NextResponse.json({ task: null });
       }
-      return NextResponse.json({ task: await promptTask(taskId, body.prompt) });
-    }
-    return NextResponse.json({ error: "action must be prompt or abort" }, { status: 400 });
+      const task = getTask(taskId);
+      if (!task || task.status === "archived") {
+        return NextResponse.json({ error: "Code session not found" }, { status: 404 });
+      }
+      if (body?.action === "abort") {
+        return NextResponse.json({ task: await abortTask(taskId) });
+      }
+      if (body?.action === "prompt") {
+        if (typeof body.prompt !== "string" || !body.prompt.trim()) {
+          return NextResponse.json({ error: "prompt is required" }, { status: 400 });
+        }
+        return NextResponse.json({ task: await promptTask(taskId, body.prompt) });
+      }
+      return NextResponse.json({ error: "action must be prompt or abort" }, { status: 400 });
+    });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

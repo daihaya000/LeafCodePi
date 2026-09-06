@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   createTask: vi.fn(),
   abortTask: vi.fn(),
   promptTask: vi.fn(),
+  reconcileOrphanedWorkingTasks: vi.fn(),
+  withBotCodeSessionLock: vi.fn(async (_id: string, operation: () => Promise<unknown>) => operation()),
   jsonError: vi.fn((error: unknown) => ({
     error: error instanceof Error ? error.message : String(error),
     status: typeof error === "object" && error !== null && "status" in error ? Number(error.status) : 500,
@@ -16,6 +18,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/bots", () => ({ getBot: mocks.getBot, patchBot: mocks.patchBot }));
+vi.mock("@/lib/task-runtime-lease", () => ({ reconcileOrphanedWorkingTasks: mocks.reconcileOrphanedWorkingTasks }));
+vi.mock("@/lib/bot-code-session-lock", () => ({ withBotCodeSessionLock: mocks.withBotCodeSessionLock }));
 vi.mock("@/lib/store", () => ({ getProject: mocks.getProject, getTask: mocks.getTask }));
 vi.mock("@/lib/pi/harness", () => ({
   createTask: mocks.createTask,

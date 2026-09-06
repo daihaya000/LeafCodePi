@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "./paths";
@@ -31,7 +31,10 @@ function configPath(id: string): string { return join(botRoot(id), "config.json"
 function soulPath(id: string): string { return join(botRoot(id), "SOUL.md"); }
 function writeConfig(config: BotConfig): void {
   mkdirSync(botRoot(config.id), { recursive: true });
-  writeFileSync(configPath(config.id), `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  const target = configPath(config.id);
+  const temporary = `${target}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  renameSync(temporary, target);
 }
 function parseConfig(id: string): BotConfig | null {
   try {
