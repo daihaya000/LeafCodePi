@@ -45,6 +45,8 @@ echo [LeafCodePi] Starting...
 
 call :check_node
 if errorlevel 1 goto :failure
+call :install_gh
+if errorlevel 1 goto :failure
 call :install_web
 if errorlevel 1 goto :failure
 call :install_host
@@ -97,6 +99,27 @@ for /f %%V in ('node -p "process.versions.node.split('.')[0]" 2^>nul') do set "N
 if %NODE_MAJOR% GEQ 20 exit /b 0
 call :fail 3 "Node.js is not available in this command prompt." error-3
 exit /b 3
+
+:install_gh
+where gh >nul 2>&1
+if not errorlevel 1 exit /b 0
+call where winget >nul 2>&1
+if errorlevel 1 (
+  call :fail 4 "GitHub CLI requires winget." error-4
+  exit /b 4
+)
+echo [LeafCodePi] Installing GitHub CLI...
+call winget install --id GitHub.cli --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+if errorlevel 1 (
+  call :fail 4 "GitHub CLI could not be installed." error-4
+  exit /b 4
+)
+if exist "%ProgramFiles%\\GitHub CLI\\gh.exe" set "PATH=%ProgramFiles%\\GitHub CLI;%PATH%"
+if exist "%LOCALAPPDATA%\\Programs\\GitHub CLI\\gh.exe" set "PATH=%LOCALAPPDATA%\\Programs\\GitHub CLI;%PATH%"
+where gh >nul 2>&1
+if not errorlevel 1 exit /b 0
+call :fail 4 "GitHub CLI is not available in this command prompt." error-4
+exit /b 4
 
 :install_web
 if not exist "%~dp0..\\web\\node_modules\\next" (
@@ -186,6 +209,10 @@ writeCrLf(
 writeCrLf(
   "scripts/setup-messages/error-3.txt",
   "[LeafCodePi] このコマンドプロンプトで Node.js が使えません。\n[LeafCodePi] 復旧案内: 新しいコマンドプロンプトを開いて start.bat を再実行してください。",
+);
+writeCrLf(
+  "scripts/setup-messages/error-4.txt",
+  "[LeafCodePi] GitHub CLIを導入できませんでした。\n[LeafCodePi] 復旧案内: https://cli.github.com/ から GitHub CLI を手動導入してください。",
 );
 writeCrLf(
   "scripts/setup-messages/error-5.txt",

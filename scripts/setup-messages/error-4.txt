@@ -1,0 +1,2 @@
+[LeafCodePi] GitHub CLIを導入できませんでした。
+[LeafCodePi] 復旧案内: https://cli.github.com/ から GitHub CLI を手動導入してください。
