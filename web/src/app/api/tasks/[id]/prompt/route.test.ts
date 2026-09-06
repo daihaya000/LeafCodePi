@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getTask: vi.fn(),
   readSessionConversation: vi.fn(),
   resolveAutoAgent: vi.fn(),
+  autoAgentHasOwnModel: vi.fn(),
   resolveAutoModel: vi.fn(),
   promptTask: vi.fn(),
   validateTaskModelSelection: vi.fn(),
@@ -22,7 +23,10 @@ vi.mock("@/lib/store", () => ({ getTask: mocks.getTask }));
 vi.mock("@/lib/direct-session", () => ({
   readSessionConversation: mocks.readSessionConversation,
 }));
-vi.mock("@/lib/auto-agent", () => ({ resolveAutoAgent: mocks.resolveAutoAgent }));
+vi.mock("@/lib/auto-agent", () => ({
+  resolveAutoAgent: mocks.resolveAutoAgent,
+  autoAgentHasOwnModel: mocks.autoAgentHasOwnModel,
+}));
 vi.mock("@/lib/pi/harness", () => ({
   isRecoverableResumeSelectionError: mocks.isRecoverableResumeSelectionError,
   jsonError: mocks.jsonError,
@@ -47,6 +51,8 @@ describe("POST /api/tasks/[id]/prompt", () => {
     mocks.getTask.mockReset();
     mocks.readSessionConversation.mockReset();
     mocks.resolveAutoAgent.mockReset();
+    mocks.autoAgentHasOwnModel.mockReset();
+    mocks.autoAgentHasOwnModel.mockReturnValue(false);
     mocks.resolveAutoModel.mockReset();
     mocks.promptTask.mockReset();
     mocks.validateTaskModelSelection.mockReset();
@@ -123,6 +129,44 @@ describe("POST /api/tasks/[id]/prompt", () => {
         thinkingLevel: "medium",
         accountIdExplicit: false,
       }),
+    );
+  });
+
+  it("selects the Auto agent while Auto model routing is still running", async () => {
+    let releaseModel: (decision: unknown) => void = () => {};
+    mocks.autoAgentHasOwnModel.mockReturnValue(true);
+    mocks.resolveAutoModel.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseModel = resolve;
+        }),
+    );
+    mocks.resolveAutoAgent.mockResolvedValue("build");
+
+    const pending = POST(
+      request({ prompt: "実装して", agent: AUTO_AGENT_VALUE, auto: true }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    await vi.waitFor(() => expect(mocks.resolveAutoAgent).toHaveBeenCalled());
+    // Selection started without the Auto route, so it did not wait for the model.
+    expect(mocks.resolveAutoAgent.mock.calls[0]?.[0]).not.toHaveProperty("requestedModel");
+    releaseModel({
+      providerID: "openai-codex",
+      modelID: "gpt-5.6-sol",
+      variant: "medium",
+      tier: "light",
+      mode: "cost",
+      reason: "test",
+    });
+
+    expect((await pending).status).toBe(200);
+    expect(mocks.resolveAutoAgent).toHaveBeenCalledTimes(1);
+    expect(mocks.promptTask).toHaveBeenCalledWith(
+      "task-1",
+      "実装して",
+      undefined,
+      expect.objectContaining({ agent: "build", model: "openai-codex::gpt-5.6-sol" }),
     );
   });
 

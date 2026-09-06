@@ -3,7 +3,7 @@ import { getTask } from "@/lib/store";
 import { readSessionConversation } from "@/lib/direct-session";
 import { parseDirectModelKey } from "@/lib/direct-generation";
 import { isPromptImageList } from "@/lib/prompt-images";
-import { resolveAutoAgent } from "@/lib/auto-agent";
+import { autoAgentHasOwnModel, resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import {
   isRecoverableResumeSelectionError,
@@ -116,6 +116,23 @@ export async function POST(
         }
       }
     }
+    // Agent selection with its own generation model does not depend on the Auto
+    // route, so run both selections at once instead of serializing two waits.
+    const parallelAgent =
+      body?.agent?.trim() === AUTO_AGENT_VALUE &&
+      body?.auto === true &&
+      canSwitchRoute &&
+      body.autoRetry !== true &&
+      autoAgentHasOwnModel()
+        ? resolveAutoAgent({
+            conversation: readSessionConversation(currentTask.sessionFile),
+            prompt: body.prompt ?? "",
+            hasImages: Boolean(body.images?.length),
+            ...(currentTask.accountId ? { accountId: currentTask.accountId } : {}),
+          })
+        : undefined;
+    // Model routing may reject first; keep this rejection handled either way.
+    parallelAgent?.catch(() => {});
     let model = body?.model;
     let thinkingLevel = body?.thinkingLevel;
     let autoDecision: AutoDecision | undefined;
@@ -165,13 +182,14 @@ export async function POST(
               }
             : undefined;
         const requestedModel = parseDirectModelKey(model) ?? taskModel;
-        agent = await resolveAutoAgent({
-          conversation: readSessionConversation(currentTask.sessionFile),
-          prompt: body.prompt ?? "",
-          hasImages: Boolean(body.images?.length),
-          ...(requestedModel ? { requestedModel } : {}),
-          ...(currentTask.accountId ? { accountId: currentTask.accountId } : {}),
-        });
+        agent = await (parallelAgent ??
+          resolveAutoAgent({
+            conversation: readSessionConversation(currentTask.sessionFile),
+            prompt: body.prompt ?? "",
+            hasImages: Boolean(body.images?.length),
+            ...(requestedModel ? { requestedModel } : {}),
+            ...(currentTask.accountId ? { accountId: currentTask.accountId } : {}),
+          }));
       }
     }
     const task = await promptTask(id, body.prompt ?? "", body.images, {

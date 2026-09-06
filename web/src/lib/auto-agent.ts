@@ -165,6 +165,22 @@ export function parseAutoAgentResponse(
   return parseSelectionResponse(raw, candidates);
 }
 
+function configuredSelectionModel(): DirectModel | undefined {
+  return (
+    parseDirectModelKey(getSetting(GENERATION_MODEL_SETTING_KEY)) ??
+    parseDirectModelKey(getSetting(GENERATION_FALLBACK_MODEL_SETTING_KEY))
+  );
+}
+
+/**
+ * True when agent selection has its own generation model, so it does not need the
+ * task's resolved route. Callers use this to start selection without awaiting Auto
+ * model routing first.
+ */
+export function autoAgentHasOwnModel(): boolean {
+  return configuredSelectionModel() !== undefined;
+}
+
 /** Resolve the Auto sentinel without exposing transcript or agent definitions to the browser. */
 export async function resolveAutoAgent(options: AutoAgentOptions): Promise<string> {
   const candidates = enabledCandidates();
@@ -174,6 +190,8 @@ export async function resolveAutoAgent(options: AutoAgentOptions): Promise<strin
       status: 400,
     });
   }
+  // One candidate is the only possible answer; the router call cannot change it.
+  if (candidates.length === 1) return fallback;
 
   const prompt = buildSelectionPrompt(
     options.conversation,

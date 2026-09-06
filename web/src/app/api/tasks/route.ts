@@ -22,7 +22,7 @@ import {
 import { parseDirectModelKey } from "@/lib/direct-generation";
 import { isPromptImageList } from "@/lib/prompt-images";
 import { isThinkingLevel } from "@/lib/thinking-levels";
-import { resolveAutoAgent } from "@/lib/auto-agent";
+import { autoAgentHasOwnModel, resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import {
   clampGoalLoopCooldownSeconds,
@@ -227,6 +227,18 @@ export async function POST(req: NextRequest) {
       body.autoRouteOverrides === undefined
         ? undefined
         : normalizeAutoRouteConfig(body.autoRouteOverrides);
+    // Agent selection with its own generation model does not depend on the Auto
+    // route, so run both selections at once instead of serializing two waits.
+    const parallelAgent =
+      agent === AUTO_AGENT_VALUE && body.auto === true && autoAgentHasOwnModel()
+        ? resolveAutoAgent({
+            conversation: [],
+            prompt,
+            hasImages: Boolean(body.images?.length),
+          })
+        : undefined;
+    // Model routing may reject first; keep this rejection handled either way.
+    parallelAgent?.catch(() => {});
     if (body.auto === true) {
       const hasImages = Boolean(body.images?.length);
       autoDecision =
@@ -261,13 +273,14 @@ export async function POST(req: NextRequest) {
         : requestedModel && accountId && !requestedModel.accountId
           ? { ...requestedModel, accountId }
           : requestedModel;
-      agent = await resolveAutoAgent({
-        conversation: [],
-        prompt,
-        hasImages: Boolean(body.images?.length),
-        ...(selectionModel ? { requestedModel: selectionModel } : {}),
-        ...(accountId ? { accountId } : {}),
-      });
+      agent = await (parallelAgent ??
+        resolveAutoAgent({
+          conversation: [],
+          prompt,
+          hasImages: Boolean(body.images?.length),
+          ...(selectionModel ? { requestedModel: selectionModel } : {}),
+          ...(accountId ? { accountId } : {}),
+        }));
     }
     const task = await createTask({
       projectId,

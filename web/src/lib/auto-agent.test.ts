@@ -17,6 +17,7 @@ vi.mock("@/lib/direct-generation", () => ({
 }));
 
 import {
+  autoAgentHasOwnModel,
   formatAutoAgentPrompt,
   parseAutoAgentResponse,
   resolveAutoAgent,
@@ -82,12 +83,15 @@ describe("auto-agent", () => {
 
   it("does not expose an agent system prompt when its description is empty", async () => {
     mocks.listAgents.mockReturnValue({
-      agents: [{
-        name: "custom",
-        description: "",
-        enabled: true,
-        systemPrompt: "SECRET_INTERNAL_INSTRUCTION",
-      }],
+      agents: [
+        {
+          name: "custom",
+          description: "",
+          enabled: true,
+          systemPrompt: "SECRET_INTERNAL_INSTRUCTION",
+        },
+        { name: "build", description: "実装を進める", enabled: true },
+      ],
       agentsDir: "",
     });
     const model = { providerID: "p", modelID: "m" };
@@ -186,6 +190,34 @@ describe("auto-agent", () => {
       resolveAutoAgent({ conversation: [], prompt: "実装して" }),
     ).resolves.toBe("build");
     expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
+  });
+
+  it("skips the router call when only one candidate is enabled", async () => {
+    mocks.listAgents.mockReturnValue({
+      agents: [{ name: "build", description: "実装", enabled: true }],
+      agentsDir: "",
+    });
+    mocks.buildDirectGenerationCandidates.mockReturnValue([
+      { model: { providerID: "p", modelID: "m" } },
+    ]);
+
+    await expect(
+      resolveAutoAgent({ conversation: [], prompt: "実装して" }),
+    ).resolves.toBe("build");
+    expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
+  });
+
+  it("reports whether selection has its own generation model", () => {
+    expect(autoAgentHasOwnModel()).toBe(false);
+
+    mocks.parseDirectModelKey.mockImplementation((value: unknown) =>
+      value === "configured" ? { providerID: "p", modelID: "m" } : undefined,
+    );
+    mocks.getSetting.mockImplementation((key: string) =>
+      key === "generation-fallback-model" ? "configured" : null,
+    );
+
+    expect(autoAgentHasOwnModel()).toBe(true);
   });
 
   it("fails closed when no enabled agent exists", async () => {
