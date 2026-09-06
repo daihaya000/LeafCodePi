@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Settings2, X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
@@ -30,8 +31,10 @@ export function BotView({ id }: { id: string }) {
   const [updatingModel, setUpdatingModel] = useState(false);
   const [updatingThinking, setUpdatingThinking] = useState(false);
   const [updatingColor, setUpdatingColor] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const composingRef = useRef(false);
+  const router = useRouter();
 
   const load = useCallback(() => {
     return getJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`)
@@ -172,6 +175,19 @@ export function BotView({ id }: { id: string }) {
     finally { setSavingSoul(false); }
   };
 
+  const removeBot = async () => {
+    if (!bot || deleting || !window.confirm(`「${bot.name}」を削除しますか？\nこの操作は取り消せません。`)) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await sendJson(`/api/bots/${encodeURIComponent(id)}`, undefined, "DELETE");
+      router.push("/bots");
+    } catch (reason) {
+      setDeleting(false);
+      setError(reason instanceof Error ? reason.message : "ボットの削除に失敗しました");
+    }
+  };
+
   const rendered = useMemo(() => messages.map((message) => {
     const user = message.role === "user";
     const text = textOf(message);
@@ -248,6 +264,10 @@ export function BotView({ id }: { id: string }) {
             <label className="block text-sm"><span className="font-medium">説明 / SOUL.md</span><textarea value={soul} onChange={(event) => setSoul(event.target.value)} rows={9} className="mt-2 w-full resize-y rounded-xl border border-border bg-bg px-3 py-2 font-mono text-xs leading-5 outline-none focus:border-accent" /></label>
             <div className="space-y-3 rounded-2xl border border-border bg-bg p-4"><div><span className="text-sm font-medium">モデル</span><ModelSelect value={modelValue} options={models} loading={modelsLoading} disabled={updatingModel || updatingThinking} onChange={(value) => void updateModel(value)} className="mt-2 h-9 w-full" ariaLabel="ボットのモデル" /></div><div><span className="text-sm font-medium">思考レベル</span><ThinkingSelect levels={thinkingLevels} value={thinkingValue} disabled={updatingModel || updatingThinking} onChange={(value) => void updateThinking(value)} className="mt-2 h-9 w-full" /></div>{(updatingModel || updatingThinking) && <p className="text-xs text-muted">保存中…</p>}</div>
             <div className="flex justify-end"><Button size="sm" onClick={() => void saveSoul()} busy={savingSoul}>変更を保存</Button></div>
+            <div className="border-t border-border pt-4">
+              <p className="text-xs text-muted">このBotと関連する会話データも削除されます。</p>
+              <Button size="sm" variant="danger" onClick={() => void removeBot()} busy={deleting} className="mt-2">ボットを削除</Button>
+            </div>
           </div>
         </aside>
       )}
