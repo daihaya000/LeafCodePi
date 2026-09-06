@@ -307,9 +307,23 @@ body {
   scrollbar-color: var(--border-strong) transparent;
 }
 
+@keyframes bot-sway {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50% { transform: translateY(-2px) rotate(3deg); }
+}
+
 @keyframes bot-blink {
-  0%, 92%, 100% { opacity: 1; }
-  95% { opacity: 0.68; }
+  0%, 90%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.15); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .bot-avatar-working { animation: bot-sway 2.4s ease-in-out infinite; }
+  .bot-avatar-eyes {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: bot-blink 3.2s ease-in-out infinite;
+  }
 }
 
 @keyframes pulse-dot {

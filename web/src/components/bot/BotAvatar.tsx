@@ -7,7 +7,7 @@ type BotAvatarProps = {
   image?: string | null;
   name?: string;
   className?: string;
-  /** Subtle activity cue; intentionally limited to a blink-like loop. */
+  /** Activity cue shared by generated faces and uploaded avatars. */
   active?: boolean;
 };
 
@@ -21,7 +21,7 @@ export function BotAvatar({ size = 32, color = "#3B82F6", image, name, className
         alt={name ? `${name}のアバター` : "ボットアバター"}
         width={size}
         height={size}
-        className={cx("shrink-0 rounded-full object-cover", active && "animate-[bot-blink_3.2s_ease-in-out_infinite]", className)}
+        className={cx("shrink-0 rounded-full object-cover", active && "bot-avatar-working", className)}
         style={{ width: size, height: size }}
       />
     );
@@ -33,12 +33,14 @@ export function BotAvatar({ size = 32, color = "#3B82F6", image, name, className
       viewBox="0 0 100 100"
       width={size}
       height={size}
-      className={cx("shrink-0", active && "animate-[bot-blink_3.2s_ease-in-out_infinite]", className)}
+      className={cx("shrink-0", active && "bot-avatar-working", className)}
       style={{ color }}
     >
       <circle cx="50" cy="50" r="50" fill="currentColor" />
+      <g className={active ? "bot-avatar-eyes" : undefined}>
       <rect x="32" y="27" width="9" height="20" rx="4.5" fill="white" transform="rotate(-18 36.5 37)" />
       <rect x="59" y="24" width="9" height="20" rx="4.5" fill="white" transform="rotate(-18 63.5 34)" />
+      </g>
     </svg>
   );
 }

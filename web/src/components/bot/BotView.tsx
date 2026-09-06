@@ -313,7 +313,7 @@ export function BotView({ id }: { id: string }) {
     if (!text && !message.error) return null;
     return (
       <div key={message.id} className={`flex items-end gap-2 ${user ? "justify-end" : "justify-start"}`}>
-        {!user && <BotAvatar size={28} color={bot?.avatarColor} image={bot?.avatarImage} name={bot?.name} active={sending} />}
+        {!user && <BotAvatar size={28} color={bot?.avatarColor} image={bot?.avatarImage} name={bot?.name} active={sending && message === messages[messages.length - 1]} />}
         <div className={`max-w-[min(42rem,88%)] rounded-2xl px-3.5 py-2 text-sm leading-6 ${user ? "rounded-br-md bg-bot-user text-white" : "rounded-bl-md border border-bot-outline/70 bg-bot-assistant"}`}>
           {text && <div className="whitespace-pre-wrap break-words">{text}</div>}
           {message.error && <div className="mt-1 text-xs text-danger">{message.error}</div>}
