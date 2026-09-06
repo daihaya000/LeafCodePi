@@ -25,12 +25,19 @@ export type RoomMessage = {
   botId?: string;
   botName?: string;
   status?: "working" | "done" | "error";
+  /** Bot-to-bot relay metadata. These fields are absent for ordinary user messages. */
+  sourceBotId?: string;
+  relayTurnId?: string;
+  relayDepth?: number;
+  relayParentMessageId?: string;
 };
 
 export type RoomDto = {
   id: string;
   name: string;
   members: string[];
+  /** Explicit opt-in for the minimal, directed bot-to-bot relay path. */
+  botRelayEnabled: boolean;
   createdAt: string;
   updatedAt: string;
   messages: RoomMessage[];

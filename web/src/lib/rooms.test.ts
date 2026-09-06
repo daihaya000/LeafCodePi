@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const testState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => testState.root, storePath: () => join(testState.root, "store.json") }; });
 import { botTaskId, createBot, deleteBot } from "./bots";
-import { botsForRoomPrompt, createRoom, deleteRoom, ensureRoomBotTask, getRoom, patchRoom } from "./rooms";
+import { botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom } from "./rooms";
 import { getTask } from "./store";
 
 describe("room store and mention routing", () => {
@@ -48,5 +48,23 @@ describe("room store and mention routing", () => {
     expect(deleteBot(alpha.id)).toBe(true);
     expect(getTask(taskId)).toBeUndefined();
     expect(getTask(botTaskId(alpha.id))).toBeUndefined();
+  });
+  it("enforces server-side relay depth and turn participants", () => {
+    const bots = ["A", "B", "C", "D", "E", "F"].map((name) => createBot({ name }));
+    const room = createRoom({ members: bots.map((bot) => bot.id) });
+    patchRoom(room.id, { botRelayEnabled: true });
+    let envelope = issueRoomRelayEnvelope(room.id, bots[0].id, [bots[1].id]);
+    expect(envelope).toBeDefined();
+    expect(consumeRoomRelayEnvelope(room.id, envelope!)).toBeDefined();
+    envelope = issueRoomRelayEnvelope(room.id, bots[1].id, [bots[2].id], envelope!);
+    expect(envelope).toBeDefined();
+    expect(consumeRoomRelayEnvelope(room.id, envelope!)).toBeDefined();
+    envelope = issueRoomRelayEnvelope(room.id, bots[2].id, [bots[3].id], envelope!);
+    expect(envelope).toBeDefined();
+    expect(consumeRoomRelayEnvelope(room.id, envelope!)).toBeDefined();
+    envelope = issueRoomRelayEnvelope(room.id, bots[3].id, [bots[4].id], envelope!);
+    expect(envelope).toBeDefined();
+    expect(consumeRoomRelayEnvelope(room.id, envelope!)).toBeDefined();
+    expect(issueRoomRelayEnvelope(room.id, bots[4].id, [bots[5].id], envelope!)).toBeUndefined();
   });
 });

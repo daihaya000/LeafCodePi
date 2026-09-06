@@ -9,6 +9,55 @@ import type { BotDto, RoomDto, RoomMessage } from "./types";
 
 type RoomFile = RoomDto;
 const roomEvents = new EventEmitter();
+export const MAX_ROOM_RELAY_DEPTH = 3;
+type RoomRelayEnvelope = { roomId: string; sourceBotId: string; targetBotIds: string[]; turnId: string; depth: number; parentId?: string; consumed: boolean; expiresAt: number };
+const relayEnvelopes = new Map<string, RoomRelayEnvelope>();
+const relayTurnClaims = new Map<string, Set<string>>();
+const RELAY_ENVELOPE_TTL_MS = 10 * 60 * 1000;
+
+function relayParticipants(roomId: string, turnId: string): Set<string> {
+  const room = getRoom(roomId);
+  const ids = new Set(relayTurnClaims.get(`${roomId}:${turnId}`) ?? []);
+  for (const message of room?.messages ?? []) {
+    if (message.relayTurnId !== turnId) continue;
+    if (message.sourceBotId) ids.add(message.sourceBotId);
+    if (message.botId) ids.add(message.botId);
+  }
+  return ids;
+}
+
+/** Server-only capability. The route accepts only the returned opaque envelope, never its fields. */
+export function issueRoomRelayEnvelope(roomId: string, sourceBotId: string, targetBotIds: string[], parentId?: string): string | undefined {
+  const room = getRoom(roomId);
+  if (!room?.botRelayEnabled || !room.members.includes(sourceBotId) || !getBot(sourceBotId)?.enabled) return undefined;
+  const targets = [...new Set(targetBotIds)];
+  if (targets.length === 0 || targets.some((id) => id === sourceBotId || !room.members.includes(id) || !getBot(id)?.enabled)) return undefined;
+  const parent = parentId ? relayEnvelopes.get(parentId) : undefined;
+  if (parentId && (!parent || !parent.consumed || parent.roomId !== roomId || parent.expiresAt <= Date.now() || !parent.targetBotIds.includes(sourceBotId))) return undefined;
+  const depth = parent ? parent.depth + 1 : 0;
+  if (depth > MAX_ROOM_RELAY_DEPTH) return undefined;
+  const turnId = parent?.turnId ?? randomUUID();
+  const participants = relayParticipants(roomId, turnId);
+  if (targets.some((id) => participants.has(id))) return undefined;
+  const token = randomUUID();
+  relayEnvelopes.set(token, { roomId, sourceBotId, targetBotIds: targets, turnId, depth, parentId, consumed: false, expiresAt: Date.now() + RELAY_ENVELOPE_TTL_MS });
+  return token;
+}
+
+export function consumeRoomRelayEnvelope(roomId: string, token: string): Omit<RoomRelayEnvelope, "parentId" | "consumed" | "expiresAt"> | undefined {
+  const envelope = relayEnvelopes.get(token);
+  const room = getRoom(roomId);
+  if (!room?.botRelayEnabled || !envelope || envelope.roomId !== roomId || envelope.consumed || envelope.expiresAt <= Date.now()) return undefined;
+  const participants = relayParticipants(roomId, envelope.turnId);
+  if (envelope.targetBotIds.some((id) => participants.has(id))) return undefined;
+  envelope.consumed = true;
+  const claimKey = `${roomId}:${envelope.turnId}`;
+  const claims = relayTurnClaims.get(claimKey) ?? new Set<string>();
+  claims.add(envelope.sourceBotId);
+  for (const id of envelope.targetBotIds) claims.add(id);
+  relayTurnClaims.set(claimKey, claims);
+  return { roomId: envelope.roomId, sourceBotId: envelope.sourceBotId, targetBotIds: envelope.targetBotIds, turnId: envelope.turnId, depth: envelope.depth };
+}
 roomEvents.setMaxListeners(0);
 
 function roomsRoot(): string { return join(dataDir(), "bots", "rooms"); }
@@ -23,6 +72,7 @@ function normalizeRoom(value: Partial<RoomFile>, id: string): RoomDto | null {
     id,
     name: value.name,
     members: [...new Set(value.members.filter((item): item is string => typeof item === "string"))],
+    botRelayEnabled: value.botRelayEnabled === true,
     createdAt: String(value.createdAt),
     updatedAt: String(value.updatedAt),
     messages,
@@ -51,15 +101,16 @@ export function listRooms(): RoomDto[] {
 export function getRoom(id: string): RoomDto | undefined { return readRoom(id); }
 export function createRoom(input: { name?: string; members?: string[] }): RoomDto {
   const now = new Date().toISOString();
-  const room: RoomDto = { id: randomUUID(), name: input.name?.trim() || "New room", members: validMembers(input.members ?? []), createdAt: now, updatedAt: now, messages: [] };
+  const room: RoomDto = { id: randomUUID(), name: input.name?.trim() || "New room", members: validMembers(input.members ?? []), botRelayEnabled: false, createdAt: now, updatedAt: now, messages: [] };
   writeRoom(room);
   return room;
 }
-export function patchRoom(id: string, patch: { name?: string; members?: string[] }): RoomDto | undefined {
+export function patchRoom(id: string, patch: { name?: string; members?: string[]; botRelayEnabled?: boolean }): RoomDto | undefined {
   const room = readRoom(id);
   if (!room) return undefined;
   if (patch.name !== undefined) room.name = patch.name.trim() || room.name;
   if (patch.members !== undefined) room.members = validMembers(patch.members);
+  if (patch.botRelayEnabled !== undefined) room.botRelayEnabled = patch.botRelayEnabled;
   room.updatedAt = new Date().toISOString();
   writeRoom(room);
   return room;

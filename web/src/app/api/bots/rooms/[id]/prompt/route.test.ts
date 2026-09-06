@@ -31,7 +31,7 @@ vi.mock("@/lib/pi/harness", () => ({
 
 import { botTaskId, createBot, patchBot } from "@/lib/bots";
 import * as rooms from "@/lib/rooms";
-import { createRoom, ensureRoomBotTask, getRoom } from "@/lib/rooms";
+import { createRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom } from "@/lib/rooms";
 import { getTaskDetail } from "@/lib/pi/harness";
 import { getTask } from "@/lib/store";
 import { GET as events } from "../events/route";
@@ -178,10 +178,43 @@ describe("room mention responses", () => {
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.at(-1)).toMatchObject({ status: "done", text: "Recovered" }));
   });
 
+  it("allows one directed relay only when the room is explicitly enabled", async () => {
+    const { room, bots: [source, target], taskIds: [, targetTask] } = setup(["A", "B"]);
+    patchRoom(room.id, { botRelayEnabled: true });
+    const blocked = issueRoomRelayEnvelope(room.id, source.id, [target.id]);
+    expect(blocked).toBeDefined();
+    // The capability is server-issued, but it is still rejected while the room is disabled.
+    patchRoom(room.id, { botRelayEnabled: false });
+    expect((await send(room.id, "Ask B", { fromBot: true, relayEnvelope: blocked })).status).toBe(403);
+    patchRoom(room.id, { botRelayEnabled: true });
+    const envelope = issueRoomRelayEnvelope(room.id, source.id, [target.id]);
+    expect(envelope).toBeDefined();
+    const result = await send(room.id, "Ask B", { relayEnvelope: envelope });
+    expect(result.status).toBe(200);
+    expect((await result.json()).routedBotIds).toEqual([target.id]);
+    expect(getRoom(room.id)?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", sourceBotId: source.id, relayDepth: 0 }),
+      expect.objectContaining({ role: "assistant", botId: target.id, relayParentMessageId: expect.any(String) }),
+    ]));
+    finish(targetTask, { messages: [assistant("relay", "Relay reply")] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.at(-1)).toMatchObject({ status: "done", text: "Relay reply" }));
+  });
+
+  it("blocks relay re-entry, replay, and excessive depth on the server", async () => {
+    const { room, bots: [source, target], taskIds: [, targetTask] } = setup(["A", "B"]);
+    patchRoom(room.id, { botRelayEnabled: true });
+    const envelope = issueRoomRelayEnvelope(room.id, source.id, [target.id]);
+    expect(envelope).toBeDefined();
+    expect((await send(room.id, "Ask B", { relayEnvelope: envelope })).status).toBe(200);
+    expect((await send(room.id, "Replay", { relayEnvelope: envelope })).status).toBe(403);
+    // The server only permits the current target to issue the next hop, and rejects re-entry to source.
+    expect(issueRoomRelayEnvelope(room.id, target.id, [source.id], envelope)).toBeUndefined();
+    finish(targetTask, { messages: [assistant("relay-loop", "done")] });
+  });
   it("keeps validation and enabled-member routing in place", async () => {
     const { room, bots: [bot] } = setup();
     expect((await send(room.id, " ")).status).toBe(400);
-    expect((await send(room.id, "@here Test", { fromBot: true })).status).toBe(400);
+    expect((await send(room.id, "@here Test", { fromBot: true })).status).toBe(403);
     expect((await send("missing", "@here Test")).status).toBe(404);
     patchBot(bot.id, { enabled: false });
     expect((await (await send(room.id, "@here Test")).json()).routedBotIds).toEqual([]);
