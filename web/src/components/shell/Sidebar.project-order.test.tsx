@@ -94,6 +94,7 @@ beforeEach(() => {
   });
   mocks.sendJson.mockReset().mockResolvedValue({});
   mocks.push.mockReset();
+  mocks.usePathname.mockReset().mockReturnValue("/");
   mocks.retargetToUrl.mockReset();
   mocks.activeTaskId = null;
   vi.stubGlobal("matchMedia", (query: string) => ({
@@ -278,6 +279,45 @@ describe("Sidebar project ordering", () => {
     expect(mocks.retargetToUrl).toHaveBeenCalledWith("home");
     expect(mocks.push).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses Bot terminology and creates from the header buttons", async () => {
+    mocks.usePathname.mockReturnValue("/bots");
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
+      if (path === "/api/tasks?archived=1") return Promise.resolve({ tasks: [] });
+      if (path === "/api/health") {
+        return Promise.resolve({
+          ok: true,
+          engine: "pi",
+          engineOk: true,
+          version: "1.0.0",
+          modelCount: 0,
+          dataDir: "C:\\data",
+          error: null,
+        });
+      }
+      if (path === "/api/bots") return Promise.resolve({ bots: [] });
+      if (path === "/api/bots/rooms") return Promise.resolve({ rooms: [] });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    expect(await screen.findByRole("link", { name: /LeafCodePi/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Botを追加" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "ルームを追加" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "プロジェクトを追加" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Bot" })).toBeTruthy();
+
+    expect(screen.queryByPlaceholderText("新しいBot")).toBeNull();
+    expect(screen.queryByPlaceholderText("新しいルーム")).toBeNull();
+
+    vi.stubGlobal("prompt", vi.fn().mockReturnValue("新規"));
+    mocks.sendJson.mockResolvedValueOnce({ room: { id: "room-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "ルームを追加" }));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/bots/rooms/room-1"));
+    expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/rooms", { name: "新規" });
   });
 
   it("shows the no-project entry even before the first no-project task exists", async () => {
