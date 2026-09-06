@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TaskPane } from "@/lib/task-panes";
+import { SETTINGS_TAB_ID, type TaskPane } from "@/lib/task-panes";
 import { TASK_DRAG_MIME } from "@/lib/task-drag";
 
 vi.mock("@/components/ui", () => ({
@@ -49,6 +49,12 @@ describe("TaskTabs actions", () => {
     fireEvent.drop(screen.getAllByRole("tab")[2], { dataTransfer });
 
     expect(onReorderTabs).toHaveBeenCalledWith(["task-b", "task-a", "task-c"]);
+  });
+
+  it("設定タブを設定と表示する", () => {
+    renderTabs({ id: "pane-1", tabs: [SETTINGS_TAB_ID], activeTabId: SETTINGS_TAB_ID });
+
+    expect(screen.getByRole("tab", { name: "設定" })).toBeTruthy();
   });
 
   it("タブ追加と削除の操作を対応するコールバックへ渡す", () => {

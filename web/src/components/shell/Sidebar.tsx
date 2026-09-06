@@ -26,7 +26,7 @@ import { Button, cx, timeAgo, ThemeToggle } from "@/components/ui";
 import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
-import { HOME_TAB_ID } from "@/lib/task-panes";
+import { HOME_TAB_ID, SETTINGS_TAB_ID } from "@/lib/task-panes";
 import { NO_PROJECT_NAME, type HealthDto, type ProjectDto, type TaskSummary } from "@/lib/types";
 
 type ProjectTaskMenuState = {
@@ -640,6 +640,17 @@ const SidebarView = memo(function SidebarView({
     },
     [onClose, paneMdUp, retargetToUrl, router, splitHostEnabled],
   );
+
+  const openSettings = useCallback(() => {
+    const href = "/settings";
+    if (paneMdUp) {
+      if (window.location.pathname !== href) window.history.pushState(null, "", href);
+      retargetToUrl(SETTINGS_TAB_ID);
+    } else {
+      router.push(href);
+    }
+    onClose();
+  }, [onClose, paneMdUp, retargetToUrl, router]);
 
   const openProjectHome = useCallback(
     (projectId: string) => {
@@ -1470,7 +1481,10 @@ const SidebarView = memo(function SidebarView({
             <Link
               href="/settings"
               aria-label="設定"
-              onClick={onClose}
+              onClick={(event) => {
+                event.preventDefault();
+                openSettings();
+              }}
               className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"
             >
               <Settings className="h-4 w-4" />
@@ -1634,7 +1648,15 @@ const SidebarView = memo(function SidebarView({
         >
           <Cpu className="h-4 w-4" />
         </button>
-        <Link href="/settings" aria-label="設定" className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-muted hover:bg-surface-2">
+        <Link
+          href="/settings"
+          aria-label="設定"
+          onClick={(event) => {
+            event.preventDefault();
+            openSettings();
+          }}
+          className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-muted hover:bg-surface-2"
+        >
           <Settings className="h-4 w-4" />
         </Link>
       </div>

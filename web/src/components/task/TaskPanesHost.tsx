@@ -12,7 +12,8 @@ import {
   isSplitHostPath,
   paneLayoutForState,
   resizeAdjacentPaneWidths,
-  taskIdFromPathname,
+  SETTINGS_TAB_ID,
+  tabIdFromPathname,
   type PaneLayout,
   type SplitDirection,
   type TaskPane,
@@ -174,6 +175,11 @@ const PaneHomeView = dynamic(
   { ssr: false },
 );
 
+const PaneSettingsView = dynamic(
+  () => import("@/components/settings/SettingsView").then((module) => module.SettingsView),
+  { ssr: false },
+);
+
 type PaneBranchProps = {
   paneById: ReadonlyMap<string, TaskPane>;
   paneIndexes: ReadonlyMap<string, number>;
@@ -327,6 +333,16 @@ function PaneSection({
             </div>
           );
         }
+        if (taskId === SETTINGS_TAB_ID) {
+          return (
+            <div
+              key={taskId}
+              className={cx("min-h-0 min-w-0 flex-1", !isActiveTab && "hidden")}
+            >
+              <PaneSettingsView />
+            </div>
+          );
+        }
         return (
           <div
             key={taskId}
@@ -401,9 +417,8 @@ function PaneLayoutBranch({ layout, ...props }: PaneBranchProps & { layout: Pane
 
 /**
  * 分割ホスト対象パス（「/」＝新規作成タブ含む）で内容を返す描画ホスト。
- * settings では null を返すだけで Provider の panes state・SSE は保持される
- * （仕様 §7 の panes 保持方式）。Home タブは特殊 ID HOME_TAB_ID として
- * タスクと同じくペイン内に HomeView をマウントする。
+ * Home / settings も特殊タブとしてタスクと同じくペイン内にマウントする。
+ * 非アクティブなタブも hidden mount で状態を保持する。
  *
  * hidden mount（仕様 §4）: 各ペイン内の全タブの TaskView を render し、
  * 非アクティブは CSS hidden。key={taskId} でインスタンスと SSE を維持する。
@@ -484,20 +499,27 @@ export function TaskPanesHost() {
     retargetToUrl(HOME_TAB_ID);
   }, [activeTaskId, mdUp, noProject, pathname, projectId, retargetToUrl]);
 
-  // 分割ホスト対象パス（「/」と task path）でのみ render。settings では非表示。
-  const urlTaskId = taskIdFromPathname(pathname);
+  // 分割ホスト対象パス（「/」・task・settings）でのみ render。
+  const urlTabId = tabIdFromPathname(pathname);
   if (!isSplitHostPath(pathname)) return null;
 
-  // md 未満: 分割・タブは無効で URL タスクのみ単一表示（仕様 §1 のフォールバック）。
-  // モバイルでは Provider の panes/復元を触らず、URL 由来の taskId を直接 render する。
+  // md 未満: 分割・タブは無効で URL タスクまたは設定画面を単一表示。
+  // モバイルでは Provider の panes/復元を触らず、URL 由来の内容を直接 render する。
   // 「/」では Host を出さず page の HomeView（children）へ任せる。
   if (!mdUp) {
-    if (!urlTaskId) return null;
+    if (pathname === "/settings") {
+      return (
+        <div className="flex min-h-0 min-w-0 flex-1">
+          <PaneSettingsView />
+        </div>
+      );
+    }
+    if (!urlTabId) return null;
     return (
       <div className="flex min-h-0 min-w-0 flex-1">
         <SplitTaskView
-          key={urlTaskId}
-          taskId={urlTaskId}
+          key={urlTabId}
+          taskId={urlTabId}
           mdUp={mdUp}
           onStatus={reportStatus}
         />
@@ -513,7 +535,8 @@ export function TaskPanesHost() {
   const single =
     state.panes.length === 1 &&
     state.panes[0].tabs.length <= 1 &&
-    state.panes[0].tabs[0] !== HOME_TAB_ID;
+    state.panes[0].tabs[0] !== HOME_TAB_ID &&
+    state.panes[0].tabs[0] !== SETTINGS_TAB_ID;
   const layout = paneLayoutForState(state);
   if (!layout) return null;
   const paneById = new Map(state.panes.map((pane) => [pane.id, pane]));

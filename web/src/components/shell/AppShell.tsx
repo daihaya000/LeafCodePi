@@ -51,9 +51,8 @@ function AppShellContent({
       <Sidebar mobileOpen={mobileNavOpen} onClose={closeMobileNav} />
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <section aria-label="メインコンテンツ" className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          {/* task / 「/」（新規作成タブ）では panes ホストが描画を担う。
-              page 側の内容はモバイル（md未満）でのみ出す（「/」の HomeView 用）。
-              settings では従来どおり page の内容を出す。 */}
+          {/* task / 「/」（新規作成タブ）/ settings では panes ホストが描画を担う。
+              page 側の内容はモバイル（md未満）でのみ出す（「/」の HomeView 用）。 */}
           <Suspense fallback={null}>
             <TaskPanesHost />
           </Suspense>

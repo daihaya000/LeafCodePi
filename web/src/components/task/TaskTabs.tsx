@@ -4,7 +4,12 @@ import { useState } from "react";
 import { Loader2, Plus, SquarePen, X } from "lucide-react";
 import { cx } from "@/components/ui";
 import { setTaskDragData, taskDragIdFrom, TASK_DRAG_MIME } from "@/lib/task-drag";
-import { HOME_TAB_ID, type TaskPane, type TaskPanesState } from "@/lib/task-panes";
+import {
+  HOME_TAB_ID,
+  SETTINGS_TAB_ID,
+  type TaskPane,
+  type TaskPanesState,
+} from "@/lib/task-panes";
 import type { TaskStatus } from "@/lib/types";
 
 /**
@@ -67,7 +72,7 @@ export function TaskTabs({
   return (
     <div
       role="tablist"
-      aria-label="タスクタブ"
+      aria-label="タスクと設定のタブ"
       className="flex min-h-9 shrink-0 items-stretch gap-0.5 overflow-x-auto border-b border-border bg-surface px-1 pt-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       onDragOver={(event) => {
         if (!event.dataTransfer.types.includes(TASK_DRAG_MIME)) return;
@@ -81,7 +86,12 @@ export function TaskTabs({
         const active = pane.activeTabId === taskId;
         // セッション名（タスク title）。未取得の間は taskId をフォールバック表示。
         // 新規作成（Home）タブは固定ラベル。
-        const label = taskId === HOME_TAB_ID ? "新規作成" : (titleFor?.(taskId) ?? taskId);
+        const label =
+          taskId === HOME_TAB_ID
+            ? "新規作成"
+            : taskId === SETTINGS_TAB_ID
+              ? "設定"
+              : (titleFor?.(taskId) ?? taskId);
         return (
           <div
             key={taskId}

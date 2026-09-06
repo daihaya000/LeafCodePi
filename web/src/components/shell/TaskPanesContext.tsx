@@ -15,11 +15,12 @@ import {
   createState,
   HOME_TAB_ID,
   isSplitHostPath,
+  SETTINGS_TAB_ID,
   removeTaskEverywhere,
   restoreTaskPanesForUrl,
   retargetActiveTab,
   saveTaskPanes,
-  taskIdFromPathname,
+  tabIdFromPathname,
   taskIdsToAutoClose,
   taskPanesReducer,
   type TaskPanesAction,
@@ -62,12 +63,14 @@ const EMPTY: TaskPanesContextValue = {
 const TaskPanesContext = createContext<TaskPanesContextValue>(EMPTY);
 
 /** RSC fetch の発生しない URL 同期（Next.js App Router の replaceState 公式サポート）。 */
-function syncUrl(taskId: string | null): void {
+function syncUrl(tabId: string | null): void {
   if (typeof window === "undefined") return;
   let target: string;
-  if (taskId == null || taskId === HOME_TAB_ID) {
+  if (tabId === SETTINGS_TAB_ID) {
+    target = "/settings";
+  } else if (tabId == null || tabId === HOME_TAB_ID) {
     const search =
-      taskId === HOME_TAB_ID && window.location.pathname === "/"
+      tabId === HOME_TAB_ID && window.location.pathname === "/"
         ? new URLSearchParams(window.location.search)
         : null;
     const noProject = search?.get("noProject") === "1";
@@ -78,7 +81,7 @@ function syncUrl(taskId: string | null): void {
         ? `/?projectId=${encodeURIComponent(projectId)}`
         : "/";
   } else {
-    target = `/task/${encodeURIComponent(taskId)}`;
+    target = `/task/${encodeURIComponent(tabId)}`;
   }
   if (`${window.location.pathname}${window.location.search}` === target) return;
   window.history.replaceState(null, "", target);
@@ -86,7 +89,7 @@ function syncUrl(taskId: string | null): void {
 
 export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const urlTaskId = taskIdFromPathname(pathname);
+  const urlTaskId = tabIdFromPathname(pathname);
   const splitHostEnabled = isSplitHostPath(pathname);
 
   // wrapDispatch: replace 前に retargetActiveTab を適用できるよう action を素通し

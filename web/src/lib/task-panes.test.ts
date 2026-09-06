@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   HOME_TAB_ID,
+  SETTINGS_TAB_ID,
   MAX_PANES,
   MAX_TABS_PER_PANE,
   TASK_PANES_STORAGE_KEY,
@@ -14,6 +15,7 @@ import {
   retargetActiveTab,
   saveTaskPanes,
   removeTaskEverywhere,
+  tabIdFromPathname,
   taskIdFromPathname,
   taskIdsToAutoClose,
   taskPanesReducer as reducer,
@@ -608,7 +610,7 @@ describe("localStorage 永続化", () => {
   });
 });
 
-describe("taskIdFromPathname / isSplitHostPath", () => {
+describe("tabIdFromPathname / taskIdFromPathname / isSplitHostPath", () => {
   it("/task/<id> から taskId を取り出す", () => {
     expect(taskIdFromPathname("/task/abc")).toBe("abc");
     expect(taskIdFromPathname("/task/a%2Fb")).toBe("a/b");
@@ -618,10 +620,11 @@ describe("taskIdFromPathname / isSplitHostPath", () => {
     expect(taskIdFromPathname(null)).toBeNull();
   });
 
-  it("Home・task のみが分割ホスト", () => {
+  it("設定もタブIDへ変換し、分割ホストで扱う", () => {
+    expect(tabIdFromPathname("/settings")).toBe(SETTINGS_TAB_ID);
     expect(isSplitHostPath("/")).toBe(true);
     expect(isSplitHostPath("/task/x")).toBe(true);
-    expect(isSplitHostPath("/settings")).toBe(false);
+    expect(isSplitHostPath("/settings")).toBe(true);
   });
 });
 
@@ -720,10 +723,10 @@ describe("restoreTaskPanesForUrl", () => {
 });
 
 describe("taskIdsToAutoClose", () => {
-  it("keeps Home and already-archived history tabs", () => {
+  it("keeps special tabs and already-archived history tabs", () => {
     expect(
       taskIdsToAutoClose({
-        openTaskIds: [HOME_TAB_ID, "history"],
+        openTaskIds: [HOME_TAB_ID, SETTINGS_TAB_ID, "history"],
         existingIds: new Set(["history", "live"]),
         activeIds: new Set(["live"]),
         previouslyActiveIds: new Set(["live"]),
