@@ -86,6 +86,20 @@ describe("filterExtensionsByState", () => {
     ]);
   });
 
+  it("drops test files from extension loading", () => {
+    const filtered = filterExtensionsByState(
+      [
+        { path: "C:\\pi\\extensions\\accidental.test.ts" },
+        { path: "C:\\pi\\extensions\\accidental.spec.js" },
+        { path: "C:\\pi\\extensions\\other.js" },
+      ],
+      { disabled: {} },
+    );
+    assert.deepEqual(filtered.map((entry) => entry.path), [
+      "C:\\pi\\extensions\\other.js",
+    ]);
+  });
+
   it("drops retired extensions even when no state disables them", () => {
     const filtered = filterExtensionsByState(
       [
@@ -151,6 +165,14 @@ describe("listExtensions / setExtensionEnabled", () => {
     writeExtension(join(agent, "extensions"), "leafcode-collaboration");
 
     expect(listExtensions(agent).extensions.map((entry) => entry.name)).not.toContain("leafcode-collaboration");
+  });
+
+  it("does not discover test files as extensions", () => {
+    const { agentDir: agent } = fixture();
+    writeFileSync(join(agent, "extensions", "accidental.test.ts"), "export {};\n", "utf8");
+    writeFileSync(join(agent, "extensions", "accidental.spec.js"), "export {};\n", "utf8");
+
+    expectNames(listExtensions(agent).extensions, ["one"]);
   });
 
   it("toggles extensions via extensions-state.json", () => {

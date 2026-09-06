@@ -103,6 +103,7 @@ const BUNDLED_REPLACED_EXTENSION_NAMES = new Set(["pi-mcp-adapter"]);
  * Must not appear in discovery / additionalExtensionPaths.
  */
 const SHARED_NON_EXTENSION_NAMES = new Set(["settle-followup-claim"]);
+const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:ts|js|mjs|cjs)$/i;
 
 /**
  * WebUI 本体が動かなくても切ってよい leafcode 拡張。
@@ -169,7 +170,8 @@ export function filterExtensionsByState<T extends { path: string }>(
 ): T[] {
   return extensions.filter((extension) => {
     const name = basenameKey(extension.path);
-    return !RETIRED_EXTENSION_NAMES.has(name) &&
+    return !TEST_FILE_PATTERN.test(extension.path) &&
+      !RETIRED_EXTENSION_NAMES.has(name) &&
       !SHARED_NON_EXTENSION_NAMES.has(name) &&
       (isWebUiRequiredExtension(name) || state.disabled[name] !== true);
   });
@@ -292,7 +294,7 @@ function discoverExtensionsInDir(dir: string): DiscoveredEntry[] {
   for (const name of names) {
     const entryPath = join(dir, name);
     // 1. Direct files: *.ts / *.js
-    if (isFile(entryPath) && /\.(ts|js|mjs|cjs)$/i.test(name)) {
+    if (isFile(entryPath) && /\.(ts|js|mjs|cjs)$/i.test(name) && !TEST_FILE_PATTERN.test(name)) {
       const key = basenameKey(entryPath);
       if (SHARED_NON_EXTENSION_NAMES.has(key)) continue;
       entries.push({ name: key, filePath: entryPath });
