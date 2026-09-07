@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
-import { BotMessageList, BotMessageMarkdown, BotMessageTime } from "./BotMessageList";
+import { BotMessageList, BotMessageMarkdown, BotMessageTime, BotResponseStatus } from "./BotMessageList";
+import type { UiMessage } from "@/lib/types";
 
 afterEach(cleanup);
 
@@ -28,6 +29,24 @@ it("renders bot Markdown with GFM", () => {
   const { container } = render(<BotMessageMarkdown text={"**bold**\n\n- item"} />);
   expect(container.querySelector("strong")?.textContent).toBe("bold");
   expect(container.querySelector("ul li")?.textContent).toBe("item");
+});
+
+it("shows the animated bot and the current tool action while responding", () => {
+  const messages: UiMessage[] = [{
+    id: "assistant-1",
+    role: "assistant",
+    createdAt: Date.now(),
+    parts: [{ id: "tool-1", type: "tool", tool: "read", callID: "call-1", state: { status: "running", input: { path: "README.md" } } }],
+  }];
+  const { container, getByRole } = render(<BotResponseStatus messages={messages} avatar={{ name: "Bot", color: "#0071E3" }} />);
+  expect(getByRole("status").textContent).toContain("応答中…");
+  expect(getByRole("status").textContent).toContain("読取");
+  expect(container.querySelector(".bot-avatar-working")).toBeTruthy();
+});
+
+it("falls back to a thinking label when no tool is active", () => {
+  const messages: UiMessage[] = [{ id: "assistant-1", role: "assistant", createdAt: Date.now(), parts: [] }];
+  expect(render(<BotResponseStatus messages={messages} avatar={{ name: "Bot" }} />).getByRole("status").textContent).toContain("考え中");
 });
 
 it("renders the sent date and time with a machine-readable timestamp", () => {
