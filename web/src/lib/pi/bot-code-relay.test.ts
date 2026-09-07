@@ -87,6 +87,15 @@ describe("Bot ⇄ Code relay", () => {
     await relay.tick(); expect(deps.deliver).toHaveBeenCalledTimes(1);
   });
 
+  it("starts a new Code task without a project", async () => {
+    const result = await relay.run("bot:one", "no-project", { action: "start", prompt: "一般的な調査をして" }, "session");
+
+    expect(result).toMatchObject({ taskId: "code", state: "running" });
+    expect(deps.approve).toHaveBeenCalledWith("session", expect.stringContaining("プロジェクト: プロジェクトなし"));
+    expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({ projectId: null }));
+    expect(store.bots.get("one")?.codeSessionTaskId).toBe("code");
+  });
+
   it("continues the same session and excludes its previous answer", async () => {
     await launch(); messages = [answer("old", "Old answer")]; store.tasks.get("code")!.status = "idle";
     await relay.tick();
@@ -177,7 +186,7 @@ describe("Bot ⇄ Code relay", () => {
     relay.register("bot:one")({ registerTool: (tool: never) => tools.push(tool) } as never);
     expect(tools[0].name).toBe("code_session");
     const result = await tools[0].execute("list", { action: "projects" }, undefined, undefined, { sessionManager: { getSessionId: () => "session" } });
-    expect(result).toMatchObject({ details: { projects: [{ id: "project", name: "Project" }] } });
+    expect(result).toMatchObject({ details: { projects: [{ id: null, name: "プロジェクトなし" }, { id: "project", name: "Project" }] } });
   });
 });
 

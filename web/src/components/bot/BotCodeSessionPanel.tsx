@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
-import type { ProjectDto, TaskSummary } from "@/lib/types";
+import { NO_PROJECT_NAME, type ProjectDto, type TaskSummary } from "@/lib/types";
 
 function statusLabel(status: TaskSummary["status"]): string {
   if (status === "working") return "実行中";
@@ -15,7 +15,8 @@ function statusLabel(status: TaskSummary["status"]): string {
 
 export function BotCodeSessionPanel({ botId }: { botId: string }) {
   const [projects, setProjects] = useState<ProjectDto[]>([]);
-  const [projectId, setProjectId] = useState("");
+  // undefined = projects are still loading; null = explicit no-project mode.
+  const [projectId, setProjectId] = useState<string | null | undefined>();
   const [task, setTask] = useState<TaskSummary | null>(null);
   const [prompt, setPrompt] = useState("");
   const [followUp, setFollowUp] = useState("");
@@ -32,7 +33,11 @@ export function BotCodeSessionPanel({ botId }: { botId: string }) {
       setTask(session.task);
       const activeProjects = projectResult.projects.filter((project) => !project.archived);
       setProjects(activeProjects);
-      setProjectId((current) => activeProjects.some((project) => project.id === current) ? current : activeProjects[0]?.id || "");
+      setProjectId((current) => {
+        if (current === null) return null;
+        if (current && activeProjects.some((project) => project.id === current)) return current;
+        return activeProjects[0]?.id ?? null;
+      });
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Codeセッションを読み込めませんでした");
@@ -47,13 +52,13 @@ export function BotCodeSessionPanel({ botId }: { botId: string }) {
   }, [load, task?.status]);
 
   const launch = async () => {
-    if (!projectId || !prompt.trim() || busy) return;
+    if (projectId === undefined || !prompt.trim() || busy) return;
     setBusy(true);
     setError(null);
     try {
       const result = await sendJson<{ task: TaskSummary }>(
         `/api/bots/${encodeURIComponent(botId)}/code-session`,
-        { projectId, prompt: prompt.trim() },
+        { projectId: projectId ?? null, prompt: prompt.trim() },
         "POST",
       );
       setTask(result.task);
@@ -131,12 +136,12 @@ export function BotCodeSessionPanel({ botId }: { botId: string }) {
       {(!task || task.status === "archived") && (
         <>
           {task?.status === "archived" && <p className="text-xs text-muted">再起動するプロジェクトと指示を選択してください。</p>}
-          <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm" aria-label="Codeプロジェクト">
-            <option value="">プロジェクトを選択</option>
+          <select value={projectId ?? ""} onChange={(event) => setProjectId(event.target.value || null)} className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm" aria-label="Codeプロジェクト">
+            <option value="">{NO_PROJECT_NAME}</option>
             {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
           </select>
           <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={3} placeholder="Codeに実行させる指示" className="w-full resize-y rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" />
-          <div className="flex justify-end"><Button size="sm" onClick={() => void launch()} busy={busy} disabled={!projectId || !prompt.trim()}>Codeを起動</Button></div>
+          <div className="flex justify-end"><Button size="sm" onClick={() => void launch()} busy={busy} disabled={projectId === undefined || !prompt.trim()}>Codeを起動</Button></div>
         </>
       )}
       {error && <p role="alert" className="text-xs text-danger">{error}</p>}

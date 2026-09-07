@@ -72,6 +72,20 @@ describe("Bot Code session control", () => {
     expect(mocks.patchBot).toHaveBeenCalledWith("bot-1", { codeSessionTaskId: "code-1" });
   });
 
+  it("starts a new Code task without a project", async () => {
+    const response = await POST(request("POST", { projectId: null, prompt: "調査して" }), {
+      params: Promise.resolve({ id: "bot-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.createTask).toHaveBeenCalledWith({
+      projectId: null,
+      prompt: "調査して",
+      permissionMode: "ask",
+    });
+    expect(mocks.patchBot).toHaveBeenCalledWith("bot-1", { codeSessionTaskId: "code-1" });
+  });
+
   it("rejects an unknown project before creating a Code task", async () => {
     mocks.getProject.mockReturnValue(undefined);
 

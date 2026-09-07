@@ -42,15 +42,18 @@ export async function POST(
         thinkingLevel?: unknown;
         permissionMode?: unknown;
       } | null;
-      if (typeof body?.projectId !== "string" || !body.projectId.trim()) {
+      if (
+        body?.projectId !== null &&
+        (typeof body?.projectId !== "string" || !body.projectId.trim())
+      ) {
         return NextResponse.json({ error: "projectId is required" }, { status: 400 });
       }
-      const projectId = body.projectId.trim();
-      const project = getProject(projectId);
-      if (!project) {
+      const projectId = typeof body?.projectId === "string" ? body.projectId.trim() : null;
+      const project = projectId ? getProject(projectId) : null;
+      if (projectId && !project) {
         return NextResponse.json({ error: "プロジェクトが見つかりません" }, { status: 404 });
       }
-      if (project.archived) {
+      if (project?.archived) {
         return NextResponse.json({ error: "アーカイブ済みのプロジェクトではCodeセッションを起動できません" }, { status: 409 });
       }
       if (typeof body.prompt !== "string" || !body.prompt.trim()) {
