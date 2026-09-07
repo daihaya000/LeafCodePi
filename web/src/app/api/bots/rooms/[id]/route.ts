@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteRoom, getRoom, patchRoom } from "@/lib/rooms";
+import { destroyTask } from "@/lib/pi/harness";
+import { listTasks } from "@/lib/store";
 import { isWebUiRequestAuthorized } from "@/lib/webui-auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,5 +21,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   return room ? NextResponse.json({ room }) : NextResponse.json({ error: "\u30eb\u30fc\u30e0\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
 }
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  return deleteRoom(await idOf(params)) ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "\u30eb\u30fc\u30e0\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
+  const id = await idOf(params);
+  if (!getRoom(id)) return NextResponse.json({ error: "\u30eb\u30fc\u30e0\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
+  for (const task of listTasks(true, "bot").filter((item) => item.id.endsWith(`:room:${id}`))) await destroyTask(task.id);
+  return deleteRoom(id) ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "\u30eb\u30fc\u30e0\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
 }
