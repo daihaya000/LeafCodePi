@@ -2231,10 +2231,10 @@ export const TaskView = memo(function TaskView({
     // h-full だとタブバー分だけはみ出し composer 下端が overflow-hidden で欠ける。
     <div
       ref={taskViewRef}
-      className={cx("flex min-h-0 min-w-0 flex-1 flex-col", !active && "hidden")}
+      className={cx("flex min-h-0 min-w-0 flex-1 flex-col bg-bot-chat", !active && "hidden")}
     >
       <header
-        className="flex min-h-14 shrink-0 items-center gap-2 border-b border-border bg-surface px-3 md:px-4 md:gap-3"
+        className="flex min-h-[3.75rem] shrink-0 items-center gap-2 border-b border-bot-outline bg-bot-chat px-3 md:px-4 md:gap-3"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         <MobileMenuButton />
@@ -2403,11 +2403,11 @@ export const TaskView = memo(function TaskView({
           ref={scrollRef}
           onScroll={onScroll}
           className={cx(
-            "min-h-0 min-w-0 flex-1 overscroll-y-contain overflow-x-clip overflow-y-auto px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-4",
+            "min-h-0 min-w-0 flex-1 overscroll-y-contain overflow-x-clip overflow-y-auto bg-bot-chat px-3 py-5 sm:px-4",
             mobilePanelOpen && "hidden",
           )}
         >
-          <div ref={contentRef} className="relative mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-4">
+          <div ref={contentRef} className="relative mx-auto flex w-full min-w-0 max-w-5xl flex-col space-y-6">
             {hangRetryNotice && (
               <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
                 {hangRetryNotice}
@@ -2567,7 +2567,7 @@ export const TaskView = memo(function TaskView({
         )}
       </div>
       <div className={cx(
-        "shrink-0 border-t border-border bg-surface px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
+        "shrink-0 bg-bot-chat px-3 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-4",
         mobilePanelOpen && "hidden",
       )}>
         {permissionRequest && (
@@ -2799,7 +2799,7 @@ export const TaskView = memo(function TaskView({
               void submit();
             },
           }}
-          className="relative mx-auto max-w-5xl rounded-2xl border border-border bg-bg px-3 py-2 shadow-sm"
+          className="bot-composer-shell relative mx-auto w-full max-w-5xl rounded-3xl border border-bot-outline bg-bot-panel px-2 py-1 transition-colors focus-within:border-accent/60"
           attachments={attachments}
           onRemoveAttachment={(index) =>
             setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))
@@ -2842,7 +2842,7 @@ export const TaskView = memo(function TaskView({
                     ? "実行中です。送信するとキューに追加します…"
                     : "実行中です。送信すると現在の処理へ割り込みます…"
                   : "続きを指示…（Ctrl+Enter）",
-            className: "w-full resize-none bg-transparent py-1.5 text-base outline-none placeholder:text-faint",
+            className: "w-full min-h-11 resize-none bg-transparent py-2.5 text-base leading-6 outline-none placeholder:text-faint",
             disabled: compacting || archived,
           }}
           references={{ skills, agents }}
@@ -3112,7 +3112,7 @@ export const TaskView = memo(function TaskView({
                 size="icon"
                 aria-label="停止"
                 title="停止"
-                className="h-8 w-8"
+                className="h-9 w-9 rounded-full !bg-danger !text-white hover:!opacity-90"
                 busy={stopRequested}
                 disabled={stopRequested}
                 onClick={() => void abortWorking()}
@@ -3126,7 +3126,7 @@ export const TaskView = memo(function TaskView({
                 type="submit"
                 aria-label={working ? (deliveryMode === "queue" ? "キューに追加" : "割り込みを送信") : "送信"}
                 title={working ? (deliveryMode === "queue" ? "現在の処理後に送信" : "実行中の処理へ割り込み") : "送信"}
-                className="h-8 w-8"
+                className="h-9 w-9 rounded-full !bg-accent !text-white hover:!bg-accent/90"
                 busy={submitting}
                 disabled={archived || compacting || agentChanging || ((goalLoopEnabled || goalLoopLive) && working) || (!prompt.trim() && attachments.length === 0)}
               >

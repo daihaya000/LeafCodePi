@@ -333,7 +333,7 @@ export function HomeView({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-bot-chat">
       <MobileMenuHeader />
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-clip">
         <main className="mx-auto flex min-h-full max-w-5xl flex-col justify-center px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-12 pb-[max(6rem,env(safe-area-inset-bottom))]">
@@ -396,7 +396,7 @@ export function HomeView({
                   void submit();
                 },
               }}
-              className="relative mx-auto max-w-5xl rounded-2xl border border-border bg-bg px-3 py-2 shadow-sm"
+              className="bot-composer-shell relative mx-auto w-full max-w-5xl rounded-3xl border border-bot-outline bg-bot-panel px-2 py-1 transition-colors focus-within:border-accent/60"
               attachments={attachments}
               onRemoveAttachment={(index) =>
                 setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))
@@ -429,7 +429,7 @@ export function HomeView({
                   }
                 },
                 placeholder: "タスクを説明してください…（Ctrl+Enter で開始）",
-                className: "w-full resize-none bg-transparent py-1.5 text-base outline-none placeholder:text-faint",
+                className: "w-full min-h-11 resize-none bg-transparent py-2.5 text-base leading-6 outline-none placeholder:text-faint",
               }}
               references={{ skills, agents }}
               attachmentControl={{
@@ -550,7 +550,7 @@ export function HomeView({
                   size="icon"
                   type="submit"
                   aria-label="タスク開始"
-                  className="shrink-0"
+                  className="h-9 w-9 shrink-0 rounded-full !bg-accent !text-white hover:!bg-accent/90"
                   busy={submitting}
                   disabled={(!prompt.trim() && attachments.length === 0) || projectId === undefined || submitting || health?.engineOk === false}
                 >

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   ChangeEventHandler,
   ClipboardEventHandler,
@@ -275,7 +275,7 @@ export function Composer({
     />
   );
   const inlineToolbar = settingsGroups
-    ? settingsGroups.map((group) => <Fragment key={group.id}>{group.content}</Fragment>)
+    ? settingsGroups.map((group) => <div key={group.id} className="flex flex-wrap items-center gap-1 border-l border-border/60 pl-2">{group.content}</div>)
     : toolbar;
 
   const inner = (
@@ -444,13 +444,13 @@ export function Composer({
           </div>
         )}
       </div>
-      <div className="flex items-center gap-2 pt-1">
-        <div className="relative min-w-0 flex-1 overflow-x-auto">
+      <div className="flex items-end gap-3 px-1 pb-1 pt-2">
+        <div className="relative min-w-0 flex-1">
           <div
             role="group"
             aria-label="タスク設定"
             tabIndex={0}
-            className="flex min-w-max items-center gap-2 overflow-x-auto rounded-md [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            className="flex flex-wrap items-center gap-x-2 gap-y-2 rounded-xl [&_button]:shadow-none [&_button]:rounded-xl [&_button]:border-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           >
             {attachmentInput}
             <button
@@ -459,7 +459,7 @@ export function Composer({
               title={attachmentControl.buttonTitle}
               aria-label={attachmentControl.buttonTitle}
               onClick={attachmentControl.onTrigger}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-bg px-0 text-muted transition-colors hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2 px-0 text-muted transition-colors hover:bg-surface-3 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Paperclip className="h-3.5 w-3.5" />
             </button>
