@@ -468,7 +468,15 @@ type TodoProgressCacheEntry = {
 const todoProgressCache = new Map<string, TodoProgressCacheEntry>();
 
 type PermissionPromptService = ReturnType<typeof createPermissionPromptService>;
+type QuestionPromptService = ReturnType<typeof createQuestionPromptService>;
+
+// Next compiles Route Handlers into separate server bundles. Keep these
+// process-local services shared so /prompt, /events, and /permission use the
+// same pending request queue.
+const PERMISSION_PROMPT_SERVICE_KEY = "__leafcodePiPermissionPromptService" as const;
+const QUESTION_PROMPT_SERVICE_KEY = "__leafcodePiQuestionPromptService" as const;
 let permissionPromptService: PermissionPromptService | null = null;
+let questionPromptService: QuestionPromptService | null = null;
 
 function resolveTaskIdFromSession(sessionId: string): string | null {
   if (!sessionId) return null;
@@ -503,27 +511,36 @@ function permissionSnapshotExtras(taskId: string): Record<string, unknown> {
 
 function ensurePermissionPromptService(): PermissionPromptService {
   if (permissionPromptService) return permissionPromptService;
-  permissionPromptService = createPermissionPromptService({
-    resolveTaskId: resolveTaskIdFromSession,
-    emit: emitAttention,
-    snapshotExtras: permissionSnapshotExtras,
-  });
+  const globalRef = globalThis as typeof globalThis & {
+    [PERMISSION_PROMPT_SERVICE_KEY]?: PermissionPromptService;
+  };
+  permissionPromptService =
+    globalRef[PERMISSION_PROMPT_SERVICE_KEY] ??
+    createPermissionPromptService({
+      resolveTaskId: resolveTaskIdFromSession,
+      emit: emitAttention,
+      snapshotExtras: permissionSnapshotExtras,
+    });
+  globalRef[PERMISSION_PROMPT_SERVICE_KEY] = permissionPromptService;
   registerWebUiPermissionHandler((request) =>
     permissionPromptService!.handleRequest(request),
   );
   return permissionPromptService;
 }
 
-type QuestionPromptService = ReturnType<typeof createQuestionPromptService>;
-let questionPromptService: QuestionPromptService | null = null;
-
 function ensureQuestionPromptService(): QuestionPromptService {
   if (questionPromptService) return questionPromptService;
-  questionPromptService = createQuestionPromptService({
-    resolveTaskId: resolveTaskIdFromSession,
-    emit: emitAttention,
-    snapshotExtras: permissionSnapshotExtras,
-  });
+  const globalRef = globalThis as typeof globalThis & {
+    [QUESTION_PROMPT_SERVICE_KEY]?: QuestionPromptService;
+  };
+  questionPromptService =
+    globalRef[QUESTION_PROMPT_SERVICE_KEY] ??
+    createQuestionPromptService({
+      resolveTaskId: resolveTaskIdFromSession,
+      emit: emitAttention,
+      snapshotExtras: permissionSnapshotExtras,
+    });
+  globalRef[QUESTION_PROMPT_SERVICE_KEY] = questionPromptService;
   registerWebUiQuestionHandler((request) =>
     questionPromptService!.handleRequest(request),
   );

@@ -75,4 +75,24 @@ describe("delegated Code attention in the Bot conversation", () => {
     expect(await codeApproval).toBe(false);
     expect(pendingPermissionForTask("bot:one")).toBeNull();
   });
+
+  it("shares pending permission state with another route module instance", async () => {
+    pendingPermissionForTask("code");
+    const approval = requestWebUiPermission({
+      sessionId: "code-session",
+      command: "edit",
+      labels: [],
+      message: "Approve Code edit",
+    });
+    const pending = pendingPermissionForTask("code")!;
+
+    // Next can evaluate the prompt and response Route Handlers in different
+    // module instances, so exercise the response from a fresh harness import.
+    vi.resetModules();
+    const otherHarness = await import("./harness");
+    const responded = otherHarness.respondToPermissionPrompt("code", pending.id, true);
+    if (!responded) clearPendingAttentionForTask("code");
+    expect(responded).toBe(true);
+    await expect(approval).resolves.toBe(true);
+  });
 });
