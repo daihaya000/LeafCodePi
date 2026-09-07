@@ -14,7 +14,7 @@ import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
 import { ImageLightbox, type ComposerAttachment } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
-import { BotMessageList, BotMessageMarkdown, BotMessageTime, BotResponseStatus } from "@/components/bot/BotMessageList";
+import { BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow, BotResponseStatus } from "@/components/bot/BotMessageList";
 import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { AVATAR_IMAGE_ACCEPT, BOT_AVATAR_COLORS, MAX_AVATAR_IMAGE_BYTES, randomAvatarColor } from "@/lib/bot-avatar";
@@ -392,15 +392,12 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     const images = message.parts.filter((part) => part.type === "image");
     if (!text && images.length === 0 && !message.error) return null;
     return (
-      <div key={message.id} className={`flex flex-col gap-1 ${user ? "items-end" : "items-start"}`}>
-        <BotMessageTime createdAt={message.createdAt} />
-        <div className={`min-w-0 max-w-bubble rounded-3xl px-4 py-2.5 text-base leading-6 ${user ? "bg-bot-user text-white" : "bg-bot-assistant text-text"}`}>
-          {images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{images.map((part) => part.type === "image" && <ImageLightbox key={part.id} src={part.url} alt={part.filename ?? "添付画像"} className="max-h-48 max-w-full rounded-xl object-contain" />)}</div>}
-          {text && (user ? <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</div> : <BotMessageMarkdown text={text} />)}
-          {message.error && <div role="alert" className="mt-2 rounded-lg bg-danger/10 px-2 py-1 text-xs text-danger">{message.error}</div>}
-        </div>
-        {user && <button type="button" title="このコメントを入力欄に戻して巻き戻す" disabled={reverting || sending} onClick={() => void revertMessage(message)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"><RotateCcw className="h-3 w-3" />入力欄に戻す</button>}
-      </div>
+      <BotMessageRow key={message.id} user={user} createdAt={message.createdAt}
+        footer={user ? <button type="button" title="このコメントを入力欄に戻して巻き戻す" disabled={reverting || sending} onClick={() => void revertMessage(message)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"><RotateCcw className="h-3 w-3" />入力欄に戻す</button> : undefined}>
+        {images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{images.map((part) => part.type === "image" && <ImageLightbox key={part.id} src={part.url} alt={part.filename ?? "添付画像"} className="max-h-48 max-w-full rounded-xl object-contain" />)}</div>}
+        {text && (user ? <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</div> : <BotMessageMarkdown text={text} />)}
+        {message.error && <BotMessageError text={message.error} />}
+      </BotMessageRow>
     );
   }), [messages, reverting, sending]);
 

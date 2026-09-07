@@ -63,6 +63,21 @@ export function BotResponseStatus({
   );
 }
 
+/** One chat row. Bot and Room conversations share it so both look identical. */
+export function BotMessageRow({ user, createdAt, children, footer }: { user: boolean; createdAt: number; children: ReactNode; footer?: ReactNode }) {
+  return (
+    <div className={`flex flex-col gap-1 ${user ? "items-end" : "items-start"}`}>
+      <BotMessageTime createdAt={createdAt} />
+      <div className={`min-w-0 max-w-bubble rounded-3xl px-4 py-2.5 text-base leading-6 ${user ? "bg-bot-user text-white" : "bg-bot-assistant text-text"}`}>{children}</div>
+      {footer}
+    </div>
+  );
+}
+
+export function BotMessageError({ text }: { text: string }) {
+  return <div role="alert" className="mt-2 rounded-lg bg-danger/10 px-2 py-1 text-xs text-danger">{text}</div>;
+}
+
 export function BotMessageTime({ createdAt }: { createdAt: number }) {
   const date = new Date(createdAt);
   if (!Number.isFinite(date.getTime())) return null;

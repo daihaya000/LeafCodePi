@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
-import { BotMessageList, BotMessageMarkdown, BotMessageTime, BotResponseStatus } from "./BotMessageList";
+import { BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow, BotMessageTime, BotResponseStatus } from "./BotMessageList";
 import type { UiMessage } from "@/lib/types";
 
 afterEach(cleanup);
@@ -23,6 +23,23 @@ it("follows loaded history and streaming, preserves reading position, and resets
   Object.defineProperty(viewport, "scrollHeight", { value: 1200 });
   rerender(<BotMessageList conversationId="b">Streaming</BotMessageList>);
   expect(viewport.scrollTop).toBe(1200);
+});
+
+it("places the time above the bubble and the footer below, for user and bot alike", () => {
+  const createdAt = Date.UTC(2026, 8, 8, 2, 58);
+  const { container, rerender } = render(<BotMessageRow user createdAt={createdAt} footer={<button type="button">入力欄に戻す</button>}>エージェントは？</BotMessageRow>);
+  const row = container.firstElementChild!;
+  expect(row.className).toContain("items-end");
+  expect([...row.children].map((child) => child.tagName)).toEqual(["TIME", "DIV", "BUTTON"]);
+  const bubble = row.children[1];
+  expect(bubble.className).toContain("max-w-bubble");
+  expect(bubble.className).toContain("bg-bot-user");
+
+  rerender(<BotMessageRow user={false} createdAt={createdAt}><BotMessageError text="応答に失敗しました" /></BotMessageRow>);
+  const botRow = container.firstElementChild!;
+  expect(botRow.className).toContain("items-start");
+  expect(botRow.children[1].className).toContain("bg-bot-assistant");
+  expect(botRow.querySelector("[role='alert']")?.textContent).toBe("応答に失敗しました");
 });
 
 it("renders bot Markdown with GFM", () => {
