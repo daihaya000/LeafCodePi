@@ -42,6 +42,10 @@ export type GoalLoopProgress = {
   summary: string;
   next?: string;
   evidence?: string;
+  symptom?: string;
+  hypothesis?: string;
+  fix?: string;
+  verification?: string;
 };
 
 export type GoalLoop = {
@@ -262,6 +266,10 @@ function normalizeProgress(value: unknown): GoalLoopProgress[] {
       ...(typeof item.evidence === "string" && item.evidence.trim()
         ? { evidence: item.evidence.trim().slice(0, 4_000) }
         : {}),
+      ...(typeof item.symptom === "string" && item.symptom.trim() ? { symptom: item.symptom.trim().slice(0, 2_000) } : {}),
+      ...(typeof item.hypothesis === "string" && item.hypothesis.trim() ? { hypothesis: item.hypothesis.trim().slice(0, 2_000) } : {}),
+      ...(typeof item.fix === "string" && item.fix.trim() ? { fix: item.fix.trim().slice(0, 2_000) } : {}),
+      ...(typeof item.verification === "string" && item.verification.trim() ? { verification: item.verification.trim().slice(0, 2_000) } : {}),
     }));
 }
 
@@ -497,12 +505,17 @@ export function normalizeStructured(value: unknown): GoalLoopProgress | null {
   const blockedReason = typeof raw.blockedReason === "string" ? raw.blockedReason.trim() : "";
   const evidence = typeof raw.evidence === "string" ? raw.evidence.trim() : "";
   const next = typeof raw.next === "string" ? raw.next.trim() : "";
+  const field = (key: string, max: number) => typeof raw[key] === "string" && raw[key].trim() ? raw[key].trim().slice(0, max) : undefined;
   return {
     time: isoNow(),
     status,
     summary: summary.slice(0, 4_000),
     ...(next ? { next: next.slice(0, 2_000) } : {}),
     ...(evidence || blockedReason ? { evidence: (evidence || blockedReason).slice(0, 4_000) } : {}),
+    ...(field("symptom", 2_000) ? { symptom: field("symptom", 2_000) } : {}),
+    ...(field("hypothesis", 2_000) ? { hypothesis: field("hypothesis", 2_000) } : {}),
+    ...(field("fix", 2_000) ? { fix: field("fix", 2_000) } : {}),
+    ...(field("verification", 2_000) ? { verification: field("verification", 2_000) } : {}),
   };
 }
 
@@ -547,7 +560,7 @@ function recentProgress(loop: GoalLoop, count: number): string {
 }
 
 function jsonInstructions(statuses: string): string {
-  return `\n\nThe very last thing you output this turn must be a single fenced JSON block:\n\n\`\`\`json\n{"status":"progress","summary":"what changed this turn","next":"the next step","evidence":"commands run, files touched, results"}\n\`\`\`\n\n- status must be exactly one of: ${statuses}.\n- summary is required. Put a blocked reason in blockedReason when status is blocked.\n- Write nothing after the closing fence.`;
+  return `\n\nThe very last thing you output this turn must be a single fenced JSON block:\n\n\`\`\`json\n{"status":"progress","summary":"what changed this turn","symptom":"observed failure or current behavior","hypothesis":"likely cause","fix":"change made","verification":"tests/typecheck/build and results","next":"the next step","evidence":"commands run, files touched, results"}\n\`\`\`\n\n- status must be exactly one of: ${statuses}.\n- summary is required. For debugging iterations, always record symptom, hypothesis, fix, and verification (use an explicit "none" when not applicable). Put a blocked reason in blockedReason when status is blocked.\n- Write nothing after the closing fence.`;
 }
 
 export function buildGoalPrompt(loop: GoalLoop, turn: number): string {

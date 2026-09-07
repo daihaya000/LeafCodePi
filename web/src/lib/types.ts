@@ -149,6 +149,10 @@ export type GoalLoopProgress = {
   summary: string;
   next?: string;
   evidence?: string;
+  symptom?: string;
+  hypothesis?: string;
+  fix?: string;
+  verification?: string;
 };
 
 export type GoalLoopDto = {
