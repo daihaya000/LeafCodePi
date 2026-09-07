@@ -62,6 +62,14 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
   }
 }
 
+const STALE_TURN_MS = 5 * 60_000;
+/** A crashed worker leaves "working" placeholders behind; nothing else ever settles them. */
+export function settleStaleRoomTurns(roomId: string, now = Date.now()): number {
+  const stale = (getRoom(roomId)?.messages ?? []).filter((message) => message.status === "working" && now - message.createdAt > STALE_TURN_MS);
+  for (const message of stale) updateRoomMessage(roomId, message.id, { text: "応答が中断されました。", status: "error" });
+  return stale.length;
+}
+
 type Resume = { startTurn: number; maxTurns: number; nextBotId: string };
 export async function runRoomConversation(room: RoomDto, bots: BotDto[], prompt: string, userMessageId: string, resume?: Resume) {
   const maxTurns = Math.min(MAX_ROOM_CONVERSATION_TURNS, resume?.maxTurns ?? bots.length * 2);
@@ -73,7 +81,9 @@ export async function runRoomConversation(room: RoomDto, bots: BotDto[], prompt:
     texts.add(message.text.trim().replace(/\s+/g, " "));
     replies.set(message.botId, texts);
   }
-  let nextBotId = resume?.nextBotId ?? bots[0]?.id;
+  // Rotate the opener so the first member does not lead every exchange.
+  const lastSpeaker = room.messages.findLast((message) => message.role === "assistant" && message.botId)?.botId;
+  let nextBotId = resume?.nextBotId ?? bots.find((bot) => bot.id !== lastSpeaker)?.id ?? bots[0]?.id;
   for (let turn = resume?.startTurn ?? 1; turn <= maxTurns; turn += 1) {
     const current = getRoom(room.id);
     if (!current || latestRoomRequest(current)?.id !== userMessageId) return;

@@ -3,7 +3,7 @@ import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, getRoom
 import { getBot } from "@/lib/bots";
 import { jsonError } from "@/lib/pi/harness";
 import { isRoomConversationRequest, isRoomStopRequest } from "@/lib/room-conversation";
-import { runRoomBot, runRoomConversation } from "@/lib/room-runtime";
+import { runRoomBot, runRoomConversation, settleStaleRoomTurns } from "@/lib/room-runtime";
 import type { BotDto, RoomMessage } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     if (typeof body?.prompt !== "string" || !body.prompt.trim()) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     const prompt = body.prompt.trim();
+    settleStaleRoomTurns(id);
     const userMessage = appendRoomMessage(id, { role: "user", text: prompt });
     if (!userMessage) return NextResponse.json({ error: "Room not found" }, { status: 404 });
     if (isRoomStopRequest(prompt)) return NextResponse.json({ room: getRoom(id), routedBotIds: [], stopped: true });

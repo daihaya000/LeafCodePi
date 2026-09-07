@@ -31,15 +31,28 @@ export function parseRoomReply(raw: string, speakerId: string, participants: Bot
     else if (marker[1][0] === fence.char && marker[1].length >= fence.length && !marker[2].trim()) fence = undefined;
   }
   if (fence) return { text: raw };
-  // Models often append a sentence to the directive line; keep that sentence as prose instead of leaking the marker.
-  const match = /^ROOM_ACTION:\s*(?:DONE|NEXT\s+(\S+))\s*(.*)$/.exec(lines.at(-1) ?? "");
+  // Models decorate the directive and often append a sentence to it. Recognise those forms so the
+  // marker never reaches the room, even when the routing target turns out to be unusable.
+  // Up to three leading spaces only: four spaces would make it an indented code block.
+  const match = /^ {0,3}[*_`]*ROOM_ACTION:\s*(DONE|NEXT)\b[:\s]*(.*)$/.exec(lines.at(-1) ?? "");
   if (!match) return { text: raw };
-  const nextBotId = match[1];
-  if (nextBotId && (nextBotId === speakerId || !participants.some((bot) => bot.id === nextBotId && bot.enabled))) return { text: raw };
-  const text = [...lines.slice(0, -1), match[2]].join("\n").trim();
+  const rest = match[2].replace(/[*_`\s]+$/, "");
+  const opener = rest.replace(/^[@*_`"'<([{]+/, "");
+  const lowered = opener.toLowerCase();
+  // Longest label first, so "Code Reviewer" wins over a teammate called "Code".
+  const labels = participants.filter((bot) => bot.enabled && bot.id !== speakerId)
+    .flatMap((bot) => [bot.id, bot.name.trim()].filter(Boolean).map((label) => ({ bot, label: label.toLowerCase() })))
+    .sort((left, right) => right.label.length - left.label.length);
+  const hit = match[1] === "NEXT" ? labels.find((entry) => lowered.startsWith(entry.label)) : undefined;
+  // Without a usable target the whole directive line goes: a leaked marker or a stray id helps nobody.
+  const remainder = match[1] === "DONE" ? rest : hit ? opener.slice(hit.label.length).replace(/^[*_`"'>)\]}:,.、。：，・\s]+/, "") : "";
+  const next = hit?.bot;
+  const text = [...lines.slice(0, -1), remainder].join("\n").trim();
   // Never swallow a control-only response or route on an empty contribution.
   if (!text) return { text: "" };
-  return nextBotId ? { text, action: "next", nextBotId } : { text, action: "done" };
+  if (match[1] === "DONE") return { text, action: "done" };
+  // An unusable target is not a handoff: the turn ends without routing, but the marker is still removed.
+  return next ? { text, action: "next", nextBotId: next.id } : { text };
 }
 
 function transcript(room: RoomDto, requestId: string, conversation: boolean) {
@@ -86,9 +99,9 @@ export function roomBotPrompt(room: RoomDto, bot: BotDto, participants: BotDto[]
       "Answer the latest participant's question or disagreement first, then add one concrete new point.",
       "If the user's request is too vague to act on, ask them one short question and finish with ROOM_ACTION: DONE instead of debating what they might have meant.",
       "End your own contribution with exactly one standalone line, outside quotes and code fences:",
-      "ROOM_ACTION: NEXT <participant-id>  (ask that participant a concrete question in your prose)",
+      "ROOM_ACTION: NEXT <participant-id>  (ask that participant a concrete question in your prose; their id or exact name, nobody else)",
       "ROOM_ACTION: DONE  (the discussion is complete or needs human input; this ends the conversation immediately)",
-      "Use the exact participant id, not their name. Do not emit a control line without a real contribution. The server, not a tool call, handles /discuss and hands over the floor.",
+      "Copy the id or name exactly as listed above. Do not emit a control line without a real contribution. The server, not a tool call, handles /discuss and hands over the floor.",
       ...(turn.turn === turn.maxTurns ? ["This is the final available turn. Summarize the conclusion and any unresolved point for the user, then finish with ROOM_ACTION: DONE. Do not request another bot turn."] : []),
     ] : ["Answer the request directly and briefly, like chat rather than a report. Do not emit ROOM_ACTION control lines for this ordinary reply."]),
   ].join("\n");

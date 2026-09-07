@@ -183,13 +183,14 @@ describe("room mention responses", () => {
 
   it("does not execute a superseded conversation after waiting in the bot queue", async () => {
     const { room, taskIds } = setup(["A", "B"]);
-    await send(room.id, "@A Earlier work");
-    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+    // Both room sessions are busy, so the discussion can only start after the queue drains.
+    await send(room.id, "@here Earlier work");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(2));
     await send(room.id, "/discuss Options");
     await send(room.id, "/stop");
-    finish(taskIds[0], { messages: [assistant("earlier", "Earlier reply")] });
+    for (const taskId of taskIds) finish(taskId, { messages: [assistant(`earlier-${taskId}`, "Earlier reply")] });
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "working")).toHaveLength(0));
-    expect(state.promptTask).toHaveBeenCalledTimes(1);
+    expect(state.promptTask).toHaveBeenCalledTimes(2);
     expect(getRoom(room.id)?.messages.some((message) => message.text.includes("superseded"))).toBe(true);
   });
 

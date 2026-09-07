@@ -20,7 +20,7 @@ vi.mock("@/lib/pi/bot-code-relay", () => ({ pendingRoomCodeRequest: state.pendin
 import { createBot } from "./bots";
 import { createRoom, ensureRoomBotTask, getRoom, appendRoomMessage, patchRoom } from "./rooms";
 import { getTask } from "./store";
-import { deliverRoomCodeReport, resumeRoomAfterCode, runRoomConversation } from "./room-runtime";
+import { deliverRoomCodeReport, resumeRoomAfterCode, runRoomConversation, settleStaleRoomTurns } from "./room-runtime";
 
 function assistant(id: string, text: string): UiMessage {
   return { id, role: "assistant", createdAt: Date.now(), parts: [{ id: `${id}-text`, type: "text", text }] };
@@ -68,6 +68,27 @@ describe("room conversation with delegated work", () => {
     const replies = getRoom(room.id)!.messages.filter((message) => message.role === "assistant");
     expect(replies).not.toHaveLength(0);
     for (const reply of replies) expect(reply.conversation).toMatchObject({ requestId: user.id, participantIds: room.members, maxTurns: 4 });
+  });
+
+  it("settles only long-abandoned working placeholders left by a crashed worker", () => {
+    const { room } = setup();
+    const stale = appendRoomMessage(room.id, { role: "assistant", botId: room.members[0], text: "", status: "working", createdAt: Date.now() - 10 * 60_000 })!;
+    const live = appendRoomMessage(room.id, { role: "assistant", botId: room.members[1], text: "", status: "working" })!;
+    expect(settleStaleRoomTurns(room.id)).toBe(1);
+    const messages = getRoom(room.id)!.messages;
+    expect(messages.find((message) => message.id === stale.id)).toMatchObject({ status: "error", text: "応答が中断されました。" });
+    expect(messages.find((message) => message.id === live.id)?.status).toBe("working");
+    expect(settleStaleRoomTurns(room.id)).toBe(0);
+  });
+
+  it("does not let the same participant open every exchange", async () => {
+    const { room, bots, user } = setup();
+    await runRoomConversation(room, bots, "残作業も進めて", user.id);
+    const first = state.promptTask.mock.calls[0][0];
+    state.promptTask.mockClear();
+    const next = appendRoomMessage(room.id, { role: "user", text: "もう一度" })!;
+    await runRoomConversation(getRoom(room.id)!, bots, "もう一度", next.id);
+    expect(state.promptTask.mock.calls[0][0]).not.toBe(first);
   });
 
   it("pauses instead of handing off while a Code request is still outstanding", async () => {
@@ -125,7 +146,7 @@ describe("room conversation with delegated work", () => {
     request.room!.conversation.participantIds = [bots[0].id, bots[1].id];
     expect(deliverRoomCodeReport(request, `外部へ\nROOM_ACTION: NEXT ${outside.id}`)).toBe(true);
     expect(request.room?.nextBotId).toBeUndefined();
-    expect(getRoom(room.id)!.messages.at(-1)!.text).toContain(`ROOM_ACTION: NEXT ${outside.id}`);
+    expect(getRoom(room.id)!.messages.at(-1)!.text).toBe("外部へ");
     patchRoom(room.id, { members: [bots[1].id, outside.id] });
     expect(deliverRoomCodeReport({ ...request, id: "other" }, "結果\nROOM_ACTION: DONE")).toBe(false);
   });

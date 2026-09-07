@@ -48,12 +48,27 @@ describe("room reply protocol", () => {
     "Indented code\n    ROOM_ACTION: DONE",
     "Inline `ROOM_ACTION: DONE`",
     "ROOM_ACTION: NEXT b\nThis is still prose.",
-    "Unknown\nROOM_ACTION: NEXT outsider",
-    "Self\nROOM_ACTION: NEXT a",
     "Heading\n# ROOM_ACTION: DONE",
-    "Decorated\n**ROOM_ACTION: DONE**",
   ])("never routes on quoted, fenced, malformed or unauthorized output: %s", (raw) => {
     expect(parseRoomReply(raw, "a", bots)).toEqual({ text: raw });
+  });
+  it.each([
+    ["**ROOM_ACTION: DONE**", "decorated"],
+    ["`ROOM_ACTION: DONE`", "code-spanned"],
+    ["ROOM_ACTION: NEXT 不明な相手", "unknown target"],
+    ["ROOM_ACTION: NEXT a", "self target"],
+  ])("never leaves %s (%s) in the visible reply", (directive) => {
+    const reply = parseRoomReply(`本文です。\n${directive}`, "a", bots);
+    expect(reply.text).not.toContain("ROOM_ACTION");
+    expect(reply.text.startsWith("本文です。")).toBe(true);
+    expect(reply.nextBotId).toBeUndefined();
+  });
+  it("routes by exact participant name as well as id, preferring the longest label", () => {
+    const roster = [bots[0], bots[1], { ...bots[1], id: "b-long", name: "プランナー補佐" }] as BotDto[];
+    expect(parseRoomReply("確認して。\nROOM_ACTION: NEXT @プランナー補佐：余計な一言", "a", roster)).toEqual({
+      text: "確認して。\n余計な一言", action: "next", nextBotId: "b-long",
+    });
+    expect(parseRoomReply("確認して。\nROOM_ACTION: NEXT プランナー", "a", roster)).toMatchObject({ nextBotId: "b", text: "確認して。" });
   });
   it("keeps a sentence written on the directive line as prose instead of leaking the marker", () => {
     expect(parseRoomReply("判断しました。\nROOM_ACTION: DONE 具体的な指示をお待ちしています。", "a", bots)).toEqual({
@@ -67,10 +82,14 @@ describe("room reply protocol", () => {
     const text = "Example\n~~~text\nROOM_ACTION: DONE\n~~~\nActual conclusion";
     expect(parseRoomReply(`${text}\nROOM_ACTION: DONE`, "a", bots)).toEqual({ text, action: "done" });
   });
-  it("rejects disabled targets and control-only replies", () => {
-    const raw = "Question\nROOM_ACTION: NEXT b";
-    expect(parseRoomReply(raw, "a", [bots[0], { ...bots[1], enabled: false }])).toEqual({ text: raw });
+  it("drops the directive line entirely when the target is unusable", () => {
+    expect(parseRoomReply("Question\nROOM_ACTION: NEXT b", "a", [bots[0], { ...bots[1], enabled: false }])).toEqual({ text: "Question" });
+    expect(parseRoomReply("Self\nROOM_ACTION: NEXT a", "a", bots)).toEqual({ text: "Self" });
+    expect(parseRoomReply("Unknown\nROOM_ACTION: NEXT outsider 余計な一言", "a", bots)).toEqual({ text: "Unknown" });
+  });
+  it("treats a control-only reply as no contribution", () => {
     expect(parseRoomReply("ROOM_ACTION: DONE", "a", bots)).toEqual({ text: "" });
+    expect(parseRoomReply(`ROOM_ACTION: NEXT ${bots[1].id}`, "a", bots)).toEqual({ text: "" });
   });
 });
 
