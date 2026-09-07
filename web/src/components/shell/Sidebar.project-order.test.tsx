@@ -16,7 +16,7 @@ vi.mock("@/lib/client", () => ({
   getJson: mocks.getJson,
   sendJson: mocks.sendJson,
 }));
-vi.mock("@/lib/events", () => ({ notifyTasksChanged: vi.fn() }));
+vi.mock("@/lib/events", () => ({ notifyBotSidebarChanged: vi.fn(), notifyTasksChanged: vi.fn() }));
 vi.mock("@/components/AddProjectButton", () => ({
   AddProjectButton: () => <button type="button">プロジェクトを追加</button>,
 }));
@@ -362,6 +362,50 @@ describe("Sidebar project ordering", () => {
 
     await waitFor(() => {
       expect(screen.getByText("New bot")).toBeTruthy();
+      expect(screen.queryByText("Test")).toBeNull();
+    });
+  });
+
+  it("refreshes bot entries when a bot mutation is announced", async () => {
+    const initialBot = {
+      id: "bot-1",
+      name: "Test",
+      label: "1:1 アシスタント",
+      avatarColor: "#0071E3",
+      avatarImage: null,
+      enabled: true,
+      lastMessageSummary: null,
+      lastMessageAt: null,
+    };
+    const nextBot = { ...initialBot, id: "bot-2", name: "Renamed" };
+    let currentBots = [initialBot];
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
+      if (path === "/api/tasks?archived=1") return Promise.resolve({ tasks: [] });
+      if (path === "/api/health") {
+        return Promise.resolve({
+          ok: true,
+          engine: "pi",
+          engineOk: true,
+          version: "1.0.0",
+          modelCount: 0,
+          dataDir: "C:\\data",
+          error: null,
+        });
+      }
+      if (path === "/api/bots/sidebar") return Promise.resolve({ bots: currentBots, rooms: [] });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    mocks.usePathname.mockReturnValue("/bots/bot-1");
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    expect(await screen.findByText("Test")).toBeTruthy();
+
+    currentBots = [nextBot];
+    window.dispatchEvent(new Event("webui:bot-sidebar-changed"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Renamed")).toBeTruthy();
       expect(screen.queryByText("Test")).toBeNull();
     });
   });

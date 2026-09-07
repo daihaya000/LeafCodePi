@@ -13,6 +13,12 @@ export function notifyTasksChanged() {
   }, DEBOUNCE_MS);
 }
 
+/** Notify the Bot sidebar after a Bot or room mutation. */
+export function notifyBotSidebarChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event("webui:bot-sidebar-changed"));
+}
+
 /** Test helper — flush pending debounce immediately. */
 export function flushNotifyTasksChangedForTests() {
   if (timer != null) {

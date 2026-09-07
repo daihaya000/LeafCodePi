@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CopyPlus, Sparkles } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
+import { notifyBotSidebarChanged } from "@/lib/events";
 import type { BotDto } from "@/lib/types";
 import { BOT_TEMPLATES } from "@/lib/bot-marketplace";
 import { Button } from "@/components/ui";
@@ -33,6 +34,7 @@ export function BotListView() {
         ...(input.templateId ? { templateId: input.templateId } : {}),
       });
       setName("");
+      notifyBotSidebarChanged();
       router.push(`/bots/${result.bot.id}`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "ボットの作成に失敗しました");
@@ -47,6 +49,7 @@ export function BotListView() {
     setError(null);
     try {
       const result = await sendJson<{ bot: BotDto }>("/api/bots", { templateId });
+      notifyBotSidebarChanged();
       router.push(`/bots/${result.bot.id}`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "テンプレートからの作成に失敗しました");

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
+import { notifyBotSidebarChanged } from "@/lib/events";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { Button } from "@/components/ui";
@@ -54,6 +55,10 @@ export function BotView({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const composingRef = useRef(false);
   const router = useRouter();
+  const applyBotUpdate = (next: BotDto) => {
+    setBot(next);
+    notifyBotSidebarChanged();
+  };
 
   const load = useCallback(() => {
     return getJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`)
@@ -138,6 +143,7 @@ export function BotView({ id }: { id: string }) {
     setSending(true);
     try {
       await sendJson(`/api/bots/${encodeURIComponent(id)}/prompt`, { prompt: value });
+      notifyBotSidebarChanged();
     } catch (reason) {
       setSending(false);
       setError(reason instanceof Error ? reason.message : "リクエストに失敗しました");
@@ -163,7 +169,7 @@ export function BotView({ id }: { id: string }) {
     setError(null);
     try {
       const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { notificationsEnabled: value }, "PATCH");
-      setBot(result.bot);
+      applyBotUpdate(result.bot);
       setNotificationsEnabled(result.bot.notificationsEnabled);
     } catch (reason) {
       setNotificationsEnabled(previous);
@@ -177,7 +183,7 @@ export function BotView({ id }: { id: string }) {
     setError(null);
     try {
       const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { model: value }, "PATCH");
-      setBot(result.bot);
+      applyBotUpdate(result.bot);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "モデルの切替に失敗しました");
     } finally { setUpdatingModel(false); }
@@ -189,7 +195,7 @@ export function BotView({ id }: { id: string }) {
     setError(null);
     try {
       const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { thinkingLevel: value }, "PATCH");
-      setBot(result.bot);
+      applyBotUpdate(result.bot);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "思考レベルの切替に失敗しました");
     } finally { setUpdatingThinking(false); }
@@ -201,7 +207,7 @@ export function BotView({ id }: { id: string }) {
     setError(null);
     try {
       const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { avatarColor: color }, "PATCH");
-      setBot(result.bot);
+      applyBotUpdate(result.bot);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "\u8272\u306e\u5909\u66f4\u306b\u5931\u6557\u3057\u307e\u3057\u305f");
     } finally { setUpdatingColor(false); }
@@ -212,7 +218,7 @@ export function BotView({ id }: { id: string }) {
     setError(null);
     try {
       const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { avatarImage: image }, "PATCH");
-      setBot(result.bot);
+      applyBotUpdate(result.bot);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "画像の変更に失敗しました");
     } finally { setUpdatingImage(false); }
@@ -235,7 +241,7 @@ export function BotView({ id }: { id: string }) {
     setError(null);
     try {
       const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { name, label }, "PATCH");
-      setBot(result.bot);
+      applyBotUpdate(result.bot);
       setProfileName(result.bot.name);
       setProfileLabel(result.bot.label);
     } catch (reason) {
@@ -248,7 +254,7 @@ export function BotView({ id }: { id: string }) {
     setError(null);
     try {
       const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { soul }, "PATCH");
-      setBot(result.bot);
+      applyBotUpdate(result.bot);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "保存に失敗しました"); }
     finally { setSavingSoul(false); }
   };
@@ -263,7 +269,7 @@ export function BotView({ id }: { id: string }) {
     setUpdatingSkills(true); setError(null);
     try {
       const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { skills }, "PATCH");
-      setBot(result.bot);
+      applyBotUpdate(result.bot);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30b9\u30ad\u30eb\u8a2d\u5b9a\u306e\u4fdd\u5b58\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); }
     finally { setUpdatingSkills(false); }
   };
@@ -273,7 +279,7 @@ export function BotView({ id }: { id: string }) {
     setError(null);
     try {
       const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { extraRoots: [...bot.extraRoots, root] }, "PATCH");
-      setBot(result.bot); setExtraRootInput("");
+      applyBotUpdate(result.bot); setExtraRootInput("");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "\u8ffd\u52a0\u30eb\u30fc\u30c8\u306e\u4fdd\u5b58\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); }
   };
   const removeExtraRoot = async (root: string) => {
@@ -281,7 +287,7 @@ export function BotView({ id }: { id: string }) {
     setError(null);
     try {
       const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { extraRoots: bot.extraRoots.filter((item) => item !== root) }, "PATCH");
-      setBot(result.bot);
+      applyBotUpdate(result.bot);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "\u8ffd\u52a0\u30eb\u30fc\u30c8\u306e\u524a\u9664\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); }
   };
   const patchRoutine = async (routine: RoutineDto, enabled: boolean) => { setRoutineBusy(routine.id); setError(null); try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines/${encodeURIComponent(routine.id)}`, { enabled }, "PATCH"); await loadRoutines(); } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u66f4\u65b0\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); } finally { setRoutineBusy(null); } };
@@ -294,6 +300,7 @@ export function BotView({ id }: { id: string }) {
     setError(null);
     try {
       await sendJson(`/api/bots/${encodeURIComponent(id)}`, undefined, "DELETE");
+      notifyBotSidebarChanged();
       router.push("/bots");
     } catch (reason) {
       setDeleting(false);

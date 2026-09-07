@@ -28,7 +28,7 @@ import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { Button, cx, timeAgo, ThemeToggle } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
 import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
-import { notifyTasksChanged } from "@/lib/events";
+import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { getLastReadAt, hasUnread } from "@/lib/bot-unread";
 import { HOME_TAB_ID, SETTINGS_TAB_ID } from "@/lib/task-panes";
@@ -227,13 +227,26 @@ function BotSidebarBody({
   const [query, setQuery] = useState("");
   const [listFilter, setListFilter] = useState<BotListFilter>("all");
   const [busy, setBusy] = useState(false);
+  const refreshGenerationRef = useRef(0);
   const refresh = useCallback(() => {
-    void getJson<{ bots: SidebarBot[]; rooms: SidebarRoom[] }>("/api/bots/sidebar")
-      .then((result) => { setBots(result.bots); setRooms(result.rooms); })
+    const generation = ++refreshGenerationRef.current;
+    void getJson<{ bots: SidebarBot[]; rooms: SidebarRoom[] }>("/api/bots/sidebar", {
+      refresh: `${Date.now()}-${generation}`,
+    })
+      .then((result) => {
+        if (generation !== refreshGenerationRef.current) return;
+        setBots(result.bots);
+        setRooms(result.rooms);
+      })
       .catch(() => undefined);
     void getJson<HealthDto>("/api/health").then(setHealth).catch(() => undefined);
   }, []);
-  useEffect(() => { refresh(); }, [refresh, pathname]);
+  useEffect(() => {
+    refresh();
+    const onBotSidebarChanged = () => refresh();
+    window.addEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
+    return () => window.removeEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
+  }, [refresh, pathname]);
   useEffect(() => {
     const timer = window.setInterval(refresh, POLL_IDLE_MS);
     return () => window.clearInterval(timer);
@@ -246,9 +259,11 @@ function BotSidebarBody({
     try {
       if (target === "bot") {
         const r = await sendJson<{ bot: BotDto }>("/api/bots", { name });
+        notifyBotSidebarChanged();
         router.push(`/bots/${r.bot.id}`);
       } else {
         const r = await sendJson<{ room: RoomDto }>("/api/bots/rooms", { name });
+        notifyBotSidebarChanged();
         router.push(`/bots/rooms/${r.room.id}`);
       }
       onClose();

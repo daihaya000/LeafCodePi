@@ -4,6 +4,7 @@ import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, us
 import { useRouter } from "next/navigation";
 import { Users, X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
+import { notifyBotSidebarChanged } from "@/lib/events";
 import { markRead } from "@/lib/bot-unread";
 import type { BotDto, RoomDto } from "@/lib/types";
 import { Button } from "@/components/ui";
@@ -118,6 +119,7 @@ export function RoomView({ id }: { id: string }) {
     try {
       const result = await sendJson<{ room: RoomDto }>(`/api/bots/rooms/${encodeURIComponent(id)}`, { members: next }, "PATCH");
       setRoom(result.room);
+      notifyBotSidebarChanged();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30e1\u30f3\u30d0\u30fc\u306e\u4fdd\u5b58\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); }
     finally { setMemberSaving(false); }
   };
@@ -128,6 +130,7 @@ export function RoomView({ id }: { id: string }) {
     setError(null);
     try {
       await sendJson(`/api/bots/rooms/${encodeURIComponent(id)}`, undefined, "DELETE");
+      notifyBotSidebarChanged();
       router.push("/bots");
     } catch (reason) {
       setDeleting(false);
@@ -184,7 +187,10 @@ export function RoomView({ id }: { id: string }) {
         `/api/bots/rooms/${encodeURIComponent(id)}/prompt`,
         { prompt: value, broadcast },
       );
-      if (result.room) setRoom(result.room);
+      if (result.room) {
+        setRoom(result.room);
+        notifyBotSidebarChanged();
+      }
       if (result.routedBotIds && result.routedBotIds.length === 0) {
         setError("応答するボットがいません。@ボット名 でメンションするか「部屋に聞く」を有効にしてください。");
       }
