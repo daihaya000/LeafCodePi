@@ -24,6 +24,7 @@ import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
 import type { BotSkillsConfig } from "@/lib/types";
+import { bundledExtensionEntries } from "@/lib/extensions";
 
 export type SkillSource = "pi" | "bundled";
 
@@ -88,6 +89,16 @@ export function bundledSkillsDir(): string | null {
     }
   }
   return null;
+}
+
+/** Bundled extensions ship their procedures alongside index.ts, not in the global agent dir. */
+export function bundledSkillPaths(root = bundledSkillsDir()): string[] {
+  const paths = root ? [root] : [];
+  for (const entry of bundledExtensionEntries()) {
+    const path = resolve(dirname(entry.filePath), "skills");
+    if (existsSync(path) && statSync(path).isDirectory()) paths.push(path);
+  }
+  return [...new Set(paths)];
 }
 
 function emptyState(): SkillsState {
@@ -186,7 +197,7 @@ function loadFromDir(dir: string, source: SkillSource): Array<Skill & { source: 
 export type ListSkillsOptions = {
   /** Override the Pi agent skills dir (tests). */
   skillsDir?: string;
-  /** Override the bundled skills dir; null disables bundled discovery. */
+  /** Override all bundled discovery with one skills dir; null disables it. */
   bundledDir?: string | null;
 };
 
@@ -208,8 +219,11 @@ export function listSkills(
   for (const skill of loadFromDir(piDir, "pi")) {
     if (!byName.has(skill.name)) byName.set(skill.name, skill);
   }
-  if (bundledDir) {
-    for (const skill of loadFromDir(bundledDir, "bundled")) {
+  const bundledPaths = options?.bundledDir !== undefined
+    ? (bundledDir ? [bundledDir] : [])
+    : bundledSkillPaths(bundledDir);
+  for (const path of bundledPaths) {
+    for (const skill of loadFromDir(path, "bundled")) {
       if (!byName.has(skill.name)) byName.set(skill.name, skill);
     }
   }

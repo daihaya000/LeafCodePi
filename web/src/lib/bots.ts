@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "./paths";
 import { globalBotsMdPath } from "./agents-md";
+import { basenameKey, isWebUiRequiredExtension } from "./extensions";
 import { deleteTask, insertBotTask, listTasks, patchTask } from "./store";
 import type { BotDto, BotSkillsConfig, ThinkingLevel } from "./types";
 import { avatarColorForId, isAvatarColor, isAvatarImage, randomAvatarColor } from "./bot-avatar";
@@ -104,9 +105,25 @@ export function deleteBot(id: string): boolean {
 export function botWorkspace(id: string): string { return join(botRoot(id), "workspace"); }
 export function botSoul(id: string): string { return readFileSync(soulPath(id), "utf8"); }
 export function botTaskId(id: string): string { return `bot:${id}`; }
-// Bot mode intentionally does not read the global AGENTS.md: only the shared
-// BOTS.md and the bot's own SOUL.md drive its behavior. File paths (not text)
-// are returned so session.reload() re-reads edits without a new session.
+/** Runtime facts are separate from BOTS.md/SOUL.md and never import global AGENTS.md. */
+export function botRuntimeContext(extensions: readonly { path: string }[]): string {
+  return [
+    "<leafcode_runtime>",
+    "You are running inside LeafCodePi Bot, using the Pi SDK and LeafCode extensions, not a standalone chatbot.",
+    "Loaded extensions (not a list of currently callable tools):",
+    ...extensions.map(({ path }) => {
+      const name = basenameKey(path);
+      return JSON.stringify({ name, path, requiredByLeafCode: isWebUiRequiredExtension(name) });
+    }),
+    "LeafCode-required extensions are application dependencies; do not disable or remove them.",
+    "The available_skills section is the session's filtered skill inventory. Skills may be bundled under extensions/*/skills, not only ~/.pi/agent/skills. Read the listed SKILL.md before using a skill.",
+    "Some extension tools are deferred: use tool_search before claiming a capability is unavailable. Loaded does not mean authorized; honor tool permissions and Bot skill restrictions. Do not reinstall bundled features merely because their tools are not currently visible.",
+    "</leafcode_runtime>",
+  ].join("\n");
+}
+
+// Bot instructions come from BOTS.md/SOUL.md, never global AGENTS.md.
+// Return paths so session.reload() re-reads edits without a new session.
 export function botPromptSources(id: string): string[] {
   const shared = globalBotsMdPath();
   return existsSync(shared) ? [shared, soulPath(id)] : [soulPath(id)];

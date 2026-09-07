@@ -13,7 +13,7 @@ import {
   samePath,
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
-import { botPromptSources, getBot } from "@/lib/bots";
+import { botPromptSources, botRuntimeContext, getBot } from "@/lib/bots";
 import {
   deleteProjectRecord,
   deleteTask,
@@ -94,7 +94,7 @@ import {
   shouldCompactAtThreshold,
 } from "@/lib/compaction-settings";
 import {
-  bundledSkillsDir,
+  bundledSkillPaths,
   compactSkillsForPrompt,
   filterSkillsByState,
   filterSkillsForBot,
@@ -2045,7 +2045,7 @@ async function createSession(options: {
   // Bundled LeafCode extensions and skills load straight from this repository;
   // production WebUI supplies explicit roots because it runs from a mirror.
   const bundled = bundledExtensionEntries();
-  const bundledSkills = bundledSkillsDir();
+  const bundledSkills = bundledSkillPaths();
   const bundledNames = new Set(bundled.map((entry) => entry.name));
   const bundledPaths = new Set(bundled.map((entry) => entry.filePath));
   // Bundled forks replace their upstream npm extensions. Drop those stale
@@ -2065,19 +2065,24 @@ async function createSession(options: {
     cwd: options.cwd,
     agentDir,
     additionalExtensionPaths: bundled.map((entry) => entry.filePath),
-    additionalSkillPaths: bundledSkills ? [bundledSkills] : [],
+    additionalSkillPaths: bundledSkills,
     extensionFactories: [
       registerDeferredTools,
       ...(options.taskId ? [registerGoalLoopTurnRouting(options.taskId)] : []),
+      ...(options.botSkills ? [(api: ExtensionAPI) => {
+        api.on("before_agent_start", (event) => ({
+          systemPrompt: `${event.systemPrompt}\n\n${botRuntimeContext(resourceLoader.getExtensions().extensions)}`,
+        }));
+      }] : []),
     ],
     skillsOverride: (base) => {
       if (agentOptions?.noSkills || skillPermissionRef.current === "deny") {
         return { skills: [], diagnostics: base.diagnostics };
       }
-      const bundledSkillResult = bundledSkills
-        ? pi.loadSkillsFromDir({ dir: bundledSkills, source: "bundled" })
-        : undefined;
-      const skills = mergeBundledSkills(base.skills, bundledSkillResult?.skills ?? []);
+      const packagedSkills = bundledSkills.flatMap((dir) =>
+        pi.loadSkillsFromDir({ dir, source: "bundled" }).skills,
+      );
+      const skills = mergeBundledSkills(base.skills, packagedSkills);
       return {
         skills: compactSkillsForPrompt(filterSkillsForBot(filterSkillsByState(skills), options.botSkills ?? { mode: "inherit", include: [], exclude: [] })),
         diagnostics: base.diagnostics,

@@ -5,9 +5,27 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const botTestState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => botTestState.root }; });
-import { botPromptSources, botSoul, createBot, deleteBot, getBot, listBots, patchBot } from "./bots";
+import { botPromptSources, botRuntimeContext, botSoul, createBot, deleteBot, getBot, listBots, patchBot } from "./bots";
 import { BOT_AVATAR_COLORS, avatarColorForId } from "./bot-avatar";
 import type { BotDto } from "./types";
+
+describe("bot runtime context", () => {
+  it("identifies only loaded extensions and distinguishes dependencies from callable tools", () => {
+    const context = botRuntimeContext([
+      { path: join("repo", "extensions", "leafcode-subagents", "index.ts") },
+      { path: join("agent", "extensions", "optional.ts") },
+    ]);
+    expect(context).toContain('"name":"leafcode-subagents"');
+    expect(context).toContain('"requiredByLeafCode":true');
+    expect(context).toContain('"name":"optional"');
+    expect(context).toContain('"requiredByLeafCode":false');
+    expect(context).toContain("tool_search");
+    expect(context).toContain("available_skills");
+    expect(context).toContain("Bot skill restrictions");
+    expect(context).not.toContain("AGENTS.md");
+    expect(botRuntimeContext([])).not.toContain('"name":');
+  });
+});
 
 describe("bot store", () => {
   let root = "";

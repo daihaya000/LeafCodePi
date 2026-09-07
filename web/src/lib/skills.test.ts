@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   bundledSkillsDir,
+  bundledSkillPaths,
   compactSkillsForPrompt,
   filterSkillsByState,
   filterSkillsForBot,
@@ -24,6 +25,24 @@ describe("bundledSkillsDir", () => {
     } finally {
       if (previous === undefined) delete process.env.LEAFCODE_PI_SKILLS_DIR;
       else process.env.LEAFCODE_PI_SKILLS_DIR = previous;
+    }
+  });
+});
+
+describe("bundledSkillPaths", () => {
+  it("includes skills shipped inside bundled extensions without global installation", () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-packaged-skills-"));
+    const previous = process.env.LEAFCODE_PI_EXTENSIONS_DIR;
+    try {
+      const extension = join(root, "leafcode-example");
+      mkdirSync(join(extension, "skills"), { recursive: true });
+      writeFileSync(join(extension, "index.ts"), "export default function () {}\n");
+      process.env.LEAFCODE_PI_EXTENSIONS_DIR = root;
+      expect(bundledSkillPaths(null)).toEqual([join(extension, "skills")]);
+    } finally {
+      if (previous === undefined) delete process.env.LEAFCODE_PI_EXTENSIONS_DIR;
+      else process.env.LEAFCODE_PI_EXTENSIONS_DIR = previous;
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
@@ -145,6 +164,28 @@ describe("listSkills / setSkillEnabled", () => {
 
     listed = setSkillEnabled("built-in", false, agent, { bundledDir: bundled });
     expect(listed.skills.find((s) => s.name === "built-in")?.enabled).toBe(false);
+  });
+
+  it("lists and toggles extension-bundled skills without a global copy", () => {
+    const { agentDir: agent, bundledDir: bundled } = fixture();
+    const previousExtensions = process.env.LEAFCODE_PI_EXTENSIONS_DIR;
+    const previousSkills = process.env.LEAFCODE_PI_SKILLS_DIR;
+    try {
+      const extension = join(bundled, "extensions", "leafcode-example");
+      mkdirSync(extension, { recursive: true });
+      writeFileSync(join(extension, "index.ts"), "export default function () {}\n");
+      writeSkill(join(extension, "skills"), "packaged", "bundled procedure");
+      process.env.LEAFCODE_PI_EXTENSIONS_DIR = join(bundled, "extensions");
+      process.env.LEAFCODE_PI_SKILLS_DIR = join(bundled, "absent");
+      expect(listSkills(agent).skills.map((s) => s.name)).toEqual(["alpha", "beta", "packaged"]);
+      expect(setSkillEnabled("packaged", false, agent).skills.find((s) => s.name === "packaged"))
+        .toMatchObject({ source: "bundled", enabled: false });
+    } finally {
+      if (previousExtensions === undefined) delete process.env.LEAFCODE_PI_EXTENSIONS_DIR;
+      else process.env.LEAFCODE_PI_EXTENSIONS_DIR = previousExtensions;
+      if (previousSkills === undefined) delete process.env.LEAFCODE_PI_SKILLS_DIR;
+      else process.env.LEAFCODE_PI_SKILLS_DIR = previousSkills;
+    }
   });
 
   it("rejects unknown skill names", () => {
