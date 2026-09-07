@@ -10,6 +10,7 @@ import { BOT_TEMPLATES } from "@/lib/bot-marketplace";
 import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
+import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 
 export function BotListView() {
   const [bots, setBots] = useState<BotDto[]>([]);
@@ -56,6 +57,7 @@ export function BotListView() {
 
   return (
     <div className="flex h-full flex-col bg-bg">
+      <MobileMenuHeader />
       <div className="border-b border-border px-5 py-4">
         <h1 className="text-lg font-semibold">ボット</h1>
         <p className="mt-1 text-xs text-muted">1:1 会話用のボットを管理します。</p>

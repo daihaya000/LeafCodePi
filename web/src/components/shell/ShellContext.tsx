@@ -46,8 +46,12 @@ export function ShellProvider({ children }: { children: ReactNode }) {
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }
 
+export function useOptionalShellMobileNav() {
+  return useContext(ShellContext);
+}
+
 export function useShellMobileNav() {
-  const value = useContext(ShellContext);
+  const value = useOptionalShellMobileNav();
   if (!value) throw new Error("ShellProvider is required");
   return value;
 }

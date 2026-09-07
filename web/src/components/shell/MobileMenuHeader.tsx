@@ -2,10 +2,12 @@
 
 import { Menu } from "lucide-react";
 import Image from "next/image";
-import { useShellMobileNav } from "./ShellContext";
+import { useOptionalShellMobileNav } from "./ShellContext";
 
 export function MobileMenuButton() {
-  const { openMobileNav } = useShellMobileNav();
+  const shell = useOptionalShellMobileNav();
+  if (!shell) return null;
+  const { openMobileNav } = shell;
   return (
     <button
       type="button"

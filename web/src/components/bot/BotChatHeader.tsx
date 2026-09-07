@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft, Settings2, Users } from "lucide-react";
 import { BotAvatar } from "@/components/bot/BotAvatar";
+import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
 
 type HeaderMember = { id: string; name: string; avatarColor?: string; avatarImage?: string | null };
 
@@ -30,6 +31,7 @@ export function BotChatHeader({
   const extraCount = Math.max(0, members.length - visibleMembers.length);
   return (
     <header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
+      <MobileMenuButton />
       <Link href="/bots" aria-label="ボット一覧へ戻る" className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-text">
         <ArrowLeft className="h-4 w-4" />
       </Link>
