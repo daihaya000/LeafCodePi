@@ -275,8 +275,8 @@ function BotSidebarBody({
   const visibleBots = listFilter === "rooms" ? [] : (normalizedQuery ? bots.filter((bot) => bot.name.toLocaleLowerCase().includes(normalizedQuery)) : bots);
   const visibleRooms = listFilter === "bots" ? [] : (normalizedQuery ? rooms.filter((room) => room.name.toLocaleLowerCase().includes(normalizedQuery)) : rooms);
   return (
-    <div className="flex h-full min-h-0 flex-col bg-bg">
-      <div className="flex h-[3.75rem] shrink-0 items-center gap-2 px-3">
+    <div className="flex h-full min-h-0 flex-col bg-surface">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3">
         <button
           type="button"
           aria-label={mdUp ? "サイドバーを折りたたむ" : "メニューを閉じる"}
