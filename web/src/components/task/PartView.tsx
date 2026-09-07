@@ -824,7 +824,7 @@ const ReasoningView = memo(function ReasoningView({ text }: { text: string }) {
   };
 
   return (
-    <div className="group/reasoning relative min-w-0 overflow-hidden rounded-xl border border-border bg-surface">
+    <div className="group/reasoning relative w-full min-w-0 max-w-bubble self-start overflow-hidden rounded-xl border border-border bg-surface">
       <button
         type="button"
         aria-expanded={open}
