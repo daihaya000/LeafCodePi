@@ -86,6 +86,36 @@ afterEach(async () => {
 });
 
 describe("room mention responses", () => {
+  it.each(["二人で会話してみて", "@here 二人で会話してみて", "@Debugger @Planner 二人で会話してみて"])("runs two bounded rounds with shared identities and replies: %s", async (request) => {
+    const { room, bots, taskIds } = setup(["Debugger", "Planner"]);
+    await send(room.id, request);
+    for (let turn = 0; turn < 4; turn += 1) {
+      await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(turn + 1));
+      const [taskId, prompt] = state.promptTask.mock.calls[turn];
+      expect(taskId).toBe(taskIds[turn % 2]);
+      expect(prompt).toContain(`Your identity: ${bots[turn % 2].name}`);
+      expect(prompt).toContain("Debugger");
+      expect(prompt).toContain("Planner");
+      if (turn > 0) expect(prompt).toContain(`Contribution ${turn - 1}`);
+      expect(prompt).toContain("never simulate their replies");
+      finish(taskId, { messages: [...state.details.get(taskId)!.messages, assistant(`turn-${turn}`, `Contribution ${turn}`)] });
+    }
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "done")).toHaveLength(4));
+    expect(state.promptTask).toHaveBeenCalledTimes(4);
+    expect(getRoom(room.id)?.botRelayEnabled).toBe(false);
+  });
+
+  it("stops the conversation when a newer user message arrives", async () => {
+    const { room, taskIds } = setup(["A", "B"]);
+    await send(room.id, "二人で会話してみて");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+    await send(room.id, "止めて");
+    finish(taskIds[0], { messages: [assistant("first", "First reply")] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.find((message) => message.role === "assistant")?.status).toBe("done"));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(state.promptTask).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["@here", "@channel", "@everyone", "@all", "@A"])("waits for the actual reply to %s, not an idle-looking snapshot", async (mention) => {
     const { room, taskIds: [taskId] } = setup();
     expect((await send(room.id, `${mention} Test`)).status).toBe(200);
