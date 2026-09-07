@@ -2341,33 +2341,6 @@ export const TaskView = memo(function TaskView({
             <Button
               variant="ghost"
               size="icon"
-              title={isReverted ? "巻き戻しを取消" : "巻き戻す (undo)"}
-              aria-label={isReverted ? "巻き戻しを取消" : "巻き戻す"}
-              busy={revertBusy}
-              aria-pressed={isReverted}
-              disabled={!task || !(isReverted || lastUserMessage) || working || compacting || archived}
-              className={cx(
-                "h-11 w-11 md:h-9 md:w-9",
-                isReverted && "bg-surface-2 text-text",
-              )}
-              onClick={() => {
-                if (isReverted) {
-                  void unrevert();
-                  return;
-                }
-                if (!lastUserMessage) return;
-                revertEntryRef.current = {
-                  messageId: lastUserMessage.id,
-                  message: lastUserMessage,
-                };
-                setRevertConfirmOpen(true);
-              }}
-            >
-              {!revertBusy && <RotateCcw className="h-4 w-4" />}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
               title="コミットグラフ"
               aria-label="コミットグラフ"
               aria-pressed={graphOpen}
