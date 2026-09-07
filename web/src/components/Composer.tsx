@@ -460,7 +460,7 @@ export function Composer({
             role="group"
             aria-label="タスク設定"
             tabIndex={0}
-            className="flex min-w-0 flex-nowrap items-center gap-x-2 overflow-x-auto overscroll-x-contain rounded-xl [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:gap-y-2 sm:overflow-visible sm:overscroll-auto [&_button]:shadow-none [&_button]:rounded-xl [&_button]:border-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            className="flex min-w-0 flex-nowrap items-center gap-x-2 overflow-x-auto overscroll-x-contain rounded-xl [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&_button]:shadow-none [&_button]:rounded-xl [&_button]:border-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           >
             {attachmentInput}
             <button

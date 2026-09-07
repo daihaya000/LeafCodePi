@@ -116,14 +116,15 @@ describe("Composer", () => {
     expect(textarea.style.height).not.toBe("0px");
   });
 
-  it("keeps grouped settings visible in the inline mobile toolbar", () => {
+  it("keeps grouped settings in a horizontally scrollable toolbar", () => {
     render(<SettingsComposer />);
 
     expect(screen.queryByRole("button", { name: "タスク設定" })).toBeNull();
     const toolbar = screen.getByRole("group", { name: "タスク設定" });
     expect(toolbar.className).toContain("overflow-x-auto");
     expect(toolbar.className).toContain("flex-nowrap");
-    expect(toolbar.className).toContain("sm:flex-wrap");
+    expect(toolbar.className).not.toContain("sm:flex-wrap");
+    expect(toolbar.className).not.toContain("sm:overflow-visible");
     expect(toolbar.querySelector('[class*="border-l"]')).toBeNull();
     expect(screen.getByLabelText("モデル設定")).toBeTruthy();
     expect(screen.getByLabelText("権限設定")).toBeTruthy();
