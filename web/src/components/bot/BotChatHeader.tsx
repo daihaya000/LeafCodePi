@@ -41,10 +41,10 @@ export function BotChatHeader({
       <Link href="/bots" aria-label="ボット一覧へ戻る" className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-text md:hidden">
         <ArrowLeft className="h-4 w-4" />
       </Link>
-      <button type="button" onClick={onSettings} aria-label={settingsOpen ? "設定を閉じる" : "設定を開く"} aria-expanded={settingsOpen} className="shrink-0 rounded-full hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+      <button type="button" onClick={onSettings} aria-label={settingsOpen ? "設定を閉じる" : "設定を開く"} aria-expanded={settingsOpen} aria-controls="bot-settings-panel" className="shrink-0 rounded-full hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
         {bot ? <BotAvatar size={32} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} active={active} /> : <span className="flex h-8 w-8 items-center justify-center rounded-full bg-success-bg text-success"><Users className="h-4 w-4" /></span>}
       </button>
-      <button type="button" onClick={onSettings} aria-label={settingsOpen ? "設定を閉じる" : "ボット設定を開く"} aria-expanded={settingsOpen} className="min-w-0 flex-1 text-left hover:opacity-80">
+      <button type="button" onClick={onSettings} aria-label={settingsOpen ? "設定を閉じる" : "ボット設定を開く"} aria-expanded={settingsOpen} aria-controls="bot-settings-panel" className="min-w-0 flex-1 text-left hover:opacity-80">
         <h1 className="truncate text-sm font-medium">{title}</h1>
         <p className="truncate text-[11px] leading-4 text-muted">{subtitle}</p>
       </button>
@@ -53,7 +53,7 @@ export function BotChatHeader({
         {extraCount > 0 && <span className="flex h-[26px] w-[26px] items-center justify-center rounded-full bg-surface-2 text-[10px] font-medium text-muted ring-2 ring-surface">+{extraCount}</span>}
       </div>}
       {action}
-      <button ref={settingsButton} type="button" aria-label="設定" title="設定" aria-expanded={settingsOpen} onClick={onSettings} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text">
+      <button ref={settingsButton} type="button" aria-label="設定" title="設定" aria-expanded={settingsOpen} aria-controls="bot-settings-panel" onClick={onSettings} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text">
         <Settings2 className="h-4 w-4" />
       </button>
     </header>
