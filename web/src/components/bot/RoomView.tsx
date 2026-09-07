@@ -1,6 +1,6 @@
 "use client";
 
-import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Users, X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
@@ -14,6 +14,7 @@ import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
 import { BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow } from "@/components/bot/BotMessageList";
+import { renderMentions } from "@/components/bot/BotMention";
 
 type MentionContext = { start: number; end: number; query: string };
 type MentionCandidate = { key: string; value: string; label: string; description: string; bot?: BotDto };
@@ -28,29 +29,6 @@ function mentionContextFor(value: string, cursor: number): MentionContext | null
   if (start < 0 || (start > 0 && !/\s/.test(value[start - 1] ?? ""))) return null;
   const query = value.slice(start + 1, cursor);
   return /^[^\s@]*$/.test(query) ? { start, end: cursor, query } : null;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function renderMentionText(text: string, bots: BotDto[], keyPrefix: string, mentionClassName?: string): ReactNode[] {
-  const names = ["here", "channel", "everyone", "all", ...bots.map((bot) => bot.name.trim())]
-    .filter(Boolean)
-    .sort((left, right) => right.length - left.length);
-  if (names.length === 0) return [text];
-  const pattern = new RegExp(`@(?:${names.map(escapeRegExp).join("|")})(?![A-Za-z0-9_-])`, "giu");
-  const parts: ReactNode[] = [];
-  let last = 0;
-  let index = 0;
-  for (const match of text.matchAll(pattern)) {
-    const start = match.index ?? 0;
-    if (start > last) parts.push(text.slice(last, start));
-    parts.push(<span key={`${keyPrefix}-mention-${index++}`} className={mentionClassName ?? "font-semibold text-accent"}>{match[0]}</span>);
-    last = start + match[0].length;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return parts.length > 0 ? parts : [text];
 }
 
 export function RoomView({ id, active = true }: { id: string; active?: boolean }) {
@@ -239,9 +217,9 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       <BotMessageRow key={message.id} user={user} createdAt={message.createdAt}>
         {!user && <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted"><BotAvatar size={18} color={bot?.avatarColor} image={bot?.avatarImage} name={bot?.name ?? message.botName} active={message.status === "working"} />{bot?.name ?? message.botName ?? "ボット"}</div>}
         {user ? (
-          <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{renderMentionText(text, bots, message.id, "rounded bg-white/90 px-0.5 font-semibold text-accent")}</div>
+          <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{renderMentions(text, bots, message.id, "user")}</div>
         ) : (
-          <BotMessageMarkdown text={text} />
+          <BotMessageMarkdown text={text} mentions={bots} keyPrefix={message.id} />
         )}
         {message.codeState && <div role="status" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted"><span>{{ starting: "Code起動準備", running: "Code実行中", ready: "Code結果を報告中", delivered: "Code結果受領", cancelled: "Code中断" }[message.codeState]}</span>{message.codeTaskId && <a className="text-accent underline" href={`/task/${encodeURIComponent(message.codeTaskId)}`}>実行内容を見る</a>}</div>}
         {message.status === "error" && <BotMessageError text="応答に失敗しました" />}

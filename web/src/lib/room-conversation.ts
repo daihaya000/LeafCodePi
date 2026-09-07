@@ -99,6 +99,7 @@ export function roomBotPrompt(room: RoomDto, bot: BotDto, participants: BotDto[]
       `Room moderator: your turn ${turn.turn}/${turn.maxTurns}. Only this request's participants may receive the floor.`,
       "Write like chat: at most about three short sentences, plain prose, no headings, no numbered plans, no status reports, and no restating the roster or what was already said.",
       "Answer the latest participant's question or disagreement first, then add one concrete new point.",
+      "Address a teammate as @Name (their exact name) in your prose so the room can see who is being asked.",
       "If the user's request is too vague to act on, ask them one short question and finish with ROOM_ACTION: DONE instead of debating what they might have meant.",
       "End your own contribution with exactly one standalone line, outside quotes and code fences:",
       "ROOM_ACTION: NEXT <participant-id>  (ask that participant a concrete question in your prose; their id or exact name, nobody else)",

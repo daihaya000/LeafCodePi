@@ -58,6 +58,37 @@ afterEach(() => {
   mocks.markRead.mockReset();
 });
 
+describe("RoomView mention chips", () => {
+  it("turns an addressed participant into an avatar chip in both bot Markdown and user text", async () => {
+    const { act } = await import("@testing-library/react");
+    const { container } = render(<RoomView id={room.id} />);
+    await screen.findByRole("textbox");
+    act(() => pushSnapshot({
+      room: { ...room, messages: [
+        { id: "user-2", role: "user", text: "@Alpha お願い", createdAt: 2 },
+        { id: "reply-2", role: "assistant", botId: bot.id, text: "1. 指揮は @Alpha に任せる。", status: "done", createdAt: 3 },
+      ] },
+    }));
+
+    const chips = container.querySelectorAll("[data-mention]");
+    expect([...chips].map((chip) => chip.textContent)).toEqual(["Alpha", "Alpha"]);
+    expect([...chips].every((chip) => chip.getAttribute("data-mention") === bot.id)).toBe(true);
+    const inList = container.querySelector("li [data-mention]")!;
+    expect(inList.textContent).toBe("Alpha");
+    expect(inList.querySelector("[aria-label='Alphaのアバター']")).toBeTruthy();
+    expect(container.querySelector("li")?.textContent).toBe("指揮は Alpha に任せる。");
+  });
+
+  it("leaves an unknown handle as plain text", async () => {
+    const { act } = await import("@testing-library/react");
+    const { container } = render(<RoomView id={room.id} />);
+    await screen.findByRole("textbox");
+    act(() => pushSnapshot({ room: { ...room, messages: [{ id: "reply-3", role: "assistant", botId: bot.id, text: "@Unknown へ連絡", status: "done", createdAt: 4 }] } }));
+    expect(container.querySelector("[data-mention]")).toBeNull();
+    expect(container.textContent).toContain("@Unknown へ連絡");
+  });
+});
+
 describe("RoomView delegated work", () => {
   it("shows Code progress and lets the user answer a member's approval from the room", async () => {
     const { act } = await import("@testing-library/react");

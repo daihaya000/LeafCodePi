@@ -4,11 +4,20 @@ import { type ReactNode, useLayoutEffect, useRef } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { BotAvatar } from "@/components/bot/BotAvatar";
+import { withMentions } from "@/components/bot/BotMention";
 import { toolLabel } from "@/lib/tool-labels";
-import type { UiMessage } from "@/lib/types";
+import type { BotDto, UiMessage } from "@/lib/types";
 
-export function BotMessageMarkdown({ text }: { text: string }) {
-  return <div className="md"><Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown></div>;
+/** Elements that carry prose; each rewrites only its own bare text into mention chips. */
+const MENTION_TAGS = ["p", "li", "strong", "em", "td", "th", "h1", "h2", "h3", "h4", "blockquote"] as const;
+
+export function BotMessageMarkdown({ text, mentions, keyPrefix = "md" }: { text: string; mentions?: BotDto[]; keyPrefix?: string }) {
+  const components = mentions?.length
+    ? Object.fromEntries(MENTION_TAGS.map((Tag) => [Tag, ({ children, ...props }: { children?: ReactNode }) => (
+      <Tag {...props}>{withMentions(children, mentions, keyPrefix)}</Tag>
+    )]))
+    : undefined;
+  return <div className="md"><Markdown remarkPlugins={[remarkGfm]} components={components}>{text}</Markdown></div>;
 }
 
 export function BotMessageList({ conversationId, children }: { conversationId: string; children: ReactNode }) {
