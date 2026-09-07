@@ -67,7 +67,7 @@ describe("room conversation with delegated work", () => {
     await runRoomConversation(room, bots, "残作業も進めて", user.id);
     const replies = getRoom(room.id)!.messages.filter((message) => message.role === "assistant");
     expect(replies).not.toHaveLength(0);
-    for (const reply of replies) expect(reply.conversation).toMatchObject({ requestId: user.id, participantIds: room.members, maxTurns: 6 });
+    for (const reply of replies) expect(reply.conversation).toMatchObject({ requestId: user.id, participantIds: room.members, maxTurns: 4 });
   });
 
   it("pauses instead of handing off while a Code request is still outstanding", async () => {

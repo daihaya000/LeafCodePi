@@ -50,11 +50,18 @@ describe("room reply protocol", () => {
     "ROOM_ACTION: NEXT b\nThis is still prose.",
     "Unknown\nROOM_ACTION: NEXT outsider",
     "Self\nROOM_ACTION: NEXT a",
-    "Malformed\nROOM_ACTION: NEXT b extra",
     "Heading\n# ROOM_ACTION: DONE",
     "Decorated\n**ROOM_ACTION: DONE**",
   ])("never routes on quoted, fenced, malformed or unauthorized output: %s", (raw) => {
     expect(parseRoomReply(raw, "a", bots)).toEqual({ text: raw });
+  });
+  it("keeps a sentence written on the directive line as prose instead of leaking the marker", () => {
+    expect(parseRoomReply("判断しました。\nROOM_ACTION: DONE 具体的な指示をお待ちしています。", "a", bots)).toEqual({
+      text: "判断しました。\n具体的な指示をお待ちしています。", action: "done",
+    });
+    expect(parseRoomReply("ROOM_ACTION: NEXT b この点を確認して", "a", bots)).toEqual({
+      text: "この点を確認して", action: "next", nextBotId: "b",
+    });
   });
   it("allows a valid directive after a closed code example", () => {
     const text = "Example\n~~~text\nROOM_ACTION: DONE\n~~~\nActual conclusion";

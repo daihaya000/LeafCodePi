@@ -88,10 +88,10 @@ afterEach(async () => {
 });
 
 describe("room mention responses", () => {
-  it.each(["二人で会話してみて", "@here 二人で会話してみて", "@Debugger @Planner 二人で会話してみて", "/discuss 学ぶ言語を話し合って", "残作業も進めて"])("runs two bounded rounds with shared identities and replies: %s", async (request) => {
+  it.each(["二人で会話してみて", "@here 二人で会話してみて", "@Debugger @Planner 二人で会話してみて", "/discuss 学ぶ言語を話し合って", "残作業も進めて"])("gives each participant one turn with shared identities and replies when no directive is used: %s", async (request) => {
     const { room, bots, taskIds } = setup(["Debugger", "Planner"]);
     await send(room.id, request);
-    for (let turn = 0; turn < 4; turn += 1) {
+    for (let turn = 0; turn < 2; turn += 1) {
       await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(turn + 1));
       const [taskId, prompt] = state.promptTask.mock.calls[turn];
       expect(taskId).toBe(taskIds[turn % 2]);
@@ -100,11 +100,28 @@ describe("room mention responses", () => {
       expect(prompt).toContain("Planner");
       if (turn > 0) expect(prompt).toContain(`Contribution ${turn - 1}`);
       expect(prompt).toContain("never simulate their replies");
+      expect(prompt).toContain("at most about three short sentences");
       finish(taskId, { messages: [...state.details.get(taskId)!.messages, assistant(`turn-${turn}`, `Contribution ${turn}`)] });
     }
-    await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "done")).toHaveLength(4));
-    expect(state.promptTask).toHaveBeenCalledTimes(4);
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "done")).toHaveLength(2));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(state.promptTask).toHaveBeenCalledTimes(2);
     expect(getRoom(room.id)?.botRelayEnabled).toBe(false);
+  });
+
+  it("ends immediately on DONE without dragging in a silent participant", async () => {
+    const { room, bots, taskIds } = setup(["A", "B", "C"]);
+    let turn = 0;
+    state.promptTask.mockImplementation(async (id: string) => {
+      const text = turn === 0 ? `仕様が不明確です。\nROOM_ACTION: NEXT ${bots[1].id}` : "具体的な対象を教えてください。\nROOM_ACTION: DONE 指示をお待ちしています。";
+      snapshot(id, "agent_settled", { messages: [assistant(`done-${turn++}`, text)] });
+    });
+    await send(room.id, "Test");
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "done")).toHaveLength(2));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(state.promptTask.mock.calls.map(([id]) => id)).toEqual([taskIds[0], taskIds[1]]);
+    const last = getRoom(room.id)!.messages.at(-1)!;
+    expect(last.text).toBe("具体的な対象を教えてください。\n指示をお待ちしています。");
   });
 
   it("hands the floor to the requested participant and ends after a substantive conclusion", async () => {
@@ -127,7 +144,7 @@ describe("room mention responses", () => {
 
   it.each([2, 5])("caps handoffs for %s participants even when bots never finish", async (count) => {
     const { room, bots, taskIds } = setup(Array.from({ length: count }, (_, i) => `Bot${i}`));
-    const limit = Math.min(12, count * 3);
+    const limit = Math.min(8, count * 2);
     let turn = 0;
     state.promptTask.mockImplementation(async (id: string) => {
       const next = (taskIds.indexOf(id) + 1) % count;

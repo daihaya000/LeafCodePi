@@ -64,7 +64,7 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
 
 type Resume = { startTurn: number; maxTurns: number; nextBotId: string };
 export async function runRoomConversation(room: RoomDto, bots: BotDto[], prompt: string, userMessageId: string, resume?: Resume) {
-  const maxTurns = Math.min(MAX_ROOM_CONVERSATION_TURNS, resume?.maxTurns ?? bots.length * 3);
+  const maxTurns = Math.min(MAX_ROOM_CONVERSATION_TURNS, resume?.maxTurns ?? bots.length * 2);
   const prior = room.messages.filter((message) => message.conversation?.requestId === userMessageId && message.status === "done");
   const spoken = new Set(prior.flatMap((message) => message.botId ? [message.botId] : []));
   const replies = new Map<string, Set<string>>();
@@ -91,12 +91,11 @@ export async function runRoomConversation(room: RoomDto, bots: BotDto[], prompt:
     if (previous.has(normalized)) return;
     previous.add(normalized);
     replies.set(bot.id, previous);
-    const unheard = active.filter((member) => !spoken.has(member.id));
-    if (reply.action === "done" && unheard.length === 0) return;
-    // ponytail: unsupported protocol gets at most two rounds; no extra LLM selector or retry loop.
-    if (!reply.action && turn >= bots.length * 2) return;
-    nextBotId = (reply.action === "done" || maxTurns - turn <= unheard.length ? unheard[0]?.id : reply.nextBotId)
-      ?? active[(active.indexOf(bot) + 1) % active.length].id;
+    // The speaker ends the exchange; nobody is dragged in just because they have not spoken yet.
+    if (reply.action === "done") return;
+    // ponytail: a model ignoring the protocol gets one round-robin pass, not retries or an LLM selector.
+    if (!reply.action && turn >= bots.length) return;
+    nextBotId = reply.nextBotId ?? active[(active.indexOf(bot) + 1) % active.length].id;
   }
 }
 
