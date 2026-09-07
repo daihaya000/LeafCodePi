@@ -189,6 +189,12 @@ select {
   contain-intrinsic-size: auto 12rem;
 }
 
+.task-message-row article > [class~="group/reasoning"],
+.task-message-row article > [class~="overflow-hidden"][class~="rounded-xl"] {
+  align-self: flex-start;
+  width: 100%;
+}
+
 .md {
   min-width: 0;
   max-width: 100%;
