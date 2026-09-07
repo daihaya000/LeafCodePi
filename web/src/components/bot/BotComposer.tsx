@@ -47,7 +47,7 @@ export function BotComposer({
   }, [value]);
   return (
     <div className="shrink-0 bg-bot-chat px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 sm:px-4">
-      <div className="bot-composer-shell mx-auto w-full rounded-3xl border border-bot-outline bg-bot-panel px-2 py-1 transition-colors focus-within:border-accent/60">
+      <div className="bot-composer-shell mx-auto w-full rounded-3xl border border-bot-outline/70 bg-bot-panel px-2 py-1 transition-[border-color,box-shadow] focus-within:border-accent/50 focus-within:ring-2 focus-within:ring-accent/10">
         <div className="flex items-end gap-2">
           {footer && <button type="button" aria-label="会話のオプション" aria-expanded={optionsOpen} aria-controls={optionsId} onClick={() => setOptionsOpen((open) => !open)} className={`${COMPOSER_ACTION_BUTTON_CLASS} mb-1 bg-surface-2 text-muted hover:bg-surface-3 hover:text-text`}><Plus className="h-4 w-4" /></button>}
           <div className="relative min-w-0 flex-1">
