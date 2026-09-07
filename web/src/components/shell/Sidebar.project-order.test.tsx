@@ -309,6 +309,8 @@ describe("Sidebar project ordering", () => {
     expect(screen.getByRole("button", { name: "ルームを追加" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "プロジェクトを追加" })).toBeNull();
     expect(screen.getByRole("button", { name: "Bot" })).toBeTruthy();
+    expect(screen.getByText("ルームはありません")).toBeTruthy();
+    expect(screen.getByText("Botはありません")).toBeTruthy();
 
     expect(screen.queryByPlaceholderText("新しいBot")).toBeNull();
     expect(screen.queryByPlaceholderText("新しいルーム")).toBeNull();
