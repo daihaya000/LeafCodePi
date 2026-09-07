@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { X } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
 import { notifyBotSidebarChanged } from "@/lib/events";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
@@ -12,7 +12,7 @@ import { BotAvatar } from "@/components/bot/BotAvatar";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
-import { type ComposerAttachment } from "@/components/Composer";
+import { ImageLightbox, type ComposerAttachment } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { BotMessageList, BotMessageMarkdown, BotMessageTime } from "@/components/bot/BotMessageList";
 import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
@@ -40,6 +40,7 @@ export function BotView({ id }: { id: string }) {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [reverting, setReverting] = useState(false);
   const [savingSoul, setSavingSoul] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [updatingModel, setUpdatingModel] = useState(false);
@@ -59,6 +60,7 @@ export function BotView({ id }: { id: string }) {
   const [routineBusy, setRoutineBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const composingRef = useRef(false);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const router = useRouter();
   const applyBotUpdate = (next: BotDto) => {
     setBot(next);
@@ -169,6 +171,25 @@ export function BotView({ id }: { id: string }) {
     } catch (reason) {
       setSending(false);
       setError(reason instanceof Error ? reason.message : "リクエストに失敗しました");
+    }
+  };
+
+  const revertMessage = async (message: UiMessage) => {
+    if (reverting || sending || message.role !== "user") return;
+    setReverting(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ text: string; images: ComposerAttachment[] }>(
+        `/api/bots/${encodeURIComponent(id)}/revert`,
+        { entryId: message.id },
+      );
+      setPrompt(result.text);
+      setAttachments(result.images ?? []);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "巻き戻しに失敗しました");
+    } finally {
+      setReverting(false);
     }
   };
 
@@ -338,17 +359,20 @@ export function BotView({ id }: { id: string }) {
   const rendered = useMemo(() => messages.map((message) => {
     const user = message.role === "user";
     const text = textOf(message);
-    if (!text && !message.error) return null;
+    const images = message.parts.filter((part) => part.type === "image");
+    if (!text && images.length === 0 && !message.error) return null;
     return (
-      <div key={message.id} className={`flex items-end gap-2 ${user ? "justify-end" : "justify-start"}`}>
+      <div key={message.id} className={`flex flex-col gap-1 ${user ? "items-end" : "items-start"}`}>
+        <BotMessageTime createdAt={message.createdAt} />
         <div className={`min-w-0 max-w-[88%] rounded-3xl px-4 py-2.5 text-base leading-6 ${user ? "bg-bot-user text-white" : "bg-bot-assistant text-text"}`}>
+          {images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{images.map((part) => part.type === "image" && <ImageLightbox key={part.id} src={part.url} alt={part.filename ?? "添付画像"} className="max-h-48 max-w-full rounded-xl object-contain" />)}</div>}
           {text && (user ? <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</div> : <BotMessageMarkdown text={text} />)}
           {message.error && <div role="alert" className="mt-2 rounded-lg bg-danger/10 px-2 py-1 text-xs text-danger">{message.error}</div>}
-          <BotMessageTime createdAt={message.createdAt} />
         </div>
+        {user && <button type="button" title="このコメントを入力欄に戻して巻き戻す" disabled={reverting || sending} onClick={() => void revertMessage(message)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"><RotateCcw className="h-3 w-3" />入力欄に戻す</button>}
       </div>
     );
-  }), [messages]);
+  }), [messages, reverting, sending]);
 
   if (!bot) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
@@ -379,6 +403,7 @@ export function BotView({ id }: { id: string }) {
 
       <BotComposer
         value={prompt}
+        inputRef={inputRef}
         attachments={attachments}
         onRemoveAttachment={(index) => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}
         onPaste={(event) => { if (pasteImage(addImageFiles, event)) event.preventDefault(); }}
