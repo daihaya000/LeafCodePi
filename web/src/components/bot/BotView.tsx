@@ -13,9 +13,10 @@ import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
 import { BotMessageList, BotMessageMarkdown, BotMessageTime } from "@/components/bot/BotMessageList";
 import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
+import { QuestionCard } from "@/components/task/QuestionCard";
 import { AVATAR_IMAGE_ACCEPT, BOT_AVATAR_COLORS, MAX_AVATAR_IMAGE_BYTES, randomAvatarColor } from "@/lib/bot-avatar";
 import { markRead } from "@/lib/bot-unread";
-import type { BotDto, ModelOption, PermissionRequestDto, RoutineDto, ThinkingLevel, UiMessage } from "@/lib/types";
+import type { BotDto, ModelOption, PermissionRequestDto, QuestionRequestDto, RoutineDto, ThinkingLevel, UiMessage } from "@/lib/types";
 
 function textOf(message: UiMessage): string {
   return message.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
@@ -26,6 +27,7 @@ export function BotView({ id }: { id: string }) {
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [permission, setPermission] = useState<PermissionRequestDto | null>(null);
+  const [question, setQuestion] = useState<QuestionRequestDto | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [prompt, setPrompt] = useState("");
   const [soul, setSoul] = useState("");
@@ -100,9 +102,11 @@ export function BotView({ id }: { id: string }) {
             isStreaming?: boolean;
             error?: string;
             permissionRequest?: PermissionRequestDto | null;
+            questionRequest?: QuestionRequestDto | null;
           };
           if (payload.messages) setMessages(payload.messages);
           setPermission(payload.permissionRequest ?? null);
+          setQuestion(payload.questionRequest ?? null);
           setSending(Boolean(payload.isStreaming));
           if (payload.error) setError(payload.error);
         } catch { setError("イベントの解析に失敗しました"); }
@@ -148,8 +152,13 @@ export function BotView({ id }: { id: string }) {
     if (!permission) return;
     try {
       await sendJson(`/api/tasks/${encodeURIComponent(`bot:${id}`)}/permission`, { requestId: permission.id, approved });
-      setPermission(null);
+      setPermission((current) => current?.id === permission.id ? null : current);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "権限リクエストに失敗しました"); }
+  };
+
+  const answerQuestion = async (request: QuestionRequestDto, answers?: string[][]) => {
+    await sendJson(`/api/tasks/${encodeURIComponent(`bot:${id}`)}/question`, { requestId: request.id, ...(answers ? { answers } : { reject: true }) });
+    setQuestion((current) => current?.id === request.id ? null : current);
   };
 
   const abort = async () => {
@@ -337,7 +346,8 @@ export function BotView({ id }: { id: string }) {
           {routines.some((routine) => routine.failureCount > 0) && <div role="status" className="rounded-2xl border border-danger/40 bg-danger/5 p-4 text-sm"><p className="font-medium text-danger">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u5b9f\u884c\u306b\u5931\u6557\u3057\u3066\u3044\u307e\u3059"}</p><div className="mt-2 space-y-1 text-xs text-muted">{routines.filter((routine) => routine.failureCount > 0).map((routine) => <p key={routine.id}><span className="font-medium text-text">{routine.name}</span>{"\uFF1A"}{"\u9023\u7d9a\u5931\u6557"} {routine.failureCount}{"\u56de"}{routine.enabled ? "" : "\u3002\u5b89\u5168\u306e\u305f\u3081\u81ea\u52d5\u7684\u306b\u7121\u52b9\u5316\u3057\u307e\u3057\u305f"}</p>)}</div></div>}
           {routineCardOpen && <div className="rounded-2xl border border-accent/40 bg-surface p-4 shadow-sm" role="dialog" aria-label="ルーティン作成の確認"><p className="font-medium text-accent">ルーティンを作成</p><p className="mt-1 text-xs text-muted">内容を確認してから保存します。</p><div className="mt-3 space-y-2"><input value={routineName} onChange={(event) => setRoutineName(event.target.value)} placeholder="名前（例: 朝の確認）" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><textarea value={routinePrompt} onChange={(event) => setRoutinePrompt(event.target.value)} placeholder="Bot に実行させる指示" rows={3} className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><input value={routineSchedule} onChange={(event) => setRoutineSchedule(event.target.value)} aria-label="cron スケジュール" placeholder="0 * * * *" className="w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent" /><p className="text-[11px] text-muted">形式: 分 時 日 月 曜日（最短間隔 5 分）</p></div><div className="mt-3 flex justify-end gap-2"><Button size="sm" variant="ghost" onClick={() => setRoutineCardOpen(false)}>キャンセル</Button><Button size="sm" onClick={() => void createRoutine()} busy={creatingRoutine} disabled={!routineName.trim() || !routinePrompt.trim() || !routineSchedule.trim()}>この内容で作成</Button></div></div>}
           {rendered}
-          {permission && <div className="rounded-2xl border border-warning/40 bg-warning-bg p-4 text-xs"><p className="font-medium">権限の確認が必要です</p><p className="mt-1 break-all text-muted">{permission.message}</p><div className="mt-3 flex gap-2"><Button size="sm" onClick={() => void respond(true)}>許可</Button><Button size="sm" variant="ghost" onClick={() => void respond(false)}>拒否</Button></div></div>}
+          {permission && <div role="alertdialog" aria-label="権限の確認" className="rounded-2xl border border-warning/40 bg-warning-bg p-4 text-xs"><p className="font-medium">権限の確認が必要です</p><p className="mt-1 whitespace-pre-wrap break-all text-muted">{permission.message}</p><pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-surface p-2">{permission.command}</pre><div className="mt-3 flex gap-2"><Button size="sm" onClick={() => void respond(true)}>許可</Button><Button size="sm" variant="ghost" onClick={() => void respond(false)}>拒否</Button></div></div>}
+          {question && <QuestionCard request={question} onReply={answerQuestion} onReject={(request) => answerQuestion(request)} />}
           {sending && <div className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />応答中…</div>}
         </div>
       </BotMessageList>
