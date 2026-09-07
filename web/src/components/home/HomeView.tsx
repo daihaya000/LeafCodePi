@@ -373,6 +373,21 @@ export function HomeView({
                 ))}
               </GhostSelect>
             </div>
+            {goalLoopEnabled && (
+              <div className="mx-auto max-w-5xl">
+                <GoalLoopOptions
+                  acceptance={goalLoopAcceptance}
+                  maxTurns={goalLoopMaxTurns}
+                  cooldownSeconds={goalLoopCooldownSeconds}
+                  forceFullRun={goalLoopForceFullRun}
+                  disabled={submitting}
+                  onAcceptanceChange={setGoalLoopAcceptance}
+                  onMaxTurnsChange={setGoalLoopMaxTurns}
+                  onCooldownSecondsChange={setGoalLoopCooldownSeconds}
+                  onForceFullRunChange={setGoalLoopForceFullRun}
+                />
+              </div>
+            )}
             <Composer
               form={{
                 ariaLabel: "タスク作成",
@@ -440,13 +455,13 @@ export function HomeView({
                       setModel(value);
                       localStorage.setItem(MODEL_KEY, value);
                     }}
-                    className="h-11 w-full min-w-0 md:h-8 md:w-auto md:max-w-48 md:shrink"
+                    className="min-w-0 max-w-[9rem] shrink sm:max-w-48"
                   />
                   {model === AUTO_MODEL_VALUE ? (
                     <AutoOptimizeSelect
                       value={autoOptimizeMode}
                       disabled={submitting}
-                      className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
+                      className="h-8 shrink-0"
                       onChange={(value) => {
                         setAutoOptimizeMode(value);
                         writeAutoOptimizeMode(value);
@@ -462,7 +477,7 @@ export function HomeView({
                         setThinkingLevel(value);
                         writeStoredThinkingLevel(value);
                       }}
-                      className="h-11 w-full min-w-0 md:h-8 md:w-auto md:max-w-[8rem] md:shrink"
+                      className="min-w-0 max-w-[7rem] shrink sm:max-w-[8rem]"
                     />
                   )}
                   {agents.length > 0 && (
@@ -474,7 +489,7 @@ export function HomeView({
                         setAgent(value);
                         writeStoredAgent(value);
                       }}
-                      className="h-11 w-full min-w-0 md:h-8 md:w-auto md:max-w-40 md:shrink"
+                      className="min-w-0 max-w-[8rem] shrink sm:max-w-40"
                     />
                   )}
                     </>
@@ -492,7 +507,7 @@ export function HomeView({
                       setPermissionMode(mode);
                       writePermissionMode(mode);
                     }}
-                    className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
+                    className="h-8 shrink-0"
                   />
                   <SkillPermissionSelect
                     value={skillPermission}
@@ -501,7 +516,7 @@ export function HomeView({
                       setSkillPermission(mode);
                       writeSkillPermission(mode);
                     }}
-                    className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
+                    className="h-8 shrink-0"
                   />
                   <SubagentPermissionSelect
                     value={subagentPermission}
@@ -510,7 +525,7 @@ export function HomeView({
                       setSubagentPermission(mode);
                       writeSubagentPermission(mode);
                     }}
-                    className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
+                    className="h-8 shrink-0"
                   />
                     </>
                   ),
@@ -524,23 +539,7 @@ export function HomeView({
                     enabled={goalLoopEnabled}
                     disabled={submitting}
                     onToggle={() => setGoalLoopEnabled((value) => !value)}
-                    className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
                   />
-                  {goalLoopEnabled && (
-                    <div className="w-full md:w-auto">
-                      <GoalLoopOptions
-                        acceptance={goalLoopAcceptance}
-                        maxTurns={goalLoopMaxTurns}
-                        cooldownSeconds={goalLoopCooldownSeconds}
-                        forceFullRun={goalLoopForceFullRun}
-                        disabled={submitting}
-                        onAcceptanceChange={setGoalLoopAcceptance}
-                        onMaxTurnsChange={setGoalLoopMaxTurns}
-                        onCooldownSecondsChange={setGoalLoopCooldownSeconds}
-                        onForceFullRunChange={setGoalLoopForceFullRun}
-                      />
-                    </div>
-                  )}
                     </>
                   ),
                 },
@@ -551,7 +550,7 @@ export function HomeView({
                   size="icon"
                   type="submit"
                   aria-label="タスク開始"
-                  className="h-11 w-11 shrink-0 md:h-9 md:w-9"
+                  className="shrink-0"
                   busy={submitting}
                   disabled={(!prompt.trim() && attachments.length === 0) || projectId === undefined || submitting || health?.engineOk === false}
                 >

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { useRef, useState } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Composer, type ComposerAttachment } from "./Composer";
 
@@ -115,37 +115,16 @@ describe("Composer", () => {
     expect(textarea.style.height).not.toBe("0px");
   });
 
-  it("opens and closes grouped settings without losing values", async () => {
+  it("keeps grouped settings visible in the inline mobile toolbar", () => {
     render(<SettingsComposer />);
 
-    const trigger = screen.getByRole("button", { name: "タスク設定" });
-    const panel = document.getElementById(trigger.getAttribute("aria-controls") ?? "");
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    expect(panel).not.toBeNull();
-    expect(panel?.getAttribute("role")).toBe("region");
-    expect(panel?.getAttribute("aria-labelledby")).toBe(trigger.id);
-
-    fireEvent.click(trigger);
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByRole("heading", { name: "実行設定" })).toBeTruthy();
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("モデル設定")));
-    expect(screen.getByRole("heading", { name: "権限設定" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "タスク設定" })).toBeNull();
+    expect(screen.getByLabelText("モデル設定")).toBeTruthy();
+    expect(screen.getByLabelText("権限設定")).toBeTruthy();
 
     const model = screen.getByLabelText("モデル設定") as HTMLInputElement;
     fireEvent.change(model, { target: { value: "Claude" } });
-    model.focus();
-    fireEvent.keyDown(model, { key: "Escape" });
-
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    expect(document.activeElement).toBe(trigger);
     expect(model.value).toBe("Claude");
-    expect(panel?.className).toContain("hidden");
-
-    fireEvent.click(trigger);
-    expect((screen.getByLabelText("モデル設定") as HTMLInputElement).value).toBe("Claude");
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    expect(document.activeElement).toBe(trigger);
   });
 
   it("opens an attached image and closes it with Escape", () => {

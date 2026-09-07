@@ -2768,6 +2768,21 @@ export const TaskView = memo(function TaskView({
             onResume={(maxTurns) => void goalLoopAction("resume", maxTurns)}
           />
         )}
+        {goalLoopEnabled && !archived && (
+          <div className="mx-auto max-w-5xl">
+            <GoalLoopOptions
+              acceptance={goalLoopAcceptance}
+              maxTurns={goalLoopMaxTurns}
+              cooldownSeconds={goalLoopCooldownSeconds}
+              forceFullRun={goalLoopForceFullRun}
+              disabled={submitting || working || archived}
+              onAcceptanceChange={setGoalLoopAcceptance}
+              onMaxTurnsChange={setGoalLoopMaxTurns}
+              onCooldownSecondsChange={setGoalLoopCooldownSeconds}
+              onForceFullRunChange={setGoalLoopForceFullRun}
+            />
+          </div>
+        )}
         <div className="mx-auto max-w-5xl">
           <QueuedFollowUpsNotice
             items={queuedFollowUps}
@@ -2877,13 +2892,13 @@ export const TaskView = memo(function TaskView({
                     }
                   })();
                 }}
-                className="h-11 w-full md:h-8 md:w-max md:shrink-0"
+                className="min-w-0 max-w-[10rem] sm:max-w-[12rem]"
               />
               {modelValue === AUTO_MODEL_VALUE ? (
                 <AutoOptimizeSelect
                   value={autoOptimizeMode}
                   disabled={compacting || archived}
-                  className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
+                  className="h-8 shrink-0"
                   onChange={(value) => {
                     setAutoOptimizeMode(value);
                     writeAutoOptimizeMode(value);
@@ -2895,7 +2910,7 @@ export const TaskView = memo(function TaskView({
                   levels={thinkingLevels}
                   value={thinkingValue}
                   disabled={compacting || archived}
-                  className="h-11 w-full md:h-8 md:w-max md:shrink-0"
+                  className="h-8 shrink-0"
                   onChange={(value) => {
                     void (async () => {
                       try {
@@ -2948,7 +2963,7 @@ export const TaskView = memo(function TaskView({
                       })
                       .finally(() => setAgentChanging(false));
                   }}
-                  className="h-11 w-full md:h-8 md:w-max md:shrink-0"
+                  className="min-w-0 max-w-[8rem] sm:max-w-40"
                 />
               )}
                 </>
@@ -2980,7 +2995,7 @@ export const TaskView = memo(function TaskView({
                     }
                   })();
                 }}
-                className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
+                className="h-8 shrink-0"
               />
               <SkillPermissionSelect
                 value={skillPermission}
@@ -3000,7 +3015,7 @@ export const TaskView = memo(function TaskView({
                     }
                   })();
                 }}
-                className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
+                className="h-8 shrink-0"
               />
               <SubagentPermissionSelect
                 value={subagentPermission}
@@ -3009,7 +3024,7 @@ export const TaskView = memo(function TaskView({
                   setSubagentPermission(mode);
                   writeSubagentPermission(mode);
                 }}
-                className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
+                className="h-8 shrink-0"
               />
                 </>
               ),
@@ -3023,23 +3038,7 @@ export const TaskView = memo(function TaskView({
                 enabled={goalLoopEnabled}
                 disabled={archived || submitting || working || agentChanging || Boolean(task?.goalLoop && !["completed", "blocked", "stopped"].includes(task.goalLoop.status))}
                 onToggle={() => setGoalLoopEnabled((value) => !value)}
-                className="h-11 w-full md:h-8 md:w-auto md:shrink-0"
               />
-              {goalLoopEnabled && !archived && (
-                <div className="w-full md:w-auto">
-                  <GoalLoopOptions
-                    acceptance={goalLoopAcceptance}
-                    maxTurns={goalLoopMaxTurns}
-                    cooldownSeconds={goalLoopCooldownSeconds}
-                    forceFullRun={goalLoopForceFullRun}
-                    disabled={submitting || working || archived}
-                    onAcceptanceChange={setGoalLoopAcceptance}
-                    onMaxTurnsChange={setGoalLoopMaxTurns}
-                    onCooldownSecondsChange={setGoalLoopCooldownSeconds}
-                    onForceFullRunChange={setGoalLoopForceFullRun}
-                  />
-                </div>
-              )}
                 </>
               ),
             },
@@ -3061,7 +3060,7 @@ export const TaskView = memo(function TaskView({
                   )
                 }
                 valueLabel={deliveryMode === "queue" ? "キュー" : "割り込み"}
-                className="h-11 w-full md:h-8 md:w-max md:shrink-0"
+                className="max-w-[8rem] shrink-0"
                 onChange={(value) => {
                   if (value === "queue" || value === "steer") setDeliveryMode(value);
                 }}
