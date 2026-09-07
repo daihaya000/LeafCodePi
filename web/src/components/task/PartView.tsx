@@ -1034,7 +1034,7 @@ export const PartView = memo(
         {message.error && (
           <p
             role="alert"
-            className="rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger"
+            className="min-w-0 max-w-full overflow-hidden rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger [overflow-wrap:anywhere]"
           >
             {message.error}
           </p>
