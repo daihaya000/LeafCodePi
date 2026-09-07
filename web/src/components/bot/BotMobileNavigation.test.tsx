@@ -59,6 +59,8 @@ describe("Bot mode mobile navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "メニュー" }));
 
     expect(screen.getByTestId("mobile-nav-state").textContent).toBe("open");
+    expect(screen.getByText("一対一 ボット")).toBeTruthy();
+    expect(screen.getByText("一対一 ボット").className).not.toContain("sr-only");
   });
 
   it("opens the mobile menu from the bot list", () => {
