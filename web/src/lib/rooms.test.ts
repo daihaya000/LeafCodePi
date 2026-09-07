@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const testState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => testState.root, storePath: () => join(testState.root, "store.json") }; });
-import { botTaskId, createBot, deleteBot } from "./bots";
+import { botTaskId, createBot, deleteBot, patchBot } from "./bots";
 import { botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom } from "./rooms";
 import { getTask } from "./store";
 
@@ -64,6 +64,19 @@ describe("room store and mention routing", () => {
     expect(restartedRooms.consumeRoomRelayEnvelope(room.id, token!)).toBeUndefined();
     expect(restartedRooms.issueRoomRelayEnvelope(room.id, target.id, [source.id], token!)).toBeUndefined();
   });
+  it("revalidates relay participants when a persisted envelope is consumed", () => {
+    const [source, target] = ["Source", "Target"].map((name) => createBot({ name }));
+    const room = createRoom({ members: [source.id, target.id] });
+    patchRoom(room.id, { botRelayEnabled: true });
+    const token = issueRoomRelayEnvelope(room.id, source.id, [target.id]);
+    expect(token).toBeDefined();
+    patchBot(target.id, { enabled: false });
+    expect(consumeRoomRelayEnvelope(room.id, token!)).toBeUndefined();
+    patchBot(target.id, { enabled: true });
+    patchRoom(room.id, { members: [source.id] });
+    expect(consumeRoomRelayEnvelope(room.id, token!)).toBeUndefined();
+  });
+
   it("enforces server-side relay depth and turn participants", () => {
     const bots = ["A", "B", "C", "D", "E", "F"].map((name) => createBot({ name }));
     const room = createRoom({ members: bots.map((bot) => bot.id) });

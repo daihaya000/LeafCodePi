@@ -55,6 +55,10 @@ function withRelayLock<T>(roomId: string, action: () => T): T {
   try { return action(); } finally { rmSync(lock, { recursive: true, force: true }); }
 }
 
+function relayBotIsActive(room: RoomDto, botId: string): boolean {
+  return room.members.includes(botId) && getBot(botId)?.enabled === true;
+}
+
 function relayParticipants(roomId: string, turnId: string): Set<string> {
   const room = getRoom(roomId);
   const state = readRelayState(roomId);
@@ -71,9 +75,9 @@ function relayParticipants(roomId: string, turnId: string): Set<string> {
 export function issueRoomRelayEnvelope(roomId: string, sourceBotId: string, targetBotIds: string[], parentId?: string): string | undefined {
   return withRelayLock(roomId, () => {
     const room = getRoom(roomId);
-    if (!room?.botRelayEnabled || !room.members.includes(sourceBotId) || !getBot(sourceBotId)?.enabled) return undefined;
+    if (!room?.botRelayEnabled || !relayBotIsActive(room, sourceBotId)) return undefined;
     const targets = [...new Set(targetBotIds)];
-    if (targets.length === 0 || targets.some((id) => id === sourceBotId || !room.members.includes(id) || !getBot(id)?.enabled)) return undefined;
+    if (targets.length === 0 || targets.some((id) => id === sourceBotId || !relayBotIsActive(room, id))) return undefined;
     const state = readRelayState(roomId);
     const parent = parentId ? state.envelopes[parentId] : undefined;
     if (parentId && (!parent || !parent.consumed || parent.roomId !== roomId || parent.expiresAt <= Date.now() || !parent.targetBotIds.includes(sourceBotId))) return undefined;
@@ -95,6 +99,7 @@ export function consumeRoomRelayEnvelope(roomId: string, token: string): Omit<Ro
     const envelope = state.envelopes[token];
     const room = getRoom(roomId);
     if (!room?.botRelayEnabled || !envelope || envelope.roomId !== roomId || envelope.consumed || envelope.expiresAt <= Date.now()) return undefined;
+    if (!relayBotIsActive(room, envelope.sourceBotId) || !Array.isArray(envelope.targetBotIds) || envelope.targetBotIds.length === 0 || envelope.targetBotIds.some((id) => id === envelope.sourceBotId || !relayBotIsActive(room, id))) return undefined;
     const participants = relayParticipants(roomId, envelope.turnId);
     if (envelope.targetBotIds.some((id) => participants.has(id))) return undefined;
     envelope.consumed = true;
