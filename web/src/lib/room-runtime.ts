@@ -1,6 +1,6 @@
 import { appendRoomMessage, ensureRoomBotTask, getRoom, roomBotTaskId, updateRoomMessage } from "./rooms";
 import { getBot } from "./bots";
-import { getTaskDetail, promptTask } from "./pi/harness";
+import { getTaskDetail, promptTask, subscribeTask } from "./pi/harness";
 import { pendingRoomCodeRequest, type CodeRequest } from "./pi/bot-code-relay";
 import { latestRoomRequest, MAX_ROOM_CONVERSATION_TURNS, parseRoomReply, roomBotPrompt, type RoomReply, type RoomTurn } from "./room-conversation";
 import type { BotDto, RoomDto, UiMessage } from "./types";
@@ -9,6 +9,31 @@ import type { BotDto, RoomDto, UiMessage } from "./types";
 const globalRef = globalThis as typeof globalThis & { __leafcodeRoomBotRuns?: Map<string, Promise<void>> };
 const roomBotRuns = globalRef.__leafcodeRoomBotRuns ??= new Map<string, Promise<void>>();
 function textOf(message: UiMessage): string { return message.parts.filter((part) => part.type === "text").map((part) => part.text).join(""); }
+
+const STREAM_INTERVAL_MS = 400;
+/** Mirror the streaming reply into the room so a turn is readable while it is still being written. */
+function streamRoomReply(taskId: string, roomId: string, responseId: string, before: ReadonlySet<string>): () => void {
+  let lastText = "";
+  let lastWriteAt = 0;
+  return subscribeTask(taskId, (payload) => {
+    const message = payload.type === "delta"
+      ? payload.message as UiMessage | null
+      : (payload.messages as UiMessage[] | undefined)?.at(-1) ?? null;
+    if (!message || message.role !== "assistant" || before.has(message.id)) return;
+    // A directive — even half-typed on the streaming edge — is plumbing, never something to show.
+    const lines = textOf(message).split(/\r?\n/);
+    const text = lines.filter((line, index) => {
+      const bare = line.replace(/^[\s*_`]+/, "").toUpperCase();
+      if (!bare) return true;
+      return !bare.startsWith("ROOM_ACTION") && !(index === lines.length - 1 && "ROOM_ACTION".startsWith(bare));
+    }).join("\n").trimEnd();
+    const now = Date.now();
+    if (!text || text === lastText || now - lastWriteAt < STREAM_INTERVAL_MS) return;
+    lastText = text;
+    lastWriteAt = now;
+    updateRoomMessage(roomId, responseId, { text, status: "working" });
+  });
+}
 
 export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, responseId: string, requestId: string, turn?: RoomTurn): Promise<RoomReply | undefined> {
   const taskId = roomBotTaskId(room.id, bot.id);
@@ -44,8 +69,9 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
       .filter((member) => currentRoom.members.includes(member.id) && getBot(member.id)?.enabled);
     updateRoomMessage(room.id, responseId, { conversation: { requestId, participantIds: turn ? participants.map((member) => member.id) : [bot.id], turn: turn?.turn ?? 1, maxTurns: turn?.maxTurns ?? 1 } });
     const context = roomBotPrompt(currentRoom, bot, participants, prompt, requestId, turn);
+    const stopStreaming = streamRoomReply(taskId, room.id, responseId, before);
     // Wait for the exact queue entry, not an idle-looking acceptance snapshot.
-    await promptTask(taskId, context, undefined, { waitForCompletion: true });
+    try { await promptTask(taskId, context, undefined, { waitForCompletion: true }); } finally { stopStreaming(); }
     const detail = await getTaskDetail(taskId);
     const assistant = [...detail.messages].reverse().find((message) => message.role === "assistant" && !before.has(message.id));
     const error = detail.error || assistant?.error;

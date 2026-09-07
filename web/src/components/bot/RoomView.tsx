@@ -114,6 +114,10 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     () => (room ? room.members.map((memberId) => botById.get(memberId)).filter((bot): bot is BotDto => Boolean(bot)) : []),
     [botById, room],
   );
+  const busyIds = useMemo(() => new Set((room?.messages ?? []).flatMap((message) => {
+    const working = message.status === "working" || message.codeState === "starting" || message.codeState === "running" || message.codeState === "ready";
+    return working && message.botId ? [message.botId] : [];
+  })), [room?.messages]);
   const mentionCandidates = useMemo(() => {
     if (!mentionContext) return [];
     const query = mentionContext.query.toLocaleLowerCase();
@@ -254,8 +258,10 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       <div className={`${settingsOpen ? "hidden lg:flex" : "flex"} min-h-0 min-w-0 flex-1 flex-col`}>
       <BotChatHeader
         title={room.name}
-        subtitle={`\u30eb\u30fc\u30e0\u30fb${room.members.length} \u4eba`}
-        members={members}
+        subtitle={busyIds.size > 0
+          ? `${members.filter((member) => busyIds.has(member.id)).map((member) => member.name).join("、")} が応答中…`
+          : `ルーム・${room.members.length} 人`}
+        members={members.map((member) => ({ ...member, active: busyIds.has(member.id) }))}
         active={working}
         settingsOpen={settingsOpen}
         onSettings={() => setSettingsOpen((open) => !open)}

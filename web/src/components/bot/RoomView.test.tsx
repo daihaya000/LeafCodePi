@@ -70,8 +70,10 @@ describe("RoomView delegated work", () => {
     }));
 
     expect(screen.getByText("Code実行中")).toBeTruthy();
-    // A running delegated job keeps the room busy indicator on.
+    // A running delegated job keeps the room busy indicator on and names who is working.
     expect(screen.getByText("応答中…")).toBeTruthy();
+    expect(screen.getByText("Alpha が応答中…")).toBeTruthy();
+    expect(screen.getAllByLabelText("Alphaのアバター").some((node) => node.classList.contains("bot-avatar-working"))).toBe(true);
     expect(screen.getByRole("link", { name: "実行内容を見る" }).getAttribute("href")).toBe("/task/code-1");
     expect(screen.getByRole("alertdialog", { name: "Alphaの権限確認" })).toBeTruthy();
 

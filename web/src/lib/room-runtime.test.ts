@@ -5,7 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CodeRequest } from "./pi/bot-code-relay";
 import type { BotDto, RoomDto, TaskDetail, UiMessage } from "./types";
 
-const state = vi.hoisted(() => ({ root: "", details: new Map<string, TaskDetail>(), promptTask: vi.fn(), pendingRoom: vi.fn(() => undefined as CodeRequest | undefined) }));
+const state = vi.hoisted(() => ({
+  root: "", details: new Map<string, TaskDetail>(), promptTask: vi.fn(),
+  pendingRoom: vi.fn(() => undefined as CodeRequest | undefined),
+  listeners: new Map<string, Set<(payload: Record<string, unknown>) => void>>(),
+}));
 vi.mock("@/lib/paths", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/paths")>(),
   dataDir: () => state.root,
@@ -14,6 +18,12 @@ vi.mock("@/lib/paths", async (importOriginal) => ({
 vi.mock("@/lib/pi/harness", () => ({
   getTaskDetail: async (id: string) => state.details.get(id),
   promptTask: state.promptTask,
+  subscribeTask: (id: string, listener: (payload: Record<string, unknown>) => void) => {
+    const listeners = state.listeners.get(id) ?? new Set<(payload: Record<string, unknown>) => void>();
+    state.listeners.set(id, listeners);
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  },
 }));
 vi.mock("@/lib/pi/bot-code-relay", () => ({ pendingRoomCodeRequest: state.pendingRoom }));
 
@@ -55,6 +65,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   rmSync(state.root, { recursive: true, force: true });
+  state.listeners.clear();
   state.details.clear();
   state.promptTask.mockReset();
   state.pendingRoom.mockReset();
@@ -68,6 +79,36 @@ describe("room conversation with delegated work", () => {
     const replies = getRoom(room.id)!.messages.filter((message) => message.role === "assistant");
     expect(replies).not.toHaveLength(0);
     for (const reply of replies) expect(reply.conversation).toMatchObject({ requestId: user.id, participantIds: room.members, maxTurns: 4 });
+  });
+
+  it("shows the reply while it is still streaming and hides the half-written directive", async () => {
+    const { room, bots, user } = setup();
+    const taskId = `bot:${bots[0].id}:room:${room.id}`;
+    const seen: string[] = [];
+    state.promptTask.mockImplementation(async (id: string) => {
+      if (id !== taskId) { state.details.get(id)!.messages = [assistant("other", "別の発言\nROOM_ACTION: DONE")]; return; }
+      const emit = (text: string) => {
+        for (const listener of state.listeners.get(id) ?? []) listener({ type: "delta", message: assistant("stream", text) });
+        seen.push(getRoom(room.id)!.messages.at(-1)!.text);
+      };
+      emit("途中まで");
+      vi.setSystemTime(Date.now() + 500);
+      emit("途中までの続きです。\nROOM_ACT");
+      vi.setSystemTime(Date.now() + 500);
+      emit("途中までの続きです。\nROOM_ACTION: DONE");
+      state.details.get(id)!.messages = [assistant("stream", "途中までの続きです。\nROOM_ACTION: DONE")];
+    });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await runRoomConversation(room, bots, "残作業も進めて", user.id);
+    } finally { vi.useRealTimers(); }
+    expect(seen[0]).toBe("途中まで");
+    expect(seen.at(-1)).toBe("途中までの続きです。");
+    expect(seen.some((text) => text.includes("ROOM_ACT"))).toBe(false);
+    const final = getRoom(room.id)!.messages.at(-1)!;
+    expect(final).toMatchObject({ status: "done", text: "途中までの続きです。" });
+    // The stream listener must not outlive the turn.
+    expect(state.listeners.get(taskId)?.size ?? 0).toBe(0);
   });
 
   it("settles only long-abandoned working placeholders left by a crashed worker", () => {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, getRoom } from "@/lib/rooms";
 import { getBot } from "@/lib/bots";
 import { jsonError } from "@/lib/pi/harness";
-import { isRoomConversationRequest, isRoomStopRequest } from "@/lib/room-conversation";
+import { isRoomConversationRequest, isRoomStopRequest, MAX_ROOM_CONVERSATION_PARTICIPANTS } from "@/lib/room-conversation";
 import { runRoomBot, runRoomConversation, settleStaleRoomTurns } from "@/lib/room-runtime";
 import type { BotDto, RoomMessage } from "@/lib/types";
 export const runtime = "nodejs";
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     let routed = botsForRoomPrompt(room, prompt, body.broadcast === true);
     if (conversation && routed.bots.length === 0 && !prompt.includes("@")) routed = botsForRoomPrompt(room, prompt, true);
     if (conversation && routed.bots.length > 1) {
-      const participants = [...routed.bots].sort((a, b) => room.members.indexOf(a.id) - room.members.indexOf(b.id));
+      const participants = [...routed.bots].sort((a, b) => room.members.indexOf(a.id) - room.members.indexOf(b.id)).slice(0, MAX_ROOM_CONVERSATION_PARTICIPANTS);
       void runRoomConversation(room, participants, prompt, userMessage.id).catch(() => console.error("Room conversation failed"));
       return NextResponse.json({ room: getRoom(id), routedBotIds: routed.bots.map((bot) => bot.id), broadcast: routed.broadcast });
     }

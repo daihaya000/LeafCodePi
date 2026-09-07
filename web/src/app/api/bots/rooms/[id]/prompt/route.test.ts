@@ -109,6 +109,22 @@ describe("room mention responses", () => {
     expect(getRoom(room.id)?.botRelayEnabled).toBe(false);
   });
 
+  it("keeps a large room legible by limiting one exchange to six voices", async () => {
+    const { room, bots } = setup(["A", "B", "C", "D", "E", "F", "G", "H"]);
+    const result = await (await send(room.id, "残作業も進めて")).json();
+    expect(result.routedBotIds).toHaveLength(8);
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalled());
+    for (let turn = 0; turn < 6; turn += 1) {
+      await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(turn + 1));
+      const [taskId, prompt] = state.promptTask.mock.calls[turn];
+      const roster = JSON.parse(prompt.split("Participants (id, name, role): ")[1].split("\n")[0]);
+      expect(roster.map((member: { id: string }) => member.id)).toEqual(bots.slice(0, 6).map((member) => member.id));
+      finish(taskId, { messages: [...state.details.get(taskId)!.messages, assistant(`cap-${turn}`, `意見 ${turn}`)] });
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(state.promptTask).toHaveBeenCalledTimes(6);
+  });
+
   it("ends immediately on DONE without dragging in a silent participant", async () => {
     const { room, bots, taskIds } = setup(["A", "B", "C"]);
     let turn = 0;
