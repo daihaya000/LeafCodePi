@@ -174,7 +174,7 @@ function UserTextPart({
 
   if (!invocation) {
     return (
-      <div className="ml-auto min-w-0 max-w-[88%] rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5 text-[0.925rem] whitespace-pre-wrap break-words">
+      <div className="ml-auto min-w-0 max-w-[88%] rounded-2xl rounded-br-md bg-bot-user px-4 py-2.5 text-[0.925rem] whitespace-pre-wrap break-words text-white">
         {renderText(text)}
       </div>
     );
@@ -185,7 +185,7 @@ function UserTextPart({
     agents: [],
   };
   return (
-    <div className="ml-auto min-w-0 max-w-[88%] rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5 text-[0.925rem] whitespace-pre-wrap break-words">
+    <div className="ml-auto min-w-0 max-w-[88%] rounded-2xl rounded-br-md bg-bot-user px-4 py-2.5 text-[0.925rem] whitespace-pre-wrap break-words text-white">
       <ReferenceHighlight text={`/skill:${invocation.name}`} references={skillReference} />
       {invocation.userMessage && (
         <>{" "}{renderText(invocation.userMessage)}</>
