@@ -2,9 +2,9 @@
 
 import { Suspense } from "react";
 import { usePathname } from "next/navigation";
-import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
 import { writeAutoOptimizeMode } from "@/lib/auto-settings";
-import { AUTO_AGENT_VALUE, writeStoredAgent } from "@/lib/default-agent";
+import { readComposerDefaults } from "@/lib/composer-defaults";
+import { writeStoredAgent } from "@/lib/default-agent";
 import { writePermissionMode } from "@/lib/permission-gate";
 import { writeSkillPermission } from "@/lib/skill-permission";
 import { writeSubagentPermission } from "@/lib/subagent-permission";
@@ -22,13 +22,14 @@ let composerDefaultsInitialized = false;
 function initializeComposerDefaults(): void {
   if (composerDefaultsInitialized || typeof window === "undefined") return;
   composerDefaultsInitialized = true;
+  const defaults = readComposerDefaults();
   try {
-    window.localStorage.setItem(COMPOSER_MODEL_STORAGE_KEY, AUTO_MODEL_VALUE);
+    window.localStorage.setItem(COMPOSER_MODEL_STORAGE_KEY, defaults.model);
   } catch {
     /* private mode 等では既定値を state 側で使う */
   }
-  writeAutoOptimizeMode("balanced");
-  writeStoredAgent(AUTO_AGENT_VALUE);
+  writeAutoOptimizeMode(defaults.autoOptimize);
+  writeStoredAgent(defaults.agent);
   writePermissionMode("allow");
   writeSkillPermission("allow");
   writeSubagentPermission("deny");
