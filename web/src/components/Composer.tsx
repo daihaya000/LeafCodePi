@@ -281,7 +281,7 @@ export function Composer({
     ? settingsGroups.map((group) => (
         <div
           key={group.id}
-          className="flex min-w-max shrink-0 flex-nowrap items-center gap-1 border-l border-border/60 pl-2"
+          className="flex min-w-max shrink-0 flex-nowrap items-center gap-1"
         >
           {group.content}
         </div>
@@ -319,7 +319,7 @@ export function Composer({
         <div
           ref={previewRef}
           aria-hidden="true"
-          className={`${textarea.className} pointer-events-none absolute inset-0 z-0 max-h-60 overflow-hidden whitespace-pre-wrap break-words text-text`}
+          className={`${textarea.className} px-2 pointer-events-none absolute inset-0 z-0 max-h-60 overflow-hidden whitespace-pre-wrap break-words text-text`}
           style={textarea.style}
         >
           {highlightedText}
@@ -332,7 +332,7 @@ export function Composer({
           disabled={textarea.disabled}
           readOnly={textarea.readOnly}
           placeholder={textarea.placeholder}
-          className={`${textarea.className} relative z-10 max-h-60 overflow-y-auto text-transparent caret-text selection:bg-primary/20 focus-visible:outline-none`}
+          className={`${textarea.className} px-2 relative z-10 max-h-60 overflow-y-auto text-transparent caret-text selection:bg-primary/20 focus-visible:outline-none`}
           style={textarea.style}
           onChange={(event) => {
             textarea.onChange(event);

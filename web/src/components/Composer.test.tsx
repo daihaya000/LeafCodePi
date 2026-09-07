@@ -101,6 +101,7 @@ describe("Composer", () => {
     view.rerender(<TestComposer value="一行目\n二行目" />);
 
     expect(textarea.style.height).toBe("72px");
+    expect(textarea.className).toContain("px-2");
     expect(textarea.className).toContain("focus-visible:outline-none");
     expect(textarea.className).not.toContain("focus-visible:outline-accent");
   });
@@ -123,6 +124,7 @@ describe("Composer", () => {
     expect(toolbar.className).toContain("overflow-x-auto");
     expect(toolbar.className).toContain("flex-nowrap");
     expect(toolbar.className).toContain("sm:flex-wrap");
+    expect(toolbar.querySelector('[class*="border-l"]')).toBeNull();
     expect(screen.getByLabelText("モデル設定")).toBeTruthy();
     expect(screen.getByLabelText("権限設定")).toBeTruthy();
 
