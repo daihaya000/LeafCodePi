@@ -17,6 +17,10 @@ export type BotSkillsConfig = {
   exclude: string[];
 };
 
+export type RoomConversationTurn = { requestId: string; participantIds: string[]; turn: number; maxTurns: number };
+export type CodeRequestState = "starting" | "running" | "ready" | "delivered" | "cancelled";
+export type RoomAttention = { botId: string; taskId: string; permission: PermissionRequestDto | null; question: QuestionRequestDto | null };
+
 export type RoomMessage = {
   id: string;
   role: "user" | "assistant";
@@ -25,6 +29,11 @@ export type RoomMessage = {
   botId?: string;
   botName?: string;
   status?: "working" | "done" | "error";
+  /** Server-owned request/turn correlation, also persisted in delegated Code receipts. */
+  conversation?: RoomConversationTurn;
+  codeRequestId?: string;
+  codeTaskId?: string | null;
+  codeState?: CodeRequestState;
   /** Bot-to-bot relay metadata. These fields are absent for ordinary user messages. */
   sourceBotId?: string;
   relayTurnId?: string;

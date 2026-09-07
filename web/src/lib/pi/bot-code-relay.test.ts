@@ -2,20 +2,29 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BotDto, TaskSummary, UiMessage } from "@/lib/types";
+import type { BotDto, RoomDto, RoomMessage, TaskSummary, UiMessage } from "@/lib/types";
 
-const store = vi.hoisted(() => ({ root: "", bots: new Map<string, BotDto>(), tasks: new Map<string, TaskSummary>(), projects: [{ id: "project", name: "Project", archived: false }] }));
+const store = vi.hoisted(() => ({ root: "", bots: new Map<string, BotDto>(), tasks: new Map<string, TaskSummary>(), projects: [{ id: "project", name: "Project", archived: false }], rooms: new Map<string, RoomDto>() }));
 vi.mock("@/lib/paths", () => ({ dataDir: () => store.root }));
 vi.mock("@/lib/bots", () => ({
   getBot: (id: string) => store.bots.get(id),
   patchBot: (id: string, patch: Partial<BotDto>) => { const bot = store.bots.get(id); if (bot) Object.assign(bot, patch); return bot; },
+}));
+vi.mock("@/lib/rooms", () => ({
+  getRoom: (id: string) => store.rooms.get(id),
+  roomBotTaskId: (roomId: string, botId: string) => `bot:${botId}:room:${roomId}`,
+  updateRoomMessage: (roomId: string, messageId: string, patch: Partial<RoomMessage>) => {
+    const message = store.rooms.get(roomId)?.messages.find((item) => item.id === messageId);
+    if (message) Object.assign(message, patch);
+    return message;
+  },
 }));
 vi.mock("@/lib/store", () => ({
   getTask: (id: string) => store.tasks.get(id),
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, createBotCodeRelay, hasBotCodeReport, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, pendingRoomCodeRequest, roomForCodeOrigin, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -29,10 +38,27 @@ function record(): CodeRequest {
   return JSON.parse(readFileSync(join(directory, file), "utf8"));
 }
 function launch(call = "start-1") { return relay.run("bot:one", call, { action: "start", projectId: "project", prompt: "Fix the parser; run its test" }, "session"); }
+function roomSetup() {
+  store.bots.set("two", { id: "two", name: "Two", enabled: true, permissionMode: "allow" } as BotDto);
+  store.tasks.set("bot:one:room:room-1", task("bot:one:room:room-1", { kind: "bot", botId: "one" }));
+  store.tasks.set("bot:two:room:room-1", task("bot:two:room:room-1", { kind: "bot", botId: "two" }));
+  const conversation = { requestId: "user-1", participantIds: ["one", "two"], turn: 1, maxTurns: 6 };
+  store.rooms.set("room-1", {
+    id: "room-1", name: "Room", members: ["one", "two"], botRelayEnabled: false, createdAt: "", updatedAt: "",
+    messages: [
+      { id: "user-1", role: "user", text: "残作業も進めて", createdAt: 1 },
+      { id: "turn-1", role: "assistant", botId: "one", text: "", status: "working", createdAt: 2, conversation },
+    ],
+  });
+  return { conversation };
+}
+function roomLaunch(call = "room-start") {
+  return relay.run("bot:one:room:room-1", call, { action: "start", projectId: "project", prompt: "Fix the parser" }, "session");
+}
 
 beforeEach(() => {
   store.root = mkdtempSync(join(tmpdir(), "bot-code-relay-"));
-  store.bots.clear(); store.tasks.clear(); store.projects[0].archived = false;
+  store.bots.clear(); store.tasks.clear(); store.rooms.clear(); store.projects[0].archived = false;
   store.bots.set("one", { id: "one", enabled: true, permissionMode: "allow", model: "model", codeSessionTaskId: null } as BotDto);
   store.tasks.set("bot:one", task("bot:one", { kind: "bot", botId: "one" }));
   messages = [];
@@ -48,6 +74,7 @@ beforeEach(() => {
     isBusy: (id) => store.tasks.get(id)?.status === "working",
     messages: vi.fn(async () => messages),
     deliver: vi.fn(async () => true),
+    afterDelivery: vi.fn(async () => undefined),
   };
   relay = createBotCodeRelay(deps);
 });
@@ -190,9 +217,79 @@ describe("Bot ⇄ Code relay", () => {
   });
 });
 
+describe("Room ⇄ Code delegation", () => {
+  it("binds the request to the executing Room turn and mirrors its state on that message", async () => {
+    const { conversation } = roomSetup();
+    const result = await roomLaunch();
+
+    expect(result).toMatchObject({ taskId: "code", state: "running" });
+    expect(record().room).toEqual({ id: "room-1", responseId: "turn-1", conversation });
+    // The Room owns its Code link; the 1:1 session pointer must stay untouched.
+    expect(store.bots.get("one")?.codeSessionTaskId).toBeNull();
+    const turn = store.rooms.get("room-1")!.messages.at(-1)!;
+    expect(turn).toMatchObject({ codeRequestId: record().id, codeTaskId: "code", codeState: "running" });
+    expect(relay.originForCode("code")).toBe("bot:one:room:room-1");
+    expect(pendingRoomCodeRequest("room-1")?.id).toBe(record().id);
+    expect(roomForCodeOrigin(store.tasks.get("bot:one:room:room-1"))?.id).toBe("room-1");
+    expect(isBotCodeOriginTask(store.tasks.get("bot:one:room:room-1"))).toBe(true);
+    expect(isBotCodeOriginTask({ id: "bot:one:room:missing", kind: "bot", botId: "one" })).toBe(false);
+  });
+
+  it("continues the Room's own Code session rather than the Bot's 1:1 session", async () => {
+    roomSetup();
+    store.bots.get("one")!.codeSessionTaskId = "other-code";
+    store.tasks.set("other-code", task("other-code"));
+    await roomLaunch();
+    store.tasks.get("code")!.status = "idle";
+    await relay.tick();
+    expect(await relay.run("bot:one:room:room-1", "room-status", { action: "status" }, "session")).toMatchObject({ task: { id: "code" } });
+    await relay.run("bot:one:room:room-1", "room-follow", { action: "prompt", prompt: "Add a test" }, "session");
+    expect(deps.prompt).toHaveBeenCalledWith("code", "Add a test", expect.any(String));
+  });
+
+  it.each(["superseded", "removed", "finished"])("refuses a %s Room turn instead of executing detached work", async (change) => {
+    roomSetup();
+    const room = store.rooms.get("room-1")!;
+    if (change === "superseded") room.messages.push({ id: "user-2", role: "user", text: "別の依頼", createdAt: 3 });
+    if (change === "removed") room.members = ["two"];
+    if (change === "finished") room.messages.at(-1)!.status = "done";
+    await expect(roomLaunch()).rejects.toThrow(change === "removed" ? "Room member" : "no longer active");
+    expect(deps.create).not.toHaveBeenCalled();
+  });
+
+  it("allows only one Room Code job at a time, including from another member", async () => {
+    roomSetup();
+    await roomLaunch();
+    store.rooms.get("room-1")!.messages.push({ id: "turn-2", role: "assistant", botId: "two", text: "", status: "working", createdAt: 4, conversation: { requestId: "user-1", participantIds: ["one", "two"], turn: 2, maxTurns: 6 } });
+    await expect(relay.run("bot:two:room:room-1", "other-member", { action: "start", projectId: "project", prompt: "Same work" }, "session")).rejects.toThrow("still running");
+    expect(deps.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues the Room only after a delivered report, and not when delivery fails", async () => {
+    roomSetup();
+    await roomLaunch();
+    store.tasks.get("code")!.status = "idle";
+    vi.mocked(deps.deliver).mockResolvedValueOnce(false);
+    await relay.tick();
+    expect(deps.afterDelivery).not.toHaveBeenCalled();
+    const pending = record(); pending.nextAttemptAt = 0;
+    writeFileSync(join(store.root, "bot-code-requests", `${pending.id}.json`), JSON.stringify(pending), "utf8");
+    await relay.tick();
+    expect(record().state).toBe("delivered");
+    await vi.waitFor(() => expect(deps.afterDelivery).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(deps.afterDelivery!).mock.calls[0][0]).toMatchObject({ room: { id: "room-1" }, state: "delivered" });
+    await relay.tick();
+    expect(deps.afterDelivery).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("durable Bot report acknowledgement", () => {
   const marker = { type: "custom_message", customType: BOT_CODE_RESULT, details: { requestId: "request" } };
   const final = { type: "message", message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Report" }] } };
+  it("returns the reported text so a Room can reuse it verbatim", () => {
+    expect(botCodeReportText([marker, final], "request")).toBe("Report");
+    expect(botCodeReportText([marker], "request")).toBeUndefined();
+  });
   it("requires an actual final answer after the matching internal message", () => {
     expect(hasBotCodeReport([marker], "request")).toBe(false);
     expect(hasBotCodeReport([final, marker], "request")).toBe(false);

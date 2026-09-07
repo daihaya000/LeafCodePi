@@ -211,6 +211,8 @@ export function appendRoomMessage(id: string, message: Omit<RoomMessage, "id" | 
   return withRoomLock(id, () => {
     const room = readRoom(id);
     if (!room) return undefined;
+    const existing = message.id ? room.messages.find((item) => item.id === message.id) : undefined;
+    if (existing) return existing;
     const next: RoomMessage = { ...message, id: message.id ?? randomUUID(), createdAt: message.createdAt ?? Date.now() };
     room.messages.push(next);
     room.updatedAt = new Date().toISOString();
@@ -218,7 +220,7 @@ export function appendRoomMessage(id: string, message: Omit<RoomMessage, "id" | 
     return next;
   });
 }
-export function updateRoomMessage(id: string, messageId: string, patch: Partial<Pick<RoomMessage, "text" | "status" | "botName">>): RoomMessage | undefined {
+export function updateRoomMessage(id: string, messageId: string, patch: Partial<Pick<RoomMessage, "text" | "status" | "botName" | "conversation" | "codeRequestId" | "codeTaskId" | "codeState">>): RoomMessage | undefined {
   return withRoomLock(id, () => {
     const room = readRoom(id);
     const message = room?.messages.find((item) => item.id === messageId);

@@ -7,7 +7,8 @@ import { getBot, patchBot } from "@/lib/bots";
 import { getProject, getTask, listProjects } from "@/lib/store";
 import { dataDir } from "@/lib/paths";
 import { withBotCodeSessionLock } from "@/lib/bot-code-session-lock";
-import { NO_PROJECT_NAME, type TaskSummary, type UiMessage } from "@/lib/types";
+import { NO_PROJECT_NAME, type CodeRequestState, type RoomConversationTurn, type TaskSummary, type UiMessage } from "@/lib/types";
+import { getRoom, roomBotTaskId, updateRoomMessage } from "@/lib/rooms";
 
 export const BOT_CODE_TOOL = "code_session";
 export const BOT_CODE_RESULT = "bot-code-result";
@@ -16,7 +17,9 @@ export type CodeRequest = {
   botId: string;
   originTaskId: string;
   codeTaskId: string | null;
-  state: "starting" | "running" | "ready" | "delivered" | "cancelled";
+  state: CodeRequestState;
+  /** Captured from the executing Room message, never from model-supplied tool arguments. */
+  room?: { id: string; responseId: string; conversation: RoomConversationTurn; nextBotId?: string; complete?: boolean };
   prompt: string;
   baseline: string | null;
   result?: string;
@@ -31,6 +34,7 @@ type RelayDependencies = {
   isBusy: (id: string) => boolean;
   messages: (task: TaskSummary) => Promise<UiMessage[]>;
   deliver: (request: CodeRequest) => Promise<boolean>;
+  afterDelivery?: (request: CodeRequest) => Promise<void>;
 };
 
 function root(): string { return join(dataDir(), "bot-code-requests"); }
@@ -44,6 +48,7 @@ function save(request: CodeRequest): void {
   const temporary = `${path}.${process.pid}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(request)}\n`, "utf8");
   renameSync(temporary, path);
+  if (request.room) updateRoomMessage(request.room.id, request.room.responseId, { codeRequestId: request.id, codeTaskId: request.codeTaskId, codeState: request.state });
 }
 function read(id: string): CodeRequest | undefined {
   const path = requestPath(id);
@@ -60,28 +65,59 @@ function requests(): CodeRequest[] {
   });
 }
 function active(request: CodeRequest): boolean { return request.state !== "delivered" && request.state !== "cancelled"; }
+export function roomForCodeOrigin(task: Pick<TaskSummary, "id" | "kind" | "botId"> | undefined | null) {
+  if (task?.kind !== "bot" || !task.botId) return undefined;
+  const prefix = `bot:${task.botId}:room:`;
+  if (!task.id.startsWith(prefix)) return undefined;
+  const room = getRoom(task.id.slice(prefix.length));
+  return room?.members.includes(task.botId) && roomBotTaskId(room.id, task.botId) === task.id ? room : undefined;
+}
+export function isBotCodeOriginTask(task: Pick<TaskSummary, "id" | "kind" | "botId"> | undefined | null): boolean {
+  return Boolean(task?.kind === "bot" && task.botId && (task.id === `bot:${task.botId}` || roomForCodeOrigin(task)));
+}
 function owner(originTaskId: string) {
   const task = getTask(originTaskId);
   const bot = task?.kind === "bot" && task.botId ? getBot(task.botId) : undefined;
-  // Room turns have their own delivery protocol. This tool belongs to 1:1 Bots only.
-  if (!bot?.enabled || originTaskId !== `bot:${bot.id}` || task?.status === "archived") throw new Error("Code delegation requires an enabled 1:1 Bot");
+  if (!bot?.enabled || !isBotCodeOriginTask(task) || task?.status === "archived") throw new Error("Code delegation requires an enabled 1:1 Bot or Room member");
   return bot;
+}
+function roomContext(originTaskId: string): CodeRequest["room"] {
+  const task = getTask(originTaskId);
+  if (task && task.id === `bot:${task.botId}`) return undefined;
+  const room = roomForCodeOrigin(task);
+  const response = room?.messages.findLast((message) => message.botId === task?.botId && message.status === "working");
+  const latestUser = room?.messages.findLast((message) => message.role === "user" && !message.sourceBotId);
+  if (!room || !response?.conversation || response.conversation.requestId !== latestUser?.id || !response.conversation.participantIds.includes(task!.botId!)) throw new Error("Room request is no longer active");
+  return { id: room.id, responseId: response.id, conversation: response.conversation };
+}
+export function pendingRoomCodeRequest(roomId: string): CodeRequest | undefined {
+  return requests().find((request) => request.room?.id === roomId && active(request));
+}
+function linkedCodeTaskId(originTaskId: string, bot: ReturnType<typeof owner>): string | undefined {
+  const room = roomForCodeOrigin(getTask(originTaskId));
+  return room ? room.messages.findLast((message) => message.botId === bot.id && message.codeTaskId)?.codeTaskId ?? undefined : bot.codeSessionTaskId ?? undefined;
 }
 
 /** A persisted input is not an acknowledgement: require the final Bot answer after it. */
-export function hasBotCodeReport(entries: readonly unknown[], requestId: string): boolean {
+export function botCodeReportText(entries: readonly unknown[], requestId: string): string | undefined {
   let found = false;
   for (const value of entries) {
     const entry = value as { type?: string; customType?: string; details?: { requestId?: string }; message?: { role?: string; stopReason?: string; content?: { type?: string; text?: string }[] } };
     if (entry.type === "custom_message") {
       if (entry.customType === BOT_CODE_RESULT && entry.details?.requestId === requestId) found = true;
-      else if (found && entry.customType === BOT_CODE_RESULT) return false;
+      else if (found && entry.customType === BOT_CODE_RESULT) return undefined;
     }
     const message = entry.type === "message" ? entry.message : undefined;
-    if (found && message?.role === "user") return false;
-    if (found && message?.role === "assistant" && message.stopReason === "stop" && message.content?.some((part) => part.type === "text" && part.text?.trim())) return true;
+    if (found && message?.role === "user") return undefined;
+    if (found && message?.role === "assistant" && message.stopReason === "stop") {
+      const text = message.content?.filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n");
+      if (text?.trim()) return text;
+    }
   }
-  return false;
+  return undefined;
+}
+export function hasBotCodeReport(entries: readonly unknown[], requestId: string): boolean {
+  return botCodeReportText(entries, requestId) !== undefined;
 }
 
 export function createBotCodeRelay(deps: RelayDependencies) {
@@ -108,15 +144,16 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     if (input.action === "projects") {
       return { projects: [{ id: null, name: NO_PROJECT_NAME }, ...listProjects().map(({ id, name }) => ({ id, name }))] };
     }
-    if (input.action === "status") return { task: bot.codeSessionTaskId ? getTask(bot.codeSessionTaskId) ?? null : null };
+    if (input.action === "status") return { task: getTask(linkedCodeTaskId(originTaskId, bot) ?? "") ?? null };
     if (reporting.has(originTaskId)) throw new Error("Result reporting cannot start or control Code. Wait for a new user instruction.");
+    const room = roomContext(originTaskId);
     const id = createHash("sha256").update(`${originTaskId}:${sessionId}:${toolCallId}`).digest("hex");
     const previous = read(id);
     if (previous) return { requestId: id, taskId: previous.codeTaskId, state: previous.state };
     if (signal?.aborted) throw new Error("Code request cancelled");
     if (input.action !== "abort") {
       if (!input.prompt?.trim() || input.prompt.length > 32_000) throw new Error("A prompt of 1–32000 characters is required");
-      const linked = input.action === "prompt" ? getTask(bot.codeSessionTaskId ?? "") : undefined;
+      const linked = input.action === "prompt" ? getTask(linkedCodeTaskId(originTaskId, bot) ?? "") : undefined;
       if (input.action === "prompt" && !linked) throw new Error("No linked Code session");
       const projectId = input.action === "start" ? input.projectId?.trim() || null : linked?.projectId ?? null;
       const project = projectId ? getProject(projectId) : null;
@@ -125,25 +162,27 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       const approved = await deps.approve(sessionId, `Codeへ依頼します。\nプロジェクト: ${project?.name ?? NO_PROJECT_NAME}\n\n${input.prompt.trim()}`);
       if (!approved || signal?.aborted) throw new Error("Code request was not approved");
     }
-    return withBotCodeSessionLock(bot.id, async () => {
+    const execute = () => withBotCodeSessionLock(bot.id, async () => {
       const current = owner(originTaskId);
+      if (room && roomContext(originTaskId)?.responseId !== room.responseId) throw new Error("Room request is no longer active");
       const existing = read(id);
       if (existing) return { requestId: id, taskId: existing.codeTaskId, state: existing.state };
       if (signal?.aborted) throw new Error("Code request cancelled");
-      const linked = current.codeSessionTaskId ? getTask(current.codeSessionTaskId) : undefined;
+      const linked = getTask(linkedCodeTaskId(originTaskId, current) ?? "");
       if (input.action === "abort") {
         if (!linked) throw new Error("No linked Code session");
         return { task: await deps.abort(linked.id) };
       }
       if (current.permissionMode === "deny") throw new Error("This Bot does not permit Code delegation");
       if (requests().some((item) => item.botId === bot.id && active(item))) throw new Error("A Code request is still running or awaiting its Bot report");
+      if (room && pendingRoomCodeRequest(room.id)) throw new Error("A Room Code request is still running or awaiting its report");
       if (input.action === "start" && linked && linked.status !== "archived") return { task: linked, message: "Use prompt to continue this Code session" };
       if (input.action === "prompt" && (!linked || linked.status === "archived" || linked.permissionMode === "deny" || deps.isBusy(linked.id))) throw new Error("The linked Code session is unavailable or busy");
       const projectId = input.action === "start" ? input.projectId?.trim() || null : linked!.projectId;
       const project = projectId ? getProject(projectId) : null;
       if (projectId && (!project || project.archived)) throw new Error("Project is unavailable");
       const baseline = input.action === "prompt" ? (await deps.messages(linked!)).at(-1)?.id ?? null : null;
-      const request: CodeRequest = { id, botId: bot.id, originTaskId, codeTaskId: input.action === "prompt" ? linked!.id : null, state: "starting", prompt: input.prompt!.trim(), baseline };
+      const request: CodeRequest = { id, botId: bot.id, originTaskId, codeTaskId: input.action === "prompt" ? linked!.id : null, state: "starting", prompt: input.prompt!.trim(), baseline, ...(room ? { room } : {}) };
       save(request);
       try {
         if (input.action === "start") {
@@ -155,7 +194,10 @@ export function createBotCodeRelay(deps: RelayDependencies) {
             beforePrompt: (task) => {
               request.codeTaskId = task.id;
               save(request);
-              if (!patchBot(bot.id, { codeSessionTaskId: task.id })) throw new Error("Bot was deleted before Code launch");
+              if (room) {
+                owner(originTaskId);
+                if (roomContext(originTaskId)?.responseId !== room.responseId) throw new Error("Room request is no longer active");
+              } else if (!patchBot(bot.id, { codeSessionTaskId: task.id })) throw new Error("Bot was deleted before Code launch");
               request.state = "running";
               save(request);
             },
@@ -172,8 +214,10 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         throw error;
       }
       start();
-      return { requestId: id, taskId: request.codeTaskId, state: request.state, message: "Accepted. The result will return to this Bot automatically; do not poll or claim completion yet." };
+      return { requestId: id, taskId: request.codeTaskId, state: request.state, message: "Accepted. The result will return to this conversation automatically; do not poll, hand off unfinished work, or claim completion yet." };
     });
+    // Reuse the cross-process lock: one mutating Code job per Room, including across different Bots.
+    return room ? withBotCodeSessionLock(`room-${room.id}`, execute) : execute();
   }
 
   async function captureResult(request: CodeRequest): Promise<void> {
@@ -201,6 +245,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
   async function processRequest(id: string): Promise<void> {
     const initial = read(id);
     if (!initial || !active(initial)) return;
+    let delivered: CodeRequest | undefined;
     await withBotCodeSessionLock(initial.botId, async () => {
       const request = read(id);
       if (!request || !active(request)) return;
@@ -220,9 +265,10 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       save(request);
       reporting.add(request.originTaskId);
       try {
-        if (await deps.deliver(request)) { request.state = "delivered"; save(request); }
+        if (await deps.deliver(request)) { request.state = "delivered"; save(request); delivered = request; }
       } finally { reporting.delete(request.originTaskId); }
     });
+    if (delivered) void Promise.resolve().then(() => deps.afterDelivery?.(delivered!)).catch(() => console.warn("[bot-code-relay] automatic continuation stopped"));
   }
 
   async function tick(): Promise<void> {

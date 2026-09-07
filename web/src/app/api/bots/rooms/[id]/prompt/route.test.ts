@@ -20,6 +20,8 @@ vi.mock("@/lib/paths", async (importOriginal) => ({
 vi.mock("@/lib/pi/harness", () => ({
   getTaskDetail: vi.fn(async (id: string) => state.details.get(id)),
   promptTask: state.promptTask,
+  pendingPermissionForTask: vi.fn(() => null),
+  pendingQuestionForTask: vi.fn(() => null),
   subscribeTask: (id: string, listener: (payload: Record<string, unknown>) => void) => {
     const listeners = state.listeners.get(id) ?? new Set();
     state.listeners.set(id, listeners);
@@ -86,7 +88,7 @@ afterEach(async () => {
 });
 
 describe("room mention responses", () => {
-  it.each(["二人で会話してみて", "@here 二人で会話してみて", "@Debugger @Planner 二人で会話してみて", "/discuss 学ぶ言語を話し合って"])("runs two bounded rounds with shared identities and replies: %s", async (request) => {
+  it.each(["二人で会話してみて", "@here 二人で会話してみて", "@Debugger @Planner 二人で会話してみて", "/discuss 学ぶ言語を話し合って", "残作業も進めて"])("runs two bounded rounds with shared identities and replies: %s", async (request) => {
     const { room, bots, taskIds } = setup(["Debugger", "Planner"]);
     await send(room.id, request);
     for (let turn = 0; turn < 4; turn += 1) {
@@ -379,7 +381,8 @@ describe("room mention responses", () => {
       await reader.read(); // user message
       await reader.read(); // working reply
       finish(taskId, { messages: [assistant("reply", "SSE reply")] });
-      const result = new TextDecoder().decode((await reader.read()).value);
+      let result = "";
+      for (let i = 0; i < 5 && !result.includes('"text":"SSE reply","status":"done"'); i += 1) result = new TextDecoder().decode((await reader.read()).value);
       expect(result).toContain('"text":"SSE reply","status":"done"');
     } finally {
       await reader.cancel();

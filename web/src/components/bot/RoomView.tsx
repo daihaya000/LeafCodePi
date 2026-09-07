@@ -6,7 +6,8 @@ import { Users, X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
 import { notifyBotSidebarChanged } from "@/lib/events";
 import { markRead } from "@/lib/bot-unread";
-import type { BotDto, RoomDto } from "@/lib/types";
+import type { BotDto, QuestionRequestDto, RoomAttention, RoomDto } from "@/lib/types";
+import { QuestionCard } from "@/components/task/QuestionCard";
 import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
@@ -55,6 +56,8 @@ function renderMentionText(text: string, bots: BotDto[], keyPrefix: string, ment
 export function RoomView({ id, active = true }: { id: string; active?: boolean }) {
   const [room, setRoom] = useState<RoomDto | null>(null);
   const [bots, setBots] = useState<BotDto[]>([]);
+  const [attention, setAttention] = useState<RoomAttention[]>([]);
+  const [attentionBusy, setAttentionBusy] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [broadcast, setBroadcast] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -85,15 +88,25 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   }, [active, id, room?.messages]);
 
   useEffect(() => {
-    const source = new EventSource(`/api/bots/rooms/${encodeURIComponent(id)}/events?epoch=${Date.now()}`);
-    source.addEventListener("snapshot", (event) => {
-      try {
-        const payload = JSON.parse((event as MessageEvent).data) as { room?: RoomDto };
-        if (payload.room) setRoom(payload.room);
-      } catch { setError("イベントの解析に失敗しました"); }
-    });
-    source.onerror = () => source.close();
-    return () => source.close();
+    let closed = false;
+    let source: EventSource | undefined;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    setAttention([]);
+    const connect = () => {
+      if (closed) return;
+      source?.close();
+      source = new EventSource(`/api/bots/rooms/${encodeURIComponent(id)}/events?epoch=${Date.now()}`);
+      source.addEventListener("snapshot", (event) => {
+        try {
+          const payload = JSON.parse((event as MessageEvent).data) as { room?: RoomDto; attention?: RoomAttention[] };
+          if (payload.room) setRoom(payload.room);
+          setAttention(payload.attention ?? []);
+        } catch { setError("イベントの解析に失敗しました"); }
+      });
+      source.onerror = () => { source?.close(); if (!closed) retry = setTimeout(connect, 1500); };
+    };
+    connect();
+    return () => { closed = true; if (retry) clearTimeout(retry); source?.close(); };
   }, [id]);
 
   const botById = useMemo(() => new Map(bots.map((bot) => [bot.id, bot])), [bots]);
@@ -183,7 +196,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     setError(null);
     setBusy(true);
     try {
-      const result = await sendJson<{ room: RoomDto; routedBotIds?: string[] }>(
+      const result = await sendJson<{ room: RoomDto; routedBotIds?: string[]; stopped?: boolean }>(
         `/api/bots/rooms/${encodeURIComponent(id)}/prompt`,
         { prompt: value, broadcast },
       );
@@ -191,11 +204,26 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         setRoom(result.room);
         notifyBotSidebarChanged();
       }
-      if (result.routedBotIds && result.routedBotIds.length === 0) {
-        setError("応答するボットがいません。@ボット名 でメンションするか「部屋に聞く」を有効にしてください。");
+      if (!result.stopped && result.routedBotIds && result.routedBotIds.length === 0) {
+        setError("応答できるボットがいません。有効なメンバーとメンション先を確認してください。");
       }
     } catch (reason) { setError(reason instanceof Error ? reason.message : "リクエストに失敗しました"); }
     finally { setBusy(false); }
+  };
+
+  const respond = async (item: RoomAttention, approved: boolean) => {
+    if (!item.permission || attentionBusy) return;
+    const requestId = item.permission.id;
+    setAttentionBusy(requestId);
+    try {
+      await sendJson(`/api/tasks/${encodeURIComponent(item.taskId)}/permission`, { requestId, approved });
+      setAttention((current) => current.map((entry) => entry.permission?.id === requestId ? { ...entry, permission: null } : entry));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "権限リクエストに失敗しました"); }
+    finally { setAttentionBusy(null); }
+  };
+  const answerQuestion = async (taskId: string, request: QuestionRequestDto, answers?: string[][]) => {
+    await sendJson(`/api/tasks/${encodeURIComponent(taskId)}/question`, { requestId: request.id, ...(answers ? { answers } : { reject: true }) });
+    setAttention((current) => current.map((entry) => entry.question?.id === request.id ? { ...entry, question: null } : entry));
   };
 
   const rendered = useMemo(() => (room?.messages ?? []).map((message) => {
@@ -213,6 +241,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
           ) : (
             <BotMessageMarkdown text={text} />
           )}
+          {message.codeState && <div role="status" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted"><span>{{ starting: "Code起動準備", running: "Code実行中", ready: "Code結果を報告中", delivered: "Code結果受領", cancelled: "Code中断" }[message.codeState]}</span>{message.codeTaskId && <a className="text-accent underline" href={`/task/${encodeURIComponent(message.codeTaskId)}`}>実行内容を見る</a>}</div>}
           {message.status === "error" && <div className="mt-1 text-xs text-danger">応答に失敗しました</div>}
           <BotMessageTime createdAt={message.createdAt} />
         </div>
@@ -222,7 +251,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
 
   if (!room) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
-  const working = room.messages.some((message) => message.status === "working");
+  const working = room.messages.some((message) => message.status === "working" || message.codeState === "starting" || message.codeState === "running" || message.codeState === "ready");
 
   return (
     <div className="flex h-full min-h-0 bg-bot-chat">
@@ -239,8 +268,17 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
 
       <BotMessageList conversationId={id}>
         <div className="mx-auto w-full space-y-4">
-          {room.messages.length === 0 && <BotEmptyState icon={<Users className="h-5 w-5" />} title={room.name + " \u3067\u8a71\u3059"} description="\u30e1\u30f3\u30b7\u30e7\u30f3\u3055\u308c\u305f\u30dc\u30c3\u30c8\u3060\u3051\u304c\u5fdc\u7b54\u3057\u307e\u3059\u3002@here / @channel \u307e\u305f\u306f\u300c\u90e8\u5c4b\u306b\u805e\u304f\u300d\u3067\u5168\u54e1\u306b\u9001\u308c\u307e\u3059\u3002">{members.length > 0 && <div className="mt-3 flex flex-wrap justify-center gap-2">{members.map((bot) => <span key={bot.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 text-xs"><BotAvatar size={18} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />{bot.name}</span>)}</div>}</BotEmptyState>}
+          {room.messages.length === 0 && <BotEmptyState icon={<Users className="h-5 w-5" />} title={room.name + " \u3067\u8a71\u3059"} description="そのまま送るとメンバーが会話します。@ボット名で相手を指定、@hereで全員に個別回答を依頼できます。実作業は承認後にCodeで実行し、このRoomへ結果を返します。">{members.length > 0 && <div className="mt-3 flex flex-wrap justify-center gap-2">{members.map((bot) => <span key={bot.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 text-xs"><BotAvatar size={18} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />{bot.name}</span>)}</div>}</BotEmptyState>}
           {rendered}
+          {attention.map((item) => <div key={item.taskId} className="space-y-3">
+            {item.permission && <div role="alertdialog" aria-label={`${botById.get(item.botId)?.name ?? "Bot"}の権限確認`} className="rounded-2xl border border-warning/40 bg-warning-bg p-4 text-xs">
+              <p className="font-medium">{botById.get(item.botId)?.name ?? "Bot"}：権限の確認が必要です</p>
+              <p className="mt-1 whitespace-pre-wrap break-all text-muted">{item.permission.message}</p>
+              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-surface p-2">{item.permission.command}</pre>
+              <div className="mt-3 flex gap-2"><Button size="sm" disabled={Boolean(attentionBusy)} onClick={() => void respond(item, true)}>許可</Button><Button size="sm" variant="ghost" disabled={Boolean(attentionBusy)} onClick={() => void respond(item, false)}>拒否</Button></div>
+            </div>}
+            {item.question && <div><p className="mb-1 text-xs text-muted">{botById.get(item.botId)?.name ?? "Bot"}からの質問</p><QuestionCard request={item.question} onReply={(request, answers) => answerQuestion(item.taskId, request, answers)} onReject={(request) => answerQuestion(item.taskId, request)} /></div>}
+          </div>)}
           {working && <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />応答中…</div>}
         </div>
       </BotMessageList>
@@ -255,11 +293,11 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         onCompositionStart={() => { composingRef.current = true; }}
         onCompositionEnd={() => { composingRef.current = false; }}
         onKeyDown={handlePromptKeyDown}
-        placeholder={broadcast ? `${room.name}\u306e\u5168\u54e1\u306b\u30e1\u30c3\u30bb\u30fc\u30b8` : "@\u30dc\u30c3\u30c8\u540d \u306b\u30e1\u30c3\u30bb\u30fc\u30b8"}
+        placeholder={broadcast ? `${room.name}の全員に個別回答を依頼` : `${room.name}にメッセージ（@で相手を指定）`}
         sendDisabled={!prompt.trim()}
         busy={busy}
         onSend={() => void send()}
-        footer={<><button type="button" aria-pressed={broadcast} onClick={() => setBroadcast((value) => !value)} className={`rounded-full px-2 py-1 font-medium ${broadcast ? "bg-accent/10 text-accent" : "hover:bg-surface-2 hover:text-text"}`}>{broadcast ? "\u90e8\u5c4b\u306b\u805e\u304f\uff08\u5168\u54e1\uff09" : "\u90e8\u5c4b\u306b\u805e\u304f"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="shrink-0 hover:text-text">{`\u30e1\u30f3\u30d0\u30fc: ${room.members.length}`}</button></>}
+        footer={<><button type="button" aria-pressed={broadcast} onClick={() => setBroadcast((value) => !value)} className={`rounded-full px-2 py-1 font-medium ${broadcast ? "bg-accent/10 text-accent" : "hover:bg-surface-2 hover:text-text"}`}>{broadcast ? "全員が個別回答" : "メンバーで対話"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="shrink-0 hover:text-text">{`\u30e1\u30f3\u30d0\u30fc: ${room.members.length}`}</button></>}
         inputOverlay={mentionCandidates.length > 0 ? <div id="room-mention-options" role="listbox" aria-label={"\u30e1\u30f3\u30b7\u30e7\u30f3\u5148\u5019\u88dc"} className="absolute bottom-full left-0 z-20 mb-2 max-h-56 w-full overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">{mentionCandidates.map((candidate, index) => <button key={candidate.key} type="button" role="option" aria-selected={index === mentionIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => insertMention(candidate)} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left ${index === mentionIndex ? "bg-surface-2" : "hover:bg-surface-2"}`}>{candidate.bot ? <BotAvatar size={24} color={candidate.bot.avatarColor} image={candidate.bot.avatarImage} name={candidate.bot.name} /> : <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">@</span>}<span className="min-w-0"><span className="block truncate text-sm font-medium">{candidate.label}</span><span className="block truncate text-[11px] text-muted">{candidate.description}</span></span></button>)}</div> : null}
       />
       {!settingsOpen && error && <p role="alert" className="mx-auto max-w-3xl px-3 pb-2 text-xs text-danger">{error}</p>}
@@ -295,8 +333,8 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
             </div>
             <div className="rounded-2xl border border-border bg-bg p-4">
               <div className="flex items-center justify-between gap-3">
-                <div><span className="text-sm font-medium">部屋に聞く</span><p className="mt-0.5 text-xs text-muted">有効にすると、メンションなしでもメンバー全員が応答します。</p></div>
-                <Button size="sm" variant={broadcast ? "primary" : "ghost"} onClick={() => setBroadcast((value) => !value)} aria-pressed={broadcast}>{broadcast ? "全員" : "メンション"}</Button>
+                <div><span className="text-sm font-medium">全員が個別回答</span><p className="mt-0.5 text-xs text-muted">オフでは相手の返答を読んで対話し、オンでは各メンバーが独立して回答します。対話の後続停止は /stop（実行中のCodeは継続）。</p></div>
+                <Button size="sm" variant={broadcast ? "primary" : "ghost"} onClick={() => setBroadcast((value) => !value)} aria-pressed={broadcast}>{broadcast ? "一斉回答" : "対話"}</Button>
               </div>
             </div>
             <div className="border-t border-border pt-4">

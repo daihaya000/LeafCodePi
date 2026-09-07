@@ -19,6 +19,12 @@ vi.mock("next/link", () => ({
 
 import { RoomView } from "./RoomView";
 
+type EventSourceStub = { last?: { listeners: Map<string, (event: MessageEvent) => void> } };
+function pushSnapshot(payload: unknown) {
+  const source = (globalThis.EventSource as unknown as EventSourceStub).last;
+  source?.listeners.get("snapshot")?.({ data: JSON.stringify(payload) } as MessageEvent);
+}
+
 const bot = { id: "bot-1", name: "Alpha", avatarColor: "#0071E3", enabled: true };
 const room = {
   id: "room-1",
@@ -32,7 +38,14 @@ const room = {
 beforeEach(() => {
   mocks.getJson.mockImplementation((path: string) => path === "/api/bots" ? Promise.resolve({ bots: [bot] }) : Promise.resolve({ room }));
   mocks.sendJson.mockResolvedValue({ room });
-  vi.stubGlobal("EventSource", class { addEventListener() {} close() {} });
+  class Stub {
+    static last: Stub | undefined;
+    listeners = new Map<string, (event: MessageEvent) => void>();
+    constructor() { Stub.last = this; }
+    addEventListener(type: string, listener: (event: MessageEvent) => void) { this.listeners.set(type, listener); }
+    close() {}
+  }
+  vi.stubGlobal("EventSource", Stub);
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 0; });
 });
 
@@ -43,6 +56,28 @@ afterEach(() => {
   mocks.sendJson.mockReset();
   mocks.push.mockReset();
   mocks.markRead.mockReset();
+});
+
+describe("RoomView delegated work", () => {
+  it("shows Code progress and lets the user answer a member's approval from the room", async () => {
+    const { act } = await import("@testing-library/react");
+    render(<RoomView id={room.id} />);
+    await screen.findByRole("textbox");
+    const permission = { id: "permission-1", command: "code_session", message: "Codeへ依頼します", labels: [] };
+    act(() => pushSnapshot({
+      room: { ...room, messages: [...room.messages, { id: "reply-1", role: "assistant", botId: bot.id, text: "修正を依頼しました", status: "done", createdAt: 2, codeRequestId: "request", codeTaskId: "code-1", codeState: "running" }] },
+      attention: [{ botId: bot.id, taskId: `bot:${bot.id}:room:${room.id}`, permission, question: null }],
+    }));
+
+    expect(screen.getByText("Code実行中")).toBeTruthy();
+    // A running delegated job keeps the room busy indicator on.
+    expect(screen.getByText("応答中…")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "実行内容を見る" }).getAttribute("href")).toBe("/task/code-1");
+    expect(screen.getByRole("alertdialog", { name: "Alphaの権限確認" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "許可" }));
+    expect(mocks.sendJson).toHaveBeenCalledWith(`/api/tasks/${encodeURIComponent(`bot:${bot.id}:room:${room.id}`)}/permission`, { requestId: permission.id, approved: true });
+  });
 });
 
 describe("RoomView mentions", () => {

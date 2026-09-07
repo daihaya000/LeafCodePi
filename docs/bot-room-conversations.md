@@ -2,11 +2,11 @@
 
 ## 使い方
 
-- `/discuss 初心者が最初に学ぶ言語について話し合って`：有効なRoomメンバー間で対話する。
-- `/discuss @デバッガー @プランナー 設計案を比較して`：指定した参加者だけで対話する。名前の後ろに空白を入れる。
-- `二人で会話してみて` なども対応するが、自然文判定は補助的なもの。確実な起動には `/discuss` を使う。
-- 通常の `@Bot名 質問` は直接回答、`@here 質問` や「部屋に聞く」は従来どおり独立した一斉回答。
-- 新しいユーザー発言（例：`/stop`）で後続ターンを停止する。既に生成中の1発言は完了を待つ。
+- `残作業も進めて` のような通常文：メンションなしで送ると、有効なメンバーが互いの発言を読んで対話する。`/discuss` も同じ経路。
+- `@デバッガー @プランナー 設計案を比較して`：指定した参加者だけで対話する。名前の後ろに空白を入れる。
+- `@Bot名 質問` はそのBotだけが直接回答。`@here` や「全員が個別回答」は従来どおり独立した一斉回答。
+- 実作業は会話の中で `code_session` を使い、ユーザー承認後にCodeで実行して結果をこのRoomへ戻す。承認・質問・実行状態はRoom上で確認・応答できる。
+- `/stop`・`止めて` は後続ターンを停止する（Botへは送らない）。生成中の1発言と実行中のCodeは完了まで継続する。
 
 ## 調査した公開実装
 
@@ -18,6 +18,9 @@
 | [GrokBot SDK discussOnce](https://github.com/Adam91holt/grokbot-sdk/blob/c14347fa82d167b9a5984ec1baff56b2f074485a/sdk/src/gateway/oneshot.ts) | 指定席を複製して一時グループを作り、全参加者のidleを待ち、全発言を回収。SDK自体はホストの対話エンジンを実装しない | 発言者付き共有履歴と参加者限定を重視。既存Room専用セッションを再利用し、Bot複製やSDK依存は追加しない。 |
 | [grok-bot-rooms README](https://github.com/mrlynn/grok-bot-plugin-example/blob/bf5aa243641c007690cd69b22e2b2a5f172f7bbc/README.md) | 登録・在室・メッセージログを共有するMCPレジストリ。Grok Botネイティブのグループチャットではない | 会話スケジューラの参考としては採用しない。外部ホストや共有認証も追加しない。 |
 | [AutoGen Termination](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/termination.html) | 各返答後に終了条件を評価し、発言数上限・終了文字列・外部停止などを組み合わせる | 結論・上限・反復・ユーザー割り込みを組み合わせる。別LLMによる発言者選択やフレームワーク導入はしない。 |
+| [AutoGen Handoffs](https://microsoft.github.io/autogen/stable/user-guide/core-user-guide/design-patterns/handoffs.html) | 委譲時に会話履歴ごと渡し、完了後に応答を元の宛先へ戻す。人間専用の受け手も同一経路 | Code依頼でもRoomの共有履歴を渡し、結果を同じRoomへ戻す。トピック配信基盤や自律的な再委譲は導入しない。 |
+| [OpenBot tasks.ts](https://github.com/ashhart/OpenBot/blob/b544cb743986193fdc3d234ae66c8e44ef68fc00/src/main/tasks.ts) | 背景作業の同時実行数・未完了数を上限で囲い、完了・失敗を別途通知する | Roomあたり1件の実作業に制限し、結果を会話内へ戻す。並列キュー・カンバン・通知基盤は作らない。 |
+| [LangGraph Interrupts](https://docs.langchain.com/oss/javascript/langgraph/interrupts) | 中断前の副作用はidempotentにし、状態を永続化して再開する | 承認待ちで会話を止め、固定IDで報告を一度だけ追加する。グラフ実行エンジンは導入せず、既存の永続アウトボックスを使う。 |
 
 外部コードの移植ではなく、上記の制御パターンを既存の `promptTask` とRoom保存処理上に実装した。
 
@@ -34,14 +37,23 @@
 - リレー発言はユーザーの権限付与ではない。返信者の `botId` と依頼元の `sourceBotId` を区別する。既存の単発リレー認証・深さ制限は変更しない。
 - キュー待ちと準備の後にも、最新要求・在室・有効状態を再確認する。新規要求は待機中の古い対話を失効させる。
 
+## 実作業（Code依頼）の契約
+
+- Code依頼はユーザー承認を必須とし、依頼元の発言・要求ID・参加者をサーバ側で紐づける。モデルが宛先や対象Roomを自申できない。
+- RoomのCodeセッションはそのRoomの履歴から解決し、1対1チャットのセッションリンクを変えない。実行中はRoomあたり1件だけで、他メンバーからの重複起動も拒否する。
+- 依頼の受領は結果ではない。未完了のCodeがある間は次の発言者へ渡さず、報告待ちになる。
+- 結果は固定のメッセージIDでRoomへ一度だけ追加し、再送・再起動でも重複しない。実際のBot報告ができていない間は未配信のまま再試行する。
+- 自動的な会話再開は「実行終了」で、要求が差し替わっておらず、残り発言数がある場合に限る。失敗・中断・不明な結果は人間の指示待ちにする。
+- Roomの承認・質問はそのRoomセッションに限定して表示・応答する。別Roomや他タスクの待機を代行できない。
+
 ## 検証と残る制約
 
 ```text
 cd web
-npx vitest run src/lib/room-conversation.test.ts src/lib/rooms.test.ts "src/app/api/bots/rooms/[id]/prompt/route.test.ts"
+npx vitest run src/lib/room-conversation.test.ts src/lib/room-runtime.test.ts src/lib/rooms.test.ts src/lib/pi/bot-code-relay.test.ts src/lib/pi/harness-bot-code.test.ts src/components/bot/RoomView.test.tsx "src/app/api/bots/rooms/[id]/prompt/route.test.ts"
 npm run typecheck
 ```
 
-テストはモデル出力を制御し、受け渡し・打ち切り・共有履歴・選択範囲・引用・反復・割り込みを検証する。実モデルが常に自然な議論や正規の制御行を生成する保証ではない。
+テストはモデル出力とCode実行を制御し、受け渡し・打ち切り・共有履歴・選択範囲・引用・反復・割り込み・依頼の紐づけ・重複防止・再開条件を検証する。実モデルが常に自然な議論や正規の制御行を生成し、適切な粒度でCodeを使う保証ではない。
 
-既存のプロセス内非同期実行を維持しているため、プロセス再起動を跨ぐ対話再開・生成中の強制中断・壁時計の実行期限は未対応。停止後は新しい要求で対話を始める。専用スケジューラ、司会Bot、UI設定、外部依存は追加していない。
+対話の進行はプロセス内の非同期実行のままなので、Code結果の報告は永続アウトボックスで継続する一方、再起動で中断された発言の自動再開・生成中の強制中断・壁時計の実行期限・Room複数並行の実作業・専用カンバンは未対応。停止後は新しい要求で対話を始める。専用スケジューラ、司会Bot、外部依存は追加していない。
