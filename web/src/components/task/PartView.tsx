@@ -134,15 +134,29 @@ function DiagnosticDetails({ diagnostics }: { diagnostics: UiDiagnostic[] }) {
   );
 }
 
-const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
+const MarkdownBody = memo(function MarkdownBody({
+  text,
+  className,
+}: {
+  text: string;
+  className?: string;
+}) {
   const structuredResult = parseStructuredResult(text);
   if (structuredResult) return <StructuredResultCard result={structuredResult} />;
   return (
-    <div className="md text-sm">
+    <div className={cx("md", className ?? "text-sm")}>
       <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
     </div>
   );
 });
+
+function AssistantTextPart({ text }: { text: string }) {
+  return (
+    <div className="min-w-0 max-w-[88%] rounded-3xl bg-bot-assistant px-4 py-2.5 text-base leading-6">
+      <MarkdownBody text={text} className="text-base" />
+    </div>
+  );
+}
 
 type SkillInvocation = {
   name: string;
@@ -174,7 +188,7 @@ function UserTextPart({
 
   if (!invocation) {
     return (
-      <div className="ml-auto min-w-0 max-w-[88%] rounded-2xl rounded-br-md bg-bot-user px-4 py-2.5 text-[0.925rem] whitespace-pre-wrap break-words text-white">
+      <div className="ml-auto min-w-0 max-w-[88%] rounded-3xl bg-bot-user px-4 py-2.5 text-base leading-6 whitespace-pre-wrap break-words text-white">
         {renderText(text)}
       </div>
     );
@@ -185,7 +199,7 @@ function UserTextPart({
     agents: [],
   };
   return (
-    <div className="ml-auto min-w-0 max-w-[88%] rounded-2xl rounded-br-md bg-bot-user px-4 py-2.5 text-[0.925rem] whitespace-pre-wrap break-words text-white">
+    <div className="ml-auto min-w-0 max-w-[88%] rounded-3xl bg-bot-user px-4 py-2.5 text-base leading-6 whitespace-pre-wrap break-words text-white">
       <ReferenceHighlight text={`/skill:${invocation.name}`} references={skillReference} />
       {invocation.userMessage && (
         <>{" "}{renderText(invocation.userMessage)}</>
@@ -743,7 +757,7 @@ export function WorkingRow({ messages, active = true }: { messages: UiMessage[];
     ? `${toolLabel(running.tool, running.state.input)} ${toolSummary(running.tool, running.state)}`
     : "作業中…";
   return (
-    <div role="status" aria-live="polite" className="flex items-center gap-2 text-sm text-muted">
+    <div role="status" aria-live="polite" className="flex max-w-[88%] items-center gap-2 rounded-3xl bg-bot-assistant px-4 py-2.5 text-sm text-muted">
       <Loader2 className="h-4 w-4 shrink-0 animate-spin text-working" />
       <span className="min-w-0 flex-1 truncate">{headline}</span>
       {startedAtMs !== undefined && (
@@ -974,7 +988,7 @@ export const PartView = memo(
             return isUser ? (
               <UserTextPart key={part.id} text={part.text} references={references} />
             ) : (
-              <MarkdownBody key={part.id} text={part.text} />
+              <AssistantTextPart key={part.id} text={part.text} />
             );
           }
           if (part.type === "thinking") {

@@ -81,6 +81,26 @@ describe("TaskView draft submission", () => {
     expect(mocks.sendJson.mock.calls[0][1].streamingBehavior).toBe(working ? "steer" : undefined);
   });
 
+  it("refreshes worktree status when a task mutation is reported", async () => {
+    const worktreeTask = { ...task, directory: "C:\\repo" };
+    let changed = 1;
+    saveTaskSessionCache({ task: worktreeTask, messages: [], isStreaming: false, isCompacting: false });
+    mocks.getJson.mockImplementation((path: string) =>
+      path === "/api/diff/files"
+        ? Promise.resolve({ git: true, count: changed, files: [] })
+        : Promise.resolve({ models: [], agents: [], skills: [], accounts: [] }),
+    );
+    render(<TaskView taskId={task.id} mdUp />);
+    expect((await screen.findAllByText("変更あり")).length).toBe(2);
+
+    changed = 0;
+    await act(async () => {
+      window.dispatchEvent(new Event("webui:tasks-changed"));
+      await Promise.resolve();
+    });
+    expect((await screen.findAllByText("クリーン")).length).toBe(2);
+  });
+
   it("switches Graph and Diff instead of opening both when the timeline is narrow", () => {
     const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {

@@ -1359,11 +1359,14 @@ export const TaskView = memo(function TaskView({
 
     setWorktreeStatus(null);
     void refreshWorktreeStatus();
+    const onTasksChanged = () => void refreshWorktreeStatus();
+    window.addEventListener("webui:tasks-changed", onTasksChanged);
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void refreshWorktreeStatus();
     }, 4_000);
     return () => {
       closed = true;
+      window.removeEventListener("webui:tasks-changed", onTasksChanged);
       window.clearInterval(timer);
     };
   }, [active, task?.directory, task?.status, taskId, working]);
