@@ -376,9 +376,9 @@ export function BotView({ id }: { id: string }) {
       </div>
 
       {settingsOpen && (
-        <aside id="bot-settings-panel" onKeyDown={(event) => { if (event.key === "Escape") setSettingsOpen(false); }} aria-label="ボット設定" className="flex h-full w-full shrink-0 flex-col border-bot-outline bg-bot-chat lg:w-[22rem] lg:border-l xl:w-[24.5rem]">
+        <aside id="bot-settings-panel" role="dialog" aria-labelledby="bot-settings-title" onKeyDown={(event) => { if (event.key === "Escape") setSettingsOpen(false); }} aria-label="ボット設定" className="flex h-full w-full shrink-0 flex-col border-bot-outline bg-bot-chat lg:w-[22rem] lg:border-l xl:w-[24.5rem]">
           <div className="flex h-[3.75rem] shrink-0 items-center justify-between px-5">
-            <h2 className="text-sm font-medium">設定</h2>
+            <h2 id="bot-settings-title" className="text-sm font-medium">設定</h2>
             <button type="button" autoFocus aria-label="設定を閉じる" onClick={() => setSettingsOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"><X className="h-4 w-4" /></button>
           </div>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
