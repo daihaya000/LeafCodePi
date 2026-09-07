@@ -56,7 +56,7 @@ export function BotComposer({
           {busy && onAbort ? (
             <button type="button" onClick={onAbort} aria-label="応答を停止" title="応答を停止" className="mb-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-danger text-white transition-opacity hover:opacity-90"><Square className="h-3.5 w-3.5 fill-current" /></button>
           ) : (
-            <button type="button" onClick={onSend} aria-label="送信" title={sendDisabled ? "メッセージを入力してください" : "送信"} disabled={!canSend} className={`mb-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${sendDisabled || busy ? "bg-surface-3 text-muted" : "bg-primary text-primary-fg hover:opacity-80"}`}><ArrowUp className="h-4 w-4" /></button>
+            <button type="button" onClick={onSend} aria-label="送信" title={sendDisabled ? "メッセージを入力してください" : "送信"} disabled={!canSend} className={`mb-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${sendDisabled || busy ? "bg-surface-3 text-muted" : "bg-accent text-white hover:bg-accent/90"}`}><ArrowUp className="h-4 w-4" /></button>
           )}
         </div>
         {footer && <div id={optionsId} hidden={!optionsOpen} className="border-t border-bot-outline px-2 py-2 text-xs text-muted">{optionsOpen && <div className="flex flex-wrap items-center gap-3">{footer}</div>}</div>}

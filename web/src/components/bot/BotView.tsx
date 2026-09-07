@@ -307,7 +307,7 @@ export function BotView({ id }: { id: string }) {
     if (!text && !message.error) return null;
     return (
       <div key={message.id} className={`flex items-end gap-2 ${user ? "justify-end" : "justify-start"}`}>
-        <div className={`min-w-0 max-w-[88%] rounded-3xl px-4 py-2.5 text-base leading-6 ${user ? "bg-bot-user text-text" : "bg-bot-assistant text-text"}`}>
+        <div className={`min-w-0 max-w-[88%] rounded-3xl px-4 py-2.5 text-base leading-6 ${user ? "bg-bot-user text-white" : "bg-bot-assistant text-text"}`}>
           {text && <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</div>}
           {message.error && <div className="mt-1 text-xs text-danger">{message.error}</div>}
           <BotMessageTime createdAt={message.createdAt} />
