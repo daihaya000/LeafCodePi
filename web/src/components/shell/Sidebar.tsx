@@ -170,7 +170,7 @@ type BotListFilter = "all" | "bots" | "rooms";
 
 function ModeSegment({ mode, onChange }: { mode: AppMode; onChange: (mode: AppMode) => void }) {
   return <div className="mx-1 mb-2 grid grid-cols-2 rounded-lg border border-border bg-surface-2 p-0.5">
-    {(["code", "bot"] as const).map((item) => <button key={item} type="button" aria-pressed={mode === item} onClick={() => onChange(item)} className={cx("rounded-md px-2 py-1.5 text-xs font-medium", mode === item ? "bg-surface text-text shadow-sm" : "text-muted hover:text-text")}>{item === "code" ? "Code" : "Bot"}</button>)}
+    {(["bot", "code"] as const).map((item) => <button key={item} type="button" aria-pressed={mode === item} onClick={() => onChange(item)} className={cx("rounded-md px-2 py-1.5 text-xs font-medium", mode === item ? "bg-surface text-text shadow-sm" : "text-muted hover:text-text")}>{item === "code" ? "Code" : "Bot"}</button>)}
   </div>;
 }
 
@@ -668,7 +668,7 @@ const SidebarView = memo(function SidebarView({
 }: SidebarProps & SidebarPaneProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const [mode, setMode] = useState<AppMode>("code");
+  const [mode, setMode] = useState<AppMode>("bot");
   const mdUp = useIsMdUp();
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [archivedProjects, setArchivedProjects] = useState<ProjectDto[]>([]);

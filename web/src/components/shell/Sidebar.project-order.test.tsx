@@ -76,6 +76,8 @@ function projectOrder() {
 
 beforeEach(() => {
   localStorage.clear();
+  // These tests exercise the Code sidebar; opt into it explicitly now that Bot is the default.
+  localStorage.setItem("leafcodepi.mode", "code");
   mocks.getJson.mockReset().mockImplementation((path: string) => {
     if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
     if (path === "/api/tasks?archived=1") return Promise.resolve({ tasks: [] });
@@ -113,6 +115,16 @@ afterEach(() => {
 });
 
 describe("Sidebar project ordering", () => {
+  it("defaults to Bot mode when no mode is saved", () => {
+    localStorage.removeItem("leafcodepi.mode");
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    const modeSegment = screen.getByRole("button", { name: "Code" }).parentElement!;
+    const modeButtons = [...modeSegment.querySelectorAll("button")];
+    expect(modeButtons.map((button) => button.textContent)).toEqual(["Bot", "Code"]);
+    expect(modeButtons[0]?.getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("uses the displayed project icon as the file picker", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
