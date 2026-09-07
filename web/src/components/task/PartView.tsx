@@ -783,6 +783,8 @@ const ReasoningView = memo(function ReasoningView({ text }: { text: string }) {
   const shownText = stripReasoningMarkdown(text);
   const { mode, translated } = useReasoningTranslation(shownText);
   const [showOriginal, setShowOriginal] = useState(false);
+  // ponytail: 初期表示だけで判定。長い思考は畳んでタイムラインを埋めない。
+  const [open, setOpen] = useState(() => shownText.length <= 600);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
@@ -823,11 +825,23 @@ const ReasoningView = memo(function ReasoningView({ text }: { text: string }) {
 
   return (
     <div className="group/reasoning relative min-w-0 overflow-hidden rounded-xl border border-border bg-surface">
-      <div className="flex items-center gap-1.5 border-b border-border bg-surface-2 px-3 py-1.5 text-xs text-faint">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-1.5 bg-surface-2 px-3 py-1.5 text-left text-xs text-faint hover:text-muted"
+      >
         <Brain className="h-3.5 w-3.5 shrink-0" />
         思考
-      </div>
-      <div className="relative min-w-0 px-3 py-2 pr-10 text-sm font-normal text-muted">
+        <ChevronRight
+          className={cx(
+            "ml-auto h-3.5 w-3.5 shrink-0 transition-transform",
+            open && "rotate-90",
+          )}
+        />
+      </button>
+      {open && (
+      <div className="relative min-w-0 border-t border-border px-3 py-2 pr-10 text-sm font-normal text-muted">
         {showTranslation ? (
           mode === "bilingual" ? (
             <>
@@ -928,6 +942,7 @@ const ReasoningView = memo(function ReasoningView({ text }: { text: string }) {
           </form>
         )}
       </div>
+      )}
     </div>
   );
 });
