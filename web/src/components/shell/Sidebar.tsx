@@ -751,8 +751,7 @@ const SidebarView = memo(function SidebarView({
     setMode(next);
     try { localStorage.setItem(MODE_KEY, next); } catch { /* ignore */ }
     router.push(next === "bot" ? "/bots" : "/");
-    onClose();
-  }, [onClose, router]);
+  }, [router]);
 
   useEffect(() => {
     const intervalMs = hasWorking ? POLL_WORKING_MS : POLL_IDLE_MS;
