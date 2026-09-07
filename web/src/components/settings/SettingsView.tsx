@@ -23,6 +23,7 @@ import { HangTimeoutSettings } from "@/components/settings/HangTimeoutSettings";
 import { NotificationSoundSettings } from "@/components/settings/NotificationSoundSettings";
 import { SystemSafetySettings } from "@/components/settings/SystemSafetySettings";
 import { BotDefaultsSettings } from "@/components/settings/BotDefaultsSettings";
+import { ComposerDefaultsSettings } from "@/components/settings/ComposerDefaultsSettings";
 import { BotsMdSettings } from "@/components/settings/BotsMdSettings";
 import { CommitGuardSettings } from "@/components/settings/CommitGuardSettings";
 import { Badge, cx } from "@/components/ui";
@@ -308,9 +309,12 @@ export function SettingsView() {
               <SettingsGroup
                 id="engine-display-heading"
                 title="表示と通知"
-                description="起動時の表示、通知音、メッセージ移動ボタンを設定します。"
+                description="起動時の既定値、表示、通知音、メッセージ移動ボタンを設定します。"
               >
                 <div className="grid gap-4 xl:grid-cols-2">
+                  <div className="xl:col-span-2">
+                    <ComposerDefaultsSettings refreshToken={modelsRevision} />
+                  </div>
                   <BrowserSettings />
                   <NavigatorSettings />
                   <NotificationSoundSettings />
