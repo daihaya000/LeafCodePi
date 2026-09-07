@@ -119,6 +119,10 @@ describe("Composer", () => {
     render(<SettingsComposer />);
 
     expect(screen.queryByRole("button", { name: "タスク設定" })).toBeNull();
+    const toolbar = screen.getByRole("group", { name: "タスク設定" });
+    expect(toolbar.className).toContain("overflow-x-auto");
+    expect(toolbar.className).toContain("flex-nowrap");
+    expect(toolbar.className).toContain("sm:flex-wrap");
     expect(screen.getByLabelText("モデル設定")).toBeTruthy();
     expect(screen.getByLabelText("権限設定")).toBeTruthy();
 
