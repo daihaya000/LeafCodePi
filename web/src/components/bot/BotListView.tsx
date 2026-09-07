@@ -43,7 +43,7 @@ export function BotListView() {
     }
   }
 
-  async function useTemplate(templateId: string) {
+  async function createFromTemplate(templateId: string) {
     if (busy || templateBusy) return;
     setTemplateBusy(templateId);
     setError(null);
@@ -88,7 +88,7 @@ export function BotListView() {
                 <h3 className="font-medium">{template.name}</h3>
                 <p className="mt-1 text-xs font-medium text-accent">{template.label}</p>
                 <p className="mt-2 flex-1 text-xs leading-5 text-muted">{template.description}</p>
-                <Button size="sm" variant="ghost" onClick={() => void useTemplate(template.id)} busy={templateBusy === template.id} disabled={busy || templateBusy !== null} className="mt-3 w-full justify-center"><CopyPlus className="mr-1.5 h-3.5 w-3.5" />使ってみる</Button>
+                <Button size="sm" variant="ghost" onClick={() => void createFromTemplate(template.id)} busy={templateBusy === template.id} disabled={busy || templateBusy !== null} className="mt-3 w-full justify-center"><CopyPlus className="mr-1.5 h-3.5 w-3.5" />使ってみる</Button>
               </article>
             ))}
           </div>
