@@ -5,6 +5,13 @@ import { BotComposer } from "./BotComposer";
 
 afterEach(cleanup);
 
+it("forwards clipboard paste events to the input", () => {
+  const onPaste = vi.fn();
+  const { getByRole } = render(<BotComposer value="" onChange={vi.fn()} onPaste={onPaste} onKeyDown={vi.fn()} onSend={vi.fn()} placeholder="Message" />);
+  fireEvent.paste(getByRole("textbox"), { clipboardData: { items: [] } });
+  expect(onPaste).toHaveBeenCalledOnce();
+});
+
 it("keeps options out of the compact input row and preserves send/stop actions", () => {
   const onSend = vi.fn();
   const onAbort = vi.fn();

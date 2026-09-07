@@ -12,6 +12,8 @@ import { BotAvatar } from "@/components/bot/BotAvatar";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
+import { type ComposerAttachment } from "@/components/Composer";
+import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { BotMessageList, BotMessageMarkdown, BotMessageTime } from "@/components/bot/BotMessageList";
 import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
 import { QuestionCard } from "@/components/task/QuestionCard";
@@ -31,6 +33,7 @@ export function BotView({ id }: { id: string }) {
   const [question, setQuestion] = useState<QuestionRequestDto | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [prompt, setPrompt] = useState("");
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [soul, setSoul] = useState("");
   const [profileName, setProfileName] = useState("");
   const [profileLabel, setProfileLabel] = useState("");
@@ -139,14 +142,29 @@ export function BotView({ id }: { id: string }) {
     ? bot.thinkingLevel
     : (thinkingLevels[0] ?? "off");
 
+  const addImageFiles = (files: FileList) => {
+    if (!canAttachComposerImages({ submitting: sending })) return;
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith("image/")) return;
+      const reader = new FileReader();
+      reader.onload = () => setAttachments((current) => [...current, { uri: String(reader.result), mime: file.type, name: file.name }]);
+      reader.readAsDataURL(file);
+    });
+  };
+
   const send = async () => {
     const value = prompt.trim();
-    if (!value || sending) return;
+    if ((!value && attachments.length === 0) || sending) return;
+    const images = attachments.map((attachment) => {
+      const comma = attachment.uri.indexOf(",");
+      return comma < 0 ? null : { mimeType: attachment.mime, data: attachment.uri.slice(comma + 1) };
+    }).filter((image): image is { mimeType: string; data: string } => image !== null);
     setPrompt("");
+    setAttachments([]);
     setError(null);
     setSending(true);
     try {
-      await sendJson(`/api/bots/${encodeURIComponent(id)}/prompt`, { prompt: value });
+      await sendJson(`/api/bots/${encodeURIComponent(id)}/prompt`, { prompt: value, ...(images.length > 0 ? { images } : {}) });
       notifyBotSidebarChanged();
     } catch (reason) {
       setSending(false);
@@ -361,12 +379,15 @@ export function BotView({ id }: { id: string }) {
 
       <BotComposer
         value={prompt}
+        attachments={attachments}
+        onRemoveAttachment={(index) => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+        onPaste={(event) => { if (pasteImage(addImageFiles, event)) event.preventDefault(); }}
         onChange={(event) => setPrompt(event.target.value)}
         onCompositionStart={() => { composingRef.current = true; }}
         onCompositionEnd={() => { composingRef.current = false; }}
         onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !composingRef.current) { event.preventDefault(); void send(); } }}
         placeholder={`${bot.name}\u306b\u30e1\u30c3\u30bb\u30fc\u30b8`}
-        sendDisabled={!prompt.trim()}
+        sendDisabled={!prompt.trim() && attachments.length === 0}
         busy={sending}
         onSend={() => void send()}
         onAbort={() => void abort()}
