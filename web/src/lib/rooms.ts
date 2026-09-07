@@ -237,8 +237,12 @@ export function subscribeRoom(id: string, listener: (room: RoomDto | null) => vo
 /** User messages address only named members; an empty result intentionally means no bot work. */
 export function botsForRoomPrompt(room: RoomDto, prompt: string, broadcast = false, bots: BotDto[] = listBots()): { bots: BotDto[]; broadcast: boolean } {
   const members = bots.filter((bot) => room.members.includes(bot.id) && bot.enabled);
-  const isBroadcast = broadcast || /(^|\s)@(everyone|all|here|channel)(?:\b|$)/i.test(prompt);
-  if (isBroadcast) return { bots: members, broadcast: true };
-  const lowered = prompt.toLocaleLowerCase();
-  return { bots: members.filter((bot) => lowered.includes(`@${bot.name.toLocaleLowerCase()}`) || lowered.includes(`@${bot.id.toLocaleLowerCase()}`)), broadcast: false };
+  const special = ["everyone", "all", "here", "channel"];
+  const names = [...new Set([...special, ...members.flatMap((bot) => [bot.name, bot.id])])]
+    .filter(Boolean).sort((left, right) => right.length - left.length)
+    .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])@(${names.join("|")})(?![\\p{L}\\p{N}\\p{M}_-])`, "giu");
+  const mentioned = new Set([...prompt.matchAll(pattern)].map((match) => match[1].toLowerCase()));
+  if (broadcast || special.some((name) => mentioned.has(name))) return { bots: members, broadcast: true };
+  return { bots: members.filter((bot) => mentioned.has(bot.name.toLowerCase()) || mentioned.has(bot.id.toLowerCase())), broadcast: false };
 }

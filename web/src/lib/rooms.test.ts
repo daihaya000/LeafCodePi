@@ -30,6 +30,16 @@ describe("room store and mention routing", () => {
     expect(botsForRoomPrompt(room, "@here please").bots.map((bot) => bot.id)).toEqual(expect.arrayContaining([alpha.id, beta.id]));
     expect(botsForRoomPrompt(room, "@channel please").bots.map((bot) => bot.id)).toEqual(expect.arrayContaining([alpha.id, beta.id]));
   });
+  it("matches complete mentions, preferring the longest name and escaping regex characters", () => {
+    const bots = ["A", "Alpha", "Code", "Code Reviewer", "設計", "設計者", "C++"].map((name) => createBot({ name }));
+    const room = createRoom({ members: bots.map((bot) => bot.id) });
+    for (const bot of bots) {
+      expect(botsForRoomPrompt(room, `@${bot.name} please`, false, bots).bots.map((member) => member.id)).toEqual([bot.id]);
+      expect(botsForRoomPrompt(room, `@${bot.id}`, false, bots).bots.map((member) => member.id)).toEqual([bot.id]);
+    }
+    expect(botsForRoomPrompt(room, "user@Alpha.example @AlphaExtra @here-other @everyoneElse", false, bots).bots).toEqual([]);
+    expect(botsForRoomPrompt(room, "@a、@C++。", false, bots).bots.map((bot) => bot.name)).toEqual(["A", "C++"]);
+  });
   it("answers room prompts in a room session instead of the 1:1 bot session", () => {
     const alpha = createBot({ name: "Alpha" });
     const room = createRoom({ name: "Team", members: [alpha.id] });

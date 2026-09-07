@@ -86,14 +86,14 @@ afterEach(async () => {
 });
 
 describe("room mention responses", () => {
-  it.each(["二人で会話してみて", "@here 二人で会話してみて", "@Debugger @Planner 二人で会話してみて"])("runs two bounded rounds with shared identities and replies: %s", async (request) => {
+  it.each(["二人で会話してみて", "@here 二人で会話してみて", "@Debugger @Planner 二人で会話してみて", "/discuss 学ぶ言語を話し合って"])("runs two bounded rounds with shared identities and replies: %s", async (request) => {
     const { room, bots, taskIds } = setup(["Debugger", "Planner"]);
     await send(room.id, request);
     for (let turn = 0; turn < 4; turn += 1) {
       await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(turn + 1));
       const [taskId, prompt] = state.promptTask.mock.calls[turn];
       expect(taskId).toBe(taskIds[turn % 2]);
-      expect(prompt).toContain(`Your identity: ${bots[turn % 2].name}`);
+      expect(prompt).toContain(`Your identity: ${JSON.stringify({ name: bots[turn % 2].name, id: bots[turn % 2].id })}`);
       expect(prompt).toContain("Debugger");
       expect(prompt).toContain("Planner");
       if (turn > 0) expect(prompt).toContain(`Contribution ${turn - 1}`);
@@ -103,6 +103,109 @@ describe("room mention responses", () => {
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "done")).toHaveLength(4));
     expect(state.promptTask).toHaveBeenCalledTimes(4);
     expect(getRoom(room.id)?.botRelayEnabled).toBe(false);
+  });
+
+  it("hands the floor to the requested participant and ends after a substantive conclusion", async () => {
+    const { room, bots, taskIds } = setup(["A", "B", "C"]);
+    const texts = [
+      `C, what is the main risk?\nROOM_ACTION: NEXT ${bots[2].id}`,
+      `The main risk is cost. B, how can we reduce it?\nROOM_ACTION: NEXT ${bots[1].id}`,
+      "Use the existing service. Agreed next step: measure its cost.\nROOM_ACTION: DONE",
+    ];
+    let turn = 0;
+    state.promptTask.mockImplementation(async (id: string) => {
+      snapshot(id, "agent_settled", { messages: [assistant(`turn-${turn}`, texts[turn++])] });
+    });
+    await send(room.id, "/discuss Compare the options");
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "done")).toHaveLength(3));
+    expect(state.promptTask.mock.calls.map(([id]) => id)).toEqual([taskIds[0], taskIds[2], taskIds[1]]);
+    expect(state.promptTask.mock.calls[1][1]).toContain("C, what is the main risk?");
+    expect(getRoom(room.id)?.messages.filter((message) => message.role === "assistant").every((message) => !message.text.includes("ROOM_ACTION"))).toBe(true);
+  });
+
+  it.each([2, 5])("caps handoffs for %s participants even when bots never finish", async (count) => {
+    const { room, bots, taskIds } = setup(Array.from({ length: count }, (_, i) => `Bot${i}`));
+    const limit = Math.min(12, count * 3);
+    let turn = 0;
+    state.promptTask.mockImplementation(async (id: string) => {
+      const next = (taskIds.indexOf(id) + 1) % count;
+      const text = `New point ${turn++}\nROOM_ACTION: NEXT ${bots[next].id}`;
+      snapshot(id, "agent_settled", { messages: [assistant(`turn-${turn}`, text)] });
+    });
+    await send(room.id, "/discuss Options");
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "done")).toHaveLength(limit));
+    expect(state.promptTask).toHaveBeenCalledTimes(limit);
+    expect(state.promptTask.mock.calls.at(-1)?.[1]).toContain("This is the final available turn");
+  });
+
+  it("stops repeated contributions rather than spending the handoff budget", async () => {
+    const { room, bots, taskIds } = setup(["A", "B"]);
+    let turn = 0;
+    state.promptTask.mockImplementation(async (id: string) => {
+      const next = id === taskIds[0] ? bots[1] : bots[0];
+      snapshot(id, "agent_settled", { messages: [assistant(`repeat-${turn++}`, `Same point\nROOM_ACTION: NEXT ${next.id}`)] });
+    });
+    await send(room.id, "/discuss Options");
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "done")).toHaveLength(3));
+    expect(state.promptTask).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not hand off to a room member outside the user's selected participants", async () => {
+    const { room, bots, taskIds } = setup(["A", "B", "C"]);
+    let turn = 0;
+    state.promptTask.mockImplementation(async (id: string) => {
+      const text = id === taskIds[0] ? `Ask C\nROOM_ACTION: NEXT ${bots[2].id}` : "The two of us are done.\nROOM_ACTION: DONE";
+      snapshot(id, "agent_settled", { messages: [assistant(`scope-${turn++}`, text)] });
+    });
+    await send(room.id, "/discuss @A @B Compare options");
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "done")).toHaveLength(2));
+    expect(state.promptTask.mock.calls.map(([id]) => id)).toEqual(taskIds.slice(0, 2));
+  });
+
+  it("does not execute a superseded conversation after waiting in the bot queue", async () => {
+    const { room, taskIds } = setup(["A", "B"]);
+    await send(room.id, "@A Earlier work");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+    await send(room.id, "/discuss Options");
+    await send(room.id, "/stop");
+    finish(taskIds[0], { messages: [assistant("earlier", "Earlier reply")] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "working")).toHaveLength(0));
+    expect(state.promptTask).toHaveBeenCalledTimes(1);
+    expect(getRoom(room.id)?.messages.some((message) => message.text.includes("superseded"))).toBe(true);
+  });
+
+  it.each(["superseded", "disabled"])("revalidates a %s turn after asynchronous task preparation", async (change) => {
+    const { room, bots, taskIds } = setup(["A", "B"]);
+    let release!: (detail: TaskDetail) => void;
+    vi.mocked(getTaskDetail).mockImplementationOnce(() => new Promise<TaskDetail>((resolve) => { release = resolve; }));
+    await send(room.id, "/discuss Options");
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    if (change === "superseded") await send(room.id, "/stop");
+    else patchBot(bots[0].id, { enabled: false });
+    release(state.details.get(taskIds[0])!);
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "working")).toHaveLength(0));
+    expect(state.promptTask).not.toHaveBeenCalled();
+  });
+
+  it("does not interpret normal replies as room control instructions", async () => {
+    const { room, bots, taskIds } = setup(["A", "B"]);
+    await send(room.id, "@A Explain the room protocol");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+    const text = `Example directive\nROOM_ACTION: NEXT ${bots[1].id}`;
+    finish(taskIds[0], { messages: [assistant("ordinary", text)] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.at(-1)).toMatchObject({ status: "done", text }));
+    expect(state.promptTask).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["disabled", "removed"])("does not prompt a participant that was %s during the previous turn", async (change) => {
+    const { room, bots, taskIds } = setup(["A", "B"]);
+    await send(room.id, "/discuss Options");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+    if (change === "disabled") patchBot(bots[1].id, { enabled: false });
+    else patchRoom(room.id, { members: [bots[0].id] });
+    finish(taskIds[0], { messages: [assistant("reply", `B?\nROOM_ACTION: NEXT ${bots[1].id}`)] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "working")).toHaveLength(0));
+    expect(state.promptTask).toHaveBeenCalledTimes(1);
   });
 
   it("stops the conversation when a newer user message arrives", async () => {
