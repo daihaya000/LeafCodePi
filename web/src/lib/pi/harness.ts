@@ -5108,18 +5108,28 @@ export async function createTask(input: {
       setup.session.dispose();
       throw Object.assign(new Error("タスクは別のワーカーで実行中です"), { status: 409 });
     }
-    patchTask(task.id, {
-      sessionId: setup.session.sessionId,
-      sessionFile: setup.session.sessionFile,
-      status: "working",
-      thinkingLevel,
-      ...modelId(setup.session.model),
-    });
-    const live = await attachSession(
-      task.id,
-      setup.session,
-      setup.skillPermissionRef,
-    );
+    let live: LiveRuntime;
+    try {
+      patchTask(task.id, {
+        sessionId: setup.session.sessionId,
+        sessionFile: setup.session.sessionFile,
+        status: "working",
+        thinkingLevel,
+        ...modelId(setup.session.model),
+      });
+      live = await attachSession(
+        task.id,
+        setup.session,
+        setup.skillPermissionRef,
+      );
+    } catch (error) {
+      // Do not leave a fresh task leased when session attachment fails. The
+      // next Bot/Code request would otherwise report another worker forever.
+      releaseTaskLease(task.id);
+      setup.session.dispose();
+      setTaskStatus(task.id, "error", error instanceof Error ? error.message : String(error));
+      throw error;
+    }
     try {
       input.beforePrompt?.(toSummary(getTask(task.id) ?? task));
     } catch (error) {
