@@ -355,7 +355,7 @@ export function BotView({ id }: { id: string }) {
           {rendered}
           {permission && <div role="alertdialog" aria-label="権限の確認" className="rounded-2xl border border-warning/40 bg-warning-bg p-4 text-xs"><p className="font-medium">権限の確認が必要です</p><p className="mt-1 whitespace-pre-wrap break-all text-muted">{permission.message}</p><pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-surface p-2">{permission.command}</pre><div className="mt-3 flex gap-2"><Button size="sm" onClick={() => void respond(true)}>許可</Button><Button size="sm" variant="ghost" onClick={() => void respond(false)}>拒否</Button></div></div>}
           {question && <QuestionCard request={question} onReply={answerQuestion} onReject={(request) => answerQuestion(request)} />}
-          {sending && <div className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />応答中…</div>}
+          {sending && <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />応答中…</div>}
         </div>
       </BotMessageList>
 
