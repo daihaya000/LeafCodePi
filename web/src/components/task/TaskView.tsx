@@ -16,7 +16,12 @@ import {
   Square,
   Zap,
 } from "lucide-react";
-import { Composer, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
+import {
+  COMPOSER_ACTION_BUTTON_CLASS,
+  Composer,
+  type ComposerAttachment,
+  type ComposerReference,
+} from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
@@ -3112,12 +3117,12 @@ export const TaskView = memo(function TaskView({
                 size="icon"
                 aria-label="停止"
                 title="停止"
-                className="h-9 w-9 rounded-full !bg-danger !text-white hover:!opacity-90"
+                className={`${COMPOSER_ACTION_BUTTON_CLASS} !bg-danger !text-white hover:!opacity-90`}
                 busy={stopRequested}
                 disabled={stopRequested}
                 onClick={() => void abortWorking()}
               >
-                <Square className="h-3.5 w-3.5" />
+                <Square className="h-4 w-4" />
               </Button>
             ) : (
               <Button
@@ -3126,11 +3131,11 @@ export const TaskView = memo(function TaskView({
                 type="submit"
                 aria-label={working ? (deliveryMode === "queue" ? "キューに追加" : "割り込みを送信") : "送信"}
                 title={working ? (deliveryMode === "queue" ? "現在の処理後に送信" : "実行中の処理へ割り込み") : "送信"}
-                className="h-9 w-9 rounded-full !bg-accent !text-white hover:!bg-accent/90"
+                className={`${COMPOSER_ACTION_BUTTON_CLASS} !bg-accent !text-white hover:!bg-accent/90`}
                 busy={submitting}
                 disabled={archived || compacting || agentChanging || ((goalLoopEnabled || goalLoopLive) && working) || (!prompt.trim() && attachments.length === 0)}
               >
-                {!submitting && <ArrowUp className="h-4.5 w-4.5" />}
+                {!submitting && <ArrowUp className="h-4 w-4" />}
               </Button>
             )
           }

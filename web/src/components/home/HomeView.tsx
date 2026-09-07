@@ -6,7 +6,12 @@ import { ArrowUp, FolderGit2 } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { AgentSelect } from "@/components/AgentSelect";
 import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
-import { Composer, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
+import {
+  COMPOSER_ACTION_BUTTON_CLASS,
+  Composer,
+  type ComposerAttachment,
+  type ComposerReference,
+} from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { NextTaskSuggest } from "@/components/home/NextTaskSuggest";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
@@ -550,11 +555,11 @@ export function HomeView({
                   size="icon"
                   type="submit"
                   aria-label="タスク開始"
-                  className="h-9 w-9 shrink-0 rounded-full !bg-accent !text-white hover:!bg-accent/90"
+                  className={`${COMPOSER_ACTION_BUTTON_CLASS} !bg-accent !text-white hover:!bg-accent/90`}
                   busy={submitting}
                   disabled={(!prompt.trim() && attachments.length === 0) || projectId === undefined || submitting || health?.engineOk === false}
                 >
-                  {!submitting && <ArrowUp className="h-4.5 w-4.5" />}
+                  {!submitting && <ArrowUp className="h-4 w-4" />}
                 </Button>
               }
             />

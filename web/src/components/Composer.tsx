@@ -29,6 +29,9 @@ import { renderHighlightedReferenceText } from "@/components/ReferenceHighlight"
 
 export type { ComposerReference } from "@/lib/composer-references";
 
+export const COMPOSER_ACTION_BUTTON_CLASS =
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center !rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40";
+
 export type ComposerAttachment = {
   uri: string;
   mime: string;
@@ -459,9 +462,9 @@ export function Composer({
               title={attachmentControl.buttonTitle}
               aria-label={attachmentControl.buttonTitle}
               onClick={attachmentControl.onTrigger}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2 px-0 text-muted transition-colors hover:bg-surface-3 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+              className={`${COMPOSER_ACTION_BUTTON_CLASS} bg-surface-2 px-0 text-muted hover:bg-surface-3 hover:text-text`}
             >
-              <Paperclip className="h-3.5 w-3.5" />
+              <Paperclip className="h-4 w-4" />
             </button>
             {inlineToolbar}
           </div>
