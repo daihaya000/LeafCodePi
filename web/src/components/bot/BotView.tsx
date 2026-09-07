@@ -325,7 +325,7 @@ export function BotView({ id }: { id: string }) {
       <div key={message.id} className={`flex items-end gap-2 ${user ? "justify-end" : "justify-start"}`}>
         <div className={`min-w-0 max-w-[88%] rounded-3xl px-4 py-2.5 text-base leading-6 ${user ? "bg-bot-user text-white" : "bg-bot-assistant text-text"}`}>
           {text && (user ? <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</div> : <BotMessageMarkdown text={text} />)}
-          {message.error && <div className="mt-1 text-xs text-danger">{message.error}</div>}
+          {message.error && <div role="alert" className="mt-2 rounded-lg bg-danger/10 px-2 py-1 text-xs text-danger">{message.error}</div>}
           <BotMessageTime createdAt={message.createdAt} />
         </div>
       </div>
@@ -372,7 +372,7 @@ export function BotView({ id }: { id: string }) {
         onAbort={() => void abort()}
         footer={<><button type="button" onClick={() => setRoutineCardOpen(true)} className="shrink-0 font-medium text-accent hover:underline">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u4f5c\u6210"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="truncate hover:text-text">{"\u30e2\u30c7\u30eb"}: {selectedModel?.label ?? "\u672a\u9078\u629e"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="shrink-0 hover:text-text">{"\u601d\u8003"}: {thinkingValue}</button></>}
       />
-      {!settingsOpen && error && <p role="alert" className="mx-auto -mt-2 mb-2 max-w-3xl px-3 text-xs text-danger">{error}</p>}
+      {!settingsOpen && error && <p role="alert" className="mx-auto -mt-2 mb-2 max-w-3xl rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
       </div>
 
       {settingsOpen && (
