@@ -127,7 +127,10 @@ export const ORPHANED_WORKING_TASK_ERROR = "ホスト再起動後にCodeセッ�
 /** Mark persisted working tasks with no live worker lease as failed, never resume them. */
 export function reconcileOrphanedWorkingTasks(): string[] {
   const reconciled: string[] = [];
-  for (const task of listTasks(true)) {
+  // listTasks defaults to Code tasks; Bot 1:1 and room tasks also persist
+  // status=working and must be stopped after a worker restart.
+  const tasks = [...listTasks(true), ...listTasks(true, "bot")];
+  for (const task of tasks) {
     if (task.status !== "working" || hasActiveTaskLease(task.id)) continue;
     const updated = patchTask(task.id, { status: "error", error: ORPHANED_WORKING_TASK_ERROR });
     if (updated?.status === "error" && updated.error === ORPHANED_WORKING_TASK_ERROR) {

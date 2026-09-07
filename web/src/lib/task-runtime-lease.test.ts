@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { acquireTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks, taskRuntimeLeasePath, ORPHANED_WORKING_TASK_ERROR } from "./task-runtime-lease";
-import { insertTask, getTask, patchTask } from "./store";
+import { insertBotTask, insertTask, getTask, patchTask } from "./store";
 
 const dirs: string[] = [];
 
@@ -31,6 +31,11 @@ describe("task runtime restart reconciliation", () => {
     patchTask(orphan.id, { status: "working" });
     expect(reconcileOrphanedWorkingTasks()).toEqual([orphan.id]);
     expect(getTask(orphan.id)).toMatchObject({ status: "error", error: ORPHANED_WORKING_TASK_ERROR });
+
+    const botOrphan = insertBotTask({ id: "bot:orphan", botId: "orphan-bot", name: "Bot orphan", directory: join(dir, "bot-workspace") });
+    patchTask(botOrphan.id, { status: "working" });
+    expect(reconcileOrphanedWorkingTasks()).toContain(botOrphan.id);
+    expect(getTask(botOrphan.id)).toMatchObject({ status: "error", error: ORPHANED_WORKING_TASK_ERROR });
     expect(reconcileOrphanedWorkingTasks()).toEqual([]);
     releaseTaskLease(live.id);
   });
