@@ -131,6 +131,13 @@ describe("shared room context", () => {
     expect(prompt).toContain(`User request: ${JSON.stringify(user.text)}`);
     expect(prompt).toContain("This is the final available turn");
   });
+  it("tells participants to act on an actionable request instead of interrogating the user", () => {
+    const prompt = roomBotPrompt(room(), bots[0], bots, "Bot一覧にテンプレートを追加して", user.id, { participants: bots, turn: 1, maxTurns: 4 });
+    expect(prompt).toContain("Default to acting, not to confirming");
+    expect(prompt).toContain("Never ask the user something the repository");
+    expect(prompt).toContain("no discernible deliverable at all");
+    expect(roomBotPrompt(room(), bots[0], bots, "@デバッガー 確認して", user.id)).toContain("Act on it with your tools");
+  });
   it("exposes delegated Code state as data and instructs tool-confirmed reporting", () => {
     const current = room([
       user,
