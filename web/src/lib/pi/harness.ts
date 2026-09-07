@@ -2084,6 +2084,12 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
   };
 }
 
+export function isOneToOneBotTask(
+  task: Pick<TaskSummary, "id" | "kind" | "botId"> | null | undefined,
+): boolean {
+  return task?.kind === "bot" && typeof task.botId === "string" && task.id === `bot:${task.botId}`;
+}
+
 async function createSession(options: {
   cwd: string;
   sessionFile?: string | null;
@@ -2106,6 +2112,8 @@ async function createSession(options: {
   noContextFiles?: boolean;
   botSkills?: BotSkillsConfig;
 }): Promise<SessionSetup> {
+  const sessionTask = options.taskId ? getTask(options.taskId) : undefined;
+  const botCodeTaskId = isOneToOneBotTask(sessionTask) ? options.taskId : undefined;
   const pi = await loadPi();
   await ensureRuntime();
   const agentDir = pi.getAgentDir();
@@ -2152,7 +2160,7 @@ async function createSession(options: {
           systemPrompt: `${event.systemPrompt}\n\n${botRuntimeContext(resourceLoader.getExtensions().extensions)}`,
         }));
       }] : []),
-      ...(options.taskId?.startsWith("bot:") ? [botCodeRelay().register(options.taskId)] : []),
+      ...(botCodeTaskId ? [botCodeRelay().register(botCodeTaskId)] : []),
     ],
     skillsOverride: (base) => {
       if (agentOptions?.noSkills || skillPermissionRef.current === "deny") {
@@ -2225,7 +2233,7 @@ async function createSession(options: {
         "todowrite",
         TOOL_SEARCH_NAME,
       ];
-  const tools = options.taskId?.startsWith("bot:") ? [...configuredTools, BOT_CODE_TOOL] : configuredTools;
+  const tools = botCodeTaskId ? [...configuredTools, BOT_CODE_TOOL] : configuredTools;
   const result = await pi.createAgentSession({
     cwd: options.cwd,
     agentDir,

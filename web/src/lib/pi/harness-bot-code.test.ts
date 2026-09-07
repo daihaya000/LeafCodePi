@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/store", () => ({ getTask: () => undefined }));
-import { clearPendingAttentionForTask, pendingPermissionForTask, pendingQuestionForTask, respondToPermissionPrompt, respondToQuestionPrompt, subscribeTask } from "./harness";
+import { clearPendingAttentionForTask, isOneToOneBotTask, pendingPermissionForTask, pendingQuestionForTask, respondToPermissionPrompt, respondToQuestionPrompt, subscribeTask } from "./harness";
 import { requestWebUiPermission } from "./webui-permission-bridge";
 import { requestWebUiQuestion } from "./webui-question-bridge";
 
@@ -22,6 +22,15 @@ afterEach(() => {
   unsubscribe?.(); unsubscribe = undefined;
   clearPendingAttentionForTask("code"); clearPendingAttentionForTask("bot:one");
   delete globals.__leafcodePiHarness; delete globals.__leafcodeBotCodeRelay;
+});
+
+describe("Bot Code tool scope", () => {
+  it("accepts only a persisted 1:1 Bot task, not a room task", () => {
+    expect(isOneToOneBotTask({ id: "bot:one", kind: "bot", botId: "one" })).toBe(true);
+    expect(isOneToOneBotTask({ id: "bot:one:room:room", kind: "bot", botId: "one" })).toBe(false);
+    expect(isOneToOneBotTask({ id: "bot:one", kind: "code", botId: "one" })).toBe(false);
+    expect(isOneToOneBotTask(undefined)).toBe(false);
+  });
 });
 
 describe("delegated Code attention in the Bot conversation", () => {
