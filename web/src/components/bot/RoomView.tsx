@@ -241,7 +241,7 @@ export function RoomView({ id }: { id: string }) {
         <div className="mx-auto w-full space-y-4">
           {room.messages.length === 0 && <BotEmptyState icon={<Users className="h-5 w-5" />} title={room.name + " \u3067\u8a71\u3059"} description="\u30e1\u30f3\u30b7\u30e7\u30f3\u3055\u308c\u305f\u30dc\u30c3\u30c8\u3060\u3051\u304c\u5fdc\u7b54\u3057\u307e\u3059\u3002@here / @channel \u307e\u305f\u306f\u300c\u90e8\u5c4b\u306b\u805e\u304f\u300d\u3067\u5168\u54e1\u306b\u9001\u308c\u307e\u3059\u3002">{members.length > 0 && <div className="mt-3 flex flex-wrap justify-center gap-2">{members.map((bot) => <span key={bot.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 text-xs"><BotAvatar size={18} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />{bot.name}</span>)}</div>}</BotEmptyState>}
           {rendered}
-          {working && <div className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />応答中…</div>}
+          {working && <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />応答中…</div>}
         </div>
       </BotMessageList>
 
