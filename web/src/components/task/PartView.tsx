@@ -499,7 +499,7 @@ function ToolCard({
   return (
     <div
       className={cx(
-        "overflow-hidden rounded-xl border text-sm",
+        "w-full self-start overflow-hidden rounded-xl border text-sm",
         isError ? "border-danger/40" : "border-border",
       )}
     >
