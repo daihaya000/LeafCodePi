@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const botTestState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => botTestState.root }; });
-import { botAgentPrompt, botSoul, createBot, deleteBot, getBot, listBots, patchBot } from "./bots";
+import { botPromptSources, botSoul, createBot, deleteBot, getBot, listBots, patchBot } from "./bots";
 import { BOT_AVATAR_COLORS, avatarColorForId } from "./bot-avatar";
 import type { BotDto } from "./types";
 
@@ -74,18 +74,26 @@ describe("bot store", () => {
     expect(patchBot(bot.id, { avatarImage: null })?.avatarImage).toBeNull();
     expect(getBot(bot.id)?.avatarImage).toBeNull();
   });
-  it("keeps the bot system prompt to SOUL.md only, ignoring the global AGENTS.md", () => {
+  it("builds the bot prompt from BOTS.md and SOUL.md, ignoring the global AGENTS.md", () => {
     const agentDir = mkdtempSync(join(tmpdir(), "leafcode-agent-"));
     fs.writeFileSync(join(agentDir, "AGENTS.md"), "# Global rule\nNever ignore this.");
-    const prevAgentDir = process.env.PI_AGENT_DIR;
-    process.env.PI_AGENT_DIR = agentDir;
+    const prevAgentDir = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
     try {
       const bot = createBot({ name: "Isolated bot" });
-      const prompt = botAgentPrompt(bot.id);
-      expect(prompt).not.toContain("Never ignore this.");
-      expect(prompt).toBe(botSoul(bot.id));
+      // No BOTS.md yet: SOUL.md alone drives the bot.
+      expect(botPromptSources(bot.id)).toEqual([join(root, "bots", bot.id, "SOUL.md")]);
+      expect(botSoul(bot.id)).toContain("ボットの役割");
+
+      fs.writeFileSync(join(agentDir, "BOTS.md"), "# Shared\nAlways answer in Japanese.");
+      const sources = botPromptSources(bot.id);
+      expect(sources).toEqual([
+        join(agentDir, "BOTS.md"),
+        join(root, "bots", bot.id, "SOUL.md"),
+      ]);
+      expect(sources.some((path) => path.endsWith("AGENTS.md"))).toBe(false);
     } finally {
-      if (prevAgentDir === undefined) delete process.env.PI_AGENT_DIR; else process.env.PI_AGENT_DIR = prevAgentDir;
+      if (prevAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = prevAgentDir;
       rmSync(agentDir, { recursive: true, force: true });
     }
   });

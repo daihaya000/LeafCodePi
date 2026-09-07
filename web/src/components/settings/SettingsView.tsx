@@ -23,6 +23,7 @@ import { HangTimeoutSettings } from "@/components/settings/HangTimeoutSettings";
 import { NotificationSoundSettings } from "@/components/settings/NotificationSoundSettings";
 import { SystemSafetySettings } from "@/components/settings/SystemSafetySettings";
 import { BotDefaultsSettings } from "@/components/settings/BotDefaultsSettings";
+import { BotsMdSettings } from "@/components/settings/BotsMdSettings";
 import { CommitGuardSettings } from "@/components/settings/CommitGuardSettings";
 import { Badge, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
@@ -418,6 +419,13 @@ export function SettingsView() {
             <section id="settings-panel-bots" role="tabpanel" aria-labelledby="settings-tab-bots" hidden={tab !== "bots"} className="space-y-8">
               <SettingsGroup id="bots-defaults-heading" title={"\u30dc\u30c3\u30c8\u306e\u521d\u671f\u8a2d\u5b9a"} description={"\u65b0\u3057\u3044\u30dc\u30c3\u30c8\u306b\u9069\u7528\u3059\u308b\u5171\u901a\u306e\u65e2\u5b9a\u5024\u3067\u3059\u3002\u65e2\u5b58\u306e\u30dc\u30c3\u30c8\u306f\u5909\u66f4\u3057\u307e\u305b\u3093\u3002"}>
                 <BotDefaultsSettings />
+              </SettingsGroup>
+              <SettingsGroup
+                id="bots-instructions-heading"
+                title="共通指示"
+                description="すべてのボットに適用する BOTS.md を編集します。"
+              >
+                <BotsMdSettings />
               </SettingsGroup>
             </section>
           )}

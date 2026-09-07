@@ -4,12 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   globalAgentsMdPath,
+  globalBotsMdPath,
   MAX_AGENTS_MD_BYTES,
   readAgentsMdFile,
   readGlobalAgentsMd,
+  readGlobalBotsMd,
   resolvePiAgentDir,
   writeAgentsMdFile,
   writeGlobalAgentsMd,
+  writeGlobalBotsMd,
 } from "./agents-md";
 
 describe("agents-md (global)", () => {
@@ -38,6 +41,28 @@ describe("agents-md (global)", () => {
     writeGlobalAgentsMd("# Hello\n", env);
     expect(readGlobalAgentsMd(env)).toMatchObject({ exists: true, content: "# Hello\n" });
     expect(readFileSync(join(dir, "AGENTS.md"), "utf8")).toBe("# Hello\n");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("keeps BOTS.md separate from AGENTS.md in the same agent dir", () => {
+    const dir = join(tmpdir(), `leafcode-pi-agents-${Date.now()}-bots`);
+    mkdirSync(dir, { recursive: true });
+    const env = { PI_CODING_AGENT_DIR: dir };
+    expect(globalBotsMdPath(env)).toMatch(/BOTS\.md$/);
+    writeGlobalAgentsMd("# Agents\n", env);
+    writeGlobalBotsMd("# Bots\n", env);
+    expect(readGlobalBotsMd(env)).toMatchObject({ exists: true, content: "# Bots\n" });
+    expect(readGlobalAgentsMd(env).content).toBe("# Agents\n");
+    expect(readFileSync(join(dir, "BOTS.md"), "utf8")).toBe("# Bots\n");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("names the offending file in size errors", () => {
+    const dir = join(tmpdir(), `leafcode-pi-agents-${Date.now()}-bots-big`);
+    mkdirSync(dir, { recursive: true });
+    expect(() =>
+      writeGlobalBotsMd("x".repeat(MAX_AGENTS_MD_BYTES + 1), { PI_CODING_AGENT_DIR: dir }),
+    ).toThrow(/BOTS\.md/);
     rmSync(dir, { recursive: true, force: true });
   });
 

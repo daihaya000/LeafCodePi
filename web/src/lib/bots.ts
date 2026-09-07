@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, w
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "./paths";
+import { globalBotsMdPath } from "./agents-md";
 import { deleteTask, insertBotTask, listTasks, patchTask } from "./store";
 import type { BotDto, BotSkillsConfig, ThinkingLevel } from "./types";
 import { avatarColorForId, isAvatarColor, isAvatarImage, randomAvatarColor } from "./bot-avatar";
@@ -103,5 +104,10 @@ export function deleteBot(id: string): boolean {
 export function botWorkspace(id: string): string { return join(botRoot(id), "workspace"); }
 export function botSoul(id: string): string { return readFileSync(soulPath(id), "utf8"); }
 export function botTaskId(id: string): string { return `bot:${id}`; }
-// Bot mode intentionally does not read the global AGENTS.md: only SOUL.md drives a bot's behavior.
-export function botAgentPrompt(id: string): string { return botSoul(id); }
+// Bot mode intentionally does not read the global AGENTS.md: only the shared
+// BOTS.md and the bot's own SOUL.md drive its behavior. File paths (not text)
+// are returned so session.reload() re-reads edits without a new session.
+export function botPromptSources(id: string): string[] {
+  const shared = globalBotsMdPath();
+  return existsSync(shared) ? [shared, soulPath(id)] : [soulPath(id)];
+}

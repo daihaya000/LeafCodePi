@@ -63,6 +63,12 @@ vi.mock("@/components/settings/HangTimeoutSettings", () => ({
 vi.mock("@/components/settings/AgentsMdSettings", () => ({
   AgentsMdSettings: () => <h3>AGENTS.md</h3>,
 }));
+vi.mock("@/components/settings/BotsMdSettings", () => ({
+  BotsMdSettings: () => <h3>BOTS.md</h3>,
+}));
+vi.mock("@/components/settings/BotDefaultsSettings", () => ({
+  BotDefaultsSettings: () => <h3>ボットの既定値</h3>,
+}));
 vi.mock("@/components/settings/MemorySettings", () => ({
   MemorySettings: () => {
     useEffect(() => {
@@ -247,6 +253,22 @@ describe("SettingsView", () => {
     ]);
     expect(screen.queryByRole("heading", { name: "メモリ" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "スキル" })).toBeNull();
+  });
+
+  it("ボットタブを初期設定と共通指示のグループに分ける", () => {
+    render(<SettingsView />);
+    fireEvent.click(screen.getByRole("tab", { name: /^ボットタブ$/ }));
+
+    const botsPanel = screen.getByRole("tabpanel");
+    expect(
+      Array.from(botsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
+        (heading) => heading.textContent,
+      ),
+    ).toEqual(["ボットの初期設定", "共通指示"]);
+    expect(Array.from(botsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
+      "ボットの既定値",
+      "BOTS.md",
+    ]);
   });
 
   it("拡張タブを管理、連携のグループに分ける", () => {

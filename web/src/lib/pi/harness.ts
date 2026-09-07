@@ -13,7 +13,7 @@ import {
   samePath,
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
-import { botAgentPrompt, getBot } from "@/lib/bots";
+import { botPromptSources, getBot } from "@/lib/bots";
 import {
   deleteProjectRecord,
   deleteTask,
@@ -2023,7 +2023,8 @@ async function createSession(options: {
   taskId?: string;
   /** Goal Loop sessions use Pi native compaction instead of WebUI threshold settings. */
   goalLoop?: boolean;
-  appendSystemPrompt?: string;
+  /** Text or file paths appended to the system prompt (paths are re-read on reload). */
+  appendSystemPrompt?: string[];
   noContextFiles?: boolean;
   botSkills?: BotSkillsConfig;
 }): Promise<SessionSetup> {
@@ -2103,7 +2104,9 @@ async function createSession(options: {
     ...(agentOptions?.appendSystemPrompt
       ? { appendSystemPrompt: agentOptions.appendSystemPrompt }
       : {}),
-    ...(options.appendSystemPrompt ? { appendSystemPrompt: [options.appendSystemPrompt] } : {}),
+    ...(options.appendSystemPrompt?.length
+      ? { appendSystemPrompt: options.appendSystemPrompt }
+      : {}),
     ...(agentOptions?.noContextFiles || options.noContextFiles ? { noContextFiles: true } : {}),
   });
   await resourceLoader.reload();
@@ -2790,7 +2793,7 @@ async function ensureLive(
       cwd,
       sessionFile: task.sessionFile,
       sessionName: isBot ? `bot:${task.title}` : task.title,
-      ...(isBot && task.botId ? { appendSystemPrompt: botAgentPrompt(task.botId), noContextFiles: true, botSkills: bot?.skills } : {}),
+      ...(isBot && task.botId ? { appendSystemPrompt: botPromptSources(task.botId), noContextFiles: true, botSkills: bot?.skills } : {}),
       accountId: sessionAccountId,
       model,
       thinkingLevel: task.thinkingLevel,

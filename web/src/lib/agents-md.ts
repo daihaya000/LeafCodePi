@@ -8,10 +8,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 export const MAX_AGENTS_MD_BYTES = 2 * 1024 * 1024;
 export const AGENTS_MD_FILENAME = "AGENTS.md";
+/** Common instructions for bot mode. Bots never read AGENTS.md. */
+export const BOTS_MD_FILENAME = "BOTS.md";
 
 export type AgentsMdDto = {
   path: string;
@@ -40,9 +42,13 @@ export function globalAgentsMdPath(env: AgentsMdEnv = process.env): string {
   return join(resolvePiAgentDir(env), AGENTS_MD_FILENAME);
 }
 
-function assertUtf8Size(content: string): void {
+export function globalBotsMdPath(env: AgentsMdEnv = process.env): string {
+  return join(resolvePiAgentDir(env), BOTS_MD_FILENAME);
+}
+
+function assertUtf8Size(filePath: string, content: string): void {
   if (Buffer.byteLength(content, "utf8") > MAX_AGENTS_MD_BYTES) {
-    throw Object.assign(new Error("AGENTS.mdは2MB以内で指定してください"), { status: 413 });
+    throw Object.assign(new Error(`${basename(filePath)}は2MB以内で指定してください`), { status: 413 });
   }
 }
 
@@ -51,29 +57,30 @@ export function readAgentsMdFile(filePath: string): AgentsMdDto {
   if (!existsSync(resolved)) {
     return { path: resolved, exists: false, content: "" };
   }
+  const name = basename(resolved);
   if (lstatSync(resolved).isSymbolicLink()) {
-    throw Object.assign(new Error("AGENTS.mdはシンボリックリンクのため読み込めません"), {
+    throw Object.assign(new Error(`${name}はシンボリックリンクのため読み込めません`), {
       status: 400,
     });
   }
   const real = realpathSync.native(resolved);
   if (!statSync(real).isFile()) {
-    throw Object.assign(new Error("AGENTS.mdを安全に読み込めません"), { status: 400 });
+    throw Object.assign(new Error(`${name}を安全に読み込めません`), { status: 400 });
   }
   const size = statSync(real).size;
   if (size > MAX_AGENTS_MD_BYTES) {
-    throw Object.assign(new Error("AGENTS.mdは2MBを超えているため編集できません"), { status: 413 });
+    throw Object.assign(new Error(`${name}は2MBを超えているため編集できません`), { status: 413 });
   }
   return { path: real, exists: true, content: readFileSync(real, "utf8") };
 }
 
 export function writeAgentsMdFile(filePath: string, content: string): AgentsMdDto {
-  assertUtf8Size(content);
+  assertUtf8Size(filePath, content);
   const target = resolve(filePath);
   const parent = dirname(target);
   mkdirSync(parent, { recursive: true });
   if (existsSync(target) && lstatSync(target).isSymbolicLink()) {
-    throw Object.assign(new Error("AGENTS.mdはシンボリックリンクのため編集できません"), {
+    throw Object.assign(new Error(`${basename(target)}はシンボリックリンクのため編集できません`), {
       status: 400,
     });
   }
@@ -87,6 +94,14 @@ export function readGlobalAgentsMd(env: AgentsMdEnv = process.env): AgentsMdDto 
 
 export function writeGlobalAgentsMd(content: string, env: AgentsMdEnv = process.env): AgentsMdDto {
   return writeAgentsMdFile(globalAgentsMdPath(env), content);
+}
+
+export function readGlobalBotsMd(env: AgentsMdEnv = process.env): AgentsMdDto {
+  return readAgentsMdFile(globalBotsMdPath(env));
+}
+
+export function writeGlobalBotsMd(content: string, env: AgentsMdEnv = process.env): AgentsMdDto {
+  return writeAgentsMdFile(globalBotsMdPath(env), content);
 }
 
 export function errorStatus(error: unknown, fallback = 500): number {
