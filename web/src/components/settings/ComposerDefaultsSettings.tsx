@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getJson } from "@/lib/client";
 import {
   AUTO_MODEL_OPTION,
@@ -17,7 +17,9 @@ import {
   type ComposerDefaults,
 } from "@/lib/composer-defaults";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
-import type { ModelOption } from "@/lib/types";
+import { readStoredThinkingLevel, resolveThinkingLevel, writeStoredThinkingLevel } from "@/lib/thinking-levels";
+import { ThinkingSelect } from "@/components/ThinkingSelect";
+import type { ModelOption, ThinkingLevel } from "@/lib/types";
 
 const SELECT_CLASS = "mt-2 h-9 w-full rounded-lg border border-border bg-bg px-2 text-sm";
 
@@ -25,6 +27,9 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
   const [defaults, setDefaults] = useState<ComposerDefaults>(() => readComposerDefaults());
   const [models, setModels] = useState<ModelOption[]>([]);
   const [agents, setAgents] = useState<string[]>([]);
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
+    () => readStoredThinkingLevel() ?? "off",
+  );
   const [error, setError] = useState<string | null>(null);
   const touchedRef = useRef(false);
 
@@ -77,7 +82,18 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
   };
 
   const modelOptions = [AUTO_MODEL_OPTION, ...models];
+  const selectedModel = modelOptions.find((option) => option.value === defaults.model);
+  const thinkingLevels = useMemo(() => selectedModel?.thinkingLevels ?? [], [selectedModel]);
   const modelKnown = modelOptions.some((option) => option.value === defaults.model);
+
+  useEffect(() => {
+    if (!selectedModel || selectedModel.value === AUTO_MODEL_OPTION.value) return;
+    const safeLevel = resolveThinkingLevel(thinkingLevels, thinkingLevel);
+    if (safeLevel !== thinkingLevel) {
+      setThinkingLevel(safeLevel);
+      writeStoredThinkingLevel(safeLevel);
+    }
+  }, [selectedModel, thinkingLevel, thinkingLevels]);
 
   return (
     <section aria-labelledby="composer-defaults-heading" className="rounded-2xl border border-border bg-surface p-4">
@@ -101,17 +117,29 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
           </select>
         </label>
         <label className="text-sm">
-          <span className="font-medium">effort（Auto最適化方針）</span>
-          <select
-            aria-label="既定のeffort"
-            value={defaults.autoOptimize}
-            onChange={(event) => change({ autoOptimize: event.target.value as AutoOptimizeMode })}
-            className={SELECT_CLASS}
-          >
-            {AUTO_OPTIMIZE_MODES.map((mode) => (
-              <option key={mode} value={mode}>{autoOptimizeModeLabel(mode)}</option>
-            ))}
-          </select>
+          <span className="font-medium">effort</span>
+          {selectedModel?.value === AUTO_MODEL_OPTION.value ? (
+            <select
+              aria-label="既定のeffort"
+              value={defaults.autoOptimize}
+              onChange={(event) => change({ autoOptimize: event.target.value as AutoOptimizeMode })}
+              className={SELECT_CLASS}
+            >
+              {AUTO_OPTIMIZE_MODES.map((mode) => (
+                <option key={mode} value={mode}>{autoOptimizeModeLabel(mode)}</option>
+              ))}
+            </select>
+          ) : (
+            <ThinkingSelect
+              levels={thinkingLevels}
+              value={thinkingLevel}
+              onChange={(level) => {
+                setThinkingLevel(level);
+                writeStoredThinkingLevel(level);
+              }}
+              className={`${SELECT_CLASS} flex items-center justify-between`}
+            />
+          )}
         </label>
         <label className="text-sm">
           <span className="font-medium">エージェント</span>
