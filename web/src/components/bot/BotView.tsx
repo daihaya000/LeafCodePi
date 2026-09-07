@@ -394,7 +394,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     return (
       <div key={message.id} className={`flex flex-col gap-1 ${user ? "items-end" : "items-start"}`}>
         <BotMessageTime createdAt={message.createdAt} />
-        <div className={`min-w-0 max-w-[88%] rounded-3xl px-4 py-2.5 text-base leading-6 ${user ? "bg-bot-user text-white" : "bg-bot-assistant text-text"}`}>
+        <div className={`min-w-0 max-w-bubble rounded-3xl px-4 py-2.5 text-base leading-6 ${user ? "bg-bot-user text-white" : "bg-bot-assistant text-text"}`}>
           {images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{images.map((part) => part.type === "image" && <ImageLightbox key={part.id} src={part.url} alt={part.filename ?? "添付画像"} className="max-h-48 max-w-full rounded-xl object-contain" />)}</div>}
           {text && (user ? <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</div> : <BotMessageMarkdown text={text} />)}
           {message.error && <div role="alert" className="mt-2 rounded-lg bg-danger/10 px-2 py-1 text-xs text-danger">{message.error}</div>}

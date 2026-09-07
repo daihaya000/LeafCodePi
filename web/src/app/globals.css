@@ -151,6 +151,7 @@
   --color-bot-user: var(--bot-bubble-user);
   --color-bot-assistant: var(--bot-bubble-assistant);
   --color-bot-outline: var(--bot-outline);
+  --container-bubble: 88%;
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }

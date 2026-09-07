@@ -54,7 +54,7 @@ export function BotResponseStatus({
   const running = activeTool(messages);
   const action = running ? toolLabel(running.tool, running.state.input) : "考え中";
   return (
-    <div role="status" aria-live="polite" className="flex min-w-0 max-w-[88%] items-center gap-2 text-xs text-muted">
+    <div role="status" aria-live="polite" className="flex min-w-0 max-w-bubble items-center gap-2 text-xs text-muted">
       <span aria-hidden="true" className="shrink-0"><BotAvatar size={24} color={avatar.color} image={avatar.image} name={avatar.name} active /></span>
       <span className="shrink-0 font-medium">応答中…</span>
       <span aria-hidden="true" className="text-faint">·</span>

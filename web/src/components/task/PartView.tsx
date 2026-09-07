@@ -152,7 +152,7 @@ const MarkdownBody = memo(function MarkdownBody({
 
 function AssistantTextPart({ text }: { text: string }) {
   return (
-    <div className="min-w-0 max-w-[88%] rounded-3xl bg-bot-assistant px-4 py-2.5 text-base leading-6">
+    <div className="min-w-0 max-w-bubble rounded-3xl bg-bot-assistant px-4 py-2.5 text-base leading-6">
       <MarkdownBody text={text} className="text-base" />
     </div>
   );
@@ -188,7 +188,7 @@ function UserTextPart({
 
   if (!invocation) {
     return (
-      <div className="ml-auto min-w-0 max-w-[88%] rounded-3xl bg-bot-user px-4 py-2.5 text-base leading-6 whitespace-pre-wrap break-words text-white">
+      <div className="ml-auto min-w-0 max-w-bubble rounded-3xl bg-bot-user px-4 py-2.5 text-base leading-6 whitespace-pre-wrap break-words text-white">
         {renderText(text)}
       </div>
     );
@@ -199,7 +199,7 @@ function UserTextPart({
     agents: [],
   };
   return (
-    <div className="ml-auto min-w-0 max-w-[88%] rounded-3xl bg-bot-user px-4 py-2.5 text-base leading-6 whitespace-pre-wrap break-words text-white">
+    <div className="ml-auto min-w-0 max-w-bubble rounded-3xl bg-bot-user px-4 py-2.5 text-base leading-6 whitespace-pre-wrap break-words text-white">
       <ReferenceHighlight text={`/skill:${invocation.name}`} references={skillReference} />
       {invocation.userMessage && (
         <>{" "}{renderText(invocation.userMessage)}</>
@@ -499,7 +499,7 @@ function ToolCard({
   return (
     <div
       className={cx(
-        "w-full max-w-[88%] self-start overflow-hidden rounded-xl border text-sm",
+        "w-full max-w-bubble self-start overflow-hidden rounded-xl border text-sm",
         isError ? "border-danger/40" : "border-border",
       )}
     >
@@ -757,7 +757,7 @@ export function WorkingRow({ messages, active = true }: { messages: UiMessage[];
     ? `${toolLabel(running.tool, running.state.input)} ${toolSummary(running.tool, running.state)}`
     : "作業中…";
   return (
-    <div role="status" aria-live="polite" className="flex max-w-[88%] items-center gap-2 rounded-3xl bg-bot-assistant px-4 py-2.5 text-sm text-muted">
+    <div role="status" aria-live="polite" className="flex max-w-bubble items-center gap-2 rounded-3xl bg-bot-assistant px-4 py-2.5 text-sm text-muted">
       <Loader2 className="h-4 w-4 shrink-0 animate-spin text-working" />
       <span className="min-w-0 flex-1 truncate">{headline}</span>
       {startedAtMs !== undefined && (
