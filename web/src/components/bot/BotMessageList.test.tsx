@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
-import { BotMessageList, BotMessageTime } from "./BotMessageList";
+import { BotMessageList, BotMessageMarkdown, BotMessageTime } from "./BotMessageList";
 
 afterEach(cleanup);
 
@@ -22,6 +22,12 @@ it("follows loaded history and streaming, preserves reading position, and resets
   Object.defineProperty(viewport, "scrollHeight", { value: 1200 });
   rerender(<BotMessageList conversationId="b">Streaming</BotMessageList>);
   expect(viewport.scrollTop).toBe(1200);
+});
+
+it("renders bot Markdown with GFM", () => {
+  const { container } = render(<BotMessageMarkdown text={"**bold**\n\n- item"} />);
+  expect(container.querySelector("strong")?.textContent).toBe("bold");
+  expect(container.querySelector("ul li")?.textContent).toBe("item");
 });
 
 it("renders the sent date and time with a machine-readable timestamp", () => {

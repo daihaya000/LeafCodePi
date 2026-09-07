@@ -11,7 +11,7 @@ import { BotAvatar } from "@/components/bot/BotAvatar";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
-import { BotMessageList, BotMessageTime } from "@/components/bot/BotMessageList";
+import { BotMessageList, BotMessageMarkdown, BotMessageTime } from "@/components/bot/BotMessageList";
 import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
 import { AVATAR_IMAGE_ACCEPT, BOT_AVATAR_COLORS, MAX_AVATAR_IMAGE_BYTES, randomAvatarColor } from "@/lib/bot-avatar";
 import { markRead } from "@/lib/bot-unread";
@@ -308,7 +308,7 @@ export function BotView({ id }: { id: string }) {
     return (
       <div key={message.id} className={`flex items-end gap-2 ${user ? "justify-end" : "justify-start"}`}>
         <div className={`min-w-0 max-w-[88%] rounded-3xl px-4 py-2.5 text-base leading-6 ${user ? "bg-bot-user text-white" : "bg-bot-assistant text-text"}`}>
-          {text && <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</div>}
+          {text && (user ? <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</div> : <BotMessageMarkdown text={text} />)}
           {message.error && <div className="mt-1 text-xs text-danger">{message.error}</div>}
           <BotMessageTime createdAt={message.createdAt} />
         </div>
