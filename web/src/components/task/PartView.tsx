@@ -822,12 +822,12 @@ const ReasoningView = memo(function ReasoningView({ text }: { text: string }) {
   };
 
   return (
-    <div className="group/reasoning relative flex min-w-0 items-start gap-2">
-      <span className="flex shrink-0 items-center gap-1.5 pt-0.5 text-xs text-faint">
-        <Brain className="h-3.5 w-3.5" />
+    <div className="group/reasoning relative min-w-0 overflow-hidden rounded-xl border border-border bg-surface">
+      <div className="flex items-center gap-1.5 border-b border-border bg-surface-2 px-3 py-1.5 text-xs text-faint">
+        <Brain className="h-3.5 w-3.5 shrink-0" />
         思考
-      </span>
-      <div className="min-w-0 flex-1 pr-10 text-sm font-normal text-muted">
+      </div>
+      <div className="relative min-w-0 px-3 py-2 pr-10 text-sm font-normal text-muted">
         {showTranslation ? (
           mode === "bilingual" ? (
             <>
