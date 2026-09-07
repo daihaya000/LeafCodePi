@@ -36,10 +36,10 @@
   --bot-chat-bg: #fafafa;
   --bot-panel-bg: #ffffff;
   --bot-panel-muted: #f4f4f5;
-  --bot-bubble-user: #2563eb;
-  --bot-bubble-assistant: #ffffff;
+  --bot-bubble-user: var(--surface-3);
+  --bot-bubble-assistant: var(--surface-2);
   --bot-outline: #e4e4e7;
-  --bot-composer-shadow: 0 8px 28px rgb(24 24 27 / 0.07);
+  --bot-composer-shadow: 0 1px 4px rgb(24 24 27 / 0.08);
 }
 
 .oyster {
@@ -70,8 +70,8 @@
   --bot-chat-bg: #fdfbf7;
   --bot-panel-bg: #fbf8f2;
   --bot-panel-muted: #f5f1ea;
-  --bot-bubble-user: #2563eb;
-  --bot-bubble-assistant: #fbf8f2;
+  --bot-bubble-user: var(--surface-3);
+  --bot-bubble-assistant: var(--surface-2);
   --bot-outline: #e4ddd0;
   --bot-composer-shadow: 0 8px 28px rgb(30 27 22 / 0.06);
 }
@@ -109,8 +109,8 @@
   --bot-chat-bg: #111113;
   --bot-panel-bg: #19191d;
   --bot-panel-muted: #202024;
-  --bot-bubble-user: #60a5fa;
-  --bot-bubble-assistant: #19191d;
+  --bot-bubble-user: var(--surface-3);
+  --bot-bubble-assistant: var(--surface-2);
   --bot-outline: #2a2a30;
   --bot-composer-shadow: 0 8px 28px rgb(0 0 0 / 0.2);
 }

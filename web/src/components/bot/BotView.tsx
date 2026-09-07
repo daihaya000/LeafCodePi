@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
@@ -21,12 +20,6 @@ import type { BotDto, ModelOption, PermissionRequestDto, RoutineDto, ThinkingLev
 function textOf(message: UiMessage): string {
   return message.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
 }
-
-function soulDescription(soul: string): string {
-  const line = soul.split(/\r?\n/).map((item) => item.trim()).find((item) => item && !item.startsWith("#") && !item.startsWith("-"));
-  return line ?? "\u3053\u306eBot\u306e\u5fdc\u7b54\u65b9\u91dd\u3092\u8a2d\u5b9a\u3067\u304d\u307e\u3059\u3002";
-}
-
 
 export function BotView({ id }: { id: string }) {
   const [bot, setBot] = useState<BotDto | null>(null);
@@ -314,21 +307,20 @@ export function BotView({ id }: { id: string }) {
     if (!text && !message.error) return null;
     return (
       <div key={message.id} className={`flex items-end gap-2 ${user ? "justify-end" : "justify-start"}`}>
-        {!user && <BotAvatar size={28} color={bot?.avatarColor} image={bot?.avatarImage} name={bot?.name} active={sending && message === messages[messages.length - 1]} />}
-        <div className={`max-w-[min(42rem,88%)] rounded-2xl px-3.5 py-2 text-sm leading-6 ${user ? "rounded-br-md bg-bot-user text-white" : "rounded-bl-md border border-bot-outline/70 bg-bot-assistant"}`}>
-          {text && <div className="whitespace-pre-wrap break-words">{text}</div>}
+        <div className={`min-w-0 max-w-[88%] rounded-3xl px-4 py-2.5 text-base leading-6 ${user ? "bg-bot-user text-text" : "bg-bot-assistant text-text"}`}>
+          {text && <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</div>}
           {message.error && <div className="mt-1 text-xs text-danger">{message.error}</div>}
           <BotMessageTime createdAt={message.createdAt} />
         </div>
       </div>
     );
-  }), [bot?.avatarColor, bot?.avatarImage, bot?.name, messages, sending]);
+  }), [messages]);
 
   if (!bot) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
   return (
-    <div className="flex h-full min-h-0 bg-bg">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div className="flex h-full min-h-0 bg-bot-chat">
+      <div className={`${settingsOpen ? "hidden lg:flex" : "flex"} min-h-0 min-w-0 flex-1 flex-col`}>
       <BotChatHeader
         title={bot.name}
         subtitle="\u4e00\u5bfe\u4e00 \u30dc\u30c3\u30c8"
@@ -340,7 +332,7 @@ export function BotView({ id }: { id: string }) {
 
 
       <BotMessageList conversationId={id}>
-        <div className="mx-auto max-w-3xl space-y-3">
+        <div className="mx-auto w-full space-y-6">
           {messages.length === 0 && !sending && <BotEmptyState avatar={{ name: bot.name, color: bot.avatarColor, image: bot.avatarImage }} title={bot.name + " \u3068\u8a71\u3059"} description="\u30e1\u30c3\u30bb\u30fc\u30b8\u3092\u9001\u3063\u3066\u4f1a\u8a71\u3092\u59cb\u3081\u307e\u3057\u3087\u3046\u3002" />}
           {routines.some((routine) => routine.failureCount > 0) && <div role="status" className="rounded-2xl border border-danger/40 bg-danger/5 p-4 text-sm"><p className="font-medium text-danger">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u5b9f\u884c\u306b\u5931\u6557\u3057\u3066\u3044\u307e\u3059"}</p><div className="mt-2 space-y-1 text-xs text-muted">{routines.filter((routine) => routine.failureCount > 0).map((routine) => <p key={routine.id}><span className="font-medium text-text">{routine.name}</span>{"\uFF1A"}{"\u9023\u7d9a\u5931\u6557"} {routine.failureCount}{"\u56de"}{routine.enabled ? "" : "\u3002\u5b89\u5168\u306e\u305f\u3081\u81ea\u52d5\u7684\u306b\u7121\u52b9\u5316\u3057\u307e\u3057\u305f"}</p>)}</div></div>}
           {routineCardOpen && <div className="rounded-2xl border border-accent/40 bg-surface p-4 shadow-sm" role="dialog" aria-label="ルーティン作成の確認"><p className="font-medium text-accent">ルーティンを作成</p><p className="mt-1 text-xs text-muted">内容を確認してから保存します。</p><div className="mt-3 space-y-2"><input value={routineName} onChange={(event) => setRoutineName(event.target.value)} placeholder="名前（例: 朝の確認）" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><textarea value={routinePrompt} onChange={(event) => setRoutinePrompt(event.target.value)} placeholder="Bot に実行させる指示" rows={3} className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><input value={routineSchedule} onChange={(event) => setRoutineSchedule(event.target.value)} aria-label="cron スケジュール" placeholder="0 * * * *" className="w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent" /><p className="text-[11px] text-muted">形式: 分 時 日 月 曜日（最短間隔 5 分）</p></div><div className="mt-3 flex justify-end gap-2"><Button size="sm" variant="ghost" onClick={() => setRoutineCardOpen(false)}>キャンセル</Button><Button size="sm" onClick={() => void createRoutine()} busy={creatingRoutine} disabled={!routineName.trim() || !routinePrompt.trim() || !routineSchedule.trim()}>この内容で作成</Button></div></div>}
@@ -363,20 +355,20 @@ export function BotView({ id }: { id: string }) {
         onAbort={() => void abort()}
         footer={<><button type="button" onClick={() => setRoutineCardOpen(true)} className="shrink-0 font-medium text-accent hover:underline">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u4f5c\u6210"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="truncate hover:text-text">{"\u30e2\u30c7\u30eb"}: {selectedModel?.label ?? "\u672a\u9078\u629e"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="shrink-0 hover:text-text">{"\u601d\u8003"}: {thinkingValue}</button></>}
       />
-      {error && <p role="alert" className="mx-auto -mt-2 mb-2 max-w-3xl px-3 text-xs text-danger">{error}</p>}
+      {!settingsOpen && error && <p role="alert" className="mx-auto -mt-2 mb-2 max-w-3xl px-3 text-xs text-danger">{error}</p>}
       </div>
 
       {settingsOpen && (
-        <aside id="bot-settings-panel" aria-label="ボット設定" className="flex h-full w-[min(100%,22rem)] shrink-0 flex-col border-l border-border bg-surface">
-          <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
-            <div><h2 className="font-semibold">ボット設定</h2><p className="mt-0.5 text-xs text-muted">このボットのプロフィールと応答を設定</p></div>
-            <button type="button" aria-label="設定を閉じる" onClick={() => setSettingsOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"><X className="h-4 w-4" /></button>
+        <aside id="bot-settings-panel" onKeyDown={(event) => { if (event.key === "Escape") setSettingsOpen(false); }} aria-label="ボット設定" className="flex h-full w-full shrink-0 flex-col border-bot-outline bg-bot-chat lg:w-[22rem] lg:border-l xl:w-[24.5rem]">
+          <div className="flex h-[3.75rem] shrink-0 items-center justify-between px-5">
+            <h2 className="text-sm font-medium">設定</h2>
+            <button type="button" autoFocus aria-label="設定を閉じる" onClick={() => setSettingsOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"><X className="h-4 w-4" /></button>
           </div>
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
-            <BotCodeSessionPanel botId={id} />
-            <div className="flex flex-col items-center gap-2 py-2">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+            {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+            <div className="flex flex-col items-center gap-3 pb-6 pt-4">
               <label title="画像を設定" className="cursor-pointer rounded-full has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent">
-                <BotAvatar size={80} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />
+                <BotAvatar size={76} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />
                 <input type="file" aria-label="ボットの画像を設定" accept={AVATAR_IMAGE_ACCEPT} disabled={updatingImage} className="sr-only" onChange={(event) => { onAvatarFileChange(event.target.files?.[0] ?? null); event.currentTarget.value = ""; }} />
               </label>
               <div className="flex items-center gap-2">
@@ -384,11 +376,14 @@ export function BotView({ id }: { id: string }) {
                 {bot.avatarImage && <button type="button" disabled={updatingImage} onClick={() => void updateAvatarImage(null)} className="text-xs text-danger hover:underline disabled:opacity-50">画像を削除</button>}
               </div>
             </div>
-            <label className="block text-sm"><span className="font-medium">名前</span><input value={profileName} onChange={(event) => setProfileName(event.target.value)} aria-label="ボットの名前" className="mt-2 w-full rounded-xl border border-border bg-bg px-3 py-2.5 outline-none focus:border-accent" /></label>
+            <label className="block text-sm"><span className="font-medium">名前</span><input value={profileName} onChange={(event) => setProfileName(event.target.value)} aria-label="ボットの名前" className="mt-2 w-full rounded-xl border border-border bg-transparent px-3 py-2.5 text-base outline-none focus:border-accent" /></label>
+            <label className="block text-sm"><span className="font-medium text-muted">ラベル</span><input value={profileLabel} onChange={(event) => setProfileLabel(event.target.value)} aria-label="ボットのラベル" className="mt-2 w-full rounded-xl border border-border bg-transparent px-3 py-2.5 text-base outline-none focus:border-accent" /></label>
+            <label className="block text-sm text-muted">説明（SOUL.md）<textarea aria-label="ボットの説明" value={soul} onChange={(event) => setSoul(event.target.value)} rows={4} className="mt-2 w-full resize-y rounded-xl border border-border bg-transparent px-3 py-2.5 text-base leading-6 text-text outline-none focus:border-accent" /></label>
+            <div className="flex justify-end"><Button size="sm" variant="ghost" onClick={() => void saveSoul()} busy={savingSoul}>説明を保存</Button></div>
+            <div className="flex items-center justify-between gap-4 rounded-2xl bg-surface-2 p-4 text-sm"><span><span className="font-medium">通知</span><span className="mt-1 block text-xs leading-5 text-muted">このBotが完了したとき、または入力が必要になったときに通知</span></span><button type="button" role="switch" aria-label="通知" aria-checked={notificationsEnabled} onClick={() => void updateNotifications(!notificationsEnabled)} className={notificationsEnabled ? "relative h-6 w-11 shrink-0 rounded-full bg-primary" : "relative h-6 w-11 shrink-0 rounded-full bg-surface-3"}><span className={notificationsEnabled ? "absolute left-6 top-1 h-4 w-4 rounded-full bg-primary-fg" : "absolute left-1 top-1 h-4 w-4 rounded-full bg-primary-fg"} /></button></div><div className="flex justify-end"><Button size="sm" onClick={() => void saveProfile()} busy={savingProfile} disabled={!profileName.trim() || !profileLabel.trim()}>プロフィールを保存</Button></div><details><summary className="cursor-pointer text-sm font-semibold text-muted">詳細設定</summary>
             <div className="rounded-2xl border border-border bg-bg p-4"><div className="flex items-center justify-between"><span className="text-sm font-medium">色</span><Button size="sm" variant="ghost" onClick={() => void updateAvatarColor(randomAvatarColor(bot.avatarColor))} busy={updatingColor}>ランダム</Button></div><div role="group" aria-label="ボットの色" className="mt-3 flex flex-wrap gap-2">{BOT_AVATAR_COLORS.map((color) => <button key={color} type="button" aria-label={color} aria-pressed={bot.avatarColor === color} disabled={updatingColor} onClick={() => void updateAvatarColor(color)} className={`h-8 w-8 rounded-full border-2 border-transparent transition-transform hover:scale-110 disabled:opacity-50 ${bot.avatarColor === color ? "border-text ring-2 ring-accent/30" : ""}`} style={{ backgroundColor: color }} />)}</div></div>
-            <label className="block text-sm"><span className="font-medium">ラベル</span><input value={profileLabel} onChange={(event) => setProfileLabel(event.target.value)} aria-label="ボットのラベル" className="mt-2 w-full rounded-xl border border-border bg-bg px-3 py-2.5 outline-none focus:border-accent" /></label>
-            <div className="rounded-xl border border-border bg-bg px-3 py-2.5 text-sm text-muted"><span className="block text-xs font-medium text-text">{"\u8aac\u660e"}</span><p className="mt-1 leading-5">{soulDescription(soul)}</p></div>
-            <div className="flex items-center justify-between rounded-xl border border-border bg-bg px-3 py-2.5 text-sm"><span><span className="font-medium">通知</span><span className="ml-2 text-xs text-muted">このアシスタントについて通知</span></span><button type="button" role="switch" aria-checked={notificationsEnabled} onClick={() => void updateNotifications(!notificationsEnabled)} className={notificationsEnabled ? "relative h-6 w-11 rounded-full bg-accent" : "relative h-6 w-11 rounded-full bg-surface-3"}><span className={notificationsEnabled ? "absolute left-6 top-1 h-4 w-4 rounded-full bg-white" : "absolute left-1 top-1 h-4 w-4 rounded-full bg-white"} /></button></div><div className="flex justify-end"><Button size="sm" onClick={() => void saveProfile()} busy={savingProfile} disabled={!profileName.trim() || !profileLabel.trim()}>プロフィールを保存</Button></div><details><summary className="cursor-pointer text-sm font-semibold text-muted">詳細設定</summary><div className="space-y-3 rounded-2xl border border-border bg-bg p-4"><div><span className="text-sm font-medium">モデル</span><ModelSelect value={modelValue} options={models} loading={modelsLoading} disabled={updatingModel || updatingThinking} onChange={(value) => void updateModel(value)} className="mt-2 h-9 w-full" ariaLabel="ボットのモデル" /></div><div><span className="text-sm font-medium">思考レベル</span><ThinkingSelect levels={thinkingLevels} value={thinkingValue} disabled={updatingModel || updatingThinking} onChange={(value) => void updateThinking(value)} className="mt-2 h-9 w-full" /></div>{(updatingModel || updatingThinking) && <p className="text-xs text-muted">保存中…</p>}</div>
+            <BotCodeSessionPanel botId={id} />
+            <div className="space-y-3 rounded-2xl border border-border bg-bg p-4"><div><span className="text-sm font-medium">モデル</span><ModelSelect value={modelValue} options={models} loading={modelsLoading} disabled={updatingModel || updatingThinking} onChange={(value) => void updateModel(value)} className="mt-2 h-9 w-full" ariaLabel="ボットのモデル" /></div><div><span className="text-sm font-medium">思考レベル</span><ThinkingSelect levels={thinkingLevels} value={thinkingValue} disabled={updatingModel || updatingThinking} onChange={(value) => void updateThinking(value)} className="mt-2 h-9 w-full" /></div>{(updatingModel || updatingThinking) && <p className="text-xs text-muted">保存中…</p>}</div>
             <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="スキル設定"><div><span className="text-sm font-medium">スキルの読み込み</span><select value={bot.skills.mode} disabled={updatingSkills} onChange={(event) => void updateSkills({ ...bot.skills, mode: event.target.value as BotDto["skills"]["mode"] })} className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"><option value="inherit">継承（通常のスキル）</option><option value="include">指定したスキルだけ許可</option><option value="exclude">指定したスキルを除外</option></select></div><label className="block text-xs"><span className="font-medium">許可するスキル名（1行1件）</span><textarea value={bot.skills.include.join("\n")} disabled={updatingSkills} onChange={(event) => setBot({ ...bot, skills: { ...bot.skills, include: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) } })} onBlur={() => void updateSkills(bot.skills)} rows={3} className="mt-1 w-full resize-y rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /></label><label className="block text-xs"><span className="font-medium">除外するスキル名（1行1件）</span><textarea value={bot.skills.exclude.join("\n")} disabled={updatingSkills} onChange={(event) => setBot({ ...bot, skills: { ...bot.skills, exclude: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) } })} onBlur={() => void updateSkills(bot.skills)} rows={3} className="mt-1 w-full resize-y rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /></label><p className="text-[11px] text-muted">inherit は共通設定に従います。保存すると次回の応答から反映されます。</p></section>
             <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="追加ルート設定"><div><span className="text-sm font-medium">追加ルート</span><p className="mt-1 text-xs text-muted">Bot が参照できる絶対パス（Computer 分離は後続フェーズ）</p></div><div className="flex gap-2"><input value={extraRootInput} onChange={(event) => setExtraRootInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addExtraRoot(); } }} placeholder="C:\path\to\root" className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /><Button size="sm" onClick={() => void addExtraRoot()} disabled={!extraRootInput.trim()}>追加</Button></div>{bot.extraRoots.length === 0 ? <p className="text-xs text-muted">追加ルートはありません。</p> : <ul className="space-y-1">{bot.extraRoots.map((root) => <li key={root} className="flex items-center gap-2 rounded-lg bg-surface px-2 py-1.5 text-xs"><span className="min-w-0 flex-1 break-all">{root}</span><button type="button" onClick={() => void removeExtraRoot(root)} className="shrink-0 text-danger hover:underline">削除</button></li>)}</ul>}</section>
             <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="ルーティン設定">
@@ -396,11 +391,6 @@ export function BotView({ id }: { id: string }) {
               {routineFormOpen && <div className="space-y-2 rounded-xl border border-accent/40 bg-surface p-3" role="dialog" aria-label="ルーティンを作成"><p className="text-xs font-medium text-accent">ルーティンを作成（確認）</p><input value={routineName} onChange={(event) => setRoutineName(event.target.value)} placeholder="名前（例: 朝の確認）" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><textarea value={routinePrompt} onChange={(event) => setRoutinePrompt(event.target.value)} placeholder="Bot に実行させる指示" rows={3} className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><input value={routineSchedule} onChange={(event) => setRoutineSchedule(event.target.value)} aria-label="cron スケジュール" placeholder="0 * * * *" className="w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent" /><p className="text-[11px] text-muted">形式: 分 時 日 月 曜日（最短間隔 5 分）</p><div className="flex justify-end gap-2"><Button size="sm" variant="ghost" onClick={() => setRoutineFormOpen(false)}>キャンセル</Button><Button size="sm" onClick={() => void createRoutine()} busy={creatingRoutine} disabled={!routineName.trim() || !routinePrompt.trim()}>確認して保存</Button></div></div>}
               {routines.length === 0 && <p className="text-xs text-muted">登録されたルーティンはありません。</p>}
               {routines.map((routine) => <div key={routine.id} className="rounded-xl border border-border bg-surface p-3 text-xs"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="font-medium">{routine.name} {routine.enabled ? <span className="text-success">有効</span> : <span className="text-muted">無効</span>}</p><p className="mt-1 font-mono text-muted">{routine.schedule}</p><p className="mt-1 break-words text-muted">{routine.prompt}</p>{routine.failureCount > 0 && <p className="mt-1 text-danger">連続失敗: {routine.failureCount}回</p>}</div><div className="flex shrink-0 flex-col gap-1"><Button size="sm" variant="ghost" disabled={routineBusy === routine.id} onClick={() => void patchRoutine(routine, !routine.enabled)}>{routine.enabled ? "無効化" : "有効化"}</Button><Button size="sm" variant="ghost" disabled={routineBusy === routine.id || !routine.enabled} onClick={() => void runRoutine(routine)}>今すぐ実行</Button><button type="button" disabled={routineBusy === routine.id} onClick={() => void deleteRoutine(routine)} className="px-2 py-1 text-danger hover:underline disabled:opacity-50">削除</button></div></div></div>)}
-            </section>
-            <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label={"SOUL.md \u8a2d\u5b9a"}>
-              <div><span className="text-sm font-medium">SOUL.md</span><p className="mt-1 text-xs text-muted">{"Bot\u306e\u5fdc\u7b54\u65b9\u91dd\u3092\u8a73\u7d30\u306b\u8a2d\u5b9a\u3057\u307e\u3059\u3002"}</p></div>
-              <textarea value={soul} onChange={(event) => setSoul(event.target.value)} rows={9} className="w-full resize-y rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs leading-5 outline-none focus:border-accent" />
-              <div className="flex justify-end"><Button size="sm" onClick={() => void saveSoul()} busy={savingSoul}>{"\u5909\u66f4\u3092\u4fdd\u5b58"}</Button></div>
             </section>
             </details>
             <div className="border-t border-border pt-4">
