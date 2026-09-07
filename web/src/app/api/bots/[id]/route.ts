@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteBot, getBot, normalizeBotSkills, patchBot, botTaskId } from "@/lib/bots";
-import { resetTaskSession, setTaskModel, setTaskThinkingLevel } from "@/lib/pi/harness";
+import { destroyTask, resetTaskSession, setTaskModel, setTaskThinkingLevel } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { isAvatarColor, isAvatarImage } from "@/lib/bot-avatar";
 import { isAbsolutePath } from "@/lib/paths";
+import { listTasks } from "@/lib/store";
 import type { BotSkillsConfig } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -83,6 +84,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const id = await idOf(params);
+  for (const task of listTasks(true, "bot").filter((item) => item.botId === id)) await destroyTask(task.id);
   const deleted = deleteBot(id);
   return deleted ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
 }

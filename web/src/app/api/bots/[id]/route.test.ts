@@ -8,13 +8,23 @@ vi.mock("../../../../lib/paths", async (importOriginal) => {
   return { ...actual, dataDir: () => state.root };
 });
 import { NextRequest } from "next/server";
+import * as harness from "../../../../lib/pi/harness";
 import { createBot } from "../../../../lib/bots";
-import { GET, PATCH } from "./route";
+import { DELETE, GET, PATCH } from "./route";
 
 describe("PATCH /api/bots/[id]", () => {
   let root = "";
   beforeEach(() => { root = mkdtempSync(join(tmpdir(), "leafcode-api-bot-patch-")); state.root = root; });
   afterEach(() => { rmSync(root, { recursive: true, force: true }); state.root = ""; });
+  it("tears down the 1:1 task before deleting the bot", async () => {
+    const bot = createBot({ name: "Delete bot" });
+    const destroyTask = vi.spyOn(harness, "destroyTask");
+    const response = await DELETE(new NextRequest("http://localhost", { method: "DELETE" }), { params: Promise.resolve({ id: bot.id }) });
+    expect(response.status).toBe(200);
+    expect(destroyTask).toHaveBeenCalledWith(`bot:${bot.id}`);
+    destroyTask.mockRestore();
+  });
+
   it("validates and persists avatar colors", async () => {
     const bot = createBot({ name: "Patch bot" });
     const invalid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ avatarColor: "blue" }) }), { params: Promise.resolve({ id: bot.id }) });
