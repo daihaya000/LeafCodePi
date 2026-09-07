@@ -335,7 +335,7 @@ export function ModelSelect({
   );
 
   return (
-    <div ref={rootRef} className={cx("relative inline-flex min-w-0", className)}>
+    <div ref={rootRef} className={cx("relative inline-flex shrink-0", className)}>
       <button
         ref={triggerRef}
         type="button"
@@ -357,7 +357,7 @@ export function ModelSelect({
           setOpen(true);
         }}
         className={cx(
-          "group inline-flex h-full w-full min-w-0 items-center gap-1.5 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs font-medium text-muted shadow-sm transition-colors hover:bg-surface-2 hover:text-text",
+          "group inline-flex h-full w-full min-w-24 items-center gap-1.5 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs font-medium text-muted shadow-sm transition-colors hover:bg-surface-2 hover:text-text",
           isDisabled && "cursor-not-allowed opacity-40",
         )}
       >

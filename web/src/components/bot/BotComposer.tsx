@@ -36,7 +36,7 @@ export function BotComposer({
 }: BotComposerProps) {
   const canSend = !sendDisabled && !busy;
   return (
-    <div className="shrink-0 border-t border-border/70 bg-bot-chat px-4 py-4">
+    <div className="shrink-0 bg-bot-chat px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 sm:px-4">
       <div className="bot-composer-shell mx-auto max-w-3xl rounded-[1.35rem] border border-bot-outline bg-bot-panel px-4 py-3 transition-colors focus-within:border-accent/60">
         <div className="flex items-end gap-2">
           <div className="relative min-w-0 flex-1">
@@ -50,7 +50,7 @@ export function BotComposer({
             <button type="button" onClick={onSend} aria-label="送信" title={sendDisabled ? "メッセージを入力してください" : "送信"} disabled={!canSend} className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${sendDisabled || busy ? "bg-surface-3 text-muted" : "bg-accent text-white hover:bg-accent/90"}`}><ArrowUp className="h-4 w-4" /></button>
           )}
         </div>
-        {footer && <div className="mt-2 flex items-center justify-between gap-2 px-2 text-[11px] text-muted">{footer}</div>}
+        {footer && <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-2 text-[11px] text-muted">{footer}</div>}
       </div>
     </div>
   );
