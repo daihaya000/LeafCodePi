@@ -1363,7 +1363,7 @@ const SidebarView = memo(function SidebarView({
         />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         <ModeSegment mode={mode} onChange={changeMode} />
         <span className="sr-only">
           ドラッグしてプロジェクトを並べ替えます。キーボードではスペースで開始し、上下矢印で移動、スペースで終了します。
