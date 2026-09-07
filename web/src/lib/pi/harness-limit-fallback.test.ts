@@ -15,6 +15,7 @@ const fakePi = vi.hoisted(() => {
     file: string;
     prompts: string[];
     disposed: boolean;
+    nextError?: string;
     emit?: (event: FakeEvent) => void;
   }[] = [];
 
@@ -71,6 +72,7 @@ const fakePi = vi.hoisted(() => {
         file: sessionManager.__file,
         prompts: [] as string[],
         disposed: false,
+        nextError: undefined as string | undefined,
         emit: undefined as ((event: FakeEvent) => void) | undefined,
       };
       const listeners = new Set<(event: FakeEvent) => void>();
@@ -117,8 +119,14 @@ const fakePi = vi.hoisted(() => {
           emit({ type: "agent_start" });
           entry.prompts.push(text);
           sessionManager.history.push({ role: "user", content: text, timestamp: Date.now() });
+          const errorMessage = entry.nextError;
+          entry.nextError = undefined;
           streaming = false;
-          emit({ type: "agent_end", willRetry: false, messages: [] });
+          emit({
+            type: "agent_end",
+            willRetry: false,
+            messages: errorMessage ? [{ role: "assistant", errorMessage }] : [],
+          });
           emit({ type: "agent_settled" });
         },
         sendCustomMessage: async () => undefined,
@@ -146,7 +154,7 @@ import {
   __resetProviderRoutingQueueForTests,
 } from "@/lib/provider-routing";
 import { AccountRuntimeManager } from "./account-runtime-manager";
-import { createTask } from "./harness";
+import { createTask, promptTask } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const PROVIDER = "openai-codex";
@@ -267,18 +275,15 @@ describe("provider limit fallback", () => {
     assert.equal(getTask(task.id)?.accountId, first.id);
     assert.equal(fakePi.sessions.length, 1);
 
-    fakePi.sessions[0]?.emit?.({
-      type: "agent_end",
-      willRetry: false,
-      messages: [
-        { role: "assistant", errorMessage: "Codex error: The usage limit has been reached" },
-      ],
-    });
-    fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
+    fakePi.sessions[0].nextError = "Codex error: The usage limit has been reached";
+    await promptTask(task.id, "continue working");
 
     await waitFor(() => fakePi.sessions.length === 2);
     expect(fakePi.sessions[1]).toMatchObject({ accountId: second.id });
     assert.equal(getTask(task.id)?.accountId, second.id);
+    await waitFor(() => fakePi.sessions[1]?.prompts.length === 1);
+    assert.equal(fakePi.sessions[0]?.prompts.length, 2);
+    assert.equal(getTask(task.id)?.status, "idle");
   });
 
   it("crosses to another provider when every account of this provider is maxed", async () => {
@@ -334,6 +339,18 @@ describe("provider limit fallback", () => {
       modelID: "claude-sonnet",
     });
     assert.equal(getTask(task.id)?.providerID, "anthropic");
+    await waitFor(() => fakePi.sessions[1]?.prompts.length === 1);
+
+    // Exhausting the replacement must not cycle back to the first account.
+    fakePi.sessions[1]?.emit?.({
+      type: "agent_end",
+      willRetry: false,
+      messages: [{ role: "assistant", errorMessage: "HTTP 429 Too Many Requests" }],
+    });
+    fakePi.sessions[1]?.emit?.({ type: "agent_settled" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(fakePi.sessions.length, 2);
+    assert.equal(fakePi.sessions[1]?.prompts.length, 1);
   });
 
   it("REPRO: a separate-mode account still falls back after a limit", async () => {
@@ -384,5 +401,15 @@ describe("provider limit fallback", () => {
     expect(fakePi.sessions[1]).toMatchObject({ accountId: claudeOther.id });
     assert.equal(getTask(task.id)?.accountId, claudeOther.id);
     assert.notEqual(getTask(task.id)?.providerID, PROVIDER);
+    await waitFor(() => fakePi.sessions[1]?.prompts.length === 1);
+
+    fakePi.sessions[1]?.emit?.({
+      type: "agent_end",
+      willRetry: false,
+      messages: [{ role: "assistant", errorMessage: "HTTP 429 Too Many Requests" }],
+    });
+    fakePi.sessions[1]?.emit?.({ type: "agent_settled" });
+    await waitFor(() => fakePi.sessions[2]?.prompts.length === 1);
+    assert.equal(getTask(task.id)?.accountId, codex.id);
   });
 });

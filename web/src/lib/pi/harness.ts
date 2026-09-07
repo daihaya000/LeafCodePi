@@ -1624,6 +1624,9 @@ async function fallbackProviderAfterLimit(
 ): Promise<void> {
   const existing = providerFallbackInflight.get(live.taskId);
   if (existing) return existing;
+  const promptEpoch = live.promptEpoch;
+  const goalLoop = isActiveGoalLoopSession(live.session);
+  let resumedLive: LiveRuntime | undefined;
   const operation = (async () => {
     const task = getTask(live.taskId);
     if (
@@ -1654,6 +1657,7 @@ async function fallbackProviderAfterLimit(
           latestTask.providerID !== pending.providerID ||
           latestTask.modelID !== pending.modelID ||
           !canAutoFallbackTask(latestTask, pending.providerID) ||
+          currentLive.promptEpoch !== promptEpoch ||
           currentLive.session.isStreaming
         ) {
           return;
@@ -1664,7 +1668,7 @@ async function fallbackProviderAfterLimit(
           ...(currentLive.accountId ? { accountId: currentLive.accountId } : {}),
         });
         const route = routes[0];
-        if (!route) return;
+        if (!route || currentLive.promptEpoch !== promptEpoch) return;
         const ids = modelId(route.model);
         if (
           ids.providerID === latestTask.providerID &&
@@ -1679,6 +1683,7 @@ async function fallbackProviderAfterLimit(
         emitTaskSnapshot(nextLive, "provider_fallback", {
           fallbackFrom: `${pending.providerID}::${pending.modelID}`,
         });
+        resumedLive = nextLive;
       },
     );
   })().finally(() => {
@@ -1687,7 +1692,20 @@ async function fallbackProviderAfterLimit(
     }
   });
   providerFallbackInflight.set(live.taskId, operation);
-  return operation;
+  await operation;
+  // Resume only after releasing the route lock and fallback guard. Another
+  // exhausted account must be able to fall back again. Goal Loop resumes itself.
+  if (
+    resumedLive &&
+    !goalLoop &&
+    state().live.get(live.taskId) === resumedLive &&
+    resumedLive.promptEpoch === promptEpoch
+  ) {
+    void queuePrompt(
+      resumedLive,
+      "The previous response was interrupted by a provider usage limit. Continue the pending request from the existing conversation. Do not repeat completed actions.",
+    );
+  }
 }
 
 async function attachSession(
