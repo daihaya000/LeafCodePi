@@ -967,7 +967,7 @@ export const PartView = memo(
 
     const isUser = message.role === "user";
     return (
-      <article className="flex min-w-0 flex-col gap-2">
+      <article className="flex w-full min-w-0 flex-col gap-2">
         <div className={cx("flex min-w-0", isUser ? "justify-end" : "justify-start")}>
           {isUser ? (
             !nested && (

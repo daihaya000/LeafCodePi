@@ -185,6 +185,8 @@ select {
 }
 
 .task-message-row {
+  width: 100%;
+  min-width: 0;
   content-visibility: auto;
   contain-intrinsic-size: auto 12rem;
 }
