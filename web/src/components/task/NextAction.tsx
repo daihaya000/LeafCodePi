@@ -166,7 +166,7 @@ export function NextAction({
 
   return (
     <>
-      <section className="min-w-0 w-full md:w-auto md:shrink-0" aria-label="次の指示の提案">
+      <section className="min-w-0 w-auto shrink-0" aria-label="次の指示の提案">
         <Button
           ref={triggerRef}
           variant="secondary"
@@ -191,7 +191,7 @@ export function NextAction({
             }
             void generate();
           }}
-          className="h-11 min-w-0 whitespace-nowrap px-3 md:h-8 md:px-2.5"
+          className="h-8 min-w-0 whitespace-nowrap px-2.5"
         >
           {state.kind !== "loading" && <Sparkles className="h-3.5 w-3.5" />}
           {state.kind === "success" ? "提案を表示" : "提案"}

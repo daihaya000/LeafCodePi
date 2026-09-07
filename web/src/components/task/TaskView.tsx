@@ -2892,7 +2892,7 @@ export const TaskView = memo(function TaskView({
                     }
                   })();
                 }}
-                className="min-w-0 max-w-[10rem] sm:max-w-[12rem]"
+                className="h-8 min-w-0 max-w-[10rem] sm:max-w-[12rem]"
               />
               {modelValue === AUTO_MODEL_VALUE ? (
                 <AutoOptimizeSelect
@@ -2963,7 +2963,7 @@ export const TaskView = memo(function TaskView({
                       })
                       .finally(() => setAgentChanging(false));
                   }}
-                  className="min-w-0 max-w-[8rem] sm:max-w-40"
+                  className="h-8 min-w-0 max-w-[8rem] sm:max-w-40"
                 />
               )}
                 </>
@@ -3060,7 +3060,7 @@ export const TaskView = memo(function TaskView({
                   )
                 }
                 valueLabel={deliveryMode === "queue" ? "キュー" : "割り込み"}
-                className="max-w-[8rem] shrink-0"
+                className="h-8 max-w-[8rem] shrink-0"
                 onChange={(value) => {
                   if (value === "queue" || value === "steer") setDeliveryMode(value);
                 }}
@@ -3112,7 +3112,7 @@ export const TaskView = memo(function TaskView({
                 size="icon"
                 aria-label="停止"
                 title="停止"
-                className="h-11 w-11 md:h-9 md:w-9"
+                className="h-8 w-8"
                 busy={stopRequested}
                 disabled={stopRequested}
                 onClick={() => void abortWorking()}
@@ -3126,7 +3126,7 @@ export const TaskView = memo(function TaskView({
                 type="submit"
                 aria-label={working ? (deliveryMode === "queue" ? "キューに追加" : "割り込みを送信") : "送信"}
                 title={working ? (deliveryMode === "queue" ? "現在の処理後に送信" : "実行中の処理へ割り込み") : "送信"}
-                className="h-11 w-11 md:h-9 md:w-9"
+                className="h-8 w-8"
                 busy={submitting}
                 disabled={archived || compacting || agentChanging || ((goalLoopEnabled || goalLoopLive) && working) || (!prompt.trim() && attachments.length === 0)}
               >
