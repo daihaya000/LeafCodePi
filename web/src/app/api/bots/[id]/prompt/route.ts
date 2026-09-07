@@ -9,6 +9,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (typeof body?.prompt !== "string") return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     if (body.images !== undefined && !isPromptImageList(body.images)) return NextResponse.json({ error: "invalid images" }, { status: 400 });
     if (!body.prompt.trim() && !body.images?.length) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
-    return NextResponse.json({ task: await promptTask(botTaskId(id), body.prompt, body.images) });
+    const task = body.images === undefined
+      ? await promptTask(botTaskId(id), body.prompt)
+      : await promptTask(botTaskId(id), body.prompt, body.images);
+    return NextResponse.json({ task });
   } catch (error) { const { error: message, status } = jsonError(error); return NextResponse.json({ error: message }, { status }); }
 }
