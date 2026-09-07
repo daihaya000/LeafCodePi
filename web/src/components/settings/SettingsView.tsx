@@ -205,7 +205,7 @@ export function SettingsView() {
             <nav
               role="tablist"
               aria-label="設定"
-              className="grid grid-cols-2 gap-1 rounded-xl border border-border bg-surface p-1 sm:flex"
+              className="flex min-w-0 gap-1 overflow-x-auto rounded-xl border border-border bg-surface p-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:overflow-x-visible"
             >
               {SETTINGS_TABS.map(({ id, label }) => (
                 <button
@@ -221,7 +221,7 @@ export function SettingsView() {
                   onClick={() => selectTab(id)}
                   onKeyDown={(event) => handleTabKeyDown(event, id)}
                   className={cx(
-                    "min-h-11 min-w-0 flex-1 rounded-lg px-3 py-2 text-sm",
+                    "min-h-11 min-w-[7rem] shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-sm sm:min-w-0 sm:flex-1 sm:shrink",
                     tab === id
                       ? "bg-accent/10 font-medium text-accent"
                       : "text-muted hover:bg-surface-2 hover:text-text",

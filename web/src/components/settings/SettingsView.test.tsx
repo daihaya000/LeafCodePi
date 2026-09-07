@@ -207,6 +207,18 @@ describe("SettingsView", () => {
     expect(html).toContain('id="settings-tab-models" type="button" role="tab" aria-label="モデルタブ" aria-selected="false"');
   });
 
+  it("設定タブをモバイルで1列の横スクロールとして表示する", () => {
+    render(<SettingsView />);
+
+    const tablist = screen.getByRole("tablist", { name: "設定" });
+    expect(tablist.className).toContain("overflow-x-auto");
+    expect(tablist.className).not.toContain("grid-cols-2");
+    for (const tab of within(tablist).getAllByRole("tab")) {
+      expect(tab.className).toContain("shrink-0");
+      expect(tab.className).toContain("whitespace-nowrap");
+    }
+  });
+
   it("エンジンタブを役割ごとのグループに分け、関連設定をまとめて表示する", () => {
     render(<SettingsView />);
 
