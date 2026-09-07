@@ -15,6 +15,12 @@ export const TASK_PANES_STORAGE_KEY = "webui:task-panes";
 export const HOME_TAB_ID = "home";
 /** 設定画面を表す特殊タブID。タスクと同じペイン・タブで保持する。 */
 export const SETTINGS_TAB_ID = "settings";
+export const BOTS_TAB_ID = "/bots";
+
+/** Bot tabs use route IDs, distinct from Code's bot:<id> task IDs. */
+export function isBotTabId(id: string | null | undefined): boolean {
+  return id === BOTS_TAB_ID || /^\/bots\/(?:rooms\/)?[^/]+$/.test(id ?? "");
+}
 
 export type TaskPane = {
   id: string;
@@ -570,7 +576,7 @@ export function taskIdsToAutoClose(input: {
 }): string[] {
   const homeTabId = input.homeTabId ?? HOME_TAB_ID;
   return input.openTaskIds.filter((taskId) => {
-    if (taskId === homeTabId || taskId === SETTINGS_TAB_ID) return false;
+    if (taskId === homeTabId || taskId === SETTINGS_TAB_ID || isBotTabId(taskId)) return false;
     if (!input.existingIds.has(taskId)) return true;
     return input.previouslyActiveIds.has(taskId) && !input.activeIds.has(taskId);
   });
@@ -715,13 +721,14 @@ export function taskIdFromPathname(pathname: string | null | undefined): string 
 
 /** URL パスからペインに表示するタブIDを取り出す。 */
 export function tabIdFromPathname(pathname: string | null | undefined): string | null {
+  if (isBotTabId(pathname)) return pathname!;
   if (pathname === "/settings") return SETTINGS_TAB_ID;
   return taskIdFromPathname(pathname);
 }
 
 /** 分割ホスト（Provider の操作対象）になるパスか。Home・task・settings。 */
 export function isSplitHostPath(pathname: string | null | undefined): boolean {
-  return pathname === "/" || pathname === "/settings" || Boolean(pathname?.startsWith("/task/"));
+  return pathname === "/" || pathname === "/settings" || isBotTabId(pathname) || Boolean(pathname?.startsWith("/task/"));
 }
 
 /**

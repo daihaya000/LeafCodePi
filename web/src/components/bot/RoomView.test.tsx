@@ -7,8 +7,10 @@ const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
   sendJson: vi.fn(),
   push: vi.fn(),
+  markRead: vi.fn(),
 }));
 
+vi.mock("@/lib/bot-unread", () => ({ markRead: mocks.markRead }));
 vi.mock("@/lib/client", () => ({ getJson: mocks.getJson, sendJson: mocks.sendJson }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("next/link", () => ({
@@ -40,9 +42,19 @@ afterEach(() => {
   mocks.getJson.mockReset();
   mocks.sendJson.mockReset();
   mocks.push.mockReset();
+  mocks.markRead.mockReset();
 });
 
 describe("RoomView mentions", () => {
+  it("preserves drafts and marks read only on activation", async () => {
+    const view = render(<RoomView id={room.id} active={false} />);
+    const input = await screen.findByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "draft" } });
+    expect(mocks.markRead).not.toHaveBeenCalled();
+    view.rerender(<RoomView id={room.id} active />);
+    expect(input.value).toBe("draft");
+    expect(mocks.markRead).toHaveBeenCalledWith("room", room.id, 1);
+  });
   it("shows mention candidates, inserts a selection, and highlights mentions", async () => {
     render(<RoomView id={room.id} />);
 

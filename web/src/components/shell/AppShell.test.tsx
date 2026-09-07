@@ -63,6 +63,14 @@ describe("AppShell", () => {
     expect(screen.queryByTestId("page-content")).toBeNull();
   });
 
+  it.each([true, false])("Bot pages are not double-mounted (desktop=%s)", (mdUp) => {
+    mocks.useTaskPanes.mockReturnValue({ mdUp });
+    mocks.usePathname.mockReturnValue("/bots/one");
+    render(<AppShell><div data-testid="page-content" /></AppShell>);
+    expect(screen.queryByTestId("page-content")).toBeNull();
+    expect(screen.getByTestId("task-panes")).toBeTruthy();
+  });
+
   it("モバイルの Home では page 内容をマウントする", () => {
     mocks.useTaskPanes.mockReturnValue({ mdUp: false });
     render(

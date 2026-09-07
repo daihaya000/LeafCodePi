@@ -106,6 +106,27 @@ describe("TaskPanesProvider", () => {
     localStorage.clear();
   });
 
+  it("restores Bot routes, titles and closes only deleted Bot tabs", async () => {
+    matches = true;
+    localStorage.setItem(TASK_PANES_STORAGE_KEY, JSON.stringify({ version: 1, panes: [{ id: "first-pane", tabs: ["second", "/bots/one"], activeTabId: "second" }], activePaneId: "first-pane" }));
+    mocks.usePathname.mockReturnValue("/bots/one");
+    mocks.getJson.mockImplementation(async (url: string) => url === "/api/bots/sidebar" ? { bots: [{ id: "one", name: "One" }], rooms: [] } : { tasks: [{ id: "second", title: "Code", status: "idle" }] });
+    function BotProbe() {
+      const { titleFor, dispatch } = useTaskPanes();
+      return <button onClick={() => dispatch({ type: "activateTab", paneId: "first-pane", taskId: "/bots/one" })}>{titleFor("/bots/one") ?? "loading"}</button>;
+    }
+    render(<TaskPanesProvider><Probe /><BotProbe /><DispatchProbe /></TaskPanesProvider>);
+    await screen.findByRole("button", { name: "One" });
+    fireEvent.click(screen.getByRole("button", { name: "activate second" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/task/second"));
+    fireEvent.click(screen.getByRole("button", { name: "One" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/bots/one"));
+    expect(screen.getByTestId("state").textContent).toBe("true:second,/bots/one");
+    mocks.getJson.mockResolvedValue({ bots: [], rooms: [] });
+    window.dispatchEvent(new Event("webui:bot-sidebar-changed"));
+    await waitFor(() => expect(screen.getByTestId("state").textContent).toBe("true:second"));
+  });
+
   it("restores saved panes when the viewport changes from mobile to desktop", async () => {
     render(
       <TaskPanesProvider>

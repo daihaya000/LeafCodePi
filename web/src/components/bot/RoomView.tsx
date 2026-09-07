@@ -52,7 +52,7 @@ function renderMentionText(text: string, bots: BotDto[], keyPrefix: string, ment
   return parts.length > 0 ? parts : [text];
 }
 
-export function RoomView({ id }: { id: string }) {
+export function RoomView({ id, active = true }: { id: string; active?: boolean }) {
   const [room, setRoom] = useState<RoomDto | null>(null);
   const [bots, setBots] = useState<BotDto[]>([]);
   const [prompt, setPrompt] = useState("");
@@ -81,8 +81,8 @@ export function RoomView({ id }: { id: string }) {
 
   useEffect(() => {
     const latest = room?.messages.reduce((value, message) => Math.max(value, message.createdAt), 0) ?? 0;
-    if (latest > 0) markRead("room", id, latest);
-  }, [id, room?.messages]);
+    if (active && latest > 0) markRead("room", id, latest);
+  }, [active, id, room?.messages]);
 
   useEffect(() => {
     const source = new EventSource(`/api/bots/rooms/${encodeURIComponent(id)}/events?epoch=${Date.now()}`);

@@ -27,7 +27,7 @@ function textOf(message: UiMessage): string {
 
 const BOT_AUTO_SAVE_DELAY_MS = 600;
 
-export function BotView({ id }: { id: string }) {
+export function BotView({ id, active = true }: { id: string; active?: boolean }) {
   const [bot, setBot] = useState<BotDto | null>(null);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
@@ -91,8 +91,8 @@ export function BotView({ id }: { id: string }) {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     const latest = messages.reduce((value, message) => Math.max(value, message.createdAt), 0);
-    if (latest > 0) markRead("bot", id, latest);
-  }, [id, messages]);
+    if (active && latest > 0) markRead("bot", id, latest);
+  }, [active, id, messages]);
   const loadRoutines = useCallback(() => getJson<{ routines: RoutineDto[] }>(`/api/bots/${encodeURIComponent(id)}/routines`).then((result) => setRoutines(result.routines)).catch((reason) => setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f")), [id]);
   useEffect(() => { void loadRoutines(); }, [loadRoutines]);
 

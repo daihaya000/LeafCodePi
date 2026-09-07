@@ -2,7 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
-const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), markRead: vi.fn() }));
+vi.mock("@/lib/bot-unread", () => ({ markRead: mocks.markRead }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("next/link", () => ({ default: ({ children }: { children: ReactNode }) => <span>{children}</span> }));
@@ -34,6 +35,15 @@ beforeEach(() => {
   vi.stubGlobal("EventSource", class { addEventListener(_name: string, callback: typeof listener) { listener = callback; } close() {} });
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.useRealTimers(); });
+
+it("does not mark hidden tab messages read until activation", async () => {
+  const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({ messages: [{ id: "message", role: "assistant", createdAt: 123, parts: [{ type: "text", text: "hello" }] }] });
+  expect(mocks.markRead).not.toHaveBeenCalled();
+  view.rerender(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  expect(mocks.markRead).toHaveBeenCalledWith("bot", "one", 123);
+});
 
 it("answers a delegated Code question from the Bot conversation", async () => {
   render(<ShellProvider><BotView id="one" /></ShellProvider>);

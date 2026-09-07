@@ -13,7 +13,7 @@ import { ShellProvider, useShellMobileNav } from "./ShellContext";
 import { TaskPanesProvider, useTaskPanes } from "./TaskPanesContext";
 import { TaskPanesHost } from "@/components/task/TaskPanesHost";
 import { cx } from "@/components/ui";
-import { isSplitHostPath } from "@/lib/task-panes";
+import { isBotTabId, isSplitHostPath } from "@/lib/task-panes";
 
 const COMPOSER_MODEL_STORAGE_KEY = "leafcodepi.defaultModel";
 let composerDefaultsInitialized = false;
@@ -57,7 +57,7 @@ function AppShellContent({
           <Suspense fallback={null}>
             <TaskPanesHost />
           </Suspense>
-          {!splitHomeOwnsContent && (
+          {!splitHomeOwnsContent && !isBotTabId(pathname) && (
             <div
               className={cx(
                 "flex min-h-0 min-w-0 flex-1 flex-col",

@@ -17,8 +17,8 @@ vi.mock("next/navigation", () => ({
   useSearchParams: mocks.useSearchParams,
 }));
 vi.mock("next/dynamic", () => ({
-  default: () => function DynamicPane({ taskId }: { taskId?: string }) {
-    return <div data-testid="dynamic-pane" data-task-id={taskId} />;
+  default: () => function DynamicPane({ taskId, id, active }: { taskId?: string; id?: string; active?: boolean }) {
+    return <div data-testid="dynamic-pane" data-task-id={taskId} data-bot-id={id} data-active={String(active)} />;
   },
 }));
 vi.mock("./TaskTabs", () => ({
@@ -118,6 +118,20 @@ describe("TaskPanesHost lazy tab mounting", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("Bot tabs retain hidden mounts and receive visibility", async () => {
+    mocks.usePathname.mockReturnValue("/bots/one");
+    const state = { panes: [{ id: "pane-1", tabs: ["/bots/one", "/bots/rooms/two"], activeTabId: "/bots/one" }], activePaneId: "pane-1" };
+    mocks.useTaskPanes.mockReturnValue({ ...mocks.useTaskPanes(), state, activeTaskId: "/bots/one" });
+    const view = render(<TaskPanesHost />);
+    await waitFor(() => expect(screen.getByTestId("dynamic-pane").getAttribute("data-bot-id")).toBe("one"));
+    mocks.useTaskPanes.mockReturnValue({ ...mocks.useTaskPanes(), state: { ...state, panes: [{ ...state.panes[0], activeTabId: "/bots/rooms/two" }] } });
+    view.rerender(<TaskPanesHost />);
+    await waitFor(() => expect(screen.getAllByTestId("dynamic-pane")).toHaveLength(2));
+    expect(screen.getAllByTestId("dynamic-pane")[0].getAttribute("data-active")).toBe("false");
+    expect(screen.getAllByTestId("dynamic-pane")[1].getAttribute("data-bot-id")).toBe("two");
+    mocks.usePathname.mockReturnValue("/task/active");
   });
 
   it("初回はアクティブタブだけをマウントする", async () => {

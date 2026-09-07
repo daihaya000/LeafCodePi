@@ -13,6 +13,8 @@ import {
 import { usePathname } from "next/navigation";
 import {
   createState,
+  BOTS_TAB_ID,
+  isBotTabId,
   HOME_TAB_ID,
   isSplitHostPath,
   SETTINGS_TAB_ID,
@@ -66,7 +68,9 @@ const TaskPanesContext = createContext<TaskPanesContextValue>(EMPTY);
 function syncUrl(tabId: string | null): void {
   if (typeof window === "undefined") return;
   let target: string;
-  if (tabId === SETTINGS_TAB_ID) {
+  if (isBotTabId(tabId)) {
+    target = tabId!;
+  } else if (tabId === SETTINGS_TAB_ID) {
     target = "/settings";
   } else if (tabId == null || tabId === HOME_TAB_ID) {
     const search =
@@ -177,6 +181,48 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     onChange(); // mount 直後にも 1 回取得（タブ名の初期表示）
     window.addEventListener("webui:tasks-changed", onChange);
     return () => window.removeEventListener("webui:tasks-changed", onChange);
+  }, [mdUp]);
+
+  useEffect(() => {
+    if (!mdUp) return;
+    let disposed = false;
+    let generation = 0;
+    const refresh = async () => {
+      const request = ++generation;
+      try {
+        const { bots, rooms } = await getJson<{
+          bots: { id: string; name: string }[];
+          rooms: { id: string; name: string }[];
+        }>("/api/bots/sidebar");
+        if (disposed || request !== generation) return;
+        const titles = new Map<string, string>([
+          [BOTS_TAB_ID, "Bot一覧"],
+          ...bots.map((bot): [string, string] => [`/bots/${encodeURIComponent(bot.id)}`, bot.name]),
+          ...rooms.map((room): [string, string] => [`/bots/rooms/${encodeURIComponent(room.id)}`, room.name]),
+        ]);
+        for (const [id, title] of titles) taskTitlesRef.current.set(id, title);
+        const latest = latestStateForRetarget;
+        if (latest) {
+          let next = latest;
+          for (const id of latest.panes.flatMap((pane) => pane.tabs)) {
+            if (isBotTabId(id) && !titles.has(id)) {
+              next = removeTaskEverywhere(next, id);
+              taskTitlesRef.current.delete(id);
+            }
+          }
+          if (next !== latest) rawDispatch({ type: "replace", state: next });
+        }
+        bumpTitlesVersion();
+      } catch {
+        /* Keep tabs on fetch failure. */
+      }
+    };
+    void refresh();
+    window.addEventListener("webui:bot-sidebar-changed", refresh);
+    return () => {
+      disposed = true;
+      window.removeEventListener("webui:bot-sidebar-changed", refresh);
+    };
   }, [mdUp]);
 
   const dispatch = useCallback((action: TaskPanesAction) => {
