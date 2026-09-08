@@ -385,6 +385,36 @@ body {
   }
 }
 
+/* Keep Bot/Room timeline rows aligned with the Code message format. */
+main.bg-bot-chat > div > div:has(> .bg-bot-user),
+main.bg-bot-chat > div > div:has(> .bg-bot-assistant) {
+  row-gap: 0.5rem;
+}
+
+main.bg-bot-chat > div > div:has(> .bg-bot-user) > time,
+main.bg-bot-chat > div > div:has(> .bg-bot-assistant) > time {
+  order: -1;
+  margin-top: 0;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--faint);
+  opacity: 1;
+}
+
+main.bg-bot-chat > div > div:has(> .bg-bot-assistant) > :first-child:not(.bg-bot-assistant):not(time) {
+  order: -2;
+}
+
+main.bg-bot-chat > div > div > .bg-bot-user,
+main.bg-bot-chat > div > div > .bg-bot-assistant {
+  padding-block: 0.625rem;
+  line-height: 1.5;
+}
+
+main.bg-bot-chat > div > div > .bg-bot-assistant {
+  border-top-left-radius: 1.5rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
