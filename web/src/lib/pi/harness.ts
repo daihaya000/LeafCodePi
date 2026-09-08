@@ -4793,7 +4793,8 @@ export function buildTaskBootstrap(
 }
 
 export function getTaskBootstrap(id: string): TaskDetail {
-  reconcileOrphanedWorkingTasks();
+  // Keep the first SSE packet cheap. Active-task reconciliation runs in
+  // ensureRuntime(), which getTaskDetail() reaches before the ready snapshot.
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
