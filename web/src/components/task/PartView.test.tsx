@@ -60,8 +60,10 @@ describe("formatElapsed", () => {
     expect(formatElapsed(250)).toBe("250ms");
     expect(formatElapsed(999)).toBe("999ms");
     expect(formatElapsed(1_000)).toBe("1s");
-    expect(formatElapsed(2_350)).toBe("2.4s");
-    expect(formatElapsed(61_250)).toBe("1m 1.3s");
+    expect(formatElapsed(2_350)).toBe("2s");
+    expect(formatElapsed(2_500)).toBe("3s");
+    expect(formatElapsed(59_500)).toBe("1m 0s");
+    expect(formatElapsed(61_250)).toBe("1m 1s");
   });
 });
 
