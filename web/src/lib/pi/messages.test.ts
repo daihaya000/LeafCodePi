@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { findResumableTurn } from "../aborted-resume";
 import {
   entryIdsForProjectedMessages,
+  MAX_UI_TOOL_OUTPUT_CHARS,
   projectPiMessages,
   stripAnsiEscapeSequences,
   titleFromPrompt,
@@ -64,6 +65,28 @@ describe("projectPiMessages", () => {
       type: "tool",
       state: { output: "✓ passed" },
     });
+  });
+
+  it("bounds large tool output in the UI projection", () => {
+    const long = "x".repeat(MAX_UI_TOOL_OUTPUT_CHARS + 1);
+    const [message] = projectPiMessages([
+      {
+        role: "assistant",
+        id: "a-large-output",
+        timestamp: 1,
+        content: [{ type: "toolCall", id: "call-large", name: "read", arguments: {} }],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "call-large",
+        content: [{ type: "text", text: long }],
+        isError: false,
+      },
+    ]);
+    const tool = message?.parts.find((part) => part.type === "tool");
+    expect(tool?.type === "tool" && tool.state.output).toBe(
+      `${"x".repeat(MAX_UI_TOOL_OUTPUT_CHARS)}\n…（以降省略）`,
+    );
   });
 
   it("merges tool results into the assistant tool part", () => {

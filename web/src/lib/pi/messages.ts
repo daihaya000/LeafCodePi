@@ -73,6 +73,16 @@ export function stripAnsiEscapeSequences(text: string): string {
   return text.replace(ANSI_ESCAPE_PATTERN, "");
 }
 
+/** Keep UI history payloads bounded; the timeline renders the same prefix only. */
+export const MAX_UI_TOOL_OUTPUT_CHARS = 20_000;
+const UI_TOOL_OUTPUT_OMISSION = "\n…（以降省略）";
+
+export function truncateUiToolOutput(text: string): string {
+  return text.length > MAX_UI_TOOL_OUTPUT_CHARS
+    ? `${text.slice(0, MAX_UI_TOOL_OUTPUT_CHARS)}${UI_TOOL_OUTPUT_OMISSION}`
+    : text;
+}
+
 function contentBlocks(content: unknown): unknown[] {
   if (typeof content === "string") return [{ type: "text", text: content }];
   return Array.isArray(content) ? content : [];
@@ -91,10 +101,12 @@ function textFromBlocks(blocks: unknown[]): string {
 
 /** Tool result / partial result のテキストを UI 表示用に取り出す。 */
 export function toolResultText(result: unknown): string {
-  if (typeof result === "string") return stripAnsiEscapeSequences(result);
+  if (typeof result === "string") return truncateUiToolOutput(stripAnsiEscapeSequences(result));
   if (!isRecord(result)) return "";
-  return stripAnsiEscapeSequences(
-    textFromBlocks(contentBlocks(result.content)) || asString(result.output),
+  return truncateUiToolOutput(
+    stripAnsiEscapeSequences(
+      textFromBlocks(contentBlocks(result.content)) || asString(result.output),
+    ),
   );
 }
 
@@ -311,7 +323,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
             state: {
               status: item.cancelled === true ? "cancelled" : item.exitCode === 0 || item.exitCode == null ? "completed" : "error",
               input: { command: asString(item.command) },
-              output: stripAnsiEscapeSequences(asString(item.output)),
+              output: truncateUiToolOutput(stripAnsiEscapeSequences(asString(item.output))),
               title: "bash",
             } satisfies ToolState,
           },

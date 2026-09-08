@@ -36,6 +36,7 @@ import {
   type StructuredResultStatus,
 } from "@/lib/structured-result";
 import { isSkillRead, toolInputFields, toolLabel, toolSummary } from "@/lib/tool-labels";
+import { truncateUiToolOutput } from "@/lib/pi/messages";
 import { subagentAgentNames, useSubagentRuns } from "@/components/task/use-subagent-runs";
 import {
   saveReasoningTranslationOverride,
@@ -478,7 +479,7 @@ function ToolCard({
   const fields = useMemo(() => toolInputFields(tool, state.input), [tool, state.input]);
   const raw = isCancelled ? "" : state.error || state.output || "";
   // 巨大出力で Markdown / DOM が固まらないよう頭を切る。
-  const output = raw.length > 20_000 ? `${raw.slice(0, 20_000)}\n…（以降省略）` : raw;
+  const output = truncateUiToolOutput(raw);
   useEffect(() => {
     if (!isShell || !open || !output || !logStickRef.current) return;
     const el = logScrollerRef.current;
