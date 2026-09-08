@@ -121,17 +121,21 @@ export async function GET(
             bufferedPayloads: pendingPayloads.length,
           });
         }
-        const readyRank = rankMessageList(detail.messages);
         ready = true;
-        for (const payload of pendingPayloads) {
-          if (sse.closed) break;
-          // Ready is authoritative for full history. Only flush buffered
-          // events that are still newer so an older mid-fetch snapshot cannot
-          // rewind the client after ready. Control events still flush, but
-          // stale embedded messages are stripped.
-          const prepared = preparePendingPayloadForReadyFlush(payload, readyRank);
-          if (!prepared) continue;
-          sse.send(prepared.type === "delta" ? "delta" : "snapshot", prepared);
+        if (pendingPayloads.length > 0) {
+          // No buffered payload means there is no history to compare. Avoid
+          // serializing the full ready history just to build an unused rank.
+          const readyRank = rankMessageList(detail.messages);
+          for (const payload of pendingPayloads) {
+            if (sse.closed) break;
+            // Ready is authoritative for full history. Only flush buffered
+            // events that are still newer so an older mid-fetch snapshot cannot
+            // rewind the client after ready. Control events still flush, but
+            // stale embedded messages are stripped.
+            const prepared = preparePendingPayloadForReadyFlush(payload, readyRank);
+            if (!prepared) continue;
+            sse.send(prepared.type === "delta" ? "delta" : "snapshot", prepared);
+          }
         }
         pendingPayloads.length = 0;
       } catch (error) {
