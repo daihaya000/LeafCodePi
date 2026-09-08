@@ -3,7 +3,7 @@ import { useLayoutEffect } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { UiMessage } from "@/lib/types";
-import { PartView } from "./PartView";
+import { formatElapsed, PartView } from "./PartView";
 
 function bashMessage(output: string): UiMessage {
   return {
@@ -50,6 +50,14 @@ function setScrollMetrics(element: HTMLDivElement, scrollTop: number, scrollHeig
     scrollTop: { configurable: true, writable: true, value: scrollTop },
   });
 }
+
+describe("formatElapsed", () => {
+  it("shows tenths of a second and carries into minutes", () => {
+    expect(formatElapsed(250)).toBe("0.3s");
+    expect(formatElapsed(2_350)).toBe("2.4s");
+    expect(formatElapsed(61_250)).toBe("1m 1.3s");
+  });
+});
 
 function readMessage(status: "running" | "error"): UiMessage {
   const failed = status === "error";

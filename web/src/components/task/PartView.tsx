@@ -229,14 +229,15 @@ export function toolIcon(tool: string, input?: Record<string, unknown>) {
 }
 
 export function formatElapsed(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
+  const totalTenths = Math.max(0, Math.round(ms / 100));
+  const minutes = Math.floor(totalTenths / 600);
+  const seconds = (totalTenths % 600) / 10;
+  const secondsText = Number.isInteger(seconds) ? String(seconds) : seconds.toFixed(1);
+  if (minutes > 0) return `${minutes}m ${secondsText}s`;
+  return `${secondsText}s`;
 }
 
-/** 実行中は秒表示に合わせて 1 秒毎に、終了後は固定値で経過時間を返す。 */
+/** 実行中は 0.1 秒表示に合わせて更新し、終了後は固定値で経過時間を返す。 */
 function useElapsedMs(
   startedAtMs: number | undefined,
   endedAtMs: number | undefined,
@@ -250,7 +251,7 @@ function useElapsedMs(
     }
     if (!enabled) return;
     setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    const timer = window.setInterval(() => setNow(Date.now()), 100);
     return () => window.clearInterval(timer);
   }, [enabled, endedAtMs]);
   if (startedAtMs === undefined) return 0;
