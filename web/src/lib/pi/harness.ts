@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -2054,6 +2054,35 @@ export function syncSessionName(
     sessionManager.appendSessionInfo(sessionName);
 }
 
+type PersistableSessionManager = {
+  getSessionFile: () => string | undefined;
+  getHeader: () => unknown;
+  getEntries: () => unknown[];
+  setSessionFile: (file: string) => void;
+};
+
+/**
+ * Pi defers creating a new session file until its first assistant message.
+ * Goal Loop state exists before that message, so persist the header now or a
+ * cold route handler can reopen the empty path with a different session ID.
+ */
+function ensureSessionFilePersisted(sessionManager: PersistableSessionManager): void {
+  const file = sessionManager.getSessionFile();
+  if (!file || existsSync(file)) return;
+  const header = sessionManager.getHeader();
+  if (!header) return;
+  mkdirSync(dirname(file), { recursive: true });
+  const content = [header, ...sessionManager.getEntries()]
+    .map((entry) => JSON.stringify(entry) ?? "")
+    .join("\n") + "\n";
+  try {
+    writeFileSync(file, content, { encoding: "utf8", flag: "wx" });
+  } catch (error) {
+    if (!existsSync(file)) throw error;
+  }
+  sessionManager.setSessionFile(file);
+}
+
 type GoalLoopTurnRoutingContext = {
   prepareGoalLoopTurn?: (prompt: string) => Promise<boolean | "retry">;
   canRetryGoalLoopProviderLimit?: () => Promise<boolean>;
@@ -2276,6 +2305,7 @@ async function createSession(options: {
     modelRuntime: (await getRuntimeFor(options.accountId)) ?? undefined,
     tools,
   });
+  if (options.goalLoop) ensureSessionFilePersisted(sessionManager);
   // bindExtensions() emits session_start; bundled extensions (goal-loop 等)
   // create their per-session runtime there. Without it /goal-start silently
   // no-ops because the extension never sees a runtime.
@@ -4869,6 +4899,9 @@ export async function goalLoopCommand(
     | { action: "pause" | "resume" | "stop" | "complete"; maxTurns?: number },
 ): Promise<GoalLoopDto | null> {
   const live = await ensureLive(taskId);
+  if (input.action === "start") {
+    ensureSessionFilePersisted(live.session.sessionManager);
+  }
   let command: string;
   if (input.action === "start") {
     const payload = Buffer.from(

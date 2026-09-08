@@ -50,7 +50,10 @@ const fakePi = vi.hoisted(() => {
       },
       getCwd: () => cwd,
       getSessionId: () => sessionId,
+      getSessionFile: () => file,
+      getHeader: () => ({ type: "session", id: sessionId, cwd }),
       getEntries: () => [],
+      setSessionFile: () => undefined,
       getLeafId: () => null,
       getBranch: () => [],
       appendCustomEntry: () => undefined,
@@ -413,13 +416,16 @@ describe("integrated session routing", () => {
     installHarness(new Map());
 
     const project = upsertProject({ name: "demo", rootPath: dir });
-    await createTask({
+    const task = await createTask({
       projectId: project.id,
       prompt: "Goal loop context compaction",
       goalLoop: { maxTurns: 1 },
     });
 
     assert.equal(fakePi.sessions[0]?.compactionEnabledHistory[0], true);
+    assert.ok(task.sessionFile);
+    const header = JSON.parse(readFileSync(task.sessionFile, "utf8").split("\n", 1)[0]);
+    assert.equal(header.id, task.sessionId);
   });
 
   it("reselects the Auto agent before every Goal Loop turn and keeps the transcript", async () => {
