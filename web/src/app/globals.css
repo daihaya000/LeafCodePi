@@ -327,13 +327,13 @@ body {
   95% { transform: scaleY(0.15); }
 }
 
-.bot-avatar-preview { animation: bot-sway 2.4s ease-in-out infinite; }
-.bot-avatar-preview .bot-avatar-eyes,
+/* Explicit preview playback overrides the global reduced-motion duration/iteration reset. */
+.bot-avatar-preview { animation: bot-sway 2.4s ease-in-out infinite !important; }
 .bot-avatar-eyes {
   transform-box: fill-box;
   transform-origin: center;
 }
-.bot-avatar-preview .bot-avatar-eyes { animation: bot-blink 3.2s ease-in-out infinite; }
+.bot-avatar-preview .bot-avatar-eyes { animation: bot-blink 3.2s ease-in-out infinite !important; }
 
 @media (prefers-reduced-motion: no-preference) {
   .bot-avatar-working { animation: bot-sway 2.4s ease-in-out infinite; }

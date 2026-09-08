@@ -31,11 +31,6 @@ function setup(initial = initialBot, save = vi.fn<(patch: AvatarPatch) => Promis
 it("opens from the icon, navigates tabs with the keyboard, and dismisses without closing settings", () => {
   const { trigger, onEscape } = setup();
   expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Bot" }));
-  expect(screen.getByRole("button", { name: "停止" }).getAttribute("aria-pressed")).toBe("true");
-  expect(screen.getByLabelText("アニメーションプレビューのアバター").classList.contains("bot-avatar-preview")).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "停止" }));
-  expect(screen.getByRole("button", { name: "再生" }).getAttribute("aria-pressed")).toBe("false");
-  expect(screen.getByLabelText("アニメーションプレビューのアバター").classList.contains("bot-avatar-working")).toBe(false);
   fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
   expect(document.activeElement).toBe(screen.getByRole("tab", { name: "生成" }));
   fireEvent.keyDown(document.activeElement!, { key: "End" });
@@ -53,6 +48,21 @@ it("opens from the icon, navigates tabs with the keyboard, and dismisses without
   fireEvent.click(trigger);
   act(() => screen.getByRole("button", { name: "外側" }).focus());
   expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it.each([null, "data:image/png;base64,dGVzdA=="])("only animates after explicit playback and fully stops (%s)", (avatarImage) => {
+  const { save } = setup({ ...initialBot, avatarImage });
+  const preview = screen.getByRole("img", { name: "アニメーションプレビューのアバター" });
+  expect(preview.matches(".bot-avatar-preview, .bot-avatar-working")).toBe(false);
+  for (let i = 0; i < 2; i++) {
+    fireEvent.click(screen.getByRole("button", { name: "再生" }));
+    expect(preview.matches(".bot-avatar-preview.bot-avatar-working")).toBe(true);
+    expect(screen.getByRole("button", { name: "停止" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "停止" }));
+    expect(preview.matches(".bot-avatar-preview, .bot-avatar-working")).toBe(false);
+    expect(preview.querySelector(".bot-avatar-eyes")).toBeNull();
+  }
+  expect(save).not.toHaveBeenCalled();
 });
 
 it("saves shapes, preset colors and validated custom colors, replacing an uploaded image", async () => {
