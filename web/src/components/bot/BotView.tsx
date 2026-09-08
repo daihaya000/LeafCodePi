@@ -26,6 +26,25 @@ function textOf(message: UiMessage): string {
 }
 
 const BOT_AUTO_SAVE_DELAY_MS = 600;
+const BOT_SETTINGS_OPEN_KEY_PREFIX = "webui:bot-settings-open:";
+
+function readBotSettingsOpen(id: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(`${BOT_SETTINGS_OPEN_KEY_PREFIX}${id}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveBotSettingsOpen(id: string, open: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(`${BOT_SETTINGS_OPEN_KEY_PREFIX}${id}`, open ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
 
 export function BotView({ id, active = true }: { id: string; active?: boolean }) {
   const [bot, setBot] = useState<BotDto | null>(null);
@@ -41,6 +60,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   const [profileLabel, setProfileLabel] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsOpenRef = useRef(false);
   const [sending, setSending] = useState(false);
   const [reverting, setReverting] = useState(false);
   const [savingSoul, setSavingSoul] = useState(false);
@@ -89,6 +109,17 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   }, [id]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const saved = readBotSettingsOpen(id);
+    settingsOpenRef.current = saved;
+    setSettingsOpen(saved);
+  }, [id]);
+  const updateSettingsOpen = (open: boolean) => {
+    settingsOpenRef.current = open;
+    setSettingsOpen(open);
+    saveBotSettingsOpen(id, open);
+  };
+  const toggleSettings = () => updateSettingsOpen(!settingsOpenRef.current);
   useEffect(() => {
     const latest = messages.reduce((value, message) => Math.max(value, message.createdAt), 0);
     if (active && latest > 0) markRead("bot", id, latest);
@@ -413,7 +444,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
         bot={bot}
         settingsOpen={settingsOpen}
         active={sending}
-        onSettings={() => setSettingsOpen((open) => !open)}
+        onSettings={toggleSettings}
       />
 
 
@@ -444,16 +475,16 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
         busy={sending}
         onSend={() => void send()}
         onAbort={() => void abort()}
-        footer={<><button type="button" onClick={() => setRoutineCardOpen(true)} className="shrink-0 font-medium text-accent hover:underline">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u4f5c\u6210"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="truncate hover:text-text">{"\u30e2\u30c7\u30eb"}: {selectedModel?.label ?? "\u672a\u9078\u629e"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="shrink-0 hover:text-text">{"\u601d\u8003"}: {thinkingValue}</button></>}
+        footer={<><button type="button" onClick={() => setRoutineCardOpen(true)} className="shrink-0 font-medium text-accent hover:underline">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u4f5c\u6210"}</button><button type="button" onClick={() => updateSettingsOpen(true)} className="truncate hover:text-text">{"\u30e2\u30c7\u30eb"}: {selectedModel?.label ?? "\u672a\u9078\u629e"}</button><button type="button" onClick={() => updateSettingsOpen(true)} className="shrink-0 hover:text-text">{"\u601d\u8003"}: {thinkingValue}</button></>}
       />
       {!settingsOpen && error && <p role="alert" className="mx-auto -mt-2 mb-2 max-w-3xl rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
       </div>
 
       {settingsOpen && (
-        <aside id="bot-settings-panel" role="dialog" aria-labelledby="bot-settings-title" onKeyDown={(event) => { if (event.key === "Escape") setSettingsOpen(false); }} aria-label="ボット設定" className="flex h-full w-full shrink-0 flex-col border-bot-outline bg-bot-chat lg:w-[22rem] lg:border-l xl:w-[24.5rem]">
+        <aside id="bot-settings-panel" role="dialog" aria-labelledby="bot-settings-title" onKeyDown={(event) => { if (event.key === "Escape") updateSettingsOpen(false); }} aria-label="ボット設定" className="flex h-full w-full shrink-0 flex-col border-bot-outline bg-bot-chat lg:w-[22rem] lg:border-l xl:w-[24.5rem]">
           <div className="flex h-[3.75rem] shrink-0 items-center justify-between px-5">
             <h2 id="bot-settings-title" className="text-sm font-medium">設定</h2>
-            <button type="button" autoFocus aria-label="設定を閉じる" onClick={() => setSettingsOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"><X className="h-4 w-4" /></button>
+            <button type="button" autoFocus aria-label="設定を閉じる" onClick={() => updateSettingsOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"><X className="h-4 w-4" /></button>
           </div>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
             {error && <p role="alert" className="text-sm text-danger">{error}</p>}

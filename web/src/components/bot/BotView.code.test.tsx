@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), markRead: vi.fn() }));
@@ -30,11 +30,12 @@ const testBot = {
   updatedAt: "",
 };
 beforeEach(() => {
+  localStorage.clear();
   mocks.getJson.mockImplementation(async (url: string) => url === "/api/models" ? { models: [] } : url.endsWith("/routines") ? { routines: [] } : { bot: testBot });
   mocks.sendJson.mockResolvedValue({ bot: testBot });
   vi.stubGlobal("EventSource", class { addEventListener(_name: string, callback: typeof listener) { listener = callback; } close() {} });
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.useRealTimers(); });
 
 it("does not mark hidden tab messages read until activation", async () => {
   const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
@@ -96,4 +97,22 @@ it("auto-saves bot profile and description and keeps model selection outside det
 
   fireEvent.change(screen.getByRole("textbox", { name: "ボットの説明" }), { target: { value: "新しい説明" } });
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { soul: "新しい説明" }, "PATCH"));
+});
+
+it("keeps the Bot settings panel visibility after remounting", async () => {
+  const first = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+  expect(await screen.findByRole("dialog", { name: "設定" })).toBeTruthy();
+
+  first.unmount();
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  expect(await screen.findByRole("dialog", { name: "設定" })).toBeTruthy();
+
+  fireEvent.click(within(screen.getByRole("dialog", { name: "設定" })).getByRole("button", { name: "設定を閉じる" }));
+  expect(screen.queryByRole("dialog", { name: "設定" })).toBeNull();
+
+  cleanup();
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  expect(screen.queryByRole("dialog", { name: "設定" })).toBeNull();
 });
