@@ -145,7 +145,7 @@ export function BotAvatarPicker({ bot, onChange }: { bot: BotDto; onChange: (pat
         </div>
         <div className="min-h-0 overflow-y-auto overscroll-contain p-4">
           <div className="mb-4 flex items-center justify-between rounded-xl bg-surface-2 px-3 py-2">
-            <div className="flex items-center gap-2"><BotAvatar size={40} {...bot} name="アニメーションプレビュー" active={previewAnimation} /><span className="text-xs text-muted">アニメーションプレビュー</span></div>
+            <div className="flex items-center gap-2"><BotAvatar size={40} {...bot} name="アニメーションプレビュー" active={previewAnimation} className="bot-avatar-preview" /><span className="text-xs text-muted">アニメーションプレビュー</span></div>
             <button type="button" aria-pressed={previewAnimation} onClick={() => setPreviewAnimation((value) => !value)} className="min-h-11 rounded-lg border border-border px-3 text-xs hover:bg-surface disabled:opacity-50">{previewAnimation ? "停止" : "再生"}</button>
           </div>
           <div role="tabpanel" id={`${uid}-panel-${tab}`} aria-labelledby={`${uid}-tab-${tab}`} tabIndex={0}>

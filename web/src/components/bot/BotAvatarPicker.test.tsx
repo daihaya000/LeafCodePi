@@ -32,7 +32,7 @@ it("opens from the icon, navigates tabs with the keyboard, and dismisses without
   const { trigger, onEscape } = setup();
   expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Bot" }));
   expect(screen.getByRole("button", { name: "停止" }).getAttribute("aria-pressed")).toBe("true");
-  expect(screen.getByLabelText("アニメーションプレビューのアバター").classList.contains("bot-avatar-working")).toBe(true);
+  expect(screen.getByLabelText("アニメーションプレビューのアバター").classList.contains("bot-avatar-preview")).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "停止" }));
   expect(screen.getByRole("button", { name: "再生" }).getAttribute("aria-pressed")).toBe("false");
   expect(screen.getByLabelText("アニメーションプレビューのアバター").classList.contains("bot-avatar-working")).toBe(false);
