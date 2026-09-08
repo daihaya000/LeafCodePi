@@ -24,7 +24,7 @@ type MentionContext = { start: number; end: number; query: string };
 
 /** A room is busy while a turn is being written or a delegated Code run has not reported back. */
 function isRoomBusy(room: RoomDto | null): boolean {
-  return (room?.messages ?? []).some((message) => message.status === "working" || message.codeState === "starting" || message.codeState === "running" || message.codeState === "ready");
+  return (room?.messages ?? []).some((message) => message.status === "working" || message.codeState === "queued" || message.codeState === "starting" || message.codeState === "running" || message.codeState === "ready");
 }
 
 type MentionCandidate = { key: string; value: string; label: string; description: string; bot?: BotDto };
@@ -43,6 +43,7 @@ const OUTCOME_TEXT: Record<string, string> = {
 };
 
 const CODE_STATE_TEXT: Record<CodeRequestState, string> = {
+  queued: "Code待機中",
   starting: "Code起動準備",
   running: "Code実行中",
   ready: "Code結果を報告中",
@@ -85,7 +86,7 @@ function RoomCodePreview({
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const live = state === "starting" || state === "running";
+  const live = state === "queued" || state === "starting" || state === "running";
 
   useEffect(() => {
     if (!open || !taskId) return;
@@ -121,7 +122,7 @@ function RoomCodePreview({
         {activity && <span className="min-w-0 flex-1 truncate text-faint">· {activity}</span>}
         {taskId && <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="min-h-11 rounded-lg px-3 text-accent hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent">{open ? "閉じる" : "プレビュー"}</button>}
         {taskId && <a className="inline-flex min-h-11 items-center rounded-lg px-3 text-muted hover:bg-surface-2 hover:text-accent focus-visible:outline-2 focus-visible:outline-accent" href={`/task/${encodeURIComponent(taskId)}`}>実行内容を見る</a>}
-        {(state === "starting" || state === "running") && <button type="button" onClick={onStop} disabled={stopping} className="min-h-11 rounded-lg px-3 text-danger hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">停止</button>}
+        {(state === "queued" || state === "starting" || state === "running") && <button type="button" onClick={onStop} disabled={stopping} className="min-h-11 rounded-lg px-3 text-danger hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">{state === "queued" ? "取消" : "停止"}</button>}
       </div>
       {open && (
         <div role="region" aria-label="Codeプレビュー" className="mt-3 min-w-0 space-y-3 border-t border-border pt-3">
@@ -251,7 +252,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     [botById, room],
   );
   const busyIds = useMemo(() => new Set((room?.messages ?? []).flatMap((message) => {
-    const working = message.status === "working" || message.codeState === "starting" || message.codeState === "running" || message.codeState === "ready";
+    const working = message.status === "working" || message.codeState === "queued" || message.codeState === "starting" || message.codeState === "running" || message.codeState === "ready";
     return working && message.botId ? [message.botId] : [];
   })), [room?.messages]);
   const attentionIds = useMemo(() => new Set(attention.map((item) => item.botId)), [attention]);
@@ -409,11 +410,11 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     setAttention((current) => current.map((entry) => entry.question?.id === request.id ? { ...entry, question: null } : entry));
   };
 
-  const stopCode = useCallback(async () => {
+  const stopCode = useCallback(async (requestId?: string) => {
     if (stoppingCode) return;
     setStoppingCode(true);
     setError(null);
-    try { await sendJson(`/api/bots/rooms/${encodeURIComponent(id)}/code`, { action: "abort" }); }
+    try { await sendJson(`/api/bots/rooms/${encodeURIComponent(id)}/code`, { action: "abort", ...(requestId ? { requestId } : {}) }); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Codeの停止に失敗しました"); }
     finally { setStoppingCode(false); }
   }, [id, stoppingCode]);
@@ -445,7 +446,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
           <BotMessageMarkdown text={text} mentions={bots} keyPrefix={message.id} prefix={<span className="mr-1.5 inline-flex items-center gap-1.5 rounded-md bg-surface-3 px-1.5 py-0.5 align-baseline font-medium"><BotAvatar size={20} color={bot?.avatarColor} image={bot?.avatarImage} name={bot?.name ?? message.botName} active={message.status === "working"} />{bot?.name ?? message.botName ?? "ボット"}</span>} />
         ))}
         {message.images && message.images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{message.images.map((image) => <ImageLightbox key={image.file} src={`/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}`} alt="添付画像" className="max-h-48 rounded-lg border border-border object-cover" />)}</div>}
-        {message.codeState && <RoomCodePreview taskId={message.codeTaskId} state={message.codeState} activity={message.codeActivity} stopping={stoppingCode} onStop={() => void stopCode()} />}
+        {message.codeState && <RoomCodePreview taskId={message.codeTaskId} state={message.codeState} activity={message.codeActivity} stopping={stoppingCode} onStop={() => void stopCode(message.codeRequestId)} />}
         {message.status === "error" && <BotMessageError text="応答に失敗しました" />}
       </BotMessageRow>
     );

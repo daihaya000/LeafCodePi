@@ -266,7 +266,10 @@ export function deliverRoomCodeReport(request: CodeRequest, text: string): boole
     text: reply.text, status: "done", codeRequestId: request.id, codeTaskId: request.codeTaskId, codeState: "delivered",
     conversation: request.room.conversation,
   });
-  if (report && room.lastOutcome?.kind === "code-wait" && room.lastOutcome.requestId === request.room.conversation.requestId) {
+  // A Room conversation can have queued Code jobs. Keep it waiting until this
+  // report is the last outstanding job for that conversation.
+  if (report && !pendingRoomCodeRequestForTurn(room.id, request.room.conversation.requestId, request.id)
+    && room.lastOutcome?.kind === "code-wait" && room.lastOutcome.requestId === request.room.conversation.requestId) {
     setRoomOutcome(room.id, { kind: "done", requestId: request.room.conversation.requestId });
   }
   return Boolean(report);
@@ -278,6 +281,9 @@ export async function resumeRoomAfterCode(request: CodeRequest): Promise<void> {
   const room = getRoom(request.room.id);
   const { requestId, participantIds, turn, maxTurns } = request.room.conversation;
   if (!room || latestRoomRequest(room)?.id !== requestId || turn >= maxTurns) return;
+  // Do not resume the conversation after only one of several queued Code jobs
+  // reports; the remaining jobs still own the turn.
+  if (pendingRoomCodeRequestForTurn(room.id, requestId, request.id)) return;
   // Failures, interrupted jobs, or unknown outcomes require fresh human direction, not another mutation.
   try { if (JSON.parse(request.result ?? "{}").outcome !== "実行終了") return; } catch { return; }
   const participants = participantIds.map(getBot).filter((bot): bot is BotDto => Boolean(bot?.enabled && room.members.includes(bot.id)));

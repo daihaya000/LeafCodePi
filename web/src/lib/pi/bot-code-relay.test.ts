@@ -24,7 +24,7 @@ vi.mock("@/lib/store", () => ({
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, botCodeReportText, cancelRoomCodeRequest, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -36,6 +36,10 @@ function record(): CodeRequest {
   const directory = join(store.root, "bot-code-requests");
   const file = readdirSync(directory).find((name) => name.endsWith(".json"))!;
   return JSON.parse(readFileSync(join(directory, file), "utf8"));
+}
+function records(): CodeRequest[] {
+  const directory = join(store.root, "bot-code-requests");
+  return readdirSync(directory).filter((name) => name.endsWith(".json")).map((file) => JSON.parse(readFileSync(join(directory, file), "utf8")) as CodeRequest);
 }
 function launch(call = "start-1") { return relay.run("bot:one", call, { action: "start", projectId: "project", prompt: "Fix the parser; run its test" }, "session"); }
 function roomSetup() {
@@ -299,20 +303,54 @@ describe("Room ⇄ Code delegation", () => {
     expect(record().room?.conversation.requestId).toBe("user-2");
   });
 
-  it("refuses a second Room job before spending the user's approval on it", async () => {
+  it("queues a later Room Code job and starts it after the earlier report is delivered", async () => {
     roomSetup();
+    let nextCode = 0;
+    vi.mocked(deps.create).mockImplementation(async (input) => {
+      const code = task(`code-${++nextCode}`, { status: "working" });
+      store.tasks.set(code.id, code);
+      input.beforePrompt(code);
+      return code;
+    });
     await roomLaunch();
-    store.rooms.get("room-1")!.messages.push({ id: "turn-2", role: "assistant", botId: "two", text: "", status: "working", createdAt: 4, conversation: { requestId: "user-1", participantIds: ["one", "two"], turn: 2, maxTurns: 6 } });
-    vi.mocked(deps.approve).mockClear();
-    await expect(relay.run("bot:two:room:room-1", "other-member", { action: "start", projectId: "project", prompt: "Same work" }, "session")).rejects.toThrow("still running");
-    expect(deps.approve).not.toHaveBeenCalled();
+    const room = store.rooms.get("room-1")!;
+    const conversation = { requestId: "user-1", participantIds: ["one", "two"], turn: 2, maxTurns: 6 };
+    room.messages.push({ id: "turn-2", role: "assistant", botId: "two", text: "", status: "working", createdAt: 4, conversation });
+    const second = await relay.run("bot:two:room:room-1", "other-member", { action: "start", projectId: "project", prompt: "Same work" }, "session");
+    expect(second).toMatchObject({ taskId: null, state: "queued" });
+    expect(deps.approve).toHaveBeenCalledTimes(2);
+    expect(deps.create).toHaveBeenCalledTimes(1);
+    const queued = records().find((request) => request.id === second.requestId)!;
+    expect(queued).toMatchObject({ state: "queued", action: "start", projectId: "project", room: { id: "room-1" } });
+    // The Room marks the assistant message done after the Bot has returned the queued receipt.
+    room.messages.find((message) => message.id === "turn-2")!.status = "done";
+
+    store.tasks.get("code-1")!.status = "idle";
+    messages = [answer("first", "最初の作業結果")];
+    await relay.tick();
+    expect(deps.deliver).toHaveBeenCalledTimes(1);
+    expect(deps.create).toHaveBeenCalledTimes(2);
+    expect(records().find((request) => request.id === second.requestId)).toMatchObject({ state: "running", codeTaskId: "code-2" });
+    expect(room.messages.find((message) => message.id === "turn-2")?.codeTaskId).toBe("code-2");
+
+    store.tasks.get("code-2")!.status = "idle";
+    messages = [answer("second", "二つ目の作業結果")];
+    await relay.tick();
+    expect(records().find((request) => request.id === second.requestId)?.state).toBe("delivered");
   });
 
-  it("allows only one Room Code job at a time, including from another member", async () => {
+  it("cancels a queued Room Code job without launching it", async () => {
     roomSetup();
     await roomLaunch();
-    store.rooms.get("room-1")!.messages.push({ id: "turn-2", role: "assistant", botId: "two", text: "", status: "working", createdAt: 4, conversation: { requestId: "user-1", participantIds: ["one", "two"], turn: 2, maxTurns: 6 } });
-    await expect(relay.run("bot:two:room:room-1", "other-member", { action: "start", projectId: "project", prompt: "Same work" }, "session")).rejects.toThrow("still running");
+    const room = store.rooms.get("room-1")!;
+    const conversation = { requestId: "user-2", participantIds: ["one", "two"], turn: 1, maxTurns: 6 };
+    room.messages.push({ id: "user-2", role: "user", text: "次の依頼", createdAt: 4 });
+    room.messages.push({ id: "turn-2", role: "assistant", botId: "two", text: "", status: "working", createdAt: 5, conversation });
+    const second = await relay.run("bot:two:room:room-1", "cancel-queued", { action: "start", projectId: "project", prompt: "Same work" }, "session");
+    expect(second).toMatchObject({ state: "queued" });
+    expect(await cancelRoomCodeRequest("room-1", (second as { requestId: string }).requestId)).toBe(true);
+    expect(records().find((request) => request.id === (second as { requestId: string }).requestId)?.state).toBe("cancelled");
+    await relay.tick();
     expect(deps.create).toHaveBeenCalledTimes(1);
   });
 

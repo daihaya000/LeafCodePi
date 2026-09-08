@@ -5,14 +5,14 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CodeRequest } from "@/lib/pi/bot-code-relay";
 
-const state = vi.hoisted(() => ({ root: "", abortTask: vi.fn(), pendingRoom: vi.fn<(roomId: string) => CodeRequest | undefined>(() => undefined) }));
+const state = vi.hoisted(() => ({ root: "", abortTask: vi.fn(), pendingRoom: vi.fn<(roomId: string) => CodeRequest | undefined>(() => undefined), roomRequest: vi.fn<(roomId: string, requestId: string) => CodeRequest | undefined>(() => undefined), cancelRoom: vi.fn<(roomId: string, requestId: string) => boolean>(() => false) }));
 vi.mock("@/lib/paths", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/paths")>(),
   dataDir: () => state.root,
   storePath: () => join(state.root, "store.json"),
 }));
 vi.mock("@/lib/pi/harness", () => ({ abortTask: state.abortTask, jsonError: (error: Error) => ({ error: error.message, status: 500 }) }));
-vi.mock("@/lib/pi/bot-code-relay", () => ({ pendingRoomCodeRequestForRoom: state.pendingRoom }));
+vi.mock("@/lib/pi/bot-code-relay", () => ({ pendingRoomCodeRequestForRoom: state.pendingRoom, roomCodeRequestForRoom: state.roomRequest, cancelRoomCodeRequest: state.cancelRoom }));
 
 import { createRoom } from "@/lib/rooms";
 import { POST } from "./route";
@@ -29,6 +29,8 @@ afterEach(() => {
   rmSync(state.root, { recursive: true, force: true });
   state.abortTask.mockReset();
   state.pendingRoom.mockReset();
+  state.roomRequest.mockReset();
+  state.cancelRoom.mockReset();
 });
 
 describe("room Code control", () => {
@@ -38,6 +40,18 @@ describe("room Code control", () => {
     const result = await send(room.id, { action: "abort" });
     expect(result.status).toBe(200);
     expect(state.abortTask).toHaveBeenCalledWith("code-1");
+  });
+
+  it("cancels a queued Room Code request without starting a task", async () => {
+    const room = createRoom({ name: "Team" });
+    const queued = { id: "queued", botId: "bot-1", originTaskId: "bot:bot-1:room:" + room.id, state: "queued", codeTaskId: null, prompt: "wait", baseline: null, room: { id: room.id } } as CodeRequest;
+    state.roomRequest.mockReturnValue(queued);
+    state.cancelRoom.mockReturnValue(true);
+    const result = await send(room.id, { action: "abort", requestId: "queued" });
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ requestId: "queued", state: "cancelled" });
+    expect(state.cancelRoom).toHaveBeenCalledWith(room.id, "queued");
+    expect(state.abortTask).not.toHaveBeenCalled();
   });
 
   it("rejects an unknown room, an unsupported action, and a room with nothing running", async () => {

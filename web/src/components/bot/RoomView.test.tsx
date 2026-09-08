@@ -197,7 +197,7 @@ describe("RoomView delegated work", () => {
 
     expect(screen.getByText("· 読取 README.md")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "停止" }));
-    expect(mocks.sendJson).toHaveBeenCalledWith(`/api/bots/rooms/${room.id}/code`, { action: "abort" });
+    expect(mocks.sendJson).toHaveBeenCalledWith(`/api/bots/rooms/${room.id}/code`, { action: "abort", requestId: "request" });
   });
 
   it("tells the user why a quiet room stopped, and only for the latest request", async () => {

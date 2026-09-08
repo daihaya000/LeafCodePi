@@ -7,7 +7,7 @@ import type { BotDto, RoomDto, TaskDetail, UiMessage } from "./types";
 
 const state = vi.hoisted(() => ({
   root: "", details: new Map<string, TaskDetail>(), promptTask: vi.fn(),
-  pendingRoom: vi.fn<(roomId: string, requestId: string) => CodeRequest | undefined>(() => undefined),
+  pendingRoom: vi.fn<(roomId: string, requestId: string, excludeRequestId?: string) => CodeRequest | undefined>(() => undefined),
   listeners: new Map<string, Set<(payload: Record<string, unknown>) => void>>(),
 }));
 vi.mock("@/lib/paths", async (importOriginal) => ({
@@ -214,6 +214,29 @@ describe("room conversation with delegated work", () => {
     expect(state.promptTask).toHaveBeenCalledTimes(1);
     expect(state.promptTask.mock.calls[0][0]).toBe(`bot:${bots[1].id}:room:${room.id}`);
     expect(state.promptTask.mock.calls[0][1]).toContain("修正を適用しテストは成功。");
+  });
+
+  it("waits for every queued Code report before resuming a conversation", async () => {
+    const { room, bots } = setup();
+    const first = codeRequest(room, bots[0], { id: "first" });
+    const second = codeRequest(room, bots[1], {
+      id: "second", botId: bots[1].id, originTaskId: `bot:${bots[1].id}:room:${room.id}`, codeTaskId: "code-2",
+    });
+    state.pendingRoom.mockReturnValue(first);
+    await runRoomConversation(room, bots, "残作業も進めて", first.room!.conversation.requestId);
+    expect(getRoom(room.id)?.lastOutcome?.kind).toBe("code-wait");
+
+    state.pendingRoom.mockImplementation((_roomId, _requestId, excludeRequestId) => excludeRequestId === first.id ? second : undefined);
+    state.promptTask.mockClear();
+    expect(deliverRoomCodeReport(first, "最初の作業結果です")).toBe(true);
+    expect(getRoom(room.id)?.lastOutcome?.kind).toBe("code-wait");
+    await resumeRoomAfterCode(first);
+    expect(state.promptTask).not.toHaveBeenCalled();
+
+    expect(deliverRoomCodeReport(second, "二つ目の作業結果です")).toBe(true);
+    expect(getRoom(room.id)?.lastOutcome?.kind).toBe("done");
+    await resumeRoomAfterCode(second);
+    expect(state.promptTask).toHaveBeenCalledTimes(1);
   });
 
   it.each<[string, (request: CodeRequest) => CodeRequest]>([
