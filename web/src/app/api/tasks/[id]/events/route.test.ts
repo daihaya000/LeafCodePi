@@ -122,6 +122,61 @@ describe("/api/tasks/[id]/events", () => {
     await reader.cancel();
   });
 
+  it("omits ready history when the idle client cache revision matches", async () => {
+    const bootstrap = task({ messages: [], isStreaming: false, status: "idle" });
+    const detail = task({
+      messages: [{ id: "history", role: "user", createdAt: 1, parts: [{ id: "part", type: "text", text: "履歴" }] }],
+      isStreaming: false,
+      status: "idle",
+    });
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail.mockResolvedValue(detail);
+    mocks.subscribeTask.mockReturnValue(vi.fn());
+
+    const response = await GET(
+      new NextRequest(
+        "http://127.0.0.1:3010/api/tasks/task-1/events?cachedTaskUpdatedAt=2026-01-01T00%3A00%3A00.000Z&cachedSessionId=session-1",
+      ),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const reader = response.body!.getReader();
+    await readChunk(reader);
+
+    const readyPayload = eventData(await readChunk(reader));
+    expect(readyPayload.eventType).toBe("ready");
+    expect(readyPayload.messagesReused).toBe(true);
+    expect(readyPayload).not.toHaveProperty("messages");
+
+    await reader.cancel();
+  });
+
+  it("does not reuse a matching cache while the task is working", async () => {
+    const bootstrap = task({ messages: [], isStreaming: true });
+    const detail = task({
+      messages: [{ id: "history", role: "user", createdAt: 1, parts: [{ id: "part", type: "text", text: "履歴" }] }],
+      isStreaming: true,
+      status: "working",
+    });
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail.mockResolvedValue(detail);
+    mocks.subscribeTask.mockReturnValue(vi.fn());
+
+    const response = await GET(
+      new NextRequest(
+        "http://127.0.0.1:3010/api/tasks/task-1/events?cachedTaskUpdatedAt=2026-01-01T00%3A00%3A00.000Z&cachedSessionId=session-1",
+      ),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const reader = response.body!.getReader();
+    await readChunk(reader);
+
+    const readyPayload = eventData(await readChunk(reader));
+    expect(readyPayload.messagesReused).toBeUndefined();
+    expect(readyPayload.messages).toEqual(detail.messages);
+
+    await reader.cancel();
+  });
+
   it("drops buffered snapshots older than the ready tip", async () => {
     const bootstrap = task({ messages: [], isStreaming: true });
     const detail = task({

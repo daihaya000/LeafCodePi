@@ -821,7 +821,21 @@ export const TaskView = memo(function TaskView({
       source = closeSseSource(source);
       // 一部の端末・中継が no-cache の SSE URL を再利用し、reload 後に
       // 古いストリームを返すことがあるため、接続ごとに URL を変える。
-      source = new EventSource(`/api/tasks/${taskId}/events?epoch=${Date.now()}`);
+      // 安定したアイドル履歴は、キャッシュの revision が一致すれば ready
+      // で再送しない。working/compacting のキャッシュは提示しない。
+      const eventParams = new URLSearchParams({ epoch: String(Date.now()) });
+      if (
+        cachedSession &&
+        cachedSession.sessionId &&
+        cachedSession.updatedAt &&
+        cachedSession.status !== "working" &&
+        !cachedSession.isStreaming &&
+        !cachedSession.isCompacting
+      ) {
+        eventParams.set("cachedTaskUpdatedAt", cachedSession.updatedAt);
+        eventParams.set("cachedSessionId", cachedSession.sessionId);
+      }
+      source = new EventSource(`/api/tasks/${taskId}/events?${eventParams.toString()}`);
       source.addEventListener("snapshot", (event) => {
         if (closed) return;
         const rawData = (event as MessageEvent).data as string;
@@ -847,6 +861,7 @@ export const TaskView = memo(function TaskView({
           permissionRequest?: PermissionRequestDto | null;
           questionRequest?: QuestionRequestDto | null;
           eventType?: string;
+          messagesReused?: boolean;
         };
         try {
           payload = JSON.parse(rawData) as typeof payload;
@@ -1088,7 +1103,7 @@ export const TaskView = memo(function TaskView({
       retryTimer = cancelPendingSseReconnect(retryTimer);
       source = closeSseSource(source);
     };
-  }, [taskId, applyDetail, notifySidebarIfNeeded]);
+  }, [cachedSession, taskId, applyDetail, notifySidebarIfNeeded]);
 
   const scrollToBottom = useCallback((el: HTMLElement) => {
     el.scrollTo({

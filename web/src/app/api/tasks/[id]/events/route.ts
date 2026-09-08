@@ -22,6 +22,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  const cachedTaskUpdatedAt = req.nextUrl.searchParams.get("cachedTaskUpdatedAt");
+  const cachedSessionId = req.nextUrl.searchParams.get("cachedSessionId");
   let sse: ReturnType<typeof createSseWriter> | undefined;
 
   const stream = new ReadableStream({
@@ -79,10 +81,24 @@ export async function GET(
         ]) {
           delete (taskSummary as Record<string, unknown>)[key];
         }
+        // An idle cache with the same persisted revision is authoritative enough
+        // to skip sending the full history again. Never reuse it while a turn or
+        // compaction can still mutate the session.
+        const canReuseCachedMessages = Boolean(
+          cachedTaskUpdatedAt &&
+            cachedSessionId &&
+            cachedTaskUpdatedAt === detail.updatedAt &&
+            cachedSessionId === detail.sessionId &&
+            detail.status !== "working" &&
+            !detail.isStreaming &&
+            !detail.isCompacting,
+        );
         sse.send("snapshot", {
           type: "snapshot",
           task: taskSummary,
-          messages: detail.messages,
+          ...(canReuseCachedMessages
+            ? { messagesReused: true }
+            : { messages: detail.messages }),
           isStreaming: detail.isStreaming,
           isCompacting: detail.isCompacting,
           contextUsage: detail.contextUsage,
