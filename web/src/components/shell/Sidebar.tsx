@@ -82,6 +82,7 @@ export function sameTaskList(a: TaskSummary[], b: TaskSummary[]): boolean {
       left.title !== right.title ||
       left.projectId !== right.projectId ||
       left.projectName !== right.projectName ||
+      left.botId !== right.botId ||
       left.updatedAt !== right.updatedAt ||
       left.todoProgress?.completed !== right.todoProgress?.completed ||
       left.todoProgress?.total !== right.todoProgress?.total ||
@@ -605,6 +606,31 @@ export function TaskProgressBar({
   );
 }
 
+export function TaskActivityIcon({
+  task,
+  bot,
+}: {
+  task: Pick<TaskSummary, "status" | "botId">;
+  bot?: Pick<BotDto, "name" | "avatarColor" | "avatarImage">;
+}) {
+  if (task.status === "working") {
+    return bot ? (
+      <BotAvatar size={16} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} active />
+    ) : (
+      <Loader2 className="h-3 w-3 shrink-0 animate-spin text-working" />
+    );
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className={cx(
+        "h-1.5 w-1.5 shrink-0 rounded-full",
+        task.status === "error" ? "bg-danger" : "bg-faint",
+      )}
+    />
+  );
+}
+
 function loadExpanded(): Set<string> {
   try {
     const raw = localStorage.getItem(EXPANDED_KEY);
@@ -801,6 +827,7 @@ const SidebarView = memo(function SidebarView({
   const [archivedProjects, setArchivedProjects] = useState<ProjectDto[]>([]);
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [archivedTasks, setArchivedTasks] = useState<TaskSummary[]>([]);
+  const [bots, setBots] = useState<BotDto[]>([]);
   const [health, setHealth] = useState<HealthDto | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
@@ -831,10 +858,11 @@ const SidebarView = memo(function SidebarView({
 
   const refresh = useCallback(async () => {
     const gen = ++refreshGenRef.current;
-    const [projectRes, taskRes, healthRes] = await Promise.allSettled([
+    const [projectRes, taskRes, healthRes, botRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects?archived=1"),
       getJson<{ tasks: TaskSummary[] }>("/api/tasks?archived=1"),
       getJson<HealthDto>("/api/health"),
+      getJson<{ bots: BotDto[] }>("/api/bots"),
     ]);
     // Drop stale responses so a slow poll cannot overwrite a newer refresh.
     if (gen !== refreshGenRef.current) return;
@@ -860,6 +888,16 @@ const SidebarView = memo(function SidebarView({
     }
     if (healthRes.status === "fulfilled") {
       setHealth((current) => (sameHealth(current, healthRes.value) ? current : healthRes.value));
+    }
+    if (botRes.status === "fulfilled") {
+      const nextBots = botRes.value.bots;
+      setBots((current) => {
+        const unchanged = current.length === nextBots.length && current.every((bot, index) => {
+          const next = nextBots[index];
+          return next && bot.id === next.id && bot.name === next.name && bot.avatarColor === next.avatarColor && bot.avatarImage === next.avatarImage;
+        });
+        return unchanged ? current : nextBots;
+      });
     }
   }, []);
 
@@ -1022,6 +1060,7 @@ const SidebarView = memo(function SidebarView({
   const activeGroupId = activeTask
     ? activeTask.projectId ?? NO_PROJECT_GROUP_ID
     : null;
+  const botsById = useMemo(() => new Map(bots.map((bot) => [bot.id, bot])), [bots]);
 
   // アクティブタスクへ移動した時だけ自動展開し、同じグループの手動折りたたみを尊重する。
   useEffect(() => {
@@ -1414,16 +1453,7 @@ const SidebarView = memo(function SidebarView({
                     task.id === activeTaskId ? "bg-surface-3 text-text" : "text-muted hover:bg-surface-2 hover:text-text",
                   )}
                 >
-                  {task.status === "working" ? (
-                    <Loader2 className="h-3 w-3 shrink-0 animate-spin text-working" />
-                  ) : (
-                    <span
-                      className={cx(
-                        "h-1.5 w-1.5 shrink-0 rounded-full",
-                        task.status === "error" ? "bg-danger" : "bg-faint",
-                      )}
-                    />
-                  )}
+                  <TaskActivityIcon task={task} bot={task.botId ? botsById.get(task.botId) : undefined} />
                   <span className="min-w-0 flex-1 truncate text-xs font-medium">{task.title}</span>
                   <span className="shrink-0 text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
                 </button>
@@ -2037,17 +2067,7 @@ const SidebarView = memo(function SidebarView({
                       task.id === activeTaskId && "bg-surface-3 text-text",
                     )}
                   >
-                    <span
-                      aria-hidden="true"
-                      className={cx(
-                        "h-1.5 w-1.5 shrink-0 rounded-full",
-                        task.status === "working"
-                          ? "bg-working"
-                          : task.status === "error"
-                            ? "bg-danger"
-                            : "bg-faint",
-                      )}
-                    />
+                    <TaskActivityIcon task={task} bot={task.botId ? botsById.get(task.botId) : undefined} />
                     <span className="min-w-0 flex-1 truncate font-medium">{task.title}</span>
                     <span className="shrink-0 text-[10px] text-faint">{timeAgo(task.updatedAt)}</span>
                   </button>

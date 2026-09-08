@@ -86,6 +86,7 @@ export async function POST(
       const task = await createTask({
         projectId,
         prompt: body.prompt,
+        botId: id,
         ...(typeof body.model === "string" ? { model: body.model.trim() } : bot.model ? { model: bot.model } : {}),
         ...(isThinkingLevel(body.thinkingLevel)
           ? { thinkingLevel: body.thinkingLevel }

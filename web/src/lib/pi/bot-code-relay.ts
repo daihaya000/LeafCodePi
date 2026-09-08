@@ -27,7 +27,7 @@ export type CodeRequest = {
 };
 type CodeInput = { action: "projects" | "start" | "prompt" | "status" | "abort"; projectId?: string | null; prompt?: string };
 type RelayDependencies = {
-  create: (input: { projectId: string | null; prompt: string; model?: string; thinkingLevel?: TaskSummary["thinkingLevel"]; permissionMode: "ask" | "deny"; codeRequestId: string; beforePrompt: (task: TaskSummary) => void }) => Promise<TaskSummary>;
+  create: (input: { projectId: string | null; prompt: string; model?: string; thinkingLevel?: TaskSummary["thinkingLevel"]; permissionMode: "ask" | "deny"; codeRequestId: string; botId: string; beforePrompt: (task: TaskSummary) => void }) => Promise<TaskSummary>;
   prompt: (id: string, prompt: string, requestId: string) => Promise<TaskSummary>;
   abort: (id: string) => Promise<TaskSummary>;
   approve: (sessionId: string, message: string) => Promise<boolean | null>;
@@ -218,7 +218,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
             projectId: project?.id ?? null, prompt: request.prompt,
             ...(current.model ? { model: current.model } : {}),
             ...(current.thinkingLevel ? { thinkingLevel: current.thinkingLevel } : {}),
-            permissionMode: "ask", codeRequestId: id,
+            permissionMode: "ask", codeRequestId: id, botId: bot.id,
             beforePrompt: (task) => {
               request.codeTaskId = task.id;
               save(request);

@@ -67,6 +67,7 @@ describe("Bot Code session control", () => {
     expect(mocks.createTask).toHaveBeenCalledWith({
       projectId: "project-1",
       prompt: "修正して",
+      botId: "bot-1",
       permissionMode: "ask",
     });
     expect(mocks.patchBot).toHaveBeenCalledWith("bot-1", { codeSessionTaskId: "code-1" });
@@ -81,6 +82,7 @@ describe("Bot Code session control", () => {
     expect(mocks.createTask).toHaveBeenCalledWith({
       projectId: null,
       prompt: "調査して",
+      botId: "bot-1",
       permissionMode: "ask",
     });
     expect(mocks.patchBot).toHaveBeenCalledWith("bot-1", { codeSessionTaskId: "code-1" });

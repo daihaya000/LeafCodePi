@@ -163,6 +163,7 @@ export function insertTask(input: {
   modelID?: string;
   accountId?: string;
   accountIdExplicit?: boolean;
+  botId?: string;
   agent?: string;
   skillPermission?: "allow" | "deny";
   permissionMode?: "allow" | "ask" | "deny";
@@ -186,6 +187,7 @@ export function insertTask(input: {
     ...(input.accountId && input.accountIdExplicit
       ? { accountIdExplicit: true }
       : {}),
+    ...(input.botId ? { botId: input.botId } : {}),
     ...(input.skillPermission ? { skillPermission: input.skillPermission } : {}),
     ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
     ...(input.agent ? { agent: input.agent } : {}),

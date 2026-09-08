@@ -4952,6 +4952,8 @@ export async function createTask(input: {
   /** 利用する認証アカウント（docs/plans/multi-account.md）。未指定 = 既定。 */
   accountId?: string;
   accountIdExplicit?: boolean;
+  /** Bot that started this Code session, when the task originated in Bot mode. */
+  botId?: string;
   /** Internal delegation hook: persist the Bot link/outbox before execution starts. */
   beforePrompt?: (task: TaskSummary) => void;
   codeRequestId?: string;
@@ -5010,6 +5012,7 @@ export async function createTask(input: {
       modelID: selectedIds.modelID ?? parsed?.modelID,
       ...(accountId ? { accountId } : {}),
       ...(accountId && accountIdExplicit ? { accountIdExplicit: true } : {}),
+      ...(input.botId ? { botId: input.botId } : {}),
       ...(input.agent ? { agent: input.agent.trim() } : {}),
       ...(input.skillPermission
         ? { skillPermission: input.skillPermission }

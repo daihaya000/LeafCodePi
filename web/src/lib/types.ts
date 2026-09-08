@@ -108,6 +108,7 @@ export type TodoProgressDto = {
 export type TaskSummary = {
   id: string;
   kind?: "code" | "bot";
+  /** Bot-originated Code sessions use this to identify the avatar shown in the task list. */
   botId?: string;
   projectId: string | null;
   projectName: string;

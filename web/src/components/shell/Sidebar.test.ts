@@ -67,6 +67,12 @@ describe("sameTaskList", () => {
     expect(sameTaskList(a, b)).toBe(false);
   });
 
+  it("detects a Bot attribution change", () => {
+    expect(
+      sameTaskList([task("t1", "working", "タスクA")], [{ ...task("t1", "working", "タスクA"), botId: "bot-1" }]),
+    ).toBe(false);
+  });
+
   it("detects goal loop progress changes", () => {
     const loop: GoalLoopSummaryDto = { status: "running", maxTurns: 10, turnCount: 1 };
     const a = [{ ...task("t1", "working", "タスクA"), goalLoopSummary: loop }];

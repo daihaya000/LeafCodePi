@@ -10,9 +10,9 @@ describe("store", () => {
     process.env.LEAFCODE_PI_DATA_DIR = dir;
     const { upsertProject, insertTask, listProjects, listTasks } = await import("./store");
     const project = upsertProject({ name: "demo", rootPath: "C:\\tmp\\demo" });
-    insertTask({ project, title: "hello" });
+    insertTask({ project, title: "hello", botId: "bot-1" });
     expect(listProjects()).toHaveLength(1);
-    expect(listTasks()[0]?.title).toBe("hello");
+    expect(listTasks()[0]).toMatchObject({ title: "hello", botId: "bot-1" });
     rmSync(dir, { recursive: true, force: true });
   });
 
