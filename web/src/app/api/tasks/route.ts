@@ -20,7 +20,7 @@ import {
   type AutoRouteConfig,
 } from "@/lib/auto-model";
 import { parseDirectModelKey } from "@/lib/direct-generation";
-import { isPromptImageList } from "@/lib/prompt-images";
+import { isPromptImageList, isPromptImageWithinSize } from "@/lib/prompt-images";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { autoAgentHasOwnModel, resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
     if (subagentPermission !== undefined && subagentPermission !== "allow" && subagentPermission !== "deny") {
       return NextResponse.json({ error: "invalid subagentPermission" }, { status: 400 });
     }
-    if (body.images !== undefined && !isPromptImageList(body.images)) {
+    if (body.images !== undefined && (!isPromptImageList(body.images) || body.images.some((image) => !isPromptImageWithinSize(image)))) {
       return NextResponse.json({ error: "invalid images" }, { status: 400 });
     }
     if (!body.prompt?.trim() && !body.images?.length) {

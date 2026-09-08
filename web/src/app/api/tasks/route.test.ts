@@ -28,6 +28,7 @@ vi.mock("@/lib/auto-agent", () => ({
 vi.mock("@/lib/direct-generation", () => ({ parseDirectModelKey: mocks.parseDirectModelKey }));
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
+import { MAX_PROMPT_IMAGE_BYTES } from "@/lib/prompt-images";
 import { POST } from "./route";
 
 describe("POST /api/tasks", () => {
@@ -292,6 +293,22 @@ describe("POST /api/tasks", () => {
         images: [{ mimeType: "image/png", data: "abc" }],
       }),
     );
+  });
+
+  it("rejects oversized images before creating a task", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: null,
+          prompt: "作業",
+          images: [{ mimeType: "image/png", data: Buffer.alloc(MAX_PROMPT_IMAGE_BYTES + 1).toString("base64") }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.createTask).not.toHaveBeenCalled();
   });
 
   it("rejects an empty prompt when there are no images", async () => {
