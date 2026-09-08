@@ -2,7 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
-const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), markRead: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), markRead: vi.fn(), reportStatus: vi.fn() }));
+vi.mock("@/components/shell/TaskPanesContext", () => ({ useTaskPanes: () => ({ reportStatus: mocks.reportStatus }) }));
 vi.mock("@/lib/bot-unread", () => ({ markRead: mocks.markRead }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
@@ -45,6 +46,16 @@ it("does not mark hidden tab messages read until activation", async () => {
   expect(mocks.markRead).not.toHaveBeenCalled();
   view.rerender(<ShellProvider><BotView id="one" active /></ShellProvider>);
   expect(mocks.markRead).toHaveBeenCalledWith("bot", "one", 123);
+});
+
+it("reports streaming activity for the Bot tab even when hidden", async () => {
+  render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  expect(mocks.reportStatus).toHaveBeenLastCalledWith("/bots/one", "idle");
+  snapshot({ isStreaming: true });
+  expect(mocks.reportStatus).toHaveBeenLastCalledWith("/bots/one", "working");
+  snapshot({ isStreaming: false });
+  expect(mocks.reportStatus).toHaveBeenLastCalledWith("/bots/one", "idle");
 });
 
 it("renders bot empty-state copy instead of literal Unicode escapes", async () => {

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui";
 import { BotAvatarPicker, type AvatarPatch } from "@/components/bot/BotAvatarPicker";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
+import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { BotComposer } from "@/components/bot/BotComposer";
 import { ImageLightbox, type ComposerAttachment } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
@@ -61,6 +62,10 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsOpenRef = useRef(false);
   const [sending, setSending] = useState(false);
+  const { reportStatus } = useTaskPanes();
+  useEffect(() => {
+    reportStatus(`/bots/${encodeURIComponent(id)}`, sending ? "working" : "idle");
+  }, [id, sending, reportStatus]);
   const [reverting, setReverting] = useState(false);
   const [savingSoul, setSavingSoul] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);

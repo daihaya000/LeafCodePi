@@ -166,6 +166,30 @@ describe("TaskPanesProvider", () => {
     });
   });
 
+  it.each([null, "data:image/png;base64,bot"])("animates Bot icons only while working (%s)", async (avatarImage) => {
+    mocks.getJson.mockImplementation(async (url: string) => url.startsWith("/api/projects")
+      ? { projects: [] }
+      : { bots: [{ id: "one", name: "One", avatarImage }], rooms: [] });
+    function ActivityProbe() {
+      const { iconFor, reportStatus, statusFor } = useTaskPanes();
+      return <>
+        {iconFor("/bots/one")}
+        {iconFor("code", 32, { projectId: null, botId: "one", status: statusFor("/bots/one") ?? "idle" })}
+        {(["working", "idle", "error", "ready"] as const).map((status) =>
+          <button key={status} onClick={() => reportStatus("/bots/one", status)}>{status}</button>)}
+      </>;
+    }
+    const { container } = render(<TaskPanesProvider><ActivityProbe /></TaskPanesProvider>);
+    await waitFor(() => expect(container.querySelectorAll("svg, img")).toHaveLength(2));
+    expect(container.querySelectorAll(".bot-avatar-working")).toHaveLength(0);
+    for (const status of ["idle", "error", "ready"]) {
+      fireEvent.click(screen.getByRole("button", { name: "working" }));
+      expect(container.querySelectorAll(".bot-avatar-working")).toHaveLength(2);
+      fireEvent.click(screen.getByRole("button", { name: status }));
+      expect(container.querySelectorAll(".bot-avatar-working")).toHaveLength(0);
+    }
+  });
+
   it("restores saved panes when the viewport changes from mobile to desktop", async () => {
     render(
       <TaskPanesProvider>

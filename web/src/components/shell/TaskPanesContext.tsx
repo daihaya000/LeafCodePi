@@ -33,7 +33,7 @@ import type { BotDto, ProjectDto, TaskStatus, TaskSummary } from "@/lib/types";
 import { ProjectIcon } from "@/components/ProjectIcon";
 import { BotAvatar } from "@/components/bot/BotAvatar";
 
-type TaskIdentity = Pick<TaskSummary, "projectId" | "botId">;
+type TaskIdentity = Pick<TaskSummary, "projectId" | "botId"> & Partial<Pick<TaskSummary, "status">>;
 
 const SAVE_DEBOUNCE_MS = 500;
 const MD_QUERY = "(min-width: 768px)";
@@ -376,7 +376,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       ? bots.find((item) => item.id === identity.botId)
       : bots.find((item) => `/bots/${encodeURIComponent(item.id)}` === taskId);
     if (bot || identity?.botId) {
-      return <span aria-hidden="true" className="shrink-0"><BotAvatar size={size} {...bot} /></span>;
+      return <span aria-hidden="true" className="shrink-0"><BotAvatar size={size} {...bot} active={(task?.status ?? statusFor(taskId)) === "working"} /></span>;
     }
     const project = projects.find((item) => item.id === identity?.projectId);
     return project ? (
@@ -386,7 +386,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
           : "flex h-4 w-4 items-center justify-center rounded-md border text-[10px] font-semibold"} />
       </span>
     ) : null;
-  }, [bots, projects, titlesVersion]);
+  }, [bots, projects, titlesVersion, statusFor]);
 
   const value = useMemo<TaskPanesContextValue>(
     () => ({
