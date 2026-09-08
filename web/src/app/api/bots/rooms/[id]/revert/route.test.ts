@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ root: "", cancel: vi.fn<(roomId: string, requestId: string) => number>(() => 0) }));
+const state = vi.hoisted(() => ({ root: "", cancel: vi.fn<(roomId: string, requestId: string) => number>(() => 0), stop: vi.fn(async () => 0) }));
 vi.mock("@/lib/paths", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/paths")>(),
   dataDir: () => state.root,
@@ -12,6 +12,7 @@ vi.mock("@/lib/paths", async (importOriginal) => ({
 }));
 vi.mock("@/lib/pi/harness", () => ({ jsonError: (error: Error) => ({ error: error.message, status: 500 }) }));
 vi.mock("@/lib/pi/bot-code-relay", () => ({ cancelRoomCodeRequests: state.cancel }));
+vi.mock("@/lib/room-runtime", () => ({ stopRoomTurns: state.stop }));
 
 import { appendRoomMessage, createRoom, getRoom, setRoomOutcome } from "@/lib/rooms";
 import { POST } from "./route";
@@ -21,7 +22,7 @@ function send(id: string, body: unknown) {
 }
 
 beforeEach(() => { state.root = mkdtempSync(join(tmpdir(), "leafcode-room-revert-")); });
-afterEach(() => { rmSync(state.root, { recursive: true, force: true }); state.cancel.mockClear(); });
+afterEach(() => { rmSync(state.root, { recursive: true, force: true }); state.cancel.mockClear(); state.stop.mockClear(); });
 
 describe("room revert", () => {
   it("removes the request and everything after it, returning its text for the composer", async () => {
@@ -40,6 +41,8 @@ describe("room revert", () => {
     expect(getRoom(room.id)?.lastOutcome).toBeUndefined();
     // Work started for the removed request has nowhere to report back to.
     expect(state.cancel).toHaveBeenCalledWith(room.id, second.id);
+    // A running conversation would otherwise append new turns into the rewound transcript.
+    expect(state.stop).toHaveBeenCalledWith(room.id);
   });
 
   it("refuses an unknown room, a missing id, a bot reply, and a relayed message", async () => {
