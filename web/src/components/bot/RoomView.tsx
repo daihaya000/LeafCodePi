@@ -109,32 +109,32 @@ function RoomCodePreview({
     if (!live) return () => { closed = true; };
     const timer = window.setInterval(() => { void load(); }, 2_000);
     return () => { closed = true; window.clearInterval(timer); };
-  }, [live, open, taskId]);
+  }, [live, open, taskId, state]);
 
   const output = task ? latestCodeOutput(task) : "";
   const preview = output.length > 4_000 ? `${output.slice(0, 4_000)}\n…（以降省略）` : output;
 
   return (
-    <div className="mt-2 w-full max-w-full rounded-xl border border-border bg-surface/60 p-2 text-xs">
+    <div className="mt-2 w-full max-w-full min-w-0 rounded-xl border border-border bg-surface p-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
-        <span role="status" aria-live={live ? "polite" : undefined} className="shrink-0 text-muted">{CODE_STATE_TEXT[state]}</span>
+        <span role="status" aria-live={live ? "polite" : undefined} className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${state === "delivered" ? "bg-success-bg text-success" : "bg-surface-2 text-muted"}`}>{CODE_STATE_TEXT[state]}</span>
         {activity && <span className="min-w-0 flex-1 truncate text-faint">· {activity}</span>}
-        {taskId && <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="rounded-md px-1.5 py-0.5 text-accent hover:bg-surface-2">{open ? "閉じる" : "プレビュー"}</button>}
-        {taskId && <a className="text-accent underline" href={`/task/${encodeURIComponent(taskId)}`}>実行内容を見る</a>}
-        {(state === "starting" || state === "running") && <button type="button" onClick={onStop} disabled={stopping} className="rounded-md px-1.5 py-0.5 text-danger hover:bg-surface-2 disabled:opacity-40">停止</button>}
+        {taskId && <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="min-h-11 rounded-lg px-3 text-accent hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent">{open ? "閉じる" : "プレビュー"}</button>}
+        {taskId && <a className="inline-flex min-h-11 items-center rounded-lg px-3 text-muted hover:bg-surface-2 hover:text-accent focus-visible:outline-2 focus-visible:outline-accent" href={`/task/${encodeURIComponent(taskId)}`}>実行内容を見る</a>}
+        {(state === "starting" || state === "running") && <button type="button" onClick={onStop} disabled={stopping} className="min-h-11 rounded-lg px-3 text-danger hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">停止</button>}
       </div>
       {open && (
-        <div role="region" aria-label="Codeプレビュー" className="mt-2 space-y-2 rounded-lg bg-bg p-2">
+        <div role="region" aria-label="Codeプレビュー" className="mt-3 min-w-0 space-y-3 border-t border-border pt-3">
           {loading && !task && <p className="text-muted">読み込み中…</p>}
           {error && <p role="alert" className="text-danger">{error}</p>}
           {task && <>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="min-w-0 flex-1 truncate font-medium" title={task.title}>{task.title}</span>
-              <span className="text-muted">{TASK_STATUS_TEXT[task.status]}</span>
+              <span className="min-w-0 flex-1 break-words font-medium" title={task.title}>{task.title}</span>
+              <span className="text-muted">{task.status === "error" ? TASK_STATUS_TEXT.error : state === "delivered" ? "完了" : state === "cancelled" ? "中断" : TASK_STATUS_TEXT[task.status]}</span>
             </div>
             {task.projectName && <p className="truncate text-muted">プロジェクト: {task.projectName}</p>}
             {task.todoProgress && task.todoProgress.total > 0 && <p className="text-muted">進捗: {task.todoProgress.completed}/{task.todoProgress.total}</p>}
-            {preview ? <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-surface p-2 font-mono text-[11px] leading-5">{preview}</pre> : <p className="text-muted">{live ? "Codeの出力を待っています…" : "Codeの出力はありません"}</p>}
+            {preview ? <div tabIndex={0} aria-label="Codeの出力" className="max-h-96 overflow-auto rounded-lg bg-bg p-3 text-sm leading-relaxed [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-accent"><BotMessageMarkdown text={preview} /></div> : <p className="text-muted">{live ? "Codeの出力を待っています…" : "Codeの出力はありません"}</p>}
           </>}
           {!loading && !error && !task && <p className="text-muted">Codeタスク情報がありません</p>}
         </div>
@@ -441,7 +441,10 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
 
   const working = isRoomBusy(room);
   const latestRequestId = room.messages.findLast((message) => message.role === "user")?.id;
-  const outcome = !working && room.lastOutcome && room.lastOutcome.requestId === latestRequestId ? OUTCOME_TEXT[room.lastOutcome.kind] : undefined;
+  // Persisted rooms may still carry a wait outcome from before result delivery.
+  const delivered = room.messages.some((message) => message.codeState === "delivered" && message.conversation?.requestId === latestRequestId);
+  const outcome = !working && room.lastOutcome && room.lastOutcome.requestId === latestRequestId
+    ? OUTCOME_TEXT[room.lastOutcome.kind === "code-wait" && delivered ? "done" : room.lastOutcome.kind] : undefined;
 
   return (
     <div className="flex h-full min-h-0 bg-bot-chat">

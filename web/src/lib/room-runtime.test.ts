@@ -195,7 +195,13 @@ describe("room conversation with delegated work", () => {
   it("appends the delivered report once and hands the floor to the requested member", async () => {
     const { room, bots } = setup();
     const request = codeRequest(room, bots[0]);
+    state.pendingRoom.mockReturnValue(request);
+    await runRoomConversation(room, bots, "残作業も進めて", request.room!.conversation.requestId);
+    expect(getRoom(room.id)?.lastOutcome?.kind).toBe("code-wait");
+    state.promptTask.mockClear();
+    state.pendingRoom.mockReturnValue(undefined);
     expect(deliverRoomCodeReport(request, `修正を適用しテストは成功。\nROOM_ACTION: NEXT ${bots[1].id}`)).toBe(true);
+    expect(getRoom(room.id)?.lastOutcome?.kind).toBe("done");
     const report = getRoom(room.id)!.messages.at(-1)!;
     expect(report).toMatchObject({ botId: bots[0].id, codeState: "delivered", codeTaskId: "code", status: "done" });
     expect(report.text).not.toContain("ROOM_ACTION");

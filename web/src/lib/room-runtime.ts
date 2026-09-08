@@ -261,11 +261,15 @@ export function deliverRoomCodeReport(request: CodeRequest, text: string): boole
   if (!reply.text.trim()) return false;
   request.room.nextBotId = reply.nextBotId;
   request.room.complete = reply.action === "done";
-  return Boolean(appendRoomMessage(room.id, {
+  const report = appendRoomMessage(room.id, {
     id: `code-report:${request.id}`, role: "assistant", botId: bot.id, botName: bot.name,
     text: reply.text, status: "done", codeRequestId: request.id, codeTaskId: request.codeTaskId, codeState: "delivered",
     conversation: request.room.conversation,
-  }));
+  });
+  if (report && room.lastOutcome?.kind === "code-wait" && room.lastOutcome.requestId === request.room.conversation.requestId) {
+    setRoomOutcome(room.id, { kind: "done", requestId: request.room.conversation.requestId });
+  }
+  return Boolean(report);
 }
 
 /** At-most-once automatic continuation: the outbox marks delivered before invoking this callback. */

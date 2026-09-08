@@ -124,7 +124,7 @@ describe("RoomView delegated work", () => {
       sessionFile: null,
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:01.000Z",
-      messages: [{ role: "assistant", parts: [{ type: "text", text: "READMEの確認結果" }] }],
+      messages: [{ role: "assistant", parts: [{ type: "text", text: "**READMEの確認結果**" }] }],
       isStreaming: false,
     };
     mocks.getJson.mockImplementation((path: string) => {
@@ -139,7 +139,10 @@ describe("RoomView delegated work", () => {
 
     expect(mocks.getJson).not.toHaveBeenCalledWith("/api/tasks/code-1");
     fireEvent.click(screen.getByRole("button", { name: "プレビュー" }));
-    expect(await screen.findByText("READMEの確認結果")).toBeTruthy();
+    expect((await screen.findByText("READMEの確認結果")).tagName).toBe("STRONG");
+    expect(screen.getByText("完了")).toBeTruthy();
+    expect(screen.queryByText("待機中")).toBeNull();
+    expect(screen.getByLabelText("Codeの出力").tabIndex).toBe(0);
     expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks/code-1");
   });
 
@@ -204,6 +207,13 @@ describe("RoomView delegated work", () => {
     const messages = [{ id: "user-2", role: "user" as const, text: "残作業も進めて", createdAt: 2 }];
     act(() => pushSnapshot({ room: { ...room, messages, lastOutcome: { kind: "code-wait", requestId: "user-2" } } }));
     expect(screen.getByText("Codeの結果を待っています")).toBeTruthy();
+
+    act(() => pushSnapshot({ room: { ...room, messages: [...messages, {
+      id: "report", role: "assistant", text: "結果です", status: "done", createdAt: 3,
+      codeState: "delivered", conversation: { requestId: "user-2" },
+    }], lastOutcome: { kind: "code-wait", requestId: "user-2" } } }));
+    expect(screen.queryByText("Codeの結果を待っています")).toBeNull();
+    expect(screen.getByText("会話は完了しました")).toBeTruthy();
 
     // A newer request supersedes the note.
     act(() => pushSnapshot({ room: { ...room, messages: [...messages, { id: "user-3", role: "user" as const, text: "別の依頼", createdAt: 3 }], lastOutcome: { kind: "code-wait", requestId: "user-2" } } }));
