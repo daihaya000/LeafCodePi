@@ -36,6 +36,7 @@ vi.mock("@/lib/pi/harness", () => ({
 }));
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
+import { MAX_PROMPT_IMAGE_BYTES } from "@/lib/prompt-images";
 import { POST } from "./route";
 
 function request(body: unknown): NextRequest {
@@ -295,6 +296,16 @@ describe("POST /api/tasks/[id]/prompt", () => {
   it("rejects malformed image attachments before prompting", async () => {
     const response = await POST(
       request({ prompt: "作業", images: [{ mimeType: "image/png" }] }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.promptTask).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized image attachments before prompting", async () => {
+    const response = await POST(
+      request({ prompt: "作業", images: [{ mimeType: "image/png", data: Buffer.alloc(MAX_PROMPT_IMAGE_BYTES + 1).toString("base64") }] }),
       { params: Promise.resolve({ id: "task-1" }) },
     );
 
