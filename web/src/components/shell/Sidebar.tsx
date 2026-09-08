@@ -220,13 +220,17 @@ function BotSidebarBody({
   onChangeMode,
   onSettings,
   mdUp,
+  collapsed,
   onCollapse,
+  onExpand,
 }: {
   onClose: () => void;
   onChangeMode: (mode: AppMode) => void;
   onSettings: () => void;
   mdUp: boolean;
+  collapsed: boolean;
   onCollapse: () => void;
+  onExpand: () => void;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -280,6 +284,120 @@ function BotSidebarBody({
       setBusy(false);
     }
   }
+  if (collapsed) {
+    return (
+      <div className="flex h-full w-20 flex-col items-center bg-surface">
+        <div className="flex h-14 w-full items-center justify-center border-b border-border">
+          <button
+            type="button"
+            aria-label="サイドバーを展開"
+            onClick={onExpand}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-surface-2"
+          >
+            <Menu className="h-5 w-5 text-muted" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          <ul className="flex flex-col items-center gap-3">
+            {rooms.map((room) => {
+              const href = `/bots/rooms/${encodeURIComponent(room.id)}`;
+              const active = pathname === `/bots/rooms/${room.id}`;
+              return (
+                <li key={room.id}>
+                  <button
+                    type="button"
+                    title={room.name}
+                    aria-label={`${room.name}を開く`}
+                    aria-current={active ? "page" : undefined}
+                    draggable
+                    onDragStart={(event) => setTaskDragData(event.dataTransfer, href)}
+                    onClick={() => router.push(href)}
+                    className={cx(
+                      "group relative inline-flex h-12 w-12 items-center justify-center rounded-xl p-1 hover:bg-surface-2",
+                      active && "bg-surface-2 ring-1 ring-inset ring-accent/20",
+                    )}
+                  >
+                    <span className="flex h-full w-full items-center justify-center rounded-full bg-success-bg text-sm text-success transition-transform group-hover:scale-105">
+                      #
+                    </span>
+                    {!active && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id)) && (
+                      <span
+                        aria-label="未読"
+                        className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface bg-accent"
+                      />
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+            {bots.map((bot) => {
+              const href = `/bots/${encodeURIComponent(bot.id)}`;
+              const active = pathname === `/bots/${bot.id}`;
+              return (
+                <li key={bot.id}>
+                  <button
+                    type="button"
+                    title={bot.name}
+                    aria-label={`${bot.name}を開く`}
+                    aria-current={active ? "page" : undefined}
+                    draggable
+                    onDragStart={(event) => setTaskDragData(event.dataTransfer, href)}
+                    onClick={() => router.push(href)}
+                    className={cx(
+                      "group relative inline-flex h-12 w-12 items-center justify-center rounded-xl p-1 hover:bg-surface-2",
+                      active && "bg-surface-2 ring-1 ring-inset ring-accent/20",
+                    )}
+                  >
+                    <BotAvatar size={40} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />
+                    {!active && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)) && (
+                      <span
+                        aria-label="未読"
+                        className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface bg-accent"
+                      />
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+        <div className="flex w-full flex-col items-center gap-1 border-t border-border py-2">
+          <button
+            type="button"
+            aria-label="Botを追加"
+            title="Botを追加"
+            disabled={busy}
+            onClick={() => void createEntry("bot")}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-text disabled:opacity-50"
+          >
+            <BotIcon className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="ルームを追加"
+            title="ルームを追加"
+            disabled={busy}
+            onClick={() => void createEntry("room")}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-text disabled:opacity-50"
+          >
+            <Users className="h-4 w-4" />
+          </button>
+          <Link
+            href="/settings"
+            aria-label="設定"
+            onClick={(event) => {
+              event.preventDefault();
+              onSettings();
+            }}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-muted hover:bg-surface-2"
+          >
+            <Settings className="h-4 w-4" />
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleBots = listFilter === "rooms" ? [] : (normalizedQuery ? bots.filter((bot) => bot.name.toLocaleLowerCase().includes(normalizedQuery)) : bots);
   const visibleRooms = listFilter === "bots" ? [] : (normalizedQuery ? rooms.filter((room) => room.name.toLocaleLowerCase().includes(normalizedQuery)) : rooms);
@@ -1669,9 +1787,14 @@ const SidebarView = memo(function SidebarView({
       onChangeMode={changeMode}
       onSettings={openSettings}
       mdUp={mdUp}
+      collapsed={collapsed && mdUp}
       onCollapse={() => {
         setCollapsed(true);
         localStorage.setItem(COLLAPSED_KEY, "1");
+      }}
+      onExpand={() => {
+        setCollapsed(false);
+        localStorage.setItem(COLLAPSED_KEY, "0");
       }}
     />
   );
@@ -1955,7 +2078,7 @@ const SidebarView = memo(function SidebarView({
         )}
         style={{ width: collapsed ? COLLAPSED_WIDTH : width }}
       >
-        {mdUp ? (collapsed ? collapsedRail : mode === "bot" ? botBody : body) : null}
+        {mdUp ? (mode === "bot" ? botBody : collapsed ? collapsedRail : body) : null}
         {mdUp && !collapsed && (
           <div
             role="separator"
