@@ -164,6 +164,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [memberSaving, setMemberSaving] = useState(false);
   const [approveSaving, setApproveSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -287,6 +288,20 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       notifyBotSidebarChanged();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30e1\u30f3\u30d0\u30fc\u306e\u4fdd\u5b58\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); }
     finally { setMemberSaving(false); }
+  };
+
+  const resetConversation = async () => {
+    if (!room || resetting || !window.confirm(`「${room.name}」の会話をリセットしますか？\nこの操作は取り消せません。`)) return;
+    setResetting(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ room: RoomDto }>(`/api/bots/rooms/${encodeURIComponent(id)}`, { resetMessages: true }, "PATCH");
+      setRoom(result.room);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "会話のリセットに失敗しました");
+    } finally {
+      setResetting(false);
+    }
   };
 
   const removeRoom = async () => {
@@ -547,6 +562,11 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
                 <div><span className="text-sm font-medium">全員が個別回答</span><p className="mt-0.5 text-xs text-muted">オフでは相手の返答を読んで対話し、オンでは各メンバーが独立して回答します。対話の後続停止は /stop（実行中のCodeは継続）。</p></div>
                 <Button size="sm" variant={broadcast ? "primary" : "ghost"} onClick={() => setBroadcast((value) => !value)} aria-pressed={broadcast}>{broadcast ? "一斉回答" : "対話"}</Button>
               </div>
+            </div>
+            <div className="rounded-2xl border border-border bg-bg p-4">
+              <p className="text-sm font-medium">会話リセット</p>
+              <p className="mt-1 text-xs text-muted">このルームの会話をクリアして、新しい会話を開始します。ルーム自体は残ります。</p>
+              <Button size="sm" variant="ghost" onClick={() => void resetConversation()} busy={resetting} className="mt-2">会話をリセット</Button>
             </div>
             <div className="border-t border-border pt-4">
               <p className="text-xs text-muted">このルームの会話履歴も削除されます。</p>

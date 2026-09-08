@@ -101,13 +101,14 @@ export function createRoom(input: { name?: string; members?: string[] }): RoomDt
   writeRoom(room);
   return room;
 }
-export function patchRoom(id: string, patch: { name?: string; members?: string[]; codeAutoApprove?: boolean }): RoomDto | undefined {
+export function patchRoom(id: string, patch: { name?: string; members?: string[]; codeAutoApprove?: boolean; resetMessages?: boolean }): RoomDto | undefined {
   return withRoomLock(id, () => {
     const room = readRoom(id);
     if (!room) return undefined;
     if (patch.name !== undefined) room.name = patch.name.trim() || room.name;
     if (patch.members !== undefined) room.members = validMembers(patch.members);
     if (patch.codeAutoApprove !== undefined) room.codeAutoApprove = patch.codeAutoApprove;
+    if (patch.resetMessages) { room.messages = []; delete room.lastOutcome; }
     room.updatedAt = new Date().toISOString();
     writeRoom(room);
     return room;
