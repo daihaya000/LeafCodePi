@@ -54,6 +54,15 @@ describe("POST /api/bots/[id]/prompt", () => {
     expect(state.goalLoopCommand).toHaveBeenCalledWith(`bot:${bot.id}`, expect.objectContaining({ maxTurns: 100, cooldownSeconds: 86400 }));
   });
 
+  it.each([null, [], "invalid", { acceptance: "invalid" }, { forceFullRun: "yes" }])("rejects malformed Goal Loop options: %j", async (goalLoop) => {
+    const bot = createBot({ name: "Loop bot" });
+
+    const response = await POST(request("調査して修正する", goalLoop), { params: Promise.resolve({ id: bot.id }) });
+
+    expect(response.status).toBe(400);
+    expect(state.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
   it("keeps direct 1:1 messaging available when the bot is disabled for rooms", async () => {
     const bot = createBot({ name: "Direct bot" });
     patchBot(bot.id, { enabled: false });
