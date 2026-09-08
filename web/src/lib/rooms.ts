@@ -30,7 +30,7 @@ function withRoomLock<T>(roomId: string, action: () => T): T {
       try {
         if (Date.now() - statSync(lock).mtimeMs > 30_000) rmSync(lock, { recursive: true, force: true });
       } catch { /* another worker removed it */ }
-      if (attempt >= 300) throw new Error("relay state is busy");
+      if (attempt >= 300) throw new Error("room file is busy");
       Atomics.wait(waitBuffer, 0, 0, 10);
     }
   }
@@ -186,8 +186,8 @@ export function setRoomOutcome(id: string, outcome: RoomOutcome): void {
  * turn, so inlined base64 would be re-serialised hundreds of times and shipped on every snapshot.
  */
 const ROOM_IMAGE_EXTENSIONS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
-export const MAX_ROOM_IMAGES = 8;
-export const MAX_ROOM_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_ROOM_IMAGES = 8;
+const MAX_ROOM_IMAGE_BYTES = 8 * 1024 * 1024;
 function roomImagePath(roomId: string, file: string): string {
   assertId(roomId);
   // Names are server-generated; anything else must not reach the filesystem.

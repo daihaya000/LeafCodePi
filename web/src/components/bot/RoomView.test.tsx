@@ -103,6 +103,16 @@ describe("RoomView delegated work", () => {
     expect(input.value).toBe("やり直したい依頼");
   });
 
+  it("explains that standing Code approval needs Web UI token auth", async () => {
+    mocks.sendJson.mockRejectedValueOnce(new Error("Unauthorized"));
+    render(<RoomView id={room.id} />);
+    fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+    const toggle = await screen.findByRole("checkbox", { name: /Codeを毎回承認せずに実行/ });
+    fireEvent.click(toggle);
+    expect(mocks.sendJson).toHaveBeenCalledWith(`/api/bots/rooms/${room.id}`, { codeAutoApprove: true }, "PATCH");
+    expect((await screen.findByRole("alert")).textContent).toContain("トークン認証が必要");
+  });
+
   it("shows attachments of a request and sends them with the prompt", async () => {
     const { act } = await import("@testing-library/react");
     render(<RoomView id={room.id} />);

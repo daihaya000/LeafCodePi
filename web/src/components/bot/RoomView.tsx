@@ -60,6 +60,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [memberSaving, setMemberSaving] = useState(false);
+  const [approveSaving, setApproveSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mentionContext, setMentionContext] = useState<MentionContext | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -144,6 +145,20 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   }, [members, mentionContext]);
 
   useEffect(() => { setMentionIndex(0); }, [mentionContext?.query]);
+
+  const saveAutoApprove = async (value: boolean) => {
+    if (!room || approveSaving) return;
+    setApproveSaving(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ room: RoomDto }>(`/api/bots/rooms/${encodeURIComponent(id)}`, { codeAutoApprove: value }, "PATCH");
+      setRoom(result.room);
+    } catch (reason) {
+      // The route is fail-closed: without Web UI token auth this setting cannot be changed at all.
+      const message = reason instanceof Error ? reason.message : "設定の保存に失敗しました";
+      setError(/unauthorized/i.test(message) ? "Codeの常時承認を変えるにはWebUIのトークン認証が必要です" : message);
+    } finally { setApproveSaving(false); }
+  };
 
   const saveMembers = async (next: string[]) => {
     if (!room || memberSaving) return;
@@ -396,6 +411,15 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
                 ))}
                 {bots.length === 0 && <p className="px-2 py-2 text-xs text-muted">ボットがありません</p>}
               </div>
+            </div>
+            <div className="rounded-2xl border border-border bg-bg p-4">
+              <label className="flex cursor-pointer items-start gap-3 text-sm">
+                <input type="checkbox" className="mt-0.5" disabled={approveSaving} checked={room.codeAutoApprove === true} onChange={(event) => void saveAutoApprove(event.target.checked)} />
+                <span className="min-w-0">
+                  <span className="block font-medium">Codeを毎回承認せずに実行</span>
+                  <span className="mt-1 block text-xs text-muted">このルームの依頼だけ、承認ダイアログを省略します。変更にWebUIのトークン認証が必要で、Bot自身は変更できません。</span>
+                </span>
+              </label>
             </div>
             <div className="rounded-2xl border border-border bg-bg p-4">
               <div className="flex items-center justify-between gap-3">
