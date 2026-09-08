@@ -152,6 +152,8 @@ Linux/macOS は既定でトレイを使わないため、SSH やヘッドレス�
 
 ビルドが稼働中の `next start` の `.next` を置き換えたときは、そのままだと配信中の HTML が参照するチャンクが消えて `/_next/static/...` が 500 になり、キャッシュを持たないクライアント（スマホなど）に Next の "This page couldn't load" が出ます。`scripts/build-web.mjs` はビルド後に稼働中の WebUI を検出したら、ホスト制御の `POST /restart/webui` で新しい世代へ切り替えます。ホストに届かない場合はトレイの Restart WebUI が必要です。
 
+Goal Loop は WebUI プロセス内で動くため、再起動するとセッション終了で必ず一時停止します。実行中の Goal Loop があるときは WebUI 再起動を拒否します（`POST /restart/webui` は 409、トレイの Restart WebUI と設定画面も同じ理由で拒否）。ループを停止・完了してから再起動してください。
+
 production build は本家 LeafCode と同じく Windows では **`%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>\`**、Linux/macOS では **`$XDG_CACHE_HOME/leafcode-pi/build/<checkout>-<hash>/`**（未設定時は `~/.cache/leafcode-pi/build/...`）のハードリンクミラーで実行し、`next start` もそこから配信します。OneDrive がビルド中・配信中の `.next` に触れてチャンク世代が混ざるのを防ぐためです（`scripts\web-build-mirror.mjs`）。`next dev` はリポジトリのまま動きます（Next 16 の dev 出力は `web/.next/dev` で prod と分離）。ミラーの場所は `LEAFCODE_PI_BUILD_DIR` で変更できます。
 
 トレイメニュー:

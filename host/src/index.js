@@ -544,9 +544,40 @@ async function stopWeb() {
   }
 }
 
+/**
+ * Goal Loop runs inside the WebUI process, so restarting Next.js ends its Pi
+ * session and pauses the loop mid-turn. Ask the WebUI first and refuse while a
+ * loop is live. An unreachable WebUI has no loop left to protect, so probe
+ * failures fall through and keep restart available for recovery.
+ */
+async function webUiRestartBlockReason() {
+  try {
+    const response = await fetch(`${WEBUI_URL}/api/goal-loop/active`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(3000),
+      headers:
+        WEBUI_AUTH.authRequired && WEBUI_AUTH.token
+          ? { authorization: `Bearer ${WEBUI_AUTH.token}` }
+          : {},
+    });
+    if (!response.ok) return null;
+    const body = await response.json();
+    const active = Number(body?.active) || 0;
+    if (active <= 0) return null;
+    return `Goal Loop が ${active} 件実行中のため WebUI の再起動を拒否しました。ループを停止・完了してから再試行してください。`;
+  } catch {
+    return null;
+  }
+}
+
 async function restartWeb() {
   if (restarting) {
     log("Service restart is already in progress");
+    return;
+  }
+  const blocked = await webUiRestartBlockReason();
+  if (blocked) {
+    error(blocked);
     return;
   }
   restarting = true;
@@ -778,6 +809,7 @@ async function startControlServer() {
     onLlamaServerStart: (config) => llamaServerService.start(config),
     onLlamaServerStop: () => llamaServerService.stop(),
     onRestartWebui: () => restartWeb(),
+    onRestartWebuiBlocked: () => webUiRestartBlockReason(),
     onRestartHost: () => restartHost(),
     onBrowserConfigRead: () => readBrowserConfig(),
     onBrowserConfigWrite: (patch) => writeBrowserConfig(patch),

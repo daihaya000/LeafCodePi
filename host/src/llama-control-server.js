@@ -73,6 +73,7 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onLlamaServerStart: (config: object) => Promise<{ ok: boolean }>,
  *   onLlamaServerStop: () => Promise<unknown> | unknown,
  *   onRestartWebui?: () => Promise<unknown> | unknown,
+ *   onRestartWebuiBlocked?: () => Promise<string | null> | string | null,
  *   onRestartHost?: () => Promise<unknown> | unknown,
  *   onBrowserConfigRead?: () => { autoOpenBrowser: boolean },
  *   onBrowserConfigWrite?: (patch: { autoOpenBrowser: boolean }) => { autoOpenBrowser: boolean },
@@ -261,6 +262,14 @@ export function createLlamaControlServer(handlers) {
         if (typeof handlers.onRestartWebui !== "function") {
           res.writeHead(501, JSON_HEADERS);
           res.end(JSON.stringify({ ok: false, error: "webui restart is not supported by this host" }));
+          return;
+        }
+        // The 202 must be sent before the restart kills the caller's WebUI, so a
+        // refusal has to be decided here rather than inside the restart handler.
+        const blocked = await Promise.resolve(handlers.onRestartWebuiBlocked?.()).catch(() => null);
+        if (blocked) {
+          res.writeHead(409, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, target: "webui", blocked: true, error: blocked }));
           return;
         }
         res.writeHead(202, JSON_HEADERS);
