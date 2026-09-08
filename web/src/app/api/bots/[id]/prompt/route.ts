@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getBot, botTaskId } from "@/lib/bots";
 import { isPromptImageList } from "@/lib/prompt-images";
 import { goalLoopCommand, jsonError, promptTask } from "@/lib/pi/harness";
+import { clampGoalLoopCooldownSeconds, clampGoalLoopMaxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS } from "@/lib/goal-loop-settings";
 export const runtime = "nodejs"; export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try { const id = (await params).id; if (!getBot(id)) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
@@ -16,8 +17,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         action: "start",
         goal: body.prompt,
         acceptance,
-        maxTurns: typeof loop?.maxTurns === "number" ? loop.maxTurns : 10,
-        cooldownSeconds: typeof loop?.cooldownSeconds === "number" ? loop.cooldownSeconds : 0,
+        maxTurns: clampGoalLoopMaxTurns(loop?.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS),
+        cooldownSeconds: clampGoalLoopCooldownSeconds(loop?.cooldownSeconds),
         forceFullRun: loop?.forceFullRun === true,
       });
       return NextResponse.json({ task: null, loop: result });

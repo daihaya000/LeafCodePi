@@ -38,6 +38,22 @@ describe("POST /api/bots/[id]/prompt", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it("clamps Goal Loop limits before invoking the command", async () => {
+    const bot = createBot({ name: "Loop bot" });
+
+    const response = await POST(
+      request("調査して修正する", {
+        acceptance: ["テストが通る"],
+        maxTurns: 1000,
+        cooldownSeconds: 999999,
+      }),
+      { params: Promise.resolve({ id: bot.id }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.goalLoopCommand).toHaveBeenCalledWith(`bot:${bot.id}`, expect.objectContaining({ maxTurns: 100, cooldownSeconds: 86400 }));
+  });
+
   it("keeps direct 1:1 messaging available when the bot is disabled for rooms", async () => {
     const bot = createBot({ name: "Direct bot" });
     patchBot(bot.id, { enabled: false });
