@@ -14,7 +14,7 @@ import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
 import { ImageLightbox, type ComposerAttachment } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
-import { BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow, BotResponseStatus } from "@/components/bot/BotMessageList";
+import { BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow, BotMessageSender, BotResponseStatus } from "@/components/bot/BotMessageList";
 import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { AVATAR_IMAGE_ACCEPT, BOT_AVATAR_COLORS, MAX_AVATAR_IMAGE_BYTES, randomAvatarColor } from "@/lib/bot-avatar";
@@ -393,13 +393,14 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     if (!text && images.length === 0 && !message.error) return null;
     return (
       <BotMessageRow key={message.id} user={user} createdAt={message.createdAt}
+        header={user ? undefined : <BotMessageSender name={bot?.name ?? "ボット"} color={bot?.avatarColor} image={bot?.avatarImage} />}
         footer={user ? <button type="button" title="このコメントを入力欄に戻して巻き戻す" disabled={reverting || sending} onClick={() => void revertMessage(message)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"><RotateCcw className="h-3 w-3" />入力欄に戻す</button> : undefined}>
         {images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{images.map((part) => part.type === "image" && <ImageLightbox key={part.id} src={part.url} alt={part.filename ?? "添付画像"} className="max-h-48 max-w-full rounded-xl object-contain" />)}</div>}
         {text && (user ? <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</div> : <BotMessageMarkdown text={text} />)}
         {message.error && <BotMessageError text={message.error} />}
       </BotMessageRow>
     );
-  }), [messages, reverting, sending]);
+  }), [bot?.avatarColor, bot?.avatarImage, bot?.name, messages, reverting, sending]);
 
   if (!bot) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 

@@ -72,10 +72,21 @@ export function BotResponseStatus({
   );
 }
 
+/** Sender line above the bubble, mirroring Code mode's meta header. */
+export function BotMessageSender({ name, color, image, active = false }: { name: string; color?: string; image?: string | null; active?: boolean }) {
+  return (
+    <div className="flex min-w-0 items-center gap-1.5 px-1 text-[11px] font-medium text-muted">
+      <span aria-hidden="true" className="shrink-0"><BotAvatar size={16} color={color} image={image} name={name} active={active} /></span>
+      <span className="min-w-0 truncate">{name}</span>
+    </div>
+  );
+}
+
 /** One chat row. Bot and Room conversations share it so both look identical. */
-export function BotMessageRow({ user, createdAt, children, footer }: { user: boolean; createdAt: number; children: ReactNode; footer?: ReactNode }) {
+export function BotMessageRow({ user, createdAt, children, footer, header }: { user: boolean; createdAt: number; children: ReactNode; footer?: ReactNode; header?: ReactNode }) {
   return (
     <div className={`flex flex-col gap-1 ${user ? "items-end" : "items-start"}`}>
+      {header}
       <div className={`min-w-0 max-w-bubble rounded-3xl px-4 py-3 text-base leading-7 [overflow-wrap:anywhere] ${user ? "bg-bot-user text-white" : "rounded-tl-lg bg-bot-assistant text-text"}`}>{children}</div>
       <BotMessageTime createdAt={createdAt} />
       {footer}

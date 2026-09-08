@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
-import { BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow, BotMessageTime, BotResponseStatus } from "./BotMessageList";
+import { BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow, BotMessageSender, BotMessageTime, BotResponseStatus } from "./BotMessageList";
 import type { UiMessage } from "@/lib/types";
 
 afterEach(cleanup);
@@ -35,10 +35,11 @@ it("places the time and footer below the bubble, for user and bot alike", () => 
   expect(bubble.className).toContain("max-w-bubble");
   expect(bubble.className).toContain("bg-bot-user");
 
-  rerender(<BotMessageRow user={false} createdAt={createdAt}><BotMessageError text="応答に失敗しました" /></BotMessageRow>);
+  rerender(<BotMessageRow user={false} createdAt={createdAt} header={<BotMessageSender name="MiMo" color="#0071E3" />}><BotMessageError text="応答に失敗しました" /></BotMessageRow>);
   const botRow = container.firstElementChild!;
   expect(botRow.className).toContain("items-start");
-  expect(botRow.children[0].className).toContain("bg-bot-assistant");
+  expect(botRow.children[0].textContent).toBe("MiMo");
+  expect(botRow.children[1].className).toContain("bg-bot-assistant");
   expect(botRow.querySelector("[role='alert']")?.textContent).toBe("応答に失敗しました");
 });
 
