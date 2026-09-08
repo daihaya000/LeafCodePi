@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "@/lib/paths";
@@ -9,6 +9,7 @@ export const ROUTINE_MIN_INTERVAL_MS = 5 * 60 * 1000;
 export const ROUTINE_MAX_ENABLED = 10;
 export const ROUTINE_MAX_FAILURES = 3;
 const routineRuns = new Map<string, Promise<unknown>>();
+const ROUTINE_SCHEDULER_LOCK_STALE_MS = 30_000;
 type RoutineFile = RoutineDto;
 function routineDir(botId: string): string { return join(dataDir(), "bots", botId, "routines"); }
 function routinePath(botId: string, routineId: string): string { return join(routineDir(botId), `${routineId}.json`); }
@@ -65,7 +66,33 @@ export function patchRoutine(botId: string, routineId: string, patch: Partial<Pi
 export function deleteRoutine(botId: string, routineId: string): boolean { const current = getRoutine(botId, routineId); if (!current) return false; rmSync(routinePath(botId, routineId), { force: true }); return true; }
 function markRoutineStart(routine: RoutineDto): RoutineDto { return writeRoutine({ ...routine, lastRunAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); }
 export async function runRoutine(botId: string, routineId: string): Promise<RoutineDto> { const key = `${botId}:${routineId}`; const running = routineRuns.get(key); if (running) { await running; const latest = getRoutine(botId, routineId); if (!latest) throw new Error("Routine not found"); return latest; } const run = (async () => { const routine = getRoutine(botId, routineId); const bot = getBot(botId); if (!routine || !bot) throw new Error("Routine not found"); if (!routine.enabled) throw new Error("ルーティンは無効です"); markRoutineStart(routine); try { await promptTask(botTaskId(botId), `[ルーティン: ${routine.name}]\n${routine.prompt}`, undefined, { waitForCompletion: true, permissionMode: bot.permissionMode ?? undefined }); const detail = await getTaskDetail(botTaskId(botId)); const latest = [...detail.messages].reverse().find((message) => message.role === "assistant"); if (detail.status === "error" || detail.error || latest?.error) throw new Error(detail.error || latest?.error || "Bot の実行に失敗しました"); const current = getRoutine(botId, routineId); if (!current) throw new Error("Routine was deleted"); return writeRoutine({ ...current, failureCount: 0, updatedAt: new Date().toISOString() }); } catch (error) { const current = getRoutine(botId, routineId); if (!current) throw error; const failureCount = current.failureCount + 1; const updated = writeRoutine({ ...current, failureCount, enabled: current.enabled && failureCount < ROUTINE_MAX_FAILURES, updatedAt: new Date().toISOString() }); const suffix = failureCount >= ROUTINE_MAX_FAILURES ? "（連続失敗のため自動的に無効化しました）" : ""; throw new Error(`${error instanceof Error ? error.message : String(error)}${suffix}`); } })(); routineRuns.set(key, run); try { return await run; } finally { if (routineRuns.get(key) === run) routineRuns.delete(key); } }
-export async function tickRoutines(now = new Date()): Promise<void> { const minute = new Date(now); minute.setSeconds(0, 0); const nowMs = now.getTime(); for (const bot of listBots()) { for (const routine of listRoutines(bot.id)) { if (!routine.enabled || !cronMatches(routine.schedule, minute)) continue; const lastRunAt = routine.lastRunAt ? new Date(routine.lastRunAt).getTime() : Number.NaN; if (Number.isFinite(lastRunAt) && nowMs - lastRunAt < ROUTINE_MIN_INTERVAL_MS) continue; void runRoutine(bot.id, routine.id).catch(() => undefined); } } }
+function tryRoutineSchedulerLock(): string | undefined {
+  const lock = join(dataDir(), "bots", "routines.scheduler.lock");
+  mkdirSync(join(dataDir(), "bots"), { recursive: true });
+  try {
+    mkdirSync(lock);
+    return lock;
+  } catch {
+    try {
+      if (Date.now() - statSync(lock).mtimeMs > ROUTINE_SCHEDULER_LOCK_STALE_MS) {
+        rmSync(lock, { recursive: true, force: true });
+        mkdirSync(lock);
+        return lock;
+      }
+    } catch { /* another worker owns or replaced the lock */ }
+    return undefined;
+  }
+}
+export async function tickRoutines(now = new Date()): Promise<void> {
+  const lock = tryRoutineSchedulerLock();
+  if (!lock) return;
+  try {
+    const minute = new Date(now); minute.setSeconds(0, 0); const nowMs = now.getTime();
+    for (const bot of listBots()) { for (const routine of listRoutines(bot.id)) { if (!routine.enabled || !cronMatches(routine.schedule, minute)) continue; const lastRunAt = routine.lastRunAt ? new Date(routine.lastRunAt).getTime() : Number.NaN; if (Number.isFinite(lastRunAt) && nowMs - lastRunAt < ROUTINE_MIN_INTERVAL_MS) continue; void runRoutine(bot.id, routine.id).catch(() => undefined); } }
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
+  }
+}
 type SchedulerState = { interval?: ReturnType<typeof setInterval>; started?: boolean };
 const schedulerState = (globalThis as typeof globalThis & { __leafcodeRoutineScheduler?: SchedulerState }).__leafcodeRoutineScheduler ??= {};
 export function ensureRoutineScheduler(): void { if (schedulerState.started) return; schedulerState.started = true; schedulerState.interval = setInterval(() => { void tickRoutines(); }, 60_000); if (typeof schedulerState.interval === "object" && "unref" in schedulerState.interval) schedulerState.interval.unref(); void tickRoutines(); }

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -70,6 +70,16 @@ describe("routine cron and persistence", () => {
     const bot = createBot({ name: "Routine bot" });
     const routine = createRoutine(bot.id, { name: "Daily", prompt: "Check status", schedule: "0 9 * * 1-7" });
     expect(cronMatches(getRoutine(bot.id, routine.id)!.schedule, new Date(2024, 0, 7, 9, 0))).toBe(true);
+  });
+  it("skips a tick while another scheduler worker owns the lock", async () => {
+    const bot = createBot({ name: "Routine bot" });
+    createRoutine(bot.id, { name: "Every five minutes", prompt: "Check status", schedule: "*/5 * * * *" });
+    mkdirSync(join(root, "bots", "routines.scheduler.lock"));
+    state.promptTask.mockResolvedValue(undefined);
+
+    await tickRoutines(new Date(2024, 0, 1, 0, 5));
+
+    expect(state.promptTask).not.toHaveBeenCalled();
   });
   it("does not run a scheduled routine again before five minutes after a manual run", async () => {
     vi.useFakeTimers();
