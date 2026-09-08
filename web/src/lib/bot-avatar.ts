@@ -32,13 +32,13 @@ export function isAvatarShape(value: unknown): value is BotAvatarShape {
   return BOT_AVATAR_SHAPES.some((shape) => shape.id === value);
 }
 
-/** Keep the eyes legible even when a custom color is almost white. */
-export function avatarEyeColor(color: string): string {
+/** Default eye ink: white, darkened only on pale bodies where white eyes would disappear. */
+export function autoEyeColor(color: string): string {
   if (!isAvatarColor(color)) return "#FFFFFF";
   const channels = [1, 3, 5].map((start) => parseInt(color.slice(start, start + 2), 16) / 255)
     .map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
   const luminance = channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722;
-  return 1.05 / (luminance + 0.05) >= 4.5 ? "#FFFFFF" : "#1D1D1F";
+  return 1.05 / (luminance + 0.05) >= 2 ? "#FFFFFF" : "#1D1D1F";
 }
 
 export function isAvatarColor(value: unknown): value is string {

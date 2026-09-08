@@ -41,6 +41,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     (body.soul !== undefined && typeof body.soul !== "string") ||
     (body.avatarColor !== undefined && !isAvatarColor(body.avatarColor)) ||
     (body.avatarShape !== undefined && !isAvatarShape(body.avatarShape)) ||
+    (body.avatarEyeColor !== undefined && body.avatarEyeColor !== null && !isAvatarColor(body.avatarEyeColor)) ||
+    (body.avatarGlasses !== undefined && typeof body.avatarGlasses !== "boolean") ||
+    (body.avatarMustache !== undefined && typeof body.avatarMustache !== "boolean") ||
     (body.avatarImage !== undefined && body.avatarImage !== null && !isAvatarImage(body.avatarImage)) ||
     (hasNotificationsEnabled && typeof body.notificationsEnabled !== "boolean") ||
     (hasEnabled && typeof body.enabled !== "boolean") ||
@@ -59,6 +62,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (body.label !== undefined) patch.label = (body.label as string).trim();
     if (body.avatarColor !== undefined) patch.avatarColor = body.avatarColor as string;
     if (isAvatarShape(body.avatarShape)) patch.avatarShape = body.avatarShape;
+    if (body.avatarEyeColor !== undefined) patch.avatarEyeColor = body.avatarEyeColor as string | null;
+    if (typeof body.avatarGlasses === "boolean") patch.avatarGlasses = body.avatarGlasses;
+    if (typeof body.avatarMustache === "boolean") patch.avatarMustache = body.avatarMustache;
     if (body.avatarImage !== undefined) patch.avatarImage = body.avatarImage as string | null;
     if (hasNotificationsEnabled) patch.notificationsEnabled = body.notificationsEnabled as boolean;
     if (hasEnabled) patch.enabled = body.enabled as boolean;

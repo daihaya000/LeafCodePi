@@ -1,6 +1,5 @@
 ﻿import type { ReactNode } from "react";
-import { BotAvatar } from "@/components/bot/BotAvatar";
-import type { BotAvatarShape } from "@/lib/bot-avatar";
+import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 
 export function BotEmptyState({
   title,
@@ -12,13 +11,13 @@ export function BotEmptyState({
   title: string;
   description: string;
   icon?: ReactNode;
-  avatar?: { name: string; color?: string; shape?: BotAvatarShape; image?: string | null };
+  avatar?: BotFace & { name: string };
   children?: ReactNode;
 }) {
   return (
     <div className="rounded-2xl border border-dashed border-bot-outline bg-bot-panel px-5 py-8 text-center">
       {avatar ? (
-        <BotAvatar size={48} color={avatar.color} shape={avatar.shape} image={avatar.image} name={avatar.name} className="mx-auto mb-3" />
+        <BotAvatar size={48} {...avatar} className="mx-auto mb-3" />
       ) : icon ? (
         <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-success-bg text-success">{icon}</div>
       ) : null}

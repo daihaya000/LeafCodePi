@@ -49,6 +49,20 @@ describe("PATCH /api/bots/[id]", () => {
     const reloaded = await GET(new NextRequest("http://localhost"), { params });
     expect((await reloaded.json()).bot).toMatchObject(avatar);
   });
+  it("validates and persists eye color and accessories, clearing the eye color with null", async () => {
+    const bot = createBot({ name: "Face bot" });
+    const params = Promise.resolve({ id: bot.id });
+    const patch = (body: object) => PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify(body) }), { params });
+    for (const body of [{ avatarEyeColor: "red" }, { avatarEyeColor: 1 }, { avatarGlasses: "yes" }, { avatarMustache: 1 }]) {
+      expect((await patch(body)).status).toBe(400);
+    }
+    const face = { avatarEyeColor: "#FFFFFF", avatarGlasses: true, avatarMustache: true };
+    expect((await (await patch(face)).json()).bot).toMatchObject(face);
+    expect((await (await GET(new NextRequest("http://localhost"), { params })).json()).bot).toMatchObject(face);
+    const cleared = await (await patch({ avatarEyeColor: null, avatarGlasses: false })).json();
+    expect(cleared.bot.avatarEyeColor).toBeUndefined();
+    expect(cleared.bot).toMatchObject({ avatarGlasses: false, avatarMustache: true });
+  });
   it("persists name and label through PATCH and GET reload", async () => {
     const bot = createBot({ name: "Profile bot" });
     const updated = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ name: "Renamed bot", label: "調査アシスタント" }) }), { params: Promise.resolve({ id: bot.id }) });

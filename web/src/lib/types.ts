@@ -74,6 +74,10 @@ export type BotDto = {
   avatarColor: string;
   /** Legacy bots without a shape use circle. */
   avatarShape?: import("./bot-avatar").BotAvatarShape;
+  /** 目の色。未設定なら白（明るい本体色では自動で暗色）。 */
+  avatarEyeColor?: string;
+  avatarGlasses?: boolean;
+  avatarMustache?: boolean;
   /** アップロードされたアバター画像（data URL）。未設定ならnullでavatarColorのSVGにフォールバック。 */
   avatarImage: string | null;
   createdAt: string;

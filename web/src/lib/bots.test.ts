@@ -57,6 +57,23 @@ describe("bot store", () => {
     expect(getBot(bot.id)?.avatarShape).toBe("droplet");
     expect(JSON.parse(readFileSync(configPath, "utf8")).avatarShape).toBe("droplet");
   });
+  it("persists eye color and accessories, clearing the eye color with null", () => {
+    const bot = createBot({ name: "Face bot" });
+    const configPath = join(root, "bots", bot.id, "config.json");
+    expect(bot).toMatchObject({ avatarGlasses: false, avatarMustache: false });
+    expect(bot.avatarEyeColor).toBeUndefined();
+    expect(patchBot(bot.id, { avatarEyeColor: "#EF4444", avatarGlasses: true, avatarMustache: true })).toMatchObject({ avatarEyeColor: "#EF4444", avatarGlasses: true, avatarMustache: true });
+    expect(getBot(bot.id)).toMatchObject({ avatarEyeColor: "#EF4444", avatarGlasses: true, avatarMustache: true });
+    // Unrelated patches keep the face, and null resets the eye color to the automatic default.
+    expect(patchBot(bot.id, { name: "Face bot 2" })?.avatarEyeColor).toBe("#EF4444");
+    expect(patchBot(bot.id, { avatarEyeColor: null })?.avatarEyeColor).toBeUndefined();
+    expect(getBot(bot.id)?.avatarEyeColor).toBeUndefined();
+    expect("avatarEyeColor" in JSON.parse(readFileSync(configPath, "utf8"))).toBe(false);
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    fs.writeFileSync(configPath, JSON.stringify({ ...config, avatarEyeColor: "red", avatarGlasses: "yes" }));
+    expect(getBot(bot.id)).toMatchObject({ avatarGlasses: false, avatarMustache: true });
+    expect(getBot(bot.id)?.avatarEyeColor).toBeUndefined();
+  });
   it("migrates a legacy config to a deterministic avatar color", () => {
     const bot = createBot({ name: "Legacy bot" });
     const configPath = join(root, "bots", bot.id, "config.json");

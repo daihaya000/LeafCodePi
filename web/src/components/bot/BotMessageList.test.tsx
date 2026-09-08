@@ -35,7 +35,7 @@ it("places the time and footer below the bubble, for user and bot alike", () => 
   expect(bubble.className).toContain("max-w-bubble");
   expect(bubble.className).toContain("bg-bot-user");
 
-  rerender(<BotMessageRow user={false} createdAt={createdAt} header={<BotMessageSender name="MiMo" color="#0071E3" />}><BotMessageError text="応答に失敗しました" /></BotMessageRow>);
+  rerender(<BotMessageRow user={false} createdAt={createdAt} header={<BotMessageSender name="MiMo" avatarColor="#0071E3" />}><BotMessageError text="応答に失敗しました" /></BotMessageRow>);
   const botRow = container.firstElementChild!;
   expect(botRow.className).toContain("items-start");
   expect(botRow.children[0].textContent).toBe("MiMo");
@@ -66,7 +66,7 @@ it("shows the animated bot and the current tool action while responding", () => 
     createdAt: Date.now(),
     parts: [{ id: "tool-1", type: "tool", tool: "read", callID: "call-1", state: { status: "running", input: { path: "README.md" } } }],
   }];
-  const { container, getByRole } = render(<BotResponseStatus messages={messages} avatar={{ name: "Bot", color: "#0071E3" }} />);
+  const { container, getByRole } = render(<BotResponseStatus messages={messages} avatar={{ name: "Bot", avatarColor: "#0071E3" }} />);
   expect(getByRole("status").textContent).toContain("応答中…");
   expect(getByRole("status").textContent).toContain("読取");
   expect(container.querySelector(".bot-avatar-working")).toBeTruthy();

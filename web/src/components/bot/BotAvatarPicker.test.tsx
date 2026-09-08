@@ -19,7 +19,7 @@ function setup(initial = initialBot, save = vi.fn<(patch: AvatarPatch) => Promis
     const [bot, setBot] = useState(initial);
     return <div onKeyDown={onEscape}><BotAvatarPicker bot={bot} onChange={async (patch) => {
       await save(patch);
-      setBot((current) => ({ ...current, ...patch }));
+      setBot((current) => ({ ...current, ...patch, avatarEyeColor: patch.avatarEyeColor ?? undefined }));
     }} /><button type="button">外側</button></div>;
   }
   render(<Preview />);
@@ -53,19 +53,38 @@ it("opens from the icon, navigates tabs with the keyboard, and dismisses without
 it("saves shapes, preset colors and validated custom colors, replacing an uploaded image", async () => {
   const { save } = setup({ ...initialBot, avatarImage: "data:image/png;base64,dGVzdA==" });
   expect(within(screen.getByRole("group", { name: "ボットの形" })).getAllByRole("button")).toHaveLength(8);
-  expect(within(screen.getByRole("group", { name: "ボットの色" })).getAllByRole("button")).toHaveLength(12);
+  expect(within(screen.getByRole("group", { name: "本体の色" })).getAllByRole("button")).toHaveLength(12);
   fireEvent.click(screen.getByRole("button", { name: "くも" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "くも" }).getAttribute("aria-pressed")).toBe("true"));
   expect(save).toHaveBeenLastCalledWith({ avatarShape: "cloud", avatarImage: null });
-  fireEvent.click(screen.getByRole("button", { name: "色 #111111" }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "色 #111111" }).getAttribute("aria-pressed")).toBe("true"));
-  const code = screen.getByRole("textbox", { name: "カラーコード" });
+  fireEvent.click(screen.getByRole("button", { name: "本体の色 #111111" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "本体の色 #111111" }).getAttribute("aria-pressed")).toBe("true"));
+  const code = screen.getByRole("textbox", { name: "本体の色のカラーコード" });
+  const apply = within(code.closest("form")!).getByRole("button", { name: "適用" }) as HTMLButtonElement;
   fireEvent.change(code, { target: { value: "#nope" } });
-  expect((screen.getByRole("button", { name: "適用" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(apply.disabled).toBe(true);
   fireEvent.change(code, { target: { value: "#abcdef" } });
-  fireEvent.click(screen.getByRole("button", { name: "適用" }));
+  fireEvent.click(apply);
   await waitFor(() => expect(save).toHaveBeenLastCalledWith({ avatarColor: "#ABCDEF", avatarImage: null }));
   await screen.findByText("保存しました");
+});
+
+it("saves the eye color, defaults it to white, and toggles glasses and mustache", async () => {
+  const { save } = setup();
+  const eyes = screen.getByRole("group", { name: "目の色" });
+  expect(within(eyes).getAllByRole("button")).toHaveLength(13);
+  expect(within(eyes).getByRole("button", { name: "目の色 #FFFFFF" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(within(eyes).getByRole("button", { name: "目の色 #EF4444" }));
+  await waitFor(() => expect(save).toHaveBeenLastCalledWith({ avatarEyeColor: "#EF4444", avatarImage: null }));
+  await waitFor(() => expect(within(eyes).getByRole("button", { name: "目の色 #EF4444" }).getAttribute("aria-pressed")).toBe("true"));
+  for (const [label, key] of [["眼鏡", "avatarGlasses"], ["口ひげ", "avatarMustache"]] as const) {
+    expect(screen.getByRole("button", { name: label }).getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    await waitFor(() => expect(save).toHaveBeenLastCalledWith({ [key]: true, avatarImage: null }));
+    await waitFor(() => expect(screen.getByRole("button", { name: label }).getAttribute("aria-pressed")).toBe("true"));
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    await waitFor(() => expect(save).toHaveBeenLastCalledWith({ [key]: false, avatarImage: null }));
+  }
 });
 
 it("generates local candidates without saving until selected, then resets all avatar fields", async () => {
@@ -81,8 +100,10 @@ it("generates local candidates without saving until selected, then resets all av
   expect(BOT_AVATAR_SHAPES.map((shape) => shape.id)).toContain(patch.avatarShape);
   expect(BOT_AVATAR_COLORS).toContain(patch.avatarColor);
   expect(patch.avatarImage).toBeNull();
+  expect(typeof patch.avatarGlasses).toBe("boolean");
+  expect(typeof patch.avatarMustache).toBe("boolean");
   fireEvent.click(screen.getByRole("button", { name: "リセット" }));
-  await waitFor(() => expect(save).toHaveBeenLastCalledWith({ avatarShape: "circle", avatarColor: avatarColorForId(initialBot.id), avatarImage: null }));
+  await waitFor(() => expect(save).toHaveBeenLastCalledWith({ avatarShape: "circle", avatarColor: avatarColorForId(initialBot.id), avatarEyeColor: null, avatarGlasses: false, avatarMustache: false, avatarImage: null }));
   await screen.findByText("保存しました");
 });
 
@@ -108,7 +129,7 @@ it("keeps the saved avatar on failure, locks concurrent writes, and allows a ret
   const save = vi.fn<(patch: AvatarPatch) => Promise<void>>().mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; })).mockResolvedValue(undefined);
   setup(initialBot, save);
   fireEvent.click(screen.getByRole("button", { name: "三角" }));
-  fireEvent.click(screen.getByRole("button", { name: "色 #111111" }));
+  fireEvent.click(screen.getByRole("button", { name: "本体の色 #111111" }));
   expect(save).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("status").textContent).toBe("保存中…");
   await act(async () => reject(new Error("保存に失敗しました")));
