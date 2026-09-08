@@ -74,6 +74,15 @@ describe("POST /api/bots/[id]/prompt", () => {
     expect(state.promptTask).not.toHaveBeenCalled();
   });
 
+  it("rejects malformed Base64 image data before prompting", async () => {
+    const bot = createBot({ name: "Image bot" });
+
+    const response = await POST(request("look", undefined, [{ mimeType: "image/png", data: "AA!!" }]), { params: Promise.resolve({ id: bot.id }) });
+
+    expect(response.status).toBe(400);
+    expect(state.promptTask).not.toHaveBeenCalled();
+  });
+
   it("rejects oversized images before prompting", async () => {
     const bot = createBot({ name: "Image bot" });
     const images = [{ mimeType: "image/png", data: Buffer.alloc(MAX_PROMPT_IMAGE_BYTES + 1).toString("base64") }];

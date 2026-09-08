@@ -24,5 +24,7 @@ export function isPromptImageList(value: unknown): value is PromptImageInput[] {
 
 export function isPromptImageWithinSize(image: PromptImageInput): boolean {
   const bytes = Buffer.byteLength(image.data, "base64");
-  return bytes > 0 && bytes <= MAX_PROMPT_IMAGE_BYTES;
+  if (bytes === 0 || bytes > MAX_PROMPT_IMAGE_BYTES) return false;
+  const canonical = Buffer.from(image.data, "base64").toString("base64");
+  return image.data === canonical || image.data === canonical.replace(/=+$/, "");
 }
