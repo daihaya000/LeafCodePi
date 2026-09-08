@@ -90,6 +90,19 @@ describe("RoomView mention chips", () => {
 });
 
 describe("RoomView delegated work", () => {
+  it("rewinds the room to a user request and puts its text back in the composer", async () => {
+    const { act } = await import("@testing-library/react");
+    mocks.sendJson.mockResolvedValueOnce({ room: { ...room, messages: [] }, text: "やり直したい依頼" });
+    render(<RoomView id={room.id} />);
+    const input = await screen.findByRole("textbox") as HTMLTextAreaElement;
+    act(() => pushSnapshot({ room: { ...room, messages: [{ id: "user-9", role: "user" as const, text: "やり直したい依頼", createdAt: 2 }] } }));
+
+    fireEvent.click(screen.getByRole("button", { name: /入力欄に戻す/ }));
+    expect(mocks.sendJson).toHaveBeenCalledWith(`/api/bots/rooms/${room.id}/revert`, { messageId: "user-9" });
+    await screen.findByDisplayValue("やり直したい依頼");
+    expect(input.value).toBe("やり直したい依頼");
+  });
+
   it("shows what Code is doing and lets the user stop that run", async () => {
     const { act } = await import("@testing-library/react");
     render(<RoomView id={room.id} />);

@@ -2,7 +2,7 @@
 
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Users, X } from "lucide-react";
+import { Users, X, RotateCcw } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
 import { notifyBotSidebarChanged } from "@/lib/events";
 import { markRead } from "@/lib/bot-unread";
@@ -45,6 +45,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const [attention, setAttention] = useState<RoomAttention[]>([]);
   const [attentionBusy, setAttentionBusy] = useState<string | null>(null);
   const [stoppingCode, setStoppingCode] = useState(false);
+  const [reverting, setReverting] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [broadcast, setBroadcast] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -228,13 +229,27 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     finally { setStoppingCode(false); }
   }, [id, stoppingCode]);
 
+  const revertMessage = useCallback(async (messageId: string) => {
+    if (reverting) return;
+    setReverting(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ room: RoomDto; text: string }>(`/api/bots/rooms/${encodeURIComponent(id)}/revert`, { messageId });
+      setRoom(result.room);
+      setPrompt(result.text);
+      requestAnimationFrame(() => promptRef.current?.focus());
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "巻き戻しに失敗しました"); }
+    finally { setReverting(false); }
+  }, [id, reverting]);
+
   const rendered = useMemo(() => (room?.messages ?? []).map((message) => {
     const user = message.role === "user";
     const bot = message.botId ? botById.get(message.botId) : undefined;
     const text = message.text || (message.status === "working" ? "応答中…" : "");
     if (!text) return null;
     return (
-      <BotMessageRow key={message.id} user={user} createdAt={message.createdAt}>
+      <BotMessageRow key={message.id} user={user} createdAt={message.createdAt}
+        footer={user && !message.sourceBotId ? <button type="button" title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"><RotateCcw className="h-3 w-3" />入力欄に戻す</button> : undefined}>
         {!user && <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted"><BotAvatar size={18} color={bot?.avatarColor} image={bot?.avatarImage} name={bot?.name ?? message.botName} active={message.status === "working"} />{bot?.name ?? message.botName ?? "ボット"}</div>}
         {user ? (
           <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{renderMentions(text, bots, message.id, "user")}</div>
@@ -245,7 +260,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         {message.status === "error" && <BotMessageError text="応答に失敗しました" />}
       </BotMessageRow>
     );
-  }), [botById, bots, room?.messages, stopCode, stoppingCode]);
+  }), [botById, bots, room?.messages, revertMessage, reverting, stopCode, stoppingCode]);
 
   if (!room) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 

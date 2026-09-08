@@ -139,6 +139,7 @@ function normalizeRoom(value: Partial<RoomFile>, id: string): RoomDto | null {
     name: value.name,
     members: [...new Set(value.members.filter((item): item is string => typeof item === "string"))],
     botRelayEnabled: value.botRelayEnabled === true,
+    ...(value.codeAutoApprove === true ? { codeAutoApprove: true } : {}),
     ...(lastOutcome ? { lastOutcome } : {}),
     createdAt: String(value.createdAt),
     updatedAt: String(value.updatedAt),
@@ -179,13 +180,14 @@ export function createRoom(input: { name?: string; members?: string[] }): RoomDt
   writeRoom(room);
   return room;
 }
-export function patchRoom(id: string, patch: { name?: string; members?: string[]; botRelayEnabled?: boolean }): RoomDto | undefined {
+export function patchRoom(id: string, patch: { name?: string; members?: string[]; botRelayEnabled?: boolean; codeAutoApprove?: boolean }): RoomDto | undefined {
   return withRoomLock(id, () => {
     const room = readRoom(id);
     if (!room) return undefined;
     if (patch.name !== undefined) room.name = patch.name.trim() || room.name;
     if (patch.members !== undefined) room.members = validMembers(patch.members);
     if (patch.botRelayEnabled !== undefined) room.botRelayEnabled = patch.botRelayEnabled;
+    if (patch.codeAutoApprove !== undefined) room.codeAutoApprove = patch.codeAutoApprove;
     room.updatedAt = new Date().toISOString();
     writeRoom(room);
     return room;
@@ -257,6 +259,23 @@ export function setRoomOutcome(id: string, outcome: RoomOutcome): void {
     room.lastOutcome = outcome;
     room.updatedAt = new Date().toISOString();
     writeRoom(room);
+  });
+}
+/**
+ * Drop a user request and everything said after it, returning its text for the composer.
+ * Bot sessions keep their own history: only the shared room transcript is rewound.
+ */
+export function revertRoomTo(id: string, messageId: string): { text: string; requestId: string } | undefined {
+  return withRoomLock(id, () => {
+    const room = readRoom(id);
+    const index = room?.messages.findIndex((item) => item.id === messageId) ?? -1;
+    const target = index >= 0 ? room!.messages[index] : undefined;
+    if (!room || !target || target.role !== "user" || target.sourceBotId) return undefined;
+    room.messages = room.messages.slice(0, index);
+    if (room.lastOutcome?.requestId === messageId) delete room.lastOutcome;
+    room.updatedAt = new Date().toISOString();
+    writeRoom(room);
+    return { text: target.text, requestId: messageId };
   });
 }
 export function subscribeRoom(id: string, listener: (room: RoomDto | null) => void): () => void {

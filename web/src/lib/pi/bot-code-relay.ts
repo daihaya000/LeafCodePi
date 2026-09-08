@@ -102,6 +102,15 @@ export function pendingRoomCodeRequestForRoom(roomId: string): CodeRequest | und
 export function pendingRoomCodeRequestForTurn(roomId: string, requestId: string): CodeRequest | undefined {
   return requests().find((request) => request.room?.id === roomId && request.room.conversation.requestId === requestId && active(request));
 }
+/** A reverted request has no context left to report into: settle its outstanding jobs. */
+export function cancelRoomCodeRequests(roomId: string, requestId: string): number {
+  const stale = requests().filter((request) => request.room?.id === roomId && request.room.conversation.requestId === requestId && active(request));
+  for (const request of stale) {
+    request.state = "cancelled";
+    save(request);
+  }
+  return stale.length;
+}
 function linkedCodeTaskId(originTaskId: string, bot: ReturnType<typeof owner>): string | undefined {
   const room = roomForCodeOrigin(getTask(originTaskId));
   if (!room) return bot.codeSessionTaskId ?? undefined;
@@ -175,7 +184,10 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       // Ask only for work that can actually start: an approval spent on a request the Room will
       // refuse a moment later is worse than a plain error.
       if (room && pendingRoomCodeRequestForRoom(room.id)) throw new Error("A Room Code request is still running or awaiting its report");
-      const approved = await deps.approve(sessionId, `Codeへ依頼します。\nプロジェクト: ${project?.name ?? NO_PROJECT_NAME}\n\n${input.prompt.trim()}`);
+      // Standing approval is an operator setting on the Room itself (token-gated), never something
+      // a Bot can grant itself mid-conversation.
+      const standing = room ? getRoom(room.id)?.codeAutoApprove === true : false;
+      const approved = standing || await deps.approve(sessionId, `Codeへ依頼します。\nプロジェクト: ${project?.name ?? NO_PROJECT_NAME}\n\n${input.prompt.trim()}`);
       if (!approved || signal?.aborted) throw new Error("Code request was not approved");
     }
     const execute = () => withBotCodeSessionLock(bot.id, async () => {

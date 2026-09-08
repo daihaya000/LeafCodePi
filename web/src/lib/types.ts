@@ -51,6 +51,8 @@ export type RoomDto = {
   members: string[];
   /** Explicit opt-in for the minimal, directed bot-to-bot relay path. */
   botRelayEnabled: boolean;
+  /** Operator opt-in: this room's Code requests skip the per-request approval prompt. */
+  codeAutoApprove?: boolean;
   lastOutcome?: RoomOutcome;
   createdAt: string;
   updatedAt: string;

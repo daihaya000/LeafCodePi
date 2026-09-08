@@ -260,6 +260,26 @@ describe("Room ⇄ Code delegation", () => {
     expect(deps.create).not.toHaveBeenCalled();
   });
 
+  it("skips the approval prompt only when the Room carries standing approval", async () => {
+    roomSetup();
+    store.rooms.get("room-1")!.codeAutoApprove = true;
+    await roomLaunch();
+    expect(deps.approve).not.toHaveBeenCalled();
+    expect(record().state).toBe("running");
+
+    // The 1:1 path never inherits a Room's standing approval: it still asks.
+    await expect(launch("one-to-one")).rejects.toThrow("still running");
+    expect(deps.approve).toHaveBeenCalledTimes(1);
+  });
+
+  it("still asks for approval when the Room has not granted it", async () => {
+    roomSetup();
+    vi.mocked(deps.approve).mockResolvedValueOnce(false);
+    await expect(roomLaunch()).rejects.toThrow("not approved");
+    expect(deps.approve).toHaveBeenCalledTimes(1);
+    expect(deps.create).not.toHaveBeenCalled();
+  });
+
   it("starts a fresh Code session for a new conversation instead of continuing the old one", async () => {
     roomSetup();
     await roomLaunch();
