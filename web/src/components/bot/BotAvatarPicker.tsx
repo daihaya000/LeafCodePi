@@ -6,13 +6,13 @@ import { BotAvatar } from "./BotAvatar";
 import { Button, cx } from "@/components/ui";
 import {
   autoEyeColor, AVATAR_IMAGE_ACCEPT, avatarColorForId, BOT_AVATAR_COLORS, BOT_AVATAR_SHAPES,
-  isAvatarColor, isAvatarImage, MAX_AVATAR_IMAGE_BYTES, randomAvatarColor,
+  isAvatarColor, isAvatarEyeColor, isAvatarImage, MAX_AVATAR_IMAGE_BYTES, randomAvatarColor,
 } from "@/lib/bot-avatar";
 import type { BotDto } from "@/lib/types";
 
 export type AvatarPatch = Partial<Pick<BotDto, "avatarShape" | "avatarColor" | "avatarImage" | "avatarGlasses" | "avatarMustache">> & { avatarEyeColor?: string | null };
 const TABS = ["Bot", "生成", "アップロード"] as const;
-const EYE_COLORS = ["#FFFFFF", ...BOT_AVATAR_COLORS] as const;
+const EYE_COLORS = ["#FFFFFF", "#000000"] as const;
 
 function generateCandidates() {
   const start = Math.floor(Math.random() * BOT_AVATAR_SHAPES.length);
@@ -25,7 +25,7 @@ function generateCandidates() {
   }));
 }
 
-/** Swatch palette plus a free color, shared by the body color and the eye color. */
+/** Body color palette with a custom color input. */
 function ColorField({ label, value, colors, disabled, onSelect }: { label: string; value: string; colors: readonly string[]; disabled: boolean; onSelect: (color: string) => void }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
@@ -153,7 +153,10 @@ export function BotAvatarPicker({ bot, onChange }: { bot: BotDto; onChange: (pat
                 <button type="button" aria-pressed={bot.avatarMustache === true} disabled={busy} onClick={() => void update({ avatarMustache: bot.avatarMustache !== true, avatarImage: null })} className={cx("min-h-11 flex-1 rounded-xl border px-3 text-sm", bot.avatarMustache ? "border-accent bg-accent/10 font-medium text-accent" : "border-border text-muted hover:bg-surface-2")}>口ひげ</button>
               </div>
               <ColorField label="本体の色" value={bot.avatarColor} colors={BOT_AVATAR_COLORS} disabled={busy} onSelect={(color) => void update({ avatarColor: color, avatarImage: null })} />
-              <ColorField label="目の色" value={bot.avatarEyeColor ?? autoEyeColor(bot.avatarColor)} colors={EYE_COLORS} disabled={busy} onSelect={(color) => void update({ avatarEyeColor: color, avatarImage: null })} />
+              <div role="group" aria-label="目の色" className="flex items-center gap-2">
+                <span className="mr-2 text-xs font-medium text-muted">目の色</span>
+                {EYE_COLORS.map((color) => <button key={color} type="button" aria-pressed={(isAvatarEyeColor(bot.avatarEyeColor) ? bot.avatarEyeColor.toUpperCase() : autoEyeColor(bot.avatarColor)) === color} disabled={busy} onClick={() => void update({ avatarEyeColor: color, avatarImage: null })} className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-border text-sm hover:bg-surface-2 aria-pressed:border-accent aria-pressed:bg-accent/10 disabled:opacity-50"><span aria-hidden="true" className="h-5 w-5 rounded-full border border-border" style={{ backgroundColor: color }} />{color === "#FFFFFF" ? "白" : "黒"}</button>)}
+              </div>
             </div>}
             {tab === 1 && <div className="space-y-4">
               <p className="text-xs leading-5 text-muted">形と色をランダムに組み合わせます。好きな候補を選ぶと保存されます。</p>

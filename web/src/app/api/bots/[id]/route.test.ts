@@ -53,12 +53,13 @@ describe("PATCH /api/bots/[id]", () => {
     const bot = createBot({ name: "Face bot" });
     const params = Promise.resolve({ id: bot.id });
     const patch = (body: object) => PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify(body) }), { params });
-    for (const body of [{ avatarEyeColor: "red" }, { avatarEyeColor: 1 }, { avatarGlasses: "yes" }, { avatarMustache: 1 }]) {
+    for (const body of [{ avatarEyeColor: "red" }, { avatarEyeColor: "#EF4444" }, { avatarEyeColor: "#111111" }, { avatarEyeColor: 1 }, { avatarGlasses: "yes" }, { avatarMustache: 1 }]) {
       expect((await patch(body)).status).toBe(400);
     }
     const face = { avatarEyeColor: "#FFFFFF", avatarGlasses: true, avatarMustache: true };
     expect((await (await patch(face)).json()).bot).toMatchObject(face);
     expect((await (await GET(new NextRequest("http://localhost"), { params })).json()).bot).toMatchObject(face);
+    expect((await (await patch({ avatarEyeColor: "#000000" })).json()).bot.avatarEyeColor).toBe("#000000");
     const cleared = await (await patch({ avatarEyeColor: null, avatarGlasses: false })).json();
     expect(cleared.bot.avatarEyeColor).toBeUndefined();
     expect(cleared.bot).toMatchObject({ avatarGlasses: false, avatarMustache: true });

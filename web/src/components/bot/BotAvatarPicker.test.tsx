@@ -19,7 +19,7 @@ function setup(initial = initialBot, save = vi.fn<(patch: AvatarPatch) => Promis
     const [bot, setBot] = useState(initial);
     return <div onKeyDown={onEscape}><BotAvatarPicker bot={bot} onChange={async (patch) => {
       await save(patch);
-      setBot((current) => ({ ...current, ...patch, avatarEyeColor: patch.avatarEyeColor ?? undefined }));
+      setBot((current) => ({ ...current, ...patch, avatarEyeColor: patch.avatarEyeColor === undefined ? current.avatarEyeColor : patch.avatarEyeColor ?? undefined }));
     }} /><button type="button">外側</button></div>;
   }
   render(<Preview />);
@@ -72,11 +72,12 @@ it("saves shapes, preset colors and validated custom colors, replacing an upload
 it("saves the eye color, defaults it to white, and toggles glasses and mustache", async () => {
   const { save } = setup();
   const eyes = screen.getByRole("group", { name: "目の色" });
-  expect(within(eyes).getAllByRole("button")).toHaveLength(13);
-  expect(within(eyes).getByRole("button", { name: "目の色 #FFFFFF" }).getAttribute("aria-pressed")).toBe("true");
-  fireEvent.click(within(eyes).getByRole("button", { name: "目の色 #EF4444" }));
-  await waitFor(() => expect(save).toHaveBeenLastCalledWith({ avatarEyeColor: "#EF4444", avatarImage: null }));
-  await waitFor(() => expect(within(eyes).getByRole("button", { name: "目の色 #EF4444" }).getAttribute("aria-pressed")).toBe("true"));
+  expect(within(eyes).getAllByRole("button")).toHaveLength(2);
+  expect(screen.queryByRole("textbox", { name: "目の色のカラーコード" })).toBeNull();
+  expect(within(eyes).getByRole("button", { name: "白" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(within(eyes).getByRole("button", { name: "黒" }));
+  await waitFor(() => expect(save).toHaveBeenLastCalledWith({ avatarEyeColor: "#000000", avatarImage: null }));
+  await waitFor(() => expect(within(eyes).getByRole("button", { name: "黒" }).getAttribute("aria-pressed")).toBe("true"));
   for (const [label, key] of [["眼鏡", "avatarGlasses"], ["口ひげ", "avatarMustache"]] as const) {
     expect(screen.getByRole("button", { name: label }).getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(screen.getByRole("button", { name: label }));

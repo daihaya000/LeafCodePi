@@ -38,7 +38,11 @@ export function autoEyeColor(color: string): string {
   const channels = [1, 3, 5].map((start) => parseInt(color.slice(start, start + 2), 16) / 255)
     .map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
   const luminance = channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722;
-  return 1.05 / (luminance + 0.05) >= 2 ? "#FFFFFF" : "#1D1D1F";
+  return 1.05 / (luminance + 0.05) >= 2 ? "#FFFFFF" : "#000000";
+}
+
+export function isAvatarEyeColor(value: unknown): value is string {
+  return typeof value === "string" && /^(#FFFFFF|#000000)$/i.test(value);
 }
 
 export function isAvatarColor(value: unknown): value is string {

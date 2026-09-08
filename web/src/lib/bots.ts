@@ -6,7 +6,7 @@ import { globalBotsMdPath } from "./agents-md";
 import { basenameKey, isWebUiRequiredExtension } from "./extensions";
 import { deleteTask, insertBotTask, listTasks, patchTask } from "./store";
 import type { BotDto, BotSkillsConfig, ThinkingLevel } from "./types";
-import { avatarColorForId, isAvatarColor, isAvatarImage, isAvatarShape, randomAvatarColor } from "./bot-avatar";
+import { avatarColorForId, isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape, randomAvatarColor } from "./bot-avatar";
 
 export type BotConfig = Omit<BotDto, "soul"> & { label: string };
 const SOUL_TEMPLATE = `# ボットの役割\n\nあなたは専属の1対1アシスタントです。\n\n## 方針\n- 簡潔で役に立つ回答をしてください。\n- 明示的に許可されていない限り、ファイル操作は workspace/ 内で行ってください。\n`;
@@ -47,7 +47,7 @@ function parseConfig(id: string): BotConfig | null {
     const avatarShape = isAvatarShape(value.avatarShape) ? value.avatarShape : "circle";
     const config: BotConfig = {
       id, name: value.name, label: typeof value.label === "string" ? value.label : "1:1 アシスタント", avatarColor, avatarImage, avatarShape, createdAt: String(value.createdAt), updatedAt: String(value.updatedAt),
-      ...(isAvatarColor(value.avatarEyeColor) ? { avatarEyeColor: value.avatarEyeColor } : {}),
+      ...(isAvatarEyeColor(value.avatarEyeColor) ? { avatarEyeColor: value.avatarEyeColor } : {}),
       avatarGlasses: value.avatarGlasses === true, avatarMustache: value.avatarMustache === true,
       model: typeof value.model === "string" ? value.model : null,
       thinkingLevel: value.thinkingLevel ?? null, permissionMode: value.permissionMode ?? null,
@@ -92,7 +92,7 @@ export function createBot(input: { name?: string; model?: string | null; thinkin
 export function patchBot(id: string, patch: Partial<Pick<BotConfig, "name" | "label" | "avatarColor" | "avatarImage" | "avatarShape" | "avatarGlasses" | "avatarMustache" | "model" | "thinkingLevel" | "permissionMode" | "skills" | "extraRoots" | "enabled" | "notificationsEnabled" | "codeSessionTaskId">> & { soul?: string; avatarEyeColor?: string | null }): BotDto | undefined {
   const current = parseConfig(id); if (!current) return undefined;
   // null clears the eye color back to the automatic default.
-  const next: BotConfig = { ...current, ...patch, avatarEyeColor: patch.avatarEyeColor === undefined ? current.avatarEyeColor : (patch.avatarEyeColor ?? undefined), skills: patch.skills ?? current.skills, updatedAt: new Date().toISOString() };
+  const next: BotConfig = { ...current, ...patch, avatarEyeColor: patch.avatarEyeColor === undefined ? current.avatarEyeColor : (isAvatarEyeColor(patch.avatarEyeColor) ? patch.avatarEyeColor : undefined), skills: patch.skills ?? current.skills, updatedAt: new Date().toISOString() };
   delete (next as Record<string, unknown>).soul;
   writeConfig(next);
   if (patch.soul !== undefined) writeFileSync(soulPath(id), patch.soul, "utf8");

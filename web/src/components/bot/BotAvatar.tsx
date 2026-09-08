@@ -1,5 +1,5 @@
 import { cx } from "@/components/ui";
-import { autoEyeColor, BOT_AVATAR_SHAPES, isAvatarColor, type BotAvatarShape } from "@/lib/bot-avatar";
+import { autoEyeColor, BOT_AVATAR_SHAPES, isAvatarEyeColor, type BotAvatarShape } from "@/lib/bot-avatar";
 
 /** Prop names match BotDto so any bot-shaped object can be spread in directly. */
 type BotAvatarProps = {
@@ -40,7 +40,7 @@ export function BotAvatar({
     );
   }
   const face = BOT_AVATAR_SHAPES.find((item) => item.id === avatarShape) ?? BOT_AVATAR_SHAPES[0];
-  const ink = isAvatarColor(avatarEyeColor) ? avatarEyeColor : autoEyeColor(avatarColor);
+  const ink = isAvatarEyeColor(avatarEyeColor) ? avatarEyeColor : autoEyeColor(avatarColor);
   return (
     <svg
       aria-label={name ? `${name}のアバター` : "ボットアバター"}
@@ -54,18 +54,18 @@ export function BotAvatar({
       <path d={face.path} fill="currentColor" />
       <g transform={`translate(0 ${face.eyeOffset})`} fill={ink}>
         <g className={active ? "bot-avatar-eyes" : undefined}>
-          <rect x="32" y="27" width="9" height="20" rx="4.5" transform="rotate(-18 36.5 37)" />
-          <rect x="59" y="24" width="9" height="20" rx="4.5" transform="rotate(-18 63.5 34)" />
+          <rect x={avatarGlasses ? 33 : 32} y={avatarGlasses ? 29 : 27} width={avatarGlasses ? 7 : 9} height={avatarGlasses ? 16 : 20} rx={avatarGlasses ? 3.5 : 4.5} transform="rotate(-18 36.5 37)" />
+          <rect x={avatarGlasses ? 60 : 59} y={avatarGlasses ? 26 : 24} width={avatarGlasses ? 7 : 9} height={avatarGlasses ? 16 : 20} rx={avatarGlasses ? 3.5 : 4.5} transform="rotate(-18 63.5 34)" />
         </g>
         {avatarGlasses && (
-          <g data-part="glasses" fill="none" stroke={ink} strokeWidth="4" strokeLinecap="round">
-            <rect x="24" y="25" width="25" height="24" rx="8" />
-            <rect x="53" y="22" width="25" height="24" rx="8" />
-            <path d="M49 35 53 32" />
+          <g data-part="glasses" fill="none" stroke={ink} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="36.5" cy="37" r="12" />
+            <circle cx="63.5" cy="34" r="12" />
+            <path d="M48.5 35.5Q50 32 51.5 35M24.5 35 20 33M75.5 32 80 29" />
           </g>
         )}
         {avatarMustache && (
-          <path data-part="mustache" transform="translate(0 6)" d="M50 55C45 50 36 49 31 53 27 56 28 62 33 63 39 64 46 60 50 55ZM50 55C55 50 64 49 69 53 73 56 72 62 67 63 61 64 54 60 50 55Z" />
+          <path data-part="mustache" d="M50 61C45 54 39 55 34 60C29 65 25 64 23 58C21 69 30 74 39 70C44 68 47 65 50 63C53 65 56 68 61 70C70 74 79 69 77 58C75 64 71 65 66 60C61 55 55 54 50 61Z" />
         )}
       </g>
     </svg>

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { deleteBot, getBot, normalizeBotSkills, patchBot, botTaskId } from "@/lib/bots";
 import { destroyTask, resetTaskSession, setTaskModel, setTaskThinkingLevel } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
-import { isAvatarColor, isAvatarImage, isAvatarShape } from "@/lib/bot-avatar";
+import { isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape } from "@/lib/bot-avatar";
 import { isAbsolutePath } from "@/lib/paths";
 import { listTasks } from "@/lib/store";
 import type { BotSkillsConfig } from "@/lib/types";
@@ -41,7 +41,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     (body.soul !== undefined && typeof body.soul !== "string") ||
     (body.avatarColor !== undefined && !isAvatarColor(body.avatarColor)) ||
     (body.avatarShape !== undefined && !isAvatarShape(body.avatarShape)) ||
-    (body.avatarEyeColor !== undefined && body.avatarEyeColor !== null && !isAvatarColor(body.avatarEyeColor)) ||
+    (body.avatarEyeColor !== undefined && body.avatarEyeColor !== null && !isAvatarEyeColor(body.avatarEyeColor)) ||
     (body.avatarGlasses !== undefined && typeof body.avatarGlasses !== "boolean") ||
     (body.avatarMustache !== undefined && typeof body.avatarMustache !== "boolean") ||
     (body.avatarImage !== undefined && body.avatarImage !== null && !isAvatarImage(body.avatarImage)) ||
