@@ -6,7 +6,7 @@ import { globalBotsMdPath } from "./agents-md";
 import { basenameKey, isWebUiRequiredExtension } from "./extensions";
 import { deleteTask, insertBotTask, listTasks, patchTask } from "./store";
 import type { BotDto, BotSkillsConfig, ThinkingLevel } from "./types";
-import { avatarColorForId, isAvatarColor, isAvatarImage, randomAvatarColor } from "./bot-avatar";
+import { avatarColorForId, isAvatarColor, isAvatarImage, isAvatarShape, randomAvatarColor } from "./bot-avatar";
 
 export type BotConfig = Omit<BotDto, "soul"> & { label: string };
 const SOUL_TEMPLATE = `# ボットの役割\n\nあなたは専属の1対1アシスタントです。\n\n## 方針\n- 簡潔で役に立つ回答をしてください。\n- 明示的に許可されていない限り、ファイル操作は workspace/ 内で行ってください。\n`;
@@ -44,8 +44,9 @@ function parseConfig(id: string): BotConfig | null {
     if (value.id !== id || typeof value.name !== "string") return null;
     const avatarColor = isAvatarColor(value.avatarColor) ? value.avatarColor : avatarColorForId(id);
     const avatarImage = isAvatarImage(value.avatarImage) ? value.avatarImage : null;
+    const avatarShape = isAvatarShape(value.avatarShape) ? value.avatarShape : "circle";
     const config: BotConfig = {
-      id, name: value.name, label: typeof value.label === "string" ? value.label : "1:1 アシスタント", avatarColor, avatarImage, createdAt: String(value.createdAt), updatedAt: String(value.updatedAt),
+      id, name: value.name, label: typeof value.label === "string" ? value.label : "1:1 アシスタント", avatarColor, avatarImage, avatarShape, createdAt: String(value.createdAt), updatedAt: String(value.updatedAt),
       model: typeof value.model === "string" ? value.model : null,
       thinkingLevel: value.thinkingLevel ?? null, permissionMode: value.permissionMode ?? null,
       skills: normalizeBotSkills(value.skills),
@@ -80,13 +81,13 @@ export function getBot(id: string): BotDto | undefined {
 export function createBot(input: { name?: string; model?: string | null; thinkingLevel?: ThinkingLevel | null; permissionMode?: BotConfig["permissionMode"] }): BotDto {
   const name = input.name?.trim() || "New bot";
   const id = randomUUID(); const now = new Date().toISOString();
-  const config: BotConfig = { id, name, label: "1:1 アシスタント", avatarColor: randomAvatarColor(), avatarImage: null, createdAt: now, updatedAt: now, model: input.model ?? null, thinkingLevel: input.thinkingLevel ?? null, permissionMode: input.permissionMode ?? null, skills: { ...DEFAULT_SKILLS }, extraRoots: [], enabled: true, notificationsEnabled: true, codeSessionTaskId: null };
+  const config: BotConfig = { id, name, label: "1:1 アシスタント", avatarColor: randomAvatarColor(), avatarImage: null, avatarShape: "circle", createdAt: now, updatedAt: now, model: input.model ?? null, thinkingLevel: input.thinkingLevel ?? null, permissionMode: input.permissionMode ?? null, skills: { ...DEFAULT_SKILLS }, extraRoots: [], enabled: true, notificationsEnabled: true, codeSessionTaskId: null };
   mkdirSync(join(botRoot(id), "workspace"), { recursive: true });
   writeFileSync(soulPath(id), SOUL_TEMPLATE, "utf8"); writeConfig(config);
   insertBotTask({ id: `bot:${id}`, botId: id, name, directory: join(botRoot(id), "workspace"), model: config.model, thinkingLevel: config.thinkingLevel, permissionMode: config.permissionMode });
   return toDto(config);
 }
-export function patchBot(id: string, patch: Partial<Pick<BotConfig, "name" | "label" | "avatarColor" | "avatarImage" | "model" | "thinkingLevel" | "permissionMode" | "skills" | "extraRoots" | "enabled" | "notificationsEnabled" | "codeSessionTaskId">> & { soul?: string }): BotDto | undefined {
+export function patchBot(id: string, patch: Partial<Pick<BotConfig, "name" | "label" | "avatarColor" | "avatarImage" | "avatarShape" | "model" | "thinkingLevel" | "permissionMode" | "skills" | "extraRoots" | "enabled" | "notificationsEnabled" | "codeSessionTaskId">> & { soul?: string }): BotDto | undefined {
   const current = parseConfig(id); if (!current) return undefined;
   const next: BotConfig = { ...current, ...patch, skills: patch.skills ?? current.skills, updatedAt: new Date().toISOString() };
   delete (next as Record<string, unknown>).soul;

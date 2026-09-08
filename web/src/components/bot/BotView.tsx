@@ -8,7 +8,7 @@ import { notifyBotSidebarChanged } from "@/lib/events";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { Button } from "@/components/ui";
-import { BotAvatar } from "@/components/bot/BotAvatar";
+import { BotAvatarPicker, type AvatarPatch } from "@/components/bot/BotAvatarPicker";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
@@ -17,7 +17,6 @@ import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow, BotMessageSender, BotResponseStatus } from "@/components/bot/BotMessageList";
 import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
 import { QuestionCard } from "@/components/task/QuestionCard";
-import { AVATAR_IMAGE_ACCEPT, BOT_AVATAR_COLORS, MAX_AVATAR_IMAGE_BYTES, randomAvatarColor } from "@/lib/bot-avatar";
 import { markRead } from "@/lib/bot-unread";
 import type { BotDto, ModelOption, PermissionRequestDto, QuestionRequestDto, RoutineDto, ThinkingLevel, UiMessage } from "@/lib/types";
 
@@ -67,8 +66,6 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   const [savingProfile, setSavingProfile] = useState(false);
   const [updatingModel, setUpdatingModel] = useState(false);
   const [updatingThinking, setUpdatingThinking] = useState(false);
-  const [updatingColor, setUpdatingColor] = useState(false);
-  const [updatingImage, setUpdatingImage] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [updatingSkills, setUpdatingSkills] = useState(false);
   const [extraRootInput, setExtraRootInput] = useState("");
@@ -289,36 +286,13 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     } finally { setUpdatingThinking(false); }
   };
 
-  const updateAvatarColor = async (color: string) => {
-    if (color === bot?.avatarColor) return;
-    setUpdatingColor(true);
-    setError(null);
-    try {
-      const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { avatarColor: color }, "PATCH");
-      applyBotUpdate(result.bot);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "\u8272\u306e\u5909\u66f4\u306b\u5931\u6557\u3057\u307e\u3057\u305f");
-    } finally { setUpdatingColor(false); }
-  };
-
-  const updateAvatarImage = async (image: string | null) => {
-    setUpdatingImage(true);
-    setError(null);
-    try {
-      const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { avatarImage: image }, "PATCH");
-      applyBotUpdate(result.bot);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "画像の変更に失敗しました");
-    } finally { setUpdatingImage(false); }
-  };
-
-  const onAvatarFileChange = (file: File | null) => {
-    if (!file) return;
-    if (!file.type.match(/^image\/(png|jpeg|gif|webp)$/)) { window.alert("PNG・JPEG・GIF・WebP の画像を選択してください。"); return; }
-    if (file.size > MAX_AVATAR_IMAGE_BYTES) { window.alert("2 MB以下の画像を選択してください。"); return; }
-    const reader = new FileReader();
-    reader.onload = () => { void updateAvatarImage(String(reader.result)); };
-    reader.readAsDataURL(file);
+  const updateAvatar = async (patch: AvatarPatch) => {
+    if (!bot) return;
+    const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(bot.id)}`, patch, "PATCH");
+    setBot((current) => current?.id === result.bot.id ? {
+      ...current, avatarColor: result.bot.avatarColor, avatarShape: result.bot.avatarShape, avatarImage: result.bot.avatarImage,
+    } : current);
+    notifyBotSidebarChanged();
   };
 
   const saveProfile = async (nextName: string, nextLabel: string) => {
@@ -424,14 +398,14 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     if (!text && images.length === 0 && !message.error) return null;
     return (
       <BotMessageRow key={message.id} user={user} createdAt={message.createdAt}
-        header={user ? undefined : <BotMessageSender name={bot?.name ?? "ボット"} color={bot?.avatarColor} image={bot?.avatarImage} />}
+        header={user ? undefined : <BotMessageSender name={bot?.name ?? "ボット"} color={bot?.avatarColor} shape={bot?.avatarShape} image={bot?.avatarImage} />}
         footer={user ? <button type="button" title="このコメントを入力欄に戻して巻き戻す" disabled={reverting || sending} onClick={() => void revertMessage(message)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"><RotateCcw className="h-3 w-3" />入力欄に戻す</button> : undefined}>
         {images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{images.map((part) => part.type === "image" && <ImageLightbox key={part.id} src={part.url} alt={part.filename ?? "添付画像"} className="max-h-48 max-w-full rounded-xl object-contain" />)}</div>}
         {text && (user ? <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</div> : <BotMessageMarkdown text={text} />)}
         {message.error && <BotMessageError text={message.error} />}
       </BotMessageRow>
     );
-  }), [bot?.avatarColor, bot?.avatarImage, bot?.name, messages, reverting, sending]);
+  }), [bot?.avatarColor, bot?.avatarShape, bot?.avatarImage, bot?.name, messages, reverting, sending]);
 
   if (!bot) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
@@ -450,13 +424,13 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
 
       <BotMessageList conversationId={id}>
         <div className="mx-auto w-full space-y-4">
-          {messages.length === 0 && !sending && <BotEmptyState avatar={{ name: bot.name, color: bot.avatarColor, image: bot.avatarImage }} title={bot.name + " \u3068\u8a71\u3059"} description={"\u4e0b\u306e\u5165\u529b\u6b04\u304b\u3089\u30e1\u30c3\u30bb\u30fc\u30b8\u3092\u9001\u3063\u3066\u4f1a\u8a71\u3092\u59cb\u3081\u307e\u3057\u3087\u3046\u3002"} />}
+          {messages.length === 0 && !sending && <BotEmptyState avatar={{ name: bot.name, color: bot.avatarColor, shape: bot.avatarShape, image: bot.avatarImage }} title={bot.name + " \u3068\u8a71\u3059"} description={"\u4e0b\u306e\u5165\u529b\u6b04\u304b\u3089\u30e1\u30c3\u30bb\u30fc\u30b8\u3092\u9001\u3063\u3066\u4f1a\u8a71\u3092\u59cb\u3081\u307e\u3057\u3087\u3046\u3002"} />}
           {routines.some((routine) => routine.failureCount > 0) && <div role="status" className="rounded-2xl border border-danger/40 bg-danger/5 p-4 text-sm"><p className="font-medium text-danger">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u5b9f\u884c\u306b\u5931\u6557\u3057\u3066\u3044\u307e\u3059"}</p><div className="mt-2 space-y-1 text-xs text-muted">{routines.filter((routine) => routine.failureCount > 0).map((routine) => <p key={routine.id}><span className="font-medium text-text">{routine.name}</span>{"\uFF1A"}{"\u9023\u7d9a\u5931\u6557"} {routine.failureCount}{"\u56de"}{routine.enabled ? "" : "\u3002\u5b89\u5168\u306e\u305f\u3081\u81ea\u52d5\u7684\u306b\u7121\u52b9\u5316\u3057\u307e\u3057\u305f"}</p>)}</div></div>}
           {routineCardOpen && <div className="rounded-2xl border border-accent/40 bg-surface p-4 shadow-sm" role="dialog" aria-label="ルーティン作成の確認"><p className="font-medium text-accent">ルーティンを作成</p><p className="mt-1 text-xs text-muted">内容を確認してから保存します。</p><div className="mt-3 space-y-2"><input value={routineName} onChange={(event) => setRoutineName(event.target.value)} placeholder="名前（例: 朝の確認）" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><textarea value={routinePrompt} onChange={(event) => setRoutinePrompt(event.target.value)} placeholder="Bot に実行させる指示" rows={3} className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><input value={routineSchedule} onChange={(event) => setRoutineSchedule(event.target.value)} aria-label="cron スケジュール" placeholder="0 * * * *" className="w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent" /><p className="text-[11px] text-muted">形式: 分 時 日 月 曜日（最短間隔 5 分）</p></div><div className="mt-3 flex justify-end gap-2"><Button size="sm" variant="ghost" onClick={() => setRoutineCardOpen(false)}>キャンセル</Button><Button size="sm" onClick={() => void createRoutine()} busy={creatingRoutine} disabled={!routineName.trim() || !routinePrompt.trim() || !routineSchedule.trim()}>この内容で作成</Button></div></div>}
           {rendered}
           {permission && <div role="alertdialog" aria-label="権限の確認" className="rounded-2xl border border-warning/40 bg-warning-bg p-4 text-xs"><p className="font-medium">権限の確認が必要です</p><p className="mt-1 whitespace-pre-wrap break-all text-muted">{permission.message}</p><pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-surface p-2">{permission.command}</pre><div className="mt-3 flex gap-2"><Button size="sm" onClick={() => void respond(true)}>許可</Button><Button size="sm" variant="ghost" onClick={() => void respond(false)}>拒否</Button></div></div>}
           {question && <QuestionCard request={question} onReply={answerQuestion} onReject={(request) => answerQuestion(request)} />}
-          {sending && <BotResponseStatus messages={messages} avatar={{ name: bot.name, color: bot.avatarColor, image: bot.avatarImage }} />}
+          {sending && <BotResponseStatus messages={messages} avatar={{ name: bot.name, color: bot.avatarColor, shape: bot.avatarShape, image: bot.avatarImage }} />}
         </div>
       </BotMessageList>
 
@@ -488,23 +462,13 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
           </div>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
             {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-            <div className="flex flex-col items-center gap-3 pb-6 pt-4">
-              <label title="画像を設定" className="cursor-pointer rounded-full has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent">
-                <BotAvatar size={76} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />
-                <input type="file" aria-label="ボットの画像を設定" accept={AVATAR_IMAGE_ACCEPT} disabled={updatingImage} className="sr-only" onChange={(event) => { onAvatarFileChange(event.target.files?.[0] ?? null); event.currentTarget.value = ""; }} />
-              </label>
-              <div className="flex items-center gap-2">
-                <p className="text-xs text-muted">タップして画像を設定</p>
-                {bot.avatarImage && <button type="button" disabled={updatingImage} onClick={() => void updateAvatarImage(null)} className="text-xs text-danger hover:underline disabled:opacity-50">画像を削除</button>}
-              </div>
-            </div>
+            <BotAvatarPicker key={bot.id} bot={bot} onChange={updateAvatar} />
             <label className="block text-sm"><span className="font-medium">名前</span><input value={profileName} onChange={(event) => { const value = event.target.value; setProfileName(value); scheduleProfileSave(value, profileLabel); }} aria-label="ボットの名前" className="mt-2 w-full rounded-xl border border-border bg-transparent px-3 py-2.5 text-base outline-none focus:border-accent" /></label>
             <label className="block text-sm"><span className="font-medium text-muted">ラベル</span><input value={profileLabel} onChange={(event) => { const value = event.target.value; setProfileLabel(value); scheduleProfileSave(profileName, value); }} aria-label="ボットのラベル" className="mt-2 w-full rounded-xl border border-border bg-transparent px-3 py-2.5 text-base outline-none focus:border-accent" /></label>
             <label className="block text-sm text-muted"><span>説明（SOUL.md）</span><textarea aria-label="ボットの説明" value={soul} onChange={(event) => { const value = event.target.value; setSoul(value); scheduleSoulSave(value); }} rows={4} className="mt-2 w-full resize-y rounded-xl border border-border bg-transparent px-3 py-2.5 text-base leading-6 text-text outline-none focus:border-accent" /><span className="mt-1 block text-right text-xs text-muted" role="status" aria-live="polite">{savingSoul ? "保存中…" : "変更は自動保存されます"}</span></label>
             <div className="flex items-center justify-between gap-4 rounded-2xl bg-surface-2 p-4 text-sm"><span><span className="font-medium">通知</span><span className="mt-1 block text-xs leading-5 text-muted">このBotが完了したとき、または入力が必要になったときに通知</span></span><button type="button" role="switch" aria-label="通知" aria-checked={notificationsEnabled} onClick={() => void updateNotifications(!notificationsEnabled)} className={notificationsEnabled ? "relative h-6 w-11 shrink-0 rounded-full bg-primary" : "relative h-6 w-11 shrink-0 rounded-full bg-surface-3"}><span className={notificationsEnabled ? "absolute left-6 top-1 h-4 w-4 rounded-full bg-primary-fg" : "absolute left-1 top-1 h-4 w-4 rounded-full bg-primary-fg"} /></button></div><p className="text-right text-xs text-muted" role="status" aria-live="polite">{savingProfile ? "保存中…" : "変更は自動保存されます"}</p>
             <div className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="モデル設定"><div><span className="text-sm font-medium">モデル</span><ModelSelect value={modelValue} options={models} loading={modelsLoading} disabled={updatingModel || updatingThinking} onChange={(value) => void updateModel(value)} className="mt-2 h-9 w-full" ariaLabel="ボットのモデル" /></div><div><span className="text-sm font-medium">思考レベル</span><ThinkingSelect levels={thinkingLevels} value={thinkingValue} disabled={updatingModel || updatingThinking} onChange={(value) => void updateThinking(value)} className="mt-2 h-9 w-full" /></div>{(updatingModel || updatingThinking) && <p className="text-xs text-muted">保存中…</p>}</div>
             <details><summary className="cursor-pointer text-sm font-semibold text-muted">詳細設定</summary>
-            <div className="rounded-2xl border border-border bg-bg p-4"><div className="flex items-center justify-between"><span className="text-sm font-medium">色</span><Button size="sm" variant="ghost" onClick={() => void updateAvatarColor(randomAvatarColor(bot.avatarColor))} busy={updatingColor}>ランダム</Button></div><div role="group" aria-label="ボットの色" className="mt-3 flex flex-wrap gap-2">{BOT_AVATAR_COLORS.map((color) => <button key={color} type="button" aria-label={color} aria-pressed={bot.avatarColor === color} disabled={updatingColor} onClick={() => void updateAvatarColor(color)} className={`h-8 w-8 rounded-full border-2 border-transparent transition-transform hover:scale-110 disabled:opacity-50 ${bot.avatarColor === color ? "border-text ring-2 ring-accent/30" : ""}`} style={{ backgroundColor: color }} />)}</div></div>
             <BotCodeSessionPanel botId={id} />
             <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="スキル設定"><div><span className="text-sm font-medium">スキルの読み込み</span><select value={bot.skills.mode} disabled={updatingSkills} onChange={(event) => void updateSkills({ ...bot.skills, mode: event.target.value as BotDto["skills"]["mode"] })} className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"><option value="inherit">継承（通常のスキル）</option><option value="include">指定したスキルだけ許可</option><option value="exclude">指定したスキルを除外</option></select></div><label className="block text-xs"><span className="font-medium">許可するスキル名（1行1件）</span><textarea value={bot.skills.include.join("\n")} disabled={updatingSkills} onChange={(event) => setBot({ ...bot, skills: { ...bot.skills, include: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) } })} onBlur={() => void updateSkills(bot.skills)} rows={3} className="mt-1 w-full resize-y rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /></label><label className="block text-xs"><span className="font-medium">除外するスキル名（1行1件）</span><textarea value={bot.skills.exclude.join("\n")} disabled={updatingSkills} onChange={(event) => setBot({ ...bot, skills: { ...bot.skills, exclude: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) } })} onBlur={() => void updateSkills(bot.skills)} rows={3} className="mt-1 w-full resize-y rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /></label><p className="text-[11px] text-muted">inherit は共通設定に従います。保存すると次回の応答から反映されます。</p></section>
             <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="追加ルート設定"><div><span className="text-sm font-medium">追加ルート</span><p className="mt-1 text-xs text-muted">Bot が参照できる絶対パス（Computer 分離は後続フェーズ）</p></div><div className="flex gap-2"><input value={extraRootInput} onChange={(event) => setExtraRootInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addExtraRoot(); } }} placeholder="C:\path\to\root" className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /><Button size="sm" onClick={() => void addExtraRoot()} disabled={!extraRootInput.trim()}>追加</Button></div>{bot.extraRoots.length === 0 ? <p className="text-xs text-muted">追加ルートはありません。</p> : <ul className="space-y-1">{bot.extraRoots.map((root) => <li key={root} className="flex items-center gap-2 rounded-lg bg-surface px-2 py-1.5 text-xs"><span className="min-w-0 flex-1 break-all">{root}</span><button type="button" onClick={() => void removeExtraRoot(root)} className="shrink-0 text-danger hover:underline">削除</button></li>)}</ul>}</section>

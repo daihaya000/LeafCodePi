@@ -45,6 +45,18 @@ describe("bot store", () => {
     expect(patchBot(bot.id, { avatarColor: "#123456" })?.avatarColor).toBe("#123456");
     expect(getBot(bot.id)?.avatarColor).toBe("#123456");
   });
+  it("keeps legacy or invalid shapes circular and persists a selected shape", () => {
+    const bot = createBot({ name: "Shape bot" });
+    const configPath = join(root, "bots", bot.id, "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    for (const avatarShape of [undefined, "bad-shape", "__proto__"]) {
+      fs.writeFileSync(configPath, JSON.stringify({ ...config, avatarShape }));
+      expect(getBot(bot.id)?.avatarShape).toBe("circle");
+    }
+    patchBot(bot.id, { avatarShape: "droplet" });
+    expect(getBot(bot.id)?.avatarShape).toBe("droplet");
+    expect(JSON.parse(readFileSync(configPath, "utf8")).avatarShape).toBe("droplet");
+  });
   it("migrates a legacy config to a deterministic avatar color", () => {
     const bot = createBot({ name: "Legacy bot" });
     const configPath = join(root, "bots", bot.id, "config.json");

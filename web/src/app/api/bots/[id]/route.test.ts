@@ -33,6 +33,22 @@ describe("PATCH /api/bots/[id]", () => {
     expect(valid.status).toBe(200);
     expect((await valid.json()).bot.avatarColor).toBe("#ABCDEF");
   });
+  it("validates shapes and persists a complete avatar selection atomically", async () => {
+    const bot = createBot({ name: "Shape bot" });
+    const params = Promise.resolve({ id: bot.id });
+    for (const avatarShape of ["unknown", "__proto__", "toString", null, 1, {}]) {
+      const invalid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ avatarShape, avatarColor: "#112233" }) }), { params });
+      expect(invalid.status).toBe(400);
+    }
+    const before = await GET(new NextRequest("http://localhost"), { params });
+    expect((await before.json()).bot.avatarColor).toBe(bot.avatarColor);
+    const avatar = { avatarShape: "cloud", avatarColor: "#ABCDEF", avatarImage: null };
+    const valid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify(avatar) }), { params });
+    expect(valid.status).toBe(200);
+    expect((await valid.json()).bot).toMatchObject(avatar);
+    const reloaded = await GET(new NextRequest("http://localhost"), { params });
+    expect((await reloaded.json()).bot).toMatchObject(avatar);
+  });
   it("persists name and label through PATCH and GET reload", async () => {
     const bot = createBot({ name: "Profile bot" });
     const updated = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ name: "Renamed bot", label: "調査アシスタント" }) }), { params: Promise.resolve({ id: bot.id }) });

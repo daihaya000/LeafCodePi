@@ -7,6 +7,7 @@ import { BotAvatar } from "@/components/bot/BotAvatar";
 import { withMentions } from "@/components/bot/BotMention";
 import { toolLabel } from "@/lib/tool-labels";
 import type { BotDto, UiMessage } from "@/lib/types";
+import type { BotAvatarShape } from "@/lib/bot-avatar";
 
 /** Elements that carry prose; each rewrites only its own bare text into mention chips. */
 const MENTION_TAGS = ["p", "li", "strong", "em", "td", "th", "h1", "h2", "h3", "h4", "blockquote"] as const;
@@ -58,13 +59,13 @@ export function BotResponseStatus({
   avatar,
 }: {
   messages: UiMessage[];
-  avatar: { name: string; color?: string; image?: string | null };
+  avatar: { name: string; color?: string; shape?: BotAvatarShape; image?: string | null };
 }) {
   const running = activeTool(messages);
   const action = running ? toolLabel(running.tool, running.state.input) : "考え中";
   return (
     <div role="status" aria-live="polite" className="flex min-w-0 max-w-bubble items-center gap-2 text-xs text-muted">
-      <span aria-hidden="true" className="shrink-0"><BotAvatar size={24} color={avatar.color} image={avatar.image} name={avatar.name} active /></span>
+      <span aria-hidden="true" className="shrink-0"><BotAvatar size={24} color={avatar.color} shape={avatar.shape} image={avatar.image} name={avatar.name} active /></span>
       <span className="shrink-0 font-medium">応答中…</span>
       <span aria-hidden="true" className="text-faint">·</span>
       <span className="min-w-0 truncate text-faint">{action}</span>
@@ -73,10 +74,10 @@ export function BotResponseStatus({
 }
 
 /** Sender line above the bubble, mirroring Code mode's meta header. */
-export function BotMessageSender({ name, color, image, active = false }: { name: string; color?: string; image?: string | null; active?: boolean }) {
+export function BotMessageSender({ name, color, shape, image, active = false }: { name: string; color?: string; shape?: BotAvatarShape; image?: string | null; active?: boolean }) {
   return (
     <div className="flex min-w-0 items-center gap-1.5 px-1 text-[11px] font-medium text-muted">
-      <span aria-hidden="true" className="shrink-0"><BotAvatar size={16} color={color} image={image} name={name} active={active} /></span>
+      <span aria-hidden="true" className="shrink-0"><BotAvatar size={16} color={color} shape={shape} image={image} name={name} active={active} /></span>
       <span className="min-w-0 truncate">{name}</span>
     </div>
   );

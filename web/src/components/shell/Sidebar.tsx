@@ -348,7 +348,7 @@ function BotSidebarBody({
                       active && "bg-surface-2 ring-1 ring-inset ring-accent/20",
                     )}
                   >
-                    <BotAvatar size={40} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />
+                    <BotAvatar size={40} color={bot.avatarColor} shape={bot.avatarShape} image={bot.avatarImage} name={bot.name} />
                     {!active && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)) && (
                       <span
                         aria-label="未読"
@@ -445,7 +445,7 @@ function BotSidebarBody({
         <div className="flex items-center justify-between px-2 py-1"><span className="text-xs font-medium text-muted">ルーム</span><Link href="/bots" onClick={onClose} className="text-xs text-accent">すべて</Link></div>
         <div className="mt-1 space-y-1">{visibleRooms.map((room) => <button key={room.id} type="button" draggable={mdUp} onDragStart={(event) => setTaskDragData(event.dataTransfer, `/bots/rooms/${encodeURIComponent(room.id)}`)} onClick={() => { router.push(`/bots/rooms/${encodeURIComponent(room.id)}`); onClose(); }} aria-current={pathname === `/bots/rooms/${room.id}` ? "page" : undefined} className={`relative flex w-full min-w-0 items-center gap-3 rounded-2xl px-2.5 py-3 text-left hover:bg-surface-2 ${pathname === `/bots/rooms/${room.id}` ? "bg-surface-2 ring-1 ring-inset ring-accent/20" : ""}`}><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-success-bg text-xs text-success">#</span><span className="min-w-0 flex-1"><span className="block truncate text-base font-medium">{room.name}</span><span className="mt-0.5 block truncate text-sm text-muted">{room.lastMessageSummary ?? "\u30e1\u30c3\u30bb\u30fc\u30b8\u306a\u3057"}</span></span>{pathname !== `/bots/rooms/${room.id}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id)) && <span aria-label={"\u672a\u8aad"} title={"\u672a\u8aad"} className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}<span className="shrink-0 self-start pt-0.5 text-xs text-muted">{timeAgo(room.lastMessageAt ?? room.updatedAt)}</span></button>)}{visibleRooms.length === 0 && <p className="px-2 py-2 text-xs text-muted">ルームはありません</p>}</div>
         <div className="mt-2 flex items-center justify-between bg-bg px-2 py-1"><span className="text-xs font-medium text-muted">Bot</span><Link href="/bots" onClick={onClose} className="text-xs text-accent">すべて</Link></div>
-        <div className="mt-1 space-y-1">{visibleBots.map((bot) => <button key={bot.id} type="button" draggable={mdUp} onDragStart={(event) => setTaskDragData(event.dataTransfer, `/bots/${encodeURIComponent(bot.id)}`)} onClick={() => { router.push(`/bots/${encodeURIComponent(bot.id)}`); onClose(); }} aria-current={pathname === `/bots/${bot.id}` ? "page" : undefined} className={`relative flex w-full min-w-0 items-center gap-3 rounded-2xl px-2.5 py-3 text-left hover:bg-surface-2 ${pathname === `/bots/${bot.id}` ? "bg-surface-2 ring-1 ring-inset ring-accent/20" : ""}`}><BotAvatar size={42} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} /><span aria-label={bot.enabled ? "\u6709\u52b9" : "\u7121\u52b9"} title={bot.enabled ? "\u6709\u52b9" : "\u7121\u52b9"} className="sr-only" /><span className="min-w-0 flex-1"><span className="block truncate text-base font-medium">{bot.name}</span><span className="mt-0.5 block truncate text-sm text-muted">{bot.lastMessageSummary ?? "\u30e1\u30c3\u30bb\u30fc\u30b8\u306a\u3057"}</span></span>{pathname !== `/bots/${bot.id}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)) && <span aria-label={"\u672a\u8aad"} title={"\u672a\u8aad"} className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}<span className="shrink-0 self-start pt-0.5 text-xs text-muted">{bot.lastMessageAt ? timeAgo(bot.lastMessageAt) : ""}</span></button>)}{visibleBots.length === 0 && <p className="px-2 py-2 text-xs text-muted">Botはありません</p>}</div>
+        <div className="mt-1 space-y-1">{visibleBots.map((bot) => <button key={bot.id} type="button" draggable={mdUp} onDragStart={(event) => setTaskDragData(event.dataTransfer, `/bots/${encodeURIComponent(bot.id)}`)} onClick={() => { router.push(`/bots/${encodeURIComponent(bot.id)}`); onClose(); }} aria-current={pathname === `/bots/${bot.id}` ? "page" : undefined} className={`relative flex w-full min-w-0 items-center gap-3 rounded-2xl px-2.5 py-3 text-left hover:bg-surface-2 ${pathname === `/bots/${bot.id}` ? "bg-surface-2 ring-1 ring-inset ring-accent/20" : ""}`}><BotAvatar size={42} color={bot.avatarColor} shape={bot.avatarShape} image={bot.avatarImage} name={bot.name} /><span aria-label={bot.enabled ? "\u6709\u52b9" : "\u7121\u52b9"} title={bot.enabled ? "\u6709\u52b9" : "\u7121\u52b9"} className="sr-only" /><span className="min-w-0 flex-1"><span className="block truncate text-base font-medium">{bot.name}</span><span className="mt-0.5 block truncate text-sm text-muted">{bot.lastMessageSummary ?? "\u30e1\u30c3\u30bb\u30fc\u30b8\u306a\u3057"}</span></span>{pathname !== `/bots/${bot.id}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)) && <span aria-label={"\u672a\u8aad"} title={"\u672a\u8aad"} className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}<span className="shrink-0 self-start pt-0.5 text-xs text-muted">{bot.lastMessageAt ? timeAgo(bot.lastMessageAt) : ""}</span></button>)}{visibleBots.length === 0 && <p className="px-2 py-2 text-xs text-muted">Botはありません</p>}</div>
       </div>
       <SidebarFooter health={health} onSettings={onSettings} />
     </div>
@@ -610,11 +610,11 @@ export function TaskActivityIcon({
   bot,
 }: {
   task: Pick<TaskSummary, "status" | "botId">;
-  bot?: Pick<BotDto, "name" | "avatarColor" | "avatarImage">;
+  bot?: Pick<BotDto, "name" | "avatarColor" | "avatarShape" | "avatarImage">;
 }) {
   if (task.status === "working") {
     return bot ? (
-      <BotAvatar size={16} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} active />
+      <BotAvatar size={16} color={bot.avatarColor} shape={bot.avatarShape} image={bot.avatarImage} name={bot.name} active />
     ) : (
       <Loader2 className="h-3 w-3 shrink-0 animate-spin text-working" />
     );
@@ -894,7 +894,7 @@ const SidebarView = memo(function SidebarView({
       setBots((current) => {
         const unchanged = current.length === nextBots.length && current.every((bot, index) => {
           const next = nextBots[index];
-          return next && bot.id === next.id && bot.name === next.name && bot.avatarColor === next.avatarColor && bot.avatarImage === next.avatarImage;
+          return next && bot.id === next.id && bot.name === next.name && bot.avatarColor === next.avatarColor && bot.avatarShape === next.avatarShape && bot.avatarImage === next.avatarImage;
         });
         return unchanged ? current : nextBots;
       });

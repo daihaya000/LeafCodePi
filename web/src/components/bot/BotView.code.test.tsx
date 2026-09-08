@@ -9,6 +9,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("next/link", () => ({ default: ({ children }: { children: ReactNode }) => <span>{children}</span> }));
 vi.mock("next/image", () => ({ default: () => null }));
 import { BotView } from "./BotView";
+import { BOT_AVATAR_SHAPES } from "@/lib/bot-avatar";
 import { ShellProvider } from "@/components/shell/ShellContext";
 let listener: (event: { data: string }) => void;
 function snapshot(payload: object) { act(() => listener({ data: JSON.stringify(payload) })); }
@@ -97,6 +98,24 @@ it("auto-saves bot profile and description and keeps model selection outside det
 
   fireEvent.change(screen.getByRole("textbox", { name: "ボットの説明" }), { target: { value: "新しい説明" } });
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { soul: "新しい説明" }, "PATCH"));
+});
+
+it("saves an icon selection through PATCH and updates the header and existing messages", async () => {
+  mocks.sendJson.mockImplementation(async (_url: string, patch: object) => ({ bot: { ...testBot, ...patch } }));
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+  snapshot({ messages: [{ id: "reply", role: "assistant", createdAt: 123, parts: [{ type: "text", text: "hello" }] }] });
+  fireEvent.click(screen.getByRole("button", { name: "ボットのアイコンを変更" }));
+  fireEvent.click(screen.getByRole("button", { name: "くも" }));
+  await screen.findByText("保存しました");
+  expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { avatarShape: "cloud", avatarImage: null }, "PATCH");
+  fireEvent.keyDown(screen.getByRole("dialog", { name: "ボットのアイコン" }), { key: "Escape" });
+  expect(screen.getByRole("dialog", { name: "設定" })).toBeTruthy();
+  fireEvent.click(within(screen.getByRole("dialog", { name: "設定" })).getByRole("button", { name: "設定を閉じる" }));
+  // Sender avatars are intentionally aria-hidden beside the visible sender name.
+  const avatars = document.querySelectorAll('svg[aria-label="Botのアバター"]');
+  expect(avatars).toHaveLength(2);
+  for (const avatar of avatars) expect(avatar.querySelector("path")?.getAttribute("d")).toBe(BOT_AVATAR_SHAPES.find((shape) => shape.id === "cloud")!.path);
 });
 
 it("keeps the Bot settings panel visibility after remounting", async () => {

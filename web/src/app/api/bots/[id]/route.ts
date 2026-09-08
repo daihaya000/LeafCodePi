@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { deleteBot, getBot, normalizeBotSkills, patchBot, botTaskId } from "@/lib/bots";
 import { destroyTask, resetTaskSession, setTaskModel, setTaskThinkingLevel } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
-import { isAvatarColor, isAvatarImage } from "@/lib/bot-avatar";
+import { isAvatarColor, isAvatarImage, isAvatarShape } from "@/lib/bot-avatar";
 import { isAbsolutePath } from "@/lib/paths";
 import { listTasks } from "@/lib/store";
 import type { BotSkillsConfig } from "@/lib/types";
@@ -40,6 +40,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     (body.label !== undefined && (typeof body.label !== "string" || !body.label.trim())) ||
     (body.soul !== undefined && typeof body.soul !== "string") ||
     (body.avatarColor !== undefined && !isAvatarColor(body.avatarColor)) ||
+    (body.avatarShape !== undefined && !isAvatarShape(body.avatarShape)) ||
     (body.avatarImage !== undefined && body.avatarImage !== null && !isAvatarImage(body.avatarImage)) ||
     (hasNotificationsEnabled && typeof body.notificationsEnabled !== "boolean") ||
     (hasEnabled && typeof body.enabled !== "boolean") ||
@@ -57,6 +58,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (body.name !== undefined) patch.name = (body.name as string).trim();
     if (body.label !== undefined) patch.label = (body.label as string).trim();
     if (body.avatarColor !== undefined) patch.avatarColor = body.avatarColor as string;
+    if (isAvatarShape(body.avatarShape)) patch.avatarShape = body.avatarShape;
     if (body.avatarImage !== undefined) patch.avatarImage = body.avatarImage as string | null;
     if (hasNotificationsEnabled) patch.notificationsEnabled = body.notificationsEnabled as boolean;
     if (hasEnabled) patch.enabled = body.enabled as boolean;

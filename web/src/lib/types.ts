@@ -72,6 +72,8 @@ export type BotDto = {
   name: string;
   label: string;
   avatarColor: string;
+  /** Legacy bots without a shape use circle. */
+  avatarShape?: import("./bot-avatar").BotAvatarShape;
   /** アップロードされたアバター画像（data URL）。未設定ならnullでavatarColorのSVGにフォールバック。 */
   avatarImage: string | null;
   createdAt: string;
