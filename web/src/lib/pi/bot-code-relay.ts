@@ -90,7 +90,7 @@ function roomContext(originTaskId: string): CodeRequest["room"] {
   if (task && task.id === `bot:${task.botId}`) return undefined;
   const room = roomForCodeOrigin(task);
   const response = room?.messages.findLast((message) => message.botId === task?.botId && message.status === "working");
-  const latestUser = room?.messages.findLast((message) => message.role === "user" && !message.sourceBotId);
+  const latestUser = room?.messages.findLast((message) => message.role === "user");
   if (!room || !response?.conversation || response.conversation.requestId !== latestUser?.id || !response.conversation.participantIds.includes(task!.botId!)) throw new Error("Room request is no longer active");
   return { id: room.id, responseId: response.id, conversation: response.conversation };
 }
@@ -116,7 +116,7 @@ function linkedCodeTaskId(originTaskId: string, bot: ReturnType<typeof owner>): 
   if (!room) return bot.codeSessionTaskId ?? undefined;
   // Rooms link per conversation: a new user request starts a fresh Code session instead of
   // continuing one that carries an unrelated request's context.
-  const requestId = room.messages.findLast((message) => message.role === "user" && !message.sourceBotId)?.id;
+  const requestId = room.messages.findLast((message) => message.role === "user")?.id;
   return room.messages.findLast((message) => message.botId === bot.id && message.codeTaskId && message.conversation?.requestId === requestId)?.codeTaskId ?? undefined;
 }
 

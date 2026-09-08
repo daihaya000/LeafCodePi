@@ -10,34 +10,12 @@ import type { PromptImageInput } from "./prompt-images";
 
 type RoomFile = RoomDto;
 const roomEvents = new EventEmitter();
-export const MAX_ROOM_RELAY_DEPTH = 3;
-type RoomRelayEnvelope = { roomId: string; sourceBotId: string; targetBotIds: string[]; turnId: string; depth: number; parentId?: string; consumed: boolean; expiresAt: number };
-type RoomRelayState = { envelopes: Record<string, RoomRelayEnvelope>; claims: Record<string, string[]> };
-const RELAY_ENVELOPE_TTL_MS = 10 * 60 * 1000;
 
-/** Per-room data directory: relay state today, archived history alongside it. */
+/** Per-room data directory: archived history and attachments live here. */
 function roomDataRoot(roomId: string): string { return join(roomsRoot(), roomId); }
 function roomLockPath(roomId: string): string { assertId(roomId); return join(roomsRoot(), `${roomId}.lock`); }
-function relayStatePath(roomId: string): string { assertId(roomId); return join(roomDataRoot(roomId), "relay.json"); }
-function readRelayState(roomId: string): RoomRelayState {
-  try {
-    const value = JSON.parse(readFileSync(relayStatePath(roomId), "utf8")) as Partial<RoomRelayState>;
-    const envelopes = value.envelopes && typeof value.envelopes === "object" ? value.envelopes : {};
-    const claims = value.claims && typeof value.claims === "object" ? value.claims : {};
-    return { envelopes: envelopes as Record<string, RoomRelayEnvelope>, claims: claims as Record<string, string[]> };
-  } catch { return { envelopes: {}, claims: {} }; }
-}
-function writeRelayState(roomId: string, state: RoomRelayState): void {
-  mkdirSync(roomDataRoot(roomId), { recursive: true });
-  const path = relayStatePath(roomId);
-  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, "utf8");
-  // Rename is atomic on the room's local filesystem, so a restart never sees
-  // a half-written claim/envelope file.
-  renameSync(temporary, path);
-}
 
-/** Serialize room and relay read/check/write operations across workers. */
+/** Serialize room read/check/write operations across workers. */
 function withRoomLock<T>(roomId: string, action: () => T): T {
   // Keep the public missing-room behavior for malformed route parameters.
   if (!isValidId(roomId)) return action();
@@ -57,63 +35,6 @@ function withRoomLock<T>(roomId: string, action: () => T): T {
     }
   }
   try { return action(); } finally { rmSync(lock, { recursive: true, force: true }); }
-}
-
-function relayBotIsActive(room: RoomDto, botId: string): boolean {
-  return room.members.includes(botId) && getBot(botId)?.enabled === true;
-}
-
-function relayParticipants(roomId: string, turnId: string): Set<string> {
-  const room = getRoom(roomId);
-  const state = readRelayState(roomId);
-  const ids = new Set(state.claims[turnId] ?? []);
-  for (const message of room?.messages ?? []) {
-    if (message.relayTurnId !== turnId) continue;
-    if (message.sourceBotId) ids.add(message.sourceBotId);
-    if (message.botId) ids.add(message.botId);
-  }
-  return ids;
-}
-
-/** Server-only capability. The route accepts only the returned opaque envelope, never its fields. */
-export function issueRoomRelayEnvelope(roomId: string, sourceBotId: string, targetBotIds: string[], parentId?: string): string | undefined {
-  return withRoomLock(roomId, () => {
-    const room = getRoom(roomId);
-    if (!room?.botRelayEnabled || !relayBotIsActive(room, sourceBotId)) return undefined;
-    const targets = [...new Set(targetBotIds)];
-    if (targets.length === 0 || targets.some((id) => id === sourceBotId || !relayBotIsActive(room, id))) return undefined;
-    const state = readRelayState(roomId);
-    const parent = parentId ? state.envelopes[parentId] : undefined;
-    if (parentId && (!parent || !parent.consumed || parent.roomId !== roomId || parent.expiresAt <= Date.now() || !parent.targetBotIds.includes(sourceBotId))) return undefined;
-    const depth = parent ? parent.depth + 1 : 0;
-    if (depth > MAX_ROOM_RELAY_DEPTH) return undefined;
-    const turnId = parent?.turnId ?? randomUUID();
-    const participants = relayParticipants(roomId, turnId);
-    if (targets.some((id) => participants.has(id))) return undefined;
-    const token = randomUUID();
-    state.envelopes[token] = { roomId, sourceBotId, targetBotIds: targets, turnId, depth, parentId, consumed: false, expiresAt: Date.now() + RELAY_ENVELOPE_TTL_MS };
-    writeRelayState(roomId, state);
-    return token;
-  });
-}
-
-export function consumeRoomRelayEnvelope(roomId: string, token: string): Omit<RoomRelayEnvelope, "parentId" | "consumed" | "expiresAt"> | undefined {
-  return withRoomLock(roomId, () => {
-    const state = readRelayState(roomId);
-    const envelope = state.envelopes[token];
-    const room = getRoom(roomId);
-    if (!room?.botRelayEnabled || !envelope || envelope.roomId !== roomId || envelope.consumed || envelope.expiresAt <= Date.now()) return undefined;
-    if (!relayBotIsActive(room, envelope.sourceBotId) || !Array.isArray(envelope.targetBotIds) || envelope.targetBotIds.length === 0 || envelope.targetBotIds.some((id) => id === envelope.sourceBotId || !relayBotIsActive(room, id))) return undefined;
-    const participants = relayParticipants(roomId, envelope.turnId);
-    if (envelope.targetBotIds.some((id) => participants.has(id))) return undefined;
-    envelope.consumed = true;
-    const claims = new Set(state.claims[envelope.turnId] ?? []);
-    claims.add(envelope.sourceBotId);
-    for (const id of envelope.targetBotIds) claims.add(id);
-    state.claims[envelope.turnId] = [...claims];
-    writeRelayState(roomId, state);
-    return { roomId: envelope.roomId, sourceBotId: envelope.sourceBotId, targetBotIds: envelope.targetBotIds, turnId: envelope.turnId, depth: envelope.depth };
-  });
 }
 
 roomEvents.setMaxListeners(0);
@@ -139,7 +60,6 @@ function normalizeRoom(value: Partial<RoomFile>, id: string): RoomDto | null {
     id,
     name: value.name,
     members: [...new Set(value.members.filter((item): item is string => typeof item === "string"))],
-    botRelayEnabled: value.botRelayEnabled === true,
     ...(value.codeAutoApprove === true ? { codeAutoApprove: true } : {}),
     ...(lastOutcome ? { lastOutcome } : {}),
     createdAt: String(value.createdAt),
@@ -177,17 +97,16 @@ export function listRooms(): RoomDto[] {
 export function getRoom(id: string): RoomDto | undefined { return readRoom(id); }
 export function createRoom(input: { name?: string; members?: string[] }): RoomDto {
   const now = new Date().toISOString();
-  const room: RoomDto = { id: randomUUID(), name: input.name?.trim() || "New room", members: validMembers(input.members ?? []), botRelayEnabled: false, createdAt: now, updatedAt: now, messages: [] };
+  const room: RoomDto = { id: randomUUID(), name: input.name?.trim() || "New room", members: validMembers(input.members ?? []), createdAt: now, updatedAt: now, messages: [] };
   writeRoom(room);
   return room;
 }
-export function patchRoom(id: string, patch: { name?: string; members?: string[]; botRelayEnabled?: boolean; codeAutoApprove?: boolean }): RoomDto | undefined {
+export function patchRoom(id: string, patch: { name?: string; members?: string[]; codeAutoApprove?: boolean }): RoomDto | undefined {
   return withRoomLock(id, () => {
     const room = readRoom(id);
     if (!room) return undefined;
     if (patch.name !== undefined) room.name = patch.name.trim() || room.name;
     if (patch.members !== undefined) room.members = validMembers(patch.members);
-    if (patch.botRelayEnabled !== undefined) room.botRelayEnabled = patch.botRelayEnabled;
     if (patch.codeAutoApprove !== undefined) room.codeAutoApprove = patch.codeAutoApprove;
     room.updatedAt = new Date().toISOString();
     writeRoom(room);
@@ -275,6 +194,17 @@ function roomImagePath(roomId: string, file: string): string {
   if (!/^[0-9a-f-]{36}-\d{1,2}\.(png|jpg|webp|gif)$/i.test(file)) throw new Error("invalid room image");
   return join(roomDataRoot(roomId), "images", file);
 }
+/** Reject at the boundary: a dropped attachment must not look like a delivered one. */
+export function roomImageRejection(images: PromptImageInput[]): string | undefined {
+  if (images.length > MAX_ROOM_IMAGES) return `画像は${MAX_ROOM_IMAGES}件までです`;
+  for (const image of images) {
+    if (!ROOM_IMAGE_EXTENSIONS[image.mimeType.toLowerCase()]) return `対応していない画像形式です: ${image.mimeType}`;
+    const bytes = Buffer.byteLength(image.data, "base64");
+    if (bytes === 0) return "画像データが空です";
+    if (bytes > MAX_ROOM_IMAGE_BYTES) return `画像は1件${MAX_ROOM_IMAGE_BYTES / 1024 / 1024}MBまでです`;
+  }
+  return undefined;
+}
 export function saveRoomImages(roomId: string, messageId: string, images: PromptImageInput[]): RoomImage[] {
   assertId(roomId);
   assertId(messageId);
@@ -313,7 +243,7 @@ export function revertRoomTo(id: string, messageId: string): { text: string; req
     const room = readRoom(id);
     const index = room?.messages.findIndex((item) => item.id === messageId) ?? -1;
     const target = index >= 0 ? room!.messages[index] : undefined;
-    if (!room || !target || target.role !== "user" || target.sourceBotId) return undefined;
+    if (!room || !target || target.role !== "user") return undefined;
     room.messages = room.messages.slice(0, index);
     if (room.lastOutcome?.requestId === messageId) delete room.lastOutcome;
     room.updatedAt = new Date().toISOString();

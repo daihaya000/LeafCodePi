@@ -45,15 +45,14 @@ describe("room revert", () => {
     expect(state.stop).toHaveBeenCalledWith(room.id);
   });
 
-  it("refuses an unknown room, a missing id, a bot reply, and a relayed message", async () => {
+  it("refuses an unknown room, a missing id, and a bot reply", async () => {
     const room = createRoom({ name: "Team" });
     const reply = appendRoomMessage(room.id, { role: "assistant", botId: "a", text: "返答", status: "done" })!;
-    const relayed = appendRoomMessage(room.id, { role: "user", text: "Bot経由", sourceBotId: "a" })!;
     expect((await send("missing", { messageId: "x" })).status).toBe(404);
     expect((await send(room.id, {})).status).toBe(400);
     expect((await send(room.id, { messageId: reply.id })).status).toBe(404);
-    expect((await send(room.id, { messageId: relayed.id })).status).toBe(404);
-    expect(getRoom(room.id)!.messages).toHaveLength(2);
+    expect((await send(room.id, { messageId: "unknown" })).status).toBe(404);
+    expect(getRoom(room.id)!.messages).toHaveLength(1);
     expect(state.cancel).not.toHaveBeenCalled();
   });
 });

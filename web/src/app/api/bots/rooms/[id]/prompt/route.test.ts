@@ -35,7 +35,7 @@ vi.mock("@/lib/pi/harness", () => ({
 
 import { botTaskId, createBot, patchBot } from "@/lib/bots";
 import * as rooms from "@/lib/rooms";
-import { createRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom } from "@/lib/rooms";
+import { createRoom, ensureRoomBotTask, getRoom, patchRoom } from "@/lib/rooms";
 import { getTaskDetail } from "@/lib/pi/harness";
 import { getTask } from "@/lib/store";
 import { GET as events } from "../events/route";
@@ -109,7 +109,6 @@ describe("room mention responses", () => {
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "done")).toHaveLength(2));
     await new Promise((resolve) => setImmediate(resolve));
     expect(state.promptTask).toHaveBeenCalledTimes(2);
-    expect(getRoom(room.id)?.botRelayEnabled).toBe(false);
   });
 
   it("keeps a large room legible by limiting one exchange to six voices", async () => {
@@ -409,19 +408,6 @@ describe("room mention responses", () => {
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.at(-1)).toMatchObject({ status: "done", text: "Recovered" }));
   });
 
-  it("rejects unauthenticated relay enablement and accepts the configured Web UI token", async () => {
-    const { room } = setup(["A", "B"]);
-    vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required");
-    vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN", "room-admin-token");
-    const params = { params: Promise.resolve({ id: room.id }) };
-    const unauthenticated = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ botRelayEnabled: true }) }), params);
-    expect(unauthenticated.status).toBe(403);
-    expect(getRoom(room.id)?.botRelayEnabled).toBe(false);
-    const authorized = await PATCH(new NextRequest("http://localhost", { method: "PATCH", headers: { authorization: "Bearer room-admin-token" }, body: JSON.stringify({ botRelayEnabled: true }) }), params);
-    expect(authorized.status).toBe(200);
-    expect(getRoom(room.id)?.botRelayEnabled).toBe(true);
-  });
-
   it("gates standing Code approval behind the same Web UI token", async () => {
     const { room } = setup(["A", "B"]);
     vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required");
@@ -437,43 +423,21 @@ describe("room mention responses", () => {
     expect(getRoom(room.id)?.codeAutoApprove).toBe(true);
   });
 
-  it("allows one directed relay only when the room is explicitly enabled", async () => {
-    const { room, bots: [source, target], taskIds: [, targetTask] } = setup(["A", "B"]);
-    patchRoom(room.id, { botRelayEnabled: true });
-    const blocked = issueRoomRelayEnvelope(room.id, source.id, [target.id]);
-    expect(blocked).toBeDefined();
-    // The capability is server-issued, but it is still rejected while the room is disabled.
-    patchRoom(room.id, { botRelayEnabled: false });
-    expect((await send(room.id, "Ask B", { fromBot: true, relayEnvelope: blocked })).status).toBe(403);
-    patchRoom(room.id, { botRelayEnabled: true });
-    const envelope = issueRoomRelayEnvelope(room.id, source.id, [target.id]);
-    expect(envelope).toBeDefined();
-    const result = await send(room.id, "Ask B", { relayEnvelope: envelope });
+  it("treats a bot-flagged payload as an ordinary user prompt now that the relay is gone", async () => {
+    const { room, bots: [, target], taskIds: [, targetTask] } = setup(["A", "B"]);
+    // The old envelope fields are just unknown body keys: no privileged path remains.
+    const result = await send(room.id, `@${target.name} Ask B`, { fromBot: true, relayEnvelope: "forged" });
     expect(result.status).toBe(200);
     expect((await result.json()).routedBotIds).toEqual([target.id]);
-    expect(getRoom(room.id)?.messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ role: "user", sourceBotId: source.id, relayDepth: 0 }),
-      expect.objectContaining({ role: "assistant", botId: target.id, relayParentMessageId: expect.any(String) }),
-    ]));
+    const request = getRoom(room.id)?.messages.find((message) => message.role === "user");
+    expect(request).not.toHaveProperty("sourceBotId");
     finish(targetTask, { messages: [assistant("relay", "Relay reply")] });
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.at(-1)).toMatchObject({ status: "done", text: "Relay reply" }));
   });
 
-  it("blocks relay re-entry, replay, and excessive depth on the server", async () => {
-    const { room, bots: [source, target], taskIds: [, targetTask] } = setup(["A", "B"]);
-    patchRoom(room.id, { botRelayEnabled: true });
-    const envelope = issueRoomRelayEnvelope(room.id, source.id, [target.id]);
-    expect(envelope).toBeDefined();
-    expect((await send(room.id, "Ask B", { relayEnvelope: envelope })).status).toBe(200);
-    expect((await send(room.id, "Replay", { relayEnvelope: envelope })).status).toBe(403);
-    // The server only permits the current target to issue the next hop, and rejects re-entry to source.
-    expect(issueRoomRelayEnvelope(room.id, target.id, [source.id], envelope)).toBeUndefined();
-    finish(targetTask, { messages: [assistant("relay-loop", "done")] });
-  });
   it("keeps validation and enabled-member routing in place", async () => {
     const { room, bots: [bot] } = setup();
     expect((await send(room.id, " ")).status).toBe(400);
-    expect((await send(room.id, "@here Test", { fromBot: true })).status).toBe(403);
     expect((await send("missing", "@here Test")).status).toBe(404);
     patchBot(bot.id, { enabled: false });
     expect((await (await send(room.id, "@here Test")).json()).routedBotIds).toEqual([]);

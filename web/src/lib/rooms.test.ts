@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const testState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => testState.root, storePath: () => join(testState.root, "store.json") }; });
-import { botTaskId, createBot, deleteBot, patchBot } from "./bots";
-import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, readRoomImage, roomRequestImages, saveRoomImages, updateRoomMessage } from "./rooms";
+import { botTaskId, createBot, deleteBot } from "./bots";
+import { appendRoomMessage, botsForRoomPrompt, createRoom, deleteRoom, ensureRoomBotTask, getRoom, patchRoom, readRoomImage, roomImageRejection, roomRequestImages, saveRoomImages, updateRoomMessage } from "./rooms";
 import { getTask } from "./store";
 
 describe("room store and mention routing", () => {
@@ -49,6 +49,10 @@ describe("room store and mention routing", () => {
       { mimeType: "application/pdf", data: png.toString("base64") },
     ]);
     expect(saved).toEqual([{ file: `${message.id}-0.png`, mimeType: "image/png" }]);
+    // A dropped attachment must be reported, never silently missing from the request.
+    expect(roomImageRejection([{ mimeType: "application/pdf", data: png.toString("base64") }])).toContain("application/pdf");
+    expect(roomImageRejection([{ mimeType: "image/png", data: "" }])).toBeDefined();
+    expect(roomImageRejection([{ mimeType: "image/png", data: png.toString("base64") }])).toBeUndefined();
     updateRoomMessage(room.id, message.id, { images: saved });
 
     expect(readRoomImage(room.id, saved[0].file)?.bytes.equals(png)).toBe(true);
@@ -94,51 +98,5 @@ describe("room store and mention routing", () => {
     expect(deleteBot(alpha.id)).toBe(true);
     expect(getTask(taskId)).toBeUndefined();
     expect(getTask(botTaskId(alpha.id))).toBeUndefined();
-  });
-  it("persists relay claims so replay remains blocked after a module reload", async () => {
-    const [source, target] = ["Source", "Target"].map((name) => createBot({ name }));
-    const room = createRoom({ members: [source.id, target.id] });
-    patchRoom(room.id, { botRelayEnabled: true });
-    const token = issueRoomRelayEnvelope(room.id, source.id, [target.id]);
-    const envelope = consumeRoomRelayEnvelope(room.id, token!);
-    expect(envelope).toBeDefined();
-    const relayState = JSON.parse(readFileSync(join(root, "bots", "rooms", room.id, "relay.json"), "utf8")) as { claims: Record<string, string[]> };
-    expect(relayState.claims[envelope!.turnId]).toEqual(expect.arrayContaining([source.id, target.id]));
-    // A fresh module/worker reads the durable claim, rather than an in-process Map.
-    vi.resetModules();
-    const restartedRooms = await import("./rooms");
-    expect(restartedRooms.consumeRoomRelayEnvelope(room.id, token!)).toBeUndefined();
-    expect(restartedRooms.issueRoomRelayEnvelope(room.id, target.id, [source.id], token!)).toBeUndefined();
-  });
-  it("revalidates relay participants when a persisted envelope is consumed", () => {
-    const [source, target] = ["Source", "Target"].map((name) => createBot({ name }));
-    const room = createRoom({ members: [source.id, target.id] });
-    patchRoom(room.id, { botRelayEnabled: true });
-    const token = issueRoomRelayEnvelope(room.id, source.id, [target.id]);
-    expect(token).toBeDefined();
-    patchBot(target.id, { enabled: false });
-    expect(consumeRoomRelayEnvelope(room.id, token!)).toBeUndefined();
-    patchBot(target.id, { enabled: true });
-    patchRoom(room.id, { members: [source.id] });
-    expect(consumeRoomRelayEnvelope(room.id, token!)).toBeUndefined();
-  });
-
-  it("enforces server-side relay depth and turn participants", () => {
-    const bots = ["A", "B", "C", "D", "E", "F"].map((name) => createBot({ name }));
-    const room = createRoom({ members: bots.map((bot) => bot.id) });
-    patchRoom(room.id, { botRelayEnabled: true });
-    let envelope = issueRoomRelayEnvelope(room.id, bots[0].id, [bots[1].id]);
-    expect(envelope).toBeDefined();
-    expect(consumeRoomRelayEnvelope(room.id, envelope!)).toBeDefined();
-    envelope = issueRoomRelayEnvelope(room.id, bots[1].id, [bots[2].id], envelope!);
-    expect(envelope).toBeDefined();
-    expect(consumeRoomRelayEnvelope(room.id, envelope!)).toBeDefined();
-    envelope = issueRoomRelayEnvelope(room.id, bots[2].id, [bots[3].id], envelope!);
-    expect(envelope).toBeDefined();
-    expect(consumeRoomRelayEnvelope(room.id, envelope!)).toBeDefined();
-    envelope = issueRoomRelayEnvelope(room.id, bots[3].id, [bots[4].id], envelope!);
-    expect(envelope).toBeDefined();
-    expect(consumeRoomRelayEnvelope(room.id, envelope!)).toBeDefined();
-    expect(issueRoomRelayEnvelope(room.id, bots[4].id, [bots[5].id], envelope!)).toBeUndefined();
   });
 });

@@ -291,7 +291,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     if (!text) return null;
     return (
       <BotMessageRow key={message.id} user={user} createdAt={message.createdAt}
-        footer={user && !message.sourceBotId ? <button type="button" title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"><RotateCcw className="h-3 w-3" />入力欄に戻す</button> : undefined}>
+        footer={user ? <button type="button" title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"><RotateCcw className="h-3 w-3" />入力欄に戻す</button> : undefined}>
         {!user && <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted"><BotAvatar size={18} color={bot?.avatarColor} image={bot?.avatarImage} name={bot?.name ?? message.botName} active={message.status === "working"} />{bot?.name ?? message.botName ?? "ボット"}</div>}
         {user ? (
           <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{renderMentions(text, bots, message.id, "user")}</div>
@@ -308,7 +308,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   if (!room) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
   const working = isRoomBusy(room);
-  const latestRequestId = room.messages.findLast((message) => message.role === "user" && !message.sourceBotId)?.id;
+  const latestRequestId = room.messages.findLast((message) => message.role === "user")?.id;
   const outcome = !working && room.lastOutcome && room.lastOutcome.requestId === latestRequestId ? OUTCOME_TEXT[room.lastOutcome.kind] : undefined;
 
   return (

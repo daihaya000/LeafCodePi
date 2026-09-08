@@ -41,19 +41,12 @@ export type RoomMessage = {
   codeState?: CodeRequestState;
   /** What the delegated Code run is doing right now (tool label only, never its output). */
   codeActivity?: string;
-  /** Bot-to-bot relay metadata. These fields are absent for ordinary user messages. */
-  sourceBotId?: string;
-  relayTurnId?: string;
-  relayDepth?: number;
-  relayParentMessageId?: string;
 };
 
 export type RoomDto = {
   id: string;
   name: string;
   members: string[];
-  /** Explicit opt-in for the minimal, directed bot-to-bot relay path. */
-  botRelayEnabled: boolean;
   /** Operator opt-in: this room's Code requests skip the per-request approval prompt. */
   codeAutoApprove?: boolean;
   lastOutcome?: RoomOutcome;

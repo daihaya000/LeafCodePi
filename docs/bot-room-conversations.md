@@ -46,7 +46,7 @@
 - 履歴は直近30件・JSON約24,000文字まで。巨大な最新発言は切り詰めを明示する。要求本文は別枠で維持する。これはトークン数や総セッションサイズの保証ではない。要求IDが見つからない場合は直近の履歴へフォールバックする。
 - Roomファイルは直近500件を保持し、超えた古い発言は `bots/rooms/<id>/history.jsonl` へ追記退避する（表示・モデルへの共有は直近分だけ）。退避後の発言への冪等判定（`code-report:<id>`）は効かない。
 - 失敗したターンは本文としては渡さず、最新の1件だけを短いシステム注記として共有する（次の話者が同じ壁に向かわないように）。
-- リレー発言はユーザーの権限付与ではない。返信者の `botId` と依頼元の `sourceBotId` を区別する。既存の単発リレー認証・深さ制限は変更しない。
+- Botが他のBotへ直接発言を投げるBot↔Botリレーは持たない（削除済み）。Roomへの発言は常にユーザー発言と、それに対するターン進行だけで成る。Botの発言は会話データであり、ツール実行の権限付与にはならない。
 - キュー待ちと準備の後にも、最新要求・在室・有効状態を再確認する。新規要求は待機中の古い対話を失効させる。
 - 同じRoom Botセッションへの発言はファイルロックで直列化し、複数ワーカーでも二重実行しない（取得待ちの上限10分、超過はその発言を失敗扱い）。
 - 一斉回答（`@here` など）は同敂4体までで順次実行し、メンション先が実行されない状態は作らない。
@@ -67,7 +67,7 @@
 ## 実作業（Code依頼）の契約
 
 - Code依頼はユーザー承認を必須とし、依頼元の発言・要求ID・参加者をサーバ側で紐づける。モデルが宛先や対象Roomを自申できない。
-- Room単位の常時承認（`codeAutoApprove`）を有効にすると、そのRoomの依頼は承認ダイアログなしで起動する。既定はオフで、変更はWebUIトークン認証必須（`botRelayEnabled` と同じ経路）。Bot側からは変更できず、1対1チャットには注入しない。
+- Room単位の常時承認（`codeAutoApprove`）を有効にすると、そのRoomの依頼は承認ダイアログなしで起動する。既定はオフで、変更はWebUIトークン認証必須（`Authorization: Bearer` またはログイン済みのCookie）。Bot側からは変更できず、1対1チャットには注入しない。
 - RoomのCodeセッションは**会話単位**で解決する。新しいユーザー依頼では `start` が新しいセッションを作り、過去の依頼の文脈を引きずらない。1対1チャットのセッションリンクは変えない。実行中はRoomあたり1件だけで、他メンバーからの重複起動も拒否する（拒否はユーザー承認を消費する前に行う）。
 - 依頼の受領は結果ではない。未完了のCodeがある間は次の発言者へ渡さず、報告待ちになる。会話を止めるのは**その会話自身の依頼**が未決着のときだけで、別の依頼の残骸で新しい会話は止めない。
 - 結果は固定のメッセージIDでRoomへ一度だけ追加し、再送・再起動でも重複しない。実際のBot報告ができていない間は未配信のまま再試行する。
@@ -78,7 +78,7 @@
 
 ```text
 cd web
-npx vitest run src/lib/room-conversation.test.ts src/lib/room-runtime.test.ts src/lib/rooms.test.ts src/lib/pi/bot-code-relay.test.ts src/lib/pi/harness-bot-code.test.ts src/components/bot/RoomView.test.tsx "src/app/api/bots/rooms/[id]/prompt/route.test.ts"
+npx vitest run src/lib/room-conversation.test.ts src/lib/room-runtime.test.ts src/lib/rooms.test.ts src/lib/room-events.test.ts src/lib/pi/bot-code-relay.test.ts src/lib/pi/harness-bot-code.test.ts src/components/bot/RoomView.test.tsx "src/app/api/bots/rooms/[id]/prompt/route.test.ts" "src/app/api/bots/rooms/[id]/revert/route.test.ts"
 npm run typecheck
 ```
 
