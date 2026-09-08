@@ -62,15 +62,15 @@ export function BotListView() {
     <div className="flex h-full flex-col bg-bg">
       <MobileMenuHeader />
       <div className="border-b border-border px-5 py-4">
-        <h1 className="text-lg font-semibold">ボット</h1>
-        <p className="mt-1 text-xs text-muted">1:1 会話用のボットを管理します。</p>
+        <h1 className="text-lg font-semibold">Bot一覧</h1>
+        <p className="mt-1 text-xs text-muted">1:1 会話用のBotを管理します。</p>
       </div>
       <div className="mx-auto w-full max-w-3xl space-y-6 overflow-y-auto p-5">
-        <section aria-labelledby="new-bot-heading" className="rounded-2xl border border-border bg-surface p-4">
-          <h2 id="new-bot-heading" className="text-sm font-semibold">新しいボット</h2>
-          <div className="mt-3 flex gap-2">
-            <input value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void create(); }} placeholder="ボット名（例: リサーチャー）" aria-label="新しいボットの名前" className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-accent" />
-            <Button onClick={() => void create()} busy={busy} disabled={!name.trim()}>作成</Button>
+        <section aria-labelledby="my-bots-heading">
+          <h2 id="my-bots-heading" className="text-sm font-semibold">マイボット</h2>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {bots.map((bot) => <Link key={bot.id} href={`/bots/${bot.id}`} className="rounded-xl border border-border bg-surface p-4 hover:border-accent"><div className="flex items-center gap-3"><BotAvatar size={40} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} /><span className="min-w-0 flex-1 truncate font-medium">{bot.name}</span><span className="text-xs text-muted">{bot.enabled ? "有効" : "無効"}</span></div><p className="mt-2 line-clamp-2 text-xs text-muted">{bot.soul.replace(/^#.*$/m, "").trim() || "SOUL.md はまだありません"}</p></Link>)}
+            {bots.length === 0 && <BotEmptyState title="ボットはまだありません" description="テンプレートまたは作成フォームから最初のボットを作成できます。" />}
           </div>
         </section>
 
@@ -94,11 +94,11 @@ export function BotListView() {
           </div>
         </section>
 
-        <section aria-labelledby="my-bots-heading">
-          <h2 id="my-bots-heading" className="text-sm font-semibold">マイボット</h2>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            {bots.map((bot) => <Link key={bot.id} href={`/bots/${bot.id}`} className="rounded-xl border border-border bg-surface p-4 hover:border-accent"><div className="flex items-center gap-3"><BotAvatar size={40} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} /><span className="min-w-0 flex-1 truncate font-medium">{bot.name}</span><span className="text-xs text-muted">{bot.enabled ? "有効" : "無効"}</span></div><p className="mt-2 line-clamp-2 text-xs text-muted">{bot.soul.replace(/^#.*$/m, "").trim() || "SOUL.md はまだありません"}</p></Link>)}
-            {bots.length === 0 && <BotEmptyState title="ボットはまだありません" description="上の作成フォームか、テンプレートから最初のボットを作成できます。" />}
+        <section aria-labelledby="new-bot-heading" className="rounded-2xl border border-border bg-surface p-4">
+          <h2 id="new-bot-heading" className="text-sm font-semibold">新しいボット</h2>
+          <div className="mt-3 flex gap-2">
+            <input value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void create(); }} placeholder="ボット名（例: リサーチャー）" aria-label="新しいボットの名前" className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-accent" />
+            <Button onClick={() => void create()} busy={busy} disabled={!name.trim()}>作成</Button>
           </div>
         </section>
         {error && <p role="alert" className="text-xs text-danger">{error}</p>}

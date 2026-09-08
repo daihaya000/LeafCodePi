@@ -70,4 +70,18 @@ describe("Bot mode mobile navigation", () => {
 
     expect(screen.getByTestId("mobile-nav-state").textContent).toBe("open");
   });
+
+  it("shows bot sections in the requested order and includes role templates", () => {
+    renderWithShell(<BotListView />);
+
+    expect(Array.from(document.querySelectorAll("h2")).map((heading) => heading.textContent)).toEqual([
+      "マイボット",
+      "テンプレート",
+      "新しいボット",
+    ]);
+    expect(screen.getByRole("heading", { name: "プログラマー" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "デバッガー" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "デザイナー" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "アドバイザー" })).toBeTruthy();
+  });
 });
