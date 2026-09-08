@@ -52,6 +52,7 @@ export function BotAvatarPicker({ bot, onChange }: { bot: BotDto; onChange: (pat
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [previewAnimation, setPreviewAnimation] = useState(true);
   const [candidates, setCandidates] = useState<ReturnType<typeof generateCandidates>>([]);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -143,6 +144,10 @@ export function BotAvatarPicker({ bot, onChange }: { bot: BotDto; onChange: (pat
           <button type="button" disabled={busy} title="標準の形・色・装飾に戻し、画像を削除" onClick={() => void update({ avatarShape: "circle", avatarColor: avatarColorForId(bot.id), avatarEyeColor: null, avatarGlasses: false, avatarMustache: false, avatarImage: null })} className="ml-auto min-h-11 rounded-lg px-2 text-xs text-muted hover:bg-surface-2 hover:text-text disabled:opacity-50">リセット</button>
         </div>
         <div className="min-h-0 overflow-y-auto overscroll-contain p-4">
+          <div className="mb-4 flex items-center justify-between rounded-xl bg-surface-2 px-3 py-2">
+            <div className="flex items-center gap-2"><BotAvatar size={40} {...bot} name="アニメーションプレビュー" active={previewAnimation} /><span className="text-xs text-muted">アニメーションプレビュー</span></div>
+            <button type="button" aria-pressed={previewAnimation} onClick={() => setPreviewAnimation((value) => !value)} className="min-h-11 rounded-lg border border-border px-3 text-xs hover:bg-surface disabled:opacity-50">{previewAnimation ? "停止" : "再生"}</button>
+          </div>
           <div role="tabpanel" id={`${uid}-panel-${tab}`} aria-labelledby={`${uid}-tab-${tab}`} tabIndex={0}>
             {tab === 0 && <div className="space-y-4">
               <div role="group" aria-label="ボットの形" className="grid grid-cols-4 gap-2">
