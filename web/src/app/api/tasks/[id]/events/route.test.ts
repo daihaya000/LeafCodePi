@@ -146,6 +146,8 @@ describe("/api/tasks/[id]/events", () => {
     expect(readyPayload.eventType).toBe("ready");
     expect(readyPayload.messagesReused).toBe(true);
     expect(readyPayload).not.toHaveProperty("messages");
+    expect(mocks.getTaskDetail).toHaveBeenCalledOnce();
+    expect(mocks.getTaskDetail).toHaveBeenCalledWith("task-1", { includeMessages: false });
 
     await reader.cancel();
   });
@@ -173,6 +175,8 @@ describe("/api/tasks/[id]/events", () => {
     const readyPayload = eventData(await readChunk(reader));
     expect(readyPayload.messagesReused).toBeUndefined();
     expect(readyPayload.messages).toEqual(detail.messages);
+    expect(mocks.getTaskDetail).toHaveBeenNthCalledWith(1, "task-1", { includeMessages: false });
+    expect(mocks.getTaskDetail).toHaveBeenNthCalledWith(2, "task-1");
 
     await reader.cancel();
   });

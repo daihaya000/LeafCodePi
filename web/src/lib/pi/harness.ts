@@ -1348,6 +1348,7 @@ function sessionSnapshotFields(
   toolEndedAt?: Map<string, number>,
   toolPartialOutputByCallId?: Map<string, string>,
   accountContext?: MessageAccountContext,
+  includeMessages = true,
 ): {
   messages: UiMessage[];
   isStreaming: boolean;
@@ -1357,15 +1358,17 @@ function sessionSnapshotFields(
   todos: TodoDto[];
 } {
   return {
-    messages: snapshotMessages(
-      session,
-      throughputByStartedAt,
-      toolStartedAt,
-      toolEndedAt,
-      toolPartialOutputByCallId,
-      false,
-      accountContext,
-    ),
+    messages: includeMessages
+      ? snapshotMessages(
+          session,
+          throughputByStartedAt,
+          toolStartedAt,
+          toolEndedAt,
+          toolPartialOutputByCallId,
+          false,
+          accountContext,
+        )
+      : [],
     isStreaming: session.isStreaming,
     isCompacting: session.isCompacting,
     contextUsage: sessionContextUsage(session),
@@ -4805,7 +4808,15 @@ export function getTaskBootstrap(id: string): TaskDetail {
   );
 }
 
-export async function getTaskDetail(id: string): Promise<TaskDetail> {
+type GetTaskDetailOptions = {
+  includeMessages?: boolean;
+};
+
+export async function getTaskDetail(
+  id: string,
+  options: GetTaskDetailOptions = {},
+): Promise<TaskDetail> {
+  const includeMessages = options.includeMessages !== false;
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
@@ -4842,6 +4853,7 @@ export async function getTaskDetail(id: string): Promise<TaskDetail> {
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
       { accountId: live.accountId, byMessageId: live.accountByMessageId },
+      includeMessages,
     );
     messages = fields.messages;
     isStreaming = fields.isStreaming;

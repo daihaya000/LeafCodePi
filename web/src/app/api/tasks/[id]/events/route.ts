@@ -64,8 +64,34 @@ export async function GET(
           eventType: "bootstrap",
         });
         if (sse.closed) return;
-        const detail = await getTaskDetail(id);
+        const hasCacheCandidate = Boolean(cachedTaskUpdatedAt && cachedSessionId);
+        let detail = await getTaskDetail(
+          id,
+          hasCacheCandidate ? { includeMessages: false } : undefined,
+        );
         if (sse.closed) return;
+        const matchesCachedRevision = (candidate: typeof detail) =>
+          Boolean(
+            cachedTaskUpdatedAt &&
+              cachedSessionId &&
+              cachedTaskUpdatedAt === candidate.updatedAt &&
+              cachedSessionId === candidate.sessionId &&
+              candidate.status !== "working" &&
+              !candidate.isStreaming &&
+              !candidate.isCompacting,
+          );
+        let canReuseCachedMessages = matchesCachedRevision(detail);
+        if (
+          hasCacheCandidate &&
+          (!canReuseCachedMessages || pendingPayloads.length > 0)
+        ) {
+          // A stale cache or buffered event needs the full server history for
+          // correctness; stable idle cache hits keep the expensive projection
+          // out of the ready path.
+          detail = await getTaskDetail(id);
+          if (sse.closed) return;
+          canReuseCachedMessages = matchesCachedRevision(detail);
+        }
         const taskSummary = { ...detail };
         for (const key of [
           "messages",
@@ -81,18 +107,6 @@ export async function GET(
         ]) {
           delete (taskSummary as Record<string, unknown>)[key];
         }
-        // An idle cache with the same persisted revision is authoritative enough
-        // to skip sending the full history again. Never reuse it while a turn or
-        // compaction can still mutate the session.
-        const canReuseCachedMessages = Boolean(
-          cachedTaskUpdatedAt &&
-            cachedSessionId &&
-            cachedTaskUpdatedAt === detail.updatedAt &&
-            cachedSessionId === detail.sessionId &&
-            detail.status !== "working" &&
-            !detail.isStreaming &&
-            !detail.isCompacting,
-        );
         sse.send("snapshot", {
           type: "snapshot",
           task: taskSummary,
