@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({ root: "", promptTask: vi.fn(), getTaskDetail: 
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => state.root }; });
 vi.mock("./pi/harness", () => ({ promptTask: state.promptTask, getTaskDetail: state.getTaskDetail }));
 import { createBot } from "./bots";
-import { createRoutine, cronMatches, getRoutine, listRoutines, parseCron, patchRoutine, runRoutine, validateRoutineSchedule } from "./routines";
+import { createRoutine, cronMatches, getRoutine, listRoutines, parseCron, patchRoutine, runRoutine, tickRoutines, validateRoutineSchedule } from "./routines";
 
 describe("routine cron and persistence", () => {
   let root = "";
@@ -70,6 +70,27 @@ describe("routine cron and persistence", () => {
     const bot = createBot({ name: "Routine bot" });
     const routine = createRoutine(bot.id, { name: "Daily", prompt: "Check status", schedule: "0 9 * * 1-7" });
     expect(cronMatches(getRoutine(bot.id, routine.id)!.schedule, new Date(2024, 0, 7, 9, 0))).toBe(true);
+  });
+  it("does not run a scheduled routine again before five minutes after a manual run", async () => {
+    vi.useFakeTimers();
+    try {
+      const manualStart = new Date(2024, 0, 1, 0, 4, 59);
+      vi.setSystemTime(manualStart);
+      const bot = createBot({ name: "Routine bot" });
+      const routine = createRoutine(bot.id, { name: "Every five minutes", prompt: "Check status", schedule: "*/5 * * * *" });
+      state.promptTask.mockResolvedValue(undefined);
+
+      await runRoutine(bot.id, routine.id);
+      vi.setSystemTime(new Date(2024, 0, 1, 0, 5));
+      await tickRoutines(new Date(2024, 0, 1, 0, 5));
+      expect(state.promptTask).toHaveBeenCalledTimes(1);
+
+      vi.setSystemTime(new Date(2024, 0, 1, 0, 10));
+      await tickRoutines(new Date(2024, 0, 1, 0, 10));
+      expect(state.promptTask).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it("keeps a routine disabled when its in-flight run fails", async () => {
     const bot = createBot({ name: "Routine bot" });
