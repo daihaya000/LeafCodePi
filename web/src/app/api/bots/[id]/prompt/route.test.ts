@@ -63,6 +63,16 @@ describe("POST /api/bots/[id]/prompt", () => {
     expect(state.goalLoopCommand).not.toHaveBeenCalled();
   });
 
+  it("rejects more than eight images before prompting", async () => {
+    const bot = createBot({ name: "Image bot" });
+    const images = Array.from({ length: 9 }, () => ({ mimeType: "image/png", data: "cG5n" }));
+
+    const response = await POST(request("look", undefined, images), { params: Promise.resolve({ id: bot.id }) });
+
+    expect(response.status).toBe(400);
+    expect(state.promptTask).not.toHaveBeenCalled();
+  });
+
   it("rejects unsupported image MIME types before prompting", async () => {
     const bot = createBot({ name: "Image bot" });
 

@@ -4,6 +4,7 @@ export type PromptImageInput = {
 };
 
 const PROMPT_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+export const MAX_PROMPT_IMAGES = 8;
 
 export function isPromptImage(value: unknown): value is PromptImageInput {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -17,5 +18,5 @@ export function isPromptImage(value: unknown): value is PromptImageInput {
 }
 
 export function isPromptImageList(value: unknown): value is PromptImageInput[] {
-  return Array.isArray(value) && value.every(isPromptImage);
+  return Array.isArray(value) && value.length <= MAX_PROMPT_IMAGES && value.every(isPromptImage);
 }
