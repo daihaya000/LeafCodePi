@@ -91,6 +91,16 @@ afterEach(async () => {
 });
 
 describe("room mention responses", () => {
+  it("rejects malformed Base64 images before persisting a room message", async () => {
+    const { room } = setup();
+
+    const response = await send(room.id, "画像を確認して", { images: [{ mimeType: "image/png", data: "AA!!" }] });
+
+    expect(response.status).toBe(400);
+    expect(state.promptTask).not.toHaveBeenCalled();
+    expect(getRoom(room.id)?.messages).toHaveLength(0);
+  });
+
   it.each(["二人で会話してみて", "@here 二人で会話してみて", "@Debugger @Planner 二人で会話してみて", "/discuss 学ぶ言語を話し合って", "残作業も進めて"])("gives each participant one turn with shared identities and replies when no directive is used: %s", async (request) => {
     const { room, bots, taskIds } = setup(["Debugger", "Planner"]);
     await send(room.id, request);

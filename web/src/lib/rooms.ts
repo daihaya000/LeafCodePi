@@ -6,7 +6,7 @@ import { dataDir } from "./paths";
 import { botTaskId, botWorkspace, getBot, listBots } from "./bots";
 import { deleteTask, getTask, insertBotTask, listTasks, patchTask } from "./store";
 import type { BotDto, RoomDto, RoomImage, RoomMessage, RoomOutcome } from "./types";
-import type { PromptImageInput } from "./prompt-images";
+import { isPromptImageWithinSize, type PromptImageInput } from "./prompt-images";
 
 type RoomFile = RoomDto;
 const roomEvents = new EventEmitter();
@@ -202,6 +202,7 @@ export function roomImageRejection(images: PromptImageInput[]): string | undefin
     const bytes = Buffer.byteLength(image.data, "base64");
     if (bytes === 0) return "画像データが空です";
     if (bytes > MAX_ROOM_IMAGE_BYTES) return `画像は1件${MAX_ROOM_IMAGE_BYTES / 1024 / 1024}MBまでです`;
+    if (!isPromptImageWithinSize(image)) return "画像データが不正です";
   }
   return undefined;
 }
