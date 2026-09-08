@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBot, botTaskId } from "@/lib/bots";
-import { isPromptImageList } from "@/lib/prompt-images";
+import { isPromptImageList, isPromptImageWithinSize } from "@/lib/prompt-images";
 import { goalLoopCommand, jsonError, promptTask } from "@/lib/pi/harness";
 import { clampGoalLoopCooldownSeconds, clampGoalLoopMaxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS } from "@/lib/goal-loop-settings";
 export const runtime = "nodejs"; export const dynamic = "force-dynamic";
@@ -8,7 +8,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   try { const id = (await params).id; if (!getBot(id)) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
     const body = (await req.json().catch(() => null)) as { prompt?: unknown; images?: unknown; goalLoop?: unknown } | null;
     if (typeof body?.prompt !== "string") return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
-    if (body.images !== undefined && !isPromptImageList(body.images)) return NextResponse.json({ error: "invalid images" }, { status: 400 });
+    if (body.images !== undefined && (!isPromptImageList(body.images) || body.images.some((image) => !isPromptImageWithinSize(image)))) return NextResponse.json({ error: "invalid images" }, { status: 400 });
     if (!body.prompt.trim() && !body.images?.length) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     if (body.goalLoop !== undefined) {
       if (body.goalLoop === null || typeof body.goalLoop !== "object" || Array.isArray(body.goalLoop)) return NextResponse.json({ error: "invalid goalLoop" }, { status: 400 });

@@ -12,6 +12,7 @@ vi.mock("../../../../../lib/pi/harness", () => ({
 }));
 
 import { createBot, patchBot } from "../../../../../lib/bots";
+import { MAX_PROMPT_IMAGE_BYTES } from "../../../../../lib/prompt-images";
 import { POST } from "./route";
 
 function request(prompt: unknown, goalLoop?: unknown, images?: unknown): NextRequest {
@@ -66,6 +67,16 @@ describe("POST /api/bots/[id]/prompt", () => {
   it("rejects more than eight images before prompting", async () => {
     const bot = createBot({ name: "Image bot" });
     const images = Array.from({ length: 9 }, () => ({ mimeType: "image/png", data: "cG5n" }));
+
+    const response = await POST(request("look", undefined, images), { params: Promise.resolve({ id: bot.id }) });
+
+    expect(response.status).toBe(400);
+    expect(state.promptTask).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized images before prompting", async () => {
+    const bot = createBot({ name: "Image bot" });
+    const images = [{ mimeType: "image/png", data: Buffer.alloc(MAX_PROMPT_IMAGE_BYTES + 1).toString("base64") }];
 
     const response = await POST(request("look", undefined, images), { params: Promise.resolve({ id: bot.id }) });
 
