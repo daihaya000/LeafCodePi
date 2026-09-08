@@ -137,6 +137,15 @@ function mockAccountsApi(accountList = accounts) {
       if (url.endsWith("/api/accounts")) {
         if (method === "GET")
           return Promise.resolve(jsonResponse({ accounts: accountList }));
+        if (method === "PATCH") {
+          const body = JSON.parse(String(init?.body)) as { accountOrder: string[] };
+          const byId = new Map(accountList.map((account) => [account.id, account]));
+          return Promise.resolve(
+            jsonResponse({
+              accounts: body.accountOrder.map((id) => byId.get(id)),
+            }),
+          );
+        }
         if (method === "POST")
           return Promise.resolve(jsonResponse({ account: accounts[0] }));
       }
@@ -230,6 +239,42 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(
       within(codex).getByRole("button", { name: "再ログイン" }),
     ).toBeTruthy();
+  });
+
+  it("reorders provider accounts with an arrow and saves the global order", async () => {
+    const accountList = [
+      ...accounts,
+      {
+        id: "acc-3",
+        label: "予備用",
+        providers: ["openai-codex"],
+        createdAt: "",
+        updatedAt: "",
+      },
+    ];
+    mockAccountsApi(accountList);
+    render(
+      <ProviderAuthPanel
+        providers={[providers[1]]}
+        onChanged={() => {}}
+      />,
+    );
+
+    const codex = await accountRegion("OpenAI Codex");
+    fireEvent.click(
+      await within(codex).findByRole("button", { name: "仕事用 を下へ移動" }),
+    );
+
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).endsWith("/api/accounts") && init?.method === "PATCH",
+      );
+      expect(patch).toBeTruthy();
+      expect(JSON.parse(String(patch?.[1]?.body))).toEqual({
+        accountOrder: ["acc-3", "acc-2", "acc-1"],
+      });
+    });
   });
 
   it("changes the routing mode from the provider section", async () => {

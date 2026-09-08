@@ -214,6 +214,40 @@ export function listAccounts(): AccountRecord[] {
   return readAccountsFile().accounts.map((account) => ({ ...account }));
 }
 
+/** アカウント一覧の表示順を保存する。入力は現在の全アカウントを一度ずつ含む必要がある。 */
+export function reorderAccounts(input: unknown): AccountRecord[] {
+  if (
+    !Array.isArray(input) ||
+    !input.every((id): id is string => typeof id === "string")
+  ) {
+    throw badRequest("accountOrder はアカウントIDの配列で指定してください");
+  }
+
+  const file = readAccountsFile();
+  const currentIds = new Set(file.accounts.map((account) => account.id));
+  const nextIds = new Set(input);
+  if (
+    nextIds.size !== input.length ||
+    nextIds.size !== currentIds.size ||
+    input.some((id) => !currentIds.has(id))
+  ) {
+    throw badRequest("accountOrder は現在の全アカウントを一度ずつ指定してください");
+  }
+
+  const currentOrder = file.accounts.map((account) => account.id);
+  if (input.every((id, index) => id === currentOrder[index])) {
+    return file.accounts.map((account) => ({ ...account }));
+  }
+
+  const accountsById = new Map(
+    file.accounts.map((account) => [account.id, account]),
+  );
+  file.accounts = input.map((id) => accountsById.get(id)!);
+  writeAccountsFile(file);
+  invalidateCachedUsage();
+  return file.accounts.map((account) => ({ ...account }));
+}
+
 export function getAccount(id: string): AccountRecord | undefined {
   const found = readAccountsFile().accounts.find(
     (account) => account.id === id,

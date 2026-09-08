@@ -21,6 +21,7 @@ import {
   getAccount,
   listAccounts,
   patchAccount,
+  reorderAccounts,
 } from "@/lib/accounts";
 import { insertTask, patchTask, upsertProject } from "@/lib/store";
 import type { TaskSummary } from "@/lib/types";
@@ -171,6 +172,36 @@ describe("accounts store CRUD", () => {
     );
     assert.throws(
       () => createAccount({ label: "x", providers: "openai-codex" }),
+      (error) => httpStatus(error) === 400,
+    );
+  });
+
+  it("reorders accounts and persists the new order", () => {
+    const dir = tempDataDir();
+    const first = createAccount({ label: "first", providers: ["anthropic"] });
+    const second = createAccount({ label: "second", providers: ["anthropic"] });
+    const third = createAccount({ label: "third", providers: ["anthropic"] });
+
+    assert.deepEqual(
+      reorderAccounts([third.id, first.id, second.id]).map((account) => account.id),
+      [third.id, first.id, second.id],
+    );
+    assert.deepEqual(
+      listAccounts().map((account) => account.id),
+      [third.id, first.id, second.id],
+    );
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(dir, "accounts.json"), "utf8")).accounts.map(
+        (account: { id: string }) => account.id,
+      ),
+      [third.id, first.id, second.id],
+    );
+    assert.throws(
+      () => reorderAccounts([first.id, first.id, second.id]),
+      (error) => httpStatus(error) === 400,
+    );
+    assert.throws(
+      () => reorderAccounts([first.id, second.id, "missing"]),
       (error) => httpStatus(error) === 400,
     );
   });

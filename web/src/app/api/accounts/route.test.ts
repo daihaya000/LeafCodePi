@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import { NextRequest } from "next/server";
-import { GET, POST } from "./route";
+import { GET, PATCH as PATCH_ACCOUNTS, POST } from "./route";
 import { DELETE, PATCH } from "./[id]/route";
 import { insertTask, patchTask, upsertProject } from "@/lib/store";
 import type { TaskSummary } from "@/lib/types";
@@ -76,6 +76,41 @@ describe("/api/accounts", () => {
 
     const listed = await responseJson(await GET());
     assert.equal((listed.accounts as { id: string }[]).length, 1);
+  });
+
+  it("updates account order via PATCH", async () => {
+    tempDataDir();
+    const createdIds: string[] = [];
+    for (const label of ["first", "second", "third"]) {
+      const body = await responseJson(
+        await POST(
+          jsonRequest("http://localhost/api/accounts", "POST", {
+            label,
+            providers: ["openai-codex"],
+          }),
+        ),
+      );
+      createdIds.push((body.account as { id: string }).id);
+    }
+
+    const response = await PATCH_ACCOUNTS(
+      jsonRequest("http://localhost/api/accounts", "PATCH", {
+        accountOrder: [createdIds[2], createdIds[0], createdIds[1]],
+      }),
+    );
+    assert.equal(response.status, 200);
+    const body = await responseJson(response);
+    assert.deepEqual(
+      (body.accounts as { id: string }[]).map((account) => account.id),
+      [createdIds[2], createdIds[0], createdIds[1]],
+    );
+
+    const invalid = await PATCH_ACCOUNTS(
+      jsonRequest("http://localhost/api/accounts", "PATCH", {
+        accountOrder: [createdIds[0], createdIds[0], createdIds[1]],
+      }),
+    );
+    assert.equal(invalid.status, 400);
   });
 
   it("returns 400 on invalid body or validation failure", async () => {

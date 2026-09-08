@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, type ReactNode, useCallback, useEffect, useState } from "react";
+import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
 import { Badge, Button, cx } from "@/components/ui";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ApiError, apiUrl, getJson, sendJson } from "@/lib/client";
@@ -220,6 +221,11 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   );
   const [newLabel, setNewLabel] = useState("");
   const [accountBusy, setAccountBusy] = useState(false);
+  const [accountOrderBusy, setAccountOrderBusy] = useState(false);
+  const [accountOrderError, setAccountOrderError] = useState<string | null>(null);
+  const [draggingAccountId, setDraggingAccountId] = useState<string | null>(null);
+  const [dragOverAccountId, setDragOverAccountId] = useState<string | null>(null);
+  const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const [routingBusy, setRoutingBusy] = useState<string | null>(null);
   const [routingErrors, setRoutingErrors] = useState<Record<string, string>>(
     {},
@@ -725,6 +731,64 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     }
   }
 
+  async function reorderProviderAccounts(
+    providerId: AccountProviderId,
+    fromIndex: number,
+    toIndex: number,
+  ) {
+    if (accountOrderBusy || accountBusy || !accounts || fromIndex === toIndex) {
+      return;
+    }
+    const providerAccounts = accounts.filter(
+      (account) =>
+        Array.isArray(account.providers) && account.providers.includes(providerId),
+    );
+    if (
+      fromIndex < 0 ||
+      toIndex < 0 ||
+      fromIndex >= providerAccounts.length ||
+      toIndex >= providerAccounts.length
+    ) {
+      return;
+    }
+
+    const nextProviderAccounts = [...providerAccounts];
+    const [moved] = nextProviderAccounts.splice(fromIndex, 1);
+    if (!moved) return;
+    nextProviderAccounts.splice(toIndex, 0, moved);
+
+    const providerAccountIds = new Set(providerAccounts.map((account) => account.id));
+    let providerIndex = 0;
+    const nextAccounts = accounts.map((account) =>
+      providerAccountIds.has(account.id)
+        ? nextProviderAccounts[providerIndex++]!
+        : account,
+    );
+
+    setAccounts(nextAccounts);
+    setDraggingAccountId(null);
+    setDragOverAccountId(null);
+    setAccountOrderBusy(true);
+    setAccountOrderError(null);
+    try {
+      const result = await sendJson<{ accounts: AccountRecord[] }>(
+        "/api/accounts",
+        { accountOrder: nextAccounts.map((account) => account.id) },
+        "PATCH",
+      );
+      setAccounts(result.accounts);
+      setReorderAnnouncement(`${moved.label}を${toIndex + 1}番目へ移動しました`);
+      onChanged();
+    } catch (error) {
+      setAccountOrderError(
+        error instanceof ApiError ? error.message : String(error),
+      );
+      await refreshAccounts();
+    } finally {
+      setAccountOrderBusy(false);
+    }
+  }
+
   async function logoutFor(providerId: string, accountId?: string | null) {
     try {
       await sendJson(
@@ -850,6 +914,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     return (
       <section
         aria-label={`${provider.name} の追加アカウント`}
+        aria-busy={savingMode || accountOrderBusy || undefined}
         className="mt-2"
       >
         <div
@@ -899,13 +964,16 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         {accountsError && (
           <p role="alert" className="mt-2 text-xs text-danger">{accountsError}</p>
         )}
+        {accountOrderError && (
+          <p role="alert" className="mt-2 text-xs text-danger">{accountOrderError}</p>
+        )}
         {accounts === null ? (
           <p className="mt-2 text-xs text-muted">読み込み中…</p>
         ) : (
           <>
             {providerAccounts.length > 0 && (
               <ul className="mt-2 divide-y divide-border overflow-hidden rounded-xl bg-surface-2">
-                {providerAccounts.map((account) => {
+                {providerAccounts.map((account, accountIndex) => {
                   const cookieConfigured =
                     providerId === "ollama-cloud"
                       ? ollamaCookieStatuses[account.id] === true
@@ -926,7 +994,58 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                     account.id,
                   );
                   return (
-                    <li key={account.id} className="px-3 py-2">
+                    <li
+                      key={account.id}
+                      draggable={
+                        providerAccounts.length > 1 &&
+                        !accountOrderBusy &&
+                        !accountBusy
+                      }
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        setDraggingAccountId(account.id);
+                      }}
+                      onDragOver={(event) => {
+                        if (
+                          !draggingAccountId ||
+                          draggingAccountId === account.id ||
+                          accountOrderBusy
+                        ) {
+                          return;
+                        }
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                        setDragOverAccountId(account.id);
+                      }}
+                      onDragLeave={() => {
+                        if (dragOverAccountId === account.id) {
+                          setDragOverAccountId(null);
+                        }
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        if (!draggingAccountId) return;
+                        const fromIndex = providerAccounts.findIndex(
+                          (item) => item.id === draggingAccountId,
+                        );
+                        void reorderProviderAccounts(
+                          providerId,
+                          fromIndex,
+                          accountIndex,
+                        );
+                      }}
+                      onDragEnd={() => {
+                        setDraggingAccountId(null);
+                        setDragOverAccountId(null);
+                      }}
+                      className={cx(
+                        "px-3 py-2",
+                        draggingAccountId === account.id && "opacity-50",
+                        dragOverAccountId === account.id &&
+                          draggingAccountId !== account.id &&
+                          "ring-1 ring-inset ring-accent",
+                      )}
+                    >
                       <div className="flex flex-col gap-1">
                         {editingAccountId === account.id ? (
                           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -957,6 +1076,12 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                         ) : (
                           <>
                             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                              {providerAccounts.length > 1 && (
+                                <GripVertical
+                                  aria-hidden="true"
+                                  className="h-4 w-4 shrink-0 cursor-grab text-muted active:cursor-grabbing"
+                                />
+                              )}
                               <span
                                 className="min-w-0 break-all text-sm font-medium"
                                 title={account.label}
@@ -1019,6 +1144,50 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                               >
                                 削除
                               </Button>
+                              {providerAccounts.length > 1 && (
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    aria-label={`${account.label} を上へ移動`}
+                                    title="上へ"
+                                    disabled={
+                                      accountOrderBusy ||
+                                      accountBusy ||
+                                      accountIndex === 0
+                                    }
+                                    onClick={() =>
+                                      void reorderProviderAccounts(
+                                        providerId,
+                                        accountIndex,
+                                        accountIndex - 1,
+                                      )
+                                    }
+                                    className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:opacity-30 sm:h-7 sm:w-7"
+                                  >
+                                    <ChevronUp aria-hidden="true" className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label={`${account.label} を下へ移動`}
+                                    title="下へ"
+                                    disabled={
+                                      accountOrderBusy ||
+                                      accountBusy ||
+                                      accountIndex === providerAccounts.length - 1
+                                    }
+                                    onClick={() =>
+                                      void reorderProviderAccounts(
+                                        providerId,
+                                        accountIndex,
+                                        accountIndex + 1,
+                                      )
+                                    }
+                                    className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:opacity-30 sm:h-7 sm:w-7"
+                                  >
+                                    <ChevronDown aria-hidden="true" className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           </>
                         )}
@@ -1235,6 +1404,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
 
   return (
     <div className="space-y-4">
+      <p role="status" aria-live="polite" className="sr-only">
+        {reorderAnnouncement}
+      </p>
       <div>
         <h3 className="mb-2 text-sm font-semibold">プロバイダー</h3>
         <details className="mb-3 text-xs text-muted">
