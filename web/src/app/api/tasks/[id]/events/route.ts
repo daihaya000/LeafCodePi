@@ -24,6 +24,11 @@ export async function GET(
   const { id } = await params;
   const cachedTaskUpdatedAt = req.nextUrl.searchParams.get("cachedTaskUpdatedAt");
   const cachedSessionId = req.nextUrl.searchParams.get("cachedSessionId");
+  const perfRequested = req.nextUrl.searchParams.get("perf") === "1";
+  const serverTimings: { phase: string; durationMs: number }[] = [];
+  const reportTiming = perfRequested
+    ? (timing: { phase: string; durationMs: number }) => serverTimings.push(timing)
+    : undefined;
   let sse: ReturnType<typeof createSseWriter> | undefined;
 
   const stream = new ReadableStream({
@@ -65,10 +70,10 @@ export async function GET(
         });
         if (sse.closed) return;
         const hasCacheCandidate = Boolean(cachedTaskUpdatedAt && cachedSessionId);
-        let detail = await getTaskDetail(
-          id,
-          hasCacheCandidate ? { includeMessages: false } : undefined,
-        );
+        let detail = await getTaskDetail(id, {
+          ...(hasCacheCandidate ? { includeMessages: false } : {}),
+          ...(reportTiming ? { onTiming: reportTiming } : {}),
+        });
         if (sse.closed) return;
         const matchesCachedRevision = (candidate: typeof detail) =>
           Boolean(
@@ -88,7 +93,9 @@ export async function GET(
           // A stale cache or buffered event needs the full server history for
           // correctness; stable idle cache hits keep the expensive projection
           // out of the ready path.
-          detail = await getTaskDetail(id);
+          detail = reportTiming
+            ? await getTaskDetail(id, { onTiming: reportTiming })
+            : await getTaskDetail(id);
           if (sse.closed) return;
           canReuseCachedMessages = matchesCachedRevision(detail);
         }
@@ -113,6 +120,7 @@ export async function GET(
           ...(canReuseCachedMessages
             ? { messagesReused: true }
             : { messages: detail.messages }),
+          ...(perfRequested ? { serverTiming: serverTimings } : {}),
           isStreaming: detail.isStreaming,
           isCompacting: detail.isCompacting,
           contextUsage: detail.contextUsage,

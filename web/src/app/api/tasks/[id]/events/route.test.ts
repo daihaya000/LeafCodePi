@@ -181,6 +181,34 @@ describe("/api/tasks/[id]/events", () => {
     await reader.cancel();
   });
 
+  it("returns opt-in getTaskDetail timings for perf diagnostics", async () => {
+    const bootstrap = task({ messages: [], isStreaming: false, status: "idle" });
+    const detail = task({ messages: [], isStreaming: false, status: "idle" });
+    type TimingOptions = {
+      onTiming?: (timing: { phase: string; durationMs: number }) => void;
+    };
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail.mockImplementation((_id: string, options?: TimingOptions) => {
+      options?.onTiming?.({ phase: "ensureLive", durationMs: 1.2 });
+      return Promise.resolve(detail);
+    });
+    mocks.subscribeTask.mockReturnValue(vi.fn());
+
+    const response = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events?perf=1"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const reader = response.body!.getReader();
+    await readChunk(reader);
+
+    const readyPayload = eventData(await readChunk(reader));
+    expect(readyPayload.serverTiming).toEqual([
+      { phase: "ensureLive", durationMs: 1.2 },
+    ]);
+
+    await reader.cancel();
+  });
+
   it("drops buffered snapshots older than the ready tip", async () => {
     const bootstrap = task({ messages: [], isStreaming: true });
     const detail = task({

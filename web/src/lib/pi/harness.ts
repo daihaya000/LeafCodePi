@@ -1341,6 +1341,25 @@ export function sessionContextUsage(
   return value;
 }
 
+type TaskDetailTiming = {
+  phase: string;
+  durationMs: number;
+};
+
+type TaskDetailTimingReporter = (timing: TaskDetailTiming) => void;
+
+function reportTaskDetailPhase(
+  reporter: TaskDetailTimingReporter | undefined,
+  phase: string,
+  startedAt: number,
+): void {
+  if (!reporter) return;
+  reporter({
+    phase,
+    durationMs: Math.max(0, performance.now() - startedAt),
+  });
+}
+
 function sessionSnapshotFields(
   session: AgentSession,
   throughputByStartedAt?: Map<number, ThroughputTiming>,
@@ -1349,6 +1368,7 @@ function sessionSnapshotFields(
   toolPartialOutputByCallId?: Map<string, string>,
   accountContext?: MessageAccountContext,
   includeMessages = true,
+  reporter?: TaskDetailTimingReporter,
 ): {
   messages: UiMessage[];
   isStreaming: boolean;
@@ -1357,26 +1377,42 @@ function sessionSnapshotFields(
   goalLoop: GoalLoopDto | null;
   todos: TodoDto[];
 } {
+  const messagesStartedAt = reporter ? performance.now() : 0;
+  const messages = includeMessages
+    ? snapshotMessages(
+        session,
+        throughputByStartedAt,
+        toolStartedAt,
+        toolEndedAt,
+        toolPartialOutputByCallId,
+        false,
+        accountContext,
+      )
+    : [];
+  reportTaskDetailPhase(reporter, "messages", messagesStartedAt);
+
+  const contextStartedAt = reporter ? performance.now() : 0;
+  const contextUsage = sessionContextUsage(session);
+  reportTaskDetailPhase(reporter, "contextUsage", contextStartedAt);
+
+  const goalLoopStartedAt = reporter ? performance.now() : 0;
+  const goalLoop = readGoalLoopState(
+    session.sessionManager.getCwd(),
+    session.sessionId,
+  );
+  reportTaskDetailPhase(reporter, "goalLoop", goalLoopStartedAt);
+
+  const todosStartedAt = reporter ? performance.now() : 0;
+  const todos = todosFromPiMessages(session.messages);
+  reportTaskDetailPhase(reporter, "todos", todosStartedAt);
+
   return {
-    messages: includeMessages
-      ? snapshotMessages(
-          session,
-          throughputByStartedAt,
-          toolStartedAt,
-          toolEndedAt,
-          toolPartialOutputByCallId,
-          false,
-          accountContext,
-        )
-      : [],
+    messages,
     isStreaming: session.isStreaming,
     isCompacting: session.isCompacting,
-    contextUsage: sessionContextUsage(session),
-    goalLoop: readGoalLoopState(
-      session.sessionManager.getCwd(),
-      session.sessionId,
-    ),
-    todos: todosFromPiMessages(session.messages),
+    contextUsage,
+    goalLoop,
+    todos,
   };
 }
 
@@ -4810,6 +4846,7 @@ export function getTaskBootstrap(id: string): TaskDetail {
 
 type GetTaskDetailOptions = {
   includeMessages?: boolean;
+  onTiming?: TaskDetailTimingReporter;
 };
 
 export async function getTaskDetail(
@@ -4817,12 +4854,15 @@ export async function getTaskDetail(
   options: GetTaskDetailOptions = {},
 ): Promise<TaskDetail> {
   const includeMessages = options.includeMessages !== false;
+  const totalStartedAt = options.onTiming ? performance.now() : 0;
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   if (task.status === "archived") {
+    const offlineStartedAt = options.onTiming ? performance.now() : 0;
     const offline = await readArchivedTaskSnapshot(task);
-    return {
+    reportTaskDetailPhase(options.onTiming, "archivedRead", offlineStartedAt);
+    const detail = {
       ...getTaskBootstrap(id),
       messages: offline.messages,
       todos: offline.todos,
@@ -4834,6 +4874,8 @@ export async function getTaskDetail(
       revertLeafId: task.revertLeafId ?? null,
       manualAbortedAssistantId: task.manualAbortedAssistantId ?? null,
     };
+    reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
+    return detail;
   }
   let messages: UiMessage[] = [];
   let isStreaming = false;
@@ -4845,7 +4887,10 @@ export async function getTaskDetail(
   let revertLeafId: string | null = task.revertLeafId ?? null;
   let manualAbortedAssistantId: string | null = task.manualAbortedAssistantId ?? null;
   try {
+    const ensureLiveStartedAt = options.onTiming ? performance.now() : 0;
     const live = await ensureLive(id);
+    reportTaskDetailPhase(options.onTiming, "ensureLive", ensureLiveStartedAt);
+    const fieldsStartedAt = options.onTiming ? performance.now() : 0;
     const fields = sessionSnapshotFields(
       live.session,
       live.throughputByStartedAt,
@@ -4854,7 +4899,9 @@ export async function getTaskDetail(
       live.toolPartialOutputByCallId,
       { accountId: live.accountId, byMessageId: live.accountByMessageId },
       includeMessages,
+      options.onTiming,
     );
+    reportTaskDetailPhase(options.onTiming, "snapshotFields", fieldsStartedAt);
     messages = fields.messages;
     isStreaming = fields.isStreaming;
     isCompacting = fields.isCompacting;
@@ -4871,7 +4918,7 @@ export async function getTaskDetail(
       { status: 503 },
     );
   }
-  return {
+  const detail = {
     ...toSummary(getTask(id) ?? task),
     messages,
     isStreaming,
@@ -4885,6 +4932,21 @@ export async function getTaskDetail(
     hangRetryCount,
     revertLeafId,
   };
+  reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
+  return detail;
+}
+
+/**
+ * Live Goal Loop sessions owned by this WebUI process. A WebUI restart ends
+ * every Pi session, and the loop pauses on session_shutdown, so the host
+ * control plane refuses to restart while this list is non-empty. Process
+ * scoped on purpose: a persisted "running" file left by a killed worker must
+ * not block restart forever.
+ */
+export function activeGoalLoopTaskIds(): string[] {
+  return [...state().live.values()]
+    .filter((live) => isActiveGoalLoopSession(live.session))
+    .map((live) => live.taskId);
 }
 
 export async function goalLoopState(
