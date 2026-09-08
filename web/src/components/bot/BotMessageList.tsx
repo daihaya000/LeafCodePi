@@ -11,13 +11,13 @@ import type { BotDto, UiMessage } from "@/lib/types";
 /** Elements that carry prose; each rewrites only its own bare text into mention chips. */
 const MENTION_TAGS = ["p", "li", "strong", "em", "td", "th", "h1", "h2", "h3", "h4", "blockquote"] as const;
 
-export function BotMessageMarkdown({ text, mentions, keyPrefix = "md" }: { text: string; mentions?: BotDto[]; keyPrefix?: string }) {
+export function BotMessageMarkdown({ text, mentions, keyPrefix = "md", prefix }: { text: string; mentions?: BotDto[]; keyPrefix?: string; prefix?: ReactNode }) {
   const components = mentions?.length
     ? Object.fromEntries(MENTION_TAGS.map((Tag) => [Tag, ({ children, ...props }: { children?: ReactNode }) => (
       <Tag {...props}>{withMentions(children, mentions, keyPrefix)}</Tag>
     )]))
     : undefined;
-  return <div className="md"><Markdown remarkPlugins={[remarkGfm]} components={components}>{text}</Markdown></div>;
+  return <div className={prefix ? "md [&>p:first-of-type]:inline" : "md"}>{prefix}<Markdown remarkPlugins={[remarkGfm]} components={components}>{text}</Markdown></div>;
 }
 
 export function BotMessageList({ conversationId, children }: { conversationId: string; children: ReactNode }) {
@@ -76,8 +76,8 @@ export function BotResponseStatus({
 export function BotMessageRow({ user, createdAt, children, footer }: { user: boolean; createdAt: number; children: ReactNode; footer?: ReactNode }) {
   return (
     <div className={`flex flex-col gap-1 ${user ? "items-end" : "items-start"}`}>
+      <div className={`min-w-0 max-w-bubble rounded-3xl px-4 py-3 text-base leading-7 [overflow-wrap:anywhere] ${user ? "bg-bot-user text-white" : "rounded-tl-lg bg-bot-assistant text-text"}`}>{children}</div>
       <BotMessageTime createdAt={createdAt} />
-      <div className={`min-w-0 max-w-bubble rounded-3xl px-4 py-2.5 text-base leading-6 ${user ? "bg-bot-user text-white" : "bg-bot-assistant text-text"}`}>{children}</div>
       {footer}
     </div>
   );

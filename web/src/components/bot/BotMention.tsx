@@ -12,10 +12,10 @@ function escapeRegExp(value: string): string {
 function MentionChip({ bot, label, tone }: { bot?: BotDto; label: string; tone: "user" | "bot" }) {
   const className = tone === "user"
     ? "bg-white/90 text-accent"
-    : "bg-surface-2 text-text";
+    : "bg-surface-3 text-text";
   return (
-    <span data-mention={bot?.id ?? label} className={`mx-0.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 align-baseline font-medium ${className}`}>
-      {bot && <BotAvatar size={16} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />}
+    <span data-mention={bot?.id ?? label} className={`mx-0.5 inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 align-baseline font-medium ${className}`}>
+      {bot && <BotAvatar size={20} color={bot.avatarColor} image={bot.avatarImage} name={bot.name} />}
       {bot ? bot.name : label}
     </span>
   );
