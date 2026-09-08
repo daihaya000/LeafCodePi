@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { acquireTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks, taskRuntimeLeasePath, ORPHANED_WORKING_TASK_ERROR } from "./task-runtime-lease";
 import { insertBotTask, insertTask, getTask, patchTask } from "./store";
 
@@ -14,6 +14,21 @@ afterEach(() => {
 });
 
 describe("task runtime restart reconciliation", () => {
+  it("shares ownership across module reloads and releases from either instance", async () => {
+    const dir = join(tmpdir(), `leafcode-reload-lease-${Date.now()}-${Math.random()}`);
+    dirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    expect(acquireTaskLease("reload")).toBe(true);
+    try {
+      vi.resetModules();
+      const reloaded = await import("./task-runtime-lease");
+      expect(reloaded.acquireTaskLease("reload")).toBe(true);
+      reloaded.releaseTaskLease("reload");
+      expect(reloaded.hasActiveTaskLease("reload")).toBe(false);
+    } finally {
+      releaseTaskLease("reload");
+    }
+  });
   it("keeps leased work and fails an orphaned working task without dispatching it", () => {
     const dir = join(tmpdir(), `leafcode-reconcile-${Date.now()}-${Math.random()}`);
     dirs.push(dir);

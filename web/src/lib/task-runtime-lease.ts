@@ -9,9 +9,21 @@ type TaskLeaseRecord = { token: string; pid: number; acquiredAt: number; heartbe
 const TASK_LEASE_STALE_MS = 60_000;
 const HEARTBEAT_MS = 15_000;
 const MAX_ACQUIRE_ATTEMPTS = 4;
-const PROCESS_TOKEN = randomUUID();
-const ownedTasks = new Set<string>();
-let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+// Match the harness runtime lifetime across Next route bundles and hot reloads.
+const globalRef = globalThis as typeof globalThis & {
+  __leafcodeTaskLeaseState?: {
+    token: string;
+    ownedTasks: Set<string>;
+    heartbeatTimer: ReturnType<typeof setInterval> | null;
+  };
+};
+const leaseState = globalRef.__leafcodeTaskLeaseState ??= {
+  token: randomUUID(),
+  ownedTasks: new Set<string>(),
+  heartbeatTimer: null,
+};
+const PROCESS_TOKEN = leaseState.token;
+const ownedTasks = leaseState.ownedTasks;
 
 function leasePath(taskId: string): string {
   const safeId = taskId.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -41,11 +53,11 @@ function leaseActive(record: TaskLeaseRecord | null, now = Date.now()): boolean 
 }
 
 function ensureHeartbeat(): void {
-  if (heartbeatTimer) return;
-  heartbeatTimer = setInterval(() => {
+  if (leaseState.heartbeatTimer) return;
+  leaseState.heartbeatTimer = setInterval(() => {
     for (const taskId of ownedTasks) touchTaskLease(taskId);
   }, HEARTBEAT_MS);
-  heartbeatTimer.unref?.();
+  leaseState.heartbeatTimer.unref?.();
 }
 
 function touchTaskLease(taskId: string): void {
