@@ -1,7 +1,8 @@
 import { appendRoomMessage, ensureRoomBotTask, getRoom, roomBotTaskId, setRoomOutcome, updateRoomMessage } from "./rooms";
 import { getBot } from "./bots";
 import { getTask } from "./store";
-import { getTaskDetail, promptTask, subscribeTask } from "./pi/harness";
+import { getTaskDetail, promptTask, subscribeTask, abortTask } from "./pi/harness";
+import { withBotCodeSessionLock } from "./bot-code-session-lock";
 import { pendingRoomCodeRequestForTurn, type CodeRequest } from "./pi/bot-code-relay";
 import { toolLabel } from "./tool-labels";
 import { latestRoomRequest, MAX_ROOM_CONVERSATION_TURNS, parseRoomReply, roomBotPrompt, type RoomReply, type RoomTurn } from "./room-conversation";
@@ -93,6 +94,9 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
   roomBotRuns.set(taskId, current);
   try {
     await previous;
+    // Room files are shared across workers, so the in-process queue alone cannot keep two
+    // workers from prompting the same room session at once.
+    return await withBotCodeSessionLock(`room-turn-${room.id}-${bot.id}`, async () => {
     const liveRoom = getRoom(room.id);
     if (!liveRoom) return;
     if (turn && latestRoomRequest(liveRoom)?.id !== requestId) {
@@ -133,6 +137,7 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     const delegated = pendingRoomCodeRequestForTurn(room.id, requestId);
     if (delegated) trackRoomCodeProgress(room.id, delegated);
     return error || !text.trim() ? undefined : reply;
+    }, { timeoutMs: ROOM_TURN_LOCK_TIMEOUT_MS });
   } catch (error) {
     updateRoomMessage(room.id, responseId, { text: error instanceof Error ? error.message : String(error), status: "error" });
   } finally {
@@ -142,6 +147,47 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
 }
 
 const STALE_TURN_MS = 5 * 60_000;
+const ROOM_TURN_LOCK_TIMEOUT_MS = 10 * 60_000;
+
+/** Turns currently being written in this room, newest first. */
+function workingTurns(roomId: string): { messageId: string; botId: string; taskId: string }[] {
+  return (getRoom(roomId)?.messages ?? [])
+    .filter((message) => message.status === "working" && message.botId)
+    .map((message) => ({ messageId: message.id, botId: message.botId!, taskId: roomBotTaskId(roomId, message.botId!) }));
+}
+
+/** "Stop now" ends the turns being written. Delegated Code keeps running; it has its own control. */
+export async function stopRoomTurns(roomId: string): Promise<number> {
+  const turns = workingTurns(roomId);
+  const results = await Promise.allSettled(turns.map((entry) => abortTask(entry.taskId)));
+  return results.filter((result) => result.status === "fulfilled").length;
+}
+
+/**
+ * A new instruction redirects the turn already being written instead of queuing behind it.
+ * The steered bots answer once, so the caller must not start a second turn for them.
+ */
+export async function steerRoomTurns(roomId: string, prompt: string): Promise<string[]> {
+  const turns = workingTurns(roomId);
+  const content = `[割り込み] ユーザーの新しい指示: ${JSON.stringify(prompt)}\nこのターンはこの指示を優先して続ける。`;
+  const results = await Promise.allSettled(turns.map((entry) => promptTask(entry.taskId, content, undefined, { streamingBehavior: "steer" })));
+  return turns.flatMap((entry, index) => results[index].status === "fulfilled" ? [entry.botId] : []);
+}
+
+const FAN_OUT_LIMIT = 4;
+/** Independent replies still cost a model call each: keep a large room from starting them all at once. */
+export async function runRoomFanOut(room: RoomDto, bots: BotDto[], prompt: string, responseIds: string[], requestId: string): Promise<void> {
+  const queue = bots.map((bot, index) => ({ bot, responseId: responseIds[index] })).filter((entry) => entry.responseId);
+  let next = 0;
+  const worker = async () => {
+    for (let index = next++; index < queue.length; index = next++) {
+      const entry = queue[index];
+      await runRoomBot(room, entry.bot, prompt, entry.responseId, requestId);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(FAN_OUT_LIMIT, queue.length) }, worker));
+}
+
 /** A crashed worker leaves "working" placeholders behind; nothing else ever settles them. */
 export function settleStaleRoomTurns(roomId: string, now = Date.now()): number {
   const stale = (getRoom(roomId)?.messages ?? []).filter((message) => {

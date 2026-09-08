@@ -3,7 +3,7 @@ import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, getRoom
 import { getBot } from "@/lib/bots";
 import { jsonError } from "@/lib/pi/harness";
 import { isRoomConversationRequest, isRoomStopRequest, MAX_ROOM_CONVERSATION_PARTICIPANTS } from "@/lib/room-conversation";
-import { runRoomBot, runRoomConversation, settleStaleRoomTurns } from "@/lib/room-runtime";
+import { runRoomBot, runRoomConversation, runRoomFanOut, settleStaleRoomTurns, steerRoomTurns, stopRoomTurns } from "@/lib/room-runtime";
 import type { BotDto, RoomMessage } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,18 +35,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     settleStaleRoomTurns(id);
     const userMessage = appendRoomMessage(id, { role: "user", text: prompt });
     if (!userMessage) return NextResponse.json({ error: "Room not found" }, { status: 404 });
-    if (isRoomStopRequest(prompt)) return NextResponse.json({ room: getRoom(id), routedBotIds: [], stopped: true });
+    if (isRoomStopRequest(prompt)) {
+      const stopped = await stopRoomTurns(id);
+      return NextResponse.json({ room: getRoom(id), routedBotIds: [], stopped: true, stoppedTurns: stopped });
+    }
+    // A new instruction redirects the turns already being written; those bots answer once, there.
+    const steered = new Set(await steerRoomTurns(id, prompt));
     const naturalRoomMessage = !prompt.includes("@") && body.broadcast !== true;
     const conversation = naturalRoomMessage || isRoomConversationRequest(prompt);
     let routed = botsForRoomPrompt(room, prompt, body.broadcast === true);
     if (conversation && routed.bots.length === 0 && !prompt.includes("@")) routed = botsForRoomPrompt(room, prompt, true);
-    if (conversation && routed.bots.length > 1) {
-      const participants = [...routed.bots].sort((a, b) => room.members.indexOf(a.id) - room.members.indexOf(b.id)).slice(0, MAX_ROOM_CONVERSATION_PARTICIPANTS);
+    const pending = routed.bots.filter((bot) => !steered.has(bot.id));
+    if (conversation && pending.length > 1) {
+      const participants = [...pending].sort((a, b) => room.members.indexOf(a.id) - room.members.indexOf(b.id)).slice(0, MAX_ROOM_CONVERSATION_PARTICIPANTS);
       void runRoomConversation(room, participants, prompt, userMessage.id).catch(() => console.error("Room conversation failed"));
-      return NextResponse.json({ room: getRoom(id), routedBotIds: routed.bots.map((bot) => bot.id), broadcast: routed.broadcast });
+      return NextResponse.json({ room: getRoom(id), routedBotIds: participants.map((bot) => bot.id), steeredBotIds: [...steered], broadcast: routed.broadcast });
     }
-    const responses = routed.bots.map((bot) => appendRoomMessage(id, { role: "assistant", botId: bot.id, botName: bot.name, text: "", status: "working" })).filter((item): item is NonNullable<typeof item> => Boolean(item));
-    for (const [index, bot] of routed.bots.entries()) { const response = responses[index]; if (response) void runRoomBot(room, bot, prompt, response.id, userMessage.id); }
-    return NextResponse.json({ room: getRoom(id), routedBotIds: routed.bots.map((bot) => bot.id), broadcast: routed.broadcast });
+    const responses = pending.map((bot) => appendRoomMessage(id, { role: "assistant", botId: bot.id, botName: bot.name, text: "", status: "working" })).filter((item): item is NonNullable<typeof item> => Boolean(item));
+    void runRoomFanOut(room, pending, prompt, responses.map((response) => response.id), userMessage.id).catch(() => console.error("Room fan-out failed"));
+    return NextResponse.json({ room: getRoom(id), routedBotIds: pending.map((bot) => bot.id), steeredBotIds: [...steered], broadcast: routed.broadcast });
   } catch (error) { const { error: message, status } = jsonError(error); return NextResponse.json({ error: message }, { status }); }
 }

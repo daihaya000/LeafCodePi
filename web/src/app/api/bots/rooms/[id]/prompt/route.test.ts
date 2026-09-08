@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   listeners: new Map<string, Set<(payload: Record<string, unknown>) => void>>(),
   completions: new Map<string, () => void>(),
   promptTask: vi.fn(),
+  abortTask: vi.fn(),
 }));
 vi.mock("@/lib/paths", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/paths")>(),
@@ -20,6 +21,7 @@ vi.mock("@/lib/paths", async (importOriginal) => ({
 vi.mock("@/lib/pi/harness", () => ({
   getTaskDetail: vi.fn(async (id: string) => state.details.get(id)),
   promptTask: state.promptTask,
+  abortTask: state.abortTask,
   pendingPermissionForTask: vi.fn(() => null),
   pendingQuestionForTask: vi.fn(() => null),
   subscribeTask: (id: string, listener: (payload: Record<string, unknown>) => void) => {
@@ -84,6 +86,7 @@ afterEach(async () => {
   state.details.clear();
   state.listeners.clear();
   state.promptTask.mockReset();
+  state.abortTask.mockReset();
   vi.restoreAllMocks();
 });
 
@@ -112,7 +115,8 @@ describe("room mention responses", () => {
   it("keeps a large room legible by limiting one exchange to six voices", async () => {
     const { room, bots } = setup(["A", "B", "C", "D", "E", "F", "G", "H"]);
     const result = await (await send(room.id, "残作業も進めて")).json();
-    expect(result.routedBotIds).toHaveLength(8);
+    // The response names the voices that will actually speak, not every member.
+    expect(result.routedBotIds).toEqual(bots.slice(0, 6).map((member) => member.id));
     await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalled());
     for (let turn = 0; turn < 6; turn += 1) {
       await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(turn + 1));
@@ -197,6 +201,61 @@ describe("room mention responses", () => {
     expect(state.promptTask.mock.calls.map(([id]) => id)).toEqual(taskIds.slice(0, 2));
   });
 
+  it("starts at most four independent replies at once and drains the rest", async () => {
+    const { room, taskIds } = setup(["A", "B", "C", "D", "E", "F"]);
+    await send(room.id, "@here 状況を教えて");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(4));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(state.promptTask).toHaveBeenCalledTimes(4);
+
+    const started = state.promptTask.mock.calls.map(([id]) => id as string);
+    finish(started[0], { messages: [assistant("a", "A reply")] });
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(5));
+    finish(started[1], { messages: [assistant("b", "B reply")] });
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(6));
+    expect(new Set(state.promptTask.mock.calls.map(([id]) => id)).size).toBe(taskIds.length);
+  });
+
+  it("redirects the turn already being written instead of queuing a second one for that bot", async () => {
+    const { room, bots, taskIds } = setup(["A", "B"]);
+    await send(room.id, "@A first");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+
+    const result = await (await send(room.id, "@A second")).json();
+    expect(result.steeredBotIds).toEqual([bots[0].id]);
+    expect(result.routedBotIds).toEqual([]);
+    // The running turn receives the new instruction; no extra turn is queued for that bot.
+    expect(state.promptTask).toHaveBeenCalledTimes(2);
+    expect(state.promptTask.mock.calls[1][1]).toContain("@A second");
+    expect(state.promptTask.mock.calls[1][3]).toMatchObject({ streamingBehavior: "steer" });
+
+    finish(taskIds[0], { messages: [assistant("first", "Redirected reply")] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "done")).toHaveLength(1));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(state.promptTask).toHaveBeenCalledTimes(2);
+  });
+
+  it("still starts a turn for a bot that is not currently writing", async () => {
+    const { room, bots, taskIds } = setup(["A", "B"]);
+    await send(room.id, "@A first");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+    const result = await (await send(room.id, "@B please help")).json();
+    expect(result.steeredBotIds).toEqual([bots[0].id]);
+    expect(result.routedBotIds).toEqual([bots[1].id]);
+    await vi.waitFor(() => expect(state.promptTask.mock.calls.map(([id]) => id)).toContain(taskIds[1]));
+  });
+
+  it("stops the turns being written when the user says stop", async () => {
+    const { room, taskIds } = setup(["A", "B"]);
+    await send(room.id, "@here Earlier work");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(2));
+    const result = await (await send(room.id, "/stop")).json();
+    expect(result).toMatchObject({ stopped: true, stoppedTurns: 2 });
+    expect(state.abortTask.mock.calls.map(([id]) => id).sort()).toEqual([...taskIds].sort());
+    // Stopping never steers: the interrupted turns must not receive the stop text as an instruction.
+    expect(state.promptTask).toHaveBeenCalledTimes(2);
+  });
+
   it("does not execute a superseded conversation after waiting in the bot queue", async () => {
     const { room, taskIds } = setup(["A", "B"]);
     // Both room sessions are busy, so the discussion can only start after the queue drains.
@@ -206,8 +265,9 @@ describe("room mention responses", () => {
     await send(room.id, "/stop");
     for (const taskId of taskIds) finish(taskId, { messages: [assistant(`earlier-${taskId}`, "Earlier reply")] });
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "working")).toHaveLength(0));
-    expect(state.promptTask).toHaveBeenCalledTimes(2);
-    expect(getRoom(room.id)?.messages.some((message) => message.text.includes("superseded"))).toBe(true);
+    // Both busy bots were steered by /discuss, so no third turn started for the superseded request.
+    expect(state.promptTask).toHaveBeenCalledTimes(4);
+    expect(getRoom(room.id)?.messages.some((message) => message.text.includes("superseded"))).toBe(false);
   });
 
   it.each(["superseded", "disabled"])("revalidates a %s turn after asynchronous task preparation", async (change) => {
@@ -269,15 +329,16 @@ describe("room mention responses", () => {
     expect(state.listeners.get(taskId)?.size ?? 0).toBe(0);
   });
 
-  it("matches rapid consecutive prompts to their own replies, even at the same timestamp", async () => {
+  it("matches consecutive prompts to their own replies, even at the same timestamp", async () => {
     const { room, taskIds: [taskId] } = setup();
     await send(room.id, "@A first");
     await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
-    await send(room.id, "@A second");
-    expect(state.promptTask).toHaveBeenCalledTimes(1);
     const first = assistant("first", "First reply");
     const second = { ...assistant("second", "Second reply"), createdAt: first.createdAt };
     finish(taskId, { messages: [first] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.at(-1)).toMatchObject({ status: "done", text: "First reply" }));
+
+    await send(room.id, "@A second");
     await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(2));
     expect(getRoom(room.id)?.messages.filter((message) => message.role === "assistant")).toMatchObject([
       { status: "done", text: "First reply" }, { status: "working", text: "" },

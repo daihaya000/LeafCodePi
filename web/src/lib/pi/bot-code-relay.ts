@@ -48,7 +48,11 @@ function save(request: CodeRequest): void {
   const temporary = `${path}.${process.pid}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(request)}\n`, "utf8");
   renameSync(temporary, path);
-  if (request.room) updateRoomMessage(request.room.id, request.room.responseId, { codeRequestId: request.id, codeTaskId: request.codeTaskId, codeState: request.state });
+  if (request.room) updateRoomMessage(request.room.id, request.room.responseId, {
+    codeRequestId: request.id, codeTaskId: request.codeTaskId, codeState: request.state,
+    // Progress belongs to a live run only. Clearing it here also covers a worker that died mid-run.
+    ...(request.state === "starting" || request.state === "running" ? {} : { codeActivity: "" }),
+  });
 }
 function read(id: string): CodeRequest | undefined {
   const path = requestPath(id);
