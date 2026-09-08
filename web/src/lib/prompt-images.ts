@@ -3,12 +3,14 @@ export type PromptImageInput = {
   data: string;
 };
 
+const PROMPT_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
 export function isPromptImage(value: unknown): value is PromptImageInput {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const image = value as Record<string, unknown>;
   return (
     typeof image.mimeType === "string" &&
-    image.mimeType.length > 0 &&
+    PROMPT_IMAGE_MIME_TYPES.has(image.mimeType.toLowerCase()) &&
     typeof image.data === "string" &&
     image.data.length > 0
   );

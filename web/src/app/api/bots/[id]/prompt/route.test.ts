@@ -14,10 +14,10 @@ vi.mock("../../../../../lib/pi/harness", () => ({
 import { createBot, patchBot } from "../../../../../lib/bots";
 import { POST } from "./route";
 
-function request(prompt: unknown, goalLoop?: unknown): NextRequest {
+function request(prompt: unknown, goalLoop?: unknown, images?: unknown): NextRequest {
   return new NextRequest("http://localhost", {
     method: "POST",
-    body: JSON.stringify({ prompt, ...(goalLoop === undefined ? {} : { goalLoop }) }),
+    body: JSON.stringify({ prompt, ...(goalLoop === undefined ? {} : { goalLoop }), ...(images === undefined ? {} : { images }) }),
   });
 }
 
@@ -61,6 +61,15 @@ describe("POST /api/bots/[id]/prompt", () => {
 
     expect(response.status).toBe(400);
     expect(state.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported image MIME types before prompting", async () => {
+    const bot = createBot({ name: "Image bot" });
+
+    const response = await POST(request("look", undefined, [{ mimeType: "application/pdf", data: "cGRm" }]), { params: Promise.resolve({ id: bot.id }) });
+
+    expect(response.status).toBe(400);
+    expect(state.promptTask).not.toHaveBeenCalled();
   });
 
   it("keeps direct 1:1 messaging available when the bot is disabled for rooms", async () => {
