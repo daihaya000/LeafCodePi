@@ -13,19 +13,27 @@ export function messageNavigationIds(messages: Pick<UiMessage, "id" | "role">[])
 }
 
 /**
- * Return the first target at or below the viewport line. The navigation
- * buttons move from this target, so the previous button selects the message
- * currently visible instead of skipping it.
+ * ビューポート上端の行を基準に、前(-1)/後(+1)方向の次のジャンプ先を返す。
+ * 追跡インデックスを持たないので、最下部まで読み進めた状態でも「一つ前」が
+ * 直前の対象を飛ばして二つ前へ行くことがない。対象がなければ null。
  */
-export function messageNavigationIndex(
+export function messageNavigationTarget(
   length: number,
-  currentIndex: number,
   line: number,
   topOf: (index: number) => number,
-): number {
-  if (length <= 0) return 0;
-  let index = Math.min(Math.max(currentIndex, 0), length - 1);
-  while (index < length && topOf(index) < line) index += 1;
-  while (index > 0 && topOf(index - 1) >= line) index -= 1;
-  return Math.min(index, length - 1);
+  direction: -1 | 1,
+): number | null {
+  if (length <= 0) return null;
+  // スムーズスクロール後の端数で同じ対象を再選択しないための余裕。
+  const tolerance = 2;
+  if (direction < 0) {
+    for (let index = length - 1; index >= 0; index -= 1) {
+      if (topOf(index) < line - tolerance) return index;
+    }
+    return 0;
+  }
+  for (let index = 0; index < length; index += 1) {
+    if (topOf(index) > line + tolerance) return index;
+  }
+  return null;
 }

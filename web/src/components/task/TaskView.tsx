@@ -87,7 +87,7 @@ import {
   resolveAgentSelection,
   writeStoredAgent,
 } from "@/lib/default-agent";
-import { messageNavigationIndex } from "@/lib/message-navigation";
+import { messageNavigationTarget } from "@/lib/message-navigation";
 import {
   normalizeTaskPanelState,
   toggleTaskPanel,
@@ -660,7 +660,6 @@ export const TaskView = memo(function TaskView({
   // メッセージ間をジャンプするナビゲーター（本家 LeafCode と同じ）。
   // 描画済みメッセージ要素と「今どのナビゲーション対象を見ているか」を保持する。
   const messageElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
-  const currentNavigationIdxRef = useRef(0);
   // onScroll の deps を安定させるため、id 一覧を ref にミラーする（本家と同じ）。
   const navigationMessageIdsRef = useRef<string[]>([]);
   // 呼び出し元（TaskPanesHost）は毎レンダーで新しい onStatus 関数を渡すため、
@@ -1111,18 +1110,19 @@ export const TaskView = memo(function TaskView({
     const prevTop = lastScrollTopRef.current;
     lastScrollTopRef.current = el.scrollTop;
     stickRef.current = nextStickState(stickRef.current, el.scrollTop, prevTop, atBottom);
-    // ビューポート上端に来ているナビゲーション対象を追跡し、前後ジャンプの
-    // 基準にする（本家と同じ incremental スキャン）。
+  }, []);
+
+  // 現在のスクロール上端から見た前後方向のジャンプ先を求める。
+  const navigationTargetAt = useCallback((direction: -1 | 1) => {
+    const el = scrollRef.current;
     const ids = navigationMessageIdsRef.current;
-    if (ids.length > 0 && messageElsRef.current.size > 0) {
-      const line = el.scrollTop + 4;
-      currentNavigationIdxRef.current = messageNavigationIndex(
-        ids.length,
-        currentNavigationIdxRef.current,
-        line,
-        (index) => messageElsRef.current.get(ids[index]!)?.offsetTop ?? Number.POSITIVE_INFINITY,
-      );
-    }
+    if (!el || ids.length === 0) return null;
+    return messageNavigationTarget(
+      ids.length,
+      el.scrollTop + 4,
+      (index) => messageElsRef.current.get(ids[index]!)?.offsetTop ?? Number.POSITIVE_INFINITY,
+      direction,
+    );
   }, []);
 
   // 指定インデックスのナビゲーション対象へスムーズスクロールする。
@@ -1137,7 +1137,6 @@ export const TaskView = memo(function TaskView({
       top: clampScrollTop(targetTop, el.clientHeight, el.scrollHeight),
       behavior: "smooth",
     });
-    currentNavigationIdxRef.current = index;
     stickRef.current = false;
   }, []);
 
@@ -1149,7 +1148,6 @@ export const TaskView = memo(function TaskView({
       top: clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight),
       behavior: "smooth",
     });
-    currentNavigationIdxRef.current = Math.max(0, navigationMessageIdsRef.current.length - 1);
     stickRef.current = true;
   }, []);
 
@@ -1212,7 +1210,6 @@ export const TaskView = memo(function TaskView({
     autoResumeKeyRef.current = null;
     messageElsRef.current.clear();
     navigationMessageIdsRef.current = [];
-    currentNavigationIdxRef.current = 0;
     stickRef.current = true;
     lastScrollTopRef.current = 0;
   }, [taskId]);
@@ -2210,9 +2207,6 @@ export const TaskView = memo(function TaskView({
 
   const navigationTargetLabel = userMessageIds.length > 0 ? "ユーザーメッセージ" : "メッセージ";
   navigationMessageIdsRef.current = navigationMessageIds;
-  currentNavigationIdxRef.current = navigationMessageIds.length > 0
-    ? Math.min(Math.max(currentNavigationIdxRef.current, 0), navigationMessageIds.length - 1)
-    : 0;
 
   function formatDuration(ms: number): string {
     if (!Number.isFinite(ms) || ms <= 0) return "—";
@@ -2484,16 +2478,16 @@ export const TaskView = memo(function TaskView({
                 [
                   `一つ前の${navigationTargetLabel}へ`,
                   () => {
-                    const target = currentNavigationIdxRef.current - 1;
-                    jumpToMessage(target >= 0 ? target : 0);
+                    const target = navigationTargetAt(-1);
+                    if (target !== null) jumpToMessage(target);
                   },
                   <ChevronUp key="i" className="h-4 w-4" />,
                 ],
                 [
                   `一つ後の${navigationTargetLabel}へ`,
                   () => {
-                    const target = currentNavigationIdxRef.current + 1;
-                    if (target >= navigationMessageIdsRef.current.length) {
+                    const target = navigationTargetAt(1);
+                    if (target === null) {
                       jumpToLatest();
                       return;
                     }
