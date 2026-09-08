@@ -229,6 +229,7 @@ export function toolIcon(tool: string, input?: Record<string, unknown>) {
 }
 
 export function formatElapsed(ms: number): string {
+  if (ms < 1_000) return `${Math.max(0, Math.round(ms))}ms`;
   const totalTenths = Math.max(0, Math.round(ms / 100));
   const minutes = Math.floor(totalTenths / 600);
   const seconds = (totalTenths % 600) / 10;
