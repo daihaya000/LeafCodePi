@@ -3,7 +3,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --brand: #10b981;
+  --brand: #4B4B4B;
   --bg: #f7f7f8;
   --surface: #ffffff;
   --surface-2: #f0f0f1;
