@@ -273,9 +273,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       const result = await sendJson<{ room: RoomDto }>(`/api/bots/rooms/${encodeURIComponent(id)}`, { codeAutoApprove: value }, "PATCH");
       setRoom(result.room);
     } catch (reason) {
-      // The route is fail-closed: without Web UI token auth this setting cannot be changed at all.
-      const message = reason instanceof Error ? reason.message : "設定の保存に失敗しました";
-      setError(/unauthorized/i.test(message) ? "Codeの常時承認を変えるにはWebUIのトークン認証が必要です" : message);
+      setError(reason instanceof Error ? reason.message : "設定の保存に失敗しました");
     } finally { setApproveSaving(false); }
   };
 
@@ -538,7 +536,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
                 <input type="checkbox" className="mt-0.5" disabled={approveSaving} checked={room.codeAutoApprove === true} onChange={(event) => void saveAutoApprove(event.target.checked)} />
                 <span className="min-w-0">
                   <span className="block font-medium">Codeを毎回承認せずに実行</span>
-                  <span className="mt-1 block text-xs text-muted">このルームの依頼だけ、承認ダイアログを省略します。変更にWebUIのトークン認証が必要で、Bot自身は変更できません。</span>
+                  <span className="mt-1 block text-xs text-muted">このルームの依頼だけ、承認ダイアログを省略します。Bot自身は変更できません。</span>
                 </span>
               </label>
             </div>

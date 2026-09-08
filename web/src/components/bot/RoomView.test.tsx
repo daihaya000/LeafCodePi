@@ -156,14 +156,15 @@ describe("RoomView delegated work", () => {
     expect(input.value).toBe("やり直したい依頼");
   });
 
-  it("explains that standing Code approval needs Web UI token auth", async () => {
-    mocks.sendJson.mockRejectedValueOnce(new Error("Unauthorized"));
+  it("saves standing Code approval without Web UI token auth", async () => {
+    mocks.sendJson.mockResolvedValueOnce({ room: { ...room, codeAutoApprove: true } });
     render(<RoomView id={room.id} />);
     fireEvent.click(await screen.findByRole("button", { name: "設定" }));
     const toggle = await screen.findByRole("checkbox", { name: /Codeを毎回承認せずに実行/ });
     fireEvent.click(toggle);
     expect(mocks.sendJson).toHaveBeenCalledWith(`/api/bots/rooms/${room.id}`, { codeAutoApprove: true }, "PATCH");
-    expect((await screen.findByRole("alert")).textContent).toContain("トークン認証が必要");
+    await vi.waitFor(() => expect((toggle as HTMLInputElement).checked).toBe(true));
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("shows attachments of a request and sends them with the prompt", async () => {

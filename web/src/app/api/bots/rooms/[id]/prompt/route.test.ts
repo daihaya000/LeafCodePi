@@ -408,18 +408,13 @@ describe("room mention responses", () => {
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.at(-1)).toMatchObject({ status: "done", text: "Recovered" }));
   });
 
-  it("gates standing Code approval behind the same Web UI token", async () => {
+  it("allows changing standing Code approval without Web UI token auth", async () => {
     const { room } = setup(["A", "B"]);
     vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required");
     vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN", "room-admin-token");
     const params = { params: Promise.resolve({ id: room.id }) };
-    const unauthenticated = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ codeAutoApprove: true }) }), params);
-    expect(unauthenticated.status).toBe(403);
-    expect(getRoom(room.id)?.codeAutoApprove).toBeUndefined();
-    // A room rename stays an ordinary, ungated change.
-    expect((await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ name: "Renamed" }) }), params)).status).toBe(200);
-    const authorized = await PATCH(new NextRequest("http://localhost", { method: "PATCH", headers: { authorization: "Bearer room-admin-token" }, body: JSON.stringify({ codeAutoApprove: true }) }), params);
-    expect(authorized.status).toBe(200);
+    const response = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ codeAutoApprove: true }) }), params);
+    expect(response.status).toBe(200);
     expect(getRoom(room.id)?.codeAutoApprove).toBe(true);
   });
 

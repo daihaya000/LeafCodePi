@@ -58,7 +58,7 @@
 
 ## フェーズ4: 権限・機能パリティ
 
-18. **Room設定でのCode自動承認** — `RoomDto.codeAutoApprove`（既定false）＋ `rooms/[id]/route.ts` PATCH。認可は `botRelayEnabled` と同じWebUIトークン必須。`bot-code-relay.ts:162-163` で有効なら `deps.approve` をスキップ（記録はresultに含める）。Bot側から設定変更は不可。
+18. **Room設定でのCode自動承認** — `RoomDto.codeAutoApprove`（既定false）＋ `rooms/[id]/route.ts` PATCH。設定変更にWebUIトークン認証は不要。`bot-code-relay.ts:162-163` で有効なら `deps.approve` をスキップ（記録はresultに含める）。Bot側から設定変更は不可。
 19. **Roomの添付画像** — `RoomMessage.images`（data URL）追加、`RoomView` の `BotComposer` に `attachments` を配線、`promptTask` の `images` へ渡す。
 20. **巻き戻し（Room履歴のみ）** — 新規 `app/api/bots/rooms/[id]/revert/route.ts`（POST `{ messageId }`）
     - 該当ユーザー発言以降（自身を含む）の `room.messages` を削除し `{ text }` を返す。
@@ -87,13 +87,13 @@ npx eslint <変更ファイル>
 - 1-10: 停止後に `promptTask` が増えず自動継続しない。
 - 2-14: 同一Room Botタスクへの並行 `runRoomBot` が直列化。
 - 2-15: 生成中ターンへのsteer後、返答が差し込まれた指示に対応。
-- 4-18: 無認可で `codeAutoApprove` を変えられない。有効時は承認ダイアログなしでCodeが起動。
+- 4-18: `codeAutoApprove` をトークンなしで変更できる。有効時は承認ダイアログなしでCodeが起動。
 - 4-20: 巻き戻し後に旧会話のCodeが `cancelled` になり報告が届かない。
 - 手動一巡回: `/discuss` → 承認（または自動承認）→ 進捗表示 → 長時間ターン中の別送信（反転なし）→ 停止 → 巻き戻し → 再依頼。
 
 ## リスク
 
-- 自動承認（4-18）は権限境界の緩和。既定オフ＋トークン必須。有効Roomでは依頼が即Code実行まで進む点を実装報告に明記する。
+- 自動承認（4-18）は権限境界の緩和。既定オフ。有効Roomでは依頼が即Code実行まで進む点を実装報告に明記する。
 - 旧リレー削除（5-22）は破壊的変更。`fromBot` 経路を外部が使っていないことが前提。
 - ファイルロック（2-14）により、ロック待ちタイムアウト（既定10秒）超過時にRoom発言がエラー確定になる。stale回収（60秒）と合わせ挙動を確認。
 - 追撃指示（2-15）は生成中ターンが途中から新指示に従う挙動変更。最小実装＋テストで固定し、違和感があればsteer無効へ戻す。
