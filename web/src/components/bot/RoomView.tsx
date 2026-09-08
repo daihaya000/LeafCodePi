@@ -188,7 +188,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     setError(null);
     setBusy(true);
     try {
-      const result = await sendJson<{ room: RoomDto; routedBotIds?: string[]; stopped?: boolean }>(
+      const result = await sendJson<{ room: RoomDto; routedBotIds?: string[]; steeredBotIds?: string[]; stopped?: boolean }>(
         `/api/bots/rooms/${encodeURIComponent(id)}/prompt`,
         { prompt: value, broadcast },
       );
@@ -196,7 +196,8 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         setRoom(result.room);
         notifyBotSidebarChanged();
       }
-      if (!result.stopped && result.routedBotIds && result.routedBotIds.length === 0) {
+      // Redirecting a turn already being written is a real outcome, even with nobody newly routed.
+      if (!result.stopped && result.routedBotIds?.length === 0 && !result.steeredBotIds?.length) {
         setError("応答できるボットがいません。有効なメンバーとメンション先を確認してください。");
       }
     } catch (reason) { setError(reason instanceof Error ? reason.message : "リクエストに失敗しました"); }

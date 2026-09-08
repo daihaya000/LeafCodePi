@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, appendFileSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -14,9 +14,10 @@ type RoomRelayEnvelope = { roomId: string; sourceBotId: string; targetBotIds: st
 type RoomRelayState = { envelopes: Record<string, RoomRelayEnvelope>; claims: Record<string, string[]> };
 const RELAY_ENVELOPE_TTL_MS = 10 * 60 * 1000;
 
-function relayRoot(roomId: string): string { return join(roomsRoot(), roomId); }
+/** Per-room data directory: relay state today, archived history alongside it. */
+function roomDataRoot(roomId: string): string { return join(roomsRoot(), roomId); }
 function roomLockPath(roomId: string): string { assertId(roomId); return join(roomsRoot(), `${roomId}.lock`); }
-function relayStatePath(roomId: string): string { assertId(roomId); return join(relayRoot(roomId), "relay.json"); }
+function relayStatePath(roomId: string): string { assertId(roomId); return join(roomDataRoot(roomId), "relay.json"); }
 function readRelayState(roomId: string): RoomRelayState {
   try {
     const value = JSON.parse(readFileSync(relayStatePath(roomId), "utf8")) as Partial<RoomRelayState>;
@@ -26,7 +27,7 @@ function readRelayState(roomId: string): RoomRelayState {
   } catch { return { envelopes: {}, claims: {} }; }
 }
 function writeRelayState(roomId: string, state: RoomRelayState): void {
-  mkdirSync(relayRoot(roomId), { recursive: true });
+  mkdirSync(roomDataRoot(roomId), { recursive: true });
   const path = relayStatePath(roomId);
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, "utf8");
@@ -194,7 +195,7 @@ export function deleteRoom(id: string): boolean {
   return withRoomLock(id, () => {
     if (!readRoom(id)) return false;
     rmSync(roomPath(id), { force: true });
-    rmSync(relayRoot(id), { recursive: true, force: true });
+    rmSync(roomDataRoot(id), { recursive: true, force: true });
     for (const task of listTasks(true, "bot")) {
       if (task.id.endsWith(`:room:${id}`)) deleteTask(task.id);
     }
@@ -216,6 +217,14 @@ export function ensureRoomBotTask(room: RoomDto, bot: BotDto): string {
   if (base) patchTask(id, { title, providerID: base.providerID, modelID: base.modelID, thinkingLevel: base.thinkingLevel, accountId: base.accountId, accountIdExplicit: base.accountIdExplicit, permissionMode: base.permissionMode });
   return id;
 }
+/** Live rooms stay a bounded file; older turns move to append-only history. */
+const MAX_LIVE_ROOM_MESSAGES = 500;
+function archiveOverflow(room: RoomDto): void {
+  if (room.messages.length <= MAX_LIVE_ROOM_MESSAGES) return;
+  const overflow = room.messages.splice(0, room.messages.length - MAX_LIVE_ROOM_MESSAGES);
+  mkdirSync(roomDataRoot(room.id), { recursive: true });
+  appendFileSync(join(roomDataRoot(room.id), "history.jsonl"), `${overflow.map((message) => JSON.stringify(message)).join("\n")}\n`, "utf8");
+}
 export function appendRoomMessage(id: string, message: Omit<RoomMessage, "id" | "createdAt"> & { id?: string; createdAt?: number }): RoomMessage | undefined {
   return withRoomLock(id, () => {
     const room = readRoom(id);
@@ -224,6 +233,7 @@ export function appendRoomMessage(id: string, message: Omit<RoomMessage, "id" | 
     if (existing) return existing;
     const next: RoomMessage = { ...message, id: message.id ?? randomUUID(), createdAt: message.createdAt ?? Date.now() };
     room.messages.push(next);
+    archiveOverflow(room);
     room.updatedAt = new Date().toISOString();
     writeRoom(room);
     return next;

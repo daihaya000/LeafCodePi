@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const testState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => testState.root, storePath: () => join(testState.root, "store.json") }; });
 import { botTaskId, createBot, deleteBot, patchBot } from "./bots";
-import { botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom } from "./rooms";
+import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom } from "./rooms";
 import { getTask } from "./store";
 
 describe("room store and mention routing", () => {
@@ -39,6 +39,19 @@ describe("room store and mention routing", () => {
     }
     expect(botsForRoomPrompt(room, "user@Alpha.example @AlphaExtra @here-other @everyoneElse", false, bots).bots).toEqual([]);
     expect(botsForRoomPrompt(room, "@a、@C++。", false, bots).bots.map((bot) => bot.name)).toEqual(["A", "C++"]);
+  });
+  it("keeps the live room bounded and moves older turns to append-only history", () => {
+    const bot = createBot({ name: "Alpha" });
+    const room = createRoom({ members: [bot.id] });
+    for (let index = 0; index < 505; index += 1) appendRoomMessage(room.id, { role: "user", text: `発言 ${index}` });
+    const messages = getRoom(room.id)!.messages;
+    expect(messages).toHaveLength(500);
+    expect(messages[0].text).toBe("発言 5");
+    expect(messages.at(-1)?.text).toBe("発言 504");
+    const archived = readFileSync(join(root, "bots", "rooms", room.id, "history.jsonl"), "utf8").trim().split("\n");
+    expect(archived).toHaveLength(5);
+    expect(JSON.parse(archived[0]).text).toBe("発言 0");
+    expect(JSON.parse(archived.at(-1)!).text).toBe("発言 4");
   });
   it("answers room prompts in a room session instead of the 1:1 bot session", () => {
     const alpha = createBot({ name: "Alpha" });

@@ -2,9 +2,18 @@ import { NextRequest } from "next/server";
 import { getRoom, roomBotTaskId, subscribeRoom } from "@/lib/rooms";
 import { pendingPermissionForTask, pendingQuestionForTask, subscribeTask } from "@/lib/pi/harness";
 import { createSseWriter } from "@/lib/sse-writer";
-import type { RoomAttention } from "@/lib/types";
+import type { RoomAttention, RoomDto } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * Cheap change key. Every room write bumps `updatedAt`, so a task event that changed nothing
+ * costs a comparison instead of serialising the whole transcript.
+ */
+export function roomSnapshotSignature(room: RoomDto, attention: RoomAttention[]): string {
+  const waiting = attention.map((item) => `${item.botId}:${item.permission?.id ?? ""}:${item.question?.id ?? ""}`).join(",");
+  return `${room.updatedAt}|${room.messages.length}|${room.members.join(",")}|${waiting}`;
+}
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const id = (await params).id;
   if (!getRoom(id)) return new Response("Room not found", { status: 404 });
@@ -27,8 +36,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           const taskId = roomBotTaskId(id, botId);
           return { botId, taskId, permission: pendingPermissionForTask(taskId), question: pendingQuestionForTask(taskId) };
         }).filter((item) => item.permission || item.question);
-        const serialized = JSON.stringify({ room, attention });
-        if (serialized !== previous) { previous = serialized; sse?.send("snapshot", { type: "snapshot", room, attention }); }
+        const signature = roomSnapshotSignature(room, attention);
+        if (signature !== previous) { previous = signature; sse?.send("snapshot", { type: "snapshot", room, attention }); }
       };
       const unsubscribe = subscribeRoom(id, snapshot);
       // Room files are shared across Next workers; local emitter events alone miss remote outbox reports.
