@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({ root: "", promptTask: vi.fn(), getTaskDetail: 
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => state.root }; });
 vi.mock("./pi/harness", () => ({ promptTask: state.promptTask, getTaskDetail: state.getTaskDetail }));
 import { createBot } from "./bots";
-import { createRoutine, cronMatches, getRoutine, listRoutines, parseCron, patchRoutine, runRoutine, tickRoutines, validateRoutineSchedule } from "./routines";
+import { createRoutine, cronMatches, deleteRoutine, getRoutine, listRoutines, parseCron, patchRoutine, runRoutine, tickRoutines, validateRoutineSchedule } from "./routines";
 
 describe("routine cron and persistence", () => {
   let root = "";
@@ -117,6 +117,19 @@ describe("routine cron and persistence", () => {
     expect(getRoutine(bot.id, routine.id)).toMatchObject({ enabled: false, failureCount: 1 });
     await expect(runRoutine(bot.id, routine.id)).rejects.toThrow("ルーティンは無効です");
     expect(state.promptTask).toHaveBeenCalledTimes(1);
+  });
+  it("does not recreate a routine deleted during its in-flight run", async () => {
+    const bot = createBot({ name: "Routine bot" });
+    const routine = createRoutine(bot.id, { name: "Hourly", prompt: "Check status", schedule: "0 * * * *" });
+    let resolveRun!: () => void;
+    state.promptTask.mockReturnValueOnce(new Promise<void>((resolve) => { resolveRun = resolve; }));
+
+    const run = runRoutine(bot.id, routine.id);
+    expect(deleteRoutine(bot.id, routine.id)).toBe(true);
+    resolveRun();
+
+    await expect(run).rejects.toThrow("Routine was deleted");
+    expect(getRoutine(bot.id, routine.id)).toBeUndefined();
   });
   it("keeps an enabled routine active until three consecutive failures", async () => {
     const bot = createBot({ name: "Routine bot" });
