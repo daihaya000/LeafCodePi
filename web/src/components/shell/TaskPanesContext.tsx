@@ -29,7 +29,11 @@ import {
   type TaskPanesState,
 } from "@/lib/task-panes";
 import { getJson } from "@/lib/client";
-import type { TaskStatus, TaskSummary } from "@/lib/types";
+import type { BotDto, ProjectDto, TaskStatus, TaskSummary } from "@/lib/types";
+import { ProjectIcon } from "@/components/ProjectIcon";
+import { BotAvatar } from "@/components/bot/BotAvatar";
+
+type TaskIdentity = Pick<TaskSummary, "projectId" | "botId">;
 
 const SAVE_DEBOUNCE_MS = 500;
 const MD_QUERY = "(min-width: 768px)";
@@ -48,6 +52,7 @@ type TaskPanesContextValue = {
   reportStatus: (taskId: string, status: TaskStatus) => void;
   /** タブ表示名（セッション名 = タスク title）。未取得は null。 */
   titleFor: (taskId: string) => string | null;
+  iconFor: (taskId: string, size?: 16 | 32, task?: TaskIdentity) => React.ReactNode;
 };
 
 const EMPTY: TaskPanesContextValue = {
@@ -60,6 +65,7 @@ const EMPTY: TaskPanesContextValue = {
   statusFor: () => null,
   reportStatus: () => undefined,
   titleFor: () => null,
+  iconFor: () => null,
 };
 
 const TaskPanesContext = createContext<TaskPanesContextValue>(EMPTY);
@@ -115,6 +121,27 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   );
   const statusMapRef = useRef(new Map<string, TaskStatus>());
   const taskTitlesRef = useRef(new Map<string, string>());
+  const taskIdentitiesRef = useRef(new Map<string, TaskIdentity>());
+  const [projects, setProjects] = useState<ProjectDto[]>([]);
+  const [bots, setBots] = useState<BotDto[]>([]);
+
+  useEffect(() => {
+    let disposed = false;
+    let generation = 0;
+    const refresh = async () => {
+      const request = ++generation;
+      try {
+        const result = await getJson<{ projects: ProjectDto[] }>("/api/projects?archived=1");
+        if (!disposed && request === generation) setProjects(result.projects);
+      } catch { /* Keep existing icons on fetch failure. */ }
+    };
+    void refresh();
+    window.addEventListener("webui:tasks-changed", refresh);
+    return () => {
+      disposed = true;
+      window.removeEventListener("webui:tasks-changed", refresh);
+    };
+  }, []);
   const knownActiveTaskIdsRef = useRef(new Set<string>());
   const [titlesVersion, bumpTitlesVersion] = useReducer(
     (count: number) => count + 1,
@@ -136,6 +163,11 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
           });
           let titlesDirty = false;
           for (const task of tasks) {
+            const identity = taskIdentitiesRef.current.get(task.id);
+            if (identity?.projectId !== task.projectId || identity?.botId !== task.botId) {
+              taskIdentitiesRef.current.set(task.id, { projectId: task.projectId, botId: task.botId });
+              titlesDirty = true;
+            }
             if (taskTitlesRef.current.get(task.id) !== task.title) {
               taskTitlesRef.current.set(task.id, task.title);
               titlesDirty = true;
@@ -167,6 +199,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
             next = removeTaskEverywhere(next, taskId);
             statusMapRef.current.delete(taskId);
             taskTitlesRef.current.delete(taskId);
+            taskIdentitiesRef.current.delete(taskId);
           }
           if (next === latest) return;
           // replace は state 参照を更新し、module 変数経由で次の外部遷移でも追従できる
@@ -184,17 +217,17 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   }, [mdUp]);
 
   useEffect(() => {
-    if (!mdUp) return;
     let disposed = false;
     let generation = 0;
     const refresh = async () => {
       const request = ++generation;
       try {
         const { bots, rooms } = await getJson<{
-          bots: { id: string; name: string }[];
+          bots: BotDto[];
           rooms: { id: string; name: string }[];
         }>("/api/bots/sidebar");
         if (disposed || request !== generation) return;
+        setBots(bots);
         const titles = new Map<string, string>([
           [BOTS_TAB_ID, "Bot一覧"],
           ...bots.map((bot): [string, string] => [`/bots/${encodeURIComponent(bot.id)}`, bot.name]),
@@ -336,6 +369,25 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     [titlesVersion],
   );
 
+  const iconFor = useCallback((taskId: string, size: 16 | 32 = 16, task?: TaskIdentity) => {
+    void titlesVersion;
+    const identity = task ?? taskIdentitiesRef.current.get(taskId);
+    const bot = identity?.botId
+      ? bots.find((item) => item.id === identity.botId)
+      : bots.find((item) => `/bots/${encodeURIComponent(item.id)}` === taskId);
+    if (bot || identity?.botId) {
+      return <span aria-hidden="true" className="shrink-0"><BotAvatar size={size} {...bot} /></span>;
+    }
+    const project = projects.find((item) => item.id === identity?.projectId);
+    return project ? (
+      <span aria-hidden="true" className="shrink-0">
+        <ProjectIcon project={project} className={size === 32
+          ? "flex h-8 w-8 items-center justify-center rounded-md border text-sm font-semibold"
+          : "flex h-4 w-4 items-center justify-center rounded-md border text-[10px] font-semibold"} />
+      </span>
+    ) : null;
+  }, [bots, projects, titlesVersion]);
+
   const value = useMemo<TaskPanesContextValue>(
     () => ({
       state,
@@ -347,8 +399,9 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       statusFor,
       reportStatus,
       titleFor,
+      iconFor,
     }),
-    [state, dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp, statusFor, reportStatus, titleFor],
+    [state, dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp, statusFor, reportStatus, titleFor, iconFor],
   );
 
   return <TaskPanesContext.Provider value={value}>{children}</TaskPanesContext.Provider>;

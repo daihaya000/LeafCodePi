@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Loader2, Plus, SquarePen, Trash2, X } from "lucide-react";
 import { cx } from "@/components/ui";
+import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { setTaskDragData, taskDragIdFrom, TASK_DRAG_MIME } from "@/lib/task-drag";
 import {
   HOME_TAB_ID,
@@ -51,6 +52,7 @@ export function TaskTabs({
   onOpenHome: () => void;
 }) {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const { iconFor } = useTaskPanes();
 
   const handleDrop = (event: React.DragEvent<HTMLElement>, index: number) => {
     event.preventDefault();
@@ -131,6 +133,7 @@ export function TaskTabs({
               dragOverIndex === index && "ring-1 ring-accent",
             )}
           >
+            {iconFor?.(taskId)}
             {status === "working" && (
               <Loader2 className="h-3 w-3 shrink-0 animate-spin text-working" aria-hidden="true" />
             )}

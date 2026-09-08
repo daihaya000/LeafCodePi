@@ -27,6 +27,7 @@ import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { DiffPane } from "@/components/task/DiffPane";
+import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { NextAction } from "@/components/task/NextAction";
 import { GraphPanel } from "@/components/task/GraphPanel";
 import { ProjectExplorerButton } from "@/components/task/ProjectExplorerButton";
@@ -471,6 +472,7 @@ export const TaskView = memo(function TaskView({
 }) {
   const [cachedSession] = useState(() => loadTaskSessionCache(taskId));
   const [task, setTask] = useState<TaskDetail | null>(cachedSession);
+  const { iconFor } = useTaskPanes();
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
   const [pendingUserMessage, setPendingUserMessage] = useState<{
@@ -2255,6 +2257,7 @@ export const TaskView = memo(function TaskView({
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         <MobileMenuButton />
+        {iconFor?.(taskId, 32, task ?? undefined)}
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">{task?.title ?? "読み込み中…"}</h1>
           {/* Mobile-only compact meta row: the sm:flex row below is hidden

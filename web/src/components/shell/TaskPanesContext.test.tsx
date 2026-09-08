@@ -127,6 +127,45 @@ describe("TaskPanesProvider", () => {
     await waitFor(() => expect(screen.getByTestId("state").textContent).toBe("true:second"));
   });
 
+  it.each([false, true])("renders project and Bot icons and refreshes edits (desktop=%s)", async (desktop) => {
+    matches = desktop;
+    let projectIcon: string | null = "data:image/png;base64,project";
+    let botImage = "data:image/png;base64,bot";
+    mocks.getJson.mockImplementation(async (url: string) => {
+      if (url.startsWith("/api/projects")) return { projects: [{ id: "project", name: "Project", icon: projectIcon }] };
+      if (url === "/api/bots/sidebar") return { bots: [{ id: "one", name: "One", avatarImage: botImage }], rooms: [] };
+      return { tasks: [{ id: "saved-task", title: "Code", status: "idle", projectId: "project" }] };
+    });
+    function IconProbe() {
+      const { iconFor } = useTaskPanes();
+      return <>
+        <div data-testid="tab-icon">{iconFor("saved-task")}</div>
+        <div data-testid="header-icon">{iconFor("saved-task", 32, { projectId: "project" })}</div>
+        <div data-testid="bot-tab-icon">{iconFor("/bots/one")}</div>
+        <div data-testid="bot-header-icon">{iconFor("code", 32, { projectId: "project", botId: "one" })}</div>
+        <div data-testid="no-icon">{iconFor("settings")}{iconFor("unassigned", 32, { projectId: null })}</div>
+      </>;
+    }
+    render(<TaskPanesProvider><IconProbe /></TaskPanesProvider>);
+    const image = (id: string) => screen.getByTestId(id).querySelector("img")?.getAttribute("src");
+    await waitFor(() => {
+      expect(image("header-icon")).toBe(projectIcon);
+      if (desktop) expect(image("tab-icon")).toBe(projectIcon);
+      expect(image("bot-tab-icon")).toBe(botImage);
+      expect(image("bot-header-icon")).toBe(botImage);
+    });
+    expect(screen.getByTestId("no-icon").innerHTML).toBe("");
+    projectIcon = null;
+    botImage = "data:image/png;base64,updated";
+    window.dispatchEvent(new Event("webui:tasks-changed"));
+    window.dispatchEvent(new Event("webui:bot-sidebar-changed"));
+    await waitFor(() => {
+      expect(screen.getByTestId("header-icon").textContent).toBe("P");
+      expect(image("bot-tab-icon")).toBe(botImage);
+      expect(image("bot-header-icon")).toBe(botImage);
+    });
+  });
+
   it("restores saved panes when the viewport changes from mobile to desktop", async () => {
     render(
       <TaskPanesProvider>
@@ -324,13 +363,12 @@ describe("TaskPanesProvider", () => {
 
   it("closes a tab after it changes from live to archived", async () => {
     matches = true;
-    mocks.getJson
-      .mockResolvedValueOnce({
-        tasks: [{ id: "live-task", title: "live", status: "idle" }],
-      })
-      .mockResolvedValue({
-        tasks: [{ id: "live-task", title: "live", status: "archived" }],
-      });
+    let taskRequests = 0;
+    mocks.getJson.mockImplementation(async (url: string) => {
+      if (url.startsWith("/api/projects")) return { projects: [] };
+      if (url === "/api/bots/sidebar") return { bots: [], rooms: [] };
+      return { tasks: [{ id: "live-task", title: "live", status: taskRequests++ === 0 ? "idle" : "archived" }] };
+    });
     localStorage.setItem(
       TASK_PANES_STORAGE_KEY,
       JSON.stringify({

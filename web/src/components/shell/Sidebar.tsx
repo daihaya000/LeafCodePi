@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
+import { ProjectIcon } from "@/components/ProjectIcon";
 import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
@@ -57,17 +58,6 @@ const POLL_WORKING_MS = 4_000;
 const PROJECT_DRAG_MIME = "application/x-leafcode-project";
 const HOVER_QUERY = "(hover: hover)";
 const NO_PROJECT_GROUP_ID = "__leafcode_no_project__";
-
-const PROJECT_ICON_TONES = [
-  "border-danger/30 bg-danger-bg text-danger",
-  "border-success/30 bg-success-bg text-success",
-  "border-warning/30 bg-warning-bg text-warning",
-  "border-accent/30 bg-accent/10 text-accent",
-] as const;
-
-function projectInitial(name: string): string {
-  return Array.from(name.trim())[0]?.toUpperCase() ?? "?";
-}
 
 /** 表示に影響するフィールドのみ比較（未変更なら参照を維持して再レンダーを防ぐ）。 */
 export function sameTaskList(a: TaskSummary[], b: TaskSummary[]): boolean {
@@ -141,23 +131,6 @@ export function sameHealth(a: HealthDto | null, b: HealthDto): boolean {
     a.modelCount === b.modelCount &&
     a.error === b.error &&
     JSON.stringify(a.warnings ?? null) === JSON.stringify(b.warnings ?? null)
-  );
-}
-
-function projectIconTone(projectId: string): string {
-  let hash = 0;
-  for (const character of projectId) {
-    hash = (hash * 31 + character.codePointAt(0)!) >>> 0;
-  }
-  return PROJECT_ICON_TONES[hash % PROJECT_ICON_TONES.length]!;
-}
-
-function ProjectIcon({ project, className }: { project: Pick<ProjectDto, "id" | "name" | "icon">; className?: string }) {
-  return project.icon ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={project.icon} alt="" className={cx("rounded-md object-cover", className)} />
-  ) : (
-    <span className={cx(projectIconTone(project.id), className)}>{projectInitial(project.name)}</span>
   );
 }
 
