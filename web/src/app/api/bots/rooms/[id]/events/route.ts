@@ -2,18 +2,10 @@ import { NextRequest } from "next/server";
 import { getRoom, roomBotTaskId, subscribeRoom } from "@/lib/rooms";
 import { pendingPermissionForTask, pendingQuestionForTask, subscribeTask } from "@/lib/pi/harness";
 import { createSseWriter } from "@/lib/sse-writer";
-import type { RoomAttention, RoomDto } from "@/lib/types";
+import { roomSnapshotSignature } from "@/lib/room-events";
+import type { RoomAttention } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/**
- * Cheap change key. Every room write bumps `updatedAt`, so a task event that changed nothing
- * costs a comparison instead of serialising the whole transcript.
- */
-export function roomSnapshotSignature(room: RoomDto, attention: RoomAttention[]): string {
-  const waiting = attention.map((item) => `${item.botId}:${item.permission?.id ?? ""}:${item.question?.id ?? ""}`).join(",");
-  return `${room.updatedAt}|${room.messages.length}|${room.members.join(",")}|${waiting}`;
-}
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const id = (await params).id;
   if (!getRoom(id)) return new Response("Room not found", { status: 404 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { RoomAttention, RoomDto } from "@/lib/types";
-import { roomSnapshotSignature } from "./route";
+import { roomSnapshotSignature } from "./room-events";
+import type { RoomAttention, RoomDto } from "./types";
 
 const room: RoomDto = {
   id: "room", name: "Room", members: ["a", "b"], botRelayEnabled: false,
@@ -16,6 +16,17 @@ describe("room snapshot signature", () => {
     expect(roomSnapshotSignature({ ...room, messages: [...room.messages, { id: "m2", role: "assistant", text: "yo", createdAt: 2 }] }, [])).not.toBe(base);
     expect(roomSnapshotSignature({ ...room, members: ["a"] }, [])).not.toBe(base);
     expect(roomSnapshotSignature(room, waiting)).not.toBe(base);
+  });
+
+  it("catches changes that share one millisecond with the previous write", () => {
+    const base = roomSnapshotSignature(room, []);
+    const grown = { ...room, messages: [{ ...room.messages[0], text: "hi there" }] };
+    const settled = { ...room, messages: [{ ...room.messages[0], status: "done" as const }] };
+    const reported = { ...room, messages: [{ ...room.messages[0], codeState: "delivered" as const, codeActivity: "" }] };
+    expect(roomSnapshotSignature(grown, [])).not.toBe(base);
+    expect(roomSnapshotSignature(settled, [])).not.toBe(base);
+    expect(roomSnapshotSignature(reported, [])).not.toBe(base);
+    expect(roomSnapshotSignature({ ...room, lastOutcome: { kind: "done", requestId: "m1" } }, [])).not.toBe(base);
   });
 
   it("stays equal when a task event changed nothing in the room", () => {

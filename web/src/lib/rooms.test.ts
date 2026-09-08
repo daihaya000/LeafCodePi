@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,15 +43,18 @@ describe("room store and mention routing", () => {
   it("keeps the live room bounded and moves older turns to append-only history", () => {
     const bot = createBot({ name: "Alpha" });
     const room = createRoom({ members: [bot.id] });
-    for (let index = 0; index < 505; index += 1) appendRoomMessage(room.id, { role: "user", text: `発言 ${index}` });
+    // Seed a full room in one write, then append past the cap.
+    const path = join(root, "bots", "rooms", `${room.id}.json`);
+    const seeded = { ...JSON.parse(readFileSync(path, "utf8")), messages: Array.from({ length: 500 }, (_, index) => ({ id: `seed-${index}`, role: "user", text: `発言 ${index}`, createdAt: index + 1 })) };
+    writeFileSync(path, `${JSON.stringify(seeded)}\n`, "utf8");
+    for (let index = 0; index < 3; index += 1) appendRoomMessage(room.id, { role: "user", text: `追加 ${index}` });
+
     const messages = getRoom(room.id)!.messages;
     expect(messages).toHaveLength(500);
-    expect(messages[0].text).toBe("発言 5");
-    expect(messages.at(-1)?.text).toBe("発言 504");
+    expect(messages[0].id).toBe("seed-3");
+    expect(messages.at(-1)?.text).toBe("追加 2");
     const archived = readFileSync(join(root, "bots", "rooms", room.id, "history.jsonl"), "utf8").trim().split("\n");
-    expect(archived).toHaveLength(5);
-    expect(JSON.parse(archived[0]).text).toBe("発言 0");
-    expect(JSON.parse(archived.at(-1)!).text).toBe("発言 4");
+    expect(archived.map((line) => JSON.parse(line).id)).toEqual(["seed-0", "seed-1", "seed-2"]);
   });
   it("answers room prompts in a room session instead of the 1:1 bot session", () => {
     const alpha = createBot({ name: "Alpha" });
