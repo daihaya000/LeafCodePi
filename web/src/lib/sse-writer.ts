@@ -7,8 +7,27 @@ export type SseWriter = {
   close(): void;
 };
 
-export function createSseWriter(controller: ReadableStreamDefaultController<Uint8Array>): SseWriter {
+export type SseWriterTiming = {
+  phase: string;
+  durationMs: number;
+};
+
+export type SseWriterOptions = {
+  onTiming?: (timing: SseWriterTiming) => void;
+};
+
+export function createSseWriter(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  options: SseWriterOptions = {},
+): SseWriter {
   const encoder = new TextEncoder();
+  const reportTiming = (phase: string, startedAt: number) => {
+    if (!options.onTiming) return;
+    options.onTiming({
+      phase,
+      durationMs: Math.max(0, performance.now() - startedAt),
+    });
+  };
   let closed = false;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   const cleanupFns: Array<() => void> = [];
@@ -43,7 +62,15 @@ export function createSseWriter(controller: ReadableStreamDefaultController<Uint
       return closed;
     },
     send(event: string, data: unknown) {
-      enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      const jsonStartedAt = options.onTiming ? performance.now() : 0;
+      const json = JSON.stringify(data);
+      reportTiming(`sse.json:${event}`, jsonStartedAt);
+      const encodeStartedAt = options.onTiming ? performance.now() : 0;
+      const bytes = encoder.encode(`event: ${event}\ndata: ${json}\n\n`);
+      reportTiming(`sse.encode:${event}`, encodeStartedAt);
+      const enqueueStartedAt = options.onTiming ? performance.now() : 0;
+      enqueue(bytes);
+      reportTiming(`sse.enqueue:${event}`, enqueueStartedAt);
     },
     startHeartbeat(intervalMs = 15_000) {
       if (closed || heartbeat) return;

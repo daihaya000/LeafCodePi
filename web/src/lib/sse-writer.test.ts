@@ -56,4 +56,26 @@ describe("createSseWriter", () => {
     assert.equal(calls, 1);
     void stream.cancel();
   });
+
+  it("reports serialization and enqueue timings when requested", () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(started) {
+        controller = started;
+      },
+    });
+    const timings: string[] = [];
+    const sse = createSseWriter(controller, {
+      onTiming: ({ phase }) => timings.push(phase),
+    });
+
+    sse.send("snapshot", { ok: true });
+
+    assert.deepEqual(timings, [
+      "sse.json:snapshot",
+      "sse.encode:snapshot",
+      "sse.enqueue:snapshot",
+    ]);
+    void stream.cancel();
+  });
 });

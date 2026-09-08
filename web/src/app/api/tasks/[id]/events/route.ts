@@ -26,8 +26,12 @@ export async function GET(
   const cachedSessionId = req.nextUrl.searchParams.get("cachedSessionId");
   const perfRequested = req.nextUrl.searchParams.get("perf") === "1";
   const serverTimings: { phase: string; durationMs: number }[] = [];
+  const transportTimings: { phase: string; durationMs: number }[] = [];
   const reportTiming = perfRequested
     ? (timing: { phase: string; durationMs: number }) => serverTimings.push(timing)
+    : undefined;
+  const reportTransportTiming = perfRequested
+    ? (timing: { phase: string; durationMs: number }) => transportTimings.push(timing)
     : undefined;
   let sse: ReturnType<typeof createSseWriter> | undefined;
 
@@ -37,7 +41,10 @@ export async function GET(
       let ready = false;
       const pendingPayloads: Record<string, unknown>[] = [];
       const requestStartedAt = TASK_SSE_PERF_ENABLED ? performance.now() : 0;
-      sse = createSseWriter(controller);
+      sse = createSseWriter(
+        controller,
+        reportTransportTiming ? { onTiming: reportTransportTiming } : undefined,
+      );
       sse.onCleanup(() => unsubscribe());
       sse.startHeartbeat();
       try {
@@ -135,6 +142,13 @@ export async function GET(
           revertLeafId: detail.revertLeafId ?? null,
           eventType: "ready",
         });
+        if (perfRequested) {
+          sse.send("perf", {
+            type: "perf",
+            eventType: "perf",
+            serverTiming: [...serverTimings, ...transportTimings],
+          });
+        }
         if (TASK_SSE_PERF_ENABLED) {
           console.debug("[leafcodepi:sse-perf]", {
             bootstrapMs: Math.round(bootstrapMs),
