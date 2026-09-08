@@ -353,6 +353,23 @@ describe("closeTab", () => {
   });
 });
 
+describe("clearPane", () => {
+  it("指定ペインのタブをすべて除去し、ペイン自体は残す", () => {
+    const base = state(pane(P1, ["a", "b"], "b"), pane(P2, ["c"]));
+    const next = reducer(base, { type: "clearPane", paneId: P1 });
+
+    expect(next.panes).toEqual([pane(P1, [], null), pane(P2, ["c"])]);
+    expect(next.activePaneId).toBe(P1);
+  });
+
+  it("空ペインまたは不明ペインは no-op", () => {
+    const base = state(pane(P1, [], null));
+
+    expect(reducer(base, { type: "clearPane", paneId: P1 })).toBe(base);
+    expect(reducer(base, { type: "clearPane", paneId: "nope" })).toBe(base);
+  });
+});
+
 describe("activateTab / activatePane", () => {
   it("タブ切替でペインも活性化する", () => {
     const base = state(pane(P1, ["a"]), pane(P2, ["b", "c"]));

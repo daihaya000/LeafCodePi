@@ -295,7 +295,13 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   // Home タブのアクティブ時は「/」へ寄せる（syncUrl 内で解決）。
   useEffect(() => {
     if (!splitHostEnabled || !mdUp) return;
-    if (activeTaskId == null) return;
+    if (activeTaskId == null) {
+      if (lastUrlSyncRef.current === HOME_TAB_ID) return;
+      lastUrlSyncRef.current = HOME_TAB_ID;
+      externalUrlRef.current = HOME_TAB_ID;
+      syncUrl(HOME_TAB_ID);
+      return;
+    }
     if (activeTaskId === lastUrlSyncRef.current) return;
     lastUrlSyncRef.current = activeTaskId;
     externalUrlRef.current = activeTaskId;

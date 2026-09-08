@@ -24,6 +24,7 @@ function renderTabs(
       showAddButton
       onActivateTab={vi.fn()}
       onCloseTab={vi.fn()}
+      onClearPane={vi.fn()}
       onReorderTabs={vi.fn()}
       onMoveTab={vi.fn()}
       onAddPane={vi.fn()}
@@ -57,6 +58,29 @@ describe("TaskTabs actions", () => {
     expect(screen.getByRole("tab", { name: "設定" })).toBeTruthy();
   });
 
+  it("このペインのタブを一括クリアする", () => {
+    const onClearPane = vi.fn();
+    renderTabs(
+      { id: "pane-1", tabs: ["task-a", "task-b"], activeTabId: "task-a" },
+      { onClearPane },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "このペインを一括クリア" }));
+
+    expect(onClearPane).toHaveBeenCalledOnce();
+  });
+
+  it("空ペインでは一括クリアを無効にする", () => {
+    const onClearPane = vi.fn();
+    renderTabs({ id: "pane-1", tabs: [], activeTabId: null }, { onClearPane });
+
+    const button = screen.getByRole("button", { name: "このペインを一括クリア" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+
+    expect(onClearPane).not.toHaveBeenCalled();
+  });
+
   it("タブ追加と削除の操作を対応するコールバックへ渡す", () => {
     const onOpenHome = vi.fn();
     const onCloseTab = vi.fn();
@@ -78,6 +102,7 @@ describe("TaskTabs actions", () => {
         showAddButton
         onActivateTab={vi.fn()}
         onCloseTab={onCloseTab}
+        onClearPane={vi.fn()}
         onReorderTabs={vi.fn()}
         onMoveTab={vi.fn()}
         onAddPane={vi.fn()}

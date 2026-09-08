@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Plus, SquarePen, X } from "lucide-react";
+import { Loader2, Plus, SquarePen, Trash2, X } from "lucide-react";
 import { cx } from "@/components/ui";
 import { setTaskDragData, taskDragIdFrom, TASK_DRAG_MIME } from "@/lib/task-drag";
 import {
@@ -26,6 +26,7 @@ export function TaskTabs({
   showAddButton,
   onActivateTab,
   onCloseTab,
+  onClearPane,
   onReorderTabs,
   onMoveTab,
   onAddPane,
@@ -42,6 +43,7 @@ export function TaskTabs({
   showAddButton: boolean;
   onActivateTab: (taskId: string) => void;
   onCloseTab: (taskId: string) => void;
+  onClearPane: () => void;
   onReorderTabs: (tabs: string[]) => void;
   onMoveTab: (taskId: string, toPaneId: string) => void;
   onAddPane: () => void;
@@ -171,6 +173,19 @@ export function TaskTabs({
           <Plus className="h-4 w-4" />
         </button>
       )}
+      <button
+        type="button"
+        aria-label="このペインを一括クリア"
+        title="このペインを一括クリア"
+        disabled={pane.tabs.length === 0}
+        onClick={(event) => {
+          event.stopPropagation();
+          onClearPane();
+        }}
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center self-center rounded-md text-muted hover:bg-danger-bg hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <Trash2 aria-hidden="true" className="h-4 w-4" />
+      </button>
     </div>
   );
 }

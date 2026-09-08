@@ -228,6 +228,7 @@ type PaneBranchProps = {
   onActivatePane: (paneId: string) => void;
   onActivateTab: (paneId: string, taskId: string) => void;
   onCloseTab: (paneId: string, taskId: string) => void;
+  onClearPane: (paneId: string) => void;
   onReorderTabs: (paneId: string, tabs: string[]) => void;
   onMoveTab: (taskId: string, toPaneId: string) => void;
   onAddPane: () => void;
@@ -274,6 +275,7 @@ function PaneSection({
   onActivatePane,
   onActivateTab,
   onCloseTab,
+  onClearPane,
   onReorderTabs,
   onMoveTab,
   onAddPane,
@@ -311,6 +313,7 @@ function PaneSection({
           showAddButton={pane.id === lastPaneId}
           onActivateTab={(taskId) => onActivateTab(pane.id, taskId)}
           onCloseTab={(taskId) => onCloseTab(pane.id, taskId)}
+          onClearPane={() => onClearPane(pane.id)}
           onReorderTabs={(tabs) => onReorderTabs(pane.id, tabs)}
           onMoveTab={onMoveTab}
           onAddPane={onAddPane}
@@ -663,6 +666,7 @@ export function TaskPanesHost() {
         onActivatePane={(paneId) => dispatch({ type: "activatePane", paneId })}
         onActivateTab={(paneId, taskId) => dispatch({ type: "activateTab", paneId, taskId })}
         onCloseTab={(paneId, taskId) => dispatch({ type: "closeTab", paneId, taskId })}
+        onClearPane={(paneId) => dispatch({ type: "clearPane", paneId })}
         onReorderTabs={(paneId, tabs) => dispatch({ type: "reorderTabs", paneId, tabs })}
         onMoveTab={onMoveTab}
         onAddPane={addPane}
