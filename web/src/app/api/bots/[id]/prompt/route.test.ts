@@ -74,10 +74,10 @@ describe("POST /api/bots/[id]/prompt", () => {
     expect(state.promptTask).not.toHaveBeenCalled();
   });
 
-  it("rejects malformed Base64 image data before prompting", async () => {
+  it.each(["AA ==", "AA="])("rejects Base64 image data with invalid whitespace or padding: %s", async (data) => {
     const bot = createBot({ name: "Image bot" });
 
-    const response = await POST(request("look", undefined, [{ mimeType: "image/png", data: "AA!!" }]), { params: Promise.resolve({ id: bot.id }) });
+    const response = await POST(request("look", undefined, [{ mimeType: "image/png", data }]), { params: Promise.resolve({ id: bot.id }) });
 
     expect(response.status).toBe(400);
     expect(state.promptTask).not.toHaveBeenCalled();
