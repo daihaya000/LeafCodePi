@@ -125,6 +125,72 @@ describe("Sidebar project ordering", () => {
     expect(modeButtons[0]?.getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("filters Code projects and sessions from the search field", async () => {
+    const projectTasks = [
+      {
+        id: "session-a",
+        projectId: "project-a",
+        projectName: "Project A",
+        title: "Alpha session",
+        directory: "C:\\repo-a",
+        isolation: "current_folder" as const,
+        status: "ready" as const,
+        sessionId: "session-a",
+        sessionFile: null,
+        createdAt: "",
+        updatedAt: "",
+      },
+      {
+        id: "session-b",
+        projectId: "project-b",
+        projectName: "Project B",
+        title: "Beta session",
+        directory: "C:\\repo-b",
+        isolation: "current_folder" as const,
+        status: "ready" as const,
+        sessionId: "session-b",
+        sessionFile: null,
+        createdAt: "",
+        updatedAt: "",
+      },
+    ];
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
+      if (path === "/api/tasks?archived=1") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/health") {
+        return Promise.resolve({
+          ok: true,
+          engine: "pi",
+          engineOk: true,
+          version: "1.0.0",
+          modelCount: 0,
+          dataDir: "C:\\data",
+          error: null,
+        });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    const search = await screen.findByRole("textbox", { name: "プロジェクトやセッションを検索" });
+    fireEvent.change(search, { target: { value: "beta session" } });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Project A")).toBeNull();
+      expect(screen.getByRole("button", { name: "Project Bを展開" })).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Project Bを展開" }));
+    expect(screen.getByText("Beta session")).toBeTruthy();
+    expect(screen.queryByText("Alpha session")).toBeNull();
+
+    fireEvent.change(search, { target: { value: "project a" } });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Project Aを展開" })).toBeTruthy();
+      expect(screen.queryByText("Project B")).toBeNull();
+    });
+  });
+
   it("uses the displayed project icon as the file picker", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
