@@ -19,28 +19,44 @@ function parseRoutine(botId: string, file: string): RoutineDto | null {
   try { const value = JSON.parse(readFileSync(join(routineDir(botId), file), "utf8")) as Partial<RoutineDto>; if (value.botId !== botId || typeof value.id !== "string" || !validId(value.id) || typeof value.name !== "string" || typeof value.prompt !== "string" || typeof value.schedule !== "string") return null; return { id: value.id, botId, name: value.name, prompt: value.prompt, schedule: value.schedule, enabled: value.enabled !== false, createdAt: String(value.createdAt), updatedAt: String(value.updatedAt), failureCount: typeof value.failureCount === "number" && Number.isInteger(value.failureCount) && value.failureCount >= 0 ? value.failureCount : 0, lastRunAt: typeof value.lastRunAt === "string" ? value.lastRunAt : null }; } catch { return null; }
 }
 const FIELD_LIMITS = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]] as const;
+const MINUTES_PER_DAY = 24 * 60;
+const DAYS_PER_GREGORIAN_CYCLE = 146_097;
+const MINUTES_PER_GREGORIAN_CYCLE = DAYS_PER_GREGORIAN_CYCLE * MINUTES_PER_DAY;
+const MS_PER_MINUTE = 60_000;
+const MS_PER_DAY = 24 * 60 * MS_PER_MINUTE;
 function fieldValues(field: string, min: number, max: number): Set<number> {
   const values = new Set<number>(); for (const part of field.split(",")) { const token = part.trim(); if (!token) throw new Error("cron に空の項目があります"); const [base, stepText] = token.split("/"); const step = stepText === undefined ? 1 : Number(stepText); if (!Number.isInteger(step) || step < 1) throw new Error("cron の間隔が不正です"); let start = min; let end = max; if (base !== "*") { const range = base.split("-"); if (range.length > 2 || !/^\d+$/.test(range[0]) || (range[1] !== undefined && !/^\d+$/.test(range[1]))) throw new Error("cron の値が不正です"); start = Number(range[0]); end = range[1] === undefined ? start : Number(range[1]); if (start > end) throw new Error("cron の範囲が不正です"); } if (start < min || end > max) throw new Error("cron の値が範囲外です"); for (let value = start; value <= end; value += step) values.add(value); } return values;
 }
 export type ParsedCron = [Set<number>, Set<number>, Set<number>, Set<number>, Set<number>];
 export function parseCron(schedule: string): ParsedCron { const fields = schedule.trim().split(/\s+/); if (fields.length !== 5) throw new Error("cron は 5 項目（分 時 日 月 曜日）で指定してください"); return fields.map((field, index) => { const limits = FIELD_LIMITS[index]; return fieldValues(field, limits[0], limits[1]); }) as ParsedCron; }
-export function cronMatches(scheduleOrParsed: string | ParsedCron, date: Date): boolean { const [minutes, hours, days, months, weekdays] = typeof scheduleOrParsed === "string" ? parseCron(scheduleOrParsed) : scheduleOrParsed; return minutes.has(date.getMinutes()) && hours.has(date.getHours()) && days.has(date.getDate()) && months.has(date.getMonth() + 1) && (weekdays.has(date.getDay()) || (date.getDay() === 0 && weekdays.has(7))); }
+function weekdayMatches(weekdays: Set<number>, weekday: number): boolean {
+  return weekdays.has(weekday) || (weekday === 0 && weekdays.has(7));
+}
+export function cronMatches(scheduleOrParsed: string | ParsedCron, date: Date): boolean { const [minutes, hours, days, months, weekdays] = typeof scheduleOrParsed === "string" ? parseCron(scheduleOrParsed) : scheduleOrParsed; return minutes.has(date.getMinutes()) && hours.has(date.getHours()) && days.has(date.getDate()) && months.has(date.getMonth() + 1) && weekdayMatches(weekdays, date.getDay()); }
 export function validateRoutineSchedule(schedule: string): void {
-  const [minutes, hours, days, months] = parseCron(schedule);
-  // Without a year field, every valid month/day can fall on any weekday.
-  // Use a leap year and UTC to check month lengths without local-time shifts.
-  const hasDate = [...months].some((month) => {
-    const lastDay = new Date(Date.UTC(2000, month, 0)).getUTCDate();
-    return [...days].some((day) => day <= lastDay);
-  });
-  if (!hasDate) throw new Error("この cron は実行されない日時を指定しています");
-
-  let previous: number | null = null;
-  for (let minute = 0; minute < 24 * 60; minute += 1) {
-    if (!minutes.has(minute % 60) || !hours.has(Math.floor(minute / 60))) continue;
-    if (previous !== null && (minute - previous) * 60_000 < ROUTINE_MIN_INTERVAL_MS) throw new Error("ルーティンの最短間隔は 5 分です");
-    previous = minute;
+  const [minutes, hours, days, months, weekdays] = parseCron(schedule);
+  const scheduledMinutes = [...hours].flatMap((hour) => [...minutes].map((minute) => hour * 60 + minute)).sort((left, right) => left - right);
+  for (let index = 1; index < scheduledMinutes.length; index += 1) {
+    if ((scheduledMinutes[index] - scheduledMinutes[index - 1]) * MS_PER_MINUTE < ROUTINE_MIN_INTERVAL_MS) throw new Error("ルーティンの最短間隔は 5 分です");
   }
+
+  // A cron has no year field, so a 400-year Gregorian cycle covers every calendar/weekday combination.
+  // Scan dates in UTC to validate month lengths and the gap across midnight without local-time shifts.
+  const start = Date.UTC(2000, 0, 1);
+  const firstMinute = scheduledMinutes[0];
+  const lastMinute = scheduledMinutes[scheduledMinutes.length - 1];
+  let firstEvent: number | null = null;
+  let lastEvent: number | null = null;
+  for (let day = 0; day < DAYS_PER_GREGORIAN_CYCLE; day += 1) {
+    const date = new Date(start + day * MS_PER_DAY);
+    if (!days.has(date.getUTCDate()) || !months.has(date.getUTCMonth() + 1) || !weekdayMatches(weekdays, date.getUTCDay())) continue;
+    const eventStart = day * MINUTES_PER_DAY + firstMinute;
+    if (firstEvent === null) firstEvent = eventStart;
+    if (lastEvent !== null && (eventStart - lastEvent) * MS_PER_MINUTE < ROUTINE_MIN_INTERVAL_MS) throw new Error("ルーティンの最短間隔は 5 分です");
+    lastEvent = day * MINUTES_PER_DAY + lastMinute;
+  }
+  if (firstEvent === null || lastEvent === null) throw new Error("この cron は実行されない日時を指定しています");
+  if ((MINUTES_PER_GREGORIAN_CYCLE + firstEvent - lastEvent) * MS_PER_MINUTE < ROUTINE_MIN_INTERVAL_MS) throw new Error("ルーティンの最短間隔は 5 分です");
 }
 export function listRoutines(botId: string): RoutineDto[] { if (!getBot(botId) || !existsSync(routineDir(botId))) return []; return readdirSync(routineDir(botId)).filter((file) => file.endsWith(".json")).map((file) => parseRoutine(botId, file)).filter((item): item is RoutineDto => Boolean(item)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)); }
 export function getRoutine(botId: string, routineId: string): RoutineDto | undefined { if (!getBot(botId) || !validId(routineId)) return undefined; return parseRoutine(botId, `${routineId}.json`) ?? undefined; }

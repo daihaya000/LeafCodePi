@@ -33,6 +33,7 @@ describe("routine cron and persistence", () => {
     "0 9 31 2,3 *",
     "0 9 29-31 2 *",
     "0 9 31 12 6",
+    "59 23 15 * *",
     "10,0,5 9 * * 2",
   ])("accepts a valid schedule beyond the old reference date: %s", (schedule) => {
     expect(() => validateRoutineSchedule(schedule)).not.toThrow();
@@ -40,7 +41,7 @@ describe("routine cron and persistence", () => {
   it.each(["0 9 30 2 *", "0 9 31 4 *", "0 9 31 2,4,6 0"])("rejects impossible month/day combinations: %s", (schedule) => {
     expect(() => validateRoutineSchedule(schedule)).toThrow("この cron は実行されない日時を指定しています");
   });
-  it.each(["*/4 * * * 2", "0,1 9 29 2 0", "0,59 * * * 0"])("enforces within-day spacing on date-restricted schedules: %s", (schedule) => {
+  it.each(["*/4 * * * 2", "0,1 9 29 2 0", "0,59 * * * 0", "0,59 0,23 * * *"])("enforces five-minute spacing across schedule boundaries: %s", (schedule) => {
     expect(() => validateRoutineSchedule(schedule)).toThrow("ルーティンの最短間隔は 5 分です");
   });
   it("creates a Sunday routine and persists a leap-day schedule update", () => {
