@@ -25,7 +25,23 @@ function fieldValues(field: string, min: number, max: number): Set<number> {
 export type ParsedCron = [Set<number>, Set<number>, Set<number>, Set<number>, Set<number>];
 export function parseCron(schedule: string): ParsedCron { const fields = schedule.trim().split(/\s+/); if (fields.length !== 5) throw new Error("cron は 5 項目（分 時 日 月 曜日）で指定してください"); return fields.map((field, index) => { const limits = FIELD_LIMITS[index]; return fieldValues(field, limits[0], limits[1]); }) as ParsedCron; }
 export function cronMatches(scheduleOrParsed: string | ParsedCron, date: Date): boolean { const [minutes, hours, days, months, weekdays] = typeof scheduleOrParsed === "string" ? parseCron(scheduleOrParsed) : scheduleOrParsed; return minutes.has(date.getMinutes()) && hours.has(date.getHours()) && days.has(date.getDate()) && months.has(date.getMonth() + 1) && (weekdays.has(date.getDay()) || (date.getDay() === 0 && weekdays.has(7))); }
-export function validateRoutineSchedule(schedule: string): void { const parsed = parseCron(schedule); const start = new Date(2024, 0, 1, 0, 0, 0, 0); let previous: number | null = null; let matches = 0; for (let minute = 0; minute < 24 * 60; minute += 1) { const date = new Date(start.getTime() + minute * 60_000); if (!cronMatches(parsed, date)) continue; if (previous !== null && date.getTime() - previous < ROUTINE_MIN_INTERVAL_MS) throw new Error("ルーティンの最短間隔は 5 分です"); previous = date.getTime(); matches += 1; } if (matches === 0) throw new Error("この cron は実行されない日時を指定しています"); }
+export function validateRoutineSchedule(schedule: string): void {
+  const [minutes, hours, days, months] = parseCron(schedule);
+  // Without a year field, every valid month/day can fall on any weekday.
+  // Use a leap year and UTC to check month lengths without local-time shifts.
+  const hasDate = [...months].some((month) => {
+    const lastDay = new Date(Date.UTC(2000, month, 0)).getUTCDate();
+    return [...days].some((day) => day <= lastDay);
+  });
+  if (!hasDate) throw new Error("この cron は実行されない日時を指定しています");
+
+  let previous: number | null = null;
+  for (let minute = 0; minute < 24 * 60; minute += 1) {
+    if (!minutes.has(minute % 60) || !hours.has(Math.floor(minute / 60))) continue;
+    if (previous !== null && (minute - previous) * 60_000 < ROUTINE_MIN_INTERVAL_MS) throw new Error("ルーティンの最短間隔は 5 分です");
+    previous = minute;
+  }
+}
 export function listRoutines(botId: string): RoutineDto[] { if (!getBot(botId) || !existsSync(routineDir(botId))) return []; return readdirSync(routineDir(botId)).filter((file) => file.endsWith(".json")).map((file) => parseRoutine(botId, file)).filter((item): item is RoutineDto => Boolean(item)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)); }
 export function getRoutine(botId: string, routineId: string): RoutineDto | undefined { if (!getBot(botId) || !validId(routineId)) return undefined; return parseRoutine(botId, `${routineId}.json`) ?? undefined; }
 export function createRoutine(botId: string, input: { name: string; prompt: string; schedule: string; enabled?: boolean }): RoutineDto { if (!getBot(botId)) throw new Error("Bot not found"); const name = input.name.trim(); const prompt = input.prompt.trim(); const schedule = input.schedule.trim(); if (!name || !prompt) throw new Error("ルーティン名とプロンプトは必須です"); validateRoutineSchedule(schedule); const enabled = input.enabled !== false; if (enabled && listRoutines(botId).filter((item) => item.enabled).length >= ROUTINE_MAX_ENABLED) throw new Error(`有効なルーティンは最大 ${ROUTINE_MAX_ENABLED} 件です`); const now = new Date().toISOString(); return writeRoutine({ id: randomUUID(), botId, name, prompt, schedule, enabled, createdAt: now, updatedAt: now, failureCount: 0, lastRunAt: null }); }

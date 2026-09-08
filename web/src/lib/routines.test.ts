@@ -22,6 +22,35 @@ describe("routine cron and persistence", () => {
     expect(() => validateRoutineSchedule("* * * * *")).toThrow();
     expect(() => validateRoutineSchedule("0 * * * *")).not.toThrow();
   });
+  it.each([
+    "0 9 * * 0",
+    "0 9 * * 7",
+    "0 9 * * 2",
+    "0 9 15 * *",
+    "0 9 * 2 *",
+    "0 9 29 2 0",
+    "*/5 * * * 6",
+    "0 9 31 2,3 *",
+    "0 9 29-31 2 *",
+    "0 9 31 12 6",
+    "10,0,5 9 * * 2",
+  ])("accepts a valid schedule beyond the old reference date: %s", (schedule) => {
+    expect(() => validateRoutineSchedule(schedule)).not.toThrow();
+  });
+  it.each(["0 9 30 2 *", "0 9 31 4 *", "0 9 31 2,4,6 0"])("rejects impossible month/day combinations: %s", (schedule) => {
+    expect(() => validateRoutineSchedule(schedule)).toThrow("この cron は実行されない日時を指定しています");
+  });
+  it.each(["*/4 * * * 2", "0,1 9 29 2 0", "0,59 * * * 0"])("enforces within-day spacing on date-restricted schedules: %s", (schedule) => {
+    expect(() => validateRoutineSchedule(schedule)).toThrow("ルーティンの最短間隔は 5 分です");
+  });
+  it("creates a Sunday routine and persists a leap-day schedule update", () => {
+    const bot = createBot({ name: "Routine bot" });
+    const routine = createRoutine(bot.id, { name: "Sunday", prompt: "Check status", schedule: "0 9 * * 0" });
+    expect(getRoutine(bot.id, routine.id)?.schedule).toBe("0 9 * * 0");
+    expect(patchRoutine(bot.id, routine.id, { schedule: "0 9 29 2 7" })?.schedule).toBe("0 9 29 2 7");
+    expect(() => patchRoutine(bot.id, routine.id, { schedule: "0 9 30 2 7" })).toThrow("この cron は実行されない日時を指定しています");
+    expect(getRoutine(bot.id, routine.id)?.schedule).toBe("0 9 29 2 7");
+  });
   it.each(["0", "7", "1-7", "1,7", "1-7/2"])("matches Sunday for weekday field %s", (weekdays) => {
     const schedule = `0 9 * * ${weekdays}`;
     const sunday = new Date(2024, 0, 7, 9, 0);
