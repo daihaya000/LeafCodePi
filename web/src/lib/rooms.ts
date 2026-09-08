@@ -132,12 +132,13 @@ function normalizeOutcome(value: unknown): RoomOutcome | undefined {
 function normalizeRoom(value: Partial<RoomFile>, id: string): RoomDto | null {
   if (value.id !== id || typeof value.name !== "string" || !Array.isArray(value.members)) return null;
   const messages = Array.isArray(value.messages) ? value.messages.filter((item): item is RoomMessage => Boolean(item && typeof item === "object" && typeof item.id === "string" && (item.role === "user" || item.role === "assistant") && typeof item.text === "string" && typeof item.createdAt === "number")) : [];
+  const lastOutcome = normalizeOutcome(value.lastOutcome);
   return {
     id,
     name: value.name,
     members: [...new Set(value.members.filter((item): item is string => typeof item === "string"))],
     botRelayEnabled: value.botRelayEnabled === true,
-    ...(normalizeOutcome(value.lastOutcome) ? { lastOutcome: normalizeOutcome(value.lastOutcome) } : {}),
+    ...(lastOutcome ? { lastOutcome } : {}),
     createdAt: String(value.createdAt),
     updatedAt: String(value.updatedAt),
     messages,
@@ -228,7 +229,7 @@ export function appendRoomMessage(id: string, message: Omit<RoomMessage, "id" | 
     return next;
   });
 }
-export function updateRoomMessage(id: string, messageId: string, patch: Partial<Pick<RoomMessage, "text" | "status" | "botName" | "conversation" | "codeRequestId" | "codeTaskId" | "codeState">>): RoomMessage | undefined {
+export function updateRoomMessage(id: string, messageId: string, patch: Partial<Pick<RoomMessage, "text" | "status" | "botName" | "conversation" | "codeRequestId" | "codeTaskId" | "codeState" | "codeActivity">>): RoomMessage | undefined {
   return withRoomLock(id, () => {
     const room = readRoom(id);
     const message = room?.messages.find((item) => item.id === messageId);

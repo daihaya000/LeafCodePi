@@ -90,6 +90,19 @@ describe("RoomView mention chips", () => {
 });
 
 describe("RoomView delegated work", () => {
+  it("shows what Code is doing and lets the user stop that run", async () => {
+    const { act } = await import("@testing-library/react");
+    render(<RoomView id={room.id} />);
+    await screen.findByRole("textbox");
+    act(() => pushSnapshot({
+      room: { ...room, messages: [{ id: "reply-9", role: "assistant", botId: bot.id, text: "依頼しました", status: "done", createdAt: 2, codeRequestId: "request", codeTaskId: "code-1", codeState: "running", codeActivity: "読取 README.md" }] },
+    }));
+
+    expect(screen.getByText("· 読取 README.md")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "停止" }));
+    expect(mocks.sendJson).toHaveBeenCalledWith(`/api/bots/rooms/${room.id}/code`, { action: "abort" });
+  });
+
   it("tells the user why a quiet room stopped, and only for the latest request", async () => {
     const { act } = await import("@testing-library/react");
     render(<RoomView id={room.id} />);
@@ -116,7 +129,7 @@ describe("RoomView delegated work", () => {
     expect(screen.getByText("Code実行中")).toBeTruthy();
     // A running delegated job keeps the room busy indicator on and names who is working.
     expect(screen.getByText("応答中…")).toBeTruthy();
-    expect(screen.getByText("Alpha が応答中…")).toBeTruthy();
+    expect(screen.getByText("Alpha が確認待ち")).toBeTruthy();
     expect(screen.getAllByLabelText("Alphaのアバター").some((node) => node.classList.contains("bot-avatar-working"))).toBe(true);
     expect(screen.getByRole("link", { name: "実行内容を見る" }).getAttribute("href")).toBe("/task/code-1");
     expect(screen.getByRole("alertdialog", { name: "Alphaの権限確認" })).toBeTruthy();

@@ -36,6 +36,8 @@ export type RoomMessage = {
   codeRequestId?: string;
   codeTaskId?: string | null;
   codeState?: CodeRequestState;
+  /** What the delegated Code run is doing right now (tool label only, never its output). */
+  codeActivity?: string;
   /** Bot-to-bot relay metadata. These fields are absent for ordinary user messages. */
   sourceBotId?: string;
   relayTurnId?: string;

@@ -44,6 +44,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const [bots, setBots] = useState<BotDto[]>([]);
   const [attention, setAttention] = useState<RoomAttention[]>([]);
   const [attentionBusy, setAttentionBusy] = useState<string | null>(null);
+  const [stoppingCode, setStoppingCode] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [broadcast, setBroadcast] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -104,6 +105,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     const working = message.status === "working" || message.codeState === "starting" || message.codeState === "running" || message.codeState === "ready";
     return working && message.botId ? [message.botId] : [];
   })), [room?.messages]);
+  const attentionIds = useMemo(() => new Set(attention.map((item) => item.botId)), [attention]);
   const mentionCandidates = useMemo(() => {
     if (!mentionContext) return [];
     const query = mentionContext.query.toLocaleLowerCase();
@@ -216,6 +218,15 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     setAttention((current) => current.map((entry) => entry.question?.id === request.id ? { ...entry, question: null } : entry));
   };
 
+  const stopCode = useCallback(async () => {
+    if (stoppingCode) return;
+    setStoppingCode(true);
+    setError(null);
+    try { await sendJson(`/api/bots/rooms/${encodeURIComponent(id)}/code`, { action: "abort" }); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Codeの停止に失敗しました"); }
+    finally { setStoppingCode(false); }
+  }, [id, stoppingCode]);
+
   const rendered = useMemo(() => (room?.messages ?? []).map((message) => {
     const user = message.role === "user";
     const bot = message.botId ? botById.get(message.botId) : undefined;
@@ -229,11 +240,11 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         ) : (
           <BotMessageMarkdown text={text} mentions={bots} keyPrefix={message.id} />
         )}
-        {message.codeState && <div role="status" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted"><span>{{ starting: "Code起動準備", running: "Code実行中", ready: "Code結果を報告中", delivered: "Code結果受領", cancelled: "Code中断" }[message.codeState]}</span>{message.codeTaskId && <a className="text-accent underline" href={`/task/${encodeURIComponent(message.codeTaskId)}`}>実行内容を見る</a>}</div>}
+        {message.codeState && <div role="status" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted"><span>{{ starting: "Code起動準備", running: "Code実行中", ready: "Code結果を報告中", delivered: "Code結果受領", cancelled: "Code中断" }[message.codeState]}</span>{message.codeActivity && <span className="text-faint">· {message.codeActivity}</span>}{message.codeTaskId && <a className="text-accent underline" href={`/task/${encodeURIComponent(message.codeTaskId)}`}>実行内容を見る</a>}{(message.codeState === "starting" || message.codeState === "running") && <button type="button" onClick={() => void stopCode()} disabled={stoppingCode} className="rounded-md px-1.5 py-0.5 text-danger hover:bg-surface-2 disabled:opacity-40">停止</button>}</div>}
         {message.status === "error" && <BotMessageError text="応答に失敗しました" />}
       </BotMessageRow>
     );
-  }), [botById, bots, room?.messages]);
+  }), [botById, bots, room?.messages, stopCode, stoppingCode]);
 
   if (!room) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
@@ -246,10 +257,12 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       <div className={`${settingsOpen ? "hidden lg:flex" : "flex"} min-h-0 min-w-0 flex-1 flex-col`}>
       <BotChatHeader
         title={room.name}
-        subtitle={busyIds.size > 0
-          ? `${members.filter((member) => busyIds.has(member.id)).map((member) => member.name).join("、")} が応答中…`
-          : `ルーム・${room.members.length} 人`}
-        members={members.map((member) => ({ ...member, active: busyIds.has(member.id) }))}
+        subtitle={attentionIds.size > 0
+          ? `${members.filter((member) => attentionIds.has(member.id)).map((member) => member.name).join("、")} が確認待ち`
+          : busyIds.size > 0
+            ? `${members.filter((member) => busyIds.has(member.id)).map((member) => member.name).join("、")} が応答中…`
+            : `ルーム・${room.members.length} 人`}
+        members={members.map((member) => ({ ...member, active: busyIds.has(member.id), attention: attentionIds.has(member.id) }))}
         active={working}
         settingsOpen={settingsOpen}
         onSettings={() => setSettingsOpen((open) => !open)}

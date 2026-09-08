@@ -6,7 +6,7 @@ import { ArrowLeft, Settings2, Users } from "lucide-react";
 import { BotAvatar } from "@/components/bot/BotAvatar";
 import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
 
-type HeaderMember = { id: string; name: string; avatarColor?: string; avatarImage?: string | null; active?: boolean };
+type HeaderMember = { id: string; name: string; avatarColor?: string; avatarImage?: string | null; active?: boolean; attention?: boolean };
 
 export function BotChatHeader({
   title,
@@ -33,8 +33,9 @@ export function BotChatHeader({
     if (wasOpen.current && !settingsOpen) settingsButton.current?.focus();
     wasOpen.current = settingsOpen;
   }, [settingsOpen]);
-  // Whoever is working stays visible: the avatar is where a member's state is read.
-  const visibleMembers = [...members].sort((left, right) => Number(right.active ?? false) - Number(left.active ?? false)).slice(0, 3);
+  // Whoever needs the user, then whoever is working: the avatar is where a member's state is read.
+  const memberWeight = (member: HeaderMember) => Number(member.attention ?? false) * 2 + Number(member.active ?? false);
+  const visibleMembers = [...members].sort((left, right) => memberWeight(right) - memberWeight(left)).slice(0, 3);
   const extraCount = Math.max(0, members.length - visibleMembers.length);
   return (
     <header className="flex h-[3.75rem] shrink-0 items-center gap-2 border-b border-bot-outline bg-bot-chat px-4">
@@ -50,7 +51,7 @@ export function BotChatHeader({
         <p className="truncate text-[11px] leading-4 text-muted">{subtitle}</p>
       </button>
       {members.length > 0 && <div className="flex shrink-0 -space-x-2" aria-label={`メンバー ${members.length}人`}>
-        {visibleMembers.map((member) => <BotAvatar key={member.id} size={26} color={member.avatarColor} image={member.avatarImage} name={member.name} active={member.active} className="ring-2 ring-surface" />)}
+        {visibleMembers.map((member) => <BotAvatar key={member.id} size={26} color={member.avatarColor} image={member.avatarImage} name={member.name} active={member.active} className={`ring-2 ${member.attention ? "ring-warning" : "ring-surface"}`} />)}
         {extraCount > 0 && <span className="flex h-[26px] w-[26px] items-center justify-center rounded-full bg-surface-2 text-[10px] font-medium text-muted ring-2 ring-surface">+{extraCount}</span>}
       </div>}
       {action}

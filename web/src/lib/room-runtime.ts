@@ -3,6 +3,7 @@ import { getBot } from "./bots";
 import { getTask } from "./store";
 import { getTaskDetail, promptTask, subscribeTask } from "./pi/harness";
 import { pendingRoomCodeRequestForTurn, type CodeRequest } from "./pi/bot-code-relay";
+import { toolLabel } from "./tool-labels";
 import { latestRoomRequest, MAX_ROOM_CONVERSATION_TURNS, parseRoomReply, roomBotPrompt, type RoomReply, type RoomTurn } from "./room-conversation";
 import type { BotDto, RoomDto, RoomOutcome, UiMessage } from "./types";
 
@@ -12,6 +13,54 @@ const roomBotRuns = globalRef.__leafcodeRoomBotRuns ??= new Map<string, Promise<
 function textOf(message: UiMessage): string { return message.parts.filter((part) => part.type === "text").map((part) => part.text).join(""); }
 
 const STREAM_INTERVAL_MS = 400;
+const CODE_TRACK_TIMEOUT_MS = 60 * 60_000;
+const trackedCodeRequests = new Set<string>();
+
+function activeToolLabel(message: UiMessage | null | undefined): string | undefined {
+  if (!message || message.role !== "assistant") return undefined;
+  for (let index = message.parts.length - 1; index >= 0; index -= 1) {
+    const part = message.parts[index];
+    if (part?.type === "tool" && (part.state.status === "pending" || part.state.status === "running")) return toolLabel(part.tool, part.state.input);
+  }
+  return undefined;
+}
+
+/**
+ * Mirror what the delegated Code run is doing into the waiting Room message.
+ * Only the tool label travels: Code output stays untrusted data behind the report path.
+ */
+function trackRoomCodeProgress(roomId: string, request: CodeRequest): void {
+  const taskId = request.codeTaskId;
+  const messageId = request.room?.responseId;
+  const requestId = request.room?.conversation.requestId;
+  const key = `${roomId}:${request.id}`;
+  if (!taskId || !messageId || !requestId || trackedCodeRequests.has(key)) return;
+  trackedCodeRequests.add(key);
+  let lastLabel = "";
+  let lastWriteAt = 0;
+  let stop: () => void = () => undefined;
+  const settle = () => {
+    if (!trackedCodeRequests.delete(key)) return;
+    stop();
+    clearTimeout(timer);
+    updateRoomMessage(roomId, messageId, { codeActivity: "" });
+  };
+  const timer = setTimeout(settle, CODE_TRACK_TIMEOUT_MS);
+  timer.unref?.();
+  stop = subscribeTask(taskId, (payload) => {
+    if (!pendingRoomCodeRequestForTurn(roomId, requestId)) return settle();
+    const message = payload.type === "delta"
+      ? payload.message as UiMessage | null
+      : (payload.messages as UiMessage[] | undefined)?.at(-1) ?? null;
+    const label = activeToolLabel(message)?.slice(0, 80) ?? "";
+    const now = Date.now();
+    if (label === lastLabel || now - lastWriteAt < STREAM_INTERVAL_MS) return;
+    lastLabel = label;
+    lastWriteAt = now;
+    updateRoomMessage(roomId, messageId, { codeActivity: label });
+  });
+}
+
 /** Mirror the streaming reply into the room so a turn is readable while it is still being written. */
 function streamRoomReply(taskId: string, roomId: string, responseId: string, before: ReadonlySet<string>): () => void {
   let lastText = "";
@@ -80,6 +129,9 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     const reply = turn ? parseRoomReply(raw, bot.id, participants) : { text: raw };
     const { text } = reply;
     updateRoomMessage(room.id, responseId, { text: error || (text.trim() ? text : "Bot did not return a response."), status: error || !text.trim() ? "error" : "done" });
+    // The turn may have handed work to Code; show what that run is doing while the Room waits.
+    const delegated = pendingRoomCodeRequestForTurn(room.id, requestId);
+    if (delegated) trackRoomCodeProgress(room.id, delegated);
     return error || !text.trim() ? undefined : reply;
   } catch (error) {
     updateRoomMessage(room.id, responseId, { text: error instanceof Error ? error.message : String(error), status: "error" });

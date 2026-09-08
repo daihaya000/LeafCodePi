@@ -111,6 +111,29 @@ describe("room conversation with delegated work", () => {
     expect(state.listeners.get(taskId)?.size ?? 0).toBe(0);
   });
 
+  it("mirrors what the delegated Code run is doing, and clears it once the request settles", async () => {
+    const { room, bots, user } = setup();
+    const request = codeRequest(room, bots[0], { state: "running", codeTaskId: "code-task" });
+    const turn = appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, text: "依頼しました", status: "done", codeRequestId: request.id, codeTaskId: "code-task", codeState: "running" })!;
+    request.room!.responseId = turn.id;
+    state.pendingRoom.mockReturnValue(request);
+    // The bot's turn ends having handed work to Code.
+    state.promptTask.mockImplementation(async (id: string) => {
+      state.details.get(id)!.messages = [assistant("reply", "Codeに依頼しました。\nROOM_ACTION: DONE")];
+    });
+    await runRoomConversation(room, bots, "残作業も進めて", user.id);
+
+    const emit = (payload: Record<string, unknown>) => { for (const listener of state.listeners.get("code-task") ?? []) listener(payload); };
+    emit({ type: "delta", message: { id: "m1", role: "assistant", createdAt: 1, parts: [{ id: "t1", type: "tool", tool: "read", callID: "c1", state: { status: "running", input: { path: "README.md" } } }] } });
+    expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.codeActivity).toContain("読取");
+
+    // Once the request is no longer outstanding the activity line goes away and the listener is released.
+    state.pendingRoom.mockReturnValue(undefined);
+    emit({ type: "delta", message: null });
+    expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.codeActivity).toBe("");
+    expect(state.listeners.get("code-task")?.size ?? 0).toBe(0);
+  });
+
   it("records why the exchange stopped so a paused room is not read as a finished one", async () => {
     const { room, bots, user } = setup();
     await runRoomConversation(room, bots, "残作業も進めて", user.id);
