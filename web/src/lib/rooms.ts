@@ -5,7 +5,8 @@ import { EventEmitter } from "node:events";
 import { dataDir } from "./paths";
 import { botTaskId, botWorkspace, getBot, listBots } from "./bots";
 import { deleteTask, getTask, insertBotTask, listTasks, patchTask } from "./store";
-import type { BotDto, RoomDto, RoomMessage, RoomOutcome } from "./types";
+import type { BotDto, RoomDto, RoomImage, RoomMessage, RoomOutcome } from "./types";
+import type { PromptImageInput } from "./prompt-images";
 
 type RoomFile = RoomDto;
 const roomEvents = new EventEmitter();
@@ -241,7 +242,7 @@ export function appendRoomMessage(id: string, message: Omit<RoomMessage, "id" | 
     return next;
   });
 }
-export function updateRoomMessage(id: string, messageId: string, patch: Partial<Pick<RoomMessage, "text" | "status" | "botName" | "conversation" | "codeRequestId" | "codeTaskId" | "codeState" | "codeActivity">>): RoomMessage | undefined {
+export function updateRoomMessage(id: string, messageId: string, patch: Partial<Pick<RoomMessage, "text" | "status" | "botName" | "conversation" | "codeRequestId" | "codeTaskId" | "codeState" | "codeActivity" | "images">>): RoomMessage | undefined {
   return withRoomLock(id, () => {
     const room = readRoom(id);
     const message = room?.messages.find((item) => item.id === messageId);
@@ -261,6 +262,48 @@ export function setRoomOutcome(id: string, outcome: RoomOutcome): void {
     writeRoom(room);
   });
 }
+/**
+ * Attachments live beside the room file, never inside it: the transcript is rewritten on every
+ * turn, so inlined base64 would be re-serialised hundreds of times and shipped on every snapshot.
+ */
+const ROOM_IMAGE_EXTENSIONS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
+export const MAX_ROOM_IMAGES = 8;
+export const MAX_ROOM_IMAGE_BYTES = 8 * 1024 * 1024;
+function roomImagePath(roomId: string, file: string): string {
+  assertId(roomId);
+  // Names are server-generated; anything else must not reach the filesystem.
+  if (!/^[0-9a-f-]{36}-\d{1,2}\.(png|jpg|webp|gif)$/i.test(file)) throw new Error("invalid room image");
+  return join(roomDataRoot(roomId), "images", file);
+}
+export function saveRoomImages(roomId: string, messageId: string, images: PromptImageInput[]): RoomImage[] {
+  assertId(roomId);
+  assertId(messageId);
+  mkdirSync(join(roomDataRoot(roomId), "images"), { recursive: true });
+  return images.slice(0, MAX_ROOM_IMAGES).flatMap((image, index) => {
+    const extension = ROOM_IMAGE_EXTENSIONS[image.mimeType.toLowerCase()];
+    if (!extension) return [];
+    const bytes = Buffer.from(image.data, "base64");
+    if (bytes.length === 0 || bytes.length > MAX_ROOM_IMAGE_BYTES) return [];
+    const file = `${messageId}-${index}.${extension}`;
+    writeFileSync(roomImagePath(roomId, file), bytes);
+    return [{ file, mimeType: image.mimeType }];
+  });
+}
+export function readRoomImage(roomId: string, file: string): { bytes: Buffer; mimeType: string } | undefined {
+  try {
+    const mimeType = Object.entries(ROOM_IMAGE_EXTENSIONS).find(([, extension]) => file.toLowerCase().endsWith(`.${extension}`))?.[0];
+    return mimeType ? { bytes: readFileSync(roomImagePath(roomId, file)), mimeType } : undefined;
+  } catch { return undefined; }
+}
+/** Attachments of a request, read back for the model. Turns after the first already have them in session. */
+export function roomRequestImages(roomId: string, messageId: string): PromptImageInput[] {
+  const message = getRoom(roomId)?.messages.find((item) => item.id === messageId);
+  return (message?.images ?? []).flatMap((image) => {
+    const stored = readRoomImage(roomId, image.file);
+    return stored ? [{ mimeType: stored.mimeType, data: stored.bytes.toString("base64") }] : [];
+  });
+}
+
 /**
  * Drop a user request and everything said after it, returning its text for the composer.
  * Bot sessions keep their own history: only the shared room transcript is rewound.

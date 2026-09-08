@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const testState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => testState.root, storePath: () => join(testState.root, "store.json") }; });
 import { botTaskId, createBot, deleteBot, patchBot } from "./bots";
-import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom } from "./rooms";
+import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, readRoomImage, roomRequestImages, saveRoomImages, updateRoomMessage } from "./rooms";
 import { getTask } from "./store";
 
 describe("room store and mention routing", () => {
@@ -40,6 +40,26 @@ describe("room store and mention routing", () => {
     expect(botsForRoomPrompt(room, "user@Alpha.example @AlphaExtra @here-other @everyoneElse", false, bots).bots).toEqual([]);
     expect(botsForRoomPrompt(room, "@a、@C++。", false, bots).bots.map((bot) => bot.name)).toEqual(["A", "C++"]);
   });
+  it("stores attachments beside the room and refuses anything outside its images directory", () => {
+    const room = createRoom({ name: "Team" });
+    const message = appendRoomMessage(room.id, { role: "user", text: "見て" })!;
+    const png = Buffer.from("89504e470d0a1a0a", "hex");
+    const saved = saveRoomImages(room.id, message.id, [
+      { mimeType: "image/png", data: png.toString("base64") },
+      { mimeType: "application/pdf", data: png.toString("base64") },
+    ]);
+    expect(saved).toEqual([{ file: `${message.id}-0.png`, mimeType: "image/png" }]);
+    updateRoomMessage(room.id, message.id, { images: saved });
+
+    expect(readRoomImage(room.id, saved[0].file)?.bytes.equals(png)).toBe(true);
+    // Attachments must never let a request read outside the room's own directory.
+    expect(readRoomImage(room.id, "../../store.json")).toBeUndefined();
+    expect(readRoomImage(room.id, `../${room.id}.json`)).toBeUndefined();
+    // The transcript keeps only the reference, so a turn write never re-serialises the bytes.
+    expect(readFileSync(join(root, "bots", "rooms", `${room.id}.json`), "utf8")).not.toContain(png.toString("base64"));
+    expect(roomRequestImages(room.id, message.id)).toEqual([{ mimeType: "image/png", data: png.toString("base64") }]);
+  });
+
   it("keeps the live room bounded and moves older turns to append-only history", () => {
     const bot = createBot({ name: "Alpha" });
     const room = createRoom({ members: [bot.id] });

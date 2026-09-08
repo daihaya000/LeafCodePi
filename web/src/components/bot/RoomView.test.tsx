@@ -103,6 +103,23 @@ describe("RoomView delegated work", () => {
     expect(input.value).toBe("やり直したい依頼");
   });
 
+  it("shows attachments of a request and sends them with the prompt", async () => {
+    const { act } = await import("@testing-library/react");
+    render(<RoomView id={room.id} />);
+    const input = await screen.findByRole("textbox") as HTMLTextAreaElement;
+    act(() => pushSnapshot({ room: { ...room, messages: [{ id: "user-1", role: "user" as const, text: "これ見て", createdAt: 2, images: [{ file: "user-1-0.png", mimeType: "image/png" }] }] } }));
+    expect(screen.getByAltText("添付画像").getAttribute("src")).toBe(`/api/bots/rooms/${room.id}/images/user-1-0.png`);
+
+    fireEvent.change(input, { target: { value: "これを見て" } });
+    fireEvent.paste(input, { clipboardData: { items: [{ kind: "file", type: "image/png", getAsFile: () => new File(["x"], "shot.png", { type: "image/png" }) }] } });
+    await screen.findByLabelText("1番目の画像を削除");
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    await vi.waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(`/api/bots/rooms/${room.id}/prompt`, expect.objectContaining({
+      prompt: "これを見て",
+      images: [expect.objectContaining({ mimeType: "image/png" })],
+    })));
+  });
+
   it("shows what Code is doing and lets the user stop that run", async () => {
     const { act } = await import("@testing-library/react");
     render(<RoomView id={room.id} />);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, getRoom } from "@/lib/rooms";
+import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, getRoom, saveRoomImages, updateRoomMessage } from "@/lib/rooms";
 import { getBot } from "@/lib/bots";
+import { isPromptImageList } from "@/lib/prompt-images";
 import { jsonError } from "@/lib/pi/harness";
 import { isRoomConversationRequest, isRoomStopRequest, MAX_ROOM_CONVERSATION_PARTICIPANTS } from "@/lib/room-conversation";
 import { runRoomBot, runRoomConversation, runRoomFanOut, settleStaleRoomTurns, steerRoomTurns, stopRoomTurns } from "@/lib/room-runtime";
@@ -8,7 +9,7 @@ import type { BotDto, RoomMessage } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type PromptBody = { prompt?: unknown; broadcast?: unknown; fromBot?: unknown; relayEnvelope?: unknown };
+type PromptBody = { prompt?: unknown; broadcast?: unknown; fromBot?: unknown; relayEnvelope?: unknown; images?: unknown };
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -30,11 +31,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       for (const [index, bot] of targets.entries()) { const response = responses[index]; if (response) void runRoomBot(room, bot, prompt, response.id, userMessage.id); }
       return NextResponse.json({ room: getRoom(id), routedBotIds: targets.map((bot) => bot.id), relay: true, relayDepth: envelope.depth, relayTurnId: envelope.turnId });
     }
-    if (typeof body?.prompt !== "string" || !body.prompt.trim()) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
+    if (typeof body?.prompt !== "string") return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
+    // Attachments only ever come from the user composer, never from a relayed bot payload.
+    if (body.images !== undefined && !isPromptImageList(body.images)) return NextResponse.json({ error: "invalid images" }, { status: 400 });
+    const attachments = body.images ?? [];
+    if (!body.prompt.trim() && attachments.length === 0) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     const prompt = body.prompt.trim();
     settleStaleRoomTurns(id);
     const userMessage = appendRoomMessage(id, { role: "user", text: prompt });
     if (!userMessage) return NextResponse.json({ error: "Room not found" }, { status: 404 });
+    // ponytail: attachment files outlive a revert; the whole directory goes when the room is deleted.
+    if (attachments.length > 0) {
+      const saved = saveRoomImages(id, userMessage.id, attachments);
+      if (saved.length > 0) updateRoomMessage(id, userMessage.id, { images: saved });
+    }
     if (isRoomStopRequest(prompt)) {
       const stopped = await stopRoomTurns(id);
       return NextResponse.json({ room: getRoom(id), routedBotIds: [], stopped: true, stoppedTurns: stopped });

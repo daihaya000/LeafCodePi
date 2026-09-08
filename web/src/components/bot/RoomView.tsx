@@ -6,6 +6,7 @@ import { Users, X, RotateCcw } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
 import { notifyBotSidebarChanged } from "@/lib/events";
 import { markRead } from "@/lib/bot-unread";
+import { decideNotification } from "@/lib/notify";
 import type { BotDto, QuestionRequestDto, RoomAttention, RoomDto } from "@/lib/types";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { Button } from "@/components/ui";
@@ -15,9 +16,15 @@ import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
 import { BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow } from "@/components/bot/BotMessageList";
 import { renderMentions } from "@/components/bot/BotMention";
+import { ImageLightbox, type ComposerAttachment } from "@/components/Composer";
+import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 
 type MentionContext = { start: number; end: number; query: string };
-type MentionCandidate = { key: string; value: string; label: string; description: string; bot?: BotDto };
+
+/** A room is busy while a turn is being written or a delegated Code run has not reported back. */
+function isRoomBusy(room: RoomDto | null): boolean {
+  return (room?.messages ?? []).some((message) => message.status === "working" || message.codeState === "starting" || message.codeState === "running" || message.codeState === "ready");
+}type MentionCandidate = { key: string; value: string; label: string; description: string; bot?: BotDto };
 
 const SPECIAL_MENTIONS: MentionCandidate[] = [
   { key: "special:here", value: "here", label: "@here", description: "全員にメンション" },
@@ -46,6 +53,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const [attentionBusy, setAttentionBusy] = useState<string | null>(null);
   const [stoppingCode, setStoppingCode] = useState(false);
   const [reverting, setReverting] = useState(false);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [prompt, setPrompt] = useState("");
   const [broadcast, setBroadcast] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -74,6 +82,25 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     const latest = room?.messages.reduce((value, message) => Math.max(value, message.createdAt), 0) ?? 0;
     if (active && latest > 0) markRead("room", id, latest);
   }, [active, id, room?.messages]);
+
+  // A room that finishes answering while you are on another tab should still reach you.
+  const prevAttentionRef = useRef(false);
+  const prevWorkingRef = useRef(false);
+  useEffect(() => {
+    if (typeof Notification === "undefined" || !room) return;
+    const busyNow = isRoomBusy(room);
+    const attentionNow = attention.length > 0;
+    const kind = decideNotification({
+      prevAttention: prevAttentionRef.current, attention: attentionNow,
+      prevWorking: prevWorkingRef.current, working: busyNow,
+      documentHidden: typeof document !== "undefined" && document.hidden,
+      permission: Notification.permission,
+    });
+    prevAttentionRef.current = attentionNow;
+    prevWorkingRef.current = busyNow;
+    // One notification per room replaces the previous one instead of stacking.
+    if (kind) new Notification(kind === "attention" ? "承認が必要です" : "新しい返信があります", { body: room.name, tag: `room-${id}` });
+  }, [attention, id, room]);
 
   useEffect(() => {
     let closed = false;
@@ -181,17 +208,32 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     }
   };
 
+  const addImageFiles = useCallback((files: FileList) => {
+    if (!canAttachComposerImages({ submitting: busy })) return;
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith("image/")) return;
+      const reader = new FileReader();
+      reader.onload = () => setAttachments((current) => [...current, { uri: String(reader.result), mime: file.type, name: file.name }]);
+      reader.readAsDataURL(file);
+    });
+  }, [busy]);
+
   const send = async () => {
     const value = prompt.trim();
-    if (!value || busy) return;
+    if ((!value && attachments.length === 0) || busy) return;
+    const images = attachments.flatMap((attachment) => {
+      const comma = attachment.uri.indexOf(",");
+      return comma < 0 ? [] : [{ mimeType: attachment.mime, data: attachment.uri.slice(comma + 1) }];
+    });
     setPrompt("");
+    setAttachments([]);
     setMentionContext(null);
     setError(null);
     setBusy(true);
     try {
       const result = await sendJson<{ room: RoomDto; routedBotIds?: string[]; steeredBotIds?: string[]; stopped?: boolean }>(
         `/api/bots/rooms/${encodeURIComponent(id)}/prompt`,
-        { prompt: value, broadcast },
+        { prompt: value, broadcast, ...(images.length > 0 ? { images } : {}) },
       );
       if (result.room) {
         setRoom(result.room);
@@ -256,15 +298,16 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         ) : (
           <BotMessageMarkdown text={text} mentions={bots} keyPrefix={message.id} />
         )}
+        {message.images && message.images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{message.images.map((image) => <ImageLightbox key={image.file} src={`/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}`} alt="添付画像" className="max-h-48 rounded-lg border border-border object-cover" />)}</div>}
         {message.codeState && <div role="status" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted"><span>{{ starting: "Code起動準備", running: "Code実行中", ready: "Code結果を報告中", delivered: "Code結果受領", cancelled: "Code中断" }[message.codeState]}</span>{message.codeActivity && <span className="text-faint">· {message.codeActivity}</span>}{message.codeTaskId && <a className="text-accent underline" href={`/task/${encodeURIComponent(message.codeTaskId)}`}>実行内容を見る</a>}{(message.codeState === "starting" || message.codeState === "running") && <button type="button" onClick={() => void stopCode()} disabled={stoppingCode} className="rounded-md px-1.5 py-0.5 text-danger hover:bg-surface-2 disabled:opacity-40">停止</button>}</div>}
         {message.status === "error" && <BotMessageError text="応答に失敗しました" />}
       </BotMessageRow>
     );
-  }), [botById, bots, room?.messages, revertMessage, reverting, stopCode, stoppingCode]);
+  }), [botById, bots, id, room?.messages, revertMessage, reverting, stopCode, stoppingCode]);
 
   if (!room) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
-  const working = room.messages.some((message) => message.status === "working" || message.codeState === "starting" || message.codeState === "running" || message.codeState === "ready");
+  const working = isRoomBusy(room);
   const latestRequestId = room.messages.findLast((message) => message.role === "user" && !message.sourceBotId)?.id;
   const outcome = !working && room.lastOutcome && room.lastOutcome.requestId === latestRequestId ? OUTCOME_TEXT[room.lastOutcome.kind] : undefined;
 
@@ -314,9 +357,12 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         onCompositionEnd={() => { composingRef.current = false; }}
         onKeyDown={handlePromptKeyDown}
         placeholder={broadcast ? `${room.name}の全員に個別回答を依頼` : `${room.name}にメッセージ（@で相手を指定）`}
-        sendDisabled={!prompt.trim()}
+        sendDisabled={!prompt.trim() && attachments.length === 0}
         busy={busy}
         onSend={() => void send()}
+        attachments={attachments}
+        onRemoveAttachment={(index) => setAttachments((current) => current.filter((_, position) => position !== index))}
+        onPaste={(event) => { if (pasteImage(addImageFiles, event)) event.preventDefault(); }}
         footer={<><button type="button" aria-pressed={broadcast} onClick={() => setBroadcast((value) => !value)} className={`rounded-full px-2 py-1 font-medium ${broadcast ? "bg-accent/10 text-accent" : "hover:bg-surface-2 hover:text-text"}`}>{broadcast ? "全員が個別回答" : "メンバーで対話"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="shrink-0 hover:text-text">{`\u30e1\u30f3\u30d0\u30fc: ${room.members.length}`}</button></>}
         inputOverlay={mentionCandidates.length > 0 ? <div id="room-mention-options" role="listbox" aria-label={"\u30e1\u30f3\u30b7\u30e7\u30f3\u5148\u5019\u88dc"} className="absolute bottom-full left-0 z-20 mb-2 max-h-56 w-full overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">{mentionCandidates.map((candidate, index) => <button key={candidate.key} type="button" role="option" aria-selected={index === mentionIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => insertMention(candidate)} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left ${index === mentionIndex ? "bg-surface-2" : "hover:bg-surface-2"}`}>{candidate.bot ? <BotAvatar size={24} color={candidate.bot.avatarColor} image={candidate.bot.avatarImage} name={candidate.bot.name} /> : <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">@</span>}<span className="min-w-0"><span className="block truncate text-sm font-medium">{candidate.label}</span><span className="block truncate text-[11px] text-muted">{candidate.description}</span></span></button>)}</div> : null}
       />

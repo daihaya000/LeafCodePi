@@ -22,12 +22,15 @@ export type RoomConversationTurn = { requestId: string; participantIds: string[]
 export type RoomOutcome = { kind: "code-wait" | "members" | "turns" | "repeat" | "done"; requestId: string };
 export type CodeRequestState = "starting" | "running" | "ready" | "delivered" | "cancelled";
 export type RoomAttention = { botId: string; taskId: string; permission: PermissionRequestDto | null; question: QuestionRequestDto | null };
+/** Attachment stored beside the room file; `file` is server-generated and served by the images route. */
+export type RoomImage = { file: string; mimeType: string };
 
 export type RoomMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
   createdAt: number;
+  images?: RoomImage[];
   botId?: string;
   botName?: string;
   status?: "working" | "done" | "error";

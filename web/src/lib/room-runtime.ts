@@ -1,4 +1,4 @@
-import { appendRoomMessage, ensureRoomBotTask, getRoom, roomBotTaskId, setRoomOutcome, updateRoomMessage } from "./rooms";
+import { appendRoomMessage, ensureRoomBotTask, getRoom, roomBotTaskId, roomRequestImages, setRoomOutcome, updateRoomMessage } from "./rooms";
 import { getBot } from "./bots";
 import { getTask } from "./store";
 import { getTaskDetail, promptTask, subscribeTask, abortTask } from "./pi/harness";
@@ -124,8 +124,10 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     updateRoomMessage(room.id, responseId, { conversation: { requestId, participantIds: turn ? participants.map((member) => member.id) : [bot.id], turn: turn?.turn ?? 1, maxTurns: turn?.maxTurns ?? 1 } });
     const context = roomBotPrompt(currentRoom, bot, participants, prompt, requestId, turn);
     const stopStreaming = streamRoomReply(taskId, room.id, responseId, before);
+    // Attachments belong to the request: send them once, on this bot's first turn for it.
+    const images = (turn?.turn ?? 1) === 1 ? roomRequestImages(room.id, requestId) : [];
     // Wait for the exact queue entry, not an idle-looking acceptance snapshot.
-    try { await promptTask(taskId, context, undefined, { waitForCompletion: true }); } finally { stopStreaming(); }
+    try { await promptTask(taskId, context, images.length > 0 ? images : undefined, { waitForCompletion: true }); } finally { stopStreaming(); }
     const detail = await getTaskDetail(taskId);
     const assistant = [...detail.messages].reverse().find((message) => message.role === "assistant" && !before.has(message.id));
     const error = detail.error || assistant?.error;
