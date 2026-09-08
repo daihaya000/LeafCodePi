@@ -7,7 +7,7 @@ import type { BotDto, RoomDto, TaskDetail, UiMessage } from "./types";
 
 const state = vi.hoisted(() => ({
   root: "", details: new Map<string, TaskDetail>(), promptTask: vi.fn(),
-  pendingRoom: vi.fn(() => undefined as CodeRequest | undefined),
+  pendingRoom: vi.fn<(roomId: string, requestId: string) => CodeRequest | undefined>(() => undefined),
   listeners: new Map<string, Set<(payload: Record<string, unknown>) => void>>(),
 }));
 vi.mock("@/lib/paths", async (importOriginal) => ({
@@ -25,11 +25,11 @@ vi.mock("@/lib/pi/harness", () => ({
     return () => listeners.delete(listener);
   },
 }));
-vi.mock("@/lib/pi/bot-code-relay", () => ({ pendingRoomCodeRequest: state.pendingRoom }));
+vi.mock("@/lib/pi/bot-code-relay", () => ({ pendingRoomCodeRequestForTurn: state.pendingRoom }));
 
 import { createBot } from "./bots";
 import { createRoom, ensureRoomBotTask, getRoom, appendRoomMessage, patchRoom } from "./rooms";
-import { getTask } from "./store";
+import { getTask, patchTask } from "./store";
 import { deliverRoomCodeReport, resumeRoomAfterCode, runRoomConversation, settleStaleRoomTurns } from "./room-runtime";
 
 function assistant(id: string, text: string): UiMessage {
@@ -111,6 +111,26 @@ describe("room conversation with delegated work", () => {
     expect(state.listeners.get(taskId)?.size ?? 0).toBe(0);
   });
 
+  it("records why the exchange stopped so a paused room is not read as a finished one", async () => {
+    const { room, bots, user } = setup();
+    await runRoomConversation(room, bots, "残作業も進めて", user.id);
+    expect(getRoom(room.id)?.lastOutcome).toEqual({ kind: "done", requestId: user.id });
+
+    const next = appendRoomMessage(room.id, { role: "user", text: "もう一度" })!;
+    state.pendingRoom.mockReturnValue(codeRequest(room, bots[0], { state: "running" }));
+    await runRoomConversation(getRoom(room.id)!, bots, "もう一度", next.id);
+    expect(getRoom(room.id)?.lastOutcome).toEqual({ kind: "code-wait", requestId: next.id });
+  });
+
+  it("waits only for its own conversation's Code request", async () => {
+    const { room, bots, user } = setup();
+    // A stale record from another request must not silence this one.
+    state.pendingRoom.mockImplementation((_roomId: string, requestId: string) => requestId === user.id ? undefined : codeRequest(room, bots[0], { state: "ready" }));
+    await runRoomConversation(room, bots, "残作業も進めて", user.id);
+    expect(state.promptTask).toHaveBeenCalled();
+    expect(getRoom(room.id)?.lastOutcome?.kind).toBe("done");
+  });
+
   it("settles only long-abandoned working placeholders left by a crashed worker", () => {
     const { room } = setup();
     const stale = appendRoomMessage(room.id, { role: "assistant", botId: room.members[0], text: "", status: "working", createdAt: Date.now() - 10 * 60_000 })!;
@@ -120,6 +140,15 @@ describe("room conversation with delegated work", () => {
     expect(messages.find((message) => message.id === stale.id)).toMatchObject({ status: "error", text: "応答が中断されました。" });
     expect(messages.find((message) => message.id === live.id)?.status).toBe("working");
     expect(settleStaleRoomTurns(room.id)).toBe(0);
+  });
+
+  it("keeps a slow but still running turn untouched", () => {
+    const { room, bots } = setup();
+    const slow = appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, text: "", status: "working", createdAt: Date.now() - 10 * 60_000 })!;
+    // Another worker is still updating this task record.
+    patchTask(`bot:${bots[0].id}:room:${room.id}`, { status: "working" });
+    expect(settleStaleRoomTurns(room.id)).toBe(0);
+    expect(getRoom(room.id)!.messages.find((message) => message.id === slow.id)?.status).toBe("working");
   });
 
   it("does not let the same participant open every exchange", async () => {

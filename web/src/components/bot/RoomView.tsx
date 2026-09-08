@@ -24,6 +24,14 @@ const SPECIAL_MENTIONS: MentionCandidate[] = [
   { key: "special:channel", value: "channel", label: "@channel", description: "全員にメンション" },
 ];
 
+const OUTCOME_TEXT: Record<string, string> = {
+  "code-wait": "Codeの結果を待っています",
+  members: "会話できるメンバーが足りません",
+  turns: "発言上限に達しました",
+  repeat: "同じ内容が繰り返されたため停止しました",
+  done: "会話は完了しました",
+};
+
 function mentionContextFor(value: string, cursor: number): MentionContext | null {
   const start = value.lastIndexOf("@", cursor - 1);
   if (start < 0 || (start > 0 && !/\s/.test(value[start - 1] ?? ""))) return null;
@@ -230,6 +238,8 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   if (!room) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
   const working = room.messages.some((message) => message.status === "working" || message.codeState === "starting" || message.codeState === "running" || message.codeState === "ready");
+  const latestRequestId = room.messages.findLast((message) => message.role === "user" && !message.sourceBotId)?.id;
+  const outcome = !working && room.lastOutcome && room.lastOutcome.requestId === latestRequestId ? OUTCOME_TEXT[room.lastOutcome.kind] : undefined;
 
   return (
     <div className="flex h-full min-h-0 bg-bot-chat">
@@ -260,6 +270,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
             {item.question && <div><p className="mb-1 text-xs text-muted">{botById.get(item.botId)?.name ?? "Bot"}からの質問</p><QuestionCard request={item.question} onReply={(request, answers) => answerQuestion(item.taskId, request, answers)} onReject={(request) => answerQuestion(item.taskId, request)} /></div>}
           </div>)}
           {working && <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />応答中…</div>}
+          {outcome && <p className="text-xs text-muted">{outcome}</p>}
         </div>
       </BotMessageList>
 

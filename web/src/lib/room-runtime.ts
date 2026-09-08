@@ -1,9 +1,10 @@
-import { appendRoomMessage, ensureRoomBotTask, getRoom, roomBotTaskId, updateRoomMessage } from "./rooms";
+import { appendRoomMessage, ensureRoomBotTask, getRoom, roomBotTaskId, setRoomOutcome, updateRoomMessage } from "./rooms";
 import { getBot } from "./bots";
+import { getTask } from "./store";
 import { getTaskDetail, promptTask, subscribeTask } from "./pi/harness";
-import { pendingRoomCodeRequest, type CodeRequest } from "./pi/bot-code-relay";
+import { pendingRoomCodeRequestForTurn, type CodeRequest } from "./pi/bot-code-relay";
 import { latestRoomRequest, MAX_ROOM_CONVERSATION_TURNS, parseRoomReply, roomBotPrompt, type RoomReply, type RoomTurn } from "./room-conversation";
-import type { BotDto, RoomDto, UiMessage } from "./types";
+import type { BotDto, RoomDto, RoomOutcome, UiMessage } from "./types";
 
 // Share queue ownership across Next route module instances in the same worker.
 const globalRef = globalThis as typeof globalThis & { __leafcodeRoomBotRuns?: Map<string, Promise<void>> };
@@ -91,7 +92,17 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
 const STALE_TURN_MS = 5 * 60_000;
 /** A crashed worker leaves "working" placeholders behind; nothing else ever settles them. */
 export function settleStaleRoomTurns(roomId: string, now = Date.now()): number {
-  const stale = (getRoom(roomId)?.messages ?? []).filter((message) => message.status === "working" && now - message.createdAt > STALE_TURN_MS);
+  const stale = (getRoom(roomId)?.messages ?? []).filter((message) => {
+    if (message.status !== "working" || now - message.createdAt <= STALE_TURN_MS) return false;
+    if (!message.botId) return true;
+    // A slow turn is not an abandoned one: never settle a run this worker owns, nor one whose
+    // task record is still being updated by another worker.
+    const taskId = roomBotTaskId(roomId, message.botId);
+    if (roomBotRuns.has(taskId)) return false;
+    const task = getTask(taskId);
+    const touchedAt = task ? Date.parse(task.updatedAt) : Number.NaN;
+    return !(task?.status === "working" && Number.isFinite(touchedAt) && now - touchedAt <= STALE_TURN_MS);
+  });
   for (const message of stale) updateRoomMessage(roomId, message.id, { text: "応答が中断されました。", status: "error" });
   return stale.length;
 }
@@ -110,29 +121,33 @@ export async function runRoomConversation(room: RoomDto, bots: BotDto[], prompt:
   // Rotate the opener so the first member does not lead every exchange.
   const lastSpeaker = room.messages.findLast((message) => message.role === "assistant" && message.botId)?.botId;
   let nextBotId = resume?.nextBotId ?? bots.find((bot) => bot.id !== lastSpeaker)?.id ?? bots[0]?.id;
+  // A silent return reads as "finished"; record why the floor stopped moving instead.
+  const stop = (kind: RoomOutcome["kind"]) => setRoomOutcome(room.id, { kind, requestId: userMessageId });
   for (let turn = resume?.startTurn ?? 1; turn <= maxTurns; turn += 1) {
     const current = getRoom(room.id);
     if (!current || latestRoomRequest(current)?.id !== userMessageId) return;
     const active = bots.filter((bot) => current.members.includes(bot.id) && getBot(bot.id)?.enabled);
-    if (active.length < 2) return;
+    if (active.length < 2) return stop("members");
     const bot = active.find((member) => member.id === nextBotId) ?? active.find((member) => !spoken.has(member.id)) ?? active[0];
     const response = appendRoomMessage(room.id, { role: "assistant", botId: bot.id, botName: bot.name, text: "", status: "working" });
     if (!response) return;
     const reply = await runRoomBot(room, bot, prompt, response.id, userMessageId, { participants: active, turn, maxTurns });
     // A tool receipt is not a result. The durable Code outbox resumes only after the real report is delivered.
-    if (!reply || pendingRoomCodeRequest(room.id)) return;
+    if (pendingRoomCodeRequestForTurn(room.id, userMessageId)) return stop("code-wait");
+    if (!reply) return;
     spoken.add(bot.id);
     const normalized = reply.text.trim().replace(/\s+/g, " ");
     const previous = replies.get(bot.id) ?? new Set<string>();
-    if (previous.has(normalized)) return;
+    if (previous.has(normalized)) return stop("repeat");
     previous.add(normalized);
     replies.set(bot.id, previous);
     // The speaker ends the exchange; nobody is dragged in just because they have not spoken yet.
-    if (reply.action === "done") return;
+    if (reply.action === "done") return stop("done");
     // ponytail: a model ignoring the protocol gets one round-robin pass, not retries or an LLM selector.
-    if (!reply.action && turn >= bots.length) return;
+    if (!reply.action && turn >= bots.length) return stop("done");
     nextBotId = reply.nextBotId ?? active[(active.indexOf(bot) + 1) % active.length].id;
   }
+  stop("turns");
 }
 
 /** Called only after a correlated Bot report exists, including retries after a process restart. */

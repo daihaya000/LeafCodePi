@@ -24,7 +24,7 @@ vi.mock("@/lib/store", () => ({
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, pendingRoomCodeRequest, roomForCodeOrigin, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -229,7 +229,10 @@ describe("Room ⇄ Code delegation", () => {
     const turn = store.rooms.get("room-1")!.messages.at(-1)!;
     expect(turn).toMatchObject({ codeRequestId: record().id, codeTaskId: "code", codeState: "running" });
     expect(relay.originForCode("code")).toBe("bot:one:room:room-1");
-    expect(pendingRoomCodeRequest("room-1")?.id).toBe(record().id);
+    expect(pendingRoomCodeRequestForRoom("room-1")?.id).toBe(record().id);
+    expect(pendingRoomCodeRequestForTurn("room-1", conversation.requestId)?.id).toBe(record().id);
+    // A different request must not be paused by this record.
+    expect(pendingRoomCodeRequestForTurn("room-1", "user-2")).toBeUndefined();
     expect(roomForCodeOrigin(store.tasks.get("bot:one:room:room-1"))?.id).toBe("room-1");
     expect(isBotCodeOriginTask(store.tasks.get("bot:one:room:room-1"))).toBe(true);
     expect(isBotCodeOriginTask({ id: "bot:one:room:missing", kind: "bot", botId: "one" })).toBe(false);
@@ -255,6 +258,34 @@ describe("Room ⇄ Code delegation", () => {
     if (change === "finished") room.messages.at(-1)!.status = "done";
     await expect(roomLaunch()).rejects.toThrow(change === "removed" ? "Room member" : "no longer active");
     expect(deps.create).not.toHaveBeenCalled();
+  });
+
+  it("starts a fresh Code session for a new conversation instead of continuing the old one", async () => {
+    roomSetup();
+    await roomLaunch();
+    store.tasks.get("code")!.status = "idle";
+    messages = [answer("first", "First room job done")];
+    await relay.tick(); await relay.tick();
+    expect(record().state).toBe("delivered");
+
+    // A second user request opens a new conversation; the old session must not be reused.
+    const room = store.rooms.get("room-1")!;
+    const conversation = { requestId: "user-2", participantIds: ["one", "two"], turn: 1, maxTurns: 6 };
+    room.messages.push({ id: "user-2", role: "user", text: "別の依頼", createdAt: 5 });
+    room.messages.push({ id: "turn-2", role: "assistant", botId: "one", text: "", status: "working", createdAt: 6, conversation });
+    expect(await relay.run("bot:one:room:room-1", "room-status-2", { action: "status" }, "session")).toMatchObject({ task: null });
+    await relay.run("bot:one:room:room-1", "room-start-2", { action: "start", projectId: "project", prompt: "Second job" }, "session");
+    expect(deps.create).toHaveBeenCalledTimes(2);
+    expect(record().room?.conversation.requestId).toBe("user-2");
+  });
+
+  it("refuses a second Room job before spending the user's approval on it", async () => {
+    roomSetup();
+    await roomLaunch();
+    store.rooms.get("room-1")!.messages.push({ id: "turn-2", role: "assistant", botId: "two", text: "", status: "working", createdAt: 4, conversation: { requestId: "user-1", participantIds: ["one", "two"], turn: 2, maxTurns: 6 } });
+    vi.mocked(deps.approve).mockClear();
+    await expect(relay.run("bot:two:room:room-1", "other-member", { action: "start", projectId: "project", prompt: "Same work" }, "session")).rejects.toThrow("still running");
+    expect(deps.approve).not.toHaveBeenCalled();
   });
 
   it("allows only one Room Code job at a time, including from another member", async () => {

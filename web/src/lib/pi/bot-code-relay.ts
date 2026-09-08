@@ -90,12 +90,21 @@ function roomContext(originTaskId: string): CodeRequest["room"] {
   if (!room || !response?.conversation || response.conversation.requestId !== latestUser?.id || !response.conversation.participantIds.includes(task!.botId!)) throw new Error("Room request is no longer active");
   return { id: room.id, responseId: response.id, conversation: response.conversation };
 }
-export function pendingRoomCodeRequest(roomId: string): CodeRequest | undefined {
+/** Room-wide: one mutating Code job per Room, whichever conversation asked for it. */
+export function pendingRoomCodeRequestForRoom(roomId: string): CodeRequest | undefined {
   return requests().find((request) => request.room?.id === roomId && active(request));
+}
+/** Turn-scoped: only this conversation's own job may pause it. A stale record must not silence a new request. */
+export function pendingRoomCodeRequestForTurn(roomId: string, requestId: string): CodeRequest | undefined {
+  return requests().find((request) => request.room?.id === roomId && request.room.conversation.requestId === requestId && active(request));
 }
 function linkedCodeTaskId(originTaskId: string, bot: ReturnType<typeof owner>): string | undefined {
   const room = roomForCodeOrigin(getTask(originTaskId));
-  return room ? room.messages.findLast((message) => message.botId === bot.id && message.codeTaskId)?.codeTaskId ?? undefined : bot.codeSessionTaskId ?? undefined;
+  if (!room) return bot.codeSessionTaskId ?? undefined;
+  // Rooms link per conversation: a new user request starts a fresh Code session instead of
+  // continuing one that carries an unrelated request's context.
+  const requestId = room.messages.findLast((message) => message.role === "user" && !message.sourceBotId)?.id;
+  return room.messages.findLast((message) => message.botId === bot.id && message.codeTaskId && message.conversation?.requestId === requestId)?.codeTaskId ?? undefined;
 }
 
 /** A persisted input is not an acknowledgement: require the final Bot answer after it. */
@@ -159,6 +168,9 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       const project = projectId ? getProject(projectId) : null;
       if (projectId && (!project || project.archived)) throw new Error("Select an active registered project using code_session projects");
       if (bot.permissionMode === "deny") throw new Error("This Bot does not permit Code delegation");
+      // Ask only for work that can actually start: an approval spent on a request the Room will
+      // refuse a moment later is worse than a plain error.
+      if (room && pendingRoomCodeRequestForRoom(room.id)) throw new Error("A Room Code request is still running or awaiting its report");
       const approved = await deps.approve(sessionId, `Codeへ依頼します。\nプロジェクト: ${project?.name ?? NO_PROJECT_NAME}\n\n${input.prompt.trim()}`);
       if (!approved || signal?.aborted) throw new Error("Code request was not approved");
     }
@@ -175,7 +187,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       }
       if (current.permissionMode === "deny") throw new Error("This Bot does not permit Code delegation");
       if (requests().some((item) => item.botId === bot.id && active(item))) throw new Error("A Code request is still running or awaiting its Bot report");
-      if (room && pendingRoomCodeRequest(room.id)) throw new Error("A Room Code request is still running or awaiting its report");
+      if (room && pendingRoomCodeRequestForRoom(room.id)) throw new Error("A Room Code request is still running or awaiting its report");
       if (input.action === "start" && linked && linked.status !== "archived") return { task: linked, message: "Use prompt to continue this Code session" };
       if (input.action === "prompt" && (!linked || linked.status === "archived" || linked.permissionMode === "deny" || deps.isBusy(linked.id))) throw new Error("The linked Code session is unavailable or busy");
       const projectId = input.action === "start" ? input.projectId?.trim() || null : linked!.projectId;

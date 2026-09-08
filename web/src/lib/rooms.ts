@@ -5,7 +5,7 @@ import { EventEmitter } from "node:events";
 import { dataDir } from "./paths";
 import { botTaskId, botWorkspace, getBot, listBots } from "./bots";
 import { deleteTask, getTask, insertBotTask, listTasks, patchTask } from "./store";
-import type { BotDto, RoomDto, RoomMessage } from "./types";
+import type { BotDto, RoomDto, RoomMessage, RoomOutcome } from "./types";
 
 type RoomFile = RoomDto;
 const roomEvents = new EventEmitter();
@@ -122,6 +122,13 @@ function assertId(id: string): void {
   if (!isValidId(id)) throw new Error("invalid room id");
 }
 function roomPath(id: string): string { assertId(id); return join(roomsRoot(), `${id}.json`); }
+function normalizeOutcome(value: unknown): RoomOutcome | undefined {
+  const outcome = value as Partial<RoomOutcome> | undefined;
+  const kinds = ["code-wait", "members", "turns", "repeat", "done"];
+  return outcome && typeof outcome.requestId === "string" && typeof outcome.kind === "string" && kinds.includes(outcome.kind)
+    ? { kind: outcome.kind as RoomOutcome["kind"], requestId: outcome.requestId }
+    : undefined;
+}
 function normalizeRoom(value: Partial<RoomFile>, id: string): RoomDto | null {
   if (value.id !== id || typeof value.name !== "string" || !Array.isArray(value.members)) return null;
   const messages = Array.isArray(value.messages) ? value.messages.filter((item): item is RoomMessage => Boolean(item && typeof item === "object" && typeof item.id === "string" && (item.role === "user" || item.role === "assistant") && typeof item.text === "string" && typeof item.createdAt === "number")) : [];
@@ -130,6 +137,7 @@ function normalizeRoom(value: Partial<RoomFile>, id: string): RoomDto | null {
     name: value.name,
     members: [...new Set(value.members.filter((item): item is string => typeof item === "string"))],
     botRelayEnabled: value.botRelayEnabled === true,
+    ...(normalizeOutcome(value.lastOutcome) ? { lastOutcome: normalizeOutcome(value.lastOutcome) } : {}),
     createdAt: String(value.createdAt),
     updatedAt: String(value.updatedAt),
     messages,
@@ -229,6 +237,15 @@ export function updateRoomMessage(id: string, messageId: string, patch: Partial<
     room.updatedAt = new Date().toISOString();
     writeRoom(room);
     return message;
+  });
+}
+export function setRoomOutcome(id: string, outcome: RoomOutcome): void {
+  withRoomLock(id, () => {
+    const room = readRoom(id);
+    if (!room) return;
+    room.lastOutcome = outcome;
+    room.updatedAt = new Date().toISOString();
+    writeRoom(room);
   });
 }
 export function subscribeRoom(id: string, listener: (room: RoomDto | null) => void): () => void {

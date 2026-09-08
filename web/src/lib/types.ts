@@ -18,6 +18,8 @@ export type BotSkillsConfig = {
 };
 
 export type RoomConversationTurn = { requestId: string; participantIds: string[]; turn: number; maxTurns: number };
+/** Why an exchange stopped, so a quiet room is not mistaken for a finished one. */
+export type RoomOutcome = { kind: "code-wait" | "members" | "turns" | "repeat" | "done"; requestId: string };
 export type CodeRequestState = "starting" | "running" | "ready" | "delivered" | "cancelled";
 export type RoomAttention = { botId: string; taskId: string; permission: PermissionRequestDto | null; question: QuestionRequestDto | null };
 
@@ -47,6 +49,7 @@ export type RoomDto = {
   members: string[];
   /** Explicit opt-in for the minimal, directed bot-to-bot relay path. */
   botRelayEnabled: boolean;
+  lastOutcome?: RoomOutcome;
   createdAt: string;
   updatedAt: string;
   messages: RoomMessage[];

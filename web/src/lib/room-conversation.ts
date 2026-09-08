@@ -45,7 +45,10 @@ export function parseRoomReply(raw: string, speakerId: string, participants: Bot
   const labels = participants.filter((bot) => bot.enabled && bot.id !== speakerId)
     .flatMap((bot) => [bot.id, bot.name.trim()].filter(Boolean).map((label) => ({ bot, label: label.toLowerCase() })))
     .sort((left, right) => right.label.length - left.label.length);
-  const hit = match[1] === "NEXT" ? labels.find((entry) => lowered.startsWith(entry.label)) : undefined;
+  // A label must end where the name ends: a teammate called "A" must not swallow "about the plan".
+  const hit = match[1] === "NEXT"
+    ? labels.find((entry) => lowered.startsWith(entry.label) && !/^[\p{L}\p{N}\p{M}_-]/u.test(lowered.slice(entry.label.length)))
+    : undefined;
   // Without a usable target the whole directive line goes: a leaked marker or a stray id helps nobody.
   const remainder = match[1] === "DONE" ? rest : hit ? opener.slice(hit.label.length).replace(/^[*_`"'>)\]}:,.、。：，・\s]+/, "") : "";
   const next = hit?.bot;
@@ -58,13 +61,21 @@ export function parseRoomReply(raw: string, speakerId: string, participants: Bot
 }
 
 function transcript(room: RoomDto, requestId: string, conversation: boolean) {
-  const end = conversation ? room.messages.length : room.messages.findIndex((message) => message.id === requestId) + 1;
-  const messages = room.messages.slice(0, end).filter((message) => message.status !== "working" && message.status !== "error");
+  const index = room.messages.findIndex((message) => message.id === requestId);
+  // An unknown request id must not blank the history: fall back to the recent tail.
+  const end = conversation || index < 0 ? room.messages.length : index + 1;
+  const visible = room.messages.slice(0, end);
+  // Failures stay out of the prose, but the newest one is worth one note so the next speaker
+  // does not walk into the same wall.
+  const lastErrorId = [...visible].reverse().find((message) => message.status === "error")?.id;
+  const messages = visible.filter((message) => message.status !== "working" && (message.status !== "error" || message.id === lastErrorId));
   const result: string[] = [];
   let remaining = HISTORY_BUDGET - 2;
   for (const message of messages.slice(-30).reverse()) {
     const speakerId = message.botId ?? message.sourceBotId;
-    const entry = { speaker: speakerId ? "bot" : "user", botId: speakerId, name: message.botName, text: message.text, ...(message.codeRequestId ? { code: { requestId: message.codeRequestId, taskId: message.codeTaskId, state: message.codeState } } : {}) };
+    const entry = message.status === "error"
+      ? { speaker: "system", text: `前のターンは失敗しました: ${message.text.slice(0, 200)}` }
+      : { speaker: speakerId ? "bot" : "user", botId: speakerId, name: message.botName, text: message.text, ...(message.codeRequestId ? { code: { requestId: message.codeRequestId, taskId: message.codeTaskId, state: message.codeState } } : {}) };
     let serialized = JSON.stringify(entry);
     if (serialized.length > remaining) {
       // Keep the latest contribution even when it alone exceeds the history budget.

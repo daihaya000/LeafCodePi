@@ -90,6 +90,19 @@ describe("RoomView mention chips", () => {
 });
 
 describe("RoomView delegated work", () => {
+  it("tells the user why a quiet room stopped, and only for the latest request", async () => {
+    const { act } = await import("@testing-library/react");
+    render(<RoomView id={room.id} />);
+    await screen.findByRole("textbox");
+    const messages = [{ id: "user-2", role: "user" as const, text: "残作業も進めて", createdAt: 2 }];
+    act(() => pushSnapshot({ room: { ...room, messages, lastOutcome: { kind: "code-wait", requestId: "user-2" } } }));
+    expect(screen.getByText("Codeの結果を待っています")).toBeTruthy();
+
+    // A newer request supersedes the note.
+    act(() => pushSnapshot({ room: { ...room, messages: [...messages, { id: "user-3", role: "user" as const, text: "別の依頼", createdAt: 3 }], lastOutcome: { kind: "code-wait", requestId: "user-2" } } }));
+    expect(screen.queryByText("Codeの結果を待っています")).toBeNull();
+  });
+
   it("shows Code progress and lets the user answer a member's approval from the room", async () => {
     const { act } = await import("@testing-library/react");
     render(<RoomView id={room.id} />);

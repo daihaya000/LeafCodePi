@@ -70,6 +70,11 @@ describe("room reply protocol", () => {
     });
     expect(parseRoomReply("確認して。\nROOM_ACTION: NEXT プランナー", "a", roster)).toMatchObject({ nextBotId: "b", text: "確認して。" });
   });
+  it("does not let a short name swallow the following word", () => {
+    const roster = [{ ...bots[0], id: "a", name: "A" }, { ...bots[1], id: "b", name: "B" }] as BotDto[];
+    expect(parseRoomReply("検討しました。\nROOM_ACTION: NEXT about the plan", "a", roster)).toEqual({ text: "検討しました。" });
+    expect(parseRoomReply("検討しました。\nROOM_ACTION: NEXT B 確認して", "a", roster)).toEqual({ text: "検討しました。\n確認して", action: "next", nextBotId: "b" });
+  });
   it("keeps a sentence written on the directive line as prose instead of leaking the marker", () => {
     expect(parseRoomReply("判断しました。\nROOM_ACTION: DONE 具体的な指示をお待ちしています。", "a", bots)).toEqual({
       text: "判断しました。\n具体的な指示をお待ちしています。", action: "done",
@@ -124,12 +129,19 @@ describe("shared room context", () => {
     const prompt = roomBotPrompt(current, bots[0], bots, user.text, user.id, { participants: bots, turn: 6, maxTurns: 6 });
     const history = transcriptOf(prompt);
     expect(JSON.stringify(history).length).toBeLessThanOrEqual(24_000);
-    expect(history.at(-1)).toMatchObject({ speaker: "bot", botId: "b", truncated: true });
-    expect(history.at(-1)?.text).toContain("新しい意見");
+    // The newest failure is kept as a one-line note; anything that no longer fits the budget is dropped.
+    expect(history.at(-1)).toMatchObject({ speaker: "system" });
+    expect(history.at(-1)?.text).toContain("failed output");
     expect(prompt).not.toContain("unfinished");
-    expect(prompt).not.toContain("failed output");
     expect(prompt).toContain(`User request: ${JSON.stringify(user.text)}`);
     expect(prompt).toContain("This is the final available turn");
+  });
+  it("truncates an oversized latest reply instead of dropping the whole history", () => {
+    const current = room([user, { id: "huge", role: "assistant", botId: "b", text: "新しい意見🌿".repeat(20_000), status: "done", createdAt: 2 }]);
+    const history = transcriptOf(roomBotPrompt(current, bots[0], bots, user.text, user.id, { participants: bots, turn: 2, maxTurns: 4 }));
+    expect(JSON.stringify(history).length).toBeLessThanOrEqual(24_000);
+    expect(history.at(-1)).toMatchObject({ speaker: "bot", botId: "b", truncated: true });
+    expect(history.at(-1)?.text).toContain("新しい意見");
   });
   it("tells participants to act on an actionable request instead of interrogating the user", () => {
     const prompt = roomBotPrompt(room(), bots[0], bots, "Bot一覧にテンプレートを追加して", user.id, { participants: bots, turn: 1, maxTurns: 4 });
@@ -137,6 +149,23 @@ describe("shared room context", () => {
     expect(prompt).toContain("Never ask the user something the repository");
     expect(prompt).toContain("no discernible deliverable at all");
     expect(roomBotPrompt(room(), bots[0], bots, "@デバッガー 確認して", user.id)).toContain("Act on it with your tools");
+  });
+  it("falls back to the recent tail when the request id is unknown", () => {
+    const current = room([user, { id: "reply", role: "assistant", botId: "b", text: "Bの発言", status: "done", createdAt: 2 }]);
+    const history = transcriptOf(roomBotPrompt(current, bots[0], bots, user.text, "missing-request"));
+    expect(history.map((entry) => entry.text)).toEqual([user.text, "Bの発言"]);
+  });
+  it("carries only the newest failure as a system note", () => {
+    const current = room([
+      user,
+      { id: "old-error", role: "assistant", botId: "a", text: "古い失敗", status: "error", createdAt: 2 },
+      { id: "reply", role: "assistant", botId: "b", text: "普通の発言", status: "done", createdAt: 3 },
+      { id: "new-error", role: "assistant", botId: "a", text: "Codeへの依頼に失敗しました", status: "error", createdAt: 4 },
+    ]);
+    const history = transcriptOf(roomBotPrompt(current, bots[1], bots, user.text, user.id, { participants: bots, turn: 2, maxTurns: 4 }));
+    expect(history.map((entry) => entry.speaker)).toEqual(["user", "bot", "system"]);
+    expect(history.at(-1)?.text).toContain("Codeへの依頼に失敗");
+    expect(JSON.stringify(history)).not.toContain("古い失敗");
   });
   it("exposes delegated Code state as data and instructs tool-confirmed reporting", () => {
     const current = room([
