@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({ root: "", promptTask: vi.fn(), getTaskDetail: 
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => state.root }; });
 vi.mock("./pi/harness", () => ({ promptTask: state.promptTask, getTaskDetail: state.getTaskDetail }));
 import { createBot } from "./bots";
-import { createRoutine, cronMatches, deleteRoutine, getRoutine, listRoutines, parseCron, patchRoutine, runRoutine, tickRoutines, validateRoutineSchedule } from "./routines";
+import { createRoutine, cronMatches, deleteRoutine, getRoutine, listRoutines, parseCron, patchRoutine, ROUTINE_MAX_ENABLED, runRoutine, tickRoutines, validateRoutineSchedule } from "./routines";
 
 describe("routine cron and persistence", () => {
   let root = "";
@@ -51,6 +51,14 @@ describe("routine cron and persistence", () => {
     expect(patchRoutine(bot.id, routine.id, { schedule: "0 9 29 2 7" })?.schedule).toBe("0 9 29 2 7");
     expect(() => patchRoutine(bot.id, routine.id, { schedule: "0 9 30 2 7" })).toThrow("この cron は実行されない日時を指定しています");
     expect(getRoutine(bot.id, routine.id)?.schedule).toBe("0 9 29 2 7");
+  });
+  it("enforces the maximum number of enabled routines", () => {
+    const bot = createBot({ name: "Routine bot" });
+    for (let index = 0; index < ROUTINE_MAX_ENABLED; index += 1) createRoutine(bot.id, { name: `Routine ${index}`, prompt: "Check status", schedule: "0 * * * *" });
+
+    expect(() => createRoutine(bot.id, { name: "Too many", prompt: "Check status", schedule: "0 * * * *" })).toThrow("有効なルーティンは最大");
+    const disabled = createRoutine(bot.id, { name: "Disabled", prompt: "Check status", schedule: "0 * * * *", enabled: false });
+    expect(() => patchRoutine(bot.id, disabled.id, { enabled: true })).toThrow("有効なルーティンは最大");
   });
   it.each(["0", "7", "1-7", "1,7", "1-7/2"])("matches Sunday for weekday field %s", (weekdays) => {
     const schedule = `0 9 * * ${weekdays}`;

@@ -9,14 +9,13 @@ export const ROUTINE_MIN_INTERVAL_MS = 5 * 60 * 1000;
 export const ROUTINE_MAX_ENABLED = 10;
 export const ROUTINE_MAX_FAILURES = 3;
 const routineRuns = new Map<string, Promise<unknown>>();
-const ROUTINE_SCHEDULER_LOCK_STALE_MS = 30_000;
+const ROUTINE_LOCK_STALE_MS = 30_000;
 type RoutineFile = RoutineDto;
 function routineDir(botId: string): string { return join(dataDir(), "bots", botId, "routines"); }
 function routinePath(botId: string, routineId: string): string { return join(routineDir(botId), `${routineId}.json`); }
 function routineLockPath(botId: string, routineId: string): string { return join(routineDir(botId), `${routineId}.lock`); }
-function withRoutineLock<T>(botId: string, routineId: string, action: () => T): T {
-  const lock = routineLockPath(botId, routineId);
-  mkdirSync(routineDir(botId), { recursive: true });
+function withFileLock<T>(lock: string, parent: string, action: () => T): T {
+  mkdirSync(parent, { recursive: true });
   const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -24,7 +23,7 @@ function withRoutineLock<T>(botId: string, routineId: string, action: () => T): 
       break;
     } catch {
       try {
-        if (Date.now() - statSync(lock).mtimeMs > ROUTINE_SCHEDULER_LOCK_STALE_MS) rmSync(lock, { recursive: true, force: true });
+        if (Date.now() - statSync(lock).mtimeMs > ROUTINE_LOCK_STALE_MS) rmSync(lock, { recursive: true, force: true });
       } catch { /* another worker removed or replaced the lock */ }
       if (attempt >= 300) throw new Error("routine file is busy");
       Atomics.wait(waitBuffer, 0, 0, 10);
@@ -32,6 +31,8 @@ function withRoutineLock<T>(botId: string, routineId: string, action: () => T): 
   }
   try { return action(); } finally { rmSync(lock, { recursive: true, force: true }); }
 }
+function withRoutineLock<T>(botId: string, routineId: string, action: () => T): T { return withFileLock(routineLockPath(botId, routineId), routineDir(botId), action); }
+function withBotRoutineLock<T>(botId: string, action: () => T): T { const botsDir = join(dataDir(), "bots"); return withFileLock(join(botsDir, `${botId}.routines.lock`), botsDir, action); }
 function validId(value: string): boolean { return /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value); }
 function assertRoutineId(value: string): void { if (!validId(value)) throw new Error("invalid routine id"); }
 function writeRoutine(routine: RoutineFile): RoutineDto { mkdirSync(routineDir(routine.botId), { recursive: true }); writeFileSync(routinePath(routine.botId, routine.id), `${JSON.stringify(routine, null, 2)}\n`, "utf8"); return routine; }
@@ -80,10 +81,24 @@ export function validateRoutineSchedule(schedule: string): void {
 }
 export function listRoutines(botId: string): RoutineDto[] { if (!getBot(botId) || !existsSync(routineDir(botId))) return []; return readdirSync(routineDir(botId)).filter((file) => file.endsWith(".json")).map((file) => parseRoutine(botId, file)).filter((item): item is RoutineDto => Boolean(item)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)); }
 export function getRoutine(botId: string, routineId: string): RoutineDto | undefined { if (!getBot(botId) || !validId(routineId)) return undefined; return parseRoutine(botId, `${routineId}.json`) ?? undefined; }
-export function createRoutine(botId: string, input: { name: string; prompt: string; schedule: string; enabled?: boolean }): RoutineDto { if (!getBot(botId)) throw new Error("Bot not found"); const name = input.name.trim(); const prompt = input.prompt.trim(); const schedule = input.schedule.trim(); if (!name || !prompt) throw new Error("ルーティン名とプロンプトは必須です"); validateRoutineSchedule(schedule); const enabled = input.enabled !== false; if (enabled && listRoutines(botId).filter((item) => item.enabled).length >= ROUTINE_MAX_ENABLED) throw new Error(`有効なルーティンは最大 ${ROUTINE_MAX_ENABLED} 件です`); const now = new Date().toISOString(); return writeRoutine({ id: randomUUID(), botId, name, prompt, schedule, enabled, createdAt: now, updatedAt: now, failureCount: 0, lastRunAt: null }); }
+export function createRoutine(botId: string, input: { name: string; prompt: string; schedule: string; enabled?: boolean }): RoutineDto {
+  if (!getBot(botId)) throw new Error("Bot not found");
+  return withBotRoutineLock(botId, () => {
+    if (!getBot(botId)) throw new Error("Bot not found");
+    const name = input.name.trim();
+    const prompt = input.prompt.trim();
+    const schedule = input.schedule.trim();
+    if (!name || !prompt) throw new Error("ルーティン名とプロンプトは必須です");
+    validateRoutineSchedule(schedule);
+    const enabled = input.enabled !== false;
+    if (enabled && listRoutines(botId).filter((item) => item.enabled).length >= ROUTINE_MAX_ENABLED) throw new Error(`有効なルーティンは最大 ${ROUTINE_MAX_ENABLED} 件です`);
+    const now = new Date().toISOString();
+    return writeRoutine({ id: randomUUID(), botId, name, prompt, schedule, enabled, createdAt: now, updatedAt: now, failureCount: 0, lastRunAt: null });
+  });
+}
 export function patchRoutine(botId: string, routineId: string, patch: Partial<Pick<RoutineDto, "name" | "prompt" | "schedule" | "enabled">>): RoutineDto | undefined {
   if (!getRoutine(botId, routineId)) return undefined;
-  return withRoutineLock(botId, routineId, () => {
+  return withBotRoutineLock(botId, () => withRoutineLock(botId, routineId, () => {
     const current = getRoutine(botId, routineId);
     if (!current) return undefined;
     const next = { ...current, ...patch, name: (patch.name ?? current.name).trim(), prompt: (patch.prompt ?? current.prompt).trim(), schedule: (patch.schedule ?? current.schedule).trim(), updatedAt: new Date().toISOString() };
@@ -91,15 +106,15 @@ export function patchRoutine(botId: string, routineId: string, patch: Partial<Pi
     validateRoutineSchedule(next.schedule);
     if (next.enabled && !current.enabled && listRoutines(botId).filter((item) => item.enabled).length >= ROUTINE_MAX_ENABLED) throw new Error(`有効なルーティンは最大 ${ROUTINE_MAX_ENABLED} 件です`);
     return writeRoutine(next);
-  });
+  }));
 }
 export function deleteRoutine(botId: string, routineId: string): boolean {
   if (!getRoutine(botId, routineId)) return false;
-  return withRoutineLock(botId, routineId, () => {
+  return withBotRoutineLock(botId, () => withRoutineLock(botId, routineId, () => {
     if (!getRoutine(botId, routineId)) return false;
     rmSync(routinePath(botId, routineId), { force: true });
     return true;
-  });
+  }));
 }
 function markRoutineStart(routine: RoutineDto): RoutineDto | undefined {
   return withRoutineLock(routine.botId, routine.id, () => {
@@ -122,7 +137,7 @@ function tryRoutineSchedulerLock(): string | undefined {
     return lock;
   } catch {
     try {
-      if (Date.now() - statSync(lock).mtimeMs > ROUTINE_SCHEDULER_LOCK_STALE_MS) {
+      if (Date.now() - statSync(lock).mtimeMs > ROUTINE_LOCK_STALE_MS) {
         rmSync(lock, { recursive: true, force: true });
         mkdirSync(lock);
         return lock;
