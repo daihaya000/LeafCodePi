@@ -7,7 +7,6 @@ import {
   Activity,
   Archive,
   ArchiveRestore,
-  Bot as BotIcon,
   ChevronRight,
   CodeXml,
   Cpu,
@@ -371,7 +370,7 @@ function BotSidebarBody({
             onClick={() => void createEntry("bot")}
             className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-text disabled:opacity-50"
           >
-            <BotIcon className="h-4 w-4" />
+            <Plus className="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -426,7 +425,7 @@ function BotSidebarBody({
           disabled={busy}
           className="ml-auto inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"
         >
-          <BotIcon className="h-4 w-4" />
+          <Plus className="h-4 w-4" />
         </button>
         <button
           type="button"
