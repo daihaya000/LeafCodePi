@@ -172,7 +172,12 @@ type BotListFilter = "all" | "bots" | "rooms";
 function ModeSegment({ mode, onChange }: { mode: AppMode; onChange: (mode: AppMode) => void }) {
   return <div className="mx-1 mb-2 grid grid-cols-2 rounded-lg border border-border bg-surface-2 p-0.5">
     {(["bot", "code"] as const).map((item) => <button key={item} type="button" aria-pressed={mode === item} onClick={() => onChange(item)} className={cx("flex items-center justify-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium", mode === item ? "bg-surface text-text shadow-sm" : "text-muted hover:text-text")}>
-      {item === "bot" ? <BotIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--brand)]" /> : <CodeXml aria-hidden="true" className="h-4 w-4 shrink-0" />}
+      {item === "bot" ? (
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-[var(--brand)]">
+          <circle cx="12" cy="12" r="12" fill="currentColor" />
+          <path d="M8 7.5l.8 2.8M14.5 7l.8 2.8" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" />
+        </svg>
+      ) : <CodeXml aria-hidden="true" className="h-4 w-4 shrink-0" />}
       {item === "code" ? "Code" : "Bot"}
     </button>)}
   </div>;
