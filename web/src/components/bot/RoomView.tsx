@@ -6,8 +6,9 @@ import { Users, X, RotateCcw } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
 import { notifyBotSidebarChanged } from "@/lib/events";
 import { markRead } from "@/lib/bot-unread";
+import type { SkillDto } from "@/lib/skills";
 import { decideNotification } from "@/lib/notify";
-import type { BotDto, QuestionRequestDto, RoomAttention, RoomDto } from "@/lib/types";
+import type { BotDto, CodeRequestState, QuestionRequestDto, RoomAttention, RoomDto, TaskDetail } from "@/lib/types";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
@@ -16,7 +17,7 @@ import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
 import { BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow } from "@/components/bot/BotMessageList";
 import { renderMentions } from "@/components/bot/BotMention";
-import { ImageLightbox, type ComposerAttachment } from "@/components/Composer";
+import { ImageLightbox, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 
 type MentionContext = { start: number; end: number; query: string };
@@ -24,7 +25,9 @@ type MentionContext = { start: number; end: number; query: string };
 /** A room is busy while a turn is being written or a delegated Code run has not reported back. */
 function isRoomBusy(room: RoomDto | null): boolean {
   return (room?.messages ?? []).some((message) => message.status === "working" || message.codeState === "starting" || message.codeState === "running" || message.codeState === "ready");
-}type MentionCandidate = { key: string; value: string; label: string; description: string; bot?: BotDto };
+}
+
+type MentionCandidate = { key: string; value: string; label: string; description: string; bot?: BotDto };
 
 const SPECIAL_MENTIONS: MentionCandidate[] = [
   { key: "special:here", value: "here", label: "@here", description: "全員にメンション" },
@@ -39,6 +42,107 @@ const OUTCOME_TEXT: Record<string, string> = {
   done: "会話は完了しました",
 };
 
+const CODE_STATE_TEXT: Record<CodeRequestState, string> = {
+  starting: "Code起動準備",
+  running: "Code実行中",
+  ready: "Code結果を報告中",
+  delivered: "Code結果受領",
+  cancelled: "Code中断",
+};
+
+const TASK_STATUS_TEXT: Record<TaskDetail["status"], string> = {
+  working: "実行中",
+  ready: "待機中",
+  idle: "待機中",
+  error: "エラー",
+  archived: "アーカイブ済み",
+  unknown: "不明",
+};
+
+function latestCodeOutput(task: TaskDetail): string {
+  for (const message of [...(task.messages ?? [])].reverse()) {
+    if (message.role !== "assistant") continue;
+    const text = message.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function RoomCodePreview({
+  taskId,
+  state,
+  activity,
+  stopping,
+  onStop,
+}: {
+  taskId?: string | null;
+  state: CodeRequestState;
+  activity?: string;
+  stopping: boolean;
+  onStop: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [task, setTask] = useState<TaskDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const live = state === "starting" || state === "running";
+
+  useEffect(() => {
+    if (!open || !taskId) return;
+    let closed = false;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const result = await getJson<{ task: TaskDetail | null }>(`/api/tasks/${encodeURIComponent(taskId)}`);
+        if (closed) return;
+        setTask(result.task ?? null);
+        setError(null);
+      } catch (reason) {
+        if (!closed) setError(reason instanceof Error ? reason.message : "Codeタスクを読み込めませんでした");
+      } finally {
+        if (!closed) setLoading(false);
+      }
+    };
+    setTask(null);
+    setError(null);
+    void load();
+    if (!live) return () => { closed = true; };
+    const timer = window.setInterval(() => { void load(); }, 2_000);
+    return () => { closed = true; window.clearInterval(timer); };
+  }, [live, open, taskId]);
+
+  const output = task ? latestCodeOutput(task) : "";
+  const preview = output.length > 4_000 ? `${output.slice(0, 4_000)}\n…（以降省略）` : output;
+
+  return (
+    <div className="mt-2 w-full max-w-full rounded-xl border border-border bg-surface/60 p-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <span role="status" aria-live={live ? "polite" : undefined} className="shrink-0 text-muted">{CODE_STATE_TEXT[state]}</span>
+        {activity && <span className="min-w-0 flex-1 truncate text-faint">· {activity}</span>}
+        {taskId && <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="rounded-md px-1.5 py-0.5 text-accent hover:bg-surface-2">{open ? "閉じる" : "プレビュー"}</button>}
+        {taskId && <a className="text-accent underline" href={`/task/${encodeURIComponent(taskId)}`}>実行内容を見る</a>}
+        {(state === "starting" || state === "running") && <button type="button" onClick={onStop} disabled={stopping} className="rounded-md px-1.5 py-0.5 text-danger hover:bg-surface-2 disabled:opacity-40">停止</button>}
+      </div>
+      {open && (
+        <div role="region" aria-label="Codeプレビュー" className="mt-2 space-y-2 rounded-lg bg-bg p-2">
+          {loading && !task && <p className="text-muted">読み込み中…</p>}
+          {error && <p role="alert" className="text-danger">{error}</p>}
+          {task && <>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="min-w-0 flex-1 truncate font-medium" title={task.title}>{task.title}</span>
+              <span className="text-muted">{TASK_STATUS_TEXT[task.status]}</span>
+            </div>
+            {task.projectName && <p className="truncate text-muted">プロジェクト: {task.projectName}</p>}
+            {task.todoProgress && task.todoProgress.total > 0 && <p className="text-muted">進捗: {task.todoProgress.completed}/{task.todoProgress.total}</p>}
+            {preview ? <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-surface p-2 font-mono text-[11px] leading-5">{preview}</pre> : <p className="text-muted">{live ? "Codeの出力を待っています…" : "Codeの出力はありません"}</p>}
+          </>}
+          {!loading && !error && !task && <p className="text-muted">Codeタスク情報がありません</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function mentionContextFor(value: string, cursor: number): MentionContext | null {
   const start = value.lastIndexOf("@", cursor - 1);
   if (start < 0 || (start > 0 && !/\s/.test(value[start - 1] ?? ""))) return null;
@@ -49,6 +153,7 @@ function mentionContextFor(value: string, cursor: number): MentionContext | null
 export function RoomView({ id, active = true }: { id: string; active?: boolean }) {
   const [room, setRoom] = useState<RoomDto | null>(null);
   const [bots, setBots] = useState<BotDto[]>([]);
+  const [skills, setSkills] = useState<ComposerReference[]>([]);
   const [attention, setAttention] = useState<RoomAttention[]>([]);
   const [attentionBusy, setAttentionBusy] = useState<string | null>(null);
   const [stoppingCode, setStoppingCode] = useState(false);
@@ -78,6 +183,20 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   }, [id]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    let closed = false;
+    setSkills([]);
+    void getJson<{ skills?: SkillDto[] }>("/api/skills")
+      .then((result) => {
+        if (closed) return;
+        setSkills((result.skills ?? []).filter((skill) => skill.enabled).map(({ name, description }) => ({ name, description })));
+      })
+      .catch(() => {
+        // Skill discovery is optional; the Room remains usable when it is unavailable.
+      });
+    return () => { closed = true; };
+  }, [id]);
 
   useEffect(() => {
     const latest = room?.messages.reduce((value, message) => Math.max(value, message.createdAt), 0) ?? 0;
@@ -303,18 +422,18 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     const user = message.role === "user";
     const bot = message.botId ? botById.get(message.botId) : undefined;
     const text = message.text || (message.status === "working" ? "応答中…" : "");
-    if (!text) return null;
+    if (!text && !message.codeState) return null;
     return (
       <BotMessageRow key={message.id} user={user} createdAt={message.createdAt}
         footer={user ? <button type="button" title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"><RotateCcw className="h-3 w-3" />入力欄に戻す</button> : undefined}>
         {!user && <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted"><BotAvatar size={18} color={bot?.avatarColor} image={bot?.avatarImage} name={bot?.name ?? message.botName} active={message.status === "working"} />{bot?.name ?? message.botName ?? "ボット"}</div>}
-        {user ? (
+        {text && (user ? (
           <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{renderMentions(text, bots, message.id, "user")}</div>
         ) : (
           <BotMessageMarkdown text={text} mentions={bots} keyPrefix={message.id} />
-        )}
+        ))}
         {message.images && message.images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{message.images.map((image) => <ImageLightbox key={image.file} src={`/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}`} alt="添付画像" className="max-h-48 rounded-lg border border-border object-cover" />)}</div>}
-        {message.codeState && <div role="status" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted"><span>{{ starting: "Code起動準備", running: "Code実行中", ready: "Code結果を報告中", delivered: "Code結果受領", cancelled: "Code中断" }[message.codeState]}</span>{message.codeActivity && <span className="text-faint">· {message.codeActivity}</span>}{message.codeTaskId && <a className="text-accent underline" href={`/task/${encodeURIComponent(message.codeTaskId)}`}>実行内容を見る</a>}{(message.codeState === "starting" || message.codeState === "running") && <button type="button" onClick={() => void stopCode()} disabled={stoppingCode} className="rounded-md px-1.5 py-0.5 text-danger hover:bg-surface-2 disabled:opacity-40">停止</button>}</div>}
+        {message.codeState && <RoomCodePreview taskId={message.codeTaskId} state={message.codeState} activity={message.codeActivity} stopping={stoppingCode} onStop={() => void stopCode()} />}
         {message.status === "error" && <BotMessageError text="応答に失敗しました" />}
       </BotMessageRow>
     );
@@ -371,10 +490,12 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         onCompositionStart={() => { composingRef.current = true; }}
         onCompositionEnd={() => { composingRef.current = false; }}
         onKeyDown={handlePromptKeyDown}
-        placeholder={broadcast ? `${room.name}の全員に個別回答を依頼` : `${room.name}にメッセージ（@で相手を指定）`}
+        placeholder={broadcast ? `${room.name}の全員に個別回答を依頼` : `${room.name}にメッセージ（@で相手、/でスキル）`}
         sendDisabled={!prompt.trim() && attachments.length === 0}
         busy={busy}
         onSend={() => void send()}
+        references={{ skills }}
+        onValueChange={setPrompt}
         attachments={attachments}
         onRemoveAttachment={(index) => setAttachments((current) => current.filter((_, position) => position !== index))}
         onPaste={(event) => { if (pasteImage(addImageFiles, event)) event.preventDefault(); }}

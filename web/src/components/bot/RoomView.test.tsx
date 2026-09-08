@@ -90,6 +90,59 @@ describe("RoomView mention chips", () => {
 });
 
 describe("RoomView delegated work", () => {
+  it("loads enabled skills into slash suggestions", async () => {
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots") return Promise.resolve({ bots: [bot] });
+      if (path === "/api/skills") return Promise.resolve({ skills: [
+        { id: "skill-review", name: "review", description: "変更を確認", enabled: true },
+        { id: "skill-off", name: "off", enabled: false },
+      ] });
+      return Promise.resolve({ room });
+    });
+    render(<RoomView id={room.id} />);
+    const input = await screen.findByRole("textbox") as HTMLTextAreaElement;
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "/skill:r", selectionStart: 8 } });
+    expect(await screen.findByRole("option", { name: /review/ })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /off/ })).toBeNull();
+    fireEvent.click(screen.getByRole("option", { name: /review/ }));
+    expect(input.value).toBe("/skill:review ");
+  });
+
+  it("loads a Code task preview only after opening it", async () => {
+    const task = {
+      id: "code-1",
+      kind: "code",
+      projectId: null,
+      projectName: "LeafCodePi",
+      title: "READMEを確認",
+      directory: "/tmp/project",
+      isolation: "current_folder",
+      status: "ready",
+      sessionId: "session-1",
+      sessionFile: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:01.000Z",
+      messages: [{ role: "assistant", parts: [{ type: "text", text: "READMEの確認結果" }] }],
+      isStreaming: false,
+    };
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots") return Promise.resolve({ bots: [bot] });
+      if (path === "/api/tasks/code-1") return Promise.resolve({ task });
+      return Promise.resolve({ room });
+    });
+    const { act } = await import("@testing-library/react");
+    render(<RoomView id={room.id} />);
+    await screen.findByRole("textbox");
+    act(() => pushSnapshot({ room: { ...room, messages: [{ id: "reply-code", role: "assistant", botId: bot.id, text: "", status: "done", createdAt: 2, codeTaskId: "code-1", codeState: "delivered" }] } }));
+
+    expect(mocks.getJson).not.toHaveBeenCalledWith("/api/tasks/code-1");
+    fireEvent.click(screen.getByRole("button", { name: "プレビュー" }));
+    expect(await screen.findByText("READMEの確認結果")).toBeTruthy();
+    expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks/code-1");
+  });
+
   it("rewinds the room to a user request and puts its text back in the composer", async () => {
     const { act } = await import("@testing-library/react");
     mocks.sendJson.mockResolvedValueOnce({ room: { ...room, messages: [] }, text: "やり直したい依頼" });

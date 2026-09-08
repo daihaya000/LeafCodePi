@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { useRef, useState } from "react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { BotComposer } from "./BotComposer";
 
@@ -26,4 +27,29 @@ it("keeps options out of the compact input row and preserves send/stop actions",
   fireEvent.click(getByRole("button", { name: "応答を停止" }));
   expect(onAbort).toHaveBeenCalledOnce();
   expect(getByRole("textbox", { name: "Message" })).toBeTruthy();
+});
+
+it("suggests and inserts a slash skill reference", () => {
+  function ReferenceComposer() {
+    const [value, setValue] = useState("");
+    const inputRef = useRef<HTMLTextAreaElement>(null);
+    return <BotComposer
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onValueChange={setValue}
+      onKeyDown={vi.fn()}
+      onSend={vi.fn()}
+      inputRef={inputRef}
+      placeholder="Message"
+      references={{ skills: [{ name: "review", description: "Review changes" }] }}
+    />;
+  }
+
+  render(<ReferenceComposer />);
+  const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+  input.focus();
+  fireEvent.change(input, { target: { value: "/skill:r", selectionStart: 8 } });
+  expect(screen.getByRole("listbox", { name: "スキル候補" })).toBeTruthy();
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(input.value).toBe("/skill:review ");
 });
