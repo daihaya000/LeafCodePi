@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({ root: "", promptTask: vi.fn(), getTaskDetail: 
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => state.root }; });
 vi.mock("./pi/harness", () => ({ promptTask: state.promptTask, getTaskDetail: state.getTaskDetail }));
 import { createBot } from "./bots";
-import { createRoutine, cronMatches, getRoutine, listRoutines, patchRoutine, runRoutine, validateRoutineSchedule } from "./routines";
+import { createRoutine, cronMatches, getRoutine, listRoutines, parseCron, patchRoutine, runRoutine, validateRoutineSchedule } from "./routines";
 
 describe("routine cron and persistence", () => {
   let root = "";
@@ -21,6 +21,25 @@ describe("routine cron and persistence", () => {
     expect(cronMatches("*/5 * * * *", new Date(2024, 0, 1, 0, 11))).toBe(false);
     expect(() => validateRoutineSchedule("* * * * *")).toThrow();
     expect(() => validateRoutineSchedule("0 * * * *")).not.toThrow();
+  });
+  it.each(["0", "7", "1-7", "1,7", "1-7/2"])("matches Sunday for weekday field %s", (weekdays) => {
+    const schedule = `0 9 * * ${weekdays}`;
+    const sunday = new Date(2024, 0, 7, 9, 0);
+    expect(cronMatches(schedule, sunday)).toBe(true);
+    expect(cronMatches(parseCron(schedule), sunday)).toBe(true);
+  });
+  it("still applies every other cron field when Sunday is written as 7", () => {
+    const schedule = "0 9 7 1 7";
+    expect(cronMatches(schedule, new Date(2024, 0, 7, 9, 1))).toBe(false);
+    expect(cronMatches(schedule, new Date(2024, 0, 7, 10, 0))).toBe(false);
+    expect(cronMatches(schedule, new Date(2024, 0, 14, 9, 0))).toBe(false);
+    expect(cronMatches(schedule, new Date(2024, 3, 7, 9, 0))).toBe(false);
+    expect(cronMatches("0 9 * * 7", new Date(2024, 0, 8, 9, 0))).toBe(false);
+  });
+  it("includes Sunday in a saved all-week routine", () => {
+    const bot = createBot({ name: "Routine bot" });
+    const routine = createRoutine(bot.id, { name: "Daily", prompt: "Check status", schedule: "0 9 * * 1-7" });
+    expect(cronMatches(getRoutine(bot.id, routine.id)!.schedule, new Date(2024, 0, 7, 9, 0))).toBe(true);
   });
   it("keeps a routine disabled when its in-flight run fails", async () => {
     const bot = createBot({ name: "Routine bot" });
