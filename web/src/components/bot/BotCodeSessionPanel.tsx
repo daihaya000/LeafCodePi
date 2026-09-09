@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
@@ -36,14 +36,19 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
   const [busy, setBusy] = useState(false);
   const [controlBusy, setControlBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const loadGenerationRef = useRef(0);
+
+  useEffect(() => () => { loadGenerationRef.current += 1; }, []);
 
   const load = useCallback(async () => {
+    const generation = ++loadGenerationRef.current;
     try {
       const [session, projectResult] = await Promise.all([
         getJson<{ tasks?: TaskSummary[]; task?: TaskSummary | null }>(`/api/bots/${encodeURIComponent(botId)}/code-session`),
         getJson<{ projects: ProjectDto[] }>("/api/projects"),
       ]);
       const nextTasks = session.tasks ?? ((session as { task?: TaskSummary | null }).task ? [(session as { task: TaskSummary }).task] : []);
+      if (generation !== loadGenerationRef.current) return;
       setTasks(nextTasks);
       const activeProjects = projectResult.projects.filter((project) => !project.archived);
       setProjects(activeProjects);
@@ -52,9 +57,13 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
         try { return [task.id, (await getJson<{ loop: GoalLoopDto | null }>(`/api/tasks/${encodeURIComponent(task.id)}/goal-loop`)).loop] as const; }
         catch { return [task.id, null] as const; }
       }));
+      if (generation !== loadGenerationRef.current) return;
       setLoops(Object.fromEntries(loopEntries));
       setError(null);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Codeセッションを読み込めませんでした"); }
+    } catch (reason) {
+      if (generation !== loadGenerationRef.current) return;
+      setError(reason instanceof Error ? reason.message : "Codeセッションを読み込めませんでした");
+    }
   }, [botId]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (!tasks.some((task) => task.status === "working" || (task.goalLoopSummary && LIVE_GOAL_LOOP_STATUSES.has(task.goalLoopSummary.status)))) return; const timer = window.setInterval(() => void load(), 2_000); return () => window.clearInterval(timer); }, [load, tasks]);
