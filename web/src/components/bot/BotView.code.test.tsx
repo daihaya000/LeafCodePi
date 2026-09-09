@@ -66,6 +66,15 @@ it("defers routine loading until a hidden Bot tab is activated", async () => {
   await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/bots/one/routines"));
 });
 
+it("defers model loading until a hidden Bot tab is activated", async () => {
+  const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  expect(mocks.getJson).not.toHaveBeenCalledWith("/api/models");
+
+  view.rerender(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/models"));
+});
+
 it("reports streaming activity for the Bot tab even when hidden", async () => {
   render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
   await screen.findByRole("button", { name: "設定" });

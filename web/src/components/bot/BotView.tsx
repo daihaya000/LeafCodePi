@@ -139,14 +139,15 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   useEffect(() => { if (active) void loadRoutines(); }, [active, loadRoutines]);
 
   useEffect(() => {
-    let active = true;
+    if (!active) return;
+    let mounted = true;
     setModelsLoading(true);
     void getJson<{ models: ModelOption[] }>("/api/models")
-      .then((result) => { if (active) setModels(result.models); })
-      .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "モデルを読み込めませんでした"); })
-      .finally(() => { if (active) setModelsLoading(false); });
-    return () => { active = false; };
-  }, []);
+      .then((result) => { if (mounted) setModels(result.models); })
+      .catch((reason) => { if (mounted) setError(reason instanceof Error ? reason.message : "モデルを読み込めませんでした"); })
+      .finally(() => { if (mounted) setModelsLoading(false); });
+    return () => { mounted = false; };
+  }, [active]);
 
   useEffect(() => {
     let closed = false;
