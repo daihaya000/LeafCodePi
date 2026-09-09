@@ -18,6 +18,7 @@ export type BotSkillsConfig = {
 };
 
 export type BotToolName = "read" | "write" | "edit" | "bash" | "powershell" | "question" | "grep" | "find" | "ls" | "memory_search" | "memory_add" | "memory_replace" | "memory_remove" | "session_search" | "skill_manage" | "subagent" | "todowrite" | "tool_search";
+export const BOT_TOOL_NAMES: readonly BotToolName[] = ["read", "write", "edit", "bash", "powershell", "question", "grep", "find", "ls", "memory_search", "memory_add", "memory_replace", "memory_remove", "session_search", "skill_manage", "subagent", "todowrite", "tool_search"];
 
 export type RoomConversationTurn = { requestId: string; participantIds: string[]; turn: number; maxTurns: number };
 /** Why an exchange stopped, so a quiet room is not mistaken for a finished one. */

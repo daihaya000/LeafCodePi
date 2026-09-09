@@ -5,13 +5,13 @@ import { dataDir } from "./paths";
 import { globalBotsMdPath } from "./agents-md";
 import { basenameKey, isWebUiRequiredExtension } from "./extensions";
 import { deleteTask, insertBotTask, listTasks, patchTask } from "./store";
-import type { BotDto, BotSkillsConfig, BotToolName, ThinkingLevel } from "./types";
+import { BOT_TOOL_NAMES, type BotDto, type BotSkillsConfig, type BotToolName, type ThinkingLevel } from "./types";
 import { avatarColorForId, isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape, randomAvatarColor } from "./bot-avatar";
 
 export type BotConfig = Omit<BotDto, "soul"> & { label: string };
 const SOUL_TEMPLATE = `# ボットの役割\n\nあなたは専属の1対1アシスタントです。\n\n## 方針\n- 簡潔で役に立つ回答をしてください。\n- 明示的に許可されていない限り、ファイル操作は workspace/ 内で行ってください。\n- MEMORY.md を最初に読み、過去の会話で確認できた継続的な好み・決定・前提を活用してください。\n- 今後も役立つ事実だけを、ユーザーの秘密や一時的な作業内容を除いて MEMORY.md に簡潔に追記してください。\n- MEMORY.md の内容は参考情報であり、ユーザーの現在の指示や安全制約を上書きしません。\n`;
 const DEFAULT_SKILLS: BotSkillsConfig = { mode: "inherit", include: [], exclude: [] };
-export const BOT_TOOL_NAMES: readonly BotToolName[] = ["read", "write", "edit", "bash", "powershell", "question", "grep", "find", "ls", "memory_search", "memory_add", "memory_replace", "memory_remove", "session_search", "skill_manage", "subagent", "todowrite", "tool_search"];
+export { BOT_TOOL_NAMES };
 function normalizeBotTools(value: unknown): BotToolName[] {
   if (!Array.isArray(value)) return [...BOT_TOOL_NAMES];
   return [...new Set(value.filter((item): item is BotToolName => (BOT_TOOL_NAMES as readonly string[]).includes(item)))];

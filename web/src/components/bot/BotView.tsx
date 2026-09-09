@@ -20,9 +20,7 @@ import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
 import { BotCodeRequests } from "@/components/bot/BotCodeRequests";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { markRead } from "@/lib/bot-unread";
-import { BOT_TOOL_NAMES } from "@/lib/bots";
-import type { BotToolName } from "@/lib/types";
-import type { BotDto, ModelOption, PermissionRequestDto, QuestionRequestDto, RoutineDto, ThinkingLevel, UiMessage } from "@/lib/types";
+import { BOT_TOOL_NAMES, type BotDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type ThinkingLevel, type UiMessage } from "@/lib/types";
 
 function textOf(message: UiMessage): string {
   return message.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
