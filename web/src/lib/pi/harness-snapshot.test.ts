@@ -30,6 +30,21 @@ describe("snapshotMessages", () => {
     expect(snapshotMessages(session).at(-1)?.parts[0]).toMatchObject({ text: "二" });
   });
 
+  it("keeps projection caches isolated between sessions", () => {
+    const createSession = (text: string) => ({
+      messages: [{ role: "user", content: text }],
+      agent: { state: { streamingMessage: undefined as unknown } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [] },
+    }) as unknown as Parameters<typeof snapshotMessages>[0];
+
+    const first = snapshotMessages(createSession("最初の会話"));
+    const second = snapshotMessages(createSession("別の会話"));
+
+    expect(first).not.toBe(second);
+    expect(first[0]?.parts[0]).toMatchObject({ text: "最初の会話" });
+    expect(second[0]?.parts[0]).toMatchObject({ text: "別の会話" });
+  });
+
   it("records the generating account and keeps it after rerouting", () => {
     const stored: unknown[] = [
       { role: "user", content: "確認して" },
