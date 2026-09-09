@@ -4,7 +4,6 @@ import { getProject, getTask, listTasks } from "@/lib/store";
 import { createTask, abortTask, jsonError, promptTask } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
-import { withBotCodeSessionLock } from "@/lib/bot-code-session-lock";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,8 +30,7 @@ export async function POST(
 ) {
   const id = await botId(params);
   try {
-    return await withBotCodeSessionLock(id, async () => {
-      reconcileOrphanedWorkingTasks();
+    reconcileOrphanedWorkingTasks();
       const bot = getBot(id);
       if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
       const body = (await req.json().catch(() => null)) as {
@@ -89,8 +87,7 @@ export async function POST(
             ? body.permissionMode
             : bot.permissionMode ?? "ask",
       });
-      return NextResponse.json({ task });
-    });
+    return NextResponse.json({ task });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });
@@ -103,8 +100,7 @@ export async function PATCH(
 ) {
   const id = await botId(params);
   try {
-    return await withBotCodeSessionLock(id, async () => {
-      reconcileOrphanedWorkingTasks();
+    reconcileOrphanedWorkingTasks();
       const bot = getBot(id);
       if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
       const body = (await req.json().catch(() => null)) as { action?: unknown; prompt?: unknown; taskId?: unknown } | null;
@@ -127,8 +123,7 @@ export async function PATCH(
         }
         return NextResponse.json({ task: await promptTask(taskId, body.prompt) });
       }
-      return NextResponse.json({ error: "action must be prompt or abort" }, { status: 400 });
-    });
+    return NextResponse.json({ error: "action must be prompt or abort" }, { status: 400 });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });
