@@ -143,9 +143,16 @@ function save(request: CodeRequest): void {
 function read(id: string): CodeRequest | undefined {
   const path = requestPath(id);
   if (!existsSync(path)) return undefined;
-  const value = JSON.parse(readFileSync(path, "utf8")) as CodeRequest;
-  if (value.id !== id || typeof value.botId !== "string" || typeof value.originTaskId !== "string") throw new Error("Invalid Code request record");
-  return value;
+  try {
+    const value = JSON.parse(readFileSync(path, "utf8")) as CodeRequest;
+    if (value.id !== id || typeof value.botId !== "string" || typeof value.originTaskId !== "string") {
+      return undefined;
+    }
+    return value;
+  } catch {
+    // 書き込み途中・破損レコードは無いものとして扱う（ポーリング全体を止めない）。
+    return undefined;
+  }
 }
 function requests(): CodeRequest[] {
   if (!existsSync(root())) return [];

@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -86,6 +86,21 @@ beforeEach(() => {
 afterEach(() => { relay.dispose(); rmSync(store.root, { recursive: true, force: true }); vi.restoreAllMocks(); });
 
 describe("Bot ⇄ Code relay", () => {
+  it("ignores a corrupted request file instead of throwing", async () => {
+    const dir = join(store.root, "bot-code-requests");
+    mkdirSync(dir, { recursive: true });
+    // sha256 形式のファイル名だが JSON として壊れたレコードを置く
+    writeFileSync(join(dir, `${'f'.repeat(64)}.json`), "{broken");
+
+    expect(() => pendingRoomCodeRequestForRoom("room-1")).not.toThrow();
+    expect(listBotCodeRequests("one")).toEqual([]);
+
+    // 破損ファイルが残っていても新規依頼と tick は動き続ける
+    await launch();
+    await expect(relay.tick()).resolves.not.toThrow();
+    expect(listBotCodeRequests("one")).toHaveLength(1);
+  });
+
   it("persists the link before execution, returns immediately, then reports exactly once", async () => {
     const result = await launch();
     expect(result).toMatchObject({ taskId: "code", state: "running" });
