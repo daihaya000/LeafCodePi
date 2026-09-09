@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
   sendJson: vi.fn(),
   push: vi.fn(),
+  botStatus: "idle" as "idle" | "working",
   usePathname: vi.fn(() => "/bots"),
 }));
 
@@ -21,6 +22,7 @@ vi.mock("@/components/shell/TaskPanesContext", () => ({
     mdUp: true,
     splitHostEnabled: false,
     retargetToUrl: vi.fn(),
+    statusFor: () => mocks.botStatus === "working" ? "working" : null,
   }),
 }));
 vi.mock("next/navigation", () => ({
@@ -57,6 +59,7 @@ beforeEach(() => {
     return Promise.reject(new Error(`Unexpected request: ${path}`));
   });
   mocks.push.mockReset();
+  mocks.botStatus = "idle";
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query.includes("min-width"),
     media: query,
@@ -79,6 +82,13 @@ describe("Bot mode collapsed rail", () => {
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    const avatar = await screen.findByRole("img", { name: "Bot Aのアバター" });
+    expect(avatar.getAttribute("class") ?? "").toContain("bot-avatar-working");
+  });
+
+  it("animates a Bot while its Bot response is active", async () => {
+    mocks.botStatus = "working";
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     const avatar = await screen.findByRole("img", { name: "Bot Aのアバター" });
     expect(avatar.getAttribute("class") ?? "").toContain("bot-avatar-working");

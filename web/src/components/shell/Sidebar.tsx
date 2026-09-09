@@ -33,7 +33,7 @@ import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { getLastReadAt, hasUnread } from "@/lib/bot-unread";
 import { HOME_TAB_ID, SETTINGS_TAB_ID } from "@/lib/task-panes";
-import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type TaskSummary } from "@/lib/types";
+import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type TaskStatus, type TaskSummary } from "@/lib/types";
 
 type ProjectTaskMenuState = {
   projectId: string;
@@ -196,6 +196,7 @@ function BotSidebarBody({
   collapsed,
   onCollapse,
   onExpand,
+  statusFor = () => null,
 }: {
   onClose: () => void;
   onChangeMode: (mode: AppMode) => void;
@@ -204,6 +205,7 @@ function BotSidebarBody({
   collapsed: boolean;
   onCollapse: () => void;
   onExpand: () => void;
+  statusFor: (taskId: string) => TaskStatus | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -321,7 +323,7 @@ function BotSidebarBody({
                       active && "bg-surface-2 ring-1 ring-inset ring-accent/20",
                     )}
                   >
-                    <span className="relative"><BotAvatar size={40} {...bot} active={bot.codeInProgress === true} />{bot.codeSessionCount ? <span aria-label={`Codeセッション${bot.codeSessionCount}件`} title={`Codeセッション${bot.codeSessionCount}件`} className="absolute -bottom-1 -right-1 inline-flex min-w-4 items-center justify-center rounded-full border-2 border-surface bg-accent px-1 text-[10px] font-semibold leading-3 text-white">{bot.codeSessionCount}</span> : null}</span>
+                    <span className="relative"><BotAvatar size={40} {...bot} active={bot.codeInProgress === true || statusFor(`/bots/${encodeURIComponent(bot.id)}`) === "working"} />{bot.codeSessionCount ? <span aria-label={`Codeセッション${bot.codeSessionCount}件`} title={`Codeセッション${bot.codeSessionCount}件`} className="absolute -bottom-1 -right-1 inline-flex min-w-4 items-center justify-center rounded-full border-2 border-surface bg-accent px-1 text-[10px] font-semibold leading-3 text-white">{bot.codeSessionCount}</span> : null}</span>
                     {!active && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)) && (
                       <span
                         aria-label="未読"
@@ -418,7 +420,7 @@ function BotSidebarBody({
         <div className="flex items-center justify-between px-2 py-1"><span className="text-xs font-medium text-muted">ルーム</span><Link href="/bots" onClick={onClose} className="text-xs text-accent">すべて</Link></div>
         <div className="mt-1 space-y-1">{visibleRooms.map((room) => <button key={room.id} type="button" draggable={mdUp} onDragStart={(event) => setTaskDragData(event.dataTransfer, `/bots/rooms/${encodeURIComponent(room.id)}`)} onClick={() => { router.push(`/bots/rooms/${encodeURIComponent(room.id)}`); onClose(); }} aria-current={pathname === `/bots/rooms/${room.id}` ? "page" : undefined} className={`relative flex w-full min-w-0 items-center gap-2 rounded-xl px-2.5 py-1 text-left hover:bg-surface-2 ${pathname === `/bots/rooms/${room.id}` ? "bg-surface-2 ring-1 ring-inset ring-accent/20" : ""}`}><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-success-bg text-xs text-success">#</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-tight">{room.name}</span><span className="block truncate text-xs leading-tight text-muted">{room.lastMessageSummary ?? "\u30e1\u30c3\u30bb\u30fc\u30b8\u306a\u3057"}</span></span>{pathname !== `/bots/rooms/${room.id}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id)) && <span aria-label={"\u672a\u8aad"} title={"\u672a\u8aad"} className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}<span className="shrink-0 self-start pt-0.5 text-xs text-muted">{timeAgo(room.lastMessageAt ?? room.updatedAt)}</span></button>)}{visibleRooms.length === 0 && <p className="px-2 py-2 text-xs text-muted">ルームはありません</p>}</div>
         <div className="mt-2 flex items-center justify-between bg-bg px-2 py-1"><span className="text-xs font-medium text-muted">Bot</span><Link href="/bots" onClick={onClose} className="text-xs text-accent">すべて</Link></div>
-        <div className="mt-1 space-y-1">{visibleBots.map((bot) => <button key={bot.id} type="button" draggable={mdUp} onDragStart={(event) => setTaskDragData(event.dataTransfer, `/bots/${encodeURIComponent(bot.id)}`)} onClick={() => { router.push(`/bots/${encodeURIComponent(bot.id)}`); onClose(); }} aria-current={pathname === `/bots/${bot.id}` ? "page" : undefined} className={`relative flex w-full min-w-0 items-center gap-2 rounded-xl px-2.5 py-1 text-left hover:bg-surface-2 ${pathname === `/bots/${bot.id}` ? "bg-surface-2 ring-1 ring-inset ring-accent/20" : ""}`}><span className="relative"><BotAvatar size={32} {...bot} active={bot.codeInProgress === true} />{bot.codeSessionCount ? <span aria-label={`Codeセッション${bot.codeSessionCount}件`} title={`Codeセッション${bot.codeSessionCount}件`} className="absolute -bottom-1 -right-1 inline-flex min-w-4 items-center justify-center rounded-full border-2 border-surface bg-accent px-1 text-[10px] font-semibold leading-3 text-white">{bot.codeSessionCount}</span> : null}</span><span aria-label={bot.enabled ? "\u6709\u52b9" : "\u7121\u52b9"} title={bot.enabled ? "\u6709\u52b9" : "\u7121\u52b9"} className="sr-only" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-tight">{bot.name}</span><span className="block truncate text-xs leading-tight text-muted">{bot.lastMessageSummary ?? "\u30e1\u30c3\u30bb\u30fc\u30b8\u306a\u3057"}</span></span>{pathname !== `/bots/${bot.id}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)) && <span aria-label={"\u672a\u8aad"} title={"\u672a\u8aad"} className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}<span className="shrink-0 self-start pt-0.5 text-xs text-muted">{bot.lastMessageAt ? timeAgo(bot.lastMessageAt) : ""}</span></button>)}{visibleBots.length === 0 && <p className="px-2 py-2 text-xs text-muted">Botはありません</p>}</div>
+        <div className="mt-1 space-y-1">{visibleBots.map((bot) => <button key={bot.id} type="button" draggable={mdUp} onDragStart={(event) => setTaskDragData(event.dataTransfer, `/bots/${encodeURIComponent(bot.id)}`)} onClick={() => { router.push(`/bots/${encodeURIComponent(bot.id)}`); onClose(); }} aria-current={pathname === `/bots/${bot.id}` ? "page" : undefined} className={`relative flex w-full min-w-0 items-center gap-2 rounded-xl px-2.5 py-1 text-left hover:bg-surface-2 ${pathname === `/bots/${bot.id}` ? "bg-surface-2 ring-1 ring-inset ring-accent/20" : ""}`}><span className="relative"><BotAvatar size={32} {...bot} active={bot.codeInProgress === true || statusFor(`/bots/${encodeURIComponent(bot.id)}`) === "working"} />{bot.codeSessionCount ? <span aria-label={`Codeセッション${bot.codeSessionCount}件`} title={`Codeセッション${bot.codeSessionCount}件`} className="absolute -bottom-1 -right-1 inline-flex min-w-4 items-center justify-center rounded-full border-2 border-surface bg-accent px-1 text-[10px] font-semibold leading-3 text-white">{bot.codeSessionCount}</span> : null}</span><span aria-label={bot.enabled ? "\u6709\u52b9" : "\u7121\u52b9"} title={bot.enabled ? "\u6709\u52b9" : "\u7121\u52b9"} className="sr-only" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-tight">{bot.name}</span><span className="block truncate text-xs leading-tight text-muted">{bot.lastMessageSummary ?? "\u30e1\u30c3\u30bb\u30fc\u30b8\u306a\u3057"}</span></span>{pathname !== `/bots/${bot.id}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)) && <span aria-label={"\u672a\u8aad"} title={"\u672a\u8aad"} className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}<span className="shrink-0 self-start pt-0.5 text-xs text-muted">{bot.lastMessageAt ? timeAgo(bot.lastMessageAt) : ""}</span></button>)}{visibleBots.length === 0 && <p className="px-2 py-2 text-xs text-muted">Botはありません</p>}</div>
       </div>
       <SidebarFooter health={health} onSettings={onSettings} />
     </div>
@@ -779,6 +781,7 @@ type SidebarProps = {
 type SidebarPaneProps = {
   paneActiveTaskId: string | null;
   paneMdUp: boolean;
+  statusFor: (taskId: string) => TaskStatus | null;
   splitHostEnabled: boolean;
   retargetToUrl: (taskId: string) => void;
 };
@@ -790,6 +793,7 @@ const SidebarView = memo(function SidebarView({
   paneMdUp,
   splitHostEnabled,
   retargetToUrl,
+  statusFor,
 }: SidebarProps & SidebarPaneProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -1827,6 +1831,7 @@ const SidebarView = memo(function SidebarView({
       onSettings={openSettings}
       mdUp={mdUp}
       collapsed={collapsed && mdUp}
+      statusFor={statusFor}
       onCollapse={() => {
         setCollapsed(true);
         localStorage.setItem(COLLAPSED_KEY, "1");
@@ -2163,6 +2168,7 @@ export function Sidebar(props: SidebarProps) {
     mdUp: paneMdUp,
     splitHostEnabled,
     retargetToUrl,
+    statusFor,
   } = useTaskPanes();
   return (
     <SidebarView
@@ -2171,6 +2177,7 @@ export function Sidebar(props: SidebarProps) {
       paneMdUp={paneMdUp}
       splitHostEnabled={splitHostEnabled}
       retargetToUrl={retargetToUrl}
+      statusFor={statusFor}
     />
   );
 }
