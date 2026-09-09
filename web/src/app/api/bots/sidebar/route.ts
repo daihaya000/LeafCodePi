@@ -16,7 +16,7 @@ function summarize(text: string): string { const compact = text.replace(/\s+/g, 
 export async function GET() {
   const counts = new Map<string, number>();
   for (const task of listTasks()) {
-    if (task.botId) counts.set(task.botId, (counts.get(task.botId) ?? 0) + 1);
+    if (task.status === "working" && task.botId) counts.set(task.botId, (counts.get(task.botId) ?? 0) + 1);
   }
   const bots = listBots();
   const botPreviews = await Promise.all(bots.map(async (bot) => {

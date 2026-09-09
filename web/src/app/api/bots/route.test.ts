@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const botApiTestState = vi.hoisted(() => ({ root: "" }));
 vi.mock("../../../lib/paths", async (importOriginal) => { const actual = await importOriginal<typeof import("../../../lib/paths")>(); return { ...actual, dataDir: () => botApiTestState.root }; });
 import { NextRequest } from "next/server";
+import { insertTask, setTaskStatus } from "../../../lib/store";
 import { GET, POST } from "./route";
 
 describe("/api/bots", () => {
@@ -14,5 +15,15 @@ describe("/api/bots", () => {
     const response = await POST(new NextRequest("http://localhost/api/bots", { method: "POST", body: JSON.stringify({ name: "Test bot" }) }));
     expect(response.status).toBe(201); const created = (await response.json()).bot;
     const listed = await GET(); expect((await listed.json()).bots[0].id).toBe(created.id);
+  });
+  it("counts only working Code sessions", async () => {
+    const response = await POST(new NextRequest("http://localhost/api/bots", { method: "POST", body: JSON.stringify({ name: "Working bot" }) }));
+    const bot = (await response.json()).bot;
+    insertTask({ project: null, title: "待機中", botId: bot.id });
+    const working = insertTask({ project: null, title: "進行中", botId: bot.id });
+    setTaskStatus(working.id, "working");
+
+    const listed = await GET();
+    expect((await listed.json()).bots[0].codeSessionCount).toBe(1);
   });
 });
