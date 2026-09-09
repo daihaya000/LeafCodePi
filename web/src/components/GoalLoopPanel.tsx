@@ -70,10 +70,17 @@ export function GoalLoopPanel({
       ? `${shownTurn}ターン実行済み（無制限）`
       : `${shownTurn}/${loop.maxTurns}ターン、${progressPercent}%`;
   const commitMaxTurns = () => {
-    const parsed = Math.trunc(Number(maxTurns));
-    const value = parsed === 0
-      ? 0
-      : Math.min(100, Math.max(loop.maxTurns + 1, Number.isFinite(parsed) ? parsed : loop.maxTurns + 1));
+    const trimmed = maxTurns.trim();
+    const parsed = Math.trunc(Number(trimmed));
+    // 空欄・不正な入力は「無制限(0)」に解釈せず、最小の増分で再開する。
+    // 誤って無制限で再開すると turn_limit で止まらないため（Composer 側は
+    // 空欄を 1 に正規化するのに対し、Number("") === 0 が無制限扱いになる不整合）。
+    const value =
+      trimmed === "" || !Number.isFinite(parsed)
+        ? Math.min(100, loop.maxTurns + 1)
+        : parsed === 0
+          ? 0
+          : Math.min(100, Math.max(loop.maxTurns + 1, parsed));
     setMaxTurns(String(value));
     onResume(value);
   };

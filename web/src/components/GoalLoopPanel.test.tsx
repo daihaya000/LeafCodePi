@@ -98,4 +98,22 @@ describe("GoalLoopPanel progress", () => {
     fireEvent.click(screen.getByRole("button", { name: "完了" }));
     expect(onAction).toHaveBeenCalledWith("complete");
   });
+
+  it("does not treat an empty turn input as unlimited on resume", () => {
+    const onResume = vi.fn();
+    render(
+      <GoalLoopPanel
+        loop={loopFixture({ status: "paused", pauseReason: "turn_limit", maxTurns: 10, turnCount: 10 })}
+        busy={false}
+        onAction={() => {}}
+        onResume={onResume}
+      />,
+    );
+
+    const input = screen.getByRole("spinbutton", { name: "再開後の最大ターン数" });
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "再開" }));
+    // 空欄は無制限(0)ではなく、現在値+1（最小の増分）で再開する。
+    expect(onResume).toHaveBeenCalledWith(11);
+  });
 });
