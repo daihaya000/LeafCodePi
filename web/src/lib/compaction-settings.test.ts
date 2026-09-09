@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseCompactionAction,
   reserveTokensForThreshold,
   shouldCompactAtThreshold,
 } from "./compaction-settings";
 
 describe("compaction settings", () => {
+  it("defaults to auto-compaction when no action is stored", () => {
+    expect(parseCompactionAction(null)).toBe("auto");
+    expect(parseCompactionAction("unknown")).toBe("auto");
+    expect(parseCompactionAction("suggest")).toBe("suggest");
+    expect(parseCompactionAction("off")).toBe("off");
+  });
+
   it("only auto-compacts at or above the configured threshold", () => {
     expect(shouldCompactAtThreshold("auto", 80, 80)).toBe(true);
     expect(shouldCompactAtThreshold("auto", 79.9, 80)).toBe(false);

@@ -31,6 +31,12 @@ afterEach(() => {
 });
 
 describe("TaskView draft submission", () => {
+  it("hides the manual context compaction control from the header", () => {
+    render(<TaskView taskId={task.id} mdUp />);
+
+    expect(screen.queryByRole("button", { name: "コンテキスト圧縮" })).toBeNull();
+  });
+
   it.each(["success", "failure"])("sends queued content without replacing the next draft (%s)", async (outcome) => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource;

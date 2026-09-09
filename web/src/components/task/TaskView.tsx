@@ -12,7 +12,6 @@ import {
   PanelRight,
   Plus,
   RotateCcw,
-  Shrink,
   Square,
   Zap,
 } from "lucide-react";
@@ -185,8 +184,6 @@ import type {
 } from "@/lib/types";
 import { statusFromChangedFileCount, type WorktreeStatus } from "@/lib/worktree-status";
 
-/** Compaction LLM calls routinely exceed the default fetch budget. */
-const COMPACT_TIMEOUT_MS = 240_000;
 const TASK_SESSION_CACHE_THROTTLE_MS = 1_000;
 const TASK_PERF_ENABLED = process.env.NODE_ENV === "development";
 let nextTaskPerfId = 0;
@@ -494,7 +491,6 @@ export const TaskView = memo(function TaskView({
     () => cachedSession?.contextUsage,
   );
   const [isCompacting, setIsCompacting] = useState(Boolean(cachedSession?.isCompacting));
-  const [compactingLocal, setCompactingLocal] = useState(false);
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
   const [revertBusy, setRevertBusy] = useState(false);
   const revertEntryRef = useRef<{ messageId: string; message: UiMessage | undefined } | null>(null);
@@ -1176,7 +1172,6 @@ export const TaskView = memo(function TaskView({
     setMessages(cached?.messages ?? []);
     setContextUsage(cached?.contextUsage);
     setIsCompacting(Boolean(cached?.isCompacting));
-    setCompactingLocal(false);
     setWorktreeStatus(null);
     setPrompt("");
     setAttachments([]);
@@ -1278,7 +1273,7 @@ export const TaskView = memo(function TaskView({
   }, [scheduleScrollToBottom, taskId]);
 
   function addImageFiles(files: FileList) {
-    if (!canAttachComposerImages({ goalLoopEnabled, compacting: isCompacting || compactingLocal, archived: task?.status === "archived" })) return;
+    if (!canAttachComposerImages({ goalLoopEnabled, compacting: isCompacting, archived: task?.status === "archived" })) return;
     Array.from(files).forEach((file) => {
       if (!file.type.startsWith("image/")) return;
       const reader = new FileReader();
@@ -1290,7 +1285,7 @@ export const TaskView = memo(function TaskView({
     });
   }
 
-  const compacting = isCompacting || compactingLocal;
+  const compacting = isCompacting;
   const archived = task?.status === "archived";
   const statusWorking = task?.status === "working";
   const working = Boolean(statusWorking || task?.isStreaming);
@@ -1834,27 +1829,6 @@ export const TaskView = memo(function TaskView({
     }
   }
 
-  async function compact() {
-    if (compacting || archived) return;
-    setCompactingLocal(true);
-    setIsCompacting(true);
-    setError(null);
-    try {
-      const result = await sendJson<{ task: TaskDetail }>(
-        `/api/tasks/${taskId}/compact`,
-        {},
-        "POST",
-        { timeoutMs: COMPACT_TIMEOUT_MS },
-      );
-      applyDetail(result.task);
-      notifyTasksChanged();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "コンテキスト圧縮に失敗しました");
-    } finally {
-      setCompactingLocal(false);
-    }
-  }
-
   async function abortCompact() {
     try {
       const result = await sendJson<{ task: TaskDetail }>(
@@ -2338,18 +2312,6 @@ export const TaskView = memo(function TaskView({
               projectId={task?.projectId}
               onError={setError}
             />
-            <Button
-              variant="ghost"
-              size="icon"
-              title="コンテキスト圧縮"
-              aria-label="コンテキスト圧縮"
-              busy={compacting}
-              disabled={!task || working || compacting || archived}
-              className="h-11 w-11 md:h-9 md:w-9"
-              onClick={() => void compact()}
-            >
-              {!compacting && <Shrink className="h-4 w-4" />}
-            </Button>
             <Button
               variant="ghost"
               size="icon"

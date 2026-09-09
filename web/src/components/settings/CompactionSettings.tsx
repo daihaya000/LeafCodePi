@@ -14,7 +14,7 @@ import type { CompactionSettingsDto } from "@/lib/types";
 
 export function CompactionSettings() {
   const [settings, setSettings] = useState<CompactionSettingsDto | null>(null);
-  const [action, setAction] = useState<CompactionAction>("suggest");
+  const [action, setAction] = useState<CompactionAction>("auto");
   const [threshold, setThreshold] = useState(80);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,7 +95,7 @@ export function CompactionSettings() {
           </span>
         </div>
       </div>
-      <p className="mt-3 text-xs text-muted">使用率が{threshold}%に達したらcompactを提案します（70〜95%）。</p>
+      <p className="mt-3 text-xs text-muted">使用率が{threshold}%に達したら設定した動作を実行します（70〜95%）。</p>
       {settings && <p className="mt-2 text-[11px] text-muted">予約トークン {formatTokens(settings.reserveTokens)} / 直近保持 {formatTokens(settings.keepRecentTokens)}</p>}
       {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
     </div>

@@ -4,7 +4,7 @@ export const COMPACTION_THRESHOLD_SETTING_KEY = "compactionThreshold";
 export type CompactionAction = "suggest" | "auto" | "off";
 
 export function parseCompactionAction(value: string | null): CompactionAction {
-  return value === "auto" || value === "off" ? value : "suggest";
+  return value === "auto" || value === "off" || value === "suggest" ? value : "auto";
 }
 
 export function parseCompactionThreshold(value: string | null): number {

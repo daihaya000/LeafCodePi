@@ -38,6 +38,7 @@ describe("CompactionSettings", () => {
     const action = await screen.findByLabelText("動作");
     const threshold = screen.getByLabelText("コンテキスト使用率の閾値");
 
+    expect((action as HTMLSelectElement).value).toBe("auto");
     expect(action.parentElement?.className).toContain("block");
     expect(action.className).toContain("w-full");
     expect(threshold.className).toContain("min-w-0");
