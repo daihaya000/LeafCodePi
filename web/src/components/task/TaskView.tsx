@@ -479,6 +479,7 @@ export const TaskView = memo(function TaskView({
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [modelSelection, setModelSelection] = useState("");
+  const modelChangeRef = useRef(0);
   const [autoOptimizeMode, setAutoOptimizeMode] = useState<AutoOptimizeMode>(
     () => readAutoOptimizeMode(),
   );
@@ -1167,6 +1168,7 @@ export const TaskView = memo(function TaskView({
   useLayoutEffect(() => {
     // A reused pane must not evaluate the previous task's messages as a
     // resumable turn while its first server snapshot is still pending.
+    modelChangeRef.current += 1;
     const cached = loadTaskSessionCache(taskId);
     setTask(cached);
     setMessages(cached?.messages ?? []);
@@ -2822,6 +2824,7 @@ export const TaskView = memo(function TaskView({
                 disabled={compacting || archived}
                 loading={modelsLoading}
                 onChange={(value) => {
+                  const changeId = ++modelChangeRef.current;
                   if (value === AUTO_MODEL_VALUE) {
                     setModelSelection(AUTO_MODEL_VALUE);
                     return;
@@ -2835,12 +2838,14 @@ export const TaskView = memo(function TaskView({
                         `/api/tasks/${taskId}/model`,
                         { model: value },
                       );
+                      if (modelChangeRef.current !== changeId) return;
                       setTask((current) => (current ? { ...current, ...result.task } : current));
                       if (isThinkingLevel(result.task.thinkingLevel)) {
                         writeStoredThinkingLevel(result.task.thinkingLevel);
                       }
                       notifyTasksChanged();
                     } catch (err) {
+                      if (modelChangeRef.current !== changeId) return;
                       setModelSelection(
                         previous === plainTaskModelValue ? "" : previous,
                       );

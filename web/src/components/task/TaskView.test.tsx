@@ -128,6 +128,41 @@ describe("TaskView draft submission", () => {
     }
   });
 
+  it("does not show a stale model error after a newer selection succeeds", async () => {
+    const modelTask = { ...task, providerID: "provider", modelID: "a", thinkingLevel: "off" as const };
+    const models = ["a", "b", "c"].map((id) => ({
+      value: `provider::${id}`, label: `Model ${id.toUpperCase()}`, providerID: "provider", modelID: id,
+    }));
+    let resolveLatest!: (result: { task: TaskSummary }) => void;
+    let rejectOlder!: (reason?: unknown) => void;
+    const olderResponse = new Promise<never>((_, reject) => { rejectOlder = reject; });
+    const latestResponse = new Promise<{ task: TaskSummary }>((resolve) => { resolveLatest = resolve; });
+    saveTaskSessionCache({ task: modelTask, messages: [], isStreaming: false, isCompacting: false });
+    mocks.getJson.mockResolvedValue({ models, agents: [], skills: [], accounts: [] });
+    mocks.sendJson.mockImplementation((_path: string, body: { model: string }) =>
+      body.model === "provider::b" ? olderResponse : latestResponse,
+    );
+    render(<TaskView taskId={task.id} mdUp />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "モデル" }).hasAttribute("disabled")).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "モデル" }));
+    fireEvent.click(screen.getByRole("option", { name: "Model B" }));
+    fireEvent.click(screen.getByRole("button", { name: "モデル" }));
+    fireEvent.click(screen.getByRole("option", { name: "Model C" }));
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      `/api/tasks/${task.id}/model`, { model: "provider::c" },
+    ));
+    await act(async () => {
+      resolveLatest({ task: { ...modelTask, modelID: "c" } });
+      await latestResponse;
+    });
+    await act(async () => {
+      rejectOlder(new Error("stale model failure"));
+      await olderResponse.catch(() => undefined);
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model C");
+  });
+
   it("preserves a new draft while starting a goal loop", async () => {
     let resolve!: (value: unknown) => void;
     mocks.sendJson.mockReturnValue(new Promise((done) => { resolve = done; }));
