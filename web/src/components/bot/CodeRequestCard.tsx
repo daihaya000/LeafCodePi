@@ -54,7 +54,7 @@ export function CodeRequestCard({
   const live = state === "queued" || state === "starting" || state === "running";
 
   useEffect(() => {
-    if (!open || !taskId) return;
+    if (!taskId) return;
     let closed = false;
     const load = async () => {
       setLoading(true);
@@ -79,6 +79,13 @@ export function CodeRequestCard({
 
   const output = task ? latestCodeOutput(task) : "";
   const preview = output.length > 4_000 ? `${output.slice(0, 4_000)}\n…（以降省略）` : output;
+  const todoProgress = task?.todoProgress;
+  const total = todoProgress && Number.isFinite(todoProgress.total) ? Math.trunc(todoProgress.total) : 0;
+  const completed = total > 0 && todoProgress && Number.isFinite(todoProgress.completed)
+    ? Math.min(total, Math.max(0, Math.trunc(todoProgress.completed)))
+    : 0;
+  const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const progressText = `ToDo ${completed}/${total}件完了（${percent}%）`;
 
   return (
     <div className="mt-2 w-full max-w-full min-w-0 rounded-xl border border-border bg-surface p-3 text-sm">
@@ -90,6 +97,22 @@ export function CodeRequestCard({
         {taskId && <a className="inline-flex min-h-11 items-center rounded-lg px-3 text-muted hover:bg-surface-2 hover:text-accent focus-visible:outline-2 focus-visible:outline-accent" href={`/task/${encodeURIComponent(taskId)}`}>実行内容を見る</a>}
         {live && onStop && <button type="button" onClick={onStop} disabled={stopping} className="min-h-11 rounded-lg px-3 text-danger hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">{state === "queued" ? "取消" : "停止"}</button>}
       </div>
+      {total > 0 && (
+        <div className="mt-2" title={progressText}>
+          <div
+            role="progressbar"
+            aria-label="CodeのToDo進捗"
+            aria-valuemin={0}
+            aria-valuemax={total}
+            aria-valuenow={completed}
+            aria-valuetext={progressText}
+            className="h-1.5 overflow-hidden rounded-full bg-surface-2"
+          >
+            <div className={`h-full rounded-full transition-[width] ${percent === 100 ? "bg-success" : "bg-working"}`} style={{ width: `${percent}%` }} />
+          </div>
+          <p className="mt-1 text-right text-xs text-faint">{progressText}</p>
+        </div>
+      )}
       {open && (
         <div role="region" aria-label="Codeプレビュー" className="mt-3 min-w-0 space-y-3 border-t border-border pt-3">
           {loading && !task && <p className="text-muted">読み込み中…</p>}
