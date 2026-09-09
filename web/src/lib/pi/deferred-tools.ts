@@ -17,7 +17,11 @@ export function needsToolSearch(toolNames: readonly string[]): boolean {
   return toolNames.some((name) => deferredNames.has(name));
 }
 
-export function registerDeferredTools(pi: ExtensionAPI): void {
+export function registerDeferredTools(
+  pi: ExtensionAPI,
+  allowedTools?: readonly string[],
+): void {
+  const allowed = allowedTools ? new Set(allowedTools) : undefined;
   pi.registerTool({
     name: TOOL_SEARCH_NAME,
     label: "Tool Search",
@@ -29,7 +33,7 @@ export function registerDeferredTools(pi: ExtensionAPI): void {
       const normalized = query.toLowerCase().trim();
       const registered = new Set(pi.getAllTools().map(({ name }) => name));
       const matches = DEFERRED_TOOLS
-        .filter(({ name, keywords }) => registered.has(name) && keywords.some((keyword) => normalized.includes(keyword)))
+        .filter(({ name, keywords }) => registered.has(name) && allowed?.has(name) !== false && keywords.some((keyword) => normalized.includes(keyword)))
         .map(({ name }) => name);
       const active = pi.getActiveTools();
       const added = matches.filter((name) => !active.includes(name));
@@ -46,6 +50,7 @@ export function registerDeferredTools(pi: ExtensionAPI): void {
 
   pi.on("session_start", () => {
     const initial = pi.getActiveTools().filter((name) => !deferredNames.has(name));
-    pi.setActiveTools([...new Set([...initial, TOOL_SEARCH_NAME])]);
+    const searchAllowed = allowed === undefined || allowed.has(TOOL_SEARCH_NAME);
+    pi.setActiveTools(searchAllowed ? [...new Set([...initial, TOOL_SEARCH_NAME])] : initial);
   });
 }

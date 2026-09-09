@@ -83,6 +83,17 @@ describe("PATCH /api/bots/[id]", () => {
     expect(invalid.status).toBe(400);
   });
 
+  it("defaults sensitive tools off while allowing explicit opt-in through PATCH", async () => {
+    const bot = createBot({ name: "Tool settings bot" });
+    for (const tool of ["write", "edit", "bash", "powershell", "subagent"]) {
+      expect(bot.tools).not.toContain(tool);
+    }
+    const tools = [...(bot.tools ?? []), "write", "edit", "bash", "powershell", "subagent"];
+    const response = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ tools }) }), { params: Promise.resolve({ id: bot.id }) });
+    expect(response.status).toBe(200);
+    expect((await response.json()).bot.tools).toEqual(tools);
+  });
+
   it("defaults to allowing tools and persists the per-Bot permission mode", async () => {
     const bot = createBot({ name: "Permissions bot" });
     expect(bot.permissionMode).toBe("allow");

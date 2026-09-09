@@ -2269,6 +2269,29 @@ export function isOneToOneBotTask(
   return task?.kind === "bot" && typeof task.botId === "string" && task.id === `bot:${task.botId}`;
 }
 
+function botSessionOptions(
+  task: Pick<TaskSummary, "id" | "kind" | "botId">,
+): {
+  appendSystemPrompt?: string[];
+  noContextFiles?: boolean;
+  botSkills?: BotSkillsConfig;
+  botTools?: readonly string[];
+} {
+  if (task.kind !== "bot" || !task.botId) return {};
+  const bot = getBot(task.botId);
+  return {
+    appendSystemPrompt: [
+      ...botPromptSources(task.botId),
+      ...(roomForCodeOrigin(task) ? [ROOM_SYSTEM_PROMPT] : []),
+    ],
+    noContextFiles: true,
+    botSkills: bot?.skills,
+    botTools: (bot?.tools ?? BOT_TOOL_NAMES).filter(
+      (tool) => tool !== "powershell" || process.platform === "win32",
+    ),
+  };
+}
+
 async function createSession(options: {
   cwd: string;
   sessionFile?: string | null;
@@ -2328,13 +2351,16 @@ async function createSession(options: {
   const agentOptions = agentDefinition
     ? buildAgentResourceOptions(agentDefinition)
     : undefined;
+  const botToolAllowlist = options.botTools;
   const resourceLoader = new pi.DefaultResourceLoader({
     cwd: options.cwd,
     agentDir,
     additionalExtensionPaths: bundled.map((entry) => entry.filePath),
     additionalSkillPaths: bundledSkills,
     extensionFactories: [
-      registerDeferredTools,
+      botToolAllowlist
+        ? (api: ExtensionAPI) => registerDeferredTools(api, botToolAllowlist)
+        : registerDeferredTools,
       ...(options.taskId ? [registerGoalLoopTurnRouting(options.taskId)] : []),
       ...(options.botSkills ? [(api: ExtensionAPI) => {
         api.on("before_agent_start", (event) => ({
@@ -2387,16 +2413,11 @@ async function createSession(options: {
   const permissionMode =
     options.permissionMode ?? readPermissionGateConfig();
   const persistPermission = options.permissionMode !== undefined;
-  // Agent-defined tool allowlist wins; otherwise default tools. Deferred tools
-  // stay allowed so tool_search can activate them, then session_start removes
-  // their schemas from the initial model request. `subagent` remains governed
-  // independently by the user's delegation permission.
+  // Agent-defined tool allowlist wins; otherwise default tools. Bot sessions
+  // register every known Bot tool so the settings UI can enable one without
+  // replacing the live session; applyBotTools controls which are active.
   const shellTools = process.platform === "win32" ? ["powershell", "bash"] : ["bash"];
-  const configuredTools = options.botTools
-    ? needsToolSearch(options.botTools)
-      ? [...new Set([...options.botTools, TOOL_SEARCH_NAME])]
-      : [...options.botTools]
-    : agentOptions?.tools
+  const configuredTools = agentOptions?.tools
     ? needsToolSearch(agentOptions.tools)
       ? [...new Set([...agentOptions.tools, TOOL_SEARCH_NAME])]
       : agentOptions.tools
@@ -2419,7 +2440,10 @@ async function createSession(options: {
         "todowrite",
         TOOL_SEARCH_NAME,
       ];
-  const tools = [...configuredTools, ...(botCodeTaskId ? [BOT_CODE_TOOL] : []), ...(roomHandoffTaskId ? [ROOM_HANDOFF_TOOL] : [])];
+  const registeredTools = options.botTools
+    ? BOT_TOOL_NAMES.filter((tool) => tool !== "powershell" || process.platform === "win32")
+    : configuredTools;
+  const tools = [...new Set([...registeredTools, ...(botCodeTaskId ? [BOT_CODE_TOOL] : []), ...(roomHandoffTaskId ? [ROOM_HANDOFF_TOOL] : [])])];
   const result = await pi.createAgentSession({
     cwd: options.cwd,
     agentDir,
@@ -2442,13 +2466,14 @@ async function createSession(options: {
       );
     },
   });
+  if (options.botTools) applyBotTools(result.session, options.botTools);
   // Apply after bindExtensions() so an explicit mode wins over persisted state.
   applyPermissionMode(result.session, permissionMode, {
     persist: persistPermission,
   });
   // Agent-defined tools may include `subagent`; enforce the user choice after
   // the full extension registry is ready, including the initial turn.
-  applySubagentPermission(result.session, options.subagentPermission);
+  if (!options.botTools) applySubagentPermission(result.session, options.subagentPermission);
   applySessionCompactionSettings(result.session, undefined, options.goalLoop === true);
   return { session: result.session, skillPermissionRef };
 }
@@ -3072,7 +3097,7 @@ async function ensureLive(
       cwd,
       sessionFile: task.sessionFile,
       sessionName: isBot ? `bot:${task.title}` : task.title,
-      ...(isBot && task.botId ? { appendSystemPrompt: [...botPromptSources(task.botId), ...(roomForCodeOrigin(task) ? [ROOM_SYSTEM_PROMPT] : [])], noContextFiles: true, botSkills: bot?.skills, botTools: (bot?.tools ?? BOT_TOOL_NAMES).filter((tool) => tool !== "powershell" || process.platform === "win32") } : {}),
+      ...botSessionOptions(task),
       accountId: sessionAccountId,
       model,
       thinkingLevel: task.thinkingLevel,
@@ -5455,6 +5480,7 @@ async function replaceLiveForRoute(
     cwd: project?.rootPath ?? task.directory,
     sessionFile,
     sessionName: task.title,
+    ...botSessionOptions(task),
     accountId: route.accountId,
     model: route.model,
     thinkingLevel,
@@ -5520,6 +5546,7 @@ async function replaceLiveForAgent(
     cwd: project?.rootPath ?? task.directory,
     sessionFile,
     sessionName: task.title,
+    ...botSessionOptions(task),
     accountId: live.accountId,
     model: live.session.model ?? undefined,
     thinkingLevel,
@@ -5983,7 +6010,12 @@ function queuePrompt(
     const activeCompaction = activeLive.autoCompactionPromise;
     if (activeCompaction) await activeCompaction;
     if (!stillQueued()) return;
-    applySubagentPermission(activeLive.session, meta?.subagentPermission);
+    if (
+      meta?.subagentPermission !== undefined ||
+      getTask(activeLive.taskId)?.kind !== "bot"
+    ) {
+      applySubagentPermission(activeLive.session, meta?.subagentPermission);
+    }
     applySessionCompactionSettings(activeLive.session);
     const finalBehavior = resolveStreamingBehaviorForPrompt(
       meta?.streamingBehavior,
@@ -6176,7 +6208,12 @@ export async function promptTask(
     await setTaskSkillPermission(id, options.skillPermission);
   }
   const live = await ensureLive(id);
-  applySubagentPermission(live.session, options?.subagentPermission);
+  if (
+    options?.subagentPermission !== undefined ||
+    task.kind !== "bot"
+  ) {
+    applySubagentPermission(live.session, options?.subagentPermission);
+  }
   persistRevertLeafId(id, null);
   const completion = queuePrompt(live, prompt, images, {
     agent: options?.agent,
@@ -6233,6 +6270,39 @@ export async function setTaskPermissionMode(
   }
   applyPermissionMode(live.session, mode);
   return patchTask(id, { permissionMode: mode }) ?? task;
+}
+
+/** Apply the Bot's persisted tool allowlist to an already-created session. */
+export function applyBotTools(
+  session: AgentSession,
+  tools: readonly string[],
+): void {
+  if (
+    typeof session.setActiveToolsByName !== "function" ||
+    typeof session.getActiveToolNames !== "function"
+  ) {
+    return;
+  }
+  const knownBotTools = new Set<string>(BOT_TOOL_NAMES);
+  const requested = [...new Set(
+    tools.filter(
+      (tool) => knownBotTools.has(tool) &&
+        (tool !== "powershell" || process.platform === "win32"),
+    ),
+  )];
+  const active = session.getActiveToolNames();
+  const preserved = active.filter((tool) => !knownBotTools.has(tool));
+  session.setActiveToolsByName([...new Set([...preserved, ...requested])]);
+}
+
+/** Update every live session belonging to a Bot; cold sessions use config on next open. */
+export function setBotTools(botId: string, tools: readonly string[]): void {
+  for (const live of state().live.values()) {
+    const task = getTask(live.taskId);
+    if (task?.kind === "bot" && task.botId === botId) {
+      applyBotTools(live.session, tools);
+    }
+  }
 }
 
 /**

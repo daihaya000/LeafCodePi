@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import {
+  applyBotTools,
   applySubagentPermission,
   applyToolOutput,
   applyThroughput,
@@ -32,6 +33,28 @@ function toolMessage(callID: string): UiMessage {
     ],
   };
 }
+
+describe("applyBotTools", () => {
+  it("applies the Bot allowlist without dropping unrelated extension tools", () => {
+    let active = ["read", "write", "extension_tool"];
+    const session = {
+      getActiveToolNames: () => active,
+      setActiveToolsByName: (next: string[]) => { active = next; },
+    };
+    applyBotTools(session as never, ["read", "memory_add"]);
+    assert.deepEqual(active, ["extension_tool", "read", "memory_add"]);
+  });
+
+  it("removes a disabled tool from an existing session", () => {
+    let active = ["read", "write", "tool_search"];
+    const session = {
+      getActiveToolNames: () => active,
+      setActiveToolsByName: (next: string[]) => { active = next; },
+    };
+    applyBotTools(session as never, ["read"]);
+    assert.deepEqual(active, ["read"]);
+  });
+});
 
 describe("applySubagentPermission", () => {
   function mockSession(initial: string[]) {

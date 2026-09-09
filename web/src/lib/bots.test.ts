@@ -7,6 +7,7 @@ const botTestState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => botTestState.root, storePath: () => join(botTestState.root, "store.json") }; });
 import { botPromptSources, botRuntimeContext, botSoul, createBot, deleteBot, getBot, listBots, patchBot } from "./bots";
 import { BOT_AVATAR_COLORS, avatarColorForId } from "./bot-avatar";
+import { BOT_DEFAULT_DISABLED_TOOL_NAMES, BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES } from "./types";
 import type { BotDto } from "./types";
 
 describe("bot runtime context", () => {
@@ -49,6 +50,8 @@ describe("bot store", () => {
   afterEach(() => { rmSync(root, { recursive: true, force: true }); botTestState.root = ""; });
   it("creates the bot home and minimum config", () => {
     const bot = createBot({ name: "Researcher" });
+    expect(bot.tools).toEqual(BOT_DEFAULT_TOOL_NAMES);
+    expect(bot.tools).not.toEqual(expect.arrayContaining([...BOT_DEFAULT_DISABLED_TOOL_NAMES]));
     expect(listBots().map((item) => item.id)).toEqual([bot.id]);
     expect(JSON.parse(readFileSync(join(root, "store.json"), "utf8")).tasks).toHaveLength(1);
     expect(readFileSync(join(root, "bots", bot.id, "SOUL.md"), "utf8")).toContain("ボットの役割");
@@ -56,6 +59,22 @@ describe("bot store", () => {
     const config = JSON.parse(readFileSync(join(root, "bots", bot.id, "config.json"), "utf8"));
     expect(config.skills.mode).toBe("inherit"); expect(config.enabled).toBe(true); expect(config.codeAutoApprove).toBe(true);
   });
+  it("preserves the old defaults when a legacy config has no tool list", () => {
+    const bot = createBot({ name: "Legacy tools bot" });
+    const configPath = join(root, "bots", bot.id, "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    delete config.tools;
+    fs.writeFileSync(configPath, JSON.stringify(config));
+    expect(getBot(bot.id)?.tools).toEqual(BOT_TOOL_NAMES);
+  });
+
+  it("preserves explicit tool opt-ins", () => {
+    const bot = createBot({ name: "Opt-in bot" });
+    const tools = [...BOT_DEFAULT_TOOL_NAMES, "write" as const];
+    expect(patchBot(bot.id, { tools })?.tools).toEqual(tools);
+    expect(getBot(bot.id)?.tools).toEqual(tools);
+  });
+
   it("defaults missing Code approval to on while preserving an explicit off", () => {
     const bot = createBot({ name: "Approval bot" });
     const configPath = join(root, "bots", bot.id, "config.json");

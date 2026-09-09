@@ -9,7 +9,7 @@ type SearchTool = {
   }>;
 };
 
-function setup(initial: string[]) {
+function setup(initial: string[], allowedTools?: readonly string[]) {
   let active = [...initial];
   const tools: SearchTool[] = [];
   const handlers: Record<string, Array<() => void>> = {};
@@ -27,7 +27,7 @@ function setup(initial: string[]) {
       (handlers[event] ??= []).push(handler);
     },
   };
-  registerDeferredTools(pi as unknown as ExtensionAPI);
+  registerDeferredTools(pi as unknown as ExtensionAPI, allowedTools);
   return {
     get active() { return active; },
     search: tools.find(({ name }) => name === TOOL_SEARCH_NAME)!,
@@ -79,5 +79,27 @@ describe("deferred tools", () => {
 
     expect(result.details).toEqual({ matches: [], added: [] });
     expect(state.active).toEqual(["read", "write", TOOL_SEARCH_NAME]);
+  });
+
+  it("does not let a Bot tool search re-enable a disabled deferred tool", async () => {
+    const state = setup(["read", "bash"], ["read", TOOL_SEARCH_NAME]);
+    state.start();
+
+    const result = await state.search.execute("tc-1", { query: "bash" });
+
+    expect(result.details).toEqual({ matches: [], added: [] });
+    expect(state.active).toEqual(["read", TOOL_SEARCH_NAME]);
+  });
+
+  it("does not add tool_search when the Bot did not allow it", () => {
+    const state = setup(["read", "bash"], ["read"]);
+    state.start();
+    expect(state.active).toEqual(["read"]);
+  });
+
+  it("does not re-enable tool_search just because a deferred tool is allowed", () => {
+    const state = setup(["read", "memory_add"], ["read", "memory_add"]);
+    state.start();
+    expect(state.active).toEqual(["read"]);
   });
 });
