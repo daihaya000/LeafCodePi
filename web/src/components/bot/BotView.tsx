@@ -21,7 +21,7 @@ import { BotCodeRequests } from "@/components/bot/BotCodeRequests";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { markRead } from "@/lib/bot-unread";
 import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
-import { stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
+import { messageRenderKey, stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
 import { BOT_TOOL_NAMES, type BotDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type ThinkingLevel, type UiMessage } from "@/lib/types";
 
 function textOf(message: UiMessage): string {
@@ -498,7 +498,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     }) : [];
     if (!text && images.length === 0 && !message.error && requestIds.length === 0) return null;
     return (
-      <BotChatMessage key={message.id} user={user} createdAt={message.createdAt}
+      <BotChatMessage key={messageRenderKey(message)} user={user} createdAt={message.createdAt}
         sender={{ ...(bot ?? {}), name: bot?.name ?? "ボット" }} text={text} mentions={botMentions}
         images={<BotMessageImages images={images.flatMap((part) => part.type === "image" ? [{ key: part.id, src: part.url, alt: part.filename ?? undefined }] : [])} />}
         footer={user ? <BotRevertButton title="このコメントを入力欄に戻して巻き戻す" disabled={reverting || sending} onClick={() => void revertMessage(message)} /> : undefined}>
