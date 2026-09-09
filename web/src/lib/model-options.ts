@@ -42,7 +42,9 @@ export function modelIntelligenceScore(modelID: string): number {
   const version =
     id.match(/gpt-(\d+)\.(\d+)/) ??
     id.match(/gpt-(\d+)/) ??
-    id.match(/claude-[\w]+-(\d+)[.-](\d+)/) ??
+    // 日付付きモデル ID（claude-sonnet-4-20250514 等）の 8 桁日付を
+    // バージョン小数部として読まない（+2 億スコアで Auto 選択を壊す）。
+    id.match(/claude-[\w]+-(\d+)[.-](\d{1,4})(?!\d)/) ??
     id.match(/claude-[\w]+-(\d+)/) ??
     id.match(/glm-(\d+)[.-](\d+)/) ??
     id.match(/glm-(\d+)/) ??
