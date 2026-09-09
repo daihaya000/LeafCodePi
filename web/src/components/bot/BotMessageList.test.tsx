@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { BotChatMessage, BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow, BotMessageSender, BotMessageTime, BotResponseStatus } from "./BotMessageList";
 import type { UiMessage } from "@/lib/types";
 import { formatMessageTime } from "../ui";
@@ -53,12 +53,15 @@ it("renders bot Markdown with GFM", () => {
   expect(container.querySelector("ul li")?.textContent).toBe("item");
 });
 
-it("renders internal task links as accessible cards and preserves external links", () => {
-  const { getByRole } = render(<BotMessageMarkdown text={"[Code task](/task/task%2F123) [Docs](https://example.com)"} />);
-  const taskLink = getByRole("link", { name: "Codeタスク task/123" });
+it("renders internal task links with the task title and project icon", async () => {
+  vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve({ ok: true, json: async () => url.startsWith("/api/tasks/")
+    ? { task: { id: "task/123", title: "Fix login", projectId: "project" } }
+    : { projects: [{ id: "project", name: "App", icon: "data:image/png;base64,icon" }] } })));
+  const { findByRole, getByRole } = render(<BotMessageMarkdown text={"[Code task](/task/task%2F123) [Docs](https://example.com)"} />);
+  const taskLink = await findByRole("link", { name: "Fix login" });
   expect(taskLink.getAttribute("href")).toBe("/task/task%2F123");
-  expect(taskLink.textContent).toContain("Codeタスク");
-  expect(taskLink.textContent).toContain("task/123");
+  expect(taskLink.textContent).toBe("Fix login");
+  expect(taskLink.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,icon");
   expect(getByRole("link", { name: "Docs" }).getAttribute("href")).toBe("https://example.com");
 });
 

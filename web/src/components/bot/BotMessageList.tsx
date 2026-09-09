@@ -1,30 +1,47 @@
 "use client";
 
-import { type AnchorHTMLAttributes, type ReactNode, useLayoutEffect, useRef } from "react";
+import { type AnchorHTMLAttributes, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
+import { ProjectIcon } from "@/components/ProjectIcon";
 import { renderMentions, withMentions } from "@/components/bot/BotMention";
 import { toolLabel } from "@/lib/tool-labels";
 import { formatMessageTime } from "@/components/ui";
-import type { BotDto, UiMessage } from "@/lib/types";
+import type { BotDto, ProjectDto, TaskSummary, UiMessage } from "@/lib/types";
 
 /** Elements that carry prose; each rewrites only its own bare text into mention chips. */
 const MENTION_TAGS = ["p", "li", "strong", "em", "td", "th", "h1", "h2", "h3", "h4", "blockquote"] as const;
 
 function TaskLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
-  if (!href || !/^\/task\/[^/?#]+(?:[?#].*)?$/.test(href)) {
-    return <a href={href} {...props}>{children}</a>;
-  }
+  if (!href || !/^\/task\/[^/?#]+(?:[?#].*)?$/.test(href)) return <a href={href} {...props}>{children}</a>;
+  return <InternalTaskLink href={href} {...props} />;
+}
+
+function InternalTaskLink({ href, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
   const taskId = decodeURIComponent(href.split("/task/")[1]!.split(/[?#]/)[0]!);
+  const [task, setTask] = useState<TaskSummary | null>(null);
+  const [project, setProject] = useState<Pick<ProjectDto, "id" | "name" | "icon"> | null>(null);
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      fetch(`/api/tasks/${encodeURIComponent(taskId)}`).then((response) => response.ok ? response.json() : null),
+      fetch("/api/projects").then((response) => response.ok ? response.json() : null),
+    ]).then(([taskResult, projectsResult]) => {
+      if (!active) return;
+      const nextTask = taskResult?.task as TaskSummary | undefined;
+      setTask(nextTask ?? null);
+      const nextProject = (projectsResult?.projects as ProjectDto[] | undefined)?.find((item) => item.id === nextTask?.projectId);
+      setProject(nextProject ? { id: nextProject.id, name: nextProject.name, icon: nextProject.icon } : null);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [taskId]);
+  const title = task?.title || taskId;
   return (
-    <Link href={href} {...props} aria-label={`Codeタスク ${taskId}`} className="my-2 flex items-center gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm no-underline transition-colors hover:bg-surface-3">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent" aria-hidden="true">↗</span>
-      <span className="min-w-0">
-        <span className="block text-[11px] font-medium text-muted">Codeタスク</span>
-        <span className="block truncate font-medium text-text">{taskId}</span>
-      </span>
+    <Link href={href} {...props} aria-label={title} className="my-2 flex items-center gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm no-underline transition-colors hover:bg-surface-3">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center" aria-hidden="true">{project && <ProjectIcon project={project} className="flex h-8 w-8 items-center justify-center rounded-lg border text-sm font-semibold" />}</span>
+      <span className="min-w-0 truncate font-medium text-text">{title}</span>
     </Link>
   );
 }
