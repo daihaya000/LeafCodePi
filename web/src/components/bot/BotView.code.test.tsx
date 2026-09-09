@@ -92,6 +92,27 @@ it("ignores a stale Bot response after switching ids", async () => {
   expect(screen.queryByRole("heading", { name: "One" })).toBeNull();
 });
 
+it("ignores stale routine data after switching ids", async () => {
+  const botOne = { ...testBot, id: "one", name: "One" };
+  const botTwo = { ...testBot, id: "two", name: "Two" };
+  const failedRoutine = { id: "old", botId: "one", name: "Old routine", prompt: "old", schedule: "0 * * * *", enabled: true, createdAt: "", updatedAt: "", failureCount: 1, lastRunAt: null };
+  type RoutineResponse = { routines: typeof failedRoutine[] };
+  let resolveOne!: (result: RoutineResponse) => void;
+  const oneResponse = new Promise<RoutineResponse>((resolve) => { resolveOne = resolve; });
+  mocks.getJson.mockImplementation((url: string) => {
+    if (url === "/api/bots/one/routines") return oneResponse;
+    if (url === "/api/bots/two/routines") return Promise.resolve({ routines: [] });
+    if (url === "/api/models") return Promise.resolve({ models: [] });
+    return Promise.resolve({ bot: url.includes("/two") ? botTwo : botOne });
+  });
+  const view = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  view.rerender(<ShellProvider><BotView id="two" /></ShellProvider>);
+  await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/bots/two/routines"));
+  await act(async () => { await Promise.resolve(); });
+  await act(async () => { resolveOne({ routines: [failedRoutine] }); await oneResponse; });
+  expect(screen.queryByRole("status")).toBeNull();
+});
+
 it("defers model loading until a hidden Bot tab is activated", async () => {
   const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
   expect(mocks.getJson).not.toHaveBeenCalledWith("/api/models");
