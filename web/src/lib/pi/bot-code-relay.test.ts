@@ -187,11 +187,11 @@ describe("Bot ⇄ Code relay", () => {
     expect(deps.create).not.toHaveBeenCalled();
   });
 
-  it("serializes duplicate calls and rejects a second pending request", async () => {
-    await Promise.all([launch(), launch()]);
-    expect(deps.create).toHaveBeenCalledTimes(1);
-    await expect(launch("start-2")).rejects.toThrow("still running");
-    expect(deps.create).toHaveBeenCalledTimes(1);
+  it("runs multiple one-to-one Code requests without mixing their receipts", async () => {
+    await Promise.all([launch("start-1"), launch("start-2")]);
+    expect(deps.create).toHaveBeenCalledTimes(2);
+    expect(records()).toHaveLength(2);
+    expect(records().every((request) => request.originTaskId === "bot:one")).toBe(true);
   });
 
   it("reports a stop as interrupted rather than successful", async () => {
@@ -279,9 +279,10 @@ describe("Room ⇄ Code delegation", () => {
     expect(deps.approve).not.toHaveBeenCalled();
     expect(record().state).toBe("running");
 
-    // The 1:1 path never inherits a Room's standing approval: it still asks.
-    await expect(launch("one-to-one")).rejects.toThrow("still running");
+    // The 1:1 path still asks independently and can run alongside the Room request.
+    await launch("one-to-one");
     expect(deps.approve).toHaveBeenCalledTimes(1);
+    expect(deps.create).toHaveBeenCalledTimes(2);
   });
 
   it("still asks for approval when the Room has not granted it", async () => {

@@ -73,8 +73,13 @@ function requests(): CodeRequest[] {
   });
 }
 function active(request: CodeRequest): boolean { return request.state !== "delivered" && request.state !== "cancelled"; }
-function hasConflictingBotRequest(botId: string, roomId?: string): boolean {
-  return requests().some((request) => request.botId === botId && active(request) && (roomId === undefined || request.room?.id !== roomId));
+
+export type BotCodeRequestSummary = Pick<CodeRequest, "id" | "codeTaskId" | "state" | "prompt" | "result" | "queuedAt">;
+export function listBotCodeRequests(botId: string): BotCodeRequestSummary[] {
+  return requests()
+    .filter((request) => request.botId === botId)
+    .map(({ id, codeTaskId, state, prompt, result, queuedAt }) => ({ id, codeTaskId, state, prompt, result, queuedAt }))
+    .sort((a, b) => (b.queuedAt ?? 0) - (a.queuedAt ?? 0));
 }
 function nextQueuedRoomRequest(roomId: string): CodeRequest | undefined {
   return requests()
@@ -225,7 +230,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       const approved = standing || await deps.approve(sessionId, `Codeへ依頼します。\nプロジェクト: ${project?.name ?? NO_PROJECT_NAME}\n\n${input.prompt.trim()}`);
       if (!approved || signal?.aborted) throw new Error("Code request was not approved");
     }
-    const execute = () => withBotCodeSessionLock(bot.id, async () => {
+    const execute = () => withBotCodeSessionLock(`request-${id}`, async () => {
       const current = owner(originTaskId);
       if (room && roomContext(originTaskId)?.responseId !== room.responseId) throw new Error("Room request is no longer active");
       const existing = read(id);
@@ -237,10 +242,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         return { task: await deps.abort(linked.id) };
       }
       if (current.permissionMode === "deny") throw new Error("This Bot does not permit Code delegation");
-      if (hasConflictingBotRequest(current.id, room?.id)) {
-        throw new Error("A Code request is still running or awaiting its Bot report");
-      }
-      if (input.action === "start" && linked && linked.status !== "archived") return { task: linked, message: "Use prompt to continue this Code session" };
+      if (input.action === "start" && linked && linked.status !== "archived" && room) return { task: linked, message: "Use prompt to continue this Code session" };
       if (input.action === "prompt" && (!linked || linked.status === "archived" || linked.permissionMode === "deny" || deps.isBusy(linked.id))) throw new Error("The linked Code session is unavailable or busy");
       const projectId = input.action === "start" ? input.projectId?.trim() || null : linked!.projectId;
       const project = projectId ? getProject(projectId) : null;
@@ -324,7 +326,6 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       const request = read(id);
       if (!request || request.state !== "queued" || !request.room) return;
       if (requests().some((item) => item.id !== request.id && item.room?.id === request.room!.id && active(item))) return;
-      if (hasConflictingBotRequest(request.botId, request.room.id)) return;
       let bot: ReturnType<typeof owner>;
       try {
         bot = owner(request.originTaskId);
