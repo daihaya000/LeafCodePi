@@ -118,6 +118,14 @@ describe("Bot ⇄ Code relay", () => {
     await relay.tick(); expect(deps.deliver).toHaveBeenCalledTimes(1);
   });
 
+  it("skips approval for a Bot with standing Code approval", async () => {
+    store.bots.get("one")!.codeAutoApprove = true;
+    const result = await relay.run("bot:one", "always-allow", { action: "start", prompt: "一般的な調査をして" }, "session");
+
+    expect(result).toMatchObject({ taskId: "code", state: "running" });
+    expect(deps.approve).not.toHaveBeenCalled();
+  });
+
   it("starts a new Code task without a project", async () => {
     const result = await relay.run("bot:one", "no-project", { action: "start", prompt: "一般的な調査をして" }, "session");
 

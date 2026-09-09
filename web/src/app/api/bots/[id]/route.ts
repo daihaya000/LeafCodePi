@@ -25,6 +25,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const hasSkills = body?.skills !== undefined;
   const hasExtraRoots = body?.extraRoots !== undefined;
   const hasNotificationsEnabled = body?.notificationsEnabled !== undefined;
+  const hasCodeAutoApprove = body?.codeAutoApprove !== undefined;
   const hasEnabled = body?.enabled !== undefined;
   const rawSkills = hasSkills ? body?.skills : undefined;
   const skills = hasSkills ? normalizeBotSkills(rawSkills) : undefined;
@@ -46,6 +47,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     (body.avatarMustache !== undefined && typeof body.avatarMustache !== "boolean") ||
     (body.avatarImage !== undefined && body.avatarImage !== null && !isAvatarImage(body.avatarImage)) ||
     (hasNotificationsEnabled && typeof body.notificationsEnabled !== "boolean") ||
+    (hasCodeAutoApprove && typeof body.codeAutoApprove !== "boolean") ||
     (hasEnabled && typeof body.enabled !== "boolean") ||
     (hasModel && (typeof body.model !== "string" || !body.model.trim())) ||
     (hasThinkingLevel && !isThinkingLevel(body.thinkingLevel)) ||
@@ -67,6 +69,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (typeof body.avatarMustache === "boolean") patch.avatarMustache = body.avatarMustache;
     if (body.avatarImage !== undefined) patch.avatarImage = body.avatarImage as string | null;
     if (hasNotificationsEnabled) patch.notificationsEnabled = body.notificationsEnabled as boolean;
+    if (hasCodeAutoApprove) patch.codeAutoApprove = body.codeAutoApprove as boolean;
     if (hasEnabled) patch.enabled = body.enabled as boolean;
     if (hasSkills) patch.skills = skills as BotSkillsConfig;
     if (hasExtraRoots) patch.extraRoots = extraRoots ?? [];

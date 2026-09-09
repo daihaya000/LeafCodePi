@@ -90,6 +90,8 @@ export type BotDto = {
   enabled: boolean;
   /** Whether notifications for this bot are enabled in the Bot UI. */
   notificationsEnabled: boolean;
+  /** Skip the approval prompt for Code requests originating from this Bot. */
+  codeAutoApprove: boolean;
   /** The Code task currently controlled by this Bot, when one is linked. */
   codeSessionTaskId?: string | null;
   soul: string;

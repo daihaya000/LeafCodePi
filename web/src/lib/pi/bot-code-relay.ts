@@ -221,7 +221,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       if (bot.permissionMode === "deny") throw new Error("This Bot does not permit Code delegation");
       // Standing approval is an operator setting on the Room itself (token-gated), never something
       // a Bot can grant itself mid-conversation.
-      const standing = room ? getRoom(room.id)?.codeAutoApprove === true : false;
+      const standing = room ? getRoom(room.id)?.codeAutoApprove === true : bot.codeAutoApprove === true;
       const approved = standing || await deps.approve(sessionId, `Codeへ依頼します。\nプロジェクト: ${project?.name ?? NO_PROJECT_NAME}\n\n${input.prompt.trim()}`);
       if (!approved || signal?.aborted) throw new Error("Code request was not approved");
     }

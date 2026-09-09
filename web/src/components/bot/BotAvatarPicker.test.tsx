@@ -8,7 +8,7 @@ import type { BotDto } from "@/lib/types";
 
 const initialBot: BotDto = {
   id: "avatar-test", name: "Bot", label: "Label", soul: "", avatarColor: "#3B82F6", avatarImage: null,
-  model: null, thinkingLevel: null, permissionMode: null, skills: { mode: "inherit", include: [], exclude: [] },
+  model: null, thinkingLevel: null, permissionMode: null, codeAutoApprove: false, skills: { mode: "inherit", include: [], exclude: [] },
   extraRoots: [], enabled: true, notificationsEnabled: true, createdAt: "", updatedAt: "",
 };
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
