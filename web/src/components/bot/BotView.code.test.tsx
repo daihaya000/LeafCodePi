@@ -67,6 +67,31 @@ it("defers routine loading until a hidden Bot tab is activated", async () => {
   await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/bots/one/routines"));
 });
 
+it("ignores a stale Bot response after switching ids", async () => {
+  const botOne = { ...testBot, id: "one", name: "One" };
+  const botTwo = { ...testBot, id: "two", name: "Two" };
+  type BotResponse = { bot: typeof testBot };
+  let resolveOne!: (result: BotResponse) => void;
+  let resolveTwo!: (result: BotResponse) => void;
+  const oneResponse = new Promise<BotResponse>((resolve) => { resolveOne = resolve; });
+  const twoResponse = new Promise<BotResponse>((resolve) => { resolveTwo = resolve; });
+  mocks.getJson.mockImplementation((url: string) => {
+    if (url === "/api/bots/one") return oneResponse;
+    if (url === "/api/bots/two") return twoResponse;
+    if (url === "/api/models") return Promise.resolve({ models: [] });
+    if (url.endsWith("/routines")) return Promise.resolve({ routines: [] });
+    return Promise.resolve({ bot: botOne });
+  });
+  const view = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  view.rerender(<ShellProvider><BotView id="two" /></ShellProvider>);
+  await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/bots/two"));
+  await act(async () => { resolveTwo({ bot: botTwo }); await twoResponse; });
+  expect(screen.getByRole("heading", { name: "Two" })).toBeTruthy();
+  await act(async () => { resolveOne({ bot: botOne }); await oneResponse; });
+  expect(screen.getByRole("heading", { name: "Two" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "One" })).toBeNull();
+});
+
 it("defers model loading until a hidden Bot tab is activated", async () => {
   const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
   expect(mocks.getJson).not.toHaveBeenCalledWith("/api/models");

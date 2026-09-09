@@ -104,9 +104,10 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     notifyBotSidebarChanged();
   };
 
-  const load = useCallback(() => {
+  const load = useCallback((isCurrent: () => boolean) => {
     return getJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`)
       .then((result) => {
+        if (!isCurrent()) return;
         profileDraftRef.current = { name: result.bot.name, label: result.bot.label };
         soulDraftRef.current = result.bot.soul;
         setBot(result.bot);
@@ -117,10 +118,17 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
         setCodeAutoApprove(result.bot.codeAutoApprove === true);
         setPermissionMode(result.bot.permissionMode ?? "allow");
       })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : "読み込みに失敗しました"));
+      .catch((reason) => {
+        if (isCurrent()) setError(reason instanceof Error ? reason.message : "読み込みに失敗しました");
+      });
   }, [id]);
 
-  useEffect(() => { if (active) void load(); }, [active, load]);
+  useEffect(() => {
+    if (!active) return;
+    let current = true;
+    void load(() => current);
+    return () => { current = false; };
+  }, [active, load]);
   useEffect(() => {
     const saved = readBotSettingsOpen(id);
     settingsOpenRef.current = saved;
