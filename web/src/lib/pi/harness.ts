@@ -2073,10 +2073,13 @@ function botAttentionSource(taskId: string, kind: "permission" | "question", req
   if (!taskId.startsWith("bot:") || service.pendingTaskIds().size === 0) return taskId;
   const own = service.pendingForTask(taskId);
   if (own && (!requestId || own.id === requestId)) return taskId;
-  const linked = botCodeRelay().codeForOrigin(taskId);
-  if (!linked || botCodeRelay().originForCode(linked) !== taskId) return taskId;
-  const delegated = service.pendingForTask(linked);
-  return delegated && (!requestId || delegated.id === requestId) ? linked : taskId;
+  // Several delegated Code sessions can wait at once, so pick the one that actually owns this
+  // request instead of whichever session started first.
+  for (const linked of botCodeRelay().codeTasksForOrigin(taskId)) {
+    const delegated = service.pendingForTask(linked);
+    if (delegated && (!requestId || delegated.id === requestId)) return linked;
+  }
+  return taskId;
 }
 
 /** Recreate a bot session so edited SOUL.md is applied on the next reply. */

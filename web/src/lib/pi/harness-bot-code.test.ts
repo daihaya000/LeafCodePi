@@ -10,17 +10,22 @@ const globals = globalThis as Record<string, unknown>;
 let unsubscribe: (() => void) | undefined;
 beforeEach(() => {
   globals.__leafcodePiHarness = {
-    live: new Map([["code", { taskId: "code", session: { sessionId: "code-session" } }], ["bot:one", { taskId: "bot:one", session: { sessionId: "bot-session" } }]]),
+    live: new Map([
+      ["code", { taskId: "code", session: { sessionId: "code-session" } }],
+      ["code-2", { taskId: "code-2", session: { sessionId: "code-2-session" } }],
+      ["bot:one", { taskId: "bot:one", session: { sessionId: "bot-session" } }],
+    ]),
     events: new EventEmitter(),
   };
   globals.__leafcodeBotCodeRelay = {
+    codeTasksForOrigin: (id: string) => id === "bot:one" ? ["code", "code-2"] : [],
     codeForOrigin: (id: string) => id === "bot:one" ? "code" : null,
-    originForCode: (id: string) => id === "code" ? "bot:one" : null,
+    originForCode: (id: string) => id === "code" || id === "code-2" ? "bot:one" : null,
   };
 });
 afterEach(() => {
   unsubscribe?.(); unsubscribe = undefined;
-  clearPendingAttentionForTask("code"); clearPendingAttentionForTask("bot:one");
+  clearPendingAttentionForTask("code"); clearPendingAttentionForTask("code-2"); clearPendingAttentionForTask("bot:one");
   delete globals.__leafcodePiHarness; delete globals.__leafcodeBotCodeRelay;
 });
 
@@ -48,6 +53,18 @@ describe("delegated Code attention in the Bot conversation", () => {
     expect(await approval).toBe(true);
     expect(pendingPermissionForTask("code")).toBeNull();
     expect(snapshots.at(-1)?.permissionRequest).toBeNull();
+  });
+
+  it("answers the exact waiting Code session when several run for one Bot", async () => {
+    pendingPermissionForTask("code-2");
+    const approval = requestWebUiPermission({ sessionId: "code-2-session", command: "edit", labels: [], message: "Approve the second Code session" });
+    const pending = pendingPermissionForTask("bot:one")!;
+
+    // The first delegated session has nothing pending; the answer must still reach the second one.
+    expect(pending.message).toBe("Approve the second Code session");
+    expect(respondToPermissionPrompt("bot:one", pending.id, true)).toBe(true);
+    expect(await approval).toBe(true);
+    expect(pendingPermissionForTask("code-2")).toBeNull();
   });
 
   it("returns a question answer to the exact Code request without opening Code", async () => {

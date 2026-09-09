@@ -298,8 +298,16 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     return requests().find((item) => item.codeTaskId === taskId && item.state === "running")?.id;
   }
 
+  /** Every Code session this Bot conversation is currently waiting on, not just the first one. */
+  function codeTasksForOrigin(originTaskId: string): string[] {
+    try { owner(originTaskId); } catch { return []; }
+    return requests().flatMap((item) => (
+      item.originTaskId === originTaskId && item.state === "running" && item.codeTaskId ? [item.codeTaskId] : []
+    ));
+  }
+
   function codeForOrigin(originTaskId: string): string | null {
-    return requests().find((item) => item.originTaskId === originTaskId && item.state === "running")?.codeTaskId ?? null;
+    return codeTasksForOrigin(originTaskId)[0] ?? null;
   }
 
   async function run(originTaskId: string, toolCallId: string, input: CodeInput, sessionId: string, signal?: AbortSignal) {
@@ -596,5 +604,5 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       });
     };
   }
-  return { run, register, tick, start, complete, originForCode, codeForOrigin, requestIdForCode, dispose: () => { if (timer) clearInterval(timer); timer = undefined; } };
+  return { run, register, tick, start, complete, originForCode, codeForOrigin, codeTasksForOrigin, requestIdForCode, dispose: () => { if (timer) clearInterval(timer); timer = undefined; } };
 }

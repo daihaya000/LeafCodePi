@@ -208,10 +208,21 @@ describe("Bot ⇄ Code relay", () => {
   });
 
   it("runs multiple one-to-one Code requests without mixing their receipts", async () => {
+    let nextCode = 0;
+    vi.mocked(deps.create).mockImplementation(async (input) => {
+      const code = task(`code-${++nextCode}`, { status: "working" });
+      store.tasks.set(code.id, code);
+      input.beforePrompt(code);
+      return code;
+    });
     await Promise.all([launch("start-1"), launch("start-2")]);
     expect(deps.create).toHaveBeenCalledTimes(2);
     expect(records()).toHaveLength(2);
     expect(records().every((request) => request.originTaskId === "bot:one")).toBe(true);
+    // Attention routing must see every waiting session, not only the one that started first.
+    expect(relay.codeTasksForOrigin("bot:one").sort()).toEqual(["code-1", "code-2"]);
+    store.bots.get("one")!.enabled = false;
+    expect(relay.codeTasksForOrigin("bot:one")).toEqual([]);
   });
 
   it("reports a stop as interrupted rather than successful", async () => {
