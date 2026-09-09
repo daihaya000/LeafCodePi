@@ -428,7 +428,7 @@ function NestedAgentPanel({
   );
 }
 
-function ToolCard({
+export function ToolCard({
   part,
   taskId,
   nested = false,

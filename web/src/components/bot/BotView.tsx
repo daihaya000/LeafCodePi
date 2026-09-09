@@ -19,10 +19,11 @@ import { BotMessageError, BotMessageImages, BotMessageList, BotChatMessage, BotP
 import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
 import { BotCodeRequests } from "@/components/bot/BotCodeRequests";
 import { QuestionCard } from "@/components/task/QuestionCard";
+import { ToolCard } from "@/components/task/PartView";
 import { markRead } from "@/lib/bot-unread";
 import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
 import { messageRenderKey, stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
-import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type ThinkingLevel, type UiMessage } from "@/lib/types";
+import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
 
 function textOf(message: UiMessage): string {
   return message.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
@@ -506,6 +507,9 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     const user = message.role === "user";
     const text = textOf(message);
     const images = message.parts.filter((part) => part.type === "image");
+    const tools = message.role === "assistant"
+      ? message.parts.filter((part): part is Extract<UiPart, { type: "tool" }> => part.type === "tool")
+      : [];
     const requestIds = message.role === "assistant" ? message.parts.flatMap((part) => {
       if (part.type !== "tool" || part.tool !== "code_session" || !part.state.output) return [];
       try {
@@ -513,11 +517,25 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
         return typeof result?.requestId === "string" ? [result.requestId] : [];
       } catch { return []; }
     }) : [];
-    if (!text && images.length === 0 && !message.error && requestIds.length === 0) return null;
+    if (!text && images.length === 0 && tools.length === 0 && !message.error && requestIds.length === 0) return null;
+    const hasBubble = user || Boolean(text || images.length > 0 || message.error || requestIds.length > 0);
+    const toolCards = tools.length > 0 ? (
+      <div className="flex w-full min-w-0 flex-col gap-2">
+        {tools.map((part) => {
+          const partKey = part.id || part.callID;
+          const cardKey =
+            part.state.status === "error" || part.state.status === "cancelled"
+              ? `${partKey}:expanded`
+              : partKey;
+          return <ToolCard key={cardKey} part={part} taskId={`bot:${id}`} tabActive={active} />;
+        })}
+      </div>
+    ) : undefined;
     return (
       <BotChatMessage key={messageRenderKey(message)} user={user} createdAt={message.createdAt}
         sender={{ ...(bot ?? {}), name: bot?.name ?? "ボット" }} text={text} mentions={botMentions}
         images={<BotMessageImages images={images.flatMap((part) => part.type === "image" ? [{ key: part.id, src: part.url, alt: part.filename ?? undefined }] : [])} />}
+        after={toolCards} bubble={hasBubble}
         footer={user ? <BotRevertButton title="このコメントを入力欄に戻して巻き戻す" disabled={reverting || sending} onClick={() => void revertMessage(message)} /> : undefined}>
         {message.error && <BotMessageError text={message.error} />}
         {requestIds.length > 0 && <BotCodeRequests botId={id} requestIds={requestIds} active={active} />}

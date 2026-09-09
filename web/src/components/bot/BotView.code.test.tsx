@@ -177,6 +177,43 @@ it("applies streaming deltas without waiting for a full snapshot", async () => {
   expect(screen.queryByText("途中")).toBeNull();
 });
 
+it("renders Bot tool messages with the shared ToolCard outside the chat bubble", async () => {
+  const { container } = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({ messages: [{
+    id: "tool-message",
+    role: "assistant",
+    createdAt: 2,
+    parts: [{
+      id: "tool-1",
+      type: "tool",
+      tool: "read",
+      callID: "call-1",
+      state: { status: "running", input: { path: "README.md" } },
+    }],
+  }], isStreaming: true });
+
+  const card = await screen.findByRole("button", { name: /読取/ });
+  expect(card.getAttribute("aria-expanded")).toBe("false");
+  expect(container.querySelector(".bot-message-bubble")).toBeNull();
+  fireEvent.click(card);
+  expect(card.getAttribute("aria-expanded")).toBe("true");
+
+  delta({ message: {
+    id: "tool-message",
+    role: "assistant",
+    createdAt: 2,
+    parts: [{
+      id: "tool-1",
+      type: "tool",
+      tool: "read",
+      callID: "call-1",
+      state: { status: "completed", input: { path: "README.md" }, output: "読み取り結果" },
+    }],
+  }, isStreaming: false });
+  expect(await screen.findByText("読み取り結果")).toBeTruthy();
+});
+
 it("pauses Code request polling while the Bot tab is hidden", async () => {
   const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
   snapshot({ messages: [{

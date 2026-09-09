@@ -125,11 +125,12 @@ export function BotMessageSender({ name, createdAt, active = false, ...face }: B
 }
 
 /** One chat row. Bot and Room conversations share it so both look identical. */
-export function BotMessageRow({ user, createdAt, children, footer, header, timeInHeader = false }: { user: boolean; createdAt: number; children: ReactNode; footer?: ReactNode; header?: ReactNode; timeInHeader?: boolean }) {
+export function BotMessageRow({ user, createdAt, children, footer, header, after, bubble = true, timeInHeader = false }: { user: boolean; createdAt: number; children: ReactNode; footer?: ReactNode; header?: ReactNode; after?: ReactNode; bubble?: boolean; timeInHeader?: boolean }) {
   return (
     <div className={`flex flex-col gap-1 ${user ? "items-end" : "items-start"}`}>
       {header}
-      <div className={`min-w-0 max-w-bubble rounded-3xl px-4 py-3 text-base leading-7 [overflow-wrap:anywhere] bot-message-bubble ${user ? "bg-bot-user text-white" : "rounded-tl-lg bg-bot-assistant text-text"}`}>{children}</div>
+      {bubble && <div className={`min-w-0 max-w-bubble rounded-3xl px-4 py-3 text-base leading-7 [overflow-wrap:anywhere] bot-message-bubble ${user ? "bg-bot-user text-white" : "rounded-tl-lg bg-bot-assistant text-text"}`}>{children}</div>}
+      {after}
       {(!timeInHeader || user) && <BotMessageTime createdAt={createdAt} />}
       {footer}
     </div>
@@ -137,7 +138,7 @@ export function BotMessageRow({ user, createdAt, children, footer, header, timeI
 }
 
 /** Shared conversation presentation; callers supply only conversation-specific content/actions. */
-export function BotChatMessage({ user, createdAt, sender, text, mentions = [], children, images, footer }: {
+export function BotChatMessage({ user, createdAt, sender, text, mentions = [], children, images, footer, after, bubble = true }: {
   user: boolean;
   createdAt: number;
   sender: BotFace & { name: string; active?: boolean };
@@ -146,9 +147,11 @@ export function BotChatMessage({ user, createdAt, sender, text, mentions = [], c
   children?: ReactNode;
   images?: ReactNode;
   footer?: ReactNode;
+  after?: ReactNode;
+  bubble?: boolean;
 }) {
   return <BotMessageRow user={user} createdAt={createdAt} timeInHeader={!user}
-    header={user ? undefined : <BotMessageSender {...sender} createdAt={createdAt} />} footer={footer}>
+    header={user ? undefined : <BotMessageSender {...sender} createdAt={createdAt} />} footer={footer} after={after} bubble={bubble}>
     {text && (user
       ? <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{renderMentions(text, mentions, "user", "user")}</div>
       : <BotMessageMarkdown text={text} mentions={mentions} />)}
