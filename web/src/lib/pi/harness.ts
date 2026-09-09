@@ -102,6 +102,7 @@ import {
   compactSkillsForPrompt,
   filterSkillsByState,
   filterSkillsForBot,
+  type SkillScope,
 } from "@/lib/skills";
 import type { SkillPermission } from "@/lib/skill-permission";
 import {
@@ -2276,6 +2277,7 @@ function botSessionOptions(
   noContextFiles?: boolean;
   botSkills?: BotSkillsConfig;
   botTools?: readonly string[];
+  skillScope?: SkillScope;
 } {
   if (task.kind !== "bot" || !task.botId) return {};
   const bot = getBot(task.botId);
@@ -2289,6 +2291,7 @@ function botSessionOptions(
     botTools: (bot?.tools ?? BOT_TOOL_NAMES).filter(
       (tool) => tool !== "powershell" || process.platform === "win32",
     ),
+    skillScope: "bot",
   };
 }
 
@@ -2314,6 +2317,7 @@ async function createSession(options: {
   noContextFiles?: boolean;
   botSkills?: BotSkillsConfig;
   botTools?: readonly string[];
+  skillScope?: SkillScope;
 }): Promise<SessionSetup> {
   const sessionTask = options.taskId ? getTask(options.taskId) : undefined;
   const botCodeTaskId = isBotCodeOriginTask(sessionTask) ? options.taskId : undefined;
@@ -2379,7 +2383,7 @@ async function createSession(options: {
       );
       const skills = mergeBundledSkills(base.skills, packagedSkills);
       return {
-        skills: compactSkillsForPrompt(filterSkillsForBot(filterSkillsByState(skills), options.botSkills ?? { mode: "inherit", include: [], exclude: [] })),
+        skills: compactSkillsForPrompt(filterSkillsForBot(filterSkillsByState(skills, undefined, options.skillScope ?? "code"), options.botSkills ?? { mode: "inherit", include: [], exclude: [] })),
         diagnostics: base.diagnostics,
       };
     },

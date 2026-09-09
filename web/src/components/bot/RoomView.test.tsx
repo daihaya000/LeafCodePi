@@ -164,8 +164,8 @@ describe("RoomView delegated work", () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/bots") return Promise.resolve({ bots: [bot] });
       if (path === "/api/skills") return Promise.resolve({ skills: [
-        { id: "skill-review", name: "review", description: "変更を確認", enabled: true },
-        { id: "skill-off", name: "off", enabled: false },
+        { id: "skill-review", name: "review", description: "変更を確認", enabled: false, codeEnabled: false, botEnabled: true },
+        { id: "skill-off", name: "off", enabled: true, codeEnabled: true, botEnabled: false },
       ] });
       return Promise.resolve({ room });
     });

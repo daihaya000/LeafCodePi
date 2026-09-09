@@ -3,7 +3,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { reloadLiveSessionsContext } from "@/lib/pi/harness";
-import { listSkills, setSkillEnabled, skillsErrorStatus } from "@/lib/skills";
+import { setSkillEnabled, skillsErrorStatus, type SkillScope } from "@/lib/skills";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,22 +25,27 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
   } catch {
     return NextResponse.json({ error: "リクエスト本文が不正です" }, { status: 400 });
   }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return NextResponse.json({ error: "enabled（boolean）が必要です" }, { status: 400 });
-  }
-  const enabled = (body as { enabled?: unknown }).enabled;
+  const request = body && typeof body === "object" && !Array.isArray(body)
+    ? body as { enabled?: unknown; scope?: unknown }
+    : null;
+  const enabled = request?.enabled;
+  const rawScope = request?.scope;
   if (typeof enabled !== "boolean") {
     return NextResponse.json({ error: "enabled（boolean）が必要です" }, { status: 400 });
   }
+  if (rawScope !== undefined && rawScope !== "code" && rawScope !== "bot") {
+    return NextResponse.json({ error: "scope は code または bot が必要です" }, { status: 400 });
+  }
+  const scope: SkillScope = rawScope === "bot" ? "bot" : "code";
 
   try {
-    setSkillEnabled(name, enabled);
+    const listed = setSkillEnabled(name, enabled, undefined, { scope });
     const reload = await reloadLiveSessionsContext();
-    const listed = listSkills();
     return NextResponse.json({
       ok: true,
       name,
       enabled,
+      scope,
       skills: listed.skills,
       reload,
     });

@@ -111,7 +111,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     void getJson<{ skills?: SkillDto[] }>("/api/skills")
       .then((result) => {
         if (closed) return;
-        setSkills((result.skills ?? []).filter((skill) => skill.enabled).map(({ name, description }) => ({ name, description })));
+        setSkills((result.skills ?? []).filter((skill) => skill.botEnabled ?? skill.enabled).map(({ name, description }) => ({ name, description })));
       })
       .catch(() => {
         // Skill discovery is optional; the Room remains usable when it is unavailable.

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { McpSettings } from "./McpSettings";
 import { SkillsSettings } from "./SkillsSettings";
@@ -16,7 +16,7 @@ describe("拡張設定の一覧", () => {
     getJson.mockImplementation((path: string) => {
       if (path === "/api/skills") {
         return Promise.resolve({
-          skills: [{ id: "review", name: "review", enabled: true, source: "pi" }],
+          skills: [{ id: "review", name: "review", enabled: true, codeEnabled: true, botEnabled: false, source: "pi" }],
           skillsDir: "C:/pi/skills",
         });
       }
@@ -52,7 +52,8 @@ describe("拡張設定の一覧", () => {
       </>,
     );
 
-    await screen.findByRole("switch", { name: "review を無効化" });
+    await screen.findByRole("switch", { name: "review（Code）を無効化" });
+    await screen.findByRole("switch", { name: "review（Bot）を有効化" });
     await screen.findByRole("switch", { name: "fxhoudini を無効化" });
 
     for (const heading of ["スキル", "MCP サーバー"]) {
@@ -61,6 +62,21 @@ describe("拡張設定の一覧", () => {
       expect(list?.className).not.toContain("max-h-");
       expect(list?.className).not.toContain("overflow-y-auto");
     }
+  });
+
+  it("CodeとBotの切替を別々のscopeとして保存する", async () => {
+    sendJson.mockResolvedValue({
+      skills: [{ id: "review", name: "review", enabled: true, codeEnabled: true, botEnabled: true, source: "pi" }],
+    });
+    render(<SkillsSettings />);
+
+    const botToggle = await screen.findByRole("switch", { name: "review（Bot）を有効化" });
+    fireEvent.click(botToggle);
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith(
+      "/api/skills/review",
+      { enabled: true, scope: "bot" },
+      "PATCH",
+    ));
   });
 
   it("各MCPサーバーの説明文を表示する", async () => {

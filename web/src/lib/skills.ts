@@ -28,11 +28,16 @@ import { bundledExtensionEntries } from "@/lib/extensions";
 
 export type SkillSource = "pi" | "bundled";
 
+export type SkillScope = "code" | "bot";
+
 export type SkillDto = {
   id: string;
   name: string;
   description?: string;
+  /** Backward-compatible alias for the Code setting. */
   enabled: boolean;
+  codeEnabled: boolean;
+  botEnabled: boolean;
   filePath: string;
   source: SkillSource;
 };
@@ -45,9 +50,11 @@ export type SkillListResult = {
   bundledSkillsDir: string | null;
 };
 
-type SkillsState = {
-  /** Skill names that must not load into AgentSession. */
-  disabled: Record<string, true>;
+export type SkillsState = {
+  /** Skill names that must not load into Code sessions. */
+  code: Record<string, true>;
+  /** Skill names that must not load into Bot sessions. */
+  bot: Record<string, true>;
 };
 
 export class SkillsError extends Error {
@@ -102,7 +109,16 @@ export function bundledSkillPaths(root = bundledSkillsDir()): string[] {
 }
 
 function emptyState(): SkillsState {
-  return { disabled: {} };
+  return { code: {}, bot: {} };
+}
+
+function disabledNames(value: unknown): Record<string, true> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const disabled: Record<string, true> = {};
+  for (const [key, enabled] of Object.entries(value)) {
+    if (enabled === true && key.trim()) disabled[key] = true;
+  }
+  return disabled;
 }
 
 function atomicWrite(filePath: string, content: string): void {
@@ -123,14 +139,21 @@ function atomicWrite(filePath: string, content: string): void {
 
 export function readSkillsState(path = skillsStatePath()): SkillsState {
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<SkillsState>;
-    const disabled: Record<string, true> = {};
-    if (parsed.disabled && typeof parsed.disabled === "object" && !Array.isArray(parsed.disabled)) {
-      for (const [key, value] of Object.entries(parsed.disabled)) {
-        if (value === true && typeof key === "string" && key.trim()) disabled[key] = true;
-      }
-    }
-    return { disabled };
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as {
+      disabled?: unknown;
+      code?: unknown;
+      bot?: unknown;
+    } | null;
+    if (!parsed || typeof parsed !== "object") return emptyState();
+
+    // Migrate the old shared state into both scopes on read. The next write
+    // stores only the split format, so existing installations keep their
+    // previous behavior until a scope is changed explicitly.
+    const legacy = disabledNames(parsed.disabled);
+    return {
+      code: { ...legacy, ...disabledNames(parsed.code) },
+      bot: { ...legacy, ...disabledNames(parsed.bot) },
+    };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       console.warn("[skills] failed to read state", error);
@@ -143,17 +166,22 @@ export function writeSkillsState(state: SkillsState, path = skillsStatePath()): 
   atomicWrite(path, `${JSON.stringify(state, null, 2)}\n`);
 }
 
-export function isSkillDisabled(name: string, state = readSkillsState()): boolean {
-  return state.disabled[name] === true;
+export function isSkillDisabled(
+  name: string,
+  state = readSkillsState(),
+  scope: SkillScope = "code",
+): boolean {
+  return state[scope][name] === true;
 }
 
 /** Filter for DefaultResourceLoader.skillsOverride. */
 export function filterSkillsByState<T extends { name: string }>(
   skills: readonly T[],
   state = readSkillsState(),
+  scope: SkillScope = "code",
 ): T[] {
-  if (Object.keys(state.disabled).length === 0) return [...skills];
-  return skills.filter((skill) => state.disabled[skill.name] !== true);
+  if (Object.keys(state[scope]).length === 0) return [...skills];
+  return skills.filter((skill) => state[scope][skill.name] !== true);
 }
 
 /** Apply a Bot's per-session inherit/include/exclude allowlist. */
@@ -199,6 +227,8 @@ export type ListSkillsOptions = {
   skillsDir?: string;
   /** Override all bundled discovery with one skills dir; null disables it. */
   bundledDir?: string | null;
+  /** Select which session kind should be returned in the `enabled` alias. */
+  scope?: SkillScope;
 };
 
 /**
@@ -215,6 +245,7 @@ export function listSkills(
     ? null
     : options?.bundledDir ?? bundledSkillsDir();
   const state = readSkillsState();
+  const scope = options?.scope ?? "code";
   const byName = new Map<string, Skill & { source: SkillSource }>();
   for (const skill of loadFromDir(piDir, "pi")) {
     if (!byName.has(skill.name)) byName.set(skill.name, skill);
@@ -233,7 +264,9 @@ export function listSkills(
         id: skill.name,
         name: skill.name,
         description: skill.description || undefined,
-        enabled: !isSkillDisabled(skill.name, state),
+        enabled: !isSkillDisabled(skill.name, state, scope),
+        codeEnabled: !isSkillDisabled(skill.name, state, "code"),
+        botEnabled: !isSkillDisabled(skill.name, state, "bot"),
         filePath: skill.filePath,
         source: skill.source,
       }),
@@ -257,8 +290,9 @@ export function setSkillEnabled(
     throw new SkillsError("not-found", "スキルが見つかりません");
   }
   const state = readSkillsState();
-  if (enabled) delete state.disabled[trimmed];
-  else state.disabled[trimmed] = true;
+  const scope = options?.scope ?? "code";
+  if (enabled) delete state[scope][trimmed];
+  else state[scope][trimmed] = true;
   writeSkillsState(state);
   return listSkills(agentDir, options);
 }

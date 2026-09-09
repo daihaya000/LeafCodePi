@@ -48,17 +48,16 @@ describe("bundledSkillPaths", () => {
 });
 
 describe("filterSkillsByState", () => {
-  it("drops only disabled names", () => {
+  it("filters Code and Bot scopes independently", () => {
     const skills = [{ name: "a" }, { name: "b" }, { name: "c" }];
-    expect(filterSkillsByState(skills, { disabled: { b: true } }).map((s) => s.name)).toEqual([
-      "a",
-      "c",
-    ]);
+    const state = { code: { b: true }, bot: { c: true } } as const;
+    expect(filterSkillsByState(skills, state, "code").map((s) => s.name)).toEqual(["a", "c"]);
+    expect(filterSkillsByState(skills, state, "bot").map((s) => s.name)).toEqual(["a", "b"]);
   });
 
   it("returns a copy when nothing is disabled", () => {
     const skills = [{ name: "a" }];
-    const out = filterSkillsByState(skills, { disabled: {} });
+    const out = filterSkillsByState(skills, { code: {}, bot: {} });
     expect(out).toEqual(skills);
     expect(out).not.toBe(skills);
   });
@@ -129,7 +128,7 @@ describe("listSkills / setSkillEnabled", () => {
     process.env.LEAFCODE_PI_DATA_DIR = data;
     writeSkill(skillsDir(agentDir), "alpha", "alpha from pi");
     writeSkill(skillsDir(agentDir), "beta", "beta from pi");
-    writeSkillsState({ disabled: {} });
+    writeSkillsState({ code: {}, bot: {} });
     return { agentDir, bundledDir };
   }
 
@@ -142,15 +141,36 @@ describe("listSkills / setSkillEnabled", () => {
     expect(listed.skillsDir).toBe(skillsDir(agent));
   });
 
-  it("toggles skills via skills-state.json", () => {
+  it("toggles Code and Bot independently via skills-state.json", () => {
     const { agentDir: agent } = fixture();
-    let listed = setSkillEnabled("alpha", false, agent, { bundledDir: null });
-    expect(listed.skills.find((s) => s.name === "alpha")?.enabled).toBe(false);
-    expect(readSkillsState().disabled).toEqual({ alpha: true });
+    let listed = setSkillEnabled("alpha", false, agent, { bundledDir: null, scope: "code" });
+    expect(listed.skills.find((s) => s.name === "alpha")).toMatchObject({
+      enabled: false,
+      codeEnabled: false,
+      botEnabled: true,
+    });
+    expect(readSkillsState()).toEqual({ code: { alpha: true }, bot: {} });
 
-    listed = setSkillEnabled("alpha", true, agent, { bundledDir: null });
-    expect(listed.skills.find((s) => s.name === "alpha")?.enabled).toBe(true);
-    expect(readSkillsState().disabled).toEqual({});
+    listed = setSkillEnabled("alpha", false, agent, { bundledDir: null, scope: "bot" });
+    expect(listed.skills.find((s) => s.name === "alpha")?.botEnabled).toBe(false);
+    expect(readSkillsState()).toEqual({ code: { alpha: true }, bot: { alpha: true } });
+
+    listed = setSkillEnabled("alpha", true, agent, { bundledDir: null, scope: "code" });
+    expect(listed.skills.find((s) => s.name === "alpha")).toMatchObject({
+      enabled: true,
+      codeEnabled: true,
+      botEnabled: false,
+    });
+    expect(readSkillsState()).toEqual({ code: {}, bot: { alpha: true } });
+  });
+
+  it("migrates the old shared disabled state into both scopes", () => {
+    const { agentDir: agent } = fixture();
+    writeFileSync(join(data, "skills-state.json"), JSON.stringify({ disabled: { alpha: true } }));
+
+    expect(readSkillsState()).toEqual({ code: { alpha: true }, bot: { alpha: true } });
+    setSkillEnabled("alpha", true, agent, { bundledDir: null, scope: "code" });
+    expect(readSkillsState()).toEqual({ code: {}, bot: { alpha: true } });
   });
 
   it("lists bundled skills and allows toggling them", () => {
