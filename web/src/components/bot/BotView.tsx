@@ -20,6 +20,8 @@ import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
 import { BotCodeRequests } from "@/components/bot/BotCodeRequests";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { markRead } from "@/lib/bot-unread";
+import { BOT_TOOL_NAMES } from "@/lib/bots";
+import type { BotToolName } from "@/lib/types";
 import type { BotDto, ModelOption, PermissionRequestDto, QuestionRequestDto, RoutineDto, ThinkingLevel, UiMessage } from "@/lib/types";
 
 function textOf(message: UiMessage): string {
@@ -77,6 +79,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   const [resetting, setResetting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [updatingSkills, setUpdatingSkills] = useState(false);
+  const [updatingTools, setUpdatingTools] = useState(false);
   const [extraRootInput, setExtraRootInput] = useState("");
   const [routines, setRoutines] = useState<RoutineDto[]>([]);
   const [routineFormOpen, setRoutineFormOpen] = useState(false);
@@ -285,6 +288,15 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
       setCodeAutoApprove(previous);
       setError(reason instanceof Error ? reason.message : "Code設定の保存に失敗しました");
     }
+  };
+
+  const updateTools = async (tools: BotToolName[]) => {
+    setUpdatingTools(true);
+    try {
+      const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { tools }, "PATCH");
+      applyBotUpdate(result.bot);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "ツール設定の保存に失敗しました"); }
+    finally { setUpdatingTools(false); }
   };
 
   const updatePermissionMode = async (value: NonNullable<BotDto["permissionMode"]>) => {
@@ -534,7 +546,8 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
             <label className="block text-sm text-muted"><span>説明（SOUL.md）</span><textarea aria-label="ボットの説明" value={soul} onChange={(event) => { const value = event.target.value; setSoul(value); scheduleSoulSave(value); }} rows={4} className="mt-2 w-full resize-y rounded-xl border border-border bg-transparent px-3 py-2.5 text-base leading-6 text-text outline-none focus:border-accent" /><span className="mt-1 block text-right text-xs text-muted" role="status" aria-live="polite">{savingSoul ? "保存中…" : "変更は自動保存されます"}</span></label>
             <div className="flex items-center justify-between gap-4 rounded-2xl bg-surface-2 p-4 text-sm"><span><span className="font-medium">通知</span><span className="mt-1 block text-xs leading-5 text-muted">このBotが完了したとき、または入力が必要になったときに通知</span></span><button type="button" role="switch" aria-label="通知" aria-checked={notificationsEnabled} onClick={() => void updateNotifications(!notificationsEnabled)} className={notificationsEnabled ? "relative h-6 w-11 shrink-0 rounded-full bg-primary" : "relative h-6 w-11 shrink-0 rounded-full bg-surface-3"}><span className={notificationsEnabled ? "absolute left-6 top-1 h-4 w-4 rounded-full bg-primary-fg" : "absolute left-1 top-1 h-4 w-4 rounded-full bg-primary-fg"} /></button></div>
             <div className="flex items-center justify-between gap-4 rounded-2xl bg-surface-2 p-4 text-sm"><span><span className="font-medium">Codeを常に許可</span><span className="mt-1 block text-xs leading-5 text-muted">このBotのCode依頼だけ、承認ダイアログを省略します。</span></span><button type="button" role="switch" aria-label="Codeを常に許可" aria-checked={codeAutoApprove} onClick={() => void updateCodeAutoApprove(!codeAutoApprove)} className={codeAutoApprove ? "relative h-6 w-11 shrink-0 rounded-full bg-primary" : "relative h-6 w-11 shrink-0 rounded-full bg-surface-3"}><span className={codeAutoApprove ? "absolute left-6 top-1 h-4 w-4 shrink-0 rounded-full bg-primary-fg" : "absolute left-1 top-1 h-4 w-4 shrink-0 rounded-full bg-primary-fg"} /></button></div>
-            <label className="block text-sm"><span className="font-medium">ツール権限</span><select aria-label="ツール権限" value={permissionMode} onChange={(event) => void updatePermissionMode(event.target.value as NonNullable<BotDto["permissionMode"]>)} className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"><option value="allow">すべて許可</option><option value="ask">実行前に確認</option><option value="deny">すべて拒否</option></select><span className="mt-1 block text-xs text-muted">Botがツールを実行するときの確認方法です。</span></label><p className="text-right text-xs text-muted" role="status" aria-live="polite">{savingProfile ? "保存中…" : "変更は自動保存されます"}</p>
+            <label className="block text-sm"><span className="font-medium">ツール権限</span><select aria-label="ツール権限" value={permissionMode} onChange={(event) => void updatePermissionMode(event.target.value as NonNullable<BotDto["permissionMode"]>)} className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"><option value="allow">すべて許可</option><option value="ask">実行前に確認</option><option value="deny">すべて拒否</option></select><span className="mt-1 block text-xs text-muted">Botがツールを実行するときの確認方法です。</span></label>
+            <section className="space-y-2 rounded-2xl border border-border bg-bg p-4" aria-label="個別ツール設定"><span className="text-sm font-medium">使用するツール</span>{BOT_TOOL_NAMES.map((tool) => <label key={tool} className="flex items-center gap-2 text-xs"><input type="checkbox" checked={(bot.tools ?? BOT_TOOL_NAMES).includes(tool)} disabled={updatingTools} onChange={(event) => { const current = new Set(bot.tools ?? BOT_TOOL_NAMES); if (event.target.checked) current.add(tool); else current.delete(tool); void updateTools([...current]); }} />{tool}</label>)}<p className="text-[11px] text-muted">チェックを外したツールはBotから利用できません。</p></section><p className="text-right text-xs text-muted" role="status" aria-live="polite">{savingProfile ? "保存中…" : "変更は自動保存されます"}</p>
             <div className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="モデル設定"><div><span className="text-sm font-medium">モデル</span><ModelSelect value={modelValue} options={models} loading={modelsLoading} disabled={updatingModel || updatingThinking} onChange={(value) => void updateModel(value)} className="mt-2 h-9 w-full" ariaLabel="ボットのモデル" /></div><div><span className="text-sm font-medium">思考レベル</span><ThinkingSelect levels={thinkingLevels} value={thinkingValue} disabled={updatingModel || updatingThinking} onChange={(value) => void updateThinking(value)} className="mt-2 h-9 w-full" /></div>{(updatingModel || updatingThinking) && <p className="text-xs text-muted">保存中…</p>}</div>
             <details><summary className="cursor-pointer text-sm font-semibold text-muted">詳細設定</summary>
             <BotCodeSessionPanel botId={id} />

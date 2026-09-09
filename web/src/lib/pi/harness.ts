@@ -13,7 +13,7 @@ import {
   samePath,
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
-import { botPromptSources, botRuntimeContext, getBot } from "@/lib/bots";
+import { BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, getBot } from "@/lib/bots";
 import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, roomForCodeOrigin, type CodeRequest } from "@/lib/pi/bot-code-relay";
 import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
 import { ROOM_SYSTEM_PROMPT, roomBotPrompt } from "@/lib/room-conversation";
@@ -2243,6 +2243,7 @@ async function createSession(options: {
   appendSystemPrompt?: string[];
   noContextFiles?: boolean;
   botSkills?: BotSkillsConfig;
+  botTools?: readonly string[];
 }): Promise<SessionSetup> {
   const sessionTask = options.taskId ? getTask(options.taskId) : undefined;
   const botCodeTaskId = isBotCodeOriginTask(sessionTask) ? options.taskId : undefined;
@@ -2344,7 +2345,11 @@ async function createSession(options: {
   // their schemas from the initial model request. `subagent` remains governed
   // independently by the user's delegation permission.
   const shellTools = process.platform === "win32" ? ["powershell", "bash"] : ["bash"];
-  const configuredTools = agentOptions?.tools
+  const configuredTools = options.botTools
+    ? needsToolSearch(options.botTools)
+      ? [...new Set([...options.botTools, TOOL_SEARCH_NAME])]
+      : [...options.botTools]
+    : agentOptions?.tools
     ? needsToolSearch(agentOptions.tools)
       ? [...new Set([...agentOptions.tools, TOOL_SEARCH_NAME])]
       : agentOptions.tools
@@ -3020,7 +3025,7 @@ async function ensureLive(
       cwd,
       sessionFile: task.sessionFile,
       sessionName: isBot ? `bot:${task.title}` : task.title,
-      ...(isBot && task.botId ? { appendSystemPrompt: [...botPromptSources(task.botId), ...(roomForCodeOrigin(task) ? [ROOM_SYSTEM_PROMPT] : [])], noContextFiles: true, botSkills: bot?.skills } : {}),
+      ...(isBot && task.botId ? { appendSystemPrompt: [...botPromptSources(task.botId), ...(roomForCodeOrigin(task) ? [ROOM_SYSTEM_PROMPT] : [])], noContextFiles: true, botSkills: bot?.skills, botTools: (bot?.tools ?? BOT_TOOL_NAMES).filter((tool) => tool !== "powershell" || process.platform === "win32") } : {}),
       accountId: sessionAccountId,
       model,
       thinkingLevel: task.thinkingLevel,

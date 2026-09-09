@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteBot, getBot, normalizeBotSkills, patchBot, botTaskId } from "@/lib/bots";
+import { BOT_TOOL_NAMES, deleteBot, getBot, normalizeBotSkills, patchBot, botTaskId } from "@/lib/bots";
 import { destroyTask, resetTaskConversation, resetTaskSession, setTaskModel, setTaskThinkingLevel } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape } from "@/lib/bot-avatar";
@@ -23,6 +23,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const hasModel = body?.model !== undefined;
   const hasThinkingLevel = body?.thinkingLevel !== undefined;
   const hasSkills = body?.skills !== undefined;
+  const hasTools = body?.tools !== undefined;
+  const tools = hasTools && Array.isArray(body?.tools) ? [...new Set((body.tools as unknown[]).filter((item): item is string => typeof item === "string"))] : undefined;
+  const validTools = !hasTools || (Array.isArray(body?.tools) && tools?.every((tool) => (BOT_TOOL_NAMES as readonly string[]).includes(tool)));
   const hasExtraRoots = body?.extraRoots !== undefined;
   const hasNotificationsEnabled = body?.notificationsEnabled !== undefined;
   const hasCodeAutoApprove = body?.codeAutoApprove !== undefined;
@@ -56,6 +59,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     (hasModel && (typeof body.model !== "string" || !body.model.trim())) ||
     (hasThinkingLevel && !isThinkingLevel(body.thinkingLevel)) ||
     !validSkills ||
+    !validTools ||
     (hasExtraRoots && (!Array.isArray(body.extraRoots) || body.extraRoots.some((item) => typeof item !== "string" || !isAbsolutePath(item))))
   ) {
     return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u8a2d\u5b9a\u304c\u4e0d\u6b63\u3067\u3059" }, { status: 400 });
@@ -77,6 +81,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (hasPermissionMode) patch.permissionMode = body.permissionMode as "allow" | "ask" | "deny";
     if (hasEnabled) patch.enabled = body.enabled as boolean;
     if (hasSkills) patch.skills = skills as BotSkillsConfig;
+    if (hasTools) patch.tools = tools as Parameters<typeof patchBot>[1]["tools"];
     if (hasExtraRoots) patch.extraRoots = extraRoots ?? [];
     if (body.soul !== undefined) patch.soul = body.soul as string;
     if (hasModel) {

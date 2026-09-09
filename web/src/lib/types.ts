@@ -17,6 +17,8 @@ export type BotSkillsConfig = {
   exclude: string[];
 };
 
+export type BotToolName = "read" | "write" | "edit" | "bash" | "powershell" | "question" | "grep" | "find" | "ls" | "memory_search" | "memory_add" | "memory_replace" | "memory_remove" | "session_search" | "skill_manage" | "subagent" | "todowrite" | "tool_search";
+
 export type RoomConversationTurn = { requestId: string; participantIds: string[]; turn: number; maxTurns: number };
 /** Why an exchange stopped, so a quiet room is not mistaken for a finished one. */
 export type RoomOutcome = { kind: "code-wait" | "members" | "turns" | "repeat" | "done"; requestId: string };
@@ -113,6 +115,8 @@ export type BotDto = {
   thinkingLevel: ThinkingLevel | null;
   permissionMode: "allow" | "ask" | "deny" | null;
   skills: BotSkillsConfig;
+  /** Tool names enabled for this Bot. Missing legacy values mean all defaults. */
+  tools?: BotToolName[];
   extraRoots: string[];
   enabled: boolean;
   /** Whether notifications for this bot are enabled in the Bot UI. */
