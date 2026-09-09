@@ -10,26 +10,25 @@ async function compileGlobalsCss(): Promise<string> {
   return result.css;
 }
 
-// 回帰: OS の「アニメーション効果」無効（prefers-reduced-motion）でも
-// ローディングスピナーだけは回し続けること（稼働状態を示す必須インジケータのため）
-test("prefers-reduced-motion 下でも .animate-spin は回転し続ける", async () => {
+test("keeps all visual effects independent of the OS reduced-motion preference", async () => {
   const css = await compileGlobalsCss();
-
-  // スピナーユーティリティと回転 keyframes が出力されている
+  expect(css).not.toContain("prefers-reduced-motion");
+  expect(css).not.toContain("0.001ms");
   expect(css).toContain(".animate-spin");
   expect(css).toMatch(/@keyframes spin\s*\{/);
-
-  // reduce ブロック: 全要素のアニメ停止ルールの後に .animate-spin 免除が続く
-  const compact = css.replace(/\s+/g, "");
-  const media = compact.indexOf("prefers-reduced-motion:reduce");
-  expect(media).toBeGreaterThanOrEqual(0);
-
-  const kill = compact.indexOf("animation-iteration-count:1!important", media);
-  // 末尾セミコロン有無の差（minify 設定）に影響されないよう `}` は含めない
-  const exemption = compact.indexOf(
-    ".animate-spin{animation-duration:1s!important;animation-iteration-count:infinite!important",
-    media,
-  );
-  expect(kill).toBeGreaterThan(media);
-  expect(exemption).toBeGreaterThan(kill);
+  const root = postcss.parse(css);
+  for (const [selector, animation] of [
+    [".bot-avatar-working", "bot-sway"],
+    [".bot-avatar-eyes", "bot-blink"],
+    [".status-pulse", "pulse-dot"],
+  ]) {
+    let found = false;
+    root.walkRules((rule) => {
+      if (!rule.selectors.includes(selector)) return;
+      rule.walkDecls("animation", (declaration) => {
+        if (declaration.value.includes(animation) && declaration.value.includes("infinite")) found = true;
+      });
+    });
+    expect(found, selector).toBe(true);
+  }
 });

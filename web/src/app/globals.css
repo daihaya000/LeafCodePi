@@ -327,17 +327,12 @@ body {
   95% { transform: scaleY(0.15); }
 }
 
-/* Explicit preview playback overrides the global reduced-motion duration/iteration reset. */
-.bot-avatar-preview { animation: bot-sway 2.4s ease-in-out infinite !important; }
+.bot-avatar-preview,
+.bot-avatar-working { animation: bot-sway 2.4s ease-in-out infinite; }
 .bot-avatar-eyes {
   transform-box: fill-box;
   transform-origin: center;
-}
-.bot-avatar-preview .bot-avatar-eyes { animation: bot-blink 3.2s ease-in-out infinite !important; }
-
-@media (prefers-reduced-motion: no-preference) {
-  .bot-avatar-working { animation: bot-sway 2.4s ease-in-out infinite; }
-  .bot-avatar-eyes { animation: bot-blink 3.2s ease-in-out infinite; }
+  animation: bot-blink 3.2s ease-in-out infinite;
 }
 
 @keyframes pulse-dot {
@@ -417,20 +412,4 @@ main.bg-bot-chat > div > div > .bg-bot-assistant {
 
 main.bg-bot-chat > div > div > .bg-bot-assistant {
   border-top-left-radius: 1.5rem;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-  }
-
-  /* スピナーは「稼働中」を伝える必須インジケータのため reduce でも回し続ける */
-  .animate-spin {
-    animation-duration: 1s !important;
-    animation-iteration-count: infinite !important;
-  }
 }
