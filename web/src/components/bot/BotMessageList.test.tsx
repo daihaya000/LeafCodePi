@@ -53,6 +53,18 @@ it("renders bot Markdown with GFM", () => {
   expect(container.querySelector("ul li")?.textContent).toBe("item");
 });
 
+it("places image attachments below the message text", () => {
+  const { container } = render(<BotChatMessage
+    user
+    createdAt={1}
+    sender={{ name: "Sender" }}
+    text="Message"
+    images={<span data-testid="attachment">Image</span>}
+  />);
+  const bubble = container.querySelector(".bot-message-bubble")!;
+  expect([...bubble.children].map((child) => child.getAttribute("data-testid"))).toEqual([null, "attachment"]);
+});
+
 it("shares sender/time placement and Room mention chips across conversation messages", () => {
   const props = { createdAt: 1, sender: { name: "Sender" }, text: "Hello @here\n\n- item" };
   const { container, rerender } = render(<BotChatMessage {...props} user={false} />);
