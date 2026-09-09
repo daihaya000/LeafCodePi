@@ -136,7 +136,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     if (active && latest > 0) markRead("bot", id, latest);
   }, [active, id, messages]);
   const loadRoutines = useCallback(() => getJson<{ routines: RoutineDto[] }>(`/api/bots/${encodeURIComponent(id)}/routines`).then((result) => setRoutines(result.routines)).catch((reason) => setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f")), [id]);
-  useEffect(() => { void loadRoutines(); }, [loadRoutines]);
+  useEffect(() => { if (active) void loadRoutines(); }, [active, loadRoutines]);
 
   useEffect(() => {
     let active = true;

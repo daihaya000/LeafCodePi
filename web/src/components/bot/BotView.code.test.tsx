@@ -57,6 +57,15 @@ it("does not mark hidden tab messages read until activation", async () => {
   expect(mocks.markRead).toHaveBeenCalledWith("bot", "one", 123);
 });
 
+it("defers routine loading until a hidden Bot tab is activated", async () => {
+  const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  expect(mocks.getJson).not.toHaveBeenCalledWith("/api/bots/one/routines");
+
+  view.rerender(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/bots/one/routines"));
+});
+
 it("reports streaming activity for the Bot tab even when hidden", async () => {
   render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
   await screen.findByRole("button", { name: "設定" });
