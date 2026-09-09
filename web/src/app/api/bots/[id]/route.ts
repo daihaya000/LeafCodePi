@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteBot, getBot, normalizeBotSkills, patchBot, botTaskId } from "@/lib/bots";
-import { destroyTask, resetTaskSession, setTaskModel, setTaskThinkingLevel } from "@/lib/pi/harness";
+import { destroyTask, resetTaskConversation, resetTaskSession, setTaskModel, setTaskThinkingLevel } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape } from "@/lib/bot-avatar";
 import { isAbsolutePath } from "@/lib/paths";
@@ -27,6 +27,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const hasNotificationsEnabled = body?.notificationsEnabled !== undefined;
   const hasCodeAutoApprove = body?.codeAutoApprove !== undefined;
   const hasEnabled = body?.enabled !== undefined;
+  const hasResetMessages = body?.resetMessages !== undefined;
   const rawSkills = hasSkills ? body?.skills : undefined;
   const skills = hasSkills ? normalizeBotSkills(rawSkills) : undefined;
   const validSkills = !hasSkills || (rawSkills !== null && typeof rawSkills === "object" && !Array.isArray(rawSkills) &&
@@ -49,6 +50,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     (hasNotificationsEnabled && typeof body.notificationsEnabled !== "boolean") ||
     (hasCodeAutoApprove && typeof body.codeAutoApprove !== "boolean") ||
     (hasEnabled && typeof body.enabled !== "boolean") ||
+    (hasResetMessages && body.resetMessages !== true) ||
     (hasModel && (typeof body.model !== "string" || !body.model.trim())) ||
     (hasThinkingLevel && !isThinkingLevel(body.thinkingLevel)) ||
     !validSkills ||
@@ -87,7 +89,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
     const bot = patchBot(id, patch);
     if (!bot) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
-    if (body.soul !== undefined) resetTaskSession(botTaskId(id));
+    if (hasResetMessages) await resetTaskConversation(botTaskId(id));
+    else if (body.soul !== undefined) resetTaskSession(botTaskId(id));
     return NextResponse.json({ bot });
   } catch (error) {
     const message = error instanceof Error ? error.message : "\u30dc\u30c3\u30c8\u8a2d\u5b9a\u304c\u4e0d\u6b63\u3067\u3059";

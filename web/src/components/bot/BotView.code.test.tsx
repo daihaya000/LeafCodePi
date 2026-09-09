@@ -131,6 +131,20 @@ it("auto-saves bot profile and description and keeps model selection outside det
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { soul: "新しい説明" }, "PATCH"));
 });
 
+it("resets the Bot conversation after confirmation", async () => {
+  const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+  snapshot({ messages: [{ id: "old", role: "assistant", createdAt: 123, parts: [{ type: "text", text: "old conversation" }] }] });
+  expect(await screen.findByText("old conversation")).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "会話をリセット" }));
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { resetMessages: true }, "PATCH"));
+  await waitFor(() => expect(screen.queryByText("old conversation")).toBeNull());
+  expect(confirmSpy).toHaveBeenCalledWith("「Bot」の会話をリセットしますか？\nこの操作は取り消せません。");
+  confirmSpy.mockRestore();
+});
+
 it("saves an icon selection through PATCH and updates the header and existing messages", async () => {
   mocks.sendJson.mockImplementation(async (_url: string, patch: object) => ({ bot: { ...testBot, ...patch } }));
   render(<ShellProvider><BotView id="one" /></ShellProvider>);

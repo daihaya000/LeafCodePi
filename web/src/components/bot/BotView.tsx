@@ -73,6 +73,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   const [savingProfile, setSavingProfile] = useState(false);
   const [updatingModel, setUpdatingModel] = useState(false);
   const [updatingThinking, setUpdatingThinking] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [updatingSkills, setUpdatingSkills] = useState(false);
   const [extraRootInput, setExtraRootInput] = useState("");
@@ -400,6 +401,24 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   const deleteRoutine = async (routine: RoutineDto) => { if (!window.confirm(`「${routine.name}」を削除しますか？`)) return; setRoutineBusy(routine.id); setError(null); try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines/${encodeURIComponent(routine.id)}`, undefined, "DELETE"); await loadRoutines(); } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u524a\u9664\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); } finally { setRoutineBusy(null); } };
   const runRoutine = async (routine: RoutineDto) => { setRoutineBusy(routine.id); setError(null); try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines/${encodeURIComponent(routine.id)}/run`, {}, "POST"); await loadRoutines(); } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u5b9f\u884c\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); } finally { setRoutineBusy(null); } };
 
+  const resetConversation = async () => {
+    if (!bot || resetting || !window.confirm(`「${bot.name}」の会話をリセットしますか？\nこの操作は取り消せません。`)) return;
+    setResetting(true);
+    setError(null);
+    try {
+      await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { resetMessages: true }, "PATCH");
+      setMessages([]);
+      setPermission(null);
+      setQuestion(null);
+      setSending(false);
+      notifyBotSidebarChanged();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "会話のリセットに失敗しました");
+    } finally {
+      setResetting(false);
+    }
+  };
+
   const removeBot = async () => {
     if (!bot || deleting || !window.confirm(`「${bot.name}」を削除しますか？\nこの操作は取り消せません。`)) return;
     setDeleting(true);
@@ -507,6 +526,11 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
               {routines.map((routine) => <div key={routine.id} className="rounded-xl border border-border bg-surface p-3 text-xs"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="font-medium">{routine.name} {routine.enabled ? <span className="text-success">有効</span> : <span className="text-muted">無効</span>}</p><p className="mt-1 font-mono text-muted">{routine.schedule}</p><p className="mt-1 break-words text-muted">{routine.prompt}</p>{routine.failureCount > 0 && <p className="mt-1 text-danger">連続失敗: {routine.failureCount}回</p>}</div><div className="flex shrink-0 flex-col gap-1"><Button size="sm" variant="ghost" disabled={routineBusy === routine.id} onClick={() => void patchRoutine(routine, !routine.enabled)}>{routine.enabled ? "無効化" : "有効化"}</Button><Button size="sm" variant="ghost" disabled={routineBusy === routine.id || !routine.enabled} onClick={() => void runRoutine(routine)}>今すぐ実行</Button><button type="button" disabled={routineBusy === routine.id} onClick={() => void deleteRoutine(routine)} className="px-2 py-1 text-danger hover:underline disabled:opacity-50">削除</button></div></div></div>)}
             </section>
             </details>
+            <section className="space-y-2 rounded-2xl border border-border bg-bg p-4" aria-label="会話リセット">
+              <p className="text-sm font-medium">会話リセット</p>
+              <p className="text-xs leading-5 text-muted">このBotとの会話履歴を削除して、新しい会話を開始します。Botの設定は残ります。</p>
+              <Button size="sm" variant="ghost" onClick={() => void resetConversation()} busy={resetting}>会話をリセット</Button>
+            </section>
             <div className="border-t border-border pt-4">
               <p className="text-xs text-muted">このBotと関連する会話データも削除されます。</p>
               <Button size="sm" variant="danger" onClick={() => void removeBot()} busy={deleting} className="mt-2">ボットを削除</Button>

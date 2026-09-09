@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +10,7 @@ vi.mock("../../../../lib/paths", async (importOriginal) => {
 import { NextRequest } from "next/server";
 import * as harness from "../../../../lib/pi/harness";
 import { createBot } from "../../../../lib/bots";
+import { getTask, patchTask } from "../../../../lib/store";
 import { DELETE, GET, PATCH } from "./route";
 
 describe("PATCH /api/bots/[id]", () => {
@@ -91,6 +92,23 @@ describe("PATCH /api/bots/[id]", () => {
     expect((await reloaded.json()).bot.notificationsEnabled).toBe(false);
     const invalid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ notificationsEnabled: "no" }) }), { params: Promise.resolve({ id: bot.id }) });
     expect(invalid.status).toBe(400);
+  });
+  it("deletes the persisted 1:1 conversation on reset", async () => {
+    const bot = createBot({ name: "Reset bot" });
+    const taskId = `bot:${bot.id}`;
+    const sessionFile = join(root, "conversation.jsonl");
+    writeFileSync(sessionFile, "old conversation", "utf8");
+    patchTask(taskId, { status: "working", sessionId: "old-session", sessionFile, error: "old error", revertLeafId: "old-leaf", manualAbortedAssistantId: "old-assistant", hangRetryCount: 2 });
+
+    const invalid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ resetMessages: false }) }), { params: Promise.resolve({ id: bot.id }) });
+    expect(invalid.status).toBe(400);
+    expect(existsSync(sessionFile)).toBe(true);
+
+    const response = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ resetMessages: true }) }), { params: Promise.resolve({ id: bot.id }) });
+    expect(response.status).toBe(200);
+    expect(existsSync(sessionFile)).toBe(false);
+    expect(getTask(taskId)).toMatchObject({ status: "idle", sessionId: null, sessionFile: null, error: null, revertLeafId: null, manualAbortedAssistantId: null });
+    expect(getTask(taskId)?.hangRetryCount).toBeUndefined();
   });
   it("validates, persists, and clears an avatar image", async () => {
     const bot = createBot({ name: "Image patch bot" });

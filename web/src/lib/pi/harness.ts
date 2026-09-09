@@ -2082,6 +2082,37 @@ export function resetTaskSession(taskId: string): void {
   patchTask(taskId, { status: "idle", error: null });
 }
 
+/** Stop a bot task and remove its persisted conversation before the next reply. */
+export async function resetTaskConversation(taskId: string): Promise<TaskSummary> {
+  const task = getTask(taskId);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const sessionFile = state().live.get(taskId)?.session.sessionFile ?? task.sessionFile;
+  await abortThenDispose(taskId, "conversation-reset");
+  if (sessionFile) await rm(sessionFile, { force: true });
+  const reset = patchTask(taskId, {
+    status: "idle",
+    sessionId: null,
+    sessionFile: null,
+    revertLeafId: null,
+    manualAbortedAssistantId: null,
+    hangRetryCount: undefined,
+    error: null,
+  });
+  if (!reset) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  emit(taskId, {
+    type: "snapshot",
+    task: toSummary(reset),
+    messages: [],
+    isStreaming: false,
+    isCompacting: false,
+    goalLoop: null,
+    permissionRequest: null,
+    questionRequest: null,
+    eventType: "conversation_reset",
+  });
+  return toSummary(reset);
+}
+
 export function syncSessionName(
   sessionManager: {
     getSessionName(): string | undefined;
