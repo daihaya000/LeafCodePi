@@ -138,6 +138,42 @@ it("shares Code request polling across multiple cards for one Bot", async () => 
   });
 });
 
+it("refreshes Code requests when stopping during an in-flight poll", async () => {
+  vi.useFakeTimers();
+  const request = { id: "request-1", codeTaskId: null, state: "running" as const, prompt: "first" };
+  const stopped = { ...request, state: "cancelled" as const };
+  type PollResult = { requests: Array<typeof request | typeof stopped> };
+  let codeRequestCalls = 0;
+  let releasePoll!: (result: PollResult) => void;
+  const pendingPoll = new Promise<PollResult>((resolve) => { releasePoll = resolve; });
+  mocks.getJson.mockImplementation(async (url: string) => {
+    if (url.endsWith("/code-requests")) {
+      codeRequestCalls += 1;
+      if (codeRequestCalls === 1) return { requests: [request] };
+      if (codeRequestCalls === 2) return pendingPoll;
+      return { requests: [stopped] };
+    }
+    if (url === "/api/models") return { models: [] };
+    if (url.endsWith("/routines")) return { routines: [] };
+    return { bot: testBot };
+  });
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  snapshot({ messages: [{ id: "bot-1", role: "assistant", createdAt: 1, parts: [{ type: "tool", tool: "code_session", callID: "call-1", state: { status: "completed", output: JSON.stringify({ requestId: "request-1" }) } }] }] });
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  expect(screen.getByRole("button", { name: "停止" })).toBeTruthy();
+  await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+  expect(codeRequestCalls).toBe(2);
+  fireEvent.click(screen.getByRole("button", { name: "停止" }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one/code-requests", { action: "abort", requestId: "request-1" });
+  expect(codeRequestCalls).toBe(3);
+  // The superseded poll may return its stale running snapshot after the forced refresh.
+  releasePoll({ requests: [request] });
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  expect(screen.getByText("Code中断")).toBeTruthy();
+});
+
 it("renders delegated Code requests as ID-linked previews in the Bot conversation", async () => {
   const request = { id: "request-1", codeTaskId: "task-1", state: "running", prompt: "実装を確認", queuedAt: 1 };
   mocks.getJson.mockImplementation(async (url: string) => {

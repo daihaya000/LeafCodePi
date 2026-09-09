@@ -7,22 +7,26 @@ import { CodeRequestCard } from "@/components/bot/CodeRequestCard";
 
 type RequestSummary = { id: string; codeTaskId: string | null; state: CodeRequestState; prompt: string; result?: string; outcome?: string; goalLoop?: CodeRequestGoalLoopReport; queuedAt?: number };
 
-type RequestCacheEntry = { requests: RequestSummary[]; fetchedAt: number; subscribers: number; pending?: Promise<RequestSummary[]> };
+type RequestCacheEntry = { requests: RequestSummary[]; fetchedAt: number; subscribers: number; generation: number; pending?: Promise<RequestSummary[]> };
 const REQUEST_CACHE_TTL_MS = 500;
 const requestCache = new Map<string, RequestCacheEntry>();
 
-function fetchCodeRequests(botId: string): Promise<RequestSummary[]> {
+function fetchCodeRequests(botId: string, force = false): Promise<RequestSummary[]> {
   const cached = requestCache.get(botId);
-  if (cached?.pending) return cached.pending;
-  if (cached && Date.now() - cached.fetchedAt < REQUEST_CACHE_TTL_MS) return Promise.resolve(cached.requests);
-  const entry: RequestCacheEntry = cached ?? { requests: [], fetchedAt: 0, subscribers: 0 };
+  if (!force && cached?.pending) return cached.pending;
+  if (!force && cached && Date.now() - cached.fetchedAt < REQUEST_CACHE_TTL_MS) return Promise.resolve(cached.requests);
+  const entry: RequestCacheEntry = cached ?? { requests: [], fetchedAt: 0, subscribers: 0, generation: 0 };
+  const generation = entry.generation + 1;
+  entry.generation = generation;
   const request = getJson<{ requests: RequestSummary[] }>(`/api/bots/${encodeURIComponent(botId)}/code-requests`).then((result) => {
-    entry.requests = Array.isArray(result.requests) ? result.requests : [];
+    const next = Array.isArray(result.requests) ? result.requests : [];
+    if (entry.generation !== generation) return entry.requests;
+    entry.requests = next;
     entry.fetchedAt = Date.now();
     entry.pending = undefined;
     return entry.requests;
   }, (reason) => {
-    entry.pending = undefined;
+    if (entry.generation === generation) entry.pending = undefined;
     throw reason;
   });
   entry.pending = request;
@@ -31,7 +35,7 @@ function fetchCodeRequests(botId: string): Promise<RequestSummary[]> {
 }
 
 function subscribeCodeRequests(botId: string): () => void {
-  const entry = requestCache.get(botId) ?? { requests: [], fetchedAt: 0, subscribers: 0 };
+  const entry = requestCache.get(botId) ?? { requests: [], fetchedAt: 0, subscribers: 0, generation: 0 };
   entry.subscribers += 1;
   requestCache.set(botId, entry);
   return () => {
@@ -44,9 +48,9 @@ export function BotCodeRequests({ botId, requestIds, active = true }: { botId: s
   const [requests, setRequests] = useState<RequestSummary[]>([]);
   const [stopping, setStopping] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     try {
-      const next = await fetchCodeRequests(botId);
+      const next = await fetchCodeRequests(botId, force);
       setRequests(next);
       return next;
     } catch { /* Bot view remains usable */ return null; }
@@ -74,9 +78,7 @@ export function BotCodeRequests({ botId, requestIds, active = true }: { botId: s
     setStopping(requestId); setError(null);
     try {
       await sendJson(`/api/bots/${encodeURIComponent(botId)}/code-requests`, { action: "abort", requestId });
-      const cached = requestCache.get(botId);
-      if (cached) cached.fetchedAt = 0;
-      await load();
+      await load(true);
     }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Codeの停止に失敗しました"); }
     finally { setStopping(null); }
