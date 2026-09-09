@@ -9,7 +9,8 @@ afterEach(cleanup);
 it("renders all shape variants, keeps eyes readable and prioritizes uploaded images", () => {
   const { container, rerender } = render(<BotAvatar />);
   expect(container.querySelector("path")?.getAttribute("d")).toBe(BOT_AVATAR_SHAPES[0].path);
-  expect(new Set(BOT_AVATAR_SHAPES.map((shape) => shape.path)).size).toBe(8);
+  expect(new Set(BOT_AVATAR_SHAPES.map((shape) => shape.path)).size).toBe(9);
+  expect(BOT_AVATAR_SHAPES).toContainEqual(expect.objectContaining({ id: "leaf", label: "葉っぱ" }));
   for (const shape of BOT_AVATAR_SHAPES) {
     expect(isAvatarShape(shape.id)).toBe(true);
     rerender(<BotAvatar avatarShape={shape.id} avatarColor="#FFFFFF" active />);

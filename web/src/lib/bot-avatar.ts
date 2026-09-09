@@ -17,6 +17,7 @@ export type BotAvatarColor = (typeof BOT_AVATAR_COLORS)[number];
 
 export const BOT_AVATAR_SHAPES = [
   { id: "circle", label: "まる", path: "M50 0a50 50 0 1 0 0 100a50 50 0 1 0 0-100", eyeOffset: 0 },
+  { id: "leaf", label: "葉っぱ", path: "M2 50C26-5 74-5 98 50C74 105 26 105 2 50Z", eyeOffset: 4 },
   { id: "oval", label: "たまご", path: "M48 6C74 0 97 28 96 55S74 96 46 93S2 71 5 45S23 12 48 6Z", eyeOffset: 4 },
   { id: "square", label: "角丸四角", path: "M25 5H75Q95 5 95 25V75Q95 95 75 95H25Q5 95 5 75V25Q5 5 25 5Z", eyeOffset: 4 },
   { id: "capsule", label: "カプセル", path: "M34 18H66a32 32 0 0 1 0 64H34a32 32 0 0 1 0-64Z", eyeOffset: 10 },

@@ -67,11 +67,11 @@ it.each([null, "data:image/png;base64,dGVzdA=="])("only animates after explicit 
 
 it("saves shapes, preset colors and validated custom colors, replacing an uploaded image", async () => {
   const { save } = setup({ ...initialBot, avatarImage: "data:image/png;base64,dGVzdA==" });
-  expect(within(screen.getByRole("group", { name: "ボットの形" })).getAllByRole("button")).toHaveLength(8);
+  expect(within(screen.getByRole("group", { name: "ボットの形" })).getAllByRole("button")).toHaveLength(9);
   expect(within(screen.getByRole("group", { name: "本体の色" })).getAllByRole("button")).toHaveLength(12);
-  fireEvent.click(screen.getByRole("button", { name: "くも" }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "くも" }).getAttribute("aria-pressed")).toBe("true"));
-  expect(save).toHaveBeenLastCalledWith({ avatarShape: "cloud", avatarImage: null });
+  fireEvent.click(screen.getByRole("button", { name: "葉っぱ" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "葉っぱ" }).getAttribute("aria-pressed")).toBe("true"));
+  expect(save).toHaveBeenLastCalledWith({ avatarShape: "leaf", avatarImage: null });
   fireEvent.click(screen.getByRole("button", { name: "本体の色 #111111" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "本体の色 #111111" }).getAttribute("aria-pressed")).toBe("true"));
   const code = screen.getByRole("textbox", { name: "本体の色のカラーコード" });
