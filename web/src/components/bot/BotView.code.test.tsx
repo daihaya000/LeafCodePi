@@ -71,7 +71,7 @@ it("renders delegated Code requests as ID-linked previews in the Bot conversatio
     if (url === "/api/models") return { models: [] };
     if (url.endsWith("/routines")) return { routines: [] };
     if (url.endsWith("/code-requests")) return { requests: [request, { ...request, id: "old-request", codeTaskId: "old-task", prompt: "過去の依頼" }] };
-    if (url.endsWith("/tasks/task-1")) return { task: { id: "task-1", status: "working", title: "Code task", todoProgress: { completed: 1, total: 4 }, messages: [{ role: "assistant", parts: [{ type: "text", text: "変更案" }] }] } };
+    if (url.endsWith("/tasks/task-1")) return { task: { id: "task-1", status: "working", title: "Code task", todoProgress: { completed: 1, total: 4 }, goalLoopSummary: { status: "running", maxTurns: 10, turnCount: 4 }, messages: [{ role: "assistant", parts: [{ type: "text", text: "変更案" }] }] } };
     return { bot: testBot };
   });
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
@@ -87,10 +87,10 @@ it("renders delegated Code requests as ID-linked previews in the Bot conversatio
   expect(mocks.getJson).not.toHaveBeenCalledWith("/api/tasks/old-task");
   expect(screen.getByRole("link", { name: "実行内容を見る" }).getAttribute("href")).toBe("/task/task-1");
   expect(screen.getByRole("status").textContent).toBe("Code実行中");
-  const progress = await screen.findByRole("progressbar", { name: "CodeのToDo進捗" });
-  expect(progress.getAttribute("aria-valuenow")).toBe("1");
-  expect(progress.getAttribute("aria-valuemax")).toBe("4");
-  expect(progress.getAttribute("aria-valuetext")).toBe("ToDo 1/4件完了（25%）");
+  const progress = await screen.findByRole("progressbar", { name: "Codeのループ進捗" });
+  expect(progress.getAttribute("aria-valuenow")).toBe("40");
+  expect(progress.getAttribute("aria-valuemax")).toBe("100");
+  expect(progress.getAttribute("aria-valuetext")).toBe("ループ 4/10ターン（40%）");
   expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks/task-1");
   fireEvent.click(screen.getByRole("button", { name: "プレビュー" }));
   expect(await screen.findByText("変更案")).toBeTruthy();

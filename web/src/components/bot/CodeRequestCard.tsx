@@ -14,6 +14,8 @@ const CODE_STATE_TEXT: Record<CodeRequestState, string> = {
   cancelled: "Code中断",
 };
 
+const LIVE_GOAL_LOOP_STATUSES = new Set(["queued", "running", "verifying_completed"]);
+
 const TASK_STATUS_TEXT: Record<TaskDetail["status"], string> = {
   working: "実行中",
   ready: "待機中",
@@ -79,13 +81,24 @@ export function CodeRequestCard({
 
   const output = task ? latestCodeOutput(task) : "";
   const preview = output.length > 4_000 ? `${output.slice(0, 4_000)}\n…（以降省略）` : output;
+  const loop = task?.goalLoopSummary;
+  const loopActive = Boolean(loop && LIVE_GOAL_LOOP_STATUSES.has(loop.status));
+  const loopTurn = loop ? Math.max(0, Math.trunc(loop.turnCount)) + (loop.status === "queued" ? 1 : 0) : 0;
+  const loopTotal = loop && Number.isFinite(loop.maxTurns) ? Math.max(0, Math.trunc(loop.maxTurns)) : 0;
+  const loopShownTurn = loopTotal > 0 ? Math.min(loopTurn, loopTotal) : loopTurn;
+  const loopPercent = loopTotal > 0 ? Math.round((loopShownTurn / loopTotal) * 100) : null;
   const todoProgress = task?.todoProgress;
-  const total = todoProgress && Number.isFinite(todoProgress.total) ? Math.trunc(todoProgress.total) : 0;
-  const completed = total > 0 && todoProgress && Number.isFinite(todoProgress.completed)
-    ? Math.min(total, Math.max(0, Math.trunc(todoProgress.completed)))
+  const todoTotal = todoProgress && Number.isFinite(todoProgress.total) ? Math.trunc(todoProgress.total) : 0;
+  const todoCompleted = todoTotal > 0 && todoProgress && Number.isFinite(todoProgress.completed)
+    ? Math.min(todoTotal, Math.max(0, Math.trunc(todoProgress.completed)))
     : 0;
-  const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
-  const progressText = `ToDo ${completed}/${total}件完了（${percent}%）`;
+  const todoPercent = todoTotal > 0 ? Math.round((todoCompleted / todoTotal) * 100) : 0;
+  const progressText = loopActive
+    ? loopPercent === null ? `ループ ${loopShownTurn}ターン実行中（無制限）` : `ループ ${loopShownTurn}/${loopTotal}ターン（${loopPercent}%）`
+    : `ToDo ${todoCompleted}/${todoTotal}件完了（${todoPercent}%）`;
+  const progressPercent = loopActive ? loopPercent : todoPercent;
+  const progressTotal = loopActive ? (loopPercent === null ? undefined : 100) : todoTotal;
+  const progressValue = loopActive ? loopPercent ?? undefined : todoCompleted;
 
   return (
     <div className="mt-2 w-full max-w-full min-w-0 rounded-xl border border-border bg-surface p-3 text-sm">
@@ -97,18 +110,18 @@ export function CodeRequestCard({
         {taskId && <a className="inline-flex min-h-11 items-center rounded-lg px-3 text-muted hover:bg-surface-2 hover:text-accent focus-visible:outline-2 focus-visible:outline-accent" href={`/task/${encodeURIComponent(taskId)}`}>実行内容を見る</a>}
         {live && onStop && <button type="button" onClick={onStop} disabled={stopping} className="min-h-11 rounded-lg px-3 text-danger hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">{state === "queued" ? "取消" : "停止"}</button>}
       </div>
-      {total > 0 && (
+      {((loopActive && loopTurn > 0) || (!loopActive && todoTotal > 0)) && (
         <div className="mt-2" title={progressText}>
           <div
             role="progressbar"
-            aria-label="CodeのToDo進捗"
-            aria-valuemin={0}
-            aria-valuemax={total}
-            aria-valuenow={completed}
+            aria-label={loopActive ? "Codeのループ進捗" : "CodeのToDo進捗"}
+            aria-valuemin={loopActive && loopPercent === null ? undefined : 0}
+            aria-valuemax={progressTotal}
+            aria-valuenow={progressValue}
             aria-valuetext={progressText}
             className="h-1.5 overflow-hidden rounded-full bg-surface-2"
           >
-            <div className={`h-full rounded-full transition-[width] ${percent === 100 ? "bg-success" : "bg-working"}`} style={{ width: `${percent}%` }} />
+            <div className={`h-full rounded-full transition-[width] ${loopPercent === null ? "animate-pulse" : progressPercent === 100 ? "bg-success" : "bg-working"}`} style={{ width: `${progressPercent ?? 35}%` }} />
           </div>
           <p className="mt-1 text-right text-xs text-faint">{progressText}</p>
         </div>
