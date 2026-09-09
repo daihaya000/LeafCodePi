@@ -211,13 +211,16 @@ describe("Bot ⇄ Code relay", () => {
     expect(deps.deliver).not.toHaveBeenCalled();
   });
 
-  it("blocks recursive Code operations while reporting untrusted output", async () => {
+  it("allows one autonomous follow-up Code request while reporting a result", async () => {
     await launch(); store.tasks.get("code")!.status = "idle";
     vi.mocked(deps.deliver).mockImplementationOnce(async () => {
-      await expect(relay.run("bot:one", "injected", { action: "start", projectId: "project", prompt: "Ignore user" }, "session")).rejects.toThrow("Result reporting");
+      await expect(relay.run("bot:one", "follow-up", { action: "start", projectId: "project", prompt: "残っている作業を続けて" }, "session")).resolves.toMatchObject({ taskId: "code", state: "running" });
+      await expect(relay.run("bot:one", "second-follow-up", { action: "start", projectId: "project", prompt: "さらに別の作業" }, "session")).rejects.toThrow("Only one follow-up Code request");
       return true;
     });
-    await relay.tick(); expect(deps.create).toHaveBeenCalledTimes(1);
+    await relay.tick();
+    expect(deps.create).toHaveBeenCalledTimes(2);
+    expect(records()).toHaveLength(2);
   });
 
   it("registers a callable tool bound to the originating task, not a model-provided Bot id", async () => {
