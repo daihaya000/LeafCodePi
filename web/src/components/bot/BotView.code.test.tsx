@@ -28,6 +28,7 @@ const testBot = {
   extraRoots: [],
   enabled: true,
   notificationsEnabled: true,
+  codeAutoApprove: true,
   createdAt: "",
   updatedAt: "",
 };

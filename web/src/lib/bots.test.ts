@@ -36,7 +36,18 @@ describe("bot store", () => {
     expect(listBots().map((item) => item.id)).toEqual([bot.id]);
     expect(readFileSync(join(root, "bots", bot.id, "SOUL.md"), "utf8")).toContain("ボットの役割");
     const config = JSON.parse(readFileSync(join(root, "bots", bot.id, "config.json"), "utf8"));
-    expect(config.skills.mode).toBe("inherit"); expect(config.enabled).toBe(true);
+    expect(config.skills.mode).toBe("inherit"); expect(config.enabled).toBe(true); expect(config.codeAutoApprove).toBe(true);
+  });
+  it("defaults missing Code approval to on while preserving an explicit off", () => {
+    const bot = createBot({ name: "Approval bot" });
+    const configPath = join(root, "bots", bot.id, "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    delete config.codeAutoApprove;
+    fs.writeFileSync(configPath, JSON.stringify(config));
+    expect(getBot(bot.id)?.codeAutoApprove).toBe(true);
+    patchBot(bot.id, { codeAutoApprove: false });
+    expect(getBot(bot.id)?.codeAutoApprove).toBe(false);
+    expect(JSON.parse(readFileSync(configPath, "utf8")).codeAutoApprove).toBe(false);
   });
   it("assigns a palette color and persists color patches", () => {
     const bot = createBot({ name: "Color bot" });
