@@ -13,7 +13,9 @@ import { BotView } from "./BotView";
 import { BOT_AVATAR_SHAPES } from "@/lib/bot-avatar";
 import { ShellProvider } from "@/components/shell/ShellContext";
 let listener: (event: { data: string }) => void;
+let deltaListener: (event: { data: string }) => void;
 function snapshot(payload: object) { act(() => listener({ data: JSON.stringify(payload) })); }
+function delta(payload: object) { act(() => deltaListener({ data: JSON.stringify(payload) })); }
 const testBot = {
   id: "one",
   name: "Bot",
@@ -36,7 +38,13 @@ beforeEach(() => {
   localStorage.clear();
   mocks.getJson.mockImplementation(async (url: string) => url === "/api/models" ? { models: [] } : url.endsWith("/routines") ? { routines: [] } : { bot: testBot });
   mocks.sendJson.mockResolvedValue({ bot: testBot });
-  vi.stubGlobal("EventSource", class { addEventListener(_name: string, callback: typeof listener) { listener = callback; } close() {} });
+  vi.stubGlobal("EventSource", class {
+    addEventListener(name: string, callback: typeof listener) {
+      if (name === "delta") deltaListener = callback;
+      else listener = callback;
+    }
+    close() {}
+  });
 });
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.useRealTimers(); });
 
@@ -63,6 +71,17 @@ it("renders bot empty-state copy instead of literal Unicode escapes", async () =
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
   expect(await screen.findByText("一対一 ボット")).toBeTruthy();
   expect(screen.getByText("下の入力欄からメッセージを送って会話を始めましょう。")).toBeTruthy();
+});
+
+it("applies streaming deltas without waiting for a full snapshot", async () => {
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({ messages: [{ id: "user-1", role: "user", createdAt: 1, parts: [{ type: "text", text: "質問" }] }] });
+  delta({ message: { id: "reply-1", role: "assistant", createdAt: 2, parts: [{ type: "text", text: "途中" }] }, isStreaming: true });
+  expect(screen.getByText("途中")).toBeTruthy();
+  delta({ message: { id: "reply-1", role: "assistant", createdAt: 2, parts: [{ type: "text", text: "最終回答" }] }, isStreaming: false });
+  expect(screen.getByText("最終回答")).toBeTruthy();
+  expect(screen.queryByText("途中")).toBeNull();
 });
 
 it("renders delegated Code requests as ID-linked previews in the Bot conversation", async () => {

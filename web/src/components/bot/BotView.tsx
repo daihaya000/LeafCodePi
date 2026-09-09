@@ -172,6 +172,24 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
           if (payload.error) setError(payload.error);
         } catch { setError("イベントの解析に失敗しました"); }
       });
+      source.addEventListener("delta", (event) => {
+        try {
+          const payload = JSON.parse((event as MessageEvent).data) as {
+            message?: UiMessage | null;
+            isStreaming?: boolean;
+          };
+          if (payload.message) {
+            setMessages((current) => {
+              const index = current.findIndex((message) => message.id === payload.message!.id);
+              if (index < 0) return [...current, payload.message!];
+              const next = current.slice();
+              next[index] = payload.message!;
+              return next;
+            });
+          }
+          if (payload.isStreaming !== undefined) setSending(payload.isStreaming);
+        } catch { setError("イベントの解析に失敗しました"); }
+      });
       source.onerror = () => {
         source?.close();
         if (!closed) retry = setTimeout(connect, 1500);
