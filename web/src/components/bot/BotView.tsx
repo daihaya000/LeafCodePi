@@ -172,8 +172,10 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
             questionRequest?: QuestionRequestDto | null;
           };
           if (payload.messages) setMessages((current) => stabilizeUiMessages(current, payload.messages!));
-          setPermission(payload.permissionRequest ?? null);
-          setQuestion(payload.questionRequest ?? null);
+          const permission = payload.permissionRequest ?? null;
+          setPermission((current) => current?.id === permission?.id ? current : permission);
+          const question = payload.questionRequest ?? null;
+          setQuestion((current) => current?.id === question?.id ? current : question);
           setSending(Boolean(payload.isStreaming));
           if (payload.error) setError(payload.error);
         } catch { setError("イベントの解析に失敗しました"); }
