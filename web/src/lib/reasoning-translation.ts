@@ -230,16 +230,25 @@ export function __resetReasoningTranslationForTest(): void {
 
 export function readReasoningTranslationMode(): ReasoningTranslationMode {
   if (typeof window === "undefined") return "original";
-  const value = window.localStorage.getItem(STORAGE_KEY);
-  return value === "original" || value === "bilingual" || value === "translated"
-    ? value
-    : "original";
+  try {
+    const value = window.localStorage.getItem(STORAGE_KEY);
+    return value === "original" || value === "bilingual" || value === "translated"
+      ? value
+      : "original";
+  } catch {
+    // プライベートモード等でストレージが使えない場合は既定表示に戻す。
+    return "original";
+  }
 }
 
 export function writeReasoningTranslationMode(mode: ReasoningTranslationMode): void {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, mode);
-  window.dispatchEvent(new CustomEvent("webui:reasoning-translation-mode"));
+  try {
+    window.localStorage.setItem(STORAGE_KEY, mode);
+    window.dispatchEvent(new CustomEvent("webui:reasoning-translation-mode"));
+  } catch {
+    /* プライベートモード等では永続できないだけ */
+  }
 }
 
 export async function saveReasoningTranslationOverride(

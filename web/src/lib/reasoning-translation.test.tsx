@@ -5,6 +5,7 @@ import {
   __resetReasoningTranslationForTest,
   readReasoningTranslationMode,
   useReasoningTranslation,
+  writeReasoningTranslationMode,
 } from "./reasoning-translation";
 
 function TranslationProbe({ id, text }: { id: string; text: string }) {
@@ -45,6 +46,26 @@ describe("reasoning translation scheduler", () => {
     localStorage.removeItem("webui:reasoning-translation-mode");
 
     expect(readReasoningTranslationMode()).toBe("original");
+  });
+
+  it("returns original when localStorage reads throw", () => {
+    const spy = vi
+      .spyOn(window.localStorage, "getItem")
+      .mockImplementation(() => {
+        throw new Error("storage blocked");
+      });
+    expect(readReasoningTranslationMode()).toBe("original");
+    spy.mockRestore();
+  });
+
+  it("does not throw when localStorage writes are blocked", () => {
+    const spy = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new Error("quota exceeded");
+      });
+    expect(() => writeReasoningTranslationMode("translated")).not.toThrow();
+    spy.mockRestore();
   });
 
   it("batches a long timeline instead of sending one request per reasoning part", async () => {
