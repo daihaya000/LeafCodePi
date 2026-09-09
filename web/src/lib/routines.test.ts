@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({ root: "", promptTask: vi.fn(), getTaskDetail: vi.fn() }));
-vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => state.root }; });
+vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => state.root, storePath: () => join(state.root, "store.json") }; });
 vi.mock("./pi/harness", () => ({ promptTask: state.promptTask, getTaskDetail: state.getTaskDetail }));
 import { createBot } from "./bots";
 import { createRoutine, cronMatches, deleteRoutine, getRoutine, listRoutines, parseCron, patchRoutine, ROUTINE_MAX_ENABLED, runRoutine, tickRoutines, validateRoutineSchedule } from "./routines";

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { NextRequest } from "next/server";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { SubagentRunDto } from "@/lib/types";
 import { GET } from "./route";
 
@@ -12,7 +12,6 @@ let sessionFile: string;
 
 beforeAll(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-subagents-route-"));
-  process.env.LEAFCODE_PI_DATA_DIR = path.join(root, "data");
 
   const sessionDir = path.join(root, "sessions", "key");
   const artifactsDir = path.join(sessionDir, "subagent-artifacts");
@@ -56,6 +55,10 @@ beforeAll(() => {
     }),
     "utf-8",
   );
+});
+
+beforeEach(() => {
+  process.env.LEAFCODE_PI_DATA_DIR = path.join(root, "data");
 });
 
 afterAll(() => {

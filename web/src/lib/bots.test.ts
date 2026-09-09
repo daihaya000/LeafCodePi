@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const botTestState = vi.hoisted(() => ({ root: "" }));
-vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => botTestState.root }; });
+vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => botTestState.root, storePath: () => join(botTestState.root, "store.json") }; });
 import { botPromptSources, botRuntimeContext, botSoul, createBot, deleteBot, getBot, listBots, patchBot } from "./bots";
 import { BOT_AVATAR_COLORS, avatarColorForId } from "./bot-avatar";
 import type { BotDto } from "./types";
@@ -34,6 +34,7 @@ describe("bot store", () => {
   it("creates the bot home and minimum config", () => {
     const bot = createBot({ name: "Researcher" });
     expect(listBots().map((item) => item.id)).toEqual([bot.id]);
+    expect(JSON.parse(readFileSync(join(root, "store.json"), "utf8")).tasks).toHaveLength(1);
     expect(readFileSync(join(root, "bots", bot.id, "SOUL.md"), "utf8")).toContain("ボットの役割");
     const config = JSON.parse(readFileSync(join(root, "bots", bot.id, "config.json"), "utf8"));
     expect(config.skills.mode).toBe("inherit"); expect(config.enabled).toBe(true); expect(config.codeAutoApprove).toBe(true);
