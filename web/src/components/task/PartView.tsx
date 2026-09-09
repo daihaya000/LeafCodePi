@@ -641,7 +641,7 @@ function CompactionNotice({ message }: { message: UiMessage }) {
   const before =
     typeof message.tokensBefore === "number" ? formatTokens(message.tokensBefore) : null;
   return (
-    <details className="rounded-xl border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
+    <details className="w-full max-w-bubble self-start rounded-xl border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
       <summary className="cursor-pointer select-none font-medium text-text">
         コンテキストを圧縮しました
         {before ? `（圧縮前 ${before}）` : ""}
