@@ -84,6 +84,21 @@ it("applies streaming deltas without waiting for a full snapshot", async () => {
   expect(screen.queryByText("途中")).toBeNull();
 });
 
+it("pauses Code request polling while the Bot tab is hidden", async () => {
+  const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({ messages: [{
+    id: "bot-1",
+    role: "assistant",
+    createdAt: 2,
+    parts: [{ type: "tool", tool: "code_session", callID: "call-1", state: { status: "completed", output: JSON.stringify({ requestId: "request-1" }) } }],
+  }] });
+  expect(mocks.getJson).not.toHaveBeenCalledWith("/api/bots/one/code-requests");
+
+  view.rerender(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/bots/one/code-requests"));
+});
+
 it("renders delegated Code requests as ID-linked previews in the Bot conversation", async () => {
   const request = { id: "request-1", codeTaskId: "task-1", state: "running", prompt: "実装を確認", queuedAt: 1 };
   mocks.getJson.mockImplementation(async (url: string) => {

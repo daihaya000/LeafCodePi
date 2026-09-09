@@ -498,11 +498,11 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
         images={<BotMessageImages images={images.flatMap((part) => part.type === "image" ? [{ key: part.id, src: part.url, alt: part.filename ?? undefined }] : [])} />}
         footer={user ? <BotRevertButton title="このコメントを入力欄に戻して巻き戻す" disabled={reverting || sending} onClick={() => void revertMessage(message)} /> : undefined}>
         {message.error && <BotMessageError text={message.error} />}
-        {requestIds.length > 0 && <BotCodeRequests botId={id} requestIds={requestIds} />}
+        {requestIds.length > 0 && <BotCodeRequests botId={id} requestIds={requestIds} active={active} />}
       </BotChatMessage>
     );
     });
-  }, [bot, botMentions, id, messages, reverting, sending]);
+  }, [active, bot, botMentions, id, messages, reverting, sending]);
 
   if (!bot) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
