@@ -267,7 +267,7 @@ describe("SettingsView", () => {
     expect(screen.queryByRole("heading", { name: "スキル" })).toBeNull();
   });
 
-  it("ボットタブを初期設定と共通指示のグループに分ける", () => {
+  it("ボットタブを初期設定、スキル、共通指示のグループに分ける", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^ボットタブ$/ }));
 
@@ -276,11 +276,21 @@ describe("SettingsView", () => {
       Array.from(botsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
         (heading) => heading.textContent,
       ),
-    ).toEqual(["ボットの初期設定", "共通指示"]);
+    ).toEqual(["ボットの初期設定", "ボット用スキル", "共通指示"]);
     expect(Array.from(botsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "ボットの既定値",
+      "スキル",
       "BOTS.md",
     ]);
+    expect(document.getElementById("bots-skills")).not.toBeNull();
+  });
+
+  it("#bots-skillsからボット用スキル欄を開く", () => {
+    window.history.replaceState(null, "", "/settings#bots-skills");
+    render(<SettingsView />);
+
+    expect(screen.getByRole("tab", { name: "ボットタブ" }).getAttribute("aria-selected")).toBe("true");
+    expect(document.getElementById("bots-skills")).not.toBeNull();
   });
 
   it("拡張タブを管理、連携のグループに分ける", () => {

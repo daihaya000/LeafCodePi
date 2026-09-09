@@ -23,11 +23,11 @@ type SkillsResponse = {
   bundledSkillsDir?: string | null;
 };
 
-export function SkillsSettings() {
+export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) {
   const [skills, setSkills] = useState<SkillDto[]>([]);
   const [skillsPath, setSkillsPath] = useState<string>("");
   const [bundledSkillsPath, setBundledSkillsPath] = useState<string | null>(null);
-  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -54,10 +54,9 @@ export function SkillsSettings() {
     return (scope === "code" ? skill.codeEnabled : skill.botEnabled) ?? skill.enabled;
   }
 
-  async function toggle(skill: SkillDto, scope: SkillScope) {
-    const key = `${skill.id}:${scope}`;
-    if (busyKey) return;
-    setBusyKey(key);
+  async function toggle(skill: SkillDto) {
+    if (busyId) return;
+    setBusyId(skill.id);
     setError(null);
     try {
       const result = await sendJson<{ skills: SkillDto[] }>(
@@ -70,7 +69,7 @@ export function SkillsSettings() {
       setError(err instanceof Error ? err.message : "スキルの切替に失敗しました");
       reload();
     } finally {
-      setBusyKey(null);
+      setBusyId(null);
     }
   }
 
@@ -78,12 +77,12 @@ export function SkillsSettings() {
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="mb-2 flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">スキル</h3>
-        <Button variant="secondary" size="sm" onClick={() => reload()} disabled={loading || Boolean(busyKey)}>
+        <Button variant="secondary" size="sm" onClick={() => reload()} disabled={loading || Boolean(busyId)}>
           再読込
         </Button>
       </div>
       <p className="text-xs text-muted">
-        Pi のグローバルスキルと LeafCodePi の同梱スキルを、CodeとBotで別々に有効／無効にします。Codeは通常のタスク、BotはBotの会話とルームに適用され、開いているセッションへ即時反映します。
+        Pi のグローバルスキルと LeafCodePi の同梱スキルを、{scope === "code" ? "Codeの通常タスク" : "Botの会話とルーム"}で別々に有効／無効にします。開いているセッションへ即時反映します。
       </p>
       {(skillsPath || bundledSkillsPath) && (
         <div className="mt-1 space-y-0.5 font-mono text-[11px] text-muted">
@@ -100,55 +99,37 @@ export function SkillsSettings() {
           または <span className="font-mono">skills/&lt;name&gt;/SKILL.md</span> を追加してください。
         </p>
       ) : (
-        <>
-          <div className="mt-3 hidden grid-cols-[minmax(0,1fr)_5rem_5rem] gap-3 px-3 text-center text-xs font-medium text-muted sm:grid" aria-hidden="true">
-            <span />
-            <span>Code</span>
-            <span>Bot</span>
-          </div>
-          <ul className="space-y-2">
-            {skills.map((skill) => {
-              const codeEnabled = isEnabled(skill, "code");
-              const botEnabled = isEnabled(skill, "bot");
-              const status = codeEnabled && botEnabled ? "両方有効" : codeEnabled ? "Codeのみ" : botEnabled ? "Botのみ" : "両方無効";
-              return (
-                <li
-                  key={skill.id}
-                  aria-busy={busyKey?.startsWith(`${skill.id}:`) || undefined}
-                  className="grid gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_5rem_5rem]"
-                >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="min-w-0 truncate text-sm font-medium text-text" title={skill.id}>
-                        {skill.name}
-                      </p>
-                      <Badge tone={codeEnabled || botEnabled ? "success" : "neutral"}>{status}</Badge>
-                      <Badge tone="neutral">{skill.source === "bundled" ? "LeafCodePi" : ".pi/agent"}</Badge>
-                    </div>
-                    {skill.description && (
-                      <p className="mt-0.5 break-words text-xs text-muted">{skill.description}</p>
-                    )}
+        <ul className="mt-3 space-y-2">
+          {skills.map((skill) => {
+            const enabled = isEnabled(skill, scope);
+            return (
+              <li
+                key={skill.id}
+                aria-busy={busyId === skill.id || undefined}
+                className="flex items-start gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="min-w-0 truncate text-sm font-medium text-text" title={skill.id}>
+                      {skill.name}
+                    </p>
+                    <Badge tone={enabled ? "success" : "neutral"}>{enabled ? "有効" : "無効"}</Badge>
+                    <Badge tone="neutral">{skill.source === "bundled" ? "LeafCodePi" : ".pi/agent"}</Badge>
                   </div>
-                  {(["code", "bot"] as const).map((scope) => {
-                    const enabled = isEnabled(skill, scope);
-                    const key = `${skill.id}:${scope}`;
-                    return (
-                      <div key={scope} className="flex items-center justify-between gap-2 sm:justify-center">
-                        <span className="text-xs text-muted sm:hidden">{scope === "code" ? "Code" : "Bot"}</span>
-                        <Switch
-                          checked={enabled}
-                          onChange={() => void toggle(skill, scope)}
-                          label={`${skill.name}（${scope === "code" ? "Code" : "Bot"}）を${enabled ? "無効化" : "有効化"}`}
-                          busy={busyKey === key}
-                        />
-                      </div>
-                    );
-                  })}
-                </li>
-              );
-            })}
-          </ul>
-        </>
+                  {skill.description && (
+                    <p className="mt-0.5 break-words text-xs text-muted">{skill.description}</p>
+                  )}
+                </div>
+                <Switch
+                  checked={enabled}
+                  onChange={() => void toggle(skill)}
+                  label={`${skill.name}（${scope === "code" ? "Code" : "Bot"}）を${enabled ? "無効化" : "有効化"}`}
+                  busy={busyId === skill.id}
+                />
+              </li>
+            );
+          })}
+        </ul>
       )}
       {error && <p className="mt-2 text-sm text-danger" role="alert">{error}</p>}
     </div>

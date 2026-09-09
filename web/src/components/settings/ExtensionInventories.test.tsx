@@ -53,7 +53,6 @@ describe("拡張設定の一覧", () => {
     );
 
     await screen.findByRole("switch", { name: "review（Code）を無効化" });
-    await screen.findByRole("switch", { name: "review（Bot）を有効化" });
     await screen.findByRole("switch", { name: "fxhoudini を無効化" });
 
     for (const heading of ["スキル", "MCP サーバー"]) {
@@ -68,7 +67,7 @@ describe("拡張設定の一覧", () => {
     sendJson.mockResolvedValue({
       skills: [{ id: "review", name: "review", enabled: true, codeEnabled: true, botEnabled: true, source: "pi" }],
     });
-    render(<SkillsSettings />);
+    render(<SkillsSettings scope="bot" />);
 
     const botToggle = await screen.findByRole("switch", { name: "review（Bot）を有効化" });
     fireEvent.click(botToggle);

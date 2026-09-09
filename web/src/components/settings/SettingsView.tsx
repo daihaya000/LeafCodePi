@@ -58,6 +58,7 @@ const CURRENT_HASH_TAB: Readonly<Record<string, Tab>> = {
   "models-providers": "models",
   agents: "agents",
   bots: "bots",
+  "bots-skills": "bots",
   extensions: "extensions",
   "extensions-list": "extensions",
   "extensions-skills": "extensions",
@@ -425,6 +426,15 @@ export function SettingsView() {
                 <BotDefaultsSettings />
               </SettingsGroup>
               <SettingsGroup
+                id="bots-skills-heading"
+                title="ボット用スキル"
+                description="すべてのボットの会話とルームに適用するスキルを管理します。"
+              >
+                <div id="bots-skills" className="scroll-mt-24">
+                  <SkillsSettings scope="bot" />
+                </div>
+              </SettingsGroup>
+              <SettingsGroup
                 id="bots-instructions-heading"
                 title="共通指示"
                 description="すべてのボットに適用する BOTS.md を編集します。"
@@ -455,11 +465,11 @@ export function SettingsView() {
               <SettingsGroup
                 id="extensions-tools-heading"
                 title="スキルと連携"
-                description="スキルと MCP サーバーの有効状態をまとめて管理します。"
+                description="Code用スキルと MCP サーバーの有効状態をまとめて管理します。"
               >
                 <div className="grid gap-4 xl:grid-cols-2">
                   <div id="extensions-skills" className="scroll-mt-24">
-                    <SkillsSettings />
+                    <SkillsSettings scope="code" />
                   </div>
                   <div id="extensions-mcp" className="scroll-mt-24">
                     <McpSettings />
