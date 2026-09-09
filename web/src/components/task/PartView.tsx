@@ -703,38 +703,47 @@ function MessageMetaHeader({
     >
       {/* 合成メッセージ（シェル実行など）はプロバイダを持たないので汎用アイコンを出さない。 */}
       {message.provider && <ProviderIcon providerID={message.provider} size={14} />}
-      {fields.map((field, index) => (
-        <Fragment key={field.key}>
-          {index > 0 && <span aria-hidden="true">·</span>}
-          <span
-            className={cx(
-              field.key === "agent"
-                ? "inline-flex shrink-0 items-center gap-0.5"
-                : field.key === "model" || field.key === "account"
-                  ? "min-w-0 max-w-64 truncate"
-                  : "shrink-0",
-              field.key === "rate" && "tabular-nums",
+      {fields.map((field, index) => {
+        const hideOnMobile =
+          field.key === "tokens" || field.key === "rate" || field.key === "thinking";
+        return (
+          <Fragment key={field.key}>
+            {index > 0 && (
+              <span className={hideOnMobile ? "hidden sm:inline" : undefined} aria-hidden="true">
+                ·
+              </span>
             )}
-            title={
-              field.key === "rate" && message.tokensPerSecondDecode
-                ? "decode tok/s（最初のトークン以降、TTFT 除外）"
-                : field.key === "rate"
-                  ? "end-to-end tok/s（TTFT 含む）"
-                  : field.key === "thinking"
-                    ? "応答時間（思考＋生成を含む目安）"
-                    : field.key === "model"
-                      ? field.text
-                      : undefined
-            }
-          >
-            {field.key === "agent" && <AgentRoleIcon name={field.text} />}
-            {field.key === "account" && (
-              <UserRound className="mr-0.5 inline h-3 w-3 align-[-1px]" aria-hidden />
-            )}
-            {field.text}
-          </span>
-        </Fragment>
-      ))}
+            <span
+              className={cx(
+                field.key === "agent"
+                  ? "inline-flex shrink-0 items-center gap-0.5"
+                  : field.key === "model" || field.key === "account"
+                    ? "min-w-0 max-w-64 truncate"
+                    : "shrink-0",
+                field.key === "rate" && "tabular-nums",
+                hideOnMobile && "hidden sm:inline",
+              )}
+              title={
+                field.key === "rate" && message.tokensPerSecondDecode
+                  ? "decode tok/s（最初のトークン以降、TTFT 除外）"
+                  : field.key === "rate"
+                    ? "end-to-end tok/s（TTFT 含む）"
+                    : field.key === "thinking"
+                      ? "応答時間（思考＋生成を含む目安）"
+                      : field.key === "model"
+                        ? field.text
+                        : undefined
+              }
+            >
+              {field.key === "agent" && <AgentRoleIcon name={field.text} />}
+              {field.key === "account" && (
+                <UserRound className="mr-0.5 inline h-3 w-3 align-[-1px]" aria-hidden />
+              )}
+              {field.text}
+            </span>
+          </Fragment>
+        );
+      })}
     </div>
   );
 }

@@ -166,6 +166,31 @@ describe("PartView response metadata", () => {
     expect(screen.getByText("build").querySelector('[data-agent-icon="build"]')).not.toBeNull();
   });
 
+  it("hides token metadata from tok onward on phones", () => {
+    render(
+      <PartView
+        message={{
+          id: "assistant-stats",
+          role: "assistant",
+          createdAt: 1,
+          model: "gpt",
+          outputTokens: 32,
+          tokensPerSecond: 22,
+          responseDurationMs: 3_000,
+          parts: [],
+        }}
+        effort="low"
+        agent="build"
+      />,
+    );
+
+    for (const label of ["32 tok", "22 tok/s", "3s"]) {
+      const element = screen.getByText(label);
+      expect(element.className).toContain("hidden");
+      expect(element.className).toContain("sm:inline");
+    }
+  });
+
   it("opens timeline images for enlarged viewing", () => {
     render(
       <PartView
