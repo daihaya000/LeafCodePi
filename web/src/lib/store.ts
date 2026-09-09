@@ -1,5 +1,5 @@
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { noProjectSessionDir, samePath, storePath } from "./paths";
 import { NO_PROJECT_NAME, type ProjectDto, type TaskStatus, type TaskSummary, type ThinkingLevel } from "./types";
@@ -66,10 +66,34 @@ function readStore(): StoreFile {
   }
 }
 
+/** Keep a week of daily snapshots: one bad write repeated all day cannot erase the last good day. */
+const STORE_BACKUP_DAYS = 7;
+
+function snapshotStore(file: string): void {
+  const directory = join(dirname(file), "backups");
+  const name = `store-${new Date().toISOString().slice(0, 10)}.json`;
+  mkdirSync(directory, { recursive: true });
+  const target = join(directory, name);
+  try {
+    copyFileSync(file, target, 1 /* COPYFILE_EXCL: the first write of the day wins */);
+  } catch {
+    return; // Nothing to snapshot yet, or today is already covered.
+  }
+  const stale = readdirSync(directory)
+    .filter((entry) => entry.startsWith("store-") && entry.endsWith(".json"))
+    .sort()
+    .slice(0, -STORE_BACKUP_DAYS);
+  for (const entry of stale) rmSync(join(directory, entry), { force: true });
+}
+
 function writeStore(store: StoreFile): void {
   const file = storePath();
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  snapshotStore(file);
+  // Write then rename so a crash or a full disk can never leave a truncated store.
+  const temp = `${file}.tmp`;
+  writeFileSync(temp, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  renameSync(temp, file);
   cachedStore = { file, value: store, mtimeMs: -1, size: -1, checkedAt: Date.now() };
 }
 

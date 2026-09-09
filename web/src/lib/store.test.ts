@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -184,6 +184,24 @@ describe("store", () => {
     store.patchTask(denied.id, { skillPermission: "allow" });
     expect(store.getTask(denied.id)?.skillPermission).toBe("allow");
     expect(store.getTask(allowed.id)?.skillPermission).toBe("allow");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("keeps the first daily snapshot so repeated bad writes cannot erase it", async () => {
+    const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}-backup`);
+    mkdirSync(dir, { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const store = await import("./store");
+    store.upsertProject({ name: "one", rootPath: "C:\\tmp\\one" });
+    store.upsertProject({ name: "two", rootPath: "C:\\tmp\\two" });
+    const snapshot = join(dir, "backups", `store-${new Date().toISOString().slice(0, 10)}.json`);
+    const names = () =>
+      (JSON.parse(readFileSync(snapshot, "utf8")).projects as { name: string }[]).map((p) => p.name);
+
+    expect(names()).toEqual(["one"]);
+    store.upsertProject({ name: "three", rootPath: "C:\\tmp\\three" });
+    expect(names()).toEqual(["one"]);
+    expect(existsSync(`${join(dir, "store.json")}.tmp`)).toBe(false);
     rmSync(dir, { recursive: true, force: true });
   });
 });

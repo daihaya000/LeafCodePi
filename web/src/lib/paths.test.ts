@@ -1,8 +1,8 @@
-import { describe, expect, it, afterEach } from "vitest";
+import { describe, expect, it, afterEach, vi } from "vitest";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { noProjectRoot, noProjectSessionDir, sameOrDescendantPath, samePath } from "./paths";
+import { dataDir, noProjectRoot, noProjectSessionDir, sameOrDescendantPath, samePath } from "./paths";
 
 const roots: string[] = [];
 
@@ -20,6 +20,20 @@ describe("path identity", () => {
   it("checks descendants with platform path semantics", () => {
     expect(sameOrDescendantPath("/work/Foo/src", "/work/Foo", "linux")).toBe(true);
     expect(sameOrDescendantPath("/work/foo/src", "/work/Foo", "linux")).toBe(false);
+  });
+});
+
+describe("live data guard", () => {
+  it("refuses the real data directory during tests and accepts temp overrides", () => {
+    vi.stubEnv("LEAFCODE_PI_DATA_DIR", "");
+    vi.stubEnv("APPDATA", join("C:", "Users", "someone", "AppData", "Roaming"));
+    expect(() => dataDir()).toThrow(/Refusing to use the live LeafCodePi directory/);
+    vi.stubEnv("LEAFCODE_PI_DEFAULT_DIR", join("C:", "Users", "someone", "Documents", "LeafCodePi"));
+    expect(() => noProjectRoot()).toThrow(/Refusing to use the live LeafCodePi directory/);
+
+    const root = join(tmpdir(), `leafcode-pi-guard-${Date.now()}`);
+    vi.stubEnv("LEAFCODE_PI_DATA_DIR", root);
+    expect(dataDir()).toBe(root);
   });
 });
 

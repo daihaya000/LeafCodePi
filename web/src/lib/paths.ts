@@ -1,15 +1,28 @@
 import { mkdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, posix, resolve, win32 } from "node:path";
+
+/**
+ * Tests once resolved the live %APPDATA% directory and a read-modify-write cycle
+ * replaced the user's real store, so refuse anything outside the temp directory
+ * while NODE_ENV is "test" instead of trusting every test to override the env.
+ */
+function assertTestSafe(directory: string): string {
+  if (process.env.NODE_ENV !== "test") return directory;
+  if (sameOrDescendantPath(directory, tmpdir())) return directory;
+  throw new Error(
+    `Refusing to use the live LeafCodePi directory ${directory} during tests. Point LEAFCODE_PI_DATA_DIR / LEAFCODE_PI_DEFAULT_DIR at a temp directory, or mock every path helper the code under test uses.`,
+  );
+}
 
 export function dataDir(): string {
   const override = process.env.LEAFCODE_PI_DATA_DIR?.trim();
-  if (override) return override;
+  if (override) return assertTestSafe(override);
   if (process.platform === "win32") {
     const roaming = process.env.APPDATA?.trim();
-    if (roaming) return join(roaming, "leafcode-pi");
+    if (roaming) return assertTestSafe(join(roaming, "leafcode-pi"));
   }
-  return join(homedir(), ".leafcode-pi");
+  return assertTestSafe(join(homedir(), ".leafcode-pi"));
 }
 
 export function storePath(): string {
@@ -39,8 +52,8 @@ export function sameOrDescendantPath(
 /** Base directory for tasks started without a registered project. */
 export function noProjectRoot(): string {
   const override = process.env.LEAFCODE_PI_DEFAULT_DIR?.trim();
-  if (override) return resolve(override);
-  return join(homedir(), "Documents", "LeafCodePi");
+  if (override) return assertTestSafe(resolve(override));
+  return assertTestSafe(join(homedir(), "Documents", "LeafCodePi"));
 }
 
 function twoDigits(value: number): string {
