@@ -1,6 +1,7 @@
 "use client";
 
-import { type ReactNode, useLayoutEffect, useRef } from "react";
+import { type AnchorHTMLAttributes, type ReactNode, useLayoutEffect, useRef } from "react";
+import Link from "next/link";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
@@ -12,13 +13,29 @@ import type { BotDto, UiMessage } from "@/lib/types";
 /** Elements that carry prose; each rewrites only its own bare text into mention chips. */
 const MENTION_TAGS = ["p", "li", "strong", "em", "td", "th", "h1", "h2", "h3", "h4", "blockquote"] as const;
 
+function TaskLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
+  if (!href || !/^\/task\/[^/?#]+(?:[?#].*)?$/.test(href)) {
+    return <a href={href} {...props}>{children}</a>;
+  }
+  const taskId = decodeURIComponent(href.split("/task/")[1]!.split(/[?#]/)[0]!);
+  return (
+    <Link href={href} {...props} className="my-2 flex items-center gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm no-underline transition-colors hover:bg-surface-3">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent" aria-hidden="true">↗</span>
+      <span className="min-w-0">
+        <span className="block text-[11px] font-medium text-muted">Codeタスク</span>
+        <span className="block truncate font-medium text-text">{taskId}</span>
+      </span>
+    </Link>
+  );
+}
+
 export function BotMessageMarkdown({ text, mentions, keyPrefix = "md" }: { text: string; mentions?: BotDto[]; keyPrefix?: string }) {
   const components = mentions
     ? Object.fromEntries(MENTION_TAGS.map((Tag) => [Tag, ({ children, ...props }: { children?: ReactNode }) => (
       <Tag {...props}>{withMentions(children, mentions, keyPrefix)}</Tag>
     )]))
     : undefined;
-  return <div className="md"><Markdown remarkPlugins={[remarkGfm]} components={components}>{text}</Markdown></div>;
+  return <div className="md"><Markdown remarkPlugins={[remarkGfm]} components={{ ...components, a: ({ href, children, ...props }) => <TaskLink href={href} {...props}>{children}</TaskLink> }}>{text}</Markdown></div>;
 }
 
 export function BotMessageList({ conversationId, children }: { conversationId: string; children: ReactNode }) {
