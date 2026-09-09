@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -56,6 +56,32 @@ afterEach(() => {
   mocks.sendJson.mockReset();
   mocks.push.mockReset();
   mocks.markRead.mockReset();
+});
+
+describe("RoomView loading", () => {
+  it("ignores a stale room response after switching ids", async () => {
+    const roomOne = { ...room, id: "room-1", name: "One" };
+    const roomTwo = { ...room, id: "room-2", name: "Two" };
+    type RoomResponse = { room: typeof room };
+    let resolveOne!: (result: RoomResponse) => void;
+    let resolveTwo!: (result: RoomResponse) => void;
+    const firstResponse = new Promise<RoomResponse>((resolve) => { resolveOne = resolve; });
+    const secondResponse = new Promise<RoomResponse>((resolve) => { resolveTwo = resolve; });
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots/rooms/room-1") return firstResponse;
+      if (path === "/api/bots/rooms/room-2") return secondResponse;
+      if (path === "/api/bots") return Promise.resolve({ bots: [bot] });
+      return Promise.resolve({ room });
+    });
+    const view = render(<RoomView id="room-1" />);
+    view.rerender(<RoomView id="room-2" />);
+    await vi.waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/bots/rooms/room-2"));
+    await act(async () => { resolveTwo({ room: roomTwo }); await secondResponse; });
+    expect(screen.getByRole("heading", { name: "Two" })).toBeTruthy();
+    await act(async () => { resolveOne({ room: roomOne }); await firstResponse; });
+    expect(screen.getByRole("heading", { name: "Two" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "One" })).toBeNull();
+  });
 });
 
 describe("RoomView mention chips", () => {

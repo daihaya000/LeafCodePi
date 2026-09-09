@@ -84,16 +84,26 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const router = useRouter();
 
-  const load = useCallback(() => {
+  const load = useCallback((isCurrent: () => boolean) => {
     return Promise.all([
       getJson<{ room: RoomDto }>(`/api/bots/rooms/${encodeURIComponent(id)}`),
       getJson<{ bots: BotDto[] }>("/api/bots"),
     ])
-      .then(([roomResult, botResult]) => { setRoom(roomResult.room); setBots(botResult.bots); })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : "読み込みに失敗しました"));
+      .then(([roomResult, botResult]) => {
+        if (!isCurrent()) return;
+        setRoom(roomResult.room);
+        setBots(botResult.bots);
+      })
+      .catch((reason) => {
+        if (isCurrent()) setError(reason instanceof Error ? reason.message : "読み込みに失敗しました");
+      });
   }, [id]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let current = true;
+    void load(() => current);
+    return () => { current = false; };
+  }, [load]);
 
   useEffect(() => {
     let closed = false;
