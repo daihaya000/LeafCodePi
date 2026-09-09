@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeToolLabel, skillNameFromReadInput, toolInputFields, toolLabel, toolSummary } from "./tool-labels";
+import { activeToolLabel, changedFilePaths, skillNameFromReadInput, toolInputFields, toolLabel, toolSummary } from "./tool-labels";
 import type { UiMessage } from "./types";
 
 describe("toolLabel", () => {
@@ -36,6 +36,25 @@ describe("toolLabel", () => {
     const input = { path: "C:\\Users\\Daichi\\.pi\\agent\\skills\\bug-hunt\\SKILL.md" };
     expect(skillNameFromReadInput("read", input)).toBe("bug-hunt");
     expect(toolLabel("read", input)).toBe("スキル");
+  });
+
+  it("lists only files a run actually wrote", () => {
+    const messages = [
+      { id: "m1", role: "assistant", createdAt: 1, parts: [
+        { id: "p1", type: "tool", tool: "edit", callID: "c1", state: { status: "completed", input: { path: "src/a.ts" } } },
+        { id: "p2", type: "tool", tool: "write", callID: "c2", state: { status: "error", input: { path: "src/failed.ts" } } },
+        { id: "p3", type: "tool", tool: "todowrite", callID: "c3", state: { status: "completed", input: { todos: [] } } },
+        { id: "p4", type: "tool", tool: "read", callID: "c4", state: { status: "completed", input: { path: "src/read-only.ts" } } },
+      ] },
+      { id: "m2", role: "assistant", createdAt: 2, parts: [
+        { id: "p5", type: "tool", tool: "edit", callID: "c5", state: { status: "completed", input: { file_path: "src/b.ts" } } },
+        { id: "p6", type: "tool", tool: "edit", callID: "c6", state: { status: "completed", input: { path: "src/a.ts" } } },
+      ] },
+    ] as UiMessage[];
+
+    expect(changedFilePaths(messages)).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(changedFilePaths(messages, 1)).toEqual(["src/a.ts"]);
+    expect(changedFilePaths(undefined)).toEqual([]);
   });
 
   it("names the tool a run is executing right now", () => {

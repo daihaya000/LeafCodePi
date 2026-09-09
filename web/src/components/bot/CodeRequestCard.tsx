@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getJson } from "@/lib/client";
-import { activeToolLabel } from "@/lib/tool-labels";
+import { activeToolLabel, changedFilePaths } from "@/lib/tool-labels";
 import type { CodeRequestGoalLoopReport, CodeRequestState, TaskDetail } from "@/lib/types";
 import { BotMessageMarkdown } from "@/components/bot/BotMessageList";
 
@@ -111,6 +111,7 @@ export function CodeRequestCard({
   const succeeded = state === "delivered" && (outcome === undefined || SUCCESS_OUTCOMES.has(outcome));
   // Rooms push the live tool label with the message; the Bot screen derives it from the polled task.
   const runningLabel = activity || (live ? activeToolLabel(task?.messages?.at(-1)) : undefined);
+  const changedFiles = changedFilePaths(task?.messages);
 
   return (
     <div className="mt-2 w-full max-w-full min-w-0 rounded-xl border border-border bg-surface p-3 text-sm">
@@ -157,6 +158,12 @@ export function CodeRequestCard({
               </div>
             ) : null}
             {goalLoop?.summary && <p className="text-muted [overflow-wrap:anywhere]">要約: {goalLoop.summary}</p>}
+            {changedFiles.length > 0 && (
+              <div>
+                <p className="font-medium">{"変更したファイル"}{`（${changedFiles.length}件）`}</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted">{changedFiles.map((path) => <li key={path} className="[overflow-wrap:anywhere]">{path}</li>)}</ul>
+              </div>
+            )}
             {task.todoProgress && task.todoProgress.total > 0 && <p className="text-muted">進捗: {task.todoProgress.completed}/{task.todoProgress.total}</p>}
             {preview ? <div tabIndex={0} aria-label="Codeの出力" className="max-h-96 overflow-auto rounded-lg bg-bg p-3 text-sm leading-relaxed [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-accent"><BotMessageMarkdown text={preview} /></div> : <p className="text-muted">{live ? "Codeの出力を待っています…" : "Codeの出力はありません"}</p>}
           </>}

@@ -194,6 +194,28 @@ export function toolInputFields(
   return fields;
 }
 
+const TOOL_PATH_KEYS = ["path", "filePath", "file_path"] as const;
+
+/**
+ * Files a run actually wrote, taken from completed edit/write tool calls. Facts only: a planned or
+ * failed edit is not listed, and tools without a path (todowrite) never match.
+ */
+export function changedFilePaths(messages: readonly UiMessage[] | undefined, limit = 20): string[] {
+  const paths: string[] = [];
+  for (const message of messages ?? []) {
+    if (message.role !== "assistant") continue;
+    for (const part of message.parts) {
+      if (part.type !== "tool" || part.state.status !== "completed") continue;
+      const tool = part.tool.toLowerCase();
+      if (!tool.includes("edit") && !tool.includes("write") && !tool.includes("patch")) continue;
+      const path = TOOL_PATH_KEYS.map((key) => asString(part.state.input?.[key])).find(Boolean);
+      if (path && !paths.includes(path)) paths.push(path);
+      if (paths.length >= limit) return paths;
+    }
+  }
+  return paths;
+}
+
 /** Tool a run is executing right now, so progress is readable without opening the Code screen. */
 export function activeToolLabel(message: UiMessage | null | undefined): string | undefined {
   if (!message || message.role !== "assistant") return undefined;
