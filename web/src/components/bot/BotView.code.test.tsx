@@ -64,6 +64,22 @@ it("renders bot empty-state copy instead of literal Unicode escapes", async () =
   expect(screen.getByText("下の入力欄からメッセージを送って会話を始めましょう。")).toBeTruthy();
 });
 
+it("renders delegated Code requests as ID-linked previews in the Bot conversation", async () => {
+  const request = { id: "request-1", codeTaskId: "task-1", state: "running", prompt: "実装を確認", queuedAt: 1 };
+  mocks.getJson.mockImplementation(async (url: string) => {
+    if (url === "/api/models") return { models: [] };
+    if (url.endsWith("/routines")) return { routines: [] };
+    if (url.endsWith("/code-requests")) return { requests: [request] };
+    if (url.endsWith("/tasks/task-1")) return { task: { id: "task-1", status: "working", title: "Code task", messages: [{ role: "assistant", parts: [{ type: "text", text: "変更案" }] }] } };
+    return { bot: testBot };
+  });
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  expect(await screen.findByText("Code依頼")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "プレビュー" }));
+  expect(await screen.findByText("変更案")).toBeTruthy();
+  expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks/task-1");
+});
+
 it("answers a delegated Code question from the Bot conversation", async () => {
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
   await screen.findByRole("button", { name: "設定" });
