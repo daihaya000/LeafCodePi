@@ -147,24 +147,64 @@ describe("PartView tool error", () => {
   });
 });
 
-describe("PartView response metadata", () => {
+describe("PartView sender and response metadata", () => {
   afterEach(() => cleanup());
 
-  it("shows the Bot avatar and name for a Bot Code response", () => {
+  const bot = { name: "Code Bot", avatarShape: "circle" as const, avatarImage: null };
+
+  it("shows the Bot sender above its neutral prompt bubble", () => {
+    render(<PartView message={userMessage("Botからの指示")} bot={bot} />);
+
+    const sender = screen.getByLabelText("送信者: Code Bot（Bot）");
+    expect(sender.textContent).toContain("Code Bot");
+    expect(sender.querySelector('svg[aria-label="Code Botのアバター"]')).not.toBeNull();
+    expect(sender.querySelector("time")).not.toBeNull();
+    const bubble = screen.getByText("Botからの指示").parentElement!;
+    expect(bubble.className).toContain("bg-bot-assistant");
+    expect(bubble.className).toContain("text-text");
+    expect(bubble.className).not.toContain("bg-bot-user");
+    expect(bubble.parentElement?.firstElementChild?.contains(sender)).toBe(true);
+  });
+
+  it("keeps human prompts blue and retains the revert action", () => {
+    let reverted: UiMessage | undefined;
+    const message = userMessage("ユーザーからの指示");
+    render(<PartView message={message} onRevert={(value) => { reverted = value; }} />);
+
+    const bubble = screen.getByText("ユーザーからの指示").parentElement!;
+    expect(bubble.className).toContain("bg-bot-user");
+    expect(bubble.className).toContain("text-white");
+    expect(screen.queryByText("Code Bot")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "入力欄に戻す" }));
+    expect(reverted).toBe(message);
+  });
+
+  it("keeps Bot identity out of the agent response metadata", () => {
     render(
       <PartView
         message={{ id: "assistant-bot", role: "assistant", createdAt: 1, parts: [] }}
-        bot={{
-          name: "Code Bot",
-          avatarColor: "#3B82F6",
-          avatarShape: "circle",
-          avatarImage: null,
-        }}
+        bot={bot}
+        modelLabel="GPT"
+        agent="build"
+        accountLabel="仕事用"
       />,
     );
 
+    expect(screen.queryByText("Code Bot")).toBeNull();
+    const metadata = screen.getByLabelText("応答メタデータ");
+    for (const label of ["GPT", "build", "仕事用"]) expect(metadata.textContent).toContain(label);
+  });
+
+  it("updates the sender and bubble when Bot metadata arrives", () => {
+    const message = userMessage("指示");
+    const view = render(<PartView message={message} />);
+    view.rerender(<PartView message={message} bot={bot} />);
     expect(screen.getByText("Code Bot")).toBeTruthy();
-    expect(document.querySelector('svg[aria-label="Code Botのアバター"]')).not.toBeNull();
+    expect(screen.getByText("指示").parentElement?.className).toContain("bg-bot-assistant");
+
+    view.rerender(<PartView message={message} bot={{ ...bot, name: "Renamed Bot" }} />);
+    expect(screen.queryByText("Code Bot")).toBeNull();
+    expect(screen.getByText("Renamed Bot")).toBeTruthy();
   });
 
   it("shows the account label beside the agent", () => {

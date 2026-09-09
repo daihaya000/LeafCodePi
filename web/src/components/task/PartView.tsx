@@ -23,7 +23,8 @@ import {
   Wrench,
 } from "lucide-react";
 import { AgentRoleIcon } from "@/components/AgentSelect";
-import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
+import type { BotFace } from "@/components/bot/BotAvatar";
+import { BotMessageSender } from "@/components/bot/BotMessageList";
 import { ImageLightbox } from "@/components/Composer";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ReferenceHighlight, type ReferenceHighlightReferences } from "@/components/ReferenceHighlight";
@@ -662,7 +663,6 @@ function MessageMetaHeader({
   effort,
   agent,
   accountLabel,
-  bot,
 }: {
   message: UiMessage;
   modelLabel?: string;
@@ -671,8 +671,6 @@ function MessageMetaHeader({
   agent?: string;
   /** タスクに紐づく利用アカウントの表示名。 */
   accountLabel?: string;
-  /** Bot mode のCodeセッションに紐づくBot。 */
-  bot?: BotFace & { name: string };
 }) {
   const model = modelLabel?.trim() || message.model?.trim() || "";
   const tokens =
@@ -705,17 +703,6 @@ function MessageMetaHeader({
       aria-label="応答メタデータ"
       className="flex min-w-0 items-center gap-1.5 overflow-hidden text-[11px] whitespace-nowrap text-muted"
     >
-      {bot && (
-        <>
-          <span aria-hidden="true" className="shrink-0">
-            <BotAvatar size={16} {...bot} name={bot.name} />
-          </span>
-          <span className="min-w-0 max-w-40 truncate sm:max-w-64" title={bot.name}>
-            {bot.name}
-          </span>
-          <span aria-hidden="true">·</span>
-        </>
-      )}
       {/* 合成メッセージ（シェル実行など）はプロバイダを持たないので汎用アイコンを出さない。 */}
       {message.provider && <ProviderIcon providerID={message.provider} size={14} />}
       {fields.map((field, index) => {
@@ -994,7 +981,7 @@ export const PartView = memo(
     effort?: string;
     agent?: string;
     accountLabel?: string;
-    /** Bot mode のCodeセッションに紐づくBot。 */
+    /** Codeへの送信元Bot。応答側のエージェントとは区別する。 */
     bot?: BotFace & { name: string };
     /** サブエージェント入れ子パネルの取得に使う（トップレベルのみ）。 */
     taskId?: string;
@@ -1014,11 +1001,15 @@ export const PartView = memo(
     const isUser = message.role === "user";
     return (
       <article className="flex w-full min-w-0 flex-col gap-2">
-        <div className={cx("flex min-w-0", isUser ? "justify-end" : "justify-start")}>
+        <div className={cx("flex min-w-0", isUser ? "ml-auto max-w-bubble justify-end" : "justify-start")}>
           {isUser ? (
-            !nested && (
+            !nested && (bot ? (
+              <div className="min-w-0" title={bot.name} aria-label={`送信者: ${bot.name}（Bot）`}>
+                <BotMessageSender {...bot} createdAt={message.createdAt} />
+              </div>
+            ) : (
               <span className="text-[10px] text-faint">{formatMessageTime(message.createdAt)}</span>
-            )
+            ))
           ) : (
             <MessageMetaHeader
               message={message}
@@ -1026,12 +1017,14 @@ export const PartView = memo(
               effort={effort}
               agent={agent}
               accountLabel={accountLabel}
-              bot={bot}
             />
           )}
         </div>
         {isUser ? (
-          <div className="ml-auto min-w-0 max-w-bubble rounded-3xl bg-bot-user px-4 py-3 text-base leading-7 text-white [overflow-wrap:anywhere]">
+          <div className={cx(
+            "ml-auto min-w-0 max-w-bubble rounded-3xl px-4 py-3 text-base leading-7 [overflow-wrap:anywhere]",
+            bot ? "bg-bot-assistant text-text" : "bg-bot-user text-white",
+          )}>
             {message.parts.map((part) => {
               if (part.type === "text") {
                 return <UserTextPart key={part.id} text={part.text} references={references} embedded />;

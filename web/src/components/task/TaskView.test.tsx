@@ -2,12 +2,13 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveTaskSessionCache } from "@/lib/task-session-cache";
-import type { TaskSummary } from "@/lib/types";
+import type { TaskSummary, UiMessage } from "@/lib/types";
 
-const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), partView: vi.fn(), botFor: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuButton: () => null }));
-vi.mock("@/components/task/PartView", () => ({ PartView: () => null, WorkingRow: () => null }));
+vi.mock("@/components/task/PartView", () => ({ PartView: mocks.partView, WorkingRow: () => null }));
+vi.mock("@/components/shell/TaskPanesContext", () => ({ useTaskPanes: () => ({ iconFor: () => null, botFor: mocks.botFor }) }));
 
 import { TaskView } from "./TaskView";
 
@@ -20,6 +21,8 @@ const task: TaskSummary = {
 beforeEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
+  mocks.partView.mockReturnValue(null);
+  mocks.botFor.mockReset();
   vi.stubGlobal("EventSource", class extends EventTarget { close() {} });
   mocks.getJson.mockResolvedValue({ models: [], agents: [], skills: [], accounts: [] });
   saveTaskSessionCache({ task, messages: [], isStreaming: false, isCompacting: false });
@@ -28,6 +31,25 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   localStorage.clear();
+});
+
+it.each([undefined, "bot-1"])("passes Bot identity only to the sending side (botId: %s)", async (botId) => {
+  const bot = { id: "bot-1", name: "Code Bot" };
+  mocks.botFor.mockImplementation((id) => id === bot.id ? bot : undefined);
+  const messages: UiMessage[] = [
+    { id: "prompt", role: "user", createdAt: 1, parts: [{ id: "prompt-text", type: "text", text: "指示" }] },
+    { id: "reply", role: "assistant", createdAt: 2, parts: [{ id: "reply-text", type: "text", text: "応答" }] },
+  ];
+  saveTaskSessionCache({ task: { ...task, botId }, messages, isStreaming: false, isCompacting: false });
+  render(<TaskView taskId={task.id} mdUp />);
+
+  await waitFor(() => expect(mocks.partView).toHaveBeenCalled());
+  const props = mocks.partView.mock.calls.map(([value]) => ({ role: value.message.role, bot: value.bot }));
+  expect(props).toEqual(expect.arrayContaining([
+    { role: "user", bot: botId ? bot : undefined },
+    { role: "assistant", bot: undefined },
+  ]));
+  expect(props.filter((value) => value.role === "assistant").every((value) => value.bot === undefined)).toBe(true);
 });
 
 describe("TaskView draft submission", () => {

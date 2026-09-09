@@ -2421,7 +2421,7 @@ export const TaskView = memo(function TaskView({
                           : (taskAccountLabel ?? undefined)
                         : undefined
                     }
-                    bot={message.role === "assistant" ? botFor?.(task?.botId) : undefined}
+                    bot={message.role === "user" ? botFor?.(task?.botId) : undefined}
                     references={messageReferences}
                     taskId={taskId}
                     active={active}
