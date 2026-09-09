@@ -179,9 +179,11 @@ function parseSkillInvocation(text: string): SkillInvocation | null {
 function UserTextPart({
   text,
   references,
+  embedded = false,
 }: {
   text: string;
   references?: ReferenceHighlightReferences;
+  embedded?: boolean;
 }) {
   const invocation = parseSkillInvocation(text);
   const renderText = (value: string) =>
@@ -189,7 +191,7 @@ function UserTextPart({
 
   if (!invocation) {
     return (
-      <div className="ml-auto min-w-0 max-w-bubble rounded-3xl bg-bot-user px-4 py-2.5 text-base leading-6 whitespace-pre-wrap break-words text-white">
+      <div className={embedded ? "whitespace-pre-wrap break-words" : "ml-auto min-w-0 max-w-bubble rounded-3xl bg-bot-user px-4 py-2.5 text-base leading-6 whitespace-pre-wrap break-words text-white"}>
         {renderText(text)}
       </div>
     );
@@ -200,7 +202,7 @@ function UserTextPart({
     agents: [],
   };
   return (
-    <div className="ml-auto min-w-0 max-w-bubble rounded-3xl bg-bot-user px-4 py-2.5 text-base leading-6 whitespace-pre-wrap break-words text-white">
+    <div className={embedded ? "whitespace-pre-wrap break-words" : "ml-auto min-w-0 max-w-bubble rounded-3xl bg-bot-user px-4 py-2.5 text-base leading-6 whitespace-pre-wrap break-words text-white"}>
       <ReferenceHighlight text={`/skill:${invocation.name}`} references={skillReference} />
       {invocation.userMessage && (
         <>{" "}{renderText(invocation.userMessage)}</>
@@ -1000,43 +1002,45 @@ export const PartView = memo(
             />
           )}
         </div>
-        {message.parts.map((part) => {
-          if (part.type === "text") {
-            return isUser ? (
-              <UserTextPart key={part.id} text={part.text} references={references} />
-            ) : (
-              <AssistantTextPart key={part.id} text={part.text} />
-            );
-          }
-          if (part.type === "thinking") {
-            return <ReasoningView key={part.id} text={part.text} />;
-          }
-          if (part.type === "image") {
-            return (
-              <ImageLightbox
-                key={part.id}
-                src={part.url}
-                alt={part.filename ?? "画像"}
-                className="max-h-64 rounded-xl border border-border"
-                triggerClassName={isUser ? "ml-auto" : undefined}
-              />
-            );
-          }
-          // エラーカードは親のスクロール計算前に開いた状態でマウントする。
-          const cardKey =
-            part.state.status === "error" || part.state.status === "cancelled"
-              ? `${part.id}:expanded`
-              : part.id;
-          return (
-            <ToolCard
-              key={cardKey}
-              part={part}
-              taskId={taskId}
-              nested={nested}
-              tabActive={active}
-            />
-          );
-        })}
+        {isUser ? (
+          <div className="ml-auto min-w-0 max-w-bubble rounded-3xl bg-bot-user px-4 py-3 text-base leading-7 text-white [overflow-wrap:anywhere]">
+            {message.parts.map((part) => {
+              if (part.type === "text") {
+                return <UserTextPart key={part.id} text={part.text} references={references} embedded />;
+              }
+              if (part.type !== "image") return null;
+              return (
+                <ImageLightbox
+                  key={part.id}
+                  src={part.url}
+                  alt={part.filename ?? "画像"}
+                  className="max-h-48 max-w-full rounded-xl object-contain"
+                />
+              );
+            })}
+          </div>
+        ) : (
+          message.parts.map((part) => {
+            if (part.type === "text") return <AssistantTextPart key={part.id} text={part.text} />;
+            if (part.type === "thinking") return <ReasoningView key={part.id} text={part.text} />;
+            if (part.type === "image") {
+              return (
+                <ImageLightbox
+                  key={part.id}
+                  src={part.url}
+                  alt={part.filename ?? "画像"}
+                  className="max-h-64 rounded-xl border border-border"
+                />
+              );
+            }
+            // エラーカードは親のスクロール計算前に開いた状態でマウントする。
+            const cardKey =
+              part.state.status === "error" || part.state.status === "cancelled"
+                ? `${part.id}:expanded`
+                : part.id;
+            return <ToolCard key={cardKey} part={part} taskId={taskId} nested={nested} tabActive={active} />;
+          })
+        )}
         {isUser && !nested && onRevert && (
           <button
             type="button"
