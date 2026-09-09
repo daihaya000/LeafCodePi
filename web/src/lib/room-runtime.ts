@@ -1,12 +1,13 @@
-import { appendRoomMessage, ensureRoomBotTask, getRoom, roomBotTaskId, roomRequestImages, setRoomOutcome, updateRoomMessage } from "./rooms";
+import { randomUUID } from "node:crypto";
+import { appendRoomMessage, ensureRoomBotTask, getRoom, roomBotTaskId, roomRequestImages, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
 import { getBot } from "./bots";
 import { getTask } from "./store";
 import { getTaskDetail, promptTask, subscribeTask, abortTask } from "./pi/harness";
 import { withBotCodeSessionLock } from "./bot-code-session-lock";
-import { pendingRoomCodeRequestForTurn, type CodeRequest } from "./pi/bot-code-relay";
+import { pendingRoomCodeRequestForTurn, roomCodeRequestForRoom, settledRoomCodeRequest, type CodeRequest } from "./pi/bot-code-relay";
 import { toolLabel } from "./tool-labels";
 import { latestRoomRequest, MAX_ROOM_CONVERSATION_TURNS, parseRoomReply, roomBotPrompt, type RoomReply, type RoomTurn } from "./room-conversation";
-import type { BotDto, RoomDto, RoomOutcome, UiMessage } from "./types";
+import type { BotDto, RoomDto, RoomHandoff, RoomMessage, RoomOutcome, UiMessage } from "./types";
 
 // Share queue ownership across Next route module instances in the same worker.
 const globalRef = globalThis as typeof globalThis & { __leafcodeRoomBotRuns?: Map<string, Promise<void>> };
@@ -185,6 +186,11 @@ export async function runRoomFanOut(room: RoomDto, bots: BotDto[], prompt: strin
     for (let index = next++; index < queue.length; index = next++) {
       const entry = queue[index];
       await runRoomBot(room, entry.bot, prompt, entry.responseId, requestId);
+      // A ready handoff registered during this reply takes the floor once; concurrent workers are safe.
+      if ((getRoom(room.id)?.handoffs ?? []).some((handoff) => handoff.requestId === requestId && handoff.state === "ready")) {
+        await deliverReadyRoomHandoffs(room.id);
+        return;
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(FAN_OUT_LIMIT, queue.length) }, worker));
@@ -235,6 +241,12 @@ export async function runRoomConversation(room: RoomDto, bots: BotDto[], prompt:
     // A tool receipt is not a result. The durable Code outbox resumes only after the real report is delivered.
     if (pendingRoomCodeRequestForTurn(room.id, userMessageId)) return stop("code-wait");
     if (!reply) return;
+    // A registered handoff owns the floor: deliver it now instead of continuing the round-robin.
+    if ((getRoom(room.id)?.handoffs ?? []).some((handoff) => handoff.requestId === userMessageId && handoff.state === "ready")) {
+      stop("done");
+      await deliverReadyRoomHandoffs(room.id);
+      return;
+    }
     spoken.add(bot.id);
     const normalized = reply.text.trim().replace(/\s+/g, " ");
     const previous = replies.get(bot.id) ?? new Set<string>();
@@ -277,7 +289,11 @@ export function deliverRoomCodeReport(request: CodeRequest, text: string): boole
 
 /** At-most-once automatic continuation: the outbox marks delivered before invoking this callback. */
 export async function resumeRoomAfterCode(request: CodeRequest): Promise<void> {
-  if (!request.room || request.room.complete) return;
+  if (!request.room) return;
+  // Handoffs registered before the report are settled first: a speaker's DONE must not drop them.
+  const activated = settleRoomHandoffsForCode(request);
+  if (activated.length > 0) { await deliverReadyRoomHandoffs(request.room.id); return; }
+  if (request.room.complete) return;
   const room = getRoom(request.room.id);
   const { requestId, participantIds, turn, maxTurns } = request.room.conversation;
   if (!room || latestRoomRequest(room)?.id !== requestId || turn >= maxTurns) return;
@@ -291,4 +307,195 @@ export async function resumeRoomAfterCode(request: CodeRequest): Promise<void> {
   const target = participants.find((bot) => bot.id === request.room?.nextBotId && bot.id !== request.botId)
     ?? participants[(participants.findIndex((bot) => bot.id === request.botId) + 1) % participants.length];
   await runRoomConversation(room, participants, latestRoomRequest(room)!.text, requestId, { startTurn: turn + 1, maxTurns, nextBotId: target.id });
+}
+
+const HANDOFF_TASK_MAX = 2_000;
+/** Settled records only guard tool-call replay, so bound the room file instead of archiving them. */
+const MAX_ROOM_HANDOFFS = 50;
+
+function handoffCodeOutcome(request: Pick<CodeRequest, "result">): string | undefined {
+  try { return JSON.parse(request.result ?? "{}").outcome; } catch { return undefined; }
+}
+
+/** Mirror the handoff records of a message back onto it, so the transcript shows what was registered. */
+function mirrorHandoffs(roomId: string): void {
+  const room = getRoom(roomId);
+  if (!room?.handoffs?.length) return;
+  const byMessage = new Map<string, NonNullable<RoomMessage["handoffs"]>>();
+  for (const handoff of room.handoffs) {
+    const list = byMessage.get(handoff.fromMessageId) ?? [];
+    list.push({ id: handoff.id, toBotId: handoff.toBotId, toBotName: getBot(handoff.toBotId)?.name ?? "不明なBot", state: handoff.state });
+    byMessage.set(handoff.fromMessageId, list);
+  }
+  for (const [messageId, handoffs] of byMessage) updateRoomMessage(roomId, messageId, { handoffs });
+}
+
+function patchHandoff(roomId: string, handoffId: string, patch: (handoff: RoomHandoff) => RoomHandoff | undefined): void {
+  updateRoomHandoffs(roomId, (handoffs) => handoffs.flatMap((handoff) => {
+    if (handoff.id !== handoffId) return [handoff];
+    const next = patch(handoff);
+    return next ? [next] : [];
+  }));
+  mirrorHandoffs(roomId);
+}
+
+/**
+ * Register follow-up work for another participant. Called only from the room_handoff tool:
+ * the room, conversation, and speaker are server-resolved, never taken from model arguments.
+ */
+export function registerRoomHandoff(input: {
+  roomId: string; requestId: string; fromMessageId: string; fromBotId: string;
+  toBotId: string; task: string; waitForCodeRequestId?: string; toolCallId?: string;
+}): { handoff: RoomHandoff; duplicate: boolean } {
+  const room = getRoom(input.roomId);
+  if (!room || latestRoomRequest(room)?.id !== input.requestId) throw new Error("Room request is no longer active");
+  const from = room.messages.find((message) => message.id === input.fromMessageId);
+  if (!from || from.botId !== input.fromBotId || !(from.status === "working" || from.conversation?.requestId === input.requestId)) {
+    throw new Error("This turn can no longer register handoffs");
+  }
+  const lowered = input.toBotId.trim().toLowerCase();
+  const target = room.members.map(getBot).find((bot) => bot?.enabled && (bot.id.toLowerCase() === lowered || bot.name.toLowerCase() === lowered));
+  if (!target || target.id === input.fromBotId) throw new Error("Handoffs must name another enabled participant of this room");
+  const task = input.task.trim();
+  if (!task || task.length > HANDOFF_TASK_MAX) throw new Error(`A handoff task of 1–${HANDOFF_TASK_MAX} characters is required`);
+  if (input.waitForCodeRequestId && roomCodeRequestForRoom(input.roomId, input.waitForCodeRequestId)?.room?.conversation.requestId !== input.requestId) {
+    throw new Error("Unknown or already settled code request id; omit waitForCodeRequestId to register the handoff without waiting");
+  }
+  const existing = room.handoffs ?? [];
+  // Replays of the same tool call return the original receipt instead of a second registration.
+  const replayed = input.toolCallId ? existing.find((handoff) => handoff.toolCallId === input.toolCallId) : undefined;
+  if (replayed) return { handoff: replayed, duplicate: true };
+  const normalized = task.replace(/\s+/g, " ");
+  const equivalent = existing.find((handoff) => handoff.requestId === input.requestId && handoff.toBotId === target.id
+    && handoff.waitForCodeRequestId === input.waitForCodeRequestId && handoff.task.replace(/\s+/g, " ") === normalized
+    && (handoff.state === "waiting" || handoff.state === "ready" || handoff.state === "running"));
+  if (equivalent) return { handoff: equivalent, duplicate: true };
+  const now = Date.now();
+  const handoff: RoomHandoff = {
+    id: randomUUID(), requestId: input.requestId, fromMessageId: input.fromMessageId, fromBotId: input.fromBotId,
+    toBotId: target.id, task, ...(input.waitForCodeRequestId ? { waitForCodeRequestId: input.waitForCodeRequestId } : {}),
+    state: input.waitForCodeRequestId ? "waiting" : "ready", ...(input.toolCallId ? { toolCallId: input.toolCallId } : {}),
+    createdAt: now, updatedAt: now,
+  };
+  updateRoomHandoffs(input.roomId, (handoffs) => {
+    // Make room for the new record by dropping the oldest settled one.
+    const firstSettled = handoffs.find((item) => item.state === "done" || item.state === "failed" || item.state === "cancelled");
+    const kept = handoffs.length >= MAX_ROOM_HANDOFFS && firstSettled
+      ? handoffs.filter((item) => item.id !== firstSettled.id)
+      : handoffs;
+    return [...kept, handoff];
+  });
+  mirrorHandoffs(input.roomId);
+  return { handoff, duplicate: false };
+}
+
+/** Settle the handoffs waiting on this Code request; returns the ones it activated (ready). */
+export function settleRoomHandoffsForCode(request: CodeRequest): RoomHandoff[] {
+  if (!request.room) return [];
+  const room = getRoom(request.room.id);
+  const waiting = (room?.handoffs ?? []).filter((handoff) => handoff.state === "waiting" && handoff.waitForCodeRequestId === request.id);
+  if (!room || waiting.length === 0) return [];
+  const success = handoffCodeOutcome(request) === "実行終了";
+  updateRoomHandoffs(request.room.id, (handoffs) => handoffs.map((handoff) => {
+    if (handoff.state !== "waiting" || handoff.waitForCodeRequestId !== request.id) return handoff;
+    return success
+      ? { ...handoff, state: "ready" as const, updatedAt: Date.now() }
+      : { ...handoff, state: "failed" as const, reason: `Code依頼が成功しなかったため実行しません（${handoffCodeOutcome(request) ?? "結果なし"}）`, updatedAt: Date.now() };
+  }));
+  mirrorHandoffs(request.room.id);
+  return success ? waiting : [];
+}
+
+/**
+ * Recovery scan on user activity: resolve running/waiting handoffs the current triggers missed
+ * (a crashed worker, a delivery before the scan) and report whether delivery should run.
+ */
+export function settleRoomHandoffs(roomId: string): number {
+  const room = getRoom(roomId);
+  if (!room?.handoffs?.length) return 0;
+  const latestRequestId = latestRoomRequest(room)?.id;
+  let dirty = false;
+  let deliverable = false;
+  for (const handoff of room.handoffs) {
+    if (handoff.state === "done" || handoff.state === "failed" || handoff.state === "cancelled") continue;
+    if (handoff.requestId !== latestRequestId) {
+      patchHandoff(roomId, handoff.id, (current) => ({ ...current, state: "failed", reason: "会話が新しい指示に置き換わったため実行しません", updatedAt: Date.now() }));
+      dirty = true;
+    } else if (handoff.state === "running") {
+      const message = room.messages.find((item) => item.id === handoff.responseMessageId);
+      if (!message) {
+        patchHandoff(roomId, handoff.id, (current) => ({ ...current, state: "failed", reason: "中断されました（要確認）", updatedAt: Date.now() }));
+        dirty = true;
+      } else if (message.status !== "working") {
+        patchHandoff(roomId, handoff.id, (current) => message.status === "done" ? { ...current, state: "done", updatedAt: Date.now() } : { ...current, state: "failed", reason: "中断されました（要確認）", updatedAt: Date.now() });
+        dirty = true;
+      }
+    } else if (handoff.state === "waiting" && handoff.waitForCodeRequestId) {
+      const settled = settledRoomCodeRequest(roomId, handoff.waitForCodeRequestId);
+      if (settled) {
+        const activated = settleRoomHandoffsForCode(settled);
+        dirty = true;
+        deliverable ||= activated.length > 0;
+      } else if (!roomCodeRequestForRoom(roomId, handoff.waitForCodeRequestId)) {
+        patchHandoff(roomId, handoff.id, (current) => ({ ...current, state: "failed", reason: "待機先のCode依頼が見つかりません", updatedAt: Date.now() }));
+        dirty = true;
+      }
+    } else if (handoff.state === "ready") {
+      deliverable = true;
+    }
+  }
+  if (dirty) mirrorHandoffs(roomId);
+  return deliverable ? 1 : 0;
+}
+
+/** "Stop now" also cancels handoffs that have not started; a running one ends with its aborted turn. */
+export function cancelPendingRoomHandoffs(roomId: string): number {
+  const room = getRoom(roomId);
+  const pending = (room?.handoffs ?? []).filter((handoff) => handoff.state === "waiting" || handoff.state === "ready");
+  if (pending.length === 0) return 0;
+  updateRoomHandoffs(roomId, (handoffs) => handoffs.map((handoff) => pending.some((item) => item.id === handoff.id)
+    ? { ...handoff, state: "cancelled", reason: "ユーザーが停止しました", updatedAt: Date.now() }
+    : handoff));
+  mirrorHandoffs(roomId);
+  return pending.length;
+}
+
+/** Deliver every ready handoff of this room, one at a time; claims under the room lock prevent double runs. */
+export async function deliverReadyRoomHandoffs(roomId: string): Promise<void> {
+  for (;;) {
+    const room = getRoom(roomId);
+    const next = room?.handoffs?.find((handoff) => handoff.state === "ready");
+    if (!room || !next) return;
+    const requestId = next.requestId;
+    if (latestRoomRequest(room)?.id !== requestId) {
+      patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "会話が新しい指示に置き換わったため実行しません", updatedAt: Date.now() }));
+      continue;
+    }
+    const bot = getBot(next.toBotId);
+    if (!bot?.enabled || !room.members.includes(bot.id)) {
+      patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "宛先Botが無効なため実行しません", updatedAt: Date.now() }));
+      continue;
+    }
+    // Claim before opening the turn: a concurrent deliverer loses the race here.
+    const claimed = updateRoomHandoffs(roomId, (handoffs) => handoffs.map((handoff) => handoff.id === next.id && handoff.state === "ready"
+      ? { ...handoff, state: "running", updatedAt: Date.now() }
+      : handoff));
+    if (!claimed?.some((handoff) => handoff.id === next.id && handoff.state === "running")) continue;
+    const participants = room.members.map(getBot).filter((member): member is BotDto => Boolean(member?.enabled));
+    const turnIndex = (room.handoffs?.filter((handoff) => handoff.responseMessageId).length ?? 0) + 1;
+    const placeholder = appendRoomMessage(roomId, {
+      role: "assistant", botId: bot.id, botName: bot.name, text: "", status: "working",
+      conversation: { requestId, participantIds: participants.map((member) => member.id), turn: turnIndex, maxTurns: MAX_ROOM_CONVERSATION_TURNS },
+    });
+    if (!placeholder) return;
+    patchHandoff(roomId, next.id, (current) => current.state === "running" ? { ...current, responseMessageId: placeholder.id, updatedAt: Date.now() } : current);
+    const turn: RoomTurn = {
+      participants, turn: turnIndex, maxTurns: MAX_ROOM_CONVERSATION_TURNS,
+      handoff: { fromBotName: getBot(next.fromBotId)?.name ?? "他のBot", task: next.task },
+    };
+    const reply = await runRoomBot(room, bot, latestRoomRequest(room)?.text ?? "", placeholder.id, requestId, turn);
+    patchHandoff(roomId, next.id, (current) => current.state !== "running" ? current
+      : reply ? { ...current, state: "done", updatedAt: Date.now() }
+      : { ...current, state: "failed", reason: "応答を取得できませんでした", updatedAt: Date.now() });
+  }
 }

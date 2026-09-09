@@ -131,6 +131,12 @@ export function roomCodeRequestForRoom(roomId: string, requestId: string): CodeR
   const request = read(requestId);
   return request?.room?.id === roomId && active(request) ? request : undefined;
 }
+/** A settled (delivered/cancelled) request file, so a waiting handoff can resolve its trigger after the fact. */
+export function settledRoomCodeRequest(roomId: string, requestId: string): CodeRequest | undefined {
+  if (!/^[a-f0-9]{64}$/.test(requestId)) return undefined;
+  const request = read(requestId);
+  return request?.room?.id === roomId && !active(request) ? request : undefined;
+}
 export async function cancelRoomCodeRequest(roomId: string, requestId: string): Promise<boolean> {
   if (!/^[a-f0-9]{64}$/.test(requestId)) return false;
   return withBotCodeSessionLock(`room-${roomId}`, async () => {

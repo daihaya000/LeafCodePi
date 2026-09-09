@@ -3,7 +3,7 @@ import { appendRoomMessage, botsForRoomPrompt, getRoom, roomImageRejection, save
 import { isPromptImageList } from "@/lib/prompt-images";
 import { jsonError } from "@/lib/pi/harness";
 import { isRoomConversationRequest, isRoomStopRequest, MAX_ROOM_CONVERSATION_PARTICIPANTS } from "@/lib/room-conversation";
-import { runRoomConversation, runRoomFanOut, settleStaleRoomTurns, steerRoomTurns, stopRoomTurns } from "@/lib/room-runtime";
+import { cancelPendingRoomHandoffs, deliverReadyRoomHandoffs, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleStaleRoomTurns, steerRoomTurns, stopRoomTurns } from "@/lib/room-runtime";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -24,16 +24,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!body.prompt.trim() && attachments.length === 0) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     const prompt = body.prompt.trim();
     settleStaleRoomTurns(id);
+    if (isRoomStopRequest(prompt)) {
+      const userMessage = appendRoomMessage(id, { role: "user", text: prompt });
+      if (!userMessage) return NextResponse.json({ error: "Room not found" }, { status: 404 });
+      const stopped = await stopRoomTurns(id);
+      const cancelledHandoffs = cancelPendingRoomHandoffs(id);
+      return NextResponse.json({ room: getRoom(id), routedBotIds: [], stopped: true, stoppedTurns: stopped, cancelledHandoffs });
+    }
+    // Recovery scan before the new request lands: resolve handoffs whose trigger was missed
+    // (restart, crash) and let ready ones claim the floor first; a new user message can steer them.
+    if (settleRoomHandoffs(id) > 0) void deliverReadyRoomHandoffs(id).catch(() => console.error("Room handoff delivery failed"));
     const userMessage = appendRoomMessage(id, { role: "user", text: prompt });
     if (!userMessage) return NextResponse.json({ error: "Room not found" }, { status: 404 });
     // ponytail: attachment files outlive a revert; the whole directory goes when the room is deleted.
     if (attachments.length > 0) {
       const saved = saveRoomImages(id, userMessage.id, attachments);
       if (saved.length > 0) updateRoomMessage(id, userMessage.id, { images: saved });
-    }
-    if (isRoomStopRequest(prompt)) {
-      const stopped = await stopRoomTurns(id);
-      return NextResponse.json({ room: getRoom(id), routedBotIds: [], stopped: true, stoppedTurns: stopped });
     }
     // A new instruction redirects the turns already being written; those bots answer once, there.
     const steered = new Set(await steerRoomTurns(id, prompt));

@@ -41,6 +41,32 @@ export type RoomMessage = {
   codeState?: CodeRequestState;
   /** What the delegated Code run is doing right now (tool label only, never its output). */
   codeActivity?: string;
+  /** Display mirror of the handoffs registered from this message; the room file owns the records. */
+  handoffs?: { id: string; toBotId: string; toBotName: string; state: RoomHandoffState }[];
+};
+
+export const ROOM_HANDOFF_STATES = ["waiting", "ready", "running", "done", "failed", "cancelled"] as const;
+export type RoomHandoffState = (typeof ROOM_HANDOFF_STATES)[number];
+/** Follow-up work one participant registered for another; delivered by the server, not by prose. */
+export type RoomHandoff = {
+  id: string;
+  /** Conversation (user request) the handoff belongs to. */
+  requestId: string;
+  /** Assistant message whose turn registered the handoff. */
+  fromMessageId: string;
+  fromBotId: string;
+  toBotId: string;
+  task: string;
+  /** The Code request this handoff waits for; absent means ready as soon as it is registered. */
+  waitForCodeRequestId?: string;
+  state: RoomHandoffState;
+  reason?: string;
+  /** Assistant message opened for the delivery run. */
+  responseMessageId?: string;
+  /** Tool call that registered it; replays of the same call return the same receipt. */
+  toolCallId?: string;
+  createdAt: number;
+  updatedAt: number;
 };
 
 export type RoomDto = {
@@ -53,6 +79,7 @@ export type RoomDto = {
   createdAt: string;
   updatedAt: string;
   messages: RoomMessage[];
+  handoffs?: RoomHandoff[];
 };
 export type RoutineDto = {
   id: string;

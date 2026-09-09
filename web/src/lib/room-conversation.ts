@@ -5,7 +5,7 @@ export const MAX_ROOM_CONVERSATION_TURNS = 8;
 /** Group chats stay legible with a handful of voices; extra members still read the room and can be mentioned. */
 export const MAX_ROOM_CONVERSATION_PARTICIPANTS = 6;
 const HISTORY_BUDGET = 24_000;
-export type RoomTurn = { participants: BotDto[]; turn: number; maxTurns: number };
+export type RoomTurn = { participants: BotDto[]; turn: number; maxTurns: number; handoff?: { fromBotName: string; task: string } };
 export type RoomReply = { text: string; action?: "next" | "done"; nextBotId?: string };
 
 /** /discuss is the unambiguous path; natural-language matching is only a convenience. */
@@ -113,10 +113,15 @@ export function roomBotPrompt(room: RoomDto, bot: BotDto, participants: BotDto[]
       "Default to acting, not to confirming. If the request names something concrete to produce or change, take the next step yourself: look the details up with your tools, state one short assumption if you must, and proceed.",
       "Never ask the user something the repository, the transcript, or your own tools can answer, and do not forward such a question to a teammate either.",
       "Only when there is no discernible deliverable at all, ask one short question and finish with ROOM_ACTION: DONE.",
+      "To request follow-up work from another participant (for example, verifying after a Code run finishes), register it with the room_handoff tool: pass their exact participant id, a concrete task, and optionally the code request id the task must wait for. The server wakes the teammate automatically. A prose @mention alone registers nothing and will not wake anyone.",
       "End your own contribution with exactly one standalone line, outside quotes and code fences:",
       "ROOM_ACTION: NEXT <participant-id>  (ask that participant a concrete question in your prose; their id or exact name, nobody else)",
       "ROOM_ACTION: DONE  (the discussion is complete or needs human input; this ends the conversation immediately)",
       "Copy the id or name exactly as listed above. Do not emit a control line without a real contribution. The server, not a tool call, handles /discuss and hands over the floor.",
+      ...(turn.handoff ? [
+        `Registered handoff: ${JSON.stringify({ from: turn.handoff.fromBotName, task: turn.handoff.task })}.`,
+        "This is a work turn, not a chat turn: do the handed-off task now with your tools (code_session with its usual approval for repository work), then briefly report the actual outcome and end with ROOM_ACTION: DONE. Never claim success you did not verify.",
+      ] : []),
       ...(turn.turn === turn.maxTurns ? ["This is the final available turn. Summarize the conclusion and any unresolved point for the user, then finish with ROOM_ACTION: DONE. Do not request another bot turn."] : []),
     ] : ["Answer the request directly and briefly, like chat rather than a report. Act on it with your tools where you can instead of asking what the requester meant. Do not emit ROOM_ACTION control lines for this ordinary reply."]),
   ].join("\n");

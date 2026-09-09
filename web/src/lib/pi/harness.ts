@@ -15,6 +15,7 @@ import {
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import { botPromptSources, botRuntimeContext, getBot } from "@/lib/bots";
 import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, roomForCodeOrigin, type CodeRequest } from "@/lib/pi/bot-code-relay";
+import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
 import { ROOM_SYSTEM_PROMPT, roomBotPrompt } from "@/lib/room-conversation";
 import { requestWebUiPermission } from "@/lib/pi/webui-permission-bridge";
 import {
@@ -2047,7 +2048,7 @@ function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
           if (!room || !bot) return false;
           const participants = request.room.conversation.participantIds.flatMap((id) => { const member = getBot(id); return member?.enabled && room.members.includes(id) ? [member] : []; });
           const turn = request.room.conversation;
-          content = roomBotPrompt(room, bot, participants, room.messages.find((message) => message.id === turn.requestId)?.text ?? request.prompt, turn.requestId, { participants, turn: turn.turn, maxTurns: turn.maxTurns }) + "\n" + content + "\nFor this result-report turn, do not start any work or tools. Report the actual outcome, then end with ROOM_ACTION: NEXT <participant-id> only if another selected participant should review or continue the original user request; otherwise end with ROOM_ACTION: DONE.";
+          content = roomBotPrompt(room, bot, participants, room.messages.find((message) => message.id === turn.requestId)?.text ?? request.prompt, turn.requestId, { participants, turn: turn.turn, maxTurns: turn.maxTurns }) + "\n" + content + "\nFor this result-report turn, do not start any work or tools. Follow-up work already registered with room_handoff for this Code request is delivered automatically; do not repeat it. Report the actual outcome, then end with ROOM_ACTION: NEXT <participant-id> only if another selected participant should review or continue the original user request; otherwise end with ROOM_ACTION: DONE.";
         }
         await queuePrompt(live, content, undefined, { codeResult: request });
       }
@@ -2245,6 +2246,7 @@ async function createSession(options: {
 }): Promise<SessionSetup> {
   const sessionTask = options.taskId ? getTask(options.taskId) : undefined;
   const botCodeTaskId = isBotCodeOriginTask(sessionTask) ? options.taskId : undefined;
+  const roomHandoffTaskId = roomForCodeOrigin(sessionTask) ? options.taskId : undefined;
   const pi = await loadPi();
   await ensureRuntime();
   const agentDir = pi.getAgentDir();
@@ -2292,6 +2294,7 @@ async function createSession(options: {
         }));
       }] : []),
       ...(botCodeTaskId ? [botCodeRelay().register(botCodeTaskId)] : []),
+      ...(roomHandoffTaskId ? [roomHandoffTool(roomHandoffTaskId)] : []),
     ],
     skillsOverride: (base) => {
       if (agentOptions?.noSkills || skillPermissionRef.current === "deny") {
@@ -2364,7 +2367,7 @@ async function createSession(options: {
         "todowrite",
         TOOL_SEARCH_NAME,
       ];
-  const tools = botCodeTaskId ? [...configuredTools, BOT_CODE_TOOL] : configuredTools;
+  const tools = [...configuredTools, ...(botCodeTaskId ? [BOT_CODE_TOOL] : []), ...(roomHandoffTaskId ? [ROOM_HANDOFF_TOOL] : [])];
   const result = await pi.createAgentSession({
     cwd: options.cwd,
     agentDir,

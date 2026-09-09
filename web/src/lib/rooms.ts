@@ -5,7 +5,8 @@ import { EventEmitter } from "node:events";
 import { dataDir } from "./paths";
 import { botTaskId, botWorkspace, getBot, listBots } from "./bots";
 import { deleteTask, getTask, insertBotTask, listTasks, patchTask } from "./store";
-import type { BotDto, RoomDto, RoomImage, RoomMessage, RoomOutcome } from "./types";
+import { ROOM_HANDOFF_STATES } from "./types";
+import type { BotDto, RoomDto, RoomHandoff, RoomImage, RoomMessage, RoomOutcome } from "./types";
 import { isPromptImageWithinSize, type PromptImageInput } from "./prompt-images";
 
 type RoomFile = RoomDto;
@@ -56,6 +57,13 @@ function normalizeRoom(value: Partial<RoomFile>, id: string): RoomDto | null {
   if (value.id !== id || typeof value.name !== "string" || !Array.isArray(value.members)) return null;
   const messages = Array.isArray(value.messages) ? value.messages.filter((item): item is RoomMessage => Boolean(item && typeof item === "object" && typeof item.id === "string" && (item.role === "user" || item.role === "assistant") && typeof item.text === "string" && typeof item.createdAt === "number")) : [];
   const lastOutcome = normalizeOutcome(value.lastOutcome);
+  const isHandoff = (item: unknown): item is RoomHandoff => {
+    const handoff = item as RoomHandoff | undefined;
+    return Boolean(handoff && typeof handoff === "object" && typeof handoff.id === "string" && typeof handoff.requestId === "string"
+      && typeof handoff.fromMessageId === "string" && typeof handoff.fromBotId === "string" && typeof handoff.toBotId === "string"
+      && typeof handoff.task === "string" && ROOM_HANDOFF_STATES.includes(handoff.state) && typeof handoff.createdAt === "number");
+  };
+  const handoffs = Array.isArray(value.handoffs) ? value.handoffs.filter(isHandoff) : [];
   return {
     id,
     name: value.name,
@@ -65,6 +73,7 @@ function normalizeRoom(value: Partial<RoomFile>, id: string): RoomDto | null {
     createdAt: String(value.createdAt),
     updatedAt: String(value.updatedAt),
     messages,
+    ...(handoffs.length > 0 ? { handoffs } : {}),
   };
 }
 function readRoom(id: string): RoomDto | undefined {
@@ -162,7 +171,7 @@ export function appendRoomMessage(id: string, message: Omit<RoomMessage, "id" | 
     return next;
   });
 }
-export function updateRoomMessage(id: string, messageId: string, patch: Partial<Pick<RoomMessage, "text" | "status" | "botName" | "conversation" | "codeRequestId" | "codeTaskId" | "codeState" | "codeActivity" | "images">>): RoomMessage | undefined {
+export function updateRoomMessage(id: string, messageId: string, patch: Partial<Pick<RoomMessage, "text" | "status" | "botName" | "conversation" | "codeRequestId" | "codeTaskId" | "codeState" | "codeActivity" | "images" | "handoffs">>): RoomMessage | undefined {
   return withRoomLock(id, () => {
     const room = readRoom(id);
     const message = room?.messages.find((item) => item.id === messageId);
@@ -180,6 +189,18 @@ export function setRoomOutcome(id: string, outcome: RoomOutcome): void {
     room.lastOutcome = outcome;
     room.updatedAt = new Date().toISOString();
     writeRoom(room);
+  });
+}
+/** Mutate the room's registered handoff records atomically; callers mirror display state themselves. */
+export function updateRoomHandoffs(id: string, update: (handoffs: RoomHandoff[]) => RoomHandoff[]): RoomHandoff[] | undefined {
+  return withRoomLock(id, () => {
+    const room = readRoom(id);
+    if (!room) return undefined;
+    room.handoffs = update(room.handoffs ?? []);
+    if (room.handoffs.length === 0) delete room.handoffs;
+    room.updatedAt = new Date().toISOString();
+    writeRoom(room);
+    return room.handoffs;
   });
 }
 /**

@@ -3,11 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CodeRequest } from "./pi/bot-code-relay";
-import type { BotDto, RoomDto, TaskDetail, UiMessage } from "./types";
+import type { BotDto, RoomDto, RoomHandoff, TaskDetail, UiMessage } from "./types";
 
 const state = vi.hoisted(() => ({
   root: "", details: new Map<string, TaskDetail>(), promptTask: vi.fn(),
   pendingRoom: vi.fn<(roomId: string, requestId: string, excludeRequestId?: string) => CodeRequest | undefined>(() => undefined),
+  activeCodeRequests: new Map<string, CodeRequest>(),
+  settledCodeRequests: new Map<string, CodeRequest>(),
   listeners: new Map<string, Set<(payload: Record<string, unknown>) => void>>(),
 }));
 vi.mock("@/lib/paths", async (importOriginal) => ({
@@ -25,12 +27,16 @@ vi.mock("@/lib/pi/harness", () => ({
     return () => listeners.delete(listener);
   },
 }));
-vi.mock("@/lib/pi/bot-code-relay", () => ({ pendingRoomCodeRequestForTurn: state.pendingRoom }));
+vi.mock("@/lib/pi/bot-code-relay", () => ({
+  pendingRoomCodeRequestForTurn: state.pendingRoom,
+  roomCodeRequestForRoom: (_roomId: string, requestId: string) => state.activeCodeRequests.get(requestId),
+  settledRoomCodeRequest: (_roomId: string, requestId: string) => state.settledCodeRequests.get(requestId),
+}));
 
 import { createBot } from "./bots";
-import { createRoom, ensureRoomBotTask, getRoom, appendRoomMessage, patchRoom } from "./rooms";
+import { createRoom, ensureRoomBotTask, getRoom, appendRoomMessage, patchRoom, updateRoomHandoffs, updateRoomMessage } from "./rooms";
 import { getTask, patchTask } from "./store";
-import { deliverRoomCodeReport, resumeRoomAfterCode, runRoomConversation, settleStaleRoomTurns } from "./room-runtime";
+import { cancelPendingRoomHandoffs, deliverRoomCodeReport, registerRoomHandoff, resumeRoomAfterCode, runRoomConversation, settleRoomHandoffs, settleStaleRoomTurns } from "./room-runtime";
 
 function assistant(id: string, text: string): UiMessage {
   return { id, role: "assistant", createdAt: Date.now(), parts: [{ id: `${id}-text`, type: "text", text }] };
@@ -58,6 +64,8 @@ function codeRequest(room: RoomDto, bot: BotDto, extra: Partial<CodeRequest> = {
 beforeEach(() => {
   state.root = mkdtempSync(join(tmpdir(), "leafcode-room-runtime-"));
   state.pendingRoom.mockReturnValue(undefined);
+  state.activeCodeRequests.clear();
+  state.settledCodeRequests.clear();
   state.promptTask.mockImplementation(async (id: string) => {
     const detail = state.details.get(id)!;
     detail.messages = [...detail.messages, assistant(`reply-${detail.messages.length}`, "進めた内容\nROOM_ACTION: DONE")];
@@ -271,5 +279,116 @@ describe("room conversation with delegated work", () => {
     expect(getRoom(room.id)!.messages.at(-1)!.text).toBe("外部へ");
     patchRoom(room.id, { members: [bots[1].id, outside.id] });
     expect(deliverRoomCodeReport({ ...request, id: "other" }, "結果\nROOM_ACTION: DONE")).toBe(false);
+  });
+});
+
+describe("registered room handoffs", () => {
+  function completedTurn(roomId: string, botId: string, requestId: string, members: string[]) {
+    return appendRoomMessage(roomId, { role: "assistant", botId, botName: "turn", text: "依頼した", status: "done", conversation: { requestId, participantIds: members, turn: 1, maxTurns: 6 } })!;
+  }
+
+  it("delivers a waiting handoff after the report even though the speaker ended with DONE", async () => {
+    const { room, bots, user } = setup(["A", "B"]);
+    const request = codeRequest(room, bots[0], { state: "running" });
+    state.pendingRoom.mockReturnValue(request);
+    state.activeCodeRequests.set(request.id, request);
+    await runRoomConversation(room, bots, "残作業も進めて", user.id);
+    expect(getRoom(room.id)?.lastOutcome?.kind).toBe("code-wait");
+    const turn = getRoom(room.id)!.messages.findLast((message) => message.botId === bots[0].id)!;
+    registerRoomHandoff({
+      roomId: room.id, requestId: user.id, fromMessageId: turn.id, fromBotId: bots[0].id,
+      toBotId: bots[1].id, task: "完了後に競合テストを検証して", waitForCodeRequestId: request.id,
+    });
+    expect(getRoom(room.id)!.handoffs?.[0]).toMatchObject({ state: "waiting", toBotId: bots[1].id });
+
+    state.promptTask.mockClear();
+    state.pendingRoom.mockReturnValue(undefined);
+    expect(deliverRoomCodeReport(request, "実装完了。\nROOM_ACTION: DONE")).toBe(true);
+    await resumeRoomAfterCode(request);
+    // The DONE speaker got no second turn; the handoff bot did, with the registered task.
+    expect(state.promptTask).toHaveBeenCalledTimes(1);
+    expect(state.promptTask.mock.calls[0][0]).toBe(`bot:${bots[1].id}:room:${room.id}`);
+    expect(state.promptTask.mock.calls[0][1]).toContain("完了後に競合テストを検証して");
+    expect(getRoom(room.id)!.handoffs?.[0]).toMatchObject({ state: "done" });
+    expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.handoffs?.[0]).toMatchObject({ toBotName: "B", state: "done" });
+  });
+
+  it("delivers an immediate handoff instead of continuing the round-robin", async () => {
+    const { room, bots, user } = setup(["A", "B"]);
+    const taskA = `bot:${bots[0].id}:room:${room.id}`;
+    state.promptTask.mockImplementation(async (id: string) => {
+      if (id === taskA) {
+        const working = getRoom(room.id)!.messages.findLast((message) => message.botId === bots[0].id && message.status === "working")!;
+        registerRoomHandoff({ roomId: room.id, requestId: user.id, fromMessageId: working.id, fromBotId: bots[0].id, toBotId: bots[1].id, task: "すぐ検証して" });
+      }
+      const detail = state.details.get(id)!;
+      detail.messages = [...detail.messages, assistant(`reply-${detail.messages.length}`, "進めた内容\nROOM_ACTION: DONE")];
+    });
+    await runRoomConversation(room, bots, "残作業も進めて", user.id);
+    expect(state.promptTask.mock.calls.map((call) => call[0])).toEqual([taskA, `bot:${bots[1].id}:room:${room.id}`]);
+    expect(state.promptTask.mock.calls[1][1]).toContain("すぐ検証して");
+    expect(getRoom(room.id)!.handoffs?.[0]).toMatchObject({ state: "done" });
+  });
+
+  it("fails a handoff waiting on a Code request that did not succeed", async () => {
+    const { room, bots, user } = setup(["A", "B"]);
+    const turn = completedTurn(room.id, bots[0].id, user.id, room.members);
+    const request = codeRequest(room, bots[0], { state: "running", result: JSON.stringify({ outcome: "失敗", error: "boom" }) });
+    state.activeCodeRequests.set(request.id, request);
+    registerRoomHandoff({
+      roomId: room.id, requestId: user.id, fromMessageId: turn.id, fromBotId: bots[0].id,
+      toBotId: bots[1].id, task: "完了後に検証して", waitForCodeRequestId: request.id,
+    });
+    await resumeRoomAfterCode(request);
+    expect(state.promptTask).not.toHaveBeenCalled();
+    expect(getRoom(room.id)!.handoffs?.[0]).toMatchObject({ state: "failed" });
+  });
+
+  it("returns the same receipt for replayed and equivalent registrations", () => {
+    const { room, bots, user } = setup(["A", "B"]);
+    const turn = completedTurn(room.id, bots[0].id, user.id, room.members);
+    const base = { roomId: room.id, requestId: user.id, fromMessageId: turn.id, fromBotId: bots[0].id, toBotId: bots[1].id, task: "検証して" };
+    expect(() => registerRoomHandoff({ ...base, toBotId: "誰か" })).toThrow();
+    expect(() => registerRoomHandoff({ ...base, toBotId: bots[0].id })).toThrow();
+    const first = registerRoomHandoff({ ...base, toolCallId: "call-1" });
+    expect(registerRoomHandoff({ ...base, toolCallId: "call-1" })).toMatchObject({ duplicate: true, handoff: { id: first.handoff.id } });
+    expect(registerRoomHandoff({ ...base, task: " 検証して  ", toolCallId: "call-2" })).toMatchObject({ duplicate: true, handoff: { id: first.handoff.id } });
+    expect(getRoom(room.id)!.handoffs).toHaveLength(1);
+  });
+
+  it("cancels handoffs that have not started when the user stops", () => {
+    const { room, bots, user } = setup(["A", "B"]);
+    const turn = completedTurn(room.id, bots[0].id, user.id, room.members);
+    const base = { roomId: room.id, requestId: user.id, fromMessageId: turn.id, fromBotId: bots[0].id };
+    registerRoomHandoff({ ...base, toBotId: bots[1].id, task: "依頼1" });
+    const waitingRequest = codeRequest(room, bots[0], { id: "wait-req" });
+    state.activeCodeRequests.set(waitingRequest.id, waitingRequest);
+    registerRoomHandoff({ ...base, toBotId: bots[1].id, task: "依頼2", waitForCodeRequestId: waitingRequest.id });
+    expect(cancelPendingRoomHandoffs(room.id)).toBe(2);
+    for (const handoff of getRoom(room.id)!.handoffs ?? []) expect(handoff.state).toBe("cancelled");
+  });
+
+  it("recovers after a restart: crashed runs fail, finished runs complete, unknown waits fail", () => {
+    const { room, bots, user } = setup(["A", "B"]);
+    const turn = completedTurn(room.id, bots[0].id, user.id, room.members);
+    const base = { roomId: room.id, requestId: user.id, fromMessageId: turn.id, fromBotId: bots[0].id };
+    const crashed = registerRoomHandoff({ ...base, toBotId: bots[1].id, task: "依頼1" }).handoff;
+    const finished = registerRoomHandoff({ ...base, toBotId: bots[1].id, task: "依頼2" }).handoff;
+    // A waiting handoff whose Code request file disappeared since registration (restart cleanup).
+    const waiting: RoomHandoff = { id: "waiting-1", requestId: user.id, fromMessageId: turn.id, fromBotId: bots[0].id, toBotId: bots[1].id, task: "依頼3", waitForCodeRequestId: "b".repeat(64), state: "waiting", createdAt: Date.now(), updatedAt: Date.now() };
+    updateRoomHandoffs(room.id, (handoffs) => [...handoffs, waiting]);
+    const crashedMessage = appendRoomMessage(room.id, { role: "assistant", botId: bots[1].id, text: "", status: "working" })!;
+    const finishedMessage = appendRoomMessage(room.id, { role: "assistant", botId: bots[1].id, text: "検証した", status: "done" })!;
+    updateRoomHandoffs(room.id, (handoffs) => handoffs.map((handoff) => {
+      if (handoff.id === crashed.id) return { ...handoff, state: "running", responseMessageId: crashedMessage.id };
+      if (handoff.id === finished.id) return { ...handoff, state: "running", responseMessageId: finishedMessage.id };
+      return handoff;
+    }));
+    updateRoomMessage(room.id, crashedMessage.id, { status: "error" });
+    expect(settleRoomHandoffs(room.id)).toBe(0);
+    const states = Object.fromEntries((getRoom(room.id)!.handoffs ?? []).map((handoff) => [handoff.id, handoff]));
+    expect(states[crashed.id]).toMatchObject({ state: "failed" });
+    expect(states[finished.id]).toMatchObject({ state: "done" });
+    expect(states[waiting.id]).toMatchObject({ state: "failed" });
   });
 });

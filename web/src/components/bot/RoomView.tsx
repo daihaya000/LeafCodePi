@@ -8,7 +8,7 @@ import { notifyBotSidebarChanged } from "@/lib/events";
 import { markRead } from "@/lib/bot-unread";
 import type { SkillDto } from "@/lib/skills";
 import { decideNotification } from "@/lib/notify";
-import type { BotDto, QuestionRequestDto, RoomAttention, RoomDto } from "@/lib/types";
+import type { BotDto, QuestionRequestDto, RoomAttention, RoomDto, RoomHandoffState } from "@/lib/types";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
@@ -23,9 +23,19 @@ import { CodeRequestCard } from "@/components/bot/CodeRequestCard";
 
 type MentionContext = { start: number; end: number; query: string };
 
-/** A room is busy while a turn is being written or a delegated Code run has not reported back. */
+const HANDOFF_STATE_TEXT: Record<RoomHandoffState, string> = {
+  waiting: "Code完了待ち",
+  ready: "実行待ち",
+  running: "実行中",
+  done: "完了",
+  failed: "中断",
+  cancelled: "取消",
+};
+
+/** A room is busy while a turn is being written, a delegated Code run has not reported back, or a handoff is queued. */
 function isRoomBusy(room: RoomDto | null): boolean {
-  return (room?.messages ?? []).some((message) => message.status === "working" || message.codeState === "queued" || message.codeState === "starting" || message.codeState === "running" || message.codeState === "ready");
+  return (room?.messages ?? []).some((message) => message.status === "working" || message.codeState === "queued" || message.codeState === "starting" || message.codeState === "running" || message.codeState === "ready")
+    || (room?.handoffs ?? []).some((handoff) => handoff.state === "ready" || handoff.state === "running");
 }
 
 type MentionCandidate = { key: string; value: string; label: string; description: string; bot?: BotDto };
@@ -335,13 +345,22 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     const user = message.role === "user";
     const bot = message.botId ? botById.get(message.botId) : undefined;
     const text = message.text || (message.status === "working" ? "応答中…" : "");
-    if (!text && !message.codeState && !message.images?.length) return null;
+    if (!text && !message.codeState && !message.images?.length && !message.handoffs?.length) return null;
     return (
       <BotChatMessage key={message.id} user={user} createdAt={message.createdAt}
         sender={{ ...bot, name: bot?.name ?? message.botName ?? "ボット", active: message.status === "working" }} text={text} mentions={bots}
         images={message.images && message.images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{message.images.map((image) => <ImageLightbox key={image.file} src={`/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}`} alt="添付画像" className="max-h-48 max-w-full rounded-xl object-contain" />)}</div>}
         footer={user ? <button type="button" title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"><RotateCcw className="h-3 w-3" />入力欄に戻す</button> : undefined}>
         {message.codeState && <CodeRequestCard taskId={message.codeTaskId} state={message.codeState} activity={message.codeActivity} stopping={stoppingCode} onStop={() => void stopCode(message.codeRequestId)} />}
+        {message.handoffs?.length ? (
+          <div className="flex flex-wrap gap-1.5">
+            {message.handoffs.map((handoff) => (
+              <span key={handoff.id} className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[11px] text-muted">
+                <span aria-hidden="true">→</span>{`@${handoff.toBotName} ${HANDOFF_STATE_TEXT[handoff.state]}`}
+              </span>
+            ))}
+          </div>
+        ) : null}
         {message.status === "error" && <BotMessageError text="応答に失敗しました" />}
       </BotChatMessage>
     );
