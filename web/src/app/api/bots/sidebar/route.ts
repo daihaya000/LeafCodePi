@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { botTaskId, listBots } from "@/lib/bots";
 import { listRooms } from "@/lib/rooms";
-import { getTask } from "@/lib/store";
+import { getTask, listTasks } from "@/lib/store";
 import { getTaskDetail } from "@/lib/pi/harness";
 import { listBotCodeRequests } from "@/lib/pi/bot-code-relay";
 import type { UiMessage } from "@/lib/types";
@@ -14,6 +14,10 @@ function textOf(message: UiMessage): string { return message.parts.filter((part)
 function summarize(text: string): string { const compact = text.replace(/\s+/g, " ").trim(); return compact.length > 80 ? `${compact.slice(0, 79)}…` : compact; }
 
 export async function GET() {
+  const counts = new Map<string, number>();
+  for (const task of listTasks()) {
+    if (task.botId) counts.set(task.botId, (counts.get(task.botId) ?? 0) + 1);
+  }
   const bots = listBots();
   const botPreviews = await Promise.all(bots.map(async (bot) => {
     const task = getTask(botTaskId(bot.id));
@@ -26,7 +30,7 @@ export async function GET() {
       }
     } catch { /* sidebar preview is best effort */ }
     const codeInProgress = listBotCodeRequests(bot.id).some((request) => request.state === "starting" || request.state === "running");
-    return { ...bot, ...preview, codeInProgress };
+    return { ...bot, ...preview, codeInProgress, codeSessionCount: counts.get(bot.id) ?? 0 };
   }));
   const rooms = listRooms().map((room) => {
     const message = room.messages[room.messages.length - 1];

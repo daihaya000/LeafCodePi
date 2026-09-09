@@ -94,6 +94,8 @@ export type BotDto = {
   codeAutoApprove: boolean;
   /** The Code task currently controlled by this Bot, when one is linked. */
   codeSessionTaskId?: string | null;
+  /** 現在保持している非アーカイブCodeセッション数。 */
+  codeSessionCount?: number;
   soul: string;
 };
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createBot, listBots, patchBot } from "@/lib/bots";
+import { listTasks } from "@/lib/store";
 import { botTemplateById } from "@/lib/bot-marketplace";
 import { getSetting } from "@/lib/pi/web-settings";
 import { parseBotDefaultPermission, parseBotDefaultThinking, BOT_DEFAULT_PERMISSION_KEY, BOT_DEFAULT_THINKING_KEY } from "@/lib/bot-settings";
@@ -7,7 +8,13 @@ import { parseBotDefaultPermission, parseBotDefaultThinking, BOT_DEFAULT_PERMISS
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() { return NextResponse.json({ bots: listBots() }); }
+export async function GET() {
+  const counts = new Map<string, number>();
+  for (const task of listTasks()) {
+    if (task.botId) counts.set(task.botId, (counts.get(task.botId) ?? 0) + 1);
+  }
+  return NextResponse.json({ bots: listBots().map((bot) => ({ ...bot, codeSessionCount: counts.get(bot.id) ?? 0 })) });
+}
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as { name?: unknown; templateId?: unknown } | null;
   if (body?.name !== undefined && typeof body.name !== "string") return NextResponse.json({ error: "invalid name" }, { status: 400 });

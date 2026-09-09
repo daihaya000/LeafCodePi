@@ -69,7 +69,7 @@ export function BotListView() {
         <section aria-labelledby="my-bots-heading">
           <h2 id="my-bots-heading" className="text-sm font-semibold">マイボット</h2>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            {bots.map((bot) => <Link key={bot.id} href={`/bots/${bot.id}`} className="rounded-xl border border-border bg-surface p-4 hover:border-accent"><div className="flex items-center gap-3"><BotAvatar size={40} {...bot} /><span className="min-w-0 flex-1 truncate font-medium">{bot.name}</span><span className="text-xs text-muted">{bot.enabled ? "有効" : "無効"}</span></div><p className="mt-2 line-clamp-2 text-xs text-muted">{bot.soul.replace(/^#.*$/m, "").trim() || "SOUL.md はまだありません"}</p></Link>)}
+            {bots.map((bot) => <Link key={bot.id} href={`/bots/${bot.id}`} className="rounded-xl border border-border bg-surface p-4 hover:border-accent"><div className="flex items-center gap-3"><span className="relative shrink-0"><BotAvatar size={40} {...bot} />{bot.codeSessionCount ? <span aria-label={`Codeセッション${bot.codeSessionCount}件`} title={`Codeセッション${bot.codeSessionCount}件`} className="absolute -bottom-1 -right-1 inline-flex min-w-4 items-center justify-center rounded-full border-2 border-surface bg-accent px-1 text-[10px] font-semibold leading-3 text-white">{bot.codeSessionCount}</span> : null}</span><span className="min-w-0 flex-1 truncate font-medium">{bot.name}</span><span className="text-xs text-muted">{bot.enabled ? "有効" : "無効"}</span></div><p className="mt-2 line-clamp-2 text-xs text-muted">{bot.soul.replace(/^#.*$/m, "").trim() || "SOUL.md はまだありません"}</p></Link>)}
             {bots.length === 0 && <BotEmptyState title="ボットはまだありません" description="テンプレートまたは作成フォームから最初のボットを作成できます。" />}
           </div>
         </section>
