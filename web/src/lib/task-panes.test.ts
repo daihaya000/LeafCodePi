@@ -354,12 +354,27 @@ describe("closeTab", () => {
 });
 
 describe("clearPane", () => {
-  it("指定ペインのタブをすべて除去し、ペイン自体は残す", () => {
-    const base = state(pane(P1, ["a", "b"], "b"), pane(P2, ["c"]));
-    const next = reducer(base, { type: "clearPane", paneId: P1 });
+  it("完了済みタブを除去し、進行中タブを残す", () => {
+    const base = state(pane(P1, ["done", "working"], "done"), pane(P2, ["other"]));
+    const next = reducer(base, { type: "clearPane", paneId: P1, keepTabIds: ["working"] });
 
-    expect(next.panes).toEqual([pane(P1, [], null), pane(P2, ["c"])]);
+    expect(next.panes).toEqual([pane(P1, ["working"]), pane(P2, ["other"])]);
     expect(next.activePaneId).toBe(P1);
+  });
+
+  it("すべてのタブがクリア対象なら複数ペイン時はペイン自体を削除する", () => {
+    const base = state(pane(P1, ["done"]), pane(P2, ["other"]));
+    const next = reducer(base, { type: "clearPane", paneId: P1, keepTabIds: [] });
+
+    expect(next.panes).toEqual([pane(P2, ["other"])]);
+    expect(next.activePaneId).toBe(P2);
+  });
+
+  it("最後のペインは空にして残す", () => {
+    const base = state(pane(P1, ["done"]));
+    const next = reducer(base, { type: "clearPane", paneId: P1, keepTabIds: [] });
+
+    expect(next.panes).toEqual([pane(P1, [], null)]);
   });
 
   it("空ペインまたは不明ペインは no-op", () => {

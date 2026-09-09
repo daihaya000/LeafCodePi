@@ -666,7 +666,11 @@ export function TaskPanesHost() {
         onActivatePane={(paneId) => dispatch({ type: "activatePane", paneId })}
         onActivateTab={(paneId, taskId) => dispatch({ type: "activateTab", paneId, taskId })}
         onCloseTab={(paneId, taskId) => dispatch({ type: "closeTab", paneId, taskId })}
-        onClearPane={(paneId) => dispatch({ type: "clearPane", paneId })}
+        onClearPane={(paneId) => {
+          const pane = state.panes.find((candidate) => candidate.id === paneId);
+          const keepTabIds = pane?.tabs.filter((taskId) => statusFor(taskId) === "working");
+          dispatch({ type: "clearPane", paneId, keepTabIds });
+        }}
         onReorderTabs={(paneId, tabs) => dispatch({ type: "reorderTabs", paneId, tabs })}
         onMoveTab={onMoveTab}
         onAddPane={addPane}

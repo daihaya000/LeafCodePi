@@ -91,7 +91,7 @@ export type TaskPanesAction =
       direction?: SplitDirection;
     }
   | { type: "closeTab"; paneId: string; taskId: string }
-  | { type: "clearPane"; paneId: string }
+  | { type: "clearPane"; paneId: string; keepTabIds?: readonly string[] }
   | { type: "activateTab"; paneId: string; taskId: string }
   | { type: "reorderTabs"; paneId: string; tabs: string[] }
   | {
@@ -499,10 +499,30 @@ export function taskPanesReducer(
     case "clearPane": {
       const target = state.panes.find((pane) => pane.id === action.paneId);
       if (!target || target.tabs.length === 0) return state;
+      const keep = new Set(action.keepTabIds ?? []);
+      const tabs = target.tabs.filter((tabId) => keep.has(tabId));
+      if (tabs.length === target.tabs.length) return state;
+      if (tabs.length === 0) {
+        if (state.panes.length <= 1) {
+          return {
+            ...state,
+            panes: [{ ...target, tabs: [], activeTabId: null }],
+          };
+        }
+        return removePane(state, target.id);
+      }
       return {
         ...state,
         panes: state.panes.map((pane) =>
-          pane.id === target.id ? { ...pane, tabs: [], activeTabId: null } : pane,
+          pane.id === target.id
+            ? {
+                ...pane,
+                tabs,
+                activeTabId: tabs.includes(pane.activeTabId ?? "")
+                  ? pane.activeTabId
+                  : (tabs[0] ?? null),
+              }
+            : pane,
         ),
       };
     }
