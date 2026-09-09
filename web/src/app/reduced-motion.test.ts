@@ -10,9 +10,9 @@ async function compileGlobalsCss(): Promise<string> {
   return result.css;
 }
 
-test("keeps all visual effects independent of the OS reduced-motion preference", async () => {
+test("keeps Bot animations visible while honoring reduced-motion", async () => {
   const css = await compileGlobalsCss();
-  expect(css).not.toContain("prefers-reduced-motion");
+  expect(css).toContain("prefers-reduced-motion");
   expect(css).not.toContain("0.001ms");
   expect(css).toContain(".animate-spin");
   expect(css).toMatch(/@keyframes spin\s*\{/);
