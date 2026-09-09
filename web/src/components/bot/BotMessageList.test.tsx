@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
-import { BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow, BotMessageSender, BotMessageTime, BotResponseStatus } from "./BotMessageList";
+import { BotChatMessage, BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow, BotMessageSender, BotMessageTime, BotResponseStatus } from "./BotMessageList";
 import type { UiMessage } from "@/lib/types";
 import { formatMessageTime } from "../ui";
 
@@ -53,14 +53,17 @@ it("renders bot Markdown with GFM", () => {
   expect(container.querySelector("ul li")?.textContent).toBe("item");
 });
 
-it("keeps the sender inline with prose without flattening lists", () => {
-  const { container } = render(<BotMessageMarkdown text={"Hello\n\n- item\n\nAnother paragraph"} prefix={<span>Sender</span>} />);
-  const markdown = container.firstElementChild!;
-  expect(markdown.className).toContain("[&>p:first-of-type]:inline");
-  expect(markdown.firstElementChild?.textContent).toBe("Sender");
-  expect(markdown.querySelector("p")?.textContent).toBe("Hello");
-  expect(markdown.querySelector("ul li")?.textContent).toBe("item");
-  expect(markdown.querySelectorAll("p")).toHaveLength(2);
+it("shares sender/time placement and Room mention chips across conversation messages", () => {
+  const props = { createdAt: 1, sender: { name: "Sender" }, text: "Hello @here\n\n- item" };
+  const { container, rerender } = render(<BotChatMessage {...props} user={false} />);
+  const bubble = container.querySelector(".bot-message-bubble")!;
+  expect(bubble.textContent).not.toContain("Sender");
+  expect(container.querySelectorAll("time")).toHaveLength(1);
+  expect(bubble.previousElementSibling?.querySelector("time")).toBeTruthy();
+  expect(bubble.querySelector("ul li")?.textContent).toBe("item");
+  rerender(<BotChatMessage {...props} user />);
+  expect(container.querySelector("[data-mention='@here']")?.className).toContain("bg-white/90");
+  expect(container.querySelector(".bot-message-bubble")?.nextElementSibling?.tagName).toBe("TIME");
 });
 
 it("shows the animated bot and the current tool action while responding", () => {

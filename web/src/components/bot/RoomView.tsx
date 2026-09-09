@@ -15,8 +15,7 @@ import { BotAvatar } from "@/components/bot/BotAvatar";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
-import { BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow } from "@/components/bot/BotMessageList";
-import { renderMentions } from "@/components/bot/BotMention";
+import { BotMessageError, BotMessageList, BotMessageMarkdown, BotChatMessage } from "@/components/bot/BotMessageList";
 import { ImageLightbox, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 
@@ -436,19 +435,15 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     const user = message.role === "user";
     const bot = message.botId ? botById.get(message.botId) : undefined;
     const text = message.text || (message.status === "working" ? "応答中…" : "");
-    if (!text && !message.codeState) return null;
+    if (!text && !message.codeState && !message.images?.length) return null;
     return (
-      <BotMessageRow key={message.id} user={user} createdAt={message.createdAt}
+      <BotChatMessage key={message.id} user={user} createdAt={message.createdAt}
+        sender={{ ...bot, name: bot?.name ?? message.botName ?? "ボット", active: message.status === "working" }} text={text} mentions={bots}
+        images={message.images && message.images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{message.images.map((image) => <ImageLightbox key={image.file} src={`/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}`} alt="添付画像" className="max-h-48 max-w-full rounded-xl object-contain" />)}</div>}
         footer={user ? <button type="button" title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"><RotateCcw className="h-3 w-3" />入力欄に戻す</button> : undefined}>
-        {(text || !user) && (user ? (
-          <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{renderMentions(text, bots, message.id, "user")}</div>
-        ) : (
-          <BotMessageMarkdown text={text} mentions={bots} keyPrefix={message.id} prefix={<span className="mr-1.5 inline-flex items-center gap-1.5 rounded-md bg-surface-3 px-1.5 py-0.5 align-baseline font-medium"><BotAvatar size={20} {...bot} name={bot?.name ?? message.botName} active={message.status === "working"} />{bot?.name ?? message.botName ?? "ボット"}</span>} />
-        ))}
-        {message.images && message.images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{message.images.map((image) => <ImageLightbox key={image.file} src={`/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}`} alt="添付画像" className="max-h-48 rounded-lg border border-border object-cover" />)}</div>}
         {message.codeState && <RoomCodePreview taskId={message.codeTaskId} state={message.codeState} activity={message.codeActivity} stopping={stoppingCode} onStop={() => void stopCode(message.codeRequestId)} />}
         {message.status === "error" && <BotMessageError text="応答に失敗しました" />}
-      </BotMessageRow>
+      </BotChatMessage>
     );
   }), [botById, bots, id, room?.messages, revertMessage, reverting, stopCode, stoppingCode]);
 

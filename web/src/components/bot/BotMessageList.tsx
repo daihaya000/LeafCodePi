@@ -4,7 +4,7 @@ import { type ReactNode, useLayoutEffect, useRef } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
-import { withMentions } from "@/components/bot/BotMention";
+import { renderMentions, withMentions } from "@/components/bot/BotMention";
 import { toolLabel } from "@/lib/tool-labels";
 import { formatMessageTime } from "@/components/ui";
 import type { BotDto, UiMessage } from "@/lib/types";
@@ -12,13 +12,13 @@ import type { BotDto, UiMessage } from "@/lib/types";
 /** Elements that carry prose; each rewrites only its own bare text into mention chips. */
 const MENTION_TAGS = ["p", "li", "strong", "em", "td", "th", "h1", "h2", "h3", "h4", "blockquote"] as const;
 
-export function BotMessageMarkdown({ text, mentions, keyPrefix = "md", prefix }: { text: string; mentions?: BotDto[]; keyPrefix?: string; prefix?: ReactNode }) {
-  const components = mentions?.length
+export function BotMessageMarkdown({ text, mentions, keyPrefix = "md" }: { text: string; mentions?: BotDto[]; keyPrefix?: string }) {
+  const components = mentions
     ? Object.fromEntries(MENTION_TAGS.map((Tag) => [Tag, ({ children, ...props }: { children?: ReactNode }) => (
       <Tag {...props}>{withMentions(children, mentions, keyPrefix)}</Tag>
     )]))
     : undefined;
-  return <div className={prefix ? "md [&>p:first-of-type]:inline" : "md"}>{prefix}<Markdown remarkPlugins={[remarkGfm]} components={components}>{text}</Markdown></div>;
+  return <div className="md"><Markdown remarkPlugins={[remarkGfm]} components={components}>{text}</Markdown></div>;
 }
 
 export function BotMessageList({ conversationId, children }: { conversationId: string; children: ReactNode }) {
@@ -94,6 +94,27 @@ export function BotMessageRow({ user, createdAt, children, footer, header, timeI
       {footer}
     </div>
   );
+}
+
+/** Shared conversation presentation; callers supply only conversation-specific content/actions. */
+export function BotChatMessage({ user, createdAt, sender, text, mentions = [], children, images, footer }: {
+  user: boolean;
+  createdAt: number;
+  sender: BotFace & { name: string; active?: boolean };
+  text: string;
+  mentions?: BotDto[];
+  children?: ReactNode;
+  images?: ReactNode;
+  footer?: ReactNode;
+}) {
+  return <BotMessageRow user={user} createdAt={createdAt} timeInHeader={!user}
+    header={user ? undefined : <BotMessageSender {...sender} createdAt={createdAt} />} footer={footer}>
+    {images}
+    {text && (user
+      ? <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{renderMentions(text, mentions, "user", "user")}</div>
+      : <BotMessageMarkdown text={text} mentions={mentions} />)}
+    {children}
+  </BotMessageRow>;
 }
 
 export function BotMessageError({ text }: { text: string }) {
