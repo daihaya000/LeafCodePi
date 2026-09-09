@@ -127,4 +127,26 @@ describe("HomeView model refresh", () => {
       expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model A");
     });
   });
+
+  it("keeps working when localStorage reads throw during model restore", async () => {
+    const first = deferred<{ models: ModelOption[] }>();
+    modelResponses.push(first.promise);
+    const modelA = model("provider::model-a", "Model A");
+
+    const spy = vi
+      .spyOn(window.localStorage, "getItem")
+      .mockImplementation(() => {
+        throw new Error("storage blocked");
+      });
+    try {
+      render(<HomeView initialNoProject />);
+      await act(async () => {
+        first.resolve({ models: [modelA] });
+      });
+      // ストレージ例外でも復元が壊れず、先頭モデルへフォールバックする。
+      await screen.findByText("Model A");
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

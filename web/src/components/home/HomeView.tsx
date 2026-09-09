@@ -68,6 +68,23 @@ import type { AutoOptimizeMode } from "@/lib/auto-model";
 
 const MODEL_KEY = "leafcodepi.defaultModel";
 
+/** プライベートモード等のストレージ例外でもモデル選択を壊さない。 */
+function readStoredModel(): string {
+  try {
+    return localStorage.getItem(MODEL_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeStoredModel(model: string): void {
+  try {
+    localStorage.setItem(MODEL_KEY, model);
+  } catch {
+    /* プライベートモード等では永続できないだけ */
+  }
+}
+
 /** アカウントタグ付きモデルの value を Pi が解釈できる「provider::model」へ戻す。 */
 function plainModelValue(modelValue: string, models: ModelOption[]): string {
   const option = models.find((o) => o.value === modelValue);
@@ -152,7 +169,7 @@ export function HomeView({
           const previous = modelOptionForValue(previousModels, current);
           const migrated = previous && modelOptionForValue(nextOptions, previous.value);
           if (migrated) return migrated.value;
-          const stored = localStorage.getItem(MODEL_KEY) ?? "";
+          const stored = readStoredModel();
           return modelOptionForValue(nextOptions, stored)?.value ?? nextModels[0]?.value ?? "";
         });
         setModelsLoading(false);
@@ -332,7 +349,7 @@ export function HomeView({
           ...(result.task.agent?.trim() ? { agent: result.task.agent.trim() } : {}),
         });
       }
-      localStorage.setItem(MODEL_KEY, model);
+      writeStoredModel(model);
       writeStoredThinkingLevel(thinkingLevel);
       notifyTasksChanged();
       router.push(`/task/${result.task.id}`);
@@ -463,7 +480,7 @@ export function HomeView({
                     options={modelOptions}
                     onChange={(value) => {
                       setModel(value);
-                      localStorage.setItem(MODEL_KEY, value);
+                      writeStoredModel(value);
                     }}
                     className="min-w-0 max-w-[9rem] shrink sm:max-w-48"
                   />
