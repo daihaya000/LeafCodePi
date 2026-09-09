@@ -238,6 +238,17 @@ export type GoalLoopDto = {
 
 export type GoalLoopSummaryDto = Pick<GoalLoopDto, "status" | "maxTurns" | "turnCount">;
 
+/** ループ実行のCode依頼に添える結末。配送済み結果とUIの両方が同じ判断材料を見る。 */
+export type CodeRequestGoalLoopReport = GoalLoopSummaryDto & {
+  acceptance?: string[];
+  pauseReason?: string;
+  blockedReason?: string;
+  summary?: string;
+  evidence?: string;
+  /** 完了宣言が検証で却下された回数。0より大きいなら「完了」を疑う根拠になる。 */
+  rejectedClaims?: number;
+};
+
 export type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
 export type TodoPriority = "high" | "medium" | "low";
 

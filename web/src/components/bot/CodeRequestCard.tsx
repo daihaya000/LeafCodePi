@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getJson } from "@/lib/client";
-import type { CodeRequestState, TaskDetail } from "@/lib/types";
+import type { CodeRequestGoalLoopReport, CodeRequestState, TaskDetail } from "@/lib/types";
 import { BotMessageMarkdown } from "@/components/bot/BotMessageList";
 
 const CODE_STATE_TEXT: Record<CodeRequestState, string> = {
@@ -41,6 +41,7 @@ export function CodeRequestCard({
   prompt,
   state,
   outcome,
+  goalLoop,
   activity,
   stopping,
   onStop,
@@ -50,6 +51,8 @@ export function CodeRequestCard({
   state: CodeRequestState;
   /** Real result of the delegated run (実行終了 / ユーザーが停止 / 失敗 ...). Delivery alone is not success. */
   outcome?: string;
+  /** Loop verdict of a finished run, so the promise and the blocker are readable without opening Code. */
+  goalLoop?: CodeRequestGoalLoopReport;
   activity?: string;
   stopping?: boolean;
   onStop?: () => void;
@@ -132,6 +135,8 @@ export function CodeRequestCard({
           <p className="mt-1 text-right text-xs text-faint">{progressText}</p>
         </div>
       )}
+      {goalLoop?.blockedReason && <p className="mt-2 text-xs text-warning">{"阻害要因: "}{goalLoop.blockedReason}</p>}
+      {(goalLoop?.rejectedClaims ?? 0) > 0 && <p className="mt-1 text-xs text-muted">{"完了宣言の却下: "}{goalLoop?.rejectedClaims}{"回"}</p>}
       {open && (
         <div role="region" aria-label="Codeプレビュー" className="mt-3 min-w-0 space-y-3 border-t border-border pt-3">
           {loading && !task && <p className="text-muted">読み込み中…</p>}
@@ -142,6 +147,13 @@ export function CodeRequestCard({
               <span className="text-muted">{task.status === "error" ? TASK_STATUS_TEXT.error : outcome ?? (state === "delivered" ? "完了" : state === "cancelled" ? "中断" : TASK_STATUS_TEXT[task.status])}</span>
             </div>
             {task.projectName && <p className="truncate text-muted">プロジェクト: {task.projectName}</p>}
+            {goalLoop?.acceptance?.length ? (
+              <div>
+                <p className="font-medium">承認条件</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted">{goalLoop.acceptance.map((item, index) => <li key={index} className="[overflow-wrap:anywhere]">{item}</li>)}</ul>
+              </div>
+            ) : null}
+            {goalLoop?.summary && <p className="text-muted [overflow-wrap:anywhere]">要約: {goalLoop.summary}</p>}
             {task.todoProgress && task.todoProgress.total > 0 && <p className="text-muted">進捗: {task.todoProgress.completed}/{task.todoProgress.total}</p>}
             {preview ? <div tabIndex={0} aria-label="Codeの出力" className="max-h-96 overflow-auto rounded-lg bg-bg p-3 text-sm leading-relaxed [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-accent"><BotMessageMarkdown text={preview} /></div> : <p className="text-muted">{live ? "Codeの出力を待っています…" : "Codeの出力はありません"}</p>}
           </>}

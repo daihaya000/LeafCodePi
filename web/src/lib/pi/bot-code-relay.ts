@@ -12,7 +12,7 @@ import {
   clampGoalLoopMaxTurns,
   DEFAULT_GOAL_LOOP_MAX_TURNS,
 } from "@/lib/goal-loop-settings";
-import { NO_PROJECT_NAME, type CodeRequestState, type GoalLoopDto, type RoomConversationTurn, type TaskSummary, type UiMessage } from "@/lib/types";
+import { NO_PROJECT_NAME, type CodeRequestGoalLoopReport, type CodeRequestState, type GoalLoopDto, type RoomConversationTurn, type TaskSummary, type UiMessage } from "@/lib/types";
 import { getRoom, roomBotTaskId, updateRoomMessage } from "@/lib/rooms";
 
 export const BOT_CODE_TOOL = "code_session";
@@ -72,7 +72,7 @@ type RelayDependencies = {
 function root(): string { return join(dataDir(), "bot-code-requests"); }
 
 /** What the Bot needs to judge a loop run: the promise, the verdict, and the loop's own evidence. */
-function goalLoopReport(loop: GoalLoopDto, requested: CodeGoalLoop | undefined) {
+function goalLoopReport(loop: GoalLoopDto, requested: CodeGoalLoop | undefined): CodeRequestGoalLoopReport {
   const acceptance = (loop.acceptance?.length ? loop.acceptance : requested?.acceptance ?? []).slice(0, 10);
   return {
     status: loop.status,
@@ -156,21 +156,26 @@ function requests(): CodeRequest[] {
 function active(request: CodeRequest): boolean { return request.state !== "delivered" && request.state !== "cancelled"; }
 
 /** The delivered payload owns the real outcome; delivery state alone must not be shown as success. */
-function requestOutcome(request: CodeRequest): string | undefined {
-  if (!request.result) return undefined;
+function requestPayload(request: CodeRequest): { outcome?: string; goalLoop?: CodeRequestGoalLoopReport } {
+  if (!request.result) return {};
   try {
-    const parsed = JSON.parse(request.result) as { outcome?: unknown };
-    return typeof parsed.outcome === "string" && parsed.outcome ? parsed.outcome : undefined;
-  } catch { return undefined; }
+    const parsed = JSON.parse(request.result) as { outcome?: unknown; goalLoop?: CodeRequestGoalLoopReport };
+    return {
+      ...(typeof parsed.outcome === "string" && parsed.outcome ? { outcome: parsed.outcome } : {}),
+      ...(parsed.goalLoop && typeof parsed.goalLoop.status === "string" ? { goalLoop: parsed.goalLoop } : {}),
+    };
+  } catch { return {}; }
 }
-export type BotCodeRequestSummary = Pick<CodeRequest, "id" | "codeTaskId" | "state" | "prompt" | "result" | "queuedAt"> & { outcome?: string };
+export type BotCodeRequestSummary = Pick<CodeRequest, "id" | "codeTaskId" | "state" | "prompt" | "result" | "queuedAt"> & {
+  outcome?: string;
+  goalLoop?: CodeRequestGoalLoopReport;
+};
 export function listBotCodeRequests(botId: string): BotCodeRequestSummary[] {
   return requests()
     .filter((request) => request.botId === botId)
     .map((request) => {
       const { id, codeTaskId, state, prompt, result, queuedAt } = request;
-      const outcome = requestOutcome(request);
-      return { id, codeTaskId, state, prompt, result, queuedAt, ...(outcome ? { outcome } : {}) };
+      return { id, codeTaskId, state, prompt, result, queuedAt, ...requestPayload(request) };
     })
     .sort((a, b) => (b.queuedAt ?? 0) - (a.queuedAt ?? 0));
 }

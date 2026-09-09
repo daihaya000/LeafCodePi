@@ -164,6 +164,11 @@ describe("Bot ⇄ Code relay", () => {
     expect(payload.goalLoop).toMatchObject({ acceptance: ["テストが通ること"], blockedReason: "依存のインストール権限がありません", summary: "テストは未実行", rejectedClaims: 2 });
     // Loop notes are bounded so one delivery cannot flood the Bot conversation.
     expect((payload.goalLoop.evidence as string).length).toBe(2_000);
+    // The Bot screen reads the same verdict without opening Code.
+    expect(listBotCodeRequests("one")[0]).toMatchObject({
+      outcome: "阻害要因あり",
+      goalLoop: { status: "blocked", acceptance: ["テストが通ること"], rejectedClaims: 2 },
+    });
   });
 
   it("does not report a turn-limit pause as a finished run", async () => {

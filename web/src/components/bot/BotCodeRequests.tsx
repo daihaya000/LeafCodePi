@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getJson, sendJson } from "@/lib/client";
-import type { CodeRequestState } from "@/lib/types";
+import type { CodeRequestGoalLoopReport, CodeRequestState } from "@/lib/types";
 import { CodeRequestCard } from "@/components/bot/CodeRequestCard";
 
-type RequestSummary = { id: string; codeTaskId: string | null; state: CodeRequestState; prompt: string; result?: string; outcome?: string; queuedAt?: number };
+type RequestSummary = { id: string; codeTaskId: string | null; state: CodeRequestState; prompt: string; result?: string; outcome?: string; goalLoop?: CodeRequestGoalLoopReport; queuedAt?: number };
 export function BotCodeRequests({ botId, requestIds }: { botId: string; requestIds: string[] }) {
   const [requests, setRequests] = useState<RequestSummary[]>([]);
   const [stopping, setStopping] = useState<string | null>(null);
@@ -29,5 +29,5 @@ export function BotCodeRequests({ botId, requestIds }: { botId: string; requestI
   };
   const matching = requests.filter((request) => requestIds.includes(request.id));
   if (matching.length === 0) return null;
-  return <section aria-label="Code依頼" className="mt-3 space-y-2"><h3 className="text-sm font-medium">Code依頼</h3>{matching.map((request) => <CodeRequestCard key={request.id} taskId={request.codeTaskId} state={request.state} prompt={request.prompt} outcome={request.outcome} stopping={stopping === request.id} onStop={() => void stop(request.id)} />)}{error && <p role="alert" className="text-xs text-danger">{error}</p>}</section>;
+  return <section aria-label="Code依頼" className="mt-3 space-y-2"><h3 className="text-sm font-medium">Code依頼</h3>{matching.map((request) => <CodeRequestCard key={request.id} taskId={request.codeTaskId} state={request.state} prompt={request.prompt} outcome={request.outcome} goalLoop={request.goalLoop} stopping={stopping === request.id} onStop={() => void stop(request.id)} />)}{error && <p role="alert" className="text-xs text-danger">{error}</p>}</section>;
 }
