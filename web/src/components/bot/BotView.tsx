@@ -414,7 +414,9 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     }
   };
 
-  const rendered = useMemo(() => messages.map((message) => {
+  const rendered = useMemo(() => {
+    const lastUserId = [...messages].reverse().find((message) => message.role === "user")?.id;
+    return messages.map((message) => {
     const user = message.role === "user";
     const text = textOf(message);
     const images = message.parts.filter((part) => part.type === "image");
@@ -426,9 +428,11 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
         {images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{images.map((part) => part.type === "image" && <ImageLightbox key={part.id} src={part.url} alt={part.filename ?? "添付画像"} className="max-h-48 max-w-full rounded-xl object-contain" />)}</div>}
         {text && (user ? <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</div> : <BotMessageMarkdown text={text} />)}
         {message.error && <BotMessageError text={message.error} />}
+        {user && message.id === lastUserId && <BotCodeRequests botId={id} />}
       </BotMessageRow>
     );
-  }), [bot, messages, reverting, sending]);
+    });
+  }, [bot, id, messages, reverting, sending]);
 
   if (!bot) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
@@ -451,7 +455,6 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
           {routines.some((routine) => routine.failureCount > 0) && <div role="status" className="rounded-2xl border border-danger/40 bg-danger/5 p-4 text-sm"><p className="font-medium text-danger">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u5b9f\u884c\u306b\u5931\u6557\u3057\u3066\u3044\u307e\u3059"}</p><div className="mt-2 space-y-1 text-xs text-muted">{routines.filter((routine) => routine.failureCount > 0).map((routine) => <p key={routine.id}><span className="font-medium text-text">{routine.name}</span>{"\uFF1A"}{"\u9023\u7d9a\u5931\u6557"} {routine.failureCount}{"\u56de"}{routine.enabled ? "" : "\u3002\u5b89\u5168\u306e\u305f\u3081\u81ea\u52d5\u7684\u306b\u7121\u52b9\u5316\u3057\u307e\u3057\u305f"}</p>)}</div></div>}
           {routineCardOpen && <div className="rounded-2xl border border-accent/40 bg-surface p-4 shadow-sm" role="dialog" aria-label="ルーティン作成の確認"><p className="font-medium text-accent">ルーティンを作成</p><p className="mt-1 text-xs text-muted">内容を確認してから保存します。</p><div className="mt-3 space-y-2"><input value={routineName} onChange={(event) => setRoutineName(event.target.value)} placeholder="名前（例: 朝の確認）" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><textarea value={routinePrompt} onChange={(event) => setRoutinePrompt(event.target.value)} placeholder="Bot に実行させる指示" rows={3} className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><input value={routineSchedule} onChange={(event) => setRoutineSchedule(event.target.value)} aria-label="cron スケジュール" placeholder="0 * * * *" className="w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent" /><p className="text-[11px] text-muted">形式: 分 時 日 月 曜日（最短間隔 5 分）</p></div><div className="mt-3 flex justify-end gap-2"><Button size="sm" variant="ghost" onClick={() => setRoutineCardOpen(false)}>キャンセル</Button><Button size="sm" onClick={() => void createRoutine()} busy={creatingRoutine} disabled={!routineName.trim() || !routinePrompt.trim() || !routineSchedule.trim()}>この内容で作成</Button></div></div>}
           {rendered}
-          <BotCodeRequests botId={id} />
           {permission && <div role="alertdialog" aria-label="権限の確認" className="rounded-2xl border border-warning/40 bg-warning-bg p-4 text-xs"><p className="font-medium">権限の確認が必要です</p><p className="mt-1 whitespace-pre-wrap break-all text-muted">{permission.message}</p><pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-surface p-2">{permission.command}</pre><div className="mt-3 flex gap-2"><Button size="sm" onClick={() => void respond(true)}>許可</Button><Button size="sm" variant="ghost" onClick={() => void respond(false)}>拒否</Button></div></div>}
           {question && <QuestionCard request={question} onReply={answerQuestion} onReject={(request) => answerQuestion(request)} />}
           {sending && <BotResponseStatus messages={messages} avatar={bot} />}

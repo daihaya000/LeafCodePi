@@ -39,7 +39,7 @@ function RequestCard({ request }: { request: RequestSummary }) {
   </article>;
 }
 
-export function BotCodeRequests({ botId }: { botId: string }) {
+export function BotCodeRequests({ botId, anchored = true }: { botId: string; anchored?: boolean }) {
   const [requests, setRequests] = useState<RequestSummary[]>([]);
   useEffect(() => {
     let closed = false;
@@ -48,6 +48,6 @@ export function BotCodeRequests({ botId }: { botId: string }) {
     const timer = window.setInterval(() => void load(), 2_000);
     return () => { closed = true; window.clearInterval(timer); };
   }, [botId]);
-  if (requests.length === 0) return null;
+  if (requests.length === 0 || !anchored) return null;
   return <section aria-label="Code依頼" className="mt-3 space-y-2"><h3 className="text-sm font-medium">Code依頼</h3>{requests.map((request) => <RequestCard key={request.id} request={request} />)}</section>;
 }

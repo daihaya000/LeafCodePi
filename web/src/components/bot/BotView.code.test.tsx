@@ -75,7 +75,10 @@ it("renders delegated Code requests as ID-linked previews in the Bot conversatio
     return { bot: testBot };
   });
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
-  expect(await screen.findByText("Code依頼")).toBeTruthy();
+  snapshot({ messages: [{ id: "user-1", role: "user", createdAt: 1, parts: [{ type: "text", text: "Codeで実装して" }] }] });
+  const userBubble = await screen.findByText("Codeで実装して");
+  const codeRequest = await screen.findByText("Code依頼");
+  expect(userBubble.closest("[class*='bg-bot-user']")).toContain(codeRequest);
   fireEvent.click(screen.getByRole("button", { name: "プレビュー" }));
   expect(await screen.findByText("変更案")).toBeTruthy();
   expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks/task-1");
