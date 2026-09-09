@@ -115,6 +115,29 @@ it("pauses Code request polling while the Bot tab is hidden", async () => {
   await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/bots/one/code-requests"));
 });
 
+it("shares Code request polling across multiple cards for one Bot", async () => {
+  const requests = [
+    { id: "request-1", codeTaskId: null, state: "running" as const, prompt: "first" },
+    { id: "request-2", codeTaskId: null, state: "running" as const, prompt: "second" },
+  ];
+  mocks.getJson.mockImplementation(async (url: string) => {
+    if (url.endsWith("/code-requests")) return { requests };
+    if (url === "/api/models") return { models: [] };
+    if (url.endsWith("/routines")) return { routines: [] };
+    return { bot: testBot };
+  });
+  render(<ShellProvider><BotView id="shared" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({ messages: [
+    { id: "bot-1", role: "assistant", createdAt: 1, parts: [{ type: "tool", tool: "code_session", callID: "call-1", state: { status: "completed", output: JSON.stringify({ requestId: "request-1" }) } }] },
+    { id: "bot-2", role: "assistant", createdAt: 2, parts: [{ type: "tool", tool: "code_session", callID: "call-2", state: { status: "completed", output: JSON.stringify({ requestId: "request-2" }) } }] },
+  ] });
+  await waitFor(() => {
+    const calls = mocks.getJson.mock.calls.filter(([url]) => url === "/api/bots/shared/code-requests");
+    expect(calls).toHaveLength(1);
+  });
+});
+
 it("renders delegated Code requests as ID-linked previews in the Bot conversation", async () => {
   const request = { id: "request-1", codeTaskId: "task-1", state: "running", prompt: "実装を確認", queuedAt: 1 };
   mocks.getJson.mockImplementation(async (url: string) => {
