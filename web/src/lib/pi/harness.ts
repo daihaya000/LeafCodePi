@@ -2055,6 +2055,8 @@ function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
         }
         // A user stop is final for this request: never invite the automatic follow-up here.
         if (request.stoppedByUser) content += "\nユーザーがこの依頼を停止しました。次のCode依頼は開始せず、停止時点の状況と残作業だけを報告してください。";
+        // The loop, not the last message, decides whether a loop run reached its goal.
+        if (request.goalLoop) content += "\nこの依頼はループ実行です。結果JSONのgoalLoop（状態・承認条件・根拠・却下回数）と出力を照合し、承認条件ごとに達成・未達を根拠付きで報告してください。目標達成以外の結末を完了と表現しないでください。";
         await queuePrompt(live, content, undefined, { codeResult: request });
       }
       const current = state().live.get(request.originTaskId) ?? live;

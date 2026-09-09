@@ -148,6 +148,24 @@ describe("Bot ⇄ Code relay", () => {
     expect(JSON.parse(record().result!).goalLoop).toMatchObject({ status: "completed", turnCount: 2 });
   });
 
+  it("delivers the acceptance criteria and the loop's own evidence with the result", async () => {
+    const goalLoop = { acceptance: ["テストが通ること"], maxTurns: 3, cooldownSeconds: 0, forceFullRun: false };
+    await relay.run("bot:one", "loop-evidence", { action: "start", projectId: "project", prompt: "目標を達成して", goalLoop }, "session");
+    store.tasks.get("code")!.status = "idle";
+    messages = [answer("turn", "完了しました")];
+    vi.mocked(deps.goalLoop).mockReturnValue({
+      status: "blocked", turnCount: 2, maxTurns: 3, acceptance: ["テストが通ること"],
+      blockedReason: "依存のインストール権限がありません", summary: "テストは未実行", evidence: "npm test 未実行".repeat(400), rejectedClaims: 2,
+    } as never);
+    await relay.tick();
+
+    const payload = JSON.parse(record().result!) as { outcome: string; goalLoop: Record<string, unknown> };
+    expect(payload.outcome).toBe("阻害要因あり");
+    expect(payload.goalLoop).toMatchObject({ acceptance: ["テストが通ること"], blockedReason: "依存のインストール権限がありません", summary: "テストは未実行", rejectedClaims: 2 });
+    // Loop notes are bounded so one delivery cannot flood the Bot conversation.
+    expect((payload.goalLoop.evidence as string).length).toBe(2_000);
+  });
+
   it("does not report a turn-limit pause as a finished run", async () => {
     const goalLoop = { acceptance: [], maxTurns: 2, cooldownSeconds: 0, forceFullRun: false };
     await relay.run("bot:one", "loop-limit", { action: "start", projectId: "project", prompt: "長い作業", goalLoop }, "session");

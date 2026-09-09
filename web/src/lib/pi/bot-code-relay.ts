@@ -71,6 +71,23 @@ type RelayDependencies = {
 
 function root(): string { return join(dataDir(), "bot-code-requests"); }
 
+/** What the Bot needs to judge a loop run: the promise, the verdict, and the loop's own evidence. */
+function goalLoopReport(loop: GoalLoopDto, requested: CodeGoalLoop | undefined) {
+  const acceptance = (loop.acceptance?.length ? loop.acceptance : requested?.acceptance ?? []).slice(0, 10);
+  return {
+    status: loop.status,
+    turnCount: loop.turnCount,
+    maxTurns: loop.maxTurns,
+    ...(acceptance.length ? { acceptance } : {}),
+    ...(loop.pauseReason ? { pauseReason: loop.pauseReason } : {}),
+    ...(loop.blockedReason ? { blockedReason: loop.blockedReason.slice(0, 2_000) } : {}),
+    ...(loop.summary ? { summary: loop.summary.slice(0, 2_000) } : {}),
+    ...(loop.evidence ? { evidence: loop.evidence.slice(0, 2_000) } : {}),
+    // Rejected completion claims are the clearest sign that a "done" answer was not trustworthy.
+    ...(loop.rejectedClaims ? { rejectedClaims: loop.rejectedClaims } : {}),
+  };
+}
+
 /** A loop run is finished only when the loop verified it; a turn limit or a block is not success. */
 function goalLoopOutcome(loop: GoalLoopDto): string {
   if (loop.status === "completed") return "目標達成";
@@ -500,7 +517,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       output: text.slice(0, 24_000),
       truncated: text.length > 24_000,
       codeTaskId: request.codeTaskId,
-      ...(loop ? { goalLoop: { status: loop.status, turnCount: loop.turnCount, maxTurns: loop.maxTurns, ...(loop.pauseReason ? { pauseReason: loop.pauseReason } : {}), ...(loop.blockedReason ? { blockedReason: loop.blockedReason } : {}) } } : {}),
+      ...(loop ? { goalLoop: goalLoopReport(loop, request.goalLoop) } : {}),
     });
     request.state = "ready";
     save(request);
