@@ -14,7 +14,7 @@ import {
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import { BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, getBot } from "@/lib/bots";
-import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, roomForCodeOrigin, type CodeRequest } from "@/lib/pi/bot-code-relay";
+import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, roomForCodeOrigin, runUserBotCodeRequest, type CodeRequest } from "@/lib/pi/bot-code-relay";
 import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
 import { ROOM_SYSTEM_PROMPT, roomBotPrompt } from "@/lib/room-conversation";
 import { requestWebUiPermission } from "@/lib/pi/webui-permission-bridge";
@@ -2068,6 +2068,22 @@ function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
 }
 
 export function startBotCodeRelay(): void { botCodeRelay().start(); }
+
+/**
+ * Code session started from the Bot screen. It is registered in the same outbox as a delegated
+ * request, so the Bot reports the outcome in its own conversation and the UI can stop it by request.
+ */
+export async function createBotCodeTask(
+  botId: string,
+  input: Omit<Parameters<typeof createTask>[0], "botId" | "codeRequestId" | "beforePrompt">,
+): Promise<TaskSummary> {
+  startBotCodeRelay();
+  return runUserBotCodeRequest(
+    botId,
+    { prompt: input.prompt, projectId: input.projectId },
+    (codeRequestId, link) => createTask({ ...input, botId, codeRequestId, beforePrompt: (task) => link(task.id) }),
+  );
+}
 
 function botAttentionSource(taskId: string, kind: "permission" | "question", requestId?: string): string {
   const service = kind === "permission" ? ensurePermissionPromptService() : ensureQuestionPromptService();

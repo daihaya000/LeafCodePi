@@ -24,7 +24,7 @@ vi.mock("@/lib/store", () => ({
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, botCodeReportText, cancelRoomCodeRequest, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, stopBotCodeRequest, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, botCodeReportText, cancelRoomCodeRequest, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -249,6 +249,33 @@ describe("Bot ⇄ Code relay", () => {
     expect(record().result).toContain("ユーザーが停止");
     expect(listBotCodeRequests("one")[0].outcome).toBe("ユーザーが停止");
     expect(deps.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a Code session the user started from the Bot screen", async () => {
+    const started = await runUserBotCodeRequest("one", { prompt: "画面を直して", projectId: "project" }, async (codeRequestId, link) => {
+      expect(codeRequestId).toMatch(/^[a-f0-9]{64}$/);
+      const code = task("code", { status: "working" });
+      store.tasks.set(code.id, code);
+      link(code.id);
+      return code;
+    });
+
+    expect(started.id).toBe("code");
+    expect(record()).toMatchObject({ botId: "one", originTaskId: "bot:one", codeTaskId: "code", state: "running", action: "start" });
+    store.tasks.get("code")!.status = "idle";
+    messages = [answer("done", "画面を修正しました")];
+    await relay.tick();
+
+    expect(deps.deliver).toHaveBeenCalledWith(expect.objectContaining({ originTaskId: "bot:one", result: expect.stringContaining("画面を修正しました") }));
+  });
+
+  it("keeps a failed user-started launch as a reportable outcome", async () => {
+    await expect(runUserBotCodeRequest("one", { prompt: "起動できない", projectId: "project" }, async () => {
+      throw new Error("モデルが見つかりません");
+    })).rejects.toThrow("モデルが見つかりません");
+
+    expect(record()).toMatchObject({ state: "ready", codeTaskId: null });
+    expect(record().result).toContain("失敗");
   });
 
   it("rejects a stop that does not belong to the Bot", async () => {

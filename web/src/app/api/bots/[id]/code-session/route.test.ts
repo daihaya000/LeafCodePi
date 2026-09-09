@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   getTask: vi.fn(),
   listTasks: vi.fn(),
   getProject: vi.fn(),
-  createTask: vi.fn(),
+  createBotCodeTask: vi.fn(),
   abortTask: vi.fn(),
   getTaskSummariesWithTodoProgress: vi.fn(),
   goalLoopCommand: vi.fn(),
@@ -25,7 +25,7 @@ vi.mock("@/lib/task-runtime-lease", () => ({ reconcileOrphanedWorkingTasks: mock
 vi.mock("@/lib/bot-code-session-lock", () => ({ withBotCodeSessionLock: mocks.withBotCodeSessionLock }));
 vi.mock("@/lib/store", () => ({ getProject: mocks.getProject, getTask: mocks.getTask, listTasks: mocks.listTasks }));
 vi.mock("@/lib/pi/harness", () => ({
-  createTask: mocks.createTask,
+  createBotCodeTask: mocks.createBotCodeTask,
   abortTask: mocks.abortTask,
   getTaskSummariesWithTodoProgress: mocks.getTaskSummariesWithTodoProgress,
   goalLoopCommand: mocks.goalLoopCommand,
@@ -60,7 +60,7 @@ beforeEach(() => {
   mocks.listTasks.mockReturnValue([]);
   mocks.getTaskSummariesWithTodoProgress.mockResolvedValue([]);
   mocks.goalLoopCommand.mockResolvedValue({ id: "loop-1", status: "paused", maxTurns: 3, turnCount: 1 });
-  mocks.createTask.mockResolvedValue({ id: "code-1", status: "working" });
+  mocks.createBotCodeTask.mockResolvedValue({ id: "code-1", status: "working" });
   mocks.abortTask.mockResolvedValue({ id: "code-1", status: "idle" });
   mocks.promptTask.mockResolvedValue({ id: "code-1", status: "working" });
 });
@@ -72,10 +72,10 @@ describe("Bot Code session control", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(mocks.createTask).toHaveBeenCalledWith({
+    // The Bot outbox owns the run, so its result is reported back into the conversation.
+    expect(mocks.createBotCodeTask).toHaveBeenCalledWith("bot-1", {
       projectId: "project-1",
       prompt: "修正して",
-      botId: "bot-1",
       permissionMode: "ask",
     });
     expect(mocks.patchBot).not.toHaveBeenCalledWith("bot-1", { codeSessionTaskId: "code-1" });
@@ -87,10 +87,9 @@ describe("Bot Code session control", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(mocks.createTask).toHaveBeenCalledWith({
+    expect(mocks.createBotCodeTask).toHaveBeenCalledWith("bot-1", {
       projectId: null,
       prompt: "調査して",
-      botId: "bot-1",
       permissionMode: "ask",
     });
     expect(mocks.patchBot).not.toHaveBeenCalledWith("bot-1", { codeSessionTaskId: "code-1" });
@@ -110,9 +109,8 @@ describe("Bot Code session control", () => {
     }), { params: Promise.resolve({ id: "bot-1" }) });
 
     expect(response.status).toBe(200);
-    expect(mocks.createTask).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mocks.createBotCodeTask).toHaveBeenCalledWith("bot-1", expect.objectContaining({
       projectId: "project-1",
-      botId: "bot-1",
       goalLoop,
     }));
   });
@@ -125,7 +123,7 @@ describe("Bot Code session control", () => {
     });
 
     expect(response.status).toBe(404);
-    expect(mocks.createTask).not.toHaveBeenCalled();
+    expect(mocks.createBotCodeTask).not.toHaveBeenCalled();
   });
 
   it("rejects an archived project before creating a Code task", async () => {
@@ -137,7 +135,7 @@ describe("Bot Code session control", () => {
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({ error: "アーカイブ済みのプロジェクトではCodeセッションを起動できません" });
-    expect(mocks.createTask).not.toHaveBeenCalled();
+    expect(mocks.createBotCodeTask).not.toHaveBeenCalled();
   });
 
   it("clears an archived linked task", async () => {
@@ -162,7 +160,7 @@ describe("Bot Code session control", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(mocks.createTask).toHaveBeenCalled();
+    expect(mocks.createBotCodeTask).toHaveBeenCalled();
   });
 
   it("prompts and aborts the linked task through the existing harness", async () => {

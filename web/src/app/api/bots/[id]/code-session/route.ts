@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBot, patchBot } from "@/lib/bots";
 import { getProject, getTask } from "@/lib/store";
-import { abortTask, createTask, getTaskSummariesWithTodoProgress, goalLoopCommand, jsonError, promptTask } from "@/lib/pi/harness";
+import { abortTask, createBotCodeTask, getTaskSummariesWithTodoProgress, goalLoopCommand, jsonError, promptTask } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import {
@@ -118,10 +118,10 @@ export async function POST(
         return NextResponse.json({ error: "invalid goalLoop" }, { status: 400 });
       }
 
-      const task = await createTask({
+      // Registered through the Bot outbox so this run reports back into the conversation.
+      const task = await createBotCodeTask(id, {
         projectId,
         prompt: body.prompt,
-        botId: id,
         ...(typeof body.model === "string" ? { model: body.model.trim() } : bot.model ? { model: bot.model } : {}),
         ...(isThinkingLevel(body.thinkingLevel)
           ? { thinkingLevel: body.thinkingLevel }

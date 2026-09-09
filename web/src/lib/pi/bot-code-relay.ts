@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -238,6 +238,48 @@ export async function stopBotCodeRequest(
     save(request);
     return { state: request.state, codeTaskId: request.codeTaskId };
   });
+}
+/**
+ * Track a Code session the user starts from the Bot screen. It shares the delegated outbox, so the
+ * result is reported back into the Bot conversation instead of only living in the Code task.
+ */
+export async function runUserBotCodeRequest(
+  botId: string,
+  input: { prompt: string; projectId: string | null },
+  launch: (codeRequestId: string, link: (codeTaskId: string) => void) => Promise<TaskSummary>,
+): Promise<TaskSummary> {
+  const request: CodeRequest = {
+    id: randomBytes(32).toString("hex"),
+    botId,
+    originTaskId: `bot:${botId}`,
+    codeTaskId: null,
+    state: "starting",
+    action: "start",
+    projectId: input.projectId,
+    queuedAt: Date.now(),
+    prompt: input.prompt,
+    baseline: null,
+  };
+  save(request);
+  try {
+    return await launch(request.id, (codeTaskId) => {
+      request.codeTaskId = codeTaskId;
+      request.state = "running";
+      save(request);
+    });
+  } catch (error) {
+    // Keep the record: a launch failure is still an outcome the Bot has to report.
+    request.state = "ready";
+    request.result = JSON.stringify({
+      outcome: "失敗",
+      error: error instanceof Error ? error.message : String(error),
+      output: "",
+      truncated: false,
+      codeTaskId: request.codeTaskId,
+    });
+    save(request);
+    throw error;
+  }
 }
 /** Turn-scoped: only this conversation's own job may pause it. A stale record must not silence a new request. */
 export function pendingRoomCodeRequestForTurn(roomId: string, requestId: string, excludeRequestId?: string): CodeRequest | undefined {
