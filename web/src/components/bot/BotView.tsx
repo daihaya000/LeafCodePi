@@ -63,6 +63,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   const [codeAutoApprove, setCodeAutoApprove] = useState(true);
   const [permissionMode, setPermissionMode] = useState<NonNullable<BotDto["permissionMode"]>>("allow");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [codePanelOpen, setCodePanelOpen] = useState(false);
   const settingsOpenRef = useRef(false);
   const [sending, setSending] = useState(false);
   const { reportStatus } = useTaskPanes();
@@ -122,6 +123,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     const saved = readBotSettingsOpen(id);
     settingsOpenRef.current = saved;
     setSettingsOpen(saved);
+    setCodePanelOpen(false);
   }, [id]);
   const updateSettingsOpen = (open: boolean) => {
     settingsOpenRef.current = open;
@@ -507,6 +509,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
           {permission && <BotPermissionCard label="権限の確認" title="権限の確認が必要です" message={permission.message} command={permission.command} onAllow={() => void respond(true)} onDeny={() => void respond(false)} />}
           {question && <QuestionCard request={question} onReply={answerQuestion} onReject={(request) => answerQuestion(request)} />}
           {sending && <BotResponseStatus messages={messages} avatar={bot} />}
+          {codePanelOpen && <BotCodeSessionPanel botId={id} onClose={() => setCodePanelOpen(false)} />}
         </div>
       </BotMessageList>
 
@@ -525,7 +528,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
         busy={sending}
         onSend={() => void send()}
         onAbort={() => void abort()}
-        footer={<><button type="button" onClick={() => setRoutineCardOpen(true)} className="shrink-0 font-medium text-accent hover:underline">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u4f5c\u6210"}</button><button type="button" onClick={() => updateSettingsOpen(true)} className="truncate hover:text-text">{"\u30e2\u30c7\u30eb"}: {selectedModel?.label ?? "\u672a\u9078\u629e"}</button><button type="button" onClick={() => updateSettingsOpen(true)} className="shrink-0 hover:text-text">{"\u601d\u8003"}: {thinkingValue}</button></>}
+        footer={<><button type="button" onClick={() => setRoutineCardOpen(true)} className="shrink-0 font-medium text-accent hover:underline">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u4f5c\u6210"}</button><button type="button" aria-expanded={codePanelOpen} aria-controls="bot-code-session-panel" onClick={() => setCodePanelOpen((open) => !open)} className="shrink-0 font-medium text-accent hover:underline">Codeを操作</button><button type="button" onClick={() => updateSettingsOpen(true)} className="truncate hover:text-text">{"\u30e2\u30c7\u30eb"}: {selectedModel?.label ?? "\u672a\u9078\u629e"}</button><button type="button" onClick={() => updateSettingsOpen(true)} className="shrink-0 hover:text-text">{"\u601d\u8003"}: {thinkingValue}</button></>}
       />
       {!settingsOpen && error && <p role="alert" className="mx-auto -mt-2 mb-2 max-w-3xl rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
       </div>
@@ -548,7 +551,6 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
             <section className="space-y-2 rounded-2xl border border-border bg-bg p-4" aria-label="個別ツール設定"><span className="text-sm font-medium">使用するツール</span>{BOT_TOOL_NAMES.map((tool) => <label key={tool} className="flex items-center gap-2 text-xs"><input type="checkbox" checked={(bot.tools ?? BOT_TOOL_NAMES).includes(tool)} disabled={updatingTools} onChange={(event) => { const current = new Set(bot.tools ?? BOT_TOOL_NAMES); if (event.target.checked) current.add(tool); else current.delete(tool); void updateTools([...current]); }} />{tool}</label>)}<p className="text-[11px] text-muted">チェックを外したツールはBotから利用できません。</p></section><p className="text-right text-xs text-muted" role="status" aria-live="polite">{savingProfile ? "保存中…" : "変更は自動保存されます"}</p>
             <div className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="モデル設定"><div><span className="text-sm font-medium">モデル</span><ModelSelect value={modelValue} options={models} loading={modelsLoading} disabled={updatingModel || updatingThinking} onChange={(value) => void updateModel(value)} className="mt-2 h-9 w-full" ariaLabel="ボットのモデル" /></div><div><span className="text-sm font-medium">思考レベル</span><ThinkingSelect levels={thinkingLevels} value={thinkingValue} disabled={updatingModel || updatingThinking} onChange={(value) => void updateThinking(value)} className="mt-2 h-9 w-full" /></div>{(updatingModel || updatingThinking) && <p className="text-xs text-muted">保存中…</p>}</div>
             <details><summary className="cursor-pointer text-sm font-semibold text-muted">詳細設定</summary>
-            <BotCodeSessionPanel botId={id} />
             <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="スキル設定"><div><span className="text-sm font-medium">スキルの読み込み</span><select value={bot.skills.mode} disabled={updatingSkills} onChange={(event) => void updateSkills({ ...bot.skills, mode: event.target.value as BotDto["skills"]["mode"] })} className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"><option value="inherit">継承（通常のスキル）</option><option value="include">指定したスキルだけ許可</option><option value="exclude">指定したスキルを除外</option></select></div><label className="block text-xs"><span className="font-medium">許可するスキル名（1行1件）</span><textarea value={bot.skills.include.join("\n")} disabled={updatingSkills} onChange={(event) => setBot({ ...bot, skills: { ...bot.skills, include: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) } })} onBlur={() => void updateSkills(bot.skills)} rows={3} className="mt-1 w-full resize-y rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /></label><label className="block text-xs"><span className="font-medium">除外するスキル名（1行1件）</span><textarea value={bot.skills.exclude.join("\n")} disabled={updatingSkills} onChange={(event) => setBot({ ...bot, skills: { ...bot.skills, exclude: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) } })} onBlur={() => void updateSkills(bot.skills)} rows={3} className="mt-1 w-full resize-y rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /></label><p className="text-[11px] text-muted">inherit は共通設定に従います。保存すると次回の応答から反映されます。</p></section>
             <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="追加ルート設定"><div><span className="text-sm font-medium">追加ルート</span><p className="mt-1 text-xs text-muted">Bot が参照できる絶対パス（Computer 分離は後続フェーズ）</p></div><div className="flex gap-2"><input value={extraRootInput} onChange={(event) => setExtraRootInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addExtraRoot(); } }} placeholder="C:\path\to\root" className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /><Button size="sm" onClick={() => void addExtraRoot()} disabled={!extraRootInput.trim()}>追加</Button></div>{bot.extraRoots.length === 0 ? <p className="text-xs text-muted">追加ルートはありません。</p> : <ul className="space-y-1">{bot.extraRoots.map((root) => <li key={root} className="flex items-center gap-2 rounded-lg bg-surface px-2 py-1.5 text-xs"><span className="min-w-0 flex-1 break-all">{root}</span><button type="button" onClick={() => void removeExtraRoot(root)} className="shrink-0 text-danger hover:underline">削除</button></li>)}</ul>}</section>
             <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="ルーティン設定">

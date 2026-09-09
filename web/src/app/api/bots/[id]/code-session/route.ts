@@ -1,15 +1,54 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBot, patchBot } from "@/lib/bots";
-import { getProject, getTask, listTasks } from "@/lib/store";
-import { createTask, abortTask, jsonError, promptTask } from "@/lib/pi/harness";
+import { getProject, getTask } from "@/lib/store";
+import { abortTask, createTask, getTaskSummariesWithTodoProgress, goalLoopCommand, jsonError, promptTask } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
+import {
+  clampGoalLoopCooldownSeconds,
+  clampGoalLoopMaxTurns,
+  DEFAULT_GOAL_LOOP_MAX_TURNS,
+} from "@/lib/goal-loop-settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 async function botId(params: Promise<{ id: string }>): Promise<string> {
   return (await params).id;
+}
+
+type GoalLoopInput = {
+  acceptance: string[];
+  maxTurns: number;
+  cooldownSeconds: number;
+  forceFullRun: boolean;
+};
+
+function parseGoalLoop(value: unknown): GoalLoopInput | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const loop = value as {
+    acceptance?: unknown;
+    maxTurns?: unknown;
+    cooldownSeconds?: unknown;
+    forceFullRun?: unknown;
+  };
+  if (
+    (loop.acceptance !== undefined && (!Array.isArray(loop.acceptance) || loop.acceptance.some((item) => typeof item !== "string"))) ||
+    (loop.maxTurns !== undefined && typeof loop.maxTurns !== "number" && typeof loop.maxTurns !== "string") ||
+    (loop.cooldownSeconds !== undefined && typeof loop.cooldownSeconds !== "number" && typeof loop.cooldownSeconds !== "string") ||
+    (loop.forceFullRun !== undefined && typeof loop.forceFullRun !== "boolean")
+  ) {
+    return null;
+  }
+  const acceptance = (loop.acceptance ?? []).map((item) => item.trim()).filter(Boolean);
+  if (acceptance.length > 10 || acceptance.some((item) => item.length > 2_000)) return null;
+  return {
+    acceptance,
+    maxTurns: clampGoalLoopMaxTurns(loop.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS),
+    cooldownSeconds: clampGoalLoopCooldownSeconds(loop.cooldownSeconds),
+    forceFullRun: loop.forceFullRun === true,
+  };
 }
 
 export async function GET(
@@ -20,7 +59,9 @@ export async function GET(
   reconcileOrphanedWorkingTasks();
   const bot = getBot(id);
   if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
-  const tasks = listTasks(true).filter((task) => task.botId === id);
+  const tasks = (await getTaskSummariesWithTodoProgress(true)).filter(
+    (task) => task.botId === id && task.kind !== "bot",
+  );
   return NextResponse.json({ tasks });
 }
 
@@ -39,6 +80,7 @@ export async function POST(
         model?: unknown;
         thinkingLevel?: unknown;
         permissionMode?: unknown;
+        goalLoop?: unknown;
       } | null;
       if (
         body?.projectId !== null &&
@@ -71,6 +113,10 @@ export async function POST(
       ) {
         return NextResponse.json({ error: "invalid permissionMode" }, { status: 400 });
       }
+      const goalLoop = parseGoalLoop(body?.goalLoop);
+      if (goalLoop === null) {
+        return NextResponse.json({ error: "invalid goalLoop" }, { status: 400 });
+      }
 
       const task = await createTask({
         projectId,
@@ -86,6 +132,7 @@ export async function POST(
           body.permissionMode === "allow" || body.permissionMode === "deny" || body.permissionMode === "ask"
             ? body.permissionMode
             : bot.permissionMode ?? "ask",
+        ...(goalLoop ? { goalLoop } : {}),
       });
     return NextResponse.json({ task });
   } catch (error) {
@@ -103,7 +150,13 @@ export async function PATCH(
     reconcileOrphanedWorkingTasks();
       const bot = getBot(id);
       if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
-      const body = (await req.json().catch(() => null)) as { action?: unknown; prompt?: unknown; taskId?: unknown } | null;
+      const body = (await req.json().catch(() => null)) as {
+        action?: unknown;
+        prompt?: unknown;
+        taskId?: unknown;
+        goalLoopAction?: unknown;
+        maxTurns?: unknown;
+      } | null;
       const taskId = typeof body?.taskId === "string" ? body.taskId : bot.codeSessionTaskId;
       if (!taskId) return NextResponse.json({ error: "Code session not found" }, { status: 404 });
       if (body?.action === "clear" || body?.action === "unlink") {
@@ -114,6 +167,24 @@ export async function PATCH(
       if (!task || task.botId !== id || task.status === "archived") {
         return NextResponse.json({ error: "Code session not found" }, { status: 404 });
       }
+      if (body?.action === "goal-loop") {
+        if (
+          body.goalLoopAction !== "pause" &&
+          body.goalLoopAction !== "resume" &&
+          body.goalLoopAction !== "stop" &&
+          body.goalLoopAction !== "complete"
+        ) {
+          return NextResponse.json({ error: "invalid goalLoopAction" }, { status: 400 });
+        }
+        const loop = await goalLoopCommand(taskId, {
+          action: body.goalLoopAction,
+          maxTurns:
+            body.goalLoopAction === "resume" && body.maxTurns !== undefined
+              ? clampGoalLoopMaxTurns(body.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS)
+              : undefined,
+        });
+        return NextResponse.json({ loop });
+      }
       if (body?.action === "abort") {
         return NextResponse.json({ task: await abortTask(taskId) });
       }
@@ -123,7 +194,7 @@ export async function PATCH(
         }
         return NextResponse.json({ task: await promptTask(taskId, body.prompt) });
       }
-    return NextResponse.json({ error: "action must be prompt or abort" }, { status: 400 });
+    return NextResponse.json({ error: "action must be prompt, abort, or goal-loop" }, { status: 400 });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

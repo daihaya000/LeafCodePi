@@ -135,6 +135,26 @@ describe("Bot ⇄ Code relay", () => {
     expect(store.bots.get("one")?.codeSessionTaskId).toBe("code");
   });
 
+  it("passes Goal Loop settings to a new Code task", async () => {
+    const goalLoop = {
+      acceptance: ["テストが通ること"],
+      maxTurns: 3,
+      cooldownSeconds: 5,
+      forceFullRun: true,
+    };
+
+    await relay.run("bot:one", "goal-loop", {
+      action: "start",
+      projectId: "project",
+      prompt: "修正して",
+      goalLoop,
+    }, "session");
+
+    expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({ goalLoop }));
+    expect(record().goalLoop).toEqual(goalLoop);
+    expect(deps.approve).toHaveBeenCalledWith("session", expect.stringContaining("Goal Loop"));
+  });
+
   it("continues the same session and excludes its previous answer", async () => {
     await launch(); messages = [answer("old", "Old answer")]; store.tasks.get("code")!.status = "idle";
     await relay.tick();
@@ -328,7 +348,8 @@ describe("Room ⇄ Code delegation", () => {
     const room = store.rooms.get("room-1")!;
     const conversation = { requestId: "user-1", participantIds: ["one", "two"], turn: 2, maxTurns: 6 };
     room.messages.push({ id: "turn-2", role: "assistant", botId: "two", text: "", status: "working", createdAt: 4, conversation });
-    const second = await relay.run("bot:two:room:room-1", "other-member", { action: "start", projectId: "project", prompt: "Same work" }, "session");
+    const goalLoop = { acceptance: ["Tests pass"], maxTurns: 3, cooldownSeconds: 5, forceFullRun: false };
+    const second = await relay.run("bot:two:room:room-1", "other-member", { action: "start", projectId: "project", prompt: "Same work", goalLoop }, "session");
     expect(second).toMatchObject({ taskId: null, state: "queued" });
     expect(deps.approve).toHaveBeenCalledTimes(2);
     expect(deps.create).toHaveBeenCalledTimes(1);
@@ -342,7 +363,8 @@ describe("Room ⇄ Code delegation", () => {
     await relay.tick();
     expect(deps.deliver).toHaveBeenCalledTimes(1);
     expect(deps.create).toHaveBeenCalledTimes(2);
-    expect(records().find((request) => request.id === second.requestId)).toMatchObject({ state: "running", codeTaskId: "code-2" });
+    expect(deps.create).toHaveBeenLastCalledWith(expect.objectContaining({ goalLoop }));
+    expect(records().find((request) => request.id === second.requestId)).toMatchObject({ state: "running", codeTaskId: "code-2", goalLoop });
     expect(room.messages.find((message) => message.id === "turn-2")?.codeTaskId).toBe("code-2");
 
     store.tasks.get("code-2")!.status = "idle";

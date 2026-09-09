@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   getProject: vi.fn(),
   createTask: vi.fn(),
   abortTask: vi.fn(),
+  getTaskSummariesWithTodoProgress: vi.fn(),
+  goalLoopCommand: vi.fn(),
   promptTask: vi.fn(),
   reconcileOrphanedWorkingTasks: vi.fn(),
   withBotCodeSessionLock: vi.fn(async (_id: string, operation: () => Promise<unknown>) => operation()),
@@ -25,6 +27,8 @@ vi.mock("@/lib/store", () => ({ getProject: mocks.getProject, getTask: mocks.get
 vi.mock("@/lib/pi/harness", () => ({
   createTask: mocks.createTask,
   abortTask: mocks.abortTask,
+  getTaskSummariesWithTodoProgress: mocks.getTaskSummariesWithTodoProgress,
+  goalLoopCommand: mocks.goalLoopCommand,
   promptTask: mocks.promptTask,
   jsonError: mocks.jsonError,
 }));
@@ -54,6 +58,8 @@ beforeEach(() => {
   mocks.getProject.mockReturnValue({ id: "project-1", archived: false });
   mocks.getTask.mockReturnValue(undefined);
   mocks.listTasks.mockReturnValue([]);
+  mocks.getTaskSummariesWithTodoProgress.mockResolvedValue([]);
+  mocks.goalLoopCommand.mockResolvedValue({ id: "loop-1", status: "paused", maxTurns: 3, turnCount: 1 });
   mocks.createTask.mockResolvedValue({ id: "code-1", status: "working" });
   mocks.abortTask.mockResolvedValue({ id: "code-1", status: "idle" });
   mocks.promptTask.mockResolvedValue({ id: "code-1", status: "working" });
@@ -88,6 +94,27 @@ describe("Bot Code session control", () => {
       permissionMode: "ask",
     });
     expect(mocks.patchBot).not.toHaveBeenCalledWith("bot-1", { codeSessionTaskId: "code-1" });
+  });
+
+  it("starts a Code task with Goal Loop settings", async () => {
+    const goalLoop = {
+      acceptance: ["テストが通ること"],
+      maxTurns: 3,
+      cooldownSeconds: 5,
+      forceFullRun: true,
+    };
+    const response = await POST(request("POST", {
+      projectId: "project-1",
+      prompt: "修正して",
+      goalLoop,
+    }), { params: Promise.resolve({ id: "bot-1" }) });
+
+    expect(response.status).toBe(200);
+    expect(mocks.createTask).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: "project-1",
+      botId: "bot-1",
+      goalLoop,
+    }));
   });
 
   it("rejects an unknown project before creating a Code task", async () => {
@@ -155,14 +182,43 @@ describe("Bot Code session control", () => {
     expect(mocks.abortTask).toHaveBeenCalledWith("code-1");
   });
 
-  it("reports the linked task without hydrating the session", async () => {
-    mocks.getBot.mockReturnValue({ ...bot, codeSessionTaskId: "code-1" });
+  it("controls Goal Loop only for a Code task owned by this Bot", async () => {
     mocks.getTask.mockReturnValue({ id: "code-1", status: "idle", botId: "bot-1" });
-    mocks.listTasks.mockReturnValue([{ id: "code-1", status: "idle", botId: "bot-1" }]);
+
+    const response = await PATCH(request("PATCH", {
+      action: "goal-loop",
+      taskId: "code-1",
+      goalLoopAction: "resume",
+      maxTurns: 3,
+    }), { params: Promise.resolve({ id: "bot-1" }) });
+
+    expect(response.status).toBe(200);
+    expect(mocks.goalLoopCommand).toHaveBeenCalledWith("code-1", { action: "resume", maxTurns: 3 });
+  });
+
+  it("rejects Goal Loop control for another Bot's Code task", async () => {
+    mocks.getTask.mockReturnValue({ id: "code-2", status: "idle", botId: "bot-2" });
+
+    const response = await PATCH(request("PATCH", {
+      action: "goal-loop",
+      taskId: "code-2",
+      goalLoopAction: "pause",
+    }), { params: Promise.resolve({ id: "bot-1" }) });
+
+    expect(response.status).toBe(404);
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
+  it("reports the Bot's Code tasks without hydrating the session", async () => {
+    mocks.getTaskSummariesWithTodoProgress.mockResolvedValue([
+      { id: "code-1", status: "idle", kind: "code", botId: "bot-1" },
+      { id: "bot-1", status: "idle", kind: "bot", botId: "bot-1" },
+      { id: "code-2", status: "idle", kind: "code", botId: "bot-2" },
+    ]);
 
     const response = await GET(request("GET"), { params: Promise.resolve({ id: "bot-1" }) });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ tasks: [{ id: "code-1", status: "idle", botId: "bot-1" }] });
+    await expect(response.json()).resolves.toEqual({ tasks: [{ id: "code-1", status: "idle", kind: "code", botId: "bot-1" }] });
   });
 });
