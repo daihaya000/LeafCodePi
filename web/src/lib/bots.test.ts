@@ -25,6 +25,22 @@ describe("bot runtime context", () => {
     expect(context).not.toContain("AGENTS.md");
     expect(botRuntimeContext([])).not.toContain('"name":');
   });
+
+  it("supplies context-first guidance for an underspecified Bot-mode debug request", () => {
+    const context = botRuntimeContext([]);
+    expect(context).toContain("Resolve omitted details from the current request, conversation, and available evidence before asking");
+    expect(context).toContain("this application's Bot mode target LeafCodePi");
+    expect(context).toContain("unless the user or established conversation identifies another project");
+    expect(context).toContain("Bot workspace is not the application's source repository");
+    expect(context).toContain("code_session projects");
+    expect(context).toContain("do not ask the user to pick a project when the target is clear");
+    expect(context).toContain("Never invent a projectId or silently substitute a projectless workspace");
+    expect(context).toContain("Unless the user explicitly requests a demonstration");
+    expect(context).toContain("exploratory bug hunt, not a demonstration");
+    expect(context).toContain("reproduce, diagnose, fix, test, and recheck until the goal is met or a concrete blocker is found");
+    expect(context).toContain("Ask only when unresolved ambiguity would materially change the target, outcome, or safety");
+    expect(context).toContain("Inferred context does not authorize changes during a consultation or bypass approval, permission, or workspace boundaries");
+  });
 });
 
 describe("bot store", () => {
