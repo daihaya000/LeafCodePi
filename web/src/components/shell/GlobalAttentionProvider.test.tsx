@@ -65,6 +65,9 @@ describe("GlobalAttentionProvider", () => {
   });
 
   afterEach(() => {
+    // global を先に復元してから cleanup する（cleanup 中の effect クリーンアップが
+    // window を参照するため）。
+    vi.unstubAllGlobals();
     cleanup();
     vi.useRealTimers();
   });
@@ -187,6 +190,26 @@ describe("GlobalAttentionProvider", () => {
     });
     expect(document.body.textContent ?? "").toMatch(/承認・回答が必要です/);
     input.remove();
+  });
+
+  it("does not crash when window disappears before the focusout timer fires", async () => {
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    render(<GlobalAttentionProvider />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(document.body.textContent ?? "").not.toMatch(/承認・回答が必要です/);
+
+    // フォーカスアウトで 0ms タイマーを予約した直後に環境が破棄される状況を再現
+    input.blur();
+    window.dispatchEvent(new Event("focusout"));
+    vi.stubGlobal("window", undefined);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
   });
 
   it("does not refetch task details when the attention list is unchanged", async () => {

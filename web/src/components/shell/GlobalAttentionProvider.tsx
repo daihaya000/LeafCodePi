@@ -184,6 +184,9 @@ export function GlobalAttentionProvider() {
     if (open) return;
     const onFocusOut = () => {
       setTimeout(() => {
+        // タイマー発火時にも window を再検査する。テスト環境の破棄などで
+        // 発火時に window / document が消えていると未処理例外になるため。
+        if (typeof window === "undefined") return;
         if (autoOpenedRef.current) return;
         if (tryAutoOpen()) window.removeEventListener("focusout", onFocusOut);
       }, 0);
