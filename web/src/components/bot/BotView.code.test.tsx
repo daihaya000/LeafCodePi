@@ -70,15 +70,21 @@ it("renders delegated Code requests as ID-linked previews in the Bot conversatio
   mocks.getJson.mockImplementation(async (url: string) => {
     if (url === "/api/models") return { models: [] };
     if (url.endsWith("/routines")) return { routines: [] };
-    if (url.endsWith("/code-requests")) return { requests: [request] };
+    if (url.endsWith("/code-requests")) return { requests: [request, { ...request, id: "old-request", codeTaskId: "old-task", prompt: "過去の依頼" }] };
     if (url.endsWith("/tasks/task-1")) return { task: { id: "task-1", status: "working", title: "Code task", messages: [{ role: "assistant", parts: [{ type: "text", text: "変更案" }] }] } };
     return { bot: testBot };
   });
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
-  snapshot({ messages: [{ id: "user-1", role: "user", createdAt: 1, parts: [{ type: "text", text: "Codeで実装して" }] }] });
+  snapshot({ messages: [
+    { id: "user-1", role: "user", createdAt: 1, parts: [{ type: "text", text: "Codeで実装して" }] },
+    { id: "bot-1", role: "assistant", createdAt: 2, parts: [{ type: "tool", tool: "code_session", callID: "call-1", state: { status: "completed", output: JSON.stringify({ requestId: "request-1" }) } }] },
+  ] });
   const userBubble = await screen.findByText("Codeで実装して");
   const codeRequest = await screen.findByText("Code依頼");
-  expect(userBubble.closest("[class*='bg-bot-user']")).toContain(codeRequest);
+  expect(userBubble.closest("[class*='bg-bot-user']")).not.toContain(codeRequest);
+  expect(codeRequest.closest("[class*='bg-bot-user']")).toBeNull();
+  expect(screen.queryByText("過去の依頼")).toBeNull();
+  expect(mocks.getJson).not.toHaveBeenCalledWith("/api/tasks/old-task");
   fireEvent.click(screen.getByRole("button", { name: "プレビュー" }));
   expect(await screen.findByText("変更案")).toBeTruthy();
   expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks/task-1");

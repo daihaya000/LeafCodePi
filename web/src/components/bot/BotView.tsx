@@ -434,12 +434,18 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   };
 
   const rendered = useMemo(() => {
-    const lastUserId = [...messages].reverse().find((message) => message.role === "user")?.id;
     return messages.map((message) => {
     const user = message.role === "user";
     const text = textOf(message);
     const images = message.parts.filter((part) => part.type === "image");
-    if (!text && images.length === 0 && !message.error) return null;
+    const requestIds = message.role === "assistant" ? message.parts.flatMap((part) => {
+      if (part.type !== "tool" || part.tool !== "code_session" || !part.state.output) return [];
+      try {
+        const result = JSON.parse(part.state.output);
+        return typeof result?.requestId === "string" ? [result.requestId] : [];
+      } catch { return []; }
+    }) : [];
+    if (!text && images.length === 0 && !message.error && requestIds.length === 0) return null;
     return (
       <BotMessageRow key={message.id} user={user} createdAt={message.createdAt} timeInHeader={!user}
         header={user ? undefined : <BotMessageSender {...(bot ?? {})} name={bot?.name ?? "ボット"} createdAt={message.createdAt} />}
@@ -447,7 +453,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
         {images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{images.map((part) => part.type === "image" && <ImageLightbox key={part.id} src={part.url} alt={part.filename ?? "添付画像"} className="max-h-48 max-w-full rounded-xl object-contain" />)}</div>}
         {text && (user ? <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</div> : <BotMessageMarkdown text={text} />)}
         {message.error && <BotMessageError text={message.error} />}
-        {user && message.id === lastUserId && <BotCodeRequests botId={id} />}
+        {requestIds.length > 0 && <BotCodeRequests botId={id} requestIds={requestIds} />}
       </BotMessageRow>
     );
     });
