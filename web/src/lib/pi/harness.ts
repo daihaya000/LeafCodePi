@@ -2031,7 +2031,9 @@ function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
     isBusy: (id) => {
       reconcileOrphanedWorkingTasks();
       const live = state().live.get(id);
-      return getTask(id)?.status === "working" || getTaskHangWatch(id)?.state === "resolving" || Boolean(live && (live.promptActive || live.session.isStreaming || live.session.isCompacting || live.autoCompactionPromise || live.pendingProviderFallback));
+      // A Goal Loop task idles between turns (cooldown, verification). Reporting there would deliver a
+      // half-finished run as the result, so keep it busy until the loop itself stops.
+      return getTask(id)?.status === "working" || getTaskHangWatch(id)?.state === "resolving" || Boolean(live && (live.promptActive || live.session.isStreaming || live.session.isCompacting || live.autoCompactionPromise || live.pendingProviderFallback || isActiveGoalLoopSession(live.session)));
     },
     messages: async (task) => {
       const live = state().live.get(task.id);
