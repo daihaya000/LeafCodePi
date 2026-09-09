@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getJson, sendJson } from "@/lib/client";
 import type { CodeRequestGoalLoopReport, CodeRequestState } from "@/lib/types";
 import { CodeRequestCard } from "@/components/bot/CodeRequestCard";
@@ -11,16 +11,30 @@ export function BotCodeRequests({ botId, requestIds, active = true }: { botId: s
   const [stopping, setStopping] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(async () => {
-    try { const result = await getJson<{ requests: RequestSummary[] }>(`/api/bots/${encodeURIComponent(botId)}/code-requests`); setRequests(Array.isArray(result.requests) ? result.requests : []); } catch { /* Bot view remains usable */ }
+    try {
+      const result = await getJson<{ requests: RequestSummary[] }>(`/api/bots/${encodeURIComponent(botId)}/code-requests`);
+      const next = Array.isArray(result.requests) ? result.requests : [];
+      setRequests(next);
+      return next;
+    } catch { /* Bot view remains usable */ return null; }
   }, [botId]);
+  const requestIdsKey = requestIds.join("\0");
+  const pollingRequestIds = useMemo(() => new Set(requestIdsKey ? requestIdsKey.split("\0") : []), [requestIdsKey]);
   useEffect(() => {
     if (!active) return;
     let closed = false;
-    const poll = () => { if (!closed) void load(); };
-    poll();
-    const timer = window.setInterval(poll, 2_000);
-    return () => { closed = true; window.clearInterval(timer); };
-  }, [active, load]);
+    let timer: number | undefined;
+    const poll = async () => {
+      if (closed) return;
+      const next = await load();
+      if (closed) return;
+      const matching = next?.filter((request) => pollingRequestIds.has(request.id)) ?? [];
+      const terminal = matching.length > 0 && matching.every((request) => request.state === "delivered" || request.state === "cancelled");
+      if (!terminal) timer = window.setTimeout(() => void poll(), 2_000);
+    };
+    void poll();
+    return () => { closed = true; if (timer !== undefined) window.clearTimeout(timer); };
+  }, [active, load, pollingRequestIds]);
   const stop = async (requestId: string) => {
     if (stopping) return;
     setStopping(requestId); setError(null);
