@@ -82,7 +82,7 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
         </Button>
       </div>
       <p className="text-xs text-muted">
-        Pi のグローバルスキルと LeafCodePi の同梱スキルを、{scope === "code" ? "Codeの通常タスク" : "Botの会話とルーム"}で別々に有効／無効にします。開いているセッションへ即時反映します。
+        Pi のグローバルスキルと LeafCodePi の同梱スキルを、{scope === "code" ? "Codeの通常タスク" : "Botの会話とルーム"}で別々に有効／無効にします。開いているセッションへバックグラウンドで反映します。
       </p>
       {(skillsPath || bundledSkillsPath) && (
         <div className="mt-1 space-y-0.5 font-mono text-[11px] text-muted">

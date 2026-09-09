@@ -40,14 +40,18 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 
   try {
     const listed = setSkillEnabled(name, enabled, undefined, { scope });
-    const reload = await reloadLiveSessionsContext();
+    // Rebuilding every live session is expensive; persist and respond first.
+    setImmediate(() => {
+      void reloadLiveSessionsContext().catch((error) => {
+        console.warn("[skills] live session context reload failed", error);
+      });
+    });
     return NextResponse.json({
       ok: true,
       name,
       enabled,
       scope,
       skills: listed.skills,
-      reload,
     });
   } catch (error) {
     return NextResponse.json(
