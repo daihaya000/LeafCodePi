@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBot, patchBot } from "@/lib/bots";
-import { getProject, getTask } from "@/lib/store";
+import { getProject, getTask, listTasks } from "@/lib/store";
 import { createTask, abortTask, jsonError, promptTask } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
@@ -21,8 +21,8 @@ export async function GET(
   reconcileOrphanedWorkingTasks();
   const bot = getBot(id);
   if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
-  const task = bot.codeSessionTaskId ? getTask(bot.codeSessionTaskId) ?? null : null;
-  return NextResponse.json({ task });
+  const tasks = listTasks(true).filter((task) => task.botId === id);
+  return NextResponse.json({ tasks });
 }
 
 export async function POST(
@@ -74,15 +74,6 @@ export async function POST(
         return NextResponse.json({ error: "invalid permissionMode" }, { status: 400 });
       }
 
-      const linked = bot.codeSessionTaskId ? getTask(bot.codeSessionTaskId) : undefined;
-      if (linked && linked.status !== "archived") {
-        return NextResponse.json(
-          { error: "このBotには既にCodeセッションがあります", task: linked },
-          { status: 409 },
-        );
-      }
-      if (bot.codeSessionTaskId) patchBot(id, { codeSessionTaskId: null });
-
       const task = await createTask({
         projectId,
         prompt: body.prompt,
@@ -98,9 +89,6 @@ export async function POST(
             ? body.permissionMode
             : bot.permissionMode ?? "ask",
       });
-      if (!patchBot(id, { codeSessionTaskId: task.id })) {
-        throw Object.assign(new Error("Bot not found"), { status: 404 });
-      }
       return NextResponse.json({ task });
     });
   } catch (error) {
@@ -119,15 +107,15 @@ export async function PATCH(
       reconcileOrphanedWorkingTasks();
       const bot = getBot(id);
       if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
-      const taskId = bot.codeSessionTaskId;
+      const body = (await req.json().catch(() => null)) as { action?: unknown; prompt?: unknown; taskId?: unknown } | null;
+      const taskId = typeof body?.taskId === "string" ? body.taskId : bot.codeSessionTaskId;
       if (!taskId) return NextResponse.json({ error: "Code session not found" }, { status: 404 });
-      const body = (await req.json().catch(() => null)) as { action?: unknown; prompt?: unknown } | null;
       if (body?.action === "clear" || body?.action === "unlink") {
         patchBot(id, { codeSessionTaskId: null });
         return NextResponse.json({ task: null });
       }
       const task = getTask(taskId);
-      if (!task || task.status === "archived") {
+      if (!task || task.botId !== id || task.status === "archived") {
         return NextResponse.json({ error: "Code session not found" }, { status: 404 });
       }
       if (body?.action === "abort") {
