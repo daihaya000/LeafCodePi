@@ -113,6 +113,36 @@ it("ignores stale routine data after switching ids", async () => {
   expect(screen.queryByRole("status")).toBeNull();
 });
 
+it("ignores a stale SSE snapshot after switching ids", async () => {
+  const botOne = { ...testBot, id: "one", name: "One" };
+  const botTwo = { ...testBot, id: "two", name: "Two" };
+  class TestSource {
+    static instances: TestSource[] = [];
+    listeners = new Map<string, (event: { data: string }) => void>();
+    constructor() { TestSource.instances.push(this); }
+    addEventListener(name: string, callback: (event: { data: string }) => void) { this.listeners.set(name, callback); }
+    close() {}
+  }
+  vi.stubGlobal("EventSource", TestSource);
+  mocks.getJson.mockImplementation((url: string) => {
+    if (url === "/api/bots/one") return Promise.resolve({ bot: botOne });
+    if (url === "/api/bots/two") return Promise.resolve({ bot: botTwo });
+    if (url === "/api/models") return Promise.resolve({ models: [] });
+    if (url.endsWith("/routines")) return Promise.resolve({ routines: [] });
+    return Promise.resolve({ bot: botOne });
+  });
+  const view = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("heading", { name: "One" });
+  view.rerender(<ShellProvider><BotView id="two" /></ShellProvider>);
+  await screen.findByRole("heading", { name: "Two" });
+  const staleSnapshot = TestSource.instances[0]?.listeners.get("snapshot");
+  if (!staleSnapshot) throw new Error("Initial SSE snapshot listener was not registered");
+  await act(async () => {
+    staleSnapshot({ data: JSON.stringify({ messages: [{ id: "old", role: "assistant", createdAt: 1, parts: [{ type: "text", text: "old reply" }] }] }) });
+  });
+  expect(screen.queryByText("old reply")).toBeNull();
+});
+
 it("defers model loading until a hidden Bot tab is activated", async () => {
   const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
   expect(mocks.getJson).not.toHaveBeenCalledWith("/api/models");

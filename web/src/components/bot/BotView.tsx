@@ -177,6 +177,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
       source = closeSseSource(source);
       source = new EventSource(`/api/bots/${encodeURIComponent(id)}/events?epoch=${Date.now()}`);
       source.addEventListener("snapshot", (event) => {
+        if (closed) return;
         retryCount = 0;
         try {
           const payload = JSON.parse((event as MessageEvent).data) as {
@@ -196,6 +197,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
         } catch { setError("イベントの解析に失敗しました"); }
       });
       source.addEventListener("delta", (event) => {
+        if (closed) return;
         try {
           const payload = JSON.parse((event as MessageEvent).data) as {
             message?: UiMessage | null;
