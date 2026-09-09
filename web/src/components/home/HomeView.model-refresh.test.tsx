@@ -50,6 +50,28 @@ afterEach(() => {
 });
 
 describe("HomeView model refresh", () => {
+  it("ignores an older model response after an overlapping refresh", async () => {
+    const first = deferred<{ models: ModelOption[] }>();
+    const second = deferred<{ models: ModelOption[] }>();
+    modelResponses.push(first.promise, second.promise);
+    const modelA = model("provider::model-a", "Model A");
+    const modelB = model("provider::model-b", "Model B");
+
+    render(<HomeView initialNoProject />);
+    await screen.findByText(/Pi に利用可能なモデルがありません/);
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(modelResponses).toHaveLength(0));
+
+    await act(async () => { second.resolve({ models: [modelB] }); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model B"));
+    await act(async () => { first.resolve({ models: [modelA] }); });
+    expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model B");
+  });
+
   it("keeps the selected model after a health-triggered model reload", async () => {
     const first = deferred<{ models: ModelOption[] }>();
     const second = deferred<{ models: ModelOption[] }>();

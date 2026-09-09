@@ -122,6 +122,7 @@ export function HomeView({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
   const modelsRef = useRef<ModelOption[]>([]);
+  const modelRefreshRef = useRef(0);
 
   const selectedProject = projectId
     ? projects.find((project) => project.id === projectId)
@@ -135,9 +136,11 @@ export function HomeView({
 
   const refresh = useCallback(async () => {
     if (modelsRef.current.length === 0) setModelsLoading(true);
+    const refreshId = ++modelRefreshRef.current;
     const modelRequest = getJson<{ models: ModelOption[] }>("/api/models");
     void modelRequest
       .then((result) => {
+        if (modelRefreshRef.current !== refreshId) return;
         const nextModels = result.models;
         const previousModels = modelsRef.current;
         modelsRef.current = nextModels;
@@ -154,7 +157,9 @@ export function HomeView({
         });
         setModelsLoading(false);
       })
-      .catch(() => setModelsLoading(false));
+      .catch(() => {
+        if (modelRefreshRef.current === refreshId) setModelsLoading(false);
+      });
 
     const [projectRes, healthRes, agentRes, skillRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects"),
