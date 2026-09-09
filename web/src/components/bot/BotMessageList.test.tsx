@@ -53,6 +53,15 @@ it("renders bot Markdown with GFM", () => {
   expect(container.querySelector("ul li")?.textContent).toBe("item");
 });
 
+it("renders internal task links as accessible cards and preserves external links", () => {
+  const { getByRole } = render(<BotMessageMarkdown text={"[Code task](/task/task%2F123) [Docs](https://example.com)"} />);
+  const taskLink = getByRole("link", { name: "Codeタスク task/123" });
+  expect(taskLink.getAttribute("href")).toBe("/task/task%2F123");
+  expect(taskLink.textContent).toContain("Codeタスク");
+  expect(taskLink.textContent).toContain("task/123");
+  expect(getByRole("link", { name: "Docs" }).getAttribute("href")).toBe("https://example.com");
+});
+
 it("places image attachments below the message text", () => {
   const { container } = render(<BotChatMessage
     user

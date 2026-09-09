@@ -19,7 +19,7 @@ function TaskLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorE
   }
   const taskId = decodeURIComponent(href.split("/task/")[1]!.split(/[?#]/)[0]!);
   return (
-    <Link href={href} {...props} className="my-2 flex items-center gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm no-underline transition-colors hover:bg-surface-3">
+    <Link href={href} {...props} aria-label={`Codeタスク ${taskId}`} className="my-2 flex items-center gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm no-underline transition-colors hover:bg-surface-3">
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent" aria-hidden="true">↗</span>
       <span className="min-w-0">
         <span className="block text-[11px] font-medium text-muted">Codeタスク</span>
