@@ -2,7 +2,7 @@
 
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Users, X, RotateCcw } from "lucide-react";
+import { Users, X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
 import { notifyBotSidebarChanged } from "@/lib/events";
 import { markRead } from "@/lib/bot-unread";
@@ -15,8 +15,8 @@ import { BotAvatar } from "@/components/bot/BotAvatar";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
-import { BotMessageError, BotMessageList, BotChatMessage } from "@/components/bot/BotMessageList";
-import { ImageLightbox, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
+import { BotMessageError, BotMessageImages, BotMessageList, BotChatMessage, BotPermissionCard, BotRevertButton } from "@/components/bot/BotMessageList";
+import { type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 
 import { CodeRequestCard } from "@/components/bot/CodeRequestCard";
@@ -349,8 +349,8 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     return (
       <BotChatMessage key={message.id} user={user} createdAt={message.createdAt}
         sender={{ ...bot, name: bot?.name ?? message.botName ?? "ボット", active: message.status === "working" }} text={text} mentions={bots}
-        images={message.images && message.images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{message.images.map((image) => <ImageLightbox key={image.file} src={`/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}`} alt="添付画像" className="max-h-48 max-w-full rounded-xl object-contain" />)}</div>}
-        footer={user ? <button type="button" title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"><RotateCcw className="h-3 w-3" />入力欄に戻す</button> : undefined}>
+        images={<BotMessageImages images={(message.images ?? []).map((image) => ({ key: image.file, src: `/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}` }))} />}
+        footer={user ? <BotRevertButton title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} /> : undefined}>
         {message.codeState && <CodeRequestCard taskId={message.codeTaskId} state={message.codeState} activity={message.codeActivity} stopping={stoppingCode} onStop={() => void stopCode(message.codeRequestId)} />}
         {message.handoffs?.length ? (
           <div className="flex flex-wrap gap-1.5">
@@ -397,12 +397,15 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
           {room.messages.length === 0 && <BotEmptyState icon={<Users className="h-5 w-5" />} title={room.name + " \u3067\u8a71\u3059"} description="そのまま送るとメンバーが会話します。@ボット名で相手を指定、@hereで全員に個別回答を依頼できます。実作業は承認後にCodeで実行し、このRoomへ結果を返します。">{members.length > 0 && <div className="mt-3 flex flex-wrap justify-center gap-2">{members.map((bot) => <span key={bot.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 text-xs"><BotAvatar size={18} {...bot} />{bot.name}</span>)}</div>}</BotEmptyState>}
           {rendered}
           {attention.map((item) => <div key={item.taskId} className="space-y-3">
-            {item.permission && <div role="alertdialog" aria-label={`${botById.get(item.botId)?.name ?? "Bot"}の権限確認`} className="rounded-2xl border border-warning/40 bg-warning-bg p-4 text-xs">
-              <p className="font-medium">{botById.get(item.botId)?.name ?? "Bot"}：権限の確認が必要です</p>
-              <p className="mt-1 whitespace-pre-wrap break-all text-muted">{item.permission.message}</p>
-              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-surface p-2">{item.permission.command}</pre>
-              <div className="mt-3 flex gap-2"><Button size="sm" disabled={Boolean(attentionBusy)} onClick={() => void respond(item, true)}>許可</Button><Button size="sm" variant="ghost" disabled={Boolean(attentionBusy)} onClick={() => void respond(item, false)}>拒否</Button></div>
-            </div>}
+            {item.permission && <BotPermissionCard
+              label={`${botById.get(item.botId)?.name ?? "Bot"}の権限確認`}
+              title={`${botById.get(item.botId)?.name ?? "Bot"}：権限の確認が必要です`}
+              message={item.permission.message}
+              command={item.permission.command}
+              disabled={Boolean(attentionBusy)}
+              onAllow={() => void respond(item, true)}
+              onDeny={() => void respond(item, false)}
+            />}
             {item.question && <div><p className="mb-1 text-xs text-muted">{botById.get(item.botId)?.name ?? "Bot"}からの質問</p><QuestionCard request={item.question} onReply={(request, answers) => answerQuestion(item.taskId, request, answers)} onReject={(request) => answerQuestion(item.taskId, request)} /></div>}
           </div>)}
           {working && <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />応答中…</div>}
