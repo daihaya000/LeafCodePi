@@ -14,7 +14,7 @@ import {
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import { BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, getBot } from "@/lib/bots";
-import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, roomForCodeOrigin, runUserBotCodeRequest, type CodeRequest } from "@/lib/pi/bot-code-relay";
+import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "@/lib/pi/bot-code-relay";
 import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
 import { ROOM_SYSTEM_PROMPT, roomBotPrompt } from "@/lib/room-conversation";
 import { requestWebUiPermission } from "@/lib/pi/webui-permission-bridge";
@@ -2083,6 +2083,15 @@ export async function createBotCodeTask(
     { prompt: input.prompt, projectId: input.projectId },
     (codeRequestId, link) => createTask({ ...input, botId, codeRequestId, beforePrompt: (task) => link(task.id) }),
   );
+}
+
+/**
+ * User stop for a Bot-owned Code task. The owning request is marked before the abort, so the captured
+ * result is reported as a stop and the Bot cannot continue it on its own.
+ */
+export async function stopBotCodeTask(botId: string, taskId: string): Promise<TaskSummary> {
+  await stopBotCodeRequestForTask(botId, taskId);
+  return abortTask(taskId);
 }
 
 function botAttentionSource(taskId: string, kind: "permission" | "question", requestId?: string): string {

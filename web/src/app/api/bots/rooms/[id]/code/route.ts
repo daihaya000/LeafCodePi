@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRoom } from "@/lib/rooms";
-import { abortTask, jsonError } from "@/lib/pi/harness";
+import { jsonError, stopBotCodeTask } from "@/lib/pi/harness";
 import { cancelRoomCodeRequest, pendingRoomCodeRequestForRoom, roomCodeRequestForRoom } from "@/lib/pi/bot-code-relay";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ requestId: request.id, state: "cancelled" });
     }
     if (!request.codeTaskId) return NextResponse.json({ error: "No running Code request" }, { status: 404 });
-    return NextResponse.json({ task: await abortTask(request.codeTaskId) });
+    return NextResponse.json({ task: await stopBotCodeTask(request.botId, request.codeTaskId) });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

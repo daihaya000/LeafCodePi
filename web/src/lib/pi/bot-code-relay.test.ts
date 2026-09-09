@@ -24,7 +24,7 @@ vi.mock("@/lib/store", () => ({
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, botCodeReportText, cancelRoomCodeRequest, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, botCodeReportText, cancelRoomCodeRequest, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -283,7 +283,19 @@ describe("Bot ⇄ Code relay", () => {
 
     expect(await stopBotCodeRequest("other", record().id)).toBeUndefined();
     expect(await stopBotCodeRequest("one", "not-a-request-id")).toBeUndefined();
+    expect(await stopBotCodeRequestForTask("other", "code")).toBeUndefined();
+    expect(await stopBotCodeRequestForTask("one", "unknown-code")).toBeUndefined();
     expect(record().stoppedByUser).toBeUndefined();
+  });
+
+  it("makes a stop by Code task id final too", async () => {
+    await launch();
+
+    expect(await stopBotCodeRequestForTask("one", "code")).toMatchObject({ state: "running", codeTaskId: "code" });
+    expect(record().stoppedByUser).toBe(true);
+    await deps.abort("code");
+    await relay.tick();
+    expect(record().result).toContain("ユーザーが停止");
   });
 
   it("keeps attention attached to the originating Bot even after manual unlink", async () => {

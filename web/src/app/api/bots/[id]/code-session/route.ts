@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBot, patchBot } from "@/lib/bots";
 import { getProject, getTask } from "@/lib/store";
-import { abortTask, createBotCodeTask, getTaskSummariesWithTodoProgress, goalLoopCommand, jsonError, promptTask } from "@/lib/pi/harness";
+import { createBotCodeTask, getTaskSummariesWithTodoProgress, goalLoopCommand, jsonError, promptTask, stopBotCodeTask } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import {
@@ -186,7 +186,7 @@ export async function PATCH(
         return NextResponse.json({ loop });
       }
       if (body?.action === "abort") {
-        return NextResponse.json({ task: await abortTask(taskId) });
+        return NextResponse.json({ task: await stopBotCodeTask(id, taskId) });
       }
       if (body?.action === "prompt") {
         if (typeof body.prompt !== "string" || !body.prompt.trim()) {

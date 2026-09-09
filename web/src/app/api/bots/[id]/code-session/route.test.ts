@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   listTasks: vi.fn(),
   getProject: vi.fn(),
   createBotCodeTask: vi.fn(),
-  abortTask: vi.fn(),
+  stopBotCodeTask: vi.fn(),
   getTaskSummariesWithTodoProgress: vi.fn(),
   goalLoopCommand: vi.fn(),
   promptTask: vi.fn(),
@@ -26,7 +26,7 @@ vi.mock("@/lib/bot-code-session-lock", () => ({ withBotCodeSessionLock: mocks.wi
 vi.mock("@/lib/store", () => ({ getProject: mocks.getProject, getTask: mocks.getTask, listTasks: mocks.listTasks }));
 vi.mock("@/lib/pi/harness", () => ({
   createBotCodeTask: mocks.createBotCodeTask,
-  abortTask: mocks.abortTask,
+  stopBotCodeTask: mocks.stopBotCodeTask,
   getTaskSummariesWithTodoProgress: mocks.getTaskSummariesWithTodoProgress,
   goalLoopCommand: mocks.goalLoopCommand,
   promptTask: mocks.promptTask,
@@ -61,7 +61,7 @@ beforeEach(() => {
   mocks.getTaskSummariesWithTodoProgress.mockResolvedValue([]);
   mocks.goalLoopCommand.mockResolvedValue({ id: "loop-1", status: "paused", maxTurns: 3, turnCount: 1 });
   mocks.createBotCodeTask.mockResolvedValue({ id: "code-1", status: "working" });
-  mocks.abortTask.mockResolvedValue({ id: "code-1", status: "idle" });
+  mocks.stopBotCodeTask.mockResolvedValue({ id: "code-1", status: "idle" });
   mocks.promptTask.mockResolvedValue({ id: "code-1", status: "working" });
 });
 
@@ -177,7 +177,8 @@ describe("Bot Code session control", () => {
     expect(promptResponse.status).toBe(200);
     expect(mocks.promptTask).toHaveBeenCalledWith("code-1", "続けて");
     expect(abortResponse.status).toBe(200);
-    expect(mocks.abortTask).toHaveBeenCalledWith("code-1");
+    // A panel stop is final: the owning request is marked before the task is aborted.
+    expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("bot-1", "code-1");
   });
 
   it("controls Goal Loop only for a Code task owned by this Bot", async () => {

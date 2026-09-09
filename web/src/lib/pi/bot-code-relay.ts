@@ -239,6 +239,14 @@ export async function stopBotCodeRequest(
     return { state: request.state, codeTaskId: request.codeTaskId };
   });
 }
+/** Same finality when the stop arrives with a Code task id (Bot panel, Room card) instead of a request id. */
+export async function stopBotCodeRequestForTask(
+  botId: string,
+  codeTaskId: string,
+): Promise<{ state: CodeRequestState; codeTaskId: string | null } | undefined> {
+  const request = requests().find((item) => item.botId === botId && item.codeTaskId === codeTaskId && active(item));
+  return request ? stopBotCodeRequest(botId, request.id) : undefined;
+}
 /**
  * Track a Code session the user starts from the Bot screen. It shares the delegated outbox, so the
  * result is reported back into the Bot conversation instead of only living in the Code task.
