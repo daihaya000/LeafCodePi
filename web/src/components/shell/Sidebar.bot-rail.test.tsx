@@ -73,6 +73,17 @@ afterEach(() => {
 });
 
 describe("Bot mode collapsed rail", () => {
+  it("animates a Bot with an in-progress Code session", async () => {
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [{ id: "bot-a", name: "Bot A", enabled: true, codeInProgress: true, lastMessageSummary: null, lastMessageAt: null }], rooms: [] });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    const avatar = await screen.findByRole("img", { name: "Bot Aのアバター" });
+    expect(avatar.getAttribute("class") ?? "").toContain("bot-avatar-working");
+  });
+
   it("shows rooms and bots as icons and can expand back", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 

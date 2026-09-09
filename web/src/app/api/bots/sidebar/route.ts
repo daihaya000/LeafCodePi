@@ -3,6 +3,7 @@ import { botTaskId, listBots } from "@/lib/bots";
 import { listRooms } from "@/lib/rooms";
 import { getTask } from "@/lib/store";
 import { getTaskDetail } from "@/lib/pi/harness";
+import { listBotCodeRequests } from "@/lib/pi/bot-code-relay";
 import type { UiMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -24,7 +25,8 @@ export async function GET() {
         if (message) preview = { lastMessageSummary: summarize(textOf(message)) || null, lastMessageAt: new Date(message.createdAt).toISOString() };
       }
     } catch { /* sidebar preview is best effort */ }
-    return { ...bot, ...preview };
+    const codeInProgress = listBotCodeRequests(bot.id).some((request) => request.state === "starting" || request.state === "running");
+    return { ...bot, ...preview, codeInProgress };
   }));
   const rooms = listRooms().map((room) => {
     const message = room.messages[room.messages.length - 1];
