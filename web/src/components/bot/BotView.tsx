@@ -20,6 +20,7 @@ import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
 import { BotCodeRequests } from "@/components/bot/BotCodeRequests";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { markRead } from "@/lib/bot-unread";
+import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
 import { BOT_TOOL_NAMES, type BotDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type ThinkingLevel, type UiMessage } from "@/lib/types";
 
 function textOf(message: UiMessage): string {
@@ -153,11 +154,14 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     let closed = false;
     let source: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
     const connect = () => {
       if (closed) return;
-      source?.close();
+      retry = cancelPendingSseReconnect(retry);
+      source = closeSseSource(source);
       source = new EventSource(`/api/bots/${encodeURIComponent(id)}/events?epoch=${Date.now()}`);
       source.addEventListener("snapshot", (event) => {
+        retryCount = 0;
         try {
           const payload = JSON.parse((event as MessageEvent).data) as {
             messages?: UiMessage[];
@@ -192,15 +196,18 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
         } catch { setError("イベントの解析に失敗しました"); }
       });
       source.onerror = () => {
-        source?.close();
-        if (!closed) retry = setTimeout(connect, 1500);
+        if (closed) return;
+        source = closeSseSource(source);
+        retry = cancelPendingSseReconnect(retry);
+        retryCount += 1;
+        retry = setTimeout(connect, sseReconnectDelayMs(retryCount));
       };
     };
     connect();
     return () => {
       closed = true;
-      if (retry) clearTimeout(retry);
-      source?.close();
+      retry = cancelPendingSseReconnect(retry);
+      source = closeSseSource(source);
     };
   }, [id]);
 
