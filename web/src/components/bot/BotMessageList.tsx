@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { withMentions } from "@/components/bot/BotMention";
 import { toolLabel } from "@/lib/tool-labels";
+import { formatMessageTime } from "@/components/ui";
 import type { BotDto, UiMessage } from "@/lib/types";
 
 /** Elements that carry prose; each rewrites only its own bare text into mention chips. */
@@ -73,22 +74,23 @@ export function BotResponseStatus({
 }
 
 /** Sender line above the bubble, mirroring Code mode's meta header. */
-export function BotMessageSender({ name, active = false, ...face }: BotFace & { name: string; active?: boolean }) {
+export function BotMessageSender({ name, createdAt, active = false, ...face }: BotFace & { name: string; createdAt?: number; active?: boolean }) {
   return (
     <div className="flex min-w-0 items-center gap-1.5 px-1 text-[11px] font-medium text-muted">
       <span aria-hidden="true" className="shrink-0"><BotAvatar size={16} {...face} name={name} active={active} /></span>
       <span className="min-w-0 truncate">{name}</span>
+      {createdAt !== undefined && <BotMessageTime createdAt={createdAt} className="ml-1 mt-0 shrink-0" />}
     </div>
   );
 }
 
 /** One chat row. Bot and Room conversations share it so both look identical. */
-export function BotMessageRow({ user, createdAt, children, footer, header }: { user: boolean; createdAt: number; children: ReactNode; footer?: ReactNode; header?: ReactNode }) {
+export function BotMessageRow({ user, createdAt, children, footer, header, timeInHeader = false }: { user: boolean; createdAt: number; children: ReactNode; footer?: ReactNode; header?: ReactNode; timeInHeader?: boolean }) {
   return (
     <div className={`flex flex-col gap-1 ${user ? "items-end" : "items-start"}`}>
       {header}
       <div className={`min-w-0 max-w-bubble rounded-3xl px-4 py-3 text-base leading-7 [overflow-wrap:anywhere] bot-message-bubble ${user ? "bg-bot-user text-white" : "rounded-tl-lg bg-bot-assistant text-text"}`}>{children}</div>
-      <BotMessageTime createdAt={createdAt} />
+      {(!timeInHeader || user) && <BotMessageTime createdAt={createdAt} />}
       {footer}
     </div>
   );
@@ -98,8 +100,8 @@ export function BotMessageError({ text }: { text: string }) {
   return <div role="alert" className="mt-2 rounded-lg bg-danger/10 px-2 py-1 text-xs text-danger">{text}</div>;
 }
 
-export function BotMessageTime({ createdAt }: { createdAt: number }) {
+export function BotMessageTime({ createdAt, className = "mt-1 block text-right" }: { createdAt: number; className?: string }) {
   const date = new Date(createdAt);
   if (!Number.isFinite(date.getTime())) return null;
-  return <time dateTime={date.toISOString()} className="mt-1 block text-right text-[11px] opacity-70">{date.toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</time>;
+  return <time dateTime={date.toISOString()} className={`${className} text-[11px] opacity-70`}>{formatMessageTime(createdAt)}</time>;
 }

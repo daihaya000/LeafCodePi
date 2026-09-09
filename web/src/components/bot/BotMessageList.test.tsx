@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow, BotMessageSender, BotMessageTime, BotResponseStatus } from "./BotMessageList";
 import type { UiMessage } from "@/lib/types";
+import { formatMessageTime } from "../ui";
 
 afterEach(cleanup);
 
@@ -25,7 +26,7 @@ it("follows loaded history and streaming, preserves reading position, and resets
   expect(viewport.scrollTop).toBe(1200);
 });
 
-it("places the time and footer below the bubble, for user and bot alike", () => {
+it("places the time and footer below the bubble for user messages", () => {
   const createdAt = Date.UTC(2026, 8, 8, 2, 58);
   const { container, rerender } = render(<BotMessageRow user createdAt={createdAt} footer={<button type="button">入力欄に戻す</button>}>エージェントは？</BotMessageRow>);
   const row = container.firstElementChild!;
@@ -41,6 +42,9 @@ it("places the time and footer below the bubble, for user and bot alike", () => 
   expect(botRow.children[0].textContent).toBe("MiMo");
   expect(botRow.children[1].className).toContain("bg-bot-assistant");
   expect(botRow.querySelector("[role='alert']")?.textContent).toBe("応答に失敗しました");
+
+  rerender(<BotMessageSender name="プログラマー" createdAt={createdAt} avatarColor="#0071E3" />);
+  expect(container.querySelector("time")?.textContent).toBe(formatMessageTime(createdAt));
 });
 
 it("renders bot Markdown with GFM", () => {
@@ -82,7 +86,7 @@ it("renders the sent date and time with a machine-readable timestamp", () => {
   const { container, rerender } = render(<BotMessageTime createdAt={createdAt} />);
   const time = container.querySelector("time")!;
   expect(time.dateTime).toBe("2026-09-06T12:34:00.000Z");
-  expect(time.textContent).toMatch(/2026\/09\/06.*\d{2}:34/);
+  expect(time.textContent).toBe(formatMessageTime(createdAt));
   rerender(<BotMessageTime createdAt={NaN} />);
   expect(container.querySelector("time")).toBeNull();
 });
