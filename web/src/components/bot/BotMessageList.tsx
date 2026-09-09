@@ -1,6 +1,6 @@
 "use client";
 
-import { type AnchorHTMLAttributes, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, type AnchorHTMLAttributes, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -48,14 +48,14 @@ function InternalTaskLink({ href, ...props }: AnchorHTMLAttributes<HTMLAnchorEle
   );
 }
 
-export function BotMessageMarkdown({ text, mentions, keyPrefix = "md" }: { text: string; mentions?: BotDto[]; keyPrefix?: string }) {
+export const BotMessageMarkdown = memo(function BotMessageMarkdown({ text, mentions, keyPrefix = "md" }: { text: string; mentions?: BotDto[]; keyPrefix?: string }) {
   const components = mentions
     ? Object.fromEntries(MENTION_TAGS.map((Tag) => [Tag, ({ children, ...props }: { children?: ReactNode }) => (
       <Tag {...props}>{withMentions(children, mentions, keyPrefix)}</Tag>
     )]))
     : undefined;
   return <div className="md"><Markdown remarkPlugins={[remarkGfm]} components={{ ...components, a: ({ href, children, ...props }) => <TaskLink href={href} {...props}>{children}</TaskLink> }}>{text}</Markdown></div>;
-}
+});
 
 export function BotMessageList({ conversationId, children }: { conversationId: string; children: ReactNode }) {
   const viewport = useRef<HTMLElement>(null);

@@ -212,6 +212,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   const thinkingValue: ThinkingLevel = bot?.thinkingLevel && thinkingLevels.includes(bot.thinkingLevel)
     ? bot.thinkingLevel
     : (thinkingLevels[0] ?? "off");
+  const botMentions = useMemo(() => bot ? [bot] : [], [bot]);
 
   const addImageFiles = (files: FileList) => {
     if (!canAttachComposerImages({ submitting: sending })) return;
@@ -493,7 +494,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     if (!text && images.length === 0 && !message.error && requestIds.length === 0) return null;
     return (
       <BotChatMessage key={message.id} user={user} createdAt={message.createdAt}
-        sender={{ ...(bot ?? {}), name: bot?.name ?? "ボット" }} text={text} mentions={bot ? [bot] : []}
+        sender={{ ...(bot ?? {}), name: bot?.name ?? "ボット" }} text={text} mentions={botMentions}
         images={<BotMessageImages images={images.flatMap((part) => part.type === "image" ? [{ key: part.id, src: part.url, alt: part.filename ?? undefined }] : [])} />}
         footer={user ? <BotRevertButton title="このコメントを入力欄に戻して巻き戻す" disabled={reverting || sending} onClick={() => void revertMessage(message)} /> : undefined}>
         {message.error && <BotMessageError text={message.error} />}
@@ -501,7 +502,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
       </BotChatMessage>
     );
     });
-  }, [bot, id, messages, reverting, sending]);
+  }, [bot, botMentions, id, messages, reverting, sending]);
 
   if (!bot) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
