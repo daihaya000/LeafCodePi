@@ -8,16 +8,18 @@ import { notifyBotSidebarChanged } from "@/lib/events";
 import { markRead } from "@/lib/bot-unread";
 import type { SkillDto } from "@/lib/skills";
 import { decideNotification } from "@/lib/notify";
-import type { BotDto, CodeRequestState, QuestionRequestDto, RoomAttention, RoomDto, TaskDetail } from "@/lib/types";
+import type { BotDto, QuestionRequestDto, RoomAttention, RoomDto } from "@/lib/types";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotComposer } from "@/components/bot/BotComposer";
-import { BotMessageError, BotMessageList, BotMessageMarkdown, BotChatMessage } from "@/components/bot/BotMessageList";
+import { BotMessageError, BotMessageList, BotChatMessage } from "@/components/bot/BotMessageList";
 import { ImageLightbox, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
+
+import { CodeRequestCard } from "@/components/bot/CodeRequestCard";
 
 type MentionContext = { start: number; end: number; query: string };
 
@@ -40,108 +42,6 @@ const OUTCOME_TEXT: Record<string, string> = {
   repeat: "同じ内容が繰り返されたため停止しました",
   done: "会話は完了しました",
 };
-
-const CODE_STATE_TEXT: Record<CodeRequestState, string> = {
-  queued: "Code待機中",
-  starting: "Code起動準備",
-  running: "Code実行中",
-  ready: "Code結果を報告中",
-  delivered: "Code結果受領",
-  cancelled: "Code中断",
-};
-
-const TASK_STATUS_TEXT: Record<TaskDetail["status"], string> = {
-  working: "実行中",
-  ready: "待機中",
-  idle: "待機中",
-  error: "エラー",
-  archived: "アーカイブ済み",
-  unknown: "不明",
-};
-
-function latestCodeOutput(task: TaskDetail): string {
-  for (const message of [...(task.messages ?? [])].reverse()) {
-    if (message.role !== "assistant") continue;
-    const text = message.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n").trim();
-    if (text) return text;
-  }
-  return "";
-}
-
-function RoomCodePreview({
-  taskId,
-  state,
-  activity,
-  stopping,
-  onStop,
-}: {
-  taskId?: string | null;
-  state: CodeRequestState;
-  activity?: string;
-  stopping: boolean;
-  onStop: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [task, setTask] = useState<TaskDetail | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const live = state === "queued" || state === "starting" || state === "running";
-
-  useEffect(() => {
-    if (!open || !taskId) return;
-    let closed = false;
-    const load = async () => {
-      setLoading(true);
-      try {
-        const result = await getJson<{ task: TaskDetail | null }>(`/api/tasks/${encodeURIComponent(taskId)}`);
-        if (closed) return;
-        setTask(result.task ?? null);
-        setError(null);
-      } catch (reason) {
-        if (!closed) setError(reason instanceof Error ? reason.message : "Codeタスクを読み込めませんでした");
-      } finally {
-        if (!closed) setLoading(false);
-      }
-    };
-    setTask(null);
-    setError(null);
-    void load();
-    if (!live) return () => { closed = true; };
-    const timer = window.setInterval(() => { void load(); }, 2_000);
-    return () => { closed = true; window.clearInterval(timer); };
-  }, [live, open, taskId, state]);
-
-  const output = task ? latestCodeOutput(task) : "";
-  const preview = output.length > 4_000 ? `${output.slice(0, 4_000)}\n…（以降省略）` : output;
-
-  return (
-    <div className="mt-2 w-full max-w-full min-w-0 rounded-xl border border-border bg-surface p-3 text-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <span role="status" aria-live={live ? "polite" : undefined} className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${state === "delivered" ? "bg-success-bg text-success" : "bg-surface-2 text-muted"}`}>{CODE_STATE_TEXT[state]}</span>
-        {activity && <span className="min-w-0 flex-1 truncate text-faint">· {activity}</span>}
-        {taskId && <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="min-h-11 rounded-lg px-3 text-accent hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent">{open ? "閉じる" : "プレビュー"}</button>}
-        {taskId && <a className="inline-flex min-h-11 items-center rounded-lg px-3 text-muted hover:bg-surface-2 hover:text-accent focus-visible:outline-2 focus-visible:outline-accent" href={`/task/${encodeURIComponent(taskId)}`}>実行内容を見る</a>}
-        {(state === "queued" || state === "starting" || state === "running") && <button type="button" onClick={onStop} disabled={stopping} className="min-h-11 rounded-lg px-3 text-danger hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">{state === "queued" ? "取消" : "停止"}</button>}
-      </div>
-      {open && (
-        <div role="region" aria-label="Codeプレビュー" className="mt-3 min-w-0 space-y-3 border-t border-border pt-3">
-          {loading && !task && <p className="text-muted">読み込み中…</p>}
-          {error && <p role="alert" className="text-danger">{error}</p>}
-          {task && <>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="min-w-0 flex-1 break-words font-medium" title={task.title}>{task.title}</span>
-              <span className="text-muted">{task.status === "error" ? TASK_STATUS_TEXT.error : state === "delivered" ? "完了" : state === "cancelled" ? "中断" : TASK_STATUS_TEXT[task.status]}</span>
-            </div>
-            {task.projectName && <p className="truncate text-muted">プロジェクト: {task.projectName}</p>}
-            {task.todoProgress && task.todoProgress.total > 0 && <p className="text-muted">進捗: {task.todoProgress.completed}/{task.todoProgress.total}</p>}
-            {preview ? <div tabIndex={0} aria-label="Codeの出力" className="max-h-96 overflow-auto rounded-lg bg-bg p-3 text-sm leading-relaxed [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-accent"><BotMessageMarkdown text={preview} /></div> : <p className="text-muted">{live ? "Codeの出力を待っています…" : "Codeの出力はありません"}</p>}
-          </>}
-          {!loading && !error && !task && <p className="text-muted">Codeタスク情報がありません</p>}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function mentionContextFor(value: string, cursor: number): MentionContext | null {
   const start = value.lastIndexOf("@", cursor - 1);
@@ -441,7 +341,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         sender={{ ...bot, name: bot?.name ?? message.botName ?? "ボット", active: message.status === "working" }} text={text} mentions={bots}
         images={message.images && message.images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{message.images.map((image) => <ImageLightbox key={image.file} src={`/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}`} alt="添付画像" className="max-h-48 max-w-full rounded-xl object-contain" />)}</div>}
         footer={user ? <button type="button" title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"><RotateCcw className="h-3 w-3" />入力欄に戻す</button> : undefined}>
-        {message.codeState && <RoomCodePreview taskId={message.codeTaskId} state={message.codeState} activity={message.codeActivity} stopping={stoppingCode} onStop={() => void stopCode(message.codeRequestId)} />}
+        {message.codeState && <CodeRequestCard taskId={message.codeTaskId} state={message.codeState} activity={message.codeActivity} stopping={stoppingCode} onStop={() => void stopCode(message.codeRequestId)} />}
         {message.status === "error" && <BotMessageError text="応答に失敗しました" />}
       </BotChatMessage>
     );

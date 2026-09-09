@@ -85,6 +85,9 @@ it("renders delegated Code requests as ID-linked previews in the Bot conversatio
   expect(codeRequest.closest("[class*='bg-bot-user']")).toBeNull();
   expect(screen.queryByText("過去の依頼")).toBeNull();
   expect(mocks.getJson).not.toHaveBeenCalledWith("/api/tasks/old-task");
+  expect(screen.getByRole("link", { name: "実行内容を見る" }).getAttribute("href")).toBe("/task/task-1");
+  expect(screen.getByRole("status").textContent).toBe("Code実行中");
+  expect(mocks.getJson).not.toHaveBeenCalledWith("/api/tasks/task-1");
   fireEvent.click(screen.getByRole("button", { name: "プレビュー" }));
   expect(await screen.findByText("変更案")).toBeTruthy();
   expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks/task-1");
