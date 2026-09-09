@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { BotChatMessage, BotMessageError, BotMessageList, BotMessageMarkdown, BotMessageRow, BotMessageSender, BotMessageTime, BotResponseStatus } from "./BotMessageList";
+import { BotChatMessage, BotMessageError, BotMessageImages, BotMessageList, BotMessageMarkdown, BotMessageRow, BotMessageSender, BotMessageTime, BotPermissionCard, BotResponseStatus, BotRevertButton } from "./BotMessageList";
 import type { UiMessage } from "@/lib/types";
 import { formatMessageTime } from "../ui";
 
@@ -106,6 +106,46 @@ it("shows the animated bot and the current tool action while responding", () => 
 it("falls back to a thinking label when no tool is active", () => {
   const messages: UiMessage[] = [{ id: "assistant-1", role: "assistant", createdAt: Date.now(), parts: [] }];
   expect(render(<BotResponseStatus messages={messages} avatar={{ name: "Bot" }} />).getByRole("status").textContent).toContain("考え中");
+});
+
+it("shares one revert button so Bot and Room labels and disabled state stay identical", () => {
+  const onClick = vi.fn();
+  const { getByRole, rerender } = render(<BotRevertButton title="この発言以降を入力欄に戻して巻き戻す" onClick={onClick} />);
+  const button = getByRole("button", { name: /入力欄に戻す/ });
+  expect(button.title).toBe("この発言以降を入力欄に戻して巻き戻す");
+  fireEvent.click(button);
+  expect(onClick).toHaveBeenCalledTimes(1);
+  rerender(<BotRevertButton title="t" disabled onClick={onClick} />);
+  fireEvent.click(getByRole("button", { name: /入力欄に戻す/ }));
+  expect(onClick).toHaveBeenCalledTimes(1);
+});
+
+it("shares one attachment strip and falls back to the default alt text", () => {
+  const { container, getAllByRole, rerender } = render(<BotMessageImages images={[
+    { key: "a", src: "/a.png" },
+    { key: "b", src: "/b.png", alt: "図面" },
+  ]} />);
+  expect(getAllByRole("img").map((image) => [image.getAttribute("src"), image.getAttribute("alt")]))
+    .toEqual([["/a.png", "添付画像"], ["/b.png", "図面"]]);
+  rerender(<BotMessageImages images={[]} />);
+  expect(container.firstChild).toBeNull();
+});
+
+it("shares one permission card so Bot and Room only differ by label", () => {
+  const onAllow = vi.fn();
+  const onDeny = vi.fn();
+  const { getByRole, rerender } = render(<BotPermissionCard label="権限の確認" title="権限の確認が必要です" message="Codeへ依頼します" command="code_session" onAllow={onAllow} onDeny={onDeny} />);
+  const card = getByRole("alertdialog", { name: "権限の確認" });
+  expect(card.textContent).toContain("権限の確認が必要です");
+  expect(card.querySelector("pre")!.textContent).toBe("code_session");
+  fireEvent.click(getByRole("button", { name: "許可" }));
+  fireEvent.click(getByRole("button", { name: "拒否" }));
+  expect([onAllow.mock.calls.length, onDeny.mock.calls.length]).toEqual([1, 1]);
+
+  rerender(<BotPermissionCard label="Alphaの権限確認" title="Alpha：権限の確認が必要です" message="m" command="c" disabled onAllow={onAllow} onDeny={onDeny} />);
+  expect(getByRole("alertdialog", { name: "Alphaの権限確認" })).toBeTruthy();
+  fireEvent.click(getByRole("button", { name: "許可" }));
+  expect(onAllow).toHaveBeenCalledTimes(1);
 });
 
 it("renders the sent date and time with a machine-readable timestamp", () => {

@@ -4,11 +4,13 @@ import { type AnchorHTMLAttributes, type ReactNode, useEffect, useLayoutEffect, 
 import Link from "next/link";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { RotateCcw } from "lucide-react";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { ProjectIcon } from "@/components/ProjectIcon";
 import { renderMentions, withMentions } from "@/components/bot/BotMention";
+import { ImageLightbox } from "@/components/Composer";
 import { toolLabel } from "@/lib/tool-labels";
-import { formatMessageTime } from "@/components/ui";
+import { Button, formatMessageTime } from "@/components/ui";
 import type { BotDto, ProjectDto, TaskSummary, UiMessage } from "@/lib/types";
 
 /** Elements that carry prose; each rewrites only its own bare text into mention chips. */
@@ -149,6 +151,38 @@ export function BotChatMessage({ user, createdAt, sender, text, mentions = [], c
     {images}
     {children}
   </BotMessageRow>;
+}
+
+/** Bot and Room share these chrome pieces; keep new shared bot-chat UI in this file so the two views cannot drift. */
+export function BotRevertButton({ title, disabled, onClick }: { title: string; disabled?: boolean; onClick: () => void }) {
+  return <button type="button" title={title} disabled={disabled} onClick={onClick} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"><RotateCcw className="h-3 w-3" />入力欄に戻す</button>;
+}
+
+export function BotMessageImages({ images }: { images: { key: string; src: string; alt?: string }[] }) {
+  if (images.length === 0) return null;
+  return <div className="mb-2 flex flex-wrap gap-2">{images.map((image) => <ImageLightbox key={image.key} src={image.src} alt={image.alt ?? "添付画像"} className="max-h-48 max-w-full rounded-xl object-contain" />)}</div>;
+}
+
+export function BotPermissionCard({ label, title, message, command, disabled, onAllow, onDeny }: {
+  label: string;
+  title: string;
+  message: string;
+  command: string;
+  disabled?: boolean;
+  onAllow: () => void;
+  onDeny: () => void;
+}) {
+  return (
+    <div role="alertdialog" aria-label={label} className="rounded-2xl border border-warning/40 bg-warning-bg p-4 text-xs">
+      <p className="font-medium">{title}</p>
+      <p className="mt-1 whitespace-pre-wrap break-all text-muted">{message}</p>
+      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-surface p-2">{command}</pre>
+      <div className="mt-3 flex gap-2">
+        <Button size="sm" disabled={disabled} onClick={onAllow}>許可</Button>
+        <Button size="sm" variant="ghost" disabled={disabled} onClick={onDeny}>拒否</Button>
+      </div>
+    </div>
+  );
 }
 
 export function BotMessageError({ text }: { text: string }) {
