@@ -20,11 +20,6 @@ import { getJson, sendJson } from "@/lib/client";
 import type { DiffFile, DiffFilesPayload } from "@/lib/types";
 import { tintCodeLine } from "@/lib/difftint";
 import { suggestCommitMessage } from "@/lib/commit-message";
-import {
-  directGenerationModelKey,
-  parseDirectGenerationModelResponse,
-  type DirectGenerationModel,
-} from "@/lib/direct-generation-text";
 
 const MAX_LINES_PER_FILE = 500;
 
@@ -258,7 +253,6 @@ export function DiffPane({
   const [deselected, setDeselected] = useState<Record<string, boolean>>({});
   const [panel, setPanel] = useState<null | "commit" | "merge" | "pr">(null);
   const [commitMsg, setCommitMsg] = useState("");
-  const [commitModel, setCommitModel] = useState<DirectGenerationModel | null>(null);
   const [generatingCommitMessage, setGeneratingCommitMessage] = useState(false);
   const [branches, setBranches] = useState<BranchInfo | null>(null);
   const [mergeTarget, setMergeTarget] = useState("");
@@ -321,7 +315,6 @@ export function DiffPane({
     setDeselected({});
     setNotice(null);
     setCommitMsg("");
-    setCommitModel(null);
     setGeneratingCommitMessage(false);
     setPrTitle("");
     setMergeTarget("");
@@ -692,14 +685,6 @@ export function DiffPane({
               }
             }}
           />
-          {commitModel && (
-            <span
-              className="min-w-0 truncate text-xs text-muted"
-              title={`生成モデル: ${directGenerationModelKey(commitModel)}`}
-            >
-              生成モデル: <span className="font-mono">{commitModel.modelID}</span>
-            </span>
-          )}
           <Button
             variant="ghost"
             size="md"
@@ -719,10 +704,8 @@ export function DiffPane({
                   "POST",
                 );
                 setCommitMsg(result.message);
-                setCommitModel(parseDirectGenerationModelResponse(result) ?? null);
                 setError(result.warning ?? null);
               } catch (error) {
-                setCommitModel(null);
                 setCommitMsg(
                   suggestCommitMessage(
                     selectedFiles.map((f) => ({ path: f.path, untracked: f.untracked })),
