@@ -38,6 +38,7 @@ export function CodeRequestCard({
   taskId,
   prompt,
   state,
+  outcome,
   activity,
   stopping,
   onStop,
@@ -45,6 +46,8 @@ export function CodeRequestCard({
   taskId?: string | null;
   prompt?: string;
   state: CodeRequestState;
+  /** Real result of the delegated run (実行終了 / ユーザーが停止 / 失敗 ...). Delivery alone is not success. */
+  outcome?: string;
   activity?: string;
   stopping?: boolean;
   onStop?: () => void;
@@ -99,11 +102,12 @@ export function CodeRequestCard({
   const progressPercent = loopActive ? loopPercent : todoPercent;
   const progressTotal = loopActive ? (loopPercent === null ? undefined : 100) : todoTotal;
   const progressValue = loopActive ? loopPercent ?? undefined : todoCompleted;
+  const succeeded = state === "delivered" && (outcome === undefined || outcome === "実行終了");
 
   return (
     <div className="mt-2 w-full max-w-full min-w-0 rounded-xl border border-border bg-surface p-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
-        <span role="status" aria-live={live ? "polite" : undefined} className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${state === "delivered" ? "bg-success-bg text-success" : "bg-surface-2 text-muted"}`}>{CODE_STATE_TEXT[state]}</span>
+        <span role="status" aria-live={live ? "polite" : undefined} className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${succeeded ? "bg-success-bg text-success" : "bg-surface-2 text-muted"}`}>{outcome && !succeeded ? outcome : CODE_STATE_TEXT[state]}</span>
         <span className="min-w-0 flex-1 basis-48 break-words font-medium [overflow-wrap:anywhere]">{prompt || "Code依頼"}</span>
         {activity && <span className="min-w-0 flex-1 truncate text-faint">· {activity}</span>}
         {taskId && <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="min-h-11 rounded-lg px-3 text-accent hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent">{open ? "閉じる" : "プレビュー"}</button>}
@@ -133,7 +137,7 @@ export function CodeRequestCard({
           {task && <>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="min-w-0 flex-1 break-words font-medium" title={task.title}>{task.title}</span>
-              <span className="text-muted">{task.status === "error" ? TASK_STATUS_TEXT.error : state === "delivered" ? "完了" : state === "cancelled" ? "中断" : TASK_STATUS_TEXT[task.status]}</span>
+              <span className="text-muted">{task.status === "error" ? TASK_STATUS_TEXT.error : outcome ?? (state === "delivered" ? "完了" : state === "cancelled" ? "中断" : TASK_STATUS_TEXT[task.status])}</span>
             </div>
             {task.projectName && <p className="truncate text-muted">プロジェクト: {task.projectName}</p>}
             {task.todoProgress && task.todoProgress.total > 0 && <p className="text-muted">進捗: {task.todoProgress.completed}/{task.todoProgress.total}</p>}

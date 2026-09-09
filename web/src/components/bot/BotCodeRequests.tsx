@@ -1,21 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { getJson } from "@/lib/client";
+import { useCallback, useEffect, useState } from "react";
+import { getJson, sendJson } from "@/lib/client";
 import type { CodeRequestState } from "@/lib/types";
 import { CodeRequestCard } from "@/components/bot/CodeRequestCard";
 
-type RequestSummary = { id: string; codeTaskId: string | null; state: CodeRequestState; prompt: string; result?: string; queuedAt?: number };
+type RequestSummary = { id: string; codeTaskId: string | null; state: CodeRequestState; prompt: string; result?: string; outcome?: string; queuedAt?: number };
 export function BotCodeRequests({ botId, requestIds }: { botId: string; requestIds: string[] }) {
   const [requests, setRequests] = useState<RequestSummary[]>([]);
+  const [stopping, setStopping] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    try { const result = await getJson<{ requests: RequestSummary[] }>(`/api/bots/${encodeURIComponent(botId)}/code-requests`); setRequests(Array.isArray(result.requests) ? result.requests : []); } catch { /* Bot view remains usable */ }
+  }, [botId]);
   useEffect(() => {
     let closed = false;
-    const load = async () => { try { const result = await getJson<{ requests: RequestSummary[] }>(`/api/bots/${encodeURIComponent(botId)}/code-requests`); if (!closed) setRequests(Array.isArray(result.requests) ? result.requests : []); } catch { /* Bot view remains usable */ } };
-    void load();
-    const timer = window.setInterval(() => void load(), 2_000);
+    const poll = () => { if (!closed) void load(); };
+    poll();
+    const timer = window.setInterval(poll, 2_000);
     return () => { closed = true; window.clearInterval(timer); };
-  }, [botId]);
+  }, [load]);
+  const stop = async (requestId: string) => {
+    if (stopping) return;
+    setStopping(requestId); setError(null);
+    try { await sendJson(`/api/bots/${encodeURIComponent(botId)}/code-requests`, { action: "abort", requestId }); await load(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Codeの停止に失敗しました"); }
+    finally { setStopping(null); }
+  };
   const matching = requests.filter((request) => requestIds.includes(request.id));
   if (matching.length === 0) return null;
-  return <section aria-label="Code依頼" className="mt-3 space-y-2"><h3 className="text-sm font-medium">Code依頼</h3>{matching.map((request) => <CodeRequestCard key={request.id} taskId={request.codeTaskId} state={request.state} prompt={request.prompt} />)}</section>;
+  return <section aria-label="Code依頼" className="mt-3 space-y-2"><h3 className="text-sm font-medium">Code依頼</h3>{matching.map((request) => <CodeRequestCard key={request.id} taskId={request.codeTaskId} state={request.state} prompt={request.prompt} outcome={request.outcome} stopping={stopping === request.id} onStop={() => void stop(request.id)} />)}{error && <p role="alert" className="text-xs text-danger">{error}</p>}</section>;
 }

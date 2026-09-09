@@ -24,7 +24,7 @@ vi.mock("@/lib/store", () => ({
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, botCodeReportText, cancelRoomCodeRequest, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, botCodeReportText, cancelRoomCodeRequest, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, stopBotCodeRequest, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -219,6 +219,33 @@ describe("Bot ⇄ Code relay", () => {
     await relay.run("bot:one", "abort", { action: "abort" }, "session");
     await relay.tick();
     expect(record().result).toContain("停止・中断");
+  });
+
+  it("keeps a user stop final: reports it as stopped and refuses an autonomous continuation", async () => {
+    await launch();
+    const stopped = await stopBotCodeRequest("one", record().id);
+
+    expect(stopped).toMatchObject({ state: "running", codeTaskId: "code" });
+    expect(record().stoppedByUser).toBe(true);
+    // The route aborts the Code task after the record is marked.
+    await deps.abort("code");
+    vi.mocked(deps.deliver).mockImplementationOnce(async () => {
+      await expect(relay.run("bot:one", "after-stop", { action: "start", projectId: "project", prompt: "続きをやる" }, "session")).rejects.toThrow("user stopped");
+      return true;
+    });
+    await relay.tick();
+
+    expect(record().result).toContain("ユーザーが停止");
+    expect(listBotCodeRequests("one")[0].outcome).toBe("ユーザーが停止");
+    expect(deps.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a stop that does not belong to the Bot", async () => {
+    await launch();
+
+    expect(await stopBotCodeRequest("other", record().id)).toBeUndefined();
+    expect(await stopBotCodeRequest("one", "not-a-request-id")).toBeUndefined();
+    expect(record().stoppedByUser).toBeUndefined();
   });
 
   it("keeps attention attached to the originating Bot even after manual unlink", async () => {

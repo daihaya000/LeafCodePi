@@ -32,6 +32,8 @@ export type CodeRequest = {
   room?: { id: string; responseId: string; conversation: RoomConversationTurn; nextBotId?: string; complete?: boolean };
   prompt: string;
   baseline: string | null;
+  /** Set by an explicit user stop, so the captured result is never reported as success or auto-continued. */
+  stoppedByUser?: boolean;
   result?: string;
   nextAttemptAt?: number;
 };
@@ -118,11 +120,23 @@ function requests(): CodeRequest[] {
 }
 function active(request: CodeRequest): boolean { return request.state !== "delivered" && request.state !== "cancelled"; }
 
-export type BotCodeRequestSummary = Pick<CodeRequest, "id" | "codeTaskId" | "state" | "prompt" | "result" | "queuedAt">;
+/** The delivered payload owns the real outcome; delivery state alone must not be shown as success. */
+function requestOutcome(request: CodeRequest): string | undefined {
+  if (!request.result) return undefined;
+  try {
+    const parsed = JSON.parse(request.result) as { outcome?: unknown };
+    return typeof parsed.outcome === "string" && parsed.outcome ? parsed.outcome : undefined;
+  } catch { return undefined; }
+}
+export type BotCodeRequestSummary = Pick<CodeRequest, "id" | "codeTaskId" | "state" | "prompt" | "result" | "queuedAt"> & { outcome?: string };
 export function listBotCodeRequests(botId: string): BotCodeRequestSummary[] {
   return requests()
     .filter((request) => request.botId === botId)
-    .map(({ id, codeTaskId, state, prompt, result, queuedAt }) => ({ id, codeTaskId, state, prompt, result, queuedAt }))
+    .map((request) => {
+      const { id, codeTaskId, state, prompt, result, queuedAt } = request;
+      const outcome = requestOutcome(request);
+      return { id, codeTaskId, state, prompt, result, queuedAt, ...(outcome ? { outcome } : {}) };
+    })
     .sort((a, b) => (b.queuedAt ?? 0) - (a.queuedAt ?? 0));
 }
 function nextQueuedRoomRequest(roomId: string): CodeRequest | undefined {
@@ -191,6 +205,33 @@ export async function cancelRoomCodeRequest(roomId: string, requestId: string): 
     return true;
   });
 }
+/**
+ * Stop one Bot-owned request from the UI. A record without a Code task settles here; a live one is
+ * marked stopped and its task id is returned so the caller aborts it. The launch path holds the same
+ * per-request lock across task creation, so a stop cannot be overwritten back into a running state.
+ */
+export async function stopBotCodeRequest(
+  botId: string,
+  requestId: string,
+): Promise<{ state: CodeRequestState; codeTaskId: string | null } | undefined> {
+  if (!/^[a-f0-9]{64}$/.test(requestId)) return undefined;
+  const initial = read(requestId);
+  if (!initial || initial.botId !== botId || !active(initial)) return undefined;
+  // Queued Room jobs are launched under the Room lock, so settle them through that same lock.
+  if (initial.room && initial.state === "queued") {
+    return (await cancelRoomCodeRequest(initial.room.id, requestId))
+      ? { state: "cancelled", codeTaskId: null }
+      : undefined;
+  }
+  return withBotCodeSessionLock(`request-${requestId}`, async () => {
+    const request = read(requestId);
+    if (!request || request.botId !== botId || !active(request)) return undefined;
+    request.stoppedByUser = true;
+    if (!request.codeTaskId) request.state = "cancelled";
+    save(request);
+    return { state: request.state, codeTaskId: request.codeTaskId };
+  });
+}
 /** Turn-scoped: only this conversation's own job may pause it. A stale record must not silence a new request. */
 export function pendingRoomCodeRequestForTurn(roomId: string, requestId: string, excludeRequestId?: string): CodeRequest | undefined {
   return requests().find((request) => request.id !== excludeRequestId && request.room?.id === roomId && request.room.conversation.requestId === requestId && active(request));
@@ -238,7 +279,7 @@ export function hasBotCodeReport(entries: readonly unknown[], requestId: string)
 export function createBotCodeRelay(deps: RelayDependencies) {
   let timer: ReturnType<typeof setInterval> | undefined;
   let ticking = false;
-  const reporting = new Map<string, { room: boolean; followUpStarted: boolean }>();
+  const reporting = new Map<string, { room: boolean; followUpStarted: boolean; userStopped: boolean }>();
 
   function originForCode(taskId: string): string | null {
     const request = requests().find((item) => item.codeTaskId === taskId && item.state === "running");
@@ -263,6 +304,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     if (input.goalLoop !== undefined && input.action !== "start") throw new Error("goalLoop is only supported when starting Code");
     const goalLoop = input.action === "start" ? parseGoalLoop(input.goalLoop) : undefined;
     const report = reporting.get(originTaskId);
+    if (report?.userStopped) throw new Error("The user stopped this Code request. Do not start or control Code; report the stop instead.");
     if (report?.room) throw new Error("Result reporting cannot start or control Code. Wait for a new user instruction.");
     if (report && (report.followUpStarted || input.action === "abort")) {
       throw new Error("Only one follow-up Code request is allowed while reporting a result.");
@@ -365,7 +407,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     const baselineIndex = request.baseline ? messages.findIndex((message) => message.id === request.baseline) : -1;
     const latest = messages.slice(baselineIndex + 1).filter((message) => message.role === "assistant").at(-1);
     const text = latest?.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n") ?? "";
-    const outcome = !task ? "セッションが削除されました" : task.manualAbortedAssistantId != null || task.status === "archived" ? "停止・中断" : task.error || latest?.error ? "失敗" : text ? "実行終了" : "結果を取得できませんでした";
+    const outcome = !task ? "セッションが削除されました" : request.stoppedByUser ? "ユーザーが停止" : task.manualAbortedAssistantId != null || task.status === "archived" ? "停止・中断" : task.error || latest?.error ? "失敗" : text ? "実行終了" : "結果を取得できませんでした";
     request.result = JSON.stringify({ outcome, error: task?.error ?? latest?.error ?? null, output: text.slice(0, 24_000), truncated: text.length > 24_000, codeTaskId: request.codeTaskId });
     request.state = "ready";
     save(request);
@@ -489,7 +531,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       if (deps.isBusy(request.originTaskId) || (request.nextAttemptAt ?? 0) > Date.now()) return;
       request.nextAttemptAt = Date.now() + 30_000;
       save(request);
-      reporting.set(request.originTaskId, { room: Boolean(request.room), followUpStarted: false });
+      reporting.set(request.originTaskId, { room: Boolean(request.room), followUpStarted: false, userStopped: request.stoppedByUser === true });
       try {
         if (await deps.deliver(request)) { request.state = "delivered"; save(request); delivered = request; }
       } finally { reporting.delete(request.originTaskId); }

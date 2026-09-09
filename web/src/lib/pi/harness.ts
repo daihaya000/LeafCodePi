@@ -2050,6 +2050,8 @@ function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
           const turn = request.room.conversation;
           content = roomBotPrompt(room, bot, participants, room.messages.find((message) => message.id === turn.requestId)?.text ?? request.prompt, turn.requestId, { participants, turn: turn.turn, maxTurns: turn.maxTurns }) + "\n" + content + "\nFor this result-report turn, do not start any work or tools. Follow-up work already registered with room_handoff for this Code request is delivered automatically; do not repeat it. Report the actual outcome, then end with ROOM_ACTION: NEXT <participant-id> only if another selected participant should review or continue the original user request; otherwise end with ROOM_ACTION: DONE.";
         }
+        // A user stop is final for this request: never invite the automatic follow-up here.
+        if (request.stoppedByUser) content += "\nユーザーがこの依頼を停止しました。次のCode依頼は開始せず、停止時点の状況と残作業だけを報告してください。";
         await queuePrompt(live, content, undefined, { codeResult: request });
       }
       const current = state().live.get(request.originTaskId) ?? live;
