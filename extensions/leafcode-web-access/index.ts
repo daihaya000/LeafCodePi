@@ -1893,24 +1893,33 @@ export default function (pi: ExtensionAPI) {
 				signal?.addEventListener("abort", onAbort, { once: true });
 				pc.browserPromise = openCuratorBrowser(callId, pc, ctx, false);
 
-				for (let qi = 0; qi < queryList.length; qi++) {
-					if (signal?.aborted || cancelled || searchAbort.signal.aborted) break;
+				const outcomes = await Promise.all(queryList.map(async (query, qi) => {
 					onUpdate?.({
-						content: [{ type: "text", text: `Searching ${qi + 1}/${queryList.length}: "${queryList[qi]}"...` }],
-						details: { phase: "searching", progress: qi / queryList.length, currentQuery: queryList[qi] },
+						content: [{ type: "text", text: `Searching ${qi + 1}/${queryList.length}: "${query}"...` }],
+						details: { phase: "searching", progress: qi / queryList.length, currentQuery: query },
 					});
-					const requestedProvider = pc.searchProvider;
 					try {
-						const response = await search(queryList[qi], {
-							provider: requestedProvider,
-							numResults: params.numResults,
-							recencyFilter,
-							domainFilter: params.domainFilter,
-							includeContent: params.includeContent,
-							signal: searchSignal,
-							extensionContext: ctx,
-						});
-						if (signal?.aborted || cancelled || searchAbort.signal.aborted) break;
+						return {
+							qi,
+							response: await search(query, {
+								provider: requestedProvider,
+								numResults: params.numResults,
+								recencyFilter,
+								domainFilter: params.domainFilter,
+								includeContent: params.includeContent,
+								signal: searchSignal,
+								extensionContext: ctx,
+							}),
+						};
+					} catch (error) {
+						return { qi, error };
+					}
+				}));
+				for (const outcome of outcomes) {
+					if (signal?.aborted || cancelled || searchAbort.signal.aborted) break;
+					const qi = outcome.qi;
+					if (outcome.response) {
+						const response = outcome.response;
 						if (response.inlineContent) allInlineContent.push(...response.inlineContent);
 						const entries = toCuratorSearchEntries(response);
 						const curator = activeCurators.get(callId);
@@ -1932,16 +1941,21 @@ export default function (pi: ExtensionAPI) {
 								}
 							}
 						}
-					} catch (err) {
-						if (signal?.aborted || cancelled || searchAbort.signal.aborted) break;
-						const message = err instanceof Error ? err.message : String(err);
+					} else if (!(signal?.aborted || cancelled || searchAbort.signal.aborted || isAbortError(outcome.error))) {
+						const message = outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
 						const failedProvider = toCuratorProvider(requestedProvider);
-						searchResults.set(qi, { query: queryList[qi], answer: "", results: [], error: message, provider: failedProvider });
+						searchResults.set(qi, {
+							query: queryList[qi],
+							answer: "",
+							results: [],
+							error: message,
+							provider: failedProvider,
+						});
 						resultSlots.set(qi, qi);
-						const curator = activeCurators.get(callId);
-						if (curator) {
-							curator.pushError(qi, message, failedProvider, { query: queryList[qi], slotIndex: qi });
-						}
+						activeCurators.get(callId)?.pushError(qi, message, failedProvider, {
+							query: queryList[qi],
+							slotIndex: qi,
+						});
 					}
 				}
 
@@ -1988,39 +2002,49 @@ export default function (pi: ExtensionAPI) {
 			const allInlineContent: ExtractedContent[] = [];
 			const resolvedProvider = resolveRequestedProvider(params.provider);
 
-			for (let i = 0; i < queryList.length; i++) {
-				const query = queryList[i];
-
+			const outcomes = await Promise.all(queryList.map(async (query, i) => {
 				onUpdate?.({
 					content: [{ type: "text", text: `Searching ${i + 1}/${queryList.length}: "${query}"...` }],
 					details: { phase: "search", progress: i / queryList.length, currentQuery: query },
 				});
-
 				try {
-					const { answer, results, inlineContent, provider } = await search(query, {
-						provider: resolvedProvider,
-						numResults: params.numResults,
-						recencyFilter,
-						domainFilter: params.domainFilter,
-						includeContent: params.includeContent,
-						signal,
-						extensionContext: ctx,
-					});
-
-					searchResults.push({ query, answer, results, error: null, provider });
+					return {
+						query,
+						response: await search(query, {
+							provider: resolvedProvider,
+							numResults: params.numResults,
+							recencyFilter,
+							domainFilter: params.domainFilter,
+							includeContent: params.includeContent,
+							signal,
+							extensionContext: ctx,
+						}),
+					};
+				} catch (error) {
+					return { query, error };
+				}
+			}));
+			for (const outcome of outcomes) {
+				if (outcome.response) {
+					const { answer, results, inlineContent, provider } = outcome.response;
+					searchResults.push({ query: outcome.query, answer, results, error: null, provider });
 					for (const r of results) {
-						if (!allUrls.includes(r.url)) {
-							allUrls.push(r.url);
-						}
+						if (!allUrls.includes(r.url)) allUrls.push(r.url);
 					}
 					if (inlineContent) allInlineContent.push(...inlineContent);
-				} catch (err) {
-					if (signal?.aborted || isAbortError(err)) throw err;
-					const message = err instanceof Error ? err.message : String(err);
-					const requestedProvider = toCuratorProvider(resolvedProvider);
-					searchResults.push({ query, answer: "", results: [], error: message, provider: requestedProvider });
+				} else {
+					if (signal?.aborted || isAbortError(outcome.error)) throw outcome.error;
+					const message = outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
+					searchResults.push({
+						query: outcome.query,
+						answer: "",
+						results: [],
+						error: message,
+						provider: toCuratorProvider(resolvedProvider),
+					});
 				}
 			}
+
 
 			let approvedSummary: string | undefined;
 			let summaryMeta: SummaryMeta | undefined;
