@@ -15,6 +15,8 @@ const CODE_STATE_TEXT: Record<CodeRequestState, string> = {
 };
 
 const LIVE_GOAL_LOOP_STATUSES = new Set(["queued", "running", "verifying_completed"]);
+/** Outcomes that finished as asked. Anything else (stop, block, turn limit) must not read as success. */
+const SUCCESS_OUTCOMES = new Set(["実行終了", "目標達成"]);
 
 const TASK_STATUS_TEXT: Record<TaskDetail["status"], string> = {
   working: "実行中",
@@ -102,7 +104,7 @@ export function CodeRequestCard({
   const progressPercent = loopActive ? loopPercent : todoPercent;
   const progressTotal = loopActive ? (loopPercent === null ? undefined : 100) : todoTotal;
   const progressValue = loopActive ? loopPercent ?? undefined : todoCompleted;
-  const succeeded = state === "delivered" && (outcome === undefined || outcome === "実行終了");
+  const succeeded = state === "delivered" && (outcome === undefined || SUCCESS_OUTCOMES.has(outcome));
 
   return (
     <div className="mt-2 w-full max-w-full min-w-0 rounded-xl border border-border bg-surface p-3 text-sm">

@@ -12,7 +12,7 @@ import {
   clampGoalLoopMaxTurns,
   DEFAULT_GOAL_LOOP_MAX_TURNS,
 } from "@/lib/goal-loop-settings";
-import { NO_PROJECT_NAME, type CodeRequestState, type RoomConversationTurn, type TaskSummary, type UiMessage } from "@/lib/types";
+import { NO_PROJECT_NAME, type CodeRequestState, type GoalLoopDto, type RoomConversationTurn, type TaskSummary, type UiMessage } from "@/lib/types";
 import { getRoom, roomBotTaskId, updateRoomMessage } from "@/lib/rooms";
 
 export const BOT_CODE_TOOL = "code_session";
@@ -62,12 +62,23 @@ type RelayDependencies = {
   abort: (id: string) => Promise<TaskSummary>;
   approve: (sessionId: string, message: string) => Promise<boolean | null>;
   isBusy: (id: string) => boolean;
+  /** Persisted Goal Loop state of a Code task, so a loop run is judged by the loop, not by its last message. */
+  goalLoop: (task: TaskSummary) => GoalLoopDto | null;
   messages: (task: TaskSummary) => Promise<UiMessage[]>;
   deliver: (request: CodeRequest) => Promise<boolean>;
   afterDelivery?: (request: CodeRequest) => Promise<void>;
 };
 
 function root(): string { return join(dataDir(), "bot-code-requests"); }
+
+/** A loop run is finished only when the loop verified it; a turn limit or a block is not success. */
+function goalLoopOutcome(loop: GoalLoopDto): string {
+  if (loop.status === "completed") return "目標達成";
+  if (loop.status === "blocked") return "阻害要因あり";
+  if (loop.status === "stopped") return "停止・中断";
+  if (loop.status === "paused") return loop.pauseReason === "turn_limit" ? "ターン上限で中断" : "一時停止（未完了）";
+  return "未完了";
+}
 
 function parseGoalLoop(value: unknown): CodeGoalLoop | undefined {
   if (value === undefined) return undefined;
@@ -253,7 +264,7 @@ export async function stopBotCodeRequestForTask(
  */
 export async function runUserBotCodeRequest(
   botId: string,
-  input: { prompt: string; projectId: string | null },
+  input: { prompt: string; projectId: string | null; goalLoop?: CodeGoalLoop },
   launch: (codeRequestId: string, link: (codeTaskId: string) => void) => Promise<TaskSummary>,
 ): Promise<TaskSummary> {
   const request: CodeRequest = {
@@ -264,6 +275,7 @@ export async function runUserBotCodeRequest(
     state: "starting",
     action: "start",
     projectId: input.projectId,
+    ...(input.goalLoop ? { goalLoop: input.goalLoop } : {}),
     queuedAt: Date.now(),
     prompt: input.prompt,
     baseline: null,
@@ -478,8 +490,18 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     const baselineIndex = request.baseline ? messages.findIndex((message) => message.id === request.baseline) : -1;
     const latest = messages.slice(baselineIndex + 1).filter((message) => message.role === "assistant").at(-1);
     const text = latest?.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n") ?? "";
-    const outcome = !task ? "セッションが削除されました" : request.stoppedByUser ? "ユーザーが停止" : task.manualAbortedAssistantId != null || task.status === "archived" ? "停止・中断" : task.error || latest?.error ? "失敗" : text ? "実行終了" : "結果を取得できませんでした";
-    request.result = JSON.stringify({ outcome, error: task?.error ?? latest?.error ?? null, output: text.slice(0, 24_000), truncated: text.length > 24_000, codeTaskId: request.codeTaskId });
+    // Only a run that asked for a loop is judged by the loop file; a later plain follow-up on the same
+    // session must not inherit the old loop's verdict.
+    const loop = task && request.goalLoop ? deps.goalLoop(task) : null;
+    const outcome = !task ? "セッションが削除されました" : request.stoppedByUser ? "ユーザーが停止" : task.manualAbortedAssistantId != null || task.status === "archived" ? "停止・中断" : task.error || latest?.error ? "失敗" : loop ? goalLoopOutcome(loop) : text ? "実行終了" : "結果を取得できませんでした";
+    request.result = JSON.stringify({
+      outcome,
+      error: task?.error ?? latest?.error ?? null,
+      output: text.slice(0, 24_000),
+      truncated: text.length > 24_000,
+      codeTaskId: request.codeTaskId,
+      ...(loop ? { goalLoop: { status: loop.status, turnCount: loop.turnCount, maxTurns: loop.maxTurns, ...(loop.pauseReason ? { pauseReason: loop.pauseReason } : {}), ...(loop.blockedReason ? { blockedReason: loop.blockedReason } : {}) } } : {}),
+    });
     request.state = "ready";
     save(request);
   }

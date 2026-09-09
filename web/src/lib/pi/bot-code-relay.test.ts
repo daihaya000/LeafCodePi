@@ -76,6 +76,7 @@ beforeEach(() => {
     abort: vi.fn(async (id) => { const code = store.tasks.get(id)!; code.status = "idle"; code.manualAbortedAssistantId = ""; return code; }),
     approve: vi.fn(async () => true),
     isBusy: (id) => store.tasks.get(id)?.status === "working",
+    goalLoop: vi.fn(() => null),
     messages: vi.fn(async () => messages),
     deliver: vi.fn(async () => true),
     afterDelivery: vi.fn(async () => undefined),
@@ -133,6 +134,41 @@ describe("Bot ⇄ Code relay", () => {
     expect(deps.approve).toHaveBeenCalledWith("session", expect.stringContaining("プロジェクト: プロジェクトなし"));
     expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({ projectId: null }));
     expect(store.bots.get("one")?.codeSessionTaskId).toBe("code");
+  });
+
+  it("reports a Goal Loop run by the loop verdict, not by its last message", async () => {
+    const goalLoop = { acceptance: ["テストが通ること"], maxTurns: 3, cooldownSeconds: 0, forceFullRun: false };
+    await relay.run("bot:one", "loop-done", { action: "start", projectId: "project", prompt: "目標を達成して", goalLoop }, "session");
+    store.tasks.get("code")!.status = "idle";
+    messages = [answer("turn", "修正しました")];
+    vi.mocked(deps.goalLoop).mockReturnValue({ status: "completed", turnCount: 2, maxTurns: 3 } as never);
+    await relay.tick();
+
+    expect(record().result).toContain("目標達成");
+    expect(JSON.parse(record().result!).goalLoop).toMatchObject({ status: "completed", turnCount: 2 });
+  });
+
+  it("does not report a turn-limit pause as a finished run", async () => {
+    const goalLoop = { acceptance: [], maxTurns: 2, cooldownSeconds: 0, forceFullRun: false };
+    await relay.run("bot:one", "loop-limit", { action: "start", projectId: "project", prompt: "長い作業", goalLoop }, "session");
+    store.tasks.get("code")!.status = "idle";
+    messages = [answer("turn", "途中まで進めました")];
+    vi.mocked(deps.goalLoop).mockReturnValue({ status: "paused", pauseReason: "turn_limit", turnCount: 2, maxTurns: 2 } as never);
+    await relay.tick();
+
+    expect(record().result).toContain("ターン上限で中断");
+    expect(record().result).not.toContain("実行終了");
+  });
+
+  it("keeps an ordinary follow-up out of an earlier loop verdict", async () => {
+    await launch();
+    store.tasks.get("code")!.status = "idle";
+    messages = [answer("plain", "通常の応答")];
+    vi.mocked(deps.goalLoop).mockReturnValue({ status: "completed", turnCount: 1, maxTurns: 1 } as never);
+    await relay.tick();
+
+    expect(record().result).toContain("実行終了");
+    expect(deps.goalLoop).not.toHaveBeenCalled();
   });
 
   it("passes Goal Loop settings to a new Code task", async () => {

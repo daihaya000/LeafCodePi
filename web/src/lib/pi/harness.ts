@@ -2035,6 +2035,7 @@ function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
       // half-finished run as the result, so keep it busy until the loop itself stops.
       return getTask(id)?.status === "working" || getTaskHangWatch(id)?.state === "resolving" || Boolean(live && (live.promptActive || live.session.isStreaming || live.session.isCompacting || live.autoCompactionPromise || live.pendingProviderFallback || isActiveGoalLoopSession(live.session)));
     },
+    goalLoop: (task) => readGoalLoopState(task.directory, state().live.get(task.id)?.session.sessionId ?? task.sessionId),
     messages: async (task) => {
       const live = state().live.get(task.id);
       return live ? snapshotMessages(live.session, live.throughputByStartedAt, live.toolStartedAt, live.toolEndedAt, live.toolPartialOutputByCallId)
@@ -2080,7 +2081,7 @@ export async function createBotCodeTask(
   startBotCodeRelay();
   return runUserBotCodeRequest(
     botId,
-    { prompt: input.prompt, projectId: input.projectId },
+    { prompt: input.prompt, projectId: input.projectId, ...(input.goalLoop ? { goalLoop: input.goalLoop } : {}) },
     (codeRequestId, link) => createTask({ ...input, botId, codeRequestId, beforePrompt: (task) => link(task.id) }),
   );
 }
