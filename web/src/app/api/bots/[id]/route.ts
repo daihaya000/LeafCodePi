@@ -26,6 +26,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const hasExtraRoots = body?.extraRoots !== undefined;
   const hasNotificationsEnabled = body?.notificationsEnabled !== undefined;
   const hasCodeAutoApprove = body?.codeAutoApprove !== undefined;
+  const hasPermissionMode = body?.permissionMode !== undefined;
   const hasEnabled = body?.enabled !== undefined;
   const hasResetMessages = body?.resetMessages !== undefined;
   const rawSkills = hasSkills ? body?.skills : undefined;
@@ -49,6 +50,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     (body.avatarImage !== undefined && body.avatarImage !== null && !isAvatarImage(body.avatarImage)) ||
     (hasNotificationsEnabled && typeof body.notificationsEnabled !== "boolean") ||
     (hasCodeAutoApprove && typeof body.codeAutoApprove !== "boolean") ||
+    (hasPermissionMode && !["allow", "ask", "deny"].includes(body.permissionMode as string)) ||
     (hasEnabled && typeof body.enabled !== "boolean") ||
     (hasResetMessages && body.resetMessages !== true) ||
     (hasModel && (typeof body.model !== "string" || !body.model.trim())) ||
@@ -72,6 +74,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (body.avatarImage !== undefined) patch.avatarImage = body.avatarImage as string | null;
     if (hasNotificationsEnabled) patch.notificationsEnabled = body.notificationsEnabled as boolean;
     if (hasCodeAutoApprove) patch.codeAutoApprove = body.codeAutoApprove as boolean;
+    if (hasPermissionMode) patch.permissionMode = body.permissionMode as "allow" | "ask" | "deny";
     if (hasEnabled) patch.enabled = body.enabled as boolean;
     if (hasSkills) patch.skills = skills as BotSkillsConfig;
     if (hasExtraRoots) patch.extraRoots = extraRoots ?? [];

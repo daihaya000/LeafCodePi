@@ -83,6 +83,16 @@ describe("PATCH /api/bots/[id]", () => {
     expect(invalid.status).toBe(400);
   });
 
+  it("defaults to allowing tools and persists the per-Bot permission mode", async () => {
+    const bot = createBot({ name: "Permissions bot" });
+    expect(bot.permissionMode).toBe("allow");
+    const denied = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ permissionMode: "deny" }) }), { params: Promise.resolve({ id: bot.id }) });
+    expect(denied.status).toBe(200);
+    expect((await denied.json()).bot.permissionMode).toBe("deny");
+    const invalid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ permissionMode: "invalid" }) }), { params: Promise.resolve({ id: bot.id }) });
+    expect(invalid.status).toBe(400);
+  });
+
   it("persists notification preferences through PATCH and GET", async () => {
     const bot = createBot({ name: "Notify patch bot" });
     const updated = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ notificationsEnabled: false }) }), { params: Promise.resolve({ id: bot.id }) });

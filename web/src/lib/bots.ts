@@ -55,7 +55,7 @@ function parseConfig(id: string): BotConfig | null {
       ...(isAvatarEyeColor(value.avatarEyeColor) ? { avatarEyeColor: value.avatarEyeColor } : {}),
       avatarGlasses: value.avatarGlasses === true, avatarMustache: value.avatarMustache === true,
       model: typeof value.model === "string" ? value.model : null,
-      thinkingLevel: value.thinkingLevel ?? null, permissionMode: value.permissionMode ?? null,
+      thinkingLevel: value.thinkingLevel ?? null, permissionMode: value.permissionMode === "ask" || value.permissionMode === "deny" ? value.permissionMode : "allow",
       skills: normalizeBotSkills(value.skills),
       extraRoots: Array.isArray(value.extraRoots) ? value.extraRoots.filter((item): item is string => typeof item === "string") : [],
       enabled: value.enabled !== false, notificationsEnabled: value.notificationsEnabled !== false,
@@ -89,7 +89,7 @@ export function getBot(id: string): BotDto | undefined {
 export function createBot(input: { name?: string; model?: string | null; thinkingLevel?: ThinkingLevel | null; permissionMode?: BotConfig["permissionMode"] }): BotDto {
   const name = input.name?.trim() || "New bot";
   const id = randomUUID(); const now = new Date().toISOString();
-  const config: BotConfig = { id, name, label: "1:1 アシスタント", avatarColor: randomAvatarColor(), avatarImage: null, avatarShape: "circle", avatarGlasses: false, avatarMustache: false, createdAt: now, updatedAt: now, model: input.model ?? null, thinkingLevel: input.thinkingLevel ?? null, permissionMode: input.permissionMode ?? null, codeAutoApprove: true, skills: { ...DEFAULT_SKILLS }, extraRoots: [], enabled: true, notificationsEnabled: true, codeSessionTaskId: null };
+  const config: BotConfig = { id, name, label: "1:1 アシスタント", avatarColor: randomAvatarColor(), avatarImage: null, avatarShape: "circle", avatarGlasses: false, avatarMustache: false, createdAt: now, updatedAt: now, model: input.model ?? null, thinkingLevel: input.thinkingLevel ?? null, permissionMode: input.permissionMode ?? "allow", codeAutoApprove: true, skills: { ...DEFAULT_SKILLS }, extraRoots: [], enabled: true, notificationsEnabled: true, codeSessionTaskId: null };
   mkdirSync(join(botRoot(id), "workspace"), { recursive: true });
   writeFileSync(soulPath(id), SOUL_TEMPLATE, "utf8");
   ensureMemoryFile(id);

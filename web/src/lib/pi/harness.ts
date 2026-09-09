@@ -3025,7 +3025,7 @@ async function ensureLive(
       model,
       thinkingLevel: task.thinkingLevel,
       skillPermission: task.skillPermission,
-      permissionMode: task.permissionMode,
+      permissionMode: isBot ? (bot?.permissionMode ?? task.permissionMode) : task.permissionMode,
       agentName: task.agent ?? null,
       taskId,
       goalLoop: isGoalLoopLiveStatus(persistedGoalLoop?.status),
