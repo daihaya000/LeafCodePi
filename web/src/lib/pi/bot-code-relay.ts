@@ -17,6 +17,11 @@ import { getRoom, roomBotTaskId, updateRoomMessage } from "@/lib/rooms";
 
 export const BOT_CODE_TOOL = "code_session";
 export const BOT_CODE_RESULT = "bot-code-result";
+/**
+ * Cumulative cap on Code requests the Bot starts by itself while reporting a result. Per-turn limits
+ * cannot bound a chain that restarts every turn. A new user instruction resets the count to zero.
+ */
+export const MAX_AUTO_CODE_CHAIN = 5;
 export type CodeRequest = {
   id: string;
   botId: string;
@@ -34,6 +39,8 @@ export type CodeRequest = {
   baseline: string | null;
   /** Set by an explicit user stop, so the captured result is never reported as success or auto-continued. */
   stoppedByUser?: boolean;
+  /** How many autonomous continuations led here. Absent/0 means a user asked for this request. */
+  autoChain?: number;
   result?: string;
   nextAttemptAt?: number;
 };
@@ -279,7 +286,7 @@ export function hasBotCodeReport(entries: readonly unknown[], requestId: string)
 export function createBotCodeRelay(deps: RelayDependencies) {
   let timer: ReturnType<typeof setInterval> | undefined;
   let ticking = false;
-  const reporting = new Map<string, { room: boolean; followUpStarted: boolean; userStopped: boolean }>();
+  const reporting = new Map<string, { room: boolean; followUpStarted: boolean; userStopped: boolean; autoChain: number }>();
 
   function originForCode(taskId: string): string | null {
     const request = requests().find((item) => item.codeTaskId === taskId && item.state === "running");
@@ -308,6 +315,11 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     if (report?.room) throw new Error("Result reporting cannot start or control Code. Wait for a new user instruction.");
     if (report && (report.followUpStarted || input.action === "abort")) {
       throw new Error("Only one follow-up Code request is allowed while reporting a result.");
+    }
+    // Autonomous continuations accumulate across report turns; only a user instruction restarts the count.
+    const autoChain = report ? report.autoChain + 1 : 0;
+    if (autoChain > MAX_AUTO_CODE_CHAIN) {
+      throw new Error(`Autonomous Code continuations reached the cumulative limit of ${MAX_AUTO_CODE_CHAIN}. Report the remaining work and let the user decide.`);
     }
     if (report) report.followUpStarted = true;
     const room = roomContext(originTaskId);
@@ -356,13 +368,14 @@ export function createBotCodeRelay(deps: RelayDependencies) {
           id, botId: current.id, originTaskId, codeTaskId: input.action === "prompt" ? linked!.id : null,
           state: "queued", action: input.action === "prompt" ? "prompt" : "start", projectId,
           ...(goalLoop ? { goalLoop } : {}),
+          ...(autoChain ? { autoChain } : {}),
           queuedAt: Date.now(), prompt: input.prompt!.trim(), baseline, room: room!,
         };
         save(queued);
         start();
         return { requestId: id, taskId: queued.codeTaskId, state: queued.state, message: "Queued. The earlier Room Code request will finish first; this request starts automatically afterward. Do not retry or claim completion yet." };
       }
-      const request: CodeRequest = { id, botId: bot.id, originTaskId, codeTaskId: input.action === "prompt" ? linked!.id : null, state: "starting", action: input.action === "prompt" ? "prompt" : "start", projectId, ...(goalLoop ? { goalLoop } : {}), prompt: input.prompt!.trim(), baseline, ...(room ? { room } : {}) };
+      const request: CodeRequest = { id, botId: bot.id, originTaskId, codeTaskId: input.action === "prompt" ? linked!.id : null, state: "starting", action: input.action === "prompt" ? "prompt" : "start", projectId, ...(goalLoop ? { goalLoop } : {}), ...(autoChain ? { autoChain } : {}), prompt: input.prompt!.trim(), baseline, ...(room ? { room } : {}) };
       save(request);
       try {
         if (input.action === "start") {
@@ -531,7 +544,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       if (deps.isBusy(request.originTaskId) || (request.nextAttemptAt ?? 0) > Date.now()) return;
       request.nextAttemptAt = Date.now() + 30_000;
       save(request);
-      reporting.set(request.originTaskId, { room: Boolean(request.room), followUpStarted: false, userStopped: request.stoppedByUser === true });
+      reporting.set(request.originTaskId, { room: Boolean(request.room), followUpStarted: false, userStopped: request.stoppedByUser === true, autoChain: request.autoChain ?? 0 });
       try {
         if (await deps.deliver(request)) { request.state = "delivered"; save(request); delivered = request; }
       } finally { reporting.delete(request.originTaskId); }

@@ -24,7 +24,7 @@ vi.mock("@/lib/store", () => ({
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, botCodeReportText, cancelRoomCodeRequest, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, stopBotCodeRequest, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, botCodeReportText, cancelRoomCodeRequest, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, stopBotCodeRequest, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -268,6 +268,36 @@ describe("Bot ⇄ Code relay", () => {
     await relay.tick();
     expect(deps.create).toHaveBeenCalledTimes(2);
     expect(records()).toHaveLength(2);
+  });
+
+  it("counts each autonomous continuation on the new request", async () => {
+    await launch(); store.tasks.get("code")!.status = "idle";
+    vi.mocked(deps.deliver).mockImplementationOnce(async () => {
+      await relay.run("bot:one", "chain-1", { action: "start", projectId: "project", prompt: "残りを進める" }, "session");
+      return true;
+    });
+    await relay.tick();
+
+    expect(records().find((request) => request.prompt === "残りを進める")?.autoChain).toBe(1);
+    // A later user instruction is not a continuation, so it starts a fresh count.
+    await relay.run("bot:one", "user-asked", { action: "start", projectId: "project", prompt: "別の作業" }, "session");
+    expect(records().find((request) => request.prompt === "別の作業")?.autoChain).toBeUndefined();
+  });
+
+  it("refuses an autonomous continuation past the cumulative limit", async () => {
+    await launch();
+    const first = record();
+    first.autoChain = MAX_AUTO_CODE_CHAIN;
+    writeFileSync(join(store.root, "bot-code-requests", `${first.id}.json`), JSON.stringify(first), "utf8");
+    store.tasks.get("code")!.status = "idle";
+    vi.mocked(deps.deliver).mockImplementationOnce(async () => {
+      await expect(relay.run("bot:one", "too-deep", { action: "start", projectId: "project", prompt: "さらに続ける" }, "session")).rejects.toThrow("cumulative limit");
+      return true;
+    });
+    await relay.tick();
+
+    expect(deps.create).toHaveBeenCalledTimes(1);
+    expect(records()).toHaveLength(1);
   });
 
   it("registers a callable tool bound to the originating task, not a model-provided Bot id", async () => {
