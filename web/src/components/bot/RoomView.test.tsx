@@ -79,6 +79,20 @@ describe("RoomView mention chips", () => {
     expect(container.querySelector("li")?.textContent).toBe("指揮は Alpha に任せる。");
   });
 
+  it("renders mentions followed directly by Japanese particles without matching longer handles", async () => {
+    const designer = { ...bot, name: "デザイナー" };
+    mocks.getJson.mockImplementation((path: string) => path === "/api/bots" ? Promise.resolve({ bots: [designer] }) : Promise.resolve({ room }));
+    const { act } = await import("@testing-library/react");
+    const { container } = render(<RoomView id={room.id} />);
+    await screen.findByRole("textbox");
+    act(() => pushSnapshot({ room: { ...room, messages: [
+      { id: "u", role: "user", text: "@デザイナーに確認", createdAt: 2 },
+      { id: "a", role: "assistant", botId: bot.id, text: "@デザイナーの認識で合っています。 **@デザイナーと相談** @デザイナー補佐 @デザイナー2", status: "done", createdAt: 3 },
+    ] } }));
+    expect([...container.querySelectorAll("[data-mention]")].map((chip) => chip.textContent)).toEqual(["デザイナー", "デザイナー", "デザイナー"]);
+    expect(container.textContent).toContain("@デザイナー補佐 @デザイナー2");
+  });
+
   it("leaves an unknown handle as plain text", async () => {
     const { act } = await import("@testing-library/react");
     const { container } = render(<RoomView id={room.id} />);

@@ -26,7 +26,8 @@ export function renderMentions(text: string, bots: BotDto[], keyPrefix: string, 
   const names = [...SPECIAL_MENTIONS, ...bots.map((bot) => bot.name.trim())].filter(Boolean)
     .sort((left, right) => right.length - left.length);
   if (names.length === 0) return [text];
-  const pattern = new RegExp(`@(?:${names.map(escapeRegExp).join("|")})(?![\\p{L}\\p{N}\\p{M}_-])`, "giu");
+  // Japanese prose joins particles directly to names; keep other handle suffixes excluded.
+  const pattern = new RegExp(`@(?:${names.map(escapeRegExp).join("|")})(?=$|\\p{Script=Hiragana}|[^\\p{L}\\p{N}\\p{M}_-])`, "giu");
   const parts: ReactNode[] = [];
   let last = 0;
   let index = 0;
