@@ -153,6 +153,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       source?.close();
       source = new EventSource(`/api/bots/rooms/${encodeURIComponent(id)}/events?epoch=${Date.now()}`);
       source.addEventListener("snapshot", (event) => {
+        if (closed) return;
         try {
           const payload = JSON.parse((event as MessageEvent).data) as { room?: RoomDto; attention?: RoomAttention[] };
           if (payload.room) setRoom(payload.room);

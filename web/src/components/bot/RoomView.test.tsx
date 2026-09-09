@@ -82,6 +82,36 @@ describe("RoomView loading", () => {
     expect(screen.getByRole("heading", { name: "Two" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "One" })).toBeNull();
   });
+
+  it("ignores a stale SSE snapshot after switching ids", async () => {
+    const roomOne = { ...room, id: "room-1", name: "One" };
+    const roomTwo = { ...room, id: "room-2", name: "Two" };
+    class TestSource {
+      static instances: TestSource[] = [];
+      listeners = new Map<string, (event: MessageEvent) => void>();
+      constructor() { TestSource.instances.push(this); }
+      addEventListener(type: string, listener: (event: MessageEvent) => void) { this.listeners.set(type, listener); }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestSource);
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots/rooms/room-1") return Promise.resolve({ room: roomOne });
+      if (path === "/api/bots/rooms/room-2") return Promise.resolve({ room: roomTwo });
+      if (path === "/api/bots") return Promise.resolve({ bots: [bot] });
+      return Promise.resolve({ room });
+    });
+    const view = render(<RoomView id="room-1" />);
+    await screen.findByRole("heading", { name: "One" });
+    view.rerender(<RoomView id="room-2" />);
+    await screen.findByRole("heading", { name: "Two" });
+    const staleSnapshot = TestSource.instances[0]?.listeners.get("snapshot");
+    if (!staleSnapshot) throw new Error("Initial SSE snapshot listener was not registered");
+    await act(async () => {
+      staleSnapshot({ data: JSON.stringify({ room: roomOne, attention: [] }) } as MessageEvent);
+    });
+    expect(screen.getByRole("heading", { name: "Two" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "One" })).toBeNull();
+  });
 });
 
 describe("RoomView mention chips", () => {
