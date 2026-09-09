@@ -52,6 +52,7 @@ type TaskPanesContextValue = {
   reportStatus: (taskId: string, status: TaskStatus) => void;
   /** タブ表示名（セッション名 = タスク title）。未取得は null。 */
   titleFor: (taskId: string) => string | null;
+  botFor: (botId?: string) => BotDto | undefined;
   iconFor: (taskId: string, size?: 16 | 32, task?: TaskIdentity) => React.ReactNode;
 };
 
@@ -65,6 +66,7 @@ const EMPTY: TaskPanesContextValue = {
   statusFor: () => null,
   reportStatus: () => undefined,
   titleFor: () => null,
+  botFor: () => undefined,
   iconFor: () => null,
 };
 
@@ -369,12 +371,17 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     [titlesVersion],
   );
 
+  const botFor = useCallback(
+    (botId?: string) => (botId ? bots.find((item) => item.id === botId) : undefined),
+    [bots],
+  );
+
   const iconFor = useCallback((taskId: string, size: 16 | 32 = 16, task?: TaskIdentity) => {
     void titlesVersion;
     const identity = task ?? taskIdentitiesRef.current.get(taskId);
-    const bot = identity?.botId
-      ? bots.find((item) => item.id === identity.botId)
-      : bots.find((item) => `/bots/${encodeURIComponent(item.id)}` === taskId);
+    const bot =
+      botFor(identity?.botId) ??
+      bots.find((item) => `/bots/${encodeURIComponent(item.id)}` === taskId);
     if (bot || identity?.botId) {
       return <span aria-hidden="true" className="shrink-0"><BotAvatar size={size} {...bot} active={(task?.status ?? statusFor(taskId)) === "working"} /></span>;
     }
@@ -386,7 +393,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
           : "flex h-4 w-4 items-center justify-center rounded-md border text-[10px] font-semibold"} />
       </span>
     ) : null;
-  }, [bots, projects, titlesVersion, statusFor]);
+  }, [botFor, bots, projects, titlesVersion, statusFor]);
 
   const value = useMemo<TaskPanesContextValue>(
     () => ({
@@ -399,9 +406,10 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       statusFor,
       reportStatus,
       titleFor,
+      botFor,
       iconFor,
     }),
-    [state, dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp, statusFor, reportStatus, titleFor, iconFor],
+    [state, dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp, statusFor, reportStatus, titleFor, botFor, iconFor],
   );
 
   return <TaskPanesContext.Provider value={value}>{children}</TaskPanesContext.Provider>;

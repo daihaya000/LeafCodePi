@@ -23,6 +23,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { AgentRoleIcon } from "@/components/AgentSelect";
+import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { ImageLightbox } from "@/components/Composer";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ReferenceHighlight, type ReferenceHighlightReferences } from "@/components/ReferenceHighlight";
@@ -661,6 +662,7 @@ function MessageMetaHeader({
   effort,
   agent,
   accountLabel,
+  bot,
 }: {
   message: UiMessage;
   modelLabel?: string;
@@ -669,6 +671,8 @@ function MessageMetaHeader({
   agent?: string;
   /** タスクに紐づく利用アカウントの表示名。 */
   accountLabel?: string;
+  /** Bot mode のCodeセッションに紐づくBot。 */
+  bot?: BotFace & { name: string };
 }) {
   const model = modelLabel?.trim() || message.model?.trim() || "";
   const tokens =
@@ -701,6 +705,17 @@ function MessageMetaHeader({
       aria-label="応答メタデータ"
       className="flex min-w-0 items-center gap-1.5 overflow-hidden text-[11px] whitespace-nowrap text-muted"
     >
+      {bot && (
+        <>
+          <span aria-hidden="true" className="shrink-0">
+            <BotAvatar size={16} {...bot} name={bot.name} />
+          </span>
+          <span className="min-w-0 max-w-40 truncate sm:max-w-64" title={bot.name}>
+            {bot.name}
+          </span>
+          <span aria-hidden="true">·</span>
+        </>
+      )}
       {/* 合成メッセージ（シェル実行など）はプロバイダを持たないので汎用アイコンを出さない。 */}
       {message.provider && <ProviderIcon providerID={message.provider} size={14} />}
       {fields.map((field, index) => {
@@ -967,6 +982,7 @@ export const PartView = memo(
     effort,
     agent,
     accountLabel,
+    bot,
     taskId,
     active = true,
     nested = false,
@@ -978,6 +994,8 @@ export const PartView = memo(
     effort?: string;
     agent?: string;
     accountLabel?: string;
+    /** Bot mode のCodeセッションに紐づくBot。 */
+    bot?: BotFace & { name: string };
     /** サブエージェント入れ子パネルの取得に使う（トップレベルのみ）。 */
     taskId?: string;
     /** 非表示タブでは表示専用タイマーと子タイムライン取得を止める。 */
@@ -1008,6 +1026,7 @@ export const PartView = memo(
               effort={effort}
               agent={agent}
               accountLabel={accountLabel}
+              bot={bot}
             />
           )}
         </div>
@@ -1081,6 +1100,7 @@ export const PartView = memo(
     prev.effort === next.effort &&
     prev.agent === next.agent &&
     prev.accountLabel === next.accountLabel &&
+    prev.bot === next.bot &&
     prev.taskId === next.taskId &&
     prev.active === next.active &&
     prev.nested === next.nested &&

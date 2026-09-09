@@ -150,6 +150,23 @@ describe("PartView tool error", () => {
 describe("PartView response metadata", () => {
   afterEach(() => cleanup());
 
+  it("shows the Bot avatar and name for a Bot Code response", () => {
+    render(
+      <PartView
+        message={{ id: "assistant-bot", role: "assistant", createdAt: 1, parts: [] }}
+        bot={{
+          name: "Code Bot",
+          avatarColor: "#3B82F6",
+          avatarShape: "circle",
+          avatarImage: null,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Code Bot")).toBeTruthy();
+    expect(document.querySelector('svg[aria-label="Code Botのアバター"]')).not.toBeNull();
+  });
+
   it("shows the account label beside the agent", () => {
     render(
       <PartView

@@ -472,7 +472,7 @@ export const TaskView = memo(function TaskView({
 }) {
   const [cachedSession] = useState(() => loadTaskSessionCache(taskId));
   const [task, setTask] = useState<TaskDetail | null>(cachedSession);
-  const { iconFor } = useTaskPanes();
+  const { iconFor, botFor } = useTaskPanes();
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
   const [pendingUserMessage, setPendingUserMessage] = useState<{
@@ -2457,6 +2457,7 @@ export const TaskView = memo(function TaskView({
                           : (taskAccountLabel ?? undefined)
                         : undefined
                     }
+                    bot={message.role === "assistant" ? botFor?.(task?.botId) : undefined}
                     references={messageReferences}
                     taskId={taskId}
                     active={active}
