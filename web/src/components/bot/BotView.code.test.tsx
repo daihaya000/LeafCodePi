@@ -50,25 +50,25 @@ afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.cle
 
 it("does not mark hidden tab messages read until activation", async () => {
   const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
-  await screen.findByRole("button", { name: "設定" });
   snapshot({ messages: [{ id: "message", role: "assistant", createdAt: 123, parts: [{ type: "text", text: "hello" }] }] });
   expect(mocks.markRead).not.toHaveBeenCalled();
   view.rerender(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  expect(await screen.findByRole("button", { name: "設定" })).toBeTruthy();
   expect(mocks.markRead).toHaveBeenCalledWith("bot", "one", 123);
 });
 
 it("defers routine loading until a hidden Bot tab is activated", async () => {
   const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
-  await screen.findByRole("button", { name: "設定" });
+  expect(mocks.getJson).not.toHaveBeenCalledWith("/api/bots/one");
   expect(mocks.getJson).not.toHaveBeenCalledWith("/api/bots/one/routines");
 
   view.rerender(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/bots/one"));
   await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/bots/one/routines"));
 });
 
 it("defers model loading until a hidden Bot tab is activated", async () => {
   const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
-  await screen.findByRole("button", { name: "設定" });
   expect(mocks.getJson).not.toHaveBeenCalledWith("/api/models");
 
   view.rerender(<ShellProvider><BotView id="one" active /></ShellProvider>);
@@ -77,7 +77,6 @@ it("defers model loading until a hidden Bot tab is activated", async () => {
 
 it("reports streaming activity for the Bot tab even when hidden", async () => {
   render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
-  await screen.findByRole("button", { name: "設定" });
   expect(mocks.reportStatus).toHaveBeenLastCalledWith("/bots/one", "idle");
   snapshot({ isStreaming: true });
   expect(mocks.reportStatus).toHaveBeenLastCalledWith("/bots/one", "working");
@@ -104,7 +103,6 @@ it("applies streaming deltas without waiting for a full snapshot", async () => {
 
 it("pauses Code request polling while the Bot tab is hidden", async () => {
   const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
-  await screen.findByRole("button", { name: "設定" });
   snapshot({ messages: [{
     id: "bot-1",
     role: "assistant",

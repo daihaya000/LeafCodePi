@@ -119,7 +119,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "読み込みに失敗しました"));
   }, [id]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (active) void load(); }, [active, load]);
   useEffect(() => {
     const saved = readBotSettingsOpen(id);
     settingsOpenRef.current = saved;
