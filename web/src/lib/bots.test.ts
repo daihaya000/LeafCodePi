@@ -36,6 +36,7 @@ describe("bot store", () => {
     expect(listBots().map((item) => item.id)).toEqual([bot.id]);
     expect(JSON.parse(readFileSync(join(root, "store.json"), "utf8")).tasks).toHaveLength(1);
     expect(readFileSync(join(root, "bots", bot.id, "SOUL.md"), "utf8")).toContain("ボットの役割");
+    expect(readFileSync(join(root, "bots", bot.id, "MEMORY.md"), "utf8")).toContain("# Bot memory");
     const config = JSON.parse(readFileSync(join(root, "bots", bot.id, "config.json"), "utf8"));
     expect(config.skills.mode).toBe("inherit"); expect(config.enabled).toBe(true); expect(config.codeAutoApprove).toBe(true);
   });
@@ -140,8 +141,11 @@ describe("bot store", () => {
     process.env.PI_CODING_AGENT_DIR = agentDir;
     try {
       const bot = createBot({ name: "Isolated bot" });
-      // No BOTS.md yet: SOUL.md alone drives the bot.
-      expect(botPromptSources(bot.id)).toEqual([join(root, "bots", bot.id, "SOUL.md")]);
+      // The shared instructions are optional, while SOUL.md and MEMORY.md are bot-local.
+      expect(botPromptSources(bot.id)).toEqual([
+        join(root, "bots", bot.id, "SOUL.md"),
+        join(root, "bots", bot.id, "MEMORY.md"),
+      ]);
       expect(botSoul(bot.id)).toContain("ボットの役割");
 
       fs.writeFileSync(join(agentDir, "BOTS.md"), "# Shared\nAlways answer in Japanese.");
@@ -149,6 +153,7 @@ describe("bot store", () => {
       expect(sources).toEqual([
         join(agentDir, "BOTS.md"),
         join(root, "bots", bot.id, "SOUL.md"),
+        join(root, "bots", bot.id, "MEMORY.md"),
       ]);
       expect(sources.some((path) => path.endsWith("AGENTS.md"))).toBe(false);
     } finally {

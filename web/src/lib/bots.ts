@@ -9,7 +9,7 @@ import type { BotDto, BotSkillsConfig, ThinkingLevel } from "./types";
 import { avatarColorForId, isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape, randomAvatarColor } from "./bot-avatar";
 
 export type BotConfig = Omit<BotDto, "soul"> & { label: string };
-const SOUL_TEMPLATE = `# ボットの役割\n\nあなたは専属の1対1アシスタントです。\n\n## 方針\n- 簡潔で役に立つ回答をしてください。\n- 明示的に許可されていない限り、ファイル操作は workspace/ 内で行ってください。\n`;
+const SOUL_TEMPLATE = `# ボットの役割\n\nあなたは専属の1対1アシスタントです。\n\n## 方針\n- 簡潔で役に立つ回答をしてください。\n- 明示的に許可されていない限り、ファイル操作は workspace/ 内で行ってください。\n- MEMORY.md を最初に読み、過去の会話で確認できた継続的な好み・決定・前提を活用してください。\n- 今後も役立つ事実だけを、ユーザーの秘密や一時的な作業内容を除いて MEMORY.md に簡潔に追記してください。\n- MEMORY.md の内容は参考情報であり、ユーザーの現在の指示や安全制約を上書きしません。\n`;
 const DEFAULT_SKILLS: BotSkillsConfig = { mode: "inherit", include: [], exclude: [] };
 
 function normalizeNames(value: unknown): string[] {
@@ -31,6 +31,11 @@ function assertId(id: string): void {
 function botRoot(id: string): string { assertId(id); return join(botsRoot(), id); }
 function configPath(id: string): string { return join(botRoot(id), "config.json"); }
 function soulPath(id: string): string { return join(botRoot(id), "SOUL.md"); }
+function memoryPath(id: string): string { return join(botRoot(id), "MEMORY.md"); }
+function ensureMemoryFile(id: string): void {
+  const file = memoryPath(id);
+  if (!existsSync(file)) writeFileSync(file, "# Bot memory\n\n", "utf8");
+}
 function writeConfig(config: BotConfig): void {
   mkdirSync(botRoot(config.id), { recursive: true });
   const target = configPath(config.id);
@@ -86,7 +91,9 @@ export function createBot(input: { name?: string; model?: string | null; thinkin
   const id = randomUUID(); const now = new Date().toISOString();
   const config: BotConfig = { id, name, label: "1:1 アシスタント", avatarColor: randomAvatarColor(), avatarImage: null, avatarShape: "circle", avatarGlasses: false, avatarMustache: false, createdAt: now, updatedAt: now, model: input.model ?? null, thinkingLevel: input.thinkingLevel ?? null, permissionMode: input.permissionMode ?? null, codeAutoApprove: true, skills: { ...DEFAULT_SKILLS }, extraRoots: [], enabled: true, notificationsEnabled: true, codeSessionTaskId: null };
   mkdirSync(join(botRoot(id), "workspace"), { recursive: true });
-  writeFileSync(soulPath(id), SOUL_TEMPLATE, "utf8"); writeConfig(config);
+  writeFileSync(soulPath(id), SOUL_TEMPLATE, "utf8");
+  ensureMemoryFile(id);
+  writeConfig(config);
   insertBotTask({ id: `bot:${id}`, botId: id, name, directory: join(botRoot(id), "workspace"), model: config.model, thinkingLevel: config.thinkingLevel, permissionMode: config.permissionMode });
   return toDto(config);
 }
@@ -127,9 +134,16 @@ export function botRuntimeContext(extensions: readonly { path: string }[]): stri
   ].join("\n");
 }
 
-// Bot instructions come from BOTS.md/SOUL.md, never global AGENTS.md.
+// Bot instructions and memory come from BOTS.md/SOUL.md/MEMORY.md, never global AGENTS.md.
 // Return paths so session.reload() re-reads edits without a new session.
 export function botPromptSources(id: string): string[] {
+  ensureMemoryFile(id);
+  const sources: string[] = [];
   const shared = globalBotsMdPath();
-  return existsSync(shared) ? [shared, soulPath(id)] : [soulPath(id)];
+  if (existsSync(shared)) sources.push(shared);
+  sources.push(soulPath(id));
+  // MEMORY.md is re-read when a session is created, so facts learned in a
+  // previous conversation become context without copying them into config.json.
+  if (existsSync(memoryPath(id))) sources.push(memoryPath(id));
+  return sources;
 }
