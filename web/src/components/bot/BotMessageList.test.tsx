@@ -53,6 +53,15 @@ it("renders bot Markdown with GFM", () => {
   expect(container.querySelector("ul li")?.textContent).toBe("item");
 });
 
+it("turns bare internal task paths into task cards", async () => {
+  vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve({ ok: true, json: async () => url.startsWith("/api/tasks/")
+    ? { task: { id: "task-123", title: "Fix login", projectId: null } }
+    : { projects: [] } })));
+  const { findByRole } = render(<BotMessageMarkdown text="タスク: /task/task-123" />);
+  const taskLink = await findByRole("link", { name: "Fix login" });
+  expect(taskLink.getAttribute("href")).toBe("/task/task-123");
+});
+
 it("renders internal task links with the task title and project icon", async () => {
   vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve({ ok: true, json: async () => url.startsWith("/api/tasks/")
     ? { task: { id: "task/123", title: "Fix login", projectId: "project" } }

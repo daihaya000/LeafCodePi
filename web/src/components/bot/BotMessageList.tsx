@@ -16,6 +16,10 @@ import type { BotDto, ProjectDto, TaskSummary, UiMessage } from "@/lib/types";
 /** Elements that carry prose; each rewrites only its own bare text into mention chips. */
 const MENTION_TAGS = ["p", "li", "strong", "em", "td", "th", "h1", "h2", "h3", "h4", "blockquote"] as const;
 
+function linkBareTaskPaths(text: string) {
+  return text.replace(/(^|\s)((\/task\/)[^\s<>()[\]{}]+)/g, (match, prefix: string, path: string) => `${prefix}[${path}](${path})`);
+}
+
 function TaskLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
   if (!href || !/^\/task\/[^/?#]+(?:[?#].*)?$/.test(href)) return <a href={href} {...props}>{children}</a>;
   return <InternalTaskLink href={href} {...props} />;
@@ -54,7 +58,7 @@ export const BotMessageMarkdown = memo(function BotMessageMarkdown({ text, menti
       <Tag {...props}>{withMentions(children, mentions, keyPrefix)}</Tag>
     )]))
     : undefined;
-  return <div className="md"><Markdown remarkPlugins={[remarkGfm]} components={{ ...components, a: ({ href, children, ...props }) => <TaskLink href={href} {...props}>{children}</TaskLink> }}>{text}</Markdown></div>;
+  return <div className="md"><Markdown remarkPlugins={[remarkGfm]} components={{ ...components, a: ({ href, children, ...props }) => <TaskLink href={href} {...props}>{children}</TaskLink> }}>{linkBareTaskPaths(text)}</Markdown></div>;
 });
 
 export function BotMessageList({ conversationId, children }: { conversationId: string; children: ReactNode }) {
