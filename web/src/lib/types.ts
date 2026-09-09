@@ -19,7 +19,7 @@ export type BotSkillsConfig = {
 
 export type BotToolName = "read" | "write" | "edit" | "bash" | "powershell" | "question" | "grep" | "find" | "ls" | "memory_search" | "memory_add" | "memory_replace" | "memory_remove" | "session_search" | "skill_manage" | "subagent" | "todowrite" | "tool_search";
 export const BOT_TOOL_NAMES: readonly BotToolName[] = ["read", "write", "edit", "bash", "powershell", "question", "grep", "find", "ls", "memory_search", "memory_add", "memory_replace", "memory_remove", "session_search", "skill_manage", "subagent", "todowrite", "tool_search"];
-export const BOT_DEFAULT_DISABLED_TOOL_NAMES = ["write", "edit", "bash", "powershell", "subagent"] as const satisfies readonly BotToolName[];
+export const BOT_DEFAULT_DISABLED_TOOL_NAMES = ["write", "edit", "bash", "powershell", "subagent", "todowrite"] as const satisfies readonly BotToolName[];
 const BOT_DEFAULT_DISABLED_TOOL_SET = new Set<string>(BOT_DEFAULT_DISABLED_TOOL_NAMES);
 export const BOT_DEFAULT_TOOL_NAMES: readonly BotToolName[] = BOT_TOOL_NAMES.filter((tool) => !BOT_DEFAULT_DISABLED_TOOL_SET.has(tool));
 
