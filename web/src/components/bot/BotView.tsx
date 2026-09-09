@@ -21,6 +21,7 @@ import { BotCodeRequests } from "@/components/bot/BotCodeRequests";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { markRead } from "@/lib/bot-unread";
 import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
+import { stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
 import { BOT_TOOL_NAMES, type BotDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type ThinkingLevel, type UiMessage } from "@/lib/types";
 
 function textOf(message: UiMessage): string {
@@ -170,7 +171,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
             permissionRequest?: PermissionRequestDto | null;
             questionRequest?: QuestionRequestDto | null;
           };
-          if (payload.messages) setMessages(payload.messages);
+          if (payload.messages) setMessages((current) => stabilizeUiMessages(current, payload.messages!));
           setPermission(payload.permissionRequest ?? null);
           setQuestion(payload.questionRequest ?? null);
           setSending(Boolean(payload.isStreaming));
@@ -184,13 +185,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
             isStreaming?: boolean;
           };
           if (payload.message) {
-            setMessages((current) => {
-              const index = current.findIndex((message) => message.id === payload.message!.id);
-              if (index < 0) return [...current, payload.message!];
-              const next = current.slice();
-              next[index] = payload.message!;
-              return next;
-            });
+            setMessages((current) => upsertUiMessage(current, payload.message!));
           }
           if (payload.isStreaming !== undefined) setSending(payload.isStreaming);
         } catch { setError("イベントの解析に失敗しました"); }
