@@ -10,7 +10,7 @@ import { ProjectIcon } from "@/components/ProjectIcon";
 import { renderMentions, withMentions } from "@/components/bot/BotMention";
 import { ImageLightbox } from "@/components/Composer";
 import { toolLabel } from "@/lib/tool-labels";
-import { Button, formatMessageTime } from "@/components/ui";
+import { Button, cx, formatMessageTime } from "@/components/ui";
 import type { BotDto, ProjectDto, TaskSummary, UiMessage } from "@/lib/types";
 
 /** Elements that carry prose; each rewrites only its own bare text into mention chips. */
@@ -46,7 +46,7 @@ function InternalTaskLink({ href, ...props }: AnchorHTMLAttributes<HTMLAnchorEle
   const title = task?.title || taskId;
   return (
     <Link href={href} {...props} aria-label={title} className="my-2 flex items-center gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm no-underline transition-colors hover:bg-surface-3">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center" aria-hidden="true">{project && <ProjectIcon project={project} className="flex h-8 w-8 items-center justify-center rounded-lg border text-sm font-semibold" />}</span>
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center" aria-hidden="true">{project && <ProjectIcon project={project} className={cx("flex h-8 w-8 items-center justify-center rounded-lg text-sm font-semibold", !project.icon && "border")} />}</span>
       <span className="min-w-0 truncate font-medium text-text">{title}</span>
     </Link>
   );

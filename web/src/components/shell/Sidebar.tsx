@@ -448,7 +448,7 @@ function ProjectIconPicker({
         className,
       )}
     >
-      <ProjectIcon project={project} className={iconClassName} />
+      <ProjectIcon project={project} className={cx(iconClassName, !project.icon && "border")} />
       <input
         type="file"
         aria-label={`${project.name}のアイコンを設定`}
@@ -1636,7 +1636,7 @@ const SidebarView = memo(function SidebarView({
                     <ProjectIconPicker
                       project={project}
                       className="h-11 w-11 hover:bg-surface-2 hover:text-text md:h-8 md:w-8"
-                      iconClassName="flex h-5 w-5 items-center justify-center rounded-md border text-[10px] font-medium"
+                      iconClassName="flex h-5 w-5 items-center justify-center rounded-md text-[10px] font-medium"
                       onFileChange={(file) => void setProjectIcon(project, file)}
                     />
                     <button
@@ -1920,7 +1920,10 @@ const SidebarView = memo(function SidebarView({
                 >
                   <ProjectIcon
                     project={project}
-                    className="flex h-full w-full items-center justify-center rounded-lg border text-base font-medium transition-transform group-hover:scale-105"
+                    className={cx(
+                      "flex h-full w-full items-center justify-center rounded-lg text-base font-medium transition-transform group-hover:scale-105",
+                      !project.icon && "border",
+                    )}
                   />
                   {running > 0 && (
                     <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-surface bg-working px-1 text-[10px] font-semibold text-primary-fg">
@@ -2039,7 +2042,7 @@ const SidebarView = memo(function SidebarView({
               project={projectTaskMenuProject}
               role="menuitem"
               className="h-8 w-8 hover:bg-surface-2 hover:text-text"
-              iconClassName="flex h-7 w-7 items-center justify-center border text-xs font-medium"
+              iconClassName="flex h-7 w-7 items-center justify-center text-xs font-medium"
               onFileChange={(file) => void setProjectIcon(projectTaskMenuProject, file)}
             />
             <p className="min-w-0 flex-1 truncate text-sm font-medium text-muted">

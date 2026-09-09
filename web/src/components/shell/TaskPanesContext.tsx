@@ -32,6 +32,7 @@ import { getJson } from "@/lib/client";
 import type { BotDto, ProjectDto, TaskStatus, TaskSummary } from "@/lib/types";
 import { ProjectIcon } from "@/components/ProjectIcon";
 import { BotAvatar } from "@/components/bot/BotAvatar";
+import { cx } from "@/components/ui";
 
 type TaskIdentity = Pick<TaskSummary, "projectId" | "botId"> & Partial<Pick<TaskSummary, "status">>;
 
@@ -388,9 +389,12 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     const project = projects.find((item) => item.id === identity?.projectId);
     return project ? (
       <span aria-hidden="true" className="shrink-0">
-        <ProjectIcon project={project} className={size === 32
-          ? "flex h-8 w-8 items-center justify-center rounded-md border text-sm font-semibold"
-          : "flex h-4 w-4 items-center justify-center rounded-md border text-[10px] font-semibold"} />
+        <ProjectIcon project={project} className={cx(
+          size === 32
+            ? "flex h-8 w-8 items-center justify-center rounded-md text-sm font-semibold"
+            : "flex h-4 w-4 items-center justify-center rounded-md text-[10px] font-semibold",
+          !project.icon && "border",
+        )} />
       </span>
     ) : null;
   }, [botFor, bots, projects, titlesVersion, statusFor]);
