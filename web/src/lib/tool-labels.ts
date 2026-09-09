@@ -1,4 +1,4 @@
-import type { ToolState } from "@/lib/types";
+import type { ToolState, UiMessage } from "@/lib/types";
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
@@ -192,4 +192,16 @@ export function toolInputFields(
   add("URL", "url");
   add("説明", "description");
   return fields;
+}
+
+/** Tool a run is executing right now, so progress is readable without opening the Code screen. */
+export function activeToolLabel(message: UiMessage | null | undefined): string | undefined {
+  if (!message || message.role !== "assistant") return undefined;
+  for (let index = message.parts.length - 1; index >= 0; index -= 1) {
+    const part = message.parts[index];
+    if (part?.type === "tool" && (part.state.status === "pending" || part.state.status === "running")) {
+      return toolLabel(part.tool, part.state.input);
+    }
+  }
+  return undefined;
 }

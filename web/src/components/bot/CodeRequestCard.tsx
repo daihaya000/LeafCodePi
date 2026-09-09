@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getJson } from "@/lib/client";
+import { activeToolLabel } from "@/lib/tool-labels";
 import type { CodeRequestGoalLoopReport, CodeRequestState, TaskDetail } from "@/lib/types";
 import { BotMessageMarkdown } from "@/components/bot/BotMessageList";
 
@@ -108,13 +109,15 @@ export function CodeRequestCard({
   const progressTotal = loopActive ? (loopPercent === null ? undefined : 100) : todoTotal;
   const progressValue = loopActive ? loopPercent ?? undefined : todoCompleted;
   const succeeded = state === "delivered" && (outcome === undefined || SUCCESS_OUTCOMES.has(outcome));
+  // Rooms push the live tool label with the message; the Bot screen derives it from the polled task.
+  const runningLabel = activity || (live ? activeToolLabel(task?.messages?.at(-1)) : undefined);
 
   return (
     <div className="mt-2 w-full max-w-full min-w-0 rounded-xl border border-border bg-surface p-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span role="status" aria-live={live ? "polite" : undefined} className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${succeeded ? "bg-success-bg text-success" : "bg-surface-2 text-muted"}`}>{outcome && !succeeded ? outcome : CODE_STATE_TEXT[state]}</span>
         <span className="min-w-0 flex-1 basis-48 break-words font-medium [overflow-wrap:anywhere]">{prompt || "Code依頼"}</span>
-        {activity && <span className="min-w-0 flex-1 truncate text-faint">· {activity}</span>}
+        {runningLabel && <span className="min-w-0 flex-1 truncate text-faint">· {runningLabel}</span>}
         {taskId && <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="min-h-11 rounded-lg px-3 text-accent hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent">{open ? "閉じる" : "プレビュー"}</button>}
         {taskId && <a className="inline-flex min-h-11 items-center rounded-lg px-3 text-muted hover:bg-surface-2 hover:text-accent focus-visible:outline-2 focus-visible:outline-accent" href={`/task/${encodeURIComponent(taskId)}`}>実行内容を見る</a>}
         {live && onStop && <button type="button" onClick={onStop} disabled={stopping} className="min-h-11 rounded-lg px-3 text-danger hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">{state === "queued" ? "取消" : "停止"}</button>}

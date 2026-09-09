@@ -5,7 +5,7 @@ import { getTask } from "./store";
 import { getTaskDetail, promptTask, subscribeTask, abortTask } from "./pi/harness";
 import { withBotCodeSessionLock } from "./bot-code-session-lock";
 import { pendingRoomCodeRequestForTurn, roomCodeRequestForRoom, settledRoomCodeRequest, type CodeRequest } from "./pi/bot-code-relay";
-import { toolLabel } from "./tool-labels";
+import { activeToolLabel } from "./tool-labels";
 import { latestRoomRequest, MAX_ROOM_CONVERSATION_TURNS, parseRoomReply, roomBotPrompt, type RoomReply, type RoomTurn } from "./room-conversation";
 import type { BotDto, RoomDto, RoomHandoff, RoomMessage, RoomOutcome, UiMessage } from "./types";
 
@@ -17,15 +17,6 @@ function textOf(message: UiMessage): string { return message.parts.filter((part)
 const STREAM_INTERVAL_MS = 400;
 const CODE_TRACK_TIMEOUT_MS = 60 * 60_000;
 const trackedCodeRequests = new Set<string>();
-
-function activeToolLabel(message: UiMessage | null | undefined): string | undefined {
-  if (!message || message.role !== "assistant") return undefined;
-  for (let index = message.parts.length - 1; index >= 0; index -= 1) {
-    const part = message.parts[index];
-    if (part?.type === "tool" && (part.state.status === "pending" || part.state.status === "running")) return toolLabel(part.tool, part.state.input);
-  }
-  return undefined;
-}
 
 /**
  * Mirror what the delegated Code run is doing into the waiting Room message.

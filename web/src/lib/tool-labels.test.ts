@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { skillNameFromReadInput, toolInputFields, toolLabel, toolSummary } from "./tool-labels";
+import { activeToolLabel, skillNameFromReadInput, toolInputFields, toolLabel, toolSummary } from "./tool-labels";
+import type { UiMessage } from "./types";
 
 describe("toolLabel", () => {
   it("maps pi tools to Japanese labels", () => {
@@ -35,6 +36,21 @@ describe("toolLabel", () => {
     const input = { path: "C:\\Users\\Daichi\\.pi\\agent\\skills\\bug-hunt\\SKILL.md" };
     expect(skillNameFromReadInput("read", input)).toBe("bug-hunt");
     expect(toolLabel("read", input)).toBe("スキル");
+  });
+
+  it("names the tool a run is executing right now", () => {
+    const message = (status: "running" | "completed"): UiMessage => ({
+      id: "m1", role: "assistant", createdAt: 1,
+      parts: [
+        { id: "p1", type: "tool", tool: "grep", callID: "c1", state: { status: "completed" } },
+        { id: "p2", type: "tool", tool: "read", callID: "c2", state: { status, input: { path: "README.md" } } },
+      ],
+    } as UiMessage);
+
+    expect(activeToolLabel(message("running"))).toBe("読取");
+    expect(activeToolLabel(message("completed"))).toBeUndefined();
+    expect(activeToolLabel(null)).toBeUndefined();
+    expect(activeToolLabel({ id: "u1", role: "user", createdAt: 1, parts: [] } as UiMessage)).toBeUndefined();
   });
 
   it("keeps unknown tool names as-is", () => {
