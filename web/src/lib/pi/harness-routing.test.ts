@@ -224,7 +224,9 @@ import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
 import { patchTask, upsertProject, getTask } from "@/lib/store";
 import type { ThinkingLevel } from "@/lib/types";
+import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
 import { setAccountRoutingMode, __resetProviderRoutingQueueForTests, markProviderLimited } from "@/lib/provider-routing";
+import { setSetting } from "@/lib/pi/web-settings";
 import { AccountRuntimeManager } from "./account-runtime-manager";
 import { goalLoopStateFile } from "./goal-loop-state";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
@@ -266,6 +268,7 @@ function installHarness(runtimes: Map<string, ReturnType<typeof runtime>>) {
   const defaultRuntime = {
     getProvider: (id: string) => ({ id }),
     getModel: () => undefined,
+    getProviders: () => [],
     registerProvider: () => undefined,
   };
   (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
@@ -343,6 +346,37 @@ describe("mergeBundledSkills", () => {
 });
 
 describe("integrated session routing", () => {
+  it("uses persisted Auto settings when resolving the Auto task sentinel", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-auto-settings-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+
+    const account = createAccount({ label: "テスト", providers: ["anthropic"] });
+    storeProviderAuth(account.id, process.env.PI_CODING_AGENT_DIR!);
+    installHarness(new Map([[account.id, runtime(account.id)]]));
+    await setAccountRoutingMode("anthropic", "integrated");
+    setSetting("auto-optimize", "intelligence");
+    setSetting("auto-route-overrides", JSON.stringify({
+      version: 2,
+      modes: {
+        intelligence: {
+          standard: {
+            candidates: [{ kind: "model", providerID: "anthropic", modelID: "not-enabled" }],
+            fallback: "error",
+          },
+        },
+      },
+    }));
+
+    await expect(createTask({
+      projectId: null,
+      prompt: "修正して",
+      model: AUTO_MODEL_VALUE,
+    })).rejects.toThrow("Auto で選択可能なモデルがありません");
+  });
+
   it.each([false, true])("waitForCompletion=%s preserves acceptance versus queue completion", async (waitForCompletion) => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-prompt-completion-"));
     tempDirs.push(dir);

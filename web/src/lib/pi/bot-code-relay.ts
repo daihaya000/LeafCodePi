@@ -14,6 +14,7 @@ import {
 } from "@/lib/goal-loop-settings";
 import { NO_PROJECT_NAME, type CodeRequestGoalLoopReport, type CodeRequestState, type GoalLoopDto, type RoomConversationTurn, type TaskSummary, type UiMessage } from "@/lib/types";
 import { getRoom, roomBotTaskId, updateRoomMessage } from "@/lib/rooms";
+import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
 
 export const BOT_CODE_TOOL = "code_session";
 export const BOT_CODE_RESULT = "bot-code-result";
@@ -473,8 +474,8 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         if (input.action === "start") {
           await deps.create({
             projectId: project?.id ?? null, prompt: request.prompt,
-            ...(current.model ? { model: current.model } : {}),
-            ...(current.thinkingLevel ? { thinkingLevel: current.thinkingLevel } : {}),
+            // Botの会話モデルではなく、設定済みのAutoルートでCodeを起動する。
+            model: AUTO_MODEL_VALUE,
             ...(request.goalLoop ? { goalLoop: request.goalLoop } : {}),
             permissionMode: "ask", codeRequestId: id, botId: bot.id,
             beforePrompt: (task) => {
@@ -592,8 +593,8 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         if (request.action === "start") {
           await deps.create({
             projectId: project?.id ?? null, prompt: request.prompt,
-            ...(bot.model ? { model: bot.model } : {}),
-            ...(bot.thinkingLevel ? { thinkingLevel: bot.thinkingLevel } : {}),
+            // Botの会話モデルではなく、設定済みのAutoルートでCodeを起動する。
+            model: AUTO_MODEL_VALUE,
             ...(request.goalLoop ? { goalLoop: request.goalLoop } : {}),
             permissionMode: "ask", codeRequestId: request.id, botId: bot.id,
             beforePrompt: (task) => {

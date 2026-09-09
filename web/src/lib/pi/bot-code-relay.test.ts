@@ -89,7 +89,7 @@ describe("Bot ⇄ Code relay", () => {
   it("persists the link before execution, returns immediately, then reports exactly once", async () => {
     const result = await launch();
     expect(result).toMatchObject({ taskId: "code", state: "running" });
-    expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: "ask", model: "model", botId: "one" }));
+    expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: "ask", model: "auto", botId: "one" }));
     expect(store.bots.get("one")?.codeSessionTaskId).toBe("code");
     expect(relay.originForCode("code")).toBe("bot:one");
     expect(record().state).toBe("running");

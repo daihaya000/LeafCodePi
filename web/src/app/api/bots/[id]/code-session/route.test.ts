@@ -95,6 +95,21 @@ describe("Bot Code session control", () => {
     expect(mocks.patchBot).not.toHaveBeenCalledWith("bot-1", { codeSessionTaskId: "code-1" });
   });
 
+  it("does not inherit the Bot chat model for a Code task", async () => {
+    mocks.getBot.mockReturnValue({ ...bot, model: "bot-model", thinkingLevel: "high" });
+
+    const response = await POST(request("POST", { projectId: "project-1", prompt: "Autoで修正" }), {
+      params: Promise.resolve({ id: "bot-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.createBotCodeTask).toHaveBeenCalledWith("bot-1", {
+      projectId: "project-1",
+      prompt: "Autoで修正",
+      permissionMode: "ask",
+    });
+  });
+
   it("starts a Code task with Goal Loop settings", async () => {
     const goalLoop = {
       acceptance: ["テストが通ること"],

@@ -122,12 +122,8 @@ export async function POST(
       const task = await createBotCodeTask(id, {
         projectId,
         prompt: body.prompt,
-        ...(typeof body.model === "string" ? { model: body.model.trim() } : bot.model ? { model: bot.model } : {}),
-        ...(isThinkingLevel(body.thinkingLevel)
-          ? { thinkingLevel: body.thinkingLevel }
-          : bot.thinkingLevel
-            ? { thinkingLevel: bot.thinkingLevel }
-            : {}),
+        ...(typeof body.model === "string" ? { model: body.model.trim() } : {}),
+        ...(isThinkingLevel(body.thinkingLevel) ? { thinkingLevel: body.thinkingLevel } : {}),
         permissionMode:
           body.permissionMode === "allow" || body.permissionMode === "deny" || body.permissionMode === "ask"
             ? body.permissionMode

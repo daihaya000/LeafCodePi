@@ -159,9 +159,15 @@ import { stopRunningSubagentRuns } from "@/lib/pi/stop-subagent-runs";
 import { getCachedUsage, invalidateCachedUsage } from "@/lib/codexbar/cache";
 import type { CodexBarProvider } from "@/lib/codexbar";
 import {
+  autoModelValue,
   autoProviderUsageFromModels,
+  autoVariantToThinkingLevel,
+  AUTO_MODEL_VALUE,
   chooseAutoModel,
   classifyPrompt,
+  DEFAULT_AUTO_OPTIMIZE_MODE,
+  isAutoOptimizeMode,
+  normalizeAutoRouteConfig,
   type AutoDecision,
   type AutoOptimizeMode,
   type AutoRouteConfig,
@@ -2084,7 +2090,13 @@ export async function createBotCodeTask(
   return runUserBotCodeRequest(
     botId,
     { prompt: input.prompt, projectId: input.projectId, ...(input.goalLoop ? { goalLoop: input.goalLoop } : {}) },
-    (codeRequestId, link) => createTask({ ...input, botId, codeRequestId, beforePrompt: (task) => link(task.id) }),
+    (codeRequestId, link) => createTask({
+      ...input,
+      model: input.model ?? AUTO_MODEL_VALUE,
+      botId,
+      codeRequestId,
+      beforePrompt: (task) => link(task.id),
+    }),
   );
 }
 
@@ -3825,6 +3837,44 @@ export async function resolveAutoModel(input: {
   });
 }
 
+function configuredAutoRoute(): { mode: AutoOptimizeMode; config?: AutoRouteConfig } {
+  const rawMode = getSetting("auto-optimize");
+  const mode = isAutoOptimizeMode(rawMode)
+    ? rawMode
+    : DEFAULT_AUTO_OPTIMIZE_MODE;
+  const rawConfig = getSetting("auto-route-overrides");
+  if (!rawConfig) return { mode };
+  try {
+    return { mode, config: normalizeAutoRouteConfig(JSON.parse(rawConfig)) };
+  } catch {
+    return { mode };
+  }
+}
+
+async function resolveConfiguredAutoModel(
+  prompt: string,
+  hasImages: boolean,
+  attachmentCount: number,
+): Promise<AutoDecision> {
+  const { mode, config } = configuredAutoRoute();
+  const decision = await resolveAutoModel({
+    prompt,
+    hasImages,
+    attachmentCount,
+    mode,
+    config,
+  });
+  if (!decision) {
+    throw Object.assign(
+      new Error(
+        "Auto で選択可能なモデルがありません。プロバイダ接続とモデル有効化を確認してください。",
+      ),
+      { status: 400 },
+    );
+  }
+  return decision;
+}
+
 export async function listModelsForAccounts(
   accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
 ): Promise<ModelOption[]> {
@@ -5152,14 +5202,29 @@ export async function createTask(input: {
     throw Object.assign(new Error("プロジェクトが見つかりません"), {
       status: 404,
     });
-  const parsed = parseModelValue(input.model);
-  const requestedAccountId = input.accountId?.trim() || parsed?.accountId;
+  let modelValue = input.model;
+  let thinkingLevelInput = input.thinkingLevel;
+  let accountIdInput = input.accountId;
+  let accountIdExplicitInput = input.accountIdExplicit;
+  if (modelValue === AUTO_MODEL_VALUE) {
+    const autoDecision = await resolveConfiguredAutoModel(
+      input.prompt,
+      Boolean(input.images?.length),
+      input.images?.length ?? 0,
+    );
+    modelValue = autoModelValue(autoDecision);
+    thinkingLevelInput = autoVariantToThinkingLevel(autoDecision.variant);
+    accountIdInput = autoDecision.accountId;
+    accountIdExplicitInput = false;
+  }
+  const parsed = parseModelValue(modelValue);
+  const requestedAccountId = accountIdInput?.trim() || parsed?.accountId;
   const requestedAccountExplicit =
-    input.accountIdExplicit ?? Boolean(requestedAccountId);
+    accountIdExplicitInput ?? Boolean(requestedAccountId);
   if (
-    input.accountId &&
+    accountIdInput &&
     parsed?.accountId &&
-    input.accountId !== parsed.accountId
+    accountIdInput !== parsed.accountId
   ) {
     throw Object.assign(new Error("モデルとアカウントの指定が一致しません"), {
       status: 400,
@@ -5189,7 +5254,7 @@ export async function createTask(input: {
     return insertTask({
       project,
       title: titleFromPrompt(input.prompt),
-      thinkingLevel: input.thinkingLevel,
+      thinkingLevel: thinkingLevelInput,
       providerID: selectedIds.providerID ?? parsed?.providerID,
       modelID: selectedIds.modelID ?? parsed?.modelID,
       ...(accountId ? { accountId } : {}),
@@ -5208,12 +5273,12 @@ export async function createTask(input: {
   let concreteAccountId = requestedAccountId ?? null;
   let reservedAccount: { providerID: string; accountId: string } | undefined;
   let task: TaskSummary;
-  if (input.model) {
+  if (modelValue) {
     const routed = await withRouteLock(
       `${parsed?.providerID ?? "default"}::${parsed?.modelID ?? "default"}`,
       async () => {
         const route = await resolveConcreteModelWithFallback(
-          input.model,
+          modelValue,
           requestedAccountId ?? null,
           {
             strictAccountId: requestedAccountExplicit,
@@ -5278,8 +5343,8 @@ export async function createTask(input: {
     );
   }
   const model = modelRoute?.model;
-  const requestedThinking = isThinkingLevel(input.thinkingLevel)
-    ? input.thinkingLevel
+  const requestedThinking = isThinkingLevel(thinkingLevelInput)
+    ? thinkingLevelInput
     : "off";
   // The provider adapter performs the final model-specific clamping when it
   // builds the request. Do not clamp from the session-creation model metadata.

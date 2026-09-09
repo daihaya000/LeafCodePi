@@ -19,7 +19,7 @@ Botごとに `codeSessionTaskId` を1件だけ保持し、Code側の既存ハー
 - `POST /api/bots/:id/code-session` — 登録済み `projectId` または `null`（プロジェクトなし）に対してCodeタスクを起動
 - `PATCH /api/bots/:id/code-session` — `{ action: "prompt", prompt }` または `{ action: "abort" }`
 
-起動時は登録済みの `projectId` または `null`（プロジェクトなし）を指定し、任意パスを受け付けない。Bot設定のモデル・思考レベルを既定値として使い、権限モード未指定時は安全側の `ask` を使う。同一Botに既存の非アーカイブCodeタスクがある場合は409で二重起動を拒否する。
+起動時は登録済みの `projectId` または `null`（プロジェクトなし）を指定し、任意パスを受け付けない。Codeは設定 → Autoモデルの最適化方針・ルートを既定値として使い、権限モード未指定時は安全側の `ask` を使う（Bot設定のモデル・思考レベルはBot会話用）。同一Botに既存の非アーカイブCodeタスクがある場合は409で二重起動を拒否する。
 
 ## UI
 
