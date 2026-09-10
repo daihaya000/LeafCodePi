@@ -76,6 +76,24 @@ it("notifies a hidden tab once per finished reply, and stays silent when the Bot
   }
 });
 
+it("notifies a hidden tab when the Bot is waiting for approval", async () => {
+  const sent: string[] = [];
+  class FakeNotification {
+    static permission = "granted";
+    constructor(title: string) { sent.push(title); }
+  }
+  vi.stubGlobal("Notification", FakeNotification);
+  Object.defineProperty(document, "hidden", { configurable: true, value: true });
+  try {
+    render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+    await screen.findByRole("button", { name: "設定" });
+    snapshot({ permissionRequest: { id: "permission-1", command: "code_session", message: "Codeへ依頼します", labels: [] } });
+    expect(sent).toEqual(["承認が必要です"]);
+  } finally {
+    Reflect.deleteProperty(document, "hidden");
+  }
+});
+
 it("does not mark hidden tab messages read until activation", async () => {
   const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
   snapshot({ messages: [{ id: "message", role: "assistant", createdAt: 123, parts: [{ type: "text", text: "hello" }] }] });
