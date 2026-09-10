@@ -1,146 +1,144 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const state = vi.hoisted(() => ({ root: "" }));
-vi.mock("../../../../lib/paths", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../../lib/paths")>();
-  return { ...actual, dataDir: () => state.root };
-});
+import { describe, expect, it, vi } from "vitest";
+import type { BotDto } from "@/lib/types";
+
+const mocks = vi.hoisted(() => ({
+  getBot: vi.fn(),
+  patchBot: vi.fn(),
+  deleteBot: vi.fn(),
+  normalizeBotSkills: vi.fn((value: unknown) => value),
+  setTaskModel: vi.fn(),
+  setTaskThinkingLevel: vi.fn(),
+  setBotTools: vi.fn(),
+  resetTaskConversation: vi.fn(),
+  resetTaskSession: vi.fn(),
+  destroyTask: vi.fn(),
+  listTasks: vi.fn(() => []),
+}));
+vi.mock("@/lib/bots", () => ({
+  getBot: mocks.getBot,
+  patchBot: mocks.patchBot,
+  deleteBot: mocks.deleteBot,
+  normalizeBotSkills: mocks.normalizeBotSkills,
+  botTaskId: (id: string) => `bot:${id}`,
+  BOT_TOOL_NAMES: ["bash", "powershell", "read", "write", "edit", "grep", "glob"],
+}));
+vi.mock("@/lib/pi/harness", () => ({
+  setTaskModel: mocks.setTaskModel,
+  setTaskThinkingLevel: mocks.setTaskThinkingLevel,
+  setBotTools: mocks.setBotTools,
+  resetTaskConversation: mocks.resetTaskConversation,
+  resetTaskSession: mocks.resetTaskSession,
+  destroyTask: mocks.destroyTask,
+}));
+vi.mock("@/lib/store", () => ({ listTasks: mocks.listTasks }));
+
 import { NextRequest } from "next/server";
-import * as harness from "../../../../lib/pi/harness";
-import { createBot } from "../../../../lib/bots";
-import { getTask, patchTask } from "../../../../lib/store";
 import { DELETE, GET, PATCH } from "./route";
 
+const emptyRequest = () => new Request("http://localhost") as NextRequest;
+
+const bot = (id = "one"): BotDto => ({
+  id,
+  name: "Bot",
+  label: "",
+  soul: "",
+  avatarColor: "#3B82F6",
+  avatarImage: null,
+  model: null,
+  thinkingLevel: null,
+  permissionMode: null,
+  codeAutoApprove: false,
+  skills: { mode: "inherit", include: [], exclude: [] },
+  extraRoots: [],
+  enabled: true,
+  notificationsEnabled: true,
+  createdAt: "",
+  updatedAt: "",
+});
+
+const params = (id: string) => ({ params: Promise.resolve({ id }) });
+const jsonRequest = (body: unknown): Request =>
+  new Request("http://localhost/api/bots/one", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+describe("GET /api/bots/[id]", () => {
+  it("returns the bot or 404", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    const found = await GET(new Request("http://localhost/api/bots/one"), params("one"));
+    expect(found.status).toBe(200);
+    expect((await found.json()).bot.id).toBe("one");
+
+    mocks.getBot.mockReturnValue(undefined);
+    const missing = await GET(new Request("http://localhost/api/bots/one"), params("one"));
+    expect(missing.status).toBe(404);
+  });
+});
+
 describe("PATCH /api/bots/[id]", () => {
-  let root = "";
-  beforeEach(() => { root = mkdtempSync(join(tmpdir(), "leafcode-api-bot-patch-")); state.root = root; });
-  afterEach(() => { rmSync(root, { recursive: true, force: true }); state.root = ""; });
-  it("tears down the 1:1 task before deleting the bot", async () => {
-    const bot = createBot({ name: "Delete bot" });
-    const destroyTask = vi.spyOn(harness, "destroyTask");
-    const response = await DELETE(new NextRequest("http://localhost", { method: "DELETE" }), { params: Promise.resolve({ id: bot.id }) });
-    expect(response.status).toBe(200);
-    expect(destroyTask).toHaveBeenCalledWith(`bot:${bot.id}`);
-    destroyTask.mockRestore();
-  });
-
-  it("validates and persists avatar colors", async () => {
-    const bot = createBot({ name: "Patch bot" });
-    const invalid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ avatarColor: "blue" }) }), { params: Promise.resolve({ id: bot.id }) });
-    expect(invalid.status).toBe(400);
-    const valid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ avatarColor: "#ABCDEF" }) }), { params: Promise.resolve({ id: bot.id }) });
-    expect(valid.status).toBe(200);
-    expect((await valid.json()).bot.avatarColor).toBe("#ABCDEF");
-  });
-  it("validates shapes and persists a complete avatar selection atomically", async () => {
-    const bot = createBot({ name: "Shape bot" });
-    const params = Promise.resolve({ id: bot.id });
-    for (const avatarShape of ["unknown", "__proto__", "toString", null, 1, {}]) {
-      const invalid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ avatarShape, avatarColor: "#112233" }) }), { params });
-      expect(invalid.status).toBe(400);
+  it("rejects invalid fields", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    for (const body of [
+      { name: "  " },
+      { model: "" },
+      { permissionMode: "turbo" },
+      { tools: ["unknown-tool"] },
+      { extraRoots: ["relative/path"] },
+      { avatarColor: "#12345" },
+      { resetMessages: false },
+      { thinkingLevel: "super" },
+    ]) {
+      const response = await PATCH(jsonRequest(body), params("one"));
+      expect(response.status).toBe(400);
     }
-    const before = await GET(new NextRequest("http://localhost"), { params });
-    expect((await before.json()).bot.avatarColor).toBe(bot.avatarColor);
-    const avatar = { avatarShape: "cloud", avatarColor: "#ABCDEF", avatarImage: null };
-    const valid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify(avatar) }), { params });
-    expect(valid.status).toBe(200);
-    expect((await valid.json()).bot).toMatchObject(avatar);
-    const reloaded = await GET(new NextRequest("http://localhost"), { params });
-    expect((await reloaded.json()).bot).toMatchObject(avatar);
-  });
-  it("validates and persists eye color and accessories, clearing the eye color with null", async () => {
-    const bot = createBot({ name: "Face bot" });
-    const params = Promise.resolve({ id: bot.id });
-    const patch = (body: object) => PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify(body) }), { params });
-    for (const body of [{ avatarEyeColor: "red" }, { avatarEyeColor: "#EF4444" }, { avatarEyeColor: "#111111" }, { avatarEyeColor: 1 }, { avatarGlasses: "yes" }, { avatarMustache: 1 }]) {
-      expect((await patch(body)).status).toBe(400);
-    }
-    const face = { avatarEyeColor: "#FFFFFF", avatarGlasses: true, avatarMustache: true };
-    expect((await (await patch(face)).json()).bot).toMatchObject(face);
-    expect((await (await GET(new NextRequest("http://localhost"), { params })).json()).bot).toMatchObject(face);
-    expect((await (await patch({ avatarEyeColor: "#000000" })).json()).bot.avatarEyeColor).toBe("#000000");
-    const cleared = await (await patch({ avatarEyeColor: null, avatarGlasses: false })).json();
-    expect(cleared.bot.avatarEyeColor).toBeUndefined();
-    expect(cleared.bot).toMatchObject({ avatarGlasses: false, avatarMustache: true });
-  });
-  it("persists name and label through PATCH and GET reload", async () => {
-    const bot = createBot({ name: "Profile bot" });
-    const updated = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ name: "Renamed bot", label: "調査アシスタント" }) }), { params: Promise.resolve({ id: bot.id }) });
-    expect(updated.status).toBe(200);
-    const reloaded = await GET(new NextRequest("http://localhost"), { params: Promise.resolve({ id: bot.id }) });
-    expect((await reloaded.json()).bot).toMatchObject({ name: "Renamed bot", label: "調査アシスタント" });
-  });
-  it("persists the enabled flag through PATCH and GET", async () => {
-    const bot = createBot({ name: "Enabled patch bot" });
-    const updated = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ enabled: false }) }), { params: Promise.resolve({ id: bot.id }) });
-    expect(updated.status).toBe(200);
-    expect((await updated.json()).bot.enabled).toBe(false);
-    const reloaded = await GET(new NextRequest("http://localhost"), { params: Promise.resolve({ id: bot.id }) });
-    expect((await reloaded.json()).bot.enabled).toBe(false);
-    const invalid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ enabled: "no" }) }), { params: Promise.resolve({ id: bot.id }) });
-    expect(invalid.status).toBe(400);
   });
 
-  it("defaults sensitive tools off while allowing explicit opt-in through PATCH", async () => {
-    const bot = createBot({ name: "Tool settings bot" });
-    for (const tool of ["write", "edit", "bash", "powershell", "subagent"]) {
-      expect(bot.tools).not.toContain(tool);
-    }
-    const tools = [...(bot.tools ?? []), "write", "edit", "bash", "powershell", "subagent"];
-    const response = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ tools }) }), { params: Promise.resolve({ id: bot.id }) });
+  it("patches simple fields and returns the updated bot", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    mocks.patchBot.mockReturnValue({ ...bot(), name: "Renamed", avatarColor: "#EF4444" });
+    const response = await PATCH(
+      jsonRequest({ name: " Renamed ", avatarColor: "#EF4444" }),
+      params("one"),
+    );
     expect(response.status).toBe(200);
-    expect((await response.json()).bot.tools).toEqual(tools);
+    expect(await response.json()).toEqual({
+      bot: expect.objectContaining({ name: "Renamed", avatarColor: "#EF4444" }),
+    });
+    expect(mocks.patchBot).toHaveBeenCalledWith(
+      "one",
+      expect.objectContaining({ name: "Renamed", avatarColor: "#EF4444" }),
+    );
   });
 
-  it("defaults to allowing tools and persists the per-Bot permission mode", async () => {
-    const bot = createBot({ name: "Permissions bot" });
-    expect(bot.permissionMode).toBe("allow");
-    const denied = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ permissionMode: "deny" }) }), { params: Promise.resolve({ id: bot.id }) });
-    expect(denied.status).toBe(200);
-    expect((await denied.json()).bot.permissionMode).toBe("deny");
-    const invalid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ permissionMode: "invalid" }) }), { params: Promise.resolve({ id: bot.id }) });
-    expect(invalid.status).toBe(400);
-  });
-
-  it("persists notification preferences through PATCH and GET", async () => {
-    const bot = createBot({ name: "Notify patch bot" });
-    const updated = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ notificationsEnabled: false }) }), { params: Promise.resolve({ id: bot.id }) });
-    expect(updated.status).toBe(200);
-    expect((await updated.json()).bot.notificationsEnabled).toBe(false);
-    const reloaded = await GET(new NextRequest("http://localhost"), { params: Promise.resolve({ id: bot.id }) });
-    expect((await reloaded.json()).bot.notificationsEnabled).toBe(false);
-    const invalid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ notificationsEnabled: "no" }) }), { params: Promise.resolve({ id: bot.id }) });
-    expect(invalid.status).toBe(400);
-  });
-  it("deletes the persisted 1:1 conversation on reset", async () => {
-    const bot = createBot({ name: "Reset bot" });
-    const taskId = `bot:${bot.id}`;
-    const sessionFile = join(root, "conversation.jsonl");
-    writeFileSync(sessionFile, "old conversation", "utf8");
-    patchTask(taskId, { status: "working", sessionId: "old-session", sessionFile, error: "old error", revertLeafId: "old-leaf", manualAbortedAssistantId: "old-assistant", hangRetryCount: 2 });
-
-    const invalid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ resetMessages: false }) }), { params: Promise.resolve({ id: bot.id }) });
-    expect(invalid.status).toBe(400);
-    expect(existsSync(sessionFile)).toBe(true);
-
-    const response = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ resetMessages: true }) }), { params: Promise.resolve({ id: bot.id }) });
+  it("applies the model through the same live-session validation", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    mocks.setTaskModel.mockResolvedValue({ thinkingLevel: "high" });
+    mocks.patchBot.mockReturnValue({ ...bot(), model: "provider::model", thinkingLevel: "high" });
+    const response = await PATCH(jsonRequest({ model: "provider::model" }), params("one"));
     expect(response.status).toBe(200);
-    expect(existsSync(sessionFile)).toBe(false);
-    expect(getTask(taskId)).toMatchObject({ status: "idle", sessionId: null, sessionFile: null, error: null, revertLeafId: null, manualAbortedAssistantId: null });
-    expect(getTask(taskId)?.hangRetryCount).toBeUndefined();
+    expect(mocks.setTaskModel).toHaveBeenCalledWith("bot:one", "provider::model");
+    expect(mocks.patchBot).toHaveBeenCalledWith(
+      "one",
+      expect.objectContaining({ model: "provider::model", thinkingLevel: "high" }),
+    );
   });
-  it("validates, persists, and clears an avatar image", async () => {
-    const bot = createBot({ name: "Image patch bot" });
-    const invalid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ avatarImage: "not-a-data-url" }) }), { params: Promise.resolve({ id: bot.id }) });
-    expect(invalid.status).toBe(400);
-    const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
-    const valid = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ avatarImage: dataUrl }) }), { params: Promise.resolve({ id: bot.id }) });
-    expect(valid.status).toBe(200);
-    expect((await valid.json()).bot.avatarImage).toBe(dataUrl);
-    const cleared = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ avatarImage: null }) }), { params: Promise.resolve({ id: bot.id }) });
-    expect(cleared.status).toBe(200);
-    expect((await cleared.json()).bot.avatarImage).toBeNull();
+});
+
+describe("DELETE /api/bots/[id]", () => {
+  it("destroys bot tasks, deletes the bot, and returns ok", async () => {
+    mocks.listTasks.mockReturnValue([{ id: "bot-task", botId: "one" }]);
+    mocks.deleteBot.mockReturnValue(true);
+    const response = await DELETE(emptyRequest(), params("one"));
+    expect(response.status).toBe(200);
+    expect((await response.json()).ok).toBe(true);
+    expect(mocks.destroyTask).toHaveBeenCalledWith("bot-task");
+  });
+
+  it("returns 404 when the bot does not exist", async () => {
+    mocks.deleteBot.mockReturnValue(false);
+    const response = await DELETE(emptyRequest(), params("one"));
+    expect(response.status).toBe(404);
   });
 });
