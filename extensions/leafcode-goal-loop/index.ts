@@ -90,6 +90,16 @@ const TURN_TIMEOUT_MS = 15 * 60 * 1000;
 const TERMINAL = new Set<GoalLoopStatus>(["completed", "blocked", "stopped"]);
 
 const runtimes = new Map<string, Runtime>();
+/** Test-only override for the in-flight turn watchdog. */
+let turnTimeoutMsForTests: number | undefined;
+
+function isActiveRuntime(runtime: Runtime): boolean {
+  return !runtime.disposed && runtimes.get(runtime.key) === runtime;
+}
+
+function turnTimeoutMs(): number {
+  return turnTimeoutMsForTests ?? TURN_TIMEOUT_MS;
+}
 
 type GoalLoopTurnRoutingContext = ExtensionContext & {
   /** Returns false when routing replaced this session, or retry when not attached yet. */
@@ -873,14 +883,13 @@ function completeLoop(runtime: Runtime): boolean {
 }
 
 function schedule(runtime: Runtime, delay = 250): void {
-  if (runtime.disposed || runtime.timer) return;
+  if (!isActiveRuntime(runtime) || runtime.timer) return;
   runtime.timer = setTimeout(() => {
     runtime.timer = undefined;
-    if (runtime.disposed) return;
     // Piのdispose()はsession_shutdownを発火しないため、セッション置換後の旧
     // ランタイムはdisposedにならない。新ランタイムが同じキーで上書き登録済み
     // なら自分は現行ではないので、同一状態ファイルへの送信競合を避けて停止する。
-    if (runtimes.get(runtime.key) !== runtime) return;
+    if (!isActiveRuntime(runtime)) return;
     const loop = currentLoop(runtime);
     if (!loop || TERMINAL.has(loop.status) || loop.status === "paused") return;
     if ((loop.status === "queued" || loop.status === "verifying_completed") && loop.nextTurnAt) {
@@ -898,6 +907,7 @@ function schedule(runtime: Runtime, delay = 250): void {
     // 回復可能な形（一時停止→再開）に倒しておく。
     sendTurn(runtime).catch((error) => {
       console.error("[goal-loop] sendTurn failed:", error);
+      if (!isActiveRuntime(runtime)) return;
       pauseLoop(
         runtime,
         "scheduler_error",
@@ -911,7 +921,7 @@ function schedule(runtime: Runtime, delay = 250): void {
 }
 
 async function sendTurn(runtime: Runtime): Promise<void> {
-  if (runtime.disposed || runtime.awaitingTurn) return;
+  if (!isActiveRuntime(runtime) || runtime.awaitingTurn) return;
   const turnGeneration = runtime.turnGeneration;
   let loop = currentLoop(runtime);
   if (!loop || TERMINAL.has(loop.status) || loop.status === "paused") return;
@@ -944,14 +954,16 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       const prepared = await prepareGoalLoopTurn(routingPrompt);
       // startLoop may have replaced this turn while prepare awaited. Ignore
       // stale prepare outcomes so we do not pause/schedule the new loop.
-      if (runtime.disposed || runtime.turnGeneration !== turnGeneration) return;
+      // Session replacement without session_shutdown also leaves this runtime
+      // alive; refuse to act once another runtime owns the key.
+      if (!isActiveRuntime(runtime) || runtime.turnGeneration !== turnGeneration) return;
       if (prepared === false) return;
       if (prepared === "retry") {
         schedule(runtime, 250);
         return;
       }
     } catch (error) {
-      if (runtime.disposed || runtime.turnGeneration !== turnGeneration) return;
+      if (!isActiveRuntime(runtime) || runtime.turnGeneration !== turnGeneration) return;
       pauseLoop(
         runtime,
         "scheduler_error",
@@ -1014,11 +1026,14 @@ async function sendTurn(runtime: Runtime): Promise<void> {
   runtime.awaitingTurnIndex = undefined;
   runtime.pausedTurnIndex = undefined;
   runtime.timeoutTimer = setTimeout(() => {
+    // After a dispose()-without-shutdown replacement, the new session may be
+    // running again. A stale watchdog must not pause the shared loop state.
+    if (!isActiveRuntime(runtime)) return;
     const current = currentLoop(runtime);
     if (runtime.awaitingTurn && current?.status === "running") {
       pauseLoop(runtime, "turn_timeout", "応答が確認できないまま時間切れになったため一時停止しました。");
     }
-  }, TURN_TIMEOUT_MS);
+  }, turnTimeoutMs());
   runtime.timeoutTimer.unref?.();
 
   try {
@@ -1575,4 +1590,7 @@ export const goalLoopTestSeams = {
   clampMaxTurns,
   clampCooldownSeconds,
   parseCooldownSeconds,
+  setTurnTimeoutMs(ms?: number) {
+    turnTimeoutMsForTests = typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? ms : undefined;
+  },
 };

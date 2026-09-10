@@ -16,7 +16,7 @@ import {
   normalizeAcceptance,
   parseCooldownSeconds,
 } from "./index.ts";
-import goalLoopExtension from "./index.ts";
+import goalLoopExtension, { goalLoopTestSeams } from "./index.ts";
 
 test("matches LeafCode turn-budget and cooldown normalization", () => {
   assert.equal(clampMaxTurns(0), 0);
@@ -1222,6 +1222,84 @@ test("stops a replaced runtime from double-sending queued work", async () => {
     const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(loop.status, "stopped");
   } finally {
+    for (const { pi, ctx } of instances) {
+      await pi.handlers.get("session_shutdown")?.({}, ctx);
+    }
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("ignores a stale turn_timeout after dispose-less session replacement", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-stale-timeout-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  goalLoopTestSeams.setTurnTimeoutMs(40);
+  const stateFile = () => join(cwd, "goals-loop", "stale-timeout-session.json");
+  const makeEnv = () => ({
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "stale-timeout-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  });
+  const makePi = () => ({
+    handlers: new Map(),
+    commands: new Map(),
+    on(name, handler) { this.handlers.set(name, handler); },
+    registerCommand(name, options) { this.commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage() { sendCount += 1; busy = true; },
+  });
+  const instances = [];
+  let busy = false;
+  let sendCount = 0;
+
+  try {
+    const piA = makePi();
+    goalLoopExtension(piA);
+    const ctxA = makeEnv();
+    instances.push({ pi: piA, ctx: ctxA });
+    await piA.handlers.get("session_start")?.({}, ctxA);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await piA.commands.get("goal-start")?.(payload, ctxA);
+    await waitFor(() => sendCount === 1);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).status, "running");
+    // Keep A's already-armed short watchdog, but do not let B's later watchdog
+    // fire during this race window.
+    goalLoopTestSeams.setTurnTimeoutMs(60_000);
+
+    // dispose() without session_shutdown: A keeps its watchdog, B owns the key.
+    const piB = makePi();
+    goalLoopExtension(piB);
+    const ctxB = makeEnv();
+    instances.push({ pi: piB, ctx: ctxB });
+    await piB.handlers.get("session_start")?.({}, ctxB);
+    const paused = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(paused.status, "paused");
+    assert.equal(paused.pauseReason, "");
+
+    busy = false;
+    await piB.commands.get("goal-resume")?.("", ctxB);
+    await waitFor(() => {
+      const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+      return loop.status === "running" && sendCount === 2;
+    });
+
+    // A's stale watchdog must not pause B's resumed turn.
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(loop.status, "running");
+    assert.notEqual(loop.pauseReason, "turn_timeout");
+    assert.equal(sendCount, 2);
+  } finally {
+    goalLoopTestSeams.setTurnTimeoutMs();
     for (const { pi, ctx } of instances) {
       await pi.handlers.get("session_shutdown")?.({}, ctx);
     }
