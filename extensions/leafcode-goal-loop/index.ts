@@ -98,6 +98,8 @@ let turnTimeoutMsForTests: number | undefined;
 let renameSyncForTests: ((temp: string, file: string) => void) | undefined;
 /** Test-only: force writeLoop to fail without touching disk. */
 let writeLoopFailForTests = false;
+/** Test-only: allow N successful writeLoop calls, then fail. */
+let writeLoopAllowCountForTests: number | undefined;
 
 function isActiveRuntime(runtime: Runtime): boolean {
   return !runtime.disposed && runtimes.get(runtime.key) === runtime;
@@ -400,6 +402,10 @@ function readLoop(cwd: string, id: string): GoalLoop | null {
 
 function writeLoop(loop: GoalLoop): boolean {
   if (writeLoopFailForTests) return false;
+  if (writeLoopAllowCountForTests !== undefined) {
+    if (writeLoopAllowCountForTests <= 0) return false;
+    writeLoopAllowCountForTests -= 1;
+  }
   try {
     loop.updatedAt = isoNow();
     const file = goalStateFile(loop.cwd, loop.id);
@@ -836,15 +842,14 @@ function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): bool
   runtime.pausedTurnIndex = undefined;
   loop.pendingTurnRecovery = false;
   loop.status = "running";
-  applyResult(loop, result);
-  const updated = currentLoop(runtime);
-  // Failed persist leaves disk paused+pendingTurnRecovery. Keep runtime armed so
-  // a later settle/resume does not apply the same JSON a second time blindly
-  // after a partial in-memory apply, and so recovery can retry the write.
-  if (!updated || updated.pendingTurnRecovery) {
+  if (!applyResult(loop, result)) {
+    // Failed persist leaves disk paused+pendingTurnRecovery. Keep runtime armed so
+    // a later settle/resume can retry without double-applying from a partial memory apply.
     runtime.pausedTurnPending = true;
     return false;
   }
+  const updated = currentLoop(runtime);
+  if (!updated) return false;
   updateUI(runtime, updated);
   appendSnapshot(runtime, updated);
   if (
@@ -852,15 +857,17 @@ function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): bool
     !TERMINAL.has(updated.status) &&
     updated.status !== "paused"
   ) {
-    updated.status = "paused";
-    updated.pauseReason = pauseReason;
-    updated.error = pauseError;
-    updated.pendingTurnRecovery = false;
-    updated.nextTurnAt = null;
-    writeLoop(updated);
-    updateUI(runtime, updated);
-    appendSnapshot(runtime, updated);
-  } else if (updated.status === "queued" || updated.status === "verifying_completed") {
+    // Re-pause through pauseLoop so write failure does not leave UI paused while
+    // disk stays queued (and later session_start would auto-continue).
+    pauseLoop(runtime, pauseReason, pauseError);
+    const after = currentLoop(runtime);
+    if (!after || after.status !== "paused") {
+      runtime.ctx.ui.notify("進捗は保存しましたが一時停止状態の保存に失敗しました。", "error");
+      return false;
+    }
+    return true;
+  }
+  if (updated.status === "queued" || updated.status === "verifying_completed") {
     schedule(runtime);
   }
   return true;
@@ -1465,7 +1472,12 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
       loop.unreadableStreak = 1;
     } else {
       runtime.ctx.ui.notify("最大ターン数を増やしてから再開してください。例: /goal-resume --turns 20", "warning");
-      writeLoop(loop);
+      // Persist any maxTurns bump from this resume attempt; ignore failure beyond
+      // keeping disk unchanged so the user can retry with a higher budget.
+      if (!writeLoop(loop)) {
+        runtime.ctx.ui.notify("状態の保存に失敗しました。", "error");
+      }
+      updateUI(runtime, currentLoop(runtime));
       return false;
     }
   } else {
@@ -1480,11 +1492,12 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
       runtime.pausedTurnIndex = undefined;
       loop.pendingTurnRecovery = false;
       loop.status = "running";
-      applyResult(loop, recovered);
+      if (!applyResult(loop, recovered)) {
+        runtime.pausedTurnPending = true;
+        runtime.ctx.ui.notify("結果の保存に失敗したため再開を中止しました。再試行してください。", "error");
+        return false;
+      }
       const updated = currentLoop(runtime);
-      // applyResult mutates memory then writeLoop. On failure disk still has
-      // pendingTurnRecovery; treating this as success would let the next resume
-      // apply the same transcript JSON again (double progress).
       if (!updated || updated.pendingTurnRecovery) {
         runtime.pausedTurnPending = true;
         runtime.ctx.ui.notify("結果の保存に失敗したため再開を中止しました。再試行してください。", "error");
@@ -1504,7 +1517,11 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
       // Keep pendingTurnRecovery so a later resume can still pick up a real
       // transcript result for THIS turnCount if delivery actually happened.
       runtime.ctx.ui.notify("送達が確認できないため再送しません。新しい Goal loop を開始してください。", "warning");
-      writeLoop(loop);
+      if (!writeLoop(loop)) {
+        runtime.ctx.ui.notify("状態の保存に失敗しました。", "error");
+        updateUI(runtime, currentLoop(runtime));
+        return false;
+      }
       updateUI(runtime, loop);
       return false;
     }
@@ -1904,5 +1921,11 @@ export const goalLoopTestSeams = {
   },
   setWriteLoopFail(fail?: boolean) {
     writeLoopFailForTests = fail === true;
+  },
+  setWriteLoopAllowCount(count?: number) {
+    writeLoopAllowCountForTests =
+      typeof count === "number" && Number.isFinite(count)
+        ? Math.max(0, Math.trunc(count))
+        : undefined;
   },
 };

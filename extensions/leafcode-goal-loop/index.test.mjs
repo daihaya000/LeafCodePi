@@ -2065,6 +2065,180 @@ test("manual_send recovers JSON from agent_settled after pause clears awaitingTu
   }
 });
 
+test("manual_send late result keeps progress when re-pause write fails", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-repause-write-fail-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const notifies = [];
+  const stateFile = () => join(cwd, "goals-loop", "repause-write-fail-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "repause-write-fail-session",
+      getBranch: () => [],
+    },
+    ui: {
+      setStatus: () => {},
+      setWidget: () => {},
+      notify(message, level) { notifies.push({ message, level }); },
+    },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sendCount === 1);
+
+    await handlers.get("turn_start")?.({ type: "turn_start", turnIndex: 0 }, ctx);
+    await handlers.get("input")?.({ text: "割り込み", source: "user" }, ctx);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).pauseReason, "manual_send");
+
+    // applyResult may persist once; the follow-up pauseLoop write must fail.
+    goalLoopTestSeams.setWriteLoopAllowCount(1);
+    busy = false;
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "kept despite repause fail" }) }],
+      }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+
+    const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(loop.progress.at(-1)?.summary, "kept despite repause fail");
+    // Re-pause write failed: disk stays queued (progress durable) and must not auto-send.
+    assert.equal(loop.status, "queued");
+    assert.ok(notifies.some((item) => item.level === "error" && /一時停止状態の保存に失敗/.test(item.message)));
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    assert.equal(sendCount, 1);
+  } finally {
+    goalLoopTestSeams.setWriteLoopAllowCount(undefined);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("resume budget and unknown_delivery paths honor writeLoop failure", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-resume-paths-write-fail-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+  const handlers = new Map();
+  const commands = new Map();
+  const notifies = [];
+  const stateFile = () => join(cwd, "goals-loop", "resume-paths-write-fail-session.json");
+  const now = new Date().toISOString();
+
+  const writeState = (patch) => {
+    const current = existsSync(stateFile())
+      ? JSON.parse(readFileSync(stateFile(), "utf8"))
+      : {
+        id: "resume-paths-write-fail-session",
+        sessionId: "resume-paths-write-fail-session",
+        cwd,
+        goal: "demo",
+        acceptance: ["ok"],
+        cooldownSeconds: 0,
+        nextTurnAt: null,
+        forceFullRun: true,
+        autoAgent: false,
+        turnKind: "goal",
+        error: "",
+        progress: [],
+        summary: "",
+        evidence: "",
+        blockedReason: "",
+        rejectedClaims: 0,
+        unreadableStreak: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+    writeFileSync(stateFile(), JSON.stringify({ ...current, ...patch, updatedAt: now }, null, 2));
+  };
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    abort: () => {},
+    sessionManager: {
+      getSessionId: () => "resume-paths-write-fail-session",
+      getBranch: () => [],
+    },
+    ui: {
+      setStatus: () => {},
+      setWidget: () => {},
+      notify(message, level) { notifies.push({ message, level }); },
+    },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() {},
+    });
+    await handlers.get("session_start")?.({}, ctx);
+
+    writeState({
+      status: "paused",
+      pauseReason: "turn_limit",
+      maxTurns: 1,
+      turnCount: 1,
+      pendingTurnRecovery: false,
+      error: "最大ターン数に到達したため一時停止しました。",
+    });
+    goalLoopTestSeams.setWriteLoopFail(true);
+    notifies.length = 0;
+    await commands.get("goal-resume")?.("--turns 1", ctx);
+    const budget = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(budget.status, "paused");
+    assert.equal(budget.pauseReason, "turn_limit");
+    assert.equal(budget.maxTurns, 1);
+    assert.ok(notifies.some((item) => item.level === "error" && /状態の保存に失敗/.test(item.message)));
+
+    writeState({
+      status: "paused",
+      pauseReason: "unknown_delivery",
+      maxTurns: 3,
+      turnCount: 1,
+      pendingTurnRecovery: true,
+      unreadableStreak: 0,
+      error: "送達不明",
+    });
+    notifies.length = 0;
+    await commands.get("goal-resume")?.("", ctx);
+    const unknown = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(unknown.status, "paused");
+    assert.equal(unknown.pauseReason, "unknown_delivery");
+    assert.equal(unknown.pendingTurnRecovery, true);
+    assert.ok(notifies.some((item) => item.level === "error" && /状態の保存に失敗/.test(item.message)));
+  } finally {
+    goalLoopTestSeams.setWriteLoopFail(false);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("late turn_end with a later turnIndex still recovers after mid-turn pause", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-turn-index-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
