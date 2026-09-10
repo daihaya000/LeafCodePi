@@ -14,6 +14,7 @@ import {
   Pencil,
   Plus,
   RotateCcw,
+  Sparkles,
   Square,
   X,
   Zap,
@@ -49,7 +50,7 @@ import {
   QueuedFollowUpsNotice,
   type QueuedFollowUp,
 } from "@/components/task/QueuedFollowUpsNotice";
-import { Badge, Button, Switch, cx, GhostSelect } from "@/components/ui";
+import { Badge, Button, cx, GhostSelect } from "@/components/ui";
 import {
   AUTO_MODEL_OPTION,
   AUTO_MODEL_VALUE,
@@ -474,7 +475,7 @@ export const TaskView = memo(function TaskView({
 }) {
   const [cachedSession] = useState(() => loadTaskSessionCache(taskId));
   const [task, setTask] = useState<TaskDetail | null>(cachedSession);
-  const { iconFor, botFor } = useTaskPanes();
+  const { botFor } = useTaskPanes();
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
   const [pendingUserMessage, setPendingUserMessage] = useState<{
@@ -2329,7 +2330,6 @@ export const TaskView = memo(function TaskView({
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         <MobileMenuButton />
-        {iconFor?.(taskId, 32, task ?? undefined)}
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1">
             {titleEditing ? (
@@ -2398,14 +2398,19 @@ export const TaskView = memo(function TaskView({
                 </Button>
               </>
             )}
-            <Switch
-              checked={titleAutoUpdateEnabled}
-              onChange={() => void toggleTitleAutoUpdate()}
-              label="タイトルの自動更新"
+            <Button
+              variant="ghost"
+              size="icon"
+              role="switch"
+              aria-checked={titleAutoUpdateEnabled}
+              aria-label="タイトルの自動更新"
               title={`タイトルの自動更新: ${titleAutoUpdateEnabled ? "ON" : "OFF"}`}
-              busy={titleBusy}
-              disabled={!task || archived}
-            />
+              className={cx("h-8 w-8", titleAutoUpdateEnabled && "bg-accent/10 text-accent")}
+              disabled={!task || archived || titleBusy}
+              onClick={() => void toggleTitleAutoUpdate()}
+            >
+              <Sparkles className="h-4 w-4" />
+            </Button>
             {permissionRequest && <Badge tone="warning">承認待ち</Badge>}
             {questionRequest && <Badge tone="warning">回答待ち</Badge>}
           </div>
