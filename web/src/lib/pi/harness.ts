@@ -770,6 +770,7 @@ async function ensureRuntime(): Promise<void> {
           subagentPermission: input.subagentPermission,
           permissionMode: input.permissionMode,
           isHangRetry: true,
+          isProviderFallback: input.isProviderFallback,
           codeRequestId: botCodeRelay().requestIdForCode(taskId),
         });
       },
@@ -1386,6 +1387,8 @@ function openSettingsManager() {
 }
 
 const providerFallbackInflight = new Map<string, Promise<void>>();
+/** Session entry customType for the hidden provider-limit resume prompt. */
+const PROVIDER_FALLBACK_CUSTOM_TYPE = "leafcode-pi.provider-fallback";
 
 function lastAssistantLimitError(event: unknown): string | null {
   if (!event || typeof event !== "object") return null;
@@ -1502,6 +1505,8 @@ async function fallbackProviderAfterLimit(
     void queuePrompt(
       resumedLive,
       "The previous response was interrupted by a provider usage limit. Continue the pending request from the existing conversation. Do not repeat completed actions.",
+      undefined,
+      { isProviderFallback: true },
     );
   }
 }
@@ -5633,6 +5638,8 @@ function queuePrompt(
     subagentPermission?: "allow" | "deny";
     permissionMode?: "allow" | "ask" | "deny";
     isHangRetry?: boolean;
+    /** Internal provider-limit resume prompt; persist as a hidden custom message. */
+    isProviderFallback?: boolean;
     streamingBehavior?: "steer" | "followUp";
     codeResult?: CodeRequest;
     codeRequestId?: string;
@@ -5658,6 +5665,7 @@ function queuePrompt(
         ? { subagentPermission: meta.subagentPermission }
         : {}),
       ...(meta?.permissionMode ? { permissionMode: meta.permissionMode } : {}),
+      ...(meta?.isProviderFallback ? { isProviderFallback: true } : {}),
       isHangRetry,
     });
   };
@@ -5685,6 +5693,7 @@ function queuePrompt(
         : {}),
       ...(meta?.permissionMode ? { permissionMode: meta.permissionMode } : {}),
       ...(meta?.isHangRetry ? { isHangRetry: true } : {}),
+      ...(meta?.isProviderFallback ? { isProviderFallback: true } : {}),
     });
   };
   const runPrompt = async () => {
@@ -5770,7 +5779,13 @@ function queuePrompt(
           display: false,
           details: { requestId: meta.codeResult.id, codeTaskId: meta.codeResult.codeTaskId },
         }, { triggerTurn: true })
-      : activeLive.session.prompt(prompt, options);
+      : meta?.isProviderFallback
+        ? activeLive.session.sendCustomMessage({
+            customType: PROVIDER_FALLBACK_CUSTOM_TYPE,
+            content: prompt,
+            display: false,
+          }, { triggerTurn: true })
+        : activeLive.session.prompt(prompt, options);
     try {
       await sendPrompt();
     } catch (error) {

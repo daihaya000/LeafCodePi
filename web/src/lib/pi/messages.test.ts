@@ -40,6 +40,27 @@ describe("titleFromPrompt", () => {
 });
 
 describe("projectPiMessages", () => {
+  it("does not project hidden custom messages into the user timeline", () => {
+    const messages = projectPiMessages([
+      {
+        role: "custom",
+        customType: "leafcode-pi.provider-fallback",
+        content: "Continue the pending request",
+        display: false,
+        timestamp: 1,
+      },
+      {
+        role: "assistant",
+        id: "a1",
+        timestamp: 2,
+        content: [{ type: "text", text: "続けます" }],
+      },
+    ]);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.role).toBe("assistant");
+  });
+
   it("keeps fallback ids aligned when projecting a streamed suffix", () => {
     const [message] = projectPiMessages(
       [{ role: "assistant", content: [{ type: "text", text: "続き" }] }],

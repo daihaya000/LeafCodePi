@@ -20,6 +20,7 @@ import type { UiMessage } from "../types";
 type ResumeCapture = {
   prompt: string;
   images?: { mimeType: string; data: string }[];
+  isProviderFallback?: boolean;
 };
 
 afterEach(() => {
@@ -380,10 +381,16 @@ describe("hang-watchdog helpers", () => {
       notifyHangRetry: () => undefined,
     });
     try {
-      armTaskHangWatch({ taskId: "image-continue", prompt: "", images });
+      armTaskHangWatch({
+        taskId: "image-continue",
+        prompt: "",
+        images,
+        isProviderFallback: true,
+      });
       await resolveHangNow("image-continue");
       expect(resumed?.images).toEqual(images);
       expect(resumed?.prompt).toContain("続けて");
+      expect(resumed?.isProviderFallback).toBe(true);
     } finally {
       stopHangWatchdogForTests();
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;

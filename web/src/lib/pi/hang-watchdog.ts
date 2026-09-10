@@ -33,6 +33,8 @@ export type TaskHangWatchRow = {
   agent?: string;
   subagentPermission?: "allow" | "deny";
   permissionMode?: "allow" | "ask" | "deny";
+  /** Keep provider-limit recovery prompts hidden across watchdog retries. */
+  isProviderFallback?: boolean;
   resumeAllowed: boolean;
   startedAt: number;
   lastProgressAt: number;
@@ -52,6 +54,7 @@ export type ArmTaskHangWatchInput = {
   permissionMode?: "allow" | "ask" | "deny";
   startedAt?: number;
   isHangRetry?: boolean;
+  isProviderFallback?: boolean;
 };
 
 export type HangWatchdogHooks = {
@@ -71,6 +74,7 @@ export type HangWatchdogHooks = {
       agent?: string;
       subagentPermission?: "allow" | "deny";
       permissionMode?: "allow" | "ask" | "deny";
+      isProviderFallback?: boolean;
     },
   ) => void;
   notifyHangRetry: (taskId: string, retryCount: number) => void;
@@ -239,6 +243,7 @@ export function armTaskHangWatch(input: ArmTaskHangWatchInput): void {
     ...(input.agent ? { agent: input.agent } : {}),
     ...(input.subagentPermission ? { subagentPermission: input.subagentPermission } : {}),
     ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+    ...(input.isProviderFallback ? { isProviderFallback: true } : {}),
     resumeAllowed,
     startedAt,
     lastProgressAt: startedAt,
@@ -351,6 +356,7 @@ async function resolveHang(row: TaskHangWatchRow): Promise<void> {
     ...(row.agent ? { agent: row.agent } : {}),
     ...(row.subagentPermission ? { subagentPermission: row.subagentPermission } : {}),
     ...(row.permissionMode ? { permissionMode: row.permissionMode } : {}),
+    ...(row.isProviderFallback ? { isProviderFallback: true } : {}),
   });
   hooks.notifyHangRetry(row.taskId, row.retryUsed);
   logWatchdog(`resumed the request with ${resumeMode} mode (retry #${row.retryUsed})`, row);

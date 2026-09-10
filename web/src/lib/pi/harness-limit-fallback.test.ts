@@ -14,6 +14,7 @@ const fakePi = vi.hoisted(() => {
     modelID: string | null;
     file: string;
     prompts: string[];
+    customMessages: unknown[];
     disposed: boolean;
     nextError?: string;
     emit?: (event: FakeEvent) => void;
@@ -71,6 +72,7 @@ const fakePi = vi.hoisted(() => {
         modelID: options.model?.id ?? null,
         file: sessionManager.__file,
         prompts: [] as string[],
+        customMessages: [] as unknown[],
         disposed: false,
         nextError: undefined as string | undefined,
         emit: undefined as ((event: FakeEvent) => void) | undefined,
@@ -81,6 +83,21 @@ const fakePi = vi.hoisted(() => {
       };
       entry.emit = emit;
       let streaming = false;
+      const runTurn = (historyMessage: unknown, promptText: string) => {
+        streaming = true;
+        emit({ type: "agent_start" });
+        entry.prompts.push(promptText);
+        sessionManager.history.push(historyMessage);
+        const errorMessage = entry.nextError;
+        entry.nextError = undefined;
+        streaming = false;
+        emit({
+          type: "agent_end",
+          willRetry: false,
+          messages: errorMessage ? [{ role: "assistant", errorMessage }] : [],
+        });
+        emit({ type: "agent_settled" });
+      };
       const session = {
         sessionFile: sessionManager.__file,
         sessionId: sessionManager.__sessionId,
@@ -115,21 +132,26 @@ const fakePi = vi.hoisted(() => {
           session.thinkingLevel = level;
         },
         prompt: async (text: string) => {
-          streaming = true;
-          emit({ type: "agent_start" });
-          entry.prompts.push(text);
-          sessionManager.history.push({ role: "user", content: text, timestamp: Date.now() });
-          const errorMessage = entry.nextError;
-          entry.nextError = undefined;
-          streaming = false;
-          emit({
-            type: "agent_end",
-            willRetry: false,
-            messages: errorMessage ? [{ role: "assistant", errorMessage }] : [],
-          });
-          emit({ type: "agent_settled" });
+          runTurn({ role: "user", content: text, timestamp: Date.now() }, text);
         },
-        sendCustomMessage: async () => undefined,
+        sendCustomMessage: async (
+          message: unknown,
+          options?: { triggerTurn?: boolean },
+        ) => {
+          entry.customMessages.push({ message, options });
+          const content =
+            message && typeof message === "object" && "content" in message
+              ? (message as { content?: unknown }).content
+              : "";
+          if (options?.triggerTurn) {
+            runTurn(
+              { role: "custom", content, timestamp: Date.now() },
+              typeof content === "string" ? content : "",
+            );
+          } else {
+            sessionManager.history.push({ role: "custom", content, timestamp: Date.now() });
+          }
+        },
       };
       sessions.push(entry);
       return { session };
@@ -282,6 +304,17 @@ describe("provider limit fallback", () => {
     expect(fakePi.sessions[1]).toMatchObject({ accountId: second.id });
     assert.equal(getTask(task.id)?.accountId, second.id);
     await waitFor(() => fakePi.sessions[1]?.prompts.length === 1);
+    expect(fakePi.sessions[1]?.customMessages).toMatchObject([
+      {
+        message: {
+          customType: "leafcode-pi.provider-fallback",
+          content:
+            "The previous response was interrupted by a provider usage limit. Continue the pending request from the existing conversation. Do not repeat completed actions.",
+          display: false,
+        },
+        options: { triggerTurn: true },
+      },
+    ]);
     assert.equal(fakePi.sessions[0]?.prompts.length, 2);
     assert.equal(getTask(task.id)?.status, "idle");
   });
