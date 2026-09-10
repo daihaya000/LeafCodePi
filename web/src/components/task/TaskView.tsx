@@ -1279,11 +1279,8 @@ export const TaskView = memo(function TaskView({
     setPrompt("");
     setAttachments([]);
     const nextAutoRecord = readAutoTaskRecord(taskId);
-    setModelSelection(
-      nextAutoRecord || localStorage.getItem(MODEL_KEY) === AUTO_MODEL_VALUE
-        ? AUTO_MODEL_VALUE
-        : "",
-    );
+    // Composer 既定の Auto はタスクへ持ち込まない。Auto 表示は当該タスクの Auto 記録があるときだけ。
+    setModelSelection(nextAutoRecord ? AUTO_MODEL_VALUE : "");
     setAutoRecord(nextAutoRecord);
     setAutoRetryNotice(null);
     setAutoRetrying(false);

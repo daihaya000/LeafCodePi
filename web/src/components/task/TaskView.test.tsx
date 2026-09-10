@@ -390,6 +390,34 @@ describe("TaskView draft submission", () => {
     expect(screen.getByRole("button", { name: "モデル" }).textContent).not.toContain("Auto");
   });
 
+  it("does not inherit Composer Auto default for a concrete-model task", async () => {
+    const modelTask = {
+      ...task,
+      providerID: "provider",
+      modelID: "a",
+      thinkingLevel: "off" as const,
+    };
+    const models = [
+      {
+        value: "provider::a",
+        label: "Model A",
+        providerID: "provider",
+        modelID: "a",
+      },
+    ];
+    localStorage.setItem("leafcodepi.defaultModel", "auto");
+    sessionStorage.clear();
+    saveTaskSessionCache({ task: modelTask, messages: [], isStreaming: false, isCompacting: false });
+    mocks.getJson.mockResolvedValue({ models, agents: [], skills: [], accounts: [] });
+
+    render(<TaskView taskId={task.id} mdUp />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "モデル" }).hasAttribute("disabled")).toBe(false),
+    );
+    expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model A");
+    expect(screen.getByRole("button", { name: "モデル" }).textContent).not.toContain("Auto");
+  });
+
   it("preserves a new draft while starting a goal loop", async () => {
     let resolve!: (value: unknown) => void;
     mocks.sendJson.mockReturnValue(new Promise((done) => { resolve = done; }));
