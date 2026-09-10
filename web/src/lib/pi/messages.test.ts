@@ -6,6 +6,8 @@ import {
   projectPiMessages,
   stripAnsiEscapeSequences,
   titleFromPrompt,
+  truncateUiToolOutput,
+  UI_TOOL_OUTPUT_OMISSION,
 } from "./messages";
 
 describe("titleFromPrompt", () => {
@@ -24,6 +26,16 @@ describe("titleFromPrompt", () => {
     // 壊れたサロゲートが残らない（絵文字59個＋…）
     expect(Array.from(title)).toHaveLength(60);
     expect(title.endsWith("…")).toBe(true);
+  });
+
+  it("truncates tool output without splitting surrogate pairs", () => {
+    const truncated = truncateUiToolOutput("🎉".repeat(MAX_UI_TOOL_OUTPUT_CHARS + 10));
+    expect(Array.from(truncated)).toHaveLength(
+      MAX_UI_TOOL_OUTPUT_CHARS + Array.from(UI_TOOL_OUTPUT_OMISSION).length,
+    );
+    expect(truncated.endsWith(UI_TOOL_OUTPUT_OMISSION)).toBe(true);
+    // 壊れたサロゲート（半端なコードユニット）が残らない
+    expect(truncated.replaceAll("🎉", "").replace(UI_TOOL_OUTPUT_OMISSION, "")).toBe("");
   });
 });
 

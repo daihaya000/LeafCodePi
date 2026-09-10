@@ -29,9 +29,10 @@ function diagnosticFromRaw(value: unknown): UiDiagnostic | null {
   const errorMessage = rawError ? asString(rawError.message).trim() : "";
   const error = errorMessage
     ? {
-        message: errorMessage.slice(0, 4000),
+        // コードポイント単位で切る（絵文字などのサロゲートペアを壊さない）。
+        message: Array.from(errorMessage).slice(0, 4000).join(""),
         ...(asString(rawError?.name).trim()
-          ? { name: asString(rawError?.name).trim().slice(0, 120) }
+          ? { name: Array.from(asString(rawError?.name).trim()).slice(0, 120).join("") }
           : {}),
         ...(typeof rawError?.code === "string" ||
         (typeof rawError?.code === "number" && Number.isFinite(rawError.code))
@@ -44,7 +45,7 @@ function diagnosticFromRaw(value: unknown): UiDiagnostic | null {
   const details: NonNullable<UiDiagnostic["details"]> = {};
   for (const key of ["configuredTransport", "fallbackTransport", "phase"] as const) {
     const detail = asString(rawDetails?.[key]).trim();
-    if (detail) details[key] = detail.slice(0, 120);
+    if (detail) details[key] = Array.from(detail).slice(0, 120).join("");
   }
   if (typeof rawDetails?.eventsEmitted === "boolean") {
     details.eventsEmitted = rawDetails.eventsEmitted;
@@ -54,7 +55,7 @@ function diagnosticFromRaw(value: unknown): UiDiagnostic | null {
   }
 
   return {
-    type: type.slice(0, 120),
+    type: Array.from(type).slice(0, 120).join(""),
     ...(typeof value.timestamp === "number" && Number.isFinite(value.timestamp)
       ? { timestamp: value.timestamp }
       : {}),
@@ -77,11 +78,11 @@ export function stripAnsiEscapeSequences(text: string): string {
 
 /** Keep UI history payloads bounded; the timeline renders the same prefix only. */
 export const MAX_UI_TOOL_OUTPUT_CHARS = 20_000;
-const UI_TOOL_OUTPUT_OMISSION = "\n…（以降省略）";
+export const UI_TOOL_OUTPUT_OMISSION = "\n…（以降省略）";
 
 export function truncateUiToolOutput(text: string): string {
   return text.length > MAX_UI_TOOL_OUTPUT_CHARS
-    ? `${text.slice(0, MAX_UI_TOOL_OUTPUT_CHARS)}${UI_TOOL_OUTPUT_OMISSION}`
+    ? `${Array.from(text).slice(0, MAX_UI_TOOL_OUTPUT_CHARS).join("")}${UI_TOOL_OUTPUT_OMISSION}`
     : text;
 }
 

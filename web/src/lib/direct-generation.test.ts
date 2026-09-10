@@ -40,6 +40,13 @@ describe("direct-generation", () => {
     expect(extractDirectText({ choices: [{ message: { content: "short" } }] })).toBe("short");
   });
 
+  it("truncates emoji output without splitting surrogate pairs", () => {
+    const truncated = extractDirectText({
+      choices: [{ message: { content: "🎉".repeat(10_000) } }],
+    });
+    expect(Array.from(truncated)).toHaveLength(4_000);
+  });
+
   it("deduplicates identical primary and fallback candidates", () => {
     const model = parseDirectModel({ providerID: "p", modelID: "m" })!;
     expect(sameDirectModel(model, model)).toBe(true);

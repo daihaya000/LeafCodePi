@@ -74,7 +74,7 @@ function transcript(room: RoomDto, requestId: string, conversation: boolean) {
   for (const message of messages.slice(-30).reverse()) {
     const speakerId = message.botId;
     const entry = message.status === "error"
-      ? { speaker: "system", text: `前のターンは失敗しました: ${message.text.slice(0, 200)}` }
+      ? { speaker: "system", text: `前のターンは失敗しました: ${Array.from(message.text).slice(0, 200).join("")}` }
       : { speaker: speakerId ? "bot" : "user", botId: speakerId, name: message.botName, text: message.text, ...(message.codeRequestId ? { code: { requestId: message.codeRequestId, taskId: message.codeTaskId, state: message.codeState } } : {}) };
     let serialized = JSON.stringify(entry);
     if (serialized.length > remaining) {

@@ -113,11 +113,19 @@ function textFromContent(value: unknown): string {
 }
 
 /** Extract text from an OpenAI-compatible chat-completions response. */
+function truncateOutputText(text: string): string {
+  const trimmed = text.trim();
+  // コードポイント単位で切る（絵文字などのサロゲートペアを壊さない）。
+  return trimmed.length > MAX_OUTPUT_CHARS
+    ? Array.from(trimmed).slice(0, MAX_OUTPUT_CHARS).join("")
+    : trimmed;
+}
+
 export function extractDirectText(body: unknown): string {
   if (!isRecord(body) || !Array.isArray(body.choices)) return "";
   const choice = body.choices[0];
   if (!isRecord(choice) || !isRecord(choice.message)) return "";
-  return textFromContent(choice.message.content).trim().slice(0, MAX_OUTPUT_CHARS);
+  return truncateOutputText(textFromContent(choice.message.content));
 }
 
 export async function generateDirectText(options: {
@@ -172,7 +180,7 @@ export async function generateDirectText(options: {
         ...(reasoning ? { reasoning } : {}),
         signal: controller.signal,
       });
-      return text.trim().slice(0, MAX_OUTPUT_CHARS);
+      return truncateOutputText(text);
     }
 
     const reasoning =
