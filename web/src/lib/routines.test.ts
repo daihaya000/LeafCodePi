@@ -151,6 +151,29 @@ describe("routine cron and persistence", () => {
     await expect(runRoutine(bot.id, routine.id)).rejects.toThrow("ルーティンは無効です");
     expect(state.promptTask).toHaveBeenCalledTimes(3);
   });
+  it("runs a due routine once when a scheduler tick overlaps its in-flight run", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(2024, 0, 1, 0, 0, 0));
+      const bot = createBot({ name: "Routine bot" });
+      const routine = createRoutine(bot.id, { name: "Hourly", prompt: "Check status", schedule: "0 * * * *" });
+      let resolveRun!: () => void;
+      state.promptTask.mockReturnValueOnce(new Promise<void>((resolve) => { resolveRun = resolve; }));
+
+      const manual = runRoutine(bot.id, routine.id);
+      // The run is still in flight at the next scheduled minute: the tick must join it, not start another.
+      vi.setSystemTime(new Date(2024, 0, 1, 1, 0, 0));
+      await tickRoutines(new Date(2024, 0, 1, 1, 0, 0));
+
+      expect(state.promptTask).toHaveBeenCalledTimes(1);
+      resolveRun();
+      await manual;
+      expect(getRoutine(bot.id, routine.id)).toMatchObject({ enabled: true, failureCount: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("persists routine fields under the bot home", () => {
     const bot = createBot({ name: "Routine bot" });
     const routine = createRoutine(bot.id, { name: "Hourly", prompt: "Check status", schedule: "0 * * * *" });
