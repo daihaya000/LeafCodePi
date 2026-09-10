@@ -89,8 +89,9 @@ function writeStoredModel(model: string): void {
 
 /** アカウントタグ付きモデルの value を Pi が解釈できる「provider::model」へ戻す。 */
 function plainModelValue(modelValue: string, models: ModelOption[]): string {
-  const option = models.find((o) => o.value === modelValue);
-  if (!option?.accountId) return modelValue;
+  // integrated / 旧アカウント接頭辞も modelOptionForValue で解決し、常に provider::model へ正規化する。
+  const option = modelOptionForValue(models, modelValue);
+  if (!option) return modelValue;
   return `${option.providerID}::${option.modelID}`;
 }
 
@@ -152,7 +153,8 @@ export function HomeView({
     ? projects.find((project) => project.id === projectId)
     : undefined;
   const modelOptions = useMemo(() => [AUTO_MODEL_OPTION, ...models], [models]);
-  const selectedModel = modelOptions.find((option) => option.value === model);
+  // ModelSelect 表示と同じ照合にし、integrated / 旧アカウント接頭辞でも思考レベルを失わない。
+  const selectedModel = modelOptionForValue(modelOptions, model);
   const thinkingLevels = useMemo(
     () => selectedModel?.thinkingLevels ?? [],
     [selectedModel],

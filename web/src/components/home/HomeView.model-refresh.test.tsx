@@ -173,4 +173,27 @@ describe("HomeView model refresh", () => {
     });
     expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model A");
   });
+
+  it("keeps thinking levels when an account-prefixed stored value maps to an integrated option", async () => {
+    const pending = deferred<{ models: ModelOption[] }>();
+    modelResponses.push(pending.promise);
+    const integrated = {
+      ...model("provider::model-a", "Model A"),
+      routingMode: "integrated" as const,
+      thinkingLevels: ["off", "high"] as ModelOption["thinkingLevels"],
+    };
+    localStorage.setItem("leafcodepi.defaultModel", "acc-1::provider::model-a");
+    writeCachedModels([integrated]);
+
+    render(<HomeView initialNoProject />);
+
+    expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model A");
+    expect(screen.getByRole("button", { name: "思考レベル" })).toBeTruthy();
+
+    await act(async () => {
+      pending.resolve({ models: [integrated] });
+    });
+    expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model A");
+    expect(screen.getByRole("button", { name: "思考レベル" })).toBeTruthy();
+  });
 });
