@@ -179,6 +179,19 @@ function mergeToolResult(
   }
 }
 
+const GOAL_LOOP_TURN_CUSTOM_TYPE = "leafcode-goal-turn";
+
+/**
+ * Goal Loop custom messages carry the full LLM prompt in `content`. Only the
+ * separately supplied user goal is safe to project into the WebUI timeline.
+ */
+function goalLoopUiPrompt(item: Record<string, unknown>): string | null {
+  if (item.customType !== GOAL_LOOP_TURN_CUSTOM_TYPE) return null;
+  const details = isRecord(item.details) ? item.details : null;
+  const prompt = asString(details?.uiPrompt);
+  return prompt.trim() ? prompt : null;
+}
+
 /** projectPiMessages で独立した UiMessage になる raw（toolResult は assistant へ merge され除外）。 */
 export function piRawMessageProjectsToUi(item: unknown): boolean {
   if (!isRecord(item)) return false;
@@ -188,7 +201,8 @@ export function piRawMessageProjectsToUi(item: unknown): boolean {
     role === "user" ||
     role === "assistant" ||
     role === "bashExecution" ||
-    role === "compactionSummary"
+    role === "compactionSummary" ||
+    (role === "custom" && goalLoopUiPrompt(item) !== null)
   );
 }
 
@@ -231,6 +245,18 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
         createdAt,
         parts,
         ...(hangRetry ? { hangRetry: true } : {}),
+      });
+      return;
+    }
+
+    if (role === "custom") {
+      const text = goalLoopUiPrompt(item);
+      if (text === null) return;
+      messages.push({
+        id,
+        role: "user",
+        createdAt,
+        parts: [{ id: `${id}-text`, type: "text", text }],
       });
       return;
     }

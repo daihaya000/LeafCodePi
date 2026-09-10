@@ -61,6 +61,41 @@ describe("projectPiMessages", () => {
     expect(messages[0]?.role).toBe("assistant");
   });
 
+  it("projects only the user goal from a hidden Goal Loop prompt", () => {
+    const messages = projectPiMessages([
+      {
+        role: "custom",
+        customType: "leafcode-goal-turn",
+        content: "<!-- webui-goal-loop-prompt -->\\n\\nRules: internal instructions\\n\\nGoal:\\nユーザーの依頼",
+        display: false,
+        details: { uiPrompt: "ユーザーの依頼" },
+        timestamp: 1,
+      },
+    ]);
+
+    expect(messages).toMatchObject([
+      {
+        role: "user",
+        parts: [{ type: "text", text: "ユーザーの依頼" }],
+      },
+    ]);
+    expect(JSON.stringify(messages)).not.toContain("internal instructions");
+  });
+
+  it("does not project a Goal Loop prompt without an explicit UI goal", () => {
+    expect(
+      projectPiMessages([
+        {
+          role: "custom",
+          customType: "leafcode-goal-turn",
+          content: "<!-- webui-goal-loop-prompt -->\\n\\nGoal:\\nsecret internal prompt",
+          display: true,
+          timestamp: 1,
+        },
+      ]),
+    ).toEqual([]);
+  });
+
   it("keeps fallback ids aligned when projecting a streamed suffix", () => {
     const [message] = projectPiMessages(
       [{ role: "assistant", content: [{ type: "text", text: "続き" }] }],

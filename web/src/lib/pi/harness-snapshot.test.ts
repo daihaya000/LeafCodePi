@@ -154,6 +154,36 @@ describe("snapshotMessages", () => {
     expect(snapshotMessages(session)[0]?.parts[0]).toMatchObject({ text: "圧縮前" });
   });
 
+  it("projects a hidden Goal Loop prompt from the persisted branch", () => {
+    const goalPrompt = {
+      role: "custom",
+      customType: "leafcode-goal-turn",
+      content: "<!-- webui-goal-loop-prompt -->\\n\\nRules: internal instructions",
+      display: false,
+      details: { uiPrompt: "ユーザーの依頼" },
+      timestamp: 2,
+    };
+    const branch = [
+      { type: "custom_message", id: "goal-entry", timestamp: "1970-01-01T00:00:00.002Z", customType: goalPrompt.customType, content: goalPrompt.content, display: false, details: goalPrompt.details },
+    ];
+    const fake = {
+      messages: [],
+      agent: { state: { streamingMessage: undefined as unknown } },
+      sessionManager: { getLeafId: () => "goal-entry", getBranch: () => branch },
+    };
+    const session = fake as unknown as Parameters<typeof snapshotMessages>[0];
+
+    const projected = snapshotMessages(session);
+    expect(projected).toMatchObject([
+      {
+        id: "goal-entry",
+        role: "user",
+        parts: [{ type: "text", text: "ユーザーの依頼" }],
+      },
+    ]);
+    expect(JSON.stringify(projected)).not.toContain("internal instructions");
+  });
+
   it("projects a streaming delta without rereading the cached branch", () => {
     const stored: unknown[] = [{ role: "user", content: "確認して" }];
     const branch = [{ type: "message", id: "u1", message: stored[0] }];

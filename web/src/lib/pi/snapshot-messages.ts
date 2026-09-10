@@ -129,6 +129,21 @@ export function snapshotMessages(
           entryIdByMessage.set(entry.message, entry.id);
           return [entry.message];
         }
+        if (entry.type === "custom_message") {
+          const timestamp = Date.parse(entry.timestamp);
+          const message = {
+            id: entry.id,
+            role: "custom" as const,
+            customType: entry.customType,
+            content: entry.content,
+            display: entry.display,
+            details: entry.details,
+            timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+          };
+          if (!piRawMessageProjectsToUi(message)) return [];
+          entryIdByMessage.set(message, entry.id);
+          return [message];
+        }
         if (entry.type !== "compaction") return [];
         const timestamp = Date.parse(entry.timestamp);
         return [

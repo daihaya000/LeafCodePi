@@ -968,6 +968,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
 
   let prompt: string;
   let kind: GoalLoopTurnKind;
+  let uiPrompt: string | undefined;
   if (loop.status === "queued") {
     const retryingUnreadableResult = loop.unreadableStreak === 1;
     if (loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns && !retryingUnreadableResult) {
@@ -983,9 +984,13 @@ async function sendTurn(runtime: Runtime): Promise<void> {
     loop.turnKind = "goal";
     loop.nextTurnAt = null;
     kind = "goal";
-    prompt = loop.turnCount === 1 && !retryingUnreadableResult
+    const isInitialTurn = loop.turnCount === 1 && !retryingUnreadableResult;
+    prompt = isInitialTurn
       ? buildGoalPrompt(loop, loop.turnCount)
       : buildGoalContinuationPrompt(loop, loop.turnCount);
+    // Keep the full prompt in the LLM context, but expose only the original
+    // goal text to the WebUI as a user-facing message.
+    if (isInitialTurn) uiPrompt = loop.goal;
   } else if (loop.status === "verifying_completed") {
     loop.status = "running";
     loop.turnKind = "verification";
@@ -1018,8 +1023,16 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       {
         customType: kind === "verification" ? "leafcode-goal-verification" : "leafcode-goal-turn",
         content: prompt,
+        // Keep the raw prompt hidden in TUI and let the WebUI project only
+        // the explicit user-facing text from details.uiPrompt.
         display: false,
-        details: { goalId: loop.id, turn: loop.turnCount, kind, forceFullRun: loop.forceFullRun },
+        details: {
+          goalId: loop.id,
+          turn: loop.turnCount,
+          kind,
+          forceFullRun: loop.forceFullRun,
+          ...(uiPrompt !== undefined ? { uiPrompt } : {}),
+        },
       },
       { triggerTurn: true, deliverAs: "followUp" },
     );

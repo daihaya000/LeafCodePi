@@ -472,6 +472,7 @@ test("waits for agent_end so tool turns do not stop the loop before the result J
   let sendCount = 0;
   let prepareCount = 0;
   const preparePrompts = [];
+  const sentMessages = [];
 
   const ctx = {
     cwd,
@@ -500,7 +501,8 @@ test("waits for agent_end so tool turns do not stop the loop before the result J
     on(name, handler) { handlers.set(name, handler); },
     registerCommand(name, options) { commands.set(name, options.handler); },
     appendEntry() {},
-    sendMessage() {
+    sendMessage(message) {
+      sentMessages.push(message);
       sendCount += 1;
       const result = sendCount === 1
         ? { status: "progress", summary: "after tool" }
@@ -557,6 +559,11 @@ test("waits for agent_end so tool turns do not stop the loop before the result J
     assert.equal(preparePrompts.length, 2);
     assert.match(preparePrompts[0], /Goal:\s+demo/);
     assert.match(preparePrompts[1], /Continue the persistent goal loop/);
+    assert.equal(sentMessages[0].display, false);
+    assert.equal(sentMessages[0].details.uiPrompt, "demo");
+    assert.match(sentMessages[0].content, /<!-- webui-goal-loop-prompt -->/);
+    assert.equal(sentMessages[1].display, false);
+    assert.equal(sentMessages[1].details.uiPrompt, undefined);
     assert.equal(loop.autoAgent, true);
     assert.equal(loop.status, "blocked");
     assert.equal(loop.progress[0].summary, "after tool");
