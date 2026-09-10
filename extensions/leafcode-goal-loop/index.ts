@@ -710,11 +710,10 @@ export function buildVerificationPrompt(loop: GoalLoop): string {
   return `${PROMPT_MARKER}\n\nThe previous turn claimed the goal was completed. Independently verify that claim. Inspect the repository and run appropriate checks; do not trust the claim's narration.\n\nGoal:\n${loop.goal}${acceptanceText(loop, "Acceptance criteria to verify")}\n\nClaimed completion:\n${claim ? `summary: ${claim.summary}\nevidence: ${claim.evidence ?? "(none)"}` : "(none)"}\n\nReturn verified_completed only when every criterion is backed by observable evidence. Return progress when more work is required, or blocked when verification cannot proceed.${jsonInstructions("verified_completed, progress, blocked")}`;
 }
 
-export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): void {
+export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): boolean {
   if (!result) {
     // Keep the same free-retry / streak semantics as a missing assistant body.
-    applyMissingResult(loop, "");
-    return;
+    return applyMissingResult(loop, "");
   }
   loop.unreadableStreak = 0;
 
@@ -770,7 +769,7 @@ export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): vo
       ? new Date(Date.now() + loop.cooldownSeconds * 1000).toISOString()
       : null;
   loop.turnKind = loop.status === "verifying_completed" ? "verification" : "goal";
-  writeLoop(loop);
+  return writeLoop(loop);
 }
 
 /**
@@ -779,7 +778,7 @@ export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): vo
  * recording the assistant text as a plain progress entry and demanding the JSON
  * block in the next prompt.
  */
-export function applyMissingResult(loop: GoalLoop, assistantText: string): void {
+export function applyMissingResult(loop: GoalLoop, assistantText: string): boolean {
   const verification = loop.status === "running" && loop.turnKind === "verification";
   const summary = short(assistantText, 500) || "(結果JSONなし)";
   loop.progress = [...loop.progress, { time: isoNow(), status: "progress", summary }].slice(-MAX_PROGRESS);
@@ -802,7 +801,7 @@ export function applyMissingResult(loop: GoalLoop, assistantText: string): void 
       ? new Date(Date.now() + loop.cooldownSeconds * 1000).toISOString()
       : null;
   }
-  writeLoop(loop);
+  return writeLoop(loop);
 }
 
 function clearPendingAgentRun(runtime: Runtime): void {
@@ -961,17 +960,22 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
 
   // Persist first while awaitingTurn remains true. Clearing flags before a
   // failed writeLoop left disk=running with no settlement owner.
-  if (result) applyResult(loop, result);
-  else {
-    const text = [...messages]
-      .reverse()
-      .map((message) => assistantText(message))
-      .find((value) => value.trim()) ?? "";
-    applyMissingResult(loop, text);
+  const persisted = result
+    ? applyResult(loop, result)
+    : applyMissingResult(
+      loop,
+      [...messages]
+        .reverse()
+        .map((message) => assistantText(message))
+        .find((value) => value.trim()) ?? "",
+    );
+  if (!persisted) {
+    // writeLoop failed; keep awaitingTurn/pending so timeout or resume can recover.
+    return;
   }
   const updated = currentLoop(runtime);
   if (!updated || updated.status === "running") {
-    // writeLoop failed; keep awaitingTurn/pending so timeout or resume can recover.
+    // Belt-and-suspenders if disk/runtime diverged despite a true return.
     return;
   }
   runtime.awaitingTurn = false;
@@ -1691,15 +1695,21 @@ export default function (pi: ExtensionAPI): void {
       // Only running has an in-flight prompt that needs manual recovery.
       // verifying_completed is an unsent verification turn, like queued; account
       // or agent routing can reopen the session before that turn is delivered.
-      runtime.pausedTurnPending = true;
       loop.pendingTurnRecovery = true;
       loop.status = "paused";
       loop.pauseReason = "";
       loop.error = "セッション再開時は自動継続しません。/goal-resume で再開してください。";
-      writeLoop(loop);
+      // Persist before arming pausedTurnPending. A failed write must not claim
+      // recovery against disk that is still mid-turn running.
+      if (!writeLoop(loop)) {
+        ctx.ui.notify("セッション再開時の状態保存に失敗しました。再接続してから /goal-resume を試してください。", "error");
+      } else {
+        runtime.pausedTurnPending = true;
+      }
     }
-    updateUI(runtime, loop);
-    if (loop?.status === "queued" || loop?.status === "verifying_completed") {
+    const fresh = currentLoop(runtime);
+    updateUI(runtime, fresh);
+    if (fresh?.status === "queued" || fresh?.status === "verifying_completed") {
       // The persisted absolute cooldown must survive extension/session reloads.
       schedule(runtime, 0);
     }

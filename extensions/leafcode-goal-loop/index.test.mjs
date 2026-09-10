@@ -481,6 +481,93 @@ test("forceFullRun repair writeLoop failure does not send a verification turn", 
   }
 });
 
+test("session_start writeLoop failure keeps running and retries pause on reconnect", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-session-start-write-fail-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+  const stateFile = () => join(cwd, "goals-loop", "session-start-write-fail-session.json");
+  const now = new Date().toISOString();
+  writeFileSync(stateFile(), JSON.stringify({
+    id: "session-start-write-fail-session",
+    sessionId: "session-start-write-fail-session",
+    cwd,
+    status: "running",
+    goal: "demo",
+    acceptance: ["ok"],
+    maxTurns: 3,
+    cooldownSeconds: 0,
+    nextTurnAt: null,
+    forceFullRun: true,
+    autoAgent: false,
+    turnCount: 1,
+    turnKind: "goal",
+    pauseReason: "",
+    error: "",
+    progress: [],
+    summary: "",
+    evidence: "",
+    blockedReason: "",
+    rejectedClaims: 0,
+    unreadableStreak: 0,
+    pendingTurnRecovery: false,
+    createdAt: now,
+    updatedAt: now,
+  }, null, 2));
+
+  const make = () => {
+    const handlers = new Map();
+    const commands = new Map();
+    const notifies = [];
+    const ctx = {
+      cwd,
+      mode: "rpc",
+      hasUI: false,
+      isIdle: () => true,
+      hasPendingMessages: () => false,
+      abort: () => {},
+      sessionManager: {
+        getSessionId: () => "session-start-write-fail-session",
+        getBranch: () => [],
+      },
+      ui: {
+        setStatus: () => {},
+        setWidget: () => {},
+        notify(message, level) { notifies.push({ message, level }); },
+      },
+    };
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() {},
+    });
+    return { handlers, commands, ctx, notifies };
+  };
+
+  try {
+    goalLoopTestSeams.setWriteLoopFail(true);
+    const first = make();
+    await first.handlers.get("session_start")?.({}, first.ctx);
+    const failed = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(failed.status, "running");
+    assert.equal(failed.pendingTurnRecovery, false);
+    assert.ok(first.notifies.some((item) => item.level === "error" && /状態保存に失敗/.test(item.message)));
+    await first.handlers.get("session_shutdown")?.({}, first.ctx);
+
+    goalLoopTestSeams.setWriteLoopFail(false);
+    const second = make();
+    await second.handlers.get("session_start")?.({}, second.ctx);
+    const paused = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(paused.status, "paused");
+    assert.equal(paused.pendingTurnRecovery, true);
+    assert.equal(paused.pauseReason, "");
+    await second.handlers.get("session_shutdown")?.({}, second.ctx);
+  } finally {
+    goalLoopTestSeams.setWriteLoopFail(false);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("resume recovery writeLoop failure does not double-apply transcript JSON", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-resume-write-fail-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
@@ -1393,6 +1480,54 @@ test("applyResult(null) uses the unreadable streak free-retry path", () => {
     assert.equal(loop.unreadableStreak, 1);
     assert.equal(loop.pauseReason, "");
   } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("applyResult returns false when writeLoop fails and leaves disk unchanged", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-apply-write-fail-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+  const stateFile = join(cwd, "goals-loop", "apply-write-fail-session.json");
+  const now = new Date().toISOString();
+  const initial = {
+    id: "apply-write-fail-session",
+    sessionId: "apply-write-fail-session",
+    cwd,
+    status: "running",
+    goal: "demo",
+    acceptance: [],
+    maxTurns: 3,
+    cooldownSeconds: 0,
+    nextTurnAt: null,
+    forceFullRun: true,
+    turnCount: 1,
+    turnKind: "goal",
+    pauseReason: "",
+    error: "",
+    progress: [],
+    summary: "",
+    evidence: "",
+    blockedReason: "",
+    rejectedClaims: 0,
+    unreadableStreak: 0,
+    pendingTurnRecovery: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+  writeFileSync(stateFile, JSON.stringify(initial, null, 2));
+  try {
+    goalLoopTestSeams.setWriteLoopFail(true);
+    const ok = applyResult(
+      { ...initial },
+      { time: now, status: "progress", summary: "should not persist" },
+    );
+    assert.equal(ok, false);
+    const disk = JSON.parse(readFileSync(stateFile, "utf8"));
+    assert.equal(disk.status, "running");
+    assert.equal(disk.progress.length, 0);
+  } finally {
+    goalLoopTestSeams.setWriteLoopFail(false);
     rmSync(cwd, { recursive: true, force: true });
   }
 });
