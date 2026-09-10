@@ -2019,6 +2019,45 @@ function botSessionOptions(
   };
 }
 
+/**
+ * 置換済みの同機能 npm パッケージをこのローダーの探索から除外する。
+ * getGlobalSettings() の packages だけを絞り、ファイルは変更しない。
+ * reload() 後も毎回の読み出し経由で除外が効き続ける。
+ */
+function settingsManagerExcludingReplacedPackages(
+  pi: PiModule,
+  manager: ReturnType<PiModule["SettingsManager"]["create"]>,
+  replacedPackageNames: Set<string>,
+): ReturnType<PiModule["SettingsManager"]["create"]> {
+  const isReplacedPackage = (entry: unknown): boolean => {
+    const source =
+      typeof entry === "string"
+        ? entry
+        : entry && typeof entry === "object" && typeof (entry as { source?: unknown }).source === "string"
+          ? (entry as { source: string }).source
+          : "";
+    const name = source.startsWith("npm:") ? source.slice("npm:".length) : source;
+    return replacedPackageNames.has(name);
+  };
+  return new Proxy(manager, {
+    get(target, property) {
+      if (property === "getGlobalSettings") {
+        return () => {
+          const settings = target.getGlobalSettings();
+          const packages = Array.isArray(settings.packages) ? settings.packages : [];
+          if (!packages.some((entry: unknown) => isReplacedPackage(entry))) return settings;
+          return {
+            ...settings,
+            packages: packages.filter((entry: unknown) => !isReplacedPackage(entry)),
+          };
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as ReturnType<PiModule["SettingsManager"]["create"]>;
+}
+
 async function createSession(options: {
   cwd: string;
   sessionFile?: string | null;
@@ -2071,6 +2110,21 @@ async function createSession(options: {
   const forkOwnsSubagents = bundledNames.has("leafcode-subagents");
   const forkOwnsIntercom = bundledNames.has("leafcode-intercom");
   const forkOwnsMcpAdapter = bundledNames.has("leafcode-mcp-adapter");
+  // 同じ置換を探索段階で行い、置換先がある npm パッケージの module import
+  // （pi-mcp-adapter で約0.4秒/回、cwd キャッシュクリア毎に再課税）を省く。
+  // ユーザーの settings.json は変更せず、このローダー内だけの有効範囲。
+  const replacedPackageNames = new Set<string>();
+  if (forkOwnsMcpAdapter) replacedPackageNames.add("pi-mcp-adapter");
+  if (forkOwnsIntercom) replacedPackageNames.add("pi-intercom");
+  // テスト環境のSDKモックはSettingsManagerを持たないことがあるため、存在時だけ適用する。
+  const settingsManager =
+    replacedPackageNames.size > 0 && typeof pi.SettingsManager?.create === "function"
+      ? settingsManagerExcludingReplacedPackages(
+          pi,
+          pi.SettingsManager.create(options.cwd, agentDir),
+          replacedPackageNames,
+        )
+      : undefined;
   // Selected agent becomes the main persona: its system prompt replaces (or
   // appends to) the base prompt, and context files / skills follow the agent's
   // inherit flags — mirroring how pi-subagents launches child sessions.
@@ -2084,6 +2138,7 @@ async function createSession(options: {
   const resourceLoader = new pi.DefaultResourceLoader({
     cwd: options.cwd,
     agentDir,
+    ...(settingsManager ? { settingsManager } : {}),
     additionalExtensionPaths: bundled.map((entry) => entry.filePath),
     additionalSkillPaths: bundledSkills,
     extensionFactories: [
