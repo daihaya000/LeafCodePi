@@ -8,22 +8,35 @@ import { formatMessageTime } from "../ui";
 afterEach(cleanup);
 
 it("follows loaded history and streaming, preserves reading position, and resets on conversation switch", () => {
-  const { getByRole, rerender } = render(<BotMessageList conversationId="a">Loading</BotMessageList>);
+  const loading = { id: "loading" };
+  const history = { id: "history" };
+  const streaming = { id: "streaming" };
+  const { getByRole, rerender } = render(<BotMessageList conversationId="a" contentKey={loading}>Loading</BotMessageList>);
   const viewport = getByRole("main");
   Object.defineProperties(viewport, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { value: 200 } });
-  rerender(<BotMessageList conversationId="a">History</BotMessageList>);
+  rerender(<BotMessageList conversationId="a" contentKey={history}>History</BotMessageList>);
   expect(viewport.scrollTop).toBe(1000);
   viewport.scrollTop = 100;
   fireEvent.scroll(viewport);
-  rerender(<BotMessageList conversationId="a">New message</BotMessageList>);
+  rerender(<BotMessageList conversationId="a" contentKey={streaming}>New message</BotMessageList>);
   expect(viewport.scrollTop).toBe(100);
-  rerender(<BotMessageList conversationId="b">Other history</BotMessageList>);
+  rerender(<BotMessageList conversationId="b" contentKey={history}>Other history</BotMessageList>);
   expect(viewport.scrollTop).toBe(1000);
   viewport.scrollTop = 800;
   fireEvent.scroll(viewport);
   Object.defineProperty(viewport, "scrollHeight", { value: 1200 });
-  rerender(<BotMessageList conversationId="b">Streaming</BotMessageList>);
+  rerender(<BotMessageList conversationId="b" contentKey={streaming}>Streaming</BotMessageList>);
   expect(viewport.scrollTop).toBe(1200);
+});
+
+it("does not scroll when only the rendered children change", () => {
+  const content = { id: "messages" };
+  const { getByRole, rerender } = render(<BotMessageList conversationId="a" contentKey={content}>First</BotMessageList>);
+  const viewport = getByRole("main");
+  Object.defineProperties(viewport, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { value: 200 } });
+  viewport.scrollTop = 100;
+  rerender(<BotMessageList conversationId="a" contentKey={content}>Updated prompt-only child</BotMessageList>);
+  expect(viewport.scrollTop).toBe(100);
 });
 
 it("places the time and footer below the bubble for user messages", () => {

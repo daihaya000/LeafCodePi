@@ -61,15 +61,17 @@ export const BotMessageMarkdown = memo(function BotMessageMarkdown({ text, menti
   return <div className="md"><Markdown remarkPlugins={[remarkGfm]} components={{ ...components, a: ({ href, children, ...props }) => <TaskLink href={href} {...props}>{children}</TaskLink> }}>{linkBareTaskPaths(text)}</Markdown></div>;
 });
 
-export function BotMessageList({ conversationId, children }: { conversationId: string; children: ReactNode }) {
+export function BotMessageList({ conversationId, contentKey, children }: { conversationId: string; contentKey?: unknown; children: ReactNode }) {
   const viewport = useRef<HTMLElement>(null);
   const following = useRef(true);
+  // Keep prompt/settings-only parent renders from forcing a scroll layout read.
+  const scrollKey = contentKey ?? children;
 
   useLayoutEffect(() => { following.current = true; }, [conversationId]);
   useLayoutEffect(() => {
     const element = viewport.current;
     if (element && following.current) element.scrollTop = element.scrollHeight;
-  }, [children, conversationId]);
+  }, [conversationId, scrollKey]);
 
   return (
     <main ref={viewport} onScroll={(event) => {
