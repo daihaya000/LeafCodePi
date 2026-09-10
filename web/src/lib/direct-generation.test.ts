@@ -13,6 +13,7 @@ import {
   generateDirectTextWithFallback,
   generateDirectTextWithFallbackResult,
   parseDirectModel,
+  sameDirectModel,
 } from "./direct-generation";
 
 describe("direct-generation", () => {
@@ -29,6 +30,31 @@ describe("direct-generation", () => {
       }),
     ).toBe("one\ntwo");
     expect(extractDirectText({ choices: [] })).toBe("");
+  });
+
+  it("truncates chat completion text to the output budget", () => {
+    const long = "x".repeat(10_000);
+    expect(extractDirectText({ choices: [{ message: { content: long } }] })).toHaveLength(
+      4_000,
+    );
+    expect(extractDirectText({ choices: [{ message: { content: "short" } }] })).toBe("short");
+  });
+
+  it("deduplicates identical primary and fallback candidates", () => {
+    const model = parseDirectModel({ providerID: "p", modelID: "m" })!;
+    expect(sameDirectModel(model, model)).toBe(true);
+    expect(
+      buildDirectGenerationCandidates({ primary: model, fallback: model }),
+    ).toHaveLength(1);
+  });
+
+  it("distinguishes candidates by account id", () => {
+    const shared = parseDirectModel({ providerID: "p", modelID: "m" })!;
+    const account = parseDirectModel({ providerID: "p", modelID: "m", accountId: "acc" })!;
+    expect(sameDirectModel(shared, account)).toBe(false);
+    expect(
+      buildDirectGenerationCandidates({ primary: shared, fallback: account }),
+    ).toHaveLength(2);
   });
 
   it("preserves the selected account in a direct model object", () => {
