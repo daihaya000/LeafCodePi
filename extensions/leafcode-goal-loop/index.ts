@@ -1439,7 +1439,11 @@ async function compose(runtime: Runtime): Promise<void> {
     cooldownSeconds: parseCooldownSeconds(cooldownText),
     forceFullRun,
   });
-  if (loop) runtime.ctx.ui.notify(`Goal loop started (${maxTurns}ターン${forceFullRun ? "・完走" : ""})`, "info");
+  if (loop) {
+    runtime.ctx.ui.notify(`Goal loop started (${maxTurns}ターン${forceFullRun ? "・完走" : ""})`, "info");
+  } else {
+    runtime.ctx.ui.notify("Goal loop を開始できませんでした（パラメータ不正または状態保存失敗）。", "error");
+  }
 }
 
 function statusMessage(loop: GoalLoop | null): string {
@@ -1848,7 +1852,11 @@ export default function (pi: ExtensionAPI): void {
         loop.status = "paused";
         loop.pauseReason = "";
         loop.error = "セッション終了時に一時停止しました。";
-        writeLoop(loop);
+        // Session is ending either way: dispose below. On write failure leave disk
+        // unchanged so the next session_start can repair running or re-arm queued.
+        if (!writeLoop(loop)) {
+          console.error("[goal-loop] session_shutdown failed to persist lifecycle pause");
+        }
         clearTimer(current);
         current.awaitingTurn = false;
       }

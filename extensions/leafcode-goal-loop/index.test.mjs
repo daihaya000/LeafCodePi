@@ -568,6 +568,119 @@ test("session_start writeLoop failure keeps running and retries pause on reconne
   }
 });
 
+test("session_shutdown writeLoop failure leaves disk unchanged for session_start repair", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-shutdown-write-fail-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const stateFile = () => join(cwd, "goals-loop", "shutdown-write-fail-session.json");
+  let busy = false;
+  let sendCount = 0;
+
+  const make = () => {
+    const handlers = new Map();
+    const commands = new Map();
+    const ctx = {
+      cwd,
+      mode: "rpc",
+      hasUI: false,
+      isIdle: () => !busy,
+      hasPendingMessages: () => false,
+      abort: () => { busy = false; },
+      sessionManager: {
+        getSessionId: () => "shutdown-write-fail-session",
+        getBranch: () => [],
+      },
+      ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+    };
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    return { handlers, commands, ctx };
+  };
+
+  try {
+    const first = make();
+    await first.handlers.get("session_start")?.({}, first.ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await first.commands.get("goal-start")?.(payload, first.ctx);
+    await waitFor(() => sendCount === 1 && JSON.parse(readFileSync(stateFile(), "utf8")).status === "running");
+
+    goalLoopTestSeams.setWriteLoopFail(true);
+    await first.handlers.get("session_shutdown")?.({}, first.ctx);
+    const failed = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(failed.status, "running");
+    assert.equal(failed.pendingTurnRecovery, false);
+
+    goalLoopTestSeams.setWriteLoopFail(false);
+    const second = make();
+    await second.handlers.get("session_start")?.({}, second.ctx);
+    const repaired = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(repaired.status, "paused");
+    assert.equal(repaired.pendingTurnRecovery, true);
+    assert.equal(repaired.pauseReason, "");
+    await second.handlers.get("session_shutdown")?.({}, second.ctx);
+  } finally {
+    goalLoopTestSeams.setWriteLoopFail(false);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("compose notifies when startLoop fails to persist", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-compose-write-fail-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  const notifies = [];
+  const stateFile = () => join(cwd, "goals-loop", "compose-write-fail-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: true,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    abort: () => {},
+    sessionManager: {
+      getSessionId: () => "compose-write-fail-session",
+      getBranch: () => [],
+    },
+    ui: {
+      setStatus: () => {},
+      setWidget: () => {},
+      notify(message, level) { notifies.push({ message, level }); },
+      async input(title) {
+        if (title === "Goal") return "compose goal";
+        if (title.startsWith("承認条件")) return "ok";
+        if (title === "最大ターン数") return "2";
+        if (title === "クールタイム") return "0";
+        return "";
+      },
+      async confirm() { return true; },
+    },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() {},
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    goalLoopTestSeams.setWriteLoopFail(true);
+    await commands.get("goal-compose")?.("", ctx);
+    assert.equal(existsSync(stateFile()), false);
+    assert.ok(notifies.some((item) => item.level === "error" && /開始できませんでした/.test(item.message)));
+    assert.equal(notifies.some((item) => /Goal loop started/.test(item.message)), false);
+  } finally {
+    goalLoopTestSeams.setWriteLoopFail(false);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("resume recovery writeLoop failure does not double-apply transcript JSON", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-resume-write-fail-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
