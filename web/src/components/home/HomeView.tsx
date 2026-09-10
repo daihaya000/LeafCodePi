@@ -108,10 +108,13 @@ export function HomeView({
     initialNoProject ? null : initialProjectId,
   );
   const [models, setModels] = useState<ModelOption[]>(() => readCachedModels() ?? []);
-  const [modelsLoading, setModelsLoading] = useState(
-    () => (readCachedModels()?.length ?? 0) === 0,
-  );
-  const [model, setModel] = useState("");
+  const [modelsLoading, setModelsLoading] = useState(() => models.length === 0);
+  // キャッシュ hit でも選択値を即復元しないと ModelSelect が「モデルなし」になる。
+  const [model, setModel] = useState(() => {
+    if (models.length === 0) return "";
+    const nextOptions = [AUTO_MODEL_OPTION, ...models];
+    return modelOptionForValue(nextOptions, readStoredModel())?.value ?? models[0]?.value ?? "";
+  });
   const [autoOptimizeMode, setAutoOptimizeMode] = useState<AutoOptimizeMode>(
     () => readAutoOptimizeMode(),
   );

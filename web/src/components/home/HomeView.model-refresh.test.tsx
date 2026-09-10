@@ -15,7 +15,7 @@ vi.mock("@/components/home/NextTaskSuggest", () => ({ NextTaskSuggest: () => nul
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuHeader: () => null }));
 
 import { HomeView } from "./HomeView";
-import { clearCachedModels } from "@/lib/models-cache";
+import { clearCachedModels, writeCachedModels } from "@/lib/models-cache";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -151,5 +151,26 @@ describe("HomeView model refresh", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it("shows the cached model immediately without waiting for /api/models", async () => {
+    const pending = deferred<{ models: ModelOption[] }>();
+    modelResponses.push(pending.promise);
+    const modelA = model("provider::model-a", "Model A");
+    localStorage.setItem("leafcodepi.defaultModel", modelA.value);
+    writeCachedModels([modelA]);
+
+    render(<HomeView initialNoProject />);
+
+    const trigger = screen.getByRole("button", { name: "モデル" });
+    expect(trigger.hasAttribute("disabled")).toBe(false);
+    expect(trigger.textContent).toContain("Model A");
+    expect(trigger.textContent).not.toContain("モデルなし");
+    expect(trigger.textContent).not.toContain("読み込み中");
+
+    await act(async () => {
+      pending.resolve({ models: [modelA] });
+    });
+    expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model A");
   });
 });
