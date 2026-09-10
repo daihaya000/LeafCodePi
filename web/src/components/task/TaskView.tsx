@@ -2496,6 +2496,19 @@ export const TaskView = memo(function TaskView({
                 </button>
               </h1>
             )}
+            <Button
+              variant="ghost"
+              size="icon"
+              role="switch"
+              aria-checked={titleAutoUpdateEnabled}
+              aria-label="タイトルの自動更新"
+              title={`タイトルの自動更新: ${titleAutoUpdateEnabled ? "ON" : "OFF"}（${titleUpdateFrequency}ターンごと）`}
+              className={cx("hidden shrink-0 md:inline-flex h-11 w-11 md:h-9 md:w-9", titleAutoUpdateEnabled && "text-accent!")}
+              disabled={!task || archived || titleBusy}
+              onClick={() => void toggleTitleAutoUpdate()}
+            >
+              <WandSparkles className="h-4 w-4" />
+            </Button>
           </div>
         </div>
         <div aria-label="タスクの状態" className="col-span-2 flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @min-[30rem]/task:col-span-1 @min-[30rem]/task:col-start-2 @min-[30rem]/task:row-start-1">
@@ -2536,19 +2549,6 @@ export const TaskView = memo(function TaskView({
           aria-label="タスク操作"
           className="flex items-center justify-end col-start-2 row-start-1 @min-[30rem]/task:col-start-3"
         >
-          <Button
-            variant="ghost"
-            size="icon"
-            role="switch"
-            aria-checked={titleAutoUpdateEnabled}
-            aria-label="タイトルの自動更新"
-            title={`タイトルの自動更新: ${titleAutoUpdateEnabled ? "ON" : "OFF"}（${titleUpdateFrequency}ターンごと）`}
-            className={cx("hidden md:inline-flex h-11 w-11 md:h-9 md:w-9", titleAutoUpdateEnabled && "text-accent!")}
-            disabled={!task || archived || titleBusy}
-            onClick={() => void toggleTitleAutoUpdate()}
-          >
-            <WandSparkles className="h-4 w-4" />
-          </Button>
           {onAddPane && (
             <Button
               variant="ghost"
