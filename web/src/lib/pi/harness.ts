@@ -1658,8 +1658,13 @@ async function attachSession(
       event.type === "agent_settled" ||
       (event.type === "agent_end" && !event.willRetry)
     ) {
-      const error = session.agent.state.errorMessage ?? null;
-      setTaskStatus(taskId, error ? "error" : "idle", error);
+      const settledError = session.agent.state.errorMessage ?? null;
+      // A Goal Loop stop aborts its own turn and Pi reports that abort as an error message. The loop
+      // file already says "stopped", so this is the user's deliberate stop, not a failure: keep the
+      // same shape as abortTask (idle + the manual-abort sentinel) instead of painting the task red.
+      const stoppedByUser = settledError !== null && isAbortErrorMessage(settledError) && goalLoopIsStopped(live);
+      if (stoppedByUser) persistManualAbortedAssistantId(taskId, "");
+      setTaskStatus(taskId, stoppedByUser || !settledError ? "idle" : "error", stoppedByUser ? null : settledError);
       releaseTaskLease(taskId);
     }
     if (event.type === "agent_settled") {
@@ -6270,6 +6275,20 @@ async function stopGoalLoopForTask(live: LiveRuntime): Promise<void> {
 function cancelHarnessPrompt(live: LiveRuntime): void {
   live.promptEpoch = nextPromptEpoch(live.promptEpoch);
   live.promptActive = false;
+}
+
+/** Pi aborts the running turn with a message like "Request was aborted". */
+function isAbortErrorMessage(message: string): boolean {
+  return /abort/i.test(message);
+}
+
+/** True when this session's Goal Loop was already stopped, so an abort is the user's own stop. */
+function goalLoopIsStopped(live: LiveRuntime): boolean {
+  try {
+    return readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId)?.status === "stopped";
+  } catch {
+    return false;
+  }
 }
 
 /**
