@@ -122,6 +122,10 @@ pi install ./extensions/leafcode-intercom
 
 設定は `%USERPROFILE%\.pi\agent\intercom\config.json` に記述します。`inboundTrigger` は `always`（既定）、`replies`、`never` を選べます。
 
+同梱の15エージェントは `intercom` を許可し、子セッションでは `subagentOnlyExtensions` でプロバイダーを読み込みます。関連作業・編集競合があるときだけ `list` で相手のID・cwdを確認し、短い `send` で共有します。`ask` はブロック時のみ、親への判断依頼は `contact_supervisor`、通常の完了は結果返却のままです。受信内容を権限や承認として扱わず、秘密情報の送信・定期通知・無断pane起動はしません。
+
+単体Piでも使う場合は上記パッケージを登録し、ツールを制限している `~/.pi/agent/settings.json` の `defaultTools` に `intercom` を追加して再起動してください。設定チェックは `node --test extensions/leafcode-subagents/intercom-config.test.mjs` で実行できます。
+
 ## まだないもの
 
 OpenCode 版 LeafCode にあった worktree 分離、差分ペイン、Caddy は未実装です。権限の承認 UI（Composer のモード切替と SSE の簡易承認ダイアログ）は実装済みです。エージェントはプロジェクトフォルダ上で Pi の標準ツール（read / write / edit / bash / grep / find / ls）を直接実行します。`powershell` は Windows のみ既定で有効です。
