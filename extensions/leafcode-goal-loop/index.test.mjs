@@ -920,6 +920,128 @@ test("resume after unreadable_result at the turn limit allows one JSON retry", a
   }
 });
 
+test("provider-limit retry during unreadable streak does not rewind turnCount", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-unreadable-canretry-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "unreadable-canretry-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    canRetryGoalLoopProviderLimit: async () => true,
+    sessionManager: {
+      getSessionId: () => "unreadable-canretry-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() {
+        sendCount += 1;
+        busy = true;
+        void (async () => {
+          busy = false;
+          if (sendCount === 1) {
+            // Consume the budgeted turn with a missing JSON so streak becomes 1.
+            await handlers.get("agent_end")?.({
+              type: "agent_end",
+              messages: [{ role: "assistant", content: [{ type: "text", text: "JSONなし" }] }],
+            }, ctx);
+          } else if (sendCount === 2) {
+            // Non-consuming retry hits a provider limit; must not rewind turnCount.
+            await handlers.get("agent_end")?.({
+              type: "agent_end",
+              messages: [{ role: "assistant", stopReason: "error", errorMessage: "usage limit reached", content: [] }],
+            }, ctx);
+          } else {
+            await handlers.get("agent_end")?.({
+              type: "agent_end",
+              messages: [{
+                role: "assistant",
+                content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: `ok ${sendCount}` }) }],
+              }],
+            }, ctx);
+          }
+          await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+        })();
+      },
+    });
+
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({
+      goal: "demo",
+      maxTurns: 1,
+      forceFullRun: true,
+    })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+
+    await waitFor(() => {
+      const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+      return loop.status === "paused" && loop.pauseReason === "turn_limit";
+    });
+    const done = JSON.parse(readFileSync(stateFile(), "utf8"));
+    // Bug would rewind turnCount to 0 on canRetry of the free JSON retry, then
+    // consume another budgeted send (sendCount 4). Fixed path stays at 3.
+    assert.equal(sendCount, 3);
+    assert.equal(done.turnCount, 1);
+    assert.equal(done.unreadableStreak, 0);
+    assert.equal(done.progress.at(-1)?.summary, "ok 3");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("applyResult(null) uses the unreadable streak free-retry path", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-apply-null-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  try {
+    const loop = {
+      id: "session",
+      sessionId: "session",
+      cwd,
+      status: "running",
+      goal: "demo",
+      acceptance: [],
+      maxTurns: 2,
+      cooldownSeconds: 0,
+      nextTurnAt: null,
+      forceFullRun: true,
+      turnCount: 1,
+      turnKind: "goal",
+      pauseReason: "",
+      error: "",
+      progress: [],
+      summary: "",
+      evidence: "",
+      blockedReason: "",
+      rejectedClaims: 0,
+      unreadableStreak: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    applyResult(loop, null);
+    assert.equal(loop.status, "queued");
+    assert.equal(loop.unreadableStreak, 1);
+    assert.equal(loop.pauseReason, "");
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("does not finalize before a compaction retry has fully settled", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-compaction-retry-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

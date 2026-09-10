@@ -693,11 +693,8 @@ export function buildVerificationPrompt(loop: GoalLoop): string {
 
 export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): void {
   if (!result) {
-    loop.status = "paused";
-    loop.pauseReason = "unreadable_result";
-    loop.error = "ループの結果JSONを読めなかったため一時停止しました。";
-    loop.nextTurnAt = null;
-    writeLoop(loop);
+    // Keep the same free-retry / streak semantics as a missing assistant body.
+    applyMissingResult(loop, "");
     return;
   }
   loop.unreadableStreak = 0;
@@ -913,7 +910,12 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
       runtime.pausedTurnIndex = undefined;
       clearPendingAgentRun(runtime);
       if (fresh.turnKind === "goal") {
-        fresh.turnCount = Math.max(0, fresh.turnCount - 1);
+        // sendTurn leaves turnCount unchanged while unreadableStreak === 1
+        // (non-consuming JSON retry). Rewinding here would steal a budgeted turn
+        // and let the loop exceed maxTurns after a provider-limit fallback.
+        if (fresh.unreadableStreak !== 1) {
+          fresh.turnCount = Math.max(0, fresh.turnCount - 1);
+        }
       }
       fresh.status = fresh.turnKind === "verification" ? "verifying_completed" : "queued";
       fresh.pauseReason = "";
