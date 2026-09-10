@@ -510,9 +510,11 @@ export function tasksForSidebar(tasks: TaskSummary[]): TaskSummary[] {
   );
 }
 
-/** API が新しい順に返すプロジェクト内の、最新の進行中タスクを返す。 */
+/** プロジェクト内で更新日時が最新の進行中タスクを返す。 */
 export function latestWorkingTask(tasks: TaskSummary[], projectId: string): TaskSummary | null {
-  return tasks.find((task) => task.projectId === projectId && task.status === "working") ?? null;
+  return tasksForSidebar(
+    tasks.filter((task) => task.projectId === projectId && task.status === "working"),
+  )[0] ?? null;
 }
 
 const LIVE_GOAL_LOOP_STATUSES = new Set(["queued", "running", "verifying_completed"]);

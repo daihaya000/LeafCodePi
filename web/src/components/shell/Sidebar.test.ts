@@ -114,6 +114,13 @@ describe("latestWorkingTask", () => {
     expect(latestWorkingTask(tasks, "p1")).toEqual(newest);
   });
 
+  it("selects the newest working task even when the API list is insertion-ordered", () => {
+    const older = { ...task("t1", "working", "進行中の古いタスク"), updatedAt: "2026-01-01T00:01:00.000Z" };
+    const newer = { ...task("t2", "working", "進行中の最新タスク"), updatedAt: "2026-01-01T00:02:00.000Z" };
+
+    expect(latestWorkingTask([older, newer], "p1")).toEqual(newer);
+  });
+
   it("returns null when the project has no working task", () => {
     expect(latestWorkingTask([task("t1", "idle", "完了済み")], "p1")).toBeNull();
   });
