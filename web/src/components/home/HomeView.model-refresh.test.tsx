@@ -214,4 +214,28 @@ describe("HomeView model refresh", () => {
     expect(mocks.sendJson).not.toHaveBeenCalled();
     expect(input.value).toBe("draft prompt");
   });
+
+  it("clears stuck composition on blur so Ctrl+Enter can send again", async () => {
+    // compositionEnd 欠落で composingRef が stuck しても、blur で解除して送信可能にする。
+    const pending = deferred<{ models: ModelOption[] }>();
+    modelResponses.push(pending.promise);
+    mocks.sendJson.mockResolvedValue({ task: { id: "task-1" } });
+
+    render(<HomeView initialNoProject />);
+    await act(async () => {
+      pending.resolve({ models: [model("provider::model-a", "Model A")] });
+    });
+
+    const input = screen.getByRole("textbox", { name: "タスクの説明" }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "draft prompt" } });
+    fireEvent.compositionStart(input);
+    fireEvent.blur(input);
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    await waitFor(() =>
+      expect(mocks.sendJson).toHaveBeenCalledWith(
+        "/api/tasks",
+        expect.objectContaining({ prompt: "draft prompt" }),
+      ),
+    );
+  });
 });
