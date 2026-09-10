@@ -1183,6 +1183,135 @@ test("keeps a manually stopped loop terminal after the aborted run settles", asy
   }
 });
 
+test("abort settlement keeps a late JSON result without auto-continuing", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-abort-result-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "abort-result-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "abort-result-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sendCount === 1 && JSON.parse(readFileSync(stateFile(), "utf8")).status === "running");
+
+    busy = false;
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{
+        role: "assistant",
+        stopReason: "aborted",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "saved before abort" }) }],
+      }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+
+    const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(loop.progress.at(-1)?.summary, "saved before abort");
+    assert.equal(loop.status, "paused");
+    assert.equal(loop.pauseReason, "user");
+    assert.equal(sendCount, 1);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(sendCount, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("provider-limit canRetry does not wipe pausedTurnPending evidence", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-canretry-pending-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "canretry-pending-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "canretry-pending-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+    canRetryGoalLoopProviderLimit: async () => {
+      await commands.get("goal-pause")?.("", ctx);
+      return true;
+    },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sendCount === 1);
+
+    busy = false;
+    // Error plus a JSON body: pause during canRetry must keep late recovery possible.
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{
+        role: "assistant",
+        stopReason: "error",
+        errorMessage: "usage limit reached",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "kept across canRetry pause" }) }],
+      }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+
+    await waitFor(() => {
+      const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+      return loop.status === "paused" && loop.pauseReason === "user";
+    });
+
+    // Settle again while paused: pending evidence must still be recoverable.
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(loop.progress.at(-1)?.summary, "kept across canRetry pause");
+    assert.equal(loop.status, "paused");
+    assert.equal(loop.pauseReason, "user");
+    assert.equal(sendCount, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 async function waitFor(predicate, timeoutMs = 2000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

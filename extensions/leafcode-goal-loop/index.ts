@@ -876,7 +876,10 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
   const error = errorFromAgentMessages(messages);
   const result = extractGoalResultFromMessages(messages);
   if (aborted) {
+    // Keep any JSON that landed before abort (same contract as manual_send):
+    // progress is preserved, but the loop stays paused for the operator.
     pauseLoop(runtime, "user", "実行が中断されたため一時停止しました。");
+    if (result) applyLatePausedResult(runtime, result);
     clearPendingAgentRun(runtime);
     return;
   }
@@ -891,7 +894,9 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
     // startLoop/session replacement may land while canRetry awaits. A stale
     // retry must not rewind the replacement's turnCount or pause it.
     if (!isActiveRuntime(runtime) || runtime.turnGeneration !== turnGeneration) {
-      clearPendingAgentRun(runtime);
+      // A mid-await pauseLoop may have preserved pendingAgentMessages for late
+      // recovery; do not wipe that evidence just because canRetry went stale.
+      if (!runtime.pausedTurnPending) clearPendingAgentRun(runtime);
       return;
     }
     if (canRetry) {
@@ -899,7 +904,7 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
       // await前のスナップショットではなく現在の状態に対して書き戻す。
       const fresh = currentLoop(runtime);
       if (!fresh || fresh.status !== "running") {
-        clearPendingAgentRun(runtime);
+        if (!runtime.pausedTurnPending) clearPendingAgentRun(runtime);
         return;
       }
       clearTimer(runtime);
