@@ -1,5 +1,25 @@
 # MEMORY
 
+## 2026-09-10: Bot/Room スクロール回帰 + lock fail-open バグハント
+
+### 根本原因と修正
+1. **MED-HIGH（019aeea 回帰）**: `BotMessageList` の `contentKey={messages}` だけでは、SSE で `permission` / `question` / 応答中 UI が出ても追従スクロールしない（messages 参照は `stabilizeUiMessages` で安定しうる）。→ `BotView` / `RoomView` でオーバーレイ込みの `chatScrollKey`（useMemo）を渡す。
+2. **MED**: Room SSE が毎回新 `messages` 配列を渡すため、内容同一でも scroll layout read が走る。→ `stabilizeIdentifiedList` を汎用化し `applyRoomSnapshot` で参照安定化。
+3. **MED**: `workflow-state` の `stateLockIsStale` が他 PID の `processKey` 照合失敗時に fail-open → PID 再利用で lock が残る。→ 照合失敗は stale（fail-closed）。ロック取得時の `currentProcessKeyFor()` 二重呼び出しも解消。
+4. **MED**: `answerQuestion` に try/catch がなく API 失敗が UI に出ない。→ Bot/Room とも `respond` と同型のエラー表示。
+
+### 検証
+- `BotMessageList.test.tsx` 15 PASS（overlay contentKey 追従ケース追加）
+- `stabilize-messages.test.ts` 21 PASS（Room 相当の identified list 安定化）
+- `RoomView.test.tsx` 15 PASS
+- `npm --prefix web run typecheck` OK
+
+### 残存リスク
+- `stateLockIsStale` は非 export のため専用単体テスト未追加（fail-closed はコードレビューで確認）
+- `answerQuestion` 失敗時の回帰テストは未追加（既存成功パスは維持）
+
+---
+
 ## 2026-09-05: commit-guard / settle / todowrite 追加バグ修正
 
 ### 修正した具象バグ

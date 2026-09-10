@@ -28,8 +28,38 @@ import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "
 import { messageRenderKey, stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
 
-function textOf(message: UiMessage): string {
-  return message.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
+type BotMessageDisplayData = {
+  text: string;
+  images: Extract<UiPart, { type: "image" }>[];
+  tools: Extract<UiPart, { type: "tool" }>[];
+  requestIds: string[];
+};
+
+const botMessageDisplayCache = new WeakMap<UiMessage, BotMessageDisplayData>();
+
+function botMessageDisplayData(message: UiMessage): BotMessageDisplayData {
+  const cached = botMessageDisplayCache.get(message);
+  if (cached) return cached;
+
+  const images = message.parts.filter((part): part is Extract<UiPart, { type: "image" }> => part.type === "image");
+  const tools = message.role === "assistant"
+    ? message.parts.filter((part): part is Extract<UiPart, { type: "tool" }> => part.type === "tool")
+    : [];
+  const requestIds = message.role === "assistant" ? message.parts.flatMap((part) => {
+    if (part.type !== "tool" || part.tool !== "code_session" || !part.state.output) return [];
+    try {
+      const result = JSON.parse(part.state.output);
+      return typeof result?.requestId === "string" ? [result.requestId] : [];
+    } catch { return []; }
+  }) : [];
+  const data = {
+    text: message.parts.filter((part) => part.type === "text").map((part) => part.text).join(""),
+    images,
+    tools,
+    requestIds,
+  } satisfies BotMessageDisplayData;
+  botMessageDisplayCache.set(message, data);
+  return data;
 }
 
 const BOT_AUTO_SAVE_DELAY_MS = 600;
@@ -300,8 +330,12 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   };
 
   const answerQuestion = async (request: QuestionRequestDto, answers?: string[][]) => {
-    await sendJson(`/api/tasks/${encodeURIComponent(`bot:${id}`)}/question`, { requestId: request.id, ...(answers ? { answers } : { reject: true }) });
-    setQuestion((current) => current?.id === request.id ? null : current);
+    try {
+      await sendJson(`/api/tasks/${encodeURIComponent(`bot:${id}`)}/question`, { requestId: request.id, ...(answers ? { answers } : { reject: true }) });
+      setQuestion((current) => current?.id === request.id ? null : current);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "質問への回答に失敗しました");
+    }
   };
 
   const abort = async () => {
@@ -510,18 +544,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   const rendered = useMemo(() => {
     return messages.map((message) => {
     const user = message.role === "user";
-    const text = textOf(message);
-    const images = message.parts.filter((part) => part.type === "image");
-    const tools = message.role === "assistant"
-      ? message.parts.filter((part): part is Extract<UiPart, { type: "tool" }> => part.type === "tool")
-      : [];
-    const requestIds = message.role === "assistant" ? message.parts.flatMap((part) => {
-      if (part.type !== "tool" || part.tool !== "code_session" || !part.state.output) return [];
-      try {
-        const result = JSON.parse(part.state.output);
-        return typeof result?.requestId === "string" ? [result.requestId] : [];
-      } catch { return []; }
-    }) : [];
+    const { text, images, tools, requestIds } = botMessageDisplayData(message);
     if (!text && images.length === 0 && tools.length === 0 && !message.error && requestIds.length === 0) return null;
     const hasBubble = user || Boolean(text || images.length > 0 || message.error || requestIds.length > 0);
     const toolCards = tools.length > 0 ? (
@@ -549,6 +572,20 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     });
   }, [active, bot, botMentions, id, messages, reverting, sending]);
 
+  // Overlay cards live outside `messages`; include them so follow-scroll still reaches permission/question UI.
+  const chatScrollKey = useMemo(() => ({
+    messages,
+    permissionId: permission?.id ?? null,
+    questionId: question?.id ?? null,
+    sending,
+    routineCardOpen,
+    codePanelOpen,
+    routineFailures: routines
+      .filter((routine) => routine.failureCount > 0)
+      .map((routine) => `${routine.id}:${routine.failureCount}:${routine.enabled ? 1 : 0}`)
+      .join(","),
+  }), [messages, permission?.id, question?.id, sending, routineCardOpen, codePanelOpen, routines]);
+
   if (!bot) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
   return (
@@ -564,7 +601,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
       />
 
 
-      <BotMessageList conversationId={id} contentKey={messages}>
+      <BotMessageList conversationId={id} contentKey={chatScrollKey}>
         <div className="mx-auto w-full max-w-5xl space-y-4">
           {messages.length === 0 && !sending && <BotEmptyState avatar={bot} title={bot.name + " \u3068\u8a71\u3059"} description={"\u4e0b\u306e\u5165\u529b\u6b04\u304b\u3089\u30e1\u30c3\u30bb\u30fc\u30b8\u3092\u9001\u3063\u3066\u4f1a\u8a71\u3092\u59cb\u3081\u307e\u3057\u3087\u3046\u3002"} />}
           {routines.some((routine) => routine.failureCount > 0) && <div role="status" className="rounded-2xl border border-danger/40 bg-danger/5 p-4 text-sm"><p className="font-medium text-danger">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u5b9f\u884c\u306b\u5931\u6557\u3057\u3066\u3044\u307e\u3059"}</p><div className="mt-2 space-y-1 text-xs text-muted">{routines.filter((routine) => routine.failureCount > 0).map((routine) => <p key={routine.id}><span className="font-medium text-text">{routine.name}</span>{"\uFF1A"}{"\u9023\u7d9a\u5931\u6557"} {routine.failureCount}{"\u56de"}{routine.enabled ? "" : "\u3002\u5b89\u5168\u306e\u305f\u3081\u81ea\u52d5\u7684\u306b\u7121\u52b9\u5316\u3057\u307e\u3057\u305f"}</p>)}</div></div>}

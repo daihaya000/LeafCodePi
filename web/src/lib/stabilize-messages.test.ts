@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   messageRenderKey,
+  stabilizeIdentifiedList,
   stabilizeUiMessages,
   upsertUiMessage,
 } from "./stabilize-messages";
@@ -94,6 +95,20 @@ describe("stabilizeUiMessages", () => {
     expect(out).toBe(prev);
     expect(out[0]).toBe(prev[0]);
     expect(out[1]).toBe(prev[1]);
+  });
+
+  it("stabilizeIdentifiedList keeps room message refs across identical SSE payloads", () => {
+    const prev = [
+      { id: "m1", role: "user" as const, text: "hi", createdAt: 1 },
+      { id: "m2", role: "assistant" as const, text: "yo", createdAt: 2, status: "done" as const },
+    ];
+    const next = [
+      { id: "m1", role: "user" as const, text: "hi", createdAt: 1 },
+      { id: "m2", role: "assistant" as const, text: "yo", createdAt: 2, status: "done" as const },
+    ];
+    const out = stabilizeIdentifiedList(prev, next);
+    expect(out).toBe(prev);
+    expect(out[0]).toBe(prev[0]);
   });
 
   it("updates only changed messages", () => {

@@ -1,8 +1,8 @@
 import type { UiMessage } from "@/lib/types";
 
-const messageFingerprintCache = new WeakMap<UiMessage, string>();
+const messageFingerprintCache = new WeakMap<object, string>();
 
-function messageFingerprint(message: UiMessage): string {
+function messageFingerprint(message: object): string {
   // SSE DTOs are immutable; cache fingerprints so the previous delta is not serialized again.
   const cached = messageFingerprintCache.get(message);
   if (cached !== undefined) return cached;
@@ -21,10 +21,10 @@ export function messageRenderKey(message: UiMessage): string {
 }
 
 /**
- * Reuse previous message object references when content is unchanged so
- * memoized PartView rows skip re-render during SSE floods.
+ * Reuse previous list item references when content is unchanged so
+ * memoized rows and scroll contentKey stay stable across SSE floods.
  */
-export function stabilizeUiMessages(prev: UiMessage[], next: UiMessage[]): UiMessage[] {
+export function stabilizeIdentifiedList<T extends { id: string }>(prev: T[], next: T[]): T[] {
   if (next.length === 0) return next;
   if (prev.length === 0) return next;
   const prevById = new Map(prev.map((message) => [message.id, message]));
@@ -42,6 +42,14 @@ export function stabilizeUiMessages(prev: UiMessage[], next: UiMessage[]): UiMes
     return message;
   });
   return changed ? out : prev;
+}
+
+/**
+ * Reuse previous message object references when content is unchanged so
+ * memoized PartView rows skip re-render during SSE floods.
+ */
+export function stabilizeUiMessages(prev: UiMessage[], next: UiMessage[]): UiMessage[] {
+  return stabilizeIdentifiedList(prev, next);
 }
 
 /** Upsert the one message carried by a high-frequency SSE delta. */

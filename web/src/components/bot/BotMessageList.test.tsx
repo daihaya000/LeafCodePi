@@ -39,6 +39,20 @@ it("does not scroll when only the rendered children change", () => {
   expect(viewport.scrollTop).toBe(100);
 });
 
+it("follows when overlay contentKey changes even if messages stay the same", () => {
+  const messages = { id: "messages" };
+  const { getByRole, rerender } = render(
+    <BotMessageList conversationId="a" contentKey={{ messages, permissionId: null }}>History</BotMessageList>,
+  );
+  const viewport = getByRole("main");
+  Object.defineProperties(viewport, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { value: 200 } });
+  rerender(<BotMessageList conversationId="a" contentKey={{ messages, permissionId: null }}>History</BotMessageList>);
+  expect(viewport.scrollTop).toBe(1000);
+  Object.defineProperty(viewport, "scrollHeight", { configurable: true, value: 1300 });
+  rerender(<BotMessageList conversationId="a" contentKey={{ messages, permissionId: "perm-1" }}>History + permission</BotMessageList>);
+  expect(viewport.scrollTop).toBe(1300);
+});
+
 it("places the time and footer below the bubble for user messages", () => {
   const createdAt = Date.UTC(2026, 8, 8, 2, 58);
   const { container, rerender } = render(<BotMessageRow user createdAt={createdAt} footer={<button type="button">入力欄に戻す</button>}>エージェントは？</BotMessageRow>);

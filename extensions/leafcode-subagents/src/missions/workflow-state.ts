@@ -108,8 +108,9 @@ function stateLockIsStale(lockPath: string, now = Date.now()): boolean {
 		if (!isProcessAlive(owner.pid)) return true;
 		if (owner.processKey) {
 			const currentProcessKey = owner.pid === process.pid ? currentProcessKeyFor() : processStartKey(owner.pid);
-			if (currentProcessKey) return owner.processKey !== currentProcessKey;
-			if (owner.pid === process.pid) return true;
+			// Fail closed when the start-key probe itself fails; PID reuse must not keep a lock.
+			if (!currentProcessKey) return true;
+			return owner.processKey !== currentProcessKey;
 		}
 		return false;
 	}
@@ -192,7 +193,8 @@ function withStateFileLock<T>(filePath: string, operation: () => T): T {
 			waitForStateLock(DEFAULT_FILE_SYSTEM_RETRY_DELAYS_MS[attempt], lockPath);
 			continue;
 		}
-		owner = { pid: process.pid, token: randomUUID(), createdAt: Date.now(), ...(currentProcessKeyFor() ? { processKey: currentProcessKeyFor() } : {}) };
+		const processKey = currentProcessKeyFor();
+		owner = { pid: process.pid, token: randomUUID(), createdAt: Date.now(), ...(processKey ? { processKey } : {}) };
 		try {
 			fs.writeFileSync(path.join(lockPath, "owner.json"), JSON.stringify(owner), { encoding: "utf-8", mode: 0o600 });
 		} catch (error) {

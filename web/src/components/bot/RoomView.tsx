@@ -18,8 +18,15 @@ import { BotComposer } from "@/components/bot/BotComposer";
 import { BotMessageError, BotMessageImages, BotMessageList, BotChatMessage, BotPermissionCard, BotRevertButton } from "@/components/bot/BotMessageList";
 import { type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
+import { stabilizeIdentifiedList } from "@/lib/stabilize-messages";
 
 import { CodeRequestCard } from "@/components/bot/CodeRequestCard";
+
+function applyRoomSnapshot(current: RoomDto | null, next: RoomDto): RoomDto {
+  if (!current || current.id !== next.id) return next;
+  const messages = stabilizeIdentifiedList(current.messages, next.messages);
+  return messages === next.messages ? next : { ...next, messages };
+}
 
 type MentionContext = { start: number; end: number; query: string };
 
@@ -156,7 +163,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         if (closed) return;
         try {
           const payload = JSON.parse((event as MessageEvent).data) as { room?: RoomDto; attention?: RoomAttention[] };
-          if (payload.room) setRoom(payload.room);
+          if (payload.room) setRoom((current) => applyRoomSnapshot(current, payload.room!));
           setAttention(payload.attention ?? []);
         } catch { setError("イベントの解析に失敗しました"); }
       });
@@ -326,8 +333,12 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     finally { setAttentionBusy(null); }
   };
   const answerQuestion = async (taskId: string, request: QuestionRequestDto, answers?: string[][]) => {
-    await sendJson(`/api/tasks/${encodeURIComponent(taskId)}/question`, { requestId: request.id, ...(answers ? { answers } : { reject: true }) });
-    setAttention((current) => current.map((entry) => entry.question?.id === request.id ? { ...entry, question: null } : entry));
+    try {
+      await sendJson(`/api/tasks/${encodeURIComponent(taskId)}/question`, { requestId: request.id, ...(answers ? { answers } : { reject: true }) });
+      setAttention((current) => current.map((entry) => entry.question?.id === request.id ? { ...entry, question: null } : entry));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "質問への回答に失敗しました");
+    }
   };
 
   const stopCode = useCallback(async (requestId?: string) => {
@@ -377,14 +388,20 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     );
   }), [botById, bots, id, room?.messages, revertMessage, reverting, stopCode, stoppingCode]);
 
-  if (!room) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
-
   const working = isRoomBusy(room);
-  const latestRequestId = room.messages.findLast((message) => message.role === "user")?.id;
+  const latestRequestId = room?.messages.findLast((message) => message.role === "user")?.id;
   // Persisted rooms may still carry a wait outcome from before result delivery.
-  const delivered = room.messages.some((message) => message.codeState === "delivered" && message.conversation?.requestId === latestRequestId);
-  const outcome = !working && room.lastOutcome && room.lastOutcome.requestId === latestRequestId
+  const delivered = Boolean(room?.messages.some((message) => message.codeState === "delivered" && message.conversation?.requestId === latestRequestId));
+  const outcome = room && !working && room.lastOutcome && room.lastOutcome.requestId === latestRequestId
     ? OUTCOME_TEXT[room.lastOutcome.kind === "code-wait" && delivered ? "done" : room.lastOutcome.kind] : undefined;
+  const chatScrollKey = useMemo(() => ({
+    messages: room?.messages,
+    attention: attention.map((item) => `${item.taskId}:${item.permission?.id ?? ""}:${item.question?.id ?? ""}`).join("|"),
+    working,
+    outcome: outcome ?? "",
+  }), [room?.messages, attention, working, outcome]);
+
+  if (!room) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
   return (
     <div className="flex h-full min-h-0 bg-bot-chat">
@@ -403,7 +420,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       />
 
 
-      <BotMessageList conversationId={id} contentKey={room.messages}>
+      <BotMessageList conversationId={id} contentKey={chatScrollKey}>
         <div className="mx-auto w-full max-w-5xl space-y-4">
           {room.messages.length === 0 && <BotEmptyState icon={<Users className="h-5 w-5" />} title={room.name + " \u3067\u8a71\u3059"} description="そのまま送るとメンバーが会話します。@ボット名で相手を指定、@hereで全員に個別回答を依頼できます。実作業は承認後にCodeで実行し、このRoomへ結果を返します。">{members.length > 0 && <div className="mt-3 flex flex-wrap justify-center gap-2">{members.map((bot) => <span key={bot.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 text-xs"><BotAvatar size={18} {...bot} />{bot.name}</span>)}</div>}</BotEmptyState>}
           {rendered}
