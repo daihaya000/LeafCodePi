@@ -13,6 +13,31 @@ it("forwards clipboard paste events to the input", () => {
   expect(onPaste).toHaveBeenCalledOnce();
 });
 
+it("does not consume Ctrl+Enter while a reference suggestion is open", () => {
+  const onKeyDown = vi.fn();
+  function ReferenceComposer() {
+    const [value, setValue] = useState("");
+    return <BotComposer
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onValueChange={setValue}
+      onKeyDown={onKeyDown}
+      onSend={vi.fn()}
+      placeholder="Message"
+      references={{ skills: [{ name: "review" }] }}
+    />;
+  }
+
+  render(<ReferenceComposer />);
+  const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+  input.focus();
+  fireEvent.change(input, { target: { value: "/skill:r", selectionStart: 8 } });
+  expect(screen.getByRole("listbox", { name: "スキル候補" })).toBeTruthy();
+  fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+  expect(onKeyDown).toHaveBeenCalledOnce();
+  expect(onKeyDown.mock.calls[0]?.[0]).toMatchObject({ key: "Enter", ctrlKey: true });
+});
+
 it("keeps options out of the compact input row and preserves send/stop actions", () => {
   const onSend = vi.fn();
   const onAbort = vi.fn();

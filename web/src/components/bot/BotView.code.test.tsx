@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), markRead: vi.fn(), reportStatus: vi.fn() }));
@@ -171,6 +171,20 @@ it("renders bot empty-state copy instead of literal Unicode escapes", async () =
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
   expect(await screen.findByText("一対一 ボット")).toBeTruthy();
   expect(screen.getByText("下の入力欄からメッセージを送って会話を始めましょう。")).toBeTruthy();
+});
+
+it("sends with Ctrl+Enter and leaves Enter available for newlines", async () => {
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  const input = await screen.findByRole("textbox", { name: /Ctrl\+Enterで送信/ }) as HTMLTextAreaElement;
+  fireEvent.change(input, { target: { value: "依頼" } });
+
+  const enter = createEvent.keyDown(input, { key: "Enter" });
+  fireEvent(input, enter);
+  expect(enter.defaultPrevented).toBe(false);
+  expect(mocks.sendJson).not.toHaveBeenCalled();
+
+  fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one/prompt", { prompt: "依頼" }));
 });
 
 it("applies streaming deltas without waiting for a full snapshot", async () => {

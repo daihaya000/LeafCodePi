@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -263,6 +263,23 @@ describe("RoomView delegated work", () => {
       prompt: "これを見て",
       images: [expect.objectContaining({ mimeType: "image/png" })],
     })));
+  });
+
+  it("sends with Ctrl+Enter and leaves Enter available for newlines", async () => {
+    render(<RoomView id={room.id} />);
+    const input = await screen.findByRole("textbox", { name: /Ctrl\+Enterで送信/ }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "依頼" } });
+
+    const enter = createEvent.keyDown(input, { key: "Enter" });
+    fireEvent(input, enter);
+    expect(enter.defaultPrevented).toBe(false);
+    expect(mocks.sendJson).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    await vi.waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      `/api/bots/rooms/${room.id}/prompt`,
+      expect.objectContaining({ prompt: "依頼", broadcast: false }),
+    ));
   });
 
   it("shows what Code is doing and lets the user stop that run", async () => {

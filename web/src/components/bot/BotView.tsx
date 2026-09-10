@@ -635,8 +635,8 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
         onChange={(event) => setPrompt(event.target.value)}
         onCompositionStart={() => { composingRef.current = true; }}
         onCompositionEnd={() => { composingRef.current = false; }}
-        onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !composingRef.current) { event.preventDefault(); void send(); } }}
-        placeholder={`${bot.name}\u306b\u30e1\u30c3\u30bb\u30fc\u30b8`}
+        onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !composingRef.current) { event.preventDefault(); void send(); } }}
+        placeholder={`${bot.name}\u306b\u30e1\u30c3\u30bb\u30fc\u30b8（Ctrl+Enterで送信、Enterで改行）`}
         sendDisabled={!prompt.trim() && attachments.length === 0}
         busy={sending}
         onSend={() => void send()}

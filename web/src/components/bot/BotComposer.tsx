@@ -129,7 +129,7 @@ export function BotComposer({
                     setActiveSuggestion((index) => (index + (event.key === "ArrowDown" ? 1 : suggestions.length - 1)) % suggestions.length);
                     return;
                   }
-                  if (event.key === "Enter" || event.key === "Tab") {
+                  if ((event.key === "Enter" && !event.ctrlKey && !event.metaKey) || event.key === "Tab") {
                     event.preventDefault();
                     const selected = suggestions[activeSuggestion];
                     if (selected && currentToken) chooseSuggestion(selected);
