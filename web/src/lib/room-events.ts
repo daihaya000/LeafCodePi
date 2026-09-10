@@ -16,6 +16,7 @@ export function roomSnapshotSignature(room: RoomDto, attention: RoomAttention[])
     last?.text.length ?? 0,
     last?.codeState ?? "",
     last?.codeActivity ?? "",
+    room.messages.flatMap((message) => (message.codeRequests ?? []).map((request) => `${request.id}:${request.taskId ?? ""}:${request.state}`)).join(","),
     room.lastOutcome?.kind ?? "",
     room.members.join(","),
     waiting,
