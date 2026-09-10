@@ -138,6 +138,8 @@ type Runtime = {
    * settlement waves so they cannot poison the new turn.
    */
   discardAgentSettlements: number;
+  /** True while sendTurn is awaiting prepare/routing or about to send. */
+  sendTurnInFlight: boolean;
   awaitingTurnIndex?: number;
   pausedTurnIndex?: number;
   timer?: ReturnType<typeof setTimeout>;
@@ -1027,10 +1029,11 @@ function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error
 function stopLoop(runtime: Runtime): boolean {
   const loop = currentLoop(runtime);
   if (!loop || TERMINAL.has(loop.status)) return false;
-  // Capture before clearing: abort can make isIdle() true immediately, so a
-  // replacement startLoop may send the next turn before trailing agent_end.
-  const hadInflightAgent =
-    runtime.awaitingTurn || runtime.pausedTurnPending || !runtime.ctx.isIdle();
+  // Capture before clearing. Only arm discard when a trailing agent_settled is
+  // actually expected — awaitingTurn while already idle should not stick the
+  // counter forever and block later turns.
+  const expectTrailingSettlement =
+    runtime.pausedTurnPending || !runtime.ctx.isIdle();
   loop.status = "stopped";
   loop.pauseReason = "";
   loop.error = "";
@@ -1043,14 +1046,17 @@ function stopLoop(runtime: Runtime): boolean {
   runtime.awaitingTurnIndex = undefined;
   runtime.pausedTurnIndex = undefined;
   clearPendingAgentRun(runtime);
-  if (hadInflightAgent) runtime.discardAgentSettlements += 1;
-  updateUI(runtime, loop);
-  appendSnapshot(runtime, loop);
   try {
     if (!runtime.ctx.isIdle()) runtime.ctx.abort();
   } catch {
     // The engine may already be settled.
   }
+  if (expectTrailingSettlement) {
+    // One trailing wave max; += allowed duplicates to block the next real turn.
+    runtime.discardAgentSettlements = 1;
+  }
+  updateUI(runtime, loop);
+  appendSnapshot(runtime, loop);
   return true;
 }
 
@@ -1097,19 +1103,30 @@ function schedule(runtime: Runtime, delay = 250): void {
       schedule(runtime, 500);
       return;
     }
+    // prepare/routing await leaves awaitingTurn false; without this gate a second
+    // schedule tick can start another sendTurn and double-count turns.
+    if (runtime.sendTurnInFlight) {
+      schedule(runtime, 500);
+      return;
+    }
+    runtime.sendTurnInFlight = true;
     // sendTurn内のthrowはvoid化されると未処理rejectでWebUIサーバごと落ちる。
     // 回復可能な形（一時停止→再開）に倒しておく。
-    sendTurn(runtime).catch((error) => {
-      console.error("[goal-loop] sendTurn failed:", error);
-      if (!isActiveRuntime(runtime)) return;
-      pauseLoop(
-        runtime,
-        "scheduler_error",
-        `ターンの送信中にエラーが発生しました。${
-          error instanceof Error ? ` ${error.message}` : ` ${String(error)}`
-        }`,
-      );
-    });
+    sendTurn(runtime)
+      .catch((error) => {
+        console.error("[goal-loop] sendTurn failed:", error);
+        if (!isActiveRuntime(runtime)) return;
+        pauseLoop(
+          runtime,
+          "scheduler_error",
+          `ターンの送信中にエラーが発生しました。${
+            error instanceof Error ? ` ${error.message}` : ` ${String(error)}`
+          }`,
+        );
+      })
+      .finally(() => {
+        runtime.sendTurnInFlight = false;
+      });
   }, delay);
   runtime.timer.unref?.();
 }
@@ -1256,6 +1273,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
   runtime.pendingAgentAborted = false;
   runtime.awaitingTurnIndex = undefined;
   runtime.pausedTurnIndex = undefined;
+  if (runtime.timeoutTimer) clearTimeout(runtime.timeoutTimer);
   runtime.timeoutTimer = setTimeout(() => {
     // After a dispose()-without-shutdown replacement, the new session may be
     // running again. A stale watchdog must not pause the shared loop state.
@@ -1342,6 +1360,7 @@ function startLoop(
   runtime.awaitingTurnIndex = undefined;
   runtime.pausedTurnPending = false;
   runtime.pausedTurnIndex = undefined;
+  runtime.sendTurnInFlight = false;
   clearPendingAgentRun(runtime);
 
   const now = isoNow();
@@ -1718,6 +1737,7 @@ export default function (pi: ExtensionAPI): void {
       pausedTurnPending: false,
       pausedTurnIndex: undefined,
       discardAgentSettlements: 0,
+      sendTurnInFlight: false,
       disposed: false,
       pendingAgentAborted: false,
     };

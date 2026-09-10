@@ -3611,6 +3611,139 @@ test("goal-start replacement ignores trailing agent_end from the aborted run", a
   }
 });
 
+test("schedule does not start a second sendTurn while prepare is in flight", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-send-inflight-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  let prepareCalls = 0;
+  let releasePrepare;
+  const prepareGate = new Promise((resolve) => { releasePrepare = resolve; });
+  const stateFile = () => join(cwd, "goals-loop", "send-inflight-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "send-inflight-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+    prepareGoalLoopTurn: async () => {
+      prepareCalls += 1;
+      if (prepareCalls === 1) await prepareGate;
+      return true;
+    },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => prepareCalls === 1);
+
+    // While prepare is blocked, force another schedule tick (e.g. delayed agent_settled).
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    assert.equal(sendCount, 0);
+    assert.equal(prepareCalls, 1);
+
+    releasePrepare();
+    await waitFor(() => sendCount === 1);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    assert.equal(sendCount, 1);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).turnCount, 1);
+  } finally {
+    releasePrepare?.();
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("stopLoop arms at most one discardAgentSettlements wave", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-discard-cap-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "discard-cap-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "discard-cap-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const first = Buffer.from(JSON.stringify({ goal: "first", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(first, ctx);
+    await waitFor(() => sendCount === 1 && JSON.parse(readFileSync(stateFile(), "utf8")).status === "running");
+
+    // Replace twice quickly while busy so stopLoop would previously += discard.
+    const second = Buffer.from(JSON.stringify({ goal: "second", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(second, ctx);
+    const third = Buffer.from(JSON.stringify({ goal: "third", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(third, ctx);
+    await waitFor(() => sendCount >= 2 && JSON.parse(readFileSync(stateFile(), "utf8")).goal === "third");
+
+    // One trailing wave from the aborted run.
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "stale" }) }],
+      }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    const afterStale = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(afterStale.goal, "third");
+    assert.equal(afterStale.progress.length, 0);
+
+    // Live settlement must still apply (discard must not remain > 0).
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "live" }) }],
+      }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    const live = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(live.progress.at(-1)?.summary, "live");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("does not requeue a provider-limit retry after the loop was paused meanwhile", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-pause-race-"));
   const handlers = new Map();
