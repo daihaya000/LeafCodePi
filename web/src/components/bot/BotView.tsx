@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { getJson, sendJson } from "@/lib/client";
 import { notifyBotSidebarChanged } from "@/lib/events";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
@@ -61,6 +63,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [soul, setSoul] = useState("");
+  const [soulEditing, setSoulEditing] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileLabel, setProfileLabel] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -114,6 +117,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
         soulDraftRef.current = result.bot.soul;
         setBot(result.bot);
         setSoul(result.bot.soul);
+        setSoulEditing(false);
         setProfileName(result.bot.name);
         setProfileLabel(result.bot.label);
         setNotificationsEnabled(result.bot.notificationsEnabled);
@@ -604,7 +608,27 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
             <BotAvatarPicker key={bot.id} bot={bot} onChange={updateAvatar} />
             <label className="block text-sm"><span className="font-medium">名前</span><input value={profileName} onChange={(event) => { const value = event.target.value; setProfileName(value); scheduleProfileSave(value, profileLabel); }} aria-label="ボットの名前" className="mt-2 w-full rounded-xl border border-border bg-transparent px-3 py-2.5 text-base outline-none focus:border-accent" /></label>
             <label className="block text-sm"><span className="font-medium text-muted">ラベル</span><input value={profileLabel} onChange={(event) => { const value = event.target.value; setProfileLabel(value); scheduleProfileSave(profileName, value); }} aria-label="ボットのラベル" className="mt-2 w-full rounded-xl border border-border bg-transparent px-3 py-2.5 text-base outline-none focus:border-accent" /></label>
-            <label className="block text-sm text-muted"><span>説明（SOUL.md）</span><textarea aria-label="ボットの説明" value={soul} onChange={(event) => { const value = event.target.value; setSoul(value); scheduleSoulSave(value); }} rows={4} className="mt-2 w-full resize-y rounded-xl border border-border bg-transparent px-3 py-2.5 text-base leading-6 text-text outline-none focus:border-accent" /><span className="mt-1 block text-right text-xs text-muted" role="status" aria-live="polite">{savingSoul ? "保存中…" : "変更は自動保存されます"}</span></label>
+            <div className="block text-sm text-muted">
+              <div className="flex items-center justify-between gap-2">
+                <span>説明（SOUL.md）</span>
+                {!soulEditing && <Button type="button" size="sm" variant="secondary" onClick={() => setSoulEditing(true)}>編集</Button>}
+              </div>
+              {soulEditing ? (
+                <>
+                  <textarea aria-label="ボットの説明" value={soul} onChange={(event) => { const value = event.target.value; setSoul(value); scheduleSoulSave(value); }} rows={4} className="mt-2 w-full resize-y rounded-xl border border-border bg-transparent px-3 py-2.5 text-base leading-6 text-text outline-none focus:border-accent" />
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <span className="text-xs" role="status" aria-live="polite">{savingSoul ? "保存中…" : "変更は自動保存されます"}</span>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setSoulEditing(false)}>表示</Button>
+                  </div>
+                </>
+              ) : soul.trim() ? (
+                <div className="md mt-2 rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-base leading-6 text-text">
+                  <Markdown remarkPlugins={[remarkGfm]}>{soul}</Markdown>
+                </div>
+              ) : (
+                <p className="mt-2 rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm">説明はまだありません。</p>
+              )}
+            </div>
             <div className="flex items-center justify-between gap-4 rounded-2xl bg-surface-2 p-4 text-sm"><span><span className="font-medium">通知</span><span className="mt-1 block text-xs leading-5 text-muted">このBotが完了したとき、または入力が必要になったときに通知</span></span><button type="button" role="switch" aria-label="通知" aria-checked={notificationsEnabled} onClick={() => void updateNotifications(!notificationsEnabled)} className={notificationsEnabled ? "relative h-6 w-11 shrink-0 rounded-full bg-primary" : "relative h-6 w-11 shrink-0 rounded-full bg-surface-3"}><span className={notificationsEnabled ? "absolute left-6 top-1 h-4 w-4 rounded-full bg-primary-fg" : "absolute left-1 top-1 h-4 w-4 rounded-full bg-primary-fg"} /></button></div>
             <div className="flex items-center justify-between gap-4 rounded-2xl bg-surface-2 p-4 text-sm"><span><span className="font-medium">Codeを常に許可</span><span className="mt-1 block text-xs leading-5 text-muted">このBotのCode依頼だけ、承認ダイアログを省略します。</span></span><button type="button" role="switch" aria-label="Codeを常に許可" aria-checked={codeAutoApprove} onClick={() => void updateCodeAutoApprove(!codeAutoApprove)} className={codeAutoApprove ? "relative h-6 w-11 shrink-0 rounded-full bg-primary" : "relative h-6 w-11 shrink-0 rounded-full bg-surface-3"}><span className={codeAutoApprove ? "absolute left-6 top-1 h-4 w-4 shrink-0 rounded-full bg-primary-fg" : "absolute left-1 top-1 h-4 w-4 shrink-0 rounded-full bg-primary-fg"} /></button></div>
             <label className="block text-sm"><span className="font-medium">ツール権限</span><select aria-label="ツール権限" value={permissionMode} onChange={(event) => void updatePermissionMode(event.target.value as NonNullable<BotDto["permissionMode"]>)} className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"><option value="allow">すべて許可</option><option value="ask">実行前に確認</option><option value="deny">すべて拒否</option></select><span className="mt-1 block text-xs text-muted">Botがツールを実行するときの確認方法です。</span></label>

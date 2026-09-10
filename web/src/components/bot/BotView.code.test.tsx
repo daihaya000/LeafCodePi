@@ -343,18 +343,21 @@ it("shows the exact Code command and does not erase a newer approval on response
   expect(mocks.sendJson).toHaveBeenCalledWith("/api/tasks/bot%3Aone/permission", { requestId: "first", approved: true });
 });
 
-it("auto-saves bot profile and description and keeps model selection outside detailed settings", async () => {
+it("renders SOUL.md as Markdown by default and auto-saves after entering edit mode", async () => {
+  const configuredBot = { ...testBot, soul: "# 役割\n\n**簡潔に答える**" };
   mocks.getJson.mockImplementation(async (url: string) => {
     if (url === "/api/models") return { models: [{ value: "model-a", label: "Model A", providerID: "openai", modelID: "model-a" }] };
     if (url.endsWith("/routines")) return { routines: [] };
-    return { bot: testBot };
+    return { bot: configuredBot };
   });
   mocks.sendJson.mockImplementation(async (_url: string, body?: { name?: string; label?: string; soul?: string }) => ({
-    bot: { ...testBot, ...body },
+    bot: { ...configuredBot, ...body },
   }));
 
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
   fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+  expect(screen.getByRole("heading", { name: "役割" })).toBeTruthy();
+  expect(screen.queryByRole("textbox", { name: "ボットの説明" })).toBeNull();
   expect(screen.getByRole("button", { name: "ボットのモデル" }).closest("details")).toBeNull();
   expect(screen.queryByRole("button", { name: "説明を保存" })).toBeNull();
   expect(screen.queryByRole("button", { name: "プロフィールを保存" })).toBeNull();
@@ -362,7 +365,11 @@ it("auto-saves bot profile and description and keeps model selection outside det
   fireEvent.change(screen.getByRole("textbox", { name: "ボットの名前" }), { target: { value: "New Bot" } });
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { name: "New Bot", label: "Label" }, "PATCH"));
 
-  fireEvent.change(screen.getByRole("textbox", { name: "ボットの説明" }), { target: { value: "新しい説明" } });
+  fireEvent.click(screen.getByRole("button", { name: "編集" }));
+  expect(screen.queryByRole("heading", { name: "役割" })).toBeNull();
+  const editor = screen.getByRole("textbox", { name: "ボットの説明" }) as HTMLTextAreaElement;
+  expect(editor.value).toBe("# 役割\n\n**簡潔に答える**");
+  fireEvent.change(editor, { target: { value: "新しい説明" } });
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { soul: "新しい説明" }, "PATCH"));
 });
 
