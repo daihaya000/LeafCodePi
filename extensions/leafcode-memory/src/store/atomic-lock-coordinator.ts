@@ -97,7 +97,18 @@ function probeProcessIncarnation(pid: number): string | null {
   return result.status === 0 ? result.stdout.trim() || null : null;
 }
 
-const currentProcessIncarnation = probeProcessIncarnation(process.pid);
+/**
+ * 自プロセスの incarnation。powershell 起動（Windows で約0.5〜1.5秒）を伴うため
+ * モジュール評価時に実行せず、最初のロック照合で一度だけ解決する。
+ * 値はプロセス内で不変なので、初回評価を遅らせるだけの意味論変更は無い。
+ */
+let currentProcessIncarnation: string | null | undefined;
+function currentProcessIncarnationFor(): string | null {
+  if (currentProcessIncarnation === undefined) {
+    currentProcessIncarnation = probeProcessIncarnation(process.pid);
+  }
+  return currentProcessIncarnation;
+}
 const RELEASE_ATTEMPTS = 3;
 // Opportunistic dead-row GC: a row must be older than the grace period before
 // a dead pid makes it collectable (guards against a pid we cannot observe, and
@@ -118,7 +129,7 @@ export class AtomicLockCoordinator {
   constructor(private readonly dbPath: string, options: AtomicLockCoordinatorOptions = {}) {
     this.pid = options.pid ?? process.pid;
     this.probeIncarnation = options.probeIncarnation
-      ?? ((pid) => pid === process.pid ? currentProcessIncarnation : probeProcessIncarnation(pid));
+      ?? ((pid) => pid === process.pid ? currentProcessIncarnationFor() : probeProcessIncarnation(pid));
     this.incarnation = options.incarnation
       ?? this.probeIncarnation(this.pid)
       ?? null;
