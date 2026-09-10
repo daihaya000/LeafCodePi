@@ -72,7 +72,18 @@ function processStartKey(pid: number): string | undefined {
 	return undefined;
 }
 
-const CURRENT_PROCESS_KEY = processStartKey(process.pid);
+/**
+ * 自プロセスの起動キー。powershell(WMI問い合わせ)の同期起動（約1〜2秒）を伴うため
+ * モジュール評価時に実行せず、ロック照合で最初に必要になった時点で一度だけ解決する。
+ * 値はプロセス内で不変なので、初回評価を遅らせるだけの意味論変更は無い。
+ */
+let CURRENT_PROCESS_KEY: string | undefined;
+function currentProcessKeyFor(): string | undefined {
+	if (CURRENT_PROCESS_KEY === undefined) {
+		CURRENT_PROCESS_KEY = processStartKey(process.pid);
+	}
+	return CURRENT_PROCESS_KEY;
+}
 
 function readStateLockOwner(lockPath: string): StateLockOwner | undefined {
 	try {
@@ -96,7 +107,7 @@ function stateLockIsStale(lockPath: string, now = Date.now()): boolean {
 	if (owner) {
 		if (!isProcessAlive(owner.pid)) return true;
 		if (owner.processKey) {
-			const currentProcessKey = owner.pid === process.pid ? CURRENT_PROCESS_KEY : processStartKey(owner.pid);
+			const currentProcessKey = owner.pid === process.pid ? currentProcessKeyFor() : processStartKey(owner.pid);
 			if (currentProcessKey) return owner.processKey !== currentProcessKey;
 			if (owner.pid === process.pid) return true;
 		}
@@ -181,7 +192,7 @@ function withStateFileLock<T>(filePath: string, operation: () => T): T {
 			waitForStateLock(DEFAULT_FILE_SYSTEM_RETRY_DELAYS_MS[attempt], lockPath);
 			continue;
 		}
-		owner = { pid: process.pid, token: randomUUID(), createdAt: Date.now(), ...(CURRENT_PROCESS_KEY ? { processKey: CURRENT_PROCESS_KEY } : {}) };
+		owner = { pid: process.pid, token: randomUUID(), createdAt: Date.now(), ...(currentProcessKeyFor() ? { processKey: currentProcessKeyFor() } : {}) };
 		try {
 			fs.writeFileSync(path.join(lockPath, "owner.json"), JSON.stringify(owner), { encoding: "utf-8", mode: 0o600 });
 		} catch (error) {
