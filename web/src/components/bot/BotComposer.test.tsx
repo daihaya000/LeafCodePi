@@ -123,6 +123,33 @@ it("does not confirm a suggestion on IME keyCode 229 without compositionStart", 
   expect(input.value).toBe("/skill:r");
 });
 
+it("clears stuck composition on blur so suggestion Enter works again", () => {
+  // compositionEnd 欠落で composingRef が stuck しても、blur で解除して候補確定可能にする。
+  function ReferenceComposer() {
+    const [value, setValue] = useState("/skill:r");
+    return <BotComposer
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onValueChange={setValue}
+      onKeyDown={vi.fn()}
+      onSend={vi.fn()}
+      placeholder="Message"
+      references={{ skills: [{ name: "review", description: "Review changes" }] }}
+    />;
+  }
+
+  render(<ReferenceComposer />);
+  const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+  input.focus();
+  fireEvent.compositionStart(input);
+  fireEvent.blur(input);
+  input.focus();
+  fireEvent.focus(input);
+  expect(screen.getByRole("listbox", { name: "スキル候補" })).toBeTruthy();
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(input.value).toBe("/skill:review ");
+});
+
 it("inserts an at-agent reference and a Japanese skill name", () => {
   function ReferenceComposer() {
     const [value, setValue] = useState("");
