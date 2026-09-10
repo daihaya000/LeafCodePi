@@ -364,6 +364,15 @@ describe("RoomView notifications", () => {
       act(() => pushSnapshot({ room: busyRoom }));
       act(() => pushSnapshot({ room: doneRoom }));
       expect(sent).toEqual(["新しい返信があります"]);
+      // 無効化されたメンバー（通知ON）と通知OFFの有効メンバーだけのRoomでは、答える側がミュートなので通知しない。
+      mocks.getJson.mockImplementation((path: string) => path === "/api/bots" ? Promise.resolve({ bots: [{ ...bot, notificationsEnabled: false }, { id: "bot-2", name: "Beta", enabled: false, notificationsEnabled: true }] }) : Promise.resolve({ room: { ...room, members: [bot.id, "bot-2"] } }));
+      cleanup();
+      render(<RoomView id={room.id} />);
+      await screen.findByRole("textbox");
+      const members = [bot.id, "bot-2"];
+      act(() => pushSnapshot({ room: { ...busyRoom, members } }));
+      act(() => pushSnapshot({ room: { ...doneRoom, members } }));
+      expect(sent).toEqual(["新しい返信があります"]);
     } finally {
       Reflect.deleteProperty(document, "hidden");
     }

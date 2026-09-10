@@ -160,8 +160,12 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     if (typeof Notification === "undefined" || !room) return;
     const busyNow = isRoomBusy(room);
     const attentionNow = attention.length > 0;
-    // A room notification is still governed by the per-Bot toggle: when every member turned it off, stay silent.
-    const anyMemberNotifies = room.members.some((memberId) => bots.find((bot) => bot.id === memberId)?.notificationsEnabled !== false);
+    // A room notification is still governed by the per-Bot toggle: only members that can actually
+    // answer decide it, so a disabled or removed Bot cannot keep a muted room loud.
+    const anyMemberNotifies = room.members.some((memberId) => {
+      const member = bots.find((bot) => bot.id === memberId);
+      return member ? member.enabled !== false && member.notificationsEnabled !== false : false;
+    });
     const kind = decideNotification({
       prevAttention: prevAttentionRef.current, attention: attentionNow,
       prevWorking: prevWorkingRef.current, working: busyNow,
