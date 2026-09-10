@@ -546,6 +546,23 @@ describe("TaskView draft submission", () => {
     expect(input.value).toBe("draft prompt");
   });
 
+  it("clears stuck composition on blur so Ctrl+Enter can send again", async () => {
+    // compositionEnd 欠落で composingRef が stuck しても、blur で解除して送信可能にする。
+    mocks.sendJson.mockResolvedValue({ task });
+    render(<TaskView taskId={task.id} mdUp />);
+    const input = screen.getByRole("textbox", { name: "フォローアップ" }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "draft prompt" } });
+    fireEvent.compositionStart(input);
+    fireEvent.blur(input);
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    await waitFor(() =>
+      expect(mocks.sendJson).toHaveBeenCalledWith(
+        `/api/tasks/${task.id}/prompt`,
+        expect.objectContaining({ prompt: "draft prompt" }),
+      ),
+    );
+  });
+
   it("preserves a new draft while starting a goal loop", async () => {
     let resolve!: (value: unknown) => void;
     mocks.sendJson.mockReturnValue(new Promise((done) => { resolve = done; }));
