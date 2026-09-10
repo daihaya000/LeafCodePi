@@ -120,6 +120,20 @@ describe("Bot mode list", () => {
 });
 
 describe("Bot mode collapsed rail", () => {
+  it("shows a user-facing error when Bot and Room loading fails", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots/sidebar") return Promise.reject(new Error("Bot一覧の取得に失敗しました"));
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Bot一覧の取得に失敗しました");
+  });
+
   it("animates a Bot with an in-progress Code session", async () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [{ id: "bot-a", name: "Bot A", enabled: true, codeInProgress: true, lastMessageSummary: null, lastMessageAt: null }], rooms: [] });

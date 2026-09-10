@@ -249,6 +249,7 @@ function BotSidebarBody({
   const [query, setQuery] = useState("");
   const [listFilter, setListFilter] = useState<BotListFilter>("all");
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const refreshGenerationRef = useRef(0);
   const refresh = useCallback(() => {
     const generation = ++refreshGenerationRef.current;
@@ -257,10 +258,18 @@ function BotSidebarBody({
     })
       .then((result) => {
         if (generation !== refreshGenerationRef.current) return;
+        setLoadError(null);
         setBots(result.bots);
         setRooms(result.rooms);
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        if (generation !== refreshGenerationRef.current) return;
+        setLoadError(
+          error instanceof Error && error.message
+            ? error.message
+            : "Botとルームの読み込みに失敗しました",
+        );
+      });
     void getJson<HealthDto>("/api/health").then(setHealth).catch(() => undefined);
   }, []);
   useEffect(() => {
@@ -306,6 +315,11 @@ function BotSidebarBody({
             <Menu className="h-5 w-5 text-muted" />
           </button>
         </div>
+        {loadError && (
+          <p role="alert" className="w-full break-words px-1 py-2 text-center text-[10px] text-danger">
+            {loadError}
+          </p>
+        )}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
           <ul className="flex flex-col items-center gap-3">
             {rooms.map((room) => {
@@ -450,6 +464,7 @@ function BotSidebarBody({
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         <ModeSegment mode="bot" onChange={onChangeMode} />
         <label className="mb-2 flex h-9 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 text-xs text-muted focus-within:border-accent"><Search className="h-3.5 w-3.5 shrink-0" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={"\u30dc\u30c3\u30c8\u3084\u30eb\u30fc\u30e0\u3092\u691c\u7d22"} aria-label={"\u30dc\u30c3\u30c8\u3084\u30eb\u30fc\u30e0\u3092\u691c\u7d22"} className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint" /></label>
+        {loadError && <p role="alert" className="mb-2 rounded-lg border border-danger/30 bg-danger-bg px-2.5 py-2 text-xs text-danger">{loadError}</p>}
         <div className="mb-2 flex gap-1 px-0.5" role="group" aria-label={"\u8868\u793a\u5bfe\u8c61"}>{([['all', '\u3059\u3079\u3066'], ['bots', 'Bot'], ['rooms', '\u30eb\u30fc\u30e0']] as const).map(([value, label]) => <button key={value} type="button" aria-label={value === "bots" ? "Bot filter" : value === "rooms" ? "Room filter" : "All filter"} aria-pressed={listFilter === value} onClick={() => setListFilter(value)} className={`rounded-full px-2.5 py-1 text-[11px] ${listFilter === value ? "bg-accent/10 font-medium text-accent" : "text-muted hover:bg-surface-2"}`}>{label}</button>)}</div>
         <div className="flex items-center justify-between px-2 py-1"><span className="text-xs font-medium text-muted">ルーム</span><Link href="/bots" onClick={onClose} className="text-xs text-accent">すべて</Link></div>
         <div className="mt-1 space-y-1">{visibleRooms.map((room) => <button key={room.id} type="button" draggable={mdUp} onDragStart={(event) => setTaskDragData(event.dataTransfer, `/bots/rooms/${encodeURIComponent(room.id)}`)} onClick={() => { router.push(`/bots/rooms/${encodeURIComponent(room.id)}`); onClose(); }} aria-current={pathname === `/bots/rooms/${room.id}` ? "page" : undefined} className={`relative flex w-full min-w-0 items-center gap-2 rounded-xl px-2.5 py-1 text-left hover:bg-surface-2 ${pathname === `/bots/rooms/${room.id}` ? "bg-surface-2 ring-1 ring-inset ring-accent/20" : ""}`}><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-success-bg text-xs text-success">#</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-tight">{room.name}</span><span className="block truncate text-xs leading-tight text-muted">{room.lastMessageSummary ?? "\u30e1\u30c3\u30bb\u30fc\u30b8\u306a\u3057"}</span></span>{pathname !== `/bots/rooms/${room.id}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id)) && <span aria-label={"\u672a\u8aad"} title={"\u672a\u8aad"} className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}<span className="shrink-0 self-start pt-0.5 text-xs text-muted">{timeAgo(room.lastMessageAt ?? room.updatedAt)}</span></button>)}{visibleRooms.length === 0 && <p className="px-2 py-2 text-xs text-muted">ルームはありません</p>}</div>
