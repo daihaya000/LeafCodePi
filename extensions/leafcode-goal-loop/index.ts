@@ -1385,13 +1385,13 @@ export default function (pi: ExtensionAPI): void {
     runtimes.set(key, runtime);
 
     const loop = currentLoop(runtime);
-    if (loop?.status === "running" || loop?.status === "verifying_completed") {
-      // A persisted running state may have a reply that landed during a
-      // process/session restart. Let resume inspect the marked branch before
-      // issuing a replacement prompt.
-      runtime.pausedTurnPending = loop.status === "running";
+    if (loop?.status === "running") {
+      // Only running has an in-flight prompt that needs manual recovery.
+      // verifying_completed is an unsent verification turn, like queued; account
+      // or agent routing can reopen the session before that turn is delivered.
+      runtime.pausedTurnPending = true;
       loop.status = "paused";
-      loop.pauseReason = "user";
+      loop.pauseReason = "";
       loop.error = "セッション再開時は自動継続しません。/goal-resume で再開してください。";
       writeLoop(loop);
     }
@@ -1493,7 +1493,7 @@ export default function (pi: ExtensionAPI): void {
       clearTimer(current);
       current.awaitingTurn = false;
       loop.status = "paused";
-      loop.pauseReason = "user";
+      loop.pauseReason = "";
       loop.error = "セッション終了時に一時停止しました。";
       writeLoop(loop);
     }
