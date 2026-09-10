@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HostRestartPanel } from "./HostRestartPanel";
 
@@ -61,5 +61,31 @@ describe("HostRestartPanel", () => {
     expect(
       (screen.getByRole("button", { name: "WebUI を再起動" }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+
+  it("トレイホストの再起動ではWebUI再起動イベントを発火しない", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ running: true }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, target: "host", accepted: true }, 202))
+      .mockResolvedValueOnce(jsonResponse({ engineOk: true, startedAt: 1 }));
+    const restartEvent = vi.fn();
+    window.addEventListener("leafcode:webui-restart", restartEvent);
+    try {
+      const onRestarted = vi.fn();
+      render(<HostRestartPanel onRestarted={onRestarted} />);
+      await waitFor(() => {
+        expect(
+          (screen.getByRole("button", { name: "トレイホストを再起動" }) as HTMLButtonElement).disabled,
+        ).toBe(false);
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "トレイホストを再起動" }));
+      fireEvent.click(screen.getByRole("button", { name: "再起動する" }));
+
+      await waitFor(() => expect(onRestarted).toHaveBeenCalled(), { timeout: 3_000 });
+      expect(restartEvent).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("leafcode:webui-restart", restartEvent);
+    }
   });
 });

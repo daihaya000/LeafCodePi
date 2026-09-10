@@ -78,7 +78,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           [data.error, data.hint].filter(Boolean).join(" — ") || "再起動に失敗しました",
         );
       }
-      window.dispatchEvent(new Event("leafcode:webui-restart"));
+      if (target === "webui") window.dispatchEvent(new Event("leafcode:webui-restart"));
       const deadline = Date.now() + HEALTH_BUDGET_MS;
       let success = false;
       while (Date.now() < deadline) {
