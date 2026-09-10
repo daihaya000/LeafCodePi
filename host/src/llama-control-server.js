@@ -35,19 +35,27 @@ function localClientCorsHeaders(req, handlers) {
   };
 }
 
+const IPV4_OCTET = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
+
 /** @param {string | undefined} hostHeader @param {number} port */
 export function isLoopbackHostHeader(hostHeader, port) {
   if (!hostHeader || typeof hostHeader !== "string") return false;
   const host = hostHeader.trim().toLowerCase();
+  const withPort = port > 0 ? `:${port}` : "";
   const allowed = new Set([
     "127.0.0.1",
     "localhost",
     "[::1]",
-    `127.0.0.1:${port}`,
-    `localhost:${port}`,
-    `[::1]:${port}`,
+    `127.0.0.1${withPort}`,
+    `localhost${withPort}`,
+    `[::1]${withPort}`,
   ]);
-  return allowed.has(host);
+  if (allowed.has(host)) return true;
+  // 127.0.0.0/8 は全てループバック（web 側 isLoopbackHost と同一判定）。
+  // 他ポートを名乗る Host ヘッダは許可しない（プロキシ経由の迂回を防ぐ）。
+  return new RegExp(
+    `^127\\.${IPV4_OCTET}\\.${IPV4_OCTET}\\.${IPV4_OCTET}(?:${withPort})?$`,
+  ).test(host);
 }
 
 async function readJsonBody(req, maxBytes = 16_384) {

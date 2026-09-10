@@ -25,6 +25,19 @@ test("isLoopbackHostHeader accepts loopback with port", () => {
   assert.equal(isLoopbackHostHeader("evil.example:18775", 18775), false);
 });
 
+test("isLoopbackHostHeader accepts the whole 127/8 range on the control port", () => {
+  assert.equal(isLoopbackHostHeader("127.0.0.2:18775", 18775), true);
+  assert.equal(isLoopbackHostHeader("127.0.0.2", 18775), true);
+  assert.equal(isLoopbackHostHeader("127.255.255.255:18775", 18775), true);
+});
+
+test("isLoopbackHostHeader rejects other ports and malformed hosts", () => {
+  assert.equal(isLoopbackHostHeader("127.0.0.1:9999", 18775), false);
+  assert.equal(isLoopbackHostHeader("127.0.0.256:18775", 18775), false);
+  assert.equal(isLoopbackHostHeader("127.0.0.1.evil.com", 18775), false);
+  assert.equal(isLoopbackHostHeader("10.0.0.5:18775", 18775), false);
+});
+
 test("local-client Explorer endpoint requires an allowed origin and local header", async () => {
   let opened = null;
   const port = await freePort();
