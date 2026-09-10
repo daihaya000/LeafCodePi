@@ -28,6 +28,7 @@ import {
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
+import { isImeComposingEvent } from "@/lib/composer-ime";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { DiffPane } from "@/components/task/DiffPane";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
@@ -3051,7 +3052,12 @@ export const TaskView = memo(function TaskView({
               composingRef.current = false;
             },
             onKeyDown: (event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !composingRef.current) {
+              if (
+                event.key === "Enter" &&
+                (event.metaKey || event.ctrlKey) &&
+                !composingRef.current &&
+                !isImeComposingEvent(event)
+              ) {
                 event.preventDefault();
                 void submit();
               }

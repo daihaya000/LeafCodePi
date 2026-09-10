@@ -24,6 +24,7 @@ import {
   findComposerReferenceToken,
   type ComposerReference,
 } from "@/lib/composer-references";
+import { isImeComposingEvent } from "@/lib/composer-ime";
 import { renderHighlightedReferenceText } from "@/components/ReferenceHighlight";
 
 export type { ComposerReference } from "@/lib/composer-references";
@@ -366,11 +367,13 @@ export function Composer({
           }}
           onBlur={(event) => {
             setFocused(false);
+            // compositionEnd 欠落で stuck すると候補確定ショートカットが死ぬ
+            composingRef.current = false;
             textarea.onBlur?.(event);
           }}
           onScroll={handleScroll}
           onKeyDown={(event) => {
-            if (showSuggestions && !composingRef.current) {
+            if (showSuggestions && !composingRef.current && !isImeComposingEvent(event)) {
               if (event.key === "ArrowDown") {
                 event.preventDefault();
                 setActiveSuggestion((index) => (index + 1) % suggestions.length);

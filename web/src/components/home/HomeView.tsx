@@ -15,6 +15,7 @@ import {
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { NextTaskSuggest } from "@/components/home/NextTaskSuggest";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
+import { isImeComposingEvent } from "@/lib/composer-ime";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
@@ -453,8 +454,18 @@ export function HomeView({
                 onCompositionEnd: () => {
                   composingRef.current = false;
                 },
+                onBlur: () => {
+                  // composition 中にフォーカスが外れると compositionEnd が来ない
+                  // ことがあり、stuck true で Ctrl+Enter 送信が永久に無効化される
+                  composingRef.current = false;
+                },
                 onKeyDown: (event) => {
-                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !composingRef.current) {
+                  if (
+                    event.key === "Enter" &&
+                    (event.metaKey || event.ctrlKey) &&
+                    !composingRef.current &&
+                    !isImeComposingEvent(event)
+                  ) {
                     event.preventDefault();
                     void submit();
                   }

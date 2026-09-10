@@ -211,4 +211,48 @@ describe("Composer", () => {
     expect(textarea.value).toBe("@reviewer ");
     expect(document.querySelector('[aria-hidden="true"] .text-primary')).toBeTruthy();
   });
+
+  it("does not confirm a suggestion while IME is composing", () => {
+    function ReferenceComposer() {
+      const [value, setValue] = useState("/skill:r");
+      const textareaRef = useRef<HTMLTextAreaElement>(null);
+      const inputRef = useRef<HTMLInputElement>(null);
+      return (
+        <Composer
+          className=""
+          attachments={[]}
+          onRemoveAttachment={() => {}}
+          references={{
+            skills: [{ name: "review", description: "Review changes" }],
+          }}
+          textarea={{
+            ref: textareaRef,
+            value,
+            rows: 1,
+            ariaLabel: "メッセージ",
+            placeholder: "入力",
+            className: "",
+            onChange: (event) => setValue(event.target.value),
+            onValueChange: setValue,
+            onKeyDown: () => {},
+          }}
+          attachmentControl={{
+            inputRef,
+            buttonTitle: "画像を添付",
+            onFilesSelected: () => {},
+            onTrigger: () => {},
+          }}
+          toolbar={null}
+          action={null}
+        />
+      );
+    }
+
+    render(<ReferenceComposer />);
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    textarea.focus();
+    fireEvent.compositionStart(textarea);
+    fireEvent.keyDown(textarea, { key: "Enter", isComposing: true });
+    expect(textarea.value).toBe("/skill:r");
+  });
 });
