@@ -533,11 +533,16 @@ function lateTurnResult(runtime: Runtime, loop: GoalLoop): GoalLoopProgress | nu
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = asRecord(entries[index]);
     const details = asRecord(entry?.details);
+    // Require the interrupted turn's own prompt. A sendMessage() sync failure can
+    // pause as unknown_delivery after turnCount increments but before the custom
+    // message is enqueued; matching an older prompt would falsely "recover" and
+    // bypass the no-resend contract.
     if (
       entry?.type === "custom_message" &&
       (entry.customType === "leafcode-goal-turn" || entry.customType === "leafcode-goal-verification") &&
       details?.goalId === loop.id &&
-      details.kind === loop.turnKind
+      details.kind === loop.turnKind &&
+      Number(details.turn) === loop.turnCount
     ) {
       promptIndex = index;
       break;
@@ -1193,19 +1198,30 @@ async function sendTurn(runtime: Runtime): Promise<void> {
     );
   } catch (error) {
     clearTimer(runtime);
+    // sendMessage may throw after we already flipped to running/awaitingTurn.
+    // Always leave a paused unknown_delivery state — never stay running with a
+    // live awaitingTurn flag after a delivery exception.
     const current = currentLoop(runtime);
-    if (current) {
+    if (current && !TERMINAL.has(current.status)) {
       // sendMessage() is a non-idempotent enqueue. A synchronous exception can
       // still occur after the runtime accepted the message, so never roll back
       // the turn and retry automatically. Pause until the user explicitly
       // resumes, matching LeafCode's unknown-delivery contract.
-      pauseLoop(
-        runtime,
-        "unknown_delivery",
-        `プロンプトの送達を確認できないため、重複送信を防止して一時停止しました。${
-          error instanceof Error ? ` ${error.message}` : ` ${String(error)}`
-        }`,
-      );
+      if (current.status !== "paused" || current.pauseReason !== "unknown_delivery") {
+        pauseLoop(
+          runtime,
+          "unknown_delivery",
+          `プロンプトの送達を確認できないため、重複送信を防止して一時停止しました。${
+            error instanceof Error ? ` ${error.message}` : ` ${String(error)}`
+          }`,
+        );
+      } else {
+        runtime.awaitingTurn = false;
+        runtime.awaitingTurnIndex = undefined;
+      }
+    } else {
+      runtime.awaitingTurn = false;
+      runtime.awaitingTurnIndex = undefined;
     }
   }
 }
@@ -1390,7 +1406,11 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
       return true;
     }
     if (loop.pauseReason === "unknown_delivery") {
+      // Keep pendingTurnRecovery so a later resume can still pick up a real
+      // transcript result for THIS turnCount if delivery actually happened.
       runtime.ctx.ui.notify("送達が確認できないため再送しません。新しい Goal loop を開始してください。", "warning");
+      writeLoop(loop);
+      updateUI(runtime, loop);
       return false;
     }
     runtime.pausedTurnPending = false;

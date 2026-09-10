@@ -1551,6 +1551,105 @@ test("resume recovers a late transcript result and schedules the next turn", asy
   }
 });
 
+test("unknown_delivery refuses resume resend and does not reuse an older turn result", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-unknown-delivery-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  const notices = [];
+  const branch = [];
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "unknown-delivery-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "unknown-delivery-session",
+      getBranch: () => branch,
+    },
+    ui: {
+      setStatus: () => {},
+      setWidget: () => {},
+      notify: (message, level) => notices.push({ message, level }),
+    },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage(message) {
+        sendCount += 1;
+        if (sendCount === 1) {
+          busy = true;
+          branch.push({
+            type: "custom_message",
+            customType: message.customType,
+            details: message.details,
+            content: message.content,
+          });
+          return;
+        }
+        // Second enqueue throws before the custom message is appended.
+        throw new Error("enqueue failed after accept?");
+      },
+    });
+
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sendCount === 1 && JSON.parse(readFileSync(stateFile(), "utf8")).status === "running");
+
+    // Complete turn 1 normally so an older prompt+result exists in the branch.
+    branch.push({
+      type: "message",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "turn1 done" }) }],
+      },
+    });
+    busy = false;
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "turn1 done" }) }],
+      }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    await waitFor(() => JSON.parse(readFileSync(stateFile(), "utf8")).status === "paused");
+
+    const failed = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(failed.pauseReason, "unknown_delivery");
+    assert.equal(failed.turnCount, 2);
+    assert.equal(failed.pendingTurnRecovery, true);
+    assert.equal(failed.progress.at(-1)?.summary, "turn1 done");
+    // Failed enqueue must not append a second prompt.
+    assert.equal(branch.filter((entry) => entry.type === "custom_message").length, 1);
+    assert.equal(sendCount, 2);
+
+    const before = notices.length;
+    await commands.get("goal-resume")?.("", ctx);
+    const afterResume = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(afterResume.status, "paused");
+    assert.equal(afterResume.pauseReason, "unknown_delivery");
+    assert.equal(afterResume.turnCount, 2);
+    assert.equal(afterResume.progress.length, failed.progress.length);
+    assert.equal(sendCount, 2);
+    assert.ok(notices.slice(before).some((item) => /再送しません/.test(item.message)));
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("plain resume at the turn budget is rejected and a raised limit resumes it", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-budget-resume-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
