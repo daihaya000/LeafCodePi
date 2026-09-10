@@ -1,12 +1,18 @@
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { GoalLoopDto } from "@/lib/types";
+import { dataDir } from "@/lib/paths";
 import {
   clampGoalLoopCooldownSeconds,
   clampGoalLoopMaxTurns,
 } from "@/lib/goal-loop-settings";
 
-export const GOAL_LOOP_DIR = ".pi/goals-loop";
+/**
+ * 状態はプロジェクト配下に置かない（LeafCodePiはプロジェクト内 .pi を許可しない）。
+ * Pi拡張側（extensions/leafcode-goal-loop/index.ts の goalsDir()）と同じ基底：
+ * dataDir()/goals-loop/<sessionId>.json。LEAFCODE_PI_DATA_DIRで両側を一括上書きする。
+ */
+const GOAL_LOOP_DIR = "goals-loop";
 
 type GoalLoopCacheEntry = {
   mtimeMs: number;
@@ -43,9 +49,10 @@ export function isGoalLoopLiveStatus(
   return Boolean(status && (GOAL_LOOP_LIVE_STATUSES as readonly string[]).includes(status));
 }
 
-export function goalLoopStateFile(cwd: string, sessionId: string): string {
+/** cwd引数は呼び出し元互換のため残す。状態配置はグローバルでcwd非依存。 */
+export function goalLoopStateFile(_cwd: string, sessionId: string): string {
   const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120) || "session";
-  return join(cwd, GOAL_LOOP_DIR, `${safeId}.json`);
+  return join(dataDir(), GOAL_LOOP_DIR, `${safeId}.json`);
 }
 
 export function readGoalLoopState(cwd: string, sessionId: string | null | undefined): GoalLoopDto | null {

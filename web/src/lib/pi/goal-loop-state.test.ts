@@ -4,9 +4,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { isGoalLoopLiveStatus, readGoalLoopState } from "./goal-loop-state";
 
+const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
 const tempDirs: string[] = [];
 
 afterEach(() => {
+  if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+  else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -14,7 +17,9 @@ describe("readGoalLoopState", () => {
   it("reloads the state after the state file changes", () => {
     const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-"));
     tempDirs.push(cwd);
-    const stateDir = join(cwd, ".pi", "goals-loop");
+    process.env.LEAFCODE_PI_DATA_DIR = cwd;
+    // 状態はプロジェクト配下ではなく dataDir()/goals-loop に置かれる。
+    const stateDir = join(cwd, "goals-loop");
     mkdirSync(stateDir, { recursive: true });
     const file = join(stateDir, "session.json");
     const base = {

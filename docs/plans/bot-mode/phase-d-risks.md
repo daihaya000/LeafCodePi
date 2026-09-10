@@ -4,7 +4,7 @@
 `docs/plans/bot-mode/IMPROVEMENT_PLAN.md` は Phase D を event trigger・rich scheduling・guarded Bot-to-Bot workflow の検討とし、Goal Loop 統合は別設計と明記している。Bot routines と Goal Loop は混ぜない。
 
 ## 危険点
-- Goal Loop は `.pi/goals-loop/<session>.json` を状態源にし、`queued/running/verifying_completed` を live と判定する（`lib/pi/goal-loop-state.ts`, `harness.ts`）。状態ファイル更新と session event/SSE の順序がずれると、UI の live/paused 表示、二重 resume、古い progress の危険がある。
+- Goal Loop は `%APPDATA%\leafcode-pi\goals-loop/<session>.json`（dataDir() 基準・プロジェクト内には置かない。拡張側は extensions/leafcode-goal-loop/index.ts の goalsDir()）を状態源にし、`queued/running/verifying_completed` を live と判定する（`lib/pi/goal-loop-state.ts`, `harness.ts`）。状態ファイル更新と session event/SSE の順序がずれると、UI の live/paused 表示、二重 resume、古い progress の危険がある。
 - `goalLoopCommand()` は通常の `queuePrompt()` を通らず `live.session.prompt('/goal-*')` を直接呼ぶ。直前の chat hang-watch を残すと旧 prompt が Goal を abort する既知不具合があり、現在は prompt 直前に `disarmTaskHangWatch()` している。新しい command/trigger でも同じ境界を守る。
 - Goal Loop は通常 chat の prompt queue、follow-up、silent resume と競合しうる。TaskView は goal live 中の送信を拒否し、resume では `stopRequested` を解除するが、将来の自動 trigger は per-task lock と state transition 検証なしに追加しない。
 - 手動 stop / hang watchdog は assistant ID または空文字 sentinel を保存し、自動 compaction、SSE ready buffer、silent resume を抑止する。persist→emit→abort の順序、`hang_abort/hang_idle`、stale `isStreaming` の扱いを壊すと「停止後も working」「再開 UI 消失」「二重 prompt」になる。

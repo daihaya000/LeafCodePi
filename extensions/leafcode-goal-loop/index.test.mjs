@@ -56,6 +56,7 @@ test("normalizes acceptance criteria", () => {
 
 test("normal mode requires a verification turn", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   try {
     const loop = {
       id: "session",
@@ -91,6 +92,7 @@ test("normal mode requires a verification turn", () => {
 
 test("full-run ignores early completion and stops at the turn limit", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   try {
     const loop = {
       id: "session",
@@ -124,6 +126,7 @@ test("full-run ignores early completion and stops at the turn limit", () => {
 
 test("completes a turn-limited loop and allows a new loop", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-complete-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
   const commands = new Map();
   const notices = [];
@@ -184,7 +187,7 @@ test("completes a turn-limited loop and allows a new loop", async () => {
 
     await commands.get("goal-complete")?.("", ctx);
     const completed = JSON.parse(
-      readFileSync(join(cwd, ".pi", "goals-loop", "complete-session.json"), "utf8"),
+      readFileSync(join(cwd, "goals-loop", "complete-session.json"), "utf8"),
     );
     assert.equal(completed.status, "completed");
     assert.match(notices.at(-1).message, /新しい Goal loop/);
@@ -192,7 +195,7 @@ test("completes a turn-limited loop and allows a new loop", async () => {
     const payload = Buffer.from(JSON.stringify({ goal: "new goal", maxTurns: 1, autoAgent: true })).toString("base64url");
     await commands.get("goal-start")?.(payload, ctx);
     const restarted = JSON.parse(
-      readFileSync(join(cwd, ".pi", "goals-loop", "complete-session.json"), "utf8"),
+      readFileSync(join(cwd, "goals-loop", "complete-session.json"), "utf8"),
     );
     assert.equal(restarted.goal, "new goal");
     assert.equal(restarted.autoAgent, true);
@@ -205,6 +208,7 @@ test("completes a turn-limited loop and allows a new loop", async () => {
 
 test("keeps the loop alive once when the result JSON is missing", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-missing-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   try {
     const loop = {
       id: "session",
@@ -246,6 +250,7 @@ test("keeps the loop alive once when the result JSON is missing", () => {
 
 test("keeps a missing verification result in the verification phase", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-missing-verification-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   try {
     const loop = {
       id: "session",
@@ -289,6 +294,7 @@ test("keeps a missing verification result in the verification phase", () => {
 
 test("resets the unreadable streak after a readable result", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-recover-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   try {
     const loop = {
       id: "session",
@@ -325,6 +331,7 @@ test("resets the unreadable streak after a readable result", () => {
 
 test("unlimited mode does not pause at zero", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   try {
     const loop = {
       id: "session",
@@ -359,6 +366,7 @@ test("unlimited mode does not pause at zero", () => {
 
 test("pauses after two rejected verification claims", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   try {
     const loop = {
       id: "session",
@@ -394,6 +402,7 @@ test("pauses after two rejected verification claims", () => {
 
 test("retries queued work when agent_settled is delayed", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-delayed-settled-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
   const commands = new Map();
   let busy = false;
@@ -455,6 +464,7 @@ test("retries queued work when agent_settled is delayed", async () => {
 
 test("waits for agent_end so tool turns do not stop the loop before the result JSON", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-live-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
   const commands = new Map();
   let busy = false;
@@ -540,7 +550,7 @@ test("waits for agent_end so tool turns do not stop the loop before the result J
     await new Promise((resolve) => setTimeout(resolve, 1200));
 
     const loop = JSON.parse(
-      readFileSync(join(cwd, ".pi", "goals-loop", "live-session.json"), "utf8"),
+      readFileSync(join(cwd, "goals-loop", "live-session.json"), "utf8"),
     );
     assert.equal(sendCount, 2);
     assert.equal(prepareCount, 2);
@@ -558,6 +568,7 @@ test("waits for agent_end so tool turns do not stop the loop before the result J
 
 test("retries a missing result on the final bounded turn without consuming another turn", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-missing-final-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
   const commands = new Map();
   let busy = false;
@@ -614,7 +625,7 @@ test("retries a missing result on the final bounded turn without consuming anoth
     await new Promise((resolve) => setTimeout(resolve, 1200));
 
     const loop = JSON.parse(
-      readFileSync(join(cwd, ".pi", "goals-loop", "missing-final-session.json"), "utf8"),
+      readFileSync(join(cwd, "goals-loop", "missing-final-session.json"), "utf8"),
     );
     assert.equal(sendCount, 2);
     assert.equal(loop.turnCount, 1);
@@ -629,6 +640,7 @@ test("retries a missing result on the final bounded turn without consuming anoth
 
 test("does not finalize before a compaction retry has fully settled", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-compaction-retry-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
   const commands = new Map();
   let busy = false;
@@ -690,7 +702,7 @@ test("does not finalize before a compaction retry has fully settled", async () =
     await new Promise((resolve) => setTimeout(resolve, 1200));
 
     const loop = JSON.parse(
-      readFileSync(join(cwd, ".pi", "goals-loop", "compaction-retry-session.json"), "utf8"),
+      readFileSync(join(cwd, "goals-loop", "compaction-retry-session.json"), "utf8"),
     );
     assert.equal(sendCount, 1);
     assert.equal(loop.status, "blocked");
@@ -703,6 +715,7 @@ test("does not finalize before a compaction retry has fully settled", async () =
 
 test("requeues a Goal loop provider-limit turn when a fallback route is available", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-provider-fallback-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
   const commands = new Map();
   let busy = false;
@@ -756,7 +769,7 @@ test("requeues a Goal loop provider-limit turn when a fallback route is availabl
     await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
 
     const loop = JSON.parse(
-      readFileSync(join(cwd, ".pi", "goals-loop", "provider-fallback-session.json"), "utf8"),
+      readFileSync(join(cwd, "goals-loop", "provider-fallback-session.json"), "utf8"),
     );
     assert.equal(canRetryCount, 1);
     assert.equal(sendCount, 1);
@@ -771,6 +784,7 @@ test("requeues a Goal loop provider-limit turn when a fallback route is availabl
 
 test("pauses a Goal loop after a final provider error instead of scheduling another turn", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-provider-error-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
   const commands = new Map();
   let busy = false;
@@ -820,7 +834,7 @@ test("pauses a Goal loop after a final provider error instead of scheduling anot
     await new Promise((resolve) => setTimeout(resolve, 1200));
 
     const loop = JSON.parse(
-      readFileSync(join(cwd, ".pi", "goals-loop", "provider-error-session.json"), "utf8"),
+      readFileSync(join(cwd, "goals-loop", "provider-error-session.json"), "utf8"),
     );
     assert.equal(sendCount, 1);
     assert.equal(loop.status, "paused");
@@ -834,6 +848,7 @@ test("pauses a Goal loop after a final provider error instead of scheduling anot
 
 test("keeps a manually stopped loop terminal after the aborted run settles", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-stop-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
   const commands = new Map();
   let busy = false;
@@ -877,7 +892,7 @@ test("keeps a manually stopped loop terminal after the aborted run settles", asy
     await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
 
     const loop = JSON.parse(
-      readFileSync(join(cwd, ".pi", "goals-loop", "stop-session.json"), "utf8"),
+      readFileSync(join(cwd, "goals-loop", "stop-session.json"), "utf8"),
     );
     assert.equal(loop.status, "stopped");
   } finally {
@@ -897,11 +912,12 @@ async function waitFor(predicate, timeoutMs = 2000) {
 
 test("applies a result that lands after a turn_timeout pause instead of losing it", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-turn-timeout-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
   const commands = new Map();
   let busy = false;
   let sendCount = 0;
-  const stateFile = () => join(cwd, ".pi", "goals-loop", "turn-timeout-session.json");
+  const stateFile = () => join(cwd, "goals-loop", "turn-timeout-session.json");
 
   const ctx = {
     cwd,
@@ -977,12 +993,13 @@ test("applies a result that lands after a turn_timeout pause instead of losing i
 
 test("plain resume at the turn budget is rejected and a raised limit resumes it", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-budget-resume-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
   const commands = new Map();
   const notices = [];
   let busy = false;
   let sendCount = 0;
-  const stateFile = () => join(cwd, ".pi", "goals-loop", "budget-resume-session.json");
+  const stateFile = () => join(cwd, "goals-loop", "budget-resume-session.json");
 
   const ctx = {
     cwd,
@@ -1052,6 +1069,138 @@ test("plain resume at the turn budget is rejected and a raised limit resumes it"
     assert.equal(loop.turnCount, 2);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("stops a replaced runtime from double-sending queued work", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-replaced-"));
+  const stateFile = () => join(cwd, "goals-loop", "replaced-session.json");
+  const makeEnv = () => ({
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "replaced-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  });
+  const makePi = () => ({
+    handlers: new Map(),
+    commands: new Map(),
+    on(name, handler) { this.handlers.set(name, handler); },
+    registerCommand(name, options) { this.commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage() { sendCount += 1; busy = true; },
+  });
+  const instances = [];
+  let busy = true;
+  let sendCount = 0;
+
+  try {
+    process.env.LEAFCODE_PI_DATA_DIR = cwd;
+    // 旧ランタイム（A）をqueuedで待機させ、その後にセッション置換相当で新ラン
+    // タイム（B）を同一キーで登録する。Aが持ち続けたタイマーは送信してはならない。
+    const piA = makePi();
+    goalLoopExtension(piA);
+    const ctxA = makeEnv();
+    instances.push({ pi: piA, ctx: ctxA });
+    await piA.handlers.get("session_start")?.({}, ctxA);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 2 })).toString("base64url");
+    await piA.commands.get("goal-start")?.(payload, ctxA);
+
+    const piB = makePi();
+    goalLoopExtension(piB);
+    const ctxB = makeEnv();
+    instances.push({ pi: piB, ctx: ctxB });
+    await piB.handlers.get("session_start")?.({}, ctxB);
+
+    busy = false;
+    await waitFor(() => sendCount === 1);
+    await piB.commands.get("goal-stop")?.("", ctxB);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    assert.equal(sendCount, 1);
+    const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(loop.status, "stopped");
+  } finally {
+    for (const { pi, ctx } of instances) {
+      await pi.handlers.get("session_shutdown")?.({}, ctx);
+    }
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("does not requeue a provider-limit retry after the loop was paused meanwhile", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-pause-race-"));
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "pause-race-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "pause-race-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+    canRetryGoalLoopProviderLimit: async () => {
+      // 再評価の待ち時間中にユーザーが一時停止した状況を再現する。
+      await commands.get("goal-pause")?.("", ctx);
+      return true;
+    },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand(name, options) { commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage() {
+      sendCount += 1;
+      busy = true;
+      void (async () => {
+        busy = false;
+        await handlers.get("agent_end")?.({
+          type: "agent_end",
+          messages: [{ role: "assistant", stopReason: "error", errorMessage: "provider failed", content: [] }],
+        }, ctx);
+        await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+      })();
+    },
+  };
+
+  try {
+    process.env.LEAFCODE_PI_DATA_DIR = cwd;
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 2 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sendCount === 1);
+    await waitFor(() => {
+      const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+      return loop.status === "paused" && loop.pauseReason === "user";
+    });
+    // await後の書き戻しでqueuedに戻って再送信されてはならない。
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(loop.status, "paused");
+    assert.equal(loop.pauseReason, "user");
+    assert.equal(sendCount, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    delete process.env.LEAFCODE_PI_DATA_DIR;
     rmSync(cwd, { recursive: true, force: true });
   }
 });

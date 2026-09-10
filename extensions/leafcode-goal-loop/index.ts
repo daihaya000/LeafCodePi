@@ -5,11 +5,12 @@
  * - 完走モード: 完了宣言を無視し、maxTurns まで必ず実行
  * - 通常モード: completed -> 検証ターン -> completed
  * - Pi native の agent_settled + sendMessage(followUp) で自動継続
- * - `.pi/goals-loop/<sessionId>.json` に状態を保存
+ * - 状態は %APPDATA%\leafcode-pi\goals-loop/<sessionId>.json（プロジェクト内には置かない）に保存
  * - `/goal-compose` は Goal / acceptance / maxTurns / 完走モードを設定する Composer
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -72,7 +73,6 @@ export type GoalLoop = {
   updatedAt: string;
 };
 
-const GOALS_DIR = ".pi/goals-loop";
 const PROMPT_MARKER = "<!-- webui-goal-loop-prompt -->";
 const WIDGET_KEY = "leafcode-goal-loop";
 const ENTRY_TYPE = "leafcode-goal-loop";
@@ -138,8 +138,24 @@ export function safeIdPart(value: string): string {
   return safe || "session";
 }
 
+/**
+ * 状態はプロジェクト配下に置かない（LeafCodePiはプロジェクト内 .pi を許可しない）。
+ * WebUI側 dataDir()（web/src/lib/paths.ts）と同じ基底に置き、LEAFCODE_PI_DATA_DIR
+ * で両側を一括上書きする。sessionIdはUUIDで一意なためファイルキーはsessionIdのみ。
+ */
+function goalsDir(): string {
+  const override = process.env.LEAFCODE_PI_DATA_DIR?.trim();
+  if (override) return path.join(override, "goals-loop");
+  if (process.platform === "win32" && process.env.APPDATA?.trim()) {
+    return path.join(process.env.APPDATA, "leafcode-pi", "goals-loop");
+  }
+  return path.join(os.homedir(), ".leafcode-pi", "goals-loop");
+}
+
+/** cwd引数は呼び出し元互換のため残す。状態配置はグローバルでcwd非依存。 */
 export function goalStateFile(cwd: string, id: string): string {
-  return path.join(cwd, GOALS_DIR, `${safeIdPart(id)}.json`);
+  void cwd;
+  return path.join(goalsDir(), `${safeIdPart(id)}.json`);
 }
 
 function isoNow(): string {
@@ -348,10 +364,6 @@ function appendSnapshot(runtime: Runtime, loop: GoalLoop): void {
 
 function currentLoop(runtime: Runtime): GoalLoop | null {
   return readLoop(runtime.cwd, runtime.sessionId);
-}
-
-function isActive(loop: GoalLoop | null): loop is GoalLoop {
-  return Boolean(loop && !TERMINAL.has(loop.status));
 }
 
 function clearTimer(runtime: Runtime): void {
@@ -747,21 +759,28 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
       canRetry = false;
     }
     if (canRetry) {
+      // await中にpauseLoop/session置換で状態が変わる可能性があるため、
+      // await前のスナップショットではなく現在の状態に対して書き戻す。
+      const fresh = currentLoop(runtime);
+      if (!fresh || fresh.status !== "running") {
+        clearPendingAgentRun(runtime);
+        return;
+      }
       clearTimer(runtime);
       runtime.awaitingTurn = false;
       runtime.awaitingTurnIndex = undefined;
       runtime.pausedTurnIndex = undefined;
       clearPendingAgentRun(runtime);
-      if (loop.turnKind === "goal") {
-        loop.turnCount = Math.max(0, loop.turnCount - 1);
+      if (fresh.turnKind === "goal") {
+        fresh.turnCount = Math.max(0, fresh.turnCount - 1);
       }
-      loop.status = loop.turnKind === "verification" ? "verifying_completed" : "queued";
-      loop.pauseReason = "";
-      loop.error = "";
-      loop.nextTurnAt = null;
-      writeLoop(loop);
-      updateUI(runtime, loop);
-      appendSnapshot(runtime, loop);
+      fresh.status = fresh.turnKind === "verification" ? "verifying_completed" : "queued";
+      fresh.pauseReason = "";
+      fresh.error = "";
+      fresh.nextTurnAt = null;
+      writeLoop(fresh);
+      updateUI(runtime, fresh);
+      appendSnapshot(runtime, fresh);
       schedule(runtime);
       return;
     }
@@ -858,6 +877,10 @@ function schedule(runtime: Runtime, delay = 250): void {
   runtime.timer = setTimeout(() => {
     runtime.timer = undefined;
     if (runtime.disposed) return;
+    // Piのdispose()はsession_shutdownを発火しないため、セッション置換後の旧
+    // ランタイムはdisposedにならない。新ランタイムが同じキーで上書き登録済み
+    // なら自分は現行ではないので、同一状態ファイルへの送信競合を避けて停止する。
+    if (runtimes.get(runtime.key) !== runtime) return;
     const loop = currentLoop(runtime);
     if (!loop || TERMINAL.has(loop.status) || loop.status === "paused") return;
     if ((loop.status === "queued" || loop.status === "verifying_completed") && loop.nextTurnAt) {

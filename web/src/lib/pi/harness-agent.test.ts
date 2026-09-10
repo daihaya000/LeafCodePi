@@ -139,7 +139,7 @@ describe("setTaskAgent", () => {
     const sessionId = "goal-switch-session";
     const live = state.live.get(state.task.id) as { session: { sessionId?: string } } | undefined;
     if (live) live.session.sessionId = sessionId;
-    const goalDir = join(state.task.directory, ".pi", "goals-loop");
+    const goalDir = join(state.task.directory, "data", "goals-loop");
     mkdirSync(goalDir, { recursive: true });
     writeFileSync(
       join(goalDir, `${sessionId}.json`),
@@ -398,7 +398,7 @@ describe("abortTask", () => {
     const project = upsertProject({ name: "demo", rootPath: root });
     const task = insertTask({ project, title: "abort goal loop" });
     const sessionId = "goal-abort-session";
-    const goalDir = join(root, ".pi", "goals-loop");
+    const goalDir = join(root, "data", "goals-loop");
     mkdirSync(goalDir, { recursive: true });
     writeFileSync(
       join(goalDir, `${sessionId}.json`),
@@ -650,7 +650,7 @@ describe("archiveTask", () => {
     const project = upsertProject({ name: "demo", rootPath: root });
     const task = insertTask({ project, title: "archive goal loop", agent: "build" });
     const sessionId = "archive-goal-session";
-    const goalDir = join(root, ".pi", "goals-loop");
+    const goalDir = join(root, "data", "goals-loop");
     mkdirSync(goalDir, { recursive: true });
     writeFileSync(
       join(goalDir, `${sessionId}.json`),
@@ -800,7 +800,7 @@ describe("destroyTask", () => {
     const project = upsertProject({ name: "demo", rootPath: root });
     const task = insertTask({ project, title: "destroy project live" });
     const sessionId = "destroy-project-session";
-    const goalDir = join(root, ".pi", "goals-loop");
+    const goalDir = join(root, "data", "goals-loop");
     mkdirSync(goalDir, { recursive: true });
     writeFileSync(
       join(goalDir, `${sessionId}.json`),
