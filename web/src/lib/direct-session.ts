@@ -108,6 +108,29 @@ function lastMessageFromEntries(sessionEntries: unknown[]): SessionLastMessage |
 }
 
 /**
+ * 圧縮直後は buildSessionContext が（圧縮後の発言がまだ無いため）空になる。サイドバーの
+ * プレビューは履歴の有無をそのまま表す必要があるため、生エントリからも末尾の発言を拾う。
+ */
+function lastMessageFromRawEntries(entries: unknown[]): SessionLastMessage | null {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (typeof entry !== "object" || entry === null) continue;
+    const record = entry as Record<string, unknown>;
+    if (record.type !== "message") continue;
+    const message = (typeof record.message === "object" && record.message !== null ? record.message : record) as Record<string, unknown>;
+    const role = message.role;
+    if (typeof role !== "string" || !LAST_MESSAGE_ROLES.has(role)) continue;
+    if (typeof message.timestamp !== "number" || !Number.isFinite(message.timestamp)) continue;
+    return {
+      role: role as SessionLastMessage["role"],
+      text: role === "bashExecution" ? "" : textFromPiContent(message.content).trim(),
+      timestamp: message.timestamp,
+    };
+  }
+  return null;
+}
+
+/**
  * 最後の発言をセッションファイルから読む（サイドバープレビュー用）。
  * ランタイム初期化・Piセッション生成を伴わないため、Bot一覧の初回表示が
  * getTaskDetail（ensureLive）の 17 秒級のコールドを踏まない。
@@ -124,7 +147,7 @@ export function readSessionLastMessage(sessionFile: string | null | undefined): 
     const entries = parseSessionEntries(readFileSync(sessionFile, "utf8"));
     migrateSessionEntries(entries);
     const sessionEntries = entries.filter((entry) => entry.type !== "session");
-    const last = lastMessageFromEntries(buildSessionContext(sessionEntries).messages);
+    const last = lastMessageFromEntries(buildSessionContext(sessionEntries).messages) ?? lastMessageFromRawEntries(sessionEntries);
     lastMessageCache.set(sessionFile, {
       mtimeMs: stats.mtimeMs,
       size: stats.size,
