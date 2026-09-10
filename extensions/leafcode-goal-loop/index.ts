@@ -1344,12 +1344,20 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
     runtime.pausedTurnIndex = undefined;
     loop.pendingTurnRecovery = false;
   }
+  // Lifecycle pauses (pauseReason "") keep absolute nextTurnAt on disk so a
+  // shutdown mid-cooldown does not silently shorten the wait on /goal-resume.
+  // User/manual pauses already cleared nextTurnAt in pauseLoop.
+  const preserveCooldown =
+    loop.pauseReason === "" &&
+    typeof loop.nextTurnAt === "string" &&
+    Number.isFinite(Date.parse(loop.nextTurnAt)) &&
+    Date.parse(loop.nextTurnAt) > Date.now();
   loop.status = (!loop.forceFullRun && loop.turnKind === "verification") ? "verifying_completed" : "queued";
   if (loop.forceFullRun) loop.turnKind = "goal";
   loop.pauseReason = "";
   loop.error = "";
   loop.pendingTurnRecovery = false;
-  loop.nextTurnAt = null;
+  if (!preserveCooldown) loop.nextTurnAt = null;
   writeLoop(loop);
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);

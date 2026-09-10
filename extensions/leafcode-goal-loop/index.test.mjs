@@ -1820,6 +1820,87 @@ test("session_shutdown mid-turn recovers via durable pendingTurnRecovery after r
   }
 });
 
+test("lifecycle resume keeps an absolute cooldown instead of sending early", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-lifecycle-cooldown-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const stateFile = () => join(cwd, "goals-loop", "lifecycle-cooldown-session.json");
+  const handlers = new Map();
+  const commands = new Map();
+  let sendCount = 0;
+  const nextTurnAt = new Date(Date.now() + 60_000).toISOString();
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    abort: () => {},
+    sessionManager: {
+      getSessionId: () => "lifecycle-cooldown-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    writeFileSync(stateFile(), JSON.stringify({
+      goal: "demo",
+      status: "queued",
+      turnKind: "goal",
+      turnCount: 1,
+      maxTurns: 0,
+      forceFullRun: true,
+      cooldownSeconds: 60,
+      nextTurnAt,
+      pauseReason: "",
+      acceptance: [],
+      progress: [],
+      unreadableStreak: 0,
+      pendingTurnRecovery: false,
+    }), "utf8");
+
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; },
+    });
+
+    await handlers.get("session_start")?.({}, ctx);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).status, "queued");
+    await handlers.get("session_shutdown")?.({}, ctx);
+
+    const paused = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(paused.status, "paused");
+    assert.equal(paused.pauseReason, "");
+    assert.equal(paused.nextTurnAt, nextTurnAt);
+    assert.equal(paused.maxTurns, 0);
+
+    // Fresh runtime after restart.
+    const handlersB = new Map();
+    const commandsB = new Map();
+    goalLoopExtension({
+      on(name, handler) { handlersB.set(name, handler); },
+      registerCommand(name, options) { commandsB.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; },
+    });
+    await handlersB.get("session_start")?.({}, ctx);
+    await commandsB.get("goal-resume")?.("", ctx);
+
+    const resumed = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(resumed.status, "queued");
+    assert.equal(resumed.nextTurnAt, nextTurnAt);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(sendCount, 0);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("preserves queued cooldowns and distinguishes lifecycle pauses from user pauses", async (t) => {
   for (const status of ["queued", "verifying_completed", "running", "paused"]) {
     await t.test(status, async () => {
