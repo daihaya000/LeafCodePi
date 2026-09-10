@@ -1210,7 +1210,15 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
       applyResult(loop, recovered);
       const updated = currentLoop(runtime);
       updateUI(runtime, updated);
-      if (updated) appendSnapshot(runtime, updated);
+      if (updated) {
+        appendSnapshot(runtime, updated);
+        // turn_end recovery relies on a later agent_settled to re-arm the
+        // scheduler. Resume recovery often happens after settlement, so arm it
+        // here or the loop stays queued forever.
+        if (updated.status === "queued" || updated.status === "verifying_completed") {
+          schedule(runtime);
+        }
+      }
       return true;
     }
     if (loop.pauseReason === "unknown_delivery") {

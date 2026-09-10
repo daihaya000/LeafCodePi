@@ -998,6 +998,92 @@ test("applies a result that lands after a turn_timeout pause instead of losing i
   }
 });
 
+test("resume recovers a late transcript result and schedules the next turn", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-resume-late-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "resume-late-session.json");
+  const branch = [];
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "resume-late-session",
+      getBranch: () => branch,
+    },
+    ui: {
+      setStatus: () => {},
+      setWidget: () => {},
+      notify: () => {},
+    },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand(name, options) { commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage(message) {
+      sendCount += 1;
+      busy = true;
+      branch.push({
+        type: "custom_message",
+        customType: message.customType,
+        details: message.details,
+        content: message.content,
+      });
+    },
+  };
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => {
+      const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+      return loop.status === "running" && sendCount === 1;
+    });
+
+    await handlers.get("turn_start")?.({ type: "turn_start", turnIndex: 0 }, ctx);
+    await commands.get("goal-pause")?.("", ctx);
+    const paused = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(paused.status, "paused");
+    assert.equal(paused.pauseReason, "user");
+
+    // Settlement already happened: the assistant JSON is in the transcript, but
+    // turn_end/agent_settled will not fire again. Resume must recover and arm.
+    busy = false;
+    branch.push({
+      type: "message",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "recovered on resume" }) }],
+      },
+    });
+
+    await commands.get("goal-resume")?.("", ctx);
+    const recovered = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(recovered.progress.at(-1)?.summary, "recovered on resume");
+    assert.equal(recovered.status, "queued");
+
+    await waitFor(() => sendCount === 2);
+    const continued = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(continued.status, "running");
+    assert.equal(continued.turnCount, 2);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("plain resume at the turn budget is rejected and a raised limit resumes it", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-budget-resume-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
