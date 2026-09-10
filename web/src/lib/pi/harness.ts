@@ -4740,8 +4740,25 @@ export function readTodoProgress(
   }
 }
 
+/** includeArchived ごとに構築を重複実行しない（サイドバーとBotコード一覧の同時呼び出し対策）。 */
+const taskSummariesInflight = new Map<boolean, Promise<TaskSummary[]>>();
+
 export async function getTaskSummariesWithTodoProgress(
   includeArchived = false,
+): Promise<TaskSummary[]> {
+  const inflight = taskSummariesInflight.get(includeArchived);
+  if (inflight) return inflight;
+  const promise = buildTaskSummariesWithTodoProgress(includeArchived).finally(() => {
+    if (taskSummariesInflight.get(includeArchived) === promise) {
+      taskSummariesInflight.delete(includeArchived);
+    }
+  });
+  taskSummariesInflight.set(includeArchived, promise);
+  return promise;
+}
+
+async function buildTaskSummariesWithTodoProgress(
+  includeArchived: boolean,
 ): Promise<TaskSummary[]> {
   const summaries = getTaskSummaries(includeArchived);
   // アーカイブタスクは Sidebar の進捗表示対象外（TodoProgressBar は active のみ）。
