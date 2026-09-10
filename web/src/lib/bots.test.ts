@@ -51,6 +51,7 @@ describe("bot store", () => {
   it("creates the bot home and minimum config", () => {
     const bot = createBot({ name: "Researcher" });
     expect(bot.tools).toEqual(BOT_DEFAULT_TOOL_NAMES);
+    expect(bot.tools).toContain("intercom");
     expect(bot.tools).not.toEqual(expect.arrayContaining([...BOT_DEFAULT_DISABLED_TOOL_NAMES]));
     expect(listBots().map((item) => item.id)).toEqual([bot.id]);
     expect(JSON.parse(readFileSync(join(root, "store.json"), "utf8")).tasks).toHaveLength(1);

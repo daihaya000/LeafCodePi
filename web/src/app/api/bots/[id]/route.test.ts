@@ -20,7 +20,7 @@ vi.mock("@/lib/bots", () => ({
   deleteBot: mocks.deleteBot,
   normalizeBotSkills: mocks.normalizeBotSkills,
   botTaskId: (id: string) => `bot:${id}`,
-  BOT_TOOL_NAMES: ["bash", "powershell", "read", "write", "edit", "grep", "glob"],
+  BOT_TOOL_NAMES: ["bash", "powershell", "read", "write", "edit", "grep", "glob", "intercom"],
 }));
 vi.mock("@/lib/pi/harness", () => ({
   setTaskModel: mocks.setTaskModel,
@@ -109,6 +109,17 @@ describe("PATCH /api/bots/[id]", () => {
     expect(mocks.patchBot).toHaveBeenCalledWith(
       "one",
       expect.objectContaining({ name: "Renamed", avatarColor: "#EF4444" }),
+    );
+  });
+
+  it("accepts intercom in the Bot tool allowlist", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    mocks.patchBot.mockReturnValue({ ...bot(), tools: ["read", "intercom"] });
+    const response = await PATCH(jsonRequest({ tools: ["read", "intercom"] }), params("one"));
+    expect(response.status).toBe(200);
+    expect(mocks.patchBot).toHaveBeenCalledWith(
+      "one",
+      expect.objectContaining({ tools: ["read", "intercom"] }),
     );
   });
 

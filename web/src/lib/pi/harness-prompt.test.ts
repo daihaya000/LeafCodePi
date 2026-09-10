@@ -45,6 +45,16 @@ describe("applyBotTools", () => {
     assert.deepEqual(active, ["extension_tool", "read"]);
   });
 
+  it("keeps intercom available as a regular Bot tool", () => {
+    let active = ["read"];
+    const session = {
+      getActiveToolNames: () => active,
+      setActiveToolsByName: (next: string[]) => { active = next; },
+    };
+    applyBotTools(session as never, ["read", "intercom"]);
+    assert.deepEqual(active, ["read", "intercom"]);
+  });
+
   it("keeps deferred tools behind tool_search", () => {
     let active = ["read", "tool_search", "extension_tool"];
     const session = {
