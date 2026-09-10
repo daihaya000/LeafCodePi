@@ -80,6 +80,8 @@ describe("Bot Code session control", () => {
       prompt: "修正して",
       permissionMode: "ask",
     });
+    // A panel start must not move the Bot's linked session: since 7ecde72 the pointer belongs to the
+    // Bot's own delegation, so parallel panel sessions cannot steal the Bot's follow-up target.
     expect(mocks.patchBot).not.toHaveBeenCalledWith("bot-1", { codeSessionTaskId: "code-1" });
   });
 
