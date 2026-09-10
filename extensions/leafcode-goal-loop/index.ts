@@ -1111,7 +1111,12 @@ async function sendTurn(runtime: Runtime): Promise<void> {
   if (loop.forceFullRun && (loop.status === "verifying_completed" || loop.turnKind === "verification")) {
     loop.status = loop.status === "verifying_completed" ? "queued" : loop.status;
     loop.turnKind = "goal";
-    writeLoop(loop);
+    // Persist before continuing. A failed write leaves disk on verification; do
+    // not send with a locally repaired object that currentLoop() would reload away.
+    if (!writeLoop(loop)) {
+      schedule(runtime, 500);
+      return;
+    }
     if (loop.status === "paused" || TERMINAL.has(loop.status)) return;
   }
 
@@ -1121,7 +1126,11 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       loop.status = "paused";
       loop.pauseReason = "turn_limit";
       loop.error = "最大ターン数に到達したため一時停止しました。";
-      writeLoop(loop);
+      if (!writeLoop(loop)) {
+        // Keep disk queued and re-arm so the limit pause can be persisted later.
+        schedule(runtime, 500);
+        return;
+      }
       updateUI(runtime, loop);
       return;
     }
@@ -1191,7 +1200,10 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       loop.status = "paused";
       loop.pauseReason = "turn_limit";
       loop.error = "最大ターン数に到達したため一時停止しました。";
-      writeLoop(loop);
+      if (!writeLoop(loop)) {
+        schedule(runtime, 500);
+        return;
+      }
       updateUI(runtime, loop);
       return;
     }
@@ -1217,7 +1229,12 @@ async function sendTurn(runtime: Runtime): Promise<void> {
     return;
   }
 
-  writeLoop(loop);
+  // Persist running/turnCount before send. On failure disk still has the pre-send
+  // queued state; never set awaitingTurn or enqueue a prompt against stale disk.
+  if (!writeLoop(loop)) {
+    schedule(runtime, 500);
+    return;
+  }
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
   runtime.awaitingTurn = true;

@@ -327,6 +327,160 @@ test("startLoop writeLoop failure does not schedule or claim a started loop", as
   }
 });
 
+test("sendTurn writeLoop failure does not send or bump turnCount", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-send-write-fail-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "send-write-fail-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "send-write-fail-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sendCount === 1 && JSON.parse(readFileSync(stateFile(), "utf8")).status === "running");
+
+    busy = false;
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "first" }) }],
+      }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    await waitFor(() => JSON.parse(readFileSync(stateFile(), "utf8")).status === "queued");
+    const queued = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(queued.turnCount, 1);
+
+    goalLoopTestSeams.setWriteLoopFail(true);
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    assert.equal(sendCount, 1);
+    const stuck = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(stuck.status, "queued");
+    assert.equal(stuck.turnCount, 1);
+
+    goalLoopTestSeams.setWriteLoopFail(false);
+    await waitFor(() => sendCount === 2);
+    const running = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(running.status, "running");
+    assert.equal(running.turnCount, 2);
+  } finally {
+    goalLoopTestSeams.setWriteLoopFail(false);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("forceFullRun repair writeLoop failure does not send a verification turn", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-fullrun-repair-fail-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = true;
+  let sendCount = 0;
+  const sent = [];
+  const stateFile = () => join(cwd, "goals-loop", "fullrun-repair-fail-session.json");
+  const now = new Date().toISOString();
+  writeFileSync(stateFile(), JSON.stringify({
+    id: "fullrun-repair-fail-session",
+    sessionId: "fullrun-repair-fail-session",
+    cwd,
+    status: "verifying_completed",
+    goal: "demo",
+    acceptance: ["ok"],
+    maxTurns: 3,
+    cooldownSeconds: 0,
+    nextTurnAt: null,
+    forceFullRun: true,
+    autoAgent: false,
+    turnCount: 1,
+    turnKind: "verification",
+    pauseReason: "",
+    error: "",
+    progress: [{ time: now, status: "completed", summary: "stale claim" }],
+    summary: "stale claim",
+    evidence: "",
+    blockedReason: "",
+    rejectedClaims: 0,
+    unreadableStreak: 0,
+    pendingTurnRecovery: false,
+    createdAt: now,
+    updatedAt: now,
+  }, null, 2));
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "fullrun-repair-fail-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage(message) {
+        sendCount += 1;
+        sent.push(message);
+        busy = true;
+      },
+    });
+    goalLoopTestSeams.setWriteLoopFail(true);
+    await handlers.get("session_start")?.({}, ctx);
+    busy = false;
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    assert.equal(sendCount, 0);
+    const stuck = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(stuck.status, "verifying_completed");
+    assert.equal(stuck.turnKind, "verification");
+
+    goalLoopTestSeams.setWriteLoopFail(false);
+    await waitFor(() => sendCount === 1);
+    const running = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(running.status, "running");
+    assert.equal(running.turnKind, "goal");
+    assert.equal(running.forceFullRun, true);
+    assert.notEqual(sent[0]?.customType, "leafcode-goal-verification");
+    assert.equal(sent[0]?.customType, "leafcode-goal-turn");
+  } finally {
+    goalLoopTestSeams.setWriteLoopFail(false);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("resume recovery writeLoop failure does not double-apply transcript JSON", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-resume-write-fail-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
