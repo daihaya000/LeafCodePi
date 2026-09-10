@@ -473,7 +473,7 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
       className="flex min-w-0 shrink-0 items-center gap-1.5 text-[11px] text-muted"
       title={`コンテキスト使用量: ${usedLabel} / ${limitLabel} トークン（${pctLabel}）`}
     >
-      <span className="h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-surface-2 @min-[40rem]/task:w-10">
+      <span className="h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-surface-2 @min-[48rem]/task:w-10">
         <span
           className={cx(
             "block h-full rounded-full transition-[width]",
@@ -2442,7 +2442,7 @@ export const TaskView = memo(function TaskView({
       className={cx("@container/task flex min-h-0 min-w-0 flex-1 flex-col bg-bot-chat", !active && "hidden")}
     >
       <header
-        className="grid min-h-11 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-bot-outline bg-bot-chat px-3 pb-0.5 @min-[30rem]/task:grid-cols-[minmax(0,1fr)_auto_auto] @min-[40rem]/task:px-4"
+        className="grid min-h-11 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-bot-outline bg-bot-chat px-3 pb-0.5 @min-[48rem]/task:grid-cols-[minmax(0,1fr)_auto_auto] @min-[48rem]/task:px-4"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         <div className="flex min-w-0 items-center gap-2">
@@ -2455,7 +2455,7 @@ export const TaskView = memo(function TaskView({
               aria-checked={titleAutoUpdateEnabled}
               aria-label="タイトルの自動更新"
               title={`タイトルの自動更新: ${titleAutoUpdateEnabled ? "ON" : "OFF"}（${titleUpdateFrequency}ターンごと）`}
-              className={cx("hidden shrink-0 md:inline-flex h-11 w-11 md:h-9 md:w-9", titleAutoUpdateEnabled && "text-accent!")}
+              className={cx("hidden shrink-0 @min-[48rem]/task:inline-flex h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9", titleAutoUpdateEnabled && "text-accent!")}
               disabled={!task || archived || titleBusy}
               onClick={() => void toggleTitleAutoUpdate()}
             >
@@ -2482,13 +2482,13 @@ export const TaskView = memo(function TaskView({
                       cancelTitleEdit();
                     }
                   }}
-                  className="h-11 min-w-0 flex-1 rounded-lg border border-border-strong bg-bg px-2 text-base font-semibold text-text outline-none focus:border-accent @min-[40rem]/task:h-8 @min-[40rem]/task:text-sm"
+                  className="h-11 min-w-0 flex-1 rounded-lg border border-border-strong bg-bg px-2 text-base font-semibold text-text outline-none focus:border-accent @min-[48rem]/task:h-8 @min-[48rem]/task:text-sm"
                   disabled={titleBusy}
                 />
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-11 w-11 @min-[40rem]/task:h-8 @min-[40rem]/task:w-8"
+                  className="h-11 w-11 @min-[48rem]/task:h-8 @min-[48rem]/task:w-8"
                   type="submit"
                   aria-label="タイトルを保存"
                   title="タイトルを保存"
@@ -2500,7 +2500,7 @@ export const TaskView = memo(function TaskView({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-11 w-11 @min-[40rem]/task:h-8 @min-[40rem]/task:w-8"
+                  className="h-11 w-11 @min-[48rem]/task:h-8 @min-[48rem]/task:w-8"
                   aria-label="タイトル編集をキャンセル"
                   title="キャンセル"
                   disabled={titleBusy}
@@ -2513,7 +2513,7 @@ export const TaskView = memo(function TaskView({
               <h1 className="min-w-0 flex-1 text-sm font-semibold" aria-label={task?.title ?? "読み込み中…"}>
                 <button
                   type="button"
-                  className="group/title flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg text-left disabled:cursor-default @min-[40rem]/task:min-h-8"
+                  className="group/title flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg text-left disabled:cursor-default @min-[48rem]/task:min-h-8"
                   aria-label={`タイトルを編集: ${task?.title ?? "読み込み中…"}`}
                   title={task?.title}
                   disabled={!task || archived || titleBusy}
@@ -2526,17 +2526,17 @@ export const TaskView = memo(function TaskView({
             )}
           </div>
         </div>
-        <div aria-label="タスクの状態" className="col-span-2 flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @min-[30rem]/task:col-span-1 @min-[30rem]/task:col-start-2 @min-[30rem]/task:row-start-1">
+        <div aria-label="タスクの状態" className="col-span-2 flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @min-[48rem]/task:col-span-1 @min-[48rem]/task:col-start-2 @min-[48rem]/task:row-start-1">
           {permissionRequest && <Badge tone="warning" className="shrink-0">承認待ち</Badge>}
           {questionRequest && <Badge tone="warning" className="shrink-0">回答待ち</Badge>}
           {displayedStatus && <StatusBadge status={displayedStatus} className="shrink-0" />}
           {task?.projectName && (
-            <span className="min-w-0 max-w-32 truncate" title={task.projectName}>{task.projectName}</span>
+            <span className="hidden min-w-0 max-w-32 truncate @min-[48rem]/task:inline" title={task.projectName}>{task.projectName}</span>
           )}
           {contextUsage && <ContextUsageMeter usage={contextUsage} />}
           {stats.totalTokens > 0 && (
             <span
-              className="hidden font-mono tabular-nums @min-[40rem]/task:inline"
+              className="hidden font-mono tabular-nums @min-[48rem]/task:inline"
               title={`合計 ${formatTokens(stats.totalTokens)} tok（出力のみ）`}
             >
               {formatTokens(stats.totalTokens)} tok
@@ -2544,7 +2544,7 @@ export const TaskView = memo(function TaskView({
           )}
           {stats.avgRate !== null && (
             <span
-              className="hidden font-mono tabular-nums @min-[40rem]/task:inline"
+              className="hidden font-mono tabular-nums @min-[48rem]/task:inline"
               title="平均 tok/s（応答ごとの tok/s の平均）"
             >
               {formatTokensPerSecond(stats.avgRate)}
@@ -2552,7 +2552,7 @@ export const TaskView = memo(function TaskView({
           )}
           {stats.durationMs > 0 && (
             <span
-              className="hidden font-mono tabular-nums @min-[40rem]/task:inline"
+              className="hidden font-mono tabular-nums @min-[48rem]/task:inline"
               title="合計生成時間（メッセージ間隔の累計）"
             >
               {formatDuration(stats.durationMs)}
@@ -2562,7 +2562,7 @@ export const TaskView = memo(function TaskView({
         <div
           role="group"
           aria-label="タスク操作"
-          className="flex items-center justify-end col-start-2 row-start-1 @min-[30rem]/task:col-start-3"
+          className="flex items-center justify-end col-start-2 row-start-1 @min-[48rem]/task:col-start-3"
         >
           {onAddPane && (
             <Button
@@ -2570,7 +2570,7 @@ export const TaskView = memo(function TaskView({
               size="icon"
               title="新しいペインを追加"
               aria-label="新しいペインを追加"
-              className="h-11 w-11 md:h-9 md:w-9 @max-[48rem]/task:hidden"
+              className="h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9 @max-[48rem]/task:hidden"
               onClick={onAddPane}
             >
               <Plus className="h-4 w-4" />
@@ -2588,7 +2588,7 @@ export const TaskView = memo(function TaskView({
             aria-pressed={graphOpen}
             disabled={!task}
             className={cx(
-              "h-11 w-11 md:h-9 md:w-9",
+              "h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9",
               graphOpen && "bg-surface-2 text-text",
             )}
             onClick={() =>
@@ -2607,7 +2607,7 @@ export const TaskView = memo(function TaskView({
             aria-pressed={diffOpen}
             disabled={!task}
             className={cx(
-              "h-11 w-11 md:h-9 md:w-9",
+              "h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9",
               diffOpen && "bg-surface-2 text-text",
             )}
             onClick={() =>

@@ -18,6 +18,7 @@ import {
 } from "@/lib/composer-defaults";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { readStoredThinkingLevel, resolveThinkingLevel, writeStoredThinkingLevel } from "@/lib/thinking-levels";
+import { modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import type { ModelOption, ThinkingLevel } from "@/lib/types";
 
@@ -82,9 +83,17 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
   };
 
   const modelOptions = [AUTO_MODEL_OPTION, ...models];
-  const selectedModel = modelOptions.find((option) => option.value === defaults.model);
+  // ModelSelect/HomeView と同じ照合にし、integrated / 旧アカウント接頭辞でも effort を失わない。
+  const selectedModel = modelOptionForValue(modelOptions, defaults.model);
   const thinkingLevels = useMemo(() => selectedModel?.thinkingLevels ?? [], [selectedModel]);
-  const modelKnown = modelOptions.some((option) => option.value === defaults.model);
+  const modelKnown = Boolean(selectedModel);
+  const selectModelValue = selectedModel?.value ?? defaults.model;
+
+  useEffect(() => {
+    if (!selectedModel || selectedModel.value === defaults.model) return;
+    // 旧アカウント接頭辞値は候補の正規 value へ寄せ、select の不一致と未接続表示を防ぐ。
+    change({ model: selectedModel.value });
+  }, [defaults.model, selectedModel]);
 
   useEffect(() => {
     if (!selectedModel || selectedModel.value === AUTO_MODEL_OPTION.value) return;
@@ -106,7 +115,7 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
           <span className="font-medium">モデル</span>
           <select
             aria-label="既定のモデル"
-            value={defaults.model}
+            value={selectModelValue}
             onChange={(event) => change({ model: event.target.value })}
             className={SELECT_CLASS}
           >
