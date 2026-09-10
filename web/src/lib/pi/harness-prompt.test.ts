@@ -42,7 +42,17 @@ describe("applyBotTools", () => {
       setActiveToolsByName: (next: string[]) => { active = next; },
     };
     applyBotTools(session as never, ["read", "memory_add"]);
-    assert.deepEqual(active, ["extension_tool", "read", "memory_add"]);
+    assert.deepEqual(active, ["extension_tool", "read"]);
+  });
+
+  it("keeps deferred tools behind tool_search", () => {
+    let active = ["read", "tool_search", "extension_tool"];
+    const session = {
+      getActiveToolNames: () => active,
+      setActiveToolsByName: (next: string[]) => { active = next; },
+    };
+    applyBotTools(session as never, ["read", "memory_add", "tool_search"]);
+    assert.deepEqual(active, ["extension_tool", "read", "tool_search"]);
   });
 
   it("removes a disabled tool from an existing session", () => {

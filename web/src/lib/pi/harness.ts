@@ -5993,6 +5993,7 @@ export function applyBotTools(
   const requested = [...new Set(
     tools.filter(
       (tool) => knownBotTools.has(tool) &&
+        !needsToolSearch([tool]) &&
         (tool !== "powershell" || process.platform === "win32"),
     ),
   )];
