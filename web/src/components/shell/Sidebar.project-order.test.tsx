@@ -436,6 +436,22 @@ describe("Sidebar project ordering", () => {
     expect(activeProject.className).toContain("bg-surface-2");
   });
 
+  it("shows a user-facing error when sidebar data loading fails", async () => {
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.reject(new Error("プロジェクト取得に失敗しました"));
+      if (path === "/api/tasks?archived=1") return Promise.resolve({ tasks: [] });
+      if (path === "/api/health") {
+        return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("プロジェクト取得に失敗しました");
+  });
+
   it("shows a user-facing error when a project action fails", async () => {
     mocks.sendJson.mockRejectedValueOnce(new Error("アーカイブに失敗しました"));
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);

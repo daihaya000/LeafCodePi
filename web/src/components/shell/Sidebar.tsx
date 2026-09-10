@@ -865,6 +865,7 @@ const SidebarView = memo(function SidebarView({
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [projectTaskMenu, setProjectTaskMenu] = useState<ProjectTaskMenuState | null>(null);
   const [promotionTask, setPromotionTask] = useState<TaskSummary | null>(null);
   const [railWidget, setRailWidget] = useState<RailWidget | null>(null);
@@ -887,6 +888,18 @@ const SidebarView = memo(function SidebarView({
     // Drop stale responses so a slow poll cannot overwrite a newer refresh.
     if (gen !== refreshGenRef.current) return;
     if (taskDragActiveRef.current) return;
+    const dataError = projectRes.status === "rejected"
+      ? projectRes.reason
+      : taskRes.status === "rejected"
+        ? taskRes.reason
+        : null;
+    setRefreshError(
+      dataError instanceof Error && dataError.message
+        ? dataError.message
+        : dataError
+          ? "サイドバーの読み込みに失敗しました"
+          : null,
+    );
     if (projectRes.status === "fulfilled") {
       // 実質不変なら前回の参照を維持し、Sidebar の不要な再レンダーを避ける。
       const nextProjects = projectRes.value.projects.filter((project) => !project.archived);
@@ -1545,6 +1558,7 @@ const SidebarView = memo(function SidebarView({
   // デスクトップでは !collapsed のときだけ描画され、モバイルドロワーは常に全幅なので、
   // body 内で collapsed を参照してはいけない（参照すると 240px 幅のまま
   // プロジェクト名もタスクもフッターも消えたドロワーになる）。
+  const sidebarError = actionError ?? refreshError;
   const body = (
     <div className="flex h-full min-h-0 flex-col bg-surface">
       <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3">
@@ -1602,9 +1616,9 @@ const SidebarView = memo(function SidebarView({
             className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint"
           />
         </label>
-        {actionError && (
+        {sidebarError && (
           <p role="alert" className="mb-2 rounded-lg border border-danger/30 bg-danger-bg px-2.5 py-2 text-xs text-danger">
-            {actionError}
+            {sidebarError}
           </p>
         )}
         <span className="sr-only">
@@ -1922,9 +1936,9 @@ const SidebarView = memo(function SidebarView({
           <Menu className="h-5 w-5 text-muted" />
         </button>
       </div>
-      {actionError && (
+      {sidebarError && (
         <p role="alert" className="w-full break-words px-1 py-2 text-center text-[10px] text-danger">
-          {actionError}
+          {sidebarError}
         </p>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
