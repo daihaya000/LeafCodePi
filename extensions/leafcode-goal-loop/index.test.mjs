@@ -1592,6 +1592,82 @@ test("prepareGoalLoopTurn errors after startLoop do not pause the replacement", 
   }
 });
 
+test("provider-limit retry after startLoop does not mutate the replacement", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-provider-stale-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  let releaseRetry;
+  const retryGate = new Promise((resolve) => { releaseRetry = resolve; });
+  const stateFile = () => join(cwd, "goals-loop", "provider-stale-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "provider-stale-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+    canRetryGoalLoopProviderLimit: async () => {
+      await retryGate;
+      return true;
+    },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand(name, options) { commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage() {
+      sendCount += 1;
+      busy = true;
+    },
+  };
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const first = Buffer.from(JSON.stringify({ goal: "first", maxTurns: 2 })).toString("base64url");
+    await commands.get("goal-start")?.(first, ctx);
+    await waitFor(() => sendCount === 1);
+
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{ role: "assistant", stopReason: "error", errorMessage: "usage limit reached", content: [] }],
+    }, ctx);
+    const settled = handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+
+    // Replace the goal while canRetry is still awaiting.
+    const second = Buffer.from(JSON.stringify({ goal: "second", maxTurns: 2 })).toString("base64url");
+    await commands.get("goal-start")?.(second, ctx);
+    const replaced = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(replaced.goal, "second");
+    assert.equal(replaced.status, "queued");
+    assert.equal(replaced.turnCount, 0);
+
+    busy = false;
+    releaseRetry();
+    await settled;
+    await waitFor(() => sendCount === 2);
+
+    const running = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(running.goal, "second");
+    assert.equal(running.status, "running");
+    assert.equal(running.turnCount, 1);
+    assert.equal(running.pauseReason, "");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("does not requeue a provider-limit retry after the loop was paused meanwhile", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-pause-race-"));
   const handlers = new Map();

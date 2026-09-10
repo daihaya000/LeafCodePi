@@ -762,11 +762,18 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
     return;
   }
   if (error) {
+    const turnGeneration = runtime.turnGeneration;
     let canRetry = false;
     try {
       canRetry = await runtime.ctx.canRetryGoalLoopProviderLimit?.() ?? false;
     } catch {
       canRetry = false;
+    }
+    // startLoop/session replacement may land while canRetry awaits. A stale
+    // retry must not rewind the replacement's turnCount or pause it.
+    if (!isActiveRuntime(runtime) || runtime.turnGeneration !== turnGeneration) {
+      clearPendingAgentRun(runtime);
+      return;
     }
     if (canRetry) {
       // await中にpauseLoop/session置換で状態が変わる可能性があるため、
