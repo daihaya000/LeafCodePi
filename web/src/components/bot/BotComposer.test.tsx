@@ -79,6 +79,28 @@ it("suggests and inserts a slash skill reference", () => {
   expect(input.value).toBe("/skill:review ");
 });
 
+it("does not confirm a suggestion while IME is composing", () => {
+  function ReferenceComposer() {
+    const [value, setValue] = useState("/skill:r");
+    return <BotComposer
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onValueChange={setValue}
+      onKeyDown={vi.fn()}
+      onSend={vi.fn()}
+      placeholder="Message"
+      references={{ skills: [{ name: "review", description: "Review changes" }] }}
+    />;
+  }
+
+  render(<ReferenceComposer />);
+  const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+  input.focus();
+  fireEvent.compositionStart(input);
+  fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+  expect(input.value).toBe("/skill:r");
+});
+
 it("inserts an at-agent reference and a Japanese skill name", () => {
   function ReferenceComposer() {
     const [value, setValue] = useState("");

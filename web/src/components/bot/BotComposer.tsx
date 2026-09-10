@@ -4,6 +4,7 @@ import { type ChangeEventHandler, type ClipboardEventHandler, type CompositionEv
 import { ArrowUp, Plus, Square, UsersRound, Wrench } from "lucide-react";
 import { COMPOSER_ACTION_BUTTON_CLASS, ImageLightbox, type ComposerAttachment, type ComposerReferences } from "@/components/Composer";
 import { composerReferenceInsertion, composerReferenceToolNames, filterComposerReferences, findComposerReferenceToken, type ComposerReference } from "@/lib/composer-references";
+import { isImeComposingEvent } from "@/lib/composer-ime";
 
 type BotComposerProps = {
   value: string;
@@ -118,12 +119,16 @@ export function BotComposer({
               onKeyUp={(event) => refreshCaret(event.currentTarget)}
               onSelect={(event) => refreshCaret(event.currentTarget)}
               onFocus={(event) => { setFocused(true); refreshCaret(event.currentTarget); }}
-              onBlur={() => setFocused(false)}
+              onBlur={() => {
+                setFocused(false);
+                // compositionEnd 欠落で stuck すると候補確定ショートカットが死ぬ
+                composingRef.current = false;
+              }}
               onPaste={onPaste}
               onCompositionStart={(event) => { composingRef.current = true; onCompositionStart?.(event); }}
               onCompositionEnd={(event) => { composingRef.current = false; onCompositionEnd?.(event); refreshCaret(event.currentTarget); }}
               onKeyDown={(event) => {
-                if (showSuggestions && !composingRef.current) {
+                if (showSuggestions && !composingRef.current && !isImeComposingEvent(event)) {
                   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                     event.preventDefault();
                     setActiveSuggestion((index) => (index + (event.key === "ArrowDown" ? 1 : suggestions.length - 1)) % suggestions.length);
