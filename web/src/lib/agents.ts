@@ -46,7 +46,7 @@ export type AgentDraft = {
   tools?: string[];
   model?: string;
   fallbackModels?: string[];
-  thinking?: string | false;
+  thinking?: AgentThinking;
   systemPromptMode?: "replace" | "append";
   inheritProjectContext?: boolean;
   inheritSkills?: boolean;
@@ -490,7 +490,7 @@ export function readUserAgent(name: string, agentDir = resolvePiAgentDir()): { d
       tools: toTools(fm.tools),
       model: typeof fm.model === "string" ? fm.model : undefined,
       fallbackModels: fromCsv(fm.fallbackModels),
-      thinking: fm.thinking === false ? false : typeof fm.thinking === "string" ? fm.thinking : undefined,
+      thinking: toThinking(fm.thinking),
       systemPromptMode: fm.systemPromptMode === "append" ? "append" : fm.systemPromptMode === "replace" ? "replace" : undefined,
       inheritProjectContext: typeof fm.inheritProjectContext === "boolean" ? fm.inheritProjectContext : undefined,
       inheritSkills: typeof fm.inheritSkills === "boolean" ? fm.inheritSkills : undefined,
@@ -588,7 +588,7 @@ export function loadAgentDefinition(
       : {}),
     tools: toTools(fm.tools),
     model: typeof fm.model === "string" && fm.model.trim() ? fm.model.trim() : undefined,
-    thinking: fm.thinking === false ? false : typeof fm.thinking === "string" && fm.thinking.trim() ? fm.thinking.trim() : undefined,
+    thinking: toThinking(fm.thinking),
     systemPromptMode:
       fm.systemPromptMode === "append"
         ? "append"

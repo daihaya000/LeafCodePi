@@ -8,7 +8,7 @@ import { notifyBotSidebarChanged } from "@/lib/events";
 import { markRead } from "@/lib/bot-unread";
 import type { SkillDto } from "@/lib/skills";
 import { decideNotification } from "@/lib/notify";
-import type { BotDto, QuestionRequestDto, RoomAttention, RoomDto, RoomHandoffState } from "@/lib/types";
+import type { BotDto, QuestionRequestDto, RoomAttention, RoomDto, RoomHandoffState, RoomMessage } from "@/lib/types";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
@@ -40,9 +40,16 @@ const HANDOFF_STATE_TEXT: Record<RoomHandoffState, string> = {
   cancelled: "取消",
 };
 
-/** A room is busy while a turn is being written, a delegated Code run has not reported back, or a handoff is queued. */
+function codeRequests(message: RoomMessage) {
+  return message.codeRequests ?? (message.codeState ? [{ id: message.codeRequestId, taskId: message.codeTaskId, state: message.codeState, activity: message.codeActivity }] : []);
+}
+function isMessageBusy(message: RoomMessage): boolean {
+  return message.status === "working" || codeRequests(message).some((request) => request.state !== "delivered" && request.state !== "cancelled");
+}
+
+/** All outstanding Code requests count, even when another request in the same message has finished. */
 function isRoomBusy(room: RoomDto | null): boolean {
-  return (room?.messages ?? []).some((message) => message.status === "working" || message.codeState === "queued" || message.codeState === "starting" || message.codeState === "running" || message.codeState === "ready")
+  return (room?.messages ?? []).some(isMessageBusy)
     || (room?.handoffs ?? []).some((handoff) => handoff.state === "ready" || handoff.state === "running");
 }
 
@@ -74,7 +81,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const [skills, setSkills] = useState<ComposerReference[]>([]);
   const [attention, setAttention] = useState<RoomAttention[]>([]);
   const [attentionBusy, setAttentionBusy] = useState<string | null>(null);
-  const [stoppingCode, setStoppingCode] = useState(false);
+  const [stoppingCode, setStoppingCode] = useState<string[]>([]);
   const [reverting, setReverting] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [prompt, setPrompt] = useState("");
@@ -223,7 +230,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     [botById, room],
   );
   const busyIds = useMemo(() => new Set((room?.messages ?? []).flatMap((message) => {
-    const working = message.status === "working" || message.codeState === "queued" || message.codeState === "starting" || message.codeState === "running" || message.codeState === "ready";
+    const working = isMessageBusy(message);
     return working && message.botId ? [message.botId] : [];
   })), [room?.messages]);
   const attentionIds = useMemo(() => new Set(attention.map((item) => item.botId)), [attention]);
@@ -315,13 +322,13 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         setMentionContext(null);
         return;
       }
-      if (event.key === "Enter" || event.key === "Tab") {
+      if ((event.key === "Enter" && !event.ctrlKey && !event.metaKey) || event.key === "Tab") {
         event.preventDefault();
         insertMention(mentionCandidates[mentionIndex] ?? mentionCandidates[0]!);
         return;
       }
     }
-    if (event.key === "Enter" && !event.shiftKey && !composingRef.current) {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !composingRef.current) {
       event.preventDefault();
       void send();
     }
@@ -386,12 +393,13 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   };
 
   const stopCode = useCallback(async (requestId?: string) => {
-    if (stoppingCode) return;
-    setStoppingCode(true);
+    const key = requestId ?? "legacy";
+    if (stoppingCode.includes(key)) return;
+    setStoppingCode((current) => [...current, key]);
     setError(null);
     try { await sendJson(`/api/bots/rooms/${encodeURIComponent(id)}/code`, { action: "abort", ...(requestId ? { requestId } : {}) }); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Codeの停止に失敗しました"); }
-    finally { setStoppingCode(false); }
+    finally { setStoppingCode((current) => current.filter((item) => item !== key)); }
   }, [id, stoppingCode]);
 
   const revertMessage = useCallback(async (messageId: string) => {
@@ -411,13 +419,14 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     const user = message.role === "user";
     const bot = message.botId ? botById.get(message.botId) : undefined;
     const text = message.text || (message.status === "working" ? "応答中…" : "");
-    if (!text && !message.codeState && !message.images?.length && !message.handoffs?.length) return null;
+    const requests = codeRequests(message);
+    if (!text && !requests.length && !message.images?.length && !message.handoffs?.length) return null;
     return (
       <BotChatMessage key={message.id} user={user} createdAt={message.createdAt}
         sender={{ ...bot, name: bot?.name ?? message.botName ?? "ボット", active: message.status === "working" }} text={text} mentions={bots}
         images={<BotMessageImages images={(message.images ?? []).map((image) => ({ key: image.file, src: `/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}` }))} />}
         footer={user ? <BotRevertButton title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} /> : undefined}>
-        {message.codeState && <CodeRequestCard taskId={message.codeTaskId} state={message.codeState} activity={message.codeActivity} stopping={stoppingCode} onStop={() => void stopCode(message.codeRequestId)} />}
+        {requests.map((request) => <CodeRequestCard key={request.id ?? "legacy"} {...request} stopping={stoppingCode.includes(request.id ?? "legacy")} onStop={() => void stopCode(request.id)} />)}
         {message.handoffs?.length ? (
           <div className="flex flex-wrap gap-1.5">
             {message.handoffs.map((handoff) => (
@@ -499,7 +508,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         onCompositionStart={() => { composingRef.current = true; }}
         onCompositionEnd={() => { composingRef.current = false; }}
         onKeyDown={handlePromptKeyDown}
-        placeholder={broadcast ? `${room.name}の全員に個別回答を依頼` : `${room.name}にメッセージ（@で相手、/でスキル）`}
+        placeholder={broadcast ? `${room.name}の全員に個別回答を依頼（Ctrl+Enterで送信、Enterで改行）` : `${room.name}にメッセージ（@で相手、/でスキル、Ctrl+Enterで送信、Enterで改行）`}
         sendDisabled={!prompt.trim() && attachments.length === 0}
         busy={busy}
         onSend={() => void send()}

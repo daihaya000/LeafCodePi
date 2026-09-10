@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -1140,6 +1140,139 @@ test("stops a replaced runtime from double-sending queued work", async () => {
     }
     delete process.env.LEAFCODE_PI_DATA_DIR;
     rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("continues pending verification after a session replacement without a user pause", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-verification-replace-"));
+  const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+  const stateFile = join(cwd, "goals-loop", "verification-replace-session.json");
+  const readState = () => JSON.parse(readFileSync(stateFile, "utf8"));
+  const sent = [];
+  let busy = false;
+  const makeSession = () => {
+    const handlers = new Map();
+    const commands = new Map();
+    const ctx = {
+      cwd,
+      mode: "rpc",
+      hasUI: false,
+      isIdle: () => !busy,
+      hasPendingMessages: () => false,
+      abort: () => { busy = false; },
+      sessionManager: {
+        getSessionId: () => "verification-replace-session",
+        getBranch: () => [],
+      },
+      ui: { setStatus() {}, setWidget() {}, notify() {} },
+    };
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage(message) { sent.push(message); busy = true; },
+    });
+    return { ctx, handlers, commands };
+  };
+  const first = makeSession();
+  const replacement = makeSession();
+  first.ctx.prepareGoalLoopTurn = async () => {
+    if (readState().status !== "verifying_completed") return true;
+    // The harness reopens the transcript when routing to a different account/agent.
+    await replacement.handlers.get("session_start")({}, replacement.ctx);
+    return false;
+  };
+  const settle = async (session, status) => {
+    busy = false;
+    await session.handlers.get("agent_end")({
+      messages: [{ role: "assistant", content: [{ type: "text", text: JSON.stringify({ status, summary: status }) }] }],
+    }, session.ctx);
+    await session.handlers.get("agent_settled")({}, session.ctx);
+  };
+
+  try {
+    process.env.LEAFCODE_PI_DATA_DIR = cwd;
+    await first.handlers.get("session_start")({}, first.ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 1 })).toString("base64url");
+    await first.commands.get("goal-start")(payload, first.ctx);
+    await waitFor(() => sent.length === 1);
+    await settle(first, "completed");
+    assert.equal(readState().status, "verifying_completed");
+
+    await waitFor(() => sent.length === 2 || readState().status === "paused");
+    assert.equal(readState().status, "running");
+    assert.equal(readState().pauseReason, "");
+    assert.equal(readState().turnCount, 1);
+    assert.equal(sent[1].customType, "leafcode-goal-verification");
+    assert.match(sent[1].content, /Independently verify/);
+    assert.equal(sent[1].details.uiPrompt, undefined);
+    await settle(replacement, "verified_completed");
+    assert.equal(readState().status, "completed");
+    assert.deepEqual(readState().progress.map((entry) => entry.status), ["completed", "verified_completed"]);
+    assert.equal(sent.length, 2);
+  } finally {
+    await first.handlers.get("session_shutdown")({}, first.ctx);
+    await replacement.handlers.get("session_shutdown")({}, replacement.ctx);
+    if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+    else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("preserves queued cooldowns and distinguishes lifecycle pauses from user pauses", async (t) => {
+  for (const status of ["queued", "verifying_completed", "running", "paused"]) {
+    await t.test(status, async () => {
+      const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-lifecycle-"));
+      const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+      const stateFile = join(cwd, "goals-loop", "lifecycle-session.json");
+      const readState = () => JSON.parse(readFileSync(stateFile, "utf8"));
+      const handlers = new Map();
+      const ctx = {
+        cwd,
+        mode: "rpc",
+        isIdle: () => true,
+        hasPendingMessages: () => false,
+        sessionManager: { getSessionId: () => "lifecycle-session", getBranch: () => [] },
+        ui: { setStatus() {}, setWidget() {} },
+      };
+      const nextTurnAt = new Date(Date.now() + 60_000).toISOString();
+      let sendCount = 0;
+      try {
+        process.env.LEAFCODE_PI_DATA_DIR = cwd;
+        mkdirSync(join(cwd, "goals-loop"));
+        writeFileSync(stateFile, JSON.stringify({
+          goal: "demo", status, turnKind: "verification", turnCount: 1, maxTurns: 1,
+          cooldownSeconds: 60, nextTurnAt, pauseReason: status === "paused" ? "user" : "",
+        }), "utf8");
+        goalLoopExtension({
+          on(name, handler) { handlers.set(name, handler); },
+          registerCommand() {},
+          appendEntry() {},
+          sendMessage() { sendCount += 1; },
+        });
+        await handlers.get("session_start")({}, ctx);
+        const loop = readState();
+        assert.equal(loop.status, status === "running" ? "paused" : status);
+        assert.equal(loop.pauseReason, status === "paused" ? "user" : "");
+        assert.equal(loop.nextTurnAt, nextTurnAt);
+        if (status === "running") assert.match(loop.error, /セッション再開時/);
+        // Let the scheduler run: a restored absolute cooldown must not be bypassed.
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        assert.equal(sendCount, 0);
+        await handlers.get("session_shutdown")({}, ctx);
+        const stopped = readState();
+        assert.equal(stopped.status, "paused");
+        assert.equal(stopped.pauseReason, status === "paused" ? "user" : "");
+        if (status === "queued" || status === "verifying_completed") {
+          assert.match(stopped.error, /セッション終了時/);
+        }
+      } finally {
+        await handlers.get("session_shutdown")?.({}, ctx);
+        if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+        else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    });
   }
 });
 

@@ -1,5 +1,15 @@
 # MEMORY
 
+## 2026-09-10: バグハント — 並列 Room Code の codeActivity 消失
+
+### 修正
+**MED**: 未コミットの並列 Code 対応で、`save()` が他リクエスト更新時にも `codeActivity` を空にしていた（[Hunt bugs beyond recent fixes](4d10e206)）。所有者かつ starting/running 以外への遷移時だけクリアするよう変更。キュー前提テストを並列動作に更新。
+
+### 検証
+bot-code-relay 46 PASS / typecheck OK
+
+---
+
 ## 2026-09-10: バグハント loop tick4 — processKey 無し lock の年齢 stale
 
 ### 修正

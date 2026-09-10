@@ -39,7 +39,7 @@ type AgentDraft = {
   tools?: string[];
   model?: string;
   fallbackModels?: string[];
-  thinking?: string | false;
+  thinking?: AgentThinking;
   systemPromptMode?: "replace" | "append";
   inheritProjectContext?: boolean;
   inheritSkills?: boolean;

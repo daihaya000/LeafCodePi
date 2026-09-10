@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRoom } from "@/lib/rooms";
-import { jsonError, stopBotCodeTask } from "@/lib/pi/harness";
-import { cancelRoomCodeRequest, pendingRoomCodeRequestForRoom, roomCodeRequestForRoom } from "@/lib/pi/bot-code-relay";
+import { abortTask, jsonError } from "@/lib/pi/harness";
+import { pendingRoomCodeRequestForRoom, roomCodeRequestForRoom, stopBotCodeRequest } from "@/lib/pi/bot-code-relay";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -15,12 +15,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const requestedId = typeof body.requestId === "string" ? body.requestId : undefined;
     const request = requestedId ? roomCodeRequestForRoom(id, requestedId) : pendingRoomCodeRequestForRoom(id);
     if (!request) return NextResponse.json({ error: "No running Code request" }, { status: 404 });
-    if (request.state === "queued") {
-      if (!(await cancelRoomCodeRequest(id, request.id))) return NextResponse.json({ error: "Code request changed" }, { status: 409 });
-      return NextResponse.json({ requestId: request.id, state: "cancelled" });
-    }
-    if (!request.codeTaskId) return NextResponse.json({ error: "No running Code request" }, { status: 404 });
-    return NextResponse.json({ task: await stopBotCodeTask(request.botId, request.codeTaskId) });
+    const stopped = await stopBotCodeRequest(request.botId, request.id);
+    if (!stopped) return NextResponse.json({ error: "Code request changed" }, { status: 409 });
+    return NextResponse.json(stopped.codeTaskId
+      ? { task: await abortTask(stopped.codeTaskId) }
+      : { requestId: request.id, state: stopped.state });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

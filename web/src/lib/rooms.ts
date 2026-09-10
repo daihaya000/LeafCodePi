@@ -179,12 +179,13 @@ export function appendRoomMessageIf(id: string, predicate: (room: RoomDto) => bo
     return appendRoomMessageLocked(room, message);
   });
 }
-export function updateRoomMessage(id: string, messageId: string, patch: Partial<Pick<RoomMessage, "text" | "status" | "botName" | "conversation" | "codeRequestId" | "codeTaskId" | "codeState" | "codeActivity" | "images" | "handoffs">>): RoomMessage | undefined {
+type RoomMessagePatch = Partial<Pick<RoomMessage, "text" | "status" | "botName" | "conversation" | "codeRequestId" | "codeTaskId" | "codeState" | "codeRequests" | "codeActivity" | "images" | "handoffs">>;
+export function updateRoomMessage(id: string, messageId: string, patch: RoomMessagePatch | ((message: RoomMessage) => RoomMessagePatch)): RoomMessage | undefined {
   return withRoomLock(id, () => {
     const room = readRoom(id);
     const message = room?.messages.find((item) => item.id === messageId);
     if (!room || !message) return undefined;
-    Object.assign(message, patch);
+    Object.assign(message, typeof patch === "function" ? patch(message) : patch);
     room.updatedAt = new Date().toISOString();
     writeRoom(room);
     return message;

@@ -14,9 +14,9 @@ vi.mock("@/lib/bots", () => ({
 vi.mock("@/lib/rooms", () => ({
   getRoom: (id: string) => store.rooms.get(id),
   roomBotTaskId: (roomId: string, botId: string) => `bot:${botId}:room:${roomId}`,
-  updateRoomMessage: (roomId: string, messageId: string, patch: Partial<RoomMessage>) => {
+  updateRoomMessage: (roomId: string, messageId: string, patch: Partial<RoomMessage> | ((message: RoomMessage) => Partial<RoomMessage>)) => {
     const message = store.rooms.get(roomId)?.messages.find((item) => item.id === messageId);
-    if (message) Object.assign(message, patch);
+    if (message) Object.assign(message, typeof patch === "function" ? patch(message) : patch);
     return message;
   },
 }));
@@ -25,7 +25,7 @@ vi.mock("@/lib/store", () => ({
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, cancelRoomCodeRequest, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -598,7 +598,7 @@ describe("Room ⇄ Code delegation", () => {
     expect(record().room?.conversation.requestId).toBe("user-2");
   });
 
-  it("queues a later Room Code job and starts it after the earlier report is delivered", async () => {
+  it("runs concurrent Room Code jobs for different members without a queue", async () => {
     roomSetup();
     let nextCode = 0;
     vi.mocked(deps.create).mockImplementation(async (input) => {
@@ -613,18 +613,8 @@ describe("Room ⇄ Code delegation", () => {
     room.messages.push({ id: "turn-2", role: "assistant", botId: "two", text: "", status: "working", createdAt: 4, conversation });
     const goalLoop = { acceptance: ["Tests pass"], maxTurns: 3, cooldownSeconds: 5, forceFullRun: false };
     const second = await relay.run("bot:two:room:room-1", "other-member", { action: "start", projectId: "project", prompt: "Same work", goalLoop }, "session");
-    expect(second).toMatchObject({ taskId: null, state: "queued" });
+    expect(second).toMatchObject({ state: "running", taskId: "code-2" });
     expect(deps.approve).toHaveBeenCalledTimes(2);
-    expect(deps.create).toHaveBeenCalledTimes(1);
-    const queued = records().find((request) => request.id === second.requestId)!;
-    expect(queued).toMatchObject({ state: "queued", action: "start", projectId: "project", room: { id: "room-1" } });
-    // The Room marks the assistant message done after the Bot has returned the queued receipt.
-    room.messages.find((message) => message.id === "turn-2")!.status = "done";
-
-    store.tasks.get("code-1")!.status = "idle";
-    messages = [answer("first", "最初の作業結果")];
-    await relay.tick();
-    expect(deps.deliver).toHaveBeenCalledTimes(1);
     expect(deps.create).toHaveBeenCalledTimes(2);
     expect(deps.create).toHaveBeenLastCalledWith(expect.objectContaining({ goalLoop }));
     expect(records().find((request) => request.id === second.requestId)).toMatchObject({ state: "running", codeTaskId: "code-2", goalLoop });
@@ -636,7 +626,27 @@ describe("Room ⇄ Code delegation", () => {
     expect(records().find((request) => request.id === second.requestId)?.state).toBe("delivered");
   });
 
-  it("drains multiple queued Room Code jobs in order", async () => {
+  it("keeps another request's codeActivity when a sibling save targets the same Room message", async () => {
+    roomSetup();
+    let nextCode = 0;
+    vi.mocked(deps.create).mockImplementation(async (input) => {
+      const code = task(`code-${++nextCode}`, { status: "working" });
+      store.tasks.set(code.id, code);
+      input.beforePrompt(code);
+      return code;
+    });
+    await roomLaunch();
+    const room = store.rooms.get("room-1")!;
+    const turn = room.messages.find((message) => message.id === "turn-1")!;
+    turn.codeActivity = "読取 README.md";
+    expect(turn.codeRequestId).toBeTruthy();
+
+    await relay.run("bot:one:room:room-1", "sibling-start", { action: "start", projectId: "project", prompt: "Also fix tests" }, "session");
+    expect(deps.create).toHaveBeenCalledTimes(2);
+    expect(room.messages.find((message) => message.id === "turn-1")?.codeActivity).toBe("読取 README.md");
+  });
+
+  it("runs multiple Room Code jobs in parallel", async () => {
     roomSetup();
     const room = store.rooms.get("room-1")!;
     store.bots.set("three", { id: "three", name: "Three", enabled: true, permissionMode: "allow" } as BotDto);
@@ -657,38 +667,38 @@ describe("Room ⇄ Code delegation", () => {
     const thirdConversation = { ...secondConversation, turn: 3 };
     room.messages.push({ id: "turn-3", role: "assistant", botId: "three", text: "", status: "working", createdAt: 5, conversation: thirdConversation });
     const third = await relay.run("bot:three:room:room-1", "queued-three", { action: "start", projectId: "project", prompt: "Third job" }, "session");
-    expect(second).toMatchObject({ state: "queued" });
-    expect(third).toMatchObject({ state: "queued" });
-    room.messages.find((message) => message.id === "turn-2")!.status = "done";
-    room.messages.find((message) => message.id === "turn-3")!.status = "done";
-
-    store.tasks.get("code-1")!.status = "idle";
-    messages = [answer("first", "First job done")];
-    await relay.tick();
-    expect(deps.create).toHaveBeenCalledTimes(2);
-    expect(records().find((request) => request.id === second.requestId)).toMatchObject({ state: "running", codeTaskId: "code-2" });
-    expect(records().find((request) => request.id === third.requestId)).toMatchObject({ state: "queued" });
-
-    store.tasks.get("code-2")!.status = "idle";
-    messages = [answer("second", "Second job done")];
-    await relay.tick();
+    expect(second).toMatchObject({ state: "running", taskId: "code-2" });
+    expect(third).toMatchObject({ state: "running", taskId: "code-3" });
     expect(deps.create).toHaveBeenCalledTimes(3);
+    expect(records().find((request) => request.id === second.requestId)).toMatchObject({ state: "running", codeTaskId: "code-2" });
     expect(records().find((request) => request.id === third.requestId)).toMatchObject({ state: "running", codeTaskId: "code-3" });
   });
 
-  it("cancels a queued Room Code job without launching it", async () => {
+  it("stops a parallel Room Code job without cancelling its sibling", async () => {
     roomSetup();
+    let nextCode = 0;
+    vi.mocked(deps.create).mockImplementation(async (input) => {
+      const code = task(`code-${++nextCode}`, { status: "working" });
+      store.tasks.set(code.id, code);
+      input.beforePrompt(code);
+      return code;
+    });
     await roomLaunch();
     const room = store.rooms.get("room-1")!;
     const conversation = { requestId: "user-2", participantIds: ["one", "two"], turn: 1, maxTurns: 6 };
     room.messages.push({ id: "user-2", role: "user", text: "次の依頼", createdAt: 4 });
     room.messages.push({ id: "turn-2", role: "assistant", botId: "two", text: "", status: "working", createdAt: 5, conversation });
     const second = await relay.run("bot:two:room:room-1", "cancel-queued", { action: "start", projectId: "project", prompt: "Same work" }, "session");
-    expect(second).toMatchObject({ state: "queued" });
-    expect(await cancelRoomCodeRequest("room-1", (second as { requestId: string }).requestId)).toBe(true);
-    expect(records().find((request) => request.id === (second as { requestId: string }).requestId)?.state).toBe("cancelled");
-    await relay.tick();
-    expect(deps.create).toHaveBeenCalledTimes(1);
+    expect(second).toMatchObject({ state: "running" });
+    expect(await stopBotCodeRequest("two", (second as { requestId: string }).requestId)).toMatchObject({
+      state: "running",
+      codeTaskId: "code-2",
+    });
+    expect(records().find((request) => request.id === (second as { requestId: string }).requestId)).toMatchObject({
+      stoppedByUser: true,
+      codeTaskId: "code-2",
+    });
+    expect(deps.create).toHaveBeenCalledTimes(2);
   });
 
   it("continues the Room only after a delivered report, and not when delivery fails", async () => {
