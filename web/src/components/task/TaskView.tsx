@@ -1462,7 +1462,7 @@ export const TaskView = memo(function TaskView({
     if (
       !titleCompletionPendingRef.current ||
       !task?.sessionId ||
-      task.titleAutoUpdate === false ||
+      task.titleAutoUpdate !== true ||
       !hasCompletedTitleTurn(messages)
     ) return;
     titleCompletionPendingRef.current = false;
@@ -1484,7 +1484,7 @@ export const TaskView = memo(function TaskView({
     void sendJson<{ title: string; task: TaskSummary }>(`/api/tasks/${taskId}/title`, {}).then((result) => {
       if (mutation !== titleMutationRef.current) return;
       setTask((current) =>
-        current && current.titleAutoUpdate !== false
+        current && current.titleAutoUpdate === true
           ? { ...current, title: result.title }
           : current,
       );
@@ -1540,7 +1540,7 @@ export const TaskView = memo(function TaskView({
   async function toggleTitleAutoUpdate() {
     if (!task || archived || titleBusy) return;
     const mutation = ++titleMutationRef.current;
-    const enabled = task.titleAutoUpdate !== false;
+    const enabled = task.titleAutoUpdate === true;
     setTitleBusy(true);
     setError(null);
     try {
@@ -2384,7 +2384,7 @@ export const TaskView = memo(function TaskView({
         ? worktreeStatus
         : task.status
     : null;
-  const titleAutoUpdateEnabled = task?.titleAutoUpdate !== false;
+  const titleAutoUpdateEnabled = task?.titleAutoUpdate === true;
   const mobilePanelOpen = !mdUp && (graphOpen || diffOpen);
 
   return (

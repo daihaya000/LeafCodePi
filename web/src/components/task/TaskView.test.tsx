@@ -98,18 +98,18 @@ describe("TaskView draft submission", () => {
   });
 
   it("persists the automatic title update switch", async () => {
-    const updatedTask = { ...task, titleAutoUpdate: false };
+    const updatedTask = { ...task, titleAutoUpdate: true };
     mocks.sendJson.mockResolvedValue({ task: updatedTask });
     render(<TaskView taskId={task.id} mdUp />);
 
     const toggle = screen.getByRole("switch", { name: "タイトルの自動更新" });
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
     fireEvent.click(toggle);
 
     await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
-      `/api/tasks/${task.id}/title`, { titleAutoUpdate: false }, "PATCH",
+      `/api/tasks/${task.id}/title`, { titleAutoUpdate: true }, "PATCH",
     ));
-    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 
   it("does not regenerate a title when automatic updates are disabled", async () => {
@@ -155,7 +155,7 @@ describe("TaskView draft submission", () => {
       close() {}
     }
     vi.stubGlobal("EventSource", TestEventSource);
-    const sessionTask = { ...task, sessionId: "session-1" };
+    const sessionTask = { ...task, sessionId: "session-1", titleAutoUpdate: true };
     const turnMessages = (turns: number): UiMessage[] => Array.from(
       { length: turns * 2 },
       (_, index) => {
