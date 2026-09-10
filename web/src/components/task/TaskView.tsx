@@ -2326,10 +2326,10 @@ export const TaskView = memo(function TaskView({
       className={cx("@container/task flex min-h-0 min-w-0 flex-1 flex-col bg-bot-chat", !active && "hidden")}
     >
       <header
-        className="grid min-h-15 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-bot-outline bg-bot-chat px-3 pb-1 @min-[40rem]/task:px-4"
+        className="grid min-h-11 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-bot-outline bg-bot-chat px-3 pb-0.5 @min-[30rem]/task:grid-cols-[minmax(0,1fr)_auto_auto] @min-[40rem]/task:px-4"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
-        <div className="col-span-2 flex min-w-0 items-center gap-2 @min-[40rem]/task:col-span-1">
+        <div className="flex min-w-0 items-center gap-2">
           <MobileMenuButton />
           <div className="flex min-w-0 flex-1 items-center gap-1">
             {titleEditing ? (
@@ -2397,7 +2397,7 @@ export const TaskView = memo(function TaskView({
             )}
           </div>
         </div>
-        <div aria-label="タスクの状態" className="flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @min-[40rem]/task:flex-wrap @min-[40rem]/task:gap-y-1 @min-[40rem]/task:col-start-1 @min-[40rem]/task:row-start-2">
+        <div aria-label="タスクの状態" className="col-span-2 flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @min-[30rem]/task:col-span-1 @min-[30rem]/task:col-start-2 @min-[30rem]/task:row-start-1">
           {permissionRequest && <Badge tone="warning" className="shrink-0">承認待ち</Badge>}
           {questionRequest && <Badge tone="warning" className="shrink-0">回答待ち</Badge>}
           {displayedStatus && <StatusBadge status={displayedStatus} className="shrink-0" />}
@@ -2433,7 +2433,7 @@ export const TaskView = memo(function TaskView({
         <div
           role="group"
           aria-label="タスク操作"
-          className="flex items-center justify-end @min-[40rem]/task:col-start-2 @min-[40rem]/task:row-span-2 @min-[40rem]/task:row-start-1"
+          className="flex items-center justify-end col-start-2 row-start-1 @min-[30rem]/task:col-start-3"
         >
           <Button
             variant="ghost"
@@ -2454,7 +2454,7 @@ export const TaskView = memo(function TaskView({
               size="icon"
               title="新しいペインを追加"
               aria-label="新しいペインを追加"
-              className="h-11 w-11 md:h-9 md:w-9"
+              className="h-11 w-11 md:h-9 md:w-9 @max-[48rem]/task:hidden"
               onClick={onAddPane}
             >
               <Plus className="h-4 w-4" />
