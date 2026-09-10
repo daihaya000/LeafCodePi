@@ -34,4 +34,33 @@ describe("ReferenceHighlight", () => {
     expect(view.container.querySelector(".text-accent")).toBeNull();
     expect(view.container.textContent).toBe("@unknown /skill:missing");
   });
+
+  it("highlights Japanese reference names", () => {
+    const view = render(
+      <ReferenceHighlight
+        text="経路 /レビュー担当 @調査員"
+        references={{
+          agents: [{ name: "調査員" }],
+          skills: [{ name: "レビュー担当" }],
+        }}
+      />,
+    );
+
+    expect(view.container.querySelector(".text-accent")?.textContent).toBe("/レビュー担当");
+    expect(view.container.querySelector(".text-primary")?.textContent).toBe("@調査員");
+    expect(view.container.textContent).toBe("経路 /レビュー担当 @調査員");
+  });
+
+  it("does not style URLs or paths even with a leading space", () => {
+    const view = render(
+      <ReferenceHighlight
+        text="参照 https://example.com/a /tmp/file.ts"
+        references={{ agents: [], skills: [] }}
+      />,
+    );
+
+    expect(view.container.querySelector(".text-primary")).toBeNull();
+    expect(view.container.querySelector(".text-accent")).toBeNull();
+    expect(view.container.textContent).toBe("参照 https://example.com/a /tmp/file.ts");
+  });
 });

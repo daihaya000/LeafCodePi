@@ -16,7 +16,9 @@ export function renderHighlightedReferenceText(
 ): ReactNode {
   if (!value) return "\u200b";
   const parts: ReactNode[] = [];
-  const pattern = /(^|\s)(\/[A-Za-z0-9_.:-]+|@[A-Za-z0-9_.:-]+)/g;
+  // 空白境界の / や @ トークン。isKnownComposerReference で既知参照のみ色付けする
+  // ため、パス・URL・メール等への誤マッチは表示に影響しない。
+  const pattern = /(^|\s)(\/[^\s/]+|@[^\s@]+)/g;
   let cursor = 0;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(value)) !== null) {
