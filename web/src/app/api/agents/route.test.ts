@@ -5,9 +5,11 @@ const mocks = vi.hoisted(() => ({
   agentsErrorStatus: vi.fn(() => 500),
   createAgent: vi.fn(),
   listAgents: vi.fn(),
+  reloadLiveSessionsContext: vi.fn(async () => ({ reloaded: true })),
 }));
 
 vi.mock("@/lib/agents", () => mocks);
+vi.mock("@/lib/pi/harness", () => ({ reloadLiveSessionsContext: mocks.reloadLiveSessionsContext }));
 
 import { POST } from "./route";
 
@@ -23,6 +25,7 @@ describe("POST /api/agents", () => {
   beforeEach(() => {
     mocks.createAgent.mockReset();
     mocks.createAgent.mockReturnValue({ name: "build" });
+    mocks.reloadLiveSessionsContext.mockClear();
   });
 
   it("rejects a non-object request body before creating an agent", async () => {
@@ -131,5 +134,6 @@ describe("POST /api/agents", () => {
     expect(mocks.createAgent).toHaveBeenCalledWith(
       expect.objectContaining({ name: "blocked", tools: [] }),
     );
+    expect(mocks.reloadLiveSessionsContext).toHaveBeenCalledOnce();
   });
 });

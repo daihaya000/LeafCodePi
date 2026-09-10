@@ -1,5 +1,16 @@
 # MEMORY
 
+## 2026-09-10: バグハント loop tick — Room切替残留 / agents reload
+
+### 修正
+1. **HIGH**: Room 切替で前ルームの会話が残る（BotView と同型）→ `id` 変更時に room/attention 等をクリア
+2. **MED**: POST/DELETE `/api/agents` が `reloadLiveSessionsContext` を呼ばず、作成・削除がライブセッションに遅延反映 → PATCH と同様に reload
+
+### 検証
+RoomView 15 / agents route 12 / [name] route 4 PASS
+
+---
+
 ## 2026-09-10: バグハント継続 — Bot切替残留 / agents tools・Effort
 
 ### 修正

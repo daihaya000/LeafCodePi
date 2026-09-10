@@ -84,7 +84,12 @@ describe("RoomView loading", () => {
   });
 
   it("ignores a stale SSE snapshot after switching ids", async () => {
-    const roomOne = { ...room, id: "room-1", name: "One" };
+    const roomOne = {
+      ...room,
+      id: "room-1",
+      name: "One",
+      messages: [{ id: "old", role: "assistant" as const, text: "old room reply", createdAt: 1, status: "done" as const }],
+    };
     const roomTwo = { ...room, id: "room-2", name: "Two" };
     class TestSource {
       static instances: TestSource[] = [];
@@ -102,8 +107,10 @@ describe("RoomView loading", () => {
     });
     const view = render(<RoomView id="room-1" />);
     await screen.findByRole("heading", { name: "One" });
+    expect(screen.getByText("old room reply")).toBeTruthy();
     view.rerender(<RoomView id="room-2" />);
     await screen.findByRole("heading", { name: "Two" });
+    expect(screen.queryByText("old room reply")).toBeNull();
     const staleSnapshot = TestSource.instances[0]?.listeners.get("snapshot");
     if (!staleSnapshot) throw new Error("Initial SSE snapshot listener was not registered");
     await act(async () => {
@@ -111,6 +118,7 @@ describe("RoomView loading", () => {
     });
     expect(screen.getByRole("heading", { name: "Two" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "One" })).toBeNull();
+    expect(screen.queryByText("old room reply")).toBeNull();
   });
 });
 

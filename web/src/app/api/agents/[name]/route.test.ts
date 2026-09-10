@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/agents", () => mocks);
 vi.mock("@/lib/pi/harness", () => ({ reloadLiveSessionsContext: mocks.reloadLiveSessionsContext }));
 
-import { PATCH } from "./route";
+import { DELETE, PATCH } from "./route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/agents/custom", {
@@ -63,5 +63,21 @@ describe("PATCH /api/agents/:name tool permissions", () => {
     expect(mocks.setAgentModel).toHaveBeenCalledWith("custom", "openai-codex/gpt-5.6");
     expect(mocks.setAgentThinking).toHaveBeenCalledWith("custom", "high");
     expect(mocks.setAgentTools).toHaveBeenCalledWith("custom", ["read", "grep"]);
+  });
+});
+
+describe("DELETE /api/agents/:name", () => {
+  beforeEach(() => {
+    for (const mock of Object.values(mocks)) mock.mockClear();
+    mocks.deleteAgent.mockReturnValue({ agents: [] });
+    mocks.reloadLiveSessionsContext.mockResolvedValue({ reloaded: true });
+  });
+
+  it("reloads live sessions after deleting a user agent", async () => {
+    const response = await DELETE(new NextRequest("http://localhost/api/agents/custom", { method: "DELETE" }), context());
+
+    expect(response.status).toBe(200);
+    expect(mocks.deleteAgent).toHaveBeenCalledWith("custom");
+    expect(mocks.reloadLiveSessionsContext).toHaveBeenCalledOnce();
   });
 });

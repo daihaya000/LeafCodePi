@@ -4,6 +4,7 @@
  */
 import { NextResponse } from "next/server";
 import { agentsErrorStatus, createAgent, listAgents, type AgentDraft } from "@/lib/agents";
+import { reloadLiveSessionsContext } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 
 export const runtime = "nodejs";
@@ -76,7 +77,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "fallbackModels は文字列配列が必要です" }, { status: 400 });
     }
     const result = createAgent(normalize(body as AgentDraft));
-    return NextResponse.json(result, { status: 201 });
+    const reload = await reloadLiveSessionsContext();
+    return NextResponse.json({ ...result, reload }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "エージェントの作成に失敗しました" },

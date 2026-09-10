@@ -112,6 +112,20 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     return () => { current = false; };
   }, [load]);
 
+  // Drop the previous room immediately; load/SSE refill for the new id.
+  useEffect(() => {
+    setRoom(null);
+    setAttention([]);
+    setAttentionBusy(null);
+    setError(null);
+    setPrompt("");
+    setAttachments([]);
+    setBusy(false);
+    setBroadcast(false);
+    setMentionContext(null);
+    setSettingsOpen(false);
+  }, [id]);
+
   useEffect(() => {
     let closed = false;
     setSkills([]);

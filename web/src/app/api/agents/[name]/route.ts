@@ -117,7 +117,8 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
   }
   try {
     const listed = deleteAgent(name);
-    return NextResponse.json({ ok: true, agents: listed.agents });
+    const reload = await reloadLiveSessionsContext();
+    return NextResponse.json({ ok: true, agents: listed.agents, reload });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "エージェントの削除に失敗しました" },
