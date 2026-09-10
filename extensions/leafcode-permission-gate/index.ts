@@ -17,6 +17,7 @@ import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-wo
 import { homedir } from "node:os";
 import { join, resolve as resolvePath } from "node:path";
 import { requestWebUiPermission } from "./webui-bridge";
+import registerSkillPaths from "./skill-paths.ts";
 
 export type PermissionMode = "allow" | "ask" | "deny";
 export type SystemSafetyLevel = "off" | "low" | "standard" | "strict";
@@ -1222,6 +1223,7 @@ function extensionSessionId(ctx: ExtensionContext): string {
 }
 
 export default function (pi: ExtensionAPI): void {
+  const normalizeSkillPath = registerSkillPaths(pi);
   let safetyInvestigationObserved = false;
   let safetyPlanPresented = false;
   let pendingSafetyKey = "";
@@ -1311,6 +1313,7 @@ export default function (pi: ExtensionAPI): void {
   };
 
   pi.on("tool_call", async (event, ctx) => {
+    normalizeSkillPath(event, ctx);
     const config = readConfig();
     const mode = sessionMode(ctx, config);
     const level = systemSafetyLevelOf(config);

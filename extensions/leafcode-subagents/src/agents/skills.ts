@@ -8,6 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { parseFrontmatter } from "./frontmatter.ts";
 import { getAgentDir, getProjectConfigDir } from "../shared/utils.ts";
+import { bundledSkillPaths, SKILL_PATH_GUIDANCE } from "../../../leafcode-permission-gate/skill-paths.ts";
 
 export type SkillSource =
 	| "project"
@@ -347,6 +348,7 @@ function buildSkillPaths(cwd: string, agentDir: string): SkillSearchPath[] {
 		...collectSettingsPackageSkillPaths(cwd, agentDir),
 		...extractSkillPathsFromPackageRoot(cwd, "project-package"),
 		...collectSettingsSkillPaths(cwd, agentDir),
+		...bundledSkillPaths().map((path) => ({ path, source: "builtin" as const })),
 	];
 
 	const deduped = new Map<string, SkillSearchPath>();
@@ -684,6 +686,7 @@ export function buildSkillInjection(skills: ResolvedSkill[]): string {
 	const lines = [
 		"The following configured skills are available to this subagent.",
 		"Use the read tool to load a skill's file when the task matches its description.",
+		SKILL_PATH_GUIDANCE,
 		"When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.",
 		"",
 		"<available_skills>",

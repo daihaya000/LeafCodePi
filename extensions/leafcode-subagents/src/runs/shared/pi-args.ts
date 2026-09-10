@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { bundledSkillPaths } from "../../../../leafcode-permission-gate/skill-paths.ts";
 import {
 	encodeNestedPathEnv,
 	parseNestedPathEnv,
@@ -717,6 +718,8 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 	}
 	if (!input.inheritSkills) {
 		args.push("--no-skills");
+	} else {
+		for (const skillPath of bundledSkillPaths()) args.push("--skill", skillPath);
 	}
 
 	let tempDir: string | undefined;

@@ -73,7 +73,7 @@ LeafCodePi には次の Pi 拡張を同梱しています。WebUI と連携す�
 | `leafcode-todowrite` | OpenCode 互換の ToDo 管理 |
 | `leafcode-web-access` | Web 検索、URL/PDF/GitHub/動画の取得・解析 |
 
-ルートの `skills/` 配下にある `SKILL.md` は LeafCodePi の組み込みスキルとして自動検出され、通常の Pi スキルと同じく設定画面から有効／無効を切り替えられます。
+ルートの `skills/` と `extensions/*/skills/` 配下にある `SKILL.md` は LeafCodePi の組み込みスキルとして自動検出され、通常の Pi スキルと同じく設定画面から有効／無効を切り替えられます。グローバルディレクトリへのコピーやインストールは不要です。エージェントは `available_skills` の `location` に提示された実パスを読み、相対参照はその `SKILL.md` のディレクトリを基準に解決します。存在しないグローバルパスを指定した場合だけ、有効な一覧から一意に対応するスキルへの `read` を補正し、実パスを結果に明示します。既存ファイルや書き込み先は変更しません。
 
 ### Goal Loop
 
@@ -88,7 +88,7 @@ pi install ./extensions/leafcode-goal-loop
 ### ToDo (`todowrite`)
 
 `extensions/leafcode-todowrite` は OpenCode の `todowrite` と
-`~/.agents/skills/todowrite-discipline`（Windows は `%USERPROFILE%\.agents\skills\todowrite-discipline`）の形式に合わせた Pi 拡張です。
+組み込みの [`skills/todowrite-discipline/SKILL.md`](skills/todowrite-discipline/SKILL.md) の形式に合わせた Pi 拡張です。
 `pending` / `in_progress` / `completed` / `cancelled`、`high` / `medium` / `low` を扱い、
 `in_progress` は同時に1件だけ許可します。Pi セッションの tool result に状態を保存し、
 Task 画面には本家 LeafCode と同様の折りたたみ式 ToDo 進捗とプログレスバーを表示します。
