@@ -2326,7 +2326,7 @@ export const TaskView = memo(function TaskView({
       className={cx("flex min-h-0 min-w-0 flex-1 flex-col bg-bot-chat", !active && "hidden")}
     >
       <header
-        className="flex min-h-[3.75rem] shrink-0 items-center gap-2 border-b border-bot-outline bg-bot-chat px-3 md:px-4 md:gap-3"
+        className="flex min-h-[3.75rem] shrink-0 items-center gap-1.5 border-b border-bot-outline bg-bot-chat px-3 md:gap-3 md:px-4"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         <MobileMenuButton />
@@ -2381,10 +2381,16 @@ export const TaskView = memo(function TaskView({
                 </Button>
               </form>
             ) : (
-              <>
-                <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" title={task?.title}>
-                  {task?.title ?? "読み込み中…"}
-                </h1>
+              <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" title={task?.title}>
+                {task?.title ?? "読み込み中…"}
+              </h1>
+            )}
+            <div
+              role="group"
+              aria-label="タイトル操作"
+              className="flex shrink-0 items-center gap-0.5 rounded-lg bg-surface-2/50 p-0.5"
+            >
+              {!titleEditing && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -2396,21 +2402,21 @@ export const TaskView = memo(function TaskView({
                 >
                   <Pencil className="h-4 w-4" />
                 </Button>
-              </>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              role="switch"
-              aria-checked={titleAutoUpdateEnabled}
-              aria-label="タイトルの自動更新"
-              title={`タイトルの自動更新: ${titleAutoUpdateEnabled ? "ON" : "OFF"}`}
-              className={cx("h-8 w-8", titleAutoUpdateEnabled && "bg-accent/10 text-accent")}
-              disabled={!task || archived || titleBusy}
-              onClick={() => void toggleTitleAutoUpdate()}
-            >
-              <Sparkles className="h-4 w-4" />
-            </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                role="switch"
+                aria-checked={titleAutoUpdateEnabled}
+                aria-label="タイトルの自動更新"
+                title={`タイトルの自動更新: ${titleAutoUpdateEnabled ? "ON" : "OFF"}`}
+                className={cx("h-8 w-8", titleAutoUpdateEnabled && "bg-accent/10 text-accent")}
+                disabled={!task || archived || titleBusy}
+                onClick={() => void toggleTitleAutoUpdate()}
+              >
+                <Sparkles className="h-4 w-4" />
+              </Button>
+            </div>
             {permissionRequest && <Badge tone="warning">承認待ち</Badge>}
             {questionRequest && <Badge tone="warning">回答待ち</Badge>}
           </div>
@@ -2469,7 +2475,12 @@ export const TaskView = memo(function TaskView({
             )}
           </div>
         </div>
-        <div className="relative flex min-w-0 shrink-0 items-center gap-1">
+        <div
+          role="group"
+          aria-label="タスク操作"
+          tabIndex={0}
+          className="flex min-w-0 max-w-[52vw] shrink-0 items-center gap-0.5 overflow-x-auto rounded-xl border border-border/70 bg-surface-2/40 p-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:max-w-none sm:overflow-visible"
+        >
           {onAddPane && (
             <Button
               variant="ghost"
@@ -2482,55 +2493,48 @@ export const TaskView = memo(function TaskView({
               <Plus className="h-4 w-4" />
             </Button>
           )}
-          <div
-            role="group"
-            aria-label="タスク操作"
-            tabIndex={0}
-            className="flex max-w-[52vw] items-center gap-1 overflow-x-auto rounded-md [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:max-w-none sm:overflow-visible"
+          <ProjectExplorerButton
+            projectId={task?.projectId}
+            onError={setError}
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            title="コミットグラフ"
+            aria-label="コミットグラフ"
+            aria-pressed={graphOpen}
+            disabled={!task}
+            className={cx(
+              "h-11 w-11 md:h-9 md:w-9",
+              graphOpen && "bg-surface-2 text-text",
+            )}
+            onClick={() =>
+              setPanelState((current) =>
+                toggleTaskPanel(current, "graph", panelsCanBeSimultaneous),
+              )
+            }
           >
-            <ProjectExplorerButton
-              projectId={task?.projectId}
-              onError={setError}
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              title="コミットグラフ"
-              aria-label="コミットグラフ"
-              aria-pressed={graphOpen}
-              disabled={!task}
-              className={cx(
-                "h-11 w-11 md:h-9 md:w-9",
-                graphOpen && "bg-surface-2 text-text",
-              )}
-              onClick={() =>
-                setPanelState((current) =>
-                  toggleTaskPanel(current, "graph", panelsCanBeSimultaneous),
-                )
-              }
-            >
-              <GitGraph className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              title="Diff パネル"
-              aria-label="Diff パネル"
-              aria-pressed={diffOpen}
-              disabled={!task}
-              className={cx(
-                "h-11 w-11 md:h-9 md:w-9",
-                diffOpen && "bg-surface-2 text-text",
-              )}
-              onClick={() =>
-                setPanelState((current) =>
-                  toggleTaskPanel(current, "diff", panelsCanBeSimultaneous),
-                )
-              }
-            >
-              <PanelRight className="h-4 w-4" />
-            </Button>
-          </div>
+            <GitGraph className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            title="Diff パネル"
+            aria-label="Diff パネル"
+            aria-pressed={diffOpen}
+            disabled={!task}
+            className={cx(
+              "h-11 w-11 md:h-9 md:w-9",
+              diffOpen && "bg-surface-2 text-text",
+            )}
+            onClick={() =>
+              setPanelState((current) =>
+                toggleTaskPanel(current, "diff", panelsCanBeSimultaneous),
+              )
+            }
+          >
+            <PanelRight className="h-4 w-4" />
+          </Button>
         </div>
       </header>
       <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
