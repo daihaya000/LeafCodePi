@@ -97,7 +97,7 @@ export function GoalLoopPanel({
     <section
       aria-label="Goal loop"
       className={cx(
-        "mx-auto mb-2 max-w-5xl rounded-xl border border-border bg-surface p-3 text-sm",
+        "mb-2 max-w-bubble rounded-xl border border-border bg-surface p-3 text-sm",
         live && "border-primary/30",
       )}
     >

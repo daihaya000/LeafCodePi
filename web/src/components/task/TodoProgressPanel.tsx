@@ -36,7 +36,7 @@ export function TodoProgressPanel({ todos }: { todos: TodoDto[] }) {
     <section
       aria-label="ToDo進捗"
       aria-live="polite"
-      className="w-full max-w-5xl text-sm"
+      className="w-full max-w-bubble text-sm"
     >
       <button
         type="button"
