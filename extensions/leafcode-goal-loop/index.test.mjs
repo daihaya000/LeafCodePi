@@ -1025,6 +1025,71 @@ test("recovers a torn state file from the newest valid temp snapshot", async () 
   }
 });
 
+test("recovers when the main state hydrates to null but a temp snapshot is valid", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-hydrate-null-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "hydrate-null-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "hydrate-null-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    const snapshot = {
+      goal: "recover hydrate-null",
+      status: "queued",
+      turnKind: "goal",
+      turnCount: 0,
+      maxTurns: 2,
+      cooldownSeconds: 0,
+      nextTurnAt: null,
+      forceFullRun: true,
+      acceptance: ["ok"],
+      progress: [],
+      unreadableStreak: 0,
+    };
+    writeFileSync(`${stateFile()}.9.9.tmp`, JSON.stringify(snapshot), "utf8");
+    // Parses as JSON but fails hydrateLoop (acceptance entries must be strings).
+    writeFileSync(stateFile(), JSON.stringify({
+      goal: "broken main",
+      acceptance: [1, 2],
+      status: "paused",
+    }), "utf8");
+
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    await waitFor(() => sendCount === 1);
+
+    const recovered = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(recovered.goal, "recover hydrate-null");
+    assert.equal(recovered.status, "running");
+    assert.equal(readdirSync(join(cwd, "goals-loop")).some((name) => name.endsWith(".tmp")), false);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("keeps the loop alive once when the result JSON is missing", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-missing-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

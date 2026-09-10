@@ -396,10 +396,14 @@ function recoverLoopFromTemp(file: string, cwd: string, id: string): GoalLoop | 
 function readLoop(cwd: string, id: string): GoalLoop | null {
   const file = goalStateFile(cwd, id);
   try {
-    return hydrateLoop(JSON.parse(fs.readFileSync(file, "utf8")), cwd, id);
+    const loop = hydrateLoop(JSON.parse(fs.readFileSync(file, "utf8")), cwd, id);
+    // Valid JSON can still fail hydration (missing goal/bad acceptance). Do not
+    // treat that as authoritative when a newer temp snapshot can be promoted.
+    if (loop) return loop;
   } catch {
-    return recoverLoopFromTemp(file, cwd, id);
+    // Missing/torn main file — fall through to temp recovery.
   }
+  return recoverLoopFromTemp(file, cwd, id);
 }
 
 function writeLoop(loop: GoalLoop): boolean {
