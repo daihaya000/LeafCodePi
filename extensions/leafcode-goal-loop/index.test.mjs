@@ -1263,6 +1263,126 @@ test("manual_send keeps a late result without auto-continuing", async () => {
   }
 });
 
+test("manual_send recovers JSON from agent_settled after pause clears awaitingTurn", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-manual-settled-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "manual-settled-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "manual-settled-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sendCount === 1);
+
+    await handlers.get("turn_start")?.({ type: "turn_start", turnIndex: 0 }, ctx);
+    // Pause before agent_end: awaitingTurn flips false, but pending evidence must survive.
+    await handlers.get("input")?.({ text: "割り込み", source: "user" }, ctx);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).pauseReason, "manual_send");
+
+    busy = false;
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "from agent_settled" }) }],
+      }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+
+    const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(loop.progress.at(-1)?.summary, "from agent_settled");
+    assert.equal(loop.status, "paused");
+    assert.equal(loop.pauseReason, "manual_send");
+    assert.equal(sendCount, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("late turn_end with a later turnIndex still recovers after mid-turn pause", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-turn-index-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "turn-index-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "turn-index-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sendCount === 1);
+
+    // Tool call on turn 0, pause, JSON arrives on turn 1 of the same aborted run.
+    await handlers.get("turn_start")?.({ type: "turn_start", turnIndex: 0 }, ctx);
+    await handlers.get("input")?.({ text: "割り込み", source: "user" }, ctx);
+    busy = false;
+    await handlers.get("turn_end")?.({
+      type: "turn_end",
+      turnIndex: 1,
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "later turnIndex" }) }],
+      },
+    }, ctx);
+
+    const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(loop.progress.at(-1)?.summary, "later turnIndex");
+    assert.equal(loop.status, "paused");
+    assert.equal(loop.pauseReason, "manual_send");
+    assert.equal(sendCount, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("applies a result that lands after a turn_timeout pause instead of losing it", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-turn-timeout-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

@@ -789,6 +789,57 @@ function clearPendingAgentRun(runtime: Runtime): void {
   runtime.pendingAgentAborted = false;
 }
 
+/**
+ * Apply a result that arrived after the loop was paused mid-turn.
+ * user/manual_send keep progress but stay paused; turn_timeout/unknown_delivery continue.
+ */
+function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): boolean {
+  const loop = currentLoop(runtime);
+  if (
+    !loop ||
+    loop.status !== "paused" ||
+    !(runtime.pausedTurnPending || loop.pendingTurnRecovery)
+  ) {
+    return false;
+  }
+  if (
+    loop.pauseReason !== "user" &&
+    loop.pauseReason !== "manual_send" &&
+    loop.pauseReason !== "unknown_delivery" &&
+    loop.pauseReason !== "turn_timeout"
+  ) {
+    return false;
+  }
+  const pauseReason = loop.pauseReason;
+  const pauseError = loop.error;
+  runtime.pausedTurnPending = false;
+  runtime.pausedTurnIndex = undefined;
+  loop.pendingTurnRecovery = false;
+  loop.status = "running";
+  applyResult(loop, result);
+  const updated = currentLoop(runtime);
+  updateUI(runtime, updated);
+  if (!updated) return true;
+  appendSnapshot(runtime, updated);
+  if (
+    (pauseReason === "user" || pauseReason === "manual_send") &&
+    !TERMINAL.has(updated.status) &&
+    updated.status !== "paused"
+  ) {
+    updated.status = "paused";
+    updated.pauseReason = pauseReason;
+    updated.error = pauseError;
+    updated.pendingTurnRecovery = false;
+    updated.nextTurnAt = null;
+    writeLoop(updated);
+    updateUI(runtime, updated);
+    appendSnapshot(runtime, updated);
+  } else if (updated.status === "queued" || updated.status === "verifying_completed") {
+    schedule(runtime);
+  }
+  return true;
+}
+
 function assistantErrorMessage(message: unknown): string | null {
   const record = asRecord(message);
   if (!record || record.role !== "assistant" || record.stopReason !== "error") return null;
@@ -899,7 +950,9 @@ function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error
   runtime.pausedTurnIndex = runtime.awaitingTurnIndex;
   // Survive process restart: in-memory pausedTurnPending alone is not enough.
   if (runtime.pausedTurnPending) loop.pendingTurnRecovery = true;
-  clearPendingAgentRun(runtime);
+  // Keep agent_end evidence when pausing mid-turn so agent_settled can still
+  // recover JSON after abort. Clearing here caused manual_send races to drop results.
+  if (!runtime.pausedTurnPending) clearPendingAgentRun(runtime);
   clearTimer(runtime);
   runtime.awaitingTurn = false;
   runtime.awaitingTurnIndex = undefined;
@@ -1568,51 +1621,15 @@ export default function (pi: ExtensionAPI): void {
     if (
       !current.awaitingTurn &&
       current.pausedTurnPending &&
-      current.pausedTurnIndex !== undefined &&
-      current.pausedTurnIndex === event.turnIndex &&
       loop.status === "paused" &&
-      // turn_timeoutは実行中ランの応答待ちで15分を超えた場合。ラン自体は
-      // 続行していて正常な結果で終わることがあるため、後着の結果を破棄せず
-      // 適用して自動継続させる（ハング検知はランが終わらない場合のみ有効）。
-      (loop.pauseReason === "user" ||
-        loop.pauseReason === "manual_send" ||
-        loop.pauseReason === "unknown_delivery" ||
-        loop.pauseReason === "turn_timeout")
+      // Tool-using runs emit multiple turnIndices. Accept this turn and later
+      // ones from the interrupted run; also allow recovery when turn_start never
+      // armed pausedTurnIndex before the pause.
+      (current.pausedTurnIndex === undefined || event.turnIndex >= current.pausedTurnIndex)
     ) {
       const result = extractGoalResult(assistantText(event.message));
       if (!result) return;
-      const pauseReason = loop.pauseReason;
-      const pauseError = loop.error;
-      current.pausedTurnPending = false;
-      current.pausedTurnIndex = undefined;
-      loop.pendingTurnRecovery = false;
-      loop.status = "running";
-      applyResult(loop, result);
-      const updated = currentLoop(current);
-      updateUI(current, updated);
-      if (updated) {
-        appendSnapshot(current, updated);
-        // user/manual_send means the operator took control. Keep the recovered
-        // progress, but do not auto-continue past their pause.
-        if (
-          (pauseReason === "user" || pauseReason === "manual_send") &&
-          !TERMINAL.has(updated.status) &&
-          updated.status !== "paused"
-        ) {
-          updated.status = "paused";
-          updated.pauseReason = pauseReason;
-          updated.error = pauseError;
-          updated.pendingTurnRecovery = false;
-          updated.nextTurnAt = null;
-          writeLoop(updated);
-          updateUI(current, updated);
-          appendSnapshot(current, updated);
-        } else if (updated.status === "queued" || updated.status === "verifying_completed") {
-          // turn_timeout / unknown_delivery: agent_settled may already have
-          // passed while paused, so re-arm here.
-          schedule(current);
-        }
-      }
+      applyLatePausedResult(current, result);
       return;
     }
     // `turn_end` fires once per assistant/tool iteration. A tool call normally
@@ -1622,9 +1639,10 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("agent_end", async (event, ctx) => {
     const current = getRuntime();
-    if (!current || !current.awaitingTurn) return;
-    // agent_end is emitted before Pi performs automatic retry/compaction. Keep
-    // the latest messages only as evidence and finalize at agent_settled.
+    if (!current) return;
+    // After a mid-turn pause, awaitingTurn is false but we still need the final
+    // messages so agent_settled can recover JSON (manual_send/abort races).
+    if (!current.awaitingTurn && !current.pausedTurnPending) return;
     current.pendingAgentMessages = event.messages;
     current.pendingAgentAborted = event.messages.some(isAbortedAssistant) || Boolean(ctx.signal?.aborted);
   });
@@ -1639,6 +1657,12 @@ export default function (pi: ExtensionAPI): void {
     }
     if (current.awaitingTurn && loop.status === "running") {
       await settleAwaitingTurn(current);
+      return;
+    }
+    if (current.pausedTurnPending && loop.status === "paused") {
+      const result = extractGoalResultFromMessages(current.pendingAgentMessages ?? []);
+      clearPendingAgentRun(current);
+      if (result) applyLatePausedResult(current, result);
       return;
     }
     clearPendingAgentRun(current);
