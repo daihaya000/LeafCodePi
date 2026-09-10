@@ -235,6 +235,19 @@ type TranscriptCacheEntry = {
  * projectPiMessages 相当）をスキップする。
  */
 const transcriptCache = new Map<string, TranscriptCacheEntry>();
+/** キャッシュ上限。超過時は最も古いエントリから追い出す（Map の挿入順）。 */
+const TRANSCRIPT_CACHE_MAX_ENTRIES = 128;
+
+function cacheTranscript(filePath: string, entry: TranscriptCacheEntry): void {
+  if (
+    transcriptCache.size >= TRANSCRIPT_CACHE_MAX_ENTRIES &&
+    !transcriptCache.has(filePath)
+  ) {
+    const oldest = transcriptCache.keys().next().value;
+    if (oldest !== undefined) transcriptCache.delete(oldest);
+  }
+  transcriptCache.set(filePath, entry);
+}
 
 /**
  * タスクのセッションに紐づくサブエージェント実行を新しい順に返す。
@@ -286,7 +299,7 @@ export function listSubagentRuns(input: {
         const { text, truncated } = readTranscriptTail(candidate.filePath, candidate.size);
         parsed = parseSubagentTranscript(text, { truncated });
         uiMessages = projectPiMessages(parsed.rawMessages);
-        transcriptCache.set(candidate.filePath, {
+        cacheTranscript(candidate.filePath, {
           mtimeMs: candidate.mtimeMs,
           size: candidate.size,
           parsed,

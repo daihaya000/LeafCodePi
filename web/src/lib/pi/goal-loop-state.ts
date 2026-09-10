@@ -16,6 +16,19 @@ type GoalLoopCacheEntry = {
 };
 
 const goalLoopCache = new Map<string, GoalLoopCacheEntry>();
+/** キャッシュ上限。超過時は最も古いエントリから追い出す（Map の挿入順）。 */
+const GOAL_LOOP_CACHE_MAX_ENTRIES = 256;
+
+function cacheGoalLoopState(file: string, entry: GoalLoopCacheEntry): void {
+  if (
+    goalLoopCache.size >= GOAL_LOOP_CACHE_MAX_ENTRIES &&
+    !goalLoopCache.has(file)
+  ) {
+    const oldest = goalLoopCache.keys().next().value;
+    if (oldest !== undefined) goalLoopCache.delete(oldest);
+  }
+  goalLoopCache.set(file, entry);
+}
 
 export const GOAL_LOOP_LIVE_STATUSES = [
   "queued",
@@ -60,7 +73,12 @@ export function readGoalLoopState(cwd: string, sessionId: string | null | undefi
       nextTurnAt: typeof value.nextTurnAt === "string" ? value.nextTurnAt : null,
       unreadableStreak: Math.max(0, Math.trunc(Number(value.unreadableStreak) || 0)),
     } as GoalLoopDto;
-    goalLoopCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, ino: stat.ino, value: result });
+    cacheGoalLoopState(file, {
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      ino: stat.ino,
+      value: result,
+    });
     return result;
   } catch {
     goalLoopCache.delete(file);
