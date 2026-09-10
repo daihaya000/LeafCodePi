@@ -1,5 +1,17 @@
 # MEMORY
 
+## 2026-09-10: バグハント loop — Ctrl+Enter / room signature / goal-loop resume
+
+### 修正・改善
+1. **UX**: Bot/Room 送信を Ctrl/Meta+Enter に変更（Enter は改行）。候補確定は修飾キーなし Enter のみ（送信と衝突回避）
+2. **MED**: `roomSnapshotSignature` に `codeRequests` 指紋を追加（同一 ms の Code 状態遷移を取りこぼさない）
+3. **MED**: goal-loop の session resume で `verifying_completed` を running と同様に強制 pause しない。lifecycle pause の `pauseReason` は `""`（user pause と区別）
+
+### 検証
+BotComposer 5 / BotView.code 21 / RoomView 16 / room-events 4 / goal-loop 30 PASS
+
+---
+
 ## 2026-09-10: バグハント — 並列 Room Code の codeActivity 消失
 
 ### 修正
