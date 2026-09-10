@@ -97,6 +97,9 @@ export function useSubagentRuns(input: {
 
   useEffect(() => {
     if (!enabled || !taskId) return;
+    // タスク・有効化の切り替えでリセットし、初回取得まで loading を表示する
+    // （loadedRef はモジュール内 ref でタブ再利用時に前タスクの状態が残る）。
+    loadedRef.current = false;
     let cancelled = false;
     const query = sinceMs !== undefined ? `?since=${Math.floor(sinceMs)}` : "";
 
