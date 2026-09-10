@@ -1215,9 +1215,20 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
       : Math.max(loop.maxTurns, requestedMaxTurns);
   }
   if (loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns) {
-    runtime.ctx.ui.notify("最大ターン数を増やしてから再開してください。例: /goal-resume --turns 20", "warning");
-    writeLoop(loop);
-    return false;
+    // A final-turn JSON miss pauses as unreadable_result after the free retry.
+    // Allow one more non-consuming send (streak===1) instead of forcing the
+    // user to raise the turn budget just to recover from a formatting miss.
+    if (loop.pauseReason === "unreadable_result") {
+      loop.unreadableStreak = 1;
+    } else {
+      runtime.ctx.ui.notify("最大ターン数を増やしてから再開してください。例: /goal-resume --turns 20", "warning");
+      writeLoop(loop);
+      return false;
+    }
+  } else {
+    // User-initiated resume starts a fresh miss streak so the first missing
+    // JSON after resume still gets the one free retry.
+    loop.unreadableStreak = 0;
   }
   if (runtime.pausedTurnPending) {
     const recovered = lateTurnResult(runtime, loop);

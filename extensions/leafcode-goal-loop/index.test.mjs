@@ -645,6 +645,86 @@ test("retries a missing result on the final bounded turn without consuming anoth
   }
 });
 
+test("resume after unreadable_result at the turn limit allows one JSON retry", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-unreadable-resume-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "unreadable-resume-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "unreadable-resume-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand(name, options) { commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage() {
+      sendCount += 1;
+      busy = true;
+      const text = sendCount <= 2
+        ? "結果JSONを付け忘れました。"
+        : JSON.stringify({ status: "progress", summary: `recovered ${sendCount}` });
+      void (async () => {
+        busy = false;
+        await handlers.get("agent_end")?.({
+          type: "agent_end",
+          messages: [{ role: "assistant", content: [{ type: "text", text }] }],
+        }, ctx);
+        await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+      })();
+    },
+  };
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({
+      goal: "demo",
+      maxTurns: 1,
+      forceFullRun: true,
+    })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => {
+      const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+      return loop.status === "paused" && loop.pauseReason === "unreadable_result";
+    });
+    let loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(sendCount, 2);
+    assert.equal(loop.turnCount, 1);
+    assert.equal(loop.unreadableStreak, 2);
+
+    // Budget is exhausted, but the pause was for missing JSON — resume must
+    // still allow the non-consuming formatting retry.
+    await commands.get("goal-resume")?.("", ctx);
+    await waitFor(() => sendCount === 3);
+    await waitFor(() => {
+      const current = JSON.parse(readFileSync(stateFile(), "utf8"));
+      return current.status === "paused" && current.pauseReason === "turn_limit";
+    });
+    loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(loop.turnCount, 1);
+    assert.equal(loop.unreadableStreak, 0);
+    assert.equal(loop.progress.at(-1)?.summary, "recovered 3");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("does not finalize before a compaction retry has fully settled", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-compaction-retry-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
