@@ -120,6 +120,19 @@ describe("Bot mode list", () => {
 });
 
 describe("Bot mode collapsed rail", () => {
+  it("shows a user-facing error when creating a Bot fails", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    vi.stubGlobal("prompt", vi.fn().mockReturnValue("失敗Bot"));
+    mocks.sendJson.mockRejectedValueOnce(new Error("Bot作成に失敗しました"));
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Botを追加" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Bot作成に失敗しました");
+  });
+
   it("shows a user-facing error when Bot and Room loading fails", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     mocks.getJson.mockImplementation((path: string) => {
