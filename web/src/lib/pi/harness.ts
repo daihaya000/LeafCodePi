@@ -465,8 +465,9 @@ type TodoProgressCacheEntry = {
 
 /** Reopen archived task session files only when they actually changed on disk. */
 const todoProgressCache = new Map<string, TodoProgressCacheEntry>();
-/** キャッシュ上限。超過時は最も古いエントリから追い出す（Map の挿入順）。 */
-const TODO_PROGRESS_CACHE_MAX_ENTRIES = 256;
+/** キャッシュ上限。実利用で 400+ タスクが常駐するため、全件走査時に上限以下で
+ *  毎回追い出されセッション再解析（秒単位）が起きないよう余裕を持たせる。 */
+const TODO_PROGRESS_CACHE_MAX_ENTRIES = 2048;
 
 function cacheTodoProgress(
   sessionFile: string,

@@ -16,8 +16,9 @@ type GoalLoopCacheEntry = {
 };
 
 const goalLoopCache = new Map<string, GoalLoopCacheEntry>();
-/** キャッシュ上限。超過時は最も古いエントリから追い出す（Map の挿入順）。 */
-const GOAL_LOOP_CACHE_MAX_ENTRIES = 256;
+/** キャッシュ上限。全タスク走査で 400+ 件の状態ファイルを stat するため、
+ *  上限以下で毎回追い出されて再読込が起きないよう余裕を持たせる。 */
+const GOAL_LOOP_CACHE_MAX_ENTRIES = 2048;
 
 function cacheGoalLoopState(file: string, entry: GoalLoopCacheEntry): void {
   if (
