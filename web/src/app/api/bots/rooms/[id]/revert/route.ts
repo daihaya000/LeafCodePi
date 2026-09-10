@@ -21,8 +21,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     await stopRoomTurns(id);
     const reverted = revertRoomTo(id, messageId);
     if (!reverted) return NextResponse.json({ error: "巻き戻せるユーザー発言が見つかりません" }, { status: 404 });
-    // Work started for the removed request has nowhere to report back to.
-    const cancelled = cancelRoomCodeRequests(id, reverted.requestId);
+    // Work started for removed requests has nowhere to report back to.
+    let cancelled = 0;
+    for (const requestId of reverted.requestIds) cancelled += await cancelRoomCodeRequests(id, requestId);
     return NextResponse.json({ room: getRoom(id), text: reverted.text, cancelledCodeRequests: cancelled });
   } catch (error) {
     const { error: message, status } = jsonError(error);

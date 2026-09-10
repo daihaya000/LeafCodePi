@@ -34,9 +34,9 @@ vi.mock("@/lib/pi/bot-code-relay", () => ({
 }));
 
 import { createBot } from "./bots";
-import { createRoom, ensureRoomBotTask, getRoom, appendRoomMessage, patchRoom, updateRoomHandoffs, updateRoomMessage } from "./rooms";
+import { createRoom, ensureRoomBotTask, getRoom, appendRoomMessage, patchRoom, revertRoomTo, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
 import { getTask, patchTask } from "./store";
-import { cancelPendingRoomHandoffs, deliverRoomCodeReport, registerRoomHandoff, resumeRoomAfterCode, runRoomConversation, settleRoomHandoffs, settleRoomHandoffsForCode, settleStaleRoomTurns } from "./room-runtime";
+import { cancelPendingRoomHandoffs, deliverRoomCodeReport, reconcileRoomRuntime, registerRoomHandoff, resumeRoomAfterCode, runRoomConversation, settleRoomHandoffs, settleRoomHandoffsForCode, settleStaleRoomTurns } from "./room-runtime";
 
 function assistant(id: string, text: string): UiMessage {
   return { id, role: "assistant", createdAt: Date.now(), parts: [{ id: `${id}-text`, type: "text", text }] };
@@ -182,6 +182,15 @@ describe("room conversation with delegated work", () => {
     expect(getRoom(room.id)!.messages.find((message) => message.id === slow.id)?.status).toBe("working");
   });
 
+  it("reconciles stale room placeholders when the worker starts", () => {
+    const { room } = setup();
+    const stale = appendRoomMessage(room.id, { role: "assistant", botId: room.members[0], text: "", status: "working", createdAt: Date.now() - 10 * 60_000 })!;
+
+    reconcileRoomRuntime();
+
+    expect(getRoom(room.id)!.messages.find((message) => message.id === stale.id)).toMatchObject({ status: "error", text: "応答が中断されました。" });
+  });
+
   it("does not let the same participant open every exchange", async () => {
     const { room, bots, user } = setup();
     await runRoomConversation(room, bots, "残作業も進めて", user.id);
@@ -267,6 +276,27 @@ describe("room conversation with delegated work", () => {
     expect(state.promptTask).not.toHaveBeenCalled();
     // The report still belongs in the transcript even though the conversation stopped.
     expect(deliverRoomCodeReport(request, "作業結果です。\nROOM_ACTION: DONE")).toBe(true);
+  });
+
+  it("does not append a Code report after its Room request was reverted", () => {
+    const { room, bots, user } = setup();
+    const request = codeRequest(room, bots[0]);
+
+    expect(revertRoomTo(room.id, user.id)).toMatchObject({ requestId: user.id });
+    expect(deliverRoomCodeReport(request, "遅れて届いた結果\nROOM_ACTION: DONE")).toBe(false);
+    expect(getRoom(room.id)!.messages.some((message) => message.codeRequestId === request.id)).toBe(false);
+  });
+
+  it("cancels handoffs and returns every removed Room request id when rewound", () => {
+    const { room, bots, user } = setup();
+    const source = appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, text: "引き継ぎます", status: "working" })!;
+    const handoff = registerRoomHandoff({ roomId: room.id, requestId: user.id, fromMessageId: source.id, fromBotId: bots[0].id, toBotId: bots[1].id, task: "後続作業" }).handoff;
+    const later = appendRoomMessage(room.id, { role: "user", text: "追加依頼" })!;
+    setRoomOutcome(room.id, { kind: "done", requestId: later.id });
+
+    expect(revertRoomTo(room.id, user.id)).toMatchObject({ requestId: user.id, requestIds: [user.id, later.id] });
+    expect(getRoom(room.id)!.lastOutcome).toBeUndefined();
+    expect(getRoom(room.id)!.handoffs?.find((item) => item.id === handoff.id)).toMatchObject({ state: "cancelled" });
   });
 
   it("refuses a report for a bot that left the room and never routes to a non-participant", async () => {
@@ -397,6 +427,18 @@ describe("registered room handoffs", () => {
     registerRoomHandoff({ ...base, toBotId: bots[1].id, task: "依頼2", waitForCodeRequestId: waitingRequest.id });
     expect(cancelPendingRoomHandoffs(room.id)).toBe(2);
     for (const handoff of getRoom(room.id)!.handoffs ?? []) expect(handoff.state).toBe("cancelled");
+  });
+
+  it("fails a running handoff when its task was already stopped", () => {
+    const { room, bots, user } = setup(["A", "B"]);
+    const turn = completedTurn(room.id, bots[0].id, user.id, room.members);
+    const handoff = registerRoomHandoff({ roomId: room.id, requestId: user.id, fromMessageId: turn.id, fromBotId: bots[0].id, toBotId: bots[1].id, task: "停止済みタスク" }).handoff;
+    const response = appendRoomMessage(room.id, { role: "assistant", botId: bots[1].id, text: "", status: "working" })!;
+    updateRoomHandoffs(room.id, (handoffs) => handoffs.map((item) => item.id === handoff.id ? { ...item, state: "running", responseMessageId: response.id } : item));
+    patchTask(`bot:${bots[1].id}:room:${room.id}`, { status: "error" });
+
+    expect(settleRoomHandoffs(room.id)).toBe(0);
+    expect(getRoom(room.id)!.handoffs?.[0]).toMatchObject({ state: "failed", reason: "実行タスクが停止したため実行を完了できませんでした" });
   });
 
   it("recovers after a restart: crashed runs fail, finished runs complete, unknown waits fail", () => {

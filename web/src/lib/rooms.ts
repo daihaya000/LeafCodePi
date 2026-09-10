@@ -17,7 +17,7 @@ function roomDataRoot(roomId: string): string { return join(roomsRoot(), roomId)
 function roomLockPath(roomId: string): string { assertId(roomId); return join(roomsRoot(), `${roomId}.lock`); }
 
 /** Serialize room read/check/write operations across workers. */
-function withRoomLock<T>(roomId: string, action: () => T): T {
+export function withRoomLock<T>(roomId: string, action: () => T): T {
   // Keep the public missing-room behavior for malformed route parameters.
   if (!isValidId(roomId)) return action();
   const lock = roomLockPath(roomId);
@@ -157,18 +157,26 @@ function archiveOverflow(room: RoomDto): void {
   mkdirSync(roomDataRoot(room.id), { recursive: true });
   appendFileSync(join(roomDataRoot(room.id), "history.jsonl"), `${overflow.map((message) => JSON.stringify(message)).join("\n")}\n`, "utf8");
 }
-export function appendRoomMessage(id: string, message: Omit<RoomMessage, "id" | "createdAt"> & { id?: string; createdAt?: number }): RoomMessage | undefined {
+type RoomMessageInput = Omit<RoomMessage, "id" | "createdAt"> & { id?: string; createdAt?: number };
+function appendRoomMessageLocked(room: RoomDto, message: RoomMessageInput): RoomMessage {
+  const existing = message.id ? room.messages.find((item) => item.id === message.id) : undefined;
+  if (existing) return existing;
+  const next: RoomMessage = { ...message, id: message.id ?? randomUUID(), createdAt: message.createdAt ?? Date.now() };
+  room.messages.push(next);
+  archiveOverflow(room);
+  room.updatedAt = new Date().toISOString();
+  writeRoom(room);
+  return next;
+}
+export function appendRoomMessage(id: string, message: RoomMessageInput): RoomMessage | undefined {
+  return appendRoomMessageIf(id, () => true, message);
+}
+/** Append only while the caller's predicate still holds under the room lock. */
+export function appendRoomMessageIf(id: string, predicate: (room: RoomDto) => boolean, message: RoomMessageInput): RoomMessage | undefined {
   return withRoomLock(id, () => {
     const room = readRoom(id);
-    if (!room) return undefined;
-    const existing = message.id ? room.messages.find((item) => item.id === message.id) : undefined;
-    if (existing) return existing;
-    const next: RoomMessage = { ...message, id: message.id ?? randomUUID(), createdAt: message.createdAt ?? Date.now() };
-    room.messages.push(next);
-    archiveOverflow(room);
-    room.updatedAt = new Date().toISOString();
-    writeRoom(room);
-    return next;
+    if (!room || !predicate(room)) return undefined;
+    return appendRoomMessageLocked(room, message);
   });
 }
 export function updateRoomMessage(id: string, messageId: string, patch: Partial<Pick<RoomMessage, "text" | "status" | "botName" | "conversation" | "codeRequestId" | "codeTaskId" | "codeState" | "codeActivity" | "images" | "handoffs">>): RoomMessage | undefined {
@@ -261,17 +269,23 @@ export function roomRequestImages(roomId: string, messageId: string): PromptImag
  * Drop a user request and everything said after it, returning its text for the composer.
  * Bot sessions keep their own history: only the shared room transcript is rewound.
  */
-export function revertRoomTo(id: string, messageId: string): { text: string; requestId: string } | undefined {
+export function revertRoomTo(id: string, messageId: string): { text: string; requestId: string; requestIds: string[] } | undefined {
   return withRoomLock(id, () => {
     const room = readRoom(id);
     const index = room?.messages.findIndex((item) => item.id === messageId) ?? -1;
     const target = index >= 0 ? room!.messages[index] : undefined;
     if (!room || !target || target.role !== "user") return undefined;
+    const removedRequestIds = new Set(room.messages.slice(index).filter((message) => message.role === "user").map((message) => message.id));
     room.messages = room.messages.slice(0, index);
-    if (room.lastOutcome?.requestId === messageId) delete room.lastOutcome;
+    if (room.lastOutcome && removedRequestIds.has(room.lastOutcome.requestId)) delete room.lastOutcome;
+    if (room.handoffs?.length) {
+      room.handoffs = room.handoffs.map((handoff) => removedRequestIds.has(handoff.requestId) && (handoff.state === "waiting" || handoff.state === "ready" || handoff.state === "running")
+        ? { ...handoff, state: "cancelled", reason: "会話が巻き戻されたため実行しません", updatedAt: Date.now() }
+        : handoff);
+    }
     room.updatedAt = new Date().toISOString();
     writeRoom(room);
-    return { text: target.text, requestId: messageId };
+    return { text: target.text, requestId: messageId, requestIds: [...removedRequestIds] };
   });
 }
 export function subscribeRoom(id: string, listener: (room: RoomDto | null) => void): () => void {

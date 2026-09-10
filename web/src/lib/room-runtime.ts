@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { appendRoomMessage, ensureRoomBotTask, getRoom, roomBotTaskId, roomRequestImages, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
+import { appendRoomMessage, appendRoomMessageIf, ensureRoomBotTask, getRoom, listRooms, roomBotTaskId, roomRequestImages, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
 import { getBot } from "./bots";
 import { getTask } from "./store";
 import { getTaskDetail, promptTask, subscribeTask, abortTask } from "./pi/harness";
@@ -204,6 +204,18 @@ export function settleStaleRoomTurns(roomId: string, now = Date.now()): number {
   return stale.length;
 }
 
+/** Recover room placeholders and ready handoffs after a worker restart. */
+export function reconcileRoomRuntime(): void {
+  for (const room of listRooms()) {
+    settleStaleRoomTurns(room.id);
+    if (settleRoomHandoffs(room.id) > 0) {
+      void deliverReadyRoomHandoffs(room.id).catch((error) => {
+        console.warn("[room-runtime] startup handoff recovery failed:", error instanceof Error ? error.message : String(error));
+      });
+    }
+  }
+}
+
 type Resume = { startTurn: number; maxTurns: number; nextBotId: string };
 export async function runRoomConversation(room: RoomDto, bots: BotDto[], prompt: string, userMessageId: string, resume?: Resume) {
   const maxTurns = Math.min(MAX_ROOM_CONVERSATION_TURNS, resume?.maxTurns ?? bots.length * 2);
@@ -264,15 +276,18 @@ export function deliverRoomCodeReport(request: CodeRequest, text: string): boole
   if (!reply.text.trim()) return false;
   request.room.nextBotId = reply.nextBotId;
   request.room.complete = reply.action === "done";
-  const report = appendRoomMessage(room.id, {
+  const report = appendRoomMessageIf(room.id, (current) => current.messages.some(
+    (message) => message.role === "user" && message.id === request.room?.conversation.requestId,
+  ), {
     id: `code-report:${request.id}`, role: "assistant", botId: bot.id, botName: bot.name,
     text: reply.text, status: "done", codeRequestId: request.id, codeTaskId: request.codeTaskId, codeState: "delivered",
     conversation: request.room.conversation,
   });
   // A Room conversation can have queued Code jobs. Keep it waiting until this
   // report is the last outstanding job for that conversation.
+  const currentRoom = getRoom(room.id);
   if (report && !pendingRoomCodeRequestForTurn(room.id, request.room.conversation.requestId, request.id)
-    && room.lastOutcome?.kind === "code-wait" && room.lastOutcome.requestId === request.room.conversation.requestId) {
+    && currentRoom?.lastOutcome?.kind === "code-wait" && currentRoom.lastOutcome.requestId === request.room.conversation.requestId) {
     setRoomOutcome(room.id, { kind: "done", requestId: request.room.conversation.requestId });
   }
   return Boolean(report);
@@ -423,6 +438,9 @@ export function settleRoomHandoffs(roomId: string): number {
         dirty = true;
       } else if (message.status !== "working") {
         patchHandoff(roomId, handoff.id, (current) => message.status === "done" ? { ...current, state: "done", updatedAt: Date.now() } : { ...current, state: "failed", reason: "中断されました（要確認）", updatedAt: Date.now() });
+        dirty = true;
+      } else if (getTask(roomBotTaskId(roomId, handoff.toBotId))?.status === "error") {
+        patchHandoff(roomId, handoff.id, (current) => ({ ...current, state: "failed", reason: "実行タスクが停止したため実行を完了できませんでした", updatedAt: Date.now() }));
         dirty = true;
       }
     } else if (handoff.state === "waiting" && handoff.waitForCodeRequestId) {

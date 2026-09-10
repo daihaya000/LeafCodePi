@@ -335,12 +335,22 @@ export async function runUserBotCodeRequest(
 export function pendingRoomCodeRequestForTurn(roomId: string, requestId: string, excludeRequestId?: string): CodeRequest | undefined {
   return requests().find((request) => request.id !== excludeRequestId && request.room?.id === roomId && request.room.conversation.requestId === requestId && active(request));
 }
-/** A reverted request has no context left to report into: settle its outstanding jobs. */
-export function cancelRoomCodeRequests(roomId: string, requestId: string): number {
+/** A reverted request has no context left to report into: cancel and stop its outstanding jobs. */
+export async function cancelRoomCodeRequests(roomId: string, requestId: string): Promise<number> {
   const stale = requests().filter((request) => request.room?.id === roomId && request.room.conversation.requestId === requestId && active(request));
   for (const request of stale) {
+    // A queued `prompt` stores its predecessor's task id as the future target, not as its own job.
+    const taskToStop = request.state === "queued" ? null : request.codeTaskId;
     request.state = "cancelled";
     save(request);
+    if (!taskToStop) continue;
+    try {
+      // Keep this import lazy: harness owns the relay singleton and statically importing it here would cycle.
+      const { abortTask } = await import("@/lib/pi/harness");
+      await abortTask(taskToStop);
+    } catch (error) {
+      console.warn("[bot-code-relay] reverted Code task could not be stopped:", error instanceof Error ? error.message : String(error));
+    }
   }
   return stale.length;
 }
@@ -642,6 +652,10 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       try { owner(request.originTaskId); } catch { request.state = "cancelled"; save(request); return; }
       if (request.state === "queued") return;
       if (request.state === "starting") {
+        // beforePrompt links the task before flipping the outbox to running. Do not
+        // mistake that short window for a crashed launch while another worker owns it.
+        const task = request.codeTaskId ? getTask(request.codeTaskId) : undefined;
+        if (task && deps.isBusy(task.id)) return;
         request.result = "Codeへの依頼準備が再起動などにより中断されました。自動で再実行はしていません。";
         request.state = "ready";
       }

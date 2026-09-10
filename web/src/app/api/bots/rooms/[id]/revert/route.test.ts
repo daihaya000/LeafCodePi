@@ -31,16 +31,19 @@ describe("room revert", () => {
     appendRoomMessage(room.id, { role: "assistant", botId: "a", text: "最初の返答", status: "done" });
     const second = appendRoomMessage(room.id, { role: "user", text: "やり直したい依頼" })!;
     appendRoomMessage(room.id, { role: "assistant", botId: "a", text: "途中の返答", status: "working" });
-    setRoomOutcome(room.id, { kind: "code-wait", requestId: second.id });
+    const third = appendRoomMessage(room.id, { role: "user", text: "さらにやり直したい依頼" })!;
+    setRoomOutcome(room.id, { kind: "code-wait", requestId: third.id });
+    state.cancel.mockReturnValue(1);
 
     const result = await send(room.id, { messageId: second.id });
     expect(result.status).toBe(200);
-    expect(await result.json()).toMatchObject({ text: "やり直したい依頼" });
+    expect(await result.json()).toMatchObject({ text: "やり直したい依頼", cancelledCodeRequests: 2 });
     const messages = getRoom(room.id)!.messages;
     expect(messages.map((message) => message.id)).toEqual([first.id, messages[1].id]);
     expect(getRoom(room.id)?.lastOutcome).toBeUndefined();
     // Work started for the removed request has nowhere to report back to.
-    expect(state.cancel).toHaveBeenCalledWith(room.id, second.id);
+    expect(state.cancel).toHaveBeenNthCalledWith(1, room.id, second.id);
+    expect(state.cancel).toHaveBeenNthCalledWith(2, room.id, third.id);
     // A running conversation would otherwise append new turns into the rewound transcript.
     expect(state.stop).toHaveBeenCalledWith(room.id);
   });

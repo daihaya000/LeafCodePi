@@ -32,6 +32,7 @@ export default defineConfig({
     exclude: [
       ...configDefaults.exclude,
       "../extensions/**/node_modules/**",
+      "../extensions/leafcode-intercom/**/*.test.ts",
       "../extensions/leafcode-memory/tests/**",
     ],
   },
