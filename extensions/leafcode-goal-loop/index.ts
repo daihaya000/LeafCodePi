@@ -1099,7 +1099,19 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       // Session replacement without session_shutdown also leaves this runtime
       // alive; refuse to act once another runtime owns the key.
       if (!isActiveRuntime(runtime) || runtime.turnGeneration !== turnGeneration) return;
-      if (prepared === false) return;
+      if (prepared === false) {
+        // Routing replaced this session. The new session_start should have
+        // re-armed queued/verifying work. If we are somehow still the active
+        // runtime for this key, re-arm here so prepare:false cannot leave the
+        // loop queued with no timer.
+        if (isActiveRuntime(runtime)) {
+          const current = currentLoop(runtime);
+          if (current && (current.status === "queued" || current.status === "verifying_completed")) {
+            schedule(runtime, 250);
+          }
+        }
+        return;
+      }
       if (prepared === "retry") {
         schedule(runtime, 250);
         return;
@@ -1692,22 +1704,28 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_shutdown", async (_event, _ctx) => {
     const current = getRuntime();
     if (!current) return;
-    const loop = currentLoop(current);
-    if (loop && (loop.status === "running" || loop.status === "queued" || loop.status === "verifying_completed")) {
-      clearTimer(current);
-      // Persist mid-turn recovery across restart. pausedTurnPending alone dies
-      // with this runtime, and the next session_start only sees status=paused.
-      if (loop.status === "running") loop.pendingTurnRecovery = true;
-      current.awaitingTurn = false;
-      loop.status = "paused";
-      loop.pauseReason = "";
-      loop.error = "セッション終了時に一時停止しました。";
-      writeLoop(loop);
+    // dispose()/replace can leave this extension instance alive long enough to
+    // see shutdown after a newer runtime already claimed the same key. Never
+    // pause the shared loop or delete the replacement's map entry in that case.
+    const active = isActiveRuntime(current);
+    if (active) {
+      const loop = currentLoop(current);
+      if (loop && (loop.status === "running" || loop.status === "queued" || loop.status === "verifying_completed")) {
+        clearTimer(current);
+        // Persist mid-turn recovery across restart. pausedTurnPending alone dies
+        // with this runtime, and the next session_start only sees status=paused.
+        if (loop.status === "running") loop.pendingTurnRecovery = true;
+        current.awaitingTurn = false;
+        loop.status = "paused";
+        loop.pauseReason = "";
+        loop.error = "セッション終了時に一時停止しました。";
+        writeLoop(loop);
+      }
     }
     current.disposed = true;
     clearPendingAgentRun(current);
     clearTimer(current);
-    runtimes.delete(current.key);
+    if (active) runtimes.delete(current.key);
   });
 
   pi.registerCommand("goal", {

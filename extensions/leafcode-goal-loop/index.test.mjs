@@ -1795,6 +1795,114 @@ test("stops a replaced runtime from double-sending queued work", async () => {
   }
 });
 
+test("superseded session_shutdown does not pause queued work re-armed by replacement", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-shutdown-superseded-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const stateFile = () => join(cwd, "goals-loop", "shutdown-superseded-session.json");
+  let busy = true;
+  let sendCount = 0;
+  const makeEnv = () => ({
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "shutdown-superseded-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  });
+  const makePi = () => ({
+    handlers: new Map(),
+    commands: new Map(),
+    on(name, handler) { this.handlers.set(name, handler); },
+    registerCommand(name, options) { this.commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage() { sendCount += 1; busy = true; },
+  });
+
+  try {
+    const piA = makePi();
+    const ctxA = makeEnv();
+    goalLoopExtension(piA);
+    await piA.handlers.get("session_start")?.({}, ctxA);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 2 })).toString("base64url");
+    await piA.commands.get("goal-start")?.(payload, ctxA);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).status, "queued");
+
+    const piB = makePi();
+    const ctxB = makeEnv();
+    goalLoopExtension(piB);
+    await piB.handlers.get("session_start")?.({}, ctxB);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).status, "queued");
+
+    // Old instance shuts down after replacement claimed the same key.
+    await piA.handlers.get("session_shutdown")?.({}, ctxA);
+    const afterOldShutdown = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(afterOldShutdown.status, "queued");
+    assert.equal(afterOldShutdown.pauseReason, "");
+    assert.equal(afterOldShutdown.error, "");
+
+    busy = false;
+    await waitFor(() => sendCount === 1);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).status, "running");
+    await piB.handlers.get("session_shutdown")?.({}, ctxB);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("prepare false still re-arms when the runtime remains active", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-prepare-false-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  let prepareCalls = 0;
+  const stateFile = () => join(cwd, "goals-loop", "prepare-false-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "prepare-false-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+    prepareGoalLoopTurn: async () => {
+      prepareCalls += 1;
+      // First attempt pretends routing replaced us but left this runtime active.
+      if (prepareCalls === 1) return false;
+      return true;
+    },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 2 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sendCount === 1);
+    assert.ok(prepareCalls >= 2);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).status, "running");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("ignores a stale turn_timeout after dispose-less session replacement", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-stale-timeout-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
