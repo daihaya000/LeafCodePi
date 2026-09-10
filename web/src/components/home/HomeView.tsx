@@ -65,6 +65,7 @@ import {
 } from "@/lib/permission-gate";
 import { NO_PROJECT_NAME, type HealthDto, type ModelOption, type ProjectDto, type TaskSummary, type ThinkingLevel } from "@/lib/types";
 import type { AutoOptimizeMode } from "@/lib/auto-model";
+import { readCachedModels, writeCachedModels } from "@/lib/models-cache";
 
 const MODEL_KEY = "leafcodepi.defaultModel";
 
@@ -105,8 +106,10 @@ export function HomeView({
   const [projectId, setProjectId] = useState<string | null | undefined>(
     initialNoProject ? null : initialProjectId,
   );
-  const [models, setModels] = useState<ModelOption[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(true);
+  const [models, setModels] = useState<ModelOption[]>(() => readCachedModels() ?? []);
+  const [modelsLoading, setModelsLoading] = useState(
+    () => (readCachedModels()?.length ?? 0) === 0,
+  );
   const [model, setModel] = useState("");
   const [autoOptimizeMode, setAutoOptimizeMode] = useState<AutoOptimizeMode>(
     () => readAutoOptimizeMode(),
@@ -138,7 +141,7 @@ export function HomeView({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
-  const modelsRef = useRef<ModelOption[]>([]);
+  const modelsRef = useRef<ModelOption[]>(models);
   const modelRefreshRef = useRef(0);
 
   const selectedProject = projectId
@@ -162,6 +165,7 @@ export function HomeView({
         const previousModels = modelsRef.current;
         modelsRef.current = nextModels;
         setModels(nextModels);
+        writeCachedModels(nextModels);
         const nextOptions = [AUTO_MODEL_OPTION, ...nextModels];
         setModel((current) => {
           const preserved = modelOptionForValue(nextOptions, current);

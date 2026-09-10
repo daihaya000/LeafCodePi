@@ -11,6 +11,7 @@ vi.mock("@/components/task/PartView", () => ({ PartView: mocks.partView, Working
 vi.mock("@/components/shell/TaskPanesContext", () => ({ useTaskPanes: () => ({ iconFor: () => null, botFor: mocks.botFor }) }));
 
 import { TaskView } from "./TaskView";
+import { clearCachedModels } from "@/lib/models-cache";
 
 const task: TaskSummary = {
   id: "draft-task", projectId: null, projectName: "test", title: "draft test", directory: "",
@@ -20,6 +21,7 @@ const task: TaskSummary = {
 
 beforeEach(() => {
   localStorage.clear();
+  clearCachedModels();
   vi.clearAllMocks();
   mocks.partView.mockReturnValue(null);
   mocks.botFor.mockReset();
@@ -31,6 +33,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   localStorage.clear();
+  clearCachedModels();
 });
 
 it.each([undefined, "bot-1"])("passes Bot identity only to the sending side (botId: %s)", async (botId) => {

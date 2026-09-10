@@ -15,6 +15,7 @@ vi.mock("@/components/home/NextTaskSuggest", () => ({ NextTaskSuggest: () => nul
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuHeader: () => null }));
 
 import { HomeView } from "./HomeView";
+import { clearCachedModels } from "@/lib/models-cache";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -31,6 +32,7 @@ let modelResponses: Promise<{ models: ModelOption[] }>[] = [];
 
 beforeEach(() => {
   localStorage.clear();
+  clearCachedModels();
   vi.clearAllMocks();
   modelResponses = [];
   mocks.getJson.mockImplementation((path: string) => {
@@ -47,6 +49,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  clearCachedModels();
 });
 
 describe("HomeView model refresh", () => {

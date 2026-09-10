@@ -104,6 +104,7 @@ import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { notifyTasksChanged } from "@/lib/events";
 import { taskSidebarNotifyKey } from "@/lib/task-sidebar-notify";
 import { getJson, sendJson } from "@/lib/client";
+import { readCachedModels, writeCachedModels } from "@/lib/models-cache";
 import {
   AUTO_AGENT_VALUE,
   DEFAULT_AGENT,
@@ -519,8 +520,10 @@ export const TaskView = memo(function TaskView({
     message: UiMessage;
     baselineUserCount: number;
   } | null>(null);
-  const [models, setModels] = useState<ModelOption[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(true);
+  const [models, setModels] = useState<ModelOption[]>(() => readCachedModels() ?? []);
+  const [modelsLoading, setModelsLoading] = useState(
+    () => (readCachedModels()?.length ?? 0) === 0,
+  );
   const [modelSelection, setModelSelection] = useState("");
   const modelChangeRef = useRef(0);
   const [autoOptimizeMode, setAutoOptimizeMode] = useState<AutoOptimizeMode>(
@@ -914,7 +917,8 @@ export const TaskView = memo(function TaskView({
     // snapshot replaces them with the server session state.
     setSessionHydrating(true);
     setSseReconnecting(false);
-    setModelsLoading(true);
+    // キャッシュ済みモデルがあれば loading を立てず、裏で再検証する。
+    if ((readCachedModels()?.length ?? 0) === 0) setModelsLoading(true);
 
     const connect = () => {
       if (closed) return;
@@ -1167,6 +1171,7 @@ export const TaskView = memo(function TaskView({
     void getJson<{ models: ModelOption[] }>("/api/models").then((result) => {
       if (!closed) {
         setModels(result.models);
+        writeCachedModels(result.models);
         setModelsLoading(false);
       }
     }).catch(() => {
