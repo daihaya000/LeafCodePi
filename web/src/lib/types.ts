@@ -393,6 +393,8 @@ export type HealthDto = {
   error?: string | null;
   /** Non-fatal provider sync issues from the last model list refresh. */
   warnings?: string[];
+  /** Epoch ms this server process booted; changes only across a real restart. */
+  startedAt?: number;
 };
 
 export type ProviderAuthDto = {

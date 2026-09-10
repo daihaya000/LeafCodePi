@@ -2951,6 +2951,9 @@ async function syncProvidersBestEffort(
 const HEALTH_TTL_MS = 15_000;
 const MODEL_TTL_MS = 15_000;
 
+/** Boot stamp so the client can tell a real restart from a blip in its polling. */
+const PROCESS_STARTED_AT = Date.now();
+
 type HealthCacheEntry = { at: number; value: HealthDto };
 type ModelCacheEntry = { at: number; value: ModelOption[] };
 type AccountModelCacheEntry = ModelCacheEntry & { key: string };
@@ -3090,6 +3093,7 @@ export async function getHealth(): Promise<HealthDto> {
     modelCount,
     dataDir: dataDir(),
     error: current.initError,
+    startedAt: PROCESS_STARTED_AT,
     ...(current.lastProviderSyncWarnings.length > 0
       ? { warnings: [...current.lastProviderSyncWarnings] }
       : {}),

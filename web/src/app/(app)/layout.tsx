@@ -6,45 +6,46 @@ import { AppShell } from "@/components/shell/AppShell";
 import { NotificationSoundSync } from "@/components/NotificationSoundSync";
 import { GlobalAttentionProvider } from "@/components/shell/GlobalAttentionProvider";
 import { maybeRedirectToLocalhost } from "@/lib/localhost-redirect";
+import {
+  INITIAL_RESTART_PROBE,
+  isRestartOverlayVisible,
+  nextRestartProbe,
+} from "@/lib/webui-restart";
+import type { HealthDto } from "@/lib/types";
 
 function WebUiRestartOverlay() {
   const [restarting, setRestarting] = useState(false);
-  const connectedRef = useRef(false);
-  const offlineRef = useRef(false);
-  const restartingRef = useRef(false);
+  const probeRef = useRef(INITIAL_RESTART_PROBE);
 
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const check = async () => {
+      let sample: { startedAt: number | null } | null = null;
       try {
         const response = await fetch(`/api/health?restart=${Date.now()}`, {
           cache: "no-store",
           signal: AbortSignal.timeout(4_000),
         });
-        const body = (await response.json().catch(() => null)) as { engineOk?: unknown } | null;
-        const healthy = response.ok && typeof body?.engineOk === "boolean";
-        if (healthy) {
-          if (restartingRef.current && offlineRef.current && !cancelled) window.location.reload();
-          connectedRef.current = true;
-        } else if (connectedRef.current && !cancelled) {
-          restartingRef.current = true;
-          offlineRef.current = true;
-          setRestarting(true);
+        const body = (await response.json().catch(() => null)) as HealthDto | null;
+        if (response.ok && typeof body?.engineOk === "boolean") {
+          sample = { startedAt: typeof body.startedAt === "number" ? body.startedAt : null };
         }
       } catch {
-        if (connectedRef.current && !cancelled) {
-          restartingRef.current = true;
-          offlineRef.current = true;
-          setRestarting(true);
-        }
+        // 到達不能。下のオフライン判定に回す。
       }
-      if (!cancelled) timer = setTimeout(() => void check(), 1_500);
+      if (cancelled) return;
+      const { state, reload } = nextRestartProbe(probeRef.current, sample);
+      probeRef.current = state;
+      setRestarting(isRestartOverlayVisible(state));
+      // リロードが効かなかった場合に取り残されないよう、ポーリングは止めない。
+      if (reload) window.location.reload();
+      timer = setTimeout(() => void check(), 1_500);
     };
 
     const handleRestartRequested = () => {
-      restartingRef.current = true;
+      probeRef.current = { ...probeRef.current, requested: true };
       setRestarting(true);
     };
     window.addEventListener("leafcode:webui-restart", handleRestartRequested);
