@@ -9,6 +9,11 @@ function packageJsonPath(webDir) {
   return join(webDir, "node_modules", ...PI_PACKAGE_NAME.split("/"), "package.json");
 }
 
+function writeCapturedOutput(result) {
+  if (result?.stdout) process.stdout.write(result.stdout);
+  if (result?.stderr) process.stderr.write(result.stderr);
+}
+
 export function installedPiVersion(webDir) {
   try {
     const file = packageJsonPath(webDir);
@@ -44,10 +49,13 @@ export function autoUpdatePi({
         cwd: webDir,
         shell: platform === "win32",
         windowsHide: true,
-        stdio: "inherit",
+        // npm changes process.title on Windows. Pipe its output so it cannot
+        // replace the LeafCodePi launcher title on the shared console.
+        stdio: platform === "win32" ? ["ignore", "pipe", "pipe"] : "inherit",
         timeout: PI_UPDATE_TIMEOUT_MS,
       },
     );
+    if (platform === "win32") writeCapturedOutput(result);
   } catch (err) {
     error(`Pi auto-update failed; continuing with the installed version (${err instanceof Error ? err.message : String(err)})`);
     return { attempted: true, updated: false, skipped: false };

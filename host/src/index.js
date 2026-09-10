@@ -208,6 +208,11 @@ function npmCmd() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
 }
 
+function writeCapturedOutput(result) {
+  if (result?.stdout) process.stdout.write(result.stdout);
+  if (result?.stderr) process.stderr.write(result.stderr);
+}
+
 function killTree(pid) {
   hardKillTree(pid, { platform: process.platform });
 }
@@ -366,8 +371,11 @@ function installWebIfNeeded() {
       cwd: WEB_DIR,
       shell: true,
       windowsHide: true,
-      stdio: "inherit",
+      // npm changes process.title on Windows. Pipe its output so it cannot
+      // replace the LeafCodePi launcher title on the shared console.
+      stdio: process.platform === "win32" ? ["ignore", "pipe", "pipe"] : "inherit",
     });
+    if (process.platform === "win32") writeCapturedOutput(result);
     if (result.status !== 0) {
       throw new Error(`npm install (web) exited ${result.status}`);
     }

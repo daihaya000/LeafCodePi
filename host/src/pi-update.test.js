@@ -37,6 +37,7 @@ test("autoUpdatePi updates the embedded Pi package once", () => {
     assert.equal(calls[0].command, "npm.cmd");
     assert.deepEqual(calls[0].args, ["update", PI_PACKAGE_NAME, "--no-audit", "--no-fund"]);
     assert.equal(calls[0].options.cwd, webDir);
+    assert.deepEqual(calls[0].options.stdio, ["ignore", "pipe", "pipe"]);
     assert.equal(calls[0].options.timeout, PI_UPDATE_TIMEOUT_MS);
     assert.deepEqual(logs, ["Pi updated from v0.84.4 to v0.85.0"]);
   } finally {
