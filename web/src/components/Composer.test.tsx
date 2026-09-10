@@ -255,4 +255,48 @@ describe("Composer", () => {
     fireEvent.keyDown(textarea, { key: "Enter", isComposing: true });
     expect(textarea.value).toBe("/skill:r");
   });
+
+  it("does not confirm a suggestion on IME keyCode 229 without compositionStart", () => {
+    // compositionStart 欠落時も isImeComposingEvent(keyCode 229) で候補確定を抑止する。
+    function ReferenceComposer() {
+      const [value, setValue] = useState("/skill:r");
+      const textareaRef = useRef<HTMLTextAreaElement>(null);
+      const inputRef = useRef<HTMLInputElement>(null);
+      return (
+        <Composer
+          className=""
+          attachments={[]}
+          onRemoveAttachment={() => {}}
+          references={{
+            skills: [{ name: "review", description: "Review changes" }],
+          }}
+          textarea={{
+            ref: textareaRef,
+            value,
+            rows: 1,
+            ariaLabel: "メッセージ",
+            placeholder: "入力",
+            className: "",
+            onChange: (event) => setValue(event.target.value),
+            onValueChange: setValue,
+            onKeyDown: () => {},
+          }}
+          attachmentControl={{
+            inputRef,
+            buttonTitle: "画像を添付",
+            onFilesSelected: () => {},
+            onTrigger: () => {},
+          }}
+          toolbar={null}
+          action={null}
+        />
+      );
+    }
+
+    render(<ReferenceComposer />);
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    textarea.focus();
+    fireEvent.keyDown(textarea, { key: "Enter", keyCode: 229 });
+    expect(textarea.value).toBe("/skill:r");
+  });
 });
