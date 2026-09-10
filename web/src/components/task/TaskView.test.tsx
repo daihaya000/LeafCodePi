@@ -71,7 +71,7 @@ describe("TaskView draft submission", () => {
     expect(screen.getAllByText("クリーン")).toHaveLength(1);
     const autoUpdate = screen.getByRole("switch", { name: "タイトルの自動更新" });
     expect(screen.getByRole("group", { name: "タスク操作" }).contains(autoUpdate)).toBe(false);
-    expect(edit.compareDocumentPosition(autoUpdate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(edit.compareDocumentPosition(autoUpdate) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     fireEvent.click(edit);
     const input = screen.getByRole("textbox", { name: "セッションタイトル" });
     expect(document.activeElement).toBe(input);
