@@ -3006,6 +3006,8 @@ async function syncProvidersBestEffort(
  */
 const HEALTH_TTL_MS = 15_000;
 const MODEL_TTL_MS = 15_000;
+/** TTL切れ後もこの範囲内の旧モデル一覧は即返し、裏で更新する（SWR）。 */
+const MODEL_STALE_SERVE_MS = 5 * 60_000;
 
 /** Boot stamp so the client can tell a real restart from a blip in its polling. */
 const PROCESS_STARTED_AT = Date.now();
@@ -3698,23 +3700,39 @@ export async function listModelsForAccounts(
   if (cached?.key === key) {
     const value = readModelCache(cached, Date.now());
     if (value) return value;
+    // SWR: TTL切れでも一定期間内の旧一覧は即返し、裏で更新する。HomeView の
+    // モデル表示がアイドル後の再構築（秒単位）を待たないための緩和。
+    const age = Date.now() - cached.at;
+    if (age >= 0 && age < MODEL_STALE_SERVE_MS) {
+      void refreshAccountModels(current, accounts, key).catch(() => undefined);
+      return cached.value;
+    }
   }
+  return refreshAccountModels(current, accounts, key);
+}
+
+/** 新しいモデル一覧を構築してキャッシュへ入れる。inflight重複は合成する。 */
+function refreshAccountModels(
+  current: HarnessState,
+  accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
+  key: string,
+): Promise<ModelOption[]> {
   if (current.accountModelInflight?.key === key) {
     return current.accountModelInflight.promise;
   }
-
   const promise = buildModelsForAccounts(accounts);
   current.accountModelInflight = { key, promise };
-  try {
-    const value = await promise;
-    current.accountModelCache = { key, at: Date.now(), value };
-    current.healthCache = null;
-    return value;
-  } finally {
-    if (current.accountModelInflight?.promise === promise) {
-      current.accountModelInflight = null;
-    }
-  }
+  return promise
+    .then((value) => {
+      current.accountModelCache = { key, at: Date.now(), value };
+      current.healthCache = null;
+      return value;
+    })
+    .finally(() => {
+      if (current.accountModelInflight?.promise === promise) {
+        current.accountModelInflight = null;
+      }
+    });
 }
 
 /** モデル一覧のプロバイダ表示順。providerOrder で未指定のプロバイダは既定カタログ順の末尾。 */

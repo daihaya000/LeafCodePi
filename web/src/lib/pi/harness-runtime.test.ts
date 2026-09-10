@@ -297,6 +297,65 @@ describe("getRuntimeFor", () => {
     assert.equal(availableReads, 0);
   });
 
+  it("serves stale account models while revalidating in the background", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-models-swr-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const staleOption = {
+      value: "llama-server::stale",
+      label: "Stale",
+      providerID: "llama-server",
+      modelID: "stale",
+      input: ["text"] as ("text")[],
+      reasoning: false,
+    };
+    const freshOption = {
+      value: "llama-server::fresh",
+      label: "Fresh",
+      providerID: "llama-server",
+      modelID: "fresh",
+      input: ["text"] as ("text")[],
+      reasoning: false,
+    };
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      pi: null,
+      modelRuntime: null,
+      accountRuntimes: null,
+      initError: null,
+      initPromise: null,
+      live: new Map(),
+      healthCache: null,
+      // 共有側の候補は新鮪キープ（再構築の内実はこの値が流れる）。
+      modelCache: { at: Date.now(), value: [freshOption] },
+      modelInflight: null,
+      accountModelCache: {
+        key: "[]",
+        // TTL(15s)を過ぎたが SWR 提供範囲(5分)内の旧一覧。
+        at: Date.now() - 20_000,
+        value: [staleOption],
+      },
+      accountModelInflight: null,
+      watchdogRegistered: true,
+      lastProviderSyncWarnings: [],
+    };
+
+    const accounts: Pick<AccountRecord, "id" | "label" | "providers">[] = [];
+
+    // 即時返しは旧値。この時点で裏の再構築が走っている。
+    const served = await listModelsForAccounts(accounts);
+    assert.deepEqual(served, [staleOption]);
+
+    const inflight = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      accountModelInflight: { promise: Promise<unknown> } | null;
+    };
+    assert.ok(inflight.accountModelInflight);
+    await inflight.accountModelInflight!.promise;
+
+    // 裏の再構築完了後は新しい一覧が返る。
+    const refreshed = await listModelsForAccounts(accounts);
+    assert.deepEqual(refreshed, [freshOption]);
+  });
+
   it("hides default subscription models while keeping account models", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-models-"));
     tempDirs.push(dir);
