@@ -292,7 +292,7 @@ export async function resumeRoomAfterCode(request: CodeRequest): Promise<void> {
   // reports; the remaining jobs still own the turn.
   if (pendingRoomCodeRequestForTurn(room.id, requestId, request.id)) return;
   // Failures, interrupted jobs, or unknown outcomes require fresh human direction, not another mutation.
-  try { if (JSON.parse(request.result ?? "{}").outcome !== "実行終了") return; } catch { return; }
+  if (!codeResultSucceeded(request)) return;
   const participants = participantIds.map(getBot).filter((bot): bot is BotDto => Boolean(bot?.enabled && room.members.includes(bot.id)));
   if (participants.length < 2) return;
   const target = participants.find((bot) => bot.id === request.room?.nextBotId && bot.id !== request.botId)
@@ -306,6 +306,10 @@ const MAX_ROOM_HANDOFFS = 50;
 
 function handoffCodeOutcome(request: Pick<CodeRequest, "result">): string | undefined {
   try { return JSON.parse(request.result ?? "{}").outcome; } catch { return undefined; }
+}
+function codeResultSucceeded(request: Pick<CodeRequest, "result">): boolean {
+  const outcome = handoffCodeOutcome(request);
+  return outcome === "実行終了" || outcome === "目標達成";
 }
 
 /** Mirror the handoff records of a message back onto it, so the transcript shows what was registered. */
@@ -386,7 +390,7 @@ export function settleRoomHandoffsForCode(request: CodeRequest): RoomHandoff[] {
   const room = getRoom(request.room.id);
   const waiting = (room?.handoffs ?? []).filter((handoff) => handoff.state === "waiting" && handoff.waitForCodeRequestId === request.id);
   if (!room || waiting.length === 0) return [];
-  const success = handoffCodeOutcome(request) === "実行終了";
+  const success = codeResultSucceeded(request);
   updateRoomHandoffs(request.room.id, (handoffs) => handoffs.map((handoff) => {
     if (handoff.state !== "waiting" || handoff.waitForCodeRequestId !== request.id) return handoff;
     return success

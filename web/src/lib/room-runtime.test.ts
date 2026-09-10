@@ -36,7 +36,7 @@ vi.mock("@/lib/pi/bot-code-relay", () => ({
 import { createBot } from "./bots";
 import { createRoom, ensureRoomBotTask, getRoom, appendRoomMessage, patchRoom, updateRoomHandoffs, updateRoomMessage } from "./rooms";
 import { getTask, patchTask } from "./store";
-import { cancelPendingRoomHandoffs, deliverRoomCodeReport, registerRoomHandoff, resumeRoomAfterCode, runRoomConversation, settleRoomHandoffs, settleStaleRoomTurns } from "./room-runtime";
+import { cancelPendingRoomHandoffs, deliverRoomCodeReport, registerRoomHandoff, resumeRoomAfterCode, runRoomConversation, settleRoomHandoffs, settleRoomHandoffsForCode, settleStaleRoomTurns } from "./room-runtime";
 
 function assistant(id: string, text: string): UiMessage {
   return { id, role: "assistant", createdAt: Date.now(), parts: [{ id: `${id}-text`, type: "text", text }] };
@@ -311,6 +311,37 @@ describe("registered room handoffs", () => {
     expect(state.promptTask.mock.calls[0][1]).toContain("完了後に競合テストを検証して");
     expect(getRoom(room.id)!.handoffs?.[0]).toMatchObject({ state: "done" });
     expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.handoffs?.[0]).toMatchObject({ toBotName: "B", state: "done" });
+  });
+
+  it("accepts a completed Goal Loop as a successful Code handoff", async () => {
+    const { room, bots, user } = setup(["A", "B"]);
+    const turn = completedTurn(room.id, bots[0].id, user.id, room.members);
+    const request = codeRequest(room, bots[0], {
+      state: "running",
+      result: JSON.stringify({ outcome: "目標達成", goalLoop: { status: "completed" } }),
+    });
+    state.activeCodeRequests.set(request.id, request);
+    registerRoomHandoff({
+      roomId: room.id, requestId: user.id, fromMessageId: turn.id, fromBotId: bots[0].id,
+      toBotId: bots[1].id, task: "完了後に検証して", waitForCodeRequestId: request.id,
+    });
+
+    expect(settleRoomHandoffsForCode(request)).toHaveLength(1);
+    expect(getRoom(room.id)!.handoffs?.[0]).toMatchObject({ state: "ready" });
+    await resumeRoomAfterCode(request);
+    expect(getRoom(room.id)!.handoffs?.[0]).toMatchObject({ state: "done" });
+    expect(state.promptTask).toHaveBeenCalledWith(`bot:${bots[1].id}:room:${room.id}`, expect.stringContaining("完了後に検証して"), undefined, expect.anything());
+  });
+
+  it("continues the Room after a completed Goal Loop", async () => {
+    const { room, bots } = setup(["A", "B"]);
+    const request = codeRequest(room, bots[0], {
+      result: JSON.stringify({ outcome: "目標達成", goalLoop: { status: "completed" } }),
+    });
+
+    await resumeRoomAfterCode(request);
+    expect(state.promptTask).toHaveBeenCalledTimes(1);
+    expect(state.promptTask.mock.calls[0][0]).toBe(`bot:${bots[1].id}:room:${room.id}`);
   });
 
   it("delivers an immediate handoff instead of continuing the round-robin", async () => {

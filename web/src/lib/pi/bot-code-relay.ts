@@ -552,7 +552,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     await withBotCodeSessionLock(`room-${initial.room.id}`, () => withBotCodeSessionLock(initial.botId, async () => {
       const request = read(id);
       if (!request || request.state !== "queued" || !request.room) return;
-      if (requests().some((item) => item.id !== request.id && item.room?.id === request.room!.id && active(item))) return;
+      if (requests().some((item) => item.id !== request.id && item.room?.id === request.room!.id && active(item) && item.state !== "queued")) return;
       let bot: ReturnType<typeof owner>;
       try {
         bot = owner(request.originTaskId);

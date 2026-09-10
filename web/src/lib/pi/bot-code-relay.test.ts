@@ -554,6 +554,46 @@ describe("Room ⇄ Code delegation", () => {
     expect(records().find((request) => request.id === second.requestId)?.state).toBe("delivered");
   });
 
+  it("drains multiple queued Room Code jobs in order", async () => {
+    roomSetup();
+    const room = store.rooms.get("room-1")!;
+    store.bots.set("three", { id: "three", name: "Three", enabled: true, permissionMode: "allow" } as BotDto);
+    store.tasks.set("bot:three:room:room-1", task("bot:three:room:room-1", { kind: "bot", botId: "three" }));
+    room.members.push("three");
+
+    let nextCode = 0;
+    vi.mocked(deps.create).mockImplementation(async (input) => {
+      const code = task(`code-${++nextCode}`, { status: "working" });
+      store.tasks.set(code.id, code);
+      input.beforePrompt(code);
+      return code;
+    });
+    await roomLaunch();
+    const secondConversation = { requestId: "user-1", participantIds: ["one", "two", "three"], turn: 2, maxTurns: 6 };
+    room.messages.push({ id: "turn-2", role: "assistant", botId: "two", text: "", status: "working", createdAt: 4, conversation: secondConversation });
+    const second = await relay.run("bot:two:room:room-1", "queued-two", { action: "start", projectId: "project", prompt: "Second job" }, "session");
+    const thirdConversation = { ...secondConversation, turn: 3 };
+    room.messages.push({ id: "turn-3", role: "assistant", botId: "three", text: "", status: "working", createdAt: 5, conversation: thirdConversation });
+    const third = await relay.run("bot:three:room:room-1", "queued-three", { action: "start", projectId: "project", prompt: "Third job" }, "session");
+    expect(second).toMatchObject({ state: "queued" });
+    expect(third).toMatchObject({ state: "queued" });
+    room.messages.find((message) => message.id === "turn-2")!.status = "done";
+    room.messages.find((message) => message.id === "turn-3")!.status = "done";
+
+    store.tasks.get("code-1")!.status = "idle";
+    messages = [answer("first", "First job done")];
+    await relay.tick();
+    expect(deps.create).toHaveBeenCalledTimes(2);
+    expect(records().find((request) => request.id === second.requestId)).toMatchObject({ state: "running", codeTaskId: "code-2" });
+    expect(records().find((request) => request.id === third.requestId)).toMatchObject({ state: "queued" });
+
+    store.tasks.get("code-2")!.status = "idle";
+    messages = [answer("second", "Second job done")];
+    await relay.tick();
+    expect(deps.create).toHaveBeenCalledTimes(3);
+    expect(records().find((request) => request.id === third.requestId)).toMatchObject({ state: "running", codeTaskId: "code-3" });
+  });
+
   it("cancels a queued Room Code job without launching it", async () => {
     roomSetup();
     await roomLaunch();
