@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ relay: vi.fn(), scheduler: vi.fn(), reconcileTasks: vi.fn(), reconcileRooms: vi.fn() }));
-vi.mock("@/lib/pi/harness", () => ({ startBotCodeRelay: state.relay }));
+const state = vi.hoisted(() => ({ relay: vi.fn(), scheduler: vi.fn(), reconcileTasks: vi.fn(), reconcileRooms: vi.fn(), prewarmTasks: vi.fn(() => Promise.resolve([])) }));
+vi.mock("@/lib/pi/harness", () => ({ startBotCodeRelay: state.relay, getTaskSummariesWithTodoProgress: state.prewarmTasks }));
 vi.mock("@/lib/routines", () => ({ ensureRoutineScheduler: state.scheduler }));
 vi.mock("@/lib/task-runtime-lease", () => ({ reconcileOrphanedWorkingTasks: state.reconcileTasks }));
 vi.mock("@/lib/room-runtime", () => ({ reconcileRoomRuntime: state.reconcileRooms }));
@@ -14,6 +14,7 @@ describe("runtime startup", () => {
     state.scheduler.mockReset();
     state.reconcileTasks.mockReset();
     state.reconcileRooms.mockReset();
+    state.prewarmTasks.mockClear();
   });
 
   it("starts the Bot relay and routine scheduler in Node.js", async () => {
@@ -25,6 +26,7 @@ describe("runtime startup", () => {
     expect(state.relay).toHaveBeenCalledOnce();
     expect(state.scheduler).toHaveBeenCalledOnce();
     expect(state.reconcileRooms).toHaveBeenCalledOnce();
+    expect(state.prewarmTasks).toHaveBeenCalledWith(true);
   });
 
   it("does not start server services in the Edge runtime", async () => {
@@ -36,5 +38,6 @@ describe("runtime startup", () => {
     expect(state.relay).not.toHaveBeenCalled();
     expect(state.scheduler).not.toHaveBeenCalled();
     expect(state.reconcileRooms).not.toHaveBeenCalled();
+    expect(state.prewarmTasks).not.toHaveBeenCalled();
   });
 });

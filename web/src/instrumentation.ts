@@ -12,7 +12,9 @@ export async function register() {
     reconcileRoomRuntime();
     // Codeサイドバーの初回取得がコールド一括解析（数百セッション・数秒）を待たない
     // よう起動時に裏で温める。失敗は利用時の通常構築に任せる。
-    void getTaskSummariesWithTodoProgress(true).catch(() => undefined);
+    if (typeof getTaskSummariesWithTodoProgress === "function") {
+      void getTaskSummariesWithTodoProgress(true).catch(() => undefined);
+    }
   } catch (error) {
     console.warn("[bot-code-relay] startup scan unavailable", error);
   }
