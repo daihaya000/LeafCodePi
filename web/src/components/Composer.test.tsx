@@ -299,4 +299,53 @@ describe("Composer", () => {
     fireEvent.keyDown(textarea, { key: "Enter", keyCode: 229 });
     expect(textarea.value).toBe("/skill:r");
   });
+
+  it("clears stuck composition on blur so suggestion Enter works again", () => {
+    // compositionEnd 欠落で composingRef が stuck しても、blur で解除して候補確定可能にする。
+    function ReferenceComposer() {
+      const [value, setValue] = useState("/skill:r");
+      const textareaRef = useRef<HTMLTextAreaElement>(null);
+      const inputRef = useRef<HTMLInputElement>(null);
+      return (
+        <Composer
+          className=""
+          attachments={[]}
+          onRemoveAttachment={() => {}}
+          references={{
+            skills: [{ name: "review", description: "Review changes" }],
+          }}
+          textarea={{
+            ref: textareaRef,
+            value,
+            rows: 1,
+            ariaLabel: "メッセージ",
+            placeholder: "入力",
+            className: "",
+            onChange: (event) => setValue(event.target.value),
+            onValueChange: setValue,
+            onKeyDown: () => {},
+          }}
+          attachmentControl={{
+            inputRef,
+            buttonTitle: "画像を添付",
+            onFilesSelected: () => {},
+            onTrigger: () => {},
+          }}
+          toolbar={null}
+          action={null}
+        />
+      );
+    }
+
+    render(<ReferenceComposer />);
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    textarea.focus();
+    fireEvent.compositionStart(textarea);
+    fireEvent.blur(textarea);
+    textarea.focus();
+    fireEvent.focus(textarea);
+    expect(screen.getByRole("listbox", { name: "スキル候補" })).toBeTruthy();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(textarea.value).toBe("/skill:review ");
+  });
 });
