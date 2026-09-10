@@ -942,12 +942,16 @@ async function sendTurn(runtime: Runtime): Promise<void> {
   if (prepareGoalLoopTurn) {
     try {
       const prepared = await prepareGoalLoopTurn(routingPrompt);
+      // startLoop may have replaced this turn while prepare awaited. Ignore
+      // stale prepare outcomes so we do not pause/schedule the new loop.
+      if (runtime.disposed || runtime.turnGeneration !== turnGeneration) return;
       if (prepared === false) return;
       if (prepared === "retry") {
         schedule(runtime, 250);
         return;
       }
     } catch (error) {
+      if (runtime.disposed || runtime.turnGeneration !== turnGeneration) return;
       pauseLoop(
         runtime,
         "scheduler_error",
@@ -957,7 +961,6 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       );
       return;
     }
-    if (runtime.disposed || runtime.turnGeneration !== turnGeneration) return;
     loop = currentLoop(runtime);
     if (!loop || TERMINAL.has(loop.status) || loop.status === "paused") return;
     if (!runtime.ctx.isIdle() || runtime.ctx.hasPendingMessages()) {

@@ -1363,6 +1363,77 @@ test("preserves queued cooldowns and distinguishes lifecycle pauses from user pa
   }
 });
 
+test("prepareGoalLoopTurn errors after startLoop do not pause the replacement", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-prepare-stale-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  let prepareCalls = 0;
+  let releasePrepare;
+  const prepareGate = new Promise((resolve) => { releasePrepare = resolve; });
+  const stateFile = () => join(cwd, "goals-loop", "prepare-stale-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "prepare-stale-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+    prepareGoalLoopTurn: async () => {
+      prepareCalls += 1;
+      if (prepareCalls === 1) {
+        await prepareGate;
+        throw new Error("stale prepare failed");
+      }
+      return true;
+    },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand(name, options) { commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage() {
+      sendCount += 1;
+      busy = true;
+    },
+  };
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const first = Buffer.from(JSON.stringify({ goal: "first", maxTurns: 2 })).toString("base64url");
+    await commands.get("goal-start")?.(first, ctx);
+    await waitFor(() => prepareCalls === 1);
+
+    // Replace the loop while the first prepare is still awaiting.
+    const second = Buffer.from(JSON.stringify({ goal: "second", maxTurns: 2 })).toString("base64url");
+    await commands.get("goal-start")?.(second, ctx);
+    const replaced = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(replaced.goal, "second");
+    assert.equal(replaced.status, "queued");
+
+    releasePrepare();
+    await waitFor(() => sendCount === 1);
+    const running = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(running.goal, "second");
+    assert.equal(running.status, "running");
+    assert.notEqual(running.pauseReason, "scheduler_error");
+    assert.equal(String(running.error).includes("stale prepare failed"), false);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("does not requeue a provider-limit retry after the loop was paused meanwhile", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-pause-race-"));
   const handlers = new Map();
