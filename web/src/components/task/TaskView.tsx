@@ -14,7 +14,7 @@ import {
   Pencil,
   Plus,
   RotateCcw,
-  Sparkles,
+  WandSparkles,
   Square,
   X,
   Zap,
@@ -2515,7 +2515,7 @@ export const TaskView = memo(function TaskView({
             disabled={!task || archived || titleBusy}
             onClick={() => void toggleTitleAutoUpdate()}
           >
-            <Sparkles className="h-4 w-4" />
+            <WandSparkles className="h-4 w-4" />
           </Button>
           {onAddPane && (
             <Button
