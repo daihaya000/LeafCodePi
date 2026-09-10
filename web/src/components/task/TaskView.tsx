@@ -49,7 +49,7 @@ import {
   QueuedFollowUpsNotice,
   type QueuedFollowUp,
 } from "@/components/task/QueuedFollowUpsNotice";
-import { Button, Switch, cx, GhostSelect } from "@/components/ui";
+import { Badge, Button, Switch, cx, GhostSelect } from "@/components/ui";
 import {
   AUTO_MODEL_OPTION,
   AUTO_MODEL_VALUE,
@@ -2406,6 +2406,8 @@ export const TaskView = memo(function TaskView({
               busy={titleBusy}
               disabled={!task || archived}
             />
+            {permissionRequest && <Badge tone="warning">承認待ち</Badge>}
+            {questionRequest && <Badge tone="warning">回答待ち</Badge>}
           </div>
           {/* Mobile-only compact meta row: the sm:flex row below is hidden
               below sm, so phones would otherwise show no status/context. */}

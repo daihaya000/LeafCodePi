@@ -81,11 +81,11 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   }, []);
 
   return (
-    <AppShell>
+    <>
+      <AppShell>{children}</AppShell>
       <NotificationSoundSync />
       <GlobalAttentionProvider />
-      {children}
       <WebUiRestartOverlay />
-    </AppShell>
+    </>
   );
 }

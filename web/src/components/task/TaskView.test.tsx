@@ -331,6 +331,11 @@ describe("TaskView draft submission", () => {
             labels: ["os"],
             message,
           },
+          questionRequest: {
+            id: "question-1",
+            sessionId: "session-1",
+            questions: [{ question: "続けますか？", options: [], custom: true }],
+          },
         }),
       }));
     });
@@ -340,6 +345,8 @@ describe("TaskView draft submission", () => {
     expect(messageNode?.className).toContain("max-h-32");
     expect(messageNode?.className).toContain("overflow-auto");
     expect(screen.getByRole("button", { name: "許可" })).toBeTruthy();
+    expect(screen.getByText("承認待ち")).toBeTruthy();
+    expect(screen.getByText("回答待ち")).toBeTruthy();
   });
 
   it("clears goal loop state when a snapshot explicitly sends null", async () => {
