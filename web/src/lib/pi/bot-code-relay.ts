@@ -707,7 +707,10 @@ export function createBotCodeRelay(deps: RelayDependencies) {
           projectId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
           prompt: Type.Optional(Type.String({ maxLength: 32_000 })),
           goalLoop: Type.Optional(Type.Object({
-            acceptance: Type.Optional(Type.Array(Type.String({ maxLength: 2_000 }), { maxItems: 10 })),
+            // llama.cpp turns tool schemas into GBNF and emits unparseable grammar for a
+            // *nested* string with maxLength >= 2000 (400 "failed to parse grammar",
+            // ggml-org/llama.cpp#25746). Nested limits stay in normalizeGoalLoop instead.
+            acceptance: Type.Optional(Type.Array(Type.String({ description: "Acceptance criterion (max 2000 chars)" }), { maxItems: 10 })),
             maxTurns: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
             cooldownSeconds: Type.Optional(Type.Number({ minimum: 0, maximum: 86_400 })),
             forceFullRun: Type.Optional(Type.Boolean()),

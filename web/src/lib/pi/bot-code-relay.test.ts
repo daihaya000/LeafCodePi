@@ -25,7 +25,7 @@ vi.mock("@/lib/store", () => ({
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, botCodeReportText, cancelRoomCodeRequest, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, cancelRoomCodeRequest, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -85,6 +85,50 @@ beforeEach(() => {
   relay = createBotCodeRelay(deps);
 });
 afterEach(() => { relay.dispose(); rmSync(store.root, { recursive: true, force: true }); vi.restoreAllMocks(); });
+
+describe("Bot-only tool schemas stay llama.cpp-safe", () => {
+  // llama.cpp compiles tool schemas into GBNF; a nested string with maxLength >= 2000
+  // produces unparseable grammar and every request 400s with
+  // "Failed to initialize samplers: failed to parse grammar" (ggml-org/llama.cpp#25746).
+  // Top-level string properties are capped by llama.cpp itself, nested ones are not.
+  function collect(node: unknown, nested: boolean): number[] {
+    if (!node || typeof node !== "object") return [];
+    const schema = node as Record<string, unknown>;
+    const hits: number[] = [];
+    if (nested && schema.type === "string" && typeof schema.maxLength === "number" && schema.maxLength >= 2_000) {
+      hits.push(schema.maxLength);
+    }
+    const children = [
+      ...Object.values((schema.properties as Record<string, unknown> | undefined) ?? {}),
+      ...(schema.items ? [schema.items] : []),
+      ...(Array.isArray(schema.anyOf) ? schema.anyOf : []),
+      ...(Array.isArray(schema.oneOf) ? schema.oneOf : []),
+    ];
+    for (const child of children) hits.push(...collect(child, true));
+    return hits;
+  }
+
+  /** Root properties are top-level for llama.cpp; anything below them is nested. */
+  function nestedMaxLengths(parameters: unknown): number[] {
+    const properties = (parameters as { properties?: Record<string, unknown> } | null)?.properties ?? {};
+    return Object.values(properties).flatMap((property) => collect(property, false));
+  }
+
+  function toolSchemas(): { name: string; parameters: unknown }[] {
+    const tools: { name: string; parameters: unknown }[] = [];
+    const pi = { registerTool: (tool: { name: string; parameters: unknown }) => { tools.push(tool); } };
+    relay.register("bot:one")(pi as never);
+    return tools;
+  }
+
+  it("keeps nested string maxLength below the llama.cpp grammar limit", () => {
+    const tools = toolSchemas();
+    expect(tools.map((tool) => tool.name)).toContain(BOT_CODE_TOOL);
+    for (const tool of tools) {
+      expect({ tool: tool.name, nested: nestedMaxLengths(tool.parameters) }).toEqual({ tool: tool.name, nested: [] });
+    }
+  });
+});
 
 describe("Bot ⇄ Code relay", () => {
   it("ignores a corrupted request file instead of throwing", async () => {
