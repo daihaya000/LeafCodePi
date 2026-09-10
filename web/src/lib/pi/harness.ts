@@ -6182,7 +6182,7 @@ export function applySubagentPermission(
   }
 }
 
-/** Stop detached async children before aborting the parent Pi turn. */
+/** Stop detached async children after requesting the parent Pi turn abort. */
 async function stopSubagentRunsForTask(
   live: LiveRuntime,
   messages: UiMessage[],
@@ -6222,7 +6222,7 @@ async function stopSubagentRunsForTask(
   }
 }
 
-/** Fully stop an active Goal Loop before aborting its current Pi request.
+/** Fully stop an active Goal Loop while aborting its current Pi request.
  *  The main task "停止" button must terminate the loop (not merely pause it),
  *  so it matches the GoalLoopPanel "停止" action and the button label. */
 async function stopGoalLoopForTask(live: LiveRuntime): Promise<void> {
@@ -6290,6 +6290,17 @@ export async function abortTask(id: string): Promise<TaskSummary> {
   clearPendingAttentionForTask(id);
   const live = state().live.get(id);
   if (live) {
+    // Clear work that could be resumed before asking the SDK to abort. These
+    // operations are synchronous and keep the already-requested stop final.
+    // abort() must happen before history projection or extension cleanup: both
+    // can be slow enough to make the Stop button look unresponsive.
+    clearSessionQueue(live.session);
+    cancelHarnessPrompt(live);
+    cancelPendingTaskSnapshot(live);
+    // Install the sentinel first so even a synchronous settled event cannot
+    // schedule auto-compaction while the final assistant id is being read.
+    persistManualAbortedAssistantId(id, "");
+    const abortPromise = live.session.abort();
     const msgs = snapshotMessages(
       live.session,
       live.throughputByStartedAt,
@@ -6311,12 +6322,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
     persistManualAbortedAssistantId(id, turnAssistants.at(-1)?.id ?? "");
     await stopGoalLoopForTask(live);
     await stopSubagentRunsForTask(live, msgs);
-    // abort() stops the current run but keeps steer/follow-up queues; clear
-    // them or the post-run handler will continue with queued messages.
-    clearSessionQueue(live.session);
-    cancelHarnessPrompt(live);
-    cancelPendingTaskSnapshot(live);
-    await live.session.abort();
+    await abortPromise;
   }
   const task = setTaskStatus(id, "idle");
   releaseTaskLease(id);
@@ -6351,6 +6357,15 @@ export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
   const live = state().live.get(taskId);
   clearPendingAttentionForTask(taskId);
   if (live) {
+    // Stop queued work before the SDK settles, then signal the native abort
+    // before projecting the history or enumerating detached children.
+    clearSessionQueue(live.session);
+    cancelHarnessPrompt(live);
+    cancelPendingTaskSnapshot(live);
+    // Keep the manual-abort guard active even if agent_end is observed before
+    // the final assistant id can be projected.
+    persistManualAbortedAssistantId(taskId, "");
+    const abortPromise = live.session.abort();
     const msgs = snapshotMessages(
       live.session,
       live.throughputByStartedAt,
@@ -6374,15 +6389,11 @@ export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
     // Persist before hang_abort so SSE (and ready-buffer flush) carries the
     // early-abort "" sentinel / assistant id — same order as abortTask.
     persistManualAbortedAssistantId(taskId, turnAssistants.at(-1)?.id ?? "");
-    // Emit before idle so queued follow-ups cannot drain in the wait-for-idle
-    // window before hang_retry. Force isStreaming false — session.abort has
-    // not run yet and a truthy flag would leave the client looking busy.
+    // Emit before idle so clients clear queued follow-ups before hang_retry.
+    // Force isStreaming false while the SDK abort is settling.
     emitTaskSnapshot(live, "hang_abort", { isStreaming: false });
     await stopSubagentRunsForTask(live, msgs);
-    clearSessionQueue(live.session);
-    cancelHarnessPrompt(live);
-    cancelPendingTaskSnapshot(live);
-    await live.session.abort();
+    await abortPromise;
   }
   setTaskStatus(taskId, "idle");
   releaseTaskLease(taskId);

@@ -238,9 +238,13 @@ describe("abortTask", () => {
     const project = upsertProject({ name: "demo", rootPath: root });
     const task = insertTask({ project, title: "abort task" });
     let abortCount = 0;
+    let abortRequested = false;
     let clearQueueCount = 0;
     const session = {
-      messages: [{ role: "user", content: "作業", timestamp: 1 }],
+      get messages() {
+        assert.equal(abortRequested, true, "SDK abort must precede history projection");
+        return [{ role: "user", content: "作業", timestamp: 1 }];
+      },
       agent: { state: { streamingMessage: undefined } },
       isStreaming: true,
       sessionManager: {
@@ -254,6 +258,7 @@ describe("abortTask", () => {
         return { steering: ["steer"], followUp: ["follow"] };
       },
       abort: async () => {
+        abortRequested = true;
         abortCount += 1;
       },
     };
@@ -307,7 +312,8 @@ describe("abortTask", () => {
     let abortCount = 0;
     let clearQueueCount = 0;
     const eventTypes: string[] = [];
-    let hangAbortBeforeSessionAbort = false;
+    let queueCleared = false;
+    let sessionAbortAfterQueueClear = false;
     const session = {
       sessionId: "hang-abort-session",
       messages: [{ role: "user", content: "作業", timestamp: 1 }],
@@ -322,10 +328,11 @@ describe("abortTask", () => {
       extensionRunner: { getCommand: () => undefined },
       clearQueue: () => {
         clearQueueCount += 1;
+        queueCleared = true;
         return { steering: ["steer"], followUp: ["follow"] };
       },
       abort: async () => {
-        hangAbortBeforeSessionAbort = eventTypes.includes("hang_abort");
+        sessionAbortAfterQueueClear = queueCleared;
         abortCount += 1;
       },
     };
@@ -384,14 +391,14 @@ describe("abortTask", () => {
     assert.ok(getTaskHangWatch(task.id));
     assert.equal(eventTypes[0], "hang_abort");
     assert.ok(eventTypes.includes("hang_idle"));
-    assert.equal(hangAbortBeforeSessionAbort, true);
+    assert.equal(sessionAbortAfterQueueClear, true);
     assert.equal(hangAbortStreaming, false);
     assert.equal(hangIdleStatus, "idle");
     assert.equal(getTask(task.id)?.manualAbortedAssistantId, "");
     assert.equal(hangAbortManualId, "");
   });
 
-  it("stops a queued Goal Loop before aborting an idle session", async () => {
+  it("signals abort before stopping a queued Goal Loop", async () => {
     const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-goal-abort-"));
     tempDirs.push(root);
     process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
@@ -455,7 +462,7 @@ describe("abortTask", () => {
 
     await abortTask(task.id);
 
-    assert.deepEqual(events, ["goal-stop", "abort"]);
+    assert.deepEqual(events, ["abort", "goal-stop"]);
     assert.equal(getTask(task.id)?.status, "idle");
   });
 });
@@ -710,7 +717,7 @@ describe("archiveTask", () => {
 
     await archiveTask(task.id);
 
-    assert.deepEqual(events, ["goal-stop", "abort", "dispose"]);
+    assert.deepEqual(events, ["abort", "goal-stop", "dispose"]);
     assert.equal(getTask(task.id)?.status, "archived");
     assert.equal(live.has(task.id), false);
 
@@ -860,7 +867,7 @@ describe("destroyTask", () => {
 
     await destroyProject(project.id);
 
-    assert.deepEqual(events, ["goal-stop", "abort", "dispose"]);
+    assert.deepEqual(events, ["abort", "goal-stop", "dispose"]);
     assert.equal(getTask(task.id), undefined);
     assert.equal(getProject(project.id), undefined);
     assert.equal(live.has(task.id), false);
