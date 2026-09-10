@@ -271,6 +271,65 @@ test("completes a turn-limited loop and allows a new loop", async () => {
   }
 });
 
+test("goal-complete does not claim missing loop when writeLoop fails", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-complete-write-fail-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  const notices = [];
+  const stateFile = () => join(cwd, "goals-loop", "complete-write-fail-session.json");
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    abort: () => {},
+    sessionManager: { getSessionId: () => "complete-write-fail-session", getBranch: () => [] },
+    ui: {
+      setStatus: () => {},
+      setWidget: () => {},
+      notify: (message, level) => notices.push({ message, level }),
+    },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() {},
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    writeFileSync(stateFile(), JSON.stringify({
+      goal: "demo",
+      status: "paused",
+      pauseReason: "turn_limit",
+      turnCount: 2,
+      maxTurns: 2,
+      forceFullRun: true,
+      turnKind: "goal",
+      acceptance: [],
+      progress: [],
+      unreadableStreak: 0,
+      pendingTurnRecovery: false,
+    }), "utf8");
+
+    goalLoopTestSeams.setWriteLoopFail(true);
+    await commands.get("goal-complete")?.("", ctx);
+    const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(loop.status, "paused");
+    assert.equal(loop.pauseReason, "turn_limit");
+    assert.equal(notices.at(-1)?.level, "error");
+    assert.match(notices.at(-1).message, /完了状態の保存に失敗/);
+  } finally {
+    goalLoopTestSeams.setWriteLoopFail(false);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("startLoop writeLoop failure does not schedule or claim a started loop", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-start-write-fail-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
@@ -955,6 +1014,59 @@ test("writeLoop retries transient rename failures and cleans temp on fallback", 
     assert.equal(existsSync(join(goalsDir, "write-session.json")), true);
   } finally {
     goalLoopTestSeams.setRenameSync();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("successful writeLoop removes orphan temp snapshots for the same state file", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-orphan-tmp-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const goalsDir = join(cwd, "goals-loop");
+  mkdirSync(goalsDir, { recursive: true });
+  const stateFile = join(goalsDir, "orphan-tmp-session.json");
+  const staleTemp = `${stateFile}.1.stale.tmp`;
+  writeFileSync(staleTemp, JSON.stringify({
+    goal: "stale orphan",
+    status: "paused",
+    acceptance: [],
+    progress: [{ time: new Date().toISOString(), status: "progress", summary: "old" }],
+  }), "utf8");
+
+  const loop = {
+    id: "orphan-tmp-session",
+    sessionId: "orphan-tmp-session",
+    cwd,
+    status: "queued",
+    goal: "fresh",
+    acceptance: [],
+    maxTurns: 1,
+    cooldownSeconds: 0,
+    nextTurnAt: null,
+    forceFullRun: true,
+    turnCount: 0,
+    turnKind: "goal",
+    pauseReason: "",
+    error: "",
+    progress: [],
+    summary: "",
+    evidence: "",
+    blockedReason: "",
+    rejectedClaims: 0,
+    unreadableStreak: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    assert.equal(existsSync(staleTemp), true);
+    assert.equal(applyResult(loop, {
+      time: new Date().toISOString(),
+      status: "progress",
+      summary: "newest",
+    }), true);
+    assert.equal(JSON.parse(readFileSync(stateFile, "utf8")).summary, "newest");
+    assert.equal(readdirSync(goalsDir).some((name) => name.endsWith(".tmp")), false);
+  } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
 });

@@ -406,6 +406,23 @@ function readLoop(cwd: string, id: string): GoalLoop | null {
   return recoverLoopFromTemp(file, cwd, id);
 }
 
+function cleanupOrphanGoalTemps(file: string): void {
+  try {
+    const dir = path.dirname(file);
+    const base = path.basename(file);
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.startsWith(`${base}.`) || !name.endsWith(".tmp")) continue;
+      try {
+        fs.rmSync(path.join(dir, name), { force: true });
+      } catch {
+        // Best-effort; a locked temp can be swept on a later successful write.
+      }
+    }
+  } catch {
+    // Directory may be gone; leftovers remain recoverable until the next success.
+  }
+}
+
 function writeLoop(loop: GoalLoop): boolean {
   if (writeLoopFailForTests) return false;
   if (writeLoopAllowCountForTests !== undefined) {
@@ -426,6 +443,9 @@ function writeLoop(loop: GoalLoop): boolean {
     for (let attempt = 0; ; attempt += 1) {
       try {
         renameGoalState(temp, file);
+        // Main now has the latest snapshot; drop older crash temps so a later
+        // torn main cannot revive a stale pre-success state.
+        cleanupOrphanGoalTemps(file);
         return true;
       } catch (error) {
         const code = (error as NodeJS.ErrnoException | undefined)?.code;
@@ -436,6 +456,7 @@ function writeLoop(loop: GoalLoop): boolean {
           try {
             fs.writeFileSync(file, content, "utf8");
             fs.rmSync(temp, { force: true });
+            cleanupOrphanGoalTemps(file);
             return true;
           } catch (fallbackError) {
             console.error("[goal-loop] writeLoop fallback failed:", fallbackError);
@@ -1614,11 +1635,24 @@ function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "c
   }
   if (action === "complete") {
     const completed = completeLoop(runtime);
+    if (completed) {
+      runtime.ctx.ui.notify("Goal loop を完了しました。新しい Goal loop を開始できます。", "info");
+      return;
+    }
+    const loop = currentLoop(runtime);
+    // writeLoop fail leaves an eligible turn_limit pause on disk; do not claim
+    // "no such loop" the way a forged/missing pause would.
+    const eligible =
+      !!loop &&
+      loop.status === "paused" &&
+      loop.pauseReason === "turn_limit" &&
+      loop.maxTurns > 0 &&
+      loop.turnCount >= loop.maxTurns;
     runtime.ctx.ui.notify(
-      completed
-        ? "Goal loop を完了しました。新しい Goal loop を開始できます。"
+      eligible
+        ? "完了状態の保存に失敗しました。再試行してください。"
         : "最大ターン数に到達した一時停止中の Goal loop はありません。",
-      completed ? "info" : "warning",
+      eligible ? "error" : "warning",
     );
     return;
   }
