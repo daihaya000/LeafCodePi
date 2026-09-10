@@ -7,6 +7,8 @@ vi.mock("@/lib/host-control", () => ({
 
 import { POST as reasoningPost } from "./reasoning/route";
 import { POST as overridePost } from "./override/route";
+import { GET as statusGet } from "./status/route";
+import { POST as installPost } from "./install/route";
 
 function jsonRequest(url: string, body: unknown): Request {
   return new Request(url, {
@@ -140,5 +142,67 @@ describe("POST /api/translation/override", () => {
       }),
     );
     expect(serverError.status).toBe(502);
+  });
+});
+
+describe("GET /api/translation/status", () => {
+  it("forwards a healthy host response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(200, { ok: true })),
+    );
+    const response = await statusGet();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+  });
+
+  it("reports host-outdated on 404 from the host", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(404, {})),
+    );
+    const response = await statusGet();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ ok: false, state: "host-outdated" });
+  });
+
+  it("reports unavailable when the host is unreachable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("connection refused")),
+    );
+    const response = await statusGet();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ ok: false, state: "unavailable" });
+  });
+});
+
+describe("POST /api/translation/install", () => {
+  it("returns 202 and forwards the host payload", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { installState: "installing" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await installPost();
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ installState: "installing" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:18775/translation/install",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("maps host failures and connectivity errors to 502", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(500, { error: "boom" })),
+    );
+    expect((await installPost()).status).toBe(502);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("refused")),
+    );
+    expect((await installPost()).status).toBe(502);
   });
 });
