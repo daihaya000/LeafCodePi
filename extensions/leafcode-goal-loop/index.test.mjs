@@ -270,6 +270,72 @@ test("writeLoop retries transient rename failures and cleans temp on fallback", 
   }
 });
 
+test("recovers a torn state file from the newest valid temp snapshot", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-corrupt-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "corrupt-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "corrupt-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand(name, options) { commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage() {
+      sendCount += 1;
+      busy = true;
+    },
+  };
+
+  try {
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    const snapshot = {
+      goal: "recover me",
+      status: "queued",
+      turnKind: "goal",
+      turnCount: 0,
+      maxTurns: 2,
+      cooldownSeconds: 0,
+      nextTurnAt: "not-a-date",
+      forceFullRun: true,
+      acceptance: [],
+      progress: [],
+      unreadableStreak: 0,
+    };
+    writeFileSync(`${stateFile()}.1.1.tmp`, JSON.stringify(snapshot), "utf8");
+    writeFileSync(stateFile(), "{\"goal\":\"torn", "utf8"); // truncated JSON
+
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    await waitFor(() => sendCount === 1);
+
+    const recovered = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(recovered.goal, "recover me");
+    assert.equal(recovered.nextTurnAt, null);
+    assert.equal(recovered.status, "running");
+    assert.equal(readdirSync(join(cwd, "goals-loop")).some((name) => name.endsWith(".tmp")), false);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("keeps the loop alive once when the result JSON is missing", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-missing-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

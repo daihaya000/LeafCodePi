@@ -297,6 +297,14 @@ function normalizeProgress(value: unknown): GoalLoopProgress[] {
     }));
 }
 
+function normalizeNextTurnAt(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (!text) return null;
+  const ms = Date.parse(text);
+  return Number.isFinite(ms) ? text : null;
+}
+
 function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
   const raw = asRecord(value);
   if (!raw || typeof raw.goal !== "string") return null;
@@ -313,7 +321,7 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     acceptance,
     maxTurns: clampMaxTurns(raw.maxTurns),
     cooldownSeconds: clampCooldownSeconds(raw.cooldownSeconds),
-    nextTurnAt: typeof raw.nextTurnAt === "string" ? raw.nextTurnAt : null,
+    nextTurnAt: normalizeNextTurnAt(raw.nextTurnAt),
     forceFullRun: raw.forceFullRun === true,
     autoAgent: raw.autoAgent === true,
     turnCount: Math.max(0, Math.trunc(Number(raw.turnCount) || 0)),
@@ -331,11 +339,51 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
   };
 }
 
-function readLoop(cwd: string, id: string): GoalLoop | null {
+function recoverLoopFromTemp(file: string, cwd: string, id: string): GoalLoop | null {
   try {
-    return hydrateLoop(JSON.parse(fs.readFileSync(goalStateFile(cwd, id), "utf8")), cwd, id);
+    const dir = path.dirname(file);
+    const base = path.basename(file);
+    const temps = fs.readdirSync(dir)
+      .filter((name) => name.startsWith(`${base}.`) && name.endsWith(".tmp"))
+      .map((name) => {
+        const full = path.join(dir, name);
+        try {
+          return { full, mtime: fs.statSync(full).mtimeMs };
+        } catch {
+          return null;
+        }
+      })
+      .filter((entry): entry is { full: string; mtime: number } => entry !== null)
+      .sort((a, b) => b.mtime - a.mtime);
+    for (const temp of temps) {
+      try {
+        const loop = hydrateLoop(JSON.parse(fs.readFileSync(temp.full, "utf8")), cwd, id);
+        if (!loop) continue;
+        // Promote the newest valid temp so later reads stay consistent after a
+        // crash between temp write and rename, or a torn non-atomic overwrite.
+        try {
+          renameGoalState(temp.full, file);
+        } catch {
+          fs.writeFileSync(file, JSON.stringify(loop, null, 2), "utf8");
+          fs.rmSync(temp.full, { force: true });
+        }
+        return loop;
+      } catch {
+        // Try an older temp snapshot.
+      }
+    }
   } catch {
-    return null;
+    // No recoverable temp snapshots.
+  }
+  return null;
+}
+
+function readLoop(cwd: string, id: string): GoalLoop | null {
+  const file = goalStateFile(cwd, id);
+  try {
+    return hydrateLoop(JSON.parse(fs.readFileSync(file, "utf8")), cwd, id);
+  } catch {
+    return recoverLoopFromTemp(file, cwd, id);
   }
 }
 
@@ -358,9 +406,10 @@ function writeLoop(loop: GoalLoop): void {
       const code = (error as NodeJS.ErrnoException | undefined)?.code;
       const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
       if (attempt >= 4 || !transient) {
-        // Leave no orphaned *.tmp even when falling back to a direct overwrite.
-        fs.rmSync(temp, { force: true });
+        // Keep the temp until the overwrite succeeds so a torn write can still
+        // be recovered on the next readLoop.
         fs.writeFileSync(file, content, "utf8");
+        fs.rmSync(temp, { force: true });
         return;
       }
       // 25+50+75+100ms = 250ms total before the overwrite fallback.
