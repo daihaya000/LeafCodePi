@@ -839,8 +839,14 @@ function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): bool
   loop.status = "running";
   applyResult(loop, result);
   const updated = currentLoop(runtime);
+  // Failed persist leaves disk paused+pendingTurnRecovery. Keep runtime armed so
+  // a later settle/resume does not apply the same JSON a second time blindly
+  // after a partial in-memory apply, and so recovery can retry the write.
+  if (!updated || updated.pendingTurnRecovery) {
+    runtime.pausedTurnPending = true;
+    return false;
+  }
   updateUI(runtime, updated);
-  if (!updated) return true;
   appendSnapshot(runtime, updated);
   if (
     (pauseReason === "user" || pauseReason === "manual_send") &&
@@ -1335,7 +1341,9 @@ function startLoop(
     createdAt: now,
     updatedAt: now,
   };
-  writeLoop(loop);
+  // Do not schedule/notify as started when the durable write failed — disk still
+  // holds the previous loop (or none), so sendTurn would race on stale state.
+  if (!writeLoop(loop)) return null;
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
   schedule(runtime, 0);
@@ -1453,15 +1461,21 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
       loop.status = "running";
       applyResult(loop, recovered);
       const updated = currentLoop(runtime);
+      // applyResult mutates memory then writeLoop. On failure disk still has
+      // pendingTurnRecovery; treating this as success would let the next resume
+      // apply the same transcript JSON again (double progress).
+      if (!updated || updated.pendingTurnRecovery) {
+        runtime.pausedTurnPending = true;
+        runtime.ctx.ui.notify("結果の保存に失敗したため再開を中止しました。再試行してください。", "error");
+        return false;
+      }
       updateUI(runtime, updated);
-      if (updated) {
-        appendSnapshot(runtime, updated);
-        // turn_end recovery relies on a later agent_settled to re-arm the
-        // scheduler. Resume recovery often happens after settlement, so arm it
-        // here or the loop stays queued forever.
-        if (updated.status === "queued" || updated.status === "verifying_completed") {
-          schedule(runtime);
-        }
+      appendSnapshot(runtime, updated);
+      // turn_end recovery relies on a later agent_settled to re-arm the
+      // scheduler. Resume recovery often happens after settlement, so arm it
+      // here or the loop stays queued forever.
+      if (updated.status === "queued" || updated.status === "verifying_completed") {
+        schedule(runtime);
       }
       return true;
     }
@@ -1491,7 +1505,10 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
   loop.error = "";
   loop.pendingTurnRecovery = false;
   if (!preserveCooldown) loop.nextTurnAt = null;
-  writeLoop(loop);
+  if (!writeLoop(loop)) {
+    runtime.ctx.ui.notify("状態の保存に失敗したため再開できませんでした。", "error");
+    return false;
+  }
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
   schedule(runtime, 0);
@@ -1569,7 +1586,7 @@ function registerCommandAliases(pi: ExtensionAPI, getRuntime: () => Runtime | nu
       }
       const loop = startLoop(runtime, config);
       if (!loop) {
-        ctx.ui.notify("Goal または承認条件が不正です。", "error");
+        ctx.ui.notify("Goal loop を開始できませんでした（パラメータ不正または状態保存失敗）。", "error");
         return;
       }
       ctx.ui.notify(`Goal loop started: ${loop.maxTurns === 0 ? "無制限" : `${loop.maxTurns}ターン`}${loop.forceFullRun ? "・完走" : ""}`, "info");
@@ -1582,7 +1599,7 @@ function registerCommandAliases(pi: ExtensionAPI, getRuntime: () => Runtime | nu
       if (!runtime) return;
       const config = parseStartArgs(args);
       const loop = startLoop(runtime, config);
-      if (!loop) ctx.ui.notify("Goal または承認条件が不正です。", "error");
+      if (!loop) ctx.ui.notify("Goal loop を開始できませんでした（パラメータ不正または状態保存失敗）。", "error");
     },
   });
   pi.registerCommand("goal-status", {
@@ -1824,7 +1841,7 @@ export default function (pi: ExtensionAPI): void {
       const config = parseStartArgs(text);
       const loop = startLoop(current, config);
       if (!loop) {
-        ctx.ui.notify("Goal または承認条件が不正です。", "error");
+        ctx.ui.notify("Goal loop を開始できませんでした（パラメータ不正または状態保存失敗）。", "error");
         return;
       }
       ctx.ui.notify(`Goal loop started: ${config.maxTurns}ターン${config.forceFullRun ? "・完走" : ""}`, "info");
