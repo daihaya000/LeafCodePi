@@ -24,6 +24,7 @@ import { BotCodeRequests } from "@/components/bot/BotCodeRequests";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { ToolCard } from "@/components/task/PartView";
 import { markRead } from "@/lib/bot-unread";
+import { decideNotification } from "@/lib/notify";
 import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
 import { messageRenderKey, stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
@@ -192,6 +193,24 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     const latest = messages.reduce((value, message) => Math.max(value, message.createdAt), 0);
     if (active && latest > 0) markRead("bot", id, latest);
   }, [active, id, messages]);
+  // A Bot that finishes answering while you are on another tab should still reach you. The per-Bot
+  // notification toggle decides whether this Bot may interrupt you at all.
+  const prevAttentionRef = useRef(false);
+  const prevWorkingRef = useRef(false);
+  useEffect(() => {
+    if (typeof Notification === "undefined" || !bot) return;
+    const attentionNow = Boolean(permission || question);
+    const kind = decideNotification({
+      prevAttention: prevAttentionRef.current, attention: attentionNow,
+      prevWorking: prevWorkingRef.current, working: sending,
+      documentHidden: typeof document !== "undefined" && document.hidden,
+      permission: Notification.permission,
+    });
+    prevAttentionRef.current = attentionNow;
+    prevWorkingRef.current = sending;
+    // One notification per Bot replaces the previous one instead of stacking.
+    if (kind && notificationsEnabled) new Notification(kind === "attention" ? "承認が必要です" : "新しい返信があります", { body: bot.name, tag: `bot-${id}` });
+  }, [bot, id, notificationsEnabled, permission, question, sending]);
   const loadRoutines = useCallback((isCurrent: () => boolean = () => true) => getJson<{ routines: RoutineDto[] }>(`/api/bots/${encodeURIComponent(id)}/routines`)
     .then((result) => { if (isCurrent()) setRoutines(result.routines); })
     .catch((reason) => { if (isCurrent()) setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f"); }), [id]);

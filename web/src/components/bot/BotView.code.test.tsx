@@ -48,6 +48,34 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.useRealTimers(); });
 
+it("notifies a hidden tab once per finished reply, and stays silent when the Bot's toggle is off", async () => {
+  const sent: string[] = [];
+  class FakeNotification {
+    static permission = "granted";
+    constructor(title: string) { sent.push(title); }
+  }
+  vi.stubGlobal("Notification", FakeNotification);
+  Object.defineProperty(document, "hidden", { configurable: true, value: true });
+  try {
+    render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+    await screen.findByRole("button", { name: "設定" });
+    snapshot({ isStreaming: true });
+    snapshot({ isStreaming: false });
+    expect(sent).toEqual(["新しい返信があります"]);
+
+    // The same transition must stay quiet when the user turned notifications off for this Bot.
+    mocks.getJson.mockImplementation(async (url: string) => url === "/api/models" ? { models: [] } : url.endsWith("/routines") ? { routines: [] } : { bot: { ...testBot, notificationsEnabled: false } });
+    cleanup();
+    render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+    await screen.findByRole("button", { name: "設定" });
+    snapshot({ isStreaming: true });
+    snapshot({ isStreaming: false });
+    expect(sent).toEqual(["新しい返信があります"]);
+  } finally {
+    Reflect.deleteProperty(document, "hidden");
+  }
+});
+
 it("does not mark hidden tab messages read until activation", async () => {
   const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
   snapshot({ messages: [{ id: "message", role: "assistant", createdAt: 123, parts: [{ type: "text", text: "hello" }] }] });
