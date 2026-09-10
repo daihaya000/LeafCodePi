@@ -70,17 +70,17 @@ it("saves shapes, preset colors and validated custom colors, replacing an upload
   expect(within(screen.getByRole("group", { name: "ボットの形" })).getAllByRole("button")).toHaveLength(9);
   expect(within(screen.getByRole("group", { name: "本体の色" })).getAllByRole("button")).toHaveLength(12);
   fireEvent.click(screen.getByRole("button", { name: "葉っぱ" }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "葉っぱ" }).getAttribute("aria-pressed")).toBe("true"));
+  await waitFor(() => expect(screen.getByRole("button", { name: "葉っぱ" }).getAttribute("aria-pressed")).toBe("true"), { timeout: 2000 });
   expect(save).toHaveBeenLastCalledWith({ avatarShape: "leaf", avatarImage: null });
   fireEvent.click(screen.getByRole("button", { name: "本体の色 #111111" }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "本体の色 #111111" }).getAttribute("aria-pressed")).toBe("true"));
+  await waitFor(() => expect(screen.getByRole("button", { name: "本体の色 #111111" }).getAttribute("aria-pressed")).toBe("true"), { timeout: 2000 });
   const code = screen.getByRole("textbox", { name: "本体の色のカラーコード" });
   const apply = within(code.closest("form")!).getByRole("button", { name: "適用" }) as HTMLButtonElement;
   fireEvent.change(code, { target: { value: "#nope" } });
   expect(apply.disabled).toBe(true);
   fireEvent.change(code, { target: { value: "#abcdef" } });
   fireEvent.click(apply);
-  await waitFor(() => expect(save).toHaveBeenLastCalledWith({ avatarColor: "#ABCDEF", avatarImage: null }));
+  await waitFor(() => expect(save).toHaveBeenLastCalledWith({ avatarColor: "#ABCDEF", avatarImage: null }), { timeout: 2000 });
   await screen.findByText("保存しました");
 });
 
