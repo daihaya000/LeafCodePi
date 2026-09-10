@@ -332,6 +332,64 @@ describe("TaskView draft submission", () => {
     expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model C");
   });
 
+  it("keeps a concrete model after leaving Auto across remount", async () => {
+    const modelTask = {
+      ...task,
+      providerID: "provider",
+      modelID: "a",
+      thinkingLevel: "off" as const,
+    };
+    const models = ["a", "b"].map((id) => ({
+      value: `provider::${id}`,
+      label: `Model ${id.toUpperCase()}`,
+      providerID: "provider",
+      modelID: id,
+    }));
+    localStorage.setItem("leafcodepi.defaultModel", "auto");
+    sessionStorage.setItem(
+      `webui:auto-task:${task.id}`,
+      JSON.stringify({
+        decision: {
+          providerID: "provider",
+          modelID: "a",
+          variant: "minimal",
+          tier: "light",
+          mode: "cost",
+          reason: "auto",
+        },
+      }),
+    );
+    saveTaskSessionCache({ task: modelTask, messages: [], isStreaming: false, isCompacting: false });
+    mocks.getJson.mockResolvedValue({ models, agents: [], skills: [], accounts: [] });
+    mocks.sendJson.mockResolvedValue({ task: { ...modelTask, modelID: "b" } });
+
+    const view = render(<TaskView taskId={task.id} mdUp />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "モデル" }).hasAttribute("disabled")).toBe(false),
+    );
+    expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Auto");
+    fireEvent.click(screen.getByRole("button", { name: "モデル" }));
+    fireEvent.click(screen.getByRole("option", { name: "Model B" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model B"),
+    );
+    expect(sessionStorage.getItem(`webui:auto-task:${task.id}`)).toBeNull();
+    expect(localStorage.getItem("leafcodepi.defaultModel")).toBe("provider::b");
+
+    view.unmount();
+    saveTaskSessionCache({
+      task: { ...modelTask, modelID: "b" },
+      messages: [],
+      isStreaming: false,
+      isCompacting: false,
+    });
+    render(<TaskView taskId={task.id} mdUp />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model B"),
+    );
+    expect(screen.getByRole("button", { name: "モデル" }).textContent).not.toContain("Auto");
+  });
+
   it("preserves a new draft while starting a goal loop", async () => {
     let resolve!: (value: unknown) => void;
     mocks.sendJson.mockReturnValue(new Promise((done) => { resolve = done; }));

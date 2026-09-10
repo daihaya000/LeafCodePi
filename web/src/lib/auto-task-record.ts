@@ -149,3 +149,14 @@ export function writeAutoTaskRecord(
     return false;
   }
 }
+
+/** Drop the Auto sentinel so a concrete model choice survives remount. */
+export function clearAutoTaskRecord(taskId: string): boolean {
+  if (typeof sessionStorage === "undefined") return false;
+  try {
+    sessionStorage.removeItem(autoTaskStorageKey(taskId));
+    return true;
+  } catch {
+    return false;
+  }
+}

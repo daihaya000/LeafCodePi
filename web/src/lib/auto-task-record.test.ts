@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
 import {
   autoTaskStorageKey,
+  clearAutoTaskRecord,
   readAutoTaskRecord,
   resolveModelValue,
   shouldAutoRetryEscalate,
@@ -18,6 +19,10 @@ class MemorySessionStorage {
 
   setItem(key: string, value: string): void {
     this.values.set(key, String(value));
+  }
+
+  removeItem(key: string): void {
+    this.values.delete(key);
   }
 }
 
@@ -56,6 +61,13 @@ describe("auto-task-record", () => {
   it("round-trips the decision and one-shot retry flags", () => {
     expect(writeAutoTaskRecord("task-1", record)).toBe(true);
     expect(readAutoTaskRecord("task-1")).toEqual(record);
+  });
+
+  it("clears a stored Auto record so remount can show a concrete model", () => {
+    expect(writeAutoTaskRecord("task-1", record)).toBe(true);
+    expect(clearAutoTaskRecord("task-1")).toBe(true);
+    expect(readAutoTaskRecord("task-1")).toBeNull();
+    expect(sessionStorage.getItem(autoTaskStorageKey("task-1"))).toBeNull();
   });
 
   it("ignores malformed records instead of blocking the task view", () => {

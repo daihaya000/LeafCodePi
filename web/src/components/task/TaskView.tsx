@@ -73,6 +73,7 @@ import {
 } from "@/lib/auto-settings";
 import {
   AUTO_TASK_PROMPT_MAX,
+  clearAutoTaskRecord,
   readAutoTaskRecord,
   resolveModelValue,
   shouldAutoRetryEscalate,
@@ -158,6 +159,14 @@ import {
 } from "@/lib/sse-reconnect";
 
 const MODEL_KEY = "leafcodepi.defaultModel";
+
+function writeStoredModel(model: string): void {
+  try {
+    localStorage.setItem(MODEL_KEY, model);
+  } catch {
+    /* private mode 等では永続できないだけ */
+  }
+}
 import {
   autoResumePrompt,
   formatHangTimeout,
@@ -3077,6 +3086,7 @@ export const TaskView = memo(function TaskView({
                   const changeId = ++modelChangeRef.current;
                   if (value === AUTO_MODEL_VALUE) {
                     setModelSelection(AUTO_MODEL_VALUE);
+                    writeStoredModel(AUTO_MODEL_VALUE);
                     return;
                   }
                   const previous = modelValue;
@@ -3089,6 +3099,10 @@ export const TaskView = memo(function TaskView({
                         { model: value },
                       );
                       if (modelChangeRef.current !== changeId) return;
+                      // 具体モデルへ明示切替したら Auto 記録と既定値も外し、再表示で Auto に戻さない。
+                      clearAutoTaskRecord(taskId);
+                      setAutoRecord(null);
+                      writeStoredModel(value);
                       setTask((current) => (current ? { ...current, ...result.task } : current));
                       if (isThinkingLevel(result.task.thinkingLevel)) {
                         writeStoredThinkingLevel(result.task.thinkingLevel);
