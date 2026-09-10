@@ -103,6 +103,26 @@ it("does not mark hidden tab messages read until activation", async () => {
   expect(mocks.markRead).toHaveBeenCalledWith("bot", "one", 123);
 });
 
+it("shows a routine's consecutive failures and keeps an auto-disabled routine from running", async () => {
+  const autoDisabled = {
+    id: "routine-1", botId: "one", name: "朝の確認", prompt: "Check status", schedule: "0 * * * *",
+    enabled: false, createdAt: "", updatedAt: "", failureCount: 3, lastRunAt: "2026-09-10T00:00:00.000Z",
+  };
+  mocks.getJson.mockImplementation(async (url: string) => {
+    if (url === "/api/models") return { models: [] };
+    if (url.endsWith("/routines")) return { routines: [autoDisabled] };
+    return { bot: testBot };
+  });
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+
+  expect(await screen.findByText("連続失敗: 3回")).toBeTruthy();
+  expect(screen.getByText("無効")).toBeTruthy();
+  // 自動無効化されたルーティンは手動実行できないが、有効化で戻せる。
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "今すぐ実行" }).disabled).toBe(true);
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "有効化" }).disabled).toBe(false);
+});
+
 it("defers routine loading until a hidden Bot tab is activated", async () => {
   const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
   expect(mocks.getJson).not.toHaveBeenCalledWith("/api/bots/one");
