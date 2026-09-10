@@ -1898,6 +1898,7 @@ const SidebarView = memo(function SidebarView({
     />
   );
 
+  const noProjectActive = activeTask?.projectId === null;
   const collapsedRail = (
     <div className="flex h-full w-20 flex-col items-center bg-surface">
       <div className="flex h-14 w-full items-center justify-center border-b border-border">
@@ -1920,8 +1921,12 @@ const SidebarView = memo(function SidebarView({
               type="button"
               title={NO_PROJECT_NAME}
               aria-label={`${NO_PROJECT_NAME}を選択`}
+              aria-current={noProjectActive ? "page" : undefined}
               onClick={openNoProject}
-              className="group relative inline-flex h-12 w-12 items-center justify-center rounded-xl p-1 hover:bg-surface-2"
+              className={cx(
+                "group relative inline-flex h-12 w-12 items-center justify-center rounded-xl p-1 hover:bg-surface-2",
+                noProjectActive && "bg-surface-2 ring-1 ring-inset ring-accent/20",
+              )}
             >
               <span className="flex h-full w-full items-center justify-center rounded-lg border border-border bg-surface-2 text-muted transition-transform group-hover:scale-105">
                 <Folder className="h-5 w-5" />
@@ -1936,6 +1941,7 @@ const SidebarView = memo(function SidebarView({
           {orderedProjects.map((project) => {
             const projectTasks = tasksByProject.get(project.id) ?? [];
             const running = countRunningTasks(projectTasks);
+            const active = activeTask?.projectId === project.id;
             const tapOpensMenu = !hoverCapable && projectTasks.length > 0;
             const menuOpen = projectTaskMenu?.projectId === project.id;
             const projectLabel = tapOpensMenu
@@ -1951,6 +1957,7 @@ const SidebarView = memo(function SidebarView({
                   type="button"
                   title={projectLabel}
                   aria-label={projectLabel}
+                  aria-current={active ? "page" : undefined}
                   aria-haspopup={tapOpensMenu ? "menu" : undefined}
                   aria-expanded={tapOpensMenu ? menuOpen : undefined}
                   data-project-id={project.id}
@@ -1971,7 +1978,10 @@ const SidebarView = memo(function SidebarView({
                     if (hoverCapable) showProjectTaskMenu(project.id, event.currentTarget);
                   }}
                   onBlur={scheduleProjectTaskMenuHide}
-                  className="group relative inline-flex h-12 w-12 items-center justify-center rounded-xl p-1 hover:bg-surface-2"
+                  className={cx(
+                    "group relative inline-flex h-12 w-12 items-center justify-center rounded-xl p-1 hover:bg-surface-2",
+                    active && "bg-surface-2 ring-1 ring-inset ring-accent/20",
+                  )}
                 >
                   <ProjectIcon
                     project={project}

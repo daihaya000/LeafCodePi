@@ -404,6 +404,38 @@ describe("Sidebar project ordering", () => {
     });
   });
 
+  it("marks the active project in the collapsed Code rail", async () => {
+    const projectTasks = [{
+      id: "task-1",
+      projectId: "project-a",
+      projectName: "Project A",
+      title: "Active task",
+      directory: "C:\\repo-a",
+      isolation: "current_folder" as const,
+      status: "ready" as const,
+      sessionId: null,
+      sessionFile: null,
+      createdAt: "",
+      updatedAt: "",
+    }];
+    localStorage.setItem("webui.sidebar.collapsed", "1");
+    mocks.activeTaskId = "task-1";
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
+      if (path === "/api/tasks?archived=1") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/health") {
+        return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    const activeProject = await screen.findByRole("button", { name: "Project Aのタスクを表示" });
+    expect(activeProject.getAttribute("aria-current")).toBe("page");
+    expect(activeProject.className).toContain("bg-surface-2");
+  });
+
   it("opens HomeView from the header button to the left of project add", async () => {
     const onClose = vi.fn();
     render(<Sidebar mobileOpen={false} onClose={onClose} />);
