@@ -4,7 +4,7 @@ import { getBot } from "./bots";
 import { getTask } from "./store";
 import { getTaskDetail, promptTask, subscribeTask, abortTask } from "./pi/harness";
 import { withBotCodeSessionLock } from "./bot-code-session-lock";
-import { pendingRoomCodeRequestForTurn, roomCodeRequestForRoom, settledRoomCodeRequest, type CodeRequest } from "./pi/bot-code-relay";
+import { pendingRoomCodeRequestForTurn, pendingRoomCodeRequestsForTurn, roomCodeRequestForRoom, settledRoomCodeRequest, type CodeRequest } from "./pi/bot-code-relay";
 import { activeToolLabel } from "./tool-labels";
 import { latestRoomRequest, MAX_ROOM_CONVERSATION_TURNS, parseRoomReply, roomBotPrompt, type RoomReply, type RoomTurn } from "./room-conversation";
 import type { BotDto, RoomDto, RoomHandoff, RoomMessage, RoomOutcome, UiMessage } from "./types";
@@ -128,8 +128,8 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     const { text } = reply;
     updateRoomMessage(room.id, responseId, { text: error || (text.trim() ? text : "Bot did not return a response."), status: error || !text.trim() ? "error" : "done" });
     // The turn may have handed work to Code; show what that run is doing while the Room waits.
-    const delegated = pendingRoomCodeRequestForTurn(room.id, requestId);
-    if (delegated) trackRoomCodeProgress(room.id, delegated);
+    // Parallel requests share one message, so every outstanding job mirrors its activity.
+    for (const delegated of pendingRoomCodeRequestsForTurn(room.id, requestId)) trackRoomCodeProgress(room.id, delegated);
     return error || !text.trim() ? undefined : reply;
     }, { timeoutMs: ROOM_TURN_LOCK_TIMEOUT_MS });
   } catch (error) {

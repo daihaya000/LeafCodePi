@@ -8,6 +8,7 @@ import type { BotDto, RoomDto, RoomHandoff, TaskDetail, UiMessage } from "./type
 const state = vi.hoisted(() => ({
   root: "", details: new Map<string, TaskDetail>(), promptTask: vi.fn(),
   pendingRoom: vi.fn<(roomId: string, requestId: string, excludeRequestId?: string) => CodeRequest | undefined>(() => undefined),
+  pendingRooms: vi.fn<(roomId: string, requestId: string, excludeRequestId?: string) => CodeRequest[]>(() => []),
   activeCodeRequests: new Map<string, CodeRequest>(),
   settledCodeRequests: new Map<string, CodeRequest>(),
   listeners: new Map<string, Set<(payload: Record<string, unknown>) => void>>(),
@@ -29,6 +30,7 @@ vi.mock("@/lib/pi/harness", () => ({
 }));
 vi.mock("@/lib/pi/bot-code-relay", () => ({
   pendingRoomCodeRequestForTurn: state.pendingRoom,
+  pendingRoomCodeRequestsForTurn: state.pendingRooms,
   roomCodeRequestForRoom: (_roomId: string, requestId: string) => state.activeCodeRequests.get(requestId),
   settledRoomCodeRequest: (_roomId: string, requestId: string) => state.settledCodeRequests.get(requestId),
 }));
@@ -63,7 +65,9 @@ function codeRequest(room: RoomDto, bot: BotDto, extra: Partial<CodeRequest> = {
 
 beforeEach(() => {
   state.root = mkdtempSync(join(tmpdir(), "leafcode-room-runtime-"));
-  state.pendingRoom.mockReturnValue(undefined);
+  state.pendingRooms.mockReturnValue([]);
+  // The real singular helper is the first of the plural list.
+  state.pendingRoom.mockImplementation((roomId: string, requestId: string, excludeRequestId?: string) => state.pendingRooms(roomId, requestId, excludeRequestId)[0]);
   state.activeCodeRequests.clear();
   state.settledCodeRequests.clear();
   state.promptTask.mockImplementation(async (id: string) => {
@@ -77,6 +81,7 @@ afterEach(() => {
   state.details.clear();
   state.promptTask.mockReset();
   state.pendingRoom.mockReset();
+  state.pendingRooms.mockReset();
   vi.restoreAllMocks();
 });
 
@@ -125,6 +130,7 @@ describe("room conversation with delegated work", () => {
     const turn = appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, text: "依頼しました", status: "done", codeRequestId: request.id, codeTaskId: "code-task", codeState: "running" })!;
     request.room!.responseId = turn.id;
     state.pendingRoom.mockReturnValue(request);
+    state.pendingRooms.mockReturnValue([request]);
     // The bot's turn ends having handed work to Code.
     state.promptTask.mockImplementation(async (id: string) => {
       state.details.get(id)!.messages = [assistant("reply", "Codeに依頼しました。\nROOM_ACTION: DONE")];
@@ -140,6 +146,22 @@ describe("room conversation with delegated work", () => {
     emit({ type: "delta", message: null });
     expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.codeActivity).toBe("");
     expect(state.listeners.get("code-task")?.size ?? 0).toBe(0);
+  });
+
+  it("mirrors progress for every outstanding Code request of the turn", async () => {
+    const { room, bots, user } = setup();
+    const first = codeRequest(room, bots[0], { id: "request-one", state: "running", codeTaskId: "code-1" });
+    const second = codeRequest(room, bots[0], { id: "request-two", state: "running", codeTaskId: "code-2" });
+    const turn = appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, text: "二件依頼しました", status: "done" })!;
+    first.room!.responseId = turn.id; second.room!.responseId = turn.id;
+    state.pendingRooms.mockReturnValue([first, second]);
+    state.promptTask.mockImplementation(async (id: string) => {
+      state.details.get(id)!.messages = [assistant("reply", "二件依頼しました。\nROOM_ACTION: DONE")];
+    });
+    await runRoomConversation(room, bots, "残作業も進めて", user.id);
+
+    expect(state.listeners.get("code-1")?.size ?? 0).toBe(1);
+    expect(state.listeners.get("code-2")?.size ?? 0).toBe(1);
   });
 
   it("records why the exchange stopped so a paused room is not read as a finished one", async () => {

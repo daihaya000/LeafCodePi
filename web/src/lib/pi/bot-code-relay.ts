@@ -325,8 +325,11 @@ export async function runUserBotCodeRequest(
   });
 }
 /** Turn-scoped: only this conversation's own job may pause it. A stale record must not silence a new request. */
+export function pendingRoomCodeRequestsForTurn(roomId: string, requestId: string, excludeRequestId?: string): CodeRequest[] {
+  return requests().filter((request) => request.id !== excludeRequestId && request.room?.id === roomId && request.room.conversation.requestId === requestId && active(request));
+}
 export function pendingRoomCodeRequestForTurn(roomId: string, requestId: string, excludeRequestId?: string): CodeRequest | undefined {
-  return requests().find((request) => request.id !== excludeRequestId && request.room?.id === roomId && request.room.conversation.requestId === requestId && active(request));
+  return pendingRoomCodeRequestsForTurn(roomId, requestId, excludeRequestId)[0];
 }
 /** A reverted request has no context left to report into: cancel and stop its outstanding jobs. */
 export async function cancelRoomCodeRequests(roomId: string, requestId: string): Promise<number> {
