@@ -436,6 +436,16 @@ describe("Sidebar project ordering", () => {
     expect(activeProject.className).toContain("bg-surface-2");
   });
 
+  it("shows a user-facing error when a project action fails", async () => {
+    mocks.sendJson.mockRejectedValueOnce(new Error("アーカイブに失敗しました"));
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Project Aをアーカイブ" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("アーカイブに失敗しました");
+  });
+
   it("opens HomeView from the header button to the left of project add", async () => {
     const onClose = vi.fn();
     render(<Sidebar mobileOpen={false} onClose={onClose} />);

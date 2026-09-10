@@ -864,6 +864,7 @@ const SidebarView = memo(function SidebarView({
   const [keyboardDraggedProjectId, setKeyboardDraggedProjectId] = useState<string | null>(null);
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [projectTaskMenu, setProjectTaskMenu] = useState<ProjectTaskMenuState | null>(null);
   const [promotionTask, setPromotionTask] = useState<TaskSummary | null>(null);
   const [railWidget, setRailWidget] = useState<RailWidget | null>(null);
@@ -1280,11 +1281,13 @@ const SidebarView = memo(function SidebarView({
 
   async function runAction(key: string, action: () => Promise<unknown>) {
     if (actionBusyKey) return;
+    setActionError(null);
     setActionBusyKey(key);
     try {
       await action();
     } catch (err) {
       console.error("[sidebar] action failed", err);
+      setActionError(err instanceof Error ? err.message : "サイドバーの操作に失敗しました");
     } finally {
       setActionBusyKey(null);
       void refresh();
@@ -1599,6 +1602,11 @@ const SidebarView = memo(function SidebarView({
             className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint"
           />
         </label>
+        {actionError && (
+          <p role="alert" className="mb-2 rounded-lg border border-danger/30 bg-danger-bg px-2.5 py-2 text-xs text-danger">
+            {actionError}
+          </p>
+        )}
         <span className="sr-only">
           ドラッグしてプロジェクトを並べ替えます。キーボードではスペースで開始し、上下矢印で移動、スペースで終了します。
         </span>
@@ -1914,6 +1922,11 @@ const SidebarView = memo(function SidebarView({
           <Menu className="h-5 w-5 text-muted" />
         </button>
       </div>
+      {actionError && (
+        <p role="alert" className="w-full break-words px-1 py-2 text-center text-[10px] text-danger">
+          {actionError}
+        </p>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <ul className="flex flex-col items-center gap-3">
           <li>
