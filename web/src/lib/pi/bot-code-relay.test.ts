@@ -323,6 +323,21 @@ describe("Bot ⇄ Code relay", () => {
     expect(delivered.result).toContain("結果を取得できませんでした");
   });
 
+  it("does not report an earlier answer when the recorded baseline left the transcript", async () => {
+    await launch(); store.tasks.get("code")!.status = "idle";
+    await relay.tick();
+    messages = [answer("old", "Old answer")];
+    await relay.run("bot:one", "follow-lost-baseline", { action: "prompt", prompt: "Add an edge case" }, "session");
+    // A revert/reset removed the baseline entry while the follow-up produced no answer of its own.
+    messages = [answer("renamed", "Old answer")];
+    store.tasks.get("code")!.status = "idle";
+    await relay.tick();
+
+    const delivered = vi.mocked(deps.deliver).mock.calls.at(-1)![0];
+    expect(delivered.result).not.toContain("Old answer");
+    expect(delivered.result).toContain("結果を取得できませんでした");
+  });
+
   it("captures the delegated turn before a directly queued Code turn replaces its output", async () => {
     await launch(); messages = [answer("delegated", "Requested fix completed")];
     const id = relay.requestIdForCode("code")!;

@@ -489,7 +489,10 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     const task = request.codeTaskId ? getTask(request.codeTaskId) : undefined;
     const messages = task ? await deps.messages(task) : [];
     const baselineIndex = request.baseline ? messages.findIndex((message) => message.id === request.baseline) : -1;
-    const latest = messages.slice(baselineIndex + 1).filter((message) => message.role === "assistant").at(-1);
+    // A baseline that left the transcript (revert, session reset) breaks the correlation: scanning
+    // the whole history would report an earlier answer as this run's outcome, so keep it empty.
+    const sinceBaseline = request.baseline && baselineIndex < 0 ? [] : messages.slice(baselineIndex + 1);
+    const latest = sinceBaseline.filter((message) => message.role === "assistant").at(-1);
     const text = latest?.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n") ?? "";
     // Only a run that asked for a loop is judged by the loop file; a later plain follow-up on the same
     // session must not inherit the old loop's verdict.
