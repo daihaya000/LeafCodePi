@@ -59,12 +59,33 @@ describe("TaskView draft submission", () => {
     expect(screen.queryByRole("button", { name: "コンテキスト圧縮" })).toBeNull();
   });
 
+  it("keeps the full title in its edit target and separates secondary actions", () => {
+    const title = "再起動オーバーレイの表示条件とヘッダーレイアウトを改善する";
+    saveTaskSessionCache({ task: { ...task, title }, messages: [], isStreaming: false, isCompacting: false });
+    render(<TaskView taskId={task.id} mdUp={false} />);
+
+    const heading = screen.getByRole("heading", { name: title });
+    const edit = screen.getByRole("button", { name: `タイトルを編集: ${title}` });
+    expect(heading.contains(edit)).toBe(true);
+    expect(edit.textContent).toBe(title);
+    expect(screen.getAllByText("クリーン")).toHaveLength(1);
+    expect(screen.getByRole("group", { name: "タスク操作" }).contains(
+      screen.getByRole("switch", { name: "タイトルの自動更新" }),
+    )).toBe(true);
+    fireEvent.click(edit);
+    const input = screen.getByRole("textbox", { name: "セッションタイトル" });
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.getByRole("heading", { name: title })).toBeTruthy();
+    expect(mocks.sendJson).not.toHaveBeenCalled();
+  });
+
   it("edits the title and turns automatic updates off", async () => {
     const updatedTask = { ...task, title: "手動タイトル", titleAutoUpdate: false };
     mocks.sendJson.mockResolvedValue({ task: updatedTask });
     render(<TaskView taskId={task.id} mdUp />);
 
-    fireEvent.click(screen.getByRole("button", { name: "タイトルを編集" }));
+    fireEvent.click(screen.getByRole("button", { name: /^タイトルを編集:/ }));
     const input = screen.getByRole("textbox", { name: "セッションタイトル" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "手動タイトル" } });
     fireEvent.click(screen.getByRole("button", { name: "タイトルを保存" }));
@@ -184,14 +205,14 @@ describe("TaskView draft submission", () => {
         : Promise.resolve({ models: [], agents: [], skills: [], accounts: [] }),
     );
     render(<TaskView taskId={task.id} mdUp />);
-    expect((await screen.findAllByText("変更あり")).length).toBe(2);
+    expect((await screen.findAllByText("変更あり")).length).toBe(1);
 
     changed = 0;
     await act(async () => {
       window.dispatchEvent(new Event("webui:tasks-changed"));
       await Promise.resolve();
     });
-    expect((await screen.findAllByText("クリーン")).length).toBe(2);
+    expect((await screen.findAllByText("クリーン")).length).toBe(1);
   });
 
   it("switches Graph and Diff instead of opening both when the timeline is narrow", () => {

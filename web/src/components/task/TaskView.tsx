@@ -434,7 +434,7 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
       className="flex min-w-0 shrink-0 items-center gap-1.5 text-[11px] text-muted"
       title={`コンテキスト使用量: ${usedLabel} / ${limitLabel} トークン（${pctLabel}）`}
     >
-      <span className="h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-surface-2 sm:w-10">
+      <span className="h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-surface-2 @min-[40rem]/task:w-10">
         <span
           className={cx(
             "block h-full rounded-full transition-[width]",
@@ -449,7 +449,7 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
           style={{ width: `${barWidth}%` }}
         />
       </span>
-      <span className="hidden font-mono tabular-nums sm:inline">
+      <span className="hidden font-mono tabular-nums @min-[40rem]/task:inline">
         {usedLabel}/{limitLabel} ({pctLabel})
       </span>
     </span>
@@ -2323,15 +2323,15 @@ export const TaskView = memo(function TaskView({
     // h-full だとタブバー分だけはみ出し composer 下端が overflow-hidden で欠ける。
     <div
       ref={taskViewRef}
-      className={cx("flex min-h-0 min-w-0 flex-1 flex-col bg-bot-chat", !active && "hidden")}
+      className={cx("@container/task flex min-h-0 min-w-0 flex-1 flex-col bg-bot-chat", !active && "hidden")}
     >
       <header
-        className="flex min-h-[3.75rem] shrink-0 items-center gap-1.5 border-b border-bot-outline bg-bot-chat px-3 md:gap-3 md:px-4"
+        className="grid min-h-15 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-bot-outline bg-bot-chat px-3 pb-1 @min-[40rem]/task:px-4"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
-        <MobileMenuButton />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1">
+        <div className="col-span-2 flex min-w-0 items-center gap-2 @min-[40rem]/task:col-span-1">
+          <MobileMenuButton />
+          <div className="flex min-w-0 flex-1 items-center gap-1">
             {titleEditing ? (
               <form
                 aria-label="セッションタイトルを編集"
@@ -2353,13 +2353,13 @@ export const TaskView = memo(function TaskView({
                       cancelTitleEdit();
                     }
                   }}
-                  className="min-w-0 flex-1 rounded-md border border-border-strong bg-bg px-2 py-1 text-sm font-semibold text-text outline-none focus:border-accent"
+                  className="h-11 min-w-0 flex-1 rounded-lg border border-border-strong bg-bg px-2 text-base font-semibold text-text outline-none focus:border-accent @min-[40rem]/task:h-8 @min-[40rem]/task:text-sm"
                   disabled={titleBusy}
                 />
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8"
+                  className="h-11 w-11 @min-[40rem]/task:h-8 @min-[40rem]/task:w-8"
                   type="submit"
                   aria-label="タイトルを保存"
                   title="タイトルを保存"
@@ -2371,7 +2371,7 @@ export const TaskView = memo(function TaskView({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8"
+                  className="h-11 w-11 @min-[40rem]/task:h-8 @min-[40rem]/task:w-8"
                   aria-label="タイトル編集をキャンセル"
                   title="キャンセル"
                   disabled={titleBusy}
@@ -2381,106 +2381,73 @@ export const TaskView = memo(function TaskView({
                 </Button>
               </form>
             ) : (
-              <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" title={task?.title}>
-                {task?.title ?? "読み込み中…"}
-              </h1>
-            )}
-            <div
-              role="group"
-              aria-label="タイトル操作"
-              className="flex shrink-0 items-center gap-0.5 rounded-lg bg-surface-2/50 p-0.5"
-            >
-              {!titleEditing && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  aria-label="タイトルを編集"
-                  title="タイトルを編集"
+              <h1 className="min-w-0 flex-1 text-sm font-semibold" aria-label={task?.title ?? "読み込み中…"}>
+                <button
+                  type="button"
+                  className="group/title flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg text-left disabled:cursor-default @min-[40rem]/task:min-h-8"
+                  aria-label={`タイトルを編集: ${task?.title ?? "読み込み中…"}`}
+                  title={task?.title}
                   disabled={!task || archived || titleBusy}
                   onClick={beginTitleEdit}
                 >
-                  <Pencil className="h-4 w-4" />
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                role="switch"
-                aria-checked={titleAutoUpdateEnabled}
-                aria-label="タイトルの自動更新"
-                title={`タイトルの自動更新: ${titleAutoUpdateEnabled ? "ON" : "OFF"}`}
-                className={cx("h-8 w-8", titleAutoUpdateEnabled && "bg-accent/10 text-accent")}
-                disabled={!task || archived || titleBusy}
-                onClick={() => void toggleTitleAutoUpdate()}
-              >
-                <Sparkles className="h-4 w-4" />
-              </Button>
-            </div>
-            {permissionRequest && <Badge tone="warning">承認待ち</Badge>}
-            {questionRequest && <Badge tone="warning">回答待ち</Badge>}
-          </div>
-          {/* Mobile-only compact meta row: the sm:flex row below is hidden
-              below sm, so phones would otherwise show no status/context. */}
-          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-[11px] text-faint sm:hidden">
-            {displayedStatus && <StatusBadge status={displayedStatus} />}
-            {contextUsage && <ContextUsageMeter usage={contextUsage} />}
-          </div>
-          <div className="mt-0.5 hidden min-w-0 items-center gap-1 text-xs text-faint sm:flex">
-            {displayedStatus && <StatusBadge status={displayedStatus} />}
-            {task?.projectName && (
-              <>
-                <span className="mx-1 shrink-0">·</span>
-                <span className="truncate">{task.projectName}</span>
-              </>
-            )}
-            {contextUsage && (
-              <>
-                <span className="mx-1 shrink-0">·</span>
-                <ContextUsageMeter usage={contextUsage} />
-              </>
-            )}
-            {stats.totalTokens > 0 && (
-              <>
-                <span className="mx-1 shrink-0">·</span>
-                <span
-                  className="shrink-0 font-mono tabular-nums"
-                  title={`合計 ${formatTokens(stats.totalTokens)} tok（出力のみ）`}
-                >
-                  {formatTokens(stats.totalTokens)} tok
-                </span>
-              </>
-            )}
-            {stats.avgRate !== null && (
-              <>
-                <span className="mx-1 shrink-0">·</span>
-                <span
-                  className="shrink-0 font-mono tabular-nums"
-                  title="平均 tok/s（応答ごとの tok/s の平均）"
-                >
-                  {formatTokensPerSecond(stats.avgRate)}
-                </span>
-              </>
-            )}
-            {stats.durationMs > 0 && (
-              <>
-                <span className="mx-1 shrink-0">·</span>
-                <span
-                  className="shrink-0 font-mono tabular-nums"
-                  title="合計生成時間（メッセージ間隔の累計）"
-                >
-                  {formatDuration(stats.durationMs)}
-                </span>
-              </>
+                  <span className="truncate">{task?.title ?? "読み込み中…"}</span>
+                  <Pencil aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-muted group-hover/title:text-accent" />
+                </button>
+              </h1>
             )}
           </div>
+        </div>
+        <div aria-label="タスクの状態" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted @min-[40rem]/task:col-start-1 @min-[40rem]/task:row-start-2">
+          {permissionRequest && <Badge tone="warning">承認待ち</Badge>}
+          {questionRequest && <Badge tone="warning">回答待ち</Badge>}
+          {displayedStatus && <StatusBadge status={displayedStatus} />}
+          {task?.projectName && (
+            <span className="hidden max-w-32 truncate @min-[40rem]/task:inline" title={task.projectName}>{task.projectName}</span>
+          )}
+          {contextUsage && <ContextUsageMeter usage={contextUsage} />}
+          {stats.totalTokens > 0 && (
+            <span
+              className="hidden font-mono tabular-nums @min-[40rem]/task:inline"
+              title={`合計 ${formatTokens(stats.totalTokens)} tok（出力のみ）`}
+            >
+              {formatTokens(stats.totalTokens)} tok
+            </span>
+          )}
+          {stats.avgRate !== null && (
+            <span
+              className="hidden font-mono tabular-nums @min-[40rem]/task:inline"
+              title="平均 tok/s（応答ごとの tok/s の平均）"
+            >
+              {formatTokensPerSecond(stats.avgRate)}
+            </span>
+          )}
+          {stats.durationMs > 0 && (
+            <span
+              className="hidden font-mono tabular-nums @min-[40rem]/task:inline"
+              title="合計生成時間（メッセージ間隔の累計）"
+            >
+              {formatDuration(stats.durationMs)}
+            </span>
+          )}
         </div>
         <div
           role="group"
           aria-label="タスク操作"
-          tabIndex={0}
-          className="flex min-w-0 max-w-[52vw] shrink-0 items-center gap-0.5 overflow-x-auto rounded-xl border border-border/70 bg-surface-2/40 p-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:max-w-none sm:overflow-visible"
+          className="flex items-center justify-end @min-[40rem]/task:col-start-2 @min-[40rem]/task:row-span-2 @min-[40rem]/task:row-start-1"
         >
+          <Button
+            variant="ghost"
+            size="icon"
+            role="switch"
+            aria-checked={titleAutoUpdateEnabled}
+            aria-label="タイトルの自動更新"
+            title={`タイトルの自動更新: ${titleAutoUpdateEnabled ? "ON" : "OFF"}`}
+            className={cx("h-11 w-11 md:h-9 md:w-9", titleAutoUpdateEnabled && "text-accent!")}
+            disabled={!task || archived || titleBusy}
+            onClick={() => void toggleTitleAutoUpdate()}
+          >
+            <Sparkles className="h-4 w-4" />
+          </Button>
           {onAddPane && (
             <Button
               variant="ghost"
