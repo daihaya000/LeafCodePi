@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveTaskSessionCache } from "@/lib/task-session-cache";
-import type { TaskSummary, UiMessage } from "@/lib/types";
+import type { ModelOption, TaskSummary, UiMessage } from "@/lib/types";
 
 const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), partView: vi.fn(), botFor: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
@@ -471,7 +471,7 @@ describe("TaskView draft submission", () => {
       modelID: "a",
       thinkingLevel: "off" as const,
     };
-    const accountModel = {
+    const accountModel: ModelOption = {
       value: "acc-1::provider::a",
       label: "Model A",
       providerID: "provider",
@@ -479,7 +479,7 @@ describe("TaskView draft submission", () => {
       accountId: "acc-1",
       thinkingLevels: ["off", "high"] as const,
     };
-    const integratedModel = {
+    const integratedModel: ModelOption = {
       value: "provider::a",
       label: "Model A",
       providerID: "provider",
