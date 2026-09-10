@@ -39,6 +39,19 @@ describe("bot unread timestamps", () => {
     expect(setItem).toHaveBeenCalledWith("webui.bot.last_read.room.two", "100");
   });
 
+  it("avoids rereading an unchanged marker during streaming updates", () => {
+    const getItem = vi.fn(() => null);
+    const setItem = vi.fn(() => undefined);
+    stubStorage(getItem, setItem);
+    markRead("bot", "one", 123);
+    markRead("bot", "one", 123);
+    expect(getItem).toHaveBeenCalledTimes(1);
+    expect(setItem).toHaveBeenCalledTimes(1);
+    markRead("bot", "one", 124);
+    expect(getItem).toHaveBeenCalledTimes(2);
+    expect(setItem).toHaveBeenLastCalledWith("webui.bot.last_read.bot.one", "124");
+  });
+
   it("returns null when localStorage reads throw", () => {
     stubStorage(
       vi.fn(() => {
