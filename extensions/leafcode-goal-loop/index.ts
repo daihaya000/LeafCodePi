@@ -130,6 +130,12 @@ type Runtime = {
   pausedTurnPending: boolean;
   pendingAgentMessages?: unknown[];
   pendingAgentAborted: boolean;
+  /**
+   * After abort/stop of an in-flight agent run, trailing agent_end/settled may
+   * arrive after a replacement turn already set awaitingTurn. Drop that many
+   * settlement waves so they cannot poison the new turn.
+   */
+  discardAgentSettlements: number;
   awaitingTurnIndex?: number;
   pausedTurnIndex?: number;
   timer?: ReturnType<typeof setTimeout>;
@@ -1003,6 +1009,10 @@ function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error
 function stopLoop(runtime: Runtime): void {
   const loop = currentLoop(runtime);
   if (!loop || TERMINAL.has(loop.status)) return;
+  // Capture before clearing: abort can make isIdle() true immediately, so a
+  // replacement startLoop may send the next turn before trailing agent_end.
+  const hadInflightAgent =
+    runtime.awaitingTurn || runtime.pausedTurnPending || !runtime.ctx.isIdle();
   loop.status = "stopped";
   loop.pauseReason = "";
   loop.error = "";
@@ -1015,6 +1025,7 @@ function stopLoop(runtime: Runtime): void {
   runtime.awaitingTurnIndex = undefined;
   runtime.pausedTurnIndex = undefined;
   clearPendingAgentRun(runtime);
+  if (hadInflightAgent) runtime.discardAgentSettlements += 1;
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
   try {
@@ -1289,6 +1300,13 @@ function startLoop(
   const previous = currentLoop(runtime);
   if (previous && !TERMINAL.has(previous.status)) stopLoop(runtime);
   clearTimer(runtime);
+  // Terminal previous loops skip stopLoop; still drop any stuck awaiting flag so
+  // a fresh start cannot hang on sendTurn's awaitingTurn gate.
+  runtime.awaitingTurn = false;
+  runtime.awaitingTurnIndex = undefined;
+  runtime.pausedTurnPending = false;
+  runtime.pausedTurnIndex = undefined;
+  clearPendingAgentRun(runtime);
 
   const now = isoNow();
   const loop: GoalLoop = {
@@ -1628,6 +1646,7 @@ export default function (pi: ExtensionAPI): void {
       turnGeneration: 0,
       pausedTurnPending: false,
       pausedTurnIndex: undefined,
+      discardAgentSettlements: 0,
       disposed: false,
       pendingAgentAborted: false,
     };
@@ -1702,6 +1721,8 @@ export default function (pi: ExtensionAPI): void {
   pi.on("agent_end", async (event, ctx) => {
     const current = getRuntime();
     if (!current) return;
+    // Trailing end from an aborted/replaced run — do not poison a newer await.
+    if (current.discardAgentSettlements > 0) return;
     // After a mid-turn pause, awaitingTurn is false but we still need the final
     // messages so agent_settled can recover JSON (manual_send/abort races).
     if (!current.awaitingTurn && !current.pausedTurnPending) return;
@@ -1715,6 +1736,25 @@ export default function (pi: ExtensionAPI): void {
     const loop = currentLoop(current);
     if (!loop) {
       clearPendingAgentRun(current);
+      return;
+    }
+    if (TERMINAL.has(loop.status)) {
+      // Ignore delayed events after stop/complete/blocked; also clear any stuck
+      // awaitingTurn so a later goal-start cannot hang on the send gate.
+      if (current.discardAgentSettlements > 0) current.discardAgentSettlements -= 1;
+      clearPendingAgentRun(current);
+      current.awaitingTurn = false;
+      current.awaitingTurnIndex = undefined;
+      current.pausedTurnPending = false;
+      current.pausedTurnIndex = undefined;
+      return;
+    }
+    if (current.discardAgentSettlements > 0) {
+      current.discardAgentSettlements -= 1;
+      clearPendingAgentRun(current);
+      // A replacement may already be awaiting; do not settle it with this wave.
+      if (current.awaitingTurn && loop.status === "running") return;
+      if (loop.status === "queued" || loop.status === "verifying_completed") schedule(current);
       return;
     }
     if (current.awaitingTurn && loop.status === "running") {

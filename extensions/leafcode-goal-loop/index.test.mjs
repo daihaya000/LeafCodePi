@@ -2745,6 +2745,88 @@ test("provider-limit retry after startLoop does not mutate the replacement", asy
   }
 });
 
+test("goal-start replacement ignores trailing agent_end from the aborted run", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-replace-poison-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "replace-poison-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    // abort() making idle immediate lets the replacement send before trailing agent_end.
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "replace-poison-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand(name, options) { commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage() {
+      sendCount += 1;
+      busy = true;
+    },
+  };
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const first = Buffer.from(JSON.stringify({ goal: "first", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(first, ctx);
+    await waitFor(() => sendCount === 1 && JSON.parse(readFileSync(stateFile(), "utf8")).status === "running");
+
+    const second = Buffer.from(JSON.stringify({ goal: "second", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(second, ctx);
+    await waitFor(() => sendCount === 2 && JSON.parse(readFileSync(stateFile(), "utf8")).goal === "second");
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).status, "running");
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).turnCount, 1);
+
+    // Trailing events from the aborted first run must not settle the replacement.
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "poison from first run" }) }],
+      }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+
+    const afterStale = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(afterStale.goal, "second");
+    assert.equal(afterStale.status, "running");
+    assert.equal(afterStale.turnCount, 1);
+    assert.equal(afterStale.progress.length, 0);
+
+    // The real second-run settlement should still apply.
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "second run ok" }) }],
+      }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    const settled = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(settled.goal, "second");
+    assert.equal(settled.progress.at(-1)?.summary, "second run ok");
+    assert.ok(settled.status === "queued" || settled.status === "running");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("does not requeue a provider-limit retry after the loop was paused meanwhile", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-pause-race-"));
   const handlers = new Map();
