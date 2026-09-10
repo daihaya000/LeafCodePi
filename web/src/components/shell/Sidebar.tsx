@@ -9,6 +9,7 @@ import {
   ArchiveRestore,
   ChevronRight,
   CodeXml,
+  Columns2,
   Cpu,
   Folder,
   FolderUp,
@@ -32,7 +33,7 @@ import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { getLastReadAt, hasUnread } from "@/lib/bot-unread";
-import { HOME_TAB_ID, SETTINGS_TAB_ID } from "@/lib/task-panes";
+import { HOME_TAB_ID, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
 import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type TaskStatus, type TaskSummary } from "@/lib/types";
 
 type ProjectTaskMenuState = {
@@ -154,6 +155,39 @@ function ModeSegment({ mode, onChange }: { mode: AppMode; onChange: (mode: AppMo
       {item === "code" ? "Code" : "Bot"}
     </button>)}
   </div>;
+}
+
+function WorkingTasksButton({
+  hasWorking,
+  mdUp,
+  onClick,
+  className,
+}: {
+  hasWorking: boolean;
+  mdUp: boolean;
+  onClick: () => void;
+  className?: string;
+}) {
+  const title = !mdUp
+    ? "進行中タスクの分割表示はデスクトップで利用できます"
+    : hasWorking
+      ? "進行中タスクを分割表示"
+      : "進行中のタスクはありません";
+  return (
+    <button
+      type="button"
+      aria-label="進行中タスクを分割表示"
+      title={title}
+      disabled={!mdUp || !hasWorking}
+      onClick={onClick}
+      className={cx(
+        "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40",
+        className,
+      )}
+    >
+      <Columns2 className="h-4 w-4" aria-hidden="true" />
+    </button>
+  );
 }
 
 function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSettings: () => void }) {
@@ -784,6 +818,7 @@ type SidebarPaneProps = {
   statusFor: (taskId: string) => TaskStatus | null;
   splitHostEnabled: boolean;
   retargetToUrl: (taskId: string) => void;
+  dispatch: (action: TaskPanesAction) => void;
 };
 
 const SidebarView = memo(function SidebarView({
@@ -794,6 +829,7 @@ const SidebarView = memo(function SidebarView({
   splitHostEnabled,
   retargetToUrl,
   statusFor,
+  dispatch,
 }: SidebarProps & SidebarPaneProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -879,10 +915,11 @@ const SidebarView = memo(function SidebarView({
     }
   }, []);
 
-  const hasWorking = useMemo(
-    () => tasks.some((task) => task.status === "working"),
+  const workingTaskIds = useMemo(
+    () => tasksForSidebar(tasks.filter((task) => task.status === "working")).map((task) => task.id),
     [tasks],
   );
+  const hasWorking = workingTaskIds.length > 0;
 
   useEffect(() => {
     try {
@@ -1020,6 +1057,12 @@ const SidebarView = memo(function SidebarView({
     }
     onClose();
   }, [onClose, paneMdUp, retargetToUrl, router]);
+
+  const showWorkingTasks = useCallback(() => {
+    if (!paneMdUp || workingTaskIds.length === 0) return;
+    dispatch({ type: "showWorkingTasks", taskIds: workingTaskIds });
+    onClose();
+  }, [dispatch, onClose, paneMdUp, workingTaskIds]);
 
   const tasksByProject = useMemo(() => {
     const map = new Map<string | null, TaskSummary[]>();
@@ -1516,12 +1559,18 @@ const SidebarView = memo(function SidebarView({
           <img src="/icon.svg" alt="" className="h-6 w-6 rounded-[5px]" />
           <span className="truncate text-sm font-semibold">LeafCodePi</span>
         </Link>
+        <WorkingTasksButton
+          hasWorking={hasWorking}
+          mdUp={paneMdUp}
+          onClick={showWorkingTasks}
+          className="ml-auto"
+        />
         <button
           type="button"
           aria-label="新規タスクを作成"
           title="新規タスク"
           onClick={openHome}
-          className="ml-auto inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"
+          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"
         >
           <Plus className="h-4 w-4" />
         </button>
@@ -1937,6 +1986,11 @@ const SidebarView = memo(function SidebarView({
         </ul>
       </div>
       <div className="flex w-full flex-col items-center gap-1 border-t border-border py-2">
+        <WorkingTasksButton
+          hasWorking={hasWorking}
+          mdUp={paneMdUp}
+          onClick={showWorkingTasks}
+        />
         <AddProjectButton variant="icon" icon="plus" className="h-11 w-11" onAdded={() => void refresh()} />
         <button
           type="button"
@@ -2172,6 +2226,7 @@ export function Sidebar(props: SidebarProps) {
     splitHostEnabled,
     retargetToUrl,
     statusFor,
+    dispatch,
   } = useTaskPanes();
   return (
     <SidebarView
@@ -2181,6 +2236,7 @@ export function Sidebar(props: SidebarProps) {
       splitHostEnabled={splitHostEnabled}
       retargetToUrl={retargetToUrl}
       statusFor={statusFor}
+      dispatch={dispatch}
     />
   );
 }

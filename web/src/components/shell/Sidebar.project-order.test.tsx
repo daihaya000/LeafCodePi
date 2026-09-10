@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   usePathname: vi.fn(() => "/"),
   retargetToUrl: vi.fn(),
+  dispatch: vi.fn(),
   activeTaskId: null as string | null,
 }));
 
@@ -28,6 +29,7 @@ vi.mock("@/components/shell/TaskPanesContext", () => ({
     mdUp: true,
     splitHostEnabled: false,
     retargetToUrl: mocks.retargetToUrl,
+    dispatch: mocks.dispatch,
   }),
 }));
 vi.mock("next/navigation", () => ({
@@ -98,6 +100,7 @@ beforeEach(() => {
   mocks.push.mockReset();
   mocks.usePathname.mockReset().mockReturnValue("/");
   mocks.retargetToUrl.mockReset();
+  mocks.dispatch.mockReset();
   mocks.activeTaskId = null;
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query.includes("min-width"),
@@ -123,6 +126,63 @@ describe("Sidebar project ordering", () => {
     const modeButtons = [...modeSegment.querySelectorAll("button")];
     expect(modeButtons.map((button) => button.textContent)).toEqual(["Bot", "Code"]);
     expect(modeButtons[0]?.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("進行中タスクをワンクリックで分割表示する", async () => {
+    const workingTasks = [
+      {
+        id: "working-old",
+        projectId: "project-a",
+        projectName: "Project A",
+        title: "Old working task",
+        directory: "C:\\repo-a",
+        isolation: "current_folder" as const,
+        status: "working" as const,
+        sessionId: "working-old",
+        sessionFile: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:01:00.000Z",
+        error: null,
+      },
+      {
+        id: "working-new",
+        projectId: "project-b",
+        projectName: "Project B",
+        title: "New working task",
+        directory: "C:\\repo-b",
+        isolation: "current_folder" as const,
+        status: "working" as const,
+        sessionId: "working-new",
+        sessionFile: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:02:00.000Z",
+        error: null,
+      },
+    ];
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
+      if (path === "/api/tasks?archived=1") return Promise.resolve({ tasks: workingTasks });
+      if (path === "/api/health") {
+        return Promise.resolve({
+          ok: true,
+          engine: "pi",
+          engineOk: true,
+          version: "1.0.0",
+          modelCount: 0,
+          dataDir: "C:\\data",
+          error: null,
+        });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "進行中タスクを分割表示" }));
+    expect(mocks.dispatch).toHaveBeenCalledWith({
+      type: "showWorkingTasks",
+      taskIds: ["working-new", "working-old"],
+    });
   });
 
   it("filters Code projects and sessions from the search field", async () => {

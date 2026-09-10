@@ -92,6 +92,8 @@ export type TaskPanesAction =
     }
   | { type: "closeTab"; paneId: string; taskId: string }
   | { type: "clearPane"; paneId: string; keepTabIds?: readonly string[] }
+  /** 指定された進行中タスクだけでペインを再構成する。 */
+  | { type: "showWorkingTasks"; taskIds: readonly string[] }
   | { type: "activateTab"; paneId: string; taskId: string }
   | { type: "reorderTabs"; paneId: string; tabs: string[] }
   | {
@@ -493,6 +495,43 @@ export function taskPanesReducer(
         panes: state.panes.map((pane) =>
           pane.id === target.id ? { ...pane, tabs: nextTabs, activeTabId: nextActive } : pane,
         ),
+      };
+    }
+
+    case "showWorkingTasks": {
+      const uniqueTaskIds: string[] = [];
+      const seen = new Set<string>();
+      for (const taskId of action.taskIds) {
+        if (!taskId || seen.has(taskId)) continue;
+        seen.add(taskId);
+        uniqueTaskIds.push(taskId);
+        if (uniqueTaskIds.length >= MAX_PANES * MAX_TABS_PER_PANE) break;
+      }
+      if (uniqueTaskIds.length === 0) return state;
+
+      const paneCount = Math.min(MAX_PANES, uniqueTaskIds.length);
+      const panes: TaskPane[] = [];
+      let cursor = 0;
+      for (let index = 0; index < paneCount; index += 1) {
+        const remaining = uniqueTaskIds.length - cursor;
+        const remainingPanes = paneCount - index;
+        const tabCount = Math.ceil(remaining / remainingPanes);
+        const tabs = uniqueTaskIds.slice(cursor, cursor + tabCount);
+        cursor += tabs.length;
+        const paneId = state.panes[index]?.id ?? createPane().id;
+        panes.push({ id: paneId, tabs, activeTabId: tabs[0] ?? null });
+      }
+      const previousActiveTaskId = state.panes
+        .find((pane) => pane.id === state.activePaneId)
+        ?.activeTabId;
+      const activePane = panes.find((pane) => pane.tabs.includes(previousActiveTaskId ?? "")) ?? panes[0]!;
+      const layout = flatPaneLayout(panes.map((pane) => pane.id), "row");
+      return {
+        ...state,
+        panes,
+        activePaneId: activePane.id,
+        orientation: "row",
+        ...(layout ? { layout } : {}),
       };
     }
 

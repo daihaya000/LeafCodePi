@@ -385,6 +385,43 @@ describe("clearPane", () => {
   });
 });
 
+describe("showWorkingTasks", () => {
+  it("進行中タスクだけでペインを再構成し、古いタブを除去する", () => {
+    const base = state(
+      pane(P1, ["idle", "working-old"], "idle"),
+      pane(P2, ["finished"]),
+    );
+    const next = reducer(base, {
+      type: "showWorkingTasks",
+      taskIds: ["working-new", "working-old", "working-new", "working-third"],
+    });
+
+    expect(next.panes.map((item) => item.tabs)).toEqual([
+      ["working-new"],
+      ["working-old"],
+      ["working-third"],
+    ]);
+    expect(next.panes.every((item) => item.tabs.every((taskId) => taskId.startsWith("working")))).toBe(true);
+    expect(next.orientation).toBe("row");
+    expect(next.activePaneId).toBe(next.panes[0].id);
+  });
+
+  it("4 ペインを超えるタスクはタブへ分散し、重複を除く", () => {
+    const next = reducer(state(pane(P1, ["old"])), {
+      type: "showWorkingTasks",
+      taskIds: ["a", "b", "c", "d", "e", "d"],
+    });
+
+    expect(next.panes).toHaveLength(MAX_PANES);
+    expect(next.panes.map((item) => item.tabs)).toEqual([["a", "b"], ["c"], ["d"], ["e"]]);
+  });
+
+  it("対象が空なら状態を変更しない", () => {
+    const base = state(pane(P1, ["old"]));
+    expect(reducer(base, { type: "showWorkingTasks", taskIds: [] })).toBe(base);
+  });
+});
+
 describe("activateTab / activatePane", () => {
   it("タブ切替でペインも活性化する", () => {
     const base = state(pane(P1, ["a"]), pane(P2, ["b", "c"]));
