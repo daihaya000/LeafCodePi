@@ -465,6 +465,22 @@ type TodoProgressCacheEntry = {
 
 /** Reopen archived task session files only when they actually changed on disk. */
 const todoProgressCache = new Map<string, TodoProgressCacheEntry>();
+/** キャッシュ上限。超過時は最も古いエントリから追い出す（Map の挿入順）。 */
+const TODO_PROGRESS_CACHE_MAX_ENTRIES = 256;
+
+function cacheTodoProgress(
+  sessionFile: string,
+  entry: TodoProgressCacheEntry,
+): void {
+  if (
+    todoProgressCache.size >= TODO_PROGRESS_CACHE_MAX_ENTRIES &&
+    !todoProgressCache.has(sessionFile)
+  ) {
+    const oldest = todoProgressCache.keys().next().value;
+    if (oldest !== undefined) todoProgressCache.delete(oldest);
+  }
+  todoProgressCache.set(sessionFile, entry);
+}
 
 type PermissionPromptService = ReturnType<typeof createPermissionPromptService>;
 type QuestionPromptService = ReturnType<typeof createQuestionPromptService>;
@@ -4609,7 +4625,7 @@ export function readTodoProgress(
     const progress = todoProgressFromTodos(
       todosFromPiMessages(sessionManager.buildSessionContext().messages),
     );
-    todoProgressCache.set(sessionFile, {
+    cacheTodoProgress(sessionFile, {
       mtimeMs: stat.mtimeMs,
       size: stat.size,
       value: progress,
