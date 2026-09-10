@@ -57,12 +57,12 @@ const bot = (id = "one"): BotDto => ({
 });
 
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
-const jsonRequest = (body: unknown): Request =>
+const jsonRequest = (body: unknown): NextRequest =>
   new Request("http://localhost/api/bots/one", {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-  });
+  }) as NextRequest;
 
 describe("GET /api/bots/[id]", () => {
   it("returns the bot or 404", async () => {
