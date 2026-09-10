@@ -69,6 +69,8 @@ export type GoalLoop = {
   rejectedClaims: number;
   /** 連続して結果JSONを読めなかったターン数。正常な結果で0に戻る。 */
   unreadableStreak: number;
+  /** Durable: mid-turn was interrupted by session lifecycle and needs transcript recovery. */
+  pendingTurnRecovery: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -334,6 +336,7 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     blockedReason: typeof raw.blockedReason === "string" ? raw.blockedReason.slice(0, 4_000) : "",
     rejectedClaims: Math.max(0, Math.trunc(Number(raw.rejectedClaims) || 0)),
     unreadableStreak: Math.max(0, Math.trunc(Number(raw.unreadableStreak) || 0)),
+    pendingTurnRecovery: raw.pendingTurnRecovery === true,
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : now,
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : now,
   };
@@ -518,7 +521,8 @@ function isAbortedAssistant(message: unknown): boolean {
  * branch, so this is the direct equivalent of LeafCode's transcript recovery.
  */
 function lateTurnResult(runtime: Runtime, loop: GoalLoop): GoalLoopProgress | null {
-  if (!runtime.pausedTurnPending) return null;
+  // pausedTurnPending is in-memory; pendingTurnRecovery survives session reload.
+  if (!runtime.pausedTurnPending && !loop.pendingTurnRecovery) return null;
   let promptIndex = -1;
   let entries: unknown[];
   try {
@@ -891,6 +895,8 @@ function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error
   if (!loop || TERMINAL.has(loop.status)) return;
   runtime.pausedTurnPending = runtime.awaitingTurn;
   runtime.pausedTurnIndex = runtime.awaitingTurnIndex;
+  // Survive process restart: in-memory pausedTurnPending alone is not enough.
+  if (runtime.pausedTurnPending) loop.pendingTurnRecovery = true;
   clearPendingAgentRun(runtime);
   clearTimer(runtime);
   runtime.awaitingTurn = false;
@@ -916,6 +922,7 @@ function stopLoop(runtime: Runtime): void {
   loop.status = "stopped";
   loop.pauseReason = "";
   loop.error = "";
+  loop.pendingTurnRecovery = false;
   loop.nextTurnAt = null;
   writeLoop(loop);
   updateUI(runtime, loop);
@@ -939,6 +946,7 @@ function completeLoop(runtime: Runtime): boolean {
   loop.status = "completed";
   loop.pauseReason = "";
   loop.error = "";
+  loop.pendingTurnRecovery = false;
   loop.nextTurnAt = null;
   writeLoop(loop);
   updateUI(runtime, loop);
@@ -1182,6 +1190,7 @@ function startLoop(
     blockedReason: "",
     rejectedClaims: 0,
     unreadableStreak: 0,
+    pendingTurnRecovery: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -1294,11 +1303,12 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
     // JSON after resume still gets the one free retry.
     loop.unreadableStreak = 0;
   }
-  if (runtime.pausedTurnPending) {
+  if (runtime.pausedTurnPending || loop.pendingTurnRecovery) {
     const recovered = lateTurnResult(runtime, loop);
     if (recovered) {
       runtime.pausedTurnPending = false;
       runtime.pausedTurnIndex = undefined;
+      loop.pendingTurnRecovery = false;
       loop.status = "running";
       applyResult(loop, recovered);
       const updated = currentLoop(runtime);
@@ -1320,10 +1330,12 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
     }
     runtime.pausedTurnPending = false;
     runtime.pausedTurnIndex = undefined;
+    loop.pendingTurnRecovery = false;
   }
   loop.status = loop.turnKind === "verification" ? "verifying_completed" : "queued";
   loop.pauseReason = "";
   loop.error = "";
+  loop.pendingTurnRecovery = false;
   loop.nextTurnAt = null;
   writeLoop(loop);
   updateUI(runtime, loop);
@@ -1491,6 +1503,7 @@ export default function (pi: ExtensionAPI): void {
       // verifying_completed is an unsent verification turn, like queued; account
       // or agent routing can reopen the session before that turn is delivered.
       runtime.pausedTurnPending = true;
+      loop.pendingTurnRecovery = true;
       loop.status = "paused";
       loop.pauseReason = "";
       loop.error = "セッション再開時は自動継続しません。/goal-resume で再開してください。";
@@ -1551,6 +1564,7 @@ export default function (pi: ExtensionAPI): void {
       const pauseError = loop.error;
       current.pausedTurnPending = false;
       current.pausedTurnIndex = undefined;
+      loop.pendingTurnRecovery = false;
       loop.status = "running";
       applyResult(loop, result);
       const updated = currentLoop(current);
@@ -1567,6 +1581,7 @@ export default function (pi: ExtensionAPI): void {
           updated.status = "paused";
           updated.pauseReason = pauseReason;
           updated.error = pauseError;
+          updated.pendingTurnRecovery = false;
           updated.nextTurnAt = null;
           writeLoop(updated);
           updateUI(current, updated);
@@ -1615,6 +1630,9 @@ export default function (pi: ExtensionAPI): void {
     const loop = currentLoop(current);
     if (loop && (loop.status === "running" || loop.status === "queued" || loop.status === "verifying_completed")) {
       clearTimer(current);
+      // Persist mid-turn recovery across restart. pausedTurnPending alone dies
+      // with this runtime, and the next session_start only sees status=paused.
+      if (loop.status === "running") loop.pendingTurnRecovery = true;
       current.awaitingTurn = false;
       loop.status = "paused";
       loop.pauseReason = "";

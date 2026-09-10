@@ -1665,6 +1665,96 @@ test("continues pending verification after a session replacement without a user 
   }
 });
 
+test("session_shutdown mid-turn recovers via durable pendingTurnRecovery after reload", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-shutdown-recover-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const stateFile = () => join(cwd, "goals-loop", "shutdown-recover-session.json");
+  const branch = [];
+  let busy = false;
+  let sendCount = 0;
+
+  const makeEnv = () => ({
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "shutdown-recover-session",
+      getBranch: () => branch,
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  });
+  const makePi = () => ({
+    handlers: new Map(),
+    commands: new Map(),
+    on(name, handler) { this.handlers.set(name, handler); },
+    registerCommand(name, options) { this.commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage(message) {
+      sendCount += 1;
+      busy = true;
+      branch.push({
+        type: "custom_message",
+        customType: message.customType,
+        details: message.details,
+        content: message.content,
+      });
+    },
+  });
+
+  try {
+    const piA = makePi();
+    const ctxA = makeEnv();
+    goalLoopExtension(piA);
+    await piA.handlers.get("session_start")?.({}, ctxA);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await piA.commands.get("goal-start")?.(payload, ctxA);
+    await waitFor(() => sendCount === 1);
+
+    // Assistant finished, but settlement never applied before shutdown.
+    branch.push({
+      type: "message",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "settled after shutdown" }) }],
+      },
+    });
+    await piA.handlers.get("session_shutdown")?.({}, ctxA);
+    const shutdown = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(shutdown.status, "paused");
+    assert.equal(shutdown.pauseReason, "");
+    assert.equal(shutdown.pendingTurnRecovery, true);
+    assert.equal(shutdown.turnCount, 1);
+
+    // Fresh runtime (dispose without keeping pausedTurnPending).
+    const piB = makePi();
+    const ctxB = makeEnv();
+    goalLoopExtension(piB);
+    await piB.handlers.get("session_start")?.({}, ctxB);
+    const reloaded = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(reloaded.status, "paused");
+    assert.equal(reloaded.pendingTurnRecovery, true);
+
+    busy = false;
+    await piB.commands.get("goal-resume")?.("", ctxB);
+    await waitFor(() => {
+      const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+      return loop.progress.at(-1)?.summary === "settled after shutdown";
+    });
+    const recovered = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(recovered.pendingTurnRecovery, false);
+    assert.equal(recovered.turnCount, 1);
+    // Must not re-send the interrupted turn; only continue to the next one.
+    await waitFor(() => sendCount === 2);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).turnCount, 2);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("preserves queued cooldowns and distinguishes lifecycle pauses from user pauses", async (t) => {
   for (const status of ["queued", "verifying_completed", "running", "paused"]) {
     await t.test(status, async () => {
