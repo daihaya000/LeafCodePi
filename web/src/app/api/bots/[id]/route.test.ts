@@ -146,6 +146,18 @@ describe("PATCH /api/bots/[id]", () => {
     expect(mocks.resetTaskConversation).not.toHaveBeenCalled();
   });
 
+  it("rebuilds the session when the skill allowlist changes", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    mocks.patchBot.mockReturnValue(bot());
+
+    const response = await PATCH(jsonRequest({ skills: { mode: "include", include: ["review"], exclude: [] } }), params("one"));
+
+    expect(response.status).toBe(200);
+    // スキルはシステムプロンプトを構成するため、次のメッセージで効くようセッションを作り直す。
+    expect(mocks.resetTaskSession).toHaveBeenCalledWith("bot:one");
+    expect(mocks.resetTaskConversation).not.toHaveBeenCalled();
+  });
+
   it("applies the model through the same live-session validation", async () => {
     mocks.getBot.mockReturnValue(bot());
     mocks.setTaskModel.mockResolvedValue({ thinkingLevel: "high" });

@@ -100,7 +100,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!bot) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
     if (hasTools) setBotTools(id, bot.tools ?? []);
     if (hasResetMessages) await resetTaskConversation(botTaskId(id));
-    else if (body.soul !== undefined) resetTaskSession(botTaskId(id));
+    // SOUL and the per-Bot skill allowlist both shape the system prompt, so a change must rebuild the
+    // session (the file keeps the history); otherwise the live session would keep the old prompt.
+    else if (body.soul !== undefined || hasSkills) resetTaskSession(botTaskId(id));
     return NextResponse.json({ bot });
   } catch (error) {
     const message = error instanceof Error ? error.message : "\u30dc\u30c3\u30c8\u8a2d\u5b9a\u304c\u4e0d\u6b63\u3067\u3059";
