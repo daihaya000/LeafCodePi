@@ -8,7 +8,44 @@ vi.mock("@/lib/client", () => mocks);
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 import { RoomView } from "./RoomView";
 
+function toolMessage(id: string, tool: string, input: Record<string, unknown>) {
+  return { id, role: "assistant" as const, createdAt: 1, parts: [{ id: `${id}-tool`, type: "tool" as const, tool, callID: id, state: { status: "running" as const, input } }] };
+}
+
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
+
+it("shows each parallel Code request its own live tool label instead of one shared line", async () => {
+  const bot = { id: "bot", name: "Bot", enabled: true };
+  const room: RoomDto = {
+    id: "room", name: "Room", members: [bot.id], createdAt: "", updatedAt: "",
+    messages: [
+      { id: "user", role: "user", text: "two jobs", createdAt: 1 },
+      {
+        id: "response", role: "assistant", botId: bot.id, text: "二件依頼しました", status: "done", createdAt: 2,
+        codeRequests: [
+          { id: "first", taskId: "code-1", state: "running", prompt: "First job" },
+          { id: "second", taskId: "code-2", state: "running", prompt: "Second job" },
+        ],
+      },
+    ],
+  };
+  vi.stubGlobal("EventSource", class {
+    addEventListener() {}
+    close() {}
+  });
+  mocks.getJson.mockImplementation(async (path: string) => {
+    if (path === "/api/bots") return { bots: [bot] };
+    if (path === "/api/tasks/code-1") return { task: { id: "code-1", status: "working", messages: [toolMessage("m1", "grep", { pattern: "needle" })] } };
+    if (path === "/api/tasks/code-2") return { task: { id: "code-2", status: "working", messages: [toolMessage("m2", "write", { path: "src/a.ts" })] } };
+    return { room };
+  });
+
+  render(<RoomView id="room" />);
+
+  // 各カードは自分のCodeタスクをポーリングして進行中のツールを表示する（共有codeActivityに依存しない）。
+  expect(await screen.findByText("· 検索")).toBeTruthy();
+  expect(await screen.findByText("· 編集")).toBeTruthy();
+});
 
 it("renders every request in one Room turn, stops them separately, and stays busy until all settle", async () => {
   const bot = { id: "bot", name: "Bot", enabled: true };

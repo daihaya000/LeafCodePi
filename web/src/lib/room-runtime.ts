@@ -20,7 +20,8 @@ const trackedCodeRequests = new Set<string>();
 
 /**
  * Mirror what the delegated Code run is doing into the waiting Room message.
- * Only the tool label travels: Code output stays untrusted data behind the report path.
+ * Per-request cards poll their own Code task, so this message-level label only feeds the legacy
+ * shape (codeState without codeRequests); only the tool label travels, Code output stays untrusted.
  */
 function trackRoomCodeProgress(roomId: string, request: CodeRequest): void {
   const taskId = request.codeTaskId;
