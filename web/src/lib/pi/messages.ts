@@ -7,7 +7,9 @@ export function titleFromPrompt(prompt: string): string {
     .map((part) => part.trim())
     .find(Boolean);
   if (!line) return "無題のタスク";
-  return line.length > 60 ? `${line.slice(0, 59)}…` : line;
+  // コードユニットではなくコードポイント単位で切る（サロゲートペアを壊さない）。
+  const chars = Array.from(line);
+  return chars.length > 60 ? `${chars.slice(0, 59).join("")}…` : line;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

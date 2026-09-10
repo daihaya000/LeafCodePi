@@ -18,6 +18,13 @@ describe("titleFromPrompt", () => {
     expect(title.endsWith("…")).toBe(true);
     expect(title.length).toBe(60);
   });
+
+  it("does not split surrogate pairs when truncating", () => {
+    const title = titleFromPrompt("🎉".repeat(80));
+    // 壊れたサロゲートが残らない（絵文字59個＋…）
+    expect(Array.from(title)).toHaveLength(60);
+    expect(title.endsWith("…")).toBe(true);
+  });
 });
 
 describe("projectPiMessages", () => {
