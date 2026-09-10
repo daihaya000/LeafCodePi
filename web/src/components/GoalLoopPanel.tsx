@@ -58,6 +58,10 @@ export function GoalLoopPanel({
   const turn = loop.status === "queued" ? loop.turnCount + 1 : loop.turnCount;
   const progress = loop.progress.at(-1);
   const turnLimit = loop.pauseReason === "turn_limit";
+  // turn_limit 以外の一時停止（unreadable_result / turn_timeout / scheduler_error 等）でも
+  // 予算を使い切っていると /goal-resume が上限増やしを要求するため、入力欄が必要。
+  const budgetExhausted = loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns;
+  const needsTurns = turnLimit || budgetExhausted;
   const canComplete = loop.status === "paused" && turnLimit;
   const maxTurnsLabel = loop.maxTurns === 0 ? "∞" : String(loop.maxTurns);
   const shownTurn = loop.maxTurns === 0 ? turn : Math.min(turn, loop.maxTurns);
@@ -126,7 +130,7 @@ export function GoalLoopPanel({
           )}
           {canResume && (
             <>
-              {turnLimit && (
+              {needsTurns && (
                 <input
                   type="number"
                   min={0}
@@ -142,7 +146,7 @@ export function GoalLoopPanel({
                 variant="secondary"
                 size="sm"
                 disabled={busy}
-                onClick={() => (turnLimit ? commitMaxTurns() : onResume())}
+                onClick={() => (needsTurns ? commitMaxTurns() : onResume())}
               >
                 <Play className="h-3.5 w-3.5" />再開
               </Button>

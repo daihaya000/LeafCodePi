@@ -116,4 +116,37 @@ describe("GoalLoopPanel progress", () => {
     // 空欄は無制限(0)ではなく、現在値+1（最小の増分）で再開する。
     expect(onResume).toHaveBeenCalledWith(11);
   });
+
+  it("offers the turn-limit input for budget-exhausted pauses beyond turn_limit", () => {
+    const onResume = vi.fn();
+    // unreadable_result / turn_timeout などで上限を使い切った一時停止も、
+    // 上限増やしを要求されるため入力欄がないと再開できない。
+    render(
+      <GoalLoopPanel
+        loop={loopFixture({ status: "paused", pauseReason: "unreadable_result", maxTurns: 10, turnCount: 10 })}
+        busy={false}
+        onAction={() => {}}
+        onResume={onResume}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "再開" }));
+    expect(onResume).toHaveBeenCalledWith(11);
+  });
+
+  it("resumes without a turn input while the budget is not exhausted", () => {
+    const onResume = vi.fn();
+    render(
+      <GoalLoopPanel
+        loop={loopFixture({ status: "paused", pauseReason: "user", maxTurns: 10, turnCount: 6 })}
+        busy={false}
+        onAction={() => {}}
+        onResume={onResume}
+      />,
+    );
+
+    expect(screen.queryByRole("spinbutton", { name: "再開後の最大ターン数" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "再開" }));
+    expect(onResume).toHaveBeenCalledWith();
+  });
 });

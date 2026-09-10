@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -880,6 +880,176 @@ test("keeps a manually stopped loop terminal after the aborted run settles", asy
       readFileSync(join(cwd, ".pi", "goals-loop", "stop-session.json"), "utf8"),
     );
     assert.equal(loop.status, "stopped");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+async function waitFor(predicate, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("waitFor: 条件が成立しませんでした");
+}
+
+test("applies a result that lands after a turn_timeout pause instead of losing it", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-turn-timeout-"));
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, ".pi", "goals-loop", "turn-timeout-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "turn-timeout-session",
+      getBranch: () => [],
+    },
+    ui: {
+      setStatus: () => {},
+      setWidget: () => {},
+      notify: () => {},
+    },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand(name, options) { commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage() {
+      sendCount += 1;
+      busy = true;
+    },
+  };
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 2 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => {
+      const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+      return loop.status === "running";
+    });
+
+    await handlers.get("turn_start")?.({ type: "turn_start", turnIndex: 0 }, ctx);
+    // 15分watchdogがタイマーで発火した状態を再現（turn_start後、結果確定前）。
+    await commands.get("goal-pause")?.("", ctx);
+    const paused = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(paused.status, "paused");
+    assert.equal(paused.pauseReason, "user");
+    paused.pauseReason = "turn_timeout";
+    writeFileSync(stateFile(), JSON.stringify(paused, null, 2), "utf8");
+
+    // タイムアウト後もランは続いており、最後に正常な結果を返す。
+    busy = false;
+    await handlers.get("turn_end")?.({
+      type: "turn_end",
+      turnIndex: 0,
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "late result" }) }],
+      },
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+
+    const recovered = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(recovered.progress.at(-1).summary, "late result");
+    assert.equal(recovered.status, "queued");
+    await waitFor(() => sendCount === 2);
+    const running = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(running.status, "running");
+    assert.equal(running.turnCount, 2);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("plain resume at the turn budget is rejected and a raised limit resumes it", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-budget-resume-"));
+  const handlers = new Map();
+  const commands = new Map();
+  const notices = [];
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, ".pi", "goals-loop", "budget-resume-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: undefined,
+    sessionManager: {
+      getSessionId: () => "budget-resume-session",
+      getBranch: () => [],
+    },
+    ui: {
+      setStatus: () => {},
+      setWidget: () => {},
+      notify: (message, level) => notices.push({ message, level }),
+    },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand(name, options) { commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage() {
+      sendCount += 1;
+      busy = true;
+      void (async () => {
+        busy = false;
+        await handlers.get("agent_end")?.({
+          type: "agent_end",
+          messages: [{
+            role: "assistant",
+            content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: `turn ${sendCount}` }) }],
+          }],
+        }, ctx);
+        await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+      })();
+    },
+  };
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 1, forceFullRun: true })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => {
+      const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+      return loop.status === "paused" && loop.pauseReason === "turn_limit";
+    });
+
+    // 上限未指定の再開は拒否され、状態はpausedのまま。
+    await commands.get("goal-resume")?.("", ctx);
+    assert.match(notices.at(-1).message, /最大ターン数/);
+    let loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(loop.status, "paused");
+    assert.equal(sendCount, 1);
+
+    // 上限を増やすと再開し、次のターンが送信される。
+    await commands.get("goal-resume")?.("--turns 2", ctx);
+    await waitFor(() => sendCount === 2);
+    await waitFor(() => {
+      const current = JSON.parse(readFileSync(stateFile(), "utf8"));
+      return current.status === "paused" && current.pauseReason === "turn_limit";
+    });
+    loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(loop.maxTurns, 2);
+    assert.equal(loop.turnCount, 2);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     rmSync(cwd, { recursive: true, force: true });

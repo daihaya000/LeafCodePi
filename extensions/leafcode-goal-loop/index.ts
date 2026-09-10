@@ -310,10 +310,32 @@ function readLoop(cwd: string, id: string): GoalLoop | null {
 function writeLoop(loop: GoalLoop): void {
   loop.updatedAt = isoNow();
   const file = goalStateFile(loop.cwd, loop.id);
-  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  const content = JSON.stringify(loop, null, 2);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(temp, JSON.stringify(loop, null, 2), "utf8");
-  fs.renameSync(temp, file);
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temp, content, "utf8");
+  // WindowsではWebUIの状態読取やOneDrive同期が対象を掴むとrenameSyncが
+  // EPERM/EACCES/EBUSYで即失敗する。スケジューラやsettleAwaitingTurn内のthrowは
+  // 未処理reject（プロセス落下）や「queuedのままタイマー無し」を招くため、短い
+  // リトライで吸収し、それでも競合する場合は非原子的だが確実な上書きで落とす。
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      fs.renameSync(temp, file);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
+      if (attempt >= 4 || !transient) {
+        fs.rmSync(temp, { force: true });
+        fs.writeFileSync(file, content, "utf8");
+        return;
+      }
+      const until = Date.now() + 50 * (attempt + 1);
+      while (Date.now() < until) {
+        // writeLoopは同期API。イベントループを長く塞がないよう最大250msまで。
+      }
+    }
+  }
 }
 
 function appendSnapshot(runtime: Runtime, loop: GoalLoop): void {
@@ -849,7 +871,18 @@ function schedule(runtime: Runtime, delay = 250): void {
       schedule(runtime, 500);
       return;
     }
-    void sendTurn(runtime);
+    // sendTurn内のthrowはvoid化されると未処理rejectでWebUIサーバごと落ちる。
+    // 回復可能な形（一時停止→再開）に倒しておく。
+    sendTurn(runtime).catch((error) => {
+      console.error("[goal-loop] sendTurn failed:", error);
+      pauseLoop(
+        runtime,
+        "scheduler_error",
+        `ターンの送信中にエラーが発生しました。${
+          error instanceof Error ? ` ${error.message}` : ` ${String(error)}`
+        }`,
+      );
+    });
   }, delay);
   runtime.timer.unref?.();
 }
@@ -1367,7 +1400,13 @@ export default function (pi: ExtensionAPI): void {
       current.pausedTurnIndex !== undefined &&
       current.pausedTurnIndex === event.turnIndex &&
       loop.status === "paused" &&
-      (loop.pauseReason === "user" || loop.pauseReason === "manual_send" || loop.pauseReason === "unknown_delivery")
+      // turn_timeoutは実行中ランの応答待ちで15分を超えた場合。ラン自体は
+      // 続行していて正常な結果で終わることがあるため、後着の結果を破棄せず
+      // 適用して自動継続させる（ハング検知はランが終わらない場合のみ有効）。
+      (loop.pauseReason === "user" ||
+        loop.pauseReason === "manual_send" ||
+        loop.pauseReason === "unknown_delivery" ||
+        loop.pauseReason === "turn_timeout")
     ) {
       const result = extractGoalResult(assistantText(event.message));
       if (!result) return;
