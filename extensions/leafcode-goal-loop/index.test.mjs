@@ -119,7 +119,72 @@ test("full-run ignores early completion and stops at the turn limit", () => {
     assert.equal(loop.status, "paused");
     assert.equal(loop.pauseReason, "turn_limit");
     assert.equal(loop.progress[0].status, "progress");
+
+    // Stale verification state must not let verified_completed finish a full-run.
+    loop.status = "running";
+    loop.turnKind = "verification";
+    loop.pauseReason = "";
+    loop.error = "";
+    applyResult(loop, { time: new Date().toISOString(), status: "verified_completed", summary: "should stay progress" });
+    assert.equal(loop.progress.at(-1).status, "progress");
+    assert.notEqual(loop.status, "completed");
   } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("completeLoop rejects forged turn_limit before the budget is exhausted", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-complete-forged-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  const notices = [];
+  const stateFile = () => join(cwd, "goals-loop", "complete-forged-session.json");
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    abort: () => {},
+    sessionManager: { getSessionId: () => "complete-forged-session", getBranch: () => [] },
+    ui: {
+      setStatus: () => {},
+      setWidget: () => {},
+      notify: (message, level) => notices.push({ message, level }),
+    },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() {},
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    writeFileSync(stateFile(), JSON.stringify({
+      goal: "demo",
+      status: "paused",
+      pauseReason: "turn_limit",
+      turnCount: 1,
+      maxTurns: 5,
+      forceFullRun: true,
+      turnKind: "goal",
+      acceptance: [],
+      progress: [],
+      unreadableStreak: 0,
+      pendingTurnRecovery: false,
+    }), "utf8");
+
+    await commands.get("goal-complete")?.("", ctx);
+    const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(loop.status, "paused");
+    assert.equal(loop.pauseReason, "turn_limit");
+    assert.match(notices.at(-1).message, /最大ターン数に到達した一時停止中/);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
     rmSync(cwd, { recursive: true, force: true });
   }
 });

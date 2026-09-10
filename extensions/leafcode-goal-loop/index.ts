@@ -697,8 +697,10 @@ export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): vo
   }
   loop.unreadableStreak = 0;
 
-  const verification = loop.status === "running" && loop.turnKind === "verification";
-  const effective = loop.forceFullRun && !verification && result.status === "completed"
+  // Full-run never performs completion verification. A stale verifying_* state or
+  // a model returning verified_completed must not end the loop early.
+  const verification = !loop.forceFullRun && loop.status === "running" && loop.turnKind === "verification";
+  const effective = loop.forceFullRun && (result.status === "completed" || result.status === "verified_completed")
     ? { ...result, status: "progress" as const }
     : result;
   loop.progress = [...loop.progress, effective].slice(-MAX_PROGRESS);
@@ -937,6 +939,8 @@ function stopLoop(runtime: Runtime): void {
 function completeLoop(runtime: Runtime): boolean {
   const loop = currentLoop(runtime);
   if (!loop || loop.status !== "paused" || loop.pauseReason !== "turn_limit") return false;
+  // Refuse forged/stale turn_limit pauses that have not actually exhausted the budget.
+  if (loop.maxTurns <= 0 || loop.turnCount < loop.maxTurns) return false;
   clearTimer(runtime);
   runtime.awaitingTurn = false;
   runtime.pausedTurnPending = false;
@@ -997,6 +1001,14 @@ async function sendTurn(runtime: Runtime): Promise<void> {
   const turnGeneration = runtime.turnGeneration;
   let loop = currentLoop(runtime);
   if (!loop || TERMINAL.has(loop.status) || loop.status === "paused") return;
+
+  // Repair corrupt full-run state that still points at verification.
+  if (loop.forceFullRun && (loop.status === "verifying_completed" || loop.turnKind === "verification")) {
+    loop.status = loop.status === "verifying_completed" ? "queued" : loop.status;
+    loop.turnKind = "goal";
+    writeLoop(loop);
+    if (loop.status === "paused" || TERMINAL.has(loop.status)) return;
+  }
 
   if (loop.status === "queued") {
     const retryingUnreadableResult = loop.unreadableStreak === 1;
@@ -1332,7 +1344,8 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
     runtime.pausedTurnIndex = undefined;
     loop.pendingTurnRecovery = false;
   }
-  loop.status = loop.turnKind === "verification" ? "verifying_completed" : "queued";
+  loop.status = (!loop.forceFullRun && loop.turnKind === "verification") ? "verifying_completed" : "queued";
+  if (loop.forceFullRun) loop.turnKind = "goal";
   loop.pauseReason = "";
   loop.error = "";
   loop.pendingTurnRecovery = false;
