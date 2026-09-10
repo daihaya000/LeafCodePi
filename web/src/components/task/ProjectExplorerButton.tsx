@@ -33,15 +33,12 @@ function loopbackControlUrl(raw: unknown): string | null {
   }
 }
 
-export async function discoverExplorerTarget(
-  projectId: string,
+async function discoverExplorerTargetAt(
+  endpoint: string,
   signal?: AbortSignal,
 ): Promise<ExplorerTarget | null> {
   try {
-    const bootstrap = await fetch(
-      `/api/projects/${encodeURIComponent(projectId)}/explorer`,
-      { cache: "no-store", signal },
-    );
+    const bootstrap = await fetch(endpoint, { cache: "no-store", signal });
     if (!bootstrap.ok) return null;
     const data = (await bootstrap.json()) as { controlUrl?: unknown; path?: unknown };
     const controlUrl = loopbackControlUrl(data.controlUrl);
@@ -61,6 +58,26 @@ export async function discoverExplorerTarget(
   } catch {
     return null;
   }
+}
+
+export async function discoverExplorerTarget(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<ExplorerTarget | null> {
+  return discoverExplorerTargetAt(
+    `/api/projects/${encodeURIComponent(projectId)}/explorer`,
+    signal,
+  );
+}
+
+export async function discoverTaskExplorerTarget(
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<ExplorerTarget | null> {
+  return discoverExplorerTargetAt(
+    `/api/tasks/${encodeURIComponent(taskId)}/explorer`,
+    signal,
+  );
 }
 
 export async function openExplorer(target: ExplorerTarget): Promise<void> {
@@ -83,19 +100,28 @@ export async function openExplorer(target: ExplorerTarget): Promise<void> {
 
 export function ProjectExplorerButton({
   projectId,
+  taskId,
   onError,
 }: {
   projectId?: string | null;
+  taskId?: string | null;
   onError: (message: string) => void;
 }) {
   const [target, setTarget] = useState<ExplorerTarget | null>(null);
+  const temporary = projectId === null && Boolean(taskId);
+  const label = temporary
+    ? "一時プロジェクトフォルダをエクスプローラーで開く"
+    : "プロジェクトをエクスプローラーで開く";
 
   useEffect(() => {
     setTarget(null);
-    if (!projectId) return;
+    if (!projectId && !taskId) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), DISCOVERY_TIMEOUT_MS);
-    void discoverExplorerTarget(projectId, controller.signal)
+    const discovery = projectId
+      ? discoverExplorerTarget(projectId, controller.signal)
+      : discoverTaskExplorerTarget(taskId!, controller.signal);
+    void discovery
       .then((next) => {
         if (!controller.signal.aborted) setTarget(next);
       })
@@ -104,15 +130,15 @@ export function ProjectExplorerButton({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [projectId]);
+  }, [projectId, taskId]);
 
   if (!target) return null;
   return (
     <Button
       variant="ghost"
       size="icon"
-      title="プロジェクトをエクスプローラーで開く"
-      aria-label="プロジェクトをエクスプローラーで開く"
+      title={label}
+      aria-label={label}
       className="h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9"
       onClick={() => {
         void openExplorer(target).catch((error) => {

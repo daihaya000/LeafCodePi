@@ -2578,6 +2578,7 @@ export const TaskView = memo(function TaskView({
           )}
           <ProjectExplorerButton
             projectId={task?.projectId}
+            taskId={task?.id}
             onError={setError}
           />
           <Button

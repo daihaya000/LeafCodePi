@@ -43,6 +43,28 @@ describe("ProjectExplorerButton", () => {
     });
   });
 
+  it("プロジェクトなしのタスクでは一時プロジェクトフォルダを開く", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({
+        controlUrl: "http://127.0.0.1:18775",
+        path: "C:\\work\\temporary-task",
+      }))
+      .mockResolvedValueOnce(json({ ok: true, explorer: true }))
+      .mockResolvedValueOnce(json({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ProjectExplorerButton taskId="task-1" projectId={null} onError={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", {
+      name: "一時プロジェクトフォルダをエクスプローラーで開く",
+    }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/tasks/task-1/explorer");
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
+      path: "C:\\work\\temporary-task",
+    });
+  });
+
   it("リモート端末からloopback制御面へ到達できない場合は表示しない", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({
