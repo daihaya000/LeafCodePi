@@ -23,9 +23,17 @@ describe("room snapshot signature", () => {
     const grown = { ...room, messages: [{ ...room.messages[0], text: "hi there" }] };
     const settled = { ...room, messages: [{ ...room.messages[0], status: "done" as const }] };
     const reported = { ...room, messages: [{ ...room.messages[0], codeState: "delivered" as const, codeActivity: "" }] };
+    const codeRequests = {
+      ...room,
+      messages: [{
+        ...room.messages[0],
+        codeRequests: [{ id: "req-1", state: "running" as const, taskId: "task-1", prompt: "do it" }],
+      }],
+    };
     expect(roomSnapshotSignature(grown, [])).not.toBe(base);
     expect(roomSnapshotSignature(settled, [])).not.toBe(base);
     expect(roomSnapshotSignature(reported, [])).not.toBe(base);
+    expect(roomSnapshotSignature(codeRequests, [])).not.toBe(base);
     expect(roomSnapshotSignature({ ...room, lastOutcome: { kind: "done", requestId: "m1" } }, [])).not.toBe(base);
   });
 
