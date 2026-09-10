@@ -7,7 +7,7 @@ import { ModelSelect } from "@/components/ModelSelect";
 import { Badge, Button, GhostSelect, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import { ALL_THINKING_LEVELS, THINKING_LEVEL_LABELS, isThinkingLevel } from "@/lib/thinking-levels";
-import type { ModelOption, ThinkingLevel } from "@/lib/types";
+import { BOT_TOOL_NAMES, type ModelOption, type ThinkingLevel } from "@/lib/types";
 
 /** `false` = pi-subagents の明示的な thinking 無効。undefined = 既定に従う。 */
 type AgentThinking = ThinkingLevel | false;
@@ -53,6 +53,19 @@ type EditorState =
   | { mode: "closed" };
 
 const DEFAULT_TOOLS = "read, grep, find, ls";
+const AGENT_TOOL_NAMES = [
+  ...BOT_TOOL_NAMES,
+  "web_search",
+  "source_check",
+  "fetch_content",
+  "get_search_content",
+  "contact_supervisor",
+  "subagent_wait",
+  "structured_output",
+  "task_mutation_decision",
+  "watchdog_permission_decision",
+  "watchdog_warn",
+] as const;
 
 function emptyDraft(): AgentDraft {
   return { name: "", description: "", tools: ["read", "grep", "find", "ls"], systemPrompt: "" };
@@ -255,6 +268,59 @@ function AgentEffortPicker({
         ))}
       </GhostSelect>
     </div>
+  );
+}
+
+function AgentToolsSettings({
+  name,
+  tools,
+  editable,
+  busy,
+  onChange,
+}: {
+  name: string;
+  tools?: readonly string[];
+  editable: boolean;
+  busy: boolean;
+  onChange: (tools: string[]) => void;
+}) {
+  const selected = new Set((tools ?? AGENT_TOOL_NAMES).map((tool) => tool.trim()).filter(Boolean));
+  const toolNames = [...new Set([...AGENT_TOOL_NAMES, ...selected])];
+
+  return (
+    <section
+      className="mt-3 space-y-2 rounded-xl border border-border bg-bg p-3"
+      aria-label={`${name}のツール設定`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium">使用するツール</span>
+        {!editable && <span className="text-[11px] text-muted">読み取り専用</span>}
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3">
+        {toolNames.map((tool) => (
+          <label key={tool} className="flex min-w-0 items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={selected.has(tool)}
+              disabled={!editable || busy}
+              aria-label={`${name} の${tool}`}
+              onChange={(event) => {
+                const next = new Set(selected);
+                if (event.target.checked) next.add(tool);
+                else next.delete(tool);
+                onChange([...next]);
+              }}
+              className="h-4 w-4 shrink-0 accent-accent"
+            />
+            <span className="truncate" title={tool}>{tool}</span>
+          </label>
+        ))}
+      </div>
+      <p className="text-[11px] text-muted">
+        チェックを外したツールは、このエージェントから利用できません。
+        {tools === undefined && "未指定のエージェントは既定のツールを表示しています。"}
+      </p>
+    </section>
   );
 }
 
@@ -548,6 +614,25 @@ export function AgentsSettings() {
     }
   }
 
+  async function changeTools(agent: AgentDto, tools: string[]) {
+    if (busyId || agent.source !== "user") return;
+    setBusyId(agent.id);
+    setError(null);
+    try {
+      const result = await sendJson<{ agents: AgentDto[] }>(
+        `/api/agents/${encodeURIComponent(agent.id)}`,
+        { tools },
+        "PATCH",
+      );
+      setAgents(sortAgentRows(result.agents));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "エージェントのツール権限保存に失敗しました");
+      reload();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   function openCreate(trigger: HTMLButtonElement) {
     editorTriggerRef.current = trigger;
     setEditingDraft(emptyDraft());
@@ -689,9 +774,13 @@ export function AgentsSettings() {
                 {agent.description && (
                   <p className="mt-0.5 text-xs break-words text-muted">{agent.description}</p>
                 )}
-                {agent.tools && agent.tools.length > 0 && (
-                  <p className="mt-0.5 truncate font-mono text-[11px] text-muted">{agent.tools.join(", ")}</p>
-                )}
+                <AgentToolsSettings
+                  name={agent.name}
+                  tools={agent.tools}
+                  editable={agent.source === "user"}
+                  busy={busyId === agent.id}
+                  onChange={(tools) => void changeTools(agent, tools)}
+                />
                 <AgentModelPicker
                   name={agent.name}
                   model={agent.model}

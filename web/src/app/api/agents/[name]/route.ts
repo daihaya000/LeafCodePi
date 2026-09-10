@@ -13,6 +13,7 @@ import {
   setAgentEnabled,
   setAgentModel,
   setAgentThinking,
+  setAgentTools,
   updateAgent,
   type AgentDraft,
   type AgentThinking,
@@ -73,17 +74,21 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
   if ("thinking" in record && record.thinking !== undefined && !isThinkingInput(record.thinking)) {
     return NextResponse.json({ error: "effort が不正です" }, { status: 400 });
   }
+  if ("tools" in record && record.tools !== undefined && (!Array.isArray(record.tools) || record.tools.some((tool) => typeof tool !== "string"))) {
+    return NextResponse.json({ error: "tools は文字列配列が必要です" }, { status: 400 });
+  }
 
   try {
     if (typeof record.enabled === "boolean") {
       // Toggle only (used by the switch).
       setAgentEnabled(name, record.enabled);
-    } else if (!("systemPrompt" in record) && ("model" in record || "thinking" in record)) {
+    } else if (!("systemPrompt" in record) && ("model" in record || "thinking" in record || "tools" in record)) {
       // 同時指定でも片方を黙って捨てない。
       if ("model" in record) setAgentModel(name, record.model ?? null);
       if ("thinking" in record) {
         setAgentThinking(name, isThinkingInput(record.thinking) ? record.thinking : null);
       }
+      if ("tools" in record) setAgentTools(name, record.tools ?? []);
     } else {
       // Update the agent definition.
       if (typeof record.systemPrompt !== "string") {

@@ -80,7 +80,7 @@ export function agentsDir(agentDir = resolvePiAgentDir()): string {
   return join(agentDir, "agents");
 }
 
-type AgentOverride = { disabled?: boolean; model?: string; thinking?: AgentThinking };
+type AgentOverride = { disabled?: boolean; model?: string; thinking?: AgentThinking; tools?: string[] };
 
 type PiSettings = {
   subagents?: { agentOverrides?: Record<string, AgentOverride>; [key: string]: unknown };
@@ -403,6 +403,21 @@ export function setAgentThinking(
   );
 }
 
+/** Set a user agent's explicit tool allowlist. Package agents are read-only. */
+export function setAgentTools(
+  name: string,
+  tools: readonly string[],
+  agentDir = resolvePiAgentDir(),
+): AgentListResult {
+  const { name: trimmed, agent } = assertListedAgent(name, agentDir);
+  if (agent.source !== "user") {
+    throw new AgentsError("readonly", "ビルトイン・パッケージエージェントは編集できません");
+  }
+  const normalized = [...new Set(tools.map((tool) => tool.trim()).filter(Boolean))];
+  const { draft } = readUserAgent(trimmed, agentDir);
+  return updateAgent({ ...draft, tools: normalized }, agentDir);
+}
+
 function userAgentPath(agentDir: string, name: string): string {
   return join(agentsDir(agentDir), `${name}.md`);
 }
@@ -441,8 +456,7 @@ export function serializeAgent(
   if (draft.description) frontmatter.description = draft.description;
   const aliases = joinCsv(draft.aliases);
   if (aliases) frontmatter.aliases = aliases;
-  const tools = joinCsv(draft.tools);
-  if (tools) frontmatter.tools = tools;
+  if (draft.tools !== undefined) frontmatter.tools = draft.tools.length > 0 ? draft.tools.join(", ") : "";
   if (draft.model) frontmatter.model = draft.model;
   const fallback = joinCsv(draft.fallbackModels);
   if (fallback) frontmatter.fallbackModels = fallback;
@@ -616,6 +630,6 @@ export function buildAgentResourceOptions(definition: LoadedAgentDefinition): {
     ...(append ? { appendSystemPrompt: append } : {}),
     ...(definition.inheritProjectContext ? {} : { noContextFiles: true }),
     ...(definition.inheritSkills ? {} : { noSkills: true }),
-    ...(definition.tools && definition.tools.length > 0 ? { tools: definition.tools } : {}),
+    ...(definition.tools !== undefined ? { tools: definition.tools } : {}),
   };
 }

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import { AUTO_AGENT_VALUE } from "./default-agent";
-import { agentsDir, AgentsError, agentsErrorStatus, buildAgentResourceOptions, createAgent, deleteAgent, listAgents, loadAgentDefinition, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, setAgentModel, setAgentThinking, updateAgent, type AgentDraft } from "./agents";
+import { agentsDir, AgentsError, agentsErrorStatus, buildAgentResourceOptions, createAgent, deleteAgent, listAgents, loadAgentDefinition, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, setAgentModel, setAgentThinking, setAgentTools, updateAgent, type AgentDraft } from "./agents";
 
 const AGENT = `---
 name: __NAME__
@@ -144,6 +144,22 @@ describe("listAgents / setAgentEnabled", () => {
     assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.thinking, false);
     const raw = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
     assert.equal(raw.subagents.agentOverrides.worker.thinking, false);
+  });
+
+  it("persists a normalized user-agent tool allowlist and supports no tools", () => {
+    fixture();
+    setAgentTools("scout", [" read ", "read", "write"], agentDir);
+
+    assert.deepEqual(readUserAgent("scout", agentDir).draft.tools, ["read", "write"]);
+    assert.deepEqual(listAgents(agentDir).agents.find((agent) => agent.name === "scout")?.tools, ["read", "write"]);
+    assert.equal(
+      (parseAgentFile(readFileSync(join(agentDir, "agents", "scout.md"), "utf8")) as Record<string, unknown>).tools,
+      "read, write",
+    );
+    assert.throws(() => setAgentTools("worker", ["read"], agentDir), /編集できません/);
+
+    setAgentTools("scout", [], agentDir);
+    assert.deepEqual(readUserAgent("scout", agentDir).draft.tools, []);
   });
 
   it("keeps unmanaged frontmatter when saving a managed field", () => {
@@ -356,11 +372,14 @@ describe("loadAgentDefinition / buildAgentResourceOptions", () => {
     assert.equal(options.noSkills, undefined);
   });
 
-  it("applies a frontmatter tool allowlist", () => {
+  it("applies a frontmatter tool allowlist, including an empty one", () => {
     fixture();
     createAgent({ name: "reader", tools: ["read", "grep"], systemPrompt: "Read only." }, agentDir);
     const options = buildAgentResourceOptions(loadAgentDefinition("reader", agentDir)!);
     assert.deepEqual(options.tools, ["read", "grep"]);
+
+    createAgent({ name: "blocked", tools: [], systemPrompt: "No tools." }, agentDir);
+    assert.deepEqual(buildAgentResourceOptions(loadAgentDefinition("blocked", agentDir)!).tools, []);
   });
 
   it("omits prompt overrides when the body is empty", () => {

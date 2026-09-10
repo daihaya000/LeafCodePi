@@ -120,6 +120,38 @@ describe("AgentsSettings", () => {
     });
   });
 
+  it("edits a user agent's tool permissions with checkboxes", async () => {
+    const userAgent = {
+      ...agents[1],
+      id: "custom",
+      name: "custom",
+      source: "user" as const,
+      tools: ["read", "write"],
+    };
+    getJson.mockImplementation((path: string) =>
+      path === "/api/agents"
+        ? Promise.resolve({ agents: [userAgent], agentsDir: "C:/pi/agent/agents" })
+        : path === "/api/settings/auto-agent-prompt"
+          ? Promise.resolve({ value: null })
+          : Promise.resolve({ models }),
+    );
+    sendJson.mockResolvedValue({ agents: [{ ...userAgent, tools: ["read"] }] });
+
+    render(<AgentsSettings />);
+
+    const write = await screen.findByRole("checkbox", { name: "custom のwrite" }) as HTMLInputElement;
+    expect(write.checked).toBe(true);
+    fireEvent.click(write);
+
+    await waitFor(() => {
+      expect(sendJson).toHaveBeenCalledWith(
+        "/api/agents/custom",
+        { tools: ["read"] },
+        "PATCH",
+      );
+    });
+  });
+
   it("shows logical model candidates from separate accounts", async () => {
     const accountModels: ModelOption[] = [
       {
