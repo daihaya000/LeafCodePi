@@ -1,12 +1,30 @@
 # Test Plan — v0.2.0: Skills + Smart Curation
 
-> This document defines the test strategy for v0.2.0. Each section maps to an epic in the implementation plan.
+> This document records the v0.2 acceptance criteria. The repository has since grown; the counts below describe the current checkout, while the epic tables retain the original behavioral criteria.
 
 ## Current State
 
-- **119 existing tests** — all passing after `add()` async migration
-- **Zero new tests** yet for v0.2 features
-- **Type check**: `npm run check` passes with zero errors
+- **48 test files**, **851 `it()` cases**, and **18,010 lines** under `tests/`.
+- Coverage exists for auto-consolidation, correction detection, tool-call-aware review, and skill storage/tool behavior; see the current coverage snapshot below.
+- **Test runner**: `npm test` delegates to `tests/run-all.sh`, which runs each test file in a separate `tsx` process. On Windows, invoke `bash tests/run-all.sh` directly because the npm `cmd.exe` shell does not execute `.sh` files.
+- **Type check**: `npm run check` runs the source TypeScript check.
+- Platform-specific filesystem/process cases may be skipped on Windows; skips are not failures.
+
+## Current Coverage Snapshot
+
+These are total cases in the current files, not only the incremental v0.2 cases.
+
+| Area | Test file | Cases |
+|---|---|---:|
+| Auto-consolidation | `tests/handlers/auto-consolidate.test.ts` | 35 |
+| Correction detection | `tests/handlers/correction-detector.test.ts` | 53 |
+| Tool-call-aware review | `tests/handlers/background-review.test.ts` | 30 |
+| Memory-store integration | `tests/store/memory-store.test.ts` | 91 |
+| Skill storage | `tests/store/skill-store.test.ts` | 38 |
+| Skill tool | `tests/tools/skill-tool.test.ts` | 18 |
+| Skill management command | `tests/handlers/skills-command.test.ts` | 29 |
+
+The originally planned standalone `tests/handlers/skill-auto-trigger.test.ts` is not present in the current checkout and is not counted above.
 
 ---
 
@@ -176,41 +194,40 @@
 | `delete requires file_name` | No file_name | Error |
 | `unknown action returns error` | `action: "foo"` | Error: "Unknown action" |
 
-### Unit Tests: `tests/handlers/skill-auto-trigger.test.ts`
+### Skill Management Command Tests: `tests/handlers/skills-command.test.ts`
 
-| Test | What | Expected |
+| Coverage | What | Expected |
 |---|---|---|
-| `triggers at 8+ tool calls with 2+ types` | Branch has 8 toolCall blocks with 3 distinct tool names | `pi.exec()` called |
-| `does not trigger below 8 tool calls` | Branch has 7 toolCall blocks | Not triggered |
-| `does not trigger with only 1 tool type` | 10 toolCall blocks, all same tool | Not triggered |
-| `only triggers once per session` | Two turn_end events both meeting threshold | Only first triggers |
-| `handles branch access failure gracefully` | `getBranch()` throws | No crash |
+| Skill list and filtering | Build, merge, sort, and filter managed/external skill rows | Rows retain scope, selection, and ordering |
+| Batch move/delete actions | Process partial successes, conflicts, cancellations, and thrown errors | Summary reports each result and retains blocked selections |
+| Modal interaction | Keyboard selection, search, category filters, confirmation, and close behavior | State and rendered output remain consistent |
+
+> The v0.2 standalone auto-trigger test file is not in the current checkout; if that feature is reintroduced, add a dedicated regression file before relying on the old five-case acceptance list.
 
 ---
 
 ## Epic 5: Documentation & Release
 
-### Manual Verification
+### Verification
 
 | Check | Command | Expected |
 |---|---|---|
 | Type check passes | `npm run check` | Zero errors |
-| All tests pass | `npm test` | 119+ tests, 0 failures |
-| README updated | Manual review | Mentions skill tool, auto-consolidation, correction detection |
-| ROADMAP updated | Manual review | v0.2 marked complete |
-| Version bumped | `cat package.json \| grep version` | `"version": "0.2.0"` |
-| Git tagged | `git tag -l "v0.2*"` | `v0.2.0` exists |
+| Full test suite | `npm test` (Windows: `bash tests/run-all.sh`) | 48 files, 851 cases discovered, 0 failures; platform skips allowed |
+| Windows child-process regression | `npx tsx --test tests/handlers/pi-child-process.test.ts` | 0 failures; Windows invocation and temporary-file cases pass |
+| README and roadmap | Manual review | Feature descriptions and status match the current implementation |
+
+The v0.2 version/tag checks are historical release checks; they are intentionally not used as current test gates because this checkout has progressed beyond v0.2.
 
 ---
 
-## Summary
+## Current Inventory Summary
 
-| Area | New Tests | Existing Tests Modified |
-|---|---|---|
-| Auto-Consolidation | 6 + 6 | `memory-store.test.ts` (6 tests for async+consolidator) |
-| Correction Detection | ~20 (patterns + handler) | — |
-| Tool-Call Nudge | 8 | `background-review.test.ts` (extend) |
-| Skill Store | ~25 | — |
-| Skill Tool | ~10 | — |
-| Skill Auto-Trigger | 5 | — |
-| **Total** | **~80 new tests** | **~14 modified** |
+| Area | Current test file(s) | Cases |
+|---|---|---:|
+| Auto-consolidation | `handlers/auto-consolidate.test.ts` | 35 |
+| Correction detection | `handlers/correction-detector.test.ts` | 53 |
+| Tool-call-aware review | `handlers/background-review.test.ts` | 30 |
+| Memory-store integration | `store/memory-store.test.ts` | 91 |
+| Skill storage/tool/management | `store/skill-store.test.ts`, `tools/skill-tool.test.ts`, `handlers/skills-command.test.ts` | 85 |
+| **All memory tests** | **48 files under `tests/`** | **851** |

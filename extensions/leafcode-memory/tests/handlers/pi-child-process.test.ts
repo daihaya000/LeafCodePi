@@ -17,7 +17,7 @@ import {
 function logicalChildArgs(call: { cmd: string; args: string[] }): string[] {
   const underlying = { command: call.args[3], args: call.args.slice(4) };
   const expected = resolveWatchedChildPiInvocation(underlying, 30000, call.args[2]);
-  assert.deepStrictEqual(call, { cmd: expected.command, args: expected.args });
+  assert.deepStrictEqual({ cmd: call.cmd, args: call.args }, { cmd: expected.command, args: expected.args });
   return underlying.command === "pi" ? underlying.args : underlying.args.slice(1);
 }
 
@@ -437,7 +437,7 @@ describe("execChildPrompt", () => {
     assert.match(calls[0].args[0].replaceAll("\\", "/"), /child-process-watchdog\.mjs$/);
     assert.equal(calls[0].args[1], "30000");
     assert.match(calls[0].args[2], /cancel$/);
-    assert.equal(calls[0].args[3], "pi");
+    assert.deepStrictEqual(logicalChildArgs(calls[0]).slice(0, 2), ["-p", "--no-session"]);
     assert.equal(calls[0].timeout, 35000);
   });
 
@@ -608,7 +608,7 @@ describe("execChildPrompt", () => {
     }
   });
 
-  it("keeps a sensitive prompt out of argv and removes its mode-0600 temporary file", async () => {
+  it("keeps a sensitive prompt out of argv and removes its temporary file", async () => {
     const secret = "PRIVATE-MEMORY-CONTENT";
     let promptPath = "";
     const pi = {
@@ -618,7 +618,9 @@ describe("execChildPrompt", () => {
         assert.match(promptArg, /^@/);
         promptPath = promptArg.slice(1);
         assert.equal(await fs.readFile(promptPath, "utf-8"), secret);
-        assert.equal((await fs.stat(promptPath)).mode & 0o777, 0o600);
+        if (process.platform !== "win32") {
+          assert.equal((await fs.stat(promptPath)).mode & 0o777, 0o600);
+        }
         return { code: 0, stdout: "ok", stderr: "" };
       },
     };
