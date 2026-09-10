@@ -3,7 +3,7 @@
 import { type ChangeEventHandler, type ClipboardEventHandler, type CompositionEventHandler, type KeyboardEventHandler, type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Plus, Square, UsersRound, Wrench } from "lucide-react";
 import { COMPOSER_ACTION_BUTTON_CLASS, ImageLightbox, type ComposerAttachment, type ComposerReferences } from "@/components/Composer";
-import { composerReferenceToolNames, composerReferenceValue, filterComposerReferences, findComposerReferenceToken, type ComposerReference, type ComposerReferenceKind } from "@/lib/composer-references";
+import { composerReferenceInsertion, composerReferenceToolNames, filterComposerReferences, findComposerReferenceToken, type ComposerReference } from "@/lib/composer-references";
 
 type BotComposerProps = {
   value: string;
@@ -86,11 +86,11 @@ export function BotComposer({
     if (input) setCaret(input.selectionStart ?? value.length);
   };
 
-  const chooseSuggestion = (reference: ComposerReference, kind: ComposerReferenceKind) => {
+  const chooseSuggestion = (reference: ComposerReference) => {
     const input = textareaRef.current;
     const token = currentToken;
     if (!input || !token || !onValueChange) return;
-    const inserted = `${composerReferenceValue(kind, reference.name)} `;
+    const inserted = composerReferenceInsertion(token, reference.name);
     onValueChange(`${value.slice(0, token.start)}${inserted}${value.slice(token.end)}`);
     setFocused(true);
     setActiveSuggestion(0);
@@ -132,7 +132,7 @@ export function BotComposer({
                   if (event.key === "Enter" || event.key === "Tab") {
                     event.preventDefault();
                     const selected = suggestions[activeSuggestion];
-                    if (selected && currentToken) chooseSuggestion(selected, currentToken.kind);
+                    if (selected && currentToken) chooseSuggestion(selected);
                     return;
                   }
                   if (event.key === "Escape") {
@@ -153,7 +153,7 @@ export function BotComposer({
               <div id={referenceOptionsId} role="listbox" aria-label={currentToken.kind === "skill" ? "スキル候補" : "エージェント候補"} className="absolute bottom-full left-0 z-30 mb-2 max-h-56 w-full min-w-64 overflow-y-auto rounded-2xl border border-border bg-surface p-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
                 {suggestions.map((reference, index) => {
                   const selected = index === activeSuggestion;
-                  return <button key={`${currentToken.kind}-${reference.name}`} type="button" role="option" aria-selected={selected} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseSuggestion(reference, currentToken.kind)} className={`flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left ${selected ? "bg-surface-2" : "hover:bg-surface-2"}`}>
+                  return <button key={`${currentToken.kind}-${reference.name}`} type="button" role="option" aria-selected={selected} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseSuggestion(reference)} className={`flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left ${selected ? "bg-surface-2" : "hover:bg-surface-2"}`}>
                     {currentToken.kind === "skill" ? <Wrench className="mt-0.5 h-4 w-4 shrink-0 text-accent" /> : <UsersRound className="mt-0.5 h-4 w-4 shrink-0 text-accent" />}
                     <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-accent">{reference.name}</span>{currentToken.kind === "agent" && <span className="mt-1 flex flex-wrap gap-1" aria-label="ツール権限">{composerReferenceToolNames(reference).map((tool) => <span key={tool} data-tool-permission={tool} className="rounded-full border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">{tool}</span>)}</span>}{reference.description && <span className="mt-0.5 block truncate text-[11px] text-muted">{reference.description}</span>}</span>
                   </button>;

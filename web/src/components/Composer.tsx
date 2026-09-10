@@ -18,12 +18,11 @@ import type {
 import { createPortal } from "react-dom";
 import { Paperclip, UsersRound, Wrench, X } from "lucide-react";
 import {
+  composerReferenceInsertion,
   composerReferenceToolNames,
-  composerReferenceValue,
   filterComposerReferences,
   findComposerReferenceToken,
   type ComposerReference,
-  type ComposerReferenceKind,
 } from "@/lib/composer-references";
 import { renderHighlightedReferenceText } from "@/components/ReferenceHighlight";
 
@@ -230,11 +229,11 @@ export function Composer({
     if (element) setCaret(element.selectionStart ?? textarea.value.length);
   }
 
-  function chooseSuggestion(reference: ComposerReference, kind: ComposerReferenceKind) {
+  function chooseSuggestion(reference: ComposerReference) {
     const element = textarea.ref.current;
     const token = currentToken;
     if (!element || !token || !textarea.onValueChange) return;
-    const inserted = `${composerReferenceValue(kind, reference.name)} `;
+    const inserted = composerReferenceInsertion(token, reference.name);
     const next = `${textarea.value.slice(0, token.start)}${inserted}${textarea.value.slice(token.end)}`;
     textarea.onValueChange(next);
     setFocused(true);
@@ -384,9 +383,8 @@ export function Composer({
               }
               if (event.key === "Enter" || event.key === "Tab") {
                 event.preventDefault();
-                const kind = currentToken?.kind ?? "skill";
                 const selected = suggestions[activeSuggestion];
-                if (selected) chooseSuggestion(selected, kind);
+                if (selected) chooseSuggestion(selected);
                 return;
               }
               if (event.key === "Escape") {
@@ -415,7 +413,7 @@ export function Composer({
                   aria-selected={selected}
                   className={`flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left ${selected ? "bg-working-bg" : "hover:bg-surface-2"}`}
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => chooseSuggestion(reference, kind)}
+                  onClick={() => chooseSuggestion(reference)}
                 >
                   {kind === "skill" ? (
                     <Wrench className="mt-0.5 h-5 w-5 shrink-0 text-accent" />

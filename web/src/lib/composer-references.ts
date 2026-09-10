@@ -28,13 +28,16 @@ export type ComposerReferenceToken = {
   end: number;
 };
 
-const REFERENCE_CHARACTERS = /[A-Za-z0-9_.:-]/;
+/** 後退ループ用: 空白・/・@ 以外は参照名の一部として扱う（日本語クエリ対応）。 */
+const NON_REFERENCE = /[\s/\u0040]/;
 
 /** Return the slash/at token immediately before the caret, when it is a reference. */
 export function findComposerReferenceToken(value: string, caret: number): ComposerReferenceToken | null {
   const safeCaret = Math.max(0, Math.min(value.length, caret));
   let start = safeCaret - 1;
-  while (start >= 0 && REFERENCE_CHARACTERS.test(value[start] ?? "")) start -= 1;
+  // 日本語等の非 ASCII クエリも後退できるよう、非参照文字（空白・/・@）まで
+  // 戻る。かな・漢字・絵文字も参照名の一部として扱う。
+  while (start >= 0 && !NON_REFERENCE.test(value[start] ?? "")) start -= 1;
   const trigger = value[start];
   if (trigger !== "/" && trigger !== "@") return null;
   if (start > 0 && !/\s/.test(value[start - 1] ?? "")) {
@@ -88,6 +91,21 @@ export function filterComposerReferences(
 
 export function composerReferenceValue(kind: ComposerReferenceKind, name: string): string {
   return kind === "skill" ? `/skill:${name}` : `@${name}`;
+}
+
+/**
+ * 参照トークンを選択名で置換した文字列（末尾スペース付き）を返す。
+ * ユーザーが `/スキル名` と打った場合は `/` をそのまま活かし、
+ * `/skill:` と打った場合は `/skill:` プレフィックスを維持する（二重スラッシュ防止）。
+ */
+export function composerReferenceInsertion(
+  token: Pick<ComposerReferenceToken, "kind" | "raw">,
+  name: string,
+): string {
+  if (token.kind === "agent") return `@${name} `;
+  return token.raw.toLowerCase().startsWith("/skill:")
+    ? `/skill:${name} `
+    : `/${name} `;
 }
 
 /** Recognize only known references so ordinary paths and email addresses stay unstyled. */

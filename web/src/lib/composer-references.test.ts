@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  composerReferenceInsertion,
   composerReferenceValue,
   filterComposerReferences,
   findComposerReferenceToken,
@@ -67,6 +68,18 @@ describe("composer references", () => {
   it("uses Pi's skill command syntax and an at token for agents", () => {
     expect(composerReferenceValue("skill", "review")).toBe("/skill:review");
     expect(composerReferenceValue("agent", "reviewer")).toBe("@reviewer");
+  });
+
+  it("inserts skill names without duplicating the slash", () => {
+    expect(
+      composerReferenceInsertion({ kind: "skill", raw: "/レ" }, "レビュー担当"),
+    ).toBe("/レビュー担当 ");
+    expect(
+      composerReferenceInsertion({ kind: "skill", raw: "/skill:レ" }, "レビュー担当"),
+    ).toBe("/skill:レビュー担当 ");
+    expect(
+      composerReferenceInsertion({ kind: "agent", raw: "@de" }, "debugger"),
+    ).toBe("@debugger ");
   });
 
   it("recognizes only known reference names", () => {

@@ -53,3 +53,39 @@ it("suggests and inserts a slash skill reference", () => {
   fireEvent.keyDown(input, { key: "Enter" });
   expect(input.value).toBe("/skill:review ");
 });
+
+it("inserts an at-agent reference and a Japanese skill name", () => {
+  function ReferenceComposer() {
+    const [value, setValue] = useState("");
+    const inputRef = useRef<HTMLTextAreaElement>(null);
+    return <BotComposer
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onValueChange={setValue}
+      onKeyDown={vi.fn()}
+      onSend={vi.fn()}
+      inputRef={inputRef}
+      placeholder="Message"
+      references={{
+        agents: [{ name: "debugger" }],
+        skills: [{ name: "レビュー担当" }],
+      }}
+    />;
+  }
+
+  render(<ReferenceComposer />);
+  const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+  input.focus();
+
+  // エージェント参照（@）
+  fireEvent.change(input, { target: { value: "@deb", selectionStart: 4 } });
+  expect(screen.getByRole("listbox", { name: "エージェント候補" })).toBeTruthy();
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(input.value).toBe("@debugger ");
+
+  // 日本語参照名（非 ASCII 直後の / トークン）
+  fireEvent.change(input, { target: { value: "経路/レ", selectionStart: 4 } });
+  expect(screen.getByRole("listbox", { name: "スキル候補" })).toBeTruthy();
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(input.value).toBe("経路/レビュー担当 ");
+});
