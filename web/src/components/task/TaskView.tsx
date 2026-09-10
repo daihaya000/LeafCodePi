@@ -449,7 +449,7 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
           style={{ width: `${barWidth}%` }}
         />
       </span>
-      <span className="hidden font-mono tabular-nums @min-[40rem]/task:inline">
+      <span className="font-mono tabular-nums">
         {usedLabel}/{limitLabel} ({pctLabel})
       </span>
     </span>
@@ -2397,12 +2397,12 @@ export const TaskView = memo(function TaskView({
             )}
           </div>
         </div>
-        <div aria-label="タスクの状態" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted @min-[40rem]/task:col-start-1 @min-[40rem]/task:row-start-2">
-          {permissionRequest && <Badge tone="warning">承認待ち</Badge>}
-          {questionRequest && <Badge tone="warning">回答待ち</Badge>}
-          {displayedStatus && <StatusBadge status={displayedStatus} />}
+        <div aria-label="タスクの状態" className="flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @min-[40rem]/task:flex-wrap @min-[40rem]/task:gap-y-1 @min-[40rem]/task:col-start-1 @min-[40rem]/task:row-start-2">
+          {permissionRequest && <Badge tone="warning" className="shrink-0">承認待ち</Badge>}
+          {questionRequest && <Badge tone="warning" className="shrink-0">回答待ち</Badge>}
+          {displayedStatus && <StatusBadge status={displayedStatus} className="shrink-0" />}
           {task?.projectName && (
-            <span className="hidden max-w-32 truncate @min-[40rem]/task:inline" title={task.projectName}>{task.projectName}</span>
+            <span className="min-w-0 max-w-32 truncate" title={task.projectName}>{task.projectName}</span>
           )}
           {contextUsage && <ContextUsageMeter usage={contextUsage} />}
           {stats.totalTokens > 0 && (

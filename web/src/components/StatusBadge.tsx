@@ -13,10 +13,10 @@ const STATUS_META: Record<
   unknown: { label: "不明", tone: "neutral" },
 };
 
-export function StatusBadge({ status }: { status: TaskStatus }) {
+export function StatusBadge({ status, className }: { status: TaskStatus; className?: string }) {
   const meta = STATUS_META[status] ?? STATUS_META.unknown;
   return (
-    <Badge tone={meta.tone} pulse={meta.pulse}>
+    <Badge tone={meta.tone} pulse={meta.pulse} className={className}>
       {meta.label}
     </Badge>
   );
