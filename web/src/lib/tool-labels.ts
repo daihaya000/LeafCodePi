@@ -60,6 +60,7 @@ export function toolLabel(tool: string, input?: Record<string, unknown>): string
   if (t === "session_search") return "セッション検索";
   if (t === "skill_manage") return "スキル管理";
   if (t === "tool_search") return "ツール検索";
+  if (t === "intercom") return "内線";
   if (t === "web_search") return "Web検索";
   if (t === "source_check") return "出典確認";
   if (t === "fetch_content") return "Web取得";

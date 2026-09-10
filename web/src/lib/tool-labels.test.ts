@@ -22,6 +22,7 @@ describe("toolLabel", () => {
     expect(toolLabel("session_search")).toBe("セッション検索");
     expect(toolLabel("skill_manage")).toBe("スキル管理");
     expect(toolLabel("tool_search")).toBe("ツール検索");
+    expect(toolLabel("intercom")).toBe("内線");
     expect(toolLabel("web_search")).toBe("Web検索");
     expect(toolLabel("source_check")).toBe("出典確認");
     expect(toolLabel("fetch_content")).toBe("Web取得");
