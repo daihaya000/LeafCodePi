@@ -1460,7 +1460,14 @@ export default function (pi: ExtensionAPI): void {
       applyResult(loop, result);
       const updated = currentLoop(current);
       updateUI(current, updated);
-      if (updated) appendSnapshot(current, updated);
+      if (updated) {
+        appendSnapshot(current, updated);
+        // agent_settled may already have passed while the loop was paused, so
+        // re-arm here the same way resume recovery does.
+        if (updated.status === "queued" || updated.status === "verifying_completed") {
+          schedule(current);
+        }
+      }
       return;
     }
     // `turn_end` fires once per assistant/tool iteration. A tool call normally

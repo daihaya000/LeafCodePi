@@ -973,8 +973,10 @@ test("applies a result that lands after a turn_timeout pause instead of losing i
     paused.pauseReason = "turn_timeout";
     writeFileSync(stateFile(), JSON.stringify(paused, null, 2), "utf8");
 
-    // タイムアウト後もランは続いており、最後に正常な結果を返す。
+    // Settlement can finish while paused; a later turn_end still carries the
+    // result. Do not rely on a second agent_settled to re-arm the scheduler.
     busy = false;
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
     await handlers.get("turn_end")?.({
       type: "turn_end",
       turnIndex: 0,
@@ -983,7 +985,6 @@ test("applies a result that lands after a turn_timeout pause instead of losing i
         content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "late result" }) }],
       },
     }, ctx);
-    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
 
     const recovered = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(recovered.progress.at(-1).summary, "late result");
