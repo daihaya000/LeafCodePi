@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { POST } from "./route";
+import { PATCH, POST } from "./route";
 
 const mocks = vi.hoisted(() => ({
   getTask: vi.fn(),
@@ -14,9 +14,9 @@ vi.mock("@/lib/store", () => ({ getTask: mocks.getTask, patchTask: mocks.patchTa
 vi.mock("@/lib/direct-session", () => ({ readSessionConversation: mocks.readSessionConversation }));
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 
-function request(body: unknown): NextRequest {
+function request(body: unknown, method: "POST" | "PATCH" = "POST"): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/title", {
-    method: "POST",
+    method,
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -117,5 +117,46 @@ describe("/api/tasks/[id]/title", () => {
     );
 
     expect(response.status).toBe(400);
+  });
+
+  it("persists a manual title and disables automatic updates", async () => {
+    patchTask.mockReturnValue({ id: "task-1", title: "手動タイトル", titleAutoUpdate: false });
+
+    const response = await PATCH(
+      request({ title: "  手動タイトル  " }, "PATCH"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(patchTask).toHaveBeenCalledWith("task-1", {
+      title: "手動タイトル",
+      titleAutoUpdate: false,
+    });
+    expect(await response.json()).toMatchObject({
+      title: "手動タイトル",
+      task: { title: "手動タイトル", titleAutoUpdate: false },
+    });
+  });
+
+  it("persists the automatic title update switch", async () => {
+    patchTask.mockReturnValue({ id: "task-1", title: "旧タイトル", titleAutoUpdate: true });
+
+    const response = await PATCH(
+      request({ titleAutoUpdate: true }, "PATCH"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(patchTask).toHaveBeenCalledWith("task-1", { titleAutoUpdate: true });
+  });
+
+  it("rejects an empty manual title", async () => {
+    const response = await PATCH(
+      request({ title: "  \n  " }, "PATCH"),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(patchTask).not.toHaveBeenCalled();
   });
 });

@@ -59,6 +59,71 @@ describe("TaskView draft submission", () => {
     expect(screen.queryByRole("button", { name: "コンテキスト圧縮" })).toBeNull();
   });
 
+  it("edits the title and turns automatic updates off", async () => {
+    const updatedTask = { ...task, title: "手動タイトル", titleAutoUpdate: false };
+    mocks.sendJson.mockResolvedValue({ task: updatedTask });
+    render(<TaskView taskId={task.id} mdUp />);
+
+    fireEvent.click(screen.getByRole("button", { name: "タイトルを編集" }));
+    const input = screen.getByRole("textbox", { name: "セッションタイトル" }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "手動タイトル" } });
+    fireEvent.click(screen.getByRole("button", { name: "タイトルを保存" }));
+
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      `/api/tasks/${task.id}/title`, { title: "手動タイトル" }, "PATCH",
+    ));
+    expect(await screen.findByRole("heading", { name: "手動タイトル" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "タイトルの自動更新" }).getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("persists the automatic title update switch", async () => {
+    const updatedTask = { ...task, titleAutoUpdate: false };
+    mocks.sendJson.mockResolvedValue({ task: updatedTask });
+    render(<TaskView taskId={task.id} mdUp />);
+
+    const toggle = screen.getByRole("switch", { name: "タイトルの自動更新" });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      `/api/tasks/${task.id}/title`, { titleAutoUpdate: false }, "PATCH",
+    ));
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("does not regenerate a title when automatic updates are disabled", async () => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource | null = null;
+      constructor() {
+        super();
+        TestEventSource.latest = this;
+      }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    const disabledTask = { ...task, titleAutoUpdate: false, sessionId: "session-1" };
+    saveTaskSessionCache({ task: disabledTask, messages: [], isStreaming: false, isCompacting: false });
+    render(<TaskView taskId={task.id} mdUp />);
+    const source = TestEventSource.latest;
+    if (!source) throw new Error("EventSource was not created");
+
+    const sendSnapshot = async (status: "working" | "idle") => {
+      await act(async () => {
+        source.dispatchEvent(new MessageEvent("snapshot", {
+          data: JSON.stringify({
+            eventType: "ready",
+            task: { ...disabledTask, status, isStreaming: status === "working" },
+            messages: [],
+          }),
+        }));
+      });
+    };
+    await sendSnapshot("working");
+    await sendSnapshot("idle");
+
+    expect(mocks.sendJson).not.toHaveBeenCalled();
+  });
+
   it.each(["success", "failure"])("sends queued content without replacing the next draft (%s)", async (outcome) => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource;

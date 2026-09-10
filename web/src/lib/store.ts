@@ -230,6 +230,7 @@ export function patchTask(
     Pick<
       TaskSummary,
       | "title"
+      | "titleAutoUpdate"
       | "projectId"
       | "projectName"
       | "directory"

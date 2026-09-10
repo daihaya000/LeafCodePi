@@ -158,6 +158,8 @@ export type TaskSummary = {
   projectId: string | null;
   projectName: string;
   title: string;
+  /** タイトルの自動更新。未設定の旧タスクは有効扱い。 */
+  titleAutoUpdate?: boolean;
   directory: string;
   isolation: "current_folder";
   status: TaskStatus;

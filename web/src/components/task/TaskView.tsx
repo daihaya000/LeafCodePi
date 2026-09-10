@@ -3,6 +3,7 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
+  Check,
   ChevronDown,
   ChevronUp,
   ChevronsDown,
@@ -10,9 +11,11 @@ import {
   GitGraph,
   ListPlus,
   PanelRight,
+  Pencil,
   Plus,
   RotateCcw,
   Square,
+  X,
   Zap,
 } from "lucide-react";
 import {
@@ -46,7 +49,7 @@ import {
   QueuedFollowUpsNotice,
   type QueuedFollowUp,
 } from "@/components/task/QueuedFollowUpsNotice";
-import { Button, cx, GhostSelect } from "@/components/ui";
+import { Button, Switch, cx, GhostSelect } from "@/components/ui";
 import {
   AUTO_MODEL_OPTION,
   AUTO_MODEL_VALUE,
@@ -76,6 +79,7 @@ import {
   type AutoTaskRecord,
 } from "@/lib/auto-task-record";
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
+import { TITLE_MAX_CHARS } from "@/lib/direct-generation-text";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { notifyTasksChanged } from "@/lib/events";
 import { taskSidebarNotifyKey } from "@/lib/task-sidebar-notify";
@@ -264,6 +268,7 @@ function sameTaskDetail(a: TaskDetail | null, b: TaskDetail): boolean {
   return (
     a.status === b.status &&
     a.title === b.title &&
+    a.titleAutoUpdate === b.titleAutoUpdate &&
     a.providerID === b.providerID &&
     a.modelID === b.modelID &&
     a.accountId === b.accountId &&
@@ -496,6 +501,9 @@ export const TaskView = memo(function TaskView({
   const [revertBusy, setRevertBusy] = useState(false);
   const revertEntryRef = useRef<{ messageId: string; message: UiMessage | undefined } | null>(null);
   const [prompt, setPrompt] = useState("");
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [titleBusy, setTitleBusy] = useState(false);
   const [goalLoopEnabled, setGoalLoopEnabled] = useState(false);
   const [goalLoopAcceptance, setGoalLoopAcceptance] = useState("");
   const [goalLoopMaxTurns, setGoalLoopMaxTurns] = useState(10);
@@ -656,6 +664,8 @@ export const TaskView = memo(function TaskView({
   const lastScrollTopRef = useRef(0);
   const previousWorkingRef = useRef(false);
   const titleTaskRef = useRef(taskId);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const titleMutationRef = useRef(0);
   // メッセージ間をジャンプするナビゲーター（本家 LeafCode と同じ）。
   // 描画済みメッセージ要素と「今どのナビゲーション対象を見ているか」を保持する。
   const messageElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -668,6 +678,11 @@ export const TaskView = memo(function TaskView({
   useEffect(() => {
     onStatusRef.current = onStatus;
   }, [onStatus]);
+  useEffect(() => {
+    if (!titleEditing) return;
+    titleInputRef.current?.focus();
+    titleInputRef.current?.select();
+  }, [titleEditing]);
   // ナビゲーター ボタンの不透明度（設定 → 一般タブで変更可）。
   const [scrollButtonOpacity, setScrollButtonOpacity] = useState(
     () => readScrollButtonOpacity(),
@@ -1169,6 +1184,10 @@ export const TaskView = memo(function TaskView({
     // A reused pane must not evaluate the previous task's messages as a
     // resumable turn while its first server snapshot is still pending.
     modelChangeRef.current += 1;
+    titleMutationRef.current += 1;
+    setTitleEditing(false);
+    setTitleDraft("");
+    setTitleBusy(false);
     const cached = loadTaskSessionCache(taskId);
     setTask(cached);
     setMessages(cached?.messages ?? []);
@@ -1389,12 +1408,88 @@ export const TaskView = memo(function TaskView({
     }
     const wasWorking = previousWorkingRef.current;
     previousWorkingRef.current = working;
-    if (!wasWorking || working || !task?.sessionId) return;
+    if (!wasWorking || working || !task?.sessionId || task.titleAutoUpdate === false) return;
+    const mutation = ++titleMutationRef.current;
+    setTitleBusy(true);
     void sendJson<{ title: string; task: TaskSummary }>(`/api/tasks/${taskId}/title`, {}).then((result) => {
-      setTask((current) => (current ? { ...current, title: result.title } : current));
+      if (mutation !== titleMutationRef.current) return;
+      setTask((current) =>
+        current && current.titleAutoUpdate !== false
+          ? { ...current, title: result.title }
+          : current,
+      );
       notifyTasksChanged();
-    }).catch(() => undefined);
-  }, [task?.sessionId, taskId, working]);
+    }).catch(() => undefined).finally(() => {
+      if (mutation === titleMutationRef.current) setTitleBusy(false);
+    });
+  }, [task?.sessionId, task?.titleAutoUpdate, taskId, working]);
+
+  function beginTitleEdit() {
+    if (!task || archived || titleBusy) return;
+    setError(null);
+    setTitleDraft(task.title);
+    setTitleEditing(true);
+  }
+
+  function cancelTitleEdit() {
+    if (titleBusy) return;
+    setTitleEditing(false);
+    setTitleDraft("");
+  }
+
+  async function saveTitle() {
+    const value = titleDraft.trim();
+    if (!value) {
+      setError("タイトルを入力してください");
+      return;
+    }
+    if (!task || archived || titleBusy) return;
+    const mutation = ++titleMutationRef.current;
+    setTitleBusy(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ title: string; task: TaskSummary }>(
+        `/api/tasks/${taskId}/title`,
+        { title: value },
+        "PATCH",
+      );
+      if (mutation !== titleMutationRef.current) return;
+      setTask((current) => (current ? { ...current, ...result.task } : current));
+      setTitleDraft(result.task.title);
+      setTitleEditing(false);
+      notifyTasksChanged();
+    } catch (err) {
+      if (mutation === titleMutationRef.current) {
+        setError(err instanceof Error ? err.message : "タイトルの更新に失敗しました");
+      }
+    } finally {
+      if (mutation === titleMutationRef.current) setTitleBusy(false);
+    }
+  }
+
+  async function toggleTitleAutoUpdate() {
+    if (!task || archived || titleBusy) return;
+    const mutation = ++titleMutationRef.current;
+    const enabled = task.titleAutoUpdate !== false;
+    setTitleBusy(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ title: string; task: TaskSummary }>(
+        `/api/tasks/${taskId}/title`,
+        { titleAutoUpdate: !enabled },
+        "PATCH",
+      );
+      if (mutation !== titleMutationRef.current) return;
+      setTask((current) => (current ? { ...current, ...result.task } : current));
+      notifyTasksChanged();
+    } catch (err) {
+      if (mutation === titleMutationRef.current) {
+        setError(err instanceof Error ? err.message : "タイトル自動更新の変更に失敗しました");
+      }
+    } finally {
+      if (mutation === titleMutationRef.current) setTitleBusy(false);
+    }
+  }
 
   async function revert() {
     const target = revertEntryRef.current;
@@ -2219,6 +2314,7 @@ export const TaskView = memo(function TaskView({
         ? worktreeStatus
         : task.status
     : null;
+  const titleAutoUpdateEnabled = task?.titleAutoUpdate !== false;
   const mobilePanelOpen = !mdUp && (graphOpen || diffOpen);
 
   return (
@@ -2235,7 +2331,82 @@ export const TaskView = memo(function TaskView({
         <MobileMenuButton />
         {iconFor?.(taskId, 32, task ?? undefined)}
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-semibold">{task?.title ?? "読み込み中…"}</h1>
+          <div className="flex min-w-0 items-center gap-1">
+            {titleEditing ? (
+              <form
+                aria-label="セッションタイトルを編集"
+                className="flex min-w-0 flex-1 items-center gap-1"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void saveTitle();
+                }}
+              >
+                <input
+                  ref={titleInputRef}
+                  value={titleDraft}
+                  maxLength={TITLE_MAX_CHARS}
+                  aria-label="セッションタイトル"
+                  onChange={(event) => setTitleDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      cancelTitleEdit();
+                    }
+                  }}
+                  className="min-w-0 flex-1 rounded-md border border-border-strong bg-bg px-2 py-1 text-sm font-semibold text-text outline-none focus:border-accent"
+                  disabled={titleBusy}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  type="submit"
+                  aria-label="タイトルを保存"
+                  title="タイトルを保存"
+                  busy={titleBusy}
+                  disabled={titleBusy}
+                >
+                  {!titleBusy && <Check className="h-4 w-4" />}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  aria-label="タイトル編集をキャンセル"
+                  title="キャンセル"
+                  disabled={titleBusy}
+                  onClick={cancelTitleEdit}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </form>
+            ) : (
+              <>
+                <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" title={task?.title}>
+                  {task?.title ?? "読み込み中…"}
+                </h1>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  aria-label="タイトルを編集"
+                  title="タイトルを編集"
+                  disabled={!task || archived || titleBusy}
+                  onClick={beginTitleEdit}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+              </>
+            )}
+            <Switch
+              checked={titleAutoUpdateEnabled}
+              onChange={() => void toggleTitleAutoUpdate()}
+              label="タイトルの自動更新"
+              title={`タイトルの自動更新: ${titleAutoUpdateEnabled ? "ON" : "OFF"}`}
+              busy={titleBusy}
+              disabled={!task || archived}
+            />
+          </div>
           {/* Mobile-only compact meta row: the sm:flex row below is hidden
               below sm, so phones would otherwise show no status/context. */}
           <div className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-[11px] text-faint sm:hidden">
