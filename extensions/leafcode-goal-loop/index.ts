@@ -1490,6 +1490,8 @@ export default function (pi: ExtensionAPI): void {
     ) {
       const result = extractGoalResult(assistantText(event.message));
       if (!result) return;
+      const pauseReason = loop.pauseReason;
+      const pauseError = loop.error;
       current.pausedTurnPending = false;
       current.pausedTurnIndex = undefined;
       loop.status = "running";
@@ -1498,9 +1500,23 @@ export default function (pi: ExtensionAPI): void {
       updateUI(current, updated);
       if (updated) {
         appendSnapshot(current, updated);
-        // agent_settled may already have passed while the loop was paused, so
-        // re-arm here the same way resume recovery does.
-        if (updated.status === "queued" || updated.status === "verifying_completed") {
+        // user/manual_send means the operator took control. Keep the recovered
+        // progress, but do not auto-continue past their pause.
+        if (
+          (pauseReason === "user" || pauseReason === "manual_send") &&
+          !TERMINAL.has(updated.status) &&
+          updated.status !== "paused"
+        ) {
+          updated.status = "paused";
+          updated.pauseReason = pauseReason;
+          updated.error = pauseError;
+          updated.nextTurnAt = null;
+          writeLoop(updated);
+          updateUI(current, updated);
+          appendSnapshot(current, updated);
+        } else if (updated.status === "queued" || updated.status === "verifying_completed") {
+          // turn_timeout / unknown_delivery: agent_settled may already have
+          // passed while paused, so re-arm here.
           schedule(current);
         }
       }
