@@ -62,10 +62,11 @@ export function parseUnifiedDiff(text: string): DiffFile[] {
       } else if (line.startsWith("-")) {
         hunk.lines.push({ t: "-", text: line.slice(1) });
         file.deletions += 1;
-      } else if (line.startsWith(" ") || line === "") {
+      } else if (line.startsWith(" ")) {
         hunk.lines.push({ t: " ", text: line.slice(1) });
       }
-      // lines starting with "\" (no newline marker) are skipped
+      // 空文字行はブロック末尾の分割アーティファクト（git は空コンテキスト行を
+      // スペース 1 つで表現する）と、"\" で始まる no-newline マーカーは無視する。
     }
 
     if (file.path) files.push(file);
