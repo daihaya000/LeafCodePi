@@ -25,7 +25,7 @@ vi.mock("@/lib/store", () => ({
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, cancelBotCodeRequests, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -202,6 +202,26 @@ describe("Bot ⇄ Code relay", () => {
     expect(await cancelRoomCodeRequests("room-1", "user-1")).toBe(1);
     expect(record().state).toBe("cancelled");
     expect(store.abortTask).toHaveBeenCalledWith("code");
+  });
+
+  it("cancels a reverted 1:1 conversation's jobs without touching its Room's", async () => {
+    await launch();
+    roomSetup();
+    let next = 0;
+    vi.mocked(deps.create).mockImplementation(async (input) => {
+      const code = task(`code-room-${(next += 1)}`, { status: "working" });
+      store.tasks.set(code.id, code);
+      input.beforePrompt(code);
+      return code;
+    });
+    await roomLaunch();
+    const botRequest = records().find((request) => request.originTaskId === "bot:one")!;
+
+    expect(await cancelBotCodeRequests("one")).toBe(1);
+    expect(records().find((request) => request.id === botRequest.id)?.state).toBe("cancelled");
+    expect(records().find((request) => request.originTaskId === "bot:one:room:room-1")?.state).toBe("running");
+    expect(store.abortTask).toHaveBeenCalledWith("code");
+    expect(store.abortTask).not.toHaveBeenCalledWith("code-room-1");
   });
 
   it("does not abort the predecessor for a queued Room prompt", async () => {

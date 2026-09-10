@@ -333,9 +333,8 @@ export function pendingRoomCodeRequestsForTurn(roomId: string, requestId: string
 export function pendingRoomCodeRequestForTurn(roomId: string, requestId: string, excludeRequestId?: string): CodeRequest | undefined {
   return pendingRoomCodeRequestsForTurn(roomId, requestId, excludeRequestId)[0];
 }
-/** A reverted request has no context left to report into: cancel and stop its outstanding jobs. */
-export async function cancelRoomCodeRequests(roomId: string, requestId: string): Promise<number> {
-  const stale = requests().filter((request) => request.room?.id === roomId && request.room.conversation.requestId === requestId && active(request));
+/** Cancel and stop every outstanding job of the given records (reverted context has nowhere to report). */
+async function cancelRequests(stale: CodeRequest[]): Promise<number> {
   for (const initial of stale) {
     const taskToStop = await withBotCodeSessionLock(`request-${initial.id}`, async () => {
       const request = read(initial.id);
@@ -356,6 +355,15 @@ export async function cancelRoomCodeRequests(roomId: string, requestId: string):
     }
   }
   return stale.length;
+}
+/** A reverted request has no context left to report into: cancel and stop its outstanding jobs. */
+export async function cancelRoomCodeRequests(roomId: string, requestId: string): Promise<number> {
+  return cancelRequests(requests().filter((request) => request.room?.id === roomId && request.room.conversation.requestId === requestId && active(request)));
+}
+/** A reverted 1:1 conversation has no context left either: Room jobs keep their own conversation. */
+export async function cancelBotCodeRequests(botId: string): Promise<number> {
+  const origin = `bot:${botId}`;
+  return cancelRequests(requests().filter((request) => request.originTaskId === origin && active(request)));
 }
 function linkedCodeTaskId(originTaskId: string, bot: ReturnType<typeof owner>, taskId?: string): string | undefined {
   if (taskId !== undefined) {
