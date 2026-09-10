@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   resetTaskSession: vi.fn(),
   destroyTask: vi.fn(),
   listTasks: vi.fn(() => []),
+  listRooms: vi.fn(() => [] as { id: string; members: string[] }[]),
+  patchRoom: vi.fn(),
 }));
 vi.mock("@/lib/bots", () => ({
   getBot: mocks.getBot,
@@ -31,8 +33,10 @@ vi.mock("@/lib/pi/harness", () => ({
   destroyTask: mocks.destroyTask,
 }));
 vi.mock("@/lib/store", () => ({ listTasks: mocks.listTasks }));
+vi.mock("@/lib/rooms", () => ({ listRooms: mocks.listRooms, patchRoom: mocks.patchRoom }));
 
 import { NextRequest } from "next/server";
+import { beforeEach } from "vitest";
 import { DELETE, GET, PATCH } from "./route";
 
 const emptyRequest = () => new Request("http://localhost") as NextRequest;
@@ -57,6 +61,7 @@ const bot = (id = "one"): BotDto => ({
 });
 
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
+beforeEach(() => { vi.clearAllMocks(); });
 const jsonRequest = (body: unknown): NextRequest =>
   new Request("http://localhost/api/bots/one", {
     method: "PATCH",
@@ -147,9 +152,24 @@ describe("DELETE /api/bots/[id]", () => {
     expect(mocks.destroyTask).toHaveBeenCalledWith("bot-task");
   });
 
+  it("removes the deleted Bot from every Room it was a member of", async () => {
+    mocks.deleteBot.mockReturnValue(true);
+    mocks.listRooms.mockReturnValue([
+      { id: "room-a", members: ["one", "two"] },
+      { id: "room-b", members: ["two"] },
+    ]);
+
+    const response = await DELETE(emptyRequest(), params("one"));
+
+    expect(response.status).toBe(200);
+    expect(mocks.patchRoom).toHaveBeenCalledTimes(1);
+    expect(mocks.patchRoom).toHaveBeenCalledWith("room-a", { members: ["two"] });
+  });
+
   it("returns 404 when the bot does not exist", async () => {
     mocks.deleteBot.mockReturnValue(false);
     const response = await DELETE(emptyRequest(), params("one"));
     expect(response.status).toBe(404);
+    expect(mocks.patchRoom).not.toHaveBeenCalled();
   });
 });
