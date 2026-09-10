@@ -38,6 +38,8 @@ describe("ollama-cloud-provider", () => {
     expect(inferOllamaCapabilities("llava:13b").input).toContain("image");
     expect(inferOllamaCapabilities("minicpm-v:8b").input).toContain("image");
     expect(inferOllamaCapabilities("mistral-small3.2:24b").input).toContain("image");
+    expect(inferOllamaCapabilities("mistral-small-2").input).toContain("image");
+    expect(inferOllamaCapabilities("mistral-small:3").input).toContain("image");
     expect(inferOllamaCapabilities("llama3:8b").input).toEqual(["text"]);
     expect(inferOllamaCapabilities("gpt-oss:20b").reasoning).toBe(true);
   });

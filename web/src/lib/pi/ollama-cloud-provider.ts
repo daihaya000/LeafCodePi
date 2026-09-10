@@ -42,7 +42,7 @@ export function inferOllamaCapabilities(id: string): {
     lower.includes("gemma3") ||
     lower.includes("gemma4") ||
     lower.includes("llama4") ||
-    /mistral-small[23]/.test(lower);
+    /mistral-small[-:.]?[23]/.test(lower);
   const reasoning =
     lower.includes("gpt-oss") ||
     lower.includes("deepseek-r1") ||
