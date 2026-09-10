@@ -1882,7 +1882,11 @@ export function resetTaskSession(taskId: string): void {
   patchTask(taskId, { status: "idle", error: null });
 }
 
-/** Stop a bot task and remove its persisted conversation before the next reply. */
+/**
+ * Stop a bot task and remove its persisted conversation before the next reply.
+ * Only the Bot's own turn is stopped: an outstanding Code request keeps running and reports into the
+ * fresh conversation (its payload carries the original request text), so a reset is not a cancel.
+ */
 export async function resetTaskConversation(taskId: string): Promise<TaskSummary> {
   const task = getTask(taskId);
   if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });

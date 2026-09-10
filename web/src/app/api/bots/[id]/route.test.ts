@@ -128,6 +128,24 @@ describe("PATCH /api/bots/[id]", () => {
     );
   });
 
+  it("resets the whole conversation only for resetMessages, and re-reads the session for a SOUL edit", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    mocks.patchBot.mockReturnValue(bot());
+
+    const reset = await PATCH(jsonRequest({ resetMessages: true }), params("one"));
+    expect(reset.status).toBe(200);
+    expect(mocks.resetTaskConversation).toHaveBeenCalledWith("bot:one");
+    expect(mocks.resetTaskSession).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    mocks.getBot.mockReturnValue(bot());
+    mocks.patchBot.mockReturnValue(bot());
+    const soul = await PATCH(jsonRequest({ soul: "Be precise" }), params("one"));
+    expect(soul.status).toBe(200);
+    expect(mocks.resetTaskSession).toHaveBeenCalledWith("bot:one");
+    expect(mocks.resetTaskConversation).not.toHaveBeenCalled();
+  });
+
   it("applies the model through the same live-session validation", async () => {
     mocks.getBot.mockReturnValue(bot());
     mocks.setTaskModel.mockResolvedValue({ thinkingLevel: "high" });
