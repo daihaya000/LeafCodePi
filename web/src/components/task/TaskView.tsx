@@ -522,9 +522,8 @@ export const TaskView = memo(function TaskView({
     baselineUserCount: number;
   } | null>(null);
   const [models, setModels] = useState<ModelOption[]>(() => readCachedModels() ?? []);
-  const [modelsLoading, setModelsLoading] = useState(
-    () => (readCachedModels()?.length ?? 0) === 0,
-  );
+  // キャッシュ hit なら loading を立てず、裏で /api/models を再検証する。
+  const [modelsLoading, setModelsLoading] = useState(() => models.length === 0);
   const [modelSelection, setModelSelection] = useState("");
   const modelChangeRef = useRef(0);
   const [autoOptimizeMode, setAutoOptimizeMode] = useState<AutoOptimizeMode>(

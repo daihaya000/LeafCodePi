@@ -11,7 +11,7 @@ vi.mock("@/components/task/PartView", () => ({ PartView: mocks.partView, Working
 vi.mock("@/components/shell/TaskPanesContext", () => ({ useTaskPanes: () => ({ iconFor: () => null, botFor: mocks.botFor }) }));
 
 import { TaskView } from "./TaskView";
-import { clearCachedModels } from "@/lib/models-cache";
+import { clearCachedModels, writeCachedModels } from "@/lib/models-cache";
 
 const task: TaskSummary = {
   id: "draft-task", projectId: null, projectName: "test", title: "draft test", directory: "",
@@ -419,6 +419,48 @@ describe("TaskView draft submission", () => {
     );
     expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model A");
     expect(screen.getByRole("button", { name: "モデル" }).textContent).not.toContain("Auto");
+  });
+
+  it("shows the cached model immediately without waiting for /api/models", async () => {
+    const modelTask = {
+      ...task,
+      providerID: "provider",
+      modelID: "a",
+      thinkingLevel: "off" as const,
+    };
+    const models = [
+      {
+        value: "provider::a",
+        label: "Model A",
+        providerID: "provider",
+        modelID: "a",
+      },
+    ];
+    let resolveModels!: (value: { models: typeof models }) => void;
+    const pendingModels = new Promise<{ models: typeof models }>((done) => {
+      resolveModels = done;
+    });
+    writeCachedModels(models);
+    saveTaskSessionCache({ task: modelTask, messages: [], isStreaming: false, isCompacting: false });
+    mocks.getJson.mockImplementation((url: string) => {
+      if (url === "/api/models") return pendingModels;
+      if (url === "/api/agents") return Promise.resolve({ agents: [] });
+      if (url === "/api/skills") return Promise.resolve({ skills: [] });
+      if (url === "/api/accounts") return Promise.resolve({ accounts: [] });
+      return Promise.resolve({});
+    });
+
+    render(<TaskView taskId={task.id} mdUp />);
+    const trigger = screen.getByRole("button", { name: "モデル" });
+    expect(trigger.hasAttribute("disabled")).toBe(false);
+    expect(trigger.textContent).toContain("Model A");
+    expect(trigger.textContent).not.toContain("読み込み中");
+    expect(trigger.textContent).not.toContain("モデルなし");
+
+    await act(async () => {
+      resolveModels({ models });
+    });
+    expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model A");
   });
 
   it("does not inherit Composer Auto agent default for a concrete-agent task", async () => {
