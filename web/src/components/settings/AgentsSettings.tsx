@@ -86,7 +86,8 @@ const AGENT_DEFAULT_TOOL_NAMES = [
 ] as const;
 
 function emptyDraft(): AgentDraft {
-  return { name: "", description: "", tools: ["read", "grep", "find", "ls"], systemPrompt: "" };
+  // Omit tools so new agents inherit pi defaults (same as package agents with tools unset).
+  return { name: "", description: "", systemPrompt: "" };
 }
 
 function modelSelectionValue(model: string | undefined, options: readonly ModelOption[]): string {
@@ -484,10 +485,15 @@ function AgentEditor({
         busy={busy}
         onChange={(model) => setDraft({ ...draft, model: model ?? undefined })}
       />
-      <Field
-        label="Effort（off/minimal/low/medium/high/xhigh/max、falseで無効）"
-        value={draft.thinking === false ? "false" : draft.thinking ?? ""}
-        onChange={(v) => setDraft({ ...draft, thinking: v.trim() === "false" ? false : v })}
+      <AgentEffortPicker
+        name={draft.name || "新規エージェント"}
+        value={draft.thinking}
+        levels={effortLevelsFor(draft.model, models, draft.thinking)}
+        busy={busy}
+        onChange={(thinking) => setDraft({
+          ...draft,
+          thinking: thinking === null ? undefined : thinking,
+        })}
       />
       <AgentToolsSettings
         name={draft.name || "新規エージェント"}

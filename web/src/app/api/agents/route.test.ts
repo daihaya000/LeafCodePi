@@ -121,4 +121,15 @@ describe("POST /api/agents", () => {
     expect(response.status).toBe(400);
     expect(mocks.createAgent).not.toHaveBeenCalled();
   });
+
+  it("preserves an explicit empty tools allowlist when creating", async () => {
+    const response = await POST(
+      request({ name: "blocked", systemPrompt: "No tools.", tools: [] }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "blocked", tools: [] }),
+    );
+  });
 });

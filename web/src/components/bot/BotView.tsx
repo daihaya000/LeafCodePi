@@ -171,6 +171,17 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     setSettingsOpen(saved);
     setCodePanelOpen(false);
   }, [id]);
+  // Drop the previous bot's transcript/overlays immediately; SSE will refill for the new id.
+  useEffect(() => {
+    setMessages([]);
+    setPermission(null);
+    setQuestion(null);
+    setSending(false);
+    setError(null);
+    setPrompt("");
+    setAttachments([]);
+    setRoutines([]);
+  }, [id]);
   const updateSettingsOpen = (open: boolean) => {
     settingsOpenRef.current = open;
     setSettingsOpen(open);

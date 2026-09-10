@@ -133,12 +133,19 @@ it("ignores a stale SSE snapshot after switching ids", async () => {
   });
   const view = render(<ShellProvider><BotView id="one" /></ShellProvider>);
   await screen.findByRole("heading", { name: "One" });
+  const liveSnapshot = TestSource.instances[0]?.listeners.get("snapshot");
+  if (!liveSnapshot) throw new Error("Initial SSE snapshot listener was not registered");
+  await act(async () => {
+    liveSnapshot({ data: JSON.stringify({ messages: [{ id: "old", role: "assistant", createdAt: 1, parts: [{ type: "text", id: "t", text: "old reply" }] }] }) });
+  });
+  expect(screen.getByText("old reply")).toBeTruthy();
   view.rerender(<ShellProvider><BotView id="two" /></ShellProvider>);
   await screen.findByRole("heading", { name: "Two" });
+  expect(screen.queryByText("old reply")).toBeNull();
   const staleSnapshot = TestSource.instances[0]?.listeners.get("snapshot");
   if (!staleSnapshot) throw new Error("Initial SSE snapshot listener was not registered");
   await act(async () => {
-    staleSnapshot({ data: JSON.stringify({ messages: [{ id: "old", role: "assistant", createdAt: 1, parts: [{ type: "text", text: "old reply" }] }] }) });
+    staleSnapshot({ data: JSON.stringify({ messages: [{ id: "old", role: "assistant", createdAt: 1, parts: [{ type: "text", id: "t", text: "old reply" }] }] }) });
   });
   expect(screen.queryByText("old reply")).toBeNull();
 });

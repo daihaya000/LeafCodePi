@@ -330,6 +330,13 @@ describe("AgentsSettings", () => {
     expect(document.activeElement).toBe(nameInput);
     expect(editorHeading.compareDocumentPosition(list!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
 
+    // New drafts omit tools so the UI shows pi defaults instead of a 4-tool allowlist.
+    const editor = editorHeading.closest("section");
+    expect(editor).not.toBeNull();
+    expect(within(editor!).getByText(/未指定のエージェントは既定のツールを表示しています/)).toBeTruthy();
+    expect((within(editor!).getByRole("checkbox", { name: "新規エージェント のwrite" }) as HTMLInputElement).checked).toBe(true);
+    expect(within(editor!).getByRole("button", { name: "新規エージェント のEffort" })).toBeTruthy();
+
     const autoHeading = screen.getByRole("heading", { name: "Autoエージェント" });
     expect(list!.compareDocumentPosition(autoHeading) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
 

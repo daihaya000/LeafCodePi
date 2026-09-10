@@ -91,7 +91,10 @@ function normalize(draft: AgentDraft): AgentDraft {
     name: draft.name.trim(),
     description: draft.description?.trim() || undefined,
     aliases: toArray(draft.aliases),
-    tools: toArray(draft.tools),
+    // Preserve explicit empty allowlists; toArray([]) would erase deny-all into "use defaults".
+    tools: draft.tools === undefined
+      ? undefined
+      : [...new Set(draft.tools.map((tool) => tool.trim()).filter(Boolean))],
     fallbackModels: toArray(draft.fallbackModels),
     systemPrompt: draft.systemPrompt,
   };

@@ -1,5 +1,18 @@
 # MEMORY
 
+## 2026-09-10: バグハント継続 — Bot切替残留 / agents tools・Effort
+
+### 修正
+1. **HIGH**: Bot 切替で前会話が残る → `id` 変更時に messages/permission/question 等をクリア（[Hunt next medium bugs](9da25c68)）
+2. **MED**: POST create の `toArray([])` が空 tools を消す → 空配列を保持
+3. **MED**: `emptyDraft` の4ツール明示 allowlist が既定表示と不一致 → tools 未指定に変更（[Find and prove one bug](14fcb708)）
+4. **MED**: 編集画面の Effort 自由入力 → `AgentEffortPicker` に統一（API 側検証は既存）
+
+### 検証
+BotView.code 20 / agents route 12 / AgentsSettings 13 PASS
+
+---
+
 ## 2026-09-10: バグハント継続 tick — attention contentKey churn
 
 ### 根本原因
