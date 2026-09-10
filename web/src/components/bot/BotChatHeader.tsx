@@ -39,7 +39,10 @@ export function BotChatHeader({
   const visibleMembers = [...members].sort((left, right) => memberWeight(right) - memberWeight(left)).slice(0, 3);
   const extraCount = Math.max(0, members.length - visibleMembers.length);
   return (
-    <header className="flex h-[3.75rem] shrink-0 items-center gap-2 border-b border-bot-outline bg-bot-chat px-4">
+    <header
+      className="flex min-h-[3.75rem] shrink-0 items-center gap-2 border-b border-bot-outline bg-bot-chat px-4"
+      style={{ paddingTop: "env(safe-area-inset-top)" }}
+    >
       <MobileMenuButton />
       <Link href="/bots" aria-label="ボット一覧へ戻る" className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-text md:hidden">
         <ArrowLeft className="h-4 w-4" />

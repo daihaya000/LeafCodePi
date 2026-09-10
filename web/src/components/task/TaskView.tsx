@@ -2442,7 +2442,7 @@ export const TaskView = memo(function TaskView({
             aria-checked={titleAutoUpdateEnabled}
             aria-label="タイトルの自動更新"
             title={`タイトルの自動更新: ${titleAutoUpdateEnabled ? "ON" : "OFF"}`}
-            className={cx("h-11 w-11 md:h-9 md:w-9", titleAutoUpdateEnabled && "text-accent!")}
+            className={cx("hidden md:inline-flex h-11 w-11 md:h-9 md:w-9", titleAutoUpdateEnabled && "text-accent!")}
             disabled={!task || archived || titleBusy}
             onClick={() => void toggleTitleAutoUpdate()}
           >
