@@ -67,12 +67,12 @@ const jsonRequest = (body: unknown): Request =>
 describe("GET /api/bots/[id]", () => {
   it("returns the bot or 404", async () => {
     mocks.getBot.mockReturnValue(bot());
-    const found = await GET(new Request("http://localhost/api/bots/one"), params("one"));
+    const found = await GET(emptyRequest(), params("one"));
     expect(found.status).toBe(200);
     expect((await found.json()).bot.id).toBe("one");
 
     mocks.getBot.mockReturnValue(undefined);
-    const missing = await GET(new Request("http://localhost/api/bots/one"), params("one"));
+    const missing = await GET(emptyRequest(), params("one"));
     expect(missing.status).toBe(404);
   });
 });
@@ -128,7 +128,7 @@ describe("PATCH /api/bots/[id]", () => {
 
 describe("DELETE /api/bots/[id]", () => {
   it("destroys bot tasks, deletes the bot, and returns ok", async () => {
-    mocks.listTasks.mockReturnValue([{ id: "bot-task", botId: "one" }]);
+    mocks.listTasks.mockReturnValue([{ id: "bot-task", botId: "one" }] as never);
     mocks.deleteBot.mockReturnValue(true);
     const response = await DELETE(emptyRequest(), params("one"));
     expect(response.status).toBe(200);
