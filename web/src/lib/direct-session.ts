@@ -10,6 +10,8 @@ import {
 } from "@/lib/direct-generation-text";
 
 const MAX_SESSION_FILE_BYTES = 4_000_000;
+/** 会話キャッシュの上限。超過時は最も古いエントリから追い出す（Map は挿入順）。 */
+const CONVERSATION_CACHE_MAX_ENTRIES = 128;
 
 type SessionConversationCacheEntry = {
   mtimeMs: number;
@@ -18,6 +20,20 @@ type SessionConversationCacheEntry = {
 };
 
 const conversationCache = new Map<string, SessionConversationCacheEntry>();
+
+function cacheConversation(
+  sessionFile: string,
+  entry: SessionConversationCacheEntry,
+): void {
+  if (
+    conversationCache.size >= CONVERSATION_CACHE_MAX_ENTRIES &&
+    !conversationCache.has(sessionFile)
+  ) {
+    const oldest = conversationCache.keys().next().value;
+    if (oldest !== undefined) conversationCache.delete(oldest);
+  }
+  conversationCache.set(sessionFile, entry);
+}
 
 /** Read a persisted Pi session without opening a writable SessionManager. */
 export function readSessionConversation(sessionFile: string | null | undefined): ConversationMessage[] {
@@ -33,7 +49,11 @@ export function readSessionConversation(sessionFile: string | null | undefined):
     migrateSessionEntries(entries);
     const sessionEntries = entries.filter((entry) => entry.type !== "session");
     const conversation = conversationFromPiMessages(buildSessionContext(sessionEntries).messages);
-    conversationCache.set(sessionFile, { mtimeMs: stats.mtimeMs, size: stats.size, conversation });
+    cacheConversation(sessionFile, {
+      mtimeMs: stats.mtimeMs,
+      size: stats.size,
+      conversation,
+    });
     return conversation;
   } catch {
     conversationCache.delete(sessionFile);
