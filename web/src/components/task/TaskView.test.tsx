@@ -418,6 +418,23 @@ describe("TaskView draft submission", () => {
     expect(screen.getByRole("button", { name: "モデル" }).textContent).not.toContain("Auto");
   });
 
+  it("does not inherit Composer Auto agent default for a concrete-agent task", async () => {
+    const agentTask = { ...task, agent: "build" };
+    localStorage.setItem("leafcodepi.defaultAgent", "__auto__");
+    saveTaskSessionCache({ task: agentTask, messages: [], isStreaming: false, isCompacting: false });
+    mocks.getJson.mockResolvedValue({
+      models: [],
+      agents: [{ name: "build", description: "Build", enabled: true }],
+      skills: [],
+      accounts: [],
+    });
+
+    render(<TaskView taskId={task.id} mdUp />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "エージェント" })).toBeTruthy());
+    expect(screen.getByRole("button", { name: "エージェント" }).textContent).toContain("build");
+    expect(screen.getByRole("button", { name: "エージェント" }).textContent).not.toMatch(/\bAuto\b/);
+  });
+
   it("preserves a new draft while starting a goal loop", async () => {
     let resolve!: (value: unknown) => void;
     mocks.sendJson.mockReturnValue(new Promise((done) => { resolve = done; }));

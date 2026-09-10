@@ -597,7 +597,14 @@ export const TaskView = memo(function TaskView({
     () => cachedSession?.agent?.trim() || DEFAULT_AGENT,
   );
   const [agentSelection, setAgentSelection] = useState(
-    () => readStoredAgent() || cachedSession?.agent?.trim() || DEFAULT_AGENT,
+    // Composer 既定の Auto は既存タスクへ持ち込まない。明示選択時だけ Auto を維持する。
+    () => {
+      const stored = readStoredAgent();
+      if (stored === AUTO_AGENT_VALUE) {
+        return cachedSession?.agent?.trim() || DEFAULT_AGENT;
+      }
+      return stored || cachedSession?.agent?.trim() || DEFAULT_AGENT;
+    },
   );
   const [agentChanging, setAgentChanging] = useState(false);
   const [accountLabels, setAccountLabels] = useState<Map<string, string>>(new Map());
@@ -1314,11 +1321,8 @@ export const TaskView = memo(function TaskView({
     setPermissionMode(cached?.permissionMode ?? readPermissionMode());
     const nextAgent = cached?.agent?.trim() || DEFAULT_AGENT;
     setAgent(nextAgent);
-    setAgentSelection((current) =>
-      current === AUTO_AGENT_VALUE || readStoredAgent() === AUTO_AGENT_VALUE
-        ? AUTO_AGENT_VALUE
-        : nextAgent,
-    );
+    // タスク切替時は当該タスクの agent を表示。Composer 既定 Auto や前タスクの Auto は引き継がない。
+    setAgentSelection(nextAgent);
     autoResumeKeyRef.current = null;
     messageElsRef.current.clear();
     navigationMessageIdsRef.current = [];
