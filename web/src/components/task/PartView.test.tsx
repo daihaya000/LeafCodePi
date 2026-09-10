@@ -358,6 +358,9 @@ describe("PartView diagnostics", () => {
 
     const details = screen.getByText("診断情報 (1)").closest("details");
     expect(details?.hasAttribute("open")).toBe(false);
+    const error = screen.getByRole("alert");
+    expect(error.className).toContain("max-w-bubble");
+    expect(error.className).toContain("self-start");
     expect(screen.getByText("fetch failed")).toBeTruthy();
     expect(screen.getByText("provider_transport_failure")).toBeTruthy();
     expect(screen.getByText("transport: auto")).toBeTruthy();
