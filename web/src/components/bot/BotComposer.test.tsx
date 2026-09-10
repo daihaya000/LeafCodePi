@@ -101,6 +101,28 @@ it("does not confirm a suggestion while IME is composing", () => {
   expect(input.value).toBe("/skill:r");
 });
 
+it("does not confirm a suggestion on IME keyCode 229 without compositionStart", () => {
+  // compositionStart 欠落時も isImeComposingEvent(keyCode 229) で候補確定を抑止する。
+  function ReferenceComposer() {
+    const [value, setValue] = useState("/skill:r");
+    return <BotComposer
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onValueChange={setValue}
+      onKeyDown={vi.fn()}
+      onSend={vi.fn()}
+      placeholder="Message"
+      references={{ skills: [{ name: "review", description: "Review changes" }] }}
+    />;
+  }
+
+  render(<ReferenceComposer />);
+  const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+  input.focus();
+  fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+  expect(input.value).toBe("/skill:r");
+});
+
 it("inserts an at-agent reference and a Japanese skill name", () => {
   function ReferenceComposer() {
     const [value, setValue] = useState("");
