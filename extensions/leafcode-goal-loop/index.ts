@@ -92,6 +92,8 @@ const TERMINAL = new Set<GoalLoopStatus>(["completed", "blocked", "stopped"]);
 const runtimes = new Map<string, Runtime>();
 /** Test-only override for the in-flight turn watchdog. */
 let turnTimeoutMsForTests: number | undefined;
+/** Test-only override for atomic state rename. */
+let renameSyncForTests: ((temp: string, file: string) => void) | undefined;
 
 function isActiveRuntime(runtime: Runtime): boolean {
   return !runtime.disposed && runtimes.get(runtime.key) === runtime;
@@ -99,6 +101,10 @@ function isActiveRuntime(runtime: Runtime): boolean {
 
 function turnTimeoutMs(): number {
   return turnTimeoutMsForTests ?? TURN_TIMEOUT_MS;
+}
+
+function renameGoalState(temp: string, file: string): void {
+  (renameSyncForTests ?? fs.renameSync)(temp, file);
 }
 
 type GoalLoopTurnRoutingContext = ExtensionContext & {
@@ -346,17 +352,19 @@ function writeLoop(loop: GoalLoop): void {
   // リトライで吸収し、それでも競合する場合は非原子的だが確実な上書きで落とす。
   for (let attempt = 0; ; attempt += 1) {
     try {
-      fs.renameSync(temp, file);
+      renameGoalState(temp, file);
       return;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException | undefined)?.code;
       const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
       if (attempt >= 4 || !transient) {
+        // Leave no orphaned *.tmp even when falling back to a direct overwrite.
         fs.rmSync(temp, { force: true });
         fs.writeFileSync(file, content, "utf8");
         return;
       }
-      const until = Date.now() + 50 * (attempt + 1);
+      // 25+50+75+100ms = 250ms total before the overwrite fallback.
+      const until = Date.now() + 25 * (attempt + 1);
       while (Date.now() < until) {
         // writeLoopは同期API。イベントループを長く塞がないよう最大250msまで。
       }
@@ -1626,5 +1634,8 @@ export const goalLoopTestSeams = {
   parseCooldownSeconds,
   setTurnTimeoutMs(ms?: number) {
     turnTimeoutMsForTests = typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? ms : undefined;
+  },
+  setRenameSync(fn?: (temp: string, file: string) => void) {
+    renameSyncForTests = fn;
   },
 };

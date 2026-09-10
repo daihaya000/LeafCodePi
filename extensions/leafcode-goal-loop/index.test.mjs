@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -202,6 +202,70 @@ test("completes a turn-limited loop and allows a new loop", async () => {
     assert.ok(restarted.status === "queued" || restarted.status === "running");
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("writeLoop retries transient rename failures and cleans temp on fallback", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-write-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const goalsDir = join(cwd, "goals-loop");
+  const loop = {
+    id: "write-session",
+    sessionId: "write-session",
+    cwd,
+    status: "queued",
+    goal: "demo",
+    acceptance: [],
+    maxTurns: 1,
+    cooldownSeconds: 0,
+    nextTurnAt: null,
+    forceFullRun: true,
+    turnCount: 0,
+    turnKind: "goal",
+    pauseReason: "",
+    error: "",
+    progress: [],
+    summary: "",
+    evidence: "",
+    blockedReason: "",
+    rejectedClaims: 0,
+    unreadableStreak: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    let attempts = 0;
+    goalLoopTestSeams.setRenameSync((temp, file) => {
+      attempts += 1;
+      if (attempts < 3) {
+        const err = new Error("locked");
+        err.code = "EPERM";
+        throw err;
+      }
+      writeFileSync(file, readFileSync(temp, "utf8"), "utf8");
+      rmSync(temp, { force: true });
+    });
+    applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "after retry" });
+    assert.equal(attempts, 3);
+    assert.equal(JSON.parse(readFileSync(join(goalsDir, "write-session.json"), "utf8")).summary, "after retry");
+    assert.equal(readdirSync(goalsDir).some((name) => name.endsWith(".tmp")), false);
+
+    attempts = 0;
+    goalLoopTestSeams.setRenameSync(() => {
+      attempts += 1;
+      const err = new Error("still locked");
+      err.code = "EBUSY";
+      throw err;
+    });
+    applyResult(loop, { time: new Date().toISOString(), status: "progress", summary: "fallback write" });
+    assert.equal(attempts, 5);
+    assert.equal(JSON.parse(readFileSync(join(goalsDir, "write-session.json"), "utf8")).summary, "fallback write");
+    assert.equal(readdirSync(goalsDir).some((name) => name.endsWith(".tmp")), false);
+    assert.equal(existsSync(join(goalsDir, "write-session.json")), true);
+  } finally {
+    goalLoopTestSeams.setRenameSync();
     rmSync(cwd, { recursive: true, force: true });
   }
 });
