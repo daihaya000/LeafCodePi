@@ -681,6 +681,75 @@ test("compose notifies when startLoop fails to persist", async () => {
   }
 });
 
+test("pause/stop/input do not claim success when writeLoop fails", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-action-write-fail-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  const notifies = [];
+  let busy = false;
+  let sendCount = 0;
+  let abortCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "action-write-fail-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { abortCount += 1; busy = false; },
+    sessionManager: {
+      getSessionId: () => "action-write-fail-session",
+      getBranch: () => [],
+    },
+    ui: {
+      setStatus: () => {},
+      setWidget: () => {},
+      notify(message, level) { notifies.push({ message, level }); },
+    },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sendCount === 1 && JSON.parse(readFileSync(stateFile(), "utf8")).status === "running");
+
+    goalLoopTestSeams.setWriteLoopFail(true);
+    notifies.length = 0;
+    abortCount = 0;
+    await commands.get("goal-pause")?.("", ctx);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).status, "running");
+    assert.equal(abortCount, 0);
+    assert.ok(notifies.some((item) => item.level === "error" && /一時停止状態の保存に失敗/.test(item.message)));
+    assert.equal(notifies.some((item) => /一時停止しました/.test(item.message)), false);
+
+    notifies.length = 0;
+    abortCount = 0;
+    await handlers.get("input")?.({ text: "割り込み", source: "user" }, ctx);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).status, "running");
+    assert.equal(abortCount, 0);
+    assert.ok(notifies.some((item) => item.level === "error" && /手動入力を検知しましたが状態の保存に失敗/.test(item.message)));
+
+    notifies.length = 0;
+    await commands.get("goal-stop")?.("", ctx);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).status, "running");
+    assert.ok(notifies.some((item) => item.level === "error" && /停止状態の保存に失敗/.test(item.message)));
+    assert.equal(notifies.some((item) => /停止しました/.test(item.message)), false);
+  } finally {
+    goalLoopTestSeams.setWriteLoopFail(false);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("resume recovery writeLoop failure does not double-apply transcript JSON", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-resume-write-fail-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

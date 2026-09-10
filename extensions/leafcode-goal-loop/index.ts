@@ -997,9 +997,9 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
   if (updated.status === "queued" || updated.status === "verifying_completed") schedule(runtime);
 }
 
-function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error = "ユーザーが一時停止しました。"): void {
+function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error = "ユーザーが一時停止しました。"): boolean {
   const loop = currentLoop(runtime);
-  if (!loop || TERMINAL.has(loop.status)) return;
+  if (!loop || TERMINAL.has(loop.status)) return false;
   const pending = runtime.awaitingTurn;
   const pendingIndex = runtime.awaitingTurnIndex;
   // Survive process restart: in-memory pausedTurnPending alone is not enough.
@@ -1010,7 +1010,7 @@ function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error
   loop.nextTurnAt = null;
   // Persist before dropping awaitingTurn. A failed write must not strand disk as
   // running while runtime thinks the turn is already paused/settled.
-  if (!writeLoop(loop)) return;
+  if (!writeLoop(loop)) return false;
   runtime.pausedTurnPending = pending;
   runtime.pausedTurnIndex = pendingIndex;
   // Keep agent_end evidence when pausing mid-turn so agent_settled can still
@@ -1021,11 +1021,12 @@ function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error
   runtime.awaitingTurnIndex = undefined;
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
+  return true;
 }
 
-function stopLoop(runtime: Runtime): void {
+function stopLoop(runtime: Runtime): boolean {
   const loop = currentLoop(runtime);
-  if (!loop || TERMINAL.has(loop.status)) return;
+  if (!loop || TERMINAL.has(loop.status)) return false;
   // Capture before clearing: abort can make isIdle() true immediately, so a
   // replacement startLoop may send the next turn before trailing agent_end.
   const hadInflightAgent =
@@ -1035,7 +1036,7 @@ function stopLoop(runtime: Runtime): void {
   loop.error = "";
   loop.pendingTurnRecovery = false;
   loop.nextTurnAt = null;
-  if (!writeLoop(loop)) return;
+  if (!writeLoop(loop)) return false;
   clearTimer(runtime);
   runtime.awaitingTurn = false;
   runtime.pausedTurnPending = false;
@@ -1050,6 +1051,7 @@ function stopLoop(runtime: Runtime): void {
   } catch {
     // The engine may already be settled.
   }
+  return true;
 }
 
 function completeLoop(runtime: Runtime): boolean {
@@ -1561,8 +1563,11 @@ function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "c
   if (action === "pause") {
     const loop = currentLoop(runtime);
     if (!loop) runtime.ctx.ui.notify("Goal loop はありません。", "info");
-    else {
-      pauseLoop(runtime);
+    else if (TERMINAL.has(loop.status)) {
+      runtime.ctx.ui.notify("Goal loop は既に終了しています。", "info");
+    } else if (!pauseLoop(runtime)) {
+      runtime.ctx.ui.notify("一時停止状態の保存に失敗しました。再試行してください。", "error");
+    } else {
       try {
         if (!runtime.ctx.isIdle()) runtime.ctx.abort();
       } catch {
@@ -1573,8 +1578,15 @@ function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "c
     return;
   }
   if (action === "stop") {
-    stopLoop(runtime);
-    runtime.ctx.ui.notify("Goal loop を停止しました。", "info");
+    const loop = currentLoop(runtime);
+    if (!loop) runtime.ctx.ui.notify("Goal loop はありません。", "info");
+    else if (TERMINAL.has(loop.status)) {
+      runtime.ctx.ui.notify("Goal loop は既に終了しています。", "info");
+    } else if (!stopLoop(runtime)) {
+      runtime.ctx.ui.notify("停止状態の保存に失敗しました。再試行してください。", "error");
+    } else {
+      runtime.ctx.ui.notify("Goal loop を停止しました。", "info");
+    }
     return;
   }
   if (action === "complete") {
@@ -1744,7 +1756,12 @@ export default function (pi: ExtensionAPI): void {
     if (/^\/(?:goal|goal-status|goal-pause|goal-resume|goal-stop|goal-complete|goal-compose)(?:\s|$)/i.test(event.text)) return;
     const loop = currentLoop(current);
     if (loop && (loop.status === "queued" || loop.status === "running" || loop.status === "verifying_completed")) {
-      pauseLoop(current, "manual_send", "手動入力が行われたため一時停止しました。/goal-resume で再開できます。");
+      // Only abort after a durable pause. Aborting on a failed write leaves disk
+      // active while the engine is torn down mid-turn.
+      if (!pauseLoop(current, "manual_send", "手動入力が行われたため一時停止しました。/goal-resume で再開できます。")) {
+        current.ctx.ui.notify("手動入力を検知しましたが状態の保存に失敗しました。", "error");
+        return;
+      }
       try {
         if (!ctx.isIdle()) ctx.abort();
       } catch {
