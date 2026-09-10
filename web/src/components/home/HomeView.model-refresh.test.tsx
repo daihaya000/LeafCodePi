@@ -196,4 +196,22 @@ describe("HomeView model refresh", () => {
     expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model A");
     expect(screen.getByRole("button", { name: "思考レベル" })).toBeTruthy();
   });
+
+  it("does not send on Ctrl+Enter with IME keyCode 229", async () => {
+    // compositionStart 欠落時も isImeComposingEvent(keyCode 229) で送信を抑止する。
+    const pending = deferred<{ models: ModelOption[] }>();
+    modelResponses.push(pending.promise);
+    mocks.sendJson.mockResolvedValue({ task: { id: "task-1" } });
+
+    render(<HomeView initialNoProject />);
+    await act(async () => {
+      pending.resolve({ models: [model("provider::model-a", "Model A")] });
+    });
+
+    const input = screen.getByRole("textbox", { name: "タスクの説明" }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "draft prompt" } });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true, keyCode: 229 });
+    expect(mocks.sendJson).not.toHaveBeenCalled();
+    expect(input.value).toBe("draft prompt");
+  });
 });
