@@ -501,9 +501,13 @@ function countRunningTasks(tasks: TaskSummary[]): number {
   return tasks.filter((task) => task.status === "working").length;
 }
 
-/** 最新の更新時刻順に表示する（同時刻は元の順序を保つ）。 */
+/** 進行中を優先し、各状態では最新の更新時刻順に表示する。 */
 export function tasksForSidebar(tasks: TaskSummary[]): TaskSummary[] {
-  return [...tasks].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return [...tasks].sort(
+    (a, b) =>
+      Number(b.status === "working") - Number(a.status === "working") ||
+      b.updatedAt.localeCompare(a.updatedAt),
+  );
 }
 
 /** API が新しい順に返すプロジェクト内の、最新の進行中タスクを返す。 */

@@ -82,7 +82,7 @@ describe("sameTaskList", () => {
 });
 
 describe("tasksForSidebar", () => {
-  it("places the most recently updated conversations first", () => {
+  it("prioritizes working conversations, then sorts each group by latest update", () => {
     const tasks: TaskSummary[] = [
       { ...task("t1", "idle", "アイドル"), updatedAt: "2026-01-01T00:04:00.000Z" },
       { ...task("t2", "working", "進行中A"), updatedAt: "2026-01-01T00:01:00.000Z" },
@@ -90,10 +90,10 @@ describe("tasksForSidebar", () => {
       { ...task("t4", "working", "進行中B"), updatedAt: "2026-01-01T00:02:00.000Z" },
     ];
     expect(tasksForSidebar(tasks).map((item) => item.title)).toEqual([
-      "アイドル",
-      "エラー",
       "進行中B",
       "進行中A",
+      "アイドル",
+      "エラー",
     ]);
   });
 
