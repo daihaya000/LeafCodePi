@@ -74,6 +74,11 @@ export async function POST(
     reconcileOrphanedWorkingTasks();
       const bot = getBot(id);
       if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
+      // The Bot's tool policy owns Code delegation: "すべて拒否" must refuse the panel start too, the
+      // same way the code_session tool refuses it, instead of creating a denied Code task.
+      if (bot.permissionMode === "deny") {
+        return NextResponse.json({ error: "ツール権限が「すべて拒否」のボットはCodeを起動できません" }, { status: 403 });
+      }
       const body = (await req.json().catch(() => null)) as {
         projectId?: unknown;
         prompt?: unknown;
@@ -187,6 +192,10 @@ export async function PATCH(
       if (body?.action === "prompt") {
         if (typeof body.prompt !== "string" || !body.prompt.trim()) {
           return NextResponse.json({ error: "prompt is required" }, { status: 400 });
+        }
+        // Continuing a Code session is delegation too: a Bot that denies everything must not drive it.
+        if (bot.permissionMode === "deny") {
+          return NextResponse.json({ error: "ツール権限が「すべて拒否」のボットはCodeを起動できません" }, { status: 403 });
         }
         return NextResponse.json({ task: await continueBotCodeTask(id, taskId, body.prompt.trim()) });
       }

@@ -85,6 +85,18 @@ describe("Bot Code session control", () => {
     expect(mocks.patchBot).not.toHaveBeenCalledWith("bot-1", { codeSessionTaskId: "code-1" });
   });
 
+  it("refuses a panel start for a Bot whose tool policy denies everything", async () => {
+    mocks.getBot.mockReturnValue({ ...bot, permissionMode: "deny" });
+
+    const response = await POST(request("POST", { projectId: null, prompt: "起動" }), {
+      params: Promise.resolve({ id: "bot-1" }),
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: "ツール権限が「すべて拒否」のボットはCodeを起動できません" });
+    expect(mocks.createBotCodeTask).not.toHaveBeenCalled();
+  });
+
   it("starts a new Code task without a project", async () => {
     const response = await POST(request("POST", { projectId: null, prompt: "調査して" }), {
       params: Promise.resolve({ id: "bot-1" }),
@@ -155,6 +167,18 @@ describe("Bot Code session control", () => {
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({ error: "アーカイブ済みのプロジェクトではCodeセッションを起動できません" });
     expect(mocks.createBotCodeTask).not.toHaveBeenCalled();
+  });
+
+  it("does not drive a Code session when the Bot denies all tools", async () => {
+    mocks.getBot.mockReturnValue({ ...bot, codeSessionTaskId: "code-1", permissionMode: "deny" });
+    mocks.getTask.mockReturnValue({ id: "code-1", status: "idle", botId: "bot-1" });
+
+    const response = await PATCH(request("PATCH", { action: "prompt", prompt: "続けて" }), {
+      params: Promise.resolve({ id: "bot-1" }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(mocks.continueBotCodeTask).not.toHaveBeenCalled();
   });
 
   it("clears an archived linked task", async () => {
