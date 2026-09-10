@@ -112,7 +112,8 @@ function stateLockIsStale(lockPath: string, now = Date.now()): boolean {
 			if (!currentProcessKey) return true;
 			return owner.processKey !== currentProcessKey;
 		}
-		return false;
+		// No start-key: PID liveness alone cannot detect reuse — age the lock out instead.
+		return now - owner.createdAt > STATE_LOCK_STALE_MS;
 	}
 	try {
 		return now - fs.statSync(lockPath).mtimeMs > STATE_LOCK_STALE_MS;
