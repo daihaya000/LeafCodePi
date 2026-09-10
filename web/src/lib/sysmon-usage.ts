@@ -565,7 +565,6 @@ let lastNvidiaGpu: { value: GpuMetric; at: number } | null = null;
 let lastAmdGpus: { value: GpuMetric[]; at: number } | null = null;
 
 /**
-/**
  * GPU使用率・VRAMを取得する。NVidia と AMD を並列で試し、見つかったものを全部返す。
  * 一時的な取得失敗では直近の成功値にフォールバックし、表示の点滅を防ぐ。
  */
