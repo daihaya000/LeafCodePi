@@ -71,6 +71,13 @@ describe("nextRestartProbe", () => {
     assert.equal(state.offline, true);
   });
 
+  it("reloads when a requested restart happens before the first health check", () => {
+    const requested = { ...INITIAL_RESTART_PROBE, requested: true };
+    const down = nextRestartProbe(requested, null).state;
+    assert.equal(down.offline, true);
+    assert.equal(nextRestartProbe(down, { startedAt: 200 }).reload, true);
+  });
+
   it("keeps the overlay up between a restart request and the server going down", () => {
     const requested: RestartProbeState = {
       ...INITIAL_RESTART_PROBE,

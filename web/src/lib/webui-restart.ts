@@ -44,7 +44,7 @@ export function nextRestartProbe(
     const failures = prev.failures + 1;
     // 明示要求後はダウンを待つ状態なので 1 回の失敗で確定させる。
     const offline =
-      prev.offline || (prev.connected && (prev.requested || failures >= OFFLINE_STREAK));
+      prev.offline || prev.requested || (prev.connected && failures >= OFFLINE_STREAK);
     return { state: { ...prev, failures, offline }, reload: false };
   }
   // startedAt を返さないサーバ（旧版）は判別できないので従来どおりリロードする。
