@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dataDir } from "@/lib/paths";
+import { isLoopbackHost } from "@/lib/loopback";
 
 export const DEFAULT_CONTROL_URL = "http://127.0.0.1:18775";
 
@@ -41,10 +42,8 @@ export function isLoopbackControlUrl(url: string): boolean {
     const parsed = new URL(url);
     return (
       (parsed.protocol === "http:" || parsed.protocol === "https:") &&
-      (parsed.hostname === "127.0.0.1" ||
-        parsed.hostname === "localhost" ||
-        parsed.hostname === "[::1]" ||
-        parsed.hostname === "::1")
+      // loopback.ts と同一判定（127.0.0.0/8 全体・::1 を含む）
+      isLoopbackHost(parsed.hostname)
     );
   } catch {
     return false;
