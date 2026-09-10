@@ -102,7 +102,8 @@ export function ModelSelect({
   const initialFocusRef = useRef<"selected" | "first" | "last">("selected");
   const listboxId = useId();
 
-  const selected = options.find((option) => option.value === value);
+  // exact 照合だけでは integrated / 旧アカウント接頭辞の値が「モデル」空表示になる。
+  const selected = modelOptionForValue(options, value);
   const selectedSupportsImage = modelSupportsImage(selected);
 
   // アカウント指定があれば「プロバイダ × アカウント」で枠を分ける。

@@ -144,6 +144,27 @@ describe("ModelSelect loading state", () => {
 
     expect(screen.getByText("モデル")).toBeTruthy();
   });
+
+  it("shows an integrated model label for an account-prefixed stored value", () => {
+    render(
+      <ModelSelect
+        value="acc-1::anthropic::claude"
+        options={[
+          option({
+            value: "anthropic::claude",
+            label: "Claude",
+            routingMode: "integrated",
+          }),
+        ]}
+        onChange={() => {}}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "モデル" });
+    expect(trigger.textContent).toContain("Claude");
+    expect(trigger.textContent).not.toContain("モデルなし");
+    expect(trigger.title).toContain("Claude");
+  });
 });
 
 describe("ModelSelect grouping by account", () => {
