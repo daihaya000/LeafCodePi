@@ -36,7 +36,7 @@ import { NextAction } from "@/components/task/NextAction";
 import { GraphPanel } from "@/components/task/GraphPanel";
 import { ProjectExplorerButton } from "@/components/task/ProjectExplorerButton";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
-import { ModelSelect } from "@/components/ModelSelect";
+import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { AgentSelect } from "@/components/AgentSelect";
 import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
@@ -2148,7 +2148,7 @@ export const TaskView = memo(function TaskView({
   const selectedModel =
     modelValue === AUTO_MODEL_VALUE
       ? AUTO_MODEL_OPTION
-      : models.find((option) => option.value === modelValue);
+      : modelOptionForValue(models, modelValue);
   const thinkingLevels = useMemo(
     () => selectedModel?.thinkingLevels ?? [],
     [selectedModel],

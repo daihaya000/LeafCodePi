@@ -463,6 +463,61 @@ describe("TaskView draft submission", () => {
     expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model A");
   });
 
+  it("keeps thinking levels when an account model maps to an integrated option", async () => {
+    const modelTask = {
+      ...task,
+      accountId: "acc-1",
+      providerID: "provider",
+      modelID: "a",
+      thinkingLevel: "off" as const,
+    };
+    const accountModel = {
+      value: "acc-1::provider::a",
+      label: "Model A",
+      providerID: "provider",
+      modelID: "a",
+      accountId: "acc-1",
+      thinkingLevels: ["off", "high"] as const,
+    };
+    const integratedModel = {
+      value: "provider::a",
+      label: "Model A",
+      providerID: "provider",
+      modelID: "a",
+      routingMode: "integrated" as const,
+      thinkingLevels: ["off", "high"] as const,
+    };
+    let resolveModels!: (value: { models: Array<typeof integratedModel> }) => void;
+    const pendingModels = new Promise<{ models: Array<typeof integratedModel> }>((done) => {
+      resolveModels = done;
+    });
+    writeCachedModels([accountModel]);
+    saveTaskSessionCache({ task: modelTask, messages: [], isStreaming: false, isCompacting: false });
+    mocks.sendJson.mockResolvedValue({ task: modelTask });
+    mocks.getJson.mockImplementation((url: string) => {
+      if (url === "/api/models") return pendingModels;
+      if (url === "/api/agents") return Promise.resolve({ agents: [] });
+      if (url === "/api/skills") return Promise.resolve({ skills: [] });
+      if (url === "/api/accounts") return Promise.resolve({ accounts: [] });
+      return Promise.resolve({});
+    });
+
+    render(<TaskView taskId={task.id} mdUp />);
+    expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model A");
+    expect(screen.getByRole("button", { name: "思考レベル" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "モデル" }));
+    fireEvent.click(screen.getByRole("option", { name: /Model A/ }));
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalled());
+
+    await act(async () => {
+      resolveModels({ models: [integratedModel] });
+    });
+
+    expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model A");
+    expect(screen.getByRole("button", { name: "思考レベル" })).toBeTruthy();
+  });
+
   it("does not inherit Composer Auto agent default for a concrete-agent task", async () => {
     const agentTask = { ...task, agent: "build" };
     localStorage.setItem("leafcodepi.defaultAgent", "__auto__");
