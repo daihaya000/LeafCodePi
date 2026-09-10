@@ -75,6 +75,50 @@ afterEach(() => {
   localStorage.clear();
 });
 
+describe("Bot mode list", () => {
+  it("filters bots and rooms by name and by the Bot/room filter", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots/sidebar") {
+        return Promise.resolve({
+          bots: [
+            { id: "bot-a", name: "Alpha", enabled: true, lastMessageSummary: null, lastMessageAt: null },
+            { id: "bot-b", name: "Beta", enabled: true, lastMessageSummary: null, lastMessageAt: null },
+          ],
+          rooms: [{ id: "room-a", name: "Team room", updatedAt: "", lastMessageSummary: null, lastMessageAt: null }],
+        });
+      }
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
+      if (path === "/api/tasks?archived=1") return Promise.resolve({ tasks: [] });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    const search = await screen.findByLabelText("ボットやルームを検索");
+    expect(screen.getByText("Alpha")).toBeTruthy();
+    expect(screen.getByText("Beta")).toBeTruthy();
+    expect(screen.getByText("Team room")).toBeTruthy();
+
+    // 検索は名前（大文字小文字を無視）でBotとルームを絞り込む。
+    fireEvent.change(search, { target: { value: "beta" } });
+    await waitFor(() => expect(screen.queryByText("Alpha")).toBeNull());
+    expect(screen.getByText("Beta")).toBeTruthy();
+    expect(screen.queryByText("Team room")).toBeNull();
+
+    fireEvent.change(search, { target: { value: "" } });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeTruthy());
+    // 表示対象の絞り込みは一覧ごとに切り替わる。
+    fireEvent.click(screen.getByRole("button", { name: "Bot filter" }));
+    await waitFor(() => expect(screen.queryByText("Team room")).toBeNull());
+    expect(screen.getByText("Alpha")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Room filter" }));
+    await waitFor(() => expect(screen.queryByText("Alpha")).toBeNull());
+    expect(screen.getByText("Team room")).toBeTruthy();
+  });
+});
+
 describe("Bot mode collapsed rail", () => {
   it("animates a Bot with an in-progress Code session", async () => {
     mocks.getJson.mockImplementation((path: string) => {
