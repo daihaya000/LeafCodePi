@@ -1,5 +1,15 @@
 # MEMORY
 
+## 2026-09-10: バグハント loop — RoomView SSE reconnect 積み上げ
+
+### 修正
+**MED**: RoomView `onerror` が既存 retry をキャンセルせず EventSource が多重化し得た → BotView と同型で `cancelPendingSseReconnect` / `closeSseSource` / `sseReconnectDelayMs` を使用（[Hunt fresh medium bugs](d1997ba8)）。agents POST/DELETE reload は d8bdbf0 で対応済み。
+
+### 検証
+RoomView 15 / sse-reconnect PASS
+
+---
+
 ## 2026-09-10: バグハント loop tick — Room切替残留 / agents reload
 
 ### 修正

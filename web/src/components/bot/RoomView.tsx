@@ -19,6 +19,7 @@ import { BotMessageError, BotMessageImages, BotMessageList, BotChatMessage, BotP
 import { type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { stabilizeIdentifiedList } from "@/lib/stabilize-messages";
+import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
 
 import { CodeRequestCard } from "@/components/bot/CodeRequestCard";
 
@@ -166,15 +167,18 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
 
   useEffect(() => {
     let closed = false;
-    let source: EventSource | undefined;
-    let retry: ReturnType<typeof setTimeout> | undefined;
+    let source: EventSource | null = null;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
     setAttention([]);
     const connect = () => {
       if (closed) return;
-      source?.close();
+      retry = cancelPendingSseReconnect(retry);
+      source = closeSseSource(source);
       source = new EventSource(`/api/bots/rooms/${encodeURIComponent(id)}/events?epoch=${Date.now()}`);
       source.addEventListener("snapshot", (event) => {
         if (closed) return;
+        retryCount = 0;
         try {
           const payload = JSON.parse((event as MessageEvent).data) as { room?: RoomDto; attention?: RoomAttention[] };
           if (payload.room) setRoom((current) => applyRoomSnapshot(current, payload.room!));
@@ -197,10 +201,20 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
           });
         } catch { setError("イベントの解析に失敗しました"); }
       });
-      source.onerror = () => { source?.close(); if (!closed) retry = setTimeout(connect, 1500); };
+      source.onerror = () => {
+        if (closed) return;
+        source = closeSseSource(source);
+        retry = cancelPendingSseReconnect(retry);
+        retryCount += 1;
+        retry = setTimeout(connect, sseReconnectDelayMs(retryCount));
+      };
     };
     connect();
-    return () => { closed = true; if (retry) clearTimeout(retry); source?.close(); };
+    return () => {
+      closed = true;
+      retry = cancelPendingSseReconnect(retry);
+      source = closeSseSource(source);
+    };
   }, [id]);
 
   const botById = useMemo(() => new Map(bots.map((bot) => [bot.id, bot])), [bots]);
