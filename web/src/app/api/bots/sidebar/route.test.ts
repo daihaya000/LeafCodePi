@@ -1,19 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import type { BotDto, RoomDto, TaskSummary, UiMessage } from "@/lib/types";
+import type { BotDto, RoomDto, TaskSummary } from "@/lib/types";
 
 const mocks = vi.hoisted(() => ({
   listBots: vi.fn(),
   listRooms: vi.fn(),
   getTask: vi.fn(),
   listTasks: vi.fn(),
-  getTaskDetail: vi.fn(),
+  readSessionLastMessage: vi.fn(),
   listBotCodeRequests: vi.fn(),
   botTaskId: (id: string) => `bot:${id}`,
 }));
 vi.mock("@/lib/bots", () => ({ listBots: mocks.listBots, botTaskId: mocks.botTaskId }));
 vi.mock("@/lib/rooms", () => ({ listRooms: mocks.listRooms }));
 vi.mock("@/lib/store", () => ({ getTask: mocks.getTask, listTasks: mocks.listTasks }));
-vi.mock("@/lib/pi/harness", () => ({ getTaskDetail: mocks.getTaskDetail }));
+vi.mock("@/lib/direct-session", () => ({ readSessionLastMessage: mocks.readSessionLastMessage }));
 vi.mock("@/lib/pi/bot-code-relay", () => ({ listBotCodeRequests: mocks.listBotCodeRequests }));
 
 import { GET } from "./route";
@@ -56,15 +56,9 @@ describe("GET /api/bots/sidebar", () => {
     mocks.listBots.mockReturnValue([bot("one")]);
     mocks.getTask.mockReturnValue(task("bot:one"));
     mocks.listBotCodeRequests.mockReturnValue([]);
-    mocks.getTaskDetail.mockResolvedValue({
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          createdAt: 1_700_000_000_000,
-          parts: [{ type: "text", text: "🎉".repeat(100) }],
-        } as UiMessage,
-      ],
+    mocks.readSessionLastMessage.mockReturnValue({
+      text: "🎉".repeat(100),
+      timestamp: 1_700_000_000_000,
     });
     mocks.listRooms.mockReturnValue([]);
 
@@ -75,6 +69,7 @@ describe("GET /api/bots/sidebar", () => {
     expect(Array.from(summary)).toHaveLength(80);
     expect(summary.endsWith("…")).toBe(true);
     expect(summary.replaceAll("🎉", "").replace("…", "")).toBe("");
+    expect(body.bots[0].lastMessageAt).toBe(new Date(1_700_000_000_000).toISOString());
   });
 
   it("counts working bot tasks and detects in-flight code requests", async () => {
@@ -112,11 +107,11 @@ describe("GET /api/bots/sidebar", () => {
     expect(body.rooms[1]).toMatchObject({ id: "r2", lastMessageSummary: "壊れた時刻", lastMessageAt: null });
   });
 
-  it("keeps the preview null when the task detail fails", async () => {
+  it("keeps the preview null when the session file has no readable last message", async () => {
     mocks.listTasks.mockReturnValue([]);
     mocks.listBots.mockReturnValue([bot("one")]);
     mocks.getTask.mockReturnValue(task("bot:one"));
-    mocks.getTaskDetail.mockRejectedValue(new Error("boom"));
+    mocks.readSessionLastMessage.mockReturnValue(null);
     mocks.listRooms.mockReturnValue([]);
 
     const body = await (await GET()).json();
