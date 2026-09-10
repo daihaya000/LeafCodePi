@@ -37,7 +37,11 @@ export function findComposerReferenceToken(value: string, caret: number): Compos
   while (start >= 0 && REFERENCE_CHARACTERS.test(value[start] ?? "")) start -= 1;
   const trigger = value[start];
   if (trigger !== "/" && trigger !== "@") return null;
-  if (start > 0 && !/\s/.test(value[start - 1] ?? "")) return null;
+  if (start > 0 && !/\s/.test(value[start - 1] ?? "")) {
+    // 単語境界チェックは ASCII 前提（メールアドレス・パス等の誤検出防止）。
+    // 日本語等の非 ASCII 直後は単語境界の概念がないため参照開始として許可する。
+    if (/[\u0000-\u007f]/.test(value[start - 1] ?? "")) return null;
+  }
 
   const raw = value.slice(start, safeCaret);
   const typedQuery = raw.slice(1);
