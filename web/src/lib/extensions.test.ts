@@ -253,6 +253,16 @@ describe("listExtensions / setExtensionEnabled", () => {
     expectNames(listed.extensions, ["leafcode-mcp-adapter", "one"]);
   });
 
+  it("hides the legacy intercom when the bundled fork is present", () => {
+    const { agentDir: agent } = fixture();
+    const bundledRoot = join(data, "repo-extensions");
+    writeExtension(bundledRoot, "leafcode-intercom");
+    writeExtension(join(agent, "extensions"), "pi-intercom");
+
+    const listed = listExtensions(agent, { bundledDir: bundledRoot });
+    expectNames(listed.extensions, ["leafcode-intercom", "one"]);
+  });
+
   it("discovers extensions from installed packages (settings.json packages)", () => {
     const { agentDir: agent } = fixture();
     // Simulate a `pi install`-style package clone with a pi.extensions manifest.

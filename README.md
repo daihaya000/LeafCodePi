@@ -65,6 +65,7 @@ LeafCodePi には次の Pi 拡張を同梱しています。WebUI と連携す�
 | `leafcode-commit-guard` | 未コミット変更を検出したときのコミット確認（拡張は WebUI 依存で常時読込・機能は設定で ON/OFF） |
 | `settle-followup-claim` | todowrite / commit-guard の settle follow-up 排他用共有モジュール（拡張ではない） |
 | `leafcode-goal-loop` | Goal Loop と完走モード |
+| `leafcode-intercom` | 並行 Pi セッション間の1対1通信（`intercom`、`/intercom`、Alt+M） |
 | `leafcode-memory` | 永続メモリ、セッション検索、手続き型スキル |
 | `leafcode-mcp-adapter` | MCP サーバー接続とツール呼び出し |
 | `leafcode-permission-gate` | ツール実行の権限ゲート |
@@ -110,6 +111,16 @@ pi install ./extensions/leafcode-mcp-adapter
 ```
 
 設定は `.mcp.json` または `~/.pi/agent/mcp.json` の `mcpServers` に記述します。
+
+### Intercom
+
+`extensions/leafcode-intercom` に `pi-intercom` の LeafCodePi 組み込みフォークを同梱しています。`intercom` ツール、`/intercom`、Alt+M で別セッションへ1対1メッセージを送れます。
+
+```powershell
+pi install ./extensions/leafcode-intercom
+```
+
+設定は `%USERPROFILE%\.pi\agent\intercom\config.json` に記述します。`inboundTrigger` は `always`（既定）、`replies`、`never` を選べます。
 
 ## まだないもの
 

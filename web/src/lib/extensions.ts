@@ -95,7 +95,10 @@ const emptyState = (): ExtensionsState => {
 
 // Prevent a removed bundled extension from being revived by a stale global copy.
 const RETIRED_EXTENSION_NAMES = new Set(["leafcode-collaboration"]);
-const BUNDLED_REPLACED_EXTENSION_NAMES = new Set(["pi-mcp-adapter"]);
+const BUNDLED_REPLACEMENTS = new Map([
+  ["pi-intercom", "leafcode-intercom"],
+  ["pi-mcp-adapter", "leafcode-mcp-adapter"],
+]);
 
 /**
  * Shared TypeScript modules under extensions/ that are imported by other
@@ -376,7 +379,10 @@ export function listExtensions(
   const extensions = [...byName.values()]
     .filter((entry) => !RETIRED_EXTENSION_NAMES.has(entry.name))
     .filter((entry) => !SHARED_NON_EXTENSION_NAMES.has(entry.name))
-    .filter((entry) => !(BUNDLED_REPLACED_EXTENSION_NAMES.has(entry.name) && byName.has("leafcode-mcp-adapter")))
+    .filter((entry) => {
+      const replacement = BUNDLED_REPLACEMENTS.get(entry.name);
+      return !replacement || !byName.has(replacement);
+    })
     .map(
       (entry): ExtensionDto => ({
         id: entry.name,

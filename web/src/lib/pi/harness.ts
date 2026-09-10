@@ -2063,6 +2063,7 @@ async function createSession(options: {
   // Bundled forks replace their upstream npm extensions. Drop those stale
   // entries so their tools are never registered twice.
   const forkOwnsSubagents = bundledNames.has("leafcode-subagents");
+  const forkOwnsIntercom = bundledNames.has("leafcode-intercom");
   const forkOwnsMcpAdapter = bundledNames.has("leafcode-mcp-adapter");
   // Selected agent becomes the main persona: its system prompt replaces (or
   // appends to) the base prompt, and context files / skills follow the agent's
@@ -2114,6 +2115,7 @@ async function createSession(options: {
               forkOwnsSubagents &&
               basenameKey(extension.path) === "pi-subagents"
             ) &&
+            !(forkOwnsIntercom && basenameKey(extension.path) === "pi-intercom") &&
             !(forkOwnsMcpAdapter && basenameKey(extension.path) === "pi-mcp-adapter") &&
             (!bundledNames.has(basenameKey(extension.path)) ||
               bundledPaths.has(resolve(extension.path))),
