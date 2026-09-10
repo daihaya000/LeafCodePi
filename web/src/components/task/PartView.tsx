@@ -15,6 +15,7 @@ import {
   ListTodo,
   Loader2,
   Minus,
+  Phone,
   RotateCcw,
   Search,
   Terminal,
@@ -219,6 +220,7 @@ export function toolIcon(tool: string, input?: Record<string, unknown>) {
   if (t === "memory_remove") return Trash2;
   if (t === "memory_add" || t === "memory_replace") return FilePen;
   if (t === "skill_manage") return Wrench;
+  if (t === "intercom") return Phone;
   if (t === "contact_supervisor" || t === "subagent_wait") return Bot;
   if (t === "watchdog_permission_decision" || t === "watchdog_warn") return CircleAlert;
   if (t === "memory_search" || t === "session_search" || t === "tool_search" || t === "source_check" || t === "get_search_content") return Search;
