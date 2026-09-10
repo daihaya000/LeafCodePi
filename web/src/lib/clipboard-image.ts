@@ -18,9 +18,20 @@ export function canAttachComposerImages(input: {
   );
 }
 
+/** クリップボードに画像ファイルがあるか（添付可否とは独立）。 */
+export function clipboardHasImage(event: ClipboardEventLike): boolean {
+  const items = event.clipboardData?.items;
+  if (!items) return false;
+  for (const item of items) {
+    if (item.kind === "file" && item.type.startsWith("image/")) return true;
+  }
+  return false;
+}
+
 /**
  * クリップボードに画像があれば抽出して onFiles へ渡し true を返す。
  * 画像以外のペースト（テキストなど）では何もせず false を返す。
+ * 呼び出し側は true のとき必ず preventDefault すること（添付を拒否する場合も）。
  */
 export function pasteImage(onFiles: (files: FileList) => void, event: ClipboardEventLike): boolean {
   const items = event.clipboardData?.items;

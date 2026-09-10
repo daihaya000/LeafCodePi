@@ -448,7 +448,8 @@ export function HomeView({
                 onChange: (event) => setPrompt(event.target.value),
                 onValueChange: setPrompt,
                 onPaste: (event) => {
-                  if (!canAttachComposerImages({ goalLoopEnabled, submitting })) return;
+                  // 添付不可でも画像ペーストは検出して preventDefault する。
+                  // 早期 return すると textarea へ画像が落ちる。
                   if (pasteImage(addImageFiles, event)) event.preventDefault();
                 },
                 onCompositionStart: () => {
