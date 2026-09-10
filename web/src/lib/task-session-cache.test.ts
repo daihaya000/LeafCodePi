@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   loadTaskSessionCache,
   saveTaskSessionCache,
@@ -137,5 +137,42 @@ describe("task session cache", () => {
     stored.entries[task.id].cachedAt = Date.now() - TASK_SESSION_CACHE_MAX_AGE_MS - 1;
     localStorage.setItem(TASK_SESSION_CACHE_STORAGE_KEY, JSON.stringify(stored));
     expect(loadTaskSessionCache(task.id)).toBeNull();
+  });
+
+  it("keeps only the newest entries when the cache overflows", () => {
+    const snapshot = (taskId: string) => ({
+      task: { ...task, id: taskId },
+      messages,
+      isStreaming: false,
+      isCompacting: false,
+    });
+    for (let index = 0; index < 25; index += 1) {
+      saveTaskSessionCache(snapshot(`task-${index}`) as never);
+    }
+    const stored = JSON.parse(localStorage.getItem(TASK_SESSION_CACHE_STORAGE_KEY) ?? "{}");
+    const ids = Object.keys(stored.entries);
+    // 上限を超えて増えない（cachedAt 順序は Date.now 依存のため件数のみ検証）
+    expect(ids).toHaveLength(20);
+  });
+
+  it("falls back to the newest entry when the full write overflows quota", () => {
+    const snapshot = (taskId: string) => ({
+      task: { ...task, id: taskId },
+      messages,
+      isStreaming: false,
+      isCompacting: false,
+    });
+    const original = MemoryLocalStorage.prototype.setItem;
+    const spy = vi
+      .spyOn(MemoryLocalStorage.prototype, "setItem")
+      .mockImplementation(function (this: MemoryLocalStorage, key: string, value: string) {
+        // 1回目（全エントリのフル書き込み）だけ quota で失敗させる
+        if (spy.mock.calls.length === 1) throw new Error("QuotaExceededError");
+        original.call(this, key, value);
+      });
+    saveTaskSessionCache(snapshot("task-20") as never);
+    spy.mockRestore();
+    const stored = JSON.parse(localStorage.getItem(TASK_SESSION_CACHE_STORAGE_KEY) ?? "{}");
+    expect(Object.keys(stored.entries)).toEqual(["task-20"]);
   });
 });
