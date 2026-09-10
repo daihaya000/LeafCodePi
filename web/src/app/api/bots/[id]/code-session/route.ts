@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBot, patchBot } from "@/lib/bots";
 import { getProject, getTask } from "@/lib/store";
-import { createBotCodeTask, getTaskSummariesWithTodoProgress, goalLoopCommand, jsonError, promptTask, stopBotCodeTask } from "@/lib/pi/harness";
+import { continueBotCodeTask, createBotCodeTask, getTaskSummariesWithTodoProgress, goalLoopCommand, jsonError, stopBotCodeTask } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import {
@@ -188,7 +188,7 @@ export async function PATCH(
         if (typeof body.prompt !== "string" || !body.prompt.trim()) {
           return NextResponse.json({ error: "prompt is required" }, { status: 400 });
         }
-        return NextResponse.json({ task: await promptTask(taskId, body.prompt) });
+        return NextResponse.json({ task: await continueBotCodeTask(id, taskId, body.prompt.trim()) });
       }
     return NextResponse.json({ error: "action must be prompt, abort, or goal-loop" }, { status: 400 });
   } catch (error) {

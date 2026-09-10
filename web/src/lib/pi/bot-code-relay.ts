@@ -281,25 +281,27 @@ export async function stopBotCodeRequestForTask(
 }
 /**
  * Track a Code session the user starts from the Bot screen. It shares the delegated outbox, so the
- * result is reported back into the Bot conversation instead of only living in the Code task.
+ * result is reported back into the Bot conversation instead of only living in the Code task. The same
+ * tracking covers a follow-up prompt on that session, which would otherwise run silently.
  */
 export async function runUserBotCodeRequest(
   botId: string,
-  input: { prompt: string; projectId: string | null; goalLoop?: CodeGoalLoop },
+  input: { prompt: string; projectId: string | null; goalLoop?: CodeGoalLoop; followUp?: { codeTaskId: string; baseline: string | null } },
   launch: (codeRequestId: string, link: (codeTaskId: string) => void) => Promise<TaskSummary>,
 ): Promise<TaskSummary> {
+  const followUp = input.followUp;
   const request: CodeRequest = {
     id: randomBytes(32).toString("hex"),
     botId,
     originTaskId: `bot:${botId}`,
-    codeTaskId: null,
+    codeTaskId: followUp?.codeTaskId ?? null,
     state: "starting",
-    action: "start",
+    action: followUp ? "prompt" : "start",
     projectId: input.projectId,
     ...(input.goalLoop ? { goalLoop: input.goalLoop } : {}),
     queuedAt: Date.now(),
     prompt: input.prompt,
-    baseline: null,
+    baseline: followUp?.baseline ?? null,
   };
   return withBotCodeSessionLock(`request-${request.id}`, async () => {
     save(request);

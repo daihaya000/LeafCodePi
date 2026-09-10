@@ -338,6 +338,23 @@ describe("Bot ⇄ Code relay", () => {
     expect(delivered.result).toContain("結果を取得できませんでした");
   });
 
+  it("tracks a follow-up the user sends from the Bot screen so its result still reports back", async () => {
+    const code = task("code", { status: "idle" });
+    store.tasks.set(code.id, code);
+
+    await runUserBotCodeRequest(
+      "one",
+      { prompt: "続けて直して", projectId: "project", followUp: { codeTaskId: "code", baseline: "previous" } },
+      async (codeRequestId, link) => {
+        expect(codeRequestId).toMatch(/^[a-f0-9]{64}$/);
+        link(code.id);
+        return code;
+      },
+    );
+
+    expect(record()).toMatchObject({ action: "prompt", codeTaskId: "code", baseline: "previous", state: "running", originTaskId: "bot:one" });
+  });
+
   it("captures the delegated turn before a directly queued Code turn replaces its output", async () => {
     await launch(); messages = [answer("delegated", "Requested fix completed")];
     const id = relay.requestIdForCode("code")!;

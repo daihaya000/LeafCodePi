@@ -1826,6 +1826,28 @@ export async function createBotCodeTask(
 }
 
 /**
+ * Follow-up prompt on a Code session the user controls from the Bot screen. It is registered in the
+ * same outbox as a launch, so its result also reports back into the conversation.
+ */
+export async function continueBotCodeTask(botId: string, taskId: string, prompt: string): Promise<TaskSummary> {
+  startBotCodeRelay();
+  const task = getTask(taskId);
+  if (!task || task.botId !== botId || task.status === "archived") {
+    throw Object.assign(new Error("Codeセッションが見つかりません"), { status: 404 });
+  }
+  const baseline = (await getTaskDetail(taskId)).messages.at(-1)?.id ?? null;
+  return runUserBotCodeRequest(
+    botId,
+    { prompt, projectId: task.projectId ?? null, followUp: { codeTaskId: taskId, baseline } },
+    (codeRequestId, link) => {
+      // The session already exists: link it before prompting so the outbox owns the run from the start.
+      link(taskId);
+      return promptTask(taskId, prompt, undefined, { codeRequestId });
+    },
+  );
+}
+
+/**
  * User stop for a Bot-owned Code task. The owning request is marked before the abort, so the captured
  * result is reported as a stop and the Bot cannot continue it on its own.
  */

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   listTasks: vi.fn(),
   getProject: vi.fn(),
   createBotCodeTask: vi.fn(),
+  continueBotCodeTask: vi.fn(),
   stopBotCodeTask: vi.fn(),
   getTaskSummariesWithTodoProgress: vi.fn(),
   goalLoopCommand: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock("@/lib/bot-code-session-lock", () => ({ withBotCodeSessionLock: mocks.wi
 vi.mock("@/lib/store", () => ({ getProject: mocks.getProject, getTask: mocks.getTask, listTasks: mocks.listTasks }));
 vi.mock("@/lib/pi/harness", () => ({
   createBotCodeTask: mocks.createBotCodeTask,
+  continueBotCodeTask: mocks.continueBotCodeTask,
   stopBotCodeTask: mocks.stopBotCodeTask,
   getTaskSummariesWithTodoProgress: mocks.getTaskSummariesWithTodoProgress,
   goalLoopCommand: mocks.goalLoopCommand,
@@ -181,6 +183,7 @@ describe("Bot Code session control", () => {
   it("prompts and aborts the linked task through the existing harness", async () => {
     mocks.getBot.mockReturnValue({ ...bot, codeSessionTaskId: "code-1" });
     mocks.getTask.mockReturnValue({ id: "code-1", status: "idle", botId: "bot-1" });
+    mocks.continueBotCodeTask.mockResolvedValue({ id: "code-1", status: "working", botId: "bot-1" });
 
     const promptResponse = await PATCH(request("PATCH", { action: "prompt", prompt: "続けて" }), {
       params: Promise.resolve({ id: "bot-1" }),
@@ -190,7 +193,9 @@ describe("Bot Code session control", () => {
     });
 
     expect(promptResponse.status).toBe(200);
-    expect(mocks.promptTask).toHaveBeenCalledWith("code-1", "続けて");
+    // 追撃もoutbox経由で登録し、結果をBot会話へ返す。
+    expect(mocks.continueBotCodeTask).toHaveBeenCalledWith("bot-1", "code-1", "続けて");
+    expect(mocks.promptTask).not.toHaveBeenCalled();
     expect(abortResponse.status).toBe(200);
     // A panel stop is final: the owning request is marked before the task is aborted.
     expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("bot-1", "code-1");
