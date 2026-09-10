@@ -573,6 +573,10 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   }, [active, bot, botMentions, id, messages, reverting, sending]);
 
   // Overlay cards live outside `messages`; include them so follow-scroll still reaches permission/question UI.
+  const routineFailuresKey = routines
+    .filter((routine) => routine.failureCount > 0)
+    .map((routine) => `${routine.id}:${routine.failureCount}:${routine.enabled ? 1 : 0}`)
+    .join(",");
   const chatScrollKey = useMemo(() => ({
     messages,
     permissionId: permission?.id ?? null,
@@ -580,11 +584,8 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     sending,
     routineCardOpen,
     codePanelOpen,
-    routineFailures: routines
-      .filter((routine) => routine.failureCount > 0)
-      .map((routine) => `${routine.id}:${routine.failureCount}:${routine.enabled ? 1 : 0}`)
-      .join(","),
-  }), [messages, permission?.id, question?.id, sending, routineCardOpen, codePanelOpen, routines]);
+    routineFailures: routineFailuresKey,
+  }), [messages, permission?.id, question?.id, sending, routineCardOpen, codePanelOpen, routineFailuresKey]);
 
   if (!bot) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 

@@ -164,7 +164,23 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         try {
           const payload = JSON.parse((event as MessageEvent).data) as { room?: RoomDto; attention?: RoomAttention[] };
           if (payload.room) setRoom((current) => applyRoomSnapshot(current, payload.room!));
-          setAttention(payload.attention ?? []);
+          setAttention((current) => {
+            const next = payload.attention ?? [];
+            if (
+              current.length === next.length
+              && current.every((item, index) => {
+                const other = next[index];
+                return other
+                  && item.taskId === other.taskId
+                  && item.botId === other.botId
+                  && item.permission?.id === other.permission?.id
+                  && item.question?.id === other.question?.id;
+              })
+            ) {
+              return current;
+            }
+            return next;
+          });
         } catch { setError("イベントの解析に失敗しました"); }
       });
       source.onerror = () => { source?.close(); if (!closed) retry = setTimeout(connect, 1500); };
@@ -394,12 +410,16 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const delivered = Boolean(room?.messages.some((message) => message.codeState === "delivered" && message.conversation?.requestId === latestRequestId));
   const outcome = room && !working && room.lastOutcome && room.lastOutcome.requestId === latestRequestId
     ? OUTCOME_TEXT[room.lastOutcome.kind === "code-wait" && delivered ? "done" : room.lastOutcome.kind] : undefined;
+  // Fingerprint attention separately so identical SSE payloads keep a stable contentKey object.
+  const attentionScrollKey = attention
+    .map((item) => `${item.taskId}:${item.permission?.id ?? ""}:${item.question?.id ?? ""}`)
+    .join("|");
   const chatScrollKey = useMemo(() => ({
     messages: room?.messages,
-    attention: attention.map((item) => `${item.taskId}:${item.permission?.id ?? ""}:${item.question?.id ?? ""}`).join("|"),
+    attention: attentionScrollKey,
     working,
     outcome: outcome ?? "",
-  }), [room?.messages, attention, working, outcome]);
+  }), [room?.messages, attentionScrollKey, working, outcome]);
 
   if (!room) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 

@@ -1,5 +1,20 @@
 # MEMORY
 
+## 2026-09-10: バグハント継続 tick — attention contentKey churn
+
+### 根本原因
+`RoomView` の `chatScrollKey` useMemo が `attention` 配列参照を依存にしていたため、SSE 毎に内容同一でも新しい contentKey オブジェクトが生まれ、追従中の不要な scroll layout read が残っていた（messages 安定化だけでは不足）。`BotView` も `routines` 配列参照依存で同様。
+
+### 修正
+- Room: attention を id 指紋で安定化し、`attentionScrollKey` 文字列を useMemo 依存に変更
+- Bot: `routineFailuresKey` 文字列を useMemo 依存に変更
+- 回帰: 安定 contentKey 再利用で読了位置を保つテスト追加
+
+### 検証
+BotMessageList 16 + RoomView 15 PASS
+
+---
+
 ## 2026-09-10: Bot/Room スクロール回帰 + lock fail-open バグハント
 
 ### 根本原因と修正

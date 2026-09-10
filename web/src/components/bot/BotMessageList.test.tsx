@@ -39,6 +39,20 @@ it("does not scroll when only the rendered children change", () => {
   expect(viewport.scrollTop).toBe(100);
 });
 
+it("keeps reading position when a stable contentKey fingerprint is reused across SSE-like redraws", () => {
+  const contentKey = { messages: { id: "m" }, attention: "task:perm:" };
+  const { getByRole, rerender } = render(
+    <BotMessageList conversationId="a" contentKey={contentKey}>History</BotMessageList>,
+  );
+  const viewport = getByRole("main");
+  Object.defineProperties(viewport, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { value: 200 } });
+  viewport.scrollTop = 100;
+  fireEvent.scroll(viewport);
+  Object.defineProperty(viewport, "scrollHeight", { configurable: true, value: 1400 });
+  rerender(<BotMessageList conversationId="a" contentKey={contentKey}>History redraw</BotMessageList>);
+  expect(viewport.scrollTop).toBe(100);
+});
+
 it("follows when overlay contentKey changes even if messages stay the same", () => {
   const messages = { id: "messages" };
   const { getByRole, rerender } = render(
