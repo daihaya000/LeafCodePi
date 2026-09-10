@@ -96,6 +96,8 @@ const runtimes = new Map<string, Runtime>();
 let turnTimeoutMsForTests: number | undefined;
 /** Test-only override for atomic state rename. */
 let renameSyncForTests: ((temp: string, file: string) => void) | undefined;
+/** Test-only: force writeLoop to fail without touching disk. */
+let writeLoopFailForTests = false;
 
 function isActiveRuntime(runtime: Runtime): boolean {
   return !runtime.disposed && runtimes.get(runtime.key) === runtime;
@@ -390,37 +392,48 @@ function readLoop(cwd: string, id: string): GoalLoop | null {
   }
 }
 
-function writeLoop(loop: GoalLoop): void {
-  loop.updatedAt = isoNow();
-  const file = goalStateFile(loop.cwd, loop.id);
-  const content = JSON.stringify(loop, null, 2);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(temp, content, "utf8");
-  // WindowsではWebUIの状態読取やOneDrive同期が対象を掴むとrenameSyncが
-  // EPERM/EACCES/EBUSYで即失敗する。スケジューラやsettleAwaitingTurn内のthrowは
-  // 未処理reject（プロセス落下）や「queuedのままタイマー無し」を招くため、短い
-  // リトライで吸収し、それでも競合する場合は非原子的だが確実な上書きで落とす。
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      renameGoalState(temp, file);
-      return;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException | undefined)?.code;
-      const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
-      if (attempt >= 4 || !transient) {
-        // Keep the temp until the overwrite succeeds so a torn write can still
-        // be recovered on the next readLoop.
-        fs.writeFileSync(file, content, "utf8");
-        fs.rmSync(temp, { force: true });
-        return;
-      }
-      // 25+50+75+100ms = 250ms total before the overwrite fallback.
-      const until = Date.now() + 25 * (attempt + 1);
-      while (Date.now() < until) {
-        // writeLoopは同期API。イベントループを長く塞がないよう最大250msまで。
+function writeLoop(loop: GoalLoop): boolean {
+  if (writeLoopFailForTests) return false;
+  try {
+    loop.updatedAt = isoNow();
+    const file = goalStateFile(loop.cwd, loop.id);
+    const content = JSON.stringify(loop, null, 2);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(temp, content, "utf8");
+    // WindowsではWebUIの状態読取やOneDrive同期が対象を掴むとrenameSyncが
+    // EPERM/EACCES/EBUSYで即失敗する。スケジューラやsettleAwaitingTurn内のthrowは
+    // 未処理reject（プロセス落下）や「queuedのままタイマー無し」を招くため、短い
+    // リトライで吸収し、それでも競合する場合は非原子的だが確実な上書きで落とす。
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        renameGoalState(temp, file);
+        return true;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException | undefined)?.code;
+        const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
+        if (attempt >= 4 || !transient) {
+          // Keep the temp until the overwrite succeeds so a torn write can still
+          // be recovered on the next readLoop.
+          try {
+            fs.writeFileSync(file, content, "utf8");
+            fs.rmSync(temp, { force: true });
+            return true;
+          } catch (fallbackError) {
+            console.error("[goal-loop] writeLoop fallback failed:", fallbackError);
+            return false;
+          }
+        }
+        // 25+50+75+100ms = 250ms total before the overwrite fallback.
+        const until = Date.now() + 25 * (attempt + 1);
+        while (Date.now() < until) {
+          // writeLoopは同期API。イベントループを長く塞がないよう最大250msまで。
+        }
       }
     }
+  } catch (error) {
+    console.error("[goal-loop] writeLoop failed:", error);
+    return false;
   }
 }
 
@@ -904,11 +917,6 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
         if (!runtime.pausedTurnPending) clearPendingAgentRun(runtime);
         return;
       }
-      clearTimer(runtime);
-      runtime.awaitingTurn = false;
-      runtime.awaitingTurnIndex = undefined;
-      runtime.pausedTurnIndex = undefined;
-      clearPendingAgentRun(runtime);
       if (fresh.turnKind === "goal") {
         // sendTurn leaves turnCount unchanged while unreadableStreak === 1
         // (non-consuming JSON retry). Rewinding here would steal a budgeted turn
@@ -921,7 +929,14 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
       fresh.pauseReason = "";
       fresh.error = "";
       fresh.nextTurnAt = null;
-      writeLoop(fresh);
+      // Persist before clearing awaitingTurn so a failed write cannot leave
+      // disk=running with runtime no longer awaiting settlement.
+      if (!writeLoop(fresh)) return;
+      clearTimer(runtime);
+      runtime.awaitingTurn = false;
+      runtime.awaitingTurnIndex = undefined;
+      runtime.pausedTurnIndex = undefined;
+      clearPendingAgentRun(runtime);
       updateUI(runtime, fresh);
       appendSnapshot(runtime, fresh);
       schedule(runtime);
@@ -932,12 +947,8 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
     return;
   }
 
-  runtime.awaitingTurn = false;
-  runtime.awaitingTurnIndex = undefined;
-  runtime.pausedTurnIndex = undefined;
-  if (runtime.timeoutTimer) clearTimeout(runtime.timeoutTimer);
-  runtime.timeoutTimer = undefined;
-  clearPendingAgentRun(runtime);
+  // Persist first while awaitingTurn remains true. Clearing flags before a
+  // failed writeLoop left disk=running with no settlement owner.
   if (result) applyResult(loop, result);
   else {
     const text = [...messages]
@@ -947,32 +958,44 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
     applyMissingResult(loop, text);
   }
   const updated = currentLoop(runtime);
-  updateUI(runtime, updated);
-  if (updated) {
-    appendSnapshot(runtime, updated);
-    // Keep queued work armed even when agent_settled is emitted after this handler.
-    if (updated.status === "queued" || updated.status === "verifying_completed") schedule(runtime);
+  if (!updated || updated.status === "running") {
+    // writeLoop failed; keep awaitingTurn/pending so timeout or resume can recover.
+    return;
   }
+  runtime.awaitingTurn = false;
+  runtime.awaitingTurnIndex = undefined;
+  runtime.pausedTurnIndex = undefined;
+  if (runtime.timeoutTimer) clearTimeout(runtime.timeoutTimer);
+  runtime.timeoutTimer = undefined;
+  clearPendingAgentRun(runtime);
+  updateUI(runtime, updated);
+  appendSnapshot(runtime, updated);
+  // Keep queued work armed even when agent_settled is emitted after this handler.
+  if (updated.status === "queued" || updated.status === "verifying_completed") schedule(runtime);
 }
 
 function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error = "ユーザーが一時停止しました。"): void {
   const loop = currentLoop(runtime);
   if (!loop || TERMINAL.has(loop.status)) return;
-  runtime.pausedTurnPending = runtime.awaitingTurn;
-  runtime.pausedTurnIndex = runtime.awaitingTurnIndex;
+  const pending = runtime.awaitingTurn;
+  const pendingIndex = runtime.awaitingTurnIndex;
   // Survive process restart: in-memory pausedTurnPending alone is not enough.
-  if (runtime.pausedTurnPending) loop.pendingTurnRecovery = true;
-  // Keep agent_end evidence when pausing mid-turn so agent_settled can still
-  // recover JSON after abort. Clearing here caused manual_send races to drop results.
-  if (!runtime.pausedTurnPending) clearPendingAgentRun(runtime);
-  clearTimer(runtime);
-  runtime.awaitingTurn = false;
-  runtime.awaitingTurnIndex = undefined;
+  if (pending) loop.pendingTurnRecovery = true;
   loop.status = "paused";
   loop.pauseReason = reason;
   loop.error = error;
   loop.nextTurnAt = null;
-  writeLoop(loop);
+  // Persist before dropping awaitingTurn. A failed write must not strand disk as
+  // running while runtime thinks the turn is already paused/settled.
+  if (!writeLoop(loop)) return;
+  runtime.pausedTurnPending = pending;
+  runtime.pausedTurnIndex = pendingIndex;
+  // Keep agent_end evidence when pausing mid-turn so agent_settled can still
+  // recover JSON after abort. Clearing here caused manual_send races to drop results.
+  if (!pending) clearPendingAgentRun(runtime);
+  clearTimer(runtime);
+  runtime.awaitingTurn = false;
+  runtime.awaitingTurnIndex = undefined;
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
 }
@@ -980,18 +1003,18 @@ function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error
 function stopLoop(runtime: Runtime): void {
   const loop = currentLoop(runtime);
   if (!loop || TERMINAL.has(loop.status)) return;
+  loop.status = "stopped";
+  loop.pauseReason = "";
+  loop.error = "";
+  loop.pendingTurnRecovery = false;
+  loop.nextTurnAt = null;
+  if (!writeLoop(loop)) return;
   clearTimer(runtime);
   runtime.awaitingTurn = false;
   runtime.pausedTurnPending = false;
   runtime.awaitingTurnIndex = undefined;
   runtime.pausedTurnIndex = undefined;
   clearPendingAgentRun(runtime);
-  loop.status = "stopped";
-  loop.pauseReason = "";
-  loop.error = "";
-  loop.pendingTurnRecovery = false;
-  loop.nextTurnAt = null;
-  writeLoop(loop);
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
   try {
@@ -1006,18 +1029,18 @@ function completeLoop(runtime: Runtime): boolean {
   if (!loop || loop.status !== "paused" || loop.pauseReason !== "turn_limit") return false;
   // Refuse forged/stale turn_limit pauses that have not actually exhausted the budget.
   if (loop.maxTurns <= 0 || loop.turnCount < loop.maxTurns) return false;
+  loop.status = "completed";
+  loop.pauseReason = "";
+  loop.error = "";
+  loop.pendingTurnRecovery = false;
+  loop.nextTurnAt = null;
+  if (!writeLoop(loop)) return false;
   clearTimer(runtime);
   runtime.awaitingTurn = false;
   runtime.pausedTurnPending = false;
   runtime.awaitingTurnIndex = undefined;
   runtime.pausedTurnIndex = undefined;
   clearPendingAgentRun(runtime);
-  loop.status = "completed";
-  loop.pauseReason = "";
-  loop.error = "";
-  loop.pendingTurnRecovery = false;
-  loop.nextTurnAt = null;
-  writeLoop(loop);
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
   return true;
@@ -1718,15 +1741,15 @@ export default function (pi: ExtensionAPI): void {
     if (active) {
       const loop = currentLoop(current);
       if (loop && (loop.status === "running" || loop.status === "queued" || loop.status === "verifying_completed")) {
-        clearTimer(current);
         // Persist mid-turn recovery across restart. pausedTurnPending alone dies
         // with this runtime, and the next session_start only sees status=paused.
         if (loop.status === "running") loop.pendingTurnRecovery = true;
-        current.awaitingTurn = false;
         loop.status = "paused";
         loop.pauseReason = "";
         loop.error = "セッション終了時に一時停止しました。";
         writeLoop(loop);
+        clearTimer(current);
+        current.awaitingTurn = false;
       }
     }
     current.disposed = true;
@@ -1794,5 +1817,8 @@ export const goalLoopTestSeams = {
   },
   setRenameSync(fn?: (temp: string, file: string) => void) {
     renameSyncForTests = fn;
+  },
+  setWriteLoopFail(fail?: boolean) {
+    writeLoopFailForTests = fail === true;
   },
 };

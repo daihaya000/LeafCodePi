@@ -271,6 +271,68 @@ test("completes a turn-limited loop and allows a new loop", async () => {
   }
 });
 
+test("writeLoop failure during pause keeps awaitingTurn so disk/runtime stay aligned", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-write-fail-pause-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "write-fail-pause-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "write-fail-pause-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sendCount === 1 && JSON.parse(readFileSync(stateFile(), "utf8")).status === "running");
+
+    goalLoopTestSeams.setWriteLoopFail(true);
+    await commands.get("goal-pause")?.("", ctx);
+    const failed = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(failed.status, "running");
+    assert.equal(failed.pauseReason, "");
+
+    // Settlement must still be owned: a successful write after the failure can pause.
+    goalLoopTestSeams.setWriteLoopFail(false);
+    busy = false;
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "after failed pause write" }) }],
+      }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    const settled = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(settled.progress.at(-1)?.summary, "after failed pause write");
+    assert.ok(settled.status === "queued" || settled.status === "running");
+  } finally {
+    goalLoopTestSeams.setWriteLoopFail(false);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("writeLoop retries transient rename failures and cleans temp on fallback", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-write-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
