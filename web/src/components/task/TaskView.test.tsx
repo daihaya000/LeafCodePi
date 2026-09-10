@@ -535,6 +535,17 @@ describe("TaskView draft submission", () => {
     expect(screen.getByRole("button", { name: "エージェント" }).textContent).not.toMatch(/\bAuto\b/);
   });
 
+  it("does not send on Ctrl+Enter with IME keyCode 229", async () => {
+    // compositionStart 欠落時も isImeComposingEvent(keyCode 229) で送信を抑止する。
+    mocks.sendJson.mockResolvedValue({ task });
+    render(<TaskView taskId={task.id} mdUp />);
+    const input = screen.getByRole("textbox", { name: "フォローアップ" }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "draft prompt" } });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true, keyCode: 229 });
+    expect(mocks.sendJson).not.toHaveBeenCalled();
+    expect(input.value).toBe("draft prompt");
+  });
+
   it("preserves a new draft while starting a goal loop", async () => {
     let resolve!: (value: unknown) => void;
     mocks.sendJson.mockReturnValue(new Promise((done) => { resolve = done; }));
