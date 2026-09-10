@@ -338,6 +338,38 @@ describe("RoomView delegated work", () => {
   });
 });
 
+describe("RoomView notifications", () => {
+  it("notifies a hidden tab once per finished reply, unless every member Bot turned notifications off", async () => {
+    const sent: string[] = [];
+    class FakeNotification {
+      static permission = "granted";
+      constructor(title: string) { sent.push(title); }
+    }
+    vi.stubGlobal("Notification", FakeNotification);
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    const busyRoom = { ...room, messages: [...room.messages, { id: "reply", role: "assistant" as const, botId: bot.id, text: "作業中", status: "working" as const, createdAt: 2 }] };
+    const doneRoom = { ...busyRoom, messages: busyRoom.messages.map((message) => message.id === "reply" ? { ...message, status: "done" as const } : message) };
+    try {
+      render(<RoomView id={room.id} />);
+      await screen.findByRole("textbox");
+      act(() => pushSnapshot({ room: busyRoom }));
+      act(() => pushSnapshot({ room: doneRoom }));
+      expect(sent).toEqual(["新しい返信があります"]);
+
+      // 全メンバーが通知オフなら、ルームの通知も発火しない。
+      mocks.getJson.mockImplementation((path: string) => path === "/api/bots" ? Promise.resolve({ bots: [{ ...bot, notificationsEnabled: false }] }) : Promise.resolve({ room }));
+      cleanup();
+      render(<RoomView id={room.id} />);
+      await screen.findByRole("textbox");
+      act(() => pushSnapshot({ room: busyRoom }));
+      act(() => pushSnapshot({ room: doneRoom }));
+      expect(sent).toEqual(["新しい返信があります"]);
+    } finally {
+      Reflect.deleteProperty(document, "hidden");
+    }
+  });
+});
+
 describe("RoomView mentions", () => {
   it("preserves drafts and marks read only on activation", async () => {
     const view = render(<RoomView id={room.id} active={false} />);

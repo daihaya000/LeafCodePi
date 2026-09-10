@@ -160,6 +160,8 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     if (typeof Notification === "undefined" || !room) return;
     const busyNow = isRoomBusy(room);
     const attentionNow = attention.length > 0;
+    // A room notification is still governed by the per-Bot toggle: when every member turned it off, stay silent.
+    const anyMemberNotifies = room.members.some((memberId) => bots.find((bot) => bot.id === memberId)?.notificationsEnabled !== false);
     const kind = decideNotification({
       prevAttention: prevAttentionRef.current, attention: attentionNow,
       prevWorking: prevWorkingRef.current, working: busyNow,
@@ -169,8 +171,8 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     prevAttentionRef.current = attentionNow;
     prevWorkingRef.current = busyNow;
     // One notification per room replaces the previous one instead of stacking.
-    if (kind) new Notification(kind === "attention" ? "承認が必要です" : "新しい返信があります", { body: room.name, tag: `room-${id}` });
-  }, [attention, id, room]);
+    if (kind && anyMemberNotifies) new Notification(kind === "attention" ? "承認が必要です" : "新しい返信があります", { body: room.name, tag: `room-${id}` });
+  }, [attention, bots, id, room]);
 
   useEffect(() => {
     let closed = false;
