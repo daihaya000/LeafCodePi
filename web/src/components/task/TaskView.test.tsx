@@ -145,6 +145,61 @@ describe("TaskView draft submission", () => {
     expect(mocks.sendJson).not.toHaveBeenCalled();
   });
 
+  it("regenerates a title every five completed turns by default", async () => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource | null = null;
+      constructor() {
+        super();
+        TestEventSource.latest = this;
+      }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    const sessionTask = { ...task, sessionId: "session-1" };
+    const turnMessages = (turns: number): UiMessage[] => Array.from(
+      { length: turns * 2 },
+      (_, index) => {
+        const turn = Math.floor(index / 2) + 1;
+        const role = index % 2 === 0 ? "user" : "assistant";
+        return {
+          id: `${role}-${turn}`,
+          role,
+          createdAt: turn,
+          parts: [{ id: `${role}-${turn}-text`, type: "text", text: `${role} ${turn}` }],
+        } as UiMessage;
+      },
+    );
+    saveTaskSessionCache({ task: sessionTask, messages: [], isStreaming: false, isCompacting: false });
+    render(<TaskView taskId={task.id} mdUp />);
+    const source = TestEventSource.latest;
+    if (!source) throw new Error("EventSource was not created");
+
+    const sendSnapshot = async (status: "working" | "idle", turns: number) => {
+      await act(async () => {
+        source.dispatchEvent(new MessageEvent("snapshot", {
+          data: JSON.stringify({
+            eventType: "ready",
+            task: { ...sessionTask, status, isStreaming: status === "working" },
+            messages: turnMessages(turns),
+          }),
+        }));
+      });
+    };
+    for (let turns = 1; turns <= 4; turns += 1) {
+      await sendSnapshot("working", turns);
+      await sendSnapshot("idle", turns);
+    }
+    expect(mocks.sendJson).not.toHaveBeenCalled();
+
+    mocks.sendJson.mockResolvedValue({ title: "5ターン目のタイトル", task: sessionTask });
+    await sendSnapshot("working", 5);
+    await sendSnapshot("idle", 5);
+
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      `/api/tasks/${task.id}/title`, {},
+    ));
+  });
+
   it.each(["success", "failure"])("sends queued content without replacing the next draft (%s)", async (outcome) => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource;

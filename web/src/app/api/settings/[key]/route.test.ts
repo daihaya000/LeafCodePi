@@ -222,4 +222,19 @@ describe("/api/settings/[key]", () => {
     expect(clearShowModel.status).toBe(200);
     expect(settings.setSetting).toHaveBeenLastCalledWith("auto-show-model", null);
   });
+
+  it("accepts and validates the title auto-update frequency", async () => {
+    const response = await PUT(
+      request("title-auto-update-frequency", { value: "10" }),
+      { params: Promise.resolve({ key: "title-auto-update-frequency" }) },
+    );
+    expect(response.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith("title-auto-update-frequency", "10");
+
+    const invalid = await PUT(
+      request("title-auto-update-frequency", { value: "0" }),
+      { params: Promise.resolve({ key: "title-auto-update-frequency" }) },
+    );
+    expect(invalid.status).toBe(400);
+  });
 });

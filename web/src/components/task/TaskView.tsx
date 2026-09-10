@@ -81,6 +81,16 @@ import {
 } from "@/lib/auto-task-record";
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
 import { TITLE_MAX_CHARS } from "@/lib/direct-generation-text";
+import {
+  DEFAULT_TITLE_AUTO_UPDATE_FREQUENCY,
+  hasStoredTitleAutoUpdateFrequency,
+  parseTitleAutoUpdateFrequency,
+  readTitleAutoUpdateFrequency,
+  readTitleAutoUpdateFrequencyFromServer,
+  shouldAutoUpdateTitle,
+  subscribeTitleAutoUpdateFrequency,
+  writeTitleAutoUpdateFrequency,
+} from "@/lib/title-auto-update-settings";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { notifyTasksChanged } from "@/lib/events";
 import { taskSidebarNotifyKey } from "@/lib/task-sidebar-notify";
@@ -257,6 +267,16 @@ function reportTaskPerformance(perf: TaskPerformanceState): void {
     deltaCount: perf.deltaCount,
     deltaChars: perf.deltaChars,
   });
+}
+
+function hasCompletedTitleTurn(messages: UiMessage[]): boolean {
+  let hasAssistant = false;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const role = messages[index]?.role;
+    if (role === "assistant") hasAssistant = true;
+    if (role === "user") return hasAssistant;
+  }
+  return false;
 }
 
 /**
@@ -505,6 +525,9 @@ export const TaskView = memo(function TaskView({
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [titleBusy, setTitleBusy] = useState(false);
+  const [titleUpdateFrequency, setTitleUpdateFrequency] = useState(
+    DEFAULT_TITLE_AUTO_UPDATE_FREQUENCY,
+  );
   const [goalLoopEnabled, setGoalLoopEnabled] = useState(false);
   const [goalLoopAcceptance, setGoalLoopAcceptance] = useState("");
   const [goalLoopMaxTurns, setGoalLoopMaxTurns] = useState(10);
@@ -614,6 +637,16 @@ export const TaskView = memo(function TaskView({
         setAutoRouteConfig(snapshot.routeConfig);
       }
     });
+    void readTitleAutoUpdateFrequencyFromServer().then((serverValue) => {
+      if (
+        !active ||
+        serverValue === null ||
+        hasStoredTitleAutoUpdateFrequency()
+      ) return;
+      const next = parseTitleAutoUpdateFrequency(serverValue);
+      writeTitleAutoUpdateFrequency(next);
+      setTitleUpdateFrequency(next);
+    });
     return () => {
       active = false;
     };
@@ -665,6 +698,8 @@ export const TaskView = memo(function TaskView({
   const lastScrollTopRef = useRef(0);
   const previousWorkingRef = useRef(false);
   const titleTaskRef = useRef(taskId);
+  const titleCompletionPendingRef = useRef(false);
+  const titleUpdatedTurnRef = useRef<string | null>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const titleMutationRef = useRef(0);
   // メッセージ間をジャンプするナビゲーター（本家 LeafCode と同じ）。
@@ -699,6 +734,12 @@ export const TaskView = memo(function TaskView({
     () => subscribeAutoResumeMode(() => setAutoResumeMode(readAutoResumeMode())),
     [],
   );
+  useEffect(() => {
+    setTitleUpdateFrequency(readTitleAutoUpdateFrequency());
+    return subscribeTitleAutoUpdateFrequency(() =>
+      setTitleUpdateFrequency(readTitleAutoUpdateFrequency()),
+    );
+  }, []);
   const sidebarNotifyKeyRef = useRef("");
   const cacheSnapshotRef = useRef<TaskSessionCacheSnapshot | null>(null);
   const cacheTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1189,6 +1230,8 @@ export const TaskView = memo(function TaskView({
     setTitleEditing(false);
     setTitleDraft("");
     setTitleBusy(false);
+    titleCompletionPendingRef.current = false;
+    titleUpdatedTurnRef.current = null;
     const cached = loadTaskSessionCache(taskId);
     setTask(cached);
     setMessages(cached?.messages ?? []);
@@ -1406,10 +1449,36 @@ export const TaskView = memo(function TaskView({
     if (titleTaskRef.current !== taskId) {
       titleTaskRef.current = taskId;
       previousWorkingRef.current = false;
+      titleCompletionPendingRef.current = false;
+      titleUpdatedTurnRef.current = null;
     }
     const wasWorking = previousWorkingRef.current;
     previousWorkingRef.current = working;
-    if (!wasWorking || working || !task?.sessionId || task.titleAutoUpdate === false) return;
+    if (wasWorking && !working) titleCompletionPendingRef.current = true;
+    if (working) {
+      titleCompletionPendingRef.current = false;
+      return;
+    }
+    if (
+      !titleCompletionPendingRef.current ||
+      !task?.sessionId ||
+      task.titleAutoUpdate === false ||
+      !hasCompletedTitleTurn(messages)
+    ) return;
+    titleCompletionPendingRef.current = false;
+    let turnCount = 0;
+    let lastUserMessageId: string | null = null;
+    for (const message of messages) {
+      if (message.role !== "user" || isHangRetryUserMessage(message)) continue;
+      turnCount += 1;
+      lastUserMessageId = message.id;
+    }
+    if (
+      !lastUserMessageId ||
+      !shouldAutoUpdateTitle(turnCount, titleUpdateFrequency) ||
+      titleUpdatedTurnRef.current === lastUserMessageId
+    ) return;
+    titleUpdatedTurnRef.current = lastUserMessageId;
     const mutation = ++titleMutationRef.current;
     setTitleBusy(true);
     void sendJson<{ title: string; task: TaskSummary }>(`/api/tasks/${taskId}/title`, {}).then((result) => {
@@ -1423,7 +1492,7 @@ export const TaskView = memo(function TaskView({
     }).catch(() => undefined).finally(() => {
       if (mutation === titleMutationRef.current) setTitleBusy(false);
     });
-  }, [task?.sessionId, task?.titleAutoUpdate, taskId, working]);
+  }, [messages, task?.sessionId, task?.titleAutoUpdate, taskId, titleUpdateFrequency, working]);
 
   function beginTitleEdit() {
     if (!task || archived || titleBusy) return;
@@ -2441,7 +2510,7 @@ export const TaskView = memo(function TaskView({
             role="switch"
             aria-checked={titleAutoUpdateEnabled}
             aria-label="タイトルの自動更新"
-            title={`タイトルの自動更新: ${titleAutoUpdateEnabled ? "ON" : "OFF"}`}
+            title={`タイトルの自動更新: ${titleAutoUpdateEnabled ? "ON" : "OFF"}（${titleUpdateFrequency}ターンごと）`}
             className={cx("hidden md:inline-flex h-11 w-11 md:h-9 md:w-9", titleAutoUpdateEnabled && "text-accent!")}
             disabled={!task || archived || titleBusy}
             onClick={() => void toggleTitleAutoUpdate()}
