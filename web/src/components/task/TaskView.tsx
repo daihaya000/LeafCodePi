@@ -82,13 +82,21 @@ import {
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
 import { TITLE_MAX_CHARS } from "@/lib/direct-generation-text";
 import {
+  DEFAULT_TITLE_AUTO_UPDATE_ENABLED,
   DEFAULT_TITLE_AUTO_UPDATE_FREQUENCY,
+  hasStoredTitleAutoUpdateEnabled,
   hasStoredTitleAutoUpdateFrequency,
+  parseTitleAutoUpdateEnabled,
   parseTitleAutoUpdateFrequency,
+  readTitleAutoUpdateEnabled,
+  readTitleAutoUpdateEnabledFromServer,
   readTitleAutoUpdateFrequency,
   readTitleAutoUpdateFrequencyFromServer,
+  resolveTitleAutoUpdateEnabled,
   shouldAutoUpdateTitle,
+  subscribeTitleAutoUpdateEnabled,
   subscribeTitleAutoUpdateFrequency,
+  writeTitleAutoUpdateEnabled,
   writeTitleAutoUpdateFrequency,
 } from "@/lib/title-auto-update-settings";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
@@ -528,6 +536,9 @@ export const TaskView = memo(function TaskView({
   const [titleUpdateFrequency, setTitleUpdateFrequency] = useState(
     DEFAULT_TITLE_AUTO_UPDATE_FREQUENCY,
   );
+  const [titleAutoUpdateDefault, setTitleAutoUpdateDefault] = useState(
+    DEFAULT_TITLE_AUTO_UPDATE_ENABLED,
+  );
   const [goalLoopEnabled, setGoalLoopEnabled] = useState(false);
   const [goalLoopAcceptance, setGoalLoopAcceptance] = useState("");
   const [goalLoopMaxTurns, setGoalLoopMaxTurns] = useState(10);
@@ -647,6 +658,16 @@ export const TaskView = memo(function TaskView({
       writeTitleAutoUpdateFrequency(next);
       setTitleUpdateFrequency(next);
     });
+    void readTitleAutoUpdateEnabledFromServer().then((serverValue) => {
+      if (
+        !active ||
+        serverValue === null ||
+        hasStoredTitleAutoUpdateEnabled()
+      ) return;
+      const next = parseTitleAutoUpdateEnabled(serverValue);
+      writeTitleAutoUpdateEnabled(next);
+      setTitleAutoUpdateDefault(next);
+    });
     return () => {
       active = false;
     };
@@ -736,9 +757,17 @@ export const TaskView = memo(function TaskView({
   );
   useEffect(() => {
     setTitleUpdateFrequency(readTitleAutoUpdateFrequency());
-    return subscribeTitleAutoUpdateFrequency(() =>
+    setTitleAutoUpdateDefault(readTitleAutoUpdateEnabled());
+    const unsubscribeFrequency = subscribeTitleAutoUpdateFrequency(() =>
       setTitleUpdateFrequency(readTitleAutoUpdateFrequency()),
     );
+    const unsubscribeEnabled = subscribeTitleAutoUpdateEnabled(() =>
+      setTitleAutoUpdateDefault(readTitleAutoUpdateEnabled()),
+    );
+    return () => {
+      unsubscribeFrequency();
+      unsubscribeEnabled();
+    };
   }, []);
   const sidebarNotifyKeyRef = useRef("");
   const cacheSnapshotRef = useRef<TaskSessionCacheSnapshot | null>(null);
@@ -1462,7 +1491,7 @@ export const TaskView = memo(function TaskView({
     if (
       !titleCompletionPendingRef.current ||
       !task?.sessionId ||
-      task.titleAutoUpdate !== true ||
+      !resolveTitleAutoUpdateEnabled(task.titleAutoUpdate, titleAutoUpdateDefault) ||
       !hasCompletedTitleTurn(messages)
     ) return;
     titleCompletionPendingRef.current = false;
@@ -1484,7 +1513,7 @@ export const TaskView = memo(function TaskView({
     void sendJson<{ title: string; task: TaskSummary }>(`/api/tasks/${taskId}/title`, {}).then((result) => {
       if (mutation !== titleMutationRef.current) return;
       setTask((current) =>
-        current && current.titleAutoUpdate === true
+        current && resolveTitleAutoUpdateEnabled(current.titleAutoUpdate, titleAutoUpdateDefault)
           ? { ...current, title: result.title }
           : current,
       );
@@ -1492,7 +1521,7 @@ export const TaskView = memo(function TaskView({
     }).catch(() => undefined).finally(() => {
       if (mutation === titleMutationRef.current) setTitleBusy(false);
     });
-  }, [messages, task?.sessionId, task?.titleAutoUpdate, taskId, titleUpdateFrequency, working]);
+  }, [messages, task?.sessionId, task?.titleAutoUpdate, taskId, titleAutoUpdateDefault, titleUpdateFrequency, working]);
 
   function beginTitleEdit() {
     if (!task || archived || titleBusy) return;
@@ -1540,7 +1569,7 @@ export const TaskView = memo(function TaskView({
   async function toggleTitleAutoUpdate() {
     if (!task || archived || titleBusy) return;
     const mutation = ++titleMutationRef.current;
-    const enabled = task.titleAutoUpdate === true;
+    const enabled = resolveTitleAutoUpdateEnabled(task.titleAutoUpdate, titleAutoUpdateDefault);
     setTitleBusy(true);
     setError(null);
     try {
@@ -2384,7 +2413,10 @@ export const TaskView = memo(function TaskView({
         ? worktreeStatus
         : task.status
     : null;
-  const titleAutoUpdateEnabled = task?.titleAutoUpdate === true;
+  const titleAutoUpdateEnabled = resolveTitleAutoUpdateEnabled(
+    task?.titleAutoUpdate,
+    titleAutoUpdateDefault,
+  );
   const mobilePanelOpen = !mdUp && (graphOpen || diffOpen);
 
   return (

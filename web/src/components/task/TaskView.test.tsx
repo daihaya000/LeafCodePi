@@ -112,6 +112,12 @@ describe("TaskView draft submission", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 
+  it("follows the settings default when the task has no override", async () => {
+    localStorage.setItem("webui:title-auto-update-enabled", "1");
+    render(<TaskView taskId={task.id} mdUp />);
+    expect(screen.getByRole("switch", { name: "タイトルの自動更新" }).getAttribute("aria-checked")).toBe("true");
+  });
+
   it("does not regenerate a title when automatic updates are disabled", async () => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource | null = null;

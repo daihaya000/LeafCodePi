@@ -14,7 +14,9 @@ import {
   COMPACTION_THRESHOLD_SETTING_KEY,
 } from "@/lib/compaction-settings";
 import {
+  isTitleAutoUpdateEnabledSetting,
   isTitleAutoUpdateFrequency,
+  TITLE_AUTO_UPDATE_ENABLED_SETTING_KEY,
   TITLE_AUTO_UPDATE_FREQUENCY_SETTING_KEY,
 } from "@/lib/title-auto-update-settings";
 import {
@@ -51,6 +53,7 @@ const ALLOWED_KEYS = new Set<string>([
   COMPACTION_ACTION_SETTING_KEY,
   COMPACTION_THRESHOLD_SETTING_KEY,
   TITLE_AUTO_UPDATE_FREQUENCY_SETTING_KEY,
+  TITLE_AUTO_UPDATE_ENABLED_SETTING_KEY,
 ]);
 
 function normalizedGenerationModelValue(value: string): string | null {
@@ -95,6 +98,9 @@ function validateValue(key: string, value: string): string | null {
   if (key === TITLE_AUTO_UPDATE_FREQUENCY_SETTING_KEY) {
     const frequency = Number(value);
     return isTitleAutoUpdateFrequency(frequency) ? String(frequency) : null;
+  }
+  if (key === TITLE_AUTO_UPDATE_ENABLED_SETTING_KEY) {
+    return isTitleAutoUpdateEnabledSetting(value) ? value : null;
   }
   if (key === GENERATION_FALLBACK_MODEL_SETTING_KEY) {
     return normalizedGenerationModelValue(value);

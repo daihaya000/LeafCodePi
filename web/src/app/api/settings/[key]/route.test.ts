@@ -237,4 +237,25 @@ describe("/api/settings/[key]", () => {
     );
     expect(invalid.status).toBe(400);
   });
+
+  it("accepts and validates the title auto-update enabled default", async () => {
+    const response = await PUT(
+      request("title-auto-update-enabled", { value: "1" }),
+      { params: Promise.resolve({ key: "title-auto-update-enabled" }) },
+    );
+    expect(response.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith("title-auto-update-enabled", "1");
+
+    const off = await PUT(
+      request("title-auto-update-enabled", { value: "0" }),
+      { params: Promise.resolve({ key: "title-auto-update-enabled" }) },
+    );
+    expect(off.status).toBe(200);
+
+    const invalid = await PUT(
+      request("title-auto-update-enabled", { value: "yes" }),
+      { params: Promise.resolve({ key: "title-auto-update-enabled" }) },
+    );
+    expect(invalid.status).toBe(400);
+  });
 });
