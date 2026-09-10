@@ -3008,6 +3008,8 @@ const HEALTH_TTL_MS = 15_000;
 const MODEL_TTL_MS = 15_000;
 /** TTL切れ後もこの範囲内の旧モデル一覧は即返し、裏で更新する（SWR）。 */
 const MODEL_STALE_SERVE_MS = 5 * 60_000;
+/** TTL切れ後もこの範囲内の旧ヘルスは即返し、裏で更新する（SWR）。 */
+const HEALTH_STALE_SERVE_MS = 5 * 60_000;
 
 /** Boot stamp so the client can tell a real restart from a blip in its polling. */
 const PROCESS_STARTED_AT = Date.now();
@@ -3116,9 +3118,25 @@ function runsThroughAccounts(providerId: string): boolean {
 }
 
 export async function getHealth(): Promise<HealthDto> {
-  const cached = readHealthCache(state().healthCache, Date.now());
+  const current = state();
+  const now = Date.now();
+  const cached = readHealthCache(current.healthCache, now);
   if (cached) return cached;
+  // SWR: TTL切れでも一定期間内の旧ステータスは即返し、裏で更新する。サイドバー等の
+  // ポーリングがアイドル後の再構築（秒単位）を毎回待たないようにする。
+  const stale = current.healthCache;
+  if (
+    stale &&
+    now - stale.at >= 0 &&
+    now - stale.at < HEALTH_STALE_SERVE_MS
+  ) {
+    void rebuildHealth().catch(() => undefined);
+    return stale.value;
+  }
+  return rebuildHealth();
+}
 
+async function rebuildHealth(): Promise<HealthDto> {
   try {
     await ensureRuntime();
   } catch {
