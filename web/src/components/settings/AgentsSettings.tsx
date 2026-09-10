@@ -52,7 +52,6 @@ type EditorState =
   | { mode: "edit"; name: string }
   | { mode: "closed" };
 
-const DEFAULT_TOOLS = "read, grep, find, ls";
 const AGENT_TOOL_NAMES = [
   ...BOT_TOOL_NAMES,
   "web_search",
@@ -65,6 +64,25 @@ const AGENT_TOOL_NAMES = [
   "task_mutation_decision",
   "watchdog_permission_decision",
   "watchdog_warn",
+] as const;
+const AGENT_DEFAULT_TOOL_NAMES = [
+  "read",
+  "write",
+  "edit",
+  "bash",
+  "powershell",
+  "question",
+  "grep",
+  "find",
+  "ls",
+  "memory_search",
+  "memory_add",
+  "memory_replace",
+  "memory_remove",
+  "session_search",
+  "skill_manage",
+  "todowrite",
+  "tool_search",
 ] as const;
 
 function emptyDraft(): AgentDraft {
@@ -284,7 +302,7 @@ function AgentToolsSettings({
   busy: boolean;
   onChange: (tools: string[]) => void;
 }) {
-  const selected = new Set((tools ?? AGENT_TOOL_NAMES).map((tool) => tool.trim()).filter(Boolean));
+  const selected = new Set((tools ?? AGENT_DEFAULT_TOOL_NAMES).map((tool) => tool.trim()).filter(Boolean));
   const toolNames = [...new Set([...AGENT_TOOL_NAMES, ...selected])];
 
   return (
@@ -432,16 +450,9 @@ function AgentEditor({
   onCancel: () => void;
 }) {
   const [draft, setDraft] = useState<AgentDraft>(initial);
-  const [toolsText, setToolsText] = useState(initial.tools?.join(", ") ?? DEFAULT_TOOLS);
 
   const submit = () => {
-    onSave({
-      ...draft,
-      tools: toolsText
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-    });
+    onSave(draft);
   };
 
   return (
@@ -478,7 +489,13 @@ function AgentEditor({
         value={draft.thinking === false ? "false" : draft.thinking ?? ""}
         onChange={(v) => setDraft({ ...draft, thinking: v.trim() === "false" ? false : v })}
       />
-      <Field label="ツール（カンマ区切り）" value={toolsText} onChange={setToolsText} />
+      <AgentToolsSettings
+        name={draft.name || "新規エージェント"}
+        tools={draft.tools}
+        editable
+        busy={busy}
+        onChange={(tools) => setDraft({ ...draft, tools })}
+      />
       <Field label="エイリアス（カンマ区切り）" value={draft.aliases?.join(", ") ?? ""} onChange={(v) => setDraft({ ...draft, aliases: v.split(",").map((x) => x.trim()).filter(Boolean) })} />
       <Field label="フォールバックモデル（カンマ区切り）" value={draft.fallbackModels?.join(", ") ?? ""} onChange={(v) => setDraft({ ...draft, fallbackModels: v.split(",").map((x) => x.trim()).filter(Boolean) })} />
       <label className="block">

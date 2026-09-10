@@ -80,7 +80,7 @@ export function agentsDir(agentDir = resolvePiAgentDir()): string {
   return join(agentDir, "agents");
 }
 
-type AgentOverride = { disabled?: boolean; model?: string; thinking?: AgentThinking; tools?: string[] };
+type AgentOverride = { disabled?: boolean; model?: string; thinking?: AgentThinking };
 
 type PiSettings = {
   subagents?: { agentOverrides?: Record<string, AgentOverride>; [key: string]: unknown };

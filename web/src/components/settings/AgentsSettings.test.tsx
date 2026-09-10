@@ -152,6 +152,14 @@ describe("AgentsSettings", () => {
     });
   });
 
+  it("keeps package-agent tool permissions read-only", async () => {
+    render(<AgentsSettings />);
+
+    const read = await screen.findByRole("checkbox", { name: "enabled のread" }) as HTMLInputElement;
+    expect(read.checked).toBe(true);
+    expect(read.disabled).toBe(true);
+  });
+
   it("shows logical model candidates from separate accounts", async () => {
     const accountModels: ModelOption[] = [
       {

@@ -1,5 +1,5 @@
 /**
- * PATCH /api/agents/:name — enable/disable, set a subagent model/Effort, or update a user agent.
+ * PATCH /api/agents/:name — enable/disable, set a subagent model/Effort/tools, or update a user agent.
  * GET    /api/agents/:name — read a user agent draft.
  * DELETE /api/agents/:name — delete a user agent.
  */
