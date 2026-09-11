@@ -26,7 +26,7 @@ import {
 import { AgentRoleIcon } from "@/components/AgentSelect";
 import type { BotFace } from "@/components/bot/BotAvatar";
 import { BotMessageSender } from "@/components/bot/BotMessageList";
-import { MessageBubble, MessageHeader, messageRowClass } from "@/components/ConversationLayout";
+import { MessageBubble, MessageHeader, messageRowClassFor } from "@/components/ConversationLayout";
 import { ImageLightbox } from "@/components/Composer";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ReferenceHighlight, type ReferenceHighlightReferences } from "@/components/ReferenceHighlight";
@@ -1004,7 +1004,7 @@ export const PartView = memo(
 
     const isUser = message.role === "user";
     return (
-      <article className={messageRowClass}>
+      <article className={messageRowClassFor(isUser)}>
         {!hideMeta && (
           <MessageHeader user={isUser}>
             {isUser ? (

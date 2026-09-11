@@ -23,6 +23,9 @@ it.each([true, false])("keeps Bot and Code bubble/header geometry identical (use
     <section data-view="bot"><BotChatMessage user={user} createdAt={1} sender={{ name: "Bot" }} text="Short reply" /></section>
     <section data-view="code"><PartView message={{ id: "message", role: user ? "user" : "assistant", createdAt: 1, parts: [{ id: "text", type: "text", text: "Short reply" }] }} /></section>
   </>);
+  const botRow = container.querySelector('[data-view="bot"] > div')!;
+  const codeRow = container.querySelector('[data-view="code"] > article')!;
+  expect([...botRow.classList].sort()).toEqual([...codeRow.classList].sort());
   const bot = container.querySelector(".bot-message-bubble")!;
   const code = container.querySelector('[data-view="code"] .rounded-3xl')!;
   expect([...bot.classList].filter((name) => name !== "bot-message-bubble").sort()).toEqual([...code.classList].sort());

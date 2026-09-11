@@ -9,6 +9,9 @@ import type { UiPart } from "@/lib/types";
 export const conversationViewportClass = "min-h-0 min-w-0 flex-1 overscroll-y-contain overflow-x-clip overflow-y-auto bg-bot-chat px-3 py-5 sm:px-4";
 export const conversationContentClass = "relative mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-4";
 export const messageRowClass = "flex w-full min-w-0 flex-col gap-2";
+export function messageRowClassFor(user: boolean): string {
+  return cx(messageRowClass, user ? "items-end" : "items-start");
+}
 
 export function MessageHeader({ user = false, children }: { user?: boolean; children: ReactNode }) {
   return <div className={cx("flex min-w-0 max-w-bubble items-center gap-1.5 px-1 text-[11px] text-muted", user ? "ml-auto justify-end" : "w-full self-start justify-start")}>{children}</div>;

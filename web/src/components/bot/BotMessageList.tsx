@@ -5,7 +5,7 @@ import Link from "next/link";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { RotateCcw } from "lucide-react";
-import { conversationViewportClass, MessageBubble, MessageHeader, messageRowClass } from "@/components/ConversationLayout";
+import { conversationViewportClass, MessageBubble, MessageHeader, messageRowClassFor } from "@/components/ConversationLayout";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { ProjectIcon } from "@/components/ProjectIcon";
 import { renderMentions, withMentions } from "@/components/bot/BotMention";
@@ -130,7 +130,7 @@ export function BotMessageSender({ name, createdAt, active = false, ...face }: B
 /** One chat row. Bot and Room conversations share it so both look identical. */
 export function BotMessageRow({ user, createdAt, children, footer, header, after, bubble = true, timeInHeader = false }: { user: boolean; createdAt: number; children: ReactNode; footer?: ReactNode; header?: ReactNode; after?: ReactNode; bubble?: boolean; timeInHeader?: boolean }) {
   return (
-    <div className={cx(messageRowClass, user ? "items-end" : "items-start")}>
+    <div className={messageRowClassFor(user)}>
       {header && <MessageHeader user={user}>{header}</MessageHeader>}
       {bubble && <MessageBubble user={user} className="bot-message-bubble">{children}</MessageBubble>}
       {after}
