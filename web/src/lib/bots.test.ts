@@ -84,6 +84,24 @@ describe("bot store", () => {
     expect(JSON.parse(readFileSync(configPath, "utf8")).tools).toEqual(BOT_DEFAULT_TOOL_NAMES);
   });
 
+  it("enables read tools for Bots migrated from the previous defaults", () => {
+    const bot = createBot({ name: "Read tools bot" });
+    const configPath = join(root, "bots", bot.id, "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    const previousDisabled = new Set([
+      "write", "edit", "bash", "powershell", "subagent", "todowrite",
+      "contact_supervisor", "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn",
+    ]);
+    config.tools = BOT_TOOL_NAMES.filter((tool) => !previousDisabled.has(tool));
+    fs.writeFileSync(configPath, JSON.stringify(config));
+
+    expect(getBot(bot.id)?.tools).toEqual(BOT_DEFAULT_TOOL_NAMES);
+    expect(getBot(bot.id)?.tools).toEqual(expect.arrayContaining([
+      "contact_supervisor", "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn",
+    ]));
+    expect(JSON.parse(readFileSync(configPath, "utf8")).tools).toEqual(BOT_DEFAULT_TOOL_NAMES);
+  });
+
   it("preserves explicit tool opt-ins", () => {
     const bot = createBot({ name: "Opt-in bot" });
     const tools = [...BOT_DEFAULT_TOOL_NAMES, "write" as const];

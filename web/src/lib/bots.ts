@@ -20,7 +20,15 @@ const LEGACY_ADDED_TOOL_NAMES = new Set<BotToolName>([
 ]);
 const LEGACY_DISABLED_TOOL_NAMES = new Set<BotToolName>(["write", "edit", "bash", "powershell", "subagent"]);
 const LEGACY_DISABLED_WITH_TODO = new Set<BotToolName>([...LEGACY_DISABLED_TOOL_NAMES, "todowrite"]);
+const PREVIOUS_INTERNAL_TOOL_NAMES = new Set<BotToolName>([
+  "contact_supervisor", "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn",
+]);
+const PREVIOUS_DEFAULT_TOOL_NAMES = new Set<BotToolName>([
+  ...LEGACY_DISABLED_WITH_TODO,
+  ...PREVIOUS_INTERNAL_TOOL_NAMES,
+]);
 const LEGACY_DEFAULT_TOOL_SETS: readonly (readonly BotToolName[])[] = [
+  BOT_TOOL_NAMES.filter((tool) => !PREVIOUS_DEFAULT_TOOL_NAMES.has(tool)),
   BOT_TOOL_NAMES.filter((tool) => !LEGACY_DISABLED_WITH_TODO.has(tool)),
   BOT_TOOL_NAMES.filter((tool) => !LEGACY_DISABLED_TOOL_NAMES.has(tool)),
   BOT_TOOL_NAMES.filter((tool) => !LEGACY_ADDED_TOOL_NAMES.has(tool) && !LEGACY_DISABLED_WITH_TODO.has(tool)),
