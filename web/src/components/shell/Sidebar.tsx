@@ -60,6 +60,16 @@ const PROJECT_DRAG_MIME = "application/x-leafcode-project";
 const HOVER_QUERY = "(hover: hover)";
 const NO_PROJECT_GROUP_ID = "__leafcode_no_project__";
 
+/**
+ * ドラッグ中の生の幅から表示モードを決める。
+ * MIN_WIDTH を下回ったら最小表示（レール）へ落とし、そこでは幅を更新しない
+ * （通常表示へ戻したときは直前に使っていた幅を復元する）。
+ */
+function resolveSidebarDrag(rawWidth: number): { collapsed: boolean; width: number | null } {
+  if (rawWidth < MIN_WIDTH) return { collapsed: true, width: null };
+  return { collapsed: false, width: Math.min(MAX_WIDTH, rawWidth) };
+}
+
 /** 表示に影響するフィールドのみ比較（未変更なら参照を維持して再レンダーを防ぐ）。 */
 export function sameTaskList(a: TaskSummary[], b: TaskSummary[]): boolean {
   if (a.length !== b.length) return false;
@@ -2246,18 +2256,24 @@ const SidebarView = memo(function SidebarView({
         style={{ width: collapsed ? COLLAPSED_WIDTH : width }}
       >
         {mdUp ? (mode === "bot" ? botBody : collapsed ? collapsedRail : body) : null}
-        {mdUp && !collapsed && (
+        {mdUp && (
           <div
             role="separator"
             aria-orientation="vertical"
+            aria-label="サイドバーの幅を調整"
             className="absolute top-0 right-0 hidden h-full w-1 cursor-col-resize md:block"
             onPointerDown={(event) => {
               const startX = event.clientX;
-              const startWidth = width;
+              // 最小表示からドラッグを始めた場合はレール幅を基準にする。
+              const startWidth = collapsed ? COLLAPSED_WIDTH : width;
               const onMove = (move: PointerEvent) => {
-                const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + (move.clientX - startX)));
-                setWidth(next);
-                localStorage.setItem(WIDTH_KEY, String(next));
+                const next = resolveSidebarDrag(startWidth + (move.clientX - startX));
+                if (next.width !== null) {
+                  setWidth(next.width);
+                  localStorage.setItem(WIDTH_KEY, String(next.width));
+                }
+                setCollapsed(next.collapsed);
+                localStorage.setItem(COLLAPSED_KEY, next.collapsed ? "1" : "0");
               };
               const onUp = () => {
                 window.removeEventListener("pointermove", onMove);

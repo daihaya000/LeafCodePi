@@ -223,3 +223,31 @@ describe("Bot mode collapsed rail", () => {
     expect(localStorage.getItem("webui.sidebar.collapsed")).toBe("0");
   });
 });
+
+describe("サイドバー幅のドラッグ", () => {
+  it("幅を最小まで狭めるとレール表示、広げると通常表示へ切り替わる", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    const handle = await screen.findByRole("separator", { name: "サイドバーの幅を調整" });
+    const aside = handle.parentElement as HTMLElement;
+    expect(aside.style.width).toBe("240px");
+
+    fireEvent.pointerDown(handle, { clientX: 240 });
+    fireEvent.pointerMove(window, { clientX: 179 });
+    await waitFor(() => expect(aside.style.width).toBe("80px"));
+    fireEvent.pointerUp(window);
+    // レール表示中は幅を書き換えない（直前に使っていた幅を復元するため）。
+    expect(localStorage.getItem("webui.sidebar.width")).toBeNull();
+
+    // レール表示からのドラッグは 80px を基準にし、180px で通常表示へ戻る。
+    fireEvent.pointerDown(handle, { clientX: 80 });
+    fireEvent.pointerMove(window, { clientX: 179 });
+    await waitFor(() => expect(aside.style.width).toBe("80px"));
+    fireEvent.pointerMove(window, { clientX: 180 });
+    await waitFor(() => expect(aside.style.width).toBe("180px"));
+    fireEvent.pointerUp(window);
+    expect(localStorage.getItem("webui.sidebar.width")).toBe("180");
+    expect(localStorage.getItem("webui.sidebar.collapsed")).toBe("0");
+  });
+});
