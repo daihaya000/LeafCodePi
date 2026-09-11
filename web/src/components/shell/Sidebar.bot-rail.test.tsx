@@ -146,6 +146,35 @@ describe("Bot mode collapsed rail", () => {
     expect(alert.textContent).toContain("Bot作成に失敗しました");
   });
 
+  it("shows an error when the list refresh fails after creating a room", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    let sidebarReads = 0;
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots/sidebar") {
+        sidebarReads += 1;
+        return sidebarReads === 1
+          ? Promise.resolve({ bots: [], rooms: [] })
+          : Promise.reject(new Error("一覧更新に失敗しました"));
+      }
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
+      if (path === "/api/tasks?archived=1") return Promise.resolve({ tasks: [] });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    vi.stubGlobal("prompt", vi.fn().mockReturnValue("新規ルーム"));
+    mocks.sendJson.mockResolvedValueOnce({ room: { id: "room-1" } });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await screen.findByText("ルームはありません");
+    fireEvent.click(screen.getByRole("button", { name: "ルームを追加" }));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/bots/rooms/room-1"));
+
+    window.dispatchEvent(new Event("webui:bot-sidebar-changed"));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("一覧更新に失敗しました");
+  });
+
   it("shows a user-facing error when Bot and Room loading fails", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     mocks.getJson.mockImplementation((path: string) => {
