@@ -120,6 +120,19 @@ describe("Bot mode list", () => {
 });
 
 describe("Bot mode collapsed rail", () => {
+  it("shows a user-facing error when creating a room fails", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    vi.stubGlobal("prompt", vi.fn().mockReturnValue("失敗ルーム"));
+    mocks.sendJson.mockRejectedValueOnce(new Error("ルーム作成に失敗しました"));
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "ルームを追加" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("ルーム作成に失敗しました");
+  });
+
   it("shows a user-facing error when creating a Bot fails", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     vi.stubGlobal("prompt", vi.fn().mockReturnValue("失敗Bot"));
