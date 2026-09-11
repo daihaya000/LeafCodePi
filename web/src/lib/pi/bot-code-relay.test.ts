@@ -459,6 +459,24 @@ describe("Bot ⇄ Code relay", () => {
     expect(deps.create).toHaveBeenCalledTimes(1);
   });
 
+  it("rewrites a captured success when the user stops before its report is delivered", async () => {
+    await launch();
+    store.tasks.get("code")!.status = "idle";
+    messages = [answer("done", "完了")];
+    vi.mocked(deps.deliver).mockResolvedValueOnce(false);
+    await relay.tick();
+
+    const pending = record();
+    expect(pending.state).toBe("ready");
+    await stopBotCodeRequest("one", pending.id);
+    const retry = record();
+    retry.nextAttemptAt = 0;
+    writeFileSync(join(store.root, "bot-code-requests", `${retry.id}.json`), JSON.stringify(retry), "utf8");
+    await relay.tick();
+
+    expect(JSON.parse(record().result!).outcome).toBe("ユーザーが停止");
+  });
+
   it("reports a Code session the user started from the Bot screen", async () => {
     const started = await runUserBotCodeRequest("one", { prompt: "画面を直して", projectId: "project" }, async (codeRequestId, link) => {
       expect(codeRequestId).toMatch(/^[a-f0-9]{64}$/);

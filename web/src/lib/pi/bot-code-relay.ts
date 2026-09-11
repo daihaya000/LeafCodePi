@@ -184,6 +184,14 @@ function requestPayload(request: CodeRequest): { outcome?: string; goalLoop?: Co
     };
   } catch { return {}; }
 }
+function markUserStoppedResult(request: CodeRequest): void {
+  let payload: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(request.result ?? "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) payload = parsed as Record<string, unknown>;
+  } catch { /* replace an unreadable result with the authoritative stop outcome */ }
+  request.result = JSON.stringify({ ...payload, outcome: "ユーザーが停止" });
+}
 export type BotCodeRequestSummary = Pick<CodeRequest, "id" | "codeTaskId" | "state" | "prompt" | "result" | "queuedAt"> & {
   outcome?: string;
   goalLoop?: CodeRequestGoalLoopReport;
@@ -264,6 +272,7 @@ export async function stopBotCodeRequest(
     const request = read(requestId);
     if (!request || request.botId !== botId || !active(request)) return undefined;
     request.stoppedByUser = true;
+    if (request.state === "ready") markUserStoppedResult(request);
     // An old queued prompt points at its predecessor, not a task this request has launched.
     if (request.state === "queued") request.codeTaskId = null;
     if (!request.codeTaskId) request.state = "cancelled";
