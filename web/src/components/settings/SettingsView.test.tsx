@@ -234,6 +234,10 @@ describe("SettingsView", () => {
     expect(screen.getByRole("heading", { name: "ローカル LLM" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "メモリ", level: 2 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
+    const displaySection = screen.getByRole("heading", { name: "表示と通知" }).closest("section");
+    const displayGrid = displaySection?.querySelector(":scope > div.grid");
+    expect(displayGrid?.className).toContain("xl:grid-cols-2");
+    expect(Array.from(displayGrid?.children ?? []).every((item) => !item.className.includes("xl:col-span-2"))).toBe(true);
     expect(screen.getByRole("heading", { name: "読み上げ (TTS)" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
     const responseSection = screen.getByRole("heading", { name: "応答" }).closest("section");

@@ -312,15 +312,11 @@ export function SettingsView() {
                 description="起動時の既定値、表示、通知音、読み上げ、メッセージ移動ボタンを設定します。"
               >
                 <div className="grid gap-4 xl:grid-cols-2">
-                  <div className="xl:col-span-2">
-                    <ComposerDefaultsSettings refreshToken={modelsRevision} />
-                  </div>
+                  <ComposerDefaultsSettings refreshToken={modelsRevision} />
                   <BrowserSettings />
                   <NavigatorSettings />
                   <NotificationSoundSettings />
-                  <div className="xl:col-span-2">
-                    <TtsSettings />
-                  </div>
+                  <TtsSettings />
                   <div className="rounded-2xl border border-border bg-surface p-4">
                     <h3 className="text-sm font-semibold">テーマ</h3>
                     <p className="mt-1 text-xs text-muted">
