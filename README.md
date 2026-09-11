@@ -72,6 +72,7 @@ LeafCodePi には次の Pi 拡張を同梱しています。WebUI と連携す�
 | `leafcode-question` | WebUI からの質問応答 |
 | `leafcode-subagents` | サブエージェント委譲、エージェント定義、スキル、プロンプト |
 | `leafcode-todowrite` | OpenCode 互換の ToDo 管理 |
+| `leafcode-tts` | Bot / エージェントの発言の読み上げ（`/tts`・既定 OFF・唯一無効化できる leafcode 拡張） |
 | `leafcode-web-access` | Web 検索、URL/PDF/GitHub/動画の取得・解析 |
 
 ルートの `skills/` と `extensions/*/skills/` 配下にある `SKILL.md` は LeafCodePi の組み込みスキルとして自動検出され、通常の Pi スキルと同じく設定画面から有効／無効を切り替えられます。グローバルディレクトリへのコピーやインストールは不要です。エージェントは `available_skills` の `location` に提示された実パスを読み、相対参照はその `SKILL.md` のディレクトリを基準に解決します。存在しないグローバルパスを指定した場合だけ、有効な一覧から一意に対応するスキルへの `read` を補正し、実パスを結果に明示します。既存ファイルや書き込み先は変更しません。
@@ -125,6 +126,29 @@ pi install ./extensions/leafcode-intercom
 同梱の15エージェントは `intercom` を許可し、子セッションでは `subagentOnlyExtensions` でプロバイダーを読み込みます。関連作業・編集競合があるときだけ `list` で相手のID・cwdを確認し、短い `send` で共有します。`ask` はブロック時のみ、親への判断依頼は `contact_supervisor`、通常の完了は結果返却のままです。受信内容を権限や承認として扱わず、秘密情報の送信・定期通知・無断pane起動はしません。
 
 単体Piでも使う場合は上記パッケージを登録し、ツールを制限している `~/.pi/agent/settings.json` の `defaultTools` に `intercom` を追加して再起動してください。設定チェックは `node --test extensions/leafcode-subagents/intercom-config.test.mjs` で実行できます。
+
+### 読み上げ (`leafcode-tts`)
+
+`extensions/leafcode-tts` は Bot / エージェントの発言を読み上げます。既定は OFF で、`/tts`（`/tts on`・`/tts off`・`/tts test`）で切り替えます。設定画面から無効化できる唯一の `leafcode-*` 拡張です。
+
+文章全体をまとめて渡さず、streaming の `text_delta` を「、」「。」「！」「？」と改行で短く区切り、合成と再生を並行させる Producer/Consumer 方式です。コードブロック・URL・Markdown 記法は読み上げません。サブエージェントの子プロセスでは無効です。
+
+既定の合成は Windows 標準の SAPI（`System.Speech`）で、追加依存はありません。日本語は `Microsoft Haruka Desktop` が使えます。設定は `%APPDATA%\leafcode-pi\tts.json`（Linux/macOS は `~/.leafcode-pi/tts.json`）です。
+
+```json
+{
+  "enabled": false,
+  "voice": "Microsoft Haruka Desktop",
+  "rate": 2,
+  "url": ""
+}
+```
+
+`url` を設定すると SAPI の代わりにその HTTP エンドポイントで合成します（`POST {"text": "...", "voice": "..."}` → wav バイト列）。Qwen3-TTS などをローカル GPU で動かす場合はこの口に繋ぎます。合成に失敗したチャンクは読み飛ばし、読み上げ全体は止めません。
+
+```powershell
+npx --prefix extensions/leafcode-todowrite vitest run --dir extensions/leafcode-tts
+```
 
 ## まだないもの
 
