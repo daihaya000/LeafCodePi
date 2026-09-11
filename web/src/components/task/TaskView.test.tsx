@@ -111,18 +111,24 @@ it("groups consecutive tool-only messages between agent responses", () => {
   mocks.toolCard.mockImplementation(({ part }: { part: { id: string } }) => (
     <div data-task-tool-card={part.id} />
   ));
+  mocks.messageMetaHeader.mockImplementation(({ message }: { message: UiMessage }) => (
+    <div data-task-meta={message.id} />
+  ));
   render(<TaskView taskId={task.id} mdUp />);
 
   const group = document.querySelector<HTMLDetailsElement>("details[data-task-tool-group]");
   expect(group).not.toBeNull();
-  expect(group!.parentElement?.firstElementChild?.className).toContain("max-w-bubble");
+  expect(group!.className).toContain("max-w-bubble");
   expect(group!.open).toBe(false);
   expect(group!.querySelector("summary")?.textContent).toContain("ツール実行");
   expect(group!.querySelector("summary")?.textContent).toContain("2件");
   expect(group!.querySelectorAll("[data-task-tool-card]")).toHaveLength(2);
-  expect(mocks.messageMetaHeader.mock.calls.map(([props]) => props.message.id)).toEqual(
-    expect.arrayContaining(["tool-1", "tool-2"]),
-  );
+  // メタ行はグループの中だけに出す。外へ出すとグループ1枚につきヘッダーが縦積みになる。
+  expect([...group!.querySelectorAll("[data-task-meta]")].map((node) => node.getAttribute("data-task-meta"))).toEqual([
+    "tool-1",
+    "tool-2",
+  ]);
+  expect(document.querySelectorAll("[data-task-meta]")).toHaveLength(2);
   fireEvent.click(group!.querySelector("summary")!);
   expect(group!.open).toBe(true);
 });

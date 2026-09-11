@@ -562,33 +562,28 @@ function taskMessageBlocks(messages: UiMessage[], ungroupedMessageId?: string): 
 }
 
 function TaskToolActivityGroup({
-  messageHeaders,
   contents,
   count,
 }: {
-  messageHeaders: ReactNode[];
   contents: ReactNode[];
   count: number;
 }) {
   return (
-    <div className="w-full min-w-0">
-      <div className="mb-1 flex min-w-0 max-w-bubble flex-col gap-1">{messageHeaders}</div>
-      <details
-        data-task-tool-group
-        aria-label="ツール実行"
-        className="group/task-tool-activity w-full max-w-bubble self-start overflow-hidden rounded-2xl border border-border bg-surface"
-      >
-        <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 py-2.5 text-left text-sm text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
-          <ChevronRight
-            className="h-4 w-4 shrink-0 transition-transform group-open/task-tool-activity:rotate-90"
-            aria-hidden="true"
-          />
-          <span className="min-w-0 flex-1 font-medium">ツール実行</span>
-          <span className="shrink-0 text-xs text-faint">{count}件</span>
-        </summary>
-        <div className="space-y-2 border-t border-border bg-surface p-2">{contents}</div>
-      </details>
-    </div>
+    <details
+      data-task-tool-group
+      aria-label="ツール実行"
+      className="group/task-tool-activity w-full max-w-bubble self-start overflow-hidden rounded-2xl border border-border bg-surface"
+    >
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 py-2.5 text-left text-sm text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
+        <ChevronRight
+          className="h-4 w-4 shrink-0 transition-transform group-open/task-tool-activity:rotate-90"
+          aria-hidden="true"
+        />
+        <span className="min-w-0 flex-1 font-medium">ツール実行</span>
+        <span className="shrink-0 text-xs text-faint">{count}件</span>
+      </summary>
+      <div className="space-y-2 border-t border-border bg-surface p-2">{contents}</div>
+    </details>
   );
 }
 
@@ -2840,36 +2835,31 @@ export const TaskView = memo(function TaskView({
                   : isGoalLoopTurnBoundary(renderedMessages, block.index)
                     ? firstMessage.goalLoopTurn
                     : undefined;
-              const messageHeaders =
-                block.kind === "tool-group"
-                  ? block.entries
-                      .filter((entry) => entry.showHeader)
-                      .map((entry) => {
-                        const message = entry.message;
-                        return (
-                          <MessageMetaHeader
-                            key={`task-tool-message-meta:${messageRenderKey(message)}`}
-                            message={message}
-                            modelLabel={
-                              message.provider && message.model
-                                ? modelLabels[`${message.provider}::${message.model}`]
-                                : undefined
-                            }
-                            effort={effortLabel}
-                            agent={task?.agent ?? undefined}
-                            accountLabel={
-                              message.accountId
-                                ? (accountLabels.get(message.accountId) ?? message.accountId)
-                                : (taskAccountLabel ?? undefined)
-                            }
-                          />
-                        );
-                      })
-                  : [];
               const activityContents =
                 block.kind === "tool-group"
                   ? block.entries.flatMap((entry) => {
                       const message = entry.activityMessage;
+                      const modelLabel =
+                        message.provider && message.model
+                          ? modelLabels[`${message.provider}::${message.model}`]
+                          : undefined;
+                      const accountLabel = message.accountId
+                        ? (accountLabels.get(message.accountId) ?? message.accountId)
+                        : (taskAccountLabel ?? undefined);
+                      // メタ行は折りたたみの中に入れる。外へ出すと1グループ分の
+                      // ヘッダーがそのまま縦積みになり、タイムラインが埋まる。
+                      const header = entry.showHeader
+                        ? [
+                            <MessageMetaHeader
+                              key={`task-tool-message-meta:${messageRenderKey(entry.message)}`}
+                              message={entry.message}
+                              modelLabel={modelLabel}
+                              effort={effortLabel}
+                              agent={task?.agent ?? undefined}
+                              accountLabel={accountLabel}
+                            />,
+                          ]
+                        : [];
                       const toolParts = message.parts.filter(
                         (part): part is TaskToolPart => part.type === "tool",
                       );
@@ -2879,38 +2869,34 @@ export const TaskView = memo(function TaskView({
                         !message.error &&
                         (message.diagnostics?.length ?? 0) === 0
                       ) {
-                        return toolParts.map((part) => {
-                          const partKey = part.id || part.callID;
-                          const cardKey =
-                            part.state.status === "error" || part.state.status === "cancelled"
-                              ? `${partKey}:expanded`
-                              : partKey;
-                          return (
-                            <ToolCard
-                              key={`task-tool-part:${cardKey}`}
-                              part={part}
-                              taskId={taskId}
-                              tabActive={active}
-                            />
-                          );
-                        });
+                        return [
+                          ...header,
+                          ...toolParts.map((part) => {
+                            const partKey = part.id || part.callID;
+                            const cardKey =
+                              part.state.status === "error" || part.state.status === "cancelled"
+                                ? `${partKey}:expanded`
+                                : partKey;
+                            return (
+                              <ToolCard
+                                key={`task-tool-part:${cardKey}`}
+                                part={part}
+                                taskId={taskId}
+                                tabActive={active}
+                              />
+                            );
+                          }),
+                        ];
                       }
                       return [
+                        ...header,
                         <PartView
                           key={`task-tool-message:${messageRenderKey(entry.message)}`}
                           message={message}
-                          modelLabel={
-                            message.provider && message.model
-                              ? modelLabels[`${message.provider}::${message.model}`]
-                              : undefined
-                          }
+                          modelLabel={modelLabel}
                           effort={effortLabel}
                           agent={task?.agent ?? undefined}
-                          accountLabel={
-                            message.accountId
-                              ? (accountLabels.get(message.accountId) ?? message.accountId)
-                              : (taskAccountLabel ?? undefined)
-                          }
+                          accountLabel={accountLabel}
                           references={messageReferences}
                           taskId={taskId}
                           active={active}
@@ -2944,11 +2930,7 @@ export const TaskView = memo(function TaskView({
                 >
                   {turn && <GoalLoopTurnDivider turn={turn} />}
                   {block.kind === "tool-group" ? (
-                    <TaskToolActivityGroup
-                      messageHeaders={messageHeaders}
-                      contents={activityContents}
-                      count={activityCount}
-                    />
+                    <TaskToolActivityGroup contents={activityContents} count={activityCount} />
                   ) : showResume &&
                     resumeInsideExistingBanner &&
                     resumeTarget?.messageId === block.message.id ? (
