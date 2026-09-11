@@ -1385,11 +1385,15 @@ const SidebarView = memo(function SidebarView({
       window.alert("2 MB以下の画像を選択してください。");
       return;
     }
+    setActionError(null);
     const reader = new FileReader();
     reader.onload = () => {
       void runAction(`icon:${project.id}`, () =>
         sendJson("/api/projects", { id: project.id, icon: String(reader.result) }, "PATCH"),
       );
+    };
+    reader.onerror = () => {
+      setActionError("プロジェクトアイコンの読み込みに失敗しました");
     };
     reader.readAsDataURL(file);
   }

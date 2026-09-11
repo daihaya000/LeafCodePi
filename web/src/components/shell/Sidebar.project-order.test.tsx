@@ -251,6 +251,26 @@ describe("Sidebar project ordering", () => {
     });
   });
 
+  it("shows a user-facing error when a project icon cannot be read", async () => {
+    const reader = {
+      result: null,
+      onload: null as (() => void) | null,
+      onerror: null as (() => void) | null,
+      readAsDataURL: vi.fn(),
+    };
+    vi.stubGlobal("FileReader", vi.fn(() => reader));
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    const input = (await screen.findByLabelText("Project Aのアイコンを設定")) as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File(["icon"], "icon.png", { type: "image/png" })] },
+    });
+    reader.onerror?.();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("プロジェクトアイコンの読み込みに失敗しました");
+  });
+
   it("uses the displayed project icon as the file picker", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
