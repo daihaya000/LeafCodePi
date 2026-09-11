@@ -703,7 +703,7 @@ export function MessageMetaHeader({
   return (
     <div
       aria-label="応答メタデータ"
-      className="flex min-w-0 items-center gap-1.5 overflow-hidden text-[11px] whitespace-nowrap text-muted"
+      className="flex w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden text-[11px] whitespace-nowrap text-muted"
     >
       {/* 合成メッセージ（シェル実行など）はプロバイダを持たないので汎用アイコンを出さない。 */}
       {message.provider && <ProviderIcon providerID={message.provider} size={14} />}
@@ -1007,7 +1007,7 @@ export const PartView = memo(
     return (
       <article className="flex w-full min-w-0 flex-col gap-2">
         {!hideMeta && (
-          <div className={cx("flex min-w-0", isUser ? "ml-auto max-w-bubble justify-end" : "justify-start")}>
+          <div className={cx("flex min-w-0", isUser ? "ml-auto max-w-bubble justify-end" : "w-full max-w-bubble justify-start")}>
             {isUser ? (
               !nested && (bot ? (
                 <div className="min-w-0" title={bot.name} aria-label={`送信者: ${bot.name}（Bot）`}>

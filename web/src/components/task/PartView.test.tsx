@@ -192,6 +192,9 @@ describe("PartView sender and response metadata", () => {
 
     expect(screen.queryByText("Code Bot")).toBeNull();
     const metadata = screen.getByLabelText("応答メタデータ");
+    expect(metadata.className).toContain("w-full");
+    expect(metadata.className).toContain("max-w-full");
+    expect(metadata.parentElement?.className).toContain("max-w-bubble");
     for (const label of ["GPT", "build", "仕事用"]) expect(metadata.textContent).toContain(label);
   });
 
