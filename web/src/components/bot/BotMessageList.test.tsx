@@ -81,6 +81,8 @@ it("places the time and footer below the bubble for user messages", () => {
   const botRow = container.firstElementChild!;
   expect(botRow.className).toContain("items-start");
   expect(botRow.children[0].textContent).toBe("MiMo");
+  expect(botRow.children[1].className).toContain("w-full");
+  expect(botRow.children[1].className).toContain("max-w-bubble");
   expect(botRow.children[1].className).toContain("bg-bot-assistant");
   expect(botRow.querySelector("[role='alert']")?.textContent).toBe("応答に失敗しました");
 
