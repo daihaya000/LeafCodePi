@@ -175,9 +175,11 @@ describe("AgentsSettings", () => {
     expect(screen.getByRole("checkbox", { name: `enabled の${toolNameLabel("read")}` }).closest("label")?.querySelector('[data-tool-access="read"] svg')).not.toBeNull();
     const section = write.closest("section");
     expect(section).not.toBeNull();
-    const grid = section!.querySelector("div.grid");
-    expect(grid?.className).toContain("grid-cols-2");
-    expect(grid?.className).not.toContain("sm:grid-cols-3");
+    const groups = section!.querySelectorAll("[data-tool-group]");
+    expect([...groups].map((group) => group.getAttribute("data-tool-group"))).toEqual(["write", "read"]);
+    expect([...groups].every((group) => group.querySelector("div.grid")?.className.includes("grid-cols-2"))).toBe(true);
+    expect([...groups].some((group) => group.querySelector("[data-tool-access=write]"))).toBe(true);
+    expect([...groups].some((group) => group.querySelector("[data-tool-access=read]"))).toBe(true);
     fireEvent.click(write);
 
     await waitFor(() => {

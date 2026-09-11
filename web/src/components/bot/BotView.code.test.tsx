@@ -534,7 +534,9 @@ it("shows every configured tool in the Bot settings panel", async () => {
   const toolsRegion = screen.getByRole("region", { name: "個別ツール設定" });
   const tools = within(toolsRegion);
   expect(tools.getAllByRole("checkbox")).toHaveLength(BOT_TOOL_NAMES.length);
-  expect(toolsRegion.querySelector("div.grid")?.className).toContain("grid-cols-2");
+  const groups = toolsRegion.querySelectorAll("[data-tool-group]");
+  expect([...groups].map((group) => group.getAttribute("data-tool-group"))).toEqual(["write", "read"]);
+  expect([...groups].every((group) => group.querySelector("div.grid")?.className.includes("grid-cols-2"))).toBe(true);
   for (const tool of BOT_TOOL_NAMES) {
     expect(tools.getByRole("checkbox", { name: toolNameLabel(tool) })).toBeTruthy();
   }
