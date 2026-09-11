@@ -94,7 +94,12 @@ it("groups consecutive tool-only messages between agent responses", () => {
       type: "tool",
       tool: "read",
       callID: `${id}-call`,
-      state: { status: "completed", input: { path: "README.md" } },
+      state: {
+        status: "completed",
+        input: { path: "README.md" },
+        startedAtMs: 1_000,
+        endedAtMs: 2_500,
+      },
     }],
   });
   saveTaskSessionCache({
@@ -122,6 +127,8 @@ it("groups consecutive tool-only messages between agent responses", () => {
   expect(group!.open).toBe(false);
   expect(group!.querySelector("summary")?.textContent).toContain("ツール実行");
   expect(group!.querySelector("summary")?.textContent).toContain("2件");
+  // 1.5s × 2 件の累計。
+  expect(group!.querySelector("summary")?.textContent).toContain("3s");
   expect(group!.querySelectorAll("[data-task-tool-card]")).toHaveLength(2);
   // メタ行はグループの中だけに出す。外へ出すとグループ1枚につきヘッダーが縦積みになる。
   expect([...group!.querySelectorAll("[data-task-meta]")].map((node) => node.getAttribute("data-task-meta"))).toEqual([

@@ -528,6 +528,29 @@ function taskActivityCount(entry: TaskActivityEntry): number {
   );
 }
 
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  const totalSeconds = Math.round(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+/** 完了したツール実行の所要時間の合計。実行中は確定してから加算する。 */
+function taskActivityDurationMs(entry: TaskActivityEntry): number {
+  let total = 0;
+  for (const part of entry.activityMessage.parts) {
+    if (part.type !== "tool") continue;
+    const { startedAtMs, endedAtMs } = part.state;
+    if (startedAtMs === undefined || endedAtMs === undefined) continue;
+    total += Math.max(0, endedAtMs - startedAtMs);
+  }
+  return total;
+}
+
 function taskMessageBlocks(messages: UiMessage[], ungroupedMessageId?: string): TaskMessageBlock[] {
   const blocks: TaskMessageBlock[] = [];
   let groupedEntries: TaskActivityEntry[] = [];
@@ -589,9 +612,11 @@ function taskMessageBlocks(messages: UiMessage[], ungroupedMessageId?: string): 
 function TaskToolActivityGroup({
   contents,
   count,
+  durationMs,
 }: {
   contents: ReactNode[];
   count: number;
+  durationMs: number;
 }) {
   return (
     <details
@@ -605,7 +630,9 @@ function TaskToolActivityGroup({
           aria-hidden="true"
         />
         <span className="min-w-0 flex-1 font-medium">ツール実行</span>
-        <span className="shrink-0 text-xs text-faint">{count}件</span>
+        <span className="shrink-0 text-xs text-faint">
+          {count}件{durationMs > 0 ? ` · ${formatDuration(durationMs)}` : ""}
+        </span>
       </summary>
       <div className="space-y-2 border-t border-border bg-surface p-2">{contents}</div>
     </details>
@@ -2611,17 +2638,6 @@ export const TaskView = memo(function TaskView({
   const navigationTargetLabel = userMessageIds.length > 0 ? "ユーザーメッセージ" : "メッセージ";
   navigationMessageIdsRef.current = navigationMessageIds;
 
-  function formatDuration(ms: number): string {
-    if (!Number.isFinite(ms) || ms <= 0) return "—";
-    const totalSeconds = Math.round(ms / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    if (hours > 0) return `${hours}h ${minutes}m`;
-    if (minutes > 0) return `${minutes}m ${seconds}s`;
-    return `${seconds}s`;
-  }
-
   const displayedStatus = task
     ? working
       ? "working"
@@ -2927,6 +2943,10 @@ export const TaskView = memo(function TaskView({
                 block.kind === "tool-group"
                   ? block.entries.reduce((count, entry) => count + taskActivityCount(entry), 0)
                   : 0;
+              const activityDurationMs =
+                block.kind === "tool-group"
+                  ? block.entries.reduce((ms, entry) => ms + taskActivityDurationMs(entry), 0)
+                  : 0;
               return (
                 <div
                   key={
@@ -2948,7 +2968,11 @@ export const TaskView = memo(function TaskView({
                 >
                   {turn && <GoalLoopTurnDivider turn={turn} />}
                   {block.kind === "tool-group" ? (
-                    <TaskToolActivityGroup contents={activityContents} count={activityCount} />
+                    <TaskToolActivityGroup
+                      contents={activityContents}
+                      count={activityCount}
+                      durationMs={activityDurationMs}
+                    />
                   ) : showResume &&
                     resumeInsideExistingBanner &&
                     resumeTarget?.messageId === block.message.id ? (
