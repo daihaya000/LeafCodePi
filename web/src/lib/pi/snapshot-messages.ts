@@ -369,7 +369,7 @@ export function applyToolTiming(
     const parts = message.parts.map((part) => {
       if (part.type !== "tool") return part;
       const startedAtMs = toolStartedAt.get(part.callID);
-      if (!startedAtMs) return part;
+      if (startedAtMs === undefined) return part;
       changed = true;
       return {
         ...part,

@@ -295,6 +295,17 @@ describe("applyToolTiming", () => {
     const part = result[0]!.parts[0] as Extract<(typeof result)[0]["parts"][number], { type: "tool" }>;
     assert.equal(part.state.startedAtMs, undefined);
   });
+
+  it("injects a zero start timestamp", () => {
+    const result = applyToolTiming(
+      [toolMessage("call-1")],
+      new Map([["call-1", 0]]),
+      new Map([["call-1", 1000]]),
+    );
+    const part = result[0]!.parts[0] as Extract<(typeof result)[0]["parts"][number], { type: "tool" }>;
+    assert.equal(part.state.startedAtMs, 0);
+    assert.equal(part.state.endedAtMs, 1000);
+  });
 });
 
 describe("applyToolOutput", () => {
