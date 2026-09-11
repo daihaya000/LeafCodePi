@@ -299,9 +299,7 @@ export function SettingsView() {
                 description="翻訳、コンテキスト節約、自動再開、タイトル更新など、応答時の動作を設定します。"
               >
                 <div className="grid gap-4 xl:grid-cols-2">
-                  <div className="xl:col-span-2">
-                    <ReasoningTranslationSettings />
-                  </div>
+                  <ReasoningTranslationSettings />
                   <TitleAutoUpdateSettings />
                   <CompactionSettings />
                   <HangTimeoutSettings />

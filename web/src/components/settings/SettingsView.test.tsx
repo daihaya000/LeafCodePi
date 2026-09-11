@@ -236,6 +236,11 @@ describe("SettingsView", () => {
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "読み上げ (TTS)" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
+    const responseSection = screen.getByRole("heading", { name: "応答" }).closest("section");
+    const responseGrid = responseSection?.querySelector(":scope > div.grid");
+    expect(responseGrid?.className).toContain("xl:grid-cols-2");
+    expect(responseGrid?.children).toHaveLength(4);
+    expect(Array.from(responseGrid?.children ?? []).every((item) => !item.className.includes("xl:col-span-2"))).toBe(true);
     expect(screen.getByRole("heading", { name: "Pi Coding Agent" }).tagName).toBe("H3");
     expect(mountCounts.basic).toBe(1);
     expect(mountCounts.response).toBe(1);
