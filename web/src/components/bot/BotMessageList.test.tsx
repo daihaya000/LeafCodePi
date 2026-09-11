@@ -75,6 +75,7 @@ it("places the time and footer below the bubble for user messages", () => {
   expect([...row.children].map((child) => child.tagName)).toEqual(["DIV", "TIME", "BUTTON"]);
   const bubble = row.children[0];
   expect(bubble.className).toContain("max-w-bubble");
+  expect(bubble.className).not.toContain("w-full");
   expect(bubble.className).toContain("bg-bot-user");
 
   rerender(<BotMessageRow user={false} createdAt={createdAt} header={<BotMessageSender name="MiMo" avatarColor="#0071E3" />}><BotMessageError text="応答に失敗しました" /></BotMessageRow>);

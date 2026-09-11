@@ -131,7 +131,7 @@ export function BotMessageRow({ user, createdAt, children, footer, header, after
   return (
     <div className={`flex flex-col gap-1 ${user ? "items-end" : "items-start"}`}>
       {header}
-      {bubble && <div className={`w-full min-w-0 max-w-bubble rounded-3xl px-4 py-3 text-base leading-7 [overflow-wrap:anywhere] bot-message-bubble ${user ? "bg-bot-user text-white" : "rounded-tl-lg bg-bot-assistant text-text"}`}>{children}</div>}
+      {bubble && <div className={`${user ? "min-w-0 max-w-bubble" : "w-full min-w-0 max-w-bubble"} rounded-3xl px-4 py-3 text-base leading-7 [overflow-wrap:anywhere] bot-message-bubble ${user ? "bg-bot-user text-white" : "rounded-tl-lg bg-bot-assistant text-text"}`}>{children}</div>}
       {after}
       {(!timeInHeader || user) && <BotMessageTime createdAt={createdAt} />}
       {footer}
