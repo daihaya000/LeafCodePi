@@ -241,6 +241,33 @@ describe("Bot Code session control", () => {
     expect(mocks.goalLoopCommand).toHaveBeenCalledWith("code-1", { action: "resume", maxTurns: 3 });
   });
 
+  it("does not let the Bot endpoint control a Room task for the same Bot", async () => {
+    const roomTask = { id: "bot:bot-1:room:room-1", status: "working", kind: "bot", botId: "bot-1" };
+    mocks.getTask.mockReturnValue(roomTask);
+
+    const goalLoopResponse = await PATCH(request("PATCH", {
+      action: "goal-loop",
+      taskId: roomTask.id,
+      goalLoopAction: "pause",
+    }), { params: Promise.resolve({ id: "bot-1" }) });
+    const promptResponse = await PATCH(request("PATCH", {
+      action: "prompt",
+      taskId: roomTask.id,
+      prompt: "Roomの作業を横取りしない",
+    }), { params: Promise.resolve({ id: "bot-1" }) });
+    const abortResponse = await PATCH(request("PATCH", {
+      action: "abort",
+      taskId: roomTask.id,
+    }), { params: Promise.resolve({ id: "bot-1" }) });
+
+    expect(goalLoopResponse.status).toBe(404);
+    expect(promptResponse.status).toBe(404);
+    expect(abortResponse.status).toBe(404);
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+    expect(mocks.continueBotCodeTask).not.toHaveBeenCalled();
+    expect(mocks.stopBotCodeTask).not.toHaveBeenCalled();
+  });
+
   it("rejects Goal Loop control for another Bot's Code task", async () => {
     mocks.getTask.mockReturnValue({ id: "code-2", status: "idle", botId: "bot-2" });
 

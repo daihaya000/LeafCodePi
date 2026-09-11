@@ -165,7 +165,9 @@ export async function PATCH(
         return NextResponse.json({ task: null });
       }
       const task = getTask(taskId);
-      if (!task || task.botId !== id || task.status === "archived") {
+      // Room workers are also stored as kind="bot" with the same botId. This endpoint is the
+      // Bot screen's 1:1 Code control surface and must never mutate a Room-owned task.
+      if (!task || task.kind === "bot" || task.botId !== id || task.status === "archived") {
         return NextResponse.json({ error: "Code session not found" }, { status: 404 });
       }
       if (body?.action === "goal-loop") {
