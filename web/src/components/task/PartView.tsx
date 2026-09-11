@@ -773,7 +773,7 @@ export function WorkingRow({ messages, active = true }: { messages: UiMessage[];
     ? `${toolLabel(running.tool, running.state.input)} ${toolSummary(running.tool, running.state)}`
     : "作業中…";
   return (
-    <div role="status" aria-live="polite" className="flex max-w-bubble items-center gap-2 rounded-3xl bg-bot-assistant px-4 py-2.5 text-sm text-muted">
+    <div role="status" aria-live="polite" className="flex max-w-bubble items-center gap-2 rounded-3xl bg-transparent px-4 py-2.5 text-sm text-muted">
       <Loader2 className="h-4 w-4 shrink-0 animate-spin text-working" />
       <span className="min-w-0 flex-1 truncate">{headline}</span>
       {startedAtMs !== undefined && (
