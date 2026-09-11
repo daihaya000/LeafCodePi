@@ -2526,7 +2526,7 @@ export const TaskView = memo(function TaskView({
             )}
           </div>
         </div>
-        <div aria-label="タスクの状態" className="col-span-2 flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @min-[48rem]/task:col-span-1 @min-[48rem]/task:col-start-2 @min-[48rem]/task:row-start-1">
+        <div aria-label="タスクの状態" className="col-span-2 flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @max-[48rem]/task:-translate-y-0.5 @min-[48rem]/task:col-span-1 @min-[48rem]/task:col-start-2 @min-[48rem]/task:row-start-1">
           {permissionRequest && <Badge tone="warning" className="shrink-0">承認待ち</Badge>}
           {questionRequest && <Badge tone="warning" className="shrink-0">回答待ち</Badge>}
           {displayedStatus && <StatusBadge status={displayedStatus} className="shrink-0" />}
