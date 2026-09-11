@@ -300,9 +300,8 @@ describe("Sidebar project ordering", () => {
     expect(picker?.tagName).toBe("LABEL");
     expect(picker?.title).toBe("Project Aのアイコンを設定");
 
-    fireEvent.change(input!, {
-      target: { files: [new File(["icon"], "icon.png", { type: "image/png" })] },
-    });
+    const file = new File(["icon"], "icon.png", { type: "image/png" });
+    fireEvent.change(input!, { target: { files: [file] } });
 
     await waitFor(() => {
       expect(mocks.sendJson).toHaveBeenCalledWith(
@@ -314,6 +313,10 @@ describe("Sidebar project ordering", () => {
         "PATCH",
       );
     });
+    expect(input.value).toBe("");
+
+    fireEvent.change(input, { target: { files: [file] } });
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledTimes(2));
   });
 
   it("reorders projects with native DnD and persists the order", async () => {
