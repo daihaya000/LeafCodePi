@@ -477,8 +477,21 @@ type TaskMessageBlock =
       showTurnDivider: boolean;
     };
 
+// 派生メッセージは元メッセージごとにキャッシュする。毎レンダリングで作り直すと
+// PartView / ToolCard の memo 比較（参照一致）が常に外れ、SSE のたびに全行が再描画される。
+const taskActivityEntryCache = new WeakMap<UiMessage, TaskActivityEntry | null>();
+const taskTextMessageCache = new WeakMap<UiMessage, UiMessage>();
+
 /** assistant の本文だけをメッセージとして残し、それ以外の表示要素を活動グループへ送る。 */
 function taskActivityEntry(message: UiMessage): TaskActivityEntry | null {
+  const cached = taskActivityEntryCache.get(message);
+  if (cached !== undefined) return cached;
+  const entry = buildTaskActivityEntry(message);
+  taskActivityEntryCache.set(message, entry);
+  return entry;
+}
+
+function buildTaskActivityEntry(message: UiMessage): TaskActivityEntry | null {
   if (message.role !== "assistant") return null;
   const activityParts = message.parts.filter((part) => part.type !== "text");
   const hasActivity =
@@ -495,12 +508,16 @@ function taskActivityEntry(message: UiMessage): TaskActivityEntry | null {
 }
 
 function taskTextMessage(message: UiMessage): UiMessage {
-  return {
+  const cached = taskTextMessageCache.get(message);
+  if (cached) return cached;
+  const textMessage: UiMessage = {
     ...message,
     parts: message.parts.filter((part) => part.type === "text"),
     error: undefined,
     diagnostics: undefined,
   };
+  taskTextMessageCache.set(message, textMessage);
+  return textMessage;
 }
 
 function taskActivityCount(entry: TaskActivityEntry): number {
