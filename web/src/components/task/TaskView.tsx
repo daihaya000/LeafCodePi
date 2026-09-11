@@ -2639,19 +2639,6 @@ export const TaskView = memo(function TaskView({
         <div className="col-span-2 flex min-w-0 items-center gap-2 @min-[48rem]/task:col-span-1">
           <MobileMenuButton />
           <div className="flex min-w-0 flex-1 items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              role="switch"
-              aria-checked={titleAutoUpdateEnabled}
-              aria-label="タイトルの自動更新"
-              title={`タイトルの自動更新: ${titleAutoUpdateEnabled ? "ON" : "OFF"}（${titleUpdateFrequency}ターンごと）`}
-              className={cx("hidden shrink-0 @min-[48rem]/task:inline-flex h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9", titleAutoUpdateEnabled && "text-accent!")}
-              disabled={!task || archived || titleBusy}
-              onClick={() => void toggleTitleAutoUpdate()}
-            >
-              <WandSparkles className="h-4 w-4" />
-            </Button>
             {titleEditing ? (
               <form
                 aria-label="セッションタイトルを編集"
@@ -2715,6 +2702,19 @@ export const TaskView = memo(function TaskView({
                 </button>
               </h1>
             )}
+            <Button
+              variant="ghost"
+              size="icon"
+              role="switch"
+              aria-checked={titleAutoUpdateEnabled}
+              aria-label="タイトルの自動更新"
+              title={`タイトルの自動更新: ${titleAutoUpdateEnabled ? "ON" : "OFF"}（${titleUpdateFrequency}ターンごと）`}
+              className={cx("hidden shrink-0 @min-[48rem]/task:inline-flex h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9", titleAutoUpdateEnabled && "text-accent!")}
+              disabled={!task || archived || titleBusy}
+              onClick={() => void toggleTitleAutoUpdate()}
+            >
+              <WandSparkles className="h-4 w-4" />
+            </Button>
           </div>
         </div>
         <div aria-label="タスクの状態" className="col-span-1 col-start-1 row-start-2 flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @max-[48rem]/task:-translate-y-0.5 @min-[48rem]/task:col-span-1 @min-[48rem]/task:col-start-2 @min-[48rem]/task:row-start-1">
