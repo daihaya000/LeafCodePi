@@ -603,7 +603,7 @@ function TaskToolActivityGroup({
   return (
     <details
       data-task-tool-group
-      aria-label="ツール実行"
+      aria-label="作業ログ"
       className="group/task-tool-activity w-full max-w-bubble self-start overflow-hidden rounded-2xl border border-border bg-surface"
     >
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 py-2.5 text-left text-sm text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
@@ -611,7 +611,7 @@ function TaskToolActivityGroup({
           className="h-4 w-4 shrink-0 transition-transform group-open/task-tool-activity:rotate-90"
           aria-hidden="true"
         />
-        <span className="min-w-0 flex-1 font-medium">ツール実行</span>
+        <span className="min-w-0 flex-1 font-medium">作業ログ</span>
         <span className="shrink-0 text-xs text-faint">
           {count}件{elapsedMs > 0 ? ` · ${formatDuration(elapsedMs)}` : ""}
         </span>
