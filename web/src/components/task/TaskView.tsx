@@ -162,6 +162,8 @@ import {
 } from "@/lib/sse-reconnect";
 
 const MODEL_KEY = "leafcodepi.defaultModel";
+// 自動更新の実装は復帰用に保持し、現在の仕様では手動生成だけを有効にする。
+const TITLE_AUTO_UPDATE_ENABLED = false;
 
 function writeStoredModel(model: string): void {
   try {
@@ -1680,6 +1682,7 @@ export const TaskView = memo(function TaskView({
   }, [active, task?.directory, task?.status, taskId, working]);
 
   useEffect(() => {
+    if (!TITLE_AUTO_UPDATE_ENABLED) return;
     if (titleTaskRef.current !== taskId) {
       titleTaskRef.current = taskId;
       previousWorkingRef.current = false;
@@ -1771,24 +1774,22 @@ export const TaskView = memo(function TaskView({
     }
   }
 
-  async function toggleTitleAutoUpdate() {
+  async function refreshTitle() {
     if (!task || archived || titleBusy) return;
     const mutation = ++titleMutationRef.current;
-    const enabled = resolveTitleAutoUpdateEnabled(task.titleAutoUpdate, titleAutoUpdateDefault);
     setTitleBusy(true);
     setError(null);
     try {
       const result = await sendJson<{ title: string; task: TaskSummary }>(
         `/api/tasks/${taskId}/title`,
-        { titleAutoUpdate: !enabled },
-        "PATCH",
+        {},
       );
       if (mutation !== titleMutationRef.current) return;
-      setTask((current) => (current ? { ...current, ...result.task } : current));
+      setTask((current) => (current ? { ...current, title: result.title } : current));
       notifyTasksChanged();
     } catch (err) {
       if (mutation === titleMutationRef.current) {
-        setError(err instanceof Error ? err.message : "タイトル自動更新の変更に失敗しました");
+        setError(err instanceof Error ? err.message : "タイトルの生成に失敗しました");
       }
     } finally {
       if (mutation === titleMutationRef.current) setTitleBusy(false);
@@ -2619,10 +2620,6 @@ export const TaskView = memo(function TaskView({
         ? worktreeStatus
         : task.status
     : null;
-  const titleAutoUpdateEnabled = resolveTitleAutoUpdateEnabled(
-    task?.titleAutoUpdate,
-    titleAutoUpdateDefault,
-  );
   const mobilePanelOpen = !mdUp && (graphOpen || diffOpen);
 
   return (
@@ -2705,15 +2702,14 @@ export const TaskView = memo(function TaskView({
             <Button
               variant="ghost"
               size="icon"
-              role="switch"
-              aria-checked={titleAutoUpdateEnabled}
-              aria-label="タイトルの自動更新"
-              title={`タイトルの自動更新: ${titleAutoUpdateEnabled ? "ON" : "OFF"}（${titleUpdateFrequency}ターンごと）`}
-              className={cx("hidden shrink-0 @min-[48rem]/task:inline-flex h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9", titleAutoUpdateEnabled && "text-accent!")}
+              aria-label="タイトルを生成"
+              title="会話内容からタイトルを生成"
+              className="shrink-0 h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9"
               disabled={!task || archived || titleBusy}
-              onClick={() => void toggleTitleAutoUpdate()}
+              busy={titleBusy}
+              onClick={() => void refreshTitle()}
             >
-              <WandSparkles className="h-4 w-4" />
+              {!titleBusy && <WandSparkles className="h-4 w-4" />}
             </Button>
           </div>
         </div>

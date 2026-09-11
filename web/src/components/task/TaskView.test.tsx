@@ -302,9 +302,9 @@ describe("TaskView draft submission", () => {
     expect(heading.contains(edit)).toBe(true);
     expect(edit.textContent).toBe(title);
     expect(screen.getAllByText("クリーン")).toHaveLength(1);
-    const autoUpdate = screen.getByRole("switch", { name: "タイトルの自動更新" });
-    expect(screen.getByRole("group", { name: "タスク操作" }).contains(autoUpdate)).toBe(false);
-    expect(edit.compareDocumentPosition(autoUpdate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const generateTitle = screen.getByRole("button", { name: "タイトルを生成" });
+    expect(screen.getByRole("group", { name: "タスク操作" }).contains(generateTitle)).toBe(false);
+    expect(edit.compareDocumentPosition(generateTitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(edit);
     const input = screen.getByRole("textbox", { name: "セッションタイトル" });
     expect(document.activeElement).toBe(input);
@@ -327,28 +327,20 @@ describe("TaskView draft submission", () => {
       `/api/tasks/${task.id}/title`, { title: "手動タイトル" }, "PATCH",
     ));
     expect(await screen.findByRole("heading", { name: "手動タイトル" })).toBeTruthy();
-    expect(screen.getByRole("switch", { name: "タイトルの自動更新" }).getAttribute("aria-checked")).toBe("false");
   });
 
-  it("persists the automatic title update switch", async () => {
-    const updatedTask = { ...task, titleAutoUpdate: true };
-    mocks.sendJson.mockResolvedValue({ task: updatedTask });
+  it("generates a title only when the manual button is pressed", async () => {
+    const updatedTask = { ...task, title: "生成タイトル" };
+    mocks.sendJson.mockResolvedValue({ title: "生成タイトル", task: updatedTask });
     render(<TaskView taskId={task.id} mdUp />);
 
-    const toggle = screen.getByRole("switch", { name: "タイトルの自動更新" });
-    expect(toggle.getAttribute("aria-checked")).toBe("false");
-    fireEvent.click(toggle);
+    expect(mocks.sendJson).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "タイトルを生成" }));
 
     await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
-      `/api/tasks/${task.id}/title`, { titleAutoUpdate: true }, "PATCH",
+      `/api/tasks/${task.id}/title`, {},
     ));
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
-  });
-
-  it("follows the settings default when the task has no override", async () => {
-    localStorage.setItem("webui:title-auto-update-enabled", "1");
-    render(<TaskView taskId={task.id} mdUp />);
-    expect(screen.getByRole("switch", { name: "タイトルの自動更新" }).getAttribute("aria-checked")).toBe("true");
+    expect(await screen.findByRole("heading", { name: "生成タイトル" })).toBeTruthy();
   });
 
   it("does not regenerate a title when automatic updates are disabled", async () => {
@@ -384,7 +376,7 @@ describe("TaskView draft submission", () => {
     expect(mocks.sendJson).not.toHaveBeenCalled();
   });
 
-  it("regenerates a title every five completed turns by default", async () => {
+  it("does not regenerate a title automatically", async () => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource | null = null;
       constructor() {
@@ -430,13 +422,10 @@ describe("TaskView draft submission", () => {
     }
     expect(mocks.sendJson).not.toHaveBeenCalled();
 
-    mocks.sendJson.mockResolvedValue({ title: "5ターン目のタイトル", task: sessionTask });
     await sendSnapshot("working", 5);
     await sendSnapshot("idle", 5);
 
-    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
-      `/api/tasks/${task.id}/title`, {},
-    ));
+    expect(mocks.sendJson).not.toHaveBeenCalled();
   });
 
   it.each(["success", "failure"])("sends queued content without replacing the next draft (%s)", async (outcome) => {

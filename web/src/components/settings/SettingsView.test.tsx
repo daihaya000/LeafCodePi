@@ -247,7 +247,7 @@ describe("SettingsView", () => {
     const responseSection = screen.getByRole("heading", { name: "応答" }).closest("section");
     const responseGrid = responseSection?.querySelector(":scope > div.grid");
     expect(responseGrid?.className).toContain("xl:grid-cols-2");
-    expect(responseGrid?.children).toHaveLength(4);
+    expect(responseGrid?.children).toHaveLength(3);
     expect(Array.from(responseGrid?.children ?? []).every((item) => !item.className.includes("xl:col-span-2"))).toBe(true);
     expect(screen.getByRole("heading", { name: "Pi Coding Agent" }).tagName).toBe("H3");
     expect(mountCounts.basic).toBe(1);
