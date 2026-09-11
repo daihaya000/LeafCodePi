@@ -737,11 +737,21 @@ describe("TaskView draft submission", () => {
 
     await sendSnapshot({
       eventType: "ready",
-      task: { ...task, sessionId: "session-1", messages: [], isStreaming: false },
+      task: {
+        ...task,
+        sessionId: "session-1",
+        messages: [],
+        isStreaming: false,
+      },
       messages: [],
+      todos: [{ id: "todo-1", content: "確認", status: "in_progress", priority: "high" }],
       goalLoop,
     });
-    expect(await screen.findByRole("region", { name: "Goal loop" })).toBeTruthy();
+    const todoPanel = await screen.findByRole("region", { name: "ToDo進捗" });
+    const goalLoopPanel = await screen.findByRole("region", { name: "Goal loop" });
+    expect(todoPanel.parentElement).toBe(goalLoopPanel.parentElement);
+    expect(todoPanel.compareDocumentPosition(goalLoopPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("form", { name: "フォローアップ" }).querySelector('[aria-label="Goal loop"]')).toBeNull();
 
     await sendSnapshot({
       eventType: "restored",

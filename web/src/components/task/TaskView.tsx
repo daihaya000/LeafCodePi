@@ -2748,6 +2748,14 @@ export const TaskView = memo(function TaskView({
             )}
             {working && <WorkingRow messages={renderedMessages} active={active} />}
             {task?.todos && <TodoProgressPanel todos={task.todos} />}
+            {goalLoopVisible && !archived && (
+              <GoalLoopPanel
+                loop={task?.goalLoop}
+                busy={submitting}
+                onAction={(action) => void goalLoopAction(action)}
+                onResume={(maxTurns) => void goalLoopAction("resume", maxTurns)}
+              />
+            )}
             {renderedMessages.length === 0 && (
               <p
                 className="py-12 text-center text-sm text-muted"
@@ -3025,14 +3033,6 @@ export const TaskView = memo(function TaskView({
           <p role="alert" className="mx-auto mb-2 max-w-5xl rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger">
             {error}
           </p>
-        )}
-        {goalLoopVisible && !archived && (
-          <GoalLoopPanel
-            loop={task?.goalLoop}
-            busy={submitting}
-            onAction={(action) => void goalLoopAction(action)}
-            onResume={(maxTurns) => void goalLoopAction("resume", maxTurns)}
-          />
         )}
         {goalLoopEnabled && !archived && (
           <div className="mx-auto max-w-5xl">
