@@ -266,6 +266,30 @@ it("applies streaming deltas without waiting for a full snapshot", async () => {
   expect(screen.queryByText("途中")).toBeNull();
 });
 
+it("keeps streaming tool headers inside the log and puts a mixed reply after the log", async () => {
+  const { container } = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  const toolMessage = (id: string) => ({ id, role: "assistant", createdAt: 1, parts: [{ id: `${id}-tool`, type: "tool", tool: "read", callID: id, state: { status: "completed", input: { path: "README.md" }, output: "ok" } }] });
+  const first = toolMessage("first");
+  const mixed = toolMessage("mixed");
+  snapshot({ messages: [first, mixed] });
+  const log = container.querySelector<HTMLDetailsElement>("[data-bot-tool-group]")!;
+  expect(log.querySelectorAll("time")).toHaveLength(2);
+  expect(container.querySelector(".bot-message-bubble")).toBeNull();
+  fireEvent.click(log.querySelector("summary")!);
+  delta({ message: { ...mixed, parts: [...mixed.parts, { id: "text", type: "text", text: "Finished reply" }] } });
+  const logs = container.querySelectorAll<HTMLDetailsElement>("[data-bot-tool-group]");
+  expect(logs).toHaveLength(1);
+  expect(logs[0]).toBe(log);
+  expect(log.open).toBe(true);
+  expect(log.querySelector("summary")?.textContent).toContain("2件");
+  expect(log.querySelectorAll("time")).toHaveLength(1);
+  const bubble = screen.getByText("Finished reply").closest(".bot-message-bubble")!;
+  expect(log.contains(bubble)).toBe(false);
+  expect(log.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(bubble.previousElementSibling?.querySelectorAll("time")).toHaveLength(1);
+});
+
 it("renders Bot tool messages with the shared ToolCard outside the chat bubble", async () => {
   const { container } = render(<ShellProvider><BotView id="one" /></ShellProvider>);
   await screen.findByRole("button", { name: "設定" });

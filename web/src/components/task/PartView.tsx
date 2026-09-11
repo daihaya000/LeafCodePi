@@ -26,6 +26,7 @@ import {
 import { AgentRoleIcon } from "@/components/AgentSelect";
 import type { BotFace } from "@/components/bot/BotAvatar";
 import { BotMessageSender } from "@/components/bot/BotMessageList";
+import { MessageBubble, MessageHeader, messageRowClass } from "@/components/ConversationLayout";
 import { ImageLightbox } from "@/components/Composer";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ReferenceHighlight, type ReferenceHighlightReferences } from "@/components/ReferenceHighlight";
@@ -156,9 +157,9 @@ const MarkdownBody = memo(function MarkdownBody({
 
 function AssistantTextPart({ text }: { text: string }) {
   return (
-    <div className="min-w-0 max-w-bubble rounded-3xl bg-bot-assistant px-4 py-2.5 text-base leading-6">
+    <MessageBubble>
       <MarkdownBody text={text} className="text-base" />
-    </div>
+    </MessageBubble>
   );
 }
 
@@ -182,11 +183,9 @@ function parseSkillInvocation(text: string): SkillInvocation | null {
 function UserTextPart({
   text,
   references,
-  embedded = false,
 }: {
   text: string;
   references?: ReferenceHighlightReferences;
-  embedded?: boolean;
 }) {
   const invocation = parseSkillInvocation(text);
   const renderText = (value: string) =>
@@ -194,7 +193,7 @@ function UserTextPart({
 
   if (!invocation) {
     return (
-      <div className={embedded ? "whitespace-pre-wrap break-words" : "ml-auto min-w-0 max-w-bubble rounded-3xl bg-bot-user px-4 py-2.5 text-base leading-6 whitespace-pre-wrap break-words text-white"}>
+      <div className="whitespace-pre-wrap break-words">
         {renderText(text)}
       </div>
     );
@@ -205,7 +204,7 @@ function UserTextPart({
     agents: [],
   };
   return (
-    <div className={embedded ? "whitespace-pre-wrap break-words" : "ml-auto min-w-0 max-w-bubble rounded-3xl bg-bot-user px-4 py-2.5 text-base leading-6 whitespace-pre-wrap break-words text-white"}>
+    <div className="whitespace-pre-wrap break-words">
       <ReferenceHighlight text={`/skill:${invocation.name}`} references={skillReference} />
       {invocation.userMessage && (
         <>{" "}{renderText(invocation.userMessage)}</>
@@ -1005,9 +1004,9 @@ export const PartView = memo(
 
     const isUser = message.role === "user";
     return (
-      <article className="flex w-full min-w-0 flex-col gap-2">
+      <article className={messageRowClass}>
         {!hideMeta && (
-          <div className={cx("flex min-w-0", isUser ? "ml-auto max-w-bubble justify-end" : "w-full max-w-bubble justify-start")}>
+          <MessageHeader user={isUser}>
             {isUser ? (
               !nested && (bot ? (
                 <div className="min-w-0" title={bot.name} aria-label={`送信者: ${bot.name}（Bot）`}>
@@ -1025,16 +1024,13 @@ export const PartView = memo(
                 accountLabel={accountLabel}
               />
             )}
-          </div>
+          </MessageHeader>
         )}
         {isUser ? (
-          <div className={cx(
-            "ml-auto min-w-0 max-w-bubble rounded-3xl px-4 py-3 text-base leading-7 [overflow-wrap:anywhere]",
-            bot ? "bg-bot-assistant text-text" : "bg-bot-user text-white",
-          )}>
+          <MessageBubble user neutral={Boolean(bot)}>
             {message.parts.map((part) => {
               if (part.type === "text") {
-                return <UserTextPart key={part.id} text={part.text} references={references} embedded />;
+                return <UserTextPart key={part.id} text={part.text} references={references} />;
               }
               if (part.type !== "image") return null;
               return (
@@ -1046,7 +1042,7 @@ export const PartView = memo(
                 />
               );
             })}
-          </div>
+          </MessageBubble>
         ) : (
           message.parts.map((part) => {
             if (part.type === "text") return <AssistantTextPart key={part.id} text={part.text} />;

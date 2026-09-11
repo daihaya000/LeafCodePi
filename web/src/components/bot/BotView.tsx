@@ -2,14 +2,15 @@
 
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, X } from "lucide-react";
+import { X } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getJson, sendJson } from "@/lib/client";
 import { notifyBotSidebarChanged } from "@/lib/events";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
-import { Button, formatDuration, useToolElapsedMs } from "@/components/ui";
+import { Button } from "@/components/ui";
+import { ActivityLog, conversationContentClass, MessageHeader } from "@/components/ConversationLayout";
 import { BotAvatarPicker, type AvatarPatch } from "@/components/bot/BotAvatarPicker";
 import { BotSkillsSettings } from "@/components/bot/BotSkillsSettings";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
@@ -18,7 +19,7 @@ import { useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { BotComposer } from "@/components/bot/BotComposer";
 import { type ComposerAttachment } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
-import { BotMessageError, BotMessageImages, BotMessageList, BotChatMessage, BotPermissionCard, BotResponseStatus, BotRevertButton } from "@/components/bot/BotMessageList";
+import { BotMessageError, BotMessageImages, BotMessageList, BotChatMessage, BotMessageSender, BotPermissionCard, BotResponseStatus, BotRevertButton } from "@/components/bot/BotMessageList";
 import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
 import { BotCodeRequests } from "@/components/bot/BotCodeRequests";
 import { ToolPermissionList } from "@/components/ToolPermissionList";
@@ -64,34 +65,22 @@ function botMessageDisplayData(message: UiMessage): BotMessageDisplayData {
   return data;
 }
 
-type BotToolPart = Extract<UiPart, { type: "tool" }>;
-
-function BotToolActivityGroup({ parts, botId, active }: { parts: BotToolPart[]; botId: string; active: boolean }) {
-  const elapsedMs = useToolElapsedMs(parts, active);
+function BotToolActivityGroup({ messages, bot, botId, active }: { messages: UiMessage[]; bot: BotDto | null; botId: string; active: boolean }) {
+  const parts = messages.flatMap((message) => botMessageDisplayData(message).tools);
   return (
-    <details
-      data-bot-tool-group
-      aria-label="作業ログ"
-      className="group/tool-activity w-full max-w-bubble self-start overflow-hidden rounded-2xl border border-border bg-surface"
-    >
-      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 py-2.5 text-left text-sm text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
-        <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-open/tool-activity:rotate-90" aria-hidden="true" />
-        <span className="min-w-0 flex-1 font-medium">作業ログ</span>
-        <span className="shrink-0 text-xs text-faint">
-          {parts.length}件{elapsedMs > 0 ? ` · ${formatDuration(elapsedMs)}` : ""}
-        </span>
-      </summary>
-      <div className="max-h-[min(28rem,50dvh)] space-y-2 overflow-y-auto overscroll-y-contain border-t border-border bg-surface p-2">
-        {parts.map((part) => {
-          const partKey = part.id || part.callID;
-          const cardKey =
-            part.state.status === "error" || part.state.status === "cancelled"
-              ? `${partKey}:expanded`
-              : partKey;
-          return <ToolCard key={cardKey} part={part} taskId={botId} tabActive={active} />;
-        })}
-      </div>
-    </details>
+    <ActivityLog kind="bot" count={parts.length} parts={parts} active={active}>
+      {messages.map((message) => {
+        const { text, tools, images, requestIds } = botMessageDisplayData(message);
+        return <div key={messageRenderKey(message)} className="min-w-0 space-y-2">
+          {!text && !images.length && !message.error && !requestIds.length && <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={message.createdAt} /></MessageHeader>}
+          {tools.map((part) => {
+            const partKey = part.id || part.callID;
+            const cardKey = part.state.status === "error" || part.state.status === "cancelled" ? `${partKey}:expanded` : partKey;
+            return <ToolCard key={cardKey} part={part} taskId={botId} tabActive={active} />;
+          })}
+        </div>;
+      })}
+    </ActivityLog>
   );
 }
 
@@ -605,14 +594,15 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
 
   const rendered = useMemo(() => {
     const rows: ReactNode[] = [];
-    const groupedTools: BotToolPart[] = [];
+    const groupedTools: UiMessage[] = [];
     let groupKey: string | null = null;
     const flushTools = () => {
       if (groupedTools.length === 0 || groupKey === null) return;
       rows.push(
         <BotToolActivityGroup
           key={`tool-group:${groupKey}`}
-          parts={groupedTools.splice(0)}
+          messages={groupedTools.splice(0)}
+          bot={bot}
           botId={`bot:${id}`}
           active={active}
         />,
@@ -632,23 +622,24 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
         requestIds.length === 0;
       if (toolOnly) {
         if (groupKey === null) groupKey = messageRenderKey(message);
-        groupedTools.push(...tools);
+        groupedTools.push(message);
         continue;
       }
 
+      if (tools.length > 0) {
+        if (groupKey === null) groupKey = messageRenderKey(message);
+        groupedTools.push(message);
+      }
       flushTools();
       if (!text && images.length === 0 && tools.length === 0 && !message.error && requestIds.length === 0) {
         continue;
       }
       const hasBubble = user || Boolean(text || images.length > 0 || message.error || requestIds.length > 0);
-      const toolCards = tools.length > 0 ? (
-        <BotToolActivityGroup parts={tools} botId={`bot:${id}`} active={active} />
-      ) : undefined;
       rows.push(
         <BotChatMessage key={messageRenderKey(message)} user={user} createdAt={message.createdAt}
           sender={{ ...(bot ?? {}), name: bot?.name ?? "ボット" }} text={text} mentions={botMentions}
           images={<BotMessageImages images={images.flatMap((part) => part.type === "image" ? [{ key: part.id, src: part.url, alt: part.filename ?? undefined }] : [])} />}
-          after={toolCards} bubble={hasBubble}
+          bubble={hasBubble}
           footer={user ? <BotRevertButton title="このコメントを入力欄に戻して巻き戻す" disabled={reverting || sending} onClick={() => void revertMessage(message)} /> : undefined}>
           {message.error && <BotMessageError text={message.error} />}
           {requestIds.length > 0 && <BotCodeRequests botId={id} requestIds={requestIds} active={active} />}
@@ -690,7 +681,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
 
 
       <BotMessageList conversationId={id} contentKey={chatScrollKey}>
-        <div className="mx-auto w-full max-w-5xl space-y-4">
+        <div className={conversationContentClass}>
           {messages.length === 0 && !sending && <BotEmptyState avatar={bot} title={bot.name + " \u3068\u8a71\u3059"} description={"\u4e0b\u306e\u5165\u529b\u6b04\u304b\u3089\u30e1\u30c3\u30bb\u30fc\u30b8\u3092\u9001\u3063\u3066\u4f1a\u8a71\u3092\u59cb\u3081\u307e\u3057\u3087\u3046\u3002"} />}
           {routines.some((routine) => routine.failureCount > 0) && <div role="status" className="rounded-2xl border border-danger/40 bg-danger/5 p-4 text-sm"><p className="font-medium text-danger">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u5b9f\u884c\u306b\u5931\u6557\u3057\u3066\u3044\u307e\u3059"}</p><div className="mt-2 space-y-1 text-xs text-muted">{routines.filter((routine) => routine.failureCount > 0).map((routine) => <p key={routine.id}><span className="font-medium text-text">{routine.name}</span>{"\uFF1A"}{"\u9023\u7d9a\u5931\u6557"} {routine.failureCount}{"\u56de"}{routine.enabled ? "" : "\u3002\u5b89\u5168\u306e\u305f\u3081\u81ea\u52d5\u7684\u306b\u7121\u52b9\u5316\u3057\u307e\u3057\u305f"}</p>)}</div></div>}
           {routineCardOpen && <div className="rounded-2xl border border-accent/40 bg-surface p-4 shadow-sm" role="dialog" aria-label="ルーティン作成の確認"><p className="font-medium text-accent">ルーティンを作成</p><p className="mt-1 text-xs text-muted">内容を確認してから保存します。</p><div className="mt-3 space-y-2"><input value={routineName} onChange={(event) => setRoutineName(event.target.value)} placeholder="名前（例: 朝の確認）" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><textarea value={routinePrompt} onChange={(event) => setRoutinePrompt(event.target.value)} placeholder="Bot に実行させる指示" rows={3} className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><input value={routineSchedule} onChange={(event) => setRoutineSchedule(event.target.value)} aria-label="cron スケジュール" placeholder="0 * * * *" className="w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent" /><p className="text-[11px] text-muted">形式: 分 時 日 月 曜日（最短間隔 5 分）</p></div><div className="mt-3 flex justify-end gap-2"><Button size="sm" variant="ghost" onClick={() => setRoutineCardOpen(false)}>キャンセル</Button><Button size="sm" onClick={() => void createRoutine()} busy={creatingRoutine} disabled={!routineName.trim() || !routinePrompt.trim() || !routineSchedule.trim()}>この内容で作成</Button></div></div>}

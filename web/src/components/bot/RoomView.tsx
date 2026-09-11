@@ -14,6 +14,7 @@ import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
+import { conversationContentClass } from "@/components/ConversationLayout";
 import { BotComposer } from "@/components/bot/BotComposer";
 import { BotMessageError, BotMessageImages, BotMessageList, BotChatMessage, BotPermissionCard, BotRevertButton } from "@/components/bot/BotMessageList";
 import { type ComposerAttachment, type ComposerReference } from "@/components/Composer";
@@ -484,7 +485,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
 
 
       <BotMessageList conversationId={id} contentKey={chatScrollKey}>
-        <div className="mx-auto w-full max-w-5xl space-y-4">
+        <div className={conversationContentClass}>
           {room.messages.length === 0 && <BotEmptyState icon={<Users className="h-5 w-5" />} title={room.name + " \u3067\u8a71\u3059"} description="そのまま送るとメンバーが会話します。@ボット名で相手を指定、@hereで全員に個別回答を依頼できます。実作業は承認後にCodeで実行し、このRoomへ結果を返します。">{members.length > 0 && <div className="mt-3 flex flex-wrap justify-center gap-2">{members.map((bot) => <span key={bot.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 text-xs"><BotAvatar size={18} {...bot} />{bot.name}</span>)}</div>}</BotEmptyState>}
           {rendered}
           {attention.map((item) => <div key={item.taskId} className="space-y-3">

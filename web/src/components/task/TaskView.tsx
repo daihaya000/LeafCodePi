@@ -1,11 +1,10 @@
 "use client";
 
-import { memo, startTransition, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
   Check,
   ChevronDown,
-  ChevronRight,
   ChevronUp,
   ChevronsDown,
   ChevronsUp,
@@ -52,7 +51,8 @@ import {
   QueuedFollowUpsNotice,
   type QueuedFollowUp,
 } from "@/components/task/QueuedFollowUpsNotice";
-import { Badge, Button, cx, formatDuration, GhostSelect, useToolElapsedMs } from "@/components/ui";
+import { Badge, Button, cx, formatDuration, GhostSelect } from "@/components/ui";
+import { ActivityLog, conversationContentClass, conversationViewportClass, MessageHeader } from "@/components/ConversationLayout";
 import {
   AUTO_MODEL_OPTION,
   AUTO_MODEL_VALUE,
@@ -586,39 +586,6 @@ function taskMessageBlocks(messages: UiMessage[], ungroupedMessageId?: string): 
   });
   flushGroup();
   return blocks;
-}
-
-function TaskToolActivityGroup({
-  contents,
-  count,
-  parts,
-  active,
-}: {
-  contents: ReactNode[];
-  count: number;
-  parts: readonly UiPart[];
-  active: boolean;
-}) {
-  const elapsedMs = useToolElapsedMs(parts, active);
-  return (
-    <details
-      data-task-tool-group
-      aria-label="作業ログ"
-      className="group/task-tool-activity w-full max-w-bubble self-start overflow-hidden rounded-2xl border border-border bg-surface"
-    >
-      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 py-2.5 text-left text-sm text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
-        <ChevronRight
-          className="h-4 w-4 shrink-0 transition-transform group-open/task-tool-activity:rotate-90"
-          aria-hidden="true"
-        />
-        <span className="min-w-0 flex-1 font-medium">作業ログ</span>
-        <span className="shrink-0 text-xs text-faint">
-          {count}件{elapsedMs > 0 ? ` · ${formatDuration(elapsedMs)}` : ""}
-        </span>
-      </summary>
-      <div className="max-h-[min(28rem,50dvh)] space-y-2 overflow-y-auto overscroll-y-contain border-t border-border bg-surface p-2">{contents}</div>
-    </details>
-  );
 }
 
 function TurnNoticeBanner({
@@ -2822,11 +2789,11 @@ export const TaskView = memo(function TaskView({
           ref={scrollRef}
           onScroll={onScroll}
           className={cx(
-            "min-h-0 min-w-0 flex-1 overscroll-y-contain overflow-x-clip overflow-y-auto bg-bot-chat px-3 py-5 sm:px-4",
+            conversationViewportClass,
             mobilePanelOpen && "hidden",
           )}
         >
-          <div ref={contentRef} className="relative mx-auto flex w-full min-w-0 max-w-5xl flex-col space-y-6">
+          <div ref={contentRef} className={conversationContentClass}>
             {hangRetryNotice && (
               <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
                 {hangRetryNotice}
@@ -2866,14 +2833,15 @@ export const TaskView = memo(function TaskView({
                       // ヘッダーがそのまま縦積みになり、タイムラインが埋まる。
                       const header = entry.showHeader
                         ? [
-                            <MessageMetaHeader
-                              key={`task-tool-message-meta:${messageRenderKey(entry.message)}`}
-                              message={entry.message}
-                              modelLabel={modelLabel}
-                              effort={effortLabel}
-                              agent={task?.agent ?? undefined}
-                              accountLabel={accountLabel}
-                            />,
+                            <MessageHeader key={`task-tool-message-meta:${messageRenderKey(entry.message)}`}>
+                              <MessageMetaHeader
+                                message={entry.message}
+                                modelLabel={modelLabel}
+                                effort={effortLabel}
+                                agent={task?.agent ?? undefined}
+                                accountLabel={accountLabel}
+                              />
+                            </MessageHeader>,
                           ]
                         : [];
                       const toolParts = message.parts.filter(
@@ -2946,12 +2914,12 @@ export const TaskView = memo(function TaskView({
                 >
                   {turn && <GoalLoopTurnDivider turn={turn} />}
                   {block.kind === "tool-group" ? (
-                    <TaskToolActivityGroup
-                      contents={activityContents}
+                    <ActivityLog
+                      kind="task"
                       count={activityCount}
                       parts={block.entries.flatMap((entry) => entry.activityMessage.parts)}
                       active={active}
-                    />
+                    >{activityContents}</ActivityLog>
                   ) : showResume &&
                     resumeInsideExistingBanner &&
                     resumeTarget?.messageId === block.message.id ? (

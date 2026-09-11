@@ -5,6 +5,7 @@ import Link from "next/link";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { RotateCcw } from "lucide-react";
+import { conversationViewportClass, MessageBubble, MessageHeader, messageRowClass } from "@/components/ConversationLayout";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { ProjectIcon } from "@/components/ProjectIcon";
 import { renderMentions, withMentions } from "@/components/bot/BotMention";
@@ -77,7 +78,7 @@ export function BotMessageList({ conversationId, contentKey, children }: { conve
     <main ref={viewport} onScroll={(event) => {
       const element = event.currentTarget;
       following.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 48;
-    }} className="min-h-0 flex-1 overflow-y-auto bg-bot-chat px-3 py-5 sm:px-4">
+    }} className={conversationViewportClass}>
       {children}
     </main>
   );
@@ -118,7 +119,7 @@ export function BotResponseStatus({
 /** Sender line above the bubble, mirroring Code mode's meta header. */
 export function BotMessageSender({ name, createdAt, active = false, ...face }: BotFace & { name: string; createdAt?: number; active?: boolean }) {
   return (
-    <div className="flex min-w-0 items-center gap-1.5 px-1 text-[11px] font-medium text-muted">
+    <div className="flex w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden text-[11px] font-medium text-muted">
       <span aria-hidden="true" className="shrink-0"><BotAvatar size={16} {...face} name={name} active={active} /></span>
       <span className="min-w-0 truncate">{name}</span>
       {createdAt !== undefined && <BotMessageTime createdAt={createdAt} className="ml-1 mt-0 shrink-0" />}
@@ -129,9 +130,9 @@ export function BotMessageSender({ name, createdAt, active = false, ...face }: B
 /** One chat row. Bot and Room conversations share it so both look identical. */
 export function BotMessageRow({ user, createdAt, children, footer, header, after, bubble = true, timeInHeader = false }: { user: boolean; createdAt: number; children: ReactNode; footer?: ReactNode; header?: ReactNode; after?: ReactNode; bubble?: boolean; timeInHeader?: boolean }) {
   return (
-    <div className={`flex flex-col gap-1 ${user ? "items-end" : "items-start"}`}>
-      {header}
-      {bubble && <div className={`${user ? "min-w-0 max-w-bubble" : "w-full min-w-0 max-w-bubble"} rounded-3xl px-4 py-3 text-base leading-7 [overflow-wrap:anywhere] bot-message-bubble ${user ? "bg-bot-user text-white" : "rounded-tl-lg bg-bot-assistant text-text"}`}>{children}</div>}
+    <div className={cx(messageRowClass, user ? "items-end" : "items-start")}>
+      {header && <MessageHeader user={user}>{header}</MessageHeader>}
+      {bubble && <MessageBubble user={user} className="bot-message-bubble">{children}</MessageBubble>}
       {after}
       {(!timeInHeader || user) && <BotMessageTime createdAt={createdAt} />}
       {footer}
