@@ -490,7 +490,7 @@ export function McpSettings() {
           <span className="font-mono">.mcp.json</span> に mcpServers を追加してください。
         </p>
       ) : (
-        <ul className="mt-3 space-y-2">
+        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
           {servers.map((server) => (
             <li
               key={server.id}

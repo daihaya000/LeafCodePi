@@ -293,7 +293,7 @@ describe("SettingsView", () => {
     expect(document.getElementById("bots-skills")).not.toBeNull();
   });
 
-  it("拡張タブを管理、連携のグループに分ける", () => {
+  it("拡張タブを拡張、MCP、スキルの順に分ける", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^拡張タブ$/ }));
 
@@ -302,11 +302,11 @@ describe("SettingsView", () => {
       Array.from(extensionsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
         (heading) => heading.textContent,
       ),
-    ).toEqual(["拡張機能の管理", "スキルと連携"]);
+    ).toEqual(["拡張機能の管理", "MCP", "スキル"]);
     expect(Array.from(extensionsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "拡張機能",
-      "スキル",
       "MCPサーバー",
+      "スキル",
     ]);
     expect(screen.queryByRole("heading", { name: "メモリ" })).toBeNull();
     expect(screen.queryByRole("navigation", { name: "拡張設定内" })).toBeNull();

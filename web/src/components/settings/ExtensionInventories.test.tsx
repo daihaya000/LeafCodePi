@@ -60,6 +60,7 @@ describe("拡張設定の一覧", () => {
       expect(list).not.toBeNull();
       expect(list?.className).not.toContain("max-h-");
       expect(list?.className).not.toContain("overflow-y-auto");
+      expect(list?.className).toContain("sm:grid-cols-2");
     }
   });
 

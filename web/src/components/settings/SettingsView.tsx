@@ -467,17 +467,22 @@ export function SettingsView() {
               </SettingsGroup>
 
               <SettingsGroup
-                id="extensions-tools-heading"
-                title="スキルと連携"
-                description="Code用スキルと MCP サーバーの有効状態をまとめて管理します。"
+                id="extensions-mcp-heading"
+                title="MCP"
+                description="MCP サーバーの有効状態と認証情報を管理します。"
               >
-                <div className="grid gap-4 xl:grid-cols-2">
-                  <div id="extensions-skills" className="scroll-mt-24">
-                    <SkillsSettings scope="code" />
-                  </div>
-                  <div id="extensions-mcp" className="scroll-mt-24">
-                    <McpSettings />
-                  </div>
+                <div id="extensions-mcp" className="scroll-mt-24">
+                  <McpSettings />
+                </div>
+              </SettingsGroup>
+
+              <SettingsGroup
+                id="extensions-skills-heading"
+                title="スキル"
+                description="Code用スキルの有効状態を管理します。"
+              >
+                <div id="extensions-skills" className="scroll-mt-24">
+                  <SkillsSettings scope="code" />
                 </div>
               </SettingsGroup>
             </section>

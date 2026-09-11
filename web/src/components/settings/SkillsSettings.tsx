@@ -99,7 +99,7 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
           または <span className="font-mono">skills/&lt;name&gt;/SKILL.md</span> を追加してください。
         </p>
       ) : (
-        <ul className="mt-3 space-y-2">
+        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
           {skills.map((skill) => {
             const enabled = isEnabled(skill, scope);
             return (
