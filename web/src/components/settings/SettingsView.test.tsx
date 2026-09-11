@@ -39,9 +39,6 @@ vi.mock("@/components/settings/BrowserSettings", () => ({
 vi.mock("@/components/settings/SystemSafetySettings", () => ({
   SystemSafetySettings: () => <h3>システム安全ガード</h3>,
 }));
-vi.mock("@/components/settings/CommitGuardSettings", () => ({
-  CommitGuardSettings: () => <h3>コミットガード</h3>,
-}));
 vi.mock("@/components/settings/NotificationSoundSettings", () => ({
   NotificationSoundSettings: () => <h3>通知音</h3>,
 }));
@@ -234,7 +231,6 @@ describe("SettingsView", () => {
     expect(screen.getByRole("heading", { name: "システム安全ガード" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ローカル LLM" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "メモリ", level: 2 })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "コミットガード" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "読み上げ (TTS)" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();

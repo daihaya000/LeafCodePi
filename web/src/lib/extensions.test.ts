@@ -60,21 +60,7 @@ describe("filterExtensionsByState", () => {
     assert.deepEqual(filtered.map((entry) => entry.path), [join("C:", "pi", "extensions", "leafcode-goal-loop", "index.ts")]);
   });
 
-  it("keeps leafcode-commit-guard even if stale state tries to disable it", () => {
-    const filtered = filterExtensionsByState(
-      [
-        { path: join("C:", "pi", "extensions", "leafcode-commit-guard", "index.ts") },
-        { path: join("C:", "pi", "extensions", "leafcode-todowrite", "index.ts") },
-      ],
-      { disabled: { "leafcode-commit-guard": true } },
-    );
-    assert.deepEqual(filtered.map((entry) => entry.path), [
-      join("C:", "pi", "extensions", "leafcode-commit-guard", "index.ts"),
-      join("C:", "pi", "extensions", "leafcode-todowrite", "index.ts"),
-    ]);
-  });
-
-  it("drops shared non-extension modules like settle-followup-claim", () => {
+  it("drops retired shared modules like settle-followup-claim", () => {
     const filtered = filterExtensionsByState(
       [
         { path: join("C:", "pi", "extensions", "settle-followup-claim.ts") },
@@ -198,7 +184,6 @@ describe("listExtensions / setExtensionEnabled", () => {
     writeExtension(join(agent, "extensions"), "leafcode-todowrite");
     writeExtension(join(agent, "extensions"), "leafcode-subagents");
     writeExtension(join(agent, "extensions"), "leafcode-custom");
-    writeExtension(join(agent, "extensions"), "leafcode-commit-guard");
     writeFileSync(join(agent, "extensions", "settle-followup-claim.ts"), "export {};\n", "utf8");
 
     const listed = listExtensions(agent);
@@ -206,26 +191,23 @@ describe("listExtensions / setExtensionEnabled", () => {
     assert.equal(required?.required, true);
     assert.equal(listed.extensions.find((e) => e.name === "leafcode-subagents")?.required, true);
     assert.equal(listed.extensions.find((e) => e.name === "leafcode-custom")?.required, true);
-    assert.equal(listed.extensions.find((e) => e.name === "leafcode-commit-guard")?.required, true);
     assert.equal(listed.extensions.find((e) => e.name === "settle-followup-claim"), undefined);
     assert.equal(listed.extensions.find((e) => e.name === "one")?.required, false);
 
     assert.throws(() => setExtensionEnabled("leafcode-todowrite", false, agent), /無効化できません/);
     assert.throws(() => setExtensionEnabled("leafcode-subagents", false, agent), /無効化できません/);
     assert.throws(() => setExtensionEnabled("leafcode-custom", false, agent), /無効化できません/);
-    assert.throws(() => setExtensionEnabled("leafcode-commit-guard", false, agent), /無効化できません/);
     // 無効化禁止の後も有効状態は維持される。
     assert.equal(listExtensions(agent).extensions.find((e) => e.name === "leafcode-todowrite")?.enabled, true);
-    assert.equal(listExtensions(agent).extensions.find((e) => e.name === "leafcode-commit-guard")?.enabled, true);
   });
 
   it("lists required extensions as enabled even when stale disabled state remains", () => {
     const { agentDir: agent } = fixture();
-    writeExtension(join(agent, "extensions"), "leafcode-commit-guard");
-    writeExtensionsState({ disabled: { "leafcode-commit-guard": true } });
+    writeExtension(join(agent, "extensions"), "leafcode-todowrite");
+    writeExtensionsState({ disabled: { "leafcode-todowrite": true } });
     const listed = listExtensions(agent);
-    assert.equal(listed.extensions.find((e) => e.name === "leafcode-commit-guard")?.enabled, true);
-    assert.equal(listed.extensions.find((e) => e.name === "leafcode-commit-guard")?.required, true);
+    assert.equal(listed.extensions.find((e) => e.name === "leafcode-todowrite")?.enabled, true);
+    assert.equal(listed.extensions.find((e) => e.name === "leafcode-todowrite")?.required, true);
   });
 
   it("prefers bundled repo extensions over same-name global copies", () => {

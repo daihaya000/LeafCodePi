@@ -10,11 +10,6 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import {
-  isSettleFollowUpClaimed,
-  markSettleFollowUpClaimed,
-  prepareSettleFollowUpClaim,
-} from "../settle-followup-claim.ts";
 import { normalizeTodos, type TodoItem } from "./state.ts";
 export { normalizeTodos } from "./state.ts";
 export type { TodoItem, TodoPriority, TodoStatus } from "./state.ts";
@@ -163,7 +158,6 @@ function reconstructState(ctx: ExtensionContext): TodoItem[] {
 export default function (pi: ExtensionAPI): void {
   let todos: TodoItem[] = [];
   let gate = createTodoGateState();
-  let commitGuardTurn = false;
 
   const resetGate = (prompt = "") => {
     gate = createTodoGateState(prompt);
@@ -180,13 +174,8 @@ export default function (pi: ExtensionAPI): void {
   pi.on("input", (event) => {
     if (event.source !== "extension" && event.streamingBehavior === undefined) resetGate(event.text);
   });
-  pi.on("message_start", (event) => {
-    if (event.message.role === "custom" && event.message.customType === "leafcode-commit-gate") {
-      commitGuardTurn = true;
-    }
-  });
   pi.on("tool_call", (event) => {
-    if (commitGuardTurn || gate.openedThisTask || !gateEnabled()) return;
+    if (gate.openedThisTask || !gateEnabled()) return;
     const action = classifyToolForTodoGate(event.toolName, event.input);
     if (action === "allow") return;
     if (action === "count") {
@@ -196,20 +185,13 @@ export default function (pi: ExtensionAPI): void {
     gate.violationObserved = true;
     return { block: true, reason: TODO_GATE_REASON };
   });
-  pi.on("agent_end", () => {
-    prepareSettleFollowUpClaim();
-  });
   pi.on("agent_settled", (_event, ctx) => {
-    const wasCommitGuardTurn = commitGuardTurn;
-    commitGuardTurn = false;
-    if (wasCommitGuardTurn) return;
     if (
       gate.openedThisTask ||
       !gate.violationObserved ||
       gate.reminderSent ||
       !gateEnabled()
     ) return;
-    if (isSettleFollowUpClaimed()) return;
 
     try {
       pi.sendMessage(
@@ -220,7 +202,6 @@ export default function (pi: ExtensionAPI): void {
         },
         { triggerTurn: true, deliverAs: "followUp" },
       );
-      markSettleFollowUpClaimed();
       gate.reminderSent = true;
       if (ctx.hasUI) ctx.ui.notify("ToDoを起票してから作業を再開します。", "warning");
     } catch (error) {

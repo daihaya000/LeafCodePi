@@ -93,19 +93,18 @@ const emptyState = (): ExtensionsState => {
   return { disabled: {} };
 };
 
-// Prevent a removed bundled extension from being revived by a stale global copy.
-const RETIRED_EXTENSION_NAMES = new Set(["leafcode-collaboration"]);
+// Prevent a removed bundled extension (or shared module) from being revived by
+// a stale global copy.
+const RETIRED_EXTENSION_NAMES = new Set([
+  "leafcode-collaboration",
+  "leafcode-commit-guard",
+  "settle-followup-claim",
+]);
 const BUNDLED_REPLACEMENTS = new Map([
   ["pi-intercom", "leafcode-intercom"],
   ["pi-mcp-adapter", "leafcode-mcp-adapter"],
 ]);
 
-/**
- * Shared TypeScript modules under extensions/ that are imported by other
- * extensions but are not Pi extension factories (no `export default` register).
- * Must not appear in discovery / additionalExtensionPaths.
- */
-const SHARED_NON_EXTENSION_NAMES = new Set(["settle-followup-claim"]);
 const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:ts|js|mjs|cjs)$/i;
 
 /**
@@ -117,10 +116,6 @@ const OPTIONAL_LEAFCODE_EXTENSIONS = new Set<string>(["leafcode-tts"]);
 /** LeafCodePi の WebUI が依存する拡張。無効化禁止。 */
 export function isWebUiRequiredExtension(name: string): boolean {
   return name.startsWith("leafcode-") && !OPTIONAL_LEAFCODE_EXTENSIONS.has(name);
-}
-
-export function isSharedNonExtensionModule(name: string): boolean {
-  return SHARED_NON_EXTENSION_NAMES.has(name);
 }
 
 /** Readers (incl. the agent-side extensions) must never see a partial file. */
@@ -175,7 +170,6 @@ export function filterExtensionsByState<T extends { path: string }>(
     const name = basenameKey(extension.path);
     return !TEST_FILE_PATTERN.test(extension.path) &&
       !RETIRED_EXTENSION_NAMES.has(name) &&
-      !SHARED_NON_EXTENSION_NAMES.has(name) &&
       (isWebUiRequiredExtension(name) || state.disabled[name] !== true);
   });
 }
@@ -298,9 +292,7 @@ function discoverExtensionsInDir(dir: string): DiscoveredEntry[] {
     const entryPath = join(dir, name);
     // 1. Direct files: *.ts / *.js
     if (isFile(entryPath) && /\.(ts|js|mjs|cjs)$/i.test(name) && !TEST_FILE_PATTERN.test(name)) {
-      const key = basenameKey(entryPath);
-      if (SHARED_NON_EXTENSION_NAMES.has(key)) continue;
-      entries.push({ name: key, filePath: entryPath });
+      entries.push({ name: basenameKey(entryPath), filePath: entryPath });
       continue;
     }
     // 2 & 3. Subdirectories with index or a pi.extensions manifest.
@@ -378,7 +370,6 @@ export function listExtensions(
 
   const extensions = [...byName.values()]
     .filter((entry) => !RETIRED_EXTENSION_NAMES.has(entry.name))
-    .filter((entry) => !SHARED_NON_EXTENSION_NAMES.has(entry.name))
     .filter((entry) => {
       const replacement = BUNDLED_REPLACEMENTS.get(entry.name);
       return !replacement || !byName.has(replacement);

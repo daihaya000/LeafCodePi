@@ -1,6 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resetSettleFollowUpClaimForTests } from "../settle-followup-claim.ts";
+import { describe, expect, it, vi } from "vitest";
 import registerTodowrite, { normalizeTodos, todowriteTestSeams } from "./index.ts";
 
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
@@ -99,9 +98,6 @@ describe("normalizeTodos", () => {
 });
 
 describe("todowrite omission gate", () => {
-  beforeEach(() => {
-    resetSettleFollowUpClaimForTests();
-  });
   it("allows policy files before blocking the first substantive read for an explicit Todo task", () => {
     const run = fixture();
     run.emit("input", { source: "interactive", text: "ToDo管理を追加", streamingBehavior: undefined });
@@ -170,18 +166,6 @@ describe("todowrite omission gate", () => {
 
     await run.writeTodos([]);
     expect(run.callTool("powershell")).toBeUndefined();
-  });
-
-  it("skips Todo enforcement during a commit guard follow-up only", () => {
-    const run = fixture();
-    run.emit("message_start", { message: { role: "custom", customType: "leafcode-commit-gate" } });
-
-    expect(run.callTool("edit")).toBeUndefined();
-    run.emit("agent_settled");
-    expect(run.sendMessage).not.toHaveBeenCalled();
-
-    run.emit("input", { source: "interactive", text: "新しい依頼", streamingBehavior: undefined });
-    expect(run.callTool("edit")?.block).toBe(true);
   });
 
   it("does not unlock a non-empty list without an in-progress item", async () => {
