@@ -6,6 +6,7 @@ import {
   projectPiMessages,
   stripAnsiEscapeSequences,
   titleFromPrompt,
+  toolTimingFromSessionEntries,
   truncateUiToolOutput,
   UI_TOOL_OUTPUT_OMISSION,
 } from "./messages";
@@ -407,5 +408,55 @@ describe("entryIdsForProjectedMessages", () => {
         entryIds[index] ? { ...message, id: entryIds[index]! } : message,
       )[2],
     ).toMatchObject({ role: "user", id: "e-user-2" });
+  });
+});
+
+describe("toolTimingFromSessionEntries", () => {
+  const entry = (timestamp: string, message: unknown) => ({
+    type: "message",
+    timestamp,
+    message,
+  });
+
+  it("derives tool durations from entry write times, not message timestamps", () => {
+    // message.timestamp は生成開始時刻なので使わない（2.3s と 64ms の差になる）。
+    const entries = [
+      entry("2026-09-10T18:05:48.297Z", {
+        role: "assistant",
+        timestamp: 1789063546021,
+        content: [],
+      }),
+      entry("2026-09-10T18:05:48.361Z", {
+        role: "toolResult",
+        toolCallId: "call-a",
+        timestamp: 1789063548361,
+      }),
+      entry("2026-09-10T18:05:48.561Z", {
+        role: "toolResult",
+        toolCallId: "call-b",
+      }),
+      entry("2026-09-10T18:05:50.000Z", { role: "assistant", content: [] }),
+    ];
+
+    const { startedAt, endedAt } = toolTimingFromSessionEntries(entries);
+
+    expect(endedAt.get("call-a")! - startedAt.get("call-a")!).toBe(64);
+    // 同一応答内の後続ツールは直前の結果時刻から測る。
+    expect(endedAt.get("call-b")! - startedAt.get("call-b")!).toBe(200);
+  });
+
+  it("skips entries with no call id, unusable timestamp, or non-message type", () => {
+    const entries = [
+      { type: "compaction", timestamp: "2026-09-10T18:05:40.000Z" },
+      entry("not-a-date", { role: "assistant", content: [] }),
+      entry("2026-09-10T18:05:48.000Z", { role: "toolResult" }),
+      entry("2026-09-10T18:05:49.000Z", { role: "toolResult", toolCallId: "call-a" }),
+    ];
+
+    const { startedAt, endedAt } = toolTimingFromSessionEntries(entries);
+
+    // 開始時刻が取れないツールは終了時刻だけ記録され、時間は算出されない。
+    expect(startedAt.has("call-a")).toBe(false);
+    expect(endedAt.get("call-a")).toBe(Date.parse("2026-09-10T18:05:49.000Z"));
   });
 });

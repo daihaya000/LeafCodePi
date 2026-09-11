@@ -256,6 +256,43 @@ export function entryIdsForProjectedMessages(
   return ids;
 }
 
+/**
+ * セッションエントリの書き込み時刻からツール実行の開始/終了時刻を復元する。
+ * ライブ計測（LiveRuntime の Map）はプロセス内にしか残らないため、再起動後の
+ * 履歴はこれで埋める。assistant の message.timestamp は生成「開始」時刻で
+ * モデルの生成時間を含んでしまうので、エントリ書き込み時刻を使う。
+ */
+export function toolTimingFromSessionEntries(entries: unknown[]): {
+  startedAt: Map<string, number>;
+  endedAt: Map<string, number>;
+} {
+  const startedAt = new Map<string, number>();
+  const endedAt = new Map<string, number>();
+  // 直前の assistant 応答、または一つ前のツール結果の書き込み時刻。
+  // ponytail: 同一応答内の複数ツールは順次実行とみなす。並列実行でも合計の
+  // 実時間は一致し、内訳だけがずれる。
+  let pendingStartMs: number | undefined;
+  for (const entry of entries) {
+    if (!isRecord(entry) || entry.type !== "message") continue;
+    const message = entry.message;
+    if (!isRecord(message)) continue;
+    const tsMs = Date.parse(asString(entry.timestamp));
+    if (!Number.isFinite(tsMs)) continue;
+    const role = asString(message.role);
+    if (role === "assistant") {
+      pendingStartMs = tsMs;
+      continue;
+    }
+    if (role !== "toolResult") continue;
+    const callID = asString(message.toolCallId);
+    if (!callID) continue;
+    if (pendingStartMs !== undefined) startedAt.set(callID, pendingStartMs);
+    endedAt.set(callID, tsMs);
+    pendingStartMs = tsMs;
+  }
+  return { startedAt, endedAt };
+}
+
 export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] {
   const messages: UiMessage[] = [];
   let activeGoalLoopTurn: GoalLoopTurn | undefined;

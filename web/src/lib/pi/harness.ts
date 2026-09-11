@@ -38,7 +38,7 @@ import {
   type AuthTypeDto,
   type LoginSessionEvent,
 } from "@/lib/pi/auth-login";
-import { toolResultText, titleFromPrompt } from "@/lib/pi/messages";
+import { toolResultText, titleFromPrompt, toolTimingFromSessionEntries } from "@/lib/pi/messages";
 import {
   applyMessageAccountIds,
   applyThroughput,
@@ -870,6 +870,21 @@ function loadThroughputFromSession(session: AgentSession): {
   return { timings, persistedKeys };
 }
 
+/** 再起動後もツール実行時間を表示できるよう、履歴エントリから復元する。 */
+function loadToolTimingFromSession(session: AgentSession): {
+  startedAt: Map<string, number>;
+  endedAt: Map<string, number>;
+} {
+  try {
+    return toolTimingFromSessionEntries(
+      session.sessionManager.getEntries() as unknown[],
+    );
+  } catch {
+    /* session may not expose entries yet */
+    return { startedAt: new Map(), endedAt: new Map() };
+  }
+}
+
 function persistThroughputSample(
   live: LiveRuntime,
   timing: ThroughputTiming,
@@ -1540,6 +1555,7 @@ async function attachSession(
   }
 
   const loaded = existing ? null : loadThroughputFromSession(session);
+  const loadedToolTiming = existing ? null : loadToolTimingFromSession(session);
 
   if (existing?.snapshotTimer) {
     clearTimeout(existing.snapshotTimer);
@@ -1568,8 +1584,8 @@ async function attachSession(
       existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
     persistedThroughputKeys:
       existing?.persistedThroughputKeys ?? loaded?.persistedKeys ?? new Set(),
-    toolStartedAt: existing?.toolStartedAt ?? new Map(),
-    toolEndedAt: existing?.toolEndedAt ?? new Map(),
+    toolStartedAt: existing?.toolStartedAt ?? loadedToolTiming?.startedAt ?? new Map(),
+    toolEndedAt: existing?.toolEndedAt ?? loadedToolTiming?.endedAt ?? new Map(),
     toolPartialOutputByCallId: existing?.toolPartialOutputByCallId ?? new Map(),
     snapshotTimer: null,
     pendingSnapshotEventType: null,
