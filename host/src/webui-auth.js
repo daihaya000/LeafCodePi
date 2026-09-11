@@ -34,10 +34,10 @@ export function readWebUiAuthConfig(dataDirPath) {
     const raw = JSON.parse(readFileSync(webUiAuthPath(dataDirPath), "utf8"));
     return {
       token: normalizeToken(raw?.token),
-      enabled: raw?.enabled !== false,
+      enabled: raw?.enabled === true,
     };
   } catch {
-    return { token: null, enabled: true };
+    return { token: null, enabled: false };
   }
 }
 
@@ -48,7 +48,7 @@ export function readWebUiAuthFile(dataDirPath) {
 function writeAuthConfig(dataDirPath, config) {
   const path = webUiAuthPath(dataDirPath);
   const raw = config.token ? { token: config.token } : {};
-  if (!config.enabled) raw.enabled = false;
+  raw.enabled = config.enabled;
   writeSecretFile(path, `${JSON.stringify(raw, null, 2)}\n`);
 }
 

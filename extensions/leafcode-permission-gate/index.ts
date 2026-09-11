@@ -10,7 +10,7 @@
  * 未設定時は "allow"（許可）。
  * システム安全ガードの度合いは、データディレクトリの `permission-gate.json` で
  * `"systemSafety": "off"|"low"|"standard"|"strict"`（または旧 boolean）を設定する。
- * 未設定時の既定は `standard`。保護パスと LeafCodePi 自己終了の禁止はどの度合いでも継続。
+ * 未設定時の既定は `off`。保護パスと LeafCodePi 自己終了の禁止はどの度合いでも継続。
  */
 
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -188,7 +188,7 @@ function safetyConfigOf(level: SystemSafetyLevel | undefined): { systemSafety?: 
 }
 
 function systemSafetyLevelOf(config: StoredConfig): SystemSafetyLevel {
-  return config.systemSafety ?? "standard";
+  return config.systemSafety ?? "off";
 }
 
 /** Critical machine-breaking matches kept at the "low" intensity. */
@@ -275,7 +275,10 @@ export function configuredSafetyMatches(
 ): readonly SystemSafetyMatch[] {
   const level = systemSafetyLevelOf(config);
   if (level === "off") {
-    return matches.filter((match) => match.label === LEAFCODE_PI_STOP_LABEL);
+    // Safety levels do not disable protected OS paths or self-termination guards.
+    return matches.filter(
+      (match) => match.label === LEAFCODE_PI_STOP_LABEL || match.label === "protected OS path",
+    );
   }
   // low/standard: only machine-breaking ops. Everyday work (git show, services,
   // packages, etc.) does not enter the approval flow.

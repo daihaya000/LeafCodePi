@@ -111,13 +111,13 @@ export function applyPermissionMode(
   writePermissionGateConfig(mode, sessionIdOf(session));
 }
 
-/** System safety hard-gate level. Missing config defaults to standard. */
+/** System safety hard-gate level. Missing config defaults to off. */
 export function readSystemSafetyLevel(): SystemSafetyLevel {
   const stored = readStoredConfig();
   return stored.systemSafety === undefined ? DEFAULT_SYSTEM_SAFETY_LEVEL : stored.systemSafety;
 }
 
-/** System safety hard-gate is on unless level is off. */
+/** System safety hard-gate is on for any level except off. */
 export function readSystemSafetyEnabled(): boolean {
   return systemSafetyEnabled(readSystemSafetyLevel());
 }

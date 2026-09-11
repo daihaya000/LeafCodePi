@@ -74,7 +74,7 @@ export function SystemSafetySettings() {
       <h3 className="text-sm font-semibold">システム安全ガード</h3>
       <p className="mt-1 text-xs text-muted">
         OS・サービス・ディスクなどへの危険な変更をどの程度止めるかを選びます。どの度合いでも
-        `.env` / `.ssh` などの保護パスと LeafCodePi 自身の停止禁止は続きます。既定は標準です。
+        `.env` / `.ssh` などの保護パスと LeafCodePi 自身の停止禁止は続きます。既定は無効です。
       </p>
       <div className="mt-4 flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">

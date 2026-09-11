@@ -1231,7 +1231,7 @@ describe("LeafCode permission gate", () => {
         osWriteContext,
       );
       assert.equal((osWrite as { block?: boolean } | undefined)?.block, true);
-      assert.match(osWritePrompt, /明示的に許可/);
+      assert.equal(osWritePrompt, "");
     } finally {
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;

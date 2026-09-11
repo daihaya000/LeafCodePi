@@ -3,7 +3,7 @@ import type { PermissionMode } from "@/lib/permission-gate";
 /** System safety hard-gate intensity. Boolean legacy values map to off/standard. */
 export type SystemSafetyLevel = "off" | "low" | "standard" | "strict";
 
-export const DEFAULT_SYSTEM_SAFETY_LEVEL: SystemSafetyLevel = "standard";
+export const DEFAULT_SYSTEM_SAFETY_LEVEL: SystemSafetyLevel = "off";
 
 export const SYSTEM_SAFETY_LEVELS: readonly SystemSafetyLevel[] = [
   "off",
@@ -43,10 +43,10 @@ export function isSystemSafetyLevel(value: unknown): value is SystemSafetyLevel 
   return value === "off" || value === "low" || value === "standard" || value === "strict";
 }
 
-/** Normalize persisted boolean/string/missing values to a level. Default is standard. */
+/** Normalize persisted boolean/string/missing values to a level. Default is off. */
 export function parseSystemSafetyLevel(value: unknown): SystemSafetyLevel {
   if (value === false) return "off";
-  if (value === true) return DEFAULT_SYSTEM_SAFETY_LEVEL;
+  if (value === true) return "standard";
   if (isSystemSafetyLevel(value)) return value;
   return DEFAULT_SYSTEM_SAFETY_LEVEL;
 }

@@ -33,17 +33,12 @@ test("ensureWebUiAuth skips auth on loopback", () => {
   }
 });
 
-test("ensureWebUiAuth creates and persists token for remote bind", () => {
+test("ensureWebUiAuth keeps remote auth disabled by default", () => {
   const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-auth-"));
   try {
     const result = ensureWebUiAuth({}, "100.64.1.2", dir);
-    assert.equal(result.authRequired, true);
-    assert.ok(result.token && result.token.length >= 16);
-    assert.equal(readWebUiAuthFile(dir), result.token);
-    assert.deepEqual(JSON.parse(readFileSync(webUiAuthPath(dir), "utf8")), { token: result.token });
-    if (process.platform !== "win32") {
-      assert.equal(statSync(webUiAuthPath(dir)).mode & 0o777, 0o600);
-    }
+    assert.deepEqual(result, { authRequired: false, token: null });
+    assert.equal(readWebUiAuthFile(dir), null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -78,9 +73,9 @@ test("user can change the token and disable remote auth", () => {
   try {
     const initial = ensureWebUiAuth({}, "100.64.1.2", dir);
     const changed = writeWebUiAuthConfig(dir, { token: "abcd" });
-    assert.deepEqual(changed, { token: "abcd", enabled: true });
-    assert.deepEqual(readWebUiAuthConfig(dir), { token: "abcd", enabled: true });
-    assert.equal(initial.token === changed.token, false);
+    assert.deepEqual(changed, { token: "abcd", enabled: false });
+    assert.deepEqual(readWebUiAuthConfig(dir), { token: "abcd", enabled: false });
+    assert.equal(initial.token, null);
 
     const disabled = writeWebUiAuthConfig(dir, { enabled: false });
     assert.deepEqual(disabled, { token: "abcd", enabled: false });
