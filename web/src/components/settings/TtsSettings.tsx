@@ -1,8 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Button, Switch } from "@/components/ui";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AudioLines } from "lucide-react";
+import { Button, GhostSelect, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
+import {
+  TTS_BACKENDS,
+  backendLabel,
+  detectTtsBackend,
+  getTtsBackend,
+  voiceLabel,
+  type TtsBackendId,
+} from "@/lib/tts-backends";
 import type { TtsConfigDto } from "@/lib/tts-config";
 
 const DEFAULT_FORM: TtsConfigDto = {
@@ -12,7 +21,7 @@ const DEFAULT_FORM: TtsConfigDto = {
   url: "",
 };
 
-type ServerStatus = { running: boolean; url?: string; error?: string };
+type ServerStatus = { running: boolean; url?: string; error?: string; port?: number };
 
 export function TtsSettings() {
   const [form, setForm] = useState<TtsConfigDto | null>(null);
@@ -51,7 +60,6 @@ export function TtsSettings() {
       );
       setServer({ running: false, error: result.stopped ? undefined : result.error });
     } catch (err) {
-      // Never invent "稼働中" on failure — re-probe so the badge matches reality.
       setServer({ running: false, error: err instanceof Error ? err.message : "停止に失敗しました" });
       checkServer();
     } finally {
@@ -84,8 +92,7 @@ export function TtsSettings() {
     setError(null);
     setSaved(false);
     const previous = form;
-    const optimistic = { ...form, ...patch };
-    setForm(optimistic);
+    setForm({ ...form, ...patch });
     try {
       const result = await sendJson<TtsConfigDto>("/api/settings/tts", patch, "PATCH");
       setForm(result);
@@ -101,16 +108,33 @@ export function TtsSettings() {
 
   const ready = loaded && form !== null;
   const current = form ?? DEFAULT_FORM;
+  const backendId = detectTtsBackend(current.url);
+  const backend = getTtsBackend(backendId);
+  const voices = useMemo(() => backend?.voices ?? [], [backend]);
+
+  const applyBackend = (id: TtsBackendId) => {
+    if (!ready || form === null) return;
+    if (id === "custom") {
+      // Keep current url/voice; just expose the free-form fields.
+      if (backendId === "custom") return;
+      void save({ url: current.url || "http://127.0.0.1:10101", voice: current.voice });
+      return;
+    }
+    const next = getTtsBackend(id);
+    if (!next) return;
+    void save({ url: next.url, voice: next.defaultVoice });
+  };
+
+  const applyVoice = (voice: string) => {
+    if (!ready || form === null) return;
+    void save({ voice });
+  };
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h3 className="text-sm font-semibold">読み上げ (TTS)</h3>
       <p className="mt-1 text-xs text-muted">
-        Bot / エージェントの発言を読み上げます。既定は Windows SAPI。HTTP URL を入れると外部合成へ切り替えます（AivisSpeech は
-        <code className="text-xs">http://127.0.0.1:10101</code>
-        、Qwen3-TTS は
-        <code className="text-xs">.../v1/audio/speech</code>
-        ）。変更は次のエージェント開始から反映されます。
+        Bot / エージェントの発言を読み上げます。バックエンドを切り替えると URL と音声がまとめて保存されます。変更は次のエージェント開始から反映されます。
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -135,22 +159,63 @@ export function TtsSettings() {
       </div>
 
       <div className="mt-4 space-y-3">
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm text-muted">音声名（SAPI） / speaker id（AivisSpeech）</span>
-          <input
-            type="text"
-            value={current.voice}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-sm text-muted">バックエンド</span>
+          <GhostSelect
+            value={backendId}
             disabled={!ready || busy}
-            placeholder="888753760（AivisSpeech style id）"
-            aria-label="TTS 音声名"
-            onChange={(event) => setForm({ ...current, voice: event.target.value })}
-            onBlur={() => {
-              if (!ready || form === null) return;
-              void save({ voice: form.voice });
-            }}
-            className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-border-strong disabled:opacity-60"
-          />
-        </label>
+            aria-label="TTS バックエンド"
+            icon={<AudioLines className="h-3.5 w-3.5" />}
+            valueLabel={backendLabel(backendId)}
+            onChange={(value) => applyBackend(value as TtsBackendId)}
+            className="h-9 w-full max-w-md"
+          >
+            {TTS_BACKENDS.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+            <option value="custom">カスタム URL</option>
+          </GhostSelect>
+        </div>
+
+        {backendId !== "custom" && voices.length > 0 ? (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm text-muted">音声 / モデル</span>
+            <GhostSelect
+              value={voices.some((option) => option.id === current.voice) ? current.voice : voices[0]!.id}
+              disabled={!ready || busy}
+              aria-label="TTS 音声"
+              icon={<AudioLines className="h-3.5 w-3.5" />}
+              valueLabel={voiceLabel(backendId, current.voice)}
+              onChange={applyVoice}
+              className="h-9 w-full max-w-md"
+            >
+              {voices.map((option) => (
+                <option key={option.id || "default"} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </GhostSelect>
+          </div>
+        ) : (
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm text-muted">音声名 / speaker id</span>
+            <input
+              type="text"
+              value={current.voice}
+              disabled={!ready || busy}
+              placeholder="style id または SAPI 音声名"
+              aria-label="TTS 音声名"
+              onChange={(event) => setForm({ ...current, voice: event.target.value })}
+              onBlur={() => {
+                if (!ready || form === null) return;
+                void save({ voice: form.voice });
+              }}
+              className="h-9 w-full max-w-md rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-border-strong disabled:opacity-60"
+            />
+          </label>
+        )}
 
         <label className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
           <span className="shrink-0 text-sm text-muted">速度（SAPI -10..10）</span>
@@ -175,44 +240,47 @@ export function TtsSettings() {
           </span>
         </label>
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm text-muted">HTTP 合成 URL（空なら SAPI。AivisSpeech は http://127.0.0.1:10101）</span>
-          <input
-            type="url"
-            value={current.url}
-            disabled={!ready || busy}
-            placeholder="http://127.0.0.1:10101"
-            aria-label="TTS HTTP URL"
-            onChange={(event) => setForm({ ...current, url: event.target.value })}
-            onBlur={() => {
-              if (!ready || form === null) return;
-              void save({ url: form.url });
-            }}
-            className="h-9 w-full rounded-lg border border-border bg-bg px-3 font-mono text-sm text-text outline-none focus:border-border-strong disabled:opacity-60"
-          />
-          <span className="text-[11px] text-muted">
-            AivisSpeech はベース URL のみ。Qwen3-TTS は{" "}
-            <code className="rounded bg-surface-2 px-1">/v1/audio/speech</code>
-            。下の起動/停止は Qwen 専用で、この URL とは独立です。
-          </span>
-        </label>
+        {backendId === "custom" && (
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm text-muted">HTTP 合成 URL（空なら SAPI）</span>
+            <input
+              type="url"
+              value={current.url}
+              disabled={!ready || busy}
+              placeholder="http://127.0.0.1:10101"
+              aria-label="TTS HTTP URL"
+              onChange={(event) => setForm({ ...current, url: event.target.value })}
+              onBlur={() => {
+                if (!ready || form === null) return;
+                void save({ url: form.url });
+              }}
+              className="h-9 w-full rounded-lg border border-border bg-bg px-3 font-mono text-sm text-text outline-none focus:border-border-strong disabled:opacity-60"
+            />
+          </label>
+        )}
 
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-bg px-3 py-2">
-          <span className="text-sm text-muted">Qwen3-TTS サーバー（Windows / ROCm・比較用）</span>
-          <span className="text-sm text-text" aria-live="polite">
-            {server === null ? "確認中" : server.running ? "稼働中" : "停止"}
-          </span>
-          <Button size="sm" disabled={serverBusy || server?.running === true} onClick={() => void startServer()}>
-            起動
-          </Button>
-          <Button variant="ghost" size="sm" disabled={serverBusy} onClick={() => void stopServer()}>
-            停止
-          </Button>
-          <Button variant="ghost" size="sm" disabled={serverBusy} onClick={() => checkServer()}>
-            状態確認
-          </Button>
-          {server?.error && <span className="text-[11px] text-muted">{server.error}</span>}
-        </div>
+        {backendId !== "custom" && current.url && (
+          <p className="font-mono text-[11px] text-muted">{current.url}</p>
+        )}
+
+        {(backendId === "qwen" || backendId === "custom") && (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-bg px-3 py-2">
+            <span className="text-sm text-muted">Qwen3-TTS サーバー（Windows / ROCm・比較用）</span>
+            <span className="text-sm text-text" aria-live="polite">
+              {server === null ? "確認中" : server.running ? "稼働中" : "停止"}
+            </span>
+            <Button size="sm" disabled={serverBusy || server?.running === true} onClick={() => void startServer()}>
+              起動
+            </Button>
+            <Button variant="ghost" size="sm" disabled={serverBusy} onClick={() => void stopServer()}>
+              停止
+            </Button>
+            <Button variant="ghost" size="sm" disabled={serverBusy} onClick={() => checkServer()}>
+              状態確認
+            </Button>
+            {server?.error && <span className="text-[11px] text-muted">{server.error}</span>}
+          </div>
+        )}
       </div>
 
       {error && (

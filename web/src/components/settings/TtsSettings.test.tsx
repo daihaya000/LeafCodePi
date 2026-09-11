@@ -14,18 +14,24 @@ describe("TtsSettings", () => {
   beforeEach(() => {
     getJson.mockReset();
     sendJson.mockReset();
-    getJson.mockResolvedValue({
-      enabled: false,
-      voice: "Microsoft Haruka Desktop",
-      rate: 0,
-      url: "",
+    getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/settings/tts/server") return { running: false };
+      return {
+        enabled: false,
+        voice: "",
+        rate: 0,
+        url: "",
+      };
     });
-    sendJson.mockImplementation(async (_path: string, body: Record<string, unknown>) => ({
-      enabled: body.enabled === true,
-      voice: typeof body.voice === "string" ? body.voice : "Microsoft Haruka Desktop",
-      rate: typeof body.rate === "number" ? body.rate : 0,
-      url: typeof body.url === "string" ? body.url : "",
-    }));
+    sendJson.mockImplementation(async (path: string, body: Record<string, unknown>) => {
+      if (path === "/api/settings/tts/server") return { started: true };
+      return {
+        enabled: typeof body.enabled === "boolean" ? body.enabled : false,
+        voice: typeof body.voice === "string" ? body.voice : "",
+        rate: typeof body.rate === "number" ? body.rate : 0,
+        url: typeof body.url === "string" ? body.url : "",
+      };
+    });
   });
 
   afterEach(() => {
@@ -38,7 +44,7 @@ describe("TtsSettings", () => {
     const toggle = await screen.findByRole("switch", { name: "読み上げを有効にする" });
     await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("false"));
     expect(getJson).toHaveBeenCalledWith("/api/settings/tts");
-    expect(screen.getByDisplayValue("Microsoft Haruka Desktop")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "TTS バックエンド" }).textContent).toContain("Windows SAPI");
 
     fireEvent.click(toggle);
     await waitFor(() => {
@@ -47,22 +53,25 @@ describe("TtsSettings", () => {
     await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
   });
 
-  it("saves HTTP url on blur", async () => {
+  it("switches backend presets via the dropdown", async () => {
     render(<TtsSettings />);
-    const url = await screen.findByLabelText("TTS HTTP URL");
-    fireEvent.change(url, { target: { value: "http://127.0.0.1:8080/v1/audio/speech" } });
-    fireEvent.blur(url);
+    const trigger = await screen.findByRole("button", { name: "TTS バックエンド" });
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("option", { name: "AivisSpeech" }));
     await waitFor(() => {
       expect(sendJson).toHaveBeenCalledWith(
         "/api/settings/tts",
-        { url: "http://127.0.0.1:8080/v1/audio/speech" },
+        { url: "http://127.0.0.1:10101", voice: "888753760" },
         "PATCH",
       );
     });
   });
 
   it("keeps controls disabled when the initial fetch fails", async () => {
-    getJson.mockRejectedValue(new Error("取得失敗"));
+    getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/settings/tts/server") return { running: false };
+      throw new Error("取得失敗");
+    });
     render(<TtsSettings />);
     await waitFor(() => {
       expect(screen.getByRole("alert").textContent).toContain("取得失敗");
