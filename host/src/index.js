@@ -156,7 +156,6 @@ let quitting = false;
 let webRestarts = 0;
 let trayRestarts = 0;
 let restarting = false;
-let hostRestarting = false;
 const expectedWebExitPids = new Set();
 
 const statusWebItem = {
@@ -652,7 +651,6 @@ async function restartHost() {
     log(`Replacement host launcher spawned (WMI PID ${pid})`);
     await quit();
   } catch (err) {
-    hostRestarting = false;
     delete process.env.LEAFCODE_PI_SKIP_STALE_REBUILD;
     error(`Host restart failed: ${err instanceof Error ? err.message : String(err)}`);
     try {
@@ -935,30 +933,6 @@ async function quit() {
     await stopWeb();
   } catch {
     /* ignore */
-  }
-  const activeBuild = webBuildPromise;
-  if (activeBuild) {
-    log("Waiting for the current production build before quitting…");
-    try {
-      await activeBuild;
-    } catch (err) {
-      error(
-        `Production build in progress failed while quitting (${err instanceof Error ? err.message : String(err)})`,
-      );
-    }
-  }
-  const hasBuild = hasProductionBuild();
-  const buildStale = hasBuild && isWebBuildStale(WEB_DIR, webDistDir());
-  const quitPlan = getWebLaunchPlan(process.env.LEAFCODE_PI_MODE, hasBuild, buildStale);
-  if (!hostRestarting && quitPlan.needsBuild) {
-    log("Building the pending production changes before quitting…");
-    try {
-      await buildWeb(hasBuild && buildStale ? "stale" : "missing");
-    } catch (err) {
-      error(
-        `Production build before quit failed (${err instanceof Error ? err.message : String(err)})`,
-      );
-    }
   }
   try {
     if (systray) {
