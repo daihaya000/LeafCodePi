@@ -27,7 +27,9 @@ LeafCode 側の `tts.json` / 設定画面:
 
 ## Windows ROCm (Radeon AI PRO R9700 / gfx1201)
 
-`local.rocm.example.json` を `local.rocm.json` にコピーして参照音声・ポート等を書き、`start-rocm.ps1` を実行する。
+`local.rocm.example.json` を `local.rocm.json` にコピーして参照音声・ポート等を書き、`start-rocm.ps1` を実行する（設定画面の「起動」ボタンからも可）。
+起動中はタスクトレイに常駐し、右クリックから Stop server / Open log / Copy URL が使える。
+サーバーが落ちるとアイコンも自動で消える。常駐させずに起動だけしたい場合は `-NoTray`。
 スクリプトは ASCII のみで、日本語パスは JSON 側に置く（PS 5.1 の parse 事故回避）。ログは `%TEMP%\leafcode-tts-server.log`。
 
 実測（R9700 / torch 2.12.0+rocm7.14.0 / HIP 7.14）:
