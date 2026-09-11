@@ -195,7 +195,7 @@ export function BotSkillsSettings({
             <p className="rounded-xl bg-surface-2 px-3 py-2 text-xs text-muted">検索条件に一致するスキルはありません。</p>
           )}
           {filteredSkills.length > 0 && (
-            <ul className="space-y-1" aria-label={`${activeLabel}スキルの一覧`}>
+            <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2" aria-label={`${activeLabel}スキルの一覧`}>
               {filteredSkills.map((skill) => {
                 const botEnabled = skill.botEnabled ?? skill.enabled ?? true;
                 const checked = selectedNames.has(skill.name);
