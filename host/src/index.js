@@ -39,6 +39,7 @@ import {
   resolveMirrorRoot,
   syncMirror,
 } from "../../scripts/web-build-mirror.mjs";
+import { ensureBuildDependencies } from "../../scripts/build-web.mjs";
 
 const SysTray =
   SysTrayImport?.default?.default || SysTrayImport?.default || SysTrayImport;
@@ -48,7 +49,7 @@ const HOST_DIR = join(__dirname, "..");
 const REPO_ROOT = join(HOST_DIR, "..");
 const WEB_DIR = join(REPO_ROOT, "web");
 /**
- * Production builds and `next start` both run in the hard-link mirror outside
+ * Production builds and `next start` both run in the local workspace outside
  * the OneDrive-synced tree (scripts/web-build-mirror.mjs), so the sync client
  * can never touch a build that is being written or served. `next dev` keeps
  * running from WEB_DIR — Next 16 puts its output in `.next/dev`, which no
@@ -395,7 +396,7 @@ function buildWeb(reason = "missing") {
         ? "Production LeafCodePi build is stale (sources newer than BUILD_ID); rebuilding…"
         : "Production LeafCodePi build is missing; rebuilding…";
     log(reasonText);
-    // Syncs the hard-link mirror and builds there; see scripts/build-web.mjs.
+    // Syncs sources and builds in the local workspace; see scripts/build-web.mjs.
     // --skip-guard: the host builds before it starts `next start`, so the only
     // listener the guard could find would be a WebUI this host is replacing.
     const child = runNodeScript([join(REPO_ROOT, "scripts", "build-web.mjs"), "--skip-guard"], {
@@ -474,18 +475,11 @@ async function spawnWeb() {
     throw new Error("LeafCodePi production build is unavailable");
   }
 
-  let useProd = plan.useProd && hasProductionBuild();
+  const useProd = plan.useProd && hasProductionBuild();
   if (useProd && !isMirroredNextCliReady(WEB_MIRROR_DIR)) {
-    // OneDrive can leave the mirror with empty `next/dist/compiled/*` dirs.
-    log("Production mirror is missing the Next.js CLI payload; re-syncing…");
-    const mirror = syncMirror({ sourceDir: WEB_DIR, mirrorRoot: WEB_MIRROR_DIR });
-    log(
-      `Mirror re-synced ${mirror.mirrorRoot} (linked ${mirror.linked}, copied ${mirror.copied}, unchanged ${mirror.unchanged}, removed ${mirror.removed}, ${mirror.durationMs}ms)`,
-    );
-    if (!isMirroredNextCliReady(WEB_MIRROR_DIR)) {
-      error(`Production mirror is missing next/dist/compiled/commander under ${WEB_MIRROR_DIR}`);
-      useProd = false;
-    }
+    log("Production workspace is missing the Next.js CLI; installing locally…");
+    syncMirror({ sourceDir: WEB_DIR, mirrorRoot: WEB_MIRROR_DIR });
+    ensureBuildDependencies(WEB_MIRROR_DIR);
   }
   // Tailscale can disappear or change while a production build is running.
   // Resolve the automatic bind again immediately before launching Next.js.

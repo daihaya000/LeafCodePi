@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node ../scripts/build-web.mjs",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
@@ -37,6 +37,9 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "3.2.7"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.9.0": true
   },
   "overrides": {
     "next": {

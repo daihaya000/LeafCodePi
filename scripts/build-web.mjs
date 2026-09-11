@@ -1,8 +1,9 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveMirrorRoot, syncMirror } from "./web-build-mirror.mjs";
+import { isMirroredNextCliReady, resolveMirrorRoot, syncMirror } from "./web-build-mirror.mjs";
 import { DEFAULT_HOST_CONTROL_PORT, dataDir, readPort } from "../host/src/config.js";
 import { hasSsListeningPort, parseListeningPids, parseLsofListeningPids, parseSsListeningPids } from "../host/src/port-plan.js";
 import { runPortSnapshot } from "../host/src/port-scanner.js";
@@ -11,8 +12,8 @@ import { runPortSnapshot } from "../host/src/port-scanner.js";
  * Single entry point for the production WebUI build, shared by `npm run build`
  * and host/src/index.js. Ported from LeafCode (scripts/build-web.mjs).
  *
- * The build never runs in the repository itself: it runs in the hard-link
- * mirror outside the OneDrive-synced tree (see scripts/web-build-mirror.mjs).
+ * The build and dependency install run directly in a persistent workspace
+ * outside OneDrive. Only sources are synced (see scripts/web-build-mirror.mjs).
  */
 
 const HERE = fileURLToPath(import.meta.url);
@@ -83,6 +84,53 @@ export function discardPreviousBuild(distDir, fsApi = {}) {
   const prev = previousBuildDir(distDir);
   if (!exists(prev)) return false;
   remove(prev, { recursive: true, force: true });
+  return true;
+}
+
+/** Install once locally; source/lock or Node changes invalidate the dependency stamp. */
+export function ensureBuildDependencies(mirrorRoot, { install = spawnSync } = {}) {
+  const dependencies = join(mirrorRoot, "node_modules");
+  const stamp = join(dependencies, ".leafcode-pi-build-deps");
+  const fingerprint = createHash("sha256")
+    .update(JSON.stringify([
+      readFileSync(join(mirrorRoot, "package.json"), "utf8"),
+      readFileSync(join(mirrorRoot, "package-lock.json"), "utf8"),
+      process.version, process.platform, process.arch,
+    ]))
+    .digest("hex");
+  try {
+    if (readFileSync(stamp, "utf8") === fingerprint && isMirroredNextCliReady(mirrorRoot)) return false;
+  } catch {
+    // The legacy hard-link mirror has no stamp and is migrated on its next build.
+  }
+
+  console.error(`[build-web] installing dependencies directly in ${mirrorRoot}`);
+  // npm ci must not mutate legacy hard links or discard working dependencies
+  // on a network/install failure. Reuse the build's directory rollback helpers.
+  stashPreviousBuild(dependencies);
+  try {
+    const result = install(process.platform === "win32" ? "npm.cmd" : "npm",
+      ["ci", "--include=dev", "--no-audit", "--no-fund"], {
+        cwd: mirrorRoot,
+        shell: process.platform === "win32",
+        windowsHide: true,
+        stdio: "inherit",
+      });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(`npm ci (build workspace) exited ${result.status}`);
+    if (!isMirroredNextCliReady(mirrorRoot)) throw new Error("npm ci did not install a usable Next.js CLI");
+    // A successful Next build does not load SQLite's native binding. npm 12
+    // can skip its install script and still exit 0; do not cache that install.
+    const nativeStatus = run(process.execPath,
+      ["-e", "const Database = require('better-sqlite3'); new Database(':memory:').close();"],
+      { cwd: mirrorRoot });
+    if (nativeStatus !== 0) throw new Error("SQLite is unavailable; check the better-sqlite3 install-script approval and Node.js compatibility");
+    writeFileSync(stamp, fingerprint, "utf8");
+  } catch (err) {
+    if (!restorePreviousBuild(dependencies)) rmSync(dependencies, { recursive: true, force: true });
+    throw err;
+  }
+  discardPreviousBuild(dependencies);
   return true;
 }
 
@@ -274,8 +322,9 @@ export async function main(argv = process.argv.slice(2)) {
 
   const mirror = syncMirror({ sourceDir: WEB_DIR });
   console.error(
-    `[build-web] mirror ${mirror.mirrorRoot} (linked ${mirror.linked}, copied ${mirror.copied}, unchanged ${mirror.unchanged}, removed ${mirror.removed}, ${mirror.durationMs}ms)`,
+    `[build-web] workspace ${mirror.mirrorRoot} (copied ${mirror.copied}, unchanged ${mirror.unchanged}, removed ${mirror.removed}, ${mirror.durationMs}ms)`,
   );
+  ensureBuildDependencies(mirror.mirrorRoot);
 
   const nextBin = join(mirror.mirrorRoot, "node_modules", "next", "dist", "bin", "next");
   if (!existsSync(nextBin)) {

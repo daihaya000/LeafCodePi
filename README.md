@@ -169,7 +169,13 @@ Linux/macOS は既定でトレイを使わないため、SSH やヘッドレス�
 
 Goal Loop は WebUI プロセス内で動くため、再起動するとセッション終了で必ず一時停止します。実行中の Goal Loop があるときは WebUI 再起動を拒否します（`POST /restart/webui` は 409、トレイの Restart WebUI と設定画面も同じ理由で拒否）。ループを停止・完了してから再起動してください。
 
-production build は本家 LeafCode と同じく Windows では **`%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>\`**、Linux/macOS では **`$XDG_CACHE_HOME/leafcode-pi/build/<checkout>-<hash>/`**（未設定時は `~/.cache/leafcode-pi/build/...`）のハードリンクミラーで実行し、`next start` もそこから配信します。OneDrive がビルド中・配信中の `.next` に触れてチャンク世代が混ざるのを防ぐためです（`scripts\web-build-mirror.mjs`）。`next dev` はリポジトリのまま動きます（Next 16 の dev 出力は `web/.next/dev` で prod と分離）。ミラーの場所は `LEAFCODE_PI_BUILD_DIR` で変更できます。
+production build は既存のミラー先を常設ビルド領域として直接使用します。Windows は **`%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>\`**、Linux/macOS は **`$XDG_CACHE_HOME/leafcode-pi/build/<checkout>-<hash>/`**（未設定時は `~/.cache/leafcode-pi/build/...`）で、`next start` も同じ場所から配信します。場所は従来どおり `LEAFCODE_PI_BUILD_DIR` で変更できます。
+
+- `npm run build` と `npm --prefix web run build` は同じ入口を使います。稼働中の production WebUI を保護するため、手動ビルド前にトレイから終了してください。
+- Next 16 はプロジェクト外の `distDir` を許可しないため、ソースの差分コピーだけを残します。OneDrive側の `node_modules` はビルド時に走査・同期・ハードリンクしません。
+- 依存関係は初回または `package.json` / `package-lock.json` / Node.js環境の変更時に、ビルド領域で `npm ci --include=dev` します。旧ミラーも次回ビルドで移行するため、初回は依存インストールの時間・空き容量・ネットワーク接続が必要です。インストール失敗時は以前の依存関係を復元します。
+- npm 12用に `web/package.json` の `allowScripts` で `better-sqlite3@12.9.0` のみを許可しています。依存インストール後はSQLiteの起動も検証します。SQLiteのバージョン更新時はこの許可も見直してください。
+- `.next`・依存関係・ビルドキャッシュをOneDriveへ書き戻しません。`next dev` と開発用依存のインストール、起動時のPi自動更新は従来どおりリポジトリ側です。
 
 トレイメニュー:
 
@@ -225,8 +231,8 @@ npm run check
 - `web/` — Next.js UI と BFF
 - `host/` — Next.js の起動・監視・再起動。Windows はトレイ常駐、Linux/macOS は既定でヘッドレス
 - `start.bat` — 導入とホスト起動
-- `scripts/build-web.mjs` — production build の唯一の入口（ミラー同期 → `next build` → BUILD_ID 検証）
-- `scripts/web-build-mirror.mjs` — OneDrive 外へのハードリンクミラー
+- `scripts/build-web.mjs` — production build の唯一の入口（ソース差分同期 → ローカル依存準備 → `next build` → BUILD_ID 検証）
+- `scripts/web-build-mirror.mjs` — 既存のOneDrive外ビルド領域へのソース差分同期
 - `extensions/` — Pi 拡張（Goal Loop、memory、subagents など）
 - `docs/` — 実装計画と仕様
 - `translation/` — 推論テキスト翻訳サービス

@@ -3,7 +3,6 @@ import { homedir } from "node:os";
 import {
   copyFileSync,
   existsSync,
-  linkSync,
   lstatSync,
   mkdirSync,
   readFileSync,
@@ -13,50 +12,23 @@ import {
   unlinkSync,
   utimesSync,
 } from "node:fs";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Hard-link mirror of `web/`, used as the Next.js project root for production
- * builds. Ported from LeafCode (scripts/web-build-mirror.mjs).
- *
- * Why a mirror at all: this repository lives inside a OneDrive-synced folder,
- * and letting the sync client touch a build that is being written (or served)
- * mixes chunk generations. Both failures observed here came from that —
- * `Cannot find module './chunks/vendor-chunks/next.js'` and a `.next` that had
- * a prod `webpack-runtime.js` without the chunks it referenced. Next 16 also
- * refuses a distDir that navigates out of the project ("Invalid distDirRoot"),
- * so moving only the output is not an option: the project itself has to sit
- * outside the synced tree.
- *
- * Why hard links: a byte copy of `node_modules/` is hundreds of MB. Hard links
- * cost no additional disk and mirror in seconds. Junctions and symlinks do not
- * work — bundlers canonicalize reparse points, so every module resolves back to
- * its OneDrive path. Hard links are not reparse points, so the mirror looks like
- * plain files. Cross-volume mirrors cannot be hard-linked and fall back to a
- * byte copy.
- *
- * Hazard: a hard link shares its contents with the source, so anything the
- * build writes in place would also rewrite the repository's file. Only ignored
- * dependencies under `node_modules/` are linked. Repository-owned files are
- * copied so build tooling can mutate them (hard-linked files are rejected at
- * nlink > 1).
- *
- * Unlike LeafCode this mirrors only `web/`, not the whole installation:
- * next.config.ts here imports nothing above `web/` and pins
- * outputFileTracingRoot to `web/`, so the build is self-contained.
+ * Persistent production workspace outside OneDrive, at the existing mirror path.
+ * Next 16 requires distDir to stay inside its project, so copy only web sources
+ * here. Dependencies are installed locally by build-web.mjs, never traversed or
+ * hard-linked from OneDrive. Build output and caches stay in this workspace.
  */
 
 const HERE = fileURLToPath(import.meta.url);
 const DEFAULT_WEB_DIR = resolve(HERE, "..", "..", "web");
 
-/** Never mirrored: VCS metadata and build outputs. */
-const SKIP_DIRS = new Set([".git", ".next"]);
+/** Workspace-owned directories must never be synced or pruned. */
+const SKIP_DIRS = new Set([".git", ".next", ".next.prev", "node_modules", "node_modules.prev"]);
 
 const SKIP_FILES = new Set(["tsconfig.tsbuildinfo"]);
-
-/** Ignored dependencies are the only files safe to share with the mirror. */
-const LINK_PREFIXES = ["node_modules"];
 
 /** Stable per-checkout mirror name, so two checkouts never share one. */
 export function mirrorSlug(sourceDir, platform = process.platform) {
@@ -92,17 +64,9 @@ export function mirrorDistDir(mirrorRoot) {
   return join(mirrorRoot, ".next");
 }
 
-function shouldCopy(relPath) {
-  const normalized = relPath.replaceAll("/", sep);
-  const parts = normalized.split(sep).filter(Boolean);
-  return parts.length === 0 || !LINK_PREFIXES.includes(parts[0]);
-}
-
-/** Re-place a linked repository file with an independent copy after policy changes. */
-function needsReplace(sourceStat, targetStat, relPath, from, to) {
-  if (!targetStat) return true;
-  if (!isUpToDate(sourceStat, targetStat, relPath, from, to)) return true;
-  return shouldCopy(relPath) && sourceStat.nlink > 1;
+/** Replace legacy hard links with independent source copies. */
+function needsReplace(sourceStat, targetStat, from, to) {
+  return !targetStat || targetStat.nlink > 1 || !isUpToDate(sourceStat, targetStat, from, to);
 }
 
 /**
@@ -133,15 +97,15 @@ export function sourceEntryKind(dirent, lstat) {
 
 /** True when the mirrored `next` CLI can boot (`commander` is the first import). */
 export function isMirroredNextCliReady(mirrorRoot) {
-  return existsSync(join(mirrorRoot, "node_modules", "next", "dist", "compiled", "commander", "index.js"));
+  return existsSync(join(mirrorRoot, "node_modules", "next", "dist", "bin", "next")) &&
+    existsSync(join(mirrorRoot, "node_modules", "next", "dist", "compiled", "commander", "index.js"));
 }
 
 /** Same content already in place? Synced files can keep size/mtime after their bytes change. */
-function isUpToDate(sourceStat, targetStat, relPath, from, to) {
+function isUpToDate(sourceStat, targetStat, from, to) {
   if (targetStat.size !== sourceStat.size || Math.abs(targetStat.mtimeMs - sourceStat.mtimeMs) >= 2) {
     return false;
   }
-  if (!shouldCopy(relPath)) return true;
   try {
     return readFileSync(from).equals(readFileSync(to));
   } catch {
@@ -149,35 +113,15 @@ function isUpToDate(sourceStat, targetStat, relPath, from, to) {
   }
 }
 
-function placeFile(from, to, relPath, stats) {
-  if (shouldCopy(relPath)) {
-    copyFileSync(from, to);
-    utimesSync(to, stats.atime, stats.mtime);
-    return "copied";
-  }
-  try {
-    linkSync(from, to);
-    return "linked";
-  } catch (err) {
-    // EXDEV: mirror is on another volume. EPERM/EACCES: filesystem refuses
-    // hard links. Either way a byte copy still produces a correct mirror.
-    if (err.code !== "EXDEV" && err.code !== "EPERM" && err.code !== "EACCES") throw err;
-    copyFileSync(from, to);
-    utimesSync(to, stats.atime, stats.mtime);
-    return "copied";
-  }
-}
-
-function syncDir(sourceDir, targetDir, rootDir, counters) {
+function syncDir(sourceDir, targetDir, counters) {
   mkdirSync(targetDir, { recursive: true });
 
   const sourceEntries = readdirSync(sourceDir, { withFileTypes: true });
   const keep = new Set();
 
   for (const entry of sourceEntries) {
-    if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
-    // Name-based: OneDrive cloud files report Dirent.isFile() === false.
-    if (!entry.isDirectory() && SKIP_FILES.has(entry.name)) continue;
+    // Name-based: OneDrive placeholders and junctions may not report a directory.
+    if (SKIP_DIRS.has(entry.name) || SKIP_FILES.has(entry.name)) continue;
 
     const from = join(sourceDir, entry.name);
     const to = join(targetDir, entry.name);
@@ -196,11 +140,10 @@ function syncDir(sourceDir, targetDir, rootDir, counters) {
     keep.add(entry.name);
 
     if (kind === "dir") {
-      syncDir(from, to, rootDir, counters);
+      syncDir(from, to, counters);
       continue;
     }
 
-    const relPath = relative(rootDir, from);
     const sourceStat = statSync(from);
     let targetStat;
     try {
@@ -208,20 +151,20 @@ function syncDir(sourceDir, targetDir, rootDir, counters) {
     } catch {
       targetStat = undefined;
     }
-    if (targetStat && !needsReplace(sourceStat, targetStat, relPath, from, to)) {
+    if (!needsReplace(sourceStat, targetStat, from, to)) {
       counters.unchanged += 1;
       continue;
     }
     if (targetStat) unlinkSync(to);
-    counters[placeFile(from, to, relPath, sourceStat)] += 1;
+    copyFileSync(from, to);
+    utimesSync(to, sourceStat.atime, sourceStat.mtime);
+    counters.copied += 1;
   }
 
-  // Prune what the source no longer has. The build output lives in the
-  // mirror's `.next`, which the source never contains, so the SKIP_DIRS check
-  // above preserves it.
+  // Prune removed sources, not the workspace's dependencies, output or caches.
   for (const entry of readdirSync(targetDir, { withFileTypes: true })) {
     if (keep.has(entry.name)) continue;
-    if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
+    if (SKIP_DIRS.has(entry.name) || SKIP_FILES.has(entry.name)) continue;
     rmSync(join(targetDir, entry.name), { recursive: true, force: true });
     counters.removed += 1;
   }
@@ -237,13 +180,15 @@ export function syncMirror(options = {}) {
   const env = options.env ?? process.env;
   const mirrorRoot = resolve(options.mirrorRoot ?? resolveMirrorRoot(env, sourceDir));
 
-  if (mirrorRoot === sourceDir || mirrorRoot.startsWith(sourceDir + sep)) {
-    throw new Error(`The build mirror (${mirrorRoot}) must not live inside the project (${sourceDir}).`);
+  const source = process.platform === "win32" ? sourceDir.toLowerCase() : sourceDir;
+  const target = process.platform === "win32" ? mirrorRoot.toLowerCase() : mirrorRoot;
+  if (target === source || target.startsWith(source + sep) || source.startsWith(target.endsWith(sep) ? target : target + sep)) {
+    throw new Error(`The build mirror (${mirrorRoot}) must not live inside the project (${sourceDir}) or contain it.`);
   }
 
-  const counters = { linked: 0, copied: 0, unchanged: 0, removed: 0 };
+  const counters = { copied: 0, unchanged: 0, removed: 0 };
   const startedAt = Date.now();
-  syncDir(sourceDir, mirrorRoot, sourceDir, counters);
+  syncDir(sourceDir, mirrorRoot, counters);
 
   return {
     sourceDir,
@@ -262,7 +207,7 @@ if (process.argv[1] && resolve(process.argv[1]) === HERE) {
   } else {
     const result = syncMirror();
     console.error(
-      `[web-build-mirror] ${result.mirrorRoot} (linked ${result.linked}, copied ${result.copied}, unchanged ${result.unchanged}, removed ${result.removed}, ${result.durationMs}ms)`,
+      `[web-build-mirror] ${result.mirrorRoot} (copied ${result.copied}, unchanged ${result.unchanged}, removed ${result.removed}, ${result.durationMs}ms)`,
     );
     console.log(result.mirrorRoot);
   }

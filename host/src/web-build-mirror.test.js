@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  existsSync,
   linkSync,
   lstatSync,
   mkdirSync,
@@ -23,6 +24,7 @@ import {
 } from "../../scripts/web-build-mirror.mjs";
 import {
   discardPreviousBuild,
+  ensureBuildDependencies,
   handOffToServedWebUi,
   hostControlUrl,
   previousBuildDir,
@@ -44,10 +46,12 @@ test("the mirror never lives inside the mirrored project", () => {
   const { root, source } = sandbox();
   try {
     mkdirSync(source, { recursive: true });
-    assert.throws(
-      () => syncMirror({ sourceDir: source, mirrorRoot: join(source, "inner") }),
-      /must not live inside the project/,
-    );
+    for (const target of [source, join(source, "inner"), root]) {
+      assert.throws(
+        () => syncMirror({ sourceDir: source, mirrorRoot: target }),
+        /must not live inside the project/,
+      );
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -179,18 +183,123 @@ test("syncMirror migrates existing linked repository files to independent copies
   }
 });
 
-test("syncMirror keeps node_modules hard-linked for fast low-space builds", () => {
+test("syncMirror never syncs source dependencies and preserves local dependencies and caches", () => {
   const { root, source, mirror } = sandbox();
   try {
     mkdirSync(join(source, "node_modules", "pkg"), { recursive: true });
-    writeFileSync(join(source, "node_modules", "pkg", "index.js"), "module.exports = {};\n");
+    for (let i = 0; i < 128; i += 1) {
+      writeFileSync(join(source, "node_modules", "pkg", `${i}.js`), "source dependency\n");
+    }
+    writeFileSync(join(source, "page.tsx"), "export default null;\n");
+    for (const dir of ["node_modules", "node_modules.prev", ".next", ".next.prev"]) {
+      mkdirSync(join(mirror, dir), { recursive: true });
+      writeFileSync(join(mirror, dir, "keep"), "workspace-owned\n");
+    }
+    writeFileSync(join(mirror, "tsconfig.tsbuildinfo"), "cached types\n");
 
+    const first = syncMirror({ sourceDir: source, mirrorRoot: mirror });
+    assert.equal(first.copied, 1);
+    for (let i = 0; i < 3; i += 1) {
+      const result = syncMirror({ sourceDir: source, mirrorRoot: mirror });
+      assert.equal(result.copied, 0);
+      assert.equal(result.unchanged, 1);
+      assert.equal(result.removed, 0);
+    }
+    assert.equal(existsSync(join(mirror, "node_modules", "pkg")), false);
+    assert.equal(lstatSync(join(source, "node_modules", "pkg", "0.js")).nlink, 1);
+    assert.equal(readFileSync(join(mirror, "node_modules", "keep"), "utf8"), "workspace-owned\n");
+    assert.equal(readFileSync(join(mirror, "tsconfig.tsbuildinfo"), "utf8"), "cached types\n");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function installNextFixture(_command, _args, { cwd }) {
+  for (const file of ["bin/next", "compiled/commander/index.js"]) {
+    const path = join(cwd, "node_modules", "next", "dist", file);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, "// local dependency\n");
+  }
+  const sqlite = join(cwd, "node_modules", "better-sqlite3", "index.js");
+  mkdirSync(dirname(sqlite), { recursive: true });
+  writeFileSync(sqlite, "module.exports = class Database { close() {} };\n");
+  return { status: 0 };
+}
+
+test("dependencies migrate once, stay local across source syncs, and refresh when manifests or CLI change", () => {
+  const { root, source, mirror } = sandbox();
+  try {
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "package.json"), "{}\n");
+    writeFileSync(join(source, "package-lock.json"), '{"version":1}\n');
+    installNextFixture(null, null, { cwd: source });
+    const from = join(source, "node_modules", "next", "dist", "bin", "next");
+    const to = join(mirror, "node_modules", "next", "dist", "bin", "next");
+    mkdirSync(dirname(to), { recursive: true });
+    linkSync(from, to);
+    let calls = 0;
+    const install = (command, args, options) => {
+      calls += 1;
+      assert.equal(options.cwd, mirror);
+      assert.equal(options.shell, process.platform === "win32");
+      assert.equal(command, process.platform === "win32" ? "npm.cmd" : "npm");
+      assert.deepEqual(args, ["ci", "--include=dev", "--no-audit", "--no-fund"]);
+      assert.equal(existsSync(to), false, "legacy dependencies were moved aside before npm ci");
+      return installNextFixture(command, args, options);
+    };
     syncMirror({ sourceDir: source, mirrorRoot: mirror });
+    assert.equal(ensureBuildDependencies(mirror, { install }), true);
+    assert.equal(lstatSync(from).nlink, 1);
+    assert.notEqual(lstatSync(from).ino, lstatSync(to).ino);
+    writeFileSync(to, "// independent local dependency\n");
+    writeFileSync(join(source, "page.tsx"), "export default null;\n");
+    syncMirror({ sourceDir: source, mirrorRoot: mirror });
+    assert.equal(ensureBuildDependencies(mirror, { install }), false);
+    assert.equal(readFileSync(from, "utf8"), "// local dependency\n");
+    assert.equal(readFileSync(to, "utf8"), "// independent local dependency\n");
+    assert.equal(calls, 1);
 
-    const repoStat = lstatSync(join(source, "node_modules", "pkg", "index.js"));
-    const mirrorStat = lstatSync(join(mirror, "node_modules", "pkg", "index.js"));
-    assert.equal(repoStat.nlink, 2);
-    assert.equal(repoStat.ino, mirrorStat.ino);
+    for (const manifest of ["package.json", "package-lock.json"]) {
+      writeFileSync(join(source, manifest), '{"version":2}\n');
+      syncMirror({ sourceDir: source, mirrorRoot: mirror });
+      assert.equal(ensureBuildDependencies(mirror, { install }), true);
+    }
+    rmSync(to);
+    assert.equal(ensureBuildDependencies(mirror, { install }), true);
+    assert.equal(calls, 4);
+    assert.equal(existsSync(join(mirror, "node_modules.prev")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("failed dependency installs restore legacy dependencies and leave the previous build intact", () => {
+  const { root, mirror } = sandbox();
+  try {
+    mkdirSync(join(mirror, ".next"), { recursive: true });
+    writeFileSync(join(mirror, "package.json"), "{}\n");
+    writeFileSync(join(mirror, "package-lock.json"), "{}\n");
+    writeFileSync(join(mirror, ".next", "BUILD_ID"), "good\n");
+    installNextFixture(null, null, { cwd: mirror });
+    for (const failure of [{ status: 1 }, { error: new Error("spawn failed") }, { status: 0 }, { status: 0, brokenSqlite: true }]) {
+      assert.throws(() => ensureBuildDependencies(mirror, { install: () => {
+        mkdirSync(join(mirror, "node_modules"), { recursive: true });
+        writeFileSync(join(mirror, "node_modules", "partial"), "junk\n");
+        if (failure.brokenSqlite) {
+          installNextFixture(null, null, { cwd: mirror });
+          writeFileSync(join(mirror, "node_modules", "better-sqlite3", "index.js"),
+            "module.exports = class Database { constructor() { process.exit(1); } };\n");
+        }
+        return failure;
+      } }), /npm ci|spawn failed|SQLite/);
+      assert.equal(existsSync(join(mirror, "node_modules", "partial")), false);
+      assert.equal(existsSync(join(mirror, "node_modules", ".leafcode-pi-build-deps")), false);
+      assert.equal(existsSync(join(mirror, "node_modules", "next", "dist", "bin", "next")), true);
+      assert.equal(readFileSync(join(mirror, ".next", "BUILD_ID"), "utf8"), "good\n");
+    }
+    rmSync(join(mirror, "node_modules"), { recursive: true, force: true });
+    assert.throws(() => ensureBuildDependencies(mirror, { install: () => ({ status: 1 }) }), /npm ci/);
+    assert.equal(existsSync(join(mirror, "node_modules")), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -371,6 +480,9 @@ test("the host builds through build-web.mjs and serves the mirror", () => {
   assert.match(source, /scripts", "build-web\.mjs"\), "--skip-guard"/);
   assert.match(source, /const WEB_DIST_DIR = mirrorDistDir\(WEB_MIRROR_DIR\)/);
   assert.match(source, /const projectDir = useProd \? WEB_MIRROR_DIR : WEB_DIR/);
+  assert.match(source, /ensureBuildDependencies\(WEB_MIRROR_DIR\)/);
+  const webPackage = JSON.parse(readFileSync(join(REPO_ROOT, "web", "package.json"), "utf8"));
+  assert.equal(webPackage.scripts.build, "node ../scripts/build-web.mjs");
 });
 
 test("quit waits for and performs a pending production build after stopping the WebUI", () => {
