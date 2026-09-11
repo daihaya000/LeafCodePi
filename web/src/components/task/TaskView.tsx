@@ -2569,7 +2569,7 @@ export const TaskView = memo(function TaskView({
           {contextUsage && <ContextUsageMeter usage={contextUsage} />}
           {stats.totalTokens > 0 && (
             <span
-              className="hidden font-mono tabular-nums @min-[48rem]/task:inline"
+              className="hidden font-mono tabular-nums @min-[36rem]/task:inline"
               title={`合計 ${formatTokens(stats.totalTokens)} tok（出力のみ）`}
             >
               {formatTokens(stats.totalTokens)} tok
@@ -2577,7 +2577,7 @@ export const TaskView = memo(function TaskView({
           )}
           {stats.avgRate !== null && (
             <span
-              className="hidden font-mono tabular-nums @min-[48rem]/task:inline"
+              className="hidden font-mono tabular-nums @min-[36rem]/task:inline"
               title="平均 tok/s（応答ごとの tok/s の平均）"
             >
               {formatTokensPerSecond(stats.avgRate)}
@@ -2585,7 +2585,7 @@ export const TaskView = memo(function TaskView({
           )}
           {stats.durationMs > 0 && (
             <span
-              className="hidden font-mono tabular-nums @min-[48rem]/task:inline"
+              className="hidden font-mono tabular-nums @min-[36rem]/task:inline"
               title="合計生成時間（メッセージ間隔の累計）"
             >
               {formatDuration(stats.durationMs)}

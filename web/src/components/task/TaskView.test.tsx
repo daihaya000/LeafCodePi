@@ -89,6 +89,26 @@ describe("TaskView draft submission", () => {
     expect(screen.queryByRole("button", { name: "コンテキスト圧縮" })).toBeNull();
   });
 
+  it("shows token statistics in the lower status row when the task pane has room", () => {
+    saveTaskSessionCache({
+      task,
+      messages: [{
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: 1,
+        outputTokens: 1200,
+        tokensPerSecond: 20,
+        parts: [],
+      }],
+      isStreaming: false,
+      isCompacting: false,
+    });
+    render(<TaskView taskId={task.id} mdUp={false} />);
+
+    expect(screen.getByTitle("合計 1.2k tok（出力のみ）").className).toContain("@min-[36rem]/task:inline");
+    expect(screen.getByTitle("平均 tok/s（応答ごとの tok/s の平均）").className).toContain("@min-[36rem]/task:inline");
+  });
+
   it("keeps the full title in its edit target and separates secondary actions", () => {
     const title = "再起動オーバーレイの表示条件とヘッダーレイアウトを改善する";
     saveTaskSessionCache({ task: { ...task, title }, messages: [], isStreaming: false, isCompacting: false });
