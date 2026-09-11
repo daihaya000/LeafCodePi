@@ -1240,7 +1240,7 @@ function applyCustomAgentOverride(
 	if (override.skills !== undefined) {
 		fill("skills", ["skill", "skills"], override.skills === false ? undefined : [...override.skills]);
 	}
-	if (override.tools !== undefined && !agentHasFrontmatterField(agent, "tools")) {
+	if (override.tools !== undefined && (agent.source === "package" || agent.source === "builtin")) {
 		applyToolsOverride(mutable(), override.tools);
 		anyFilled = true;
 	}

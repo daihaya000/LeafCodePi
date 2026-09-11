@@ -7,7 +7,7 @@
  *
  * ON/OFF is persisted in ~/.pi/agent/settings.json under
  * `subagents.agentOverrides.<name>` (user scope), which pi-subagents reads
- * and applies for disabled state and package agent model / thinking overrides.
+ * and applies for disabled state and package agent model / thinking / tool overrides.
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -80,7 +80,7 @@ export function agentsDir(agentDir = resolvePiAgentDir()): string {
   return join(agentDir, "agents");
 }
 
-type AgentOverride = { disabled?: boolean; model?: string; thinking?: AgentThinking };
+type AgentOverride = { disabled?: boolean; model?: string; thinking?: AgentThinking; tools?: string[] | false | "inherit" };
 
 type PiSettings = {
   subagents?: { agentOverrides?: Record<string, AgentOverride>; [key: string]: unknown };
@@ -268,6 +268,17 @@ export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
         const thinking = source === "user"
           ? entry.thinking ?? overrideThinking
           : overrideThinking ?? entry.thinking;
+        const rawOverrideTools = overrides[entry.name]?.tools;
+        const overrideTools = Array.isArray(rawOverrideTools)
+          ? rawOverrideTools.filter((tool): tool is string => typeof tool === "string")
+          : rawOverrideTools === false
+            ? []
+            : undefined;
+        const tools = source === "user"
+          ? entry.tools
+          : rawOverrideTools === "inherit"
+            ? undefined
+            : overrideTools ?? entry.tools;
         byName.set(entry.name, {
           id: entry.name,
           name: entry.name,
@@ -277,7 +288,7 @@ export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
           ...(thinking !== undefined ? { thinking } : {}),
           filePath: entry.filePath,
           source,
-          tools: entry.tools,
+          tools,
         });
       }
     }
@@ -403,19 +414,25 @@ export function setAgentThinking(
   );
 }
 
-/** Set a user agent's explicit tool allowlist. Package agents are read-only. */
+/** Set an agent's explicit tool allowlist (frontmatter for user agents, override for packages). */
 export function setAgentTools(
   name: string,
   tools: readonly string[],
   agentDir = resolvePiAgentDir(),
 ): AgentListResult {
   const { name: trimmed, agent } = assertListedAgent(name, agentDir);
-  if (agent.source !== "user") {
-    throw new AgentsError("readonly", "ビルトイン・パッケージエージェントは編集できません");
-  }
   const normalized = [...new Set(tools.map((tool) => tool.trim()).filter(Boolean))];
-  const { draft } = readUserAgent(trimmed, agentDir);
-  return updateAgent({ ...draft, tools: normalized }, agentDir);
+  if (agent.source === "user") {
+    const { draft } = readUserAgent(trimmed, agentDir);
+    return updateAgent({ ...draft, tools: normalized }, agentDir);
+  }
+  return updateAgentOverride(
+    trimmed,
+    (override) => {
+      override.tools = normalized;
+    },
+    agentDir,
+  );
 }
 
 function userAgentPath(agentDir: string, name: string): string {
@@ -586,7 +603,7 @@ export function loadAgentDefinition(
     ...(typeof fm.description === "string" && fm.description.trim()
       ? { description: fm.description.trim() }
       : {}),
-    tools: toTools(fm.tools),
+    tools: dto.tools,
     model: typeof fm.model === "string" && fm.model.trim() ? fm.model.trim() : undefined,
     thinking: toThinking(fm.thinking),
     systemPromptMode:

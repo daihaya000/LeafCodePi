@@ -156,7 +156,14 @@ describe("listAgents / setAgentEnabled", () => {
       (parseAgentFile(readFileSync(join(agentDir, "agents", "scout.md"), "utf8")) as Record<string, unknown>).tools,
       "read, write",
     );
-    assert.throws(() => setAgentTools("worker", ["read"], agentDir), /編集できません/);
+    setAgentTools("worker", ["read", " write ", "read"], agentDir);
+    assert.deepEqual(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.tools, ["read", "write"]);
+    assert.deepEqual(loadAgentDefinition("worker", agentDir)?.tools, ["read", "write"]);
+    const raw2 = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
+    assert.deepEqual(raw2.subagents.agentOverrides.worker.tools, ["read", "write"]);
+
+    setAgentTools("worker", [], agentDir);
+    assert.deepEqual(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.tools, []);
 
     setAgentTools("scout", [], agentDir);
     assert.deepEqual(readUserAgent("scout", agentDir).draft.tools, []);

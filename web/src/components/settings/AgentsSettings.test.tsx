@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { toolNameLabel } from "@/lib/tool-labels";
 import { BOT_TOOL_NAMES, type ModelOption } from "@/lib/types";
 import { AgentsSettings } from "./AgentsSettings";
 
@@ -139,7 +140,7 @@ describe("AgentsSettings", () => {
 
     render(<AgentsSettings />);
 
-    const write = await screen.findByRole("checkbox", { name: "custom のwrite" }) as HTMLInputElement;
+    const write = await screen.findByRole("checkbox", { name: `custom の${toolNameLabel("write")}` }) as HTMLInputElement;
     expect(write.checked).toBe(true);
     fireEvent.click(write);
 
@@ -152,17 +153,42 @@ describe("AgentsSettings", () => {
     });
   });
 
-  it("keeps the settings tool catalog complete and read-only for package agents", async () => {
+  it("shows the complete tool catalog in two columns and lets package agents enable writing", async () => {
+    const packageAgent = { ...agents[1], tools: ["read"] };
+    getJson.mockImplementation((path: string) =>
+      path === "/api/agents"
+        ? Promise.resolve({ agents: [packageAgent], agentsDir: "C:/pi/agent/agents" })
+        : path === "/api/settings/auto-agent-prompt"
+          ? Promise.resolve({ value: null })
+          : Promise.resolve({ models }),
+    );
+    sendJson.mockResolvedValue({ agents: [{ ...packageAgent, tools: ["read", "write"] }] });
+
     render(<AgentsSettings />);
 
-    const read = await screen.findByRole("checkbox", { name: "enabled のread" }) as HTMLInputElement;
-    expect(read.checked).toBe(true);
-    expect(read.disabled).toBe(true);
-    const row = read.closest("li");
+    const write = await screen.findByRole("checkbox", { name: `enabled の${toolNameLabel("write")}` }) as HTMLInputElement;
+    expect(write.checked).toBe(false);
+    expect(write.disabled).toBe(false);
+    const section = write.closest("section");
+    expect(section).not.toBeNull();
+    const grid = section!.querySelector("div.grid");
+    expect(grid?.className).toContain("grid-cols-2");
+    expect(grid?.className).not.toContain("sm:grid-cols-3");
+    fireEvent.click(write);
+
+    await waitFor(() => {
+      expect(sendJson).toHaveBeenCalledWith(
+        "/api/agents/enabled",
+        { tools: ["read", "write"] },
+        "PATCH",
+      );
+    });
+
+    const row = write.closest("li");
     expect(row).not.toBeNull();
     expect(within(row!).getAllByRole("checkbox")).toHaveLength(BOT_TOOL_NAMES.length);
     for (const tool of BOT_TOOL_NAMES) {
-      expect(within(row!).getByRole("checkbox", { name: `enabled の${tool}` })).toBeTruthy();
+      expect(within(row!).getByRole("checkbox", { name: `enabled の${toolNameLabel(tool)}` })).toBeTruthy();
     }
   });
 
@@ -340,7 +366,7 @@ describe("AgentsSettings", () => {
     const editor = editorHeading.closest("section");
     expect(editor).not.toBeNull();
     expect(within(editor!).getByText(/未指定のエージェントは既定のツールを表示しています/)).toBeTruthy();
-    expect((within(editor!).getByRole("checkbox", { name: "新規エージェント のwrite" }) as HTMLInputElement).checked).toBe(true);
+    expect((within(editor!).getByRole("checkbox", { name: `新規エージェント の${toolNameLabel("write")}` }) as HTMLInputElement).checked).toBe(true);
     expect(within(editor!).getByRole("button", { name: "新規エージェント のEffort" })).toBeTruthy();
 
     const autoHeading = screen.getByRole("heading", { name: "Autoエージェント" });

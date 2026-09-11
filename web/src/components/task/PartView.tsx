@@ -708,12 +708,12 @@ function MessageMetaHeader({
       {/* 合成メッセージ（シェル実行など）はプロバイダを持たないので汎用アイコンを出さない。 */}
       {message.provider && <ProviderIcon providerID={message.provider} size={14} />}
       {fields.map((field, index) => {
-        const hideOnMobile =
+        const hideOnNarrowTask =
           field.key === "tokens" || field.key === "rate" || field.key === "thinking";
         return (
           <Fragment key={field.key}>
             {index > 0 && (
-              <span className={hideOnMobile ? "hidden sm:inline" : undefined} aria-hidden="true">
+              <span className={hideOnNarrowTask ? "hidden @min-[48rem]/task:inline" : undefined} aria-hidden="true">
                 ·
               </span>
             )}
@@ -725,7 +725,7 @@ function MessageMetaHeader({
                     ? "min-w-0 max-w-64 truncate"
                     : "shrink-0",
                 field.key === "rate" && "tabular-nums",
-                hideOnMobile && "hidden sm:inline",
+                hideOnNarrowTask && "hidden @min-[48rem]/task:inline",
               )}
               title={
                 field.key === "rate" && message.tokensPerSecondDecode

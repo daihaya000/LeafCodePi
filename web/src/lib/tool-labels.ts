@@ -83,6 +83,19 @@ export function toolLabel(tool: string, input?: Record<string, unknown>): string
   return tool;
 }
 
+/** 設定画面のツール一覧で使う、操作を区別しやすい日本語名。 */
+export function toolNameLabel(tool: string): string {
+  const t = tool.toLowerCase();
+  if (t === "read") return "読み取り";
+  if (t === "write") return "書き込み";
+  if (t === "bash") return "シェル実行";
+  if (t === "powershell") return "PowerShell実行";
+  if (t === "grep") return "文字列検索";
+  if (t === "find") return "ファイル検索";
+  if (t === "ls") return "ファイル一覧";
+  return toolLabel(tool);
+}
+
 function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }

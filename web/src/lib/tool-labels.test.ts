@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeToolLabel, changedFilePaths, skillNameFromReadInput, toolInputFields, toolLabel, toolSummary } from "./tool-labels";
+import { activeToolLabel, changedFilePaths, skillNameFromReadInput, toolInputFields, toolLabel, toolNameLabel, toolSummary } from "./tool-labels";
 import type { UiMessage } from "./types";
 
 describe("toolLabel", () => {
@@ -31,6 +31,19 @@ describe("toolLabel", () => {
     expect(toolLabel("subagent_wait")).toBe("サブエージェント待機");
     expect(toolLabel("structured_output")).toBe("構造化出力");
     expect(toolLabel("watchdog_warn")).toBe("監視警告");
+  });
+
+  it("uses distinct Japanese names for the settings tool list", () => {
+    expect(toolNameLabel("read")).toBe("読み取り");
+    expect(toolNameLabel("write")).toBe("書き込み");
+    expect(toolNameLabel("edit")).toBe("編集");
+    expect(toolNameLabel("bash")).toBe("シェル実行");
+    expect(toolNameLabel("powershell")).toBe("PowerShell実行");
+    expect(toolNameLabel("grep")).toBe("文字列検索");
+    expect(toolNameLabel("find")).toBe("ファイル検索");
+    expect(toolNameLabel("ls")).toBe("ファイル一覧");
+    expect(toolNameLabel("memory_search")).toBe("メモリ検索");
+    expect(toolNameLabel("unknown_tool")).toBe("unknown_tool");
   });
 
   it("maps SKILL.md reads to the skill label", () => {

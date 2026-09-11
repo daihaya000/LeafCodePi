@@ -7,6 +7,7 @@ import { ModelSelect } from "@/components/ModelSelect";
 import { Badge, Button, GhostSelect, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import { ALL_THINKING_LEVELS, THINKING_LEVEL_LABELS, isThinkingLevel } from "@/lib/thinking-levels";
+import { toolNameLabel } from "@/lib/tool-labels";
 import { BOT_TOOL_NAMES, type ModelOption, type ThinkingLevel } from "@/lib/types";
 
 /** `false` = pi-subagents の明示的な thinking 無効。undefined = 既定に従う。 */
@@ -281,13 +282,11 @@ function AgentEffortPicker({
 function AgentToolsSettings({
   name,
   tools,
-  editable,
   busy,
   onChange,
 }: {
   name: string;
   tools?: readonly string[];
-  editable: boolean;
   busy: boolean;
   onChange: (tools: string[]) => void;
 }) {
@@ -301,16 +300,15 @@ function AgentToolsSettings({
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-medium">使用するツール</span>
-        {!editable && <span className="text-[11px] text-muted">読み取り専用</span>}
       </div>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
         {toolNames.map((tool) => (
           <label key={tool} className="flex min-w-0 items-center gap-2 text-xs">
             <input
               type="checkbox"
               checked={selected.has(tool)}
-              disabled={!editable || busy}
-              aria-label={`${name} の${tool}`}
+              disabled={busy}
+              aria-label={`${name} の${toolNameLabel(tool)}`}
               onChange={(event) => {
                 const next = new Set(selected);
                 if (event.target.checked) next.add(tool);
@@ -319,7 +317,7 @@ function AgentToolsSettings({
               }}
               className="h-4 w-4 shrink-0 accent-accent"
             />
-            <span className="truncate" title={tool}>{tool}</span>
+            <span className="truncate" title={tool}>{toolNameLabel(tool)}</span>
           </label>
         ))}
       </div>
@@ -486,7 +484,6 @@ function AgentEditor({
       <AgentToolsSettings
         name={draft.name || "新規エージェント"}
         tools={draft.tools}
-        editable
         busy={busy}
         onChange={(tools) => setDraft({ ...draft, tools })}
       />
@@ -626,7 +623,7 @@ export function AgentsSettings() {
   }
 
   async function changeTools(agent: AgentDto, tools: string[]) {
-    if (busyId || agent.source !== "user") return;
+    if (busyId) return;
     setBusyId(agent.id);
     setError(null);
     try {
@@ -788,7 +785,6 @@ export function AgentsSettings() {
                 <AgentToolsSettings
                   name={agent.name}
                   tools={agent.tools}
-                  editable={agent.source === "user"}
                   busy={busyId === agent.id}
                   onChange={(tools) => void changeTools(agent, tools)}
                 />

@@ -223,7 +223,7 @@ describe("PartView sender and response metadata", () => {
     expect(screen.getByText("build").querySelector('[data-agent-icon="build"]')).not.toBeNull();
   });
 
-  it("hides token metadata from tok onward on phones", () => {
+  it("hides token metadata from tok onward in narrow task panes", () => {
     render(
       <PartView
         message={{
@@ -244,7 +244,8 @@ describe("PartView sender and response metadata", () => {
     for (const label of ["32 tok", "22 tok/s", "3s"]) {
       const element = screen.getByText(label);
       expect(element.className).toContain("hidden");
-      expect(element.className).toContain("sm:inline");
+      expect(element.className).toContain("@min-[48rem]/task:inline");
+      expect(element.className).not.toContain("sm:inline");
     }
   });
 

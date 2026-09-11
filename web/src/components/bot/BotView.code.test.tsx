@@ -11,6 +11,7 @@ vi.mock("next/link", () => ({ default: ({ children }: { children: ReactNode }) =
 vi.mock("next/image", () => ({ default: () => null }));
 import { BotView } from "./BotView";
 import { BOT_AVATAR_SHAPES } from "@/lib/bot-avatar";
+import { toolNameLabel } from "@/lib/tool-labels";
 import { BOT_TOOL_NAMES } from "@/lib/types";
 import { ShellProvider } from "@/components/shell/ShellContext";
 let listener: (event: { data: string }) => void;
@@ -530,10 +531,12 @@ it("shows every configured tool in the Bot settings panel", async () => {
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
   fireEvent.click(await screen.findByRole("button", { name: "設定" }));
 
-  const tools = within(screen.getByRole("region", { name: "個別ツール設定" }));
+  const toolsRegion = screen.getByRole("region", { name: "個別ツール設定" });
+  const tools = within(toolsRegion);
   expect(tools.getAllByRole("checkbox")).toHaveLength(BOT_TOOL_NAMES.length);
+  expect(toolsRegion.querySelector("div.grid")?.className).toContain("grid-cols-2");
   for (const tool of BOT_TOOL_NAMES) {
-    expect(tools.getByRole("checkbox", { name: tool })).toBeTruthy();
+    expect(tools.getByRole("checkbox", { name: toolNameLabel(tool) })).toBeTruthy();
   }
 });
 
