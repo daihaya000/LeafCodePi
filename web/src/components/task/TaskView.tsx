@@ -469,7 +469,7 @@ type TaskActivityEntry = {
 };
 
 type TaskMessageBlock =
-  | { kind: "message"; message: UiMessage; index: number }
+  | { kind: "message"; message: UiMessage; index: number; showTurnDivider: boolean }
   | {
       kind: "tool-group";
       entries: TaskActivityEntry[];
@@ -561,18 +561,26 @@ function taskMessageBlocks(messages: UiMessage[], ungroupedMessageId?: string): 
     const activity = message.id === ungroupedMessageId ? null : taskActivityEntry(message);
     const hasText =
       message.role === "assistant" && message.parts.some((part) => part.type === "text");
+    const boundary = isGoalLoopTurnBoundary(messages, index);
     if (hasText) {
+      // thinking / tool は本文より前に起きているので、本文より先に活動として畳む。
+      if (activity) addActivity(activity, index, boundary);
       flushGroup();
-      blocks.push({ kind: "message", message: activity ? taskTextMessage(message) : message, index });
-      if (activity) addActivity(activity, index, false);
+      blocks.push({
+        kind: "message",
+        message: activity ? taskTextMessage(message) : message,
+        index,
+        // 区切りは先に描かれる活動グループ側で出すので、二重に出さない。
+        showTurnDivider: boundary && !activity,
+      });
       return;
     }
     if (activity) {
-      addActivity(activity, index, isGoalLoopTurnBoundary(messages, index));
+      addActivity(activity, index, boundary);
       return;
     }
     flushGroup();
-    blocks.push({ kind: "message", message, index });
+    blocks.push({ kind: "message", message, index, showTurnDivider: boundary });
   });
   flushGroup();
   return blocks;
@@ -2844,14 +2852,7 @@ export const TaskView = memo(function TaskView({
             )}
             {messageBlocks.map((block) => {
               const firstMessage = block.kind === "tool-group" ? block.entries[0]!.message : block.message;
-              const turn =
-                block.kind === "tool-group"
-                  ? block.showTurnDivider
-                    ? firstMessage.goalLoopTurn
-                    : undefined
-                  : isGoalLoopTurnBoundary(renderedMessages, block.index)
-                    ? firstMessage.goalLoopTurn
-                    : undefined;
+              const turn = block.showTurnDivider ? firstMessage.goalLoopTurn : undefined;
               const activityContents =
                 block.kind === "tool-group"
                   ? block.entries.flatMap((entry) => {

@@ -169,12 +169,20 @@ it("groups every non-message part while keeping each message header", () => {
   ));
   render(<TaskView taskId={task.id} mdUp />);
 
-  const group = document.querySelector<HTMLDetailsElement>("details[data-task-tool-group]");
-  expect(group).not.toBeNull();
-  expect(group!.querySelector("summary")?.textContent).toContain("5件");
-  expect([...document.querySelectorAll("[data-task-part-view=activity]")].map((node) => node.getAttribute("data-message-id"))).toEqual([
-    "assistant-mixed",
-    "activity-only",
+  const groups = document.querySelectorAll<HTMLDetailsElement>("details[data-task-tool-group]");
+  expect(groups).toHaveLength(2);
+  expect(groups[0]!.querySelector("summary")?.textContent).toContain("4件");
+  expect(groups[1]!.querySelector("summary")?.textContent).toContain("1件");
+  // thinking や画像は本文より前に起きているので、本文より上へ出す。
+  expect(
+    [...document.querySelectorAll("[data-task-part-view]")].map(
+      (node) => `${node.getAttribute("data-task-part-view")}:${node.getAttribute("data-message-id")}`,
+    ),
+  ).toEqual([
+    "activity:assistant-mixed",
+    "message:assistant-mixed",
+    "activity:activity-only",
+    "message:reply",
   ]);
   expect(document.querySelector('[data-task-part-view="message"][data-message-id="assistant-mixed"]')?.getAttribute("data-part-types")).toBe("text");
   expect(mocks.messageMetaHeader.mock.calls.some(([props]) => props.message.id === "activity-only")).toBe(true);
