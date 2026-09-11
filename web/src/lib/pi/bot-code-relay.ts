@@ -619,7 +619,8 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       if (request.state === "running") {
         const task = request.codeTaskId ? getTask(request.codeTaskId) : undefined;
         if (task && deps.isBusy(task.id)) return;
-        await captureResult(request);
+        if (request.stoppedByUser) markUserStoppedResult(request);
+        else await captureResult(request);
       }
       save(request);
     });

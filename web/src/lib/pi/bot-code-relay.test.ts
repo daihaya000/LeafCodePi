@@ -446,8 +446,11 @@ describe("Bot ⇄ Code relay", () => {
 
     expect(stopped).toMatchObject({ state: "running", codeTaskId: "code" });
     expect(record().stoppedByUser).toBe(true);
-    // The route aborts the Code task after the record is marked.
+    // The route aborts the Code task after the record is marked. A restarted relay must not recapture late output.
     await deps.abort("code");
+    messages = [answer("late", "遅れて届いた出力")];
+    relay.dispose();
+    relay = createBotCodeRelay(deps);
     vi.mocked(deps.deliver).mockImplementationOnce(async () => {
       await expect(relay.run("bot:one", "after-stop", { action: "start", projectId: "project", prompt: "続きをやる" }, "session")).rejects.toThrow("user stopped");
       return true;
@@ -455,6 +458,7 @@ describe("Bot ⇄ Code relay", () => {
     await relay.tick();
 
     expect(record().result).toContain("ユーザーが停止");
+    expect(record().result).not.toContain("遅れて届いた出力");
     expect(listBotCodeRequests("one")[0].outcome).toBe("ユーザーが停止");
     expect(deps.create).toHaveBeenCalledTimes(1);
   });
