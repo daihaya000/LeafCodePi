@@ -612,7 +612,8 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         // mistake that short window for a crashed launch while another worker owns it.
         const task = request.codeTaskId ? getTask(request.codeTaskId) : undefined;
         if (task && deps.isBusy(task.id)) return;
-        request.result = "Codeへの依頼準備が再起動などにより中断されました。自動で再実行はしていません。";
+        if (request.stoppedByUser) markUserStoppedResult(request);
+        else request.result = "Codeへの依頼準備が再起動などにより中断されました。自動で再実行はしていません。";
         request.state = "ready";
       }
       if (request.state === "running") {

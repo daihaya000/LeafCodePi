@@ -477,6 +477,19 @@ describe("Bot ⇄ Code relay", () => {
     expect(JSON.parse(record().result!).outcome).toBe("ユーザーが停止");
   });
 
+  it("preserves a user stop when restart finds the request in its starting state", async () => {
+    await launch();
+    const request = record();
+    request.state = "starting";
+    request.stoppedByUser = true;
+    store.tasks.get("code")!.status = "idle";
+    writeFileSync(join(store.root, "bot-code-requests", `${request.id}.json`), JSON.stringify(request), "utf8");
+
+    await relay.tick();
+
+    expect(JSON.parse(record().result!).outcome).toBe("ユーザーが停止");
+  });
+
   it("reports a Code session the user started from the Bot screen", async () => {
     const started = await runUserBotCodeRequest("one", { prompt: "画面を直して", projectId: "project" }, async (codeRequestId, link) => {
       expect(codeRequestId).toMatch(/^[a-f0-9]{64}$/);
