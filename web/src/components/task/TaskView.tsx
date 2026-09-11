@@ -2688,7 +2688,7 @@ export const TaskView = memo(function TaskView({
                 </Button>
               </form>
             ) : (
-              <h1 className="min-w-0 flex-1 text-sm font-semibold" aria-label={task?.title ?? "読み込み中…"}>
+              <h1 className="min-w-0 max-w-full text-sm font-semibold" aria-label={task?.title ?? "読み込み中…"}>
                 <button
                   type="button"
                   className="group/title flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg text-left disabled:cursor-default @min-[48rem]/task:min-h-8"
