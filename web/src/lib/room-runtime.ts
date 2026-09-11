@@ -4,7 +4,7 @@ import { getBot } from "./bots";
 import { getTask } from "./store";
 import { getTaskDetail, promptTask, subscribeTask, abortTask } from "./pi/harness";
 import { withBotCodeSessionLock } from "./bot-code-session-lock";
-import { pendingRoomCodeRequestForTurn, pendingRoomCodeRequestsForTurn, roomCodeRequestForRoom, settledRoomCodeRequest, type CodeRequest } from "./pi/bot-code-relay";
+import { pendingRoomCodeRequestForTurn, pendingRoomCodeRequestsForTurn, roomCodeRequestsForTurn, roomCodeRequestForRoom, settledRoomCodeRequest, type CodeRequest } from "./pi/bot-code-relay";
 import { activeToolLabel } from "./tool-labels";
 import { latestRoomRequest, MAX_ROOM_CONVERSATION_TURNS, parseRoomReply, roomBotPrompt, type RoomReply, type RoomTurn } from "./room-conversation";
 import type { BotDto, RoomDto, RoomHandoff, RoomMessage, RoomOutcome, UiMessage } from "./types";
@@ -309,6 +309,9 @@ export async function resumeRoomAfterCode(request: CodeRequest): Promise<void> {
   if (pendingRoomCodeRequestForTurn(room.id, requestId, request.id)) return;
   // Failures, interrupted jobs, or unknown outcomes require fresh human direction, not another mutation.
   if (!codeResultSucceeded(request)) return;
+  // Parallel Code requests share one Room turn. A successful last report must not hide a sibling
+  // that failed or was stopped; require every persisted request for this turn to have succeeded.
+  if (roomCodeRequestsForTurn(room.id, requestId).some((item) => item.id !== request.id && !codeResultSucceeded(item))) return;
   const participants = participantIds.map(getBot).filter((bot): bot is BotDto => Boolean(bot?.enabled && room.members.includes(bot.id)));
   if (participants.length < 2) return;
   const target = participants.find((bot) => bot.id === request.room?.nextBotId && bot.id !== request.botId)

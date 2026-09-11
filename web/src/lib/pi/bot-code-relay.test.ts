@@ -25,7 +25,7 @@ vi.mock("@/lib/store", () => ({
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, cancelBotCodeRequests, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, cancelBotCodeRequests, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomCodeRequestsForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -598,6 +598,17 @@ describe("Room ⇄ Code delegation", () => {
     expect(await relay.run("bot:one:room:room-1", "room-status", { action: "status" }, "session")).toMatchObject({ task: { id: "code" } });
     await relay.run("bot:one:room:room-1", "room-follow", { action: "prompt", prompt: "Add a test" }, "session");
     expect(deps.prompt).toHaveBeenCalledWith("code", "Add a test", expect.any(String));
+  });
+
+  it("lists all persisted Code requests for one Room conversation", async () => {
+    const { conversation } = roomSetup();
+    await roomLaunch();
+    const first = record();
+    const second = { ...first, id: "a".repeat(64), codeTaskId: null, state: "ready" as const, prompt: "Second job", room: { ...first.room!, conversation } };
+    writeFileSync(join(store.root, "bot-code-requests", `${second.id}.json`), JSON.stringify(second), "utf8");
+
+    expect(roomCodeRequestsForTurn("room-1", "user-1").map((request) => request.id).sort()).toEqual([first.id, second.id].sort());
+    expect(roomCodeRequestsForTurn("room-1", "other-user")).toEqual([]);
   });
 
   it.each(["superseded", "removed", "finished"])("refuses a %s Room turn instead of executing detached work", async (change) => {

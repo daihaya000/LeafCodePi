@@ -330,6 +330,9 @@ export async function runUserBotCodeRequest(
 export function pendingRoomCodeRequestsForTurn(roomId: string, requestId: string, excludeRequestId?: string): CodeRequest[] {
   return requests().filter((request) => request.id !== excludeRequestId && request.room?.id === roomId && request.room.conversation.requestId === requestId && active(request));
 }
+export function roomCodeRequestsForTurn(roomId: string, requestId: string): CodeRequest[] {
+  return requests().filter((request) => request.room?.id === roomId && request.room.conversation.requestId === requestId);
+}
 export function pendingRoomCodeRequestForTurn(roomId: string, requestId: string, excludeRequestId?: string): CodeRequest | undefined {
   return pendingRoomCodeRequestsForTurn(roomId, requestId, excludeRequestId)[0];
 }

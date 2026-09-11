@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   root: "", details: new Map<string, TaskDetail>(), promptTask: vi.fn(),
   pendingRoom: vi.fn<(roomId: string, requestId: string, excludeRequestId?: string) => CodeRequest | undefined>(() => undefined),
   pendingRooms: vi.fn<(roomId: string, requestId: string, excludeRequestId?: string) => CodeRequest[]>(() => []),
+  turnRequests: vi.fn<(roomId: string, requestId: string) => CodeRequest[]>(() => []),
   activeCodeRequests: new Map<string, CodeRequest>(),
   settledCodeRequests: new Map<string, CodeRequest>(),
   listeners: new Map<string, Set<(payload: Record<string, unknown>) => void>>(),
@@ -31,6 +32,7 @@ vi.mock("@/lib/pi/harness", () => ({
 vi.mock("@/lib/pi/bot-code-relay", () => ({
   pendingRoomCodeRequestForTurn: state.pendingRoom,
   pendingRoomCodeRequestsForTurn: state.pendingRooms,
+  roomCodeRequestsForTurn: state.turnRequests,
   roomCodeRequestForRoom: (_roomId: string, requestId: string) => state.activeCodeRequests.get(requestId),
   settledRoomCodeRequest: (_roomId: string, requestId: string) => state.settledCodeRequests.get(requestId),
 }));
@@ -66,6 +68,7 @@ function codeRequest(room: RoomDto, bot: BotDto, extra: Partial<CodeRequest> = {
 beforeEach(() => {
   state.root = mkdtempSync(join(tmpdir(), "leafcode-room-runtime-"));
   state.pendingRooms.mockReturnValue([]);
+  state.turnRequests.mockReturnValue([]);
   // The real singular helper is the first of the plural list.
   state.pendingRoom.mockImplementation((roomId: string, requestId: string, excludeRequestId?: string) => state.pendingRooms(roomId, requestId, excludeRequestId)[0]);
   state.activeCodeRequests.clear();
@@ -82,6 +85,7 @@ afterEach(() => {
   state.promptTask.mockReset();
   state.pendingRoom.mockReset();
   state.pendingRooms.mockReset();
+  state.turnRequests.mockReset();
   vi.restoreAllMocks();
 });
 
@@ -276,6 +280,23 @@ describe("room conversation with delegated work", () => {
     expect(getRoom(room.id)?.lastOutcome?.kind).toBe("done");
     await resumeRoomAfterCode(second);
     expect(state.promptTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not resume after a successful sibling hides a failed parallel Code request", async () => {
+    const { room, bots, user } = setup();
+    const failed = codeRequest(room, bots[0], { id: "failed", result: JSON.stringify({ outcome: "失敗", error: "tests failed" }) });
+    const succeeded = codeRequest(room, bots[1], {
+      id: "succeeded", botId: bots[1].id, originTaskId: `bot:${bots[1].id}:room:${room.id}`, codeTaskId: "code-2",
+    });
+    setRoomOutcome(room.id, { kind: "code-wait", requestId: user.id });
+    // The failed request has already settled; only the sibling remains while its report is delivered.
+    state.pendingRoom.mockImplementation((_roomId, _requestId, excludeRequestId) => excludeRequestId === failed.id ? succeeded : undefined);
+    state.turnRequests.mockReturnValue([failed, succeeded]);
+
+    await resumeRoomAfterCode(failed);
+    expect(state.promptTask).not.toHaveBeenCalled();
+    await resumeRoomAfterCode(succeeded);
+    expect(state.promptTask).not.toHaveBeenCalled();
   });
 
   it.each<[string, (request: CodeRequest) => CodeRequest]>([
