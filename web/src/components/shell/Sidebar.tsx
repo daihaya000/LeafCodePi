@@ -313,7 +313,7 @@ function BotSidebarBody({
   const sidebarError = createError ?? loadError;
   if (collapsed) {
     return (
-      <div className="flex h-full w-20 flex-col items-center bg-surface">
+      <div className="flex h-full w-full flex-col items-center bg-surface">
         <div className="flex h-14 w-full items-center justify-center border-b border-border">
           <button
             type="button"
@@ -1955,7 +1955,7 @@ const SidebarView = memo(function SidebarView({
 
   const noProjectActive = activeTask?.projectId === null;
   const collapsedRail = (
-    <div className="flex h-full w-20 flex-col items-center bg-surface">
+    <div className="flex h-full w-full flex-col items-center bg-surface">
       <div className="flex h-14 w-full items-center justify-center border-b border-border">
         <button
           type="button"
