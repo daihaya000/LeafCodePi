@@ -43,8 +43,8 @@ it("uses identical closed, scroll-bounded logs with full-width nested cards and 
   const [bot, task] = [...container.querySelectorAll("details")];
   expect(bot.className).toBe(task.className);
   expect(bot.querySelector("summary")?.outerHTML).toBe(task.querySelector("summary")?.outerHTML);
-  expect(bot.querySelectorAll("summary .lucide-logs")).toHaveLength(1);
-  expect(bot.querySelector("summary .lucide-logs")?.getAttribute("aria-hidden")).toBe("true");
+  expect(bot.querySelectorAll("summary .lucide-scroll-text")).toHaveLength(1);
+  expect(bot.querySelector("summary .lucide-scroll-text")?.getAttribute("aria-hidden")).toBe("true");
   expect(bot.querySelector("summary .lucide-chevron-right")).not.toBeNull();
   expect(bot.open).toBe(false);
   expect(bot.querySelector("summary")?.textContent).toBe("作業ログ1件 · 2s");

@@ -311,7 +311,7 @@ it("renders Bot tool messages with the shared ToolCard outside the chat bubble",
   expect(group!.open).toBe(false);
   expect(group!.getAttribute("aria-label")).toBe("作業ログ");
   expect(group!.querySelector("summary")?.textContent).toContain("作業ログ");
-  expect(group!.querySelector("summary .lucide-logs")?.getAttribute("aria-hidden")).toBe("true");
+  expect(group!.querySelector("summary .lucide-scroll-text")?.getAttribute("aria-hidden")).toBe("true");
   fireEvent.click(group!.querySelector("summary")!);
   expect(group!.open).toBe(true);
 

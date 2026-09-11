@@ -131,7 +131,7 @@ it("groups consecutive tool-only messages between agent responses", () => {
   expect(group!.open).toBe(false);
   expect(group!.getAttribute("aria-label")).toBe("作業ログ");
   expect(group!.querySelector("summary")?.textContent).toContain("作業ログ");
-  expect(group!.querySelector("summary .lucide-logs")?.getAttribute("aria-hidden")).toBe("true");
+  expect(group!.querySelector("summary .lucide-scroll-text")?.getAttribute("aria-hidden")).toBe("true");
   expect(group!.querySelector("summary")?.textContent).toContain("2件");
   // 最初の開始(2.0s)から最後の終了(5.0s)までの経過時間。所要時間の合計(2s)ではない。
   expect(group!.querySelector("summary")?.textContent).toContain("3s");
