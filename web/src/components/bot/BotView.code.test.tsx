@@ -280,6 +280,13 @@ it("renders Bot tool messages with the shared ToolCard outside the chat bubble",
     }],
   }], isStreaming: true });
 
+  const group = container.querySelector<HTMLDetailsElement>("[data-bot-tool-group]");
+  expect(group).not.toBeNull();
+  expect(group!.open).toBe(false);
+  expect(group!.querySelector("summary")?.textContent).toContain("ツール実行");
+  fireEvent.click(group!.querySelector("summary")!);
+  expect(group!.open).toBe(true);
+
   const card = await screen.findByRole("button", { name: /読取/ });
   expect(card.getAttribute("aria-expanded")).toBe("false");
   expect(container.querySelector(".bot-message-bubble")).toBeNull();
@@ -299,6 +306,32 @@ it("renders Bot tool messages with the shared ToolCard outside the chat bubble",
     }],
   }, isStreaming: false });
   expect(await screen.findByText("読み取り結果")).toBeTruthy();
+});
+
+it("groups consecutive tool-only entries without hiding messages", async () => {
+  const { container } = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({ messages: [
+    {
+      id: "tool-message-1",
+      role: "assistant",
+      createdAt: 2,
+      parts: [{ id: "tool-1", type: "tool", tool: "read", callID: "call-1", state: { status: "completed", input: { path: "README.md" } } }],
+    },
+    {
+      id: "tool-message-2",
+      role: "assistant",
+      createdAt: 3,
+      parts: [{ id: "tool-2", type: "tool", tool: "bash", callID: "call-2", state: { status: "completed", input: { command: "npm test" } } }],
+    },
+    { id: "reply", role: "assistant", createdAt: 4, parts: [{ type: "text", text: "確認しました" }] },
+  ] });
+
+  const groups = container.querySelectorAll<HTMLDetailsElement>("details[data-bot-tool-group]");
+  expect(groups).toHaveLength(1);
+  expect(groups[0]!.open).toBe(false);
+  expect(groups[0]!.querySelectorAll("button[aria-expanded]")).toHaveLength(2);
+  expect(screen.getByText("確認しました").closest("details")).toBeNull();
 });
 
 it("pauses Code request polling while the Bot tab is hidden", async () => {

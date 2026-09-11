@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { X } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getJson, sendJson } from "@/lib/client";
@@ -61,6 +61,34 @@ function botMessageDisplayData(message: UiMessage): BotMessageDisplayData {
   } satisfies BotMessageDisplayData;
   botMessageDisplayCache.set(message, data);
   return data;
+}
+
+type BotToolPart = Extract<UiPart, { type: "tool" }>;
+
+function BotToolActivityGroup({ parts, botId, active }: { parts: BotToolPart[]; botId: string; active: boolean }) {
+  return (
+    <details
+      data-bot-tool-group
+      aria-label="ツール実行"
+      className="group/tool-activity w-full max-w-bubble self-start overflow-hidden rounded-2xl border border-border bg-surface"
+    >
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 py-2.5 text-left text-sm text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-open/tool-activity:rotate-90" aria-hidden="true" />
+        <span className="min-w-0 flex-1 font-medium">ツール実行</span>
+        <span className="shrink-0 text-xs text-faint">{parts.length}件</span>
+      </summary>
+      <div className="space-y-2 border-t border-border bg-surface p-2">
+        {parts.map((part) => {
+          const partKey = part.id || part.callID;
+          const cardKey =
+            part.state.status === "error" || part.state.status === "cancelled"
+              ? `${partKey}:expanded`
+              : partKey;
+          return <ToolCard key={cardKey} part={part} taskId={botId} tabActive={active} />;
+        })}
+      </div>
+    </details>
+  );
 }
 
 const BOT_AUTO_SAVE_DELAY_MS = 600;
@@ -572,34 +600,59 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   };
 
   const rendered = useMemo(() => {
-    return messages.map((message) => {
-    const user = message.role === "user";
-    const { text, images, tools, requestIds } = botMessageDisplayData(message);
-    if (!text && images.length === 0 && tools.length === 0 && !message.error && requestIds.length === 0) return null;
-    const hasBubble = user || Boolean(text || images.length > 0 || message.error || requestIds.length > 0);
-    const toolCards = tools.length > 0 ? (
-      <div className="flex w-full min-w-0 flex-col gap-2">
-        {tools.map((part) => {
-          const partKey = part.id || part.callID;
-          const cardKey =
-            part.state.status === "error" || part.state.status === "cancelled"
-              ? `${partKey}:expanded`
-              : partKey;
-          return <ToolCard key={cardKey} part={part} taskId={`bot:${id}`} tabActive={active} />;
-        })}
-      </div>
-    ) : undefined;
-    return (
-      <BotChatMessage key={messageRenderKey(message)} user={user} createdAt={message.createdAt}
-        sender={{ ...(bot ?? {}), name: bot?.name ?? "ボット" }} text={text} mentions={botMentions}
-        images={<BotMessageImages images={images.flatMap((part) => part.type === "image" ? [{ key: part.id, src: part.url, alt: part.filename ?? undefined }] : [])} />}
-        after={toolCards} bubble={hasBubble}
-        footer={user ? <BotRevertButton title="このコメントを入力欄に戻して巻き戻す" disabled={reverting || sending} onClick={() => void revertMessage(message)} /> : undefined}>
-        {message.error && <BotMessageError text={message.error} />}
-        {requestIds.length > 0 && <BotCodeRequests botId={id} requestIds={requestIds} active={active} />}
-      </BotChatMessage>
-    );
-    });
+    const rows: ReactNode[] = [];
+    const groupedTools: BotToolPart[] = [];
+    let groupKey: string | null = null;
+    const flushTools = () => {
+      if (groupedTools.length === 0 || groupKey === null) return;
+      rows.push(
+        <BotToolActivityGroup
+          key={`tool-group:${groupKey}`}
+          parts={groupedTools.splice(0)}
+          botId={`bot:${id}`}
+          active={active}
+        />,
+      );
+      groupKey = null;
+    };
+
+    for (const message of messages) {
+      const user = message.role === "user";
+      const { text, images, tools, requestIds } = botMessageDisplayData(message);
+      const toolOnly =
+        !user &&
+        !text &&
+        images.length === 0 &&
+        tools.length > 0 &&
+        !message.error &&
+        requestIds.length === 0;
+      if (toolOnly) {
+        if (groupKey === null) groupKey = messageRenderKey(message);
+        groupedTools.push(...tools);
+        continue;
+      }
+
+      flushTools();
+      if (!text && images.length === 0 && tools.length === 0 && !message.error && requestIds.length === 0) {
+        continue;
+      }
+      const hasBubble = user || Boolean(text || images.length > 0 || message.error || requestIds.length > 0);
+      const toolCards = tools.length > 0 ? (
+        <BotToolActivityGroup parts={tools} botId={`bot:${id}`} active={active} />
+      ) : undefined;
+      rows.push(
+        <BotChatMessage key={messageRenderKey(message)} user={user} createdAt={message.createdAt}
+          sender={{ ...(bot ?? {}), name: bot?.name ?? "ボット" }} text={text} mentions={botMentions}
+          images={<BotMessageImages images={images.flatMap((part) => part.type === "image" ? [{ key: part.id, src: part.url, alt: part.filename ?? undefined }] : [])} />}
+          after={toolCards} bubble={hasBubble}
+          footer={user ? <BotRevertButton title="このコメントを入力欄に戻して巻き戻す" disabled={reverting || sending} onClick={() => void revertMessage(message)} /> : undefined}>
+          {message.error && <BotMessageError text={message.error} />}
+          {requestIds.length > 0 && <BotCodeRequests botId={id} requestIds={requestIds} active={active} />}
+        </BotChatMessage>,
+      );
+    }
+    flushTools();
+    return rows;
   }, [active, bot, botMentions, id, messages, reverting, sending]);
 
   // Overlay cards live outside `messages`; include them so follow-scroll still reaches permission/question UI.
