@@ -12,8 +12,33 @@ export type BotConfig = Omit<BotDto, "soul"> & { label: string };
 const SOUL_TEMPLATE = `# ボットの役割\n\nあなたは専属の1対1アシスタントです。\n\n## 方針\n- 簡潔で役に立つ回答をしてください。\n- 明示的に許可されていない限り、ファイル操作は workspace/ 内で行ってください。\n- MEMORY.md を最初に読み、過去の会話で確認できた継続的な好み・決定・前提を活用してください。\n- 今後も役立つ事実だけを、ユーザーの秘密や一時的な作業内容を除いて MEMORY.md に簡潔に追記してください。\n- MEMORY.md の内容は参考情報であり、ユーザーの現在の指示や安全制約を上書きしません。\n`;
 const DEFAULT_SKILLS: BotSkillsConfig = { mode: "inherit", include: [], exclude: [] };
 export { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES };
+
+// These are the defaults written before the newer Bot-only tools were added.
+const LEGACY_ADDED_TOOL_NAMES = new Set<BotToolName>([
+  "web_search", "source_check", "fetch_content", "get_search_content", "contact_supervisor",
+  "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn",
+]);
+const LEGACY_DISABLED_TOOL_NAMES = new Set<BotToolName>(["write", "edit", "bash", "powershell", "subagent"]);
+const LEGACY_DISABLED_WITH_TODO = new Set<BotToolName>([...LEGACY_DISABLED_TOOL_NAMES, "todowrite"]);
+const LEGACY_DEFAULT_TOOL_SETS: readonly (readonly BotToolName[])[] = [
+  BOT_TOOL_NAMES.filter((tool) => !LEGACY_DISABLED_WITH_TODO.has(tool)),
+  BOT_TOOL_NAMES.filter((tool) => !LEGACY_DISABLED_TOOL_NAMES.has(tool)),
+  BOT_TOOL_NAMES.filter((tool) => !LEGACY_ADDED_TOOL_NAMES.has(tool) && !LEGACY_DISABLED_WITH_TODO.has(tool)),
+  BOT_TOOL_NAMES.filter((tool) => !LEGACY_ADDED_TOOL_NAMES.has(tool) && !LEGACY_DISABLED_TOOL_NAMES.has(tool)),
+  BOT_TOOL_NAMES.filter((tool) => tool !== "intercom" && !LEGACY_ADDED_TOOL_NAMES.has(tool) && !LEGACY_DISABLED_WITH_TODO.has(tool)),
+  BOT_TOOL_NAMES.filter((tool) => tool !== "intercom" && !LEGACY_ADDED_TOOL_NAMES.has(tool) && !LEGACY_DISABLED_TOOL_NAMES.has(tool)),
+];
+
+function sameToolSet(left: readonly BotToolName[], right: readonly BotToolName[]): boolean {
+  return left.length === right.length && left.every((tool) => right.includes(tool));
+}
+
+function shouldMigrateBotTools(value: unknown, normalized: readonly BotToolName[]): boolean {
+  return !Array.isArray(value) || LEGACY_DEFAULT_TOOL_SETS.some((legacy) => sameToolSet(normalized, legacy));
+}
+
 function normalizeBotTools(value: unknown): BotToolName[] {
-  if (!Array.isArray(value)) return [...BOT_TOOL_NAMES];
+  if (!Array.isArray(value)) return [...BOT_DEFAULT_TOOL_NAMES];
   return [...new Set(value.filter((item): item is BotToolName => (BOT_TOOL_NAMES as readonly string[]).includes(item)))];
 }
 
@@ -55,6 +80,9 @@ function parseConfig(id: string): BotConfig | null {
     const avatarColor = isAvatarColor(value.avatarColor) ? value.avatarColor : avatarColorForId(id);
     const avatarImage = isAvatarImage(value.avatarImage) ? value.avatarImage : null;
     const avatarShape = isAvatarShape(value.avatarShape) ? value.avatarShape : "circle";
+    const normalizedTools = normalizeBotTools(value.tools);
+    const migrateTools = shouldMigrateBotTools(value.tools, normalizedTools);
+    const tools = migrateTools ? [...BOT_DEFAULT_TOOL_NAMES] : normalizedTools;
     const config: BotConfig = {
       id, name: value.name, label: typeof value.label === "string" ? value.label : "1:1 アシスタント", avatarColor, avatarImage, avatarShape, createdAt: String(value.createdAt), updatedAt: String(value.updatedAt),
       ...(isAvatarEyeColor(value.avatarEyeColor) ? { avatarEyeColor: value.avatarEyeColor } : {}),
@@ -62,14 +90,14 @@ function parseConfig(id: string): BotConfig | null {
       model: typeof value.model === "string" ? value.model : null,
       thinkingLevel: value.thinkingLevel ?? null, permissionMode: value.permissionMode === "ask" || value.permissionMode === "deny" ? value.permissionMode : "allow",
       skills: normalizeBotSkills(value.skills),
-      tools: normalizeBotTools(value.tools),
+      tools,
       extraRoots: Array.isArray(value.extraRoots) ? value.extraRoots.filter((item): item is string => typeof item === "string") : [],
       enabled: value.enabled !== false, notificationsEnabled: value.notificationsEnabled !== false,
       codeAutoApprove: value.codeAutoApprove !== false,
       codeSessionTaskId: typeof value.codeSessionTaskId === 'string' ? value.codeSessionTaskId : null,
     };
     // Migrate legacy bots once, keeping the fallback stable for every subsequent read.
-    if (!isAvatarColor(value.avatarColor) || typeof value.label !== "string" || typeof value.notificationsEnabled !== "boolean" || typeof value.codeAutoApprove !== "boolean") writeConfig(config);
+    if (migrateTools || !isAvatarColor(value.avatarColor) || typeof value.label !== "string" || typeof value.notificationsEnabled !== "boolean" || typeof value.codeAutoApprove !== "boolean") writeConfig(config);
     return config;
   } catch { return null; }
 }

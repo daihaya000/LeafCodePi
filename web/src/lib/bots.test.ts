@@ -60,13 +60,28 @@ describe("bot store", () => {
     const config = JSON.parse(readFileSync(join(root, "bots", bot.id, "config.json"), "utf8"));
     expect(config.skills.mode).toBe("inherit"); expect(config.enabled).toBe(true); expect(config.codeAutoApprove).toBe(true);
   });
-  it("preserves the old defaults when a legacy config has no tool list", () => {
+  it("migrates a legacy config without a tool list to the safe defaults", () => {
     const bot = createBot({ name: "Legacy tools bot" });
     const configPath = join(root, "bots", bot.id, "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     delete config.tools;
     fs.writeFileSync(configPath, JSON.stringify(config));
-    expect(getBot(bot.id)?.tools).toEqual(BOT_TOOL_NAMES);
+
+    expect(getBot(bot.id)?.tools).toEqual(BOT_DEFAULT_TOOL_NAMES);
+    expect(JSON.parse(readFileSync(configPath, "utf8")).tools).toEqual(BOT_DEFAULT_TOOL_NAMES);
+  });
+
+  it("adds newly safe tools to an unchanged legacy default allowlist", () => {
+    const bot = createBot({ name: "Legacy allowlist bot" });
+    const configPath = join(root, "bots", bot.id, "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    const oldDisabled = new Set(["write", "edit", "bash", "powershell", "subagent", "todowrite"]);
+    const addedTools = new Set(["web_search", "source_check", "fetch_content", "get_search_content", "contact_supervisor", "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn"]);
+    config.tools = BOT_TOOL_NAMES.filter((tool) => !oldDisabled.has(tool) && !addedTools.has(tool));
+    fs.writeFileSync(configPath, JSON.stringify(config));
+
+    expect(getBot(bot.id)?.tools).toEqual(BOT_DEFAULT_TOOL_NAMES);
+    expect(JSON.parse(readFileSync(configPath, "utf8")).tools).toEqual(BOT_DEFAULT_TOOL_NAMES);
   });
 
   it("preserves explicit tool opt-ins", () => {
