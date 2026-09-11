@@ -274,8 +274,7 @@ export function MemorySettings() {
       <fieldset disabled={disabled || snapshot?.writable === false} className="mt-4 space-y-5 disabled:opacity-60">
         <legend className="sr-only">メモリ設定</legend>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-        <section aria-labelledby="memory-behavior-heading" className="rounded-xl border border-border bg-surface-2 p-3">
+        <section aria-labelledby="memory-behavior-heading">
           <h3 id="memory-behavior-heading" className="text-sm font-semibold">使い方</h3>
           <p className="mt-1 mb-3 text-xs text-muted">メモリをいつ検索し、エージェントへどのように伝えるかを決めます。</p>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -301,18 +300,17 @@ export function MemorySettings() {
           </div>
         </section>
 
-        <section aria-labelledby="memory-capacity-heading" className="rounded-xl border border-border bg-surface-2 p-3">
+        <section aria-labelledby="memory-capacity-heading">
           <h3 id="memory-capacity-heading" className="text-sm font-semibold">保存容量</h3>
           <p className="mt-1 mb-3 text-xs text-muted">種類ごとに保存できる最大文字数です。</p>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             <NumberField label="全体（グローバル）" value={draft.memoryCharLimit} {...MEMORY_SETTING_LIMITS.charLimit} unit="文字" onChange={(value) => patch("memoryCharLimit", value)} />
             <NumberField label="ユーザーごと" value={draft.userCharLimit} {...MEMORY_SETTING_LIMITS.charLimit} unit="文字" onChange={(value) => patch("userCharLimit", value)} />
             <NumberField label="プロジェクトごと" value={draft.projectCharLimit} {...MEMORY_SETTING_LIMITS.charLimit} unit="文字" onChange={(value) => patch("projectCharLimit", value)} />
           </div>
         </section>
-        </div>
 
-        <section aria-labelledby="memory-learning-heading" className="rounded-xl border border-border bg-surface-2 p-3">
+        <section aria-labelledby="memory-learning-heading">
           <h3 id="memory-learning-heading" className="text-sm font-semibold">自動学習と常駐指示</h3>
           <p className="mt-1 mb-3 text-xs text-muted">会話からの学習や、毎回読み込むルールを設定します。</p>
           <div className="grid gap-2 sm:grid-cols-2">
