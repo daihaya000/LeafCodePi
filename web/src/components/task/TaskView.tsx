@@ -2566,9 +2566,6 @@ export const TaskView = memo(function TaskView({
           {permissionRequest && <Badge tone="warning" className="shrink-0">承認待ち</Badge>}
           {questionRequest && <Badge tone="warning" className="shrink-0">回答待ち</Badge>}
           {displayedStatus && <StatusBadge status={displayedStatus} className="shrink-0" />}
-          {task?.projectName && (
-            <span className="hidden min-w-0 max-w-32 truncate @min-[48rem]/task:inline" title={task.projectName}>{task.projectName}</span>
-          )}
           {contextUsage && <ContextUsageMeter usage={contextUsage} />}
           {stats.totalTokens > 0 && (
             <span
