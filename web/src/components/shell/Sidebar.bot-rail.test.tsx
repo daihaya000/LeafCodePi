@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   sendJson: vi.fn(),
   push: vi.fn(),
   botStatus: "idle" as "idle" | "working",
+  dispatch: vi.fn(),
   usePathname: vi.fn(() => "/bots"),
 }));
 
@@ -19,6 +20,7 @@ vi.mock("@/components/sysmon/SystemMonitorWidget", () => ({ SystemMonitorWidget:
 vi.mock("@/components/shell/TaskPanesContext", () => ({
   useTaskPanes: () => ({
     activeTaskId: null,
+    dispatch: mocks.dispatch,
     mdUp: true,
     splitHostEnabled: false,
     retargetToUrl: vi.fn(),
@@ -59,6 +61,7 @@ beforeEach(() => {
     return Promise.reject(new Error(`Unexpected request: ${path}`));
   });
   mocks.push.mockReset();
+  mocks.dispatch.mockReset();
   mocks.botStatus = "idle";
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query.includes("min-width"),
@@ -76,6 +79,21 @@ afterEach(() => {
 });
 
 describe("Bot mode list", () => {
+  it("splits active Bot views from the working-task button", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [{ id: "bot-a", name: "Alpha", codeInProgress: true }], rooms: [] });
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
+      if (path === "/api/tasks?archived=1") return Promise.resolve({ tasks: [] });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "進行中タスクを分割表示" }));
+    expect(mocks.dispatch).toHaveBeenCalledWith({ type: "showWorkingTasks", taskIds: ["/bots/bot-a"] });
+  });
+
   it("filters bots and rooms by name and by the Bot/room filter", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     mocks.getJson.mockImplementation((path: string) => {

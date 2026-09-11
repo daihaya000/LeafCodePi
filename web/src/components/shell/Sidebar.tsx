@@ -240,11 +240,13 @@ function BotSidebarBody({
   collapsed,
   onCollapse,
   onExpand,
+  onShowWorkingBots,
   statusFor = () => null,
 }: {
   onClose: () => void;
   onChangeMode: (mode: AppMode) => void;
   onSettings: () => void;
+  onShowWorkingBots: (botIds: string[]) => void;
   mdUp: boolean;
   collapsed: boolean;
   onCollapse: () => void;
@@ -321,6 +323,14 @@ function BotSidebarBody({
     }
   }
   const sidebarError = createError ?? loadError;
+  const workingBotIds = bots
+    .filter((bot) => bot.codeInProgress === true)
+    .map((bot) => `/bots/${encodeURIComponent(bot.id)}`);
+  const showWorkingBots = () => {
+    if (!mdUp || workingBotIds.length === 0) return;
+    onShowWorkingBots(workingBotIds);
+    onClose();
+  };
   if (collapsed) {
     return (
       <div className="flex h-full w-full flex-col items-center bg-surface">
@@ -404,6 +414,7 @@ function BotSidebarBody({
           </ul>
         </div>
         <div className="flex w-full flex-col items-center gap-1 border-t border-border py-2">
+          <WorkingTasksButton hasWorking={workingBotIds.length > 0} mdUp={mdUp} onClick={showWorkingBots} />
           <button
             type="button"
             aria-label="Botを追加"
@@ -459,6 +470,7 @@ function BotSidebarBody({
           <img src="/icon.svg" alt="" className="h-6 w-6 rounded-[5px]" />
           <span className="truncate text-sm font-semibold">LeafCodePi</span>
         </Link>
+        <WorkingTasksButton hasWorking={workingBotIds.length > 0} mdUp={mdUp} onClick={showWorkingBots} className="ml-auto" />
         <button
           type="button"
           aria-label="Botを追加"
@@ -1962,6 +1974,7 @@ const SidebarView = memo(function SidebarView({
         setCollapsed(false);
         localStorage.setItem(COLLAPSED_KEY, "0");
       }}
+      onShowWorkingBots={(botIds) => dispatch({ type: "showWorkingTasks", taskIds: botIds })}
     />
   );
 
