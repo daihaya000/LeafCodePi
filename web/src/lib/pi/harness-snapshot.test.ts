@@ -349,6 +349,47 @@ describe("snapshotMessages", () => {
     expect(latest).toEqual(snapshotMessages(session).at(-1));
   });
 
+  it("retains the branch source while an in-history stream changes", () => {
+    const streaming = {
+      role: "assistant",
+      timestamp: 2,
+      content: [{ type: "text", text: "一" }],
+    };
+    const branch = [{ type: "message", id: "a1", message: streaming }];
+    let branchReads = 0;
+    const fake = {
+      messages: [streaming],
+      agent: { state: { streamingMessage: streaming as unknown } },
+      sessionManager: {
+        getLeafId: () => "a1",
+        getBranch: () => {
+          branchReads += 1;
+          return branch;
+        },
+      },
+    };
+    const session = fake as unknown as Parameters<typeof snapshotMessages>[0];
+
+    snapshotMessages(session);
+    streaming.content[0]!.text = "二";
+    expect(
+      snapshotMessages(session, undefined, undefined, undefined, undefined, true),
+    ).toMatchObject([{ parts: [{ type: "text", text: "二" }] }]);
+
+    branchReads = 0;
+    streaming.content[0]!.text = "三";
+    expect(
+      snapshotMessages(session, undefined, undefined, undefined, undefined, true),
+    ).toMatchObject([{ parts: [{ type: "text", text: "三" }] }]);
+    expect(branchReads).toBe(0);
+
+    fake.agent.state.streamingMessage = undefined;
+    expect(snapshotMessages(session)).toMatchObject([
+      { parts: [{ type: "text", text: "三" }] },
+    ]);
+    expect(branchReads).toBe(0);
+  });
+
   it("does not project older stored messages for an in-history delta", () => {
     const older = new Proxy<Record<string, unknown>>(
       {},

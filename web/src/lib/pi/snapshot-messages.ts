@@ -19,6 +19,7 @@ type SnapshotProjectionCache = {
   source: readonly unknown[];
   length: number;
   last: unknown;
+  projectedFresh: boolean;
   projected: UiMessage[];
 };
 
@@ -26,6 +27,7 @@ type BranchProjectionCache = {
   leafId: string | null;
   raw: unknown[];
   entryIdByMessage: Map<unknown, string>;
+  projectedFresh: boolean;
   projected: UiMessage[];
 };
 
@@ -136,7 +138,7 @@ export function snapshotMessages(
 
   if (cachedBranch?.leafId === branchLeafId) {
     useBranchHistory = true;
-    branchCacheHit = true;
+    branchCacheHit = cachedBranch.projectedFresh;
     historyRaw = cachedBranch.raw;
     entryIdByMessage = cachedBranch.entryIdByMessage;
   } else {
@@ -224,6 +226,7 @@ export function snapshotMessages(
           leafId: branchLeafId,
           raw: historyRaw,
           entryIdByMessage,
+          projectedFresh: true,
           projected,
         });
       }
@@ -233,7 +236,8 @@ export function snapshotMessages(
       if (
         cached?.source === stored &&
         cached.length === stored.length &&
-        cached.last === last
+        cached.last === last &&
+        cached.projectedFresh
       ) {
         projected = cached.projected;
       } else {
@@ -242,6 +246,7 @@ export function snapshotMessages(
           source: stored,
           length: stored.length,
           last,
+          projectedFresh: true,
           projected,
         });
       }
@@ -263,8 +268,24 @@ export function snapshotMessages(
     // mutated. Project only the final independent message and its trailing
     // tool results; reprojecting the whole branch defeats delta throttling.
     projected = projectLatestWithEntryIds(historyRaw);
-    if (useBranchHistory) branchProjectionCache.delete(session);
-    else snapshotProjectionCache.delete(session);
+    if (useBranchHistory) {
+      branchProjectionCache.set(session, {
+        leafId: branchLeafId,
+        raw: historyRaw,
+        entryIdByMessage,
+        projectedFresh: false,
+        projected: cachedBranch?.projected ?? [],
+      });
+    } else {
+      const cached = snapshotProjectionCache.get(session);
+      snapshotProjectionCache.set(session, {
+        source: stored,
+        length: stored.length,
+        last: stored[stored.length - 1],
+        projectedFresh: false,
+        projected: cached?.projected ?? [],
+      });
+    }
   } else {
     const raw = streamingInHistory ? historyRaw : [...historyRaw, streaming];
     projected = projectWithEntryIds(raw);
@@ -274,6 +295,7 @@ export function snapshotMessages(
           leafId: branchLeafId,
           raw: historyRaw,
           entryIdByMessage,
+          projectedFresh: true,
           projected,
         });
       } else {
@@ -281,6 +303,7 @@ export function snapshotMessages(
           source: stored,
           length: stored.length,
           last: stored[stored.length - 1],
+          projectedFresh: true,
           projected,
         });
       }
