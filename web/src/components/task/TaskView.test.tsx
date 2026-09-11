@@ -4,10 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveTaskSessionCache } from "@/lib/task-session-cache";
 import type { ModelOption, TaskSummary, UiMessage } from "@/lib/types";
 
-const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), partView: vi.fn(), botFor: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), partView: vi.fn(), toolCard: vi.fn(), botFor: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuButton: () => null }));
-vi.mock("@/components/task/PartView", () => ({ PartView: mocks.partView, WorkingRow: () => null }));
+vi.mock("@/components/task/PartView", () => ({ PartView: mocks.partView, ToolCard: mocks.toolCard, WorkingRow: () => null }));
 vi.mock("@/components/shell/TaskPanesContext", () => ({ useTaskPanes: () => ({ iconFor: () => null, botFor: mocks.botFor }) }));
 
 import { TaskView } from "./TaskView";
@@ -24,6 +24,7 @@ beforeEach(() => {
   clearCachedModels();
   vi.clearAllMocks();
   mocks.partView.mockReturnValue(null);
+  mocks.toolCard.mockReturnValue(null);
   mocks.botFor.mockReset();
   vi.stubGlobal("EventSource", class extends EventTarget { close() {} });
   mocks.getJson.mockResolvedValue({ models: [], agents: [], skills: [], accounts: [] });
@@ -80,6 +81,75 @@ it("shows one Goal Loop turn divider per turn boundary", () => {
   expect(screen.getByRole("separator", { name: "Goalターン 1（完了検証）" })).toBeTruthy();
   expect(screen.getByRole("separator", { name: "Goalターン 2" })).toBeTruthy();
   expect(screen.getByText("検証")).toBeTruthy();
+});
+
+it("groups consecutive tool-only messages between agent responses", () => {
+  const toolMessage = (id: string): UiMessage => ({
+    id,
+    role: "assistant",
+    createdAt: Number(id.slice(-1)),
+    parts: [{
+      id: `${id}-part`,
+      type: "tool",
+      tool: "read",
+      callID: `${id}-call`,
+      state: { status: "completed", input: { path: "README.md" } },
+    }],
+  });
+  saveTaskSessionCache({
+    task,
+    messages: [
+      { id: "user-1", role: "user", createdAt: 1, parts: [{ id: "user-1-part", type: "text", text: "確認して" }] },
+      toolMessage("tool-1"),
+      toolMessage("tool-2"),
+      { id: "reply-1", role: "assistant", createdAt: 4, parts: [{ id: "reply-1-part", type: "text", text: "確認しました" }] },
+    ],
+    isStreaming: false,
+    isCompacting: false,
+  });
+  mocks.toolCard.mockImplementation(({ part }: { part: { id: string } }) => (
+    <div data-task-tool-card={part.id} />
+  ));
+  render(<TaskView taskId={task.id} mdUp />);
+
+  const group = document.querySelector<HTMLDetailsElement>("details[data-task-tool-group]");
+  expect(group).not.toBeNull();
+  expect(group!.open).toBe(false);
+  expect(group!.querySelector("summary")?.textContent).toContain("ツール実行");
+  expect(group!.querySelector("summary")?.textContent).toContain("2件");
+  expect(group!.querySelectorAll("[data-task-tool-card]")).toHaveLength(2);
+  fireEvent.click(group!.querySelector("summary")!);
+  expect(group!.open).toBe(true);
+});
+
+it("splits tool groups at Goal Loop turn boundaries", () => {
+  const toolMessage = (id: string, turn: number): UiMessage => ({
+    id,
+    role: "assistant",
+    createdAt: turn,
+    goalLoopTurn: { goalId: "loop-1", turn, kind: "goal" },
+    parts: [{
+      id: `${id}-part`,
+      type: "tool",
+      tool: "read",
+      callID: `${id}-call`,
+      state: { status: "completed", input: { path: "README.md" } },
+    }],
+  });
+  saveTaskSessionCache({
+    task,
+    messages: [toolMessage("tool-1", 1), toolMessage("tool-2", 1), toolMessage("tool-3", 2)],
+    isStreaming: false,
+    isCompacting: false,
+  });
+  render(<TaskView taskId={task.id} mdUp />);
+
+  const groups = document.querySelectorAll<HTMLDetailsElement>("details[data-task-tool-group]");
+  expect(groups).toHaveLength(2);
+  expect(groups[0]!.querySelector("summary")?.textContent).toContain("2件");
+  expect(groups[1]!.querySelector("summary")?.textContent).toContain("1件");
+  expect(screen.getByRole("separator", { name: "Goalターン 1" })).toBeTruthy();
+  expect(screen.getByRole("separator", { name: "Goalターン 2" })).toBeTruthy();
 });
 
 describe("TaskView draft submission", () => {

@@ -5,6 +5,7 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   ChevronsDown,
   ChevronsUp,
@@ -44,7 +45,7 @@ import { SkillPermissionSelect } from "@/components/SkillPermissionSelect";
 import { PermissionSelect } from "@/components/PermissionSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
-import { PartView, WorkingRow } from "@/components/task/PartView";
+import { PartView, ToolCard, WorkingRow } from "@/components/task/PartView";
 import { PermissionAdvice } from "@/components/task/PermissionAdvice";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import {
@@ -216,6 +217,7 @@ import type {
   TodoDto,
   ThinkingLevel,
   UiMessage,
+  UiPart,
 } from "@/lib/types";
 import { statusFromChangedFileCount, type WorktreeStatus } from "@/lib/worktree-status";
 
@@ -455,6 +457,104 @@ function GoalLoopTurnDivider({ turn }: { turn: GoalLoopTurn }) {
       </span>
       <span aria-hidden="true" className="h-px min-w-0 flex-1 bg-border" />
     </div>
+  );
+}
+
+type TaskToolPart = Extract<UiPart, { type: "tool" }>;
+
+type TaskMessageBlock =
+  | { kind: "message"; message: UiMessage; index: number }
+  | { kind: "tool-group"; messages: UiMessage[]; parts: TaskToolPart[]; startIndex: number };
+
+function toolOnlyParts(message: UiMessage): TaskToolPart[] | null {
+  if (
+    message.role !== "assistant" ||
+    message.parts.length === 0 ||
+    message.error ||
+    (message.diagnostics?.length ?? 0) > 0
+  ) {
+    return null;
+  }
+  const parts = message.parts.filter(
+    (part): part is TaskToolPart => part.type === "tool",
+  );
+  return parts.length === message.parts.length ? parts : null;
+}
+
+/** エージェントの応答を境界に、連続するツール実行だけを1枚へまとめる。 */
+function taskMessageBlocks(messages: UiMessage[]): TaskMessageBlock[] {
+  const blocks: TaskMessageBlock[] = [];
+  let groupedMessages: UiMessage[] = [];
+  let groupedParts: TaskToolPart[] = [];
+  let groupStartIndex = -1;
+  const flushGroup = () => {
+    if (groupedMessages.length === 0 || groupStartIndex < 0) return;
+    blocks.push({
+      kind: "tool-group",
+      messages: groupedMessages,
+      parts: groupedParts,
+      startIndex: groupStartIndex,
+    });
+    groupedMessages = [];
+    groupedParts = [];
+    groupStartIndex = -1;
+  };
+
+  messages.forEach((message, index) => {
+    const parts = toolOnlyParts(message);
+    if (parts && (groupStartIndex < 0 || !isGoalLoopTurnBoundary(messages, index))) {
+      if (groupStartIndex < 0) groupStartIndex = index;
+      groupedMessages.push(message);
+      groupedParts.push(...parts);
+      return;
+    }
+    flushGroup();
+    if (parts) {
+      groupStartIndex = index;
+      groupedMessages.push(message);
+      groupedParts.push(...parts);
+      return;
+    }
+    blocks.push({ kind: "message", message, index });
+  });
+  flushGroup();
+  return blocks;
+}
+
+function TaskToolActivityGroup({
+  parts,
+  taskId,
+  active,
+}: {
+  parts: TaskToolPart[];
+  taskId: string;
+  active: boolean;
+}) {
+  return (
+    <details
+      data-task-tool-group
+      aria-label="ツール実行"
+      className="group/task-tool-activity w-full max-w-bubble self-start overflow-hidden rounded-2xl border border-border bg-surface"
+    >
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 py-2.5 text-left text-sm text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
+        <ChevronRight
+          className="h-4 w-4 shrink-0 transition-transform group-open/task-tool-activity:rotate-90"
+          aria-hidden="true"
+        />
+        <span className="min-w-0 flex-1 font-medium">ツール実行</span>
+        <span className="shrink-0 text-xs text-faint">{parts.length}件</span>
+      </summary>
+      <div className="space-y-2 border-t border-border bg-surface p-2">
+        {parts.map((part) => {
+          const partKey = part.id || part.callID;
+          const cardKey =
+            part.state.status === "error" || part.state.status === "cancelled"
+              ? `${partKey}:expanded`
+              : partKey;
+          return <ToolCard key={cardKey} part={part} taskId={taskId} tabActive={active} />;
+        })}
+      </div>
+    </details>
   );
 }
 
@@ -2341,10 +2441,17 @@ export const TaskView = memo(function TaskView({
   const pendingUserDelivered = Boolean(
     pendingUserMessage && userMessageIds.length > pendingUserMessage.baselineUserCount,
   );
-  const renderedMessages =
-    pendingUserMessage && !pendingUserDelivered
-      ? [...visibleMessages, pendingUserMessage.message]
-      : visibleMessages;
+  const renderedMessages = useMemo(
+    () =>
+      pendingUserMessage && !pendingUserDelivered
+        ? [...visibleMessages, pendingUserMessage.message]
+        : visibleMessages,
+    [pendingUserDelivered, pendingUserMessage, visibleMessages],
+  );
+  const messageBlocks = useMemo(
+    () => taskMessageBlocks(renderedMessages),
+    [renderedMessages],
+  );
   useEffect(() => {
     if (pendingUserDelivered) setPendingUserMessage(null);
   }, [pendingUserDelivered]);
@@ -2685,23 +2792,34 @@ export const TaskView = memo(function TaskView({
                 tone="neutral"
               />
             )}
-            {renderedMessages.map((message, index) => {
-              const turn = isGoalLoopTurnBoundary(renderedMessages, index)
-                ? message.goalLoopTurn
+            {messageBlocks.map((block) => {
+              const firstMessage = block.kind === "tool-group" ? block.messages[0]! : block.message;
+              const turn = isGoalLoopTurnBoundary(renderedMessages, block.kind === "tool-group" ? block.startIndex : block.index)
+                ? firstMessage.goalLoopTurn
                 : undefined;
               return (
                 <div
-                  key={messageRenderKey(message)}
+                  key={
+                    block.kind === "tool-group"
+                      ? `task-tool-group:${messageRenderKey(firstMessage)}`
+                      : messageRenderKey(block.message)
+                  }
                   className="task-message-row"
                   ref={(el) => {
-                    if (el) messageElsRef.current.set(message.id, el);
-                    else messageElsRef.current.delete(message.id);
+                    const messagesToTrack =
+                      block.kind === "tool-group" ? block.messages : [block.message];
+                    for (const message of messagesToTrack) {
+                      if (el) messageElsRef.current.set(message.id, el);
+                      else messageElsRef.current.delete(message.id);
+                    }
                   }}
                 >
                   {turn && <GoalLoopTurnDivider turn={turn} />}
-                  {showResume &&
-                  resumeInsideExistingBanner &&
-                  resumeTarget?.messageId === message.id ? (
+                  {block.kind === "tool-group" ? (
+                    <TaskToolActivityGroup parts={block.parts} taskId={taskId} active={active} />
+                  ) : showResume &&
+                    resumeInsideExistingBanner &&
+                    resumeTarget?.messageId === block.message.id ? (
                     <TurnNoticeBanner
                       message={resumeBannerText}
                       action={resumeAction}
@@ -2710,26 +2828,26 @@ export const TaskView = memo(function TaskView({
                     />
                   ) : (
                     <PartView
-                      message={message}
+                      message={block.message}
                       modelLabel={
-                        message.provider && message.model
-                          ? modelLabels[`${message.provider}::${message.model}`]
+                        block.message.provider && block.message.model
+                          ? modelLabels[`${block.message.provider}::${block.message.model}`]
                           : undefined
                       }
-                      effort={message.role === "assistant" ? effortLabel : undefined}
-                      agent={message.role === "assistant" ? task?.agent ?? undefined : undefined}
+                      effort={block.message.role === "assistant" ? effortLabel : undefined}
+                      agent={block.message.role === "assistant" ? task?.agent ?? undefined : undefined}
                       accountLabel={
-                        message.role === "assistant"
-                          ? message.accountId
-                            ? (accountLabels.get(message.accountId) ?? message.accountId)
+                        block.message.role === "assistant"
+                          ? block.message.accountId
+                            ? (accountLabels.get(block.message.accountId) ?? block.message.accountId)
                             : (taskAccountLabel ?? undefined)
                           : undefined
                       }
-                      bot={message.role === "user" ? botFor?.(task?.botId) : undefined}
+                      bot={block.message.role === "user" ? botFor?.(task?.botId) : undefined}
                       references={messageReferences}
                       taskId={taskId}
                       active={active}
-                      onRevert={message.role === "user" ? requestRevert : undefined}
+                      onRevert={block.message.role === "user" ? requestRevert : undefined}
                     />
                   )}
                 </div>
