@@ -52,7 +52,7 @@ import {
   QueuedFollowUpsNotice,
   type QueuedFollowUp,
 } from "@/components/task/QueuedFollowUpsNotice";
-import { Badge, Button, cx, GhostSelect } from "@/components/ui";
+import { Badge, Button, cx, formatDuration, GhostSelect } from "@/components/ui";
 import {
   AUTO_MODEL_OPTION,
   AUTO_MODEL_VALUE,
@@ -526,17 +526,6 @@ function taskActivityCount(entry: TaskActivityEntry): number {
     (entry.activityMessage.error ? 1 : 0) +
     (entry.activityMessage.diagnostics?.length ?? 0)
   );
-}
-
-function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return "—";
-  const totalSeconds = Math.round(ms / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
 }
 
 /** 完了したツール実行の所要時間の合計。実行中は確定してから加算する。 */

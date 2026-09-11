@@ -318,13 +318,13 @@ it("groups consecutive tool-only entries without hiding messages", async () => {
       id: "tool-message-1",
       role: "assistant",
       createdAt: 2,
-      parts: [{ id: "tool-1", type: "tool", tool: "read", callID: "call-1", state: { status: "completed", input: { path: "README.md" } } }],
+      parts: [{ id: "tool-1", type: "tool", tool: "read", callID: "call-1", state: { status: "completed", input: { path: "README.md" }, startedAtMs: 1_000, endedAtMs: 1_500 } }],
     },
     {
       id: "tool-message-2",
       role: "assistant",
       createdAt: 3,
-      parts: [{ id: "tool-2", type: "tool", tool: "bash", callID: "call-2", state: { status: "completed", input: { command: "npm test" } } }],
+      parts: [{ id: "tool-2", type: "tool", tool: "bash", callID: "call-2", state: { status: "completed", input: { command: "npm test" }, startedAtMs: 2_000, endedAtMs: 4_500 } }],
     },
     { id: "reply", role: "assistant", createdAt: 4, parts: [{ type: "text", text: "確認しました" }] },
   ] });
@@ -332,6 +332,8 @@ it("groups consecutive tool-only entries without hiding messages", async () => {
   const groups = container.querySelectorAll<HTMLDetailsElement>("details[data-bot-tool-group]");
   expect(groups).toHaveLength(1);
   expect(groups[0]!.open).toBe(false);
+  // 0.5s + 2.5s の累計。
+  expect(groups[0]!.querySelector("summary")?.textContent).toContain("2件 · 3s");
   expect(groups[0]!.querySelectorAll("button[aria-expanded]")).toHaveLength(2);
   expect(screen.getByText("確認しました").closest("details")).toBeNull();
 });

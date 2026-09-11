@@ -600,6 +600,18 @@ export function formatMessageTime(iso: string | number | null | undefined): stri
   return `${date.getMonth() + 1}/${date.getDate()}${weekdays[date.getDay()]} ${hours}:${minutes}`;
 }
 
+/** 所要時間の表示（Code/Bot のツール実行グループやタスク統計で共有）。 */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  const totalSeconds = Math.round(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
 export function timeAgo(iso: string | number | null | undefined): string {
   if (!iso) return "";
   const t = typeof iso === "number" ? iso : Date.parse(iso);
