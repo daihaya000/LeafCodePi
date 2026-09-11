@@ -12,12 +12,34 @@ const DEFAULT_FORM: TtsConfigDto = {
   url: "",
 };
 
+type ServerStatus = { running: boolean; url?: string; error?: string };
+
 export function TtsSettings() {
   const [form, setForm] = useState<TtsConfigDto | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [server, setServer] = useState<ServerStatus | null>(null);
+  const [serverBusy, setServerBusy] = useState(false);
+
+  const checkServer = useCallback(() => {
+    void getJson<ServerStatus>("/api/settings/tts/server")
+      .then(setServer)
+      .catch((err) => setServer({ running: false, error: err instanceof Error ? err.message : "状態取得に失敗" }));
+  }, []);
+
+  const startServer = async () => {
+    setServerBusy(true);
+    try {
+      await sendJson<{ started: boolean }>("/api/settings/tts/server", {}, "POST");
+      setServer({ running: false, error: "起動中（初回はモデル読込で数分かかります）" });
+    } catch (err) {
+      setServer({ running: false, error: err instanceof Error ? err.message : "起動に失敗しました" });
+    } finally {
+      setServerBusy(false);
+    }
+  };
 
   const reload = useCallback(() => {
     void getJson<TtsConfigDto>("/api/settings/tts")
@@ -35,7 +57,8 @@ export function TtsSettings() {
 
   useEffect(() => {
     reload();
-  }, [reload]);
+    checkServer();
+  }, [reload, checkServer]);
 
   const save = async (patch: Partial<TtsConfigDto>) => {
     if (busy || form === null) return;
@@ -96,7 +119,7 @@ export function TtsSettings() {
             type="text"
             value={current.voice}
             disabled={!ready || busy}
-            placeholder="Microsoft Haruka Desktop"
+            placeholder="ramuchi / Microsoft Haruka Desktop"
             aria-label="TTS 音声名"
             onChange={(event) => setForm({ ...current, voice: event.target.value })}
             onBlur={() => {
@@ -150,6 +173,20 @@ export function TtsSettings() {
             <code className="rounded bg-surface-2 px-1">extensions/leafcode-tts/server</code>。
           </span>
         </label>
+
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-bg px-3 py-2">
+          <span className="text-sm text-muted">Qwen3-TTS サーバー（Windows / ROCm）</span>
+          <span className="text-sm text-text" aria-live="polite">
+            {server === null ? "確認中" : server.running ? "稼働中" : "停止"}
+          </span>
+          <Button size="sm" disabled={serverBusy || server?.running === true} onClick={() => void startServer()}>
+            起動
+          </Button>
+          <Button variant="ghost" size="sm" disabled={serverBusy} onClick={() => checkServer()}>
+            状態確認
+          </Button>
+          {server?.error && <span className="text-[11px] text-muted">{server.error}</span>}
+        </div>
       </div>
 
       {error && (
