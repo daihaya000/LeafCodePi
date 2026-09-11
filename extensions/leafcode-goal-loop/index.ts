@@ -89,7 +89,8 @@ const MAX_PROGRESS = 50;
 const MAX_REJECTED_CLAIMS = 2;
 const MAX_UNREADABLE_STREAK = 2;
 const TURN_TIMEOUT_MS = 15 * 60 * 1000;
-const TERMINAL = new Set<GoalLoopStatus>(["completed", "blocked", "stopped"]);
+const TERMINAL = new Set<GoalLoopStatus>(["completed", "stopped"]);
+const UNSCHEDULABLE = new Set<GoalLoopStatus>(["paused", "blocked"]);
 
 const runtimes = new Map<string, Runtime>();
 /** Test-only override for the in-flight turn watchdog. */
@@ -507,7 +508,7 @@ function statusLabel(status: GoalLoopStatus): string {
     paused: "一時停止",
     verifying_completed: "完了検証中",
     completed: "完了",
-    blocked: "ブロック",
+    blocked: "要対応",
     stopped: "停止",
   }[status];
 }
@@ -801,7 +802,12 @@ export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): bo
     (loop.status === "queued" || loop.status === "verifying_completed") && loop.cooldownSeconds > 0
       ? new Date(Date.now() + loop.cooldownSeconds * 1000).toISOString()
       : null;
-  loop.turnKind = loop.status === "verifying_completed" ? "verification" : "goal";
+  loop.turnKind =
+    verification && loop.status === "blocked"
+      ? "verification"
+      : loop.status === "verifying_completed"
+        ? "verification"
+        : "goal";
   return writeLoop(loop);
 }
 
@@ -882,7 +888,7 @@ function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): bool
   if (
     (pauseReason === "user" || pauseReason === "manual_send") &&
     !TERMINAL.has(updated.status) &&
-    updated.status !== "paused"
+    !UNSCHEDULABLE.has(updated.status)
   ) {
     // Re-pause through pauseLoop so write failure does not leave UI paused while
     // disk stays queued (and later session_start would auto-continue).
@@ -1026,7 +1032,7 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
 
 function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error = "ユーザーが一時停止しました。"): boolean {
   const loop = currentLoop(runtime);
-  if (!loop || TERMINAL.has(loop.status)) return false;
+  if (!loop || TERMINAL.has(loop.status) || loop.status === "blocked") return false;
   const pending = runtime.awaitingTurn;
   const pendingIndex = runtime.awaitingTurnIndex;
   // Survive process restart: in-memory pausedTurnPending alone is not enough.
@@ -1116,7 +1122,7 @@ function schedule(runtime: Runtime, delay = 250): void {
     // なら自分は現行ではないので、同一状態ファイルへの送信競合を避けて停止する。
     if (!isActiveRuntime(runtime)) return;
     const loop = currentLoop(runtime);
-    if (!loop || TERMINAL.has(loop.status) || loop.status === "paused") return;
+    if (!loop || TERMINAL.has(loop.status) || UNSCHEDULABLE.has(loop.status)) return;
     if ((loop.status === "queued" || loop.status === "verifying_completed") && loop.nextTurnAt) {
       const nextTurnAt = Date.parse(loop.nextTurnAt);
       if (Number.isFinite(nextTurnAt) && Date.now() < nextTurnAt) {
@@ -1160,7 +1166,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
   if (!isActiveRuntime(runtime) || runtime.awaitingTurn) return;
   const turnGeneration = runtime.turnGeneration;
   let loop = currentLoop(runtime);
-  if (!loop || TERMINAL.has(loop.status) || loop.status === "paused") return;
+  if (!loop || TERMINAL.has(loop.status) || UNSCHEDULABLE.has(loop.status)) return;
 
   // Repair corrupt full-run state that still points at verification.
   if (loop.forceFullRun && (loop.status === "verifying_completed" || loop.turnKind === "verification")) {
@@ -1172,7 +1178,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       schedule(runtime, 500);
       return;
     }
-    if (loop.status === "paused" || TERMINAL.has(loop.status)) return;
+    if (UNSCHEDULABLE.has(loop.status) || TERMINAL.has(loop.status)) return;
   }
 
   if (loop.status === "queued") {
@@ -1239,7 +1245,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       return;
     }
     loop = currentLoop(runtime);
-    if (!loop || TERMINAL.has(loop.status) || loop.status === "paused") return;
+    if (!loop || TERMINAL.has(loop.status) || UNSCHEDULABLE.has(loop.status)) return;
     if (!runtime.ctx.isIdle() || runtime.ctx.hasPendingMessages()) {
       schedule(runtime, 500);
       return;
@@ -1334,7 +1340,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
     // Always leave a paused unknown_delivery state — never stay running with a
     // live awaitingTurn flag after a delivery exception.
     const current = currentLoop(runtime);
-    if (current && !TERMINAL.has(current.status)) {
+    if (current && !TERMINAL.has(current.status) && current.status !== "blocked") {
       // sendMessage() is a non-idempotent enqueue. A synchronous exception can
       // still occur after the runtime accepted the message, so never roll back
       // the turn and retry automatically. Pause until the user explicitly
@@ -1498,14 +1504,14 @@ function statusMessage(loop: GoalLoop | null): string {
   const max = loop.maxTurns === 0 ? "∞" : String(loop.maxTurns);
   const shownTurn = loop.maxTurns === 0 ? turn : Math.min(turn, loop.maxTurns);
   const mode = loop.forceFullRun ? " · 完走モード" : "";
-  const detail = loop.error ? ` · ${loop.error}` : "";
+  const detail = loop.error || loop.blockedReason ? ` · ${loop.error || loop.blockedReason}` : "";
   return `${statusLabel(loop.status)} ${shownTurn}/${max}${mode} · ${short(loop.goal, 140)}${detail}`;
 }
 
 function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
   const loop = currentLoop(runtime);
-  if (!loop || loop.status !== "paused") {
-    runtime.ctx.ui.notify("一時停止中の Goal loop はありません。", "info");
+  if (!loop || (loop.status !== "paused" && loop.status !== "blocked")) {
+    runtime.ctx.ui.notify("一時停止中または要対応の Goal loop はありません。", "info");
     return false;
   }
   if (maxTurns !== undefined) {
@@ -1591,6 +1597,7 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
   if (loop.forceFullRun) loop.turnKind = "goal";
   loop.pauseReason = "";
   loop.error = "";
+  loop.blockedReason = "";
   loop.pendingTurnRecovery = false;
   if (!preserveCooldown) loop.nextTurnAt = null;
   if (!writeLoop(loop)) {
@@ -1607,7 +1614,9 @@ function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "c
   if (action === "pause") {
     const loop = currentLoop(runtime);
     if (!loop) runtime.ctx.ui.notify("Goal loop はありません。", "info");
-    else if (TERMINAL.has(loop.status)) {
+    else if (loop.status === "blocked") {
+      runtime.ctx.ui.notify("要対応中の Goal loop です。対応後に再開または停止できます。", "info");
+    } else if (TERMINAL.has(loop.status)) {
       runtime.ctx.ui.notify("Goal loop は既に終了しています。", "info");
     } else if (!pauseLoop(runtime)) {
       runtime.ctx.ui.notify("一時停止状態の保存に失敗しました。再試行してください。", "error");
@@ -1878,7 +1887,7 @@ export default function (pi: ExtensionAPI): void {
       clearPendingAgentRun(current);
       return;
     }
-    if (TERMINAL.has(loop.status)) {
+    if (TERMINAL.has(loop.status) || loop.status === "blocked") {
       // Ignore delayed events after stop/complete/blocked; also clear any stuck
       // awaitingTurn so a later goal-start cannot hang on the send gate.
       if (current.discardAgentSettlements > 0) current.discardAgentSettlements -= 1;

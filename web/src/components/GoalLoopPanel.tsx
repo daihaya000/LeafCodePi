@@ -12,7 +12,7 @@ const labels: Record<GoalLoopDto["status"], string> = {
   paused: "一時停止",
   verifying_completed: "完了検証中",
   completed: "完了",
-  blocked: "ブロック",
+  blocked: "要対応",
   stopped: "停止",
 };
 
@@ -35,6 +35,7 @@ const pauseHints: Record<string, string> = {
   boundary_lost: "基準メッセージが見つからないため誤読を防止して一時停止しました。",
   verification_rejected: "完了宣言が検証で繰り返し拒否されました。",
   scheduler_error: "スケジューラーでエラーが発生しました。",
+  blocked: "要対応のため停止しました。対応後に再開できます。",
 };
 
 export function GoalLoopPanel({
@@ -56,7 +57,7 @@ export function GoalLoopPanel({
   if (!loop) return null;
   const live = loop.status === "queued" || loop.status === "running" || loop.status === "verifying_completed";
   const canPause = loop.status === "queued" || loop.status === "running" || loop.status === "verifying_completed";
-  const canResume = loop.status === "paused";
+  const canResume = loop.status === "paused" || loop.status === "blocked";
   const turn = loop.status === "queued" ? loop.turnCount + 1 : loop.turnCount;
   const progress = loop.progress.at(-1);
   const turnLimit = loop.pauseReason === "turn_limit";
@@ -90,7 +91,11 @@ export function GoalLoopPanel({
     setMaxTurns(String(value));
     onResume(value);
   };
-  const pauseHint = loop.status === "paused" ? pauseHints[loop.pauseReason] : undefined;
+  const pauseHint = loop.status === "blocked"
+    ? pauseHints.blocked
+    : loop.status === "paused"
+      ? pauseHints[loop.pauseReason]
+      : undefined;
   const cooldownActive = Boolean(
     loop.nextTurnAt && Date.parse(loop.nextTurnAt) > Date.now(),
   );

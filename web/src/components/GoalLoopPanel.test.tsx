@@ -126,6 +126,22 @@ describe("GoalLoopPanel progress", () => {
     expect(onAction).toHaveBeenCalledTimes(2);
   });
 
+  it("allows a blocked loop to resume", () => {
+    const onResume = vi.fn();
+    render(
+      <GoalLoopPanel
+        loop={loopFixture({ status: "blocked", blockedReason: "確認が必要です" })}
+        busy={false}
+        onAction={() => {}}
+        onResume={onResume}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "再開" }));
+    expect(onResume).toHaveBeenCalledWith();
+    expect(screen.getByText("要対応のため停止しました。対応後に再開できます。")).toBeTruthy();
+  });
+
   it("offers completion at the turn limit", () => {
     const onAction = vi.fn();
     render(

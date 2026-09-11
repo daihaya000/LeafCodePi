@@ -876,7 +876,7 @@ describe("TaskView draft submission", () => {
       id: "session-1",
       sessionId: "session-1",
       cwd: "",
-      status: "paused",
+      status: "blocked",
       goal: "keep going",
       acceptance: ["done"],
       maxTurns: 3,
@@ -885,12 +885,12 @@ describe("TaskView draft submission", () => {
       forceFullRun: false,
       turnCount: 1,
       turnKind: "goal",
-      pauseReason: "user",
+      pauseReason: "",
       error: "",
       progress: [],
       summary: "",
       evidence: "",
-      blockedReason: "",
+      blockedReason: "確認が必要です",
       rejectedClaims: 0,
       unreadableStreak: 0,
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -918,6 +918,7 @@ describe("TaskView draft submission", () => {
     const goalLoopPanel = await screen.findByRole("region", { name: "Goal loop" });
     expect(todoPanel.parentElement).toBe(goalLoopPanel.parentElement);
     expect(todoPanel.compareDocumentPosition(goalLoopPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("button", { name: "再開" })).toBeTruthy();
     expect(screen.getByRole("form", { name: "フォローアップ" }).querySelector('[aria-label="Goal loop"]')).toBeNull();
 
     await sendSnapshot({

@@ -1502,7 +1502,9 @@ test("waits for agent_end so tool turns do not stop the loop before the result J
       sendCount += 1;
       const result = sendCount === 1
         ? { status: "progress", summary: "after tool" }
-        : { status: "blocked", summary: "done", evidence: "test blocker" };
+        : sendCount === 2
+          ? { status: "blocked", summary: "done", evidence: "test blocker" }
+          : { status: "progress", summary: "resumed" };
       const runMessages = sendCount === 1
         ? [
             { role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "bash", arguments: {} }] },
@@ -1547,7 +1549,7 @@ test("waits for agent_end so tool turns do not stop the loop before the result J
     await commands.get("goal-start")?.(payload, ctx);
     await new Promise((resolve) => setTimeout(resolve, 1200));
 
-    const loop = JSON.parse(
+    let loop = JSON.parse(
       readFileSync(join(cwd, "goals-loop", "live-session.json"), "utf8"),
     );
     assert.equal(sendCount, 2);
@@ -1563,6 +1565,15 @@ test("waits for agent_end so tool turns do not stop the loop before the result J
     assert.equal(loop.autoAgent, true);
     assert.equal(loop.status, "blocked");
     assert.equal(loop.progress[0].summary, "after tool");
+
+    await commands.get("goal-resume")?.("--turns 4", ctx);
+    await waitFor(() => sendCount === 3);
+    await waitFor(() => {
+      loop = JSON.parse(readFileSync(join(cwd, "goals-loop", "live-session.json"), "utf8"));
+      return loop.status === "queued";
+    });
+    assert.equal(loop.turnCount, 3);
+    assert.equal(loop.progress.at(-1).summary, "resumed");
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     rmSync(cwd, { recursive: true, force: true });

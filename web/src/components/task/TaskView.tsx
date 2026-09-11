@@ -1635,11 +1635,11 @@ export const TaskView = memo(function TaskView({
   const goalLoopLive = Boolean(
     task?.goalLoop && ["queued", "running", "verifying_completed"].includes(task.goalLoop.status),
   );
-  // 実行中・一時停止中のみパネルを表示。completed / blocked / stopped は
-  // チャット側に結果が残るため閉じる（Sidebar の LIVE 判定と整合）。
+  // 実行中・一時停止中・要対応中は、パネルから操作できるよう表示する。
+  // completed / stopped はチャット側に結果が残るため閉じる（Sidebar の LIVE 判定と整合）。
   const goalLoopVisible = Boolean(
     task?.goalLoop &&
-      ["queued", "running", "verifying_completed", "paused"].includes(task.goalLoop.status),
+      ["queued", "running", "verifying_completed", "paused", "blocked"].includes(task.goalLoop.status),
   );
 
   useEffect(() => {
