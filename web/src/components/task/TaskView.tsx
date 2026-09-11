@@ -30,6 +30,7 @@ import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
+import { toolElapsedMs } from "@/lib/tool-labels";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { DiffPane } from "@/components/task/DiffPane";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
@@ -528,17 +529,7 @@ function taskActivityCount(entry: TaskActivityEntry): number {
   );
 }
 
-/** 完了したツール実行の所要時間の合計。実行中は確定してから加算する。 */
-function taskActivityDurationMs(entry: TaskActivityEntry): number {
-  let total = 0;
-  for (const part of entry.activityMessage.parts) {
-    if (part.type !== "tool") continue;
-    const { startedAtMs, endedAtMs } = part.state;
-    if (startedAtMs === undefined || endedAtMs === undefined) continue;
-    total += Math.max(0, endedAtMs - startedAtMs);
-  }
-  return total;
-}
+
 
 function taskMessageBlocks(messages: UiMessage[], ungroupedMessageId?: string): TaskMessageBlock[] {
   const blocks: TaskMessageBlock[] = [];
@@ -601,11 +592,11 @@ function taskMessageBlocks(messages: UiMessage[], ungroupedMessageId?: string): 
 function TaskToolActivityGroup({
   contents,
   count,
-  durationMs,
+  elapsedMs,
 }: {
   contents: ReactNode[];
   count: number;
-  durationMs: number;
+  elapsedMs: number;
 }) {
   return (
     <details
@@ -620,7 +611,7 @@ function TaskToolActivityGroup({
         />
         <span className="min-w-0 flex-1 font-medium">ツール実行</span>
         <span className="shrink-0 text-xs text-faint">
-          {count}件{durationMs > 0 ? ` · ${formatDuration(durationMs)}` : ""}
+          {count}件{elapsedMs > 0 ? ` · ${formatDuration(elapsedMs)}` : ""}
         </span>
       </summary>
       <div className="space-y-2 border-t border-border bg-surface p-2">{contents}</div>
@@ -2932,9 +2923,9 @@ export const TaskView = memo(function TaskView({
                 block.kind === "tool-group"
                   ? block.entries.reduce((count, entry) => count + taskActivityCount(entry), 0)
                   : 0;
-              const activityDurationMs =
+              const activityElapsedMs =
                 block.kind === "tool-group"
-                  ? block.entries.reduce((ms, entry) => ms + taskActivityDurationMs(entry), 0)
+                  ? toolElapsedMs(block.entries.flatMap((entry) => entry.activityMessage.parts))
                   : 0;
               return (
                 <div
@@ -2960,7 +2951,7 @@ export const TaskView = memo(function TaskView({
                     <TaskToolActivityGroup
                       contents={activityContents}
                       count={activityCount}
-                      durationMs={activityDurationMs}
+                      elapsedMs={activityElapsedMs}
                     />
                   ) : showResume &&
                     resumeInsideExistingBanner &&

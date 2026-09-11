@@ -332,8 +332,8 @@ it("groups consecutive tool-only entries without hiding messages", async () => {
   const groups = container.querySelectorAll<HTMLDetailsElement>("details[data-bot-tool-group]");
   expect(groups).toHaveLength(1);
   expect(groups[0]!.open).toBe(false);
-  // 0.5s + 2.5s の累計。
-  expect(groups[0]!.querySelector("summary")?.textContent).toContain("2件 · 3s");
+  // 最初の開始(1.0s)から最後の終了(4.5s)までの経過時間。所要時間の合計(3s)ではない。
+  expect(groups[0]!.querySelector("summary")?.textContent).toContain("2件 · 4s");
   expect(groups[0]!.querySelectorAll("button[aria-expanded]")).toHaveLength(2);
   expect(screen.getByText("確認しました").closest("details")).toBeNull();
 });

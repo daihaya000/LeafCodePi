@@ -10,6 +10,7 @@ import { notifyBotSidebarChanged } from "@/lib/events";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { Button, formatDuration } from "@/components/ui";
+import { toolElapsedMs } from "@/lib/tool-labels";
 import { BotAvatarPicker, type AvatarPatch } from "@/components/bot/BotAvatarPicker";
 import { BotSkillsSettings } from "@/components/bot/BotSkillsSettings";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
@@ -67,12 +68,7 @@ function botMessageDisplayData(message: UiMessage): BotMessageDisplayData {
 type BotToolPart = Extract<UiPart, { type: "tool" }>;
 
 function BotToolActivityGroup({ parts, botId, active }: { parts: BotToolPart[]; botId: string; active: boolean }) {
-  // 完了したツールのみ合算する（実行中は確定してから加算）。
-  const durationMs = parts.reduce((total, part) => {
-    const { startedAtMs, endedAtMs } = part.state;
-    if (startedAtMs === undefined || endedAtMs === undefined) return total;
-    return total + Math.max(0, endedAtMs - startedAtMs);
-  }, 0);
+  const elapsedMs = toolElapsedMs(parts);
   return (
     <details
       data-bot-tool-group
@@ -83,7 +79,7 @@ function BotToolActivityGroup({ parts, botId, active }: { parts: BotToolPart[]; 
         <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-open/tool-activity:rotate-90" aria-hidden="true" />
         <span className="min-w-0 flex-1 font-medium">ツール実行</span>
         <span className="shrink-0 text-xs text-faint">
-          {parts.length}件{durationMs > 0 ? ` · ${formatDuration(durationMs)}` : ""}
+          {parts.length}件{elapsedMs > 0 ? ` · ${formatDuration(elapsedMs)}` : ""}
         </span>
       </summary>
       <div className="space-y-2 border-t border-border bg-surface p-2">

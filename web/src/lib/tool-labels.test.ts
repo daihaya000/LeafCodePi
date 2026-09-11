@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { activeToolLabel, changedFilePaths, isWriteTool, skillNameFromReadInput, toolInputFields, toolLabel, toolNameLabel, toolSummary } from "./tool-labels";
-import type { UiMessage } from "./types";
+import { activeToolLabel, changedFilePaths, isWriteTool, skillNameFromReadInput, toolElapsedMs, toolInputFields, toolLabel, toolNameLabel, toolSummary } from "./tool-labels";
+import type { UiMessage, UiPart } from "./types";
 
 describe("toolLabel", () => {
   it("maps pi tools to Japanese labels", () => {
@@ -204,5 +204,36 @@ describe("toolInputFields", () => {
       { label: "エージェント", value: "reviewer" },
       { label: "指示", value: "差分を確認する" },
     ]);
+  });
+});
+
+describe("toolElapsedMs", () => {
+  const toolPart = (id: string, startedAtMs?: number, endedAtMs?: number): UiPart => ({
+    id,
+    type: "tool",
+    tool: "read",
+    callID: `${id}-call`,
+    state: { status: "completed", ...(startedAtMs === undefined ? {} : { startedAtMs }), ...(endedAtMs === undefined ? {} : { endedAtMs }) },
+  });
+
+  it("spans the first start to the last end instead of summing durations", () => {
+    const parts = [toolPart("a", 1_000, 2_000), toolPart("b", 3_000, 4_500)];
+    // 所要時間の合計は 2500ms だが、経過時間は待ち時間を含む 3500ms。
+    expect(toolElapsedMs(parts)).toBe(3_500);
+  });
+
+  it("ignores running tools, text parts, and out-of-order entries", () => {
+    const parts = [
+      { id: "t", type: "text", text: "本文" } as UiPart,
+      toolPart("running", 500),
+      toolPart("b", 3_000, 4_500),
+      toolPart("a", 1_000, 2_000),
+    ];
+    expect(toolElapsedMs(parts)).toBe(3_500);
+  });
+
+  it("returns 0 when no tool has both timestamps", () => {
+    expect(toolElapsedMs([toolPart("a"), toolPart("b", 1_000)])).toBe(0);
+    expect(toolElapsedMs([])).toBe(0);
   });
 });

@@ -85,23 +85,27 @@ it("shows one Goal Loop turn divider per turn boundary", () => {
 });
 
 it("groups consecutive tool-only messages between agent responses", () => {
-  const toolMessage = (id: string): UiMessage => ({
-    id,
-    role: "assistant",
-    createdAt: Number(id.slice(-1)),
-    parts: [{
-      id: `${id}-part`,
-      type: "tool",
-      tool: "read",
-      callID: `${id}-call`,
-      state: {
-        status: "completed",
-        input: { path: "README.md" },
-        startedAtMs: 1_000,
-        endedAtMs: 2_500,
-      },
-    }],
-  });
+  // tool-1 は 2.0s〜3.0s、tool-2 は 4.0s〜5.0s に実行される想定。
+  const toolMessage = (id: string): UiMessage => {
+    const startedAtMs = Number(id.slice(-1)) * 2_000;
+    return {
+      id,
+      role: "assistant",
+      createdAt: Number(id.slice(-1)),
+      parts: [{
+        id: `${id}-part`,
+        type: "tool",
+        tool: "read",
+        callID: `${id}-call`,
+        state: {
+          status: "completed",
+          input: { path: "README.md" },
+          startedAtMs,
+          endedAtMs: startedAtMs + 1_000,
+        },
+      }],
+    };
+  };
   saveTaskSessionCache({
     task,
     messages: [
@@ -127,7 +131,7 @@ it("groups consecutive tool-only messages between agent responses", () => {
   expect(group!.open).toBe(false);
   expect(group!.querySelector("summary")?.textContent).toContain("ツール実行");
   expect(group!.querySelector("summary")?.textContent).toContain("2件");
-  // 1.5s × 2 件の累計。
+  // 最初の開始(2.0s)から最後の終了(5.0s)までの経過時間。所要時間の合計(2s)ではない。
   expect(group!.querySelector("summary")?.textContent).toContain("3s");
   expect(group!.querySelectorAll("[data-task-tool-card]")).toHaveLength(2);
   // メタ行はグループの中だけに出す。外へ出すとグループ1枚につきヘッダーが縦積みになる。

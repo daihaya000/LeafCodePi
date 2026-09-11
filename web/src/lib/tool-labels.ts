@@ -1,4 +1,4 @@
-import type { ToolState, UiMessage } from "@/lib/types";
+import type { ToolState, UiMessage, UiPart } from "@/lib/types";
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
@@ -250,4 +250,22 @@ export function activeToolLabel(message: UiMessage | null | undefined): string |
     }
   }
   return undefined;
+}
+
+/**
+ * ツール実行の経過時間（最初の開始から最後の終了まで）。
+ * 個々の所要時間の合計ではないため、ツール間の待ち時間も含む。
+ * 開始または終了が欠けるツール（実行中・bashExecution）は対象外。
+ */
+export function toolElapsedMs(parts: readonly UiPart[]): number {
+  let startedAt = Number.POSITIVE_INFINITY;
+  let endedAt = Number.NEGATIVE_INFINITY;
+  for (const part of parts) {
+    if (part.type !== "tool") continue;
+    const { startedAtMs, endedAtMs } = part.state;
+    if (startedAtMs === undefined || endedAtMs === undefined) continue;
+    startedAt = Math.min(startedAt, startedAtMs);
+    endedAt = Math.max(endedAt, endedAtMs);
+  }
+  return endedAt > startedAt ? endedAt - startedAt : 0;
 }
