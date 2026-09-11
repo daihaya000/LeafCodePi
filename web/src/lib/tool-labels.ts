@@ -255,23 +255,23 @@ export function activeToolLabel(message: UiMessage | null | undefined): string |
 /**
  * ツール実行の経過時間（最初の開始から最後の終了まで）。
  * 個々の所要時間の合計ではないため、ツール間の待ち時間も含む。
- * 開始または終了が欠けるツール（実行中・bashExecution）は対象外。
+ * 実行中のツールは `nowMs` までを経過時間に含める。
  */
-export function toolElapsedMs(parts: readonly UiPart[]): number {
+export function toolElapsedMs(parts: readonly UiPart[], nowMs = Date.now()): number {
   let startedAt = Number.POSITIVE_INFINITY;
   let endedAt = Number.NEGATIVE_INFINITY;
   for (const part of parts) {
     if (part.type !== "tool") continue;
-    const { startedAtMs, endedAtMs } = part.state;
+    const { startedAtMs, endedAtMs, status } = part.state;
     if (
       startedAtMs === undefined ||
-      endedAtMs === undefined ||
       !Number.isFinite(startedAtMs) ||
-      !Number.isFinite(endedAtMs) ||
-      endedAtMs < startedAtMs
+      (endedAtMs === undefined && status !== "pending" && status !== "running")
     ) continue;
+    const endMs = endedAtMs ?? nowMs;
+    if (!Number.isFinite(endMs) || endMs < startedAtMs) continue;
     startedAt = Math.min(startedAt, startedAtMs);
-    endedAt = Math.max(endedAt, endedAtMs);
+    endedAt = Math.max(endedAt, endMs);
   }
   return endedAt > startedAt ? endedAt - startedAt : 0;
 }

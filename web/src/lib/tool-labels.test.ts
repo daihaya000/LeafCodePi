@@ -208,12 +208,18 @@ describe("toolInputFields", () => {
 });
 
 describe("toolElapsedMs", () => {
-  const toolPart = (id: string, startedAtMs?: number, endedAtMs?: number): UiPart => ({
+  type ToolStatus = Extract<UiPart, { type: "tool" }>["state"]["status"];
+  const toolPart = (
+    id: string,
+    startedAtMs?: number,
+    endedAtMs?: number,
+    status: ToolStatus = "completed",
+  ): UiPart => ({
     id,
     type: "tool",
     tool: "read",
     callID: `${id}-call`,
-    state: { status: "completed", ...(startedAtMs === undefined ? {} : { startedAtMs }), ...(endedAtMs === undefined ? {} : { endedAtMs }) },
+    state: { status, ...(startedAtMs === undefined ? {} : { startedAtMs }), ...(endedAtMs === undefined ? {} : { endedAtMs }) },
   });
 
   it("spans the first start to the last end instead of summing durations", () => {
@@ -230,6 +236,10 @@ describe("toolElapsedMs", () => {
       toolPart("a", 1_000, 2_000),
     ];
     expect(toolElapsedMs(parts)).toBe(3_500);
+  });
+
+  it("uses the current time while a tool is running", () => {
+    expect(toolElapsedMs([toolPart("running", 500, undefined, "running")], 2_000)).toBe(1_500);
   });
 
   it("returns 0 when no tool has both timestamps", () => {

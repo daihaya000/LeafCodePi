@@ -30,7 +30,6 @@ import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
-import { toolElapsedMs } from "@/lib/tool-labels";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { DiffPane } from "@/components/task/DiffPane";
 import { useTaskPanes } from "@/components/shell/TaskPanesContext";
@@ -53,7 +52,7 @@ import {
   QueuedFollowUpsNotice,
   type QueuedFollowUp,
 } from "@/components/task/QueuedFollowUpsNotice";
-import { Badge, Button, cx, formatDuration, GhostSelect } from "@/components/ui";
+import { Badge, Button, cx, formatDuration, GhostSelect, useToolElapsedMs } from "@/components/ui";
 import {
   AUTO_MODEL_OPTION,
   AUTO_MODEL_VALUE,
@@ -592,12 +591,15 @@ function taskMessageBlocks(messages: UiMessage[], ungroupedMessageId?: string): 
 function TaskToolActivityGroup({
   contents,
   count,
-  elapsedMs,
+  parts,
+  active,
 }: {
   contents: ReactNode[];
   count: number;
-  elapsedMs: number;
+  parts: readonly UiPart[];
+  active: boolean;
 }) {
+  const elapsedMs = useToolElapsedMs(parts, active);
   return (
     <details
       data-task-tool-group
@@ -2923,10 +2925,6 @@ export const TaskView = memo(function TaskView({
                 block.kind === "tool-group"
                   ? block.entries.reduce((count, entry) => count + taskActivityCount(entry), 0)
                   : 0;
-              const activityElapsedMs =
-                block.kind === "tool-group"
-                  ? toolElapsedMs(block.entries.flatMap((entry) => entry.activityMessage.parts))
-                  : 0;
               return (
                 <div
                   key={
@@ -2951,7 +2949,8 @@ export const TaskView = memo(function TaskView({
                     <TaskToolActivityGroup
                       contents={activityContents}
                       count={activityCount}
-                      elapsedMs={activityElapsedMs}
+                      parts={block.entries.flatMap((entry) => entry.activityMessage.parts)}
+                      active={active}
                     />
                   ) : showResume &&
                     resumeInsideExistingBanner &&

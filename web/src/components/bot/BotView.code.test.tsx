@@ -338,6 +338,30 @@ it("groups consecutive tool-only entries without hiding messages", async () => {
   expect(screen.getByText("確認しました").closest("details")).toBeNull();
 });
 
+it("updates the collapsed tool elapsed time while a tool is running", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(1_000);
+  const { container } = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  snapshot({ messages: [{
+    id: "running-tool",
+    role: "assistant",
+    createdAt: 2,
+    parts: [{
+      id: "tool-1",
+      type: "tool",
+      tool: "read",
+      callID: "call-1",
+      state: { status: "running", startedAtMs: 1_000 },
+    }],
+  }], isStreaming: true });
+
+  const summary = () => container.querySelector("details[data-bot-tool-group] summary")?.textContent ?? "";
+  expect(summary()).not.toContain("2s");
+  await act(async () => { await vi.advanceTimersByTimeAsync(2_100); });
+  expect(summary()).toContain("1件 · 2s");
+});
+
 it("pauses Code request polling while the Bot tab is hidden", async () => {
   const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
   snapshot({ messages: [{

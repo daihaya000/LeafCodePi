@@ -17,6 +17,8 @@ import { createPortal } from "react-dom";
 import { useTheme } from "next-themes";
 import { Check, ChevronDown, Loader2, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toolElapsedMs } from "@/lib/tool-labels";
+import type { UiPart } from "@/lib/types";
 
 function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(" ");
@@ -610,6 +612,27 @@ export function formatDuration(ms: number): string {
   if (hours > 0) return `${hours}h ${minutes}m`;
   if (minutes > 0) return `${minutes}m ${seconds}s`;
   return `${seconds}s`;
+}
+
+/** 実行中のツールがある間だけ100msごとに再計算し、完了後は固定する。 */
+export function useToolElapsedMs(parts: readonly UiPart[], enabled = true): number {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const hasRunningTool = parts.some(
+    (part) =>
+      part.type === "tool" &&
+      (part.state.status === "pending" || part.state.status === "running") &&
+      part.state.endedAtMs === undefined &&
+      Number.isFinite(part.state.startedAtMs),
+  );
+
+  useEffect(() => {
+    if (!enabled || !hasRunningTool) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 100);
+    return () => window.clearInterval(timer);
+  }, [enabled, hasRunningTool]);
+
+  return toolElapsedMs(parts, nowMs);
 }
 
 export function timeAgo(iso: string | number | null | undefined): string {

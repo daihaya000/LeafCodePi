@@ -9,8 +9,7 @@ import { getJson, sendJson } from "@/lib/client";
 import { notifyBotSidebarChanged } from "@/lib/events";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
-import { Button, formatDuration } from "@/components/ui";
-import { toolElapsedMs } from "@/lib/tool-labels";
+import { Button, formatDuration, useToolElapsedMs } from "@/components/ui";
 import { BotAvatarPicker, type AvatarPatch } from "@/components/bot/BotAvatarPicker";
 import { BotSkillsSettings } from "@/components/bot/BotSkillsSettings";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
@@ -68,7 +67,7 @@ function botMessageDisplayData(message: UiMessage): BotMessageDisplayData {
 type BotToolPart = Extract<UiPart, { type: "tool" }>;
 
 function BotToolActivityGroup({ parts, botId, active }: { parts: BotToolPart[]; botId: string; active: boolean }) {
-  const elapsedMs = toolElapsedMs(parts);
+  const elapsedMs = useToolElapsedMs(parts, active);
   return (
     <details
       data-bot-tool-group
