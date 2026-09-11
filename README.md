@@ -129,7 +129,7 @@ pi install ./extensions/leafcode-intercom
 
 ### 読み上げ (`leafcode-tts`)
 
-`extensions/leafcode-tts` は Bot / エージェントの発言を読み上げます。既定は OFF で、`/tts`（`/tts on`・`/tts off`・`/tts test`）で切り替えます。設定画面から無効化できる唯一の `leafcode-*` 拡張です。
+`extensions/leafcode-tts` は Bot / エージェントの発言を読み上げます。既定は OFF で、`/tts`（`/tts on`・`/tts off`・`/tts test`）で切り替えます。`on` / `off` / トグルは `%APPDATA%\leafcode-pi\tts.json` の `enabled` に保存され、再起動後も維持されます。入力や次のエージェント開始で未再生分を捨て、発話中なら再生プロセスを止めて即断します。設定画面から無効化できる唯一の `leafcode-*` 拡張です。
 
 文章全体をまとめて渡さず、streaming の `text_delta` を「、」「。」「！」「？」と改行で短く区切り、合成と再生を並行させる Producer/Consumer 方式です。コードブロック・URL・Markdown 記法は読み上げません。サブエージェントの子プロセスでは無効です。
 

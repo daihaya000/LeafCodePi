@@ -9,9 +9,9 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const SUBAGENT_CHILD_ENV = "PI_SUBAGENT_CHILD";
@@ -179,13 +179,18 @@ export class Speaker {
     void this.pump();
   }
 
-  /** 未再生分を捨てる。ponytail: 発話中の 1 チャンクは鳴り切る。即断が要るなら SpeakAsyncCancelAll を足す。 */
+  /** 未再生分を捨て、発話中なら worker ごと殺して即断する。Speak() は同期なのでキャンセルコマンドを差し込めない。 */
   stop(): void {
     for (const job of this.queue) {
       // 先行合成した wav は再生されないので、到着次第消す。
       if (job.kind === "P") void job.body.then((file) => file && rmSync(file, { force: true })).catch(() => {});
     }
     this.queue = [];
+    if (!this.busy || !this.worker) return;
+    const worker = this.worker;
+    this.worker = null;
+    this.busy = false;
+    worker.kill(); // SAPI / wav 再生のどちらも OS 側で止まる。次の say で worker を起こし直す。
   }
 
   dispose(): void {
@@ -289,6 +294,18 @@ export function readTtsConfig(file = join(leafcodeDataDir(), CONFIG_FILE)): TtsC
   }
 }
 
+/** `/tts` の ON/OFF などを tts.json に書く。ディレクトリが無ければ作る。 */
+export function writeTtsConfig(config: TtsConfig, file = join(leafcodeDataDir(), CONFIG_FILE)): void {
+  mkdirSync(dirname(file), { recursive: true });
+  const body: Record<string, unknown> = {
+    enabled: config.enabled === true,
+    rate: typeof config.rate === "number" && Number.isFinite(config.rate) ? Math.max(-10, Math.min(10, config.rate)) : 0,
+  };
+  if (config.voice?.trim()) body.voice = config.voice.trim();
+  if (config.url?.trim()) body.url = config.url.trim();
+  writeFileSync(file, `${JSON.stringify(body, null, 2)}\n`, "utf8");
+}
+
 // ---------------------------------------------------------------------------
 // 拡張本体
 // ---------------------------------------------------------------------------
@@ -339,6 +356,13 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
       enabled = arg === "on" ? true : arg === "off" ? false : !enabled;
+      config = { ...config, enabled };
+      try {
+        writeTtsConfig(config);
+      } catch (error) {
+        ctx.ui.notify(`TTS: 設定の保存に失敗 (${error instanceof Error ? error.message : String(error)})`, "error");
+        return;
+      }
       if (!enabled) stop();
       const backend = config.url ? `HTTP ${config.url}` : "Windows SAPI";
       ctx.ui.notify(`TTS: ${enabled ? `ON (${backend})` : "OFF"}`, "info");

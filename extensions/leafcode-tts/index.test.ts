@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { cut, readTtsConfig, speakable, SpeechChunker } from "./index.ts";
+import { cut, readTtsConfig, speakable, SpeechChunker, writeTtsConfig } from "./index.ts";
 
 /** Speaker.say と同じ前処理を通した結果だけを読み上げ単位として比較する。 */
 function spoken(chunker: SpeechChunker, delta: string): string[] {
@@ -105,6 +105,34 @@ describe("readTtsConfig", () => {
         rate: 10,
         voice: undefined,
         url: "http://127.0.0.1:8080/tts",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("writeTtsConfig", () => {
+  it("/tts の enabled を読み戻せる形で保存する", () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-tts-"));
+    const file = join(dir, "nested", "tts.json");
+    try {
+      writeTtsConfig(
+        { enabled: true, rate: 2, voice: "Microsoft Haruka Desktop", url: "http://127.0.0.1:8080/tts" },
+        file,
+      );
+      expect(readTtsConfig(file)).toEqual({
+        enabled: true,
+        rate: 2,
+        voice: "Microsoft Haruka Desktop",
+        url: "http://127.0.0.1:8080/tts",
+      });
+      writeTtsConfig({ enabled: false, rate: 0 }, file);
+      expect(readTtsConfig(file)).toEqual({
+        enabled: false,
+        rate: 0,
+        voice: undefined,
+        url: undefined,
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });
