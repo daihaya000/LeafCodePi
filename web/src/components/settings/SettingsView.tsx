@@ -309,14 +309,13 @@ export function SettingsView() {
               <SettingsGroup
                 id="engine-display-heading"
                 title="表示と通知"
-                description="起動時の既定値、表示、通知音、読み上げ、メッセージ移動ボタンを設定します。"
+                description="起動時の既定値、表示、通知音、メッセージ移動ボタンを設定します。"
               >
                 <div className="grid gap-4 xl:grid-cols-2">
                   <ComposerDefaultsSettings refreshToken={modelsRevision} />
                   <BrowserSettings />
                   <NavigatorSettings />
                   <NotificationSoundSettings />
-                  <TtsSettings />
                   <div className="rounded-2xl border border-border bg-surface p-4">
                     <h3 className="text-sm font-semibold">テーマ</h3>
                     <p className="mt-1 text-xs text-muted">
@@ -329,10 +328,11 @@ export function SettingsView() {
               <SettingsGroup
                 id="models-local-heading"
                 title="ローカル推論"
-                description="llama-server のモデル、起動状態、推論パラメータを設定します。"
+                description="llama-server のモデル、起動状態、推論パラメータ、読み上げを設定します。"
               >
-                <div id="models-local" className="scroll-mt-24">
+                <div id="models-local" className="scroll-mt-24 grid gap-4 xl:grid-cols-2">
                   <LlamaServerSettings active={tab === "engine"} />
+                  <TtsSettings />
                 </div>
               </SettingsGroup>
 

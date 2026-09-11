@@ -232,6 +232,10 @@ describe("SettingsView", () => {
     const accessSection = screen.getByRole("heading", { name: "アクセスと安全" }).closest("section");
     expect(accessSection?.querySelector(":scope > div.grid")?.className).toContain("xl:grid-cols-2");
     expect(screen.getByRole("heading", { name: "ローカル LLM" })).toBeTruthy();
+    const localSection = screen.getByRole("heading", { name: "ローカル推論" }).closest("section");
+    const localGrid = localSection?.querySelector(":scope > div#models-local");
+    expect(localGrid?.className).toContain("xl:grid-cols-2");
+    expect(localGrid?.children).toHaveLength(2);
     expect(screen.getByRole("heading", { name: "メモリ", level: 2 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
     const displaySection = screen.getByRole("heading", { name: "表示と通知" }).closest("section");
