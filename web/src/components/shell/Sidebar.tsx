@@ -1386,16 +1386,21 @@ const SidebarView = memo(function SidebarView({
       return;
     }
     setActionError(null);
+    const showReaderError = () => {
+      setActionError("プロジェクトアイコンの読み込みに失敗しました");
+    };
     const reader = new FileReader();
     reader.onload = () => {
       void runAction(`icon:${project.id}`, () =>
         sendJson("/api/projects", { id: project.id, icon: String(reader.result) }, "PATCH"),
       );
     };
-    reader.onerror = () => {
-      setActionError("プロジェクトアイコンの読み込みに失敗しました");
-    };
-    reader.readAsDataURL(file);
+    reader.onerror = showReaderError;
+    try {
+      reader.readAsDataURL(file);
+    } catch {
+      showReaderError();
+    }
   }
 
   const cancelProjectTaskMenuHide = useCallback(() => {
