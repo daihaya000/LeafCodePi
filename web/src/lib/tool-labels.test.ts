@@ -240,4 +240,8 @@ describe("toolElapsedMs", () => {
   it("ignores a tool whose end precedes its start", () => {
     expect(toolElapsedMs([toolPart("valid", 1_000, 2_000), toolPart("clock-skew", 5_000, 4_000)])).toBe(1_000);
   });
+
+  it("keeps valid durations when another tool has a non-finite timestamp", () => {
+    expect(toolElapsedMs([toolPart("zero", 0, 1_000), toolPart("invalid", Number.NaN, 50_000)])).toBe(1_000);
+  });
 });
