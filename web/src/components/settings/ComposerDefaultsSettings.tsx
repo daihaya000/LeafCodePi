@@ -146,7 +146,7 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
                 setThinkingLevel(level);
                 writeStoredThinkingLevel(level);
               }}
-              className={`${SELECT_CLASS} flex items-center justify-between`}
+              className="mt-2 h-9 w-full [&>button]:text-sm"
             />
           )}
         </label>
