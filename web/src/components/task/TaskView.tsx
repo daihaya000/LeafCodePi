@@ -618,7 +618,7 @@ function TurnNoticeBanner({
   return (
     <div
       className={cx(
-        "rounded-lg border px-3 py-2",
+        "w-full max-w-bubble self-start rounded-lg border px-3 py-2",
         tone === "danger"
           ? "border-danger/30 bg-danger-bg"
           : "border-border bg-surface-2",
