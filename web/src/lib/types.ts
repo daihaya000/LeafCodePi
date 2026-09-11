@@ -348,6 +348,8 @@ export type UiMessage = {
   goalLoopTurn?: GoalLoopTurn;
   /** この応答を生成した認証アカウント（未設定 = 既定）。アカウント切替の履歴確認用。 */
   accountId?: string;
+  /** この応答を生成したエージェント（Composer変更後も履歴ごとに保持）。 */
+  agent?: string;
   /** ハング watchdog による自動再送 user メッセージ（UI 非表示）。 */
   hangRetry?: boolean;
   model?: string;

@@ -1,5 +1,6 @@
 import {
   entryIdsForProjectedMessages,
+  isAgentSwitchMarker,
   isGoalLoopTurnMarker,
   piRawMessageProjectsToUi,
   projectPiMessages,
@@ -94,6 +95,10 @@ export type MessageAccountContext = {
   accountId: string | null;
   /** 一度記録したメッセージのアカウント。セッション置き換え後も過去の値を保持する。 */
   byMessageId: Map<string, string>;
+  /** 現在のセッションエージェント（null = 既定）。 */
+  agentName?: string | null;
+  /** 一度記録したメッセージのエージェント。セッション置き換え後も過去の値を保持する。 */
+  agentByMessageId?: Map<string, string | null>;
 };
 
 /** アシスタントメッセージへ生成時のアカウントを記録する（初回のみ記録、以降は保持）。 */
@@ -113,6 +118,28 @@ export function applyMessageAccountIds(
     if (!recorded || message.accountId === recorded) return message;
     changed = true;
     return { ...message, accountId: recorded };
+  });
+  return changed ? result : messages;
+}
+
+/** アシスタントメッセージへ生成時のエージェントを記録する（初回のみ記録、以降は保持）。 */
+export function applyMessageAgentIds(
+  messages: UiMessage[],
+  context: MessageAccountContext,
+): UiMessage[] {
+  const { agentName, agentByMessageId } = context;
+  if (!agentByMessageId) return messages;
+  let changed = false;
+  const result = messages.map((message) => {
+    if (message.role !== "assistant") return message;
+    if (!agentByMessageId.has(message.id)) {
+      const inferred = message.agent?.trim() || agentName?.trim() || null;
+      agentByMessageId.set(message.id, inferred);
+    }
+    const recorded = agentByMessageId.get(message.id) ?? null;
+    if (recorded === (message.agent?.trim() || null)) return message;
+    changed = true;
+    return recorded ? { ...message, agent: recorded } : { ...message, agent: undefined };
   });
   return changed ? result : messages;
 }
@@ -162,7 +189,11 @@ export function snapshotMessages(
             details: entry.details,
             timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
           };
-          if (!piRawMessageProjectsToUi(message) && !isGoalLoopTurnMarker(message)) return [];
+          if (
+            !piRawMessageProjectsToUi(message) &&
+            !isGoalLoopTurnMarker(message) &&
+            !isAgentSwitchMarker(message)
+          ) return [];
           entryIdByMessage.set(message, entry.id);
           return [message];
         }
@@ -322,6 +353,7 @@ export function snapshotMessages(
   }
   if (accountContext) {
     projected = applyMessageAccountIds(projected, accountContext);
+    projected = applyMessageAgentIds(projected, accountContext);
   }
   return projected;
 }

@@ -20,6 +20,40 @@ function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+const AGENT_SWITCH_CUSTOM_TYPE = "leafcode-pi.agent-switch";
+const DEFAULT_AGENT_LABEL = "the default assistant persona";
+
+type AgentSwitch = {
+  previousAgent?: string;
+  nextAgent?: string;
+};
+
+function normalizedAgent(value: unknown): string | undefined {
+  const name = asString(value).trim();
+  return name && name !== DEFAULT_AGENT_LABEL ? name : undefined;
+}
+
+/** Hidden session markers let archived transcripts retain persona boundaries. */
+function agentSwitchFromRaw(item: Record<string, unknown>): AgentSwitch | null {
+  if (item.customType !== AGENT_SWITCH_CUSTOM_TYPE) return null;
+  const details = isRecord(item.details) ? item.details : null;
+  if (details && ("previousAgent" in details || "nextAgent" in details)) {
+    return {
+      previousAgent: normalizedAgent(details.previousAgent),
+      nextAgent: normalizedAgent(details.nextAgent),
+    };
+  }
+  const match = asString(item.content).match(/switched from \"([^\"]*)\" to \"([^\"]*)\"/);
+  return match
+    ? { previousAgent: normalizedAgent(match[1]), nextAgent: normalizedAgent(match[2]) }
+    : null;
+}
+
+/** Hidden persona boundary marker retained in the session branch for projection. */
+export function isAgentSwitchMarker(item: unknown): boolean {
+  return isRecord(item) && agentSwitchFromRaw(item) !== null;
+}
+
 function diagnosticFromRaw(value: unknown): UiDiagnostic | null {
   if (!isRecord(value)) return null;
   const type = asString(value.type).trim();
@@ -296,6 +330,13 @@ export function toolTimingFromSessionEntries(entries: unknown[]): {
 export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] {
   const messages: UiMessage[] = [];
   let activeGoalLoopTurn: GoalLoopTurn | undefined;
+  // The first marker describes the persona that produced the preceding history.
+  // Later markers switch the active persona for messages that follow them.
+  let activeAgent = raw
+    .filter(isRecord)
+    .map(agentSwitchFromRaw)
+    .find((switchInfo): switchInfo is AgentSwitch => switchInfo !== null)
+    ?.previousAgent;
   raw.forEach((item, index) => {
     if (!isRecord(item)) return;
     const role = asString(item.role);
@@ -326,6 +367,8 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
     }
 
     if (role === "custom") {
+      const agentSwitch = agentSwitchFromRaw(item);
+      if (agentSwitch) activeAgent = agentSwitch.nextAgent;
       if (isGoalLoopTurnMarker(item)) {
         activeGoalLoopTurn = goalLoopTurnFromRaw(item) ?? undefined;
       }
@@ -394,6 +437,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
         createdAt,
         parts,
         ...(activeGoalLoopTurn ? { goalLoopTurn: activeGoalLoopTurn } : {}),
+        ...(activeAgent ? { agent: activeAgent } : {}),
         model: asString(item.model) || undefined,
         provider: asString(item.provider) || undefined,
         // Pi intentionally omits errorMessage for user aborts. Keep the
@@ -425,6 +469,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
         role: "assistant",
         createdAt,
         ...(activeGoalLoopTurn ? { goalLoopTurn: activeGoalLoopTurn } : {}),
+        ...(activeAgent ? { agent: activeAgent } : {}),
         parts: [
           {
             id: `${id}-bash`,

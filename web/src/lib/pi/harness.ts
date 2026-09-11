@@ -41,6 +41,7 @@ import {
 import { toolResultText, titleFromPrompt, toolTimingFromSessionEntries } from "@/lib/pi/messages";
 import {
   applyMessageAccountIds,
+  applyMessageAgentIds,
   applyThroughput,
   applyToolOutput,
   applyToolTiming,
@@ -49,6 +50,7 @@ import {
 } from "@/lib/pi/snapshot-messages";
 export {
   applyMessageAccountIds,
+  applyMessageAgentIds,
   applyThroughput,
   applyToolOutput,
   applyToolTiming,
@@ -312,6 +314,10 @@ type LiveRuntime = {
   accountId: string | null;
   /** メッセージID → 生成時の認証アカウント。セッション置き換え後も保持して過去の表示を守る。 */
   accountByMessageId: Map<string, string>;
+  /** セッション生成時のエージェント（null = 既定）。 */
+  agentName: string | null;
+  /** メッセージID → 生成時のエージェント。セッション置き換え後も保持して過去の表示を守る。 */
+  agentByMessageId: Map<string, string | null>;
   session: AgentSession;
   skillPermission: SkillPermission;
   skillPermissionRef: { current: SkillPermission };
@@ -365,6 +371,15 @@ type LiveRuntime = {
   /** Restore the user's retry setting after suppressing a duplicate limit retry. */
   restoreAutoRetry: boolean;
 };
+
+function messageContext(live: LiveRuntime): MessageAccountContext {
+  return {
+    accountId: live.accountId,
+    byMessageId: live.accountByMessageId,
+    agentName: live.agentName,
+    agentByMessageId: live.agentByMessageId,
+  };
+}
 
 type SessionSetup = {
   session: AgentSession;
@@ -517,7 +532,7 @@ function permissionSnapshotExtras(taskId: string): Record<string, unknown> {
       live.toolStartedAt,
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
-      { accountId: live.accountId, byMessageId: live.accountByMessageId },
+      messageContext(live),
     ),
     manualAbortedAssistantId: live.manualAbortedAssistantId,
     hangRetryCount: live.hangRetryCount,
@@ -755,7 +770,7 @@ async function ensureRuntime(): Promise<void> {
             live.toolEndedAt,
             live.toolPartialOutputByCallId,
             false,
-            { accountId: live.accountId, byMessageId: live.accountByMessageId },
+            messageContext(live),
           ),
           hasPendingAttention:
             pendingPermissionForTask(taskId) !== null ||
@@ -1212,7 +1227,7 @@ function emitTaskSnapshot(
       live.toolStartedAt,
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
-      { accountId: live.accountId, byMessageId: live.accountByMessageId },
+      messageContext(live),
     ),
     manualAbortedAssistantId: live.manualAbortedAssistantId,
     hangRetryCount: live.hangRetryCount,
@@ -1239,7 +1254,7 @@ function emitTaskDelta(live: LiveRuntime, eventType: string): void {
     live.toolEndedAt,
     live.toolPartialOutputByCallId,
     true,
-    { accountId: live.accountId, byMessageId: live.accountByMessageId },
+    messageContext(live),
   ).at(-1) ?? null;
   const contextUsage = sessionContextUsage(live.session);
   emit(live.taskId, {
@@ -1534,8 +1549,10 @@ async function attachSession(
 ): Promise<LiveRuntime> {
   const current = state();
   const existing = current.live.get(taskId);
+  const attachedTask = getTask(taskId);
   // タスクの利用アカウント。セッション生存中はマネージャ参照で蒸発対象外にする。
-  const attachedAccountId = getTask(taskId)?.accountId ?? null;
+  const attachedAccountId = attachedTask?.accountId ?? null;
+  const attachedAgentName = attachedTask?.agent?.trim() || null;
   const keepsExistingAccountRef =
     Boolean(attachedAccountId && existing?.accountId === attachedAccountId);
   if (attachedAccountId && !keepsExistingAccountRef) {
@@ -1565,6 +1582,8 @@ async function attachSession(
     taskId,
     accountId: attachedAccountId,
     accountByMessageId: existing?.accountByMessageId ?? new Map(),
+    agentName: attachedAgentName,
+    agentByMessageId: existing?.agentByMessageId ?? new Map(),
     session,
     skillPermission: skillPermissionRef.current,
     skillPermissionRef,
@@ -1798,8 +1817,15 @@ function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
     goalLoop: (task) => readGoalLoopState(task.directory, state().live.get(task.id)?.session.sessionId ?? task.sessionId),
     messages: async (task) => {
       const live = state().live.get(task.id);
-      return live ? snapshotMessages(live.session, live.throughputByStartedAt, live.toolStartedAt, live.toolEndedAt, live.toolPartialOutputByCallId)
-        : (await readArchivedTaskSnapshot(task)).messages;
+      return live ? snapshotMessages(
+        live.session,
+        live.throughputByStartedAt,
+        live.toolStartedAt,
+        live.toolEndedAt,
+        live.toolPartialOutputByCallId,
+        false,
+        messageContext(live),
+      ) : (await readArchivedTaskSnapshot(task)).messages;
     },
     deliver: async (request) => {
       const live = await ensureLive(request.originTaskId);
@@ -4967,7 +4993,7 @@ export async function getTaskDetail(
       live.toolStartedAt,
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
-      { accountId: live.accountId, byMessageId: live.accountByMessageId },
+      messageContext(live),
       includeMessages,
       options.onTiming,
     );
@@ -5456,6 +5482,10 @@ async function replaceLiveForAgent(
       customType: AGENT_SWITCH_CUSTOM_TYPE,
       content: agentSwitchNotice(task.agent?.trim(), agentName),
       display: false,
+      details: {
+        previousAgent: task.agent?.trim() || null,
+        nextAgent: agentName.trim() || null,
+      },
     });
   }
   const thinkingLevel =
@@ -6511,7 +6541,7 @@ export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
       false,
-      { accountId: live.accountId, byMessageId: live.accountByMessageId },
+      messageContext(live),
     );
     let promptIndex = -1;
     for (let i = msgs.length - 1; i >= 0; i -= 1) {
@@ -6685,6 +6715,10 @@ export async function setTaskAgent(
       customType: AGENT_SWITCH_CUSTOM_TYPE,
       content: agentSwitchNotice(task.agent?.trim(), normalized),
       display: false,
+      details: {
+        previousAgent: task.agent?.trim() || null,
+        nextAgent: normalized || null,
+      },
     });
   }
 
@@ -6831,7 +6865,7 @@ export async function setTaskModel(
       live.toolStartedAt,
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
-      { accountId: live.accountId, byMessageId: live.accountByMessageId },
+      messageContext(live),
     ),
   });
   return summary;
@@ -6868,7 +6902,7 @@ export async function setTaskThinkingLevel(
       live.toolStartedAt,
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
-      { accountId: live.accountId, byMessageId: live.accountByMessageId },
+      messageContext(live),
     ),
   });
   return summary;
@@ -6965,7 +6999,7 @@ export async function revertTask(
       live.toolStartedAt,
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
-      { accountId: live.accountId, byMessageId: live.accountByMessageId },
+      messageContext(live),
     ),
     revertLeafId: live.revertLeafId,
     eventType: "revert",
@@ -7129,7 +7163,7 @@ export async function unrevertTask(id: string): Promise<TaskDetail> {
       live.toolStartedAt,
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
-      { accountId: live.accountId, byMessageId: live.accountByMessageId },
+      messageContext(live),
     ),
     revertLeafId: null,
     eventType: "unrevert",

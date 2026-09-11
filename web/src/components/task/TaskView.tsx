@@ -2838,7 +2838,7 @@ export const TaskView = memo(function TaskView({
                                 message={entry.message}
                                 modelLabel={modelLabel}
                                 effort={effortLabel}
-                                agent={task?.agent ?? undefined}
+                                agent={entry.message.agent ?? task?.agent ?? undefined}
                                 accountLabel={accountLabel}
                               />
                             </MessageHeader>,
@@ -2879,7 +2879,7 @@ export const TaskView = memo(function TaskView({
                           message={message}
                           modelLabel={modelLabel}
                           effort={effortLabel}
-                          agent={task?.agent ?? undefined}
+                          agent={message.agent ?? task?.agent ?? undefined}
                           accountLabel={accountLabel}
                           references={messageReferences}
                           taskId={taskId}
@@ -2938,7 +2938,11 @@ export const TaskView = memo(function TaskView({
                           : undefined
                       }
                       effort={block.message.role === "assistant" ? effortLabel : undefined}
-                      agent={block.message.role === "assistant" ? task?.agent ?? undefined : undefined}
+                      agent={
+                        block.message.role === "assistant"
+                          ? block.message.agent ?? task?.agent ?? undefined
+                          : undefined
+                      }
                       accountLabel={
                         block.message.role === "assistant"
                           ? block.message.accountId

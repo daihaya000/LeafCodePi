@@ -82,6 +82,65 @@ describe("snapshotMessages", () => {
     expect(second.find((message) => message.role === "assistant")?.accountId).toBe("acc-1");
   });
 
+  it("records the generating agent and keeps it after rerouting", () => {
+    const stored: unknown[] = [
+      { role: "user", content: "確認して" },
+      { role: "assistant", content: [{ type: "text", text: "build の回答" }] },
+    ];
+    const fake = {
+      messages: stored,
+      agent: { state: { streamingMessage: undefined as unknown } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [] },
+    };
+    const session = fake as unknown as Parameters<typeof snapshotMessages>[0];
+    const agentByMessageId = new Map<string, string | null>();
+    const first = snapshotMessages(
+      session,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      { accountId: null, byMessageId: new Map(), agentName: "build", agentByMessageId },
+    );
+    expect(first.find((message) => message.role === "assistant")?.agent).toBe("build");
+
+    // Composerで役職を変更しても、既存メッセージは生成時の役職を維持する。
+    const second = snapshotMessages(
+      session,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      { accountId: null, byMessageId: new Map(), agentName: "plan", agentByMessageId },
+    );
+    expect(second.find((message) => message.role === "assistant")?.agent).toBe("build");
+  });
+
+  it("projects agent-switch boundaries for archived transcripts", () => {
+    const stored: unknown[] = [
+      { role: "user", content: "最初" },
+      { role: "assistant", content: [{ type: "text", text: "build の回答" }] },
+      {
+        role: "custom",
+        customType: "leafcode-pi.agent-switch",
+        content: "[Session notice] persona switched",
+        details: { previousAgent: "build", nextAgent: "plan" },
+      },
+      { role: "user", content: "続き" },
+      { role: "assistant", content: [{ type: "text", text: "plan の回答" }] },
+    ];
+    const fake = {
+      messages: stored,
+      agent: { state: { streamingMessage: undefined as unknown } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [] },
+    };
+    const session = fake as unknown as Parameters<typeof snapshotMessages>[0];
+    const assistants = snapshotMessages(session).filter((message) => message.role === "assistant");
+    expect(assistants.map((message) => message.agent)).toEqual(["build", "plan"]);
+  });
+
   it("assigns the new account to messages added after rerouting", () => {
     const stored: unknown[] = [
       { role: "user", content: "確認して" },
