@@ -84,6 +84,48 @@ describe("GoalLoopPanel progress", () => {
     expect(progress.firstElementChild?.classList.contains("bg-success")).toBe(true);
   });
 
+  it("collapses long details but keeps errors visible and allows expansion", () => {
+    render(
+      <GoalLoopPanel
+        loop={loopFixture({ status: "blocked", error: "確認が必要です", cooldownSeconds: 30 })}
+        busy={false}
+        onAction={() => {}}
+        onResume={() => {}}
+      />,
+    );
+
+    const toggle = screen.getByRole("button", { name: "ループの詳細" });
+    const details = document.getElementById(toggle.getAttribute("aria-controls")!)!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(details.hidden).toBe(true);
+    expect(screen.getByText("確認が必要です").closest("[hidden]")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(details.hidden).toBe(false);
+    expect(details.textContent).toContain("テストを完了する");
+    expect(details.textContent).toContain("クールタイム: 30s");
+    fireEvent.click(toggle);
+    expect(details.hidden).toBe(true);
+  });
+
+  it("keeps named pause and stop controls usable when collapsed and disabled while busy", () => {
+    const onAction = vi.fn();
+    const props = { loop: loopFixture(), onAction, onResume: () => {} };
+    const { rerender } = render(<GoalLoopPanel {...props} busy={false} />);
+    const pause = screen.getByRole("button", { name: "一時停止" }) as HTMLButtonElement;
+    const stop = screen.getByRole("button", { name: "停止" }) as HTMLButtonElement;
+    fireEvent.click(pause);
+    fireEvent.click(stop);
+    expect(onAction.mock.calls).toEqual([["pause"], ["stop"]]);
+
+    rerender(<GoalLoopPanel {...props} busy />);
+    expect(pause.disabled).toBe(true);
+    expect(stop.disabled).toBe(true);
+    fireEvent.click(stop);
+    expect(onAction).toHaveBeenCalledTimes(2);
+  });
+
   it("offers completion at the turn limit", () => {
     const onAction = vi.fn();
     render(

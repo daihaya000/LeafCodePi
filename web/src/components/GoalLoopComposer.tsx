@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ListTodo } from "lucide-react";
+import { ChevronDown, ListTodo } from "lucide-react";
 import { cx } from "@/components/ui";
 import {
   clampGoalLoopCooldownSeconds,
@@ -93,8 +93,17 @@ export function GoalLoopOptions({
   }
 
   return (
-    <div className="mt-2 flex flex-col gap-2 rounded-xl border border-border bg-surface-2/50 p-3 md:p-2">
-      <div className="flex flex-col items-stretch gap-2 md:flex-row md:flex-wrap md:items-start">
+    <details className="group/loop-options @container/loop-options mt-2 rounded-xl border border-border bg-surface-2/50">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl px-2 text-xs [&::-webkit-details-marker]:hidden">
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted transition-transform group-open/loop-options:rotate-180" aria-hidden="true" />
+        <span className="shrink-0 font-medium">ループ設定</span>
+        <span className="min-w-0 truncate text-muted">
+          {maxTurns === 0 ? "無制限" : `${maxTurns}ターン`}
+          {` · 待機 ${formatGoalLoopCooldownSeconds(cooldownSeconds)}`}
+          {forceFullRun ? " · 完走" : acceptance.trim() ? " · 承認条件あり" : ""}
+        </span>
+      </summary>
+      <div className="grid grid-cols-2 gap-2 border-t border-border p-2">
         {!forceFullRun && (
           <textarea
             value={acceptance}
@@ -103,10 +112,10 @@ export function GoalLoopOptions({
             rows={2}
             placeholder="承認条件（任意・1行に1つ）"
             aria-label="承認条件"
-            className="min-h-20 w-full resize-none rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-primary md:min-h-0 md:min-w-0 md:flex-1"
+            className="col-span-2 min-h-16 w-full resize-y rounded-lg border border-border bg-bg px-2 py-2 text-base outline-none focus:border-primary @lg/loop-options:text-sm"
           />
         )}
-        <label className="flex min-h-11 w-full items-center justify-between gap-1.5 text-xs text-muted md:min-h-0 md:w-auto md:shrink-0">
+        <label className="flex min-w-0 flex-col gap-1 text-xs text-muted @lg/loop-options:flex-row @lg/loop-options:items-center">
           <span title="0で無制限">最大ターン</span>
           <input
             type="number"
@@ -123,11 +132,11 @@ export function GoalLoopOptions({
                 commitMaxTurns();
               }
             }}
-            className="h-11 w-24 rounded-lg border border-border bg-bg px-2 text-sm text-text outline-none focus:border-primary md:h-8 md:w-16"
+            className="h-11 w-full min-w-0 rounded-lg border border-border bg-bg px-2 text-base text-text outline-none focus:border-primary @lg/loop-options:h-8 @lg/loop-options:w-20 @lg/loop-options:text-sm"
           />
         </label>
         <label
-          className="flex min-h-11 w-full items-center justify-between gap-1.5 text-xs text-muted md:min-h-0 md:w-auto md:shrink-0"
+          className="flex min-w-0 flex-col gap-1 text-xs text-muted @lg/loop-options:flex-row @lg/loop-options:items-center"
           title={GOAL_LOOP_COOLDOWN_HINT}
         >
           {GOAL_LOOP_COOLDOWN_LABEL}
@@ -146,24 +155,24 @@ export function GoalLoopOptions({
                 commitCooldown();
               }
             }}
-            className="h-11 w-24 rounded-lg border border-border bg-bg px-2 text-sm text-text outline-none focus:border-primary md:h-8"
+            className="h-11 w-full min-w-0 rounded-lg border border-border bg-bg px-2 text-base text-text outline-none focus:border-primary @lg/loop-options:h-8 @lg/loop-options:w-24 @lg/loop-options:text-sm"
           />
         </label>
+        <label className="col-span-2 flex min-h-11 cursor-pointer items-center gap-2 text-xs text-muted" title={GOAL_LOOP_FORCE_FULL_RUN_HINT}>
+          <input
+            type="checkbox"
+            checked={forceFullRun}
+            disabled={disabled}
+            aria-label="完走モード"
+            onChange={(event) => onForceFullRunChange(event.target.checked)}
+            className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+          />
+          <span>
+            完走モード
+            <span className="ml-1">（完了宣言なし・指定ターン数を必ず実行）</span>
+          </span>
+        </label>
       </div>
-      <label className="flex min-h-11 w-full cursor-pointer items-start gap-2 py-2 text-xs text-muted" title={GOAL_LOOP_FORCE_FULL_RUN_HINT}>
-        <input
-          type="checkbox"
-          checked={forceFullRun}
-          disabled={disabled}
-          aria-label="完走モード"
-          onChange={(event) => onForceFullRunChange(event.target.checked)}
-          className="mt-1 h-3.5 w-3.5 shrink-0 rounded border-border accent-primary"
-        />
-        <span>
-          完走モード
-          <span className="ml-1 text-faint">（完了宣言なし・指定ターン数を必ず実行）</span>
-        </span>
-      </label>
-    </div>
+    </details>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Check, CircleAlert, ListTodo, Pause, Play, Square } from "lucide-react";
+import { useEffect, useId, useState } from "react";
+import { Check, ChevronDown, CircleAlert, Pause, Play, Square } from "lucide-react";
 import { Button, cx } from "@/components/ui";
 import type { GoalLoopDto } from "@/lib/types";
 import { formatGoalLoopCooldownSeconds } from "@/lib/goal-loop-settings";
@@ -48,6 +48,8 @@ export function GoalLoopPanel({
   onAction: (action: "pause" | "stop" | "complete") => void;
   onResume: (maxTurns?: number) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const detailsId = useId();
   const [maxTurns, setMaxTurns] = useState(String(loop?.maxTurns ?? 10));
   useEffect(() => setMaxTurns(String(loop?.maxTurns ?? 10)), [loop?.maxTurns]);
 
@@ -97,35 +99,38 @@ export function GoalLoopPanel({
     <section
       aria-label="Goal loop"
       className={cx(
-        "mb-2 max-w-bubble rounded-xl border border-border bg-surface p-3 text-sm",
+        "@container/goal mb-2 max-w-bubble rounded-xl border border-border bg-surface p-2 text-sm",
         live && "border-primary/30",
       )}
     >
-      <div className="flex flex-wrap items-center gap-2">
-        <ListTodo className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-        <span className="font-medium">ループ</span>
-        <span
-          className={cx("rounded-full px-2 py-0.5 text-[11px]", badgeClass(loop.status))}
-          aria-label={`ループ状態: ${labels[loop.status]}、Goalターン ${shownTurn} / ${loop.maxTurns === 0 ? "無制限" : maxTurnsLabel}`}
+      <div className="flex flex-wrap items-center gap-1">
+        <button
+          type="button"
+          aria-label="ループの詳細"
+          aria-expanded={expanded}
+          aria-controls={detailsId}
+          onClick={() => setExpanded((value) => !value)}
+          className="flex min-h-11 min-w-0 flex-1 cursor-pointer flex-wrap items-center gap-1 rounded-lg px-1 text-left text-xs hover:bg-surface-2"
         >
-          {labels[loop.status]} {shownTurn}/{maxTurnsLabel}
-        </span>
-        {loop.forceFullRun && (
-          <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-muted">完走</span>
-        )}
-        <span className="min-w-0 flex-1 truncate text-xs text-muted" title={loop.goal}>
-          {loop.goal}
-        </span>
-        <div className="flex shrink-0 gap-1">
+          <ChevronDown className={cx("h-3.5 w-3.5 shrink-0 text-muted transition-transform", expanded && "rotate-180")} aria-hidden="true" />
+          <span className="font-medium">ループ</span>
+          <span
+            className={cx("rounded-full px-2 py-0.5", badgeClass(loop.status))}
+            aria-label={`ループ状態: ${labels[loop.status]}、Goalターン ${shownTurn} / ${loop.maxTurns === 0 ? "無制限" : maxTurnsLabel}`}
+          >
+            {labels[loop.status]} {shownTurn}/{maxTurnsLabel}
+          </span>
+        </button>
+        <div className={cx("flex shrink-0 flex-wrap items-center justify-end gap-1", canResume && needsTurns && "w-full @lg/goal:w-auto")}>
           {canPause && (
-            <Button variant="secondary" size="sm" disabled={busy} onClick={() => onAction("pause")}>
-              <Pause className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">一時停止</span>
+            <Button variant="secondary" size="sm" className="min-h-11 min-w-11" aria-label="一時停止" title="一時停止" disabled={busy} onClick={() => onAction("pause")}>
+              <Pause className="h-3.5 w-3.5" aria-hidden="true" />
+              <span className="hidden @lg/goal:inline">一時停止</span>
             </Button>
           )}
           {canComplete && (
-            <Button variant="primary" size="sm" disabled={busy} onClick={() => onAction("complete")}>
-              <Check className="h-3.5 w-3.5" />完了
+            <Button variant="primary" size="sm" className="min-h-11" disabled={busy} onClick={() => onAction("complete")}>
+              <Check className="h-3.5 w-3.5" aria-hidden="true" />完了
             </Button>
           )}
           {canResume && (
@@ -139,42 +144,31 @@ export function GoalLoopPanel({
                   disabled={busy}
                   aria-label="再開後の最大ターン数"
                   onChange={(event) => setMaxTurns(event.target.value)}
-                  className="h-8 w-16 rounded-lg border border-border bg-bg px-2 text-xs outline-none focus:border-primary"
+                  className="h-11 w-16 rounded-lg border border-border bg-bg px-2 text-base outline-none focus:border-primary @lg/goal:text-sm"
                 />
               )}
               <Button
                 variant="secondary"
                 size="sm"
+                className="min-h-11"
                 disabled={busy}
                 onClick={() => (needsTurns ? commitMaxTurns() : onResume())}
               >
-                <Play className="h-3.5 w-3.5" />再開
+                <Play className="h-3.5 w-3.5" aria-hidden="true" />再開
               </Button>
             </>
           )}
           {canPause && (
-            <Button variant="danger" size="sm" disabled={busy} onClick={() => onAction("stop")}>
-              <Square className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">停止</span>
+            <Button variant="danger" size="sm" className="min-h-11 min-w-11" aria-label="停止" title="停止" disabled={busy} onClick={() => onAction("stop")}>
+              <Square className="h-3.5 w-3.5" aria-hidden="true" />
+              <span className="hidden @lg/goal:inline">停止</span>
             </Button>
           )}
         </div>
       </div>
-      {loop.cooldownSeconds > 0 && (
-        <p className="mt-2 text-xs text-muted" title="結果適用後に次のターン開始まで待機します">
-          クールタイム: {formatGoalLoopCooldownSeconds(loop.cooldownSeconds)}
-          {cooldownActive ? "（待機中）" : ""}
-        </p>
-      )}
-      <div className="mt-3 border-t border-border pt-2.5">
-        <div className="flex items-center justify-between gap-2 text-[11px]">
-          <span className="font-medium text-muted">進捗</span>
-          <span className="tabular-nums text-faint">
-            {progressPercent === null ? "無制限" : `${progressPercent}%`}
-          </span>
-        </div>
+      <div className="mt-1 flex items-center gap-2">
         <div
-          className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-3"
+          className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-3"
           role="progressbar"
           aria-label="ループ進捗"
           aria-valuemin={progressPercent === null ? undefined : 0}
@@ -195,17 +189,27 @@ export function GoalLoopPanel({
             style={{ width: `${progressPercent ?? 35}%` }}
           />
         </div>
-        <p className="mt-1 text-[10px] text-faint">{progressValueLabel}</p>
+        <span className="shrink-0 text-xs tabular-nums text-muted">
+          {cooldownActive && "待機中 · "}
+          {progressPercent === null ? "無制限" : `${progressPercent}%`}
+        </span>
       </div>
-      {pauseHint && <p className="mt-2 text-xs text-muted">{pauseHint}</p>}
+      <div id={detailsId} hidden={!expanded} className="mt-2 space-y-1 border-t border-border pt-2 text-xs text-muted">
+        <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{loop.goal}</p>
+        {loop.forceFullRun && <p>完走モード</p>}
+        {loop.cooldownSeconds > 0 && (
+          <p>クールタイム: {formatGoalLoopCooldownSeconds(loop.cooldownSeconds)}</p>
+        )}
+      </div>
+      {pauseHint && <p className={cx("mt-1 text-xs text-muted", !expanded && "line-clamp-2")}>{pauseHint}</p>}
       {(progress || loop.error || loop.blockedReason) && (
-        <div className="mt-2 flex gap-2 border-t border-border pt-2 text-xs text-muted">
+        <div className="mt-1 flex gap-1 text-xs text-muted">
           {loop.status === "blocked" ? (
             <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
           ) : loop.status === "completed" ? (
             <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
           ) : null}
-          <span className="min-w-0 whitespace-pre-wrap">
+          <span className={cx("min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]", !expanded && (loop.error || loop.blockedReason ? "line-clamp-2" : "line-clamp-1"))}>
             {loop.error || loop.blockedReason || progress?.summary}
           </span>
         </div>
