@@ -7,12 +7,20 @@
 param([switch]$NoTray)
 
 $ErrorActionPreference = "Stop"
-$venvPython = Join-Path $env:LOCALAPPDATA "leafcode-tts-venv\Scripts\python.exe"
+$script:venvPython = Join-Path $env:LOCALAPPDATA "leafcode-tts-venv\Scripts\python.exe"
 $launcher = Join-Path $PSScriptRoot "launch_logged.py"
 $configPath = Join-Path $PSScriptRoot "local.rocm.json"
-$log = Join-Path $env:TEMP "leafcode-tts-server.log"
+$script:log = Join-Path $env:TEMP "leafcode-tts-server.log"
+$script:trayLog = Join-Path $env:TEMP "leafcode-tts-tray.log"
 
-if (-not (Test-Path -LiteralPath $venvPython)) { throw "venv not found: $venvPython" }
+function Write-Tray([string]$message) {
+  $line = (Get-Date -Format "HH:mm:ss") + " " + $message
+  Add-Content -LiteralPath $script:trayLog -Value $line -Encoding UTF8
+  Write-Host $message
+}
+
+Set-Content -LiteralPath $script:trayLog -Value "" -Encoding UTF8
+if (-not (Test-Path -LiteralPath $script:venvPython)) { throw "venv not found: $script:venvPython" }
 if (-not (Test-Path -LiteralPath $configPath)) { throw "config not found: $configPath" }
 
 $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -26,61 +34,70 @@ $env:QWEN3_TTS_LANGUAGE = [string]$config.language
 # Ambient PORT may belong to another app (LeafCode WebUI uses 3010), so always take the JSON value.
 $env:PORT = [string]$config.port
 $env:MIOPEN_GEMM_ENFORCE_BACKEND = "hipblaslt"
-$env:LEAFCODE_TTS_LOG = $log
+$env:LEAFCODE_TTS_LOG = $script:log
 
-Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
-$p = Start-Process -PassThru -FilePath $venvPython -ArgumentList @($launcher) -WorkingDirectory $PSScriptRoot -WindowStyle Hidden
-$url = "http://127.0.0.1:" + $env:PORT + "/v1/audio/speech"
-Write-Host ("pid=" + $p.Id)
-Write-Host ("url=" + $url)
-Write-Host ("log=" + $log)
-Write-Host "First start downloads models; poll /v1/health until ok."
+Remove-Item -LiteralPath $script:log -Force -ErrorAction SilentlyContinue
+$script:server = Start-Process -PassThru -FilePath $script:venvPython -ArgumentList @($launcher) -WorkingDirectory $PSScriptRoot -WindowStyle Hidden
+$script:url = "http://127.0.0.1:" + $env:PORT + "/v1/audio/speech"
+Write-Tray ("pid=" + $script:server.Id)
+Write-Tray ("url=" + $script:url)
+Write-Tray ("log=" + $script:log)
 
 if ($NoTray) { return }
 
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-
-$iconPath = Join-Path $PSScriptRoot "..\..\..\scripts\launcher\app.ico"
-if (Test-Path -LiteralPath $iconPath) {
-  $icon = New-Object System.Drawing.Icon $iconPath
-} else {
-  $icon = [System.Drawing.SystemIcons]::Application
-}
-
-$tray = New-Object System.Windows.Forms.NotifyIcon
-$tray.Icon = $icon
-$tray.Text = "leafcode-tts " + $env:PORT
-$tray.Visible = $true
-$tray.BalloonTipTitle = "leafcode-tts"
-$tray.BalloonTipText = "Loading model on " + $env:QWEN3_TTS_DEVICE
-$tray.ShowBalloonTip(3000)
-
-$menu = New-Object System.Windows.Forms.ContextMenuStrip
-$null = $menu.Items.Add("Open log", $null, { Start-Process notepad.exe $log })
-$null = $menu.Items.Add("Copy URL", $null, { Set-Clipboard -Value $url })
-$null = $menu.Items.Add("-")
-$null = $menu.Items.Add("Stop server", $null, {
-  if (-not $p.HasExited) { & taskkill.exe /PID $p.Id /T /F | Out-Null }
-  $tray.Visible = $false
-  [System.Windows.Forms.Application]::Exit()
-})
-$tray.ContextMenuStrip = $menu
-
-# Exit with the server so the icon never outlives the process it represents.
-$watch = New-Object System.Windows.Forms.Timer
-$watch.Interval = 2000
-$watch.Add_Tick({
-  if ($p.HasExited) {
-    $tray.Visible = $false
-    [System.Windows.Forms.Application]::Exit()
-  }
-})
-$watch.Start()
-
 try {
-  [System.Windows.Forms.Application]::Run()
+  Add-Type -AssemblyName System.Windows.Forms
+  Add-Type -AssemblyName System.Drawing
+
+  # Own console window would otherwise sit in the taskbar; the tray icon replaces it.
+  Add-Type -Name TrayWin -Namespace LeafCode -MemberDefinition @"
+[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+"@
+  $console = [LeafCode.TrayWin]::GetConsoleWindow()
+  if ($console -ne [IntPtr]::Zero) { $null = [LeafCode.TrayWin]::ShowWindow($console, 0) }
+
+  $iconPath = Join-Path $PSScriptRoot "..\..\..\scripts\launcher\app.ico"
+  if (Test-Path -LiteralPath $iconPath) {
+    $icon = New-Object System.Drawing.Icon $iconPath
+  } else {
+    $icon = [System.Drawing.SystemIcons]::Application
+  }
+
+  $script:tray = New-Object System.Windows.Forms.NotifyIcon
+  $script:tray.Icon = $icon
+  $script:tray.Text = "leafcode-tts " + $env:PORT
+  $script:tray.Visible = $true
+  $script:tray.BalloonTipTitle = "leafcode-tts"
+  $script:tray.BalloonTipText = "Loading model on " + $env:QWEN3_TTS_DEVICE
+  $script:tray.ShowBalloonTip(3000)
+
+  # Menu handlers only kill the server; the poll loop below notices and exits.
+  # A Windows.Forms.Timer tick never fires from a -File script, so do not rely on one.
+  $menu = New-Object System.Windows.Forms.ContextMenuStrip
+  $null = $menu.Items.Add("Open log", $null, { Start-Process notepad.exe $script:log })
+  $null = $menu.Items.Add("Copy URL", $null, { Set-Clipboard -Value $script:url })
+  $null = $menu.Items.Add("-")
+  $null = $menu.Items.Add("Stop server", $null, {
+    if (-not $script:server.HasExited) {
+      & taskkill.exe /PID $script:server.Id /T /F | Out-Null
+    }
+  })
+  $script:tray.ContextMenuStrip = $menu
+
+  Write-Tray "tray ready"
+  # Exit with the server so the icon never outlives the process it represents.
+  while (-not $script:server.HasExited) {
+    [System.Windows.Forms.Application]::DoEvents()
+    Start-Sleep -Milliseconds 200
+  }
+  Write-Tray ("server exited with code " + $script:server.ExitCode)
+} catch {
+  Write-Tray ("tray failed: " + $_.Exception.Message)
+  throw
 } finally {
-  $tray.Visible = $false
-  $tray.Dispose()
+  if ($script:tray) {
+    $script:tray.Visible = $false
+    $script:tray.Dispose()
+  }
 }

@@ -41,6 +41,22 @@ export function TtsSettings() {
     }
   };
 
+  const stopServer = async () => {
+    setServerBusy(true);
+    try {
+      const result = await sendJson<{ stopped: boolean; error?: string }>(
+        "/api/settings/tts/server",
+        {},
+        "DELETE",
+      );
+      setServer({ running: false, error: result.stopped ? undefined : result.error });
+    } catch (err) {
+      setServer({ running: true, error: err instanceof Error ? err.message : "停止に失敗しました" });
+    } finally {
+      setServerBusy(false);
+    }
+  };
+
   const reload = useCallback(() => {
     void getJson<TtsConfigDto>("/api/settings/tts")
       .then((result) => {
@@ -181,6 +197,9 @@ export function TtsSettings() {
           </span>
           <Button size="sm" disabled={serverBusy || server?.running === true} onClick={() => void startServer()}>
             起動
+          </Button>
+          <Button variant="ghost" size="sm" disabled={serverBusy} onClick={() => void stopServer()}>
+            停止
           </Button>
           <Button variant="ghost" size="sm" disabled={serverBusy} onClick={() => checkServer()}>
             状態確認

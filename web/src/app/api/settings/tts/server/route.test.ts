@@ -12,12 +12,25 @@ vi.mock("@/lib/extensions", () => ({ bundledExtensionsDir: mocks.bundledExtensio
 vi.mock("node:fs", () => ({ existsSync: mocks.existsSync }));
 vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
 
-import { GET, POST } from "./route";
+import { DELETE, GET, POST } from "./route";
 
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.spawn.mockReturnValue({ unref: vi.fn() });
 });
+
+/** Fake child_process handle whose stdout emits `output` then closes. */
+function stubCommand(output: string) {
+  mocks.spawn.mockImplementation(() => ({
+    unref: vi.fn(),
+    stdout: {
+      on: (_event: string, handler: (chunk: string) => void) => handler(output),
+    },
+    on: (event: string, handler: () => void) => {
+      if (event === "close") handler();
+    },
+  }));
+}
 
 describe("tts server route", () => {
   it("reports not running without a URL", async () => {
@@ -49,15 +62,42 @@ describe("tts server route", () => {
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
-  it("spawns the startup script detached", async () => {
+  it("starts the script in its own console so the tray survives", async () => {
     if (process.platform !== "win32") return;
     mocks.bundledExtensionsDir.mockReturnValue("C:/repo/extensions");
     mocks.existsSync.mockReturnValue(true);
     await expect((await POST()).json()).resolves.toMatchObject({ started: true });
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      "powershell.exe",
-      expect.arrayContaining(["-File"]),
-      expect.objectContaining({ detached: true }),
-    );
+    const [command, args, options] = mocks.spawn.mock.calls[0] as [string, string[], Record<string, unknown>];
+    // Spawning powershell.exe directly ties it to our console and it dies with the request.
+    expect(command).toBe("cmd.exe");
+    expect(args.slice(0, 2)).toEqual(["/c", "start"]);
+    expect(args).toContain("powershell.exe");
+    expect(options.windowsHide).toBe(true);
+  });
+
+  it("stops the listener on the configured port", async () => {
+    if (process.platform !== "win32") return;
+    mocks.readTtsConfig.mockReturnValue({
+      enabled: true,
+      voice: "ramuchi",
+      rate: 0,
+      url: "http://127.0.0.1:18080/v1/audio/speech",
+    });
+    stubCommand("STOPPED");
+    await expect((await DELETE()).json()).resolves.toMatchObject({ stopped: true });
+    const args = mocks.spawn.mock.calls[0]?.[1] as string[];
+    expect(args.join(" ")).toContain("18080");
+  });
+
+  it("reports when nothing is listening", async () => {
+    if (process.platform !== "win32") return;
+    mocks.readTtsConfig.mockReturnValue({
+      enabled: true,
+      voice: "",
+      rate: 0,
+      url: "http://127.0.0.1:18080/v1/audio/speech",
+    });
+    stubCommand("NOT_RUNNING");
+    await expect((await DELETE()).json()).resolves.toMatchObject({ stopped: false });
   });
 });
