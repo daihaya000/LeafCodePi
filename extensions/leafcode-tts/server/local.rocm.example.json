@@ -1,0 +1,8 @@
+{
+  "refAudio": "C:\\path\\to\\reference.wav",
+  "refText": "参照音声の書き起こしテキスト",
+  "model": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+  "device": "cuda:1",
+  "language": "Japanese",
+  "port": "18080"
+}

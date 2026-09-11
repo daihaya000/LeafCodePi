@@ -31,7 +31,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 MODEL_ID = os.environ.get("QWEN3_TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-0.6B-Base")
-DEVICE = os.environ.get("QWEN3_TTS_DEVICE", "cuda:0")
+DEVICE = os.environ.get("QWEN3_TTS_DEVICE", "").strip()
 REF_AUDIO = os.environ.get("QWEN3_TTS_REF_AUDIO", "").strip()
 REF_TEXT = os.environ.get("QWEN3_TTS_REF_TEXT", "").strip()
 DEFAULT_LANGUAGE = os.environ.get("QWEN3_TTS_LANGUAGE", "Japanese")
@@ -39,19 +39,47 @@ PORT = int(os.environ.get("PORT", "8080"))
 
 _model = None
 _load_error: str | None = None
+_resolved_device: str | None = None
+
+
+def _pick_device() -> str:
+    """Prefer discrete R9700/Radeon AI PRO over the iGPU that often sits at cuda:0."""
+    if DEVICE:
+        return DEVICE
+    import torch
+
+    if not torch.cuda.is_available() or torch.cuda.device_count() == 0:
+        return "cpu"
+    preferred = []
+    fallback = []
+    for index in range(torch.cuda.device_count()):
+        name = (torch.cuda.get_device_name(index) or "").lower()
+        target = f"cuda:{index}"
+        if any(token in name for token in ("r9700", "radeon ai pro", "rx 79", "rx 90", "gfx1201", "gfx1100")):
+            preferred.append(target)
+        elif "graphics" in name and "radeon" in name:
+            fallback.append(target)
+        else:
+            preferred.append(target)
+    return (preferred or fallback or ["cuda:0"])[0]
 
 
 def _load_model():
-    global _model, _load_error
+    global _model, _load_error, _resolved_device
     if _model is not None or _load_error is not None:
         return _model
     try:
         import torch
         from qwen_tts import Qwen3TTSModel
 
+        _resolved_device = _pick_device()
+        # ponytail: float32 default because MIOpen conv1d fails in bf16/fp16 on
+        # Windows gfx1201 (miopenStatusUnknownError). Set QWEN3_TTS_DTYPE=bfloat16
+        # once MIOpen supports it.
+        dtype_name = os.environ.get("QWEN3_TTS_DTYPE", "float32")
         kwargs: dict[str, Any] = {
-            "device_map": DEVICE,
-            "dtype": torch.bfloat16,
+            "device_map": _resolved_device,
+            "dtype": getattr(torch, dtype_name),
         }
         try:
             _model = Qwen3TTSModel.from_pretrained(MODEL_ID, attn_implementation="flash_attention_2", **kwargs)
@@ -166,7 +194,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200 if ready else 503, {
                 "ok": ready,
                 "model": MODEL_ID,
-                "device": DEVICE,
+                "device": _resolved_device or DEVICE or "auto",
                 "error": _load_error,
             })
             return
@@ -193,8 +221,10 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"leafcode-tts server on http://127.0.0.1:{PORT} model={MODEL_ID} device={DEVICE}", flush=True)
+    print(f"leafcode-tts server on http://127.0.0.1:{PORT} model={MODEL_ID} device={DEVICE or 'auto'}", flush=True)
     _load_model()
+    if _resolved_device:
+        print(f"using device {_resolved_device}", flush=True)
     if _load_error:
         print(f"qwen-tts unavailable ({_load_error}); synthesis returns 501 until installed", flush=True)
     server.serve_forever()
