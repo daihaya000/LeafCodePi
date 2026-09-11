@@ -33,4 +33,7 @@ LeafCode 側の `tts.json` / 設定画面:
 実測（R9700 / torch 2.12.0+rocm7.14.0 / HIP 7.14）:
 
 - MIOpen の conv1d が bf16/fp16 で `miopenStatusUnknownError` になるため、既定 dtype は `float32`（`QWEN3_TTS_DTYPE` で変更可）
-- 短文 1 文で初回 ~62 秒、2 回目以降 ~16 秒。リアルタイム読み上げには遅く、既定の SAPI バックエンドの方が実用的
+- 高速化済み: 参照音声の prompt キャッシュ、起動時ウォームアップ、GPU keepalive スレッド
+- keepalive の効果は大きい：20 秒アイドル後の 1 文が ON で 16.5 秒、OFF だと 73.5 秒（AMD のアイドルダウンクロック）。`QWEN3_TTS_KEEPALIVE=0` で無効化
+- 定常速度は RTF 約 8（1.6 秒の音声に約 15 秒）。リアルタイム読み上げには遅く、既定の SAPI バックエンドの方が実用的
+- bf16 は MIOpen の conv を fp32 に逃しても fp32 直接より遅かった（RTF 9 前後）。CPU は RTF 40 で論外

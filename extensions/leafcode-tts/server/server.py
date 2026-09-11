@@ -24,6 +24,8 @@ from __future__ import annotations
 import io
 import json
 import os
+import threading
+import time
 import traceback
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -40,6 +42,8 @@ PORT = int(os.environ.get("PORT", "8080"))
 _model = None
 _load_error: str | None = None
 _resolved_device: str | None = None
+_prompt_cache = None
+_busy = threading.Lock()
 
 
 def _pick_device() -> str:
@@ -125,6 +129,30 @@ def _pcm16_wav(samples, sample_rate: int) -> bytes:
     return data
 
 
+def _start_keepalive() -> None:
+    """AMD GPUs downclock when idle; a tiny periodic matmul keeps clocks up."""
+    if not (_resolved_device or "").startswith("cuda") or os.environ.get("QWEN3_TTS_KEEPALIVE") == "0":
+        return
+    import torch
+
+    def loop():
+        a = torch.ones(256, 256, device=_resolved_device)
+        while True:
+            if not _busy.locked():
+                (a @ a).sum().item()
+            time.sleep(0.2)
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
+def _clone_prompt(model):
+    """Encode the reference clip once; re-encoding it per request costs seconds."""
+    global _prompt_cache
+    if _prompt_cache is None:
+        _prompt_cache = model.create_voice_clone_prompt(ref_audio=REF_AUDIO, ref_text=REF_TEXT)
+    return _prompt_cache
+
+
 def synthesize(text: str, voice: str | None, language: str | None) -> bytes:
     model = _load_model()
     if model is None:
@@ -133,12 +161,12 @@ def synthesize(text: str, voice: str | None, language: str | None) -> bytes:
     if hasattr(model, "generate_voice_clone"):
         if not REF_AUDIO or not REF_TEXT:
             raise RuntimeError("Base model needs QWEN3_TTS_REF_AUDIO and QWEN3_TTS_REF_TEXT")
-        wavs, sr = model.generate_voice_clone(
-            text=text,
-            language=language,
-            ref_audio=REF_AUDIO,
-            ref_text=REF_TEXT,
-        )
+        with _busy:
+            wavs, sr = model.generate_voice_clone(
+                text=text,
+                language=language,
+                voice_clone_prompt=_clone_prompt(model),
+            )
     elif hasattr(model, "generate_custom_voice"):
         wavs, sr = model.generate_custom_voice(
             text=text,
@@ -227,6 +255,14 @@ def main() -> None:
         print(f"using device {_resolved_device}", flush=True)
     if _load_error:
         print(f"qwen-tts unavailable ({_load_error}); synthesis returns 501 until installed", flush=True)
+    else:
+        _start_keepalive()
+        try:
+            start = time.time()
+            synthesize("ウォームアップ", None, None)
+            print(f"warmup done in {time.time() - start:.1f}s", flush=True)
+        except Exception as exc:
+            print(f"warmup failed: {exc}", flush=True)
     server.serve_forever()
 
 
