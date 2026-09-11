@@ -616,7 +616,7 @@ function TaskToolActivityGroup({
           {count}件{elapsedMs > 0 ? ` · ${formatDuration(elapsedMs)}` : ""}
         </span>
       </summary>
-      <div className="space-y-2 border-t border-border bg-surface p-2">{contents}</div>
+      <div className="max-h-[min(28rem,50dvh)] space-y-2 overflow-y-auto overscroll-y-contain border-t border-border bg-surface p-2">{contents}</div>
     </details>
   );
 }
