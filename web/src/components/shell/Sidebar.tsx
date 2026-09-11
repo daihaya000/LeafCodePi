@@ -62,7 +62,7 @@ const NO_PROJECT_GROUP_ID = "__leafcode_no_project__";
 
 /**
  * ドラッグ中の生の幅から表示モードを決める。
- * MIN_WIDTH を下回ったら最小表示（レール）へ落とし、そこでは幅を更新しない
+ * MIN_WIDTH を下回ったら最小表示（レール）へ切り替え、そこでは保存用の幅を更新しない
  * （通常表示へ戻したときは直前に使っていた幅を復元する）。
  */
 function resolveSidebarDrag(rawWidth: number): { collapsed: boolean; width: number | null } {
@@ -884,6 +884,8 @@ const SidebarView = memo(function SidebarView({
   const [health, setHealth] = useState<HealthDto | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
+  /** ドラッグ中のみ端をカーソルへ追従させる幅（離したら null へ戻して吸着させる）。 */
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [hoverCapable, setHoverCapable] = useState(
     () =>
       typeof window === "undefined" ||
@@ -2253,7 +2255,7 @@ const SidebarView = memo(function SidebarView({
           "z-50 flex h-full shrink-0 flex-col border-r border-border bg-surface",
           "relative hidden md:flex",
         )}
-        style={{ width: collapsed ? COLLAPSED_WIDTH : width }}
+        style={{ width: dragWidth ?? (collapsed ? COLLAPSED_WIDTH : width) }}
       >
         {mdUp ? (mode === "bot" ? botBody : collapsed ? collapsedRail : body) : null}
         {mdUp && (
@@ -2264,10 +2266,14 @@ const SidebarView = memo(function SidebarView({
             className="absolute top-0 right-0 hidden h-full w-1 cursor-col-resize md:block"
             onPointerDown={(event) => {
               const startX = event.clientX;
-              // 最小表示からドラッグを始めた場合はレール幅を基準にする。
+              // 最小表示からドラッグを始めた場合はレール幅を基準にする（右へ引けば即広がる）。
               const startWidth = collapsed ? COLLAPSED_WIDTH : width;
               const onMove = (move: PointerEvent) => {
-                const next = resolveSidebarDrag(startWidth + (move.clientX - startX));
+                const raw = startWidth + (move.clientX - startX);
+                const next = resolveSidebarDrag(raw);
+                // 端は常にカーソルへ追従させ、最小幅を下回っても縮み続ける。
+                // 最小表示⇔通常表示の切替はしきい値で行い、離した時点で吸着させる。
+                setDragWidth(Math.min(MAX_WIDTH, Math.max(COLLAPSED_WIDTH, raw)));
                 if (next.width !== null) {
                   setWidth(next.width);
                   localStorage.setItem(WIDTH_KEY, String(next.width));
@@ -2276,11 +2282,16 @@ const SidebarView = memo(function SidebarView({
                 localStorage.setItem(COLLAPSED_KEY, next.collapsed ? "1" : "0");
               };
               const onUp = () => {
+                setDragWidth(null);
                 window.removeEventListener("pointermove", onMove);
                 window.removeEventListener("pointerup", onUp);
+                window.removeEventListener("pointercancel", onUp);
+                window.removeEventListener("blur", onUp);
               };
               window.addEventListener("pointermove", onMove);
               window.addEventListener("pointerup", onUp);
+              window.addEventListener("pointercancel", onUp);
+              window.addEventListener("blur", onUp);
             }}
           />
         )}

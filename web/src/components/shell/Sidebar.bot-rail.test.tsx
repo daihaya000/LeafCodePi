@@ -225,7 +225,7 @@ describe("Bot mode collapsed rail", () => {
 });
 
 describe("サイドバー幅のドラッグ", () => {
-  it("幅を最小まで狭めるとレール表示、広げると通常表示へ切り替わる", async () => {
+  it("ドラッグ中は端がカーソルに追従し、最小幅を下回るとレール表示、離すと吸着する", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
@@ -234,19 +234,27 @@ describe("サイドバー幅のドラッグ", () => {
     expect(aside.style.width).toBe("240px");
 
     fireEvent.pointerDown(handle, { clientX: 240 });
-    fireEvent.pointerMove(window, { clientX: 179 });
+    fireEvent.pointerMove(window, { clientX: 170 });
+    await waitFor(() => expect(aside.style.width).toBe("170px"));
+    expect(localStorage.getItem("webui.sidebar.collapsed")).toBe("1");
+    // 最小表示中は通常表示用の幅を書き換えない（戻したときに復元するため）。
+    expect(localStorage.getItem("webui.sidebar.width")).toBeNull();
+    // レール幅より狭くはしない。
+    fireEvent.pointerMove(window, { clientX: 60 });
     await waitFor(() => expect(aside.style.width).toBe("80px"));
     fireEvent.pointerUp(window);
-    // レール表示中は幅を書き換えない（直前に使っていた幅を復元するため）。
-    expect(localStorage.getItem("webui.sidebar.width")).toBeNull();
-
-    // レール表示からのドラッグは 80px を基準にし、180px で通常表示へ戻る。
-    fireEvent.pointerDown(handle, { clientX: 80 });
-    fireEvent.pointerMove(window, { clientX: 179 });
     await waitFor(() => expect(aside.style.width).toBe("80px"));
+
+    // 最小表示からのドラッグは、右へ引いた分だけ即座に広がる（デッドゾーンなし）。
+    fireEvent.pointerDown(handle, { clientX: 80 });
+    fireEvent.pointerMove(window, { clientX: 130 });
+    await waitFor(() => expect(aside.style.width).toBe("130px"));
+    expect(screen.queryByRole("button", { name: "サイドバーを展開" })).toBeTruthy();
     fireEvent.pointerMove(window, { clientX: 180 });
     await waitFor(() => expect(aside.style.width).toBe("180px"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "サイドバーを展開" })).toBeNull());
     fireEvent.pointerUp(window);
+    expect(aside.style.width).toBe("180px");
     expect(localStorage.getItem("webui.sidebar.width")).toBe("180");
     expect(localStorage.getItem("webui.sidebar.collapsed")).toBe("0");
   });
