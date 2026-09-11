@@ -52,19 +52,7 @@ type EditorState =
   | { mode: "edit"; name: string }
   | { mode: "closed" };
 
-const AGENT_TOOL_NAMES = [
-  ...BOT_TOOL_NAMES,
-  "web_search",
-  "source_check",
-  "fetch_content",
-  "get_search_content",
-  "contact_supervisor",
-  "subagent_wait",
-  "structured_output",
-  "task_mutation_decision",
-  "watchdog_permission_decision",
-  "watchdog_warn",
-] as const;
+const AGENT_TOOL_NAMES = BOT_TOOL_NAMES;
 const AGENT_DEFAULT_TOOL_NAMES = [
   "read",
   "write",

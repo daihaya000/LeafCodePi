@@ -11,6 +11,7 @@ vi.mock("next/link", () => ({ default: ({ children }: { children: ReactNode }) =
 vi.mock("next/image", () => ({ default: () => null }));
 import { BotView } from "./BotView";
 import { BOT_AVATAR_SHAPES } from "@/lib/bot-avatar";
+import { BOT_TOOL_NAMES } from "@/lib/types";
 import { ShellProvider } from "@/components/shell/ShellContext";
 let listener: (event: { data: string }) => void;
 let deltaListener: (event: { data: string }) => void;
@@ -523,6 +524,17 @@ it("saves an icon selection through PATCH and updates the header and existing me
   const avatars = document.querySelectorAll('svg[aria-label="Botのアバター"]');
   expect(avatars).toHaveLength(2);
   for (const avatar of avatars) expect(avatar.querySelector("path")?.getAttribute("d")).toBe(BOT_AVATAR_SHAPES.find((shape) => shape.id === "cloud")!.path);
+});
+
+it("shows every configured tool in the Bot settings panel", async () => {
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+
+  const tools = within(screen.getByRole("region", { name: "個別ツール設定" }));
+  expect(tools.getAllByRole("checkbox")).toHaveLength(BOT_TOOL_NAMES.length);
+  for (const tool of BOT_TOOL_NAMES) {
+    expect(tools.getByRole("checkbox", { name: tool })).toBeTruthy();
+  }
 });
 
 it("keeps the Bot settings panel visibility after remounting", async () => {

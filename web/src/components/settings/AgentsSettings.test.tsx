@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ModelOption } from "@/lib/types";
+import { BOT_TOOL_NAMES, type ModelOption } from "@/lib/types";
 import { AgentsSettings } from "./AgentsSettings";
 
 const { getJson, sendJson } = vi.hoisted(() => ({
@@ -152,12 +152,18 @@ describe("AgentsSettings", () => {
     });
   });
 
-  it("keeps package-agent tool permissions read-only", async () => {
+  it("keeps the settings tool catalog complete and read-only for package agents", async () => {
     render(<AgentsSettings />);
 
     const read = await screen.findByRole("checkbox", { name: "enabled のread" }) as HTMLInputElement;
     expect(read.checked).toBe(true);
     expect(read.disabled).toBe(true);
+    const row = read.closest("li");
+    expect(row).not.toBeNull();
+    expect(within(row!).getAllByRole("checkbox")).toHaveLength(BOT_TOOL_NAMES.length);
+    for (const tool of BOT_TOOL_NAMES) {
+      expect(within(row!).getByRole("checkbox", { name: `enabled の${tool}` })).toBeTruthy();
+    }
   });
 
   it("shows logical model candidates from separate accounts", async () => {

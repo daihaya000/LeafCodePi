@@ -17,8 +17,8 @@ export type BotSkillsConfig = {
   exclude: string[];
 };
 
-export type BotToolName = "read" | "write" | "edit" | "bash" | "powershell" | "question" | "grep" | "find" | "ls" | "memory_search" | "memory_add" | "memory_replace" | "memory_remove" | "session_search" | "skill_manage" | "subagent" | "todowrite" | "tool_search" | "intercom";
-export const BOT_TOOL_NAMES: readonly BotToolName[] = ["read", "write", "edit", "bash", "powershell", "question", "grep", "find", "ls", "memory_search", "memory_add", "memory_replace", "memory_remove", "session_search", "skill_manage", "subagent", "todowrite", "tool_search", "intercom"];
+export type BotToolName = "read" | "write" | "edit" | "bash" | "powershell" | "question" | "grep" | "find" | "ls" | "memory_search" | "memory_add" | "memory_replace" | "memory_remove" | "session_search" | "skill_manage" | "subagent" | "todowrite" | "tool_search" | "intercom" | "web_search" | "source_check" | "fetch_content" | "get_search_content" | "contact_supervisor" | "subagent_wait" | "structured_output" | "task_mutation_decision" | "watchdog_permission_decision" | "watchdog_warn";
+export const BOT_TOOL_NAMES: readonly BotToolName[] = ["read", "write", "edit", "bash", "powershell", "question", "grep", "find", "ls", "memory_search", "memory_add", "memory_replace", "memory_remove", "session_search", "skill_manage", "subagent", "todowrite", "tool_search", "intercom", "web_search", "source_check", "fetch_content", "get_search_content", "contact_supervisor", "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn"];
 export const BOT_DEFAULT_DISABLED_TOOL_NAMES = ["write", "edit", "bash", "powershell", "subagent", "todowrite"] as const satisfies readonly BotToolName[];
 const BOT_DEFAULT_DISABLED_TOOL_SET = new Set<string>(BOT_DEFAULT_DISABLED_TOOL_NAMES);
 export const BOT_DEFAULT_TOOL_NAMES: readonly BotToolName[] = BOT_TOOL_NAMES.filter((tool) => !BOT_DEFAULT_DISABLED_TOOL_SET.has(tool));
