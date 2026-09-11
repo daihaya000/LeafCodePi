@@ -316,12 +316,6 @@ export function SettingsView() {
                   <BrowserSettings />
                   <NavigatorSettings />
                   <NotificationSoundSettings />
-                  <div className="rounded-2xl border border-border bg-surface p-4">
-                    <h3 className="text-sm font-semibold">テーマ</h3>
-                    <p className="mt-1 text-xs text-muted">
-                      サイドバー右下のアイコンから、ライト / ダーク / システムを切り替えます。
-                    </p>
-                  </div>
                 </div>
               </SettingsGroup>
 
