@@ -404,6 +404,9 @@ function SidePanel({
           const startX = event.clientX;
           const startWidth = width;
           let nextWidth = width;
+          // ドラッグ中にパネル外のテキストが選択（テキストドラッグ判定）されないようにする。
+          const previousUserSelect = document.body.style.userSelect;
+          document.body.style.userSelect = "none";
           const onMove = (move: PointerEvent) => {
             nextWidth = Math.min(
               SIDE_PANEL_MAX_WIDTH,
@@ -412,13 +415,18 @@ function SidePanel({
             setWidth(nextWidth);
           };
           const onUp = () => {
+            document.body.style.userSelect = previousUserSelect;
             window.removeEventListener("pointermove", onMove);
             window.removeEventListener("pointerup", onUp);
+            window.removeEventListener("pointercancel", onUp);
+            window.removeEventListener("blur", onUp);
             localStorage.setItem(storageKey, String(nextWidth));
             onWidthChange?.(nextWidth);
           };
           window.addEventListener("pointermove", onMove);
           window.addEventListener("pointerup", onUp);
+          window.addEventListener("pointercancel", onUp);
+          window.addEventListener("blur", onUp);
         }}
       />
     </div>

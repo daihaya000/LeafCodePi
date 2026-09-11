@@ -2265,9 +2265,13 @@ const SidebarView = memo(function SidebarView({
             aria-label="サイドバーの幅を調整"
             className="absolute top-0 right-0 hidden h-full w-1 cursor-col-resize md:block"
             onPointerDown={(event) => {
+              event.preventDefault();
               const startX = event.clientX;
               // 最小表示からドラッグを始めた場合はレール幅を基準にする（右へ引けば即広がる）。
               const startWidth = collapsed ? COLLAPSED_WIDTH : width;
+              // ドラッグ中にサイドバー外のテキストが選択（テキストドラッグ判定）されないようにする。
+              const previousUserSelect = document.body.style.userSelect;
+              document.body.style.userSelect = "none";
               const onMove = (move: PointerEvent) => {
                 const raw = startWidth + (move.clientX - startX);
                 const next = resolveSidebarDrag(raw);
@@ -2283,6 +2287,7 @@ const SidebarView = memo(function SidebarView({
               };
               const onUp = () => {
                 setDragWidth(null);
+                document.body.style.userSelect = previousUserSelect;
                 window.removeEventListener("pointermove", onMove);
                 window.removeEventListener("pointerup", onUp);
                 window.removeEventListener("pointercancel", onUp);
