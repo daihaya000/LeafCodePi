@@ -152,7 +152,7 @@ export function BotComposer({
               rows={1}
               aria-autocomplete={showSuggestions ? "list" : undefined}
               aria-controls={showSuggestions ? referenceOptionsId : undefined}
-              className="block min-h-11 max-h-40 w-full resize-none overflow-y-auto bg-transparent px-0 py-2.5 text-base leading-6 outline-none placeholder:text-faint"
+              className="block min-h-11 max-h-40 w-full resize-none overflow-y-auto bg-transparent px-0 py-2.5 text-base leading-6 outline-none focus-visible:outline-none placeholder:text-faint"
             />
             {showSuggestions && currentToken && (
               <div id={referenceOptionsId} role="listbox" aria-label={currentToken.kind === "skill" ? "スキル候補" : "エージェント候補"} className="absolute bottom-full left-0 z-30 mb-2 max-h-56 w-full min-w-64 overflow-y-auto rounded-2xl border border-border bg-surface p-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
