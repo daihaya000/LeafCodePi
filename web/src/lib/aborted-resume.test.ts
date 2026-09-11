@@ -180,6 +180,26 @@ describe("findResumableTurn", () => {
     });
   });
 
+  it("keeps a manual stop aborted when the recorded assistant id is gone", () => {
+    // 停止時の assistant id はストリーミング中の仮 id で、永続化時に差し替わる
+    // ことがある。silent に落ちると「続けて」が自動送信されてしまう。
+    const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")], {
+      manualAbortedAssistantId: "streamed-a1",
+    });
+    expect(target).toMatchObject({ reason: "aborted", messageId: "a1" });
+    assertAutoResume(target, false, false);
+  });
+
+  it("keeps a manual stop aborted when the response lands after the stop", () => {
+    // 停止時は assistant が 0 件（sentinel の空文字）でも、abort 処理中に
+    // 部分応答が履歴へ入ることがある。
+    const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")], {
+      manualAbortedAssistantId: "",
+    });
+    expect(target).toMatchObject({ reason: "aborted", messageId: "a1" });
+    assertAutoResume(target, false, false);
+  });
+
   it("preserves the assistant account when preparing a resume", () => {
     const target = findResumableTurn([
       userMessage("u1"),

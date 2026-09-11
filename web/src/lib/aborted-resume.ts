@@ -175,10 +175,11 @@ export function findResumableTurn(
   if (!text && files.length === 0) return null;
 
   const manualRaw = options?.manualAbortedAssistantId;
+  const manualStopped = blocksAutoCompactionAfterManualAbort(manualRaw);
   // 手動停止が応答生成開始前だと assistant メッセージが 1 件も無い。harness は
   // その場合 manualAbortedAssistantId に空文字を入れるので、それを目印に
   // プロンプト自体を再開対象にする（aborted 扱いで自動再開はしない）。
-  if (manualRaw !== undefined && manualRaw !== null && !manualRaw.trim() && turnLength === 0) {
+  if (manualStopped && turnLength === 0) {
     return {
       reason: "aborted",
       messageId: prompt.id,
@@ -224,6 +225,10 @@ export function findResumableTurn(
       return build(messages[manualIndex]!, "aborted");
     }
   }
+  // 停止時に記録した assistant id が履歴と一致しないことがある（ストリーミング中の
+  // 仮 id が永続化で差し替わる／停止時点ではまだ応答が無かった）。手動停止の記録が
+  // ある以上、無言終了と誤判定して自動再開（「続けて」の自動送信）をしてはいけない。
+  if (manualStopped) return build(messages[messages.length - 1]!, "aborted");
 
   let lastAbort = -1;
   for (let i = messages.length - 1; i >= turnStart; i -= 1) {
