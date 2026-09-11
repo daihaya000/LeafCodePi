@@ -48,7 +48,7 @@ describe("MemorySettings", () => {
   it("loads memory parameters and saves an edited value", async () => {
     render(<MemorySettings />);
 
-    const limit = await screen.findByLabelText("グローバル");
+    const limit = await screen.findByLabelText("全体（グローバル）");
     expect((limit as HTMLInputElement).value).toBe("5000");
 
     fireEvent.change(limit, { target: { value: "8000" } });
