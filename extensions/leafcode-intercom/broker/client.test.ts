@@ -67,6 +67,32 @@ test("malformed extension broker messages are rejected", () => {
   }));
 });
 
+test("duplicate pending message IDs fail without orphaning the original send", async () => {
+  const client = new IntercomClient();
+  (client as any)._sessionId = "session-1";
+  (client as any).socket = {
+    destroyed: false,
+    writableEnded: false,
+    writable: true,
+    write() {
+      return true;
+    },
+  };
+
+  const first = client.send("target", { messageId: "same-id", text: "first" });
+  const duplicate = client.send("target", { messageId: "same-id", text: "duplicate" });
+
+  await assert.rejects(duplicate, /Delivery request already pending/);
+  (client as any).handleBrokerMessage({ type: "delivered", messageId: "same-id" });
+  assert.deepEqual(await first, {
+    id: "same-id",
+    delivered: true,
+    delivery: "socket_delivered",
+    retryable: false,
+    outcomeKnown: true,
+  });
+});
+
 test("cancelAsk ignores synchronous socket write failures", () => {
   const client = new IntercomClient();
   (client as any)._sessionId = "session-1";

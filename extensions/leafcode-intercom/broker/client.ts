@@ -643,6 +643,10 @@ export class IntercomClient extends EventEmitter {
     };
 
     const sendOnce = (targetId?: string, targetEpoch?: string): Promise<SendResult> => new Promise((resolve, reject) => {
+      if (this.pendingSends.has(messageId)) {
+        reject(new Error(`Delivery request already pending for message ID "${messageId}"`));
+        return;
+      }
       const wrappedResolve = (result: SendResult) => {
         clearTimeout(timeout);
         resolve(result);
@@ -699,6 +703,10 @@ export class IntercomClient extends EventEmitter {
     }
 
     return new Promise((resolve, reject) => {
+      if (this.pendingSends.has(messageId)) {
+        reject(new Error(`Delivery request already pending for message ID "${messageId}"`));
+        return;
+      }
       const wrappedResolve = (result: SendResult) => {
         clearTimeout(timeout);
         resolve(result);
