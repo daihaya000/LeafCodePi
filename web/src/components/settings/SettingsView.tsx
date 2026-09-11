@@ -287,7 +287,7 @@ export function SettingsView() {
                 title="アクセスと安全"
                 description="WebUI への接続方法と、システム操作に対する安全ガードを設定します。"
               >
-                <div className="space-y-4">
+                <div className="grid gap-4 xl:grid-cols-2">
                   <WebUiAuthSettings />
                   <SystemSafetySettings />
                 </div>

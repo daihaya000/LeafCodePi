@@ -229,6 +229,8 @@ describe("SettingsView", () => {
       ),
     ).toEqual(["ランタイム", "アクセスと安全", "応答", "表示と通知", "ローカル推論", "メモリ"]);
     expect(screen.getByRole("heading", { name: "システム安全ガード" })).toBeTruthy();
+    const accessSection = screen.getByRole("heading", { name: "アクセスと安全" }).closest("section");
+    expect(accessSection?.querySelector(":scope > div.grid")?.className).toContain("xl:grid-cols-2");
     expect(screen.getByRole("heading", { name: "ローカル LLM" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "メモリ", level: 2 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
