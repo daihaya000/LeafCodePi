@@ -394,7 +394,10 @@ export function botCodeReportText(entries: readonly unknown[], requestId: string
       else if (found && entry.customType === BOT_CODE_RESULT) return undefined;
     }
     const message = entry.type === "message" ? entry.message : undefined;
-    if (found && message?.role === "user") return undefined;
+    if (found && message?.role === "user") {
+      found = false;
+      continue;
+    }
     if (found && message?.role === "assistant" && message.stopReason === "stop") {
       const text = message.content?.filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n");
       if (text?.trim()) return text;

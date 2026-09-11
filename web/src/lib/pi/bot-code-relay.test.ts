@@ -813,4 +813,9 @@ describe("durable Bot report acknowledgement", () => {
     expect(hasBotCodeReport([marker, { type: "message", message: { ...final.message, stopReason: "error" } }], "request")).toBe(false);
     expect(hasBotCodeReport([marker, { type: "message", message: { role: "user" } }, final], "request")).toBe(false);
   });
+
+  it("re-correlates a retried report after a user message interrupted the first marker", () => {
+    const user = { type: "message", message: { role: "user" } };
+    expect(botCodeReportText([marker, user, marker, final], "request")).toBe("Report");
+  });
 });
