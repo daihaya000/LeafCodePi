@@ -70,11 +70,13 @@ const jsonRequest = (body: unknown): NextRequest =>
   }) as NextRequest;
 
 describe("GET /api/bots/[id]", () => {
-  it("returns the bot or 404", async () => {
-    mocks.getBot.mockReturnValue(bot());
+  it("returns the bot or 404 and refreshes its live tools", async () => {
+    const foundBot = { ...bot(), tools: ["read", "grep"] as const };
+    mocks.getBot.mockReturnValue(foundBot);
     const found = await GET(emptyRequest(), params("one"));
     expect(found.status).toBe(200);
     expect((await found.json()).bot.id).toBe("one");
+    expect(mocks.setBotTools).toHaveBeenCalledWith("one", foundBot.tools);
 
     mocks.getBot.mockReturnValue(undefined);
     const missing = await GET(emptyRequest(), params("one"));

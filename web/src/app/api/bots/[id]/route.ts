@@ -15,7 +15,10 @@ async function idOf(params: Promise<{ id: string }>) { return (await params).id;
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const bot = getBot(await idOf(params));
-  return bot ? NextResponse.json({ bot }) : NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
+  if (!bot) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
+  // Loading a Bot also refreshes an already-live session after legacy tool migration.
+  setBotTools(bot.id, bot.tools ?? []);
+  return NextResponse.json({ bot });
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
