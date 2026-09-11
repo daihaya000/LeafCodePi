@@ -572,7 +572,7 @@ function TaskToolActivityGroup({
 }) {
   return (
     <div className="w-full min-w-0">
-      <div className="mb-1 flex min-w-0 flex-col gap-1">{messageHeaders}</div>
+      <div className="mb-1 flex min-w-0 max-w-bubble flex-col gap-1">{messageHeaders}</div>
       <details
         data-task-tool-group
         aria-label="ツール実行"

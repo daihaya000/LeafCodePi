@@ -115,6 +115,7 @@ it("groups consecutive tool-only messages between agent responses", () => {
 
   const group = document.querySelector<HTMLDetailsElement>("details[data-task-tool-group]");
   expect(group).not.toBeNull();
+  expect(group!.parentElement?.firstElementChild?.className).toContain("max-w-bubble");
   expect(group!.open).toBe(false);
   expect(group!.querySelector("summary")?.textContent).toContain("ツール実行");
   expect(group!.querySelector("summary")?.textContent).toContain("2件");
