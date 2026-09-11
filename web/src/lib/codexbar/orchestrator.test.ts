@@ -20,6 +20,7 @@ vi.mock("undici", async (importOriginal) => ({
 }));
 
 const tempDirs: string[] = [];
+const originalCodexHome = process.env.CODEX_HOME;
 
 function writeJson(path: string, value: unknown): void {
   mkdirSync(join(path, ".."), { recursive: true });
@@ -70,6 +71,17 @@ function setupAccounts(): { accountDir: string; dataDir: string } {
   return { accountDir, dataDir };
 }
 
+function setupEmptyAccounts(): { accountDir: string; dataDir: string } {
+  const accountDir = mkdtempSync(join(tmpdir(), "leafcode-codexbar-agent-"));
+  const dataDir = mkdtempSync(join(tmpdir(), "leafcode-codexbar-data-"));
+  tempDirs.push(accountDir, dataDir);
+  process.env.PI_CODING_AGENT_DIR = accountDir;
+  process.env.LEAFCODE_PI_DATA_DIR = dataDir;
+  __resetPiAgentDirCacheForTests();
+  writeJson(join(dataDir, "accounts.json"), { version: 1, accounts: [] });
+  return { accountDir, dataDir };
+}
+
 afterEach(() => {
   undiciFetch.mockReset();
   clearCachedUsage();
@@ -77,6 +89,8 @@ afterEach(() => {
   __resetPiAgentDirCacheForTests();
   delete process.env.PI_CODING_AGENT_DIR;
   delete process.env.LEAFCODE_PI_DATA_DIR;
+  if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
+  else process.env.CODEX_HOME = originalCodexHome;
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -121,6 +135,37 @@ describe("fetchNativeUsage", () => {
       ["https://chatgpt.com/backend-api/wham/usage", "Bearer token-b"],
     ]);
   }, 15_000);
+
+  it("does not fall back to local auth when no account is registered", async () => {
+    const { accountDir } = setupEmptyAccounts();
+    writeJson(join(accountDir, "auth.json"), {
+      "openai-codex": { type: "oauth", access: "default-token" },
+    });
+    const codexHome = mkdtempSync(join(tmpdir(), "leafcode-codexbar-home-"));
+    tempDirs.push(codexHome);
+    process.env.CODEX_HOME = codexHome;
+    writeJson(join(codexHome, "auth.json"), {
+      tokens: { access_token: "cli-token" },
+    });
+    undiciFetch.mockImplementation(async () =>
+      new Response(
+        JSON.stringify({
+          rate_limit: {
+            primary_window: { used_percent: 35 },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const usage = await fetchNativeUsage({
+      forceRefresh: true,
+      scope: { kind: "all" },
+    });
+
+    expect(undiciFetch).not.toHaveBeenCalled();
+    expect(usage).toMatchObject({ available: false, providers: [] });
+  });
 
   it("does not use default auth for an account scope", async () => {
     const { accountDir, dataDir } = setupAccounts();

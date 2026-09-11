@@ -178,12 +178,9 @@ async function buildFetchPlan(
     const matchingAccounts = accounts.filter((account) =>
       accountHasProvider(account, definition.id),
     );
-    if (matchingAccounts.length === 0) {
-      if (requestScope.kind === "all") {
-        providers.push(createProviderInstance(definition, defaultScope));
-      }
-      continue;
-    }
+    // Normal `all` usage is limited to registered accounts. Default auth stays
+    // available only through the explicit `scope=default` compatibility path.
+    if (matchingAccounts.length === 0) continue;
     if (!agentDir)
       throw new Error("アカウント認証ディレクトリを解決できません");
     for (const account of matchingAccounts) {
