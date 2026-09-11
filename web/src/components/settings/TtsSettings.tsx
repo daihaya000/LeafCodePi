@@ -51,7 +51,9 @@ export function TtsSettings() {
       );
       setServer({ running: false, error: result.stopped ? undefined : result.error });
     } catch (err) {
-      setServer({ running: true, error: err instanceof Error ? err.message : "停止に失敗しました" });
+      // Never invent "稼働中" on failure — re-probe so the badge matches reality.
+      setServer({ running: false, error: err instanceof Error ? err.message : "停止に失敗しました" });
+      checkServer();
     } finally {
       setServerBusy(false);
     }
@@ -139,7 +141,7 @@ export function TtsSettings() {
             type="text"
             value={current.voice}
             disabled={!ready || busy}
-            placeholder="ramuchi / Microsoft Haruka Desktop"
+            placeholder="888753760（AivisSpeech style id）"
             aria-label="TTS 音声名"
             onChange={(event) => setForm({ ...current, voice: event.target.value })}
             onBlur={() => {
@@ -179,7 +181,7 @@ export function TtsSettings() {
             type="url"
             value={current.url}
             disabled={!ready || busy}
-            placeholder="http://127.0.0.1:8080/tts"
+            placeholder="http://127.0.0.1:10101"
             aria-label="TTS HTTP URL"
             onChange={(event) => setForm({ ...current, url: event.target.value })}
             onBlur={() => {
@@ -189,13 +191,14 @@ export function TtsSettings() {
             className="h-9 w-full rounded-lg border border-border bg-bg px-3 font-mono text-sm text-text outline-none focus:border-border-strong disabled:opacity-60"
           />
           <span className="text-[11px] text-muted">
-            `/tts` または OpenAI 互換の `/v1/audio/speech`。同梱サーバーは{" "}
-            <code className="rounded bg-surface-2 px-1">extensions/leafcode-tts/server</code>。
+            AivisSpeech はベース URL のみ。Qwen3-TTS は{" "}
+            <code className="rounded bg-surface-2 px-1">/v1/audio/speech</code>
+            。下の起動/停止は Qwen 専用で、この URL とは独立です。
           </span>
         </label>
 
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-bg px-3 py-2">
-          <span className="text-sm text-muted">Qwen3-TTS サーバー（Windows / ROCm）</span>
+          <span className="text-sm text-muted">Qwen3-TTS サーバー（Windows / ROCm・比較用）</span>
           <span className="text-sm text-text" aria-live="polite">
             {server === null ? "確認中" : server.running ? "稼働中" : "停止"}
           </span>

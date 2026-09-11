@@ -1,37 +1,44 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NextResponse } from "next/server";
 import { bundledExtensionsDir } from "@/lib/extensions";
-import { readTtsConfig } from "@/lib/tts-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const DEFAULT_PORT = 18080;
 
 function serverDir(): string | null {
   const dir = bundledExtensionsDir();
   return dir ? join(dir, "leafcode-tts", "server") : null;
 }
 
-function configuredUrl(): URL | null {
-  const { url } = readTtsConfig();
-  if (!url) return null;
+/** Qwen start/stop uses local.rocm.json — never the AivisSpeech/SAPI synthesis URL. */
+export function readQwenPort(dir = serverDir()): number {
+  const file = dir ? join(dir, "local.rocm.json") : null;
+  if (!file || !existsSync(file)) return DEFAULT_PORT;
   try {
-    return new URL(url);
+    const raw = JSON.parse(readFileSync(file, "utf8")) as { port?: string | number };
+    const port = Number(raw.port);
+    return Number.isFinite(port) && port > 0 ? port : DEFAULT_PORT;
   } catch {
-    return null;
+    return DEFAULT_PORT;
   }
 }
 
+function healthUrl(port: number): string {
+  return `http://127.0.0.1:${port}/v1/health`;
+}
+
 export async function GET() {
-  const base = configuredUrl();
-  if (!base) return NextResponse.json({ running: false, error: "HTTP 合成 URL が未設定です" });
-  const health = new URL("/v1/health", base).toString();
+  const port = readQwenPort();
+  const url = healthUrl(port);
   try {
-    const res = await fetch(health, { signal: AbortSignal.timeout(2500) });
-    return NextResponse.json({ running: res.ok, url: health });
+    const res = await fetch(url, { signal: AbortSignal.timeout(2500) });
+    return NextResponse.json({ running: res.ok, url, port });
   } catch {
-    return NextResponse.json({ running: false, url: health });
+    return NextResponse.json({ running: false, url, port });
   }
 }
 
@@ -60,17 +67,15 @@ export async function POST() {
     { stdio: "ignore", windowsHide: true, detached: true },
   );
   child.unref();
-  return NextResponse.json({ started: true, hint: "モデル読込に数分かかることがあります" });
+  return NextResponse.json({ started: true, port: readQwenPort(dir), hint: "モデル読込に数分かかることがあります" });
 }
 
-/** Kill whatever listens on the configured port; the tray watcher then exits on its own. */
+/** Kill the Qwen listener from local.rocm.json; tray watcher exits on its own. */
 export async function DELETE() {
   if (process.platform !== "win32") {
     return NextResponse.json({ error: "停止は Windows 専用です" }, { status: 400 });
   }
-  const base = configuredUrl();
-  const port = Number(base?.port || 0);
-  if (!port) return NextResponse.json({ error: "URL からポートを判定できません" }, { status: 400 });
+  const port = readQwenPort();
 
   const script = [
     `$c = Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue`,
@@ -91,7 +96,11 @@ export async function DELETE() {
     child.on("close", () => resolve(out.trim()));
   });
 
-  if (result.includes("NOT_RUNNING")) return NextResponse.json({ stopped: false, error: "起動していません" });
-  if (!result.includes("STOPPED")) return NextResponse.json({ stopped: false, error: "停止に失敗しました" }, { status: 500 });
-  return NextResponse.json({ stopped: true });
+  if (result.includes("NOT_RUNNING")) {
+    return NextResponse.json({ stopped: false, port, error: "起動していません" });
+  }
+  if (!result.includes("STOPPED")) {
+    return NextResponse.json({ stopped: false, port, error: "停止に失敗しました" }, { status: 500 });
+  }
+  return NextResponse.json({ stopped: true, port });
 }
