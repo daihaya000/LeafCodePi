@@ -14,7 +14,7 @@ import {
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import { BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, getBot } from "@/lib/bots";
-import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "@/lib/pi/bot-code-relay";
+import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
 import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
 import { ROOM_SYSTEM_PROMPT, roomBotPrompt } from "@/lib/room-conversation";
 import { requestWebUiPermission } from "@/lib/pi/webui-permission-bridge";
@@ -93,7 +93,7 @@ import {
   setProviderBaseUrl as setProviderBaseUrlFromEndpoints,
 } from "@/lib/provider-endpoints";
 import { isGoalLoopLiveStatus, readGoalLoopState } from "@/lib/pi/goal-loop-state";
-import { acquireTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
+import { acquireTaskLease, hasActiveTaskLease, ownsTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import {
   todoProgressFromTodos,
   todosFromPiMessages,
@@ -1758,12 +1758,20 @@ function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
   const globalRef = globalThis as typeof globalThis & { __leafcodeBotCodeRelay?: ReturnType<typeof createBotCodeRelay> };
   return globalRef.__leafcodeBotCodeRelay ??= createBotCodeRelay({
     create: createTask,
-    prompt: (id, prompt, codeRequestId) => promptTask(id, prompt, undefined, { permissionMode: "ask", codeRequestId }),
+    prompt: (id, prompt, codeRequestId, options) => {
+      const { images, ...promptOptions } = options ?? {};
+      return promptTask(id, prompt, images, {
+        ...promptOptions,
+        ...(!options ? { permissionMode: "ask" as const } : {}),
+        codeRequestId,
+      });
+    },
     abort: abortTask,
     approve: (sessionId, message) => {
       ensurePermissionPromptService();
       return requestWebUiPermission({ sessionId, command: BOT_CODE_TOOL, labels: ["Code delegation"], message });
     },
+    ownsTaskLease,
     isBusy: (id) => {
       reconcileOrphanedWorkingTasks();
       const live = state().live.get(id);
@@ -4869,6 +4877,8 @@ export function getTaskBootstrap(id: string): TaskDetail {
 type GetTaskDetailOptions = {
   includeMessages?: boolean;
   onTiming?: TaskDetailTimingReporter;
+  /** Read a cross-worker transcript without trying to claim its live runtime lease. */
+  offline?: boolean;
 };
 
 export async function getTaskDetail(
@@ -4892,6 +4902,28 @@ export async function getTaskDetail(
       permissionRequest: ensurePermissionPromptService().pendingForTask(id),
       questionRequest: ensureQuestionPromptService().pendingForTask(id),
       goalLoop: null,
+      hangRetryCount: task.hangRetryCount || 0,
+      revertLeafId: task.revertLeafId ?? null,
+      manualAbortedAssistantId: task.manualAbortedAssistantId ?? null,
+    };
+    reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
+    return detail;
+  }
+  // A Code task owned by another Next worker cannot be opened as a live SDK session here.
+  // Read its append-only transcript instead; prompts are delivered through the relay outbox.
+  if (options.offline || shouldForwardBotCodePrompt(task)) {
+    const offlineStartedAt = options.onTiming ? performance.now() : 0;
+    const offline = await readArchivedTaskSnapshot(task);
+    reportTaskDetailPhase(options.onTiming, "archivedRead", offlineStartedAt);
+    const detail = {
+      ...toSummary(task),
+      messages: includeMessages ? offline.messages : [],
+      todos: offline.todos,
+      isStreaming: task.status === "working",
+      isCompacting: false,
+      goalLoop: readGoalLoopState(task.directory, task.sessionId),
+      permissionRequest: null,
+      questionRequest: null,
       hangRetryCount: task.hangRetryCount || 0,
       revertLeafId: task.revertLeafId ?? null,
       manualAbortedAssistantId: task.manualAbortedAssistantId ?? null,
@@ -6012,6 +6044,38 @@ function queuePrompt(
   return promptChain;
 }
 
+function shouldForwardBotCodePrompt(task: TaskSummary): boolean {
+  return Boolean(
+    task.kind !== "bot" &&
+      task.botId &&
+      getBot(task.botId)?.enabled &&
+      hasActiveTaskLease(task.id) &&
+      !ownsTaskLease(task.id),
+  );
+}
+
+export function isTaskRuntimeOwnedElsewhere(task: TaskSummary): boolean {
+  return shouldForwardBotCodePrompt(task);
+}
+
+function promptOptionsForWorker(
+  images: PromptImage[] | undefined,
+  options: Parameters<typeof promptTask>[3] | undefined,
+): CodePromptOptions {
+  return {
+    ...(images?.length ? { images } : {}),
+    ...(options?.agent !== undefined ? { agent: options.agent } : {}),
+    ...(options?.model !== undefined ? { model: options.model } : {}),
+    ...(options?.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
+    ...(options?.subagentPermission !== undefined ? { subagentPermission: options.subagentPermission } : {}),
+    ...(options?.permissionMode !== undefined ? { permissionMode: options.permissionMode } : {}),
+    ...(options?.skillPermission !== undefined ? { skillPermission: options.skillPermission } : {}),
+    ...(options?.streamingBehavior !== undefined ? { streamingBehavior: options.streamingBehavior } : {}),
+    ...(options?.accountIdExplicit !== undefined ? { accountIdExplicit: options.accountIdExplicit } : {}),
+    ...(options?.resume !== undefined ? { resume: options.resume } : {}),
+  };
+}
+
 export async function promptTask(
   id: string,
   prompt: string,
@@ -6033,6 +6097,19 @@ export async function promptTask(
     codeRequestId?: string;
   },
 ): Promise<TaskSummary> {
+  const taskBeforePrompt = getTask(id);
+  if (!taskBeforePrompt)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (shouldForwardBotCodePrompt(taskBeforePrompt)) {
+    startBotCodeRelay();
+    queueBotCodePrompt(
+      taskBeforePrompt.botId!,
+      taskBeforePrompt,
+      prompt,
+      promptOptionsForWorker(images, options),
+    );
+    return toSummary(taskBeforePrompt);
+  }
   if (options?.agent !== undefined) {
     const task = getTask(id);
     if (!task)

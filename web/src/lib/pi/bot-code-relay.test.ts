@@ -25,7 +25,7 @@ vi.mock("@/lib/store", () => ({
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, cancelBotCodeRequests, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, roomCodeRequestsForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, cancelBotCodeRequests, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, queueBotCodePrompt, roomCodeRequestsForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -77,6 +77,7 @@ beforeEach(() => {
     abort: vi.fn(async (id) => { const code = store.tasks.get(id)!; code.status = "idle"; code.manualAbortedAssistantId = ""; return code; }),
     approve: vi.fn(async () => true),
     isBusy: (id) => store.tasks.get(id)?.status === "working",
+    ownsTaskLease: vi.fn(() => true),
     goalLoop: vi.fn(() => null),
     messages: vi.fn(async () => messages),
     deliver: vi.fn(async () => true),
@@ -144,6 +145,24 @@ describe("Bot ⇄ Code relay", () => {
     await launch();
     await expect(relay.tick()).resolves.not.toThrow();
     expect(listBotCodeRequests("one")).toHaveLength(1);
+  });
+
+  it("delivers a Code-side prompt through the owning worker only", async () => {
+    const code = task("code", { kind: "code", botId: "one", status: "working" });
+    store.tasks.set(code.id, code);
+    vi.mocked(deps.ownsTaskLease!).mockReturnValue(false);
+    const request = queueBotCodePrompt("one", code, "今の作業を止めて確認して", { streamingBehavior: "steer" });
+
+    await relay.tick();
+    expect(deps.prompt).not.toHaveBeenCalled();
+    expect(record()).toMatchObject({ id: request.id, userIntervention: true, state: "queued" });
+
+    vi.mocked(deps.ownsTaskLease!).mockReturnValue(true);
+    await relay.tick();
+    expect(deps.prompt).toHaveBeenCalledWith("code", "今の作業を止めて確認して", request.id, { streamingBehavior: "steer" });
+    expect(record()).toMatchObject({ id: request.id, state: "delivered" });
+    expect(deps.deliver).not.toHaveBeenCalled();
+    expect(listBotCodeRequests("one")).toEqual([]);
   });
 
   it("persists the link before execution, returns immediately, then reports exactly once", async () => {

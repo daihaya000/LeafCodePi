@@ -2,10 +2,12 @@ import { NextRequest } from "next/server";
 import {
   getTaskBootstrap,
   getTaskDetail,
+  isTaskRuntimeOwnedElsewhere,
   pendingPermissionForTask,
   pendingQuestionForTask,
   subscribeTask,
 } from "@/lib/pi/harness";
+import { getTask } from "@/lib/store";
 import { createSseWriter } from "@/lib/sse-writer";
 import {
   bufferPendingSsePayload,
@@ -38,6 +40,12 @@ export async function GET(
   const stream = new ReadableStream({
     async start(controller) {
       let unsubscribe = () => {};
+      let remotePollTimer: ReturnType<typeof setInterval> | undefined;
+      let remotePollBusy = false;
+      const stopRemotePoll = () => {
+        if (remotePollTimer) clearInterval(remotePollTimer);
+        remotePollTimer = undefined;
+      };
       let ready = false;
       const pendingPayloads: Record<string, unknown>[] = [];
       const requestStartedAt = TASK_SSE_PERF_ENABLED ? performance.now() : 0;
@@ -45,7 +53,10 @@ export async function GET(
         controller,
         reportTransportTiming ? { onTiming: reportTransportTiming } : undefined,
       );
-      sse.onCleanup(() => unsubscribe());
+      sse.onCleanup(() => {
+        unsubscribe();
+        stopRemotePoll();
+      });
       sse.startHeartbeat();
       try {
         const bootstrapStartedAt = TASK_SSE_PERF_ENABLED ? performance.now() : 0;
@@ -174,6 +185,61 @@ export async function GET(
           }
         }
         pendingPayloads.length = 0;
+
+        if (isTaskRuntimeOwnedElsewhere(getTask(id) ?? bootstrap)) {
+          const writer = sse!;
+          const pollRemoteTask = async () => {
+            if (remotePollBusy || writer.closed) return;
+            remotePollBusy = true;
+            try {
+              const task = getTask(id);
+              if (!task) {
+                stopRemotePoll();
+                return;
+              }
+              const detail = await getTaskDetail(id, { offline: true });
+              if (writer.closed) return;
+              const taskSummary = { ...detail };
+              for (const key of [
+                "messages",
+                "isStreaming",
+                "isCompacting",
+                "contextUsage",
+                "goalLoop",
+                "todos",
+                "permissionRequest",
+                "questionRequest",
+                "manualAbortedAssistantId",
+                "hangRetryCount",
+              ]) {
+                delete (taskSummary as Record<string, unknown>)[key];
+              }
+              writer.send("snapshot", {
+                type: "snapshot",
+                task: taskSummary,
+                messages: detail.messages,
+                isStreaming: detail.isStreaming,
+                isCompacting: detail.isCompacting,
+                contextUsage: detail.contextUsage,
+                goalLoop: detail.goalLoop,
+                todos: detail.todos,
+                permissionRequest: detail.permissionRequest ?? null,
+                questionRequest: detail.questionRequest ?? null,
+                manualAbortedAssistantId: detail.manualAbortedAssistantId ?? null,
+                hangRetryCount: detail.hangRetryCount ?? 0,
+                revertLeafId: detail.revertLeafId ?? null,
+                eventType: "remote_poll",
+              });
+              if (!isTaskRuntimeOwnedElsewhere(getTask(id) ?? task)) stopRemotePoll();
+            } catch {
+              // The owner may be replacing the append-only session file; the next poll retries.
+            } finally {
+              remotePollBusy = false;
+            }
+          };
+          remotePollTimer = setInterval(() => void pollRemoteTask(), 2_000);
+          remotePollTimer.unref?.();
+        }
       } catch (error) {
         sse.send("error", { error: error instanceof Error ? error.message : String(error) });
         sse.close();

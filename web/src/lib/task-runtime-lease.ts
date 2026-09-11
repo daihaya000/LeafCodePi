@@ -120,10 +120,15 @@ export function releaseTaskLease(taskId: string): void {
   } catch { /* best effort */ }
 }
 
+export function ownsTaskLease(taskId: string): boolean {
+  const record = readLease(leasePath(taskId));
+  return Boolean(record?.token === PROCESS_TOKEN && ownedTasks.has(taskId));
+}
+
 export function hasActiveTaskLease(taskId: string): boolean {
   const path = leasePath(taskId);
   const record = readLease(path);
-  if (record?.token === PROCESS_TOKEN) return ownedTasks.has(taskId);
+  if (record?.token === PROCESS_TOKEN) return ownsTaskLease(taskId);
   if (record) return leaseActive(record);
   // A just-created lease can be observed between O_EXCL and its payload write.
   // Treat that short window as owned; stale cleanup handles a crashed writer.

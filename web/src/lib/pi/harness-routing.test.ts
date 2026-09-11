@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -222,6 +222,7 @@ import {
 } from "@/lib/accounts";
 import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
+import { createBot } from "@/lib/bots";
 import { patchTask, upsertProject, getTask } from "@/lib/store";
 import type { ThinkingLevel } from "@/lib/types";
 import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
@@ -314,6 +315,9 @@ function dropLiveSessions(): void {
 }
 
 afterEach(() => {
+  const relay = (globalThis as Record<string, unknown>).__leafcodeBotCodeRelay as { dispose?: () => void } | undefined;
+  relay?.dispose?.();
+  delete (globalThis as Record<string, unknown>).__leafcodeBotCodeRelay;
   delete (globalThis as Record<string, unknown>)[GLOBAL_KEY];
   clearCachedUsage();
   __resetProviderRoutingQueueForTests();
@@ -439,6 +443,44 @@ describe("integrated session routing", () => {
     expect(fakePi.sessions.at(-1)?.prompts.length ?? 0).toBe(before);
     expect(result.status).toBe("error");
     expect(getTask(task.id)?.status).toBe("error");
+  });
+
+  it("queues a prompt for a Bot-owned Code session held by another worker", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-bot-code-lease-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const bot = createBot({ name: "worker" });
+    const task = await createTask({ projectId: project.id, prompt: "initial", botId: bot.id });
+    const live = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, { promptChain: Promise<void> }>;
+    };
+    await live.live.get(task.id)!.promptChain;
+    patchTask(task.id, { status: "working" });
+    mkdirSync(dirname(taskRuntimeLeasePath(task.id)), { recursive: true });
+    writeFileSync(taskRuntimeLeasePath(task.id), JSON.stringify({ token: "other-worker", pid: process.pid, acquiredAt: Date.now(), heartbeatAt: Date.now() }), "utf8");
+
+    const before = fakePi.sessions.at(-1)?.prompts.length ?? 0;
+    await expect(getTaskDetail(task.id)).resolves.toMatchObject({ id: task.id, isStreaming: true });
+    const result = await promptTask(task.id, "ユーザーからの追加指示", undefined, { streamingBehavior: "followUp" });
+
+    expect(result.id).toBe(task.id);
+    expect(fakePi.sessions.at(-1)?.prompts.length ?? 0).toBe(before);
+    const requestDir = join(dir, "bot-code-requests");
+    const requestFile = readdirSync(requestDir).find((name) => name.endsWith(".json"));
+    expect(requestFile).toBeDefined();
+    expect(JSON.parse(readFileSync(join(requestDir, requestFile!), "utf8"))).toMatchObject({
+      botId: bot.id,
+      codeTaskId: task.id,
+      userIntervention: true,
+      state: "queued",
+      prompt: "ユーザーからの追加指示",
+      promptOptions: { streamingBehavior: "followUp" },
+    });
   });
 
   it("keeps Pi native compaction enabled for a Goal Loop session", async () => {

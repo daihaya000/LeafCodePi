@@ -23,6 +23,19 @@ export const BOT_CODE_RESULT = "bot-code-result";
  * cannot bound a chain that restarts every turn. A new user instruction resets the count to zero.
  */
 export const MAX_AUTO_CODE_CHAIN = 5;
+/** Prompt options persisted for a Code input that must be delivered by its owning worker. */
+export type CodePromptOptions = {
+  images?: { mimeType: string; data: string }[];
+  agent?: string;
+  model?: string;
+  thinkingLevel?: TaskSummary["thinkingLevel"];
+  subagentPermission?: "allow" | "deny";
+  permissionMode?: "allow" | "ask" | "deny";
+  skillPermission?: "allow" | "deny";
+  streamingBehavior?: "steer" | "followUp";
+  accountIdExplicit?: boolean;
+  resume?: boolean;
+};
 export type CodeRequest = {
   id: string;
   botId: string;
@@ -38,6 +51,9 @@ export type CodeRequest = {
   room?: { id: string; responseId: string; conversation: RoomConversationTurn; nextBotId?: string; complete?: boolean };
   prompt: string;
   baseline: string | null;
+  /** A prompt submitted from the Code UI while another worker owns the live session. */
+  userIntervention?: boolean;
+  promptOptions?: CodePromptOptions;
   /** Set by an explicit user stop, so the captured result is never reported as success or auto-continued. */
   stoppedByUser?: boolean;
   /** How many autonomous continuations led here. Absent/0 means a user asked for this request. */
@@ -60,10 +76,12 @@ type CodeInput = {
 };
 type RelayDependencies = {
   create: (input: { projectId: string | null; prompt: string; model?: string; thinkingLevel?: TaskSummary["thinkingLevel"]; permissionMode: "ask" | "deny"; codeRequestId: string; botId: string; goalLoop?: CodeGoalLoop; beforePrompt: (task: TaskSummary) => void }) => Promise<TaskSummary>;
-  prompt: (id: string, prompt: string, requestId: string) => Promise<TaskSummary>;
+  prompt: (id: string, prompt: string, requestId: string, options?: CodePromptOptions) => Promise<TaskSummary>;
   abort: (id: string) => Promise<TaskSummary>;
   approve: (sessionId: string, message: string) => Promise<boolean | null>;
   isBusy: (id: string) => boolean;
+  /** True only in the worker that currently owns the task runtime lease. */
+  ownsTaskLease?: (id: string) => boolean;
   /** Persisted Goal Loop state of a Code task, so a loop run is judged by the loop, not by its last message. */
   goalLoop: (task: TaskSummary) => GoalLoopDto | null;
   messages: (task: TaskSummary) => Promise<UiMessage[]>;
@@ -198,7 +216,7 @@ export type BotCodeRequestSummary = Pick<CodeRequest, "id" | "codeTaskId" | "sta
 };
 export function listBotCodeRequests(botId: string): BotCodeRequestSummary[] {
   return requests()
-    .filter((request) => request.botId === botId)
+    .filter((request) => request.botId === botId && !request.userIntervention)
     .map((request) => {
       const { id, codeTaskId, state, prompt, result, queuedAt } = request;
       return { id, codeTaskId, state, prompt, result, queuedAt, ...requestPayload(request) };
@@ -267,10 +285,10 @@ export async function stopBotCodeRequest(
 ): Promise<{ state: CodeRequestState; codeTaskId: string | null } | undefined> {
   if (!/^[a-f0-9]{64}$/.test(requestId)) return undefined;
   const initial = read(requestId);
-  if (!initial || initial.botId !== botId || !active(initial)) return undefined;
+  if (!initial || initial.botId !== botId || initial.userIntervention || !active(initial)) return undefined;
   return withBotCodeSessionLock(`request-${requestId}`, async () => {
     const request = read(requestId);
-    if (!request || request.botId !== botId || !active(request)) return undefined;
+    if (!request || request.botId !== botId || request.userIntervention || !active(request)) return undefined;
     request.stoppedByUser = true;
     if (request.state === "ready") markUserStoppedResult(request);
     // An old queued prompt points at its predecessor, not a task this request has launched.
@@ -286,10 +304,41 @@ export async function stopBotCodeRequestForTask(
   codeTaskId: string,
 ): Promise<{ state: CodeRequestState; codeTaskId: string | null } | undefined> {
   const request = requests()
-    .filter((item) => item.botId === botId && item.codeTaskId === codeTaskId && active(item))
+    .filter((item) => item.botId === botId && !item.userIntervention && item.codeTaskId === codeTaskId && active(item))
     .sort((a, b) => (b.queuedAt ?? 0) - (a.queuedAt ?? 0) || b.id.localeCompare(a.id))[0];
   return request ? stopBotCodeRequest(botId, request.id) : undefined;
 }
+/** Persist a Code-side prompt for the worker that owns the Bot's Code session. */
+export function queueBotCodePrompt(
+  botId: string,
+  task: Pick<TaskSummary, "id" | "projectId">,
+  prompt: string,
+  promptOptions?: CodePromptOptions,
+): CodeRequest {
+  const linked = requests().find(
+    (request) =>
+      request.codeTaskId === task.id &&
+      !request.userIntervention &&
+      active(request),
+  );
+  const request: CodeRequest = {
+    id: randomBytes(32).toString("hex"),
+    botId,
+    originTaskId: linked?.originTaskId ?? `bot:${botId}`,
+    codeTaskId: task.id,
+    state: "queued",
+    action: "prompt",
+    projectId: task.projectId,
+    queuedAt: Date.now(),
+    prompt,
+    baseline: null,
+    userIntervention: true,
+    promptOptions: promptOptions ?? {},
+  };
+  save(request);
+  return request;
+}
+
 /**
  * Track a Code session the user starts from the Bot screen. It shares the delegated outbox, so the
  * result is reported back into the Bot conversation instead of only living in the Code task. The same
@@ -424,20 +473,20 @@ export function createBotCodeRelay(deps: RelayDependencies) {
   const reporting = new Map<string, { room: boolean; followUpStarted: boolean; userStopped: boolean; autoChain: number }>();
 
   function originForCode(taskId: string): string | null {
-    const request = requests().find((item) => item.codeTaskId === taskId && item.state === "running");
+    const request = requests().find((item) => item.codeTaskId === taskId && !item.userIntervention && item.state === "running");
     if (!request) return null;
     try { owner(request.originTaskId); return request.originTaskId; } catch { return null; }
   }
 
   function requestIdForCode(taskId: string): string | undefined {
-    return requests().find((item) => item.codeTaskId === taskId && item.state === "running")?.id;
+    return requests().find((item) => item.codeTaskId === taskId && !item.userIntervention && item.state === "running")?.id;
   }
 
   /** Every Code session this Bot conversation is currently waiting on, not just the first one. */
   function codeTasksForOrigin(originTaskId: string): string[] {
     try { owner(originTaskId); } catch { return []; }
     return requests().flatMap((item) => (
-      item.originTaskId === originTaskId && item.state === "running" && item.codeTaskId ? [item.codeTaskId] : []
+      item.originTaskId === originTaskId && !item.userIntervention && item.state === "running" && item.codeTaskId ? [item.codeTaskId] : []
     ));
   }
 
@@ -593,6 +642,31 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     }
   }
 
+  async function dispatchUserIntervention(request: CodeRequest): Promise<void> {
+    if (!request.codeTaskId || request.state !== "queued") return;
+    const task = getTask(request.codeTaskId);
+    if (!task || task.status === "archived") {
+      request.state = "cancelled";
+      save(request);
+      return;
+    }
+    // Every worker scans the shared outbox. Only the lease owner may touch the live SDK session.
+    if (deps.ownsTaskLease && !deps.ownsTaskLease(task.id)) return;
+    request.state = "starting";
+    save(request);
+    try {
+      await withBotCodeSessionLock(`code-task-${task.id}`, () =>
+        deps.prompt(task.id, request.prompt, request.id, request.promptOptions),
+      );
+      request.state = "delivered";
+      save(request);
+    } catch (error) {
+      request.state = "queued";
+      save(request);
+      throw error;
+    }
+  }
+
   async function processRequest(id: string): Promise<void> {
     const initial = read(id);
     if (!initial || !active(initial)) return;
@@ -601,6 +675,10 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       const request = read(id);
       if (!request || !active(request)) return;
       try { owner(request.originTaskId); } catch { request.state = "cancelled"; save(request); return; }
+      if (request.userIntervention) {
+        await dispatchUserIntervention(request);
+        return;
+      }
       // Compatibility only: drain old approved records immediately, never queue new requests.
       if (request.state === "queued") {
         if (!roomRequestIsCurrent(request)) { request.state = "cancelled"; save(request); return; }

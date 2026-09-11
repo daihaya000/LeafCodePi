@@ -4,14 +4,17 @@ import type { TaskDetail } from "@/lib/types";
 import { GET } from "./route";
 
 const mocks = vi.hoisted(() => ({
+  getTask: vi.fn(),
   getTaskBootstrap: vi.fn(),
   getTaskDetail: vi.fn(),
+  isTaskRuntimeOwnedElsewhere: vi.fn(() => false),
   pendingPermissionForTask: vi.fn(),
   pendingQuestionForTask: vi.fn(),
   subscribeTask: vi.fn(),
 }));
 
 vi.mock("@/lib/pi/harness", () => mocks);
+vi.mock("@/lib/store", () => ({ getTask: mocks.getTask }));
 
 function task(overrides: Partial<TaskDetail> = {}): TaskDetail {
   return {
@@ -47,8 +50,10 @@ function eventData(chunk: string): Record<string, unknown> {
 
 describe("/api/tasks/[id]/events", () => {
   beforeEach(() => {
+    mocks.getTask.mockReset();
     mocks.getTaskBootstrap.mockReset();
     mocks.getTaskDetail.mockReset();
+    mocks.isTaskRuntimeOwnedElsewhere.mockReset().mockReturnValue(false);
     mocks.pendingPermissionForTask.mockReset().mockReturnValue(null);
     mocks.pendingQuestionForTask.mockReset().mockReturnValue(null);
     mocks.subscribeTask.mockReset();
@@ -150,6 +155,53 @@ describe("/api/tasks/[id]/events", () => {
     expect(mocks.getTaskDetail).toHaveBeenCalledWith("task-1", { includeMessages: false });
 
     await reader.cancel();
+  });
+
+  it("polls a foreign Bot Code task until its owner releases the lease", async () => {
+    vi.useFakeTimers();
+    try {
+      const bootstrap = task({ kind: "code", botId: "bot-1", status: "working", isStreaming: true });
+      const initialDetail = task({ kind: "code", botId: "bot-1", status: "working", isStreaming: true });
+      const finalDetail = task({
+        kind: "code",
+        botId: "bot-1",
+        status: "idle",
+        isStreaming: false,
+        messages: [{ id: "final", role: "assistant", createdAt: 1, parts: [] }],
+      });
+      let currentTask: TaskDetail = bootstrap;
+      mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+      mocks.getTask.mockImplementation(() => currentTask);
+      mocks.getTaskDetail
+        .mockResolvedValueOnce(initialDetail)
+        .mockImplementationOnce(async (_id: string, options?: { offline?: boolean }) => {
+          expect(options?.offline).toBe(true);
+          currentTask = finalDetail;
+          return finalDetail;
+        });
+      mocks.isTaskRuntimeOwnedElsewhere
+        .mockReturnValueOnce(true)
+        .mockReturnValueOnce(false);
+      mocks.subscribeTask.mockReturnValue(vi.fn());
+
+      const response = await GET(
+        new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+        { params: Promise.resolve({ id: "task-1" }) },
+      );
+      const reader = response.body!.getReader();
+      await readChunk(reader);
+      expect(eventData(await readChunk(reader)).eventType).toBe("ready");
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      const remotePayload = eventData(await readChunk(reader));
+      expect(remotePayload.eventType).toBe("remote_poll");
+      expect(remotePayload.messages).toEqual(finalDetail.messages);
+      expect(mocks.getTaskDetail).toHaveBeenLastCalledWith("task-1", { offline: true });
+
+      await reader.cancel();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not reuse a matching cache while the task is working", async () => {
