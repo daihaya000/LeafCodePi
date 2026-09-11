@@ -21,6 +21,7 @@ import { WebUiAuthSettings } from "@/components/settings/WebUiAuthSettings";
 import { ReasoningTranslationSettings } from "@/components/settings/ReasoningTranslationSettings";
 import { HangTimeoutSettings } from "@/components/settings/HangTimeoutSettings";
 import { NotificationSoundSettings } from "@/components/settings/NotificationSoundSettings";
+import { TtsSettings } from "@/components/settings/TtsSettings";
 import { TitleAutoUpdateSettings } from "@/components/settings/TitleAutoUpdateSettings";
 import { SystemSafetySettings } from "@/components/settings/SystemSafetySettings";
 import { BotDefaultsSettings } from "@/components/settings/BotDefaultsSettings";
@@ -312,7 +313,7 @@ export function SettingsView() {
               <SettingsGroup
                 id="engine-display-heading"
                 title="表示と通知"
-                description="起動時の既定値、表示、通知音、メッセージ移動ボタンを設定します。"
+                description="起動時の既定値、表示、通知音、読み上げ、メッセージ移動ボタンを設定します。"
               >
                 <div className="grid gap-4 xl:grid-cols-2">
                   <div className="xl:col-span-2">
@@ -321,6 +322,9 @@ export function SettingsView() {
                   <BrowserSettings />
                   <NavigatorSettings />
                   <NotificationSoundSettings />
+                  <div className="xl:col-span-2">
+                    <TtsSettings />
+                  </div>
                   <div className="rounded-2xl border border-border bg-surface p-4">
                     <h3 className="text-sm font-semibold">テーマ</h3>
                     <p className="mt-1 text-xs text-muted">

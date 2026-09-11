@@ -45,6 +45,9 @@ vi.mock("@/components/settings/CommitGuardSettings", () => ({
 vi.mock("@/components/settings/NotificationSoundSettings", () => ({
   NotificationSoundSettings: () => <h3>通知音</h3>,
 }));
+vi.mock("@/components/settings/TtsSettings", () => ({
+  TtsSettings: () => <h3>読み上げ (TTS)</h3>,
+}));
 vi.mock("@/components/settings/NavigatorSettings", () => ({
   NavigatorSettings: () => <h3>ナビゲーター</h3>,
 }));
@@ -233,6 +236,7 @@ describe("SettingsView", () => {
     expect(screen.getByRole("heading", { name: "メモリ", level: 2 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "コミットガード" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "読み上げ (TTS)" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Pi Coding Agent" }).tagName).toBe("H3");
     expect(mountCounts.basic).toBe(1);

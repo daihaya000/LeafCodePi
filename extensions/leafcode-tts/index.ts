@@ -151,6 +151,34 @@ const PS_WORKER = [
 
 type Job = { kind: "S" | "P"; body: Promise<string | null> };
 
+/** URL のパスに合わせて `{text}` / OpenAI `{input}` などの JSON を作る。 */
+export function buildHttpTtsBody(url: string, text: string, voice?: string): string {
+  let path = url;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    /* relative or bare path */
+  }
+  const lower = path.toLowerCase();
+  if (lower.includes("/v1/audio/speech")) {
+    return JSON.stringify({
+      model: "tts-1",
+      input: text,
+      voice: voice?.trim() || "alloy",
+      response_format: "wav",
+    });
+  }
+  if (lower.includes("/v1/tts")) {
+    const body: Record<string, string> = { text, language: "Japanese" };
+    if (voice?.trim()) {
+      body.speaker = voice.trim();
+      body.voice = voice.trim();
+    }
+    return JSON.stringify(body);
+  }
+  return JSON.stringify(voice?.trim() ? { text, voice: voice.trim() } : { text });
+}
+
 export class Speaker {
   private worker: ChildProcess | null = null;
   private queue: Job[] = [];
@@ -205,7 +233,7 @@ export class Speaker {
       const response = await fetch(url, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text, voice: this.config.voice }),
+        body: buildHttpTtsBody(url, text, this.config.voice),
       });
       if (!response.ok) return null;
       const file = join(tmpdir(), `leafcode-tts-${process.pid}-${this.seq++}.wav`);

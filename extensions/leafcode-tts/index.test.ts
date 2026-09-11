@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { cut, readTtsConfig, speakable, SpeechChunker, writeTtsConfig } from "./index.ts";
+import { buildHttpTtsBody, cut, readTtsConfig, speakable, SpeechChunker, writeTtsConfig } from "./index.ts";
 
 /** Speaker.say と同じ前処理を通した結果だけを読み上げ単位として比較する。 */
 function spoken(chunker: SpeechChunker, delta: string): string[] {
@@ -137,5 +137,29 @@ describe("writeTtsConfig", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("buildHttpTtsBody", () => {
+  it("OpenAI 互換パスは input/voice/response_format を送る", () => {
+    expect(JSON.parse(buildHttpTtsBody("http://127.0.0.1:8080/v1/audio/speech", "こんにちは", "ryan"))).toEqual({
+      model: "tts-1",
+      input: "こんにちは",
+      voice: "ryan",
+      response_format: "wav",
+    });
+  });
+
+  it("/v1/tts は text/speaker、素の /tts は text/voice", () => {
+    expect(JSON.parse(buildHttpTtsBody("http://127.0.0.1:8080/v1/tts", "はい", "vivian"))).toEqual({
+      text: "はい",
+      language: "Japanese",
+      speaker: "vivian",
+      voice: "vivian",
+    });
+    expect(JSON.parse(buildHttpTtsBody("http://127.0.0.1:8080/tts", "はい", "haruka"))).toEqual({
+      text: "はい",
+      voice: "haruka",
+    });
   });
 });

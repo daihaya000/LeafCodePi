@@ -144,7 +144,15 @@ pi install ./extensions/leafcode-intercom
 }
 ```
 
-`url` を設定すると SAPI の代わりにその HTTP エンドポイントで合成します（`POST {"text": "...", "voice": "..."}` → wav バイト列）。Qwen3-TTS などをローカル GPU で動かす場合はこの口に繋ぎます。合成に失敗したチャンクは読み飛ばし、読み上げ全体は止めません。
+`url` を設定すると SAPI の代わりにその HTTP エンドポイントで合成します。パスに応じて本文を切り替えます。
+
+| URL | 送信 JSON |
+| --- | --- |
+| `.../tts` | `{ "text", "voice" }` |
+| `.../v1/tts` | `{ "text", "speaker", "language": "Japanese" }` |
+| `.../v1/audio/speech` | OpenAI 互換 `{ "input", "voice", "response_format": "wav" }` |
+
+同梱の最小サーバーは `extensions/leafcode-tts/server`（Qwen3-TTS。ROCm/CUDA の `qwen-tts` が入っていれば WAV を返す）。WebUI の **設定 → エンジン → 表示と通知 → 読み上げ (TTS)** からも同じ `tts.json` を編集できます。合成に失敗したチャンクは読み飛ばし、読み上げ全体は止めません。
 
 ```powershell
 npx --prefix extensions/leafcode-todowrite vitest run --dir extensions/leafcode-tts

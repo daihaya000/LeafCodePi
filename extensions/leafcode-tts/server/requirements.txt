@@ -1,0 +1,8 @@
+# Optional GPU TTS backend for extensions/leafcode-tts/server/server.py
+# Install into a ROCm/CUDA venv, then:
+#   set QWEN3_TTS_REF_AUDIO=C:\path\to\ref.wav
+#   set QWEN3_TTS_REF_TEXT=参照音声の書き起こし
+#   python server.py
+qwen-tts>=0.1.0
+torch
+soundfile
