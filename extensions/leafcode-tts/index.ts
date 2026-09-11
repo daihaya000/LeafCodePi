@@ -5,7 +5,9 @@
  * `text_delta` を「、。！？」で短く区切り、合成と再生を並行させる Producer/Consumer 方式。
  *
  * 既定バックエンドは Windows 標準の SAPI（System.Speech）。追加依存はない。
- * 設定に `url` を書くと Qwen3-TTS などの HTTP サーバーで合成し、返った wav を再生する。
+ * 設定に `url` を書くと HTTP 合成に切り替える。
+ * - `http://127.0.0.1:10101` のようにパス無し → AivisSpeech / VOICEVOX（audio_query→synthesis）
+ * - `.../v1/audio/speech` → OpenAI 互換（Qwen3-TTS など）
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -151,15 +153,29 @@ const PS_WORKER = [
 
 type Job = { kind: "S" | "P"; body: Promise<string | null> };
 
+/** URL の pathname（末尾スラッシュ除去）。不正 URL なら生文字列。 */
+function httpPath(url: string): string {
+  try {
+    return new URL(url).pathname.replace(/\/+$/, "") || "/";
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * AivisSpeech / VOICEVOX エンジンのベース URL か。
+ * `http://127.0.0.1:10101` のようにパス無し（または `/`）なら true。
+ * `/v1/audio/speech` 等の合成パスは OpenAI/自前サーバー側。
+ */
+export function isVoicevoxEngineUrl(url: string): boolean {
+  const path = httpPath(url).toLowerCase();
+  if (path.includes("/v1/audio/speech") || path.includes("/v1/tts") || path.endsWith("/tts")) return false;
+  return path === "/";
+}
+
 /** URL のパスに合わせて `{text}` / OpenAI `{input}` などの JSON を作る。 */
 export function buildHttpTtsBody(url: string, text: string, voice?: string): string {
-  let path = url;
-  try {
-    path = new URL(url).pathname;
-  } catch {
-    /* relative or bare path */
-  }
-  const lower = path.toLowerCase();
+  const lower = httpPath(url).toLowerCase();
   if (lower.includes("/v1/audio/speech")) {
     return JSON.stringify({
       model: "tts-1",
@@ -177,6 +193,23 @@ export function buildHttpTtsBody(url: string, text: string, voice?: string): str
     return JSON.stringify(body);
   }
   return JSON.stringify(voice?.trim() ? { text, voice: voice.trim() } : { text });
+}
+
+/** VOICEVOX 互換: audio_query → synthesis。voice は style id（数値文字列）。 */
+export async function synthesizeVoicevox(baseUrl: string, text: string, voice?: string): Promise<Buffer | null> {
+  const speaker = (voice?.trim() || "1").replace(/[^0-9]/g, "") || "1";
+  const root = baseUrl.replace(/\/+$/, "");
+  const queryUrl = `${root}/audio_query?text=${encodeURIComponent(text)}&speaker=${speaker}`;
+  const queryRes = await fetch(queryUrl, { method: "POST" });
+  if (!queryRes.ok) return null;
+  const query = await queryRes.text();
+  const synthRes = await fetch(`${root}/synthesis?speaker=${speaker}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: query,
+  });
+  if (!synthRes.ok) return null;
+  return Buffer.from(await synthRes.arrayBuffer());
 }
 
 export class Speaker {
@@ -230,14 +263,20 @@ export class Speaker {
 
   private async synthesize(text: string, url: string): Promise<string | null> {
     try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: buildHttpTtsBody(url, text, this.config.voice),
-      });
-      if (!response.ok) return null;
+      const wav = isVoicevoxEngineUrl(url)
+        ? await synthesizeVoicevox(url, text, this.config.voice)
+        : await (async () => {
+            const response = await fetch(url, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: buildHttpTtsBody(url, text, this.config.voice),
+            });
+            if (!response.ok) return null;
+            return Buffer.from(await response.arrayBuffer());
+          })();
+      if (!wav) return null;
       const file = join(tmpdir(), `leafcode-tts-${process.pid}-${this.seq++}.wav`);
-      writeFileSync(file, Buffer.from(await response.arrayBuffer()));
+      writeFileSync(file, wav);
       return file;
     } catch {
       return null; // HTTP バックエンドが落ちていても読み上げごと止めない。

@@ -2,6 +2,18 @@
 
 stdlib だけの最小サーバー。`qwen-tts` が入っていれば WAV を返し、無ければ 501。
 
+**推奨のリアルタイム読み上げは AivisSpeech（VOICEVOX 互換）**。LeafCode 側は `tts.json` の `url` をエンジンのベース URL にするだけで直接つなぐ（このサーバーは不要）:
+
+```json
+{
+  "enabled": true,
+  "url": "http://127.0.0.1:10101",
+  "voice": "888753760"
+}
+```
+
+`voice` は `/speakers` の style id。この Qwen3-TTS フロントは比較用・将来の Linux ROCm 用に残す。
+
 ```powershell
 cd extensions\leafcode-tts\server
 python -m venv .venv

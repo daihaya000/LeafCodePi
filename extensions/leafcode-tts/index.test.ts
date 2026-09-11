@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildHttpTtsBody, cut, readTtsConfig, speakable, SpeechChunker, writeTtsConfig } from "./index.ts";
+import { buildHttpTtsBody, cut, isVoicevoxEngineUrl, readTtsConfig, speakable, SpeechChunker, writeTtsConfig } from "./index.ts";
 
 /** Speaker.say と同じ前処理を通した結果だけを読み上げ単位として比較する。 */
 function spoken(chunker: SpeechChunker, delta: string): string[] {
@@ -161,5 +161,14 @@ describe("buildHttpTtsBody", () => {
       text: "はい",
       voice: "haruka",
     });
+  });
+});
+
+describe("isVoicevoxEngineUrl", () => {
+  it("パス無しのエンジン URL だけ true", () => {
+    expect(isVoicevoxEngineUrl("http://127.0.0.1:10101")).toBe(true);
+    expect(isVoicevoxEngineUrl("http://127.0.0.1:10101/")).toBe(true);
+    expect(isVoicevoxEngineUrl("http://127.0.0.1:18080/v1/audio/speech")).toBe(false);
+    expect(isVoicevoxEngineUrl("http://127.0.0.1:8080/v1/tts")).toBe(false);
   });
 });

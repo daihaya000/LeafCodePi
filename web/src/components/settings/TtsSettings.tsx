@@ -104,7 +104,11 @@ export function TtsSettings() {
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h3 className="text-sm font-semibold">読み上げ (TTS)</h3>
       <p className="mt-1 text-xs text-muted">
-        Bot / エージェントの発言を読み上げます。既定は Windows SAPI。HTTP URL を入れると Qwen3-TTS などのサーバーへ切り替えます。変更は次のエージェント開始から反映されます。
+        Bot / エージェントの発言を読み上げます。既定は Windows SAPI。HTTP URL を入れると外部合成へ切り替えます（AivisSpeech は
+        <code className="text-xs">http://127.0.0.1:10101</code>
+        、Qwen3-TTS は
+        <code className="text-xs">.../v1/audio/speech</code>
+        ）。変更は次のエージェント開始から反映されます。
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -130,7 +134,7 @@ export function TtsSettings() {
 
       <div className="mt-4 space-y-3">
         <label className="flex flex-col gap-1.5">
-          <span className="text-sm text-muted">音声名（SAPI / HTTP voice）</span>
+          <span className="text-sm text-muted">音声名（SAPI） / speaker id（AivisSpeech）</span>
           <input
             type="text"
             value={current.voice}
@@ -170,7 +174,7 @@ export function TtsSettings() {
         </label>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-sm text-muted">HTTP 合成 URL（空なら SAPI）</span>
+          <span className="text-sm text-muted">HTTP 合成 URL（空なら SAPI。AivisSpeech は http://127.0.0.1:10101）</span>
           <input
             type="url"
             value={current.url}
