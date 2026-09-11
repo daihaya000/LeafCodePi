@@ -291,6 +291,10 @@ describe("RoomView delegated work", () => {
     }));
 
     expect(screen.getByText("· 読取 README.md")).toBeTruthy();
+    const log = screen.getByText("Code実行中").closest<HTMLDetailsElement>("[data-bot-tool-group]");
+    expect(log?.querySelector("summary .lucide-logs")?.getAttribute("aria-hidden")).toBe("true");
+    expect(log?.querySelector("summary")?.textContent).toContain("作業ログ");
+    expect(log?.nextElementSibling?.textContent).toContain("依頼しました");
     fireEvent.click(screen.getByRole("button", { name: "停止" }));
     expect(mocks.sendJson).toHaveBeenCalledWith(`/api/bots/rooms/${room.id}/code`, { action: "abort", requestId: "request" });
   });

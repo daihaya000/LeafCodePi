@@ -114,7 +114,7 @@ export function CodeRequestCard({
   const changedFiles = changedFilePaths(task?.messages);
 
   return (
-    <div className="mt-2 w-full max-w-full min-w-0 rounded-xl border border-border bg-surface p-3 text-sm">
+    <div className="w-full max-w-full min-w-0 rounded-xl border border-border bg-surface p-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span role="status" aria-live={live ? "polite" : undefined} className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${succeeded ? "bg-success-bg text-success" : "bg-surface-2 text-muted"}`}>{outcome && !succeeded ? outcome : CODE_STATE_TEXT[state]}</span>
         <span className="min-w-0 flex-1 basis-48 break-words font-medium [overflow-wrap:anywhere]">{prompt || "Code依頼"}</span>

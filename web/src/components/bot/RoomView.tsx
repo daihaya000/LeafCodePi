@@ -1,6 +1,6 @@
 "use client";
 
-import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Users, X } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
@@ -14,9 +14,9 @@ import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
-import { conversationContentClass } from "@/components/ConversationLayout";
+import { ActivityLog, conversationContentClass, MessageHeader } from "@/components/ConversationLayout";
 import { BotComposer } from "@/components/bot/BotComposer";
-import { BotMessageError, BotMessageImages, BotMessageList, BotChatMessage, BotPermissionCard, BotRevertButton } from "@/components/bot/BotMessageList";
+import { BotMessageError, BotMessageImages, BotMessageList, BotChatMessage, BotMessageSender, BotPermissionCard, BotRevertButton } from "@/components/bot/BotMessageList";
 import { type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { stabilizeIdentifiedList } from "@/lib/stabilize-messages";
@@ -427,24 +427,34 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     const bot = message.botId ? botById.get(message.botId) : undefined;
     const text = message.text || (message.status === "working" ? "応答中…" : "");
     const requests = codeRequests(message);
-    if (!text && !requests.length && !message.images?.length && !message.handoffs?.length) return null;
+    const hasMessageContent = Boolean(text || message.images?.length || message.handoffs?.length || message.status === "error");
+    if (!hasMessageContent && !requests.length) return null;
+    const sender = { ...bot, name: bot?.name ?? message.botName ?? "ボット", active: message.status === "working" };
     return (
-      <BotChatMessage key={message.id} user={user} createdAt={message.createdAt}
-        sender={{ ...bot, name: bot?.name ?? message.botName ?? "ボット", active: message.status === "working" }} text={text} mentions={bots}
-        images={<BotMessageImages images={(message.images ?? []).map((image) => ({ key: image.file, src: `/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}` }))} />}
-        footer={user ? <BotRevertButton title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} /> : undefined}>
-        {requests.map((request) => <CodeRequestCard key={request.id ?? "legacy"} {...request} stopping={stoppingCode.includes(request.id ?? "legacy")} onStop={() => void stopCode(request.id)} />)}
-        {message.handoffs?.length ? (
-          <div className="flex flex-wrap gap-1.5">
-            {message.handoffs.map((handoff) => (
-              <span key={handoff.id} className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[11px] text-muted">
-                <span aria-hidden="true">→</span>{`@${handoff.toBotName} ${HANDOFF_STATE_TEXT[handoff.state]}`}
-              </span>
-            ))}
-          </div>
-        ) : null}
-        {message.status === "error" && <BotMessageError text="応答に失敗しました" />}
-      </BotChatMessage>
+      <Fragment key={message.id}>
+        {requests.length > 0 && (
+          <ActivityLog kind="bot" count={requests.length} parts={[]} active={message.status === "working"}>
+            {!hasMessageContent && !user && <MessageHeader><BotMessageSender {...sender} createdAt={message.createdAt} /></MessageHeader>}
+            {requests.map((request) => <CodeRequestCard key={request.id ?? "legacy"} {...request} stopping={stoppingCode.includes(request.id ?? "legacy")} onStop={() => void stopCode(request.id)} />)}
+          </ActivityLog>
+        )}
+        {hasMessageContent && (
+          <BotChatMessage user={user} createdAt={message.createdAt} sender={sender} text={text} mentions={bots}
+            images={<BotMessageImages images={(message.images ?? []).map((image) => ({ key: image.file, src: `/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}` }))} />}
+            footer={user ? <BotRevertButton title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} /> : undefined}>
+            {message.handoffs?.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                {message.handoffs.map((handoff) => (
+                  <span key={handoff.id} className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[11px] text-muted">
+                    <span aria-hidden="true">→</span>{`@${handoff.toBotName} ${HANDOFF_STATE_TEXT[handoff.state]}`}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {message.status === "error" && <BotMessageError text="応答に失敗しました" />}
+          </BotChatMessage>
+        )}
+      </Fragment>
     );
   }), [botById, bots, id, room?.messages, revertMessage, reverting, stopCode, stoppingCode]);
 
