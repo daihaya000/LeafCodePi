@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { cx } from "@/components/ui";
 import type { ProjectDto } from "@/lib/types";
 
@@ -9,13 +10,15 @@ const PROJECT_ICON_TONES = [
 ] as const;
 
 export function ProjectIcon({ project, className }: { project: Pick<ProjectDto, "id" | "name" | "icon">; className?: string }) {
+  const [failedIcon, setFailedIcon] = useState<string | null>(null);
   let hash = 0;
   for (const character of project.id) {
     hash = (hash * 31 + character.codePointAt(0)!) >>> 0;
   }
-  return project.icon ? (
+  const showImage = Boolean(project.icon && project.icon !== failedIcon);
+  return showImage ? (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={project.icon} alt="" className={cx("rounded-md object-cover", className)} />
+    <img src={project.icon!} alt="" onError={() => setFailedIcon(project.icon!)} className={cx("rounded-md object-cover", className)} />
   ) : (
     <span className={cx(PROJECT_ICON_TONES[hash % PROJECT_ICON_TONES.length], className)}>{Array.from(project.name.trim())[0]?.toUpperCase() ?? "?"}</span>
   );
