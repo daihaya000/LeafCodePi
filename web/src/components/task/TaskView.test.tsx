@@ -4,10 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveTaskSessionCache } from "@/lib/task-session-cache";
 import type { ModelOption, TaskSummary, UiMessage } from "@/lib/types";
 
-const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), partView: vi.fn(), toolCard: vi.fn(), botFor: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), partView: vi.fn(), toolCard: vi.fn(), messageMetaHeader: vi.fn(), botFor: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuButton: () => null }));
-vi.mock("@/components/task/PartView", () => ({ PartView: mocks.partView, ToolCard: mocks.toolCard, WorkingRow: () => null }));
+vi.mock("@/components/task/PartView", () => ({ PartView: mocks.partView, ToolCard: mocks.toolCard, MessageMetaHeader: mocks.messageMetaHeader, WorkingRow: () => null }));
 vi.mock("@/components/shell/TaskPanesContext", () => ({ useTaskPanes: () => ({ iconFor: () => null, botFor: mocks.botFor }) }));
 
 import { TaskView } from "./TaskView";
@@ -25,6 +25,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.partView.mockReturnValue(null);
   mocks.toolCard.mockReturnValue(null);
+  mocks.messageMetaHeader.mockReturnValue(null);
   mocks.botFor.mockReset();
   vi.stubGlobal("EventSource", class extends EventTarget { close() {} });
   mocks.getJson.mockResolvedValue({ models: [], agents: [], skills: [], accounts: [] });
@@ -118,8 +119,58 @@ it("groups consecutive tool-only messages between agent responses", () => {
   expect(group!.querySelector("summary")?.textContent).toContain("ツール実行");
   expect(group!.querySelector("summary")?.textContent).toContain("2件");
   expect(group!.querySelectorAll("[data-task-tool-card]")).toHaveLength(2);
+  expect(mocks.messageMetaHeader.mock.calls.map(([props]) => props.message.id)).toEqual(
+    expect.arrayContaining(["tool-1", "tool-2"]),
+  );
   fireEvent.click(group!.querySelector("summary")!);
   expect(group!.open).toBe(true);
+});
+
+it("groups every non-message part while keeping each message header", () => {
+  const mixedMessage: UiMessage = {
+    id: "assistant-mixed",
+    role: "assistant",
+    createdAt: 1,
+    model: "model-a",
+    outputTokens: 42,
+    error: "応答エラー",
+    diagnostics: [{ type: "transport", error: { message: "再接続" } }],
+    parts: [
+      { id: "mixed-text", type: "text", text: "確認します" },
+      { id: "mixed-thinking", type: "thinking", text: "考えています" },
+      { id: "mixed-image", type: "image", url: "data:image/png;base64,AA==", mime: "image/png" },
+    ],
+  };
+  const activityMessage: UiMessage = {
+    id: "activity-only",
+    role: "assistant",
+    createdAt: 2,
+    parts: [{ id: "activity-thinking", type: "thinking", text: "続けます" }],
+  };
+  saveTaskSessionCache({
+    task,
+    messages: [mixedMessage, activityMessage, { id: "reply", role: "assistant", createdAt: 3, parts: [{ id: "reply-text", type: "text", text: "完了" }] }],
+    isStreaming: false,
+    isCompacting: false,
+  });
+  mocks.partView.mockImplementation(({ message, hideMeta }: { message: UiMessage; hideMeta?: boolean }) => (
+    <div
+      data-task-part-view={hideMeta ? "activity" : "message"}
+      data-message-id={message.id}
+      data-part-types={message.parts.map((part) => part.type).join(",")}
+    />
+  ));
+  render(<TaskView taskId={task.id} mdUp />);
+
+  const group = document.querySelector<HTMLDetailsElement>("details[data-task-tool-group]");
+  expect(group).not.toBeNull();
+  expect(group!.querySelector("summary")?.textContent).toContain("5件");
+  expect([...document.querySelectorAll("[data-task-part-view=activity]")].map((node) => node.getAttribute("data-message-id"))).toEqual([
+    "assistant-mixed",
+    "activity-only",
+  ]);
+  expect(document.querySelector('[data-task-part-view="message"][data-message-id="assistant-mixed"]')?.getAttribute("data-part-types")).toBe("text");
+  expect(mocks.messageMetaHeader.mock.calls.some(([props]) => props.message.id === "activity-only")).toBe(true);
 });
 
 it("splits tool groups at Goal Loop turn boundaries", () => {

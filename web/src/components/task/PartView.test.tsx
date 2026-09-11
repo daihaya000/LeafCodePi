@@ -223,6 +223,25 @@ describe("PartView sender and response metadata", () => {
     expect(screen.getByText("build").querySelector('[data-agent-icon="build"]')).not.toBeNull();
   });
 
+  it("can render activity without duplicating the message metadata row", () => {
+    render(
+      <PartView
+        hideMeta
+        message={{
+          id: "assistant-activity",
+          role: "assistant",
+          createdAt: 1,
+          model: "gpt",
+          outputTokens: 32,
+          parts: [{ id: "thinking-1", type: "thinking", text: "内部で確認しています" }],
+        }}
+      />,
+    );
+
+    expect(screen.queryByLabelText("応答メタデータ")).toBeNull();
+    expect(screen.getByText("思考")).toBeTruthy();
+  });
+
   it("hides token metadata from tok onward in narrow task panes", () => {
     render(
       <PartView

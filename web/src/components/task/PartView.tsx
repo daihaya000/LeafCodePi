@@ -659,7 +659,7 @@ function CompactionNotice({ message }: { message: UiMessage }) {
 }
 
 /** 本家 LeafCode の MessageMetaHeader と同じ「アイコン · 値 · 値」1 行。 */
-function MessageMetaHeader({
+export function MessageMetaHeader({
   message,
   modelLabel,
   effort,
@@ -975,6 +975,7 @@ export const PartView = memo(
     taskId,
     active = true,
     nested = false,
+    hideMeta = false,
     onRevert,
     references,
   }: {
@@ -991,6 +992,8 @@ export const PartView = memo(
     active?: boolean;
     /** 入れ子タイムライン内での描画（さらに入れ子にはしない）。 */
     nested?: boolean;
+    /** メタデータ行を親が表示済みの場合に隠す。 */
+    hideMeta?: boolean;
     /** ユーザーメッセージの「入力欄に戻す」コールバック（トップレベル user のみ）。 */
     onRevert?: (message: UiMessage) => void;
     /** 送信済みメッセージ内でハイライトする既知のスキル・エージェント。 */
@@ -1003,25 +1006,27 @@ export const PartView = memo(
     const isUser = message.role === "user";
     return (
       <article className="flex w-full min-w-0 flex-col gap-2">
-        <div className={cx("flex min-w-0", isUser ? "ml-auto max-w-bubble justify-end" : "justify-start")}>
-          {isUser ? (
-            !nested && (bot ? (
-              <div className="min-w-0" title={bot.name} aria-label={`送信者: ${bot.name}（Bot）`}>
-                <BotMessageSender {...bot} createdAt={message.createdAt} />
-              </div>
+        {!hideMeta && (
+          <div className={cx("flex min-w-0", isUser ? "ml-auto max-w-bubble justify-end" : "justify-start")}>
+            {isUser ? (
+              !nested && (bot ? (
+                <div className="min-w-0" title={bot.name} aria-label={`送信者: ${bot.name}（Bot）`}>
+                  <BotMessageSender {...bot} createdAt={message.createdAt} />
+                </div>
+              ) : (
+                <span className="text-[10px] text-faint">{formatMessageTime(message.createdAt)}</span>
+              ))
             ) : (
-              <span className="text-[10px] text-faint">{formatMessageTime(message.createdAt)}</span>
-            ))
-          ) : (
-            <MessageMetaHeader
-              message={message}
-              modelLabel={modelLabel}
-              effort={effort}
-              agent={agent}
-              accountLabel={accountLabel}
-            />
-          )}
-        </div>
+              <MessageMetaHeader
+                message={message}
+                modelLabel={modelLabel}
+                effort={effort}
+                agent={agent}
+                accountLabel={accountLabel}
+              />
+            )}
+          </div>
+        )}
         {isUser ? (
           <div className={cx(
             "ml-auto min-w-0 max-w-bubble rounded-3xl px-4 py-3 text-base leading-7 [overflow-wrap:anywhere]",
@@ -1099,5 +1104,6 @@ export const PartView = memo(
     prev.taskId === next.taskId &&
     prev.active === next.active &&
     prev.nested === next.nested &&
+    prev.hideMeta === next.hideMeta &&
     prev.onRevert === next.onRevert,
 );

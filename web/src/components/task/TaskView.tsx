@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, startTransition, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
   Check,
@@ -45,7 +45,7 @@ import { SkillPermissionSelect } from "@/components/SkillPermissionSelect";
 import { PermissionSelect } from "@/components/PermissionSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
-import { PartView, ToolCard, WorkingRow } from "@/components/task/PartView";
+import { MessageMetaHeader, PartView, ToolCard, WorkingRow } from "@/components/task/PartView";
 import { PermissionAdvice } from "@/components/task/PermissionAdvice";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import {
@@ -462,59 +462,99 @@ function GoalLoopTurnDivider({ turn }: { turn: GoalLoopTurn }) {
 
 type TaskToolPart = Extract<UiPart, { type: "tool" }>;
 
+type TaskActivityEntry = {
+  message: UiMessage;
+  activityMessage: UiMessage;
+  showHeader: boolean;
+};
+
 type TaskMessageBlock =
   | { kind: "message"; message: UiMessage; index: number }
-  | { kind: "tool-group"; messages: UiMessage[]; parts: TaskToolPart[]; startIndex: number };
+  | {
+      kind: "tool-group";
+      entries: TaskActivityEntry[];
+      startIndex: number;
+      showTurnDivider: boolean;
+    };
 
-function toolOnlyParts(message: UiMessage): TaskToolPart[] | null {
-  if (
-    message.role !== "assistant" ||
-    message.parts.length === 0 ||
-    message.error ||
-    (message.diagnostics?.length ?? 0) > 0
-  ) {
-    return null;
-  }
-  const parts = message.parts.filter(
-    (part): part is TaskToolPart => part.type === "tool",
-  );
-  return parts.length === message.parts.length ? parts : null;
+/** assistant の本文だけをメッセージとして残し、それ以外の表示要素を活動グループへ送る。 */
+function taskActivityEntry(message: UiMessage): TaskActivityEntry | null {
+  if (message.role !== "assistant") return null;
+  const activityParts = message.parts.filter((part) => part.type !== "text");
+  const hasActivity =
+    activityParts.length > 0 || Boolean(message.error) || (message.diagnostics?.length ?? 0) > 0;
+  if (!hasActivity) return null;
+  return {
+    message,
+    activityMessage:
+      activityParts.length === message.parts.length
+        ? message
+        : { ...message, parts: activityParts },
+    showHeader: !message.parts.some((part) => part.type === "text"),
+  };
 }
 
-/** エージェントの応答を境界に、連続するツール実行だけを1枚へまとめる。 */
+function taskTextMessage(message: UiMessage): UiMessage {
+  return {
+    ...message,
+    parts: message.parts.filter((part) => part.type === "text"),
+    error: undefined,
+    diagnostics: undefined,
+  };
+}
+
+function taskActivityCount(entry: TaskActivityEntry): number {
+  return (
+    entry.activityMessage.parts.length +
+    (entry.activityMessage.error ? 1 : 0) +
+    (entry.activityMessage.diagnostics?.length ?? 0)
+  );
+}
+
 function taskMessageBlocks(messages: UiMessage[]): TaskMessageBlock[] {
   const blocks: TaskMessageBlock[] = [];
-  let groupedMessages: UiMessage[] = [];
-  let groupedParts: TaskToolPart[] = [];
+  let groupedEntries: TaskActivityEntry[] = [];
   let groupStartIndex = -1;
+  let groupShowTurnDivider = false;
   const flushGroup = () => {
-    if (groupedMessages.length === 0 || groupStartIndex < 0) return;
+    if (groupedEntries.length === 0 || groupStartIndex < 0) return;
     blocks.push({
       kind: "tool-group",
-      messages: groupedMessages,
-      parts: groupedParts,
+      entries: groupedEntries,
       startIndex: groupStartIndex,
+      showTurnDivider: groupShowTurnDivider,
     });
-    groupedMessages = [];
-    groupedParts = [];
+    groupedEntries = [];
     groupStartIndex = -1;
+    groupShowTurnDivider = false;
+  };
+  const addActivity = (entry: TaskActivityEntry, index: number, showTurnDivider: boolean) => {
+    if (groupStartIndex < 0) {
+      groupStartIndex = index;
+      groupShowTurnDivider = showTurnDivider;
+    } else if (isGoalLoopTurnBoundary(messages, index)) {
+      flushGroup();
+      groupStartIndex = index;
+      groupShowTurnDivider = true;
+    }
+    groupedEntries.push(entry);
   };
 
   messages.forEach((message, index) => {
-    const parts = toolOnlyParts(message);
-    if (parts && (groupStartIndex < 0 || !isGoalLoopTurnBoundary(messages, index))) {
-      if (groupStartIndex < 0) groupStartIndex = index;
-      groupedMessages.push(message);
-      groupedParts.push(...parts);
+    const activity = taskActivityEntry(message);
+    const hasText =
+      message.role === "assistant" && message.parts.some((part) => part.type === "text");
+    if (hasText) {
+      flushGroup();
+      blocks.push({ kind: "message", message: activity ? taskTextMessage(message) : message, index });
+      if (activity) addActivity(activity, index, false);
+      return;
+    }
+    if (activity) {
+      addActivity(activity, index, isGoalLoopTurnBoundary(messages, index));
       return;
     }
     flushGroup();
-    if (parts) {
-      groupStartIndex = index;
-      groupedMessages.push(message);
-      groupedParts.push(...parts);
-      return;
-    }
     blocks.push({ kind: "message", message, index });
   });
   flushGroup();
@@ -522,39 +562,33 @@ function taskMessageBlocks(messages: UiMessage[]): TaskMessageBlock[] {
 }
 
 function TaskToolActivityGroup({
-  parts,
-  taskId,
-  active,
+  messageHeaders,
+  contents,
+  count,
 }: {
-  parts: TaskToolPart[];
-  taskId: string;
-  active: boolean;
+  messageHeaders: ReactNode[];
+  contents: ReactNode[];
+  count: number;
 }) {
   return (
-    <details
-      data-task-tool-group
-      aria-label="ツール実行"
-      className="group/task-tool-activity w-full max-w-bubble self-start overflow-hidden rounded-2xl border border-border bg-surface"
-    >
-      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 py-2.5 text-left text-sm text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
-        <ChevronRight
-          className="h-4 w-4 shrink-0 transition-transform group-open/task-tool-activity:rotate-90"
-          aria-hidden="true"
-        />
-        <span className="min-w-0 flex-1 font-medium">ツール実行</span>
-        <span className="shrink-0 text-xs text-faint">{parts.length}件</span>
-      </summary>
-      <div className="space-y-2 border-t border-border bg-surface p-2">
-        {parts.map((part) => {
-          const partKey = part.id || part.callID;
-          const cardKey =
-            part.state.status === "error" || part.state.status === "cancelled"
-              ? `${partKey}:expanded`
-              : partKey;
-          return <ToolCard key={cardKey} part={part} taskId={taskId} tabActive={active} />;
-        })}
-      </div>
-    </details>
+    <div className="w-full min-w-0">
+      <div className="mb-1 flex min-w-0 flex-col gap-1">{messageHeaders}</div>
+      <details
+        data-task-tool-group
+        aria-label="ツール実行"
+        className="group/task-tool-activity w-full max-w-bubble self-start overflow-hidden rounded-2xl border border-border bg-surface"
+      >
+        <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 py-2.5 text-left text-sm text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
+          <ChevronRight
+            className="h-4 w-4 shrink-0 transition-transform group-open/task-tool-activity:rotate-90"
+            aria-hidden="true"
+          />
+          <span className="min-w-0 flex-1 font-medium">ツール実行</span>
+          <span className="shrink-0 text-xs text-faint">{count}件</span>
+        </summary>
+        <div className="space-y-2 border-t border-border bg-surface p-2">{contents}</div>
+      </details>
+    </div>
   );
 }
 
@@ -2793,10 +2827,98 @@ export const TaskView = memo(function TaskView({
               />
             )}
             {messageBlocks.map((block) => {
-              const firstMessage = block.kind === "tool-group" ? block.messages[0]! : block.message;
-              const turn = isGoalLoopTurnBoundary(renderedMessages, block.kind === "tool-group" ? block.startIndex : block.index)
-                ? firstMessage.goalLoopTurn
-                : undefined;
+              const firstMessage = block.kind === "tool-group" ? block.entries[0]!.message : block.message;
+              const turn =
+                block.kind === "tool-group"
+                  ? block.showTurnDivider
+                    ? firstMessage.goalLoopTurn
+                    : undefined
+                  : isGoalLoopTurnBoundary(renderedMessages, block.index)
+                    ? firstMessage.goalLoopTurn
+                    : undefined;
+              const messageHeaders =
+                block.kind === "tool-group"
+                  ? block.entries
+                      .filter((entry) => entry.showHeader)
+                      .map((entry) => {
+                        const message = entry.message;
+                        return (
+                          <MessageMetaHeader
+                            key={`task-tool-message-meta:${messageRenderKey(message)}`}
+                            message={message}
+                            modelLabel={
+                              message.provider && message.model
+                                ? modelLabels[`${message.provider}::${message.model}`]
+                                : undefined
+                            }
+                            effort={effortLabel}
+                            agent={task?.agent ?? undefined}
+                            accountLabel={
+                              message.accountId
+                                ? (accountLabels.get(message.accountId) ?? message.accountId)
+                                : (taskAccountLabel ?? undefined)
+                            }
+                          />
+                        );
+                      })
+                  : [];
+              const activityContents =
+                block.kind === "tool-group"
+                  ? block.entries.flatMap((entry) => {
+                      const message = entry.activityMessage;
+                      const toolParts = message.parts.filter(
+                        (part): part is TaskToolPart => part.type === "tool",
+                      );
+                      if (
+                        toolParts.length === message.parts.length &&
+                        toolParts.length > 0 &&
+                        !message.error &&
+                        (message.diagnostics?.length ?? 0) === 0
+                      ) {
+                        return toolParts.map((part) => {
+                          const partKey = part.id || part.callID;
+                          const cardKey =
+                            part.state.status === "error" || part.state.status === "cancelled"
+                              ? `${partKey}:expanded`
+                              : partKey;
+                          return (
+                            <ToolCard
+                              key={`task-tool-part:${cardKey}`}
+                              part={part}
+                              taskId={taskId}
+                              tabActive={active}
+                            />
+                          );
+                        });
+                      }
+                      return [
+                        <PartView
+                          key={`task-tool-message:${messageRenderKey(entry.message)}`}
+                          message={message}
+                          modelLabel={
+                            message.provider && message.model
+                              ? modelLabels[`${message.provider}::${message.model}`]
+                              : undefined
+                          }
+                          effort={effortLabel}
+                          agent={task?.agent ?? undefined}
+                          accountLabel={
+                            message.accountId
+                              ? (accountLabels.get(message.accountId) ?? message.accountId)
+                              : (taskAccountLabel ?? undefined)
+                          }
+                          references={messageReferences}
+                          taskId={taskId}
+                          active={active}
+                          hideMeta
+                        />,
+                      ];
+                    })
+                  : [];
+              const activityCount =
+                block.kind === "tool-group"
+                  ? block.entries.reduce((count, entry) => count + taskActivityCount(entry), 0)
+                  : 0;
               return (
                 <div
                   key={
@@ -2807,7 +2929,9 @@ export const TaskView = memo(function TaskView({
                   className="task-message-row"
                   ref={(el) => {
                     const messagesToTrack =
-                      block.kind === "tool-group" ? block.messages : [block.message];
+                      block.kind === "tool-group"
+                        ? block.entries.filter((entry) => entry.showHeader).map((entry) => entry.message)
+                        : [block.message];
                     for (const message of messagesToTrack) {
                       if (el) messageElsRef.current.set(message.id, el);
                       else messageElsRef.current.delete(message.id);
@@ -2816,7 +2940,11 @@ export const TaskView = memo(function TaskView({
                 >
                   {turn && <GoalLoopTurnDivider turn={turn} />}
                   {block.kind === "tool-group" ? (
-                    <TaskToolActivityGroup parts={block.parts} taskId={taskId} active={active} />
+                    <TaskToolActivityGroup
+                      messageHeaders={messageHeaders}
+                      contents={activityContents}
+                      count={activityCount}
+                    />
                   ) : showResume &&
                     resumeInsideExistingBanner &&
                     resumeTarget?.messageId === block.message.id ? (
