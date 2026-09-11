@@ -818,4 +818,9 @@ describe("durable Bot report acknowledgement", () => {
     const user = { type: "message", message: { role: "user" } };
     expect(botCodeReportText([marker, user, marker, final], "request")).toBe("Report");
   });
+
+  it("re-correlates a retried report after another request marker superseded the first one", () => {
+    const other = { ...marker, details: { requestId: "other" } };
+    expect(botCodeReportText([marker, other, marker, final], "request")).toBe("Report");
+  });
 });

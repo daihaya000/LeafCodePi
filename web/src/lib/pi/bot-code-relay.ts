@@ -391,7 +391,7 @@ export function botCodeReportText(entries: readonly unknown[], requestId: string
     const entry = value as { type?: string; customType?: string; details?: { requestId?: string }; message?: { role?: string; stopReason?: string; content?: { type?: string; text?: string }[] } };
     if (entry.type === "custom_message") {
       if (entry.customType === BOT_CODE_RESULT && entry.details?.requestId === requestId) found = true;
-      else if (found && entry.customType === BOT_CODE_RESULT) return undefined;
+      else if (found && entry.customType === BOT_CODE_RESULT) found = false;
     }
     const message = entry.type === "message" ? entry.message : undefined;
     if (found && message?.role === "user") {
