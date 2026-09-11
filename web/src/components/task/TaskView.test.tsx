@@ -201,6 +201,40 @@ it("groups every non-message part while keeping each message header", () => {
   expect(mocks.messageMetaHeader.mock.calls.some(([props]) => props.message.id === "activity-only")).toBe(true);
 });
 
+it("keeps the streaming placeholder header out of the timeline until its content lands", () => {
+  // 回帰: 空の生成中メッセージを単独行として出すと、ヘッダーが作業ログの
+  // 枠外へ一瞬逃げ、開いていたグループも分断された。
+  const messages: UiMessage[] = [
+    {
+      id: "tool-1",
+      role: "assistant",
+      createdAt: 1,
+      parts: [{
+        id: "tool-1-part",
+        type: "tool",
+        tool: "read",
+        callID: "tool-1-call",
+        state: { status: "completed", input: { path: "README.md" } },
+      }],
+    },
+    { id: "streaming", role: "assistant", createdAt: 2, model: "model-a", parts: [] },
+  ];
+  saveTaskSessionCache({
+    task: { ...task, status: "working" },
+    messages,
+    isStreaming: true,
+    isCompacting: false,
+  });
+  mocks.partView.mockImplementation(({ message }: { message: UiMessage }) => (
+    <div data-task-part-view={message.id} />
+  ));
+  render(<TaskView taskId={task.id} mdUp />);
+
+  const groups = document.querySelectorAll<HTMLDetailsElement>("details[data-task-tool-group]");
+  expect(groups).toHaveLength(1);
+  expect(document.querySelector('[data-task-part-view="streaming"]')).toBeNull();
+});
+
 it("splits tool groups at Goal Loop turn boundaries", () => {
   const toolMessage = (id: string, turn: number): UiMessage => ({
     id,

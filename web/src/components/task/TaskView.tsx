@@ -530,7 +530,11 @@ function taskActivityCount(entry: TaskActivityEntry): number {
 
 
 
-function taskMessageBlocks(messages: UiMessage[], ungroupedMessageId?: string): TaskMessageBlock[] {
+function taskMessageBlocks(
+  messages: UiMessage[],
+  ungroupedMessageId?: string,
+  working = false,
+): TaskMessageBlock[] {
   const blocks: TaskMessageBlock[] = [];
   let groupedEntries: TaskActivityEntry[] = [];
   let groupStartIndex = -1;
@@ -560,6 +564,18 @@ function taskMessageBlocks(messages: UiMessage[], ungroupedMessageId?: string): 
   };
 
   messages.forEach((message, index) => {
+    // 生成直後の空メッセージはヘッダーの行き先が未確定。枠外に出すと最初の thinking /
+    // tool が届いた瞬間にヘッダーが作業ログへ飛び、開いていたグループも分断される。
+    if (
+      working &&
+      index === messages.length - 1 &&
+      message.role === "assistant" &&
+      message.parts.length === 0 &&
+      !message.error &&
+      (message.diagnostics?.length ?? 0) === 0
+    ) {
+      return;
+    }
     const activity = message.id === ungroupedMessageId ? null : taskActivityEntry(message);
     const hasText =
       message.role === "assistant" && message.parts.some((part) => part.type === "text");
@@ -2535,8 +2551,9 @@ export const TaskView = memo(function TaskView({
       taskMessageBlocks(
         renderedMessages,
         resumeInsideExistingBanner ? resumeTarget?.messageId : undefined,
+        working,
       ),
-    [renderedMessages, resumeInsideExistingBanner, resumeTarget?.messageId],
+    [renderedMessages, resumeInsideExistingBanner, resumeTarget?.messageId, working],
   );
   const resumeBannerText =
     resumeTarget?.reason === "silent"
