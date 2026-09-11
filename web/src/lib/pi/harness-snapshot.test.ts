@@ -154,22 +154,49 @@ describe("snapshotMessages", () => {
     expect(snapshotMessages(session)[0]?.parts[0]).toMatchObject({ text: "圧縮前" });
   });
 
-  it("projects a hidden Goal Loop prompt from the persisted branch", () => {
+  it("projects Goal Loop turn metadata from the persisted branch", () => {
     const goalPrompt = {
       role: "custom",
       customType: "leafcode-goal-turn",
       content: "<!-- webui-goal-loop-prompt -->\\n\\nRules: internal instructions",
       display: false,
-      details: { uiPrompt: "ユーザーの依頼" },
+      details: { goalId: "loop-1", turn: 1, kind: "goal", uiPrompt: "ユーザーの依頼" },
       timestamp: 2,
     };
+    const continuation = {
+      type: "custom_message",
+      id: "goal-turn-2",
+      timestamp: "1970-01-01T00:00:00.003Z",
+      customType: "leafcode-goal-turn",
+      content: "continuation internal instructions",
+      display: false,
+      details: { goalId: "loop-1", turn: 2, kind: "goal" },
+    };
     const branch = [
-      { type: "custom_message", id: "goal-entry", timestamp: "1970-01-01T00:00:00.002Z", customType: goalPrompt.customType, content: goalPrompt.content, display: false, details: goalPrompt.details },
+      {
+        type: "custom_message",
+        id: "goal-entry",
+        timestamp: "1970-01-01T00:00:00.002Z",
+        customType: goalPrompt.customType,
+        content: goalPrompt.content,
+        display: false,
+        details: goalPrompt.details,
+      },
+      continuation,
+      {
+        type: "message",
+        id: "assistant-entry",
+        message: {
+          role: "assistant",
+          timestamp: 4,
+          content: [{ type: "text", text: "二巡目の応答" }],
+        },
+      },
     ];
     const fake = {
       messages: [],
       agent: { state: { streamingMessage: undefined as unknown } },
-      sessionManager: { getLeafId: () => "goal-entry", getBranch: () => branch },
+      sessionManager: { getLeafId: () => "assistant-entry", getBranch: () => branch },
     };
     const session = fake as unknown as Parameters<typeof snapshotMessages>[0];
 
@@ -178,10 +205,105 @@ describe("snapshotMessages", () => {
       {
         id: "goal-entry",
         role: "user",
+        goalLoopTurn: { goalId: "loop-1", turn: 1, kind: "goal" },
         parts: [{ type: "text", text: "ユーザーの依頼" }],
+      },
+      {
+        id: "assistant-entry",
+        role: "assistant",
+        goalLoopTurn: { goalId: "loop-1", turn: 2, kind: "goal" },
+        parts: [{ type: "text", text: "二巡目の応答" }],
       },
     ]);
     expect(JSON.stringify(projected)).not.toContain("internal instructions");
+  });
+
+  it("keeps Goal Loop metadata on latest-only projections", () => {
+    const marker = {
+      role: "custom",
+      customType: "leafcode-goal-turn",
+      content: "internal prompt",
+      display: false,
+      details: { goalId: "loop-1", turn: 2, kind: "goal" },
+      timestamp: 1,
+    };
+    const streaming = {
+      role: "assistant",
+      timestamp: 2,
+      content: [{ type: "text", text: "ストリーミング中" }],
+    };
+    const branch = [
+      {
+        type: "custom_message",
+        id: "goal-entry",
+        timestamp: "1970-01-01T00:00:00.001Z",
+        customType: marker.customType,
+        content: marker.content,
+        display: false,
+        details: marker.details,
+      },
+      { type: "message", id: "assistant-entry", message: streaming },
+    ];
+    const fake = {
+      messages: [marker, streaming],
+      agent: { state: { streamingMessage: streaming as unknown } },
+      sessionManager: { getLeafId: () => "assistant-entry", getBranch: () => branch },
+    };
+    const session = fake as unknown as Parameters<typeof snapshotMessages>[0];
+
+    expect(
+      snapshotMessages(session, undefined, undefined, undefined, undefined, true),
+    ).toMatchObject([
+      {
+        id: "assistant-entry",
+        goalLoopTurn: { goalId: "loop-1", turn: 2, kind: "goal" },
+        parts: [{ type: "text", text: "ストリーミング中" }],
+      },
+    ]);
+  });
+
+  it("carries Goal Loop metadata to an appended streaming message", () => {
+    const marker = {
+      role: "custom",
+      customType: "leafcode-goal-turn",
+      content: "internal prompt",
+      display: false,
+      details: { goalId: "loop-1", turn: 2, kind: "goal" },
+      timestamp: 1,
+    };
+    const branch = [
+      {
+        type: "custom_message",
+        id: "goal-entry",
+        timestamp: "1970-01-01T00:00:00.001Z",
+        customType: marker.customType,
+        content: marker.content,
+        display: false,
+        details: marker.details,
+      },
+    ];
+    const fake = {
+      messages: [],
+      agent: { state: { streamingMessage: undefined as unknown } },
+      sessionManager: { getLeafId: () => "goal-entry", getBranch: () => branch },
+    };
+    const session = fake as unknown as Parameters<typeof snapshotMessages>[0];
+    snapshotMessages(session);
+
+    fake.agent.state.streamingMessage = {
+      role: "assistant",
+      timestamp: 2,
+      content: [{ type: "text", text: "追加ストリーム" }],
+    };
+
+    expect(
+      snapshotMessages(session, undefined, undefined, undefined, undefined, true),
+    ).toMatchObject([
+      {
+        goalLoopTurn: { goalId: "loop-1", turn: 2, kind: "goal" },
+        parts: [{ type: "text", text: "追加ストリーム" }],
+      },
+    ]);
   });
 
   it("projects a streaming delta without rereading the cached branch", () => {

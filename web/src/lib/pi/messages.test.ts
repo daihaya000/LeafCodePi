@@ -96,6 +96,49 @@ describe("projectPiMessages", () => {
     ).toEqual([]);
   });
 
+  it("carries Goal Loop turn metadata across hidden turn markers", () => {
+    const messages = projectPiMessages([
+      {
+        role: "custom",
+        customType: "leafcode-goal-turn",
+        content: "internal prompt",
+        display: false,
+        details: { goalId: "loop-1", turn: 1, kind: "goal", uiPrompt: "目標" },
+        timestamp: 1,
+      },
+      { role: "assistant", id: "a1", content: [{ type: "text", text: "一巡目" }], timestamp: 2 },
+      {
+        role: "custom",
+        customType: "leafcode-goal-verification",
+        content: "verification prompt",
+        display: false,
+        details: { goalId: "loop-1", turn: 1, kind: "verification" },
+        timestamp: 3,
+      },
+      { role: "assistant", id: "a2", content: [{ type: "text", text: "検証" }], timestamp: 4 },
+      {
+        role: "custom",
+        customType: "leafcode-goal-turn",
+        content: "continuation prompt",
+        display: false,
+        details: { goalId: "loop-1", turn: 2, kind: "goal" },
+        timestamp: 5,
+      },
+      { role: "assistant", id: "a3", content: [{ type: "text", text: "二巡目" }], timestamp: 6 },
+      { role: "user", id: "u2", content: "手動指示", timestamp: 7 },
+      { role: "assistant", id: "a4", content: [{ type: "text", text: "手動応答" }], timestamp: 8 },
+    ]);
+
+    expect(messages.map((message) => message.goalLoopTurn)).toEqual([
+      { goalId: "loop-1", turn: 1, kind: "goal" },
+      { goalId: "loop-1", turn: 1, kind: "goal" },
+      { goalId: "loop-1", turn: 1, kind: "verification" },
+      { goalId: "loop-1", turn: 2, kind: "goal" },
+      undefined,
+      undefined,
+    ]);
+  });
+
   it("keeps fallback ids aligned when projecting a streamed suffix", () => {
     const [message] = projectPiMessages(
       [{ role: "assistant", content: [{ type: "text", text: "続き" }] }],

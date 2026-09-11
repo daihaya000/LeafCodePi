@@ -55,6 +55,33 @@ it.each([undefined, "bot-1"])("passes Bot identity only to the sending side (bot
   expect(props.filter((value) => value.role === "assistant").every((value) => value.bot === undefined)).toBe(true);
 });
 
+it("shows one Goal Loop turn divider per turn boundary", () => {
+  const turnMessage = (id: string, turn: number, kind: "goal" | "verification"): UiMessage => ({
+    id,
+    role: "assistant",
+    createdAt: turn,
+    goalLoopTurn: { goalId: "loop-1", turn, kind },
+    parts: [],
+  });
+  saveTaskSessionCache({
+    task,
+    messages: [
+      { ...turnMessage("a1", 1, "goal") },
+      { ...turnMessage("a1-follow-up", 1, "goal") },
+      { ...turnMessage("a1-verify", 1, "verification") },
+      { ...turnMessage("a2", 2, "goal") },
+    ],
+    isStreaming: false,
+    isCompacting: false,
+  });
+  render(<TaskView taskId={task.id} mdUp />);
+
+  expect(screen.getByRole("separator", { name: "Goalターン 1" })).toBeTruthy();
+  expect(screen.getByRole("separator", { name: "Goalターン 1（完了検証）" })).toBeTruthy();
+  expect(screen.getByRole("separator", { name: "Goalターン 2" })).toBeTruthy();
+  expect(screen.getByText("検証")).toBeTruthy();
+});
+
 describe("TaskView draft submission", () => {
   it("hides the manual context compaction control from the header", () => {
     render(<TaskView taskId={task.id} mdUp />);

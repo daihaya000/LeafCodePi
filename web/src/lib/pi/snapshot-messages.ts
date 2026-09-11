@@ -1,5 +1,6 @@
 import {
   entryIdsForProjectedMessages,
+  isGoalLoopTurnMarker,
   piRawMessageProjectsToUi,
   projectPiMessages,
 } from "@/lib/pi/messages";
@@ -32,6 +33,25 @@ type BranchProjectionCache = {
 const snapshotProjectionCache = new WeakMap<object, SnapshotProjectionCache>();
 /** Full current-branch history survives compaction and is reused between snapshots. */
 const branchProjectionCache = new WeakMap<object, BranchProjectionCache>();
+
+function isPlainUserMessage(item: unknown): boolean {
+  return (
+    typeof item === "object" &&
+    item !== null &&
+    Object.prototype.hasOwnProperty.call(item, "role") &&
+    (item as { role?: unknown }).role === "user"
+  );
+}
+
+/** Find the current Goal Loop marker without scanning past a manual user turn. */
+function latestGoalLoopMarkerIndex(raw: unknown[], endIndex = raw.length - 1): number {
+  for (let index = Math.min(endIndex, raw.length - 1); index >= 0; index -= 1) {
+    const item = raw[index];
+    if (isGoalLoopTurnMarker(item)) return index;
+    if (isPlainUserMessage(item)) return -1;
+  }
+  return -1;
+}
 
 /** throughput timing をメッセージへ反映（tok/s + 実測の応答所要時間）。 */
 export function applyThroughput(
@@ -140,7 +160,7 @@ export function snapshotMessages(
             details: entry.details,
             timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
           };
-          if (!piRawMessageProjectsToUi(message)) return [];
+          if (!piRawMessageProjectsToUi(message) && !isGoalLoopTurnMarker(message)) return [];
           entryIdByMessage.set(message, entry.id);
           return [message];
         }
@@ -187,9 +207,10 @@ export function snapshotMessages(
 
   const projectLatestWithEntryIds = (raw: unknown[]): UiMessage[] => {
     const latestIndex = raw.findLastIndex(piRawMessageProjectsToUi);
-    return latestIndex < 0
-      ? []
-      : projectWithEntryIds(raw.slice(latestIndex), latestIndex);
+    if (latestIndex < 0) return [];
+    const markerIndex = latestGoalLoopMarkerIndex(raw, latestIndex);
+    const startIndex = markerIndex >= 0 ? markerIndex : latestIndex;
+    return projectWithEntryIds(raw.slice(startIndex), startIndex);
   };
 
   let projected: UiMessage[];
@@ -226,11 +247,15 @@ export function snapshotMessages(
       }
     }
     if (canAppendStreaming) {
-      const streamingProjection = projectPiMessages([streaming], historyRaw.length);
-      if (latestOnly) {
-        if (streamingProjection.length > 0) projected = streamingProjection;
-      } else {
-        projected = projected.concat(streamingProjection);
+      const markerIndex = latestGoalLoopMarkerIndex(historyRaw);
+      const streamingProjection = projectPiMessages(
+        markerIndex >= 0 ? [historyRaw[markerIndex], streaming] : [streaming],
+        markerIndex >= 0 ? Math.max(0, historyRaw.length - 1) : historyRaw.length,
+      ).at(-1);
+      if (streamingProjection) {
+        projected = latestOnly
+          ? [streamingProjection]
+          : projected.concat(streamingProjection);
       }
     }
   } else if (latestOnly && streamingInHistory) {

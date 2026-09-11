@@ -206,6 +206,7 @@ import {
 import type {
   DiffFilesPayload,
   GoalLoopDto,
+  GoalLoopTurn,
   ModelOption,
   PermissionRequestDto,
   QuestionRequestDto,
@@ -418,6 +419,41 @@ function SidePanel({
           window.addEventListener("pointerup", onUp);
         }}
       />
+    </div>
+  );
+}
+
+function sameGoalLoopTurn(a: GoalLoopTurn, b: GoalLoopTurn): boolean {
+  return a.goalId === b.goalId && a.turn === b.turn && a.kind === b.kind;
+}
+
+/** Show one divider per Goal Loop turn, even when compaction rows intervene. */
+function isGoalLoopTurnBoundary(messages: UiMessage[], index: number): boolean {
+  const turn = messages[index]?.goalLoopTurn;
+  if (!turn) return false;
+  for (let previousIndex = index - 1; previousIndex >= 0; previousIndex -= 1) {
+    const previous = messages[previousIndex]!;
+    if (previous.role === "user" && !previous.goalLoopTurn) return true;
+    if (previous.goalLoopTurn) return !sameGoalLoopTurn(previous.goalLoopTurn, turn);
+  }
+  return true;
+}
+
+function GoalLoopTurnDivider({ turn }: { turn: GoalLoopTurn }) {
+  const title = `Goalターン ${turn.turn}`;
+  const verification = turn.kind === "verification";
+  return (
+    <div
+      role="separator"
+      aria-label={`${title}${verification ? "（完了検証）" : ""}`}
+      className="flex items-center gap-3 py-1 text-xs text-faint"
+    >
+      <span aria-hidden="true" className="h-px min-w-0 flex-1 bg-border" />
+      <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 py-1 font-medium tabular-nums">
+        <span>{title}</span>
+        {verification && <span className="text-muted">検証</span>}
+      </span>
+      <span aria-hidden="true" className="h-px min-w-0 flex-1 bg-border" />
     </div>
   );
 }
@@ -2652,50 +2688,56 @@ export const TaskView = memo(function TaskView({
                 tone="neutral"
               />
             )}
-            {renderedMessages.map((message) => (
-              <div
-                key={messageRenderKey(message)}
-                className="task-message-row"
-                ref={(el) => {
-                  if (el) messageElsRef.current.set(message.id, el);
-                  else messageElsRef.current.delete(message.id);
-                }}
-              >
-                {showResume &&
-                resumeInsideExistingBanner &&
-                resumeTarget?.messageId === message.id ? (
-                  <TurnNoticeBanner
-                    message={resumeBannerText}
-                    action={resumeAction}
-                    actionError={resumeTurnError}
-                    tone="danger"
-                  />
-                ) : (
-                  <PartView
-                    message={message}
-                    modelLabel={
-                      message.provider && message.model
-                        ? modelLabels[`${message.provider}::${message.model}`]
-                        : undefined
-                    }
-                    effort={message.role === "assistant" ? effortLabel : undefined}
-                    agent={message.role === "assistant" ? task?.agent ?? undefined : undefined}
-                    accountLabel={
-                      message.role === "assistant"
-                        ? message.accountId
-                          ? (accountLabels.get(message.accountId) ?? message.accountId)
-                          : (taskAccountLabel ?? undefined)
-                        : undefined
-                    }
-                    bot={message.role === "user" ? botFor?.(task?.botId) : undefined}
-                    references={messageReferences}
-                    taskId={taskId}
-                    active={active}
-                    onRevert={message.role === "user" ? requestRevert : undefined}
-                  />
-                )}
-              </div>
-            ))}
+            {renderedMessages.map((message, index) => {
+              const turn = isGoalLoopTurnBoundary(renderedMessages, index)
+                ? message.goalLoopTurn
+                : undefined;
+              return (
+                <div
+                  key={messageRenderKey(message)}
+                  className="task-message-row"
+                  ref={(el) => {
+                    if (el) messageElsRef.current.set(message.id, el);
+                    else messageElsRef.current.delete(message.id);
+                  }}
+                >
+                  {turn && <GoalLoopTurnDivider turn={turn} />}
+                  {showResume &&
+                  resumeInsideExistingBanner &&
+                  resumeTarget?.messageId === message.id ? (
+                    <TurnNoticeBanner
+                      message={resumeBannerText}
+                      action={resumeAction}
+                      actionError={resumeTurnError}
+                      tone="danger"
+                    />
+                  ) : (
+                    <PartView
+                      message={message}
+                      modelLabel={
+                        message.provider && message.model
+                          ? modelLabels[`${message.provider}::${message.model}`]
+                          : undefined
+                      }
+                      effort={message.role === "assistant" ? effortLabel : undefined}
+                      agent={message.role === "assistant" ? task?.agent ?? undefined : undefined}
+                      accountLabel={
+                        message.role === "assistant"
+                          ? message.accountId
+                            ? (accountLabels.get(message.accountId) ?? message.accountId)
+                            : (taskAccountLabel ?? undefined)
+                          : undefined
+                      }
+                      bot={message.role === "user" ? botFor?.(task?.botId) : undefined}
+                      references={messageReferences}
+                      taskId={taskId}
+                      active={active}
+                      onRevert={message.role === "user" ? requestRevert : undefined}
+                    />
+                  )}
+                </div>
+              );
+            })}
             {showResume && !resumeInsideExistingBanner && resumeTarget && (
               <TurnNoticeBanner
                 message={resumeBannerText}

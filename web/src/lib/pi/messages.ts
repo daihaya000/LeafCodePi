@@ -1,5 +1,5 @@
 import { HANG_RETRY_PREFIX, stripHangRetryPrefix } from "../hang-retry";
-import type { ToolState, UiDiagnostic, UiMessage, UiPart } from "../types";
+import type { GoalLoopTurn, ToolState, UiDiagnostic, UiMessage, UiPart } from "../types";
 
 export function titleFromPrompt(prompt: string): string {
   const line = prompt
@@ -180,6 +180,43 @@ function mergeToolResult(
 }
 
 const GOAL_LOOP_TURN_CUSTOM_TYPE = "leafcode-goal-turn";
+const GOAL_LOOP_VERIFICATION_CUSTOM_TYPE = "leafcode-goal-verification";
+const GOAL_LOOP_CUSTOM_TYPES = new Set([
+  GOAL_LOOP_TURN_CUSTOM_TYPE,
+  GOAL_LOOP_VERIFICATION_CUSTOM_TYPE,
+]);
+
+export function isGoalLoopTurnMarker(item: unknown): boolean {
+  return (
+    isRecord(item) &&
+    Object.prototype.hasOwnProperty.call(item, "customType") &&
+    asString(item.role) === "custom" &&
+    GOAL_LOOP_CUSTOM_TYPES.has(asString(item.customType))
+  );
+}
+
+/** Extract only the safe turn metadata from a hidden Goal Loop marker. */
+function goalLoopTurnFromRaw(item: Record<string, unknown>): GoalLoopTurn | null {
+  if (!GOAL_LOOP_CUSTOM_TYPES.has(asString(item.customType))) return null;
+  const details = isRecord(item.details) ? item.details : null;
+  const rawTurn = details?.turn;
+  const turn =
+    typeof rawTurn === "number"
+      ? rawTurn
+      : typeof rawTurn === "string"
+        ? Number(rawTurn)
+        : NaN;
+  const kind = details?.kind;
+  if (!Number.isInteger(turn) || turn < 1 || (kind !== "goal" && kind !== "verification")) {
+    return null;
+  }
+  const goalId = asString(details?.goalId).trim();
+  return {
+    ...(goalId ? { goalId } : {}),
+    turn,
+    kind,
+  };
+}
 
 /**
  * Goal Loop custom messages carry the full LLM prompt in `content`. Only the
@@ -221,6 +258,7 @@ export function entryIdsForProjectedMessages(
 
 export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] {
   const messages: UiMessage[] = [];
+  let activeGoalLoopTurn: GoalLoopTurn | undefined;
   raw.forEach((item, index) => {
     if (!isRecord(item)) return;
     const role = asString(item.role);
@@ -232,6 +270,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
     const createdAt = recordTsMs ?? Date.now();
 
     if (role === "user") {
+      activeGoalLoopTurn = undefined;
       const blocks = contentBlocks(item.content);
       const parts: UiPart[] = [];
       const rawText = typeof item.content === "string" ? item.content : textFromBlocks(blocks);
@@ -250,6 +289,9 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
     }
 
     if (role === "custom") {
+      if (isGoalLoopTurnMarker(item)) {
+        activeGoalLoopTurn = goalLoopTurnFromRaw(item) ?? undefined;
+      }
       const text = goalLoopUiPrompt(item);
       if (text === null) return;
       messages.push({
@@ -257,6 +299,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
         role: "user",
         createdAt,
         parts: [{ id: `${id}-text`, type: "text", text }],
+        ...(activeGoalLoopTurn ? { goalLoopTurn: activeGoalLoopTurn } : {}),
       });
       return;
     }
@@ -313,6 +356,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
         role: "assistant",
         createdAt,
         parts,
+        ...(activeGoalLoopTurn ? { goalLoopTurn: activeGoalLoopTurn } : {}),
         model: asString(item.model) || undefined,
         provider: asString(item.provider) || undefined,
         // Pi intentionally omits errorMessage for user aborts. Keep the
@@ -343,6 +387,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
         id,
         role: "assistant",
         createdAt,
+        ...(activeGoalLoopTurn ? { goalLoopTurn: activeGoalLoopTurn } : {}),
         parts: [
           {
             id: `${id}-bash`,

@@ -328,11 +328,20 @@ export type UiDiagnostic = {
   };
 };
 
+export type GoalLoopTurn = {
+  /** Goal Loop instance, used to distinguish a restarted loop at turn 1. */
+  goalId?: string;
+  turn: number;
+  kind: "goal" | "verification";
+};
+
 export type UiMessage = {
   id: string;
   role: "user" | "assistant" | "compaction";
   createdAt: number;
   parts: UiPart[];
+  /** Goal Loop turn that produced this message, when the session marker is available. */
+  goalLoopTurn?: GoalLoopTurn;
   /** この応答を生成した認証アカウント（未設定 = 既定）。アカウント切替の履歴確認用。 */
   accountId?: string;
   /** ハング watchdog による自動再送 user メッセージ（UI 非表示）。 */
