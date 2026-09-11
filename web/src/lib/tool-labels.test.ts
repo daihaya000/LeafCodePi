@@ -236,4 +236,8 @@ describe("toolElapsedMs", () => {
     expect(toolElapsedMs([toolPart("a"), toolPart("b", 1_000)])).toBe(0);
     expect(toolElapsedMs([])).toBe(0);
   });
+
+  it("ignores a tool whose end precedes its start", () => {
+    expect(toolElapsedMs([toolPart("valid", 1_000, 2_000), toolPart("clock-skew", 5_000, 4_000)])).toBe(1_000);
+  });
 });

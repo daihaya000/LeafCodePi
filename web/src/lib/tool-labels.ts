@@ -263,7 +263,7 @@ export function toolElapsedMs(parts: readonly UiPart[]): number {
   for (const part of parts) {
     if (part.type !== "tool") continue;
     const { startedAtMs, endedAtMs } = part.state;
-    if (startedAtMs === undefined || endedAtMs === undefined) continue;
+    if (startedAtMs === undefined || endedAtMs === undefined || endedAtMs < startedAtMs) continue;
     startedAt = Math.min(startedAt, startedAtMs);
     endedAt = Math.max(endedAt, endedAtMs);
   }
