@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Logs } from "lucide-react";
 import { cx, formatDuration, useToolElapsedMs } from "@/components/ui";
 import type { UiPart } from "@/lib/types";
 
@@ -22,7 +22,7 @@ export function MessageBubble({ user = false, neutral = false, className, childr
   )}>{children}</div>;
 }
 
-/** Only presentation is shared: callers retain their message grouping and metadata. */
+/** Keep Bot/Code log icons and layout here to prevent drift; callers own grouping and metadata. */
 export function ActivityLog({ children, count, parts, active, kind }: {
   children: ReactNode;
   count: number;
@@ -40,6 +40,7 @@ export function ActivityLog({ children, count, parts, active, kind }: {
     >
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 py-2.5 text-left text-sm text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
         <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-open/tool-activity:rotate-90" aria-hidden="true" />
+        <Logs className="h-4 w-4 shrink-0" aria-hidden="true" />
         <span className="min-w-0 flex-1 font-medium">作業ログ</span>
         <span className="shrink-0 text-xs text-faint">{count}件{elapsedMs > 0 ? ` · ${formatDuration(elapsedMs)}` : ""}</span>
       </summary>
