@@ -516,6 +516,22 @@ describe("Bot ⇄ Code relay", () => {
     expect(deps.deliver).not.toHaveBeenCalled();
   });
 
+  it("stops the newest request when an older report for the same Code task is still pending", async () => {
+    await launch();
+    const directory = join(store.root, "bot-code-requests");
+    const oldPath = readdirSync(directory).find((name) => name.endsWith(".json"))!;
+    const old = { ...record(), id: "0".repeat(64), state: "ready" as const };
+    rmSync(join(directory, oldPath));
+    writeFileSync(join(directory, `${old.id}.json`), JSON.stringify(old), "utf8");
+    const current: CodeRequest = { ...old, id: "f".repeat(64), state: "running", queuedAt: (old.queuedAt ?? 0) + 1, stoppedByUser: undefined };
+    writeFileSync(join(directory, `${current.id}.json`), JSON.stringify(current), "utf8");
+
+    await expect(stopBotCodeRequestForTask("one", "code")).resolves.toMatchObject({ state: "running", codeTaskId: "code" });
+    const byId = new Map(records().map((request) => [request.id, request]));
+    expect(byId.get(old.id)?.stoppedByUser).toBeUndefined();
+    expect(byId.get(current.id)?.stoppedByUser).toBe(true);
+  });
+
   it("allows one autonomous follow-up Code request while reporting a result", async () => {
     await launch(); store.tasks.get("code")!.status = "idle";
     vi.mocked(deps.deliver).mockImplementationOnce(async () => {

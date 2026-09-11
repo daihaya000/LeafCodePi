@@ -276,7 +276,9 @@ export async function stopBotCodeRequestForTask(
   botId: string,
   codeTaskId: string,
 ): Promise<{ state: CodeRequestState; codeTaskId: string | null } | undefined> {
-  const request = requests().find((item) => item.botId === botId && item.codeTaskId === codeTaskId && active(item));
+  const request = requests()
+    .filter((item) => item.botId === botId && item.codeTaskId === codeTaskId && active(item))
+    .sort((a, b) => (b.queuedAt ?? 0) - (a.queuedAt ?? 0) || b.id.localeCompare(a.id))[0];
   return request ? stopBotCodeRequest(botId, request.id) : undefined;
 }
 /**
