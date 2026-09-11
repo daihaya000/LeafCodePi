@@ -12,7 +12,7 @@ vi.mock("next/image", () => ({ default: () => null }));
 import { BotView } from "./BotView";
 import { BOT_AVATAR_SHAPES } from "@/lib/bot-avatar";
 import { toolNameLabel } from "@/lib/tool-labels";
-import { BOT_TOOL_NAMES } from "@/lib/types";
+import { BOT_DEFAULT_DISABLED_TOOL_NAMES, BOT_TOOL_NAMES } from "@/lib/types";
 import { ShellProvider } from "@/components/shell/ShellContext";
 let listener: (event: { data: string }) => void;
 let deltaListener: (event: { data: string }) => void;
@@ -542,6 +542,9 @@ it("shows every configured tool in the Bot settings panel", async () => {
   }
   expect(tools.getByRole("checkbox", { name: toolNameLabel("write") }).closest("label")?.querySelector('[data-tool-access="write"] svg')).not.toBeNull();
   expect(tools.getByRole("checkbox", { name: toolNameLabel("read") }).closest("label")?.querySelector('[data-tool-access="read"] svg')).not.toBeNull();
+  for (const tool of BOT_DEFAULT_DISABLED_TOOL_NAMES) {
+    expect((tools.getByRole("checkbox", { name: toolNameLabel(tool) }) as HTMLInputElement).checked).toBe(false);
+  }
 });
 
 it("keeps the Bot settings panel visibility after remounting", async () => {
