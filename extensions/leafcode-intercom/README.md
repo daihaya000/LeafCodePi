@@ -36,20 +36,20 @@ LeafCodePi loads `extensions/leafcode-intercom` automatically. For standalone Pi
 pi install npm:pi-intercom
 ```
 
-Then restart Pi. The extension auto-connects to the broker on startup and registers the bundled `pi-intercom` skill for common coordination patterns.
+Then restart Pi. The extension auto-connects to the broker on startup and registers the bundled `leafcode-intercom` skill for common coordination patterns.
 
 **Recommended:** Add this snippet to your project's `AGENTS.md` to help agents understand when to coordinate across sessions:
 
 ```xml
-<pi-intercom>
-Coordinate with other local pi sessions on related codebases. Use `/skill:pi-intercom` for patterns.
+<leafcode-intercom>
+Coordinate with other local pi sessions on related codebases. Use `/skill:leafcode-intercom` for patterns.
 
 **When:** Same codebase (parallel work), reference codebase (consulting patterns), related repos (shared libraries).
 
 **Not when:** Unrelated codebases, trivial questions, or when you can proceed independently.
 
 **Principle:** Prefer `send` for notifications; `ask` only when blocked waiting for input.
-</pi-intercom>
+</leafcode-intercom>
 ```
 
 A session becomes intercom-connected when all of these are true:
@@ -88,7 +88,7 @@ Press **Alt+M** or type `/intercom` to open the session list overlay:
 
 ### From the Agent
 
-The agent can list sessions and send messages using the `intercom` tool. Tool calls and results render as compact transcript rows so send/ask/reply flows are easy to scan. Use `/intercom-id` to insert a handoff snippet for the current session's stable intercom target into the editor. For common patterns like planner-worker delegation, the bundled `pi-intercom` skill provides copy-paste ready examples:
+The agent can list sessions and send messages using the `intercom` tool. Tool calls and results render as compact transcript rows so send/ask/reply flows are easy to scan. Use `/intercom-id` to insert a handoff snippet for the current session's stable intercom target into the editor. For common patterns like planner-worker delegation, the bundled `leafcode-intercom` skill provides copy-paste ready examples:
 
 ```typescript
 // List active sessions
@@ -603,7 +603,7 @@ Use pi-messenger for multi-agent swarms working on a shared task. Use pi-interco
 │   ├── compose.ts        # Message composition overlay
 │   └── inline-message.ts # Received message display
 └── skills/
-    └── pi-intercom/
+    └── leafcode-intercom/
         └── SKILL.md      # Bundled skill for common patterns
 ```
 

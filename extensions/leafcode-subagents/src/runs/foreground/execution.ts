@@ -1647,7 +1647,7 @@ async function runSyncCompletionInner(
 		agent.skillPath,
 		agent.filePath ? path.dirname(agent.filePath) : skillCwd,
 	);
-	if (skillNames.some((skill) => skill.trim() === "pi-subagents") && missingSkills.includes("pi-subagents")) {
+	if (skillNames.some((skill) => skill.trim() === "leafcode-subagents") && missingSkills.includes("leafcode-subagents")) {
 		return redactResultPrompt(withRunContext({
 			index: options.index ?? 0,
 			agent: agentName,
@@ -1655,7 +1655,7 @@ async function runSyncCompletionInner(
 			exitCode: 1,
 			messages: [],
 			usage: emptyUsage(),
-			error: "Skills not found: pi-subagents",
+			error: "Skills not found: leafcode-subagents",
 		}, options.context));
 	}
 	let systemPrompt = agent.systemPrompt?.trim() || "";

@@ -1,6 +1,6 @@
 # Pi Subagents: Execution Controls
 
-This file is a detailed reference loaded from `skills/pi-subagents/SKILL.md`.
+This file is a detailed reference loaded from `skills/leafcode-subagents/SKILL.md`.
 
 ## Discovery and Scope Rules
 

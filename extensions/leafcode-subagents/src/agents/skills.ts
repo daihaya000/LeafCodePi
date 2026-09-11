@@ -53,7 +53,7 @@ const MAX_CACHE_SIZE = 50;
 let loadSkillsCache: { cwd: string; agentDir: string; skills: CachedSkillEntry[]; timestamp: number } | null = null;
 const LOAD_SKILLS_CACHE_TTL_MS = 5000;
 
-const SUBAGENT_ORCHESTRATION_SKILL = "pi-subagents";
+const SUBAGENT_ORCHESTRATION_SKILL = "leafcode-subagents";
 
 const SOURCE_PRIORITY: Record<SkillSource, number> = {
 	project: 700,

@@ -280,8 +280,8 @@ export async function resolveSubagentLaunchContract(input: SubagentLaunchContrac
 		agent.skillPath,
 		agent.filePath ? path.dirname(agent.filePath) : effectiveCwd,
 	);
-	if (resolvedSkills.missing.includes("pi-subagents")) {
-		return { ok: false, code: "missing_skill", message: "The pi-subagents orchestration skill is not child-injectable.", diagnostics };
+	if (resolvedSkills.missing.includes("leafcode-subagents")) {
+		return { ok: false, code: "missing_skill", message: "The leafcode-subagents orchestration skill is not child-injectable.", diagnostics };
 	}
 	if (resolvedSkills.missing.length > 0) diagnostics.push({ code: "missing_skill", severity: "error", message: `Missing skills: ${resolvedSkills.missing.join(", ")}` });
 

@@ -12,7 +12,7 @@ see peer transcripts by default. This is not free-form agent chat.
 
 Use council mode for a material decision with real tradeoffs. Do not use it for a
 trivial or settled question, or for implementation work. Read
-`skills/pi-subagents/references/execution-controls.md` before you launch advisors.
+`skills/leafcode-subagents/references/execution-controls.md` before you launch advisors.
 
 ## Roster and limits
 

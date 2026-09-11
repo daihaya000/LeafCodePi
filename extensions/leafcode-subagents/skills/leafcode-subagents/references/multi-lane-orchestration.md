@@ -1,6 +1,6 @@
 # Multi-Lane Orchestration
 
-Use this reference when several independent tasks need coordinated workers, worktrees, or repositories. It defines lane ownership; use the other pi-subagents references for run controls, prompts, and mission details. The parent remains the final decision-maker.
+Use this reference when several independent tasks need coordinated workers, worktrees, or repositories. It defines lane ownership; use the other leafcode-subagents references for run controls, prompts, and mission details. The parent remains the final decision-maker.
 
 ## Lane board and authority
 

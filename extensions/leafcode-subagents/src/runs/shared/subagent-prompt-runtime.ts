@@ -66,7 +66,7 @@ const PARENT_ONLY_CUSTOM_MESSAGE_TYPES = new Set([
 	"subagent-control",
 	"subagent-control-notice",
 ]);
-const SUBAGENT_ORCHESTRATION_SKILL_NAME_PATTERN = /<name>\s*pi-subagents\s*<\/name>/;
+const SUBAGENT_ORCHESTRATION_SKILL_NAME_PATTERN = /<name>\s*leafcode-subagents\s*<\/name>/;
 const PROJECT_CONTEXT_HEADER = "\n\n# Project Context\n\nProject-specific instructions and guidelines:\n\n";
 const SKILLS_HEADER = "\n\nThe following skills provide specialized instructions for specific tasks.";
 const DATE_HEADER = "\nCurrent date:";
@@ -162,7 +162,7 @@ export function stripInheritedSkills(prompt: string): string {
 
 export function stripSubagentOrchestrationSkill(prompt: string): string {
 	return prompt
-		.replace(/\n{0,2}<skill\s+name=["']pi-subagents["'][^>]*>[\s\S]*?<\/skill>\n{0,2}/g, "\n\n")
+		.replace(/\n{0,2}<skill\s+name=["']leafcode-subagents["'][^>]*>[\s\S]*?<\/skill>\n{0,2}/g, "\n\n")
 		.replace(/[ \t]*<skill>\s*[\s\S]*?<\/skill>\s*/g, (block) => SUBAGENT_ORCHESTRATION_SKILL_NAME_PATTERN.test(block) ? "" : block);
 }
 

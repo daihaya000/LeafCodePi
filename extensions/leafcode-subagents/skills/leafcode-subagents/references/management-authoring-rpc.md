@@ -1,6 +1,6 @@
 # Pi Subagents: Management Authoring Rpc
 
-This file is a detailed reference loaded from `skills/pi-subagents/SKILL.md`.
+This file is a detailed reference loaded from `skills/leafcode-subagents/SKILL.md`.
 
 ## Management Mode
 

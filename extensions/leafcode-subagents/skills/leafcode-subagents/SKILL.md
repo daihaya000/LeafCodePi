@@ -1,5 +1,5 @@
 ---
-name: pi-subagents
+name: leafcode-subagents
 description: |
   Delegate work to builtin or custom subagents with single-agent, parallel,
   scripted-chaining, async, forked-context, and coordinated workflows. Use
@@ -8,7 +8,7 @@ description: |
   planning, or execution.
 ---
 
-# Pi Subagents
+# LeafCode Subagents
 
 This skill is for the main parent orchestrator only. Do not inject or follow it inside spawned child subagents. The parent session owns delegation, orchestration, review fanout, and final fix-worker launches. Ordinary children should not run their own subagent workflows; the explicit exception is a delegated fanout child whose resolved builtin `tools` includes `subagent`, and that child may use `subagent` only for the fanout work the parent assigned.
 
@@ -16,7 +16,7 @@ Use this skill when the parent orchestrator needs one specialized child or compo
 
 ## How to use this router
 
-Read the matching reference file before acting. Paths are relative to this `SKILL.md`; resolve them against `skills/pi-subagents/` and load them with the read tool.
+Read the matching reference file before acting. Paths are relative to this `SKILL.md`; resolve them against `skills/leafcode-subagents/` and load them with the read tool.
 
 | Task | Read |
 | --- | --- |

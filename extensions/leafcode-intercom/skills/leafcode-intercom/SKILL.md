@@ -1,13 +1,13 @@
 ---
-name: pi-intercom
+name: leafcode-intercom
 description: |
-  Streamline session-to-session coordination with pi-intercom. Send messages,
+  Streamline session-to-session coordination with leafcode-intercom. Send messages,
   delegate tasks, and coordinate work across multiple pi sessions on the same
   machine. Use for planner-worker workflows, cross-session context sharing,
   and real-time collaboration between sessions.
 ---
 
-# Pi Intercom Skill
+# LeafCode Intercom Skill
 
 Use this skill when you need to coordinate work across multiple pi sessions
 running on the same machine. Pi-intercom enables direct 1:1 messaging between

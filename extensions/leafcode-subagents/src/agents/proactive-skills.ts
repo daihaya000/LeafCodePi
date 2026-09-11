@@ -1,7 +1,7 @@
 import type { AgentConfig, ChainConfig, ChainStepConfig } from "./agents.ts";
 import type { ProactiveSkillSubagentsConfig } from "../shared/types.ts";
 
-const SUBAGENT_ORCHESTRATION_SKILL = "pi-subagents";
+const SUBAGENT_ORCHESTRATION_SKILL = "leafcode-subagents";
 const DEFAULT_MIN_REFERENCES = 2;
 const DEFAULT_MAX_RECOMMENDATIONS = 3;
 const DEFAULT_PREFERRED_AGENT = "reviewer";

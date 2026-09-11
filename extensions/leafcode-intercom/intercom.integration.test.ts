@@ -1841,7 +1841,7 @@ test("obsolete toolVisibility config never hides or reveals the intercom tool", 
 
       await inboundHarness.emitLifecycle("tool_result", {
         toolName: "read",
-        input: { path: path.join(repoDir, "skills", "pi-intercom", "SKILL.md") },
+        input: { path: path.join(repoDir, "skills", "leafcode-intercom", "SKILL.md") },
         isError: false,
       });
       assert.equal(inboundHarness.getActiveTools().includes("intercom"), true);
