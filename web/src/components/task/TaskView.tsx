@@ -511,7 +511,7 @@ function taskActivityCount(entry: TaskActivityEntry): number {
   );
 }
 
-function taskMessageBlocks(messages: UiMessage[]): TaskMessageBlock[] {
+function taskMessageBlocks(messages: UiMessage[], ungroupedMessageId?: string): TaskMessageBlock[] {
   const blocks: TaskMessageBlock[] = [];
   let groupedEntries: TaskActivityEntry[] = [];
   let groupStartIndex = -1;
@@ -541,7 +541,7 @@ function taskMessageBlocks(messages: UiMessage[]): TaskMessageBlock[] {
   };
 
   messages.forEach((message, index) => {
-    const activity = taskActivityEntry(message);
+    const activity = message.id === ungroupedMessageId ? null : taskActivityEntry(message);
     const hasText =
       message.role === "assistant" && message.parts.some((part) => part.type === "text");
     if (hasText) {
@@ -2482,10 +2482,6 @@ export const TaskView = memo(function TaskView({
         : visibleMessages,
     [pendingUserDelivered, pendingUserMessage, visibleMessages],
   );
-  const messageBlocks = useMemo(
-    () => taskMessageBlocks(renderedMessages),
-    [renderedMessages],
-  );
   useEffect(() => {
     if (pendingUserDelivered) setPendingUserMessage(null);
   }, [pendingUserDelivered]);
@@ -2538,6 +2534,14 @@ export const TaskView = memo(function TaskView({
     resumeTarget.reason === "aborted" &&
     !!resumeErrorText &&
     !!resumeMessage;
+  const messageBlocks = useMemo(
+    () =>
+      taskMessageBlocks(
+        renderedMessages,
+        resumeInsideExistingBanner ? resumeTarget?.messageId : undefined,
+      ),
+    [renderedMessages, resumeInsideExistingBanner, resumeTarget?.messageId],
+  );
   const resumeBannerText =
     resumeTarget?.reason === "silent"
       ? "応答がありませんでした"

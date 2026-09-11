@@ -7,7 +7,11 @@ import type { TaskSummary, UiMessage } from "@/lib/types";
 const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuButton: () => null }));
-vi.mock("@/components/task/PartView", () => ({ PartView: () => null, WorkingRow: () => null }));
+vi.mock("@/components/task/PartView", () => ({
+  PartView: () => null,
+  MessageMetaHeader: () => null,
+  WorkingRow: () => null,
+}));
 
 import { TaskView } from "./TaskView";
 
