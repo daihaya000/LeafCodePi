@@ -142,6 +142,8 @@ describe("AgentsSettings", () => {
 
     const write = await screen.findByRole("checkbox", { name: `custom の${toolNameLabel("write")}` }) as HTMLInputElement;
     expect(write.checked).toBe(true);
+    expect(write.closest("label")?.querySelector('[data-tool-access="write"] svg')).not.toBeNull();
+    expect(screen.getByRole("checkbox", { name: `custom の${toolNameLabel("read")}` }).closest("label")?.querySelector('[data-tool-access="read"] svg')).not.toBeNull();
     fireEvent.click(write);
 
     await waitFor(() => {
@@ -169,6 +171,8 @@ describe("AgentsSettings", () => {
     const write = await screen.findByRole("checkbox", { name: `enabled の${toolNameLabel("write")}` }) as HTMLInputElement;
     expect(write.checked).toBe(false);
     expect(write.disabled).toBe(false);
+    expect(write.closest("label")?.querySelector('[data-tool-access="write"] svg')).not.toBeNull();
+    expect(screen.getByRole("checkbox", { name: `enabled の${toolNameLabel("read")}` }).closest("label")?.querySelector('[data-tool-access="read"] svg')).not.toBeNull();
     const section = write.closest("section");
     expect(section).not.toBeNull();
     const grid = section!.querySelector("div.grid");

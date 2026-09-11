@@ -538,6 +538,8 @@ it("shows every configured tool in the Bot settings panel", async () => {
   for (const tool of BOT_TOOL_NAMES) {
     expect(tools.getByRole("checkbox", { name: toolNameLabel(tool) })).toBeTruthy();
   }
+  expect(tools.getByRole("checkbox", { name: toolNameLabel("write") }).closest("label")?.querySelector('[data-tool-access="write"] svg')).not.toBeNull();
+  expect(tools.getByRole("checkbox", { name: toolNameLabel("read") }).closest("label")?.querySelector('[data-tool-access="read"] svg')).not.toBeNull();
 });
 
 it("keeps the Bot settings panel visibility after remounting", async () => {

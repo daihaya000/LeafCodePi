@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeToolLabel, changedFilePaths, skillNameFromReadInput, toolInputFields, toolLabel, toolNameLabel, toolSummary } from "./tool-labels";
+import { activeToolLabel, changedFilePaths, isWriteTool, skillNameFromReadInput, toolInputFields, toolLabel, toolNameLabel, toolSummary } from "./tool-labels";
 import type { UiMessage } from "./types";
 
 describe("toolLabel", () => {
@@ -44,6 +44,11 @@ describe("toolLabel", () => {
     expect(toolNameLabel("ls")).toBe("ファイル一覧");
     expect(toolNameLabel("memory_search")).toBe("メモリ検索");
     expect(toolNameLabel("unknown_tool")).toBe("unknown_tool");
+  });
+
+  it("marks mutating tools as write-capable and inspection tools as read-only", () => {
+    expect(["write", "edit", "bash", "powershell", "memory_add", "memory_replace", "memory_remove", "skill_manage", "subagent", "todowrite"].every(isWriteTool)).toBe(true);
+    expect(["read", "grep", "find", "ls", "memory_search", "web_search", "intercom"].some(isWriteTool)).toBe(false);
   });
 
   it("maps SKILL.md reads to the skill label", () => {

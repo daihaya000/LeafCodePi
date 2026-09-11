@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Brain } from "lucide-react";
+import { Brain, Eye, Pencil } from "lucide-react";
 import { AgentRoleIcon } from "@/components/AgentSelect";
 import { ModelSelect } from "@/components/ModelSelect";
 import { Badge, Button, GhostSelect, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import { ALL_THINKING_LEVELS, THINKING_LEVEL_LABELS, isThinkingLevel } from "@/lib/thinking-levels";
-import { toolNameLabel } from "@/lib/tool-labels";
+import { isWriteTool, toolNameLabel } from "@/lib/tool-labels";
 import { BOT_TOOL_NAMES, type ModelOption, type ThinkingLevel } from "@/lib/types";
 
 /** `false` = pi-subagents の明示的な thinking 無効。undefined = 既定に従う。 */
@@ -302,24 +302,33 @@ function AgentToolsSettings({
         <span className="text-xs font-medium">使用するツール</span>
       </div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-        {toolNames.map((tool) => (
-          <label key={tool} className="flex min-w-0 items-center gap-2 text-xs">
-            <input
-              type="checkbox"
-              checked={selected.has(tool)}
-              disabled={busy}
-              aria-label={`${name} の${toolNameLabel(tool)}`}
-              onChange={(event) => {
-                const next = new Set(selected);
-                if (event.target.checked) next.add(tool);
-                else next.delete(tool);
-                onChange([...next]);
-              }}
-              className="h-4 w-4 shrink-0 accent-accent"
-            />
-            <span className="truncate" title={tool}>{toolNameLabel(tool)}</span>
-          </label>
-        ))}
+        {toolNames.map((tool) => {
+          const writing = isWriteTool(tool);
+          const ToolIcon = writing ? Pencil : Eye;
+          return (
+            <label key={tool} className="flex min-w-0 items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={selected.has(tool)}
+                disabled={busy}
+                aria-label={`${name} の${toolNameLabel(tool)}`}
+                onChange={(event) => {
+                  const next = new Set(selected);
+                  if (event.target.checked) next.add(tool);
+                  else next.delete(tool);
+                  onChange([...next]);
+                }}
+                className="h-4 w-4 shrink-0 accent-accent"
+              />
+              <span className="flex min-w-0 items-center gap-1 truncate" title={tool}>
+                <span aria-hidden="true" data-tool-access={writing ? "write" : "read"} title={writing ? "書き込み系" : "読み取り系"}>
+                  <ToolIcon className="h-3.5 w-3.5 shrink-0" />
+                </span>
+                <span className="truncate">{toolNameLabel(tool)}</span>
+              </span>
+            </label>
+          );
+        })}
       </div>
       <p className="text-[11px] text-muted">
         チェックを外したツールは、このエージェントから利用できません。

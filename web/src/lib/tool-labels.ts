@@ -96,6 +96,16 @@ export function toolNameLabel(tool: string): string {
   return toolLabel(tool);
 }
 
+/** Tools that can mutate workspace, memory, skills, task state, or delegated work. */
+const WRITE_TOOL_NAMES = new Set([
+  "write", "edit", "bash", "powershell", "memory_add", "memory_replace", "memory_remove",
+  "skill_manage", "subagent", "todowrite",
+]);
+
+export function isWriteTool(tool: string): boolean {
+  return WRITE_TOOL_NAMES.has(tool.trim().toLowerCase());
+}
+
 function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
