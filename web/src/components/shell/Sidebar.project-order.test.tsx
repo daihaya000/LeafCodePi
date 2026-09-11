@@ -251,6 +251,26 @@ describe("Sidebar project ordering", () => {
     });
   });
 
+  it("keeps project icon picker constraints aligned with validation", async () => {
+    const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    const input = (await screen.findByLabelText("Project Aのアイコンを設定")) as HTMLInputElement;
+    expect(input.accept.split(",")).toEqual(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+    fireEvent.change(input, {
+      target: { files: [new File(["svg"], "icon.svg", { type: "image/svg+xml" })] },
+    });
+    expect(alert).toHaveBeenCalledWith("PNG・JPEG・GIF・WebP の画像を選択してください。");
+
+    fireEvent.change(input, {
+      target: { files: [new File([new Uint8Array(2 * 1024 * 1024 + 1)], "large.png", { type: "image/png" })] },
+    });
+    expect(alert).toHaveBeenCalledWith("2 MB以下の画像を選択してください。");
+    expect(mocks.sendJson).not.toHaveBeenCalled();
+    alert.mockRestore();
+  });
+
   it("shows a user-facing error when a project icon cannot be read", async () => {
     const reader = {
       result: null,
