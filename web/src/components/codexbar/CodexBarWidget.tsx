@@ -894,7 +894,7 @@ export function CodexBarWidget({
         )}
         <button
           type="button"
-          onClick={() => void refresh()}
+          onClick={() => void refresh(true)}
           aria-label={refreshing ? "更新中" : "更新"}
           aria-busy={refreshing}
           title={refreshing ? "更新中" : "更新"}

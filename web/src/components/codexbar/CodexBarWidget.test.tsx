@@ -165,6 +165,25 @@ describe("CodexBarWidget", () => {
     expect(update.parentElement?.className).not.toContain("border-t");
   });
 
+  it("forces a fresh usage fetch when the update button is clicked", async () => {
+    localStorage.setItem("webui:codexbar:collapsed", "0");
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    useCodexUsage.mockReturnValue({
+      usage,
+      loadError: null,
+      refreshing: false,
+      refresh,
+      now: Date.now(),
+    });
+
+    render(<CodexBarWidget />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "更新" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+
+    expect(refresh).toHaveBeenCalledWith(true);
+  });
+
   it("shows reset credit controls and does not POST when confirm is cancelled", async () => {
     localStorage.setItem("webui:codexbar:collapsed", "0");
     localStorage.setItem("webui:codexbar:providers", JSON.stringify({}));
