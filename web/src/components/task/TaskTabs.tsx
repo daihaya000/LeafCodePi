@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Loader2, Plus, SquarePen, Trash2, X } from "lucide-react";
 import { cx } from "@/components/ui";
 import { useIconFor, useTaskPaneTabMeta } from "@/components/shell/TaskPanesContext";
@@ -12,6 +12,11 @@ import {
   type TaskPanesState,
 } from "@/lib/task-panes";
 import type { TaskStatus } from "@/lib/types";
+
+const TaskTabIcon = memo(function TaskTabIcon({ taskId }: { taskId: string }) {
+  const iconFor = useIconFor();
+  return iconFor(taskId);
+});
 
 function TaskTabItem({
   taskId,
@@ -38,7 +43,6 @@ function TaskTabItem({
   onActivateTab: (taskId: string) => void;
   onCloseTab: (taskId: string) => void;
 }) {
-  const iconFor = useIconFor();
   const meta = useTaskPaneTabMeta(taskId);
   const status = statusFor ? statusFor(taskId) : meta.status;
   const title = titleFor ? titleFor(taskId) : meta.title;
@@ -84,7 +88,7 @@ function TaskTabItem({
         dragOverIndex === index && "ring-1 ring-accent",
       )}
     >
-      {iconFor(taskId)}
+      <TaskTabIcon taskId={taskId} />
       {status === "working" && (
         <Loader2 className="h-3 w-3 shrink-0 animate-spin text-working" aria-hidden="true" />
       )}
