@@ -12,6 +12,7 @@ vi.mock("@/components/task/PartView", () => ({
   MessageMetaHeader: () => null,
   WorkingRow: () => null,
 }));
+vi.mock("@/components/task/ProjectExplorerButton", () => ({ ProjectExplorerButton: () => null }));
 
 import { TaskView } from "./TaskView";
 

@@ -31,6 +31,7 @@ vi.mock("@/components/task/PartView", async () => {
     },
   };
 });
+vi.mock("@/components/task/ProjectExplorerButton", () => ({ ProjectExplorerButton: () => null }));
 
 import { TaskView } from "./TaskView";
 
