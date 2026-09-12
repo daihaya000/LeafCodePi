@@ -27,6 +27,13 @@ vi.mock("@/components/shell/TaskPanesContext", () => ({
     statusFor: () => mocks.botStatus === "working" ? "working" : null,
   }),
   useBotStatusFor: () => () => mocks.botStatus === "working" ? "working" : null,
+  useTaskPanesNavigation: () => ({
+    activeTaskId: null,
+    dispatch: mocks.dispatch,
+    mdUp: true,
+    splitHostEnabled: false,
+    retargetToUrl: vi.fn(),
+  }),
 }));
 vi.mock("next/navigation", () => ({
   usePathname: mocks.usePathname,

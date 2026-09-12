@@ -22,7 +22,7 @@ vi.mock("@/lib/task-panes", async () => {
   };
 });
 
-import { TaskPanesProvider, useBotFor, useBotStatusFor, useIconFor, useTaskPanes } from "./TaskPanesContext";
+import { TaskPanesProvider, useBotFor, useBotStatusFor, useIconFor, useTaskPanes, useTaskPanesNavigation } from "./TaskPanesContext";
 
 function Probe() {
   const { state, mdUp } = useTaskPanes();
@@ -109,6 +109,7 @@ describe("TaskPanesProvider", () => {
   it("does not rerender stable service consumers for status updates", () => {
     const stableRenderSpy = vi.fn();
     const botStatusRenderSpy = vi.fn();
+    const navigationRenderSpy = vi.fn();
     function StableServiceProbe() {
       useBotFor();
       stableRenderSpy();
@@ -117,6 +118,11 @@ describe("TaskPanesProvider", () => {
     function BotStatusProbe() {
       useBotStatusFor();
       botStatusRenderSpy();
+      return null;
+    }
+    function NavigationProbe() {
+      useTaskPanesNavigation();
+      navigationRenderSpy();
       return null;
     }
     function StatusProbe() {
@@ -131,17 +137,21 @@ describe("TaskPanesProvider", () => {
       <TaskPanesProvider>
         <StableServiceProbe />
         <BotStatusProbe />
+        <NavigationProbe />
         <StatusProbe />
       </TaskPanesProvider>,
     );
     const initialStableRenderCount = stableRenderSpy.mock.calls.length;
     const initialBotStatusRenderCount = botStatusRenderSpy.mock.calls.length;
+    const initialNavigationRenderCount = navigationRenderSpy.mock.calls.length;
     fireEvent.click(screen.getByRole("button", { name: "report status" }));
     expect(stableRenderSpy.mock.calls.length).toBe(initialStableRenderCount);
     expect(botStatusRenderSpy.mock.calls.length).toBe(initialBotStatusRenderCount);
+    expect(navigationRenderSpy.mock.calls.length).toBe(initialNavigationRenderCount);
     fireEvent.click(screen.getByRole("button", { name: "report bot status" }));
     expect(stableRenderSpy.mock.calls.length).toBe(initialStableRenderCount);
     expect(botStatusRenderSpy.mock.calls.length).toBe(initialBotStatusRenderCount + 1);
+    expect(navigationRenderSpy.mock.calls.length).toBe(initialNavigationRenderCount);
   });
 
   it("restores Bot routes, titles and closes only deleted Bot tabs", async () => {

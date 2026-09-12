@@ -27,7 +27,7 @@ import { AddProjectButton } from "@/components/AddProjectButton";
 import { ProjectIcon } from "@/components/ProjectIcon";
 import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
-import { useBotStatusFor, useTaskPanes } from "@/components/shell/TaskPanesContext";
+import { useBotStatusFor, useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
 import { Button, cx, timeAgo, ThemeToggle } from "@/components/ui";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
@@ -2439,7 +2439,7 @@ export function Sidebar(props: SidebarProps) {
     splitHostEnabled,
     retargetToUrl,
     dispatch,
-  } = useTaskPanes();
+  } = useTaskPanesNavigation();
   return (
     <SidebarView
       {...props}

@@ -87,16 +87,29 @@ type TaskPanesBotStatusContextValue = {
   statusFor: (taskId: string) => TaskStatus | null;
 };
 
+type TaskPanesNavigationContextValue = Pick<
+  TaskPanesContextValue,
+  "dispatch" | "retargetToUrl" | "activeTaskId" | "splitHostEnabled" | "mdUp"
+>;
+
 const EMPTY_STABLE: TaskPanesStableContextValue = {
   reportStatus: () => undefined,
   botFor: () => undefined,
 };
 const EMPTY_ICON: TaskPanesIconContextValue = { iconFor: () => null };
 const EMPTY_BOT_STATUS: TaskPanesBotStatusContextValue = { statusFor: () => null };
+const EMPTY_NAVIGATION: TaskPanesNavigationContextValue = {
+  dispatch: () => undefined,
+  retargetToUrl: () => undefined,
+  activeTaskId: null,
+  splitHostEnabled: false,
+  mdUp: false,
+};
 
 const TaskPanesStableContext = createContext<TaskPanesStableContextValue>(EMPTY_STABLE);
 const TaskPanesIconContext = createContext<TaskPanesIconContextValue>(EMPTY_ICON);
 const TaskPanesBotStatusContext = createContext<TaskPanesBotStatusContextValue>(EMPTY_BOT_STATUS);
+const TaskPanesNavigationContext = createContext<TaskPanesNavigationContextValue>(EMPTY_NAVIGATION);
 const TaskPanesContext = createContext<TaskPanesContextValue>(EMPTY);
 
 /** RSC fetch の発生しない URL 同期（Next.js App Router の replaceState 公式サポート）。 */
@@ -460,12 +473,18 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     () => ({ statusFor: botStatusFor }),
     [botStatusFor],
   );
+  const navigationValue = useMemo<TaskPanesNavigationContextValue>(
+    () => ({ dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp }),
+    [dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp],
+  );
 
   return (
     <TaskPanesStableContext.Provider value={stableValue}>
       <TaskPanesBotStatusContext.Provider value={botStatusValue}>
         <TaskPanesIconContext.Provider value={iconValue}>
-          <TaskPanesContext.Provider value={value}>{children}</TaskPanesContext.Provider>
+          <TaskPanesNavigationContext.Provider value={navigationValue}>
+            <TaskPanesContext.Provider value={value}>{children}</TaskPanesContext.Provider>
+          </TaskPanesNavigationContext.Provider>
         </TaskPanesIconContext.Provider>
       </TaskPanesBotStatusContext.Provider>
     </TaskPanesStableContext.Provider>
@@ -512,4 +531,8 @@ export function useIconFor(): TaskPanesIconContextValue["iconFor"] {
 
 export function useBotStatusFor(): TaskPanesBotStatusContextValue["statusFor"] {
   return useContext(TaskPanesBotStatusContext).statusFor;
+}
+
+export function useTaskPanesNavigation(): TaskPanesNavigationContextValue {
+  return useContext(TaskPanesNavigationContext);
 }
