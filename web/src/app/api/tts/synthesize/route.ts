@@ -18,6 +18,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `text は${MAX_TEXT}文字以内です` }, { status: 400 });
   }
   const config = readTtsConfig();
+  // 全体スイッチはCLIとブラウザの両方のマスター。タスク側OFFと合わせてANDで判定する。
+  if (!config.enabled) {
+    return NextResponse.json({ error: "読み上げ全体が無効です（設定→読み上げで有効に）" }, { status: 400 });
+  }
   try {
     const { audio, contentType } = await synthesizeTts(text, config.url, config.voice);
     // ponytail: 音声バイト列をそのまま返す。キャッシュは置かない（短文・低頻度のため）。

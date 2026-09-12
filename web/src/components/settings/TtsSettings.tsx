@@ -154,7 +154,7 @@ export function TtsSettings() {
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h3 className="text-sm font-semibold">読み上げ (TTS)</h3>
       <p className="mt-1 text-xs text-muted">
-        Bot / エージェントの発言を読み上げます。バックエンドを切り替えると URL と音声がまとめて保存されます。変更は次のエージェント開始から反映されます。
+        Bot / エージェントの発言を読み上げます。この全体スイッチはCLIとブラウザの両方に効きます。ブラウザのタスク／BotごとのON/OFFは各画面のヘッダーで切り替えます。
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">

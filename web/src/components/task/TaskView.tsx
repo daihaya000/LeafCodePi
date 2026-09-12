@@ -709,17 +709,20 @@ export const TaskView = memo(function TaskView({
 }) {
   const [cachedSession] = useState(() => loadTaskSessionCache(taskId));
   const [task, setTask] = useState<TaskDetail | null>(cachedSession);
-  const [ttsEnabled, setTtsEnabled] = useState(() => readTaskTtsEnabled(taskId));
+  // Bot起点のタスクはBot画面と同一キーにし、どちらでOFFにしても全体が黙る。
+  // ponytail: キー共有だけで連携は済む。別管理に戻すときはこの1行を taskId に戻す。
+  const ttsKey = task?.botId ?? taskId;
+  const [ttsEnabled, setTtsEnabled] = useState(() => readTaskTtsEnabled(task?.botId ?? taskId));
   const [ttsError, setTtsError] = useState<string | null>(null);
-  useEffect(() => setTtsEnabled(readTaskTtsEnabled(taskId)), [taskId]);
+  useEffect(() => setTtsEnabled(readTaskTtsEnabled(ttsKey)), [ttsKey]);
   const toggleTts = () => {
     const next = !ttsEnabled;
     setTtsEnabled(next);
     setTtsError(null);
-    writeTaskTtsEnabled(taskId, next);
+    writeTaskTtsEnabled(ttsKey, next);
     if (!next) stopSpeaking();
   };
-  useEffect(() => subscribeTaskTtsEnabled(taskId, setTtsEnabled), [taskId]);
+  useEffect(() => subscribeTaskTtsEnabled(ttsKey, setTtsEnabled), [ttsKey]);
   const { botFor } = useTaskPanes();
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
