@@ -266,11 +266,12 @@ function BotSidebarBody({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const refreshGenerationRef = useRef(0);
-  const refresh = useCallback(() => {
+  const refresh = useCallback((force = false) => {
     const generation = ++refreshGenerationRef.current;
-    void getJson<{ bots: SidebarBot[]; rooms: SidebarRoom[] }>("/api/bots/sidebar", {
-      refresh: `${Date.now()}-${generation}`,
-    })
+    void getJson<{ bots: SidebarBot[]; rooms: SidebarRoom[] }>(
+      "/api/bots/sidebar",
+      force ? { refresh: `${Date.now()}-${generation}` } : undefined,
+    )
       .then((result) => {
         if (generation !== refreshGenerationRef.current) return;
         setLoadError(null);
@@ -288,12 +289,12 @@ function BotSidebarBody({
   }, []);
   useEffect(() => {
     refresh();
-    const onBotSidebarChanged = () => refresh();
+    const onBotSidebarChanged = () => refresh(true);
     window.addEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
     return () => window.removeEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
   }, [refresh, pathname]);
   useEffect(() => {
-    const timer = window.setInterval(refresh, POLL_IDLE_MS);
+    const timer = window.setInterval(() => refresh(), POLL_IDLE_MS);
     return () => window.clearInterval(timer);
   }, [refresh]);
   async function createEntry(target: "bot" | "room") {
