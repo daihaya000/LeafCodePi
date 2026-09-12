@@ -1,7 +1,8 @@
 /**
- * ブラウザ標準の Web Speech API (SpeechSynthesis) でタスク/Botの発言を読み上げる。
- * サーバー側の leafcode-tts 拡張（Windows SAPI）とは別系統の、per-task/per-bot なON/OFFトグル用。
+ * 設定の合成エンジン（AivisSpeech / Qwen3-TTS 等）の音声をブラウザで再生する。
+ * per-task/per-bot なON/OFFトグル用。サーバー側の leafcode-tts 拡張（Windows SAPI、CLI用）とは別系統。
  */
+import { apiUrl } from "./client";
 
 const STORAGE_PREFIX = "webui:tts-enabled:";
 
@@ -21,22 +22,66 @@ export function speakable(text: string): string {
   return /[\p{L}\p{N}]/u.test(cleaned) ? cleaned : "";
 }
 
-/** SpeechSynthesis が使える環境でだけ読み上げる。非対応ブラウザ／SSRでは何もしない。 */
-export function speakText(text: string): void {
-  const clean = speakable(text);
-  if (!clean || typeof window === "undefined" || !window.speechSynthesis) return;
-  if (typeof SpeechSynthesisUtterance === "undefined") return;
-  try {
-    window.speechSynthesis.speak(new SpeechSynthesisUtterance(clean));
-  } catch {
-    /* 読み上げ失敗は無視（音が出ないだけ） */
+let currentAudio: HTMLAudioElement | null = null;
+let currentObjectUrl: string | null = null;
+let currentAbort: AbortController | null = null;
+
+/** 再生中・取得中の読み上げをすべて止める。トグルOFF時は必ず呼ぶ。 */
+export function stopSpeaking(): void {
+  if (typeof window === "undefined") return;
+  currentAbort?.abort();
+  currentAbort = null;
+  currentAudio?.pause();
+  currentAudio = null;
+  if (currentObjectUrl) {
+    URL.revokeObjectURL(currentObjectUrl);
+    currentObjectUrl = null;
   }
 }
 
-/** 再生中・キュー済みの読み上げをすべて止める。トグルOFF時は必ず呼ぶ。 */
-export function stopSpeaking(): void {
-  if (typeof window === "undefined" || !window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
+/**
+ * 合成APIで音声を作りブラウザで再生する。失敗時（未設定・停止中など）は onError に日本語メッセージを返す。
+ * フォールバックの機械音声は出さない。
+ */
+export function speakText(text: string, callbacks?: { onError?: (message: string) => void; onPlayed?: () => void }): void {
+  const clean = speakable(text);
+  if (!clean || typeof window === "undefined" || typeof Audio === "undefined") return;
+  // 直前の再生・取得を止めて最新を優先する。
+  stopSpeaking();
+  const controller = new AbortController();
+  currentAbort = controller;
+  void (async () => {
+    try {
+      const res = await fetch(apiUrl("/api/tts/synthesize"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: clean }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(err?.error ?? `合成に失敗しました (${res.status})`);
+      }
+      const blob = await res.blob();
+      if (controller.signal.aborted) return;
+      currentObjectUrl = URL.createObjectURL(blob);
+      const audio = new Audio(currentObjectUrl);
+      currentAudio = audio;
+      audio.onended = () => {
+        if (currentAudio === audio) stopSpeaking();
+      };
+      await audio.play();
+      callbacks?.onPlayed?.();
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
+      if (currentAbort === controller) currentAbort = null;
+      if (error instanceof Error && error.name === "NotAllowedError") {
+        callbacks?.onError?.("ブラウザが自動再生をブロックしました（ページをクリック後に再試行）");
+      } else {
+        callbacks?.onError?.(error instanceof Error ? error.message : "読み上げに失敗しました");
+      }
+    }
+  })();
 }
 
 export function readTaskTtsEnabled(id: string): boolean {

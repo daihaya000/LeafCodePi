@@ -48,33 +48,57 @@ describe("task tts enabled toggle", () => {
 });
 
 describe("speech output", () => {
-  const installSpeech = () => {
-    const speak = vi.fn();
-    const cancel = vi.fn();
-    vi.stubGlobal("SpeechSynthesisUtterance", class { text: string; constructor(text: string) { this.text = text; } });
-    Object.defineProperty(window, "speechSynthesis", { value: { speak, cancel }, configurable: true });
-    return { speak, cancel };
+  const installAudio = () => {
+    const play = vi.fn(async () => undefined);
+    const pause = vi.fn();
+    const instances: { play: typeof play; pause: typeof pause }[] = [];
+    vi.stubGlobal("Audio", class {
+      onended: (() => void) | null = null;
+      play = play;
+      pause = pause;
+      constructor() {
+        instances.push(this);
+      }
+    });
+    return { play, pause, instances };
   };
 
-  it("speakText は整形文を1回だけ読む", () => {
-    const { speak } = installSpeech();
-    speakText("# 見出し\n本文です");
-    expect(speak).toHaveBeenCalledTimes(1);
-    speakText("---");
-    expect(speak).toHaveBeenCalledTimes(1);
-    vi.unstubAllGlobals();
+  it("speakText は合成APIを叩いて再生する", async () => {
+    const { play } = installAudio();
+    const fetchMock = vi.fn(async () => new Response(Buffer.from([1, 2, 3]), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      speakText("# 見出し\n本文です");
+      await vi.waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+      const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(JSON.parse(String(init.body))).toEqual({ text: "見出し 本文です" });
+    } finally {
+      stopSpeaking();
+      vi.unstubAllGlobals();
+    }
   });
 
-  it("stopSpeaking はキューをキャンセルする", () => {
-    const { cancel } = installSpeech();
-    stopSpeaking();
-    expect(cancel).toHaveBeenCalledTimes(1);
-    vi.unstubAllGlobals();
+  it("読むものが無ければ何もしない", () => {
+    installAudio();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      speakText("---");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
-  it("speechSynthesis が無ければ何もしない", () => {
-    vi.unstubAllGlobals();
-    expect(() => speakText("こんにちは")).not.toThrow();
-    expect(() => stopSpeaking()).not.toThrow();
+  it("合成失敗は onError に日本語メッセージを返す（フォールバックなし）", async () => {
+    installAudio();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "合成エンジンが未設定です" }), { status: 400 })));
+    try {
+      const errors: string[] = [];
+      speakText("こんにちは", { onError: (message) => errors.push(message) });
+      await vi.waitFor(() => expect(errors).toEqual(["合成エンジンが未設定です"]));
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

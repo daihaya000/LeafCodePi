@@ -710,10 +710,12 @@ export const TaskView = memo(function TaskView({
   const [cachedSession] = useState(() => loadTaskSessionCache(taskId));
   const [task, setTask] = useState<TaskDetail | null>(cachedSession);
   const [ttsEnabled, setTtsEnabled] = useState(() => readTaskTtsEnabled(taskId));
+  const [ttsError, setTtsError] = useState<string | null>(null);
   useEffect(() => setTtsEnabled(readTaskTtsEnabled(taskId)), [taskId]);
   const toggleTts = () => {
     const next = !ttsEnabled;
     setTtsEnabled(next);
+    setTtsError(null);
     writeTaskTtsEnabled(taskId, next);
     if (!next) stopSpeaking();
   };
@@ -2374,7 +2376,7 @@ export const TaskView = memo(function TaskView({
       const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
       if (lastAssistant) {
         const text = lastAssistant.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
-        speakText(text);
+        speakText(text, { onError: setTtsError, onPlayed: () => setTtsError(null) });
       }
     }
     prevWorkingTtsRef.current = working;
@@ -2790,6 +2792,7 @@ export const TaskView = memo(function TaskView({
             taskId={task?.id}
             onError={setError}
           />
+          {ttsError && <span role="alert" title={ttsError} className="max-w-24 shrink-0 truncate text-[11px] text-danger @min-[48rem]/task:max-w-40">{ttsError}</span>}
           <button
             type="button"
             role="switch"

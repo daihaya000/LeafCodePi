@@ -121,6 +121,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   const [profileLabel, setProfileLabel] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [ttsError, setTtsError] = useState<string | null>(null);
   const [codeAutoApprove, setCodeAutoApprove] = useState(true);
   const [permissionMode, setPermissionMode] = useState<NonNullable<BotDto["permissionMode"]>>("allow");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -199,6 +200,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   const toggleTts = () => {
     const next = !ttsEnabled;
     setTtsEnabled(next);
+    setTtsError(null);
     writeTaskTtsEnabled(id, next);
     if (!next) stopSpeaking();
   };
@@ -248,7 +250,12 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   useEffect(() => {
     if (prevTtsSendingRef.current && !sending && ttsEnabled && active) {
       const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
-      if (lastAssistant) speakText(botMessageDisplayData(lastAssistant).text);
+      if (lastAssistant) {
+        speakText(botMessageDisplayData(lastAssistant).text, {
+          onError: setTtsError,
+          onPlayed: () => setTtsError(null),
+        });
+      }
     }
     prevTtsSendingRef.current = sending;
   }, [active, sending, ttsEnabled, messages]);
@@ -702,17 +709,20 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
         active={sending}
         onSettings={toggleSettings}
         action={
-          <button
-            type="button"
-            role="switch"
-            aria-checked={ttsEnabled}
-            aria-label="読み上げ"
-            title={ttsEnabled ? "読み上げ: ON" : "読み上げ: OFF"}
-            onClick={toggleTts}
-            className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${ttsEnabled ? "text-accent" : "text-muted"} hover:bg-surface-2 hover:text-text`}
-          >
-            {ttsEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-          </button>
+          <>
+            {ttsError && <span role="alert" title={ttsError} className="max-w-40 shrink-0 truncate text-[11px] text-danger">{ttsError}</span>}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={ttsEnabled}
+              aria-label="読み上げ"
+              title={ttsEnabled ? "読み上げ: ON" : "読み上げ: OFF"}
+              onClick={toggleTts}
+              className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${ttsEnabled ? "text-accent" : "text-muted"} hover:bg-surface-2 hover:text-text`}
+            >
+              {ttsEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            </button>
+          </>
         }
       />
 
