@@ -724,7 +724,9 @@ export const TaskView = memo(function TaskView({
   /** 1 ペイン時にも分割を開始できるよう空ペインを追加する。 */
   onAddPane?: () => void;
 }) {
-  const [cachedSession] = useState(() => loadTaskSessionCache(taskId));
+  // Key the cache lookup by task so the reset effect reuses this parsed
+  // snapshot instead of parsing/validating the whole cache a second time.
+  const cachedSession = useMemo(() => loadTaskSessionCache(taskId), [taskId]);
   const [task, setTask] = useState<TaskDetail | null>(cachedSession);
   // Bot起点のタスクはBot画面と同一キーにし、どちらでOFFにしても全体が黙る。
   // ponytail: キー共有だけで連携は済む。別管理に戻すときはこの1行を taskId に戻す。
@@ -1636,7 +1638,7 @@ export const TaskView = memo(function TaskView({
     setTitleBusy(false);
     titleCompletionPendingRef.current = false;
     titleUpdatedTurnRef.current = null;
-    const cached = loadTaskSessionCache(taskId);
+    const cached = cachedSession;
     const cachedHistory = cached?.messageHistory ?? EMPTY_TASK_MESSAGE_HISTORY;
     setTask(cached);
     setMessages(cached?.messages ?? []);
@@ -1697,7 +1699,7 @@ export const TaskView = memo(function TaskView({
     navigationMessageIdsRef.current = [];
     stickRef.current = true;
     lastScrollTopRef.current = 0;
-  }, [taskId]);
+  }, [cachedSession, taskId]);
 
   useLayoutEffect(() => {
     scheduleScrollToBottom();

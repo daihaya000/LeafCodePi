@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { saveTaskSessionCache } from "@/lib/task-session-cache";
+import {
+  saveTaskSessionCache,
+  TASK_SESSION_CACHE_STORAGE_KEY,
+} from "@/lib/task-session-cache";
 import type { TaskSummary, UiMessage } from "@/lib/types";
 
 const mocks = vi.hoisted(() => ({
@@ -68,6 +71,18 @@ afterEach(() => {
 });
 
 describe("TaskView render stability", () => {
+  it("loads the session cache once during mount", () => {
+    const getItem = vi.spyOn(window.localStorage, "getItem");
+    try {
+      render(<TaskView taskId={task.id} mdUp />);
+      expect(
+        getItem.mock.calls.filter(([key]) => key === TASK_SESSION_CACHE_STORAGE_KEY),
+      ).toHaveLength(1);
+    } finally {
+      getItem.mockRestore();
+    }
+  });
+
   it("does not rerender unchanged message rows when an SSE delta changes task status", async () => {
     const userMessage: UiMessage = {
       id: "user-1",
