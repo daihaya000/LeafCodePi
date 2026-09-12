@@ -13,7 +13,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const SUBAGENT_CHILD_ENV = "PI_SUBAGENT_CHILD";
@@ -346,6 +346,22 @@ function leafcodeDataDir(): string {
   return join(homedir(), ".leafcode-pi");
 }
 
+/** Bot workspace のパスから個別 TTS 音声を読む。未指定・非Botセッションはグローバルへ戻す。 */
+export function readBotTtsVoice(cwd: string, root = leafcodeDataDir()): string | undefined {
+  try {
+    const botsRoot = resolve(root, "bots");
+    const parts = relative(botsRoot, resolve(cwd)).split(sep);
+    const id = parts.length === 2 && parts[1]?.toLowerCase() === "workspace" ? parts[0] : undefined;
+    if (!id || !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) return undefined;
+    const raw = JSON.parse(readFileSync(join(botsRoot, id, "config.json"), "utf8")) as { id?: unknown; ttsVoice?: unknown };
+    if (raw.id !== id || typeof raw.ttsVoice !== "string") return undefined;
+    const voice = raw.ttsVoice.trim();
+    return voice || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function readTtsConfig(file = join(leafcodeDataDir(), CONFIG_FILE)): TtsConfig {
   try {
     if (!existsSync(file)) return { ...DEFAULT_CONFIG };
@@ -382,6 +398,8 @@ export default function (pi: ExtensionAPI): void {
 
   let config = readTtsConfig();
   let enabled = config.enabled;
+  let sessionCwd: string | undefined;
+  let botTtsVoice: string | undefined;
   const chunker = new SpeechChunker();
   const speaker = new Speaker(config);
 
@@ -389,14 +407,26 @@ export default function (pi: ExtensionAPI): void {
     chunker.reset();
     speaker.stop();
   };
+  const configForSession = (): TtsConfig => botTtsVoice ? { ...config, voice: botTtsVoice } : config;
+  const refreshBotTtsVoice = (): void => {
+    const next = sessionCwd ? readBotTtsVoice(sessionCwd) : undefined;
+    if (next === botTtsVoice) return;
+    botTtsVoice = next;
+    speaker.setConfig(configForSession());
+  };
 
-  pi.on("session_start", () => {
+  pi.on("session_start", (_event, ctx) => {
     config = readTtsConfig();
     enabled = config.enabled;
-    speaker.setConfig(config);
+    sessionCwd = ctx.cwd;
+    botTtsVoice = readBotTtsVoice(sessionCwd);
+    speaker.setConfig(configForSession());
   });
 
-  pi.on("agent_start", () => stop());
+  pi.on("agent_start", () => {
+    stop();
+    refreshBotTtsVoice();
+  });
   pi.on("input", () => stop());
 
   pi.on("message_update", (event) => {

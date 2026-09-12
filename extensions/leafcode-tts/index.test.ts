@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildHttpTtsBody, cut, isVoicevoxEngineUrl, readTtsConfig, speakable, SpeechChunker, writeTtsConfig } from "./index.ts";
+import { buildHttpTtsBody, cut, isVoicevoxEngineUrl, readBotTtsVoice, readTtsConfig, speakable, SpeechChunker, writeTtsConfig } from "./index.ts";
 
 /** Speaker.say と同じ前処理を通した結果だけを読み上げ単位として比較する。 */
 function spoken(chunker: SpeechChunker, delta: string): string[] {
@@ -82,6 +82,24 @@ describe("SpeechChunker", () => {
     spoken(chunker, "途中まで");
     chunker.reset();
     expect(chunker.flush()).toEqual([]);
+  });
+});
+
+describe("readBotTtsVoice", () => {
+  it("Bot workspace の設定を読み、未指定や別workspaceは未指定にする", () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-bot-tts-"));
+    const id = "12345678-1234-1234-1234-123456789abc";
+    const workspace = join(root, "bots", id, "workspace");
+    try {
+      mkdirSync(workspace, { recursive: true });
+      writeFileSync(join(root, "bots", id, "config.json"), JSON.stringify({ id, ttsVoice: " 1257529344 " }), "utf8");
+      expect(readBotTtsVoice(workspace, root)).toBe("1257529344");
+      writeFileSync(join(root, "bots", id, "config.json"), JSON.stringify({ id, ttsVoice: " " }), "utf8");
+      expect(readBotTtsVoice(workspace, root)).toBeUndefined();
+      expect(readBotTtsVoice(join(root, "project"), root)).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
