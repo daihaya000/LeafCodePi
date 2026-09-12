@@ -26,10 +26,17 @@ import {
   readPiOAuthTokens,
   writeBackPiOAuthTokens,
 } from "@/lib/codexbar/pi-auth";
+import { loadCodexBarConfig } from "@/lib/codexbar/codexbar-config";
+import {
+  autoConsumeExpiringResetCredits,
+} from "@/lib/codexbar/providers/openai-codex-reset";
 
 const USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const TOKEN_URL = "https://auth.openai.com/oauth/token";
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
+const AUTO_RESET_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+const DEFAULT_AUTO_RESET_WINDOW_HOURS = 24;
+const lastAutoResetCheckAt = new Map<string, number>();
 
 type CodexAuth = {
   accessToken: string;
@@ -417,6 +424,80 @@ async function fetchFromApi(
   return parseUsageBody(root, auth);
 }
 
+function autoResetInstanceId(scope: UsageScope): string {
+  return scope.kind === "account" && scope.accountId
+    ? `account:${scope.accountId}:openai-codex`
+    : "default:openai-codex";
+}
+
+/**
+ * Redeem reset credits that are about to expire without making usage fetching
+ * fragile. The check is intentionally throttled because the usage endpoint is
+ * polled by the UI.
+ */
+async function maybeAutoConsumeResetCredits(
+  auth: CodexAuth,
+  scope: UsageScope,
+  snapshot: UsageSnapshot,
+  signal?: AbortSignal,
+): Promise<UsageSnapshot> {
+  const available = snapshot.rateLimitResetCreditsAvailable;
+  if (available === null || available <= 0) return snapshot;
+
+  const config = loadCodexBarConfig();
+  if (config.codexResetAutoConsume === false) return snapshot;
+
+  const rawHours = config.codexResetAutoConsumeWindowHours;
+  const windowHours =
+    typeof rawHours === "number" &&
+    Number.isFinite(rawHours) &&
+    rawHours > 0
+      ? rawHours
+      : DEFAULT_AUTO_RESET_WINDOW_HOURS;
+  const windowMs = windowHours * 60 * 60 * 1000;
+  if (!Number.isFinite(windowMs)) return snapshot;
+
+  const key = autoResetInstanceId(scope);
+  const now = Date.now();
+  const lastChecked = lastAutoResetCheckAt.get(key);
+  if (
+    lastChecked !== undefined &&
+    now - lastChecked < AUTO_RESET_CHECK_INTERVAL_MS
+  ) {
+    return snapshot;
+  }
+  // Set before the network call so concurrent usage requests do not redeem the
+  // same credit twice. The deterministic request id also makes retries safe.
+  lastAutoResetCheckAt.set(key, now);
+
+  try {
+    const result = await autoConsumeExpiringResetCredits(
+      {
+        accessToken: auth.accessToken,
+        chatgptAccountId: auth.accountId,
+      },
+      { windowMs, signal },
+    );
+    if (result.consumed <= 0) return snapshot;
+    return {
+      ...snapshot,
+      rateLimitResetCreditsAvailable: Math.max(0, available - result.consumed),
+    };
+  } catch {
+    // Automatic redemption must never hide otherwise valid usage data.
+    return snapshot;
+  }
+}
+
+async function fetchWithAutoReset(
+  auth: CodexAuth,
+  scope: UsageScope,
+  signal?: AbortSignal,
+): Promise<UsageSnapshot> {
+  const snapshot = await fetchFromApi(auth, signal);
+  return maybeAutoConsumeResetCredits(auth, scope, snapshot, signal);
+}
+
 export function createOpenaiCodexProvider(scope: UsageScope): IUsageProvider {
   const strictAccount = scope.kind === "account";
   const piPath = scope.authPath ?? undefined;
@@ -449,7 +530,7 @@ export function createOpenaiCodexProvider(scope: UsageScope): IUsageProvider {
         );
       }
       try {
-        return await fetchFromApi(auth, signal);
+        return await fetchWithAutoReset(auth, scope, signal);
       } catch (err) {
         if (err instanceof ProviderError && err.message === "__unauthorized__") {
           const refreshed = usingPi
@@ -457,7 +538,7 @@ export function createOpenaiCodexProvider(scope: UsageScope): IUsageProvider {
             : await tryRefreshTokens(auth, signal);
           if (refreshed) {
             try {
-              return await fetchFromApi(refreshed, signal);
+              return await fetchWithAutoReset(refreshed, scope, signal);
             } catch (e2) {
               if (!(e2 instanceof ProviderError && e2.message === "__unauthorized__")) {
                 throw e2;

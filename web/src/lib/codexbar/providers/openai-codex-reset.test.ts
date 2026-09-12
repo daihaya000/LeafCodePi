@@ -8,6 +8,7 @@ vi.mock("undici", async (importOriginal) => ({
 }));
 
 import {
+  autoConsumeExpiringResetCredits,
   consumeCodexResetCredit,
   describeResetConsumeCode,
   parseCodexResetConsumeJson,
@@ -133,6 +134,97 @@ describe("describeResetConsumeCode", () => {
   it("maps known codes to Japanese messages", () => {
     expect(describeResetConsumeCode("reset")).toContain("リセットしました");
     expect(describeResetConsumeCode("no_credit")).toContain("ありません");
+  });
+});
+
+describe("autoConsumeExpiringResetCredits", () => {
+  it("redeems only credits expiring within the configured window", async () => {
+    undiciFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            available_count: 2,
+            credits: [
+              {
+                id: "soon",
+                status: "available",
+                expires_at: "2026-07-01T12:00:00Z",
+              },
+              {
+                id: "later",
+                status: "available",
+                expires_at: "2026-07-03T12:00:00Z",
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ code: "reset" }), { status: 200 }),
+      );
+
+    const result = await autoConsumeExpiringResetCredits(
+      { accessToken: "tok", chatgptAccountId: null },
+      {
+        now: Date.parse("2026-07-01T00:00:00Z"),
+        windowMs: 24 * 60 * 60 * 1000,
+      },
+    );
+
+    expect(result).toEqual({ expiring: 1, consumed: 1, codes: ["reset"] });
+    expect(undiciFetch).toHaveBeenCalledTimes(2);
+    const [, init] = undiciFetch.mock.calls[1] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      credit_id: "soon",
+      redeem_request_id: "auto-soon",
+    });
+  });
+
+  it("stops when there is no reset target", async () => {
+    undiciFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            credits: [
+              {
+                id: "first",
+                status: "available",
+                expires_at: "2026-07-01T01:00:00Z",
+              },
+              {
+                id: "second",
+                status: "available",
+                expires_at: "2026-07-01T02:00:00Z",
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ code: "nothing_to_reset" }), {
+          status: 200,
+        }),
+      );
+
+    const result = await autoConsumeExpiringResetCredits(
+      { accessToken: "tok", chatgptAccountId: null },
+      {
+        now: Date.parse("2026-07-01T00:00:00Z"),
+        windowMs: 24 * 60 * 60 * 1000,
+      },
+    );
+
+    expect(result).toEqual({
+      expiring: 2,
+      consumed: 0,
+      codes: ["nothing_to_reset"],
+    });
+    expect(undiciFetch).toHaveBeenCalledTimes(2);
   });
 });
 

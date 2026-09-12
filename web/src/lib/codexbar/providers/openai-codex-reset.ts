@@ -189,6 +189,53 @@ export async function consumeCodexResetCredit(
   return parseCodexResetConsumeJson(body || "{}", status);
 }
 
+export type AutoConsumeExpiringResult = {
+  /** Credits whose expiry falls inside the window. */
+  expiring: number;
+  /** Credits actually redeemed. */
+  consumed: number;
+  codes: CodexResetConsumeCode[];
+};
+
+/**
+ * Redeem available credits that would expire within `windowMs` (earliest expiry
+ * first). Deterministic redeem_request_id (`auto-<creditId>`) makes retries safe
+ * via `already_redeemed`. Stops at `nothing_to_reset`/`no_credit` since further
+ * consumes cannot succeed.
+ */
+export async function autoConsumeExpiringResetCredits(
+  credentials: CodexWhamCredentials,
+  options: { windowMs: number; now?: number; signal?: AbortSignal },
+): Promise<AutoConsumeExpiringResult> {
+  const now = options.now ?? Date.now();
+  const list = await listCodexResetCredits(credentials, options.signal);
+  const expiring = list.credits.filter((credit) => {
+    if (!credit.expiresAt) return false;
+    const expiresMs = Date.parse(credit.expiresAt);
+    return (
+      Number.isFinite(expiresMs) &&
+      expiresMs >= now &&
+      expiresMs - now <= options.windowMs
+    );
+  });
+  const codes: CodexResetConsumeCode[] = [];
+  let consumed = 0;
+  for (const credit of expiring) {
+    const result = await consumeCodexResetCredit(credentials, {
+      creditId: credit.id,
+      redeemRequestId: `auto-${credit.id}`,
+      signal: options.signal,
+    });
+    codes.push(result.code);
+    if (result.ok) {
+      consumed += 1;
+      continue;
+    }
+    break;
+  }
+  return { expiring: expiring.length, consumed, codes };
+}
+
 export function describeResetConsumeCode(code: CodexResetConsumeCode): string {
   switch (code) {
     case "reset":

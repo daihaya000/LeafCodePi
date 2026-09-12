@@ -18,6 +18,10 @@ export type CodexBarConfig = Record<string, unknown> & {
   syntheticApiKey?: string | null;
   openRouterApiKey?: string | null;
   commandCodeApiKey?: string | null;
+  /** Auto-redeem Codex reset credits before they expire (default: true). */
+  codexResetAutoConsume?: boolean;
+  /** Hours before expiry that count as "about to expire" (default: 24). */
+  codexResetAutoConsumeWindowHours?: number;
 };
 
 export function codexBarConfigPath(): string {
