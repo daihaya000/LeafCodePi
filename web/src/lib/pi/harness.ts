@@ -3087,8 +3087,8 @@ async function syncProvidersBestEffort(
  */
 const HEALTH_TTL_MS = 15_000;
 const MODEL_TTL_MS = 15_000;
-/** TTL切れ後もこの範囲内の旧モデル一覧は即返し、裏で更新する（SWR）。 */
-const MODEL_STALE_SERVE_MS = 5 * 60_000;
+/** TTL切れ後もこの範囲内の旧モデル一覧は即返し、裏で更新する（SWR）。一覧自体は頻繁に変わらず、アカウント構成の変更はキーが変わるため再構築される。 */
+const MODEL_STALE_SERVE_MS = 30 * 60_000;
 /** TTL切れ後もこの範囲内の旧ヘルスは即返し、裏で更新する（SWR）。 */
 const HEALTH_STALE_SERVE_MS = 5 * 60_000;
 

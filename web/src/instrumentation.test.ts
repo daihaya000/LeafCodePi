@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ relay: vi.fn(), scheduler: vi.fn(), reconcileTasks: vi.fn(), reconcileRooms: vi.fn(), prewarmTasks: vi.fn(() => Promise.resolve([])) }));
-vi.mock("@/lib/pi/harness", () => ({ startBotCodeRelay: state.relay, getTaskSummariesWithTodoProgress: state.prewarmTasks }));
+const state = vi.hoisted(() => ({ relay: vi.fn(), scheduler: vi.fn(), reconcileTasks: vi.fn(), reconcileRooms: vi.fn(), prewarmTasks: vi.fn(() => Promise.resolve([])), warmModels: vi.fn(() => Promise.resolve([])), listAccounts: vi.fn(() => []) }));
+vi.mock("@/lib/pi/harness", () => ({ startBotCodeRelay: state.relay, getTaskSummariesWithTodoProgress: state.prewarmTasks, listModelsForAccounts: state.warmModels }));
+vi.mock("@/lib/accounts", () => ({ listAccounts: state.listAccounts }));
 vi.mock("@/lib/routines", () => ({ ensureRoutineScheduler: state.scheduler }));
 vi.mock("@/lib/task-runtime-lease", () => ({ reconcileOrphanedWorkingTasks: state.reconcileTasks }));
 vi.mock("@/lib/room-runtime", () => ({ reconcileRoomRuntime: state.reconcileRooms }));
@@ -15,6 +16,8 @@ describe("runtime startup", () => {
     state.reconcileTasks.mockReset();
     state.reconcileRooms.mockReset();
     state.prewarmTasks.mockClear();
+    state.warmModels.mockClear();
+    state.listAccounts.mockClear();
   });
 
   it("starts the Bot relay and routine scheduler in Node.js", async () => {
@@ -27,6 +30,8 @@ describe("runtime startup", () => {
     expect(state.scheduler).toHaveBeenCalledOnce();
     expect(state.reconcileRooms).toHaveBeenCalledOnce();
     expect(state.prewarmTasks).toHaveBeenCalledWith(true);
+    expect(state.listAccounts).toHaveBeenCalledOnce();
+    expect(state.warmModels).toHaveBeenCalledOnce();
   });
 
   it("does not start server services in the Edge runtime", async () => {
@@ -39,5 +44,6 @@ describe("runtime startup", () => {
     expect(state.scheduler).not.toHaveBeenCalled();
     expect(state.reconcileRooms).not.toHaveBeenCalled();
     expect(state.prewarmTasks).not.toHaveBeenCalled();
+    expect(state.warmModels).not.toHaveBeenCalled();
   });
 });

@@ -330,7 +330,7 @@ describe("getRuntimeFor", () => {
       modelInflight: null,
       accountModelCache: {
         key: "[]",
-        // TTL(15s)を過ぎたが SWR 提供範囲(5分)内の旧一覧。
+        // TTL(15s)を過ぎたが SWR 提供範囲(30分)内の旧一覧。
         at: Date.now() - 20_000,
         value: [staleOption],
       },
