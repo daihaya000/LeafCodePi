@@ -22,7 +22,7 @@ vi.mock("@/lib/task-panes", async () => {
   };
 });
 
-import { TaskPanesProvider, useBotFor, useBotStatusFor, useIconFor, useTaskPanes, useTaskPanesNavigation, useTaskPaneTabMeta } from "./TaskPanesContext";
+import { TaskPanesProvider, useBotFor, useBotStatusFor, useIconFor, useTaskPaneIconFor, useTaskPanes, useTaskPanesNavigation, useTaskPaneTabMeta } from "./TaskPanesContext";
 
 function Probe() {
   const { state, mdUp } = useTaskPanes();
@@ -172,6 +172,33 @@ describe("TaskPanesProvider", () => {
     expect(navigationRenderSpy.mock.calls.length).toBe(initialNavigationRenderCount);
     expect(iconRenderSpy.mock.calls.length).toBe(initialIconRenderCount);
     expect(tabMetaRenderSpy.mock.calls.length).toBe(initialTabMetaRenderCount + 1);
+  });
+
+  it("does not rerender task icon consumers when a task title changes", async () => {
+    matches = true;
+    let taskTitle = "Code";
+    mocks.getJson.mockImplementation(async (url: string) => {
+      if (url.startsWith("/api/projects")) return { projects: [] };
+      if (url === "/api/bots/sidebar") return { bots: [], rooms: [] };
+      return { tasks: [{ id: "saved-task", title: taskTitle, status: "idle" }] };
+    });
+    const iconRenderSpy = vi.fn();
+    function TaskIconProbe() {
+      useTaskPaneIconFor();
+      iconRenderSpy();
+      return null;
+    }
+    function TitleProbe() {
+      const { titleFor } = useTaskPanes();
+      return <output data-testid="task-title">{titleFor("saved-task")}</output>;
+    }
+    render(<TaskPanesProvider><TaskIconProbe /><TitleProbe /></TaskPanesProvider>);
+    await waitFor(() => expect(screen.getByTestId("task-title").textContent).toBe("Code"));
+    const initialIconRenderCount = iconRenderSpy.mock.calls.length;
+    taskTitle = "Renamed";
+    window.dispatchEvent(new Event("webui:tasks-changed"));
+    await waitFor(() => expect(screen.getByTestId("task-title").textContent).toBe("Renamed"));
+    expect(iconRenderSpy.mock.calls.length).toBe(initialIconRenderCount);
   });
 
   it("restores Bot routes, titles and closes only deleted Bot tabs", async () => {

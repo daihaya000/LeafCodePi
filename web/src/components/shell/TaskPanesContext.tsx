@@ -106,6 +106,7 @@ type TaskPanesStableContextValue = {
 type TaskPanesTabMetaSnapshot = Readonly<{
   status: TaskStatus | null;
   title: string | null;
+  iconVersion: number;
 }>;
 
 type TaskPanesTabMetaStoreValue = {
@@ -116,6 +117,7 @@ type TaskPanesTabMetaStoreValue = {
 type TaskPanesIconContextValue = {
   iconFor: (taskId: string, size?: 16 | 32, task?: TaskIdentity) => React.ReactNode;
 };
+type TaskPanesTaskIconContextValue = TaskPanesIconContextValue;
 
 type TaskPanesBotStatusContextValue = {
   statusFor: (taskId: string) => TaskStatus | null;
@@ -131,12 +133,13 @@ const EMPTY_STABLE: TaskPanesStableContextValue = {
   getStatusFor: () => null,
   botFor: () => undefined,
 };
-const EMPTY_TAB_META_SNAPSHOT: TaskPanesTabMetaSnapshot = { status: null, title: null };
+const EMPTY_TAB_META_SNAPSHOT: TaskPanesTabMetaSnapshot = { status: null, title: null, iconVersion: 0 };
 const EMPTY_TAB_META_STORE: TaskPanesTabMetaStoreValue = {
   subscribe: () => () => undefined,
   getSnapshot: () => EMPTY_TAB_META_SNAPSHOT,
 };
 const EMPTY_ICON: TaskPanesIconContextValue = { iconFor: () => null };
+const EMPTY_TASK_ICON: TaskPanesTaskIconContextValue = EMPTY_ICON;
 const EMPTY_BOT_STATUS: TaskPanesBotStatusContextValue = { statusFor: () => null };
 const EMPTY_NAVIGATION: TaskPanesNavigationContextValue = {
   state: { panes: [], activePaneId: null },
@@ -150,6 +153,7 @@ const EMPTY_NAVIGATION: TaskPanesNavigationContextValue = {
 const TaskPanesStableContext = createContext<TaskPanesStableContextValue>(EMPTY_STABLE);
 const TaskPanesTabMetaContext = createContext<TaskPanesTabMetaStoreValue>(EMPTY_TAB_META_STORE);
 const TaskPanesIconContext = createContext<TaskPanesIconContextValue>(EMPTY_ICON);
+const TaskPanesTaskIconContext = createContext<TaskPanesTaskIconContextValue>(EMPTY_TASK_ICON);
 const TaskPanesBotStatusContext = createContext<TaskPanesBotStatusContextValue>(EMPTY_BOT_STATUS);
 const TaskPanesNavigationContext = createContext<TaskPanesNavigationContextValue>(EMPTY_NAVIGATION);
 const TaskPanesContext = createContext<TaskPanesContextValue>(EMPTY);
@@ -212,7 +216,9 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   const taskIdentitiesRef = useRef(new Map<string, TaskIdentity>());
   const iconBotsRef = useRef<BotIconData[]>([]);
   const iconProjectsRef = useRef<ProjectIconData[]>([]);
+  const iconForRef = useRef<TaskPanesIconContextValue["iconFor"]>(EMPTY_ICON.iconFor);
   const tabMetaSnapshotsRef = useRef(new Map<string, TaskPanesTabMetaSnapshot>());
+  const tabMetaIconVersionsRef = useRef(new Map<string, number>());
   const tabMetaListenersRef = useRef(new Map<string, Set<() => void>>());
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const botSidebar = useSyncExternalStore(
@@ -237,6 +243,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     const snapshot: TaskPanesTabMetaSnapshot = {
       status: statusMapRef.current.get(taskId) ?? null,
       title: taskTitlesRef.current.get(taskId) ?? null,
+      iconVersion: tabMetaIconVersionsRef.current.get(taskId) ?? 0,
     };
     tabMetaSnapshotsRef.current.set(taskId, snapshot);
     return snapshot;
@@ -245,12 +252,18 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     const next: TaskPanesTabMetaSnapshot = {
       status: statusMapRef.current.get(taskId) ?? null,
       title: taskTitlesRef.current.get(taskId) ?? null,
+      iconVersion: tabMetaIconVersionsRef.current.get(taskId) ?? 0,
     };
     const current = tabMetaSnapshotsRef.current.get(taskId);
-    if (current?.status === next.status && current.title === next.title) return;
+    if (current?.status === next.status && current.title === next.title && current.iconVersion === next.iconVersion) return;
     tabMetaSnapshotsRef.current.set(taskId, next);
     tabMetaListenersRef.current.get(taskId)?.forEach((listener) => listener());
   }, []);
+  const bumpTabIconVersion = useCallback((taskId: string) => {
+    const next = (tabMetaIconVersionsRef.current.get(taskId) ?? 0) + 1;
+    tabMetaIconVersionsRef.current.set(taskId, next);
+    emitTabMeta(taskId);
+  }, [emitTabMeta]);
   const subscribeTabMeta = useCallback((taskId: string, listener: () => void) => {
     const listeners = tabMetaListenersRef.current.get(taskId) ?? new Set<() => void>();
     listeners.add(listener);
@@ -302,15 +315,18 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
           let titlesDirty = false;
           for (const task of tasks) {
             const identity = taskIdentitiesRef.current.get(task.id);
-            if (identity?.projectId !== task.projectId || identity?.botId !== task.botId) {
+            const identityChanged = identity?.projectId !== task.projectId || identity?.botId !== task.botId;
+            const titleChanged = taskTitlesRef.current.get(task.id) !== task.title;
+            if (identityChanged) {
               taskIdentitiesRef.current.set(task.id, { projectId: task.projectId, botId: task.botId });
               titlesDirty = true;
             }
-            if (taskTitlesRef.current.get(task.id) !== task.title) {
+            if (titleChanged) {
               taskTitlesRef.current.set(task.id, task.title);
-              emitTabMeta(task.id);
               titlesDirty = true;
             }
+            if (identityChanged) bumpTabIconVersion(task.id);
+            else if (titleChanged) emitTabMeta(task.id);
           }
           if (titlesDirty) bumpTitlesVersion();
           const existingIds = new Set(tasks.map((task) => task.id));
@@ -339,7 +355,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
             statusMapRef.current.delete(taskId);
             taskTitlesRef.current.delete(taskId);
             taskIdentitiesRef.current.delete(taskId);
-            emitTabMeta(taskId);
+            bumpTabIconVersion(taskId);
           }
           if (next === latest) return;
           // replace は state 参照を更新し、module 変数経由で次の外部遷移でも追従できる
@@ -355,7 +371,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     onChange(); // mount 直後にも 1 回取得（タブ名の初期表示）
     window.addEventListener("webui:tasks-changed", onChange);
     return () => window.removeEventListener("webui:tasks-changed", onChange);
-  }, [emitTabMeta, mdUp]);
+  }, [bumpTabIconVersion, emitTabMeta, mdUp]);
 
   useEffect(() => {
     const titles = new Map<string, string>([
@@ -544,6 +560,11 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       </span>
     ) : null;
   }, [iconBots, iconProjects, titlesVersion]);
+  iconForRef.current = iconFor;
+  const taskIconFor = useCallback(
+    (taskId: string, size?: 16 | 32, task?: TaskIdentity) => iconForRef.current(taskId, size, task),
+    [],
+  );
 
   const value = useMemo<TaskPanesContextValue>(
     () => ({
@@ -568,6 +589,14 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     [getTabMetaSnapshot, subscribeTabMeta],
   );
   const iconValue = useMemo<TaskPanesIconContextValue>(() => ({ iconFor }), [iconFor]);
+  const taskIconValue = useMemo<TaskPanesTaskIconContextValue>(
+    () => {
+      void iconBots;
+      void iconProjects;
+      return { iconFor: taskIconFor };
+    },
+    [iconBots, iconProjects, taskIconFor],
+  );
   const botStatusValue = useMemo<TaskPanesBotStatusContextValue>(
     () => ({ statusFor: botStatusFor }),
     [botStatusFor],
@@ -582,9 +611,11 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       <TaskPanesBotStatusContext.Provider value={botStatusValue}>
         <TaskPanesTabMetaContext.Provider value={tabMetaStoreValue}>
           <TaskPanesIconContext.Provider value={iconValue}>
-            <TaskPanesNavigationContext.Provider value={navigationValue}>
-              <TaskPanesContext.Provider value={value}>{children}</TaskPanesContext.Provider>
-            </TaskPanesNavigationContext.Provider>
+            <TaskPanesTaskIconContext.Provider value={taskIconValue}>
+              <TaskPanesNavigationContext.Provider value={navigationValue}>
+                <TaskPanesContext.Provider value={value}>{children}</TaskPanesContext.Provider>
+              </TaskPanesNavigationContext.Provider>
+            </TaskPanesTaskIconContext.Provider>
           </TaskPanesIconContext.Provider>
         </TaskPanesTabMetaContext.Provider>
       </TaskPanesBotStatusContext.Provider>
@@ -640,6 +671,10 @@ export function useTaskPaneTabMeta(taskId: string): TaskPanesTabMetaSnapshot {
 
 export function useIconFor(): TaskPanesIconContextValue["iconFor"] {
   return useContext(TaskPanesIconContext).iconFor;
+}
+
+export function useTaskPaneIconFor(): TaskPanesTaskIconContextValue["iconFor"] {
+  return useContext(TaskPanesTaskIconContext).iconFor;
 }
 
 export function useBotStatusFor(): TaskPanesBotStatusContextValue["statusFor"] {

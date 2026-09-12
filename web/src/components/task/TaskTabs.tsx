@@ -3,7 +3,7 @@
 import { memo, useState } from "react";
 import { Loader2, Plus, SquarePen, Trash2, X } from "lucide-react";
 import { cx } from "@/components/ui";
-import { useIconFor, useTaskPaneTabMeta } from "@/components/shell/TaskPanesContext";
+import { useTaskPaneIconFor, useTaskPaneTabMeta } from "@/components/shell/TaskPanesContext";
 import { setTaskDragData, taskDragIdFrom, TASK_DRAG_MIME } from "@/lib/task-drag";
 import {
   HOME_TAB_ID,
@@ -13,8 +13,9 @@ import {
 } from "@/lib/task-panes";
 import type { TaskStatus } from "@/lib/types";
 
-const TaskTabIcon = memo(function TaskTabIcon({ taskId }: { taskId: string }) {
-  const iconFor = useIconFor();
+const TaskTabIcon = memo(function TaskTabIcon({ taskId, version }: { taskId: string; version: number }) {
+  void version;
+  const iconFor = useTaskPaneIconFor();
   return iconFor(taskId);
 });
 
@@ -88,7 +89,7 @@ function TaskTabItem({
         dragOverIndex === index && "ring-1 ring-accent",
       )}
     >
-      <TaskTabIcon taskId={taskId} />
+      <TaskTabIcon taskId={taskId} version={meta.iconVersion} />
       {status === "working" && (
         <Loader2 className="h-3 w-3 shrink-0 animate-spin text-working" aria-hidden="true" />
       )}
