@@ -338,7 +338,11 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   const thinkingValue: ThinkingLevel = bot?.thinkingLevel && thinkingLevels.includes(bot.thinkingLevel)
     ? bot.thinkingLevel
     : (thinkingLevels[0] ?? "off");
-  const botMentions = useMemo(() => bot ? [bot] : [], [bot]);
+  // Bot設定の保存たびに bot 参照が変わっても、表示名・見た目が同じなら同一配列を使い回す。
+  // BotMessageMarkdown の memo が効き続け、履歴全体の再パースを避けられる。
+  const botMentions = useMemo(() => bot ? [bot] : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bot?.id, bot?.name, bot?.avatarColor, bot?.avatarShape, bot?.avatarEyeColor, bot?.avatarGlasses, bot?.avatarMustache, bot?.avatarImage]);
 
   const addImageFiles = (files: FileList) => {
     if (!canAttachComposerImages({ submitting: sending })) return;

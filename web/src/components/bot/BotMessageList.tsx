@@ -26,22 +26,47 @@ function TaskLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorE
   return <InternalTaskLink href={href} {...props} />;
 }
 
+// 同時マウントしたリンクで /api/projects 等を重複取得しないよう、進行中の取得だけ共有する。
+// 結果はキャッシュしない（テストのスタブ差し替えや最新表示と競合させないため）。
+const inflightTaskSummaries = new Map<string, Promise<TaskSummary | null>>();
+let inflightProjects: Promise<Pick<ProjectDto, "id" | "name" | "icon">[] | null> | null = null;
+
+function fetchTaskSummary(taskId: string): Promise<TaskSummary | null> {
+  const inflight = inflightTaskSummaries.get(taskId);
+  if (inflight) return inflight;
+  const request = fetch(`/api/tasks/${encodeURIComponent(taskId)}`)
+    .then((response) => (response.ok ? response.json() : null))
+    .then((result) => (result?.task as TaskSummary | undefined) ?? null)
+    .catch(() => null)
+    .finally(() => { if (inflightTaskSummaries.get(taskId) === request) inflightTaskSummaries.delete(taskId); });
+  inflightTaskSummaries.set(taskId, request);
+  return request;
+}
+
+function fetchProjectList(): Promise<Pick<ProjectDto, "id" | "name" | "icon">[] | null> {
+  if (!inflightProjects) {
+    const request: Promise<Pick<ProjectDto, "id" | "name" | "icon">[] | null> = fetch("/api/projects")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((result) => (result?.projects as ProjectDto[] | undefined) ?? null)
+      .catch(() => null)
+      .finally(() => { if (inflightProjects === request) inflightProjects = null; });
+    inflightProjects = request;
+  }
+  return inflightProjects;
+}
+
 function InternalTaskLink({ href, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
   const taskId = decodeURIComponent(href.split("/task/")[1]!.split(/[?#]/)[0]!);
   const [task, setTask] = useState<TaskSummary | null>(null);
   const [project, setProject] = useState<Pick<ProjectDto, "id" | "name" | "icon"> | null>(null);
   useEffect(() => {
     let active = true;
-    void Promise.all([
-      fetch(`/api/tasks/${encodeURIComponent(taskId)}`).then((response) => response.ok ? response.json() : null),
-      fetch("/api/projects").then((response) => response.ok ? response.json() : null),
-    ]).then(([taskResult, projectsResult]) => {
+    void Promise.all([fetchTaskSummary(taskId), fetchProjectList()]).then(([nextTask, projects]) => {
       if (!active) return;
-      const nextTask = taskResult?.task as TaskSummary | undefined;
-      setTask(nextTask ?? null);
-      const nextProject = (projectsResult?.projects as ProjectDto[] | undefined)?.find((item) => item.id === nextTask?.projectId);
+      setTask(nextTask);
+      const nextProject = projects?.find((item) => item.id === nextTask?.projectId);
       setProject(nextProject ? { id: nextProject.id, name: nextProject.name, icon: nextProject.icon } : null);
-    }).catch(() => undefined);
+    });
     return () => { active = false; };
   }, [taskId]);
   const title = task?.title || taskId;

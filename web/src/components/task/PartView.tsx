@@ -429,7 +429,9 @@ function NestedAgentPanel({
   );
 }
 
-export function ToolCard({
+// part は SSE の flood でも参照が保たれる（stabilize + WeakMap 派生）前提で memo 化し、
+// ストリーミング中の全カード再描画を避ける。実行中タイマーは内部 state 駆動のため影響なし。
+export const ToolCard = memo(function ToolCard({
   part,
   taskId,
   nested = false,
@@ -635,7 +637,7 @@ export function ToolCard({
       )}
     </div>
   );
-}
+});
 
 function CompactionNotice({ message }: { message: UiMessage }) {
   const summary = message.parts.find((part) => part.type === "text");
