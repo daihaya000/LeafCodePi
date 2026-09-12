@@ -1248,7 +1248,15 @@ class IntercomBroker {
 
   private prunePendingAskRecords(now = Date.now()): void {
     ensurePendingAskRecordDir();
-    for (const entry of readdirSync(PENDING_ASKS_DIR, { withFileTypes: true })) {
+    let entries: ReturnType<typeof readdirSync>;
+    try {
+      entries = readdirSync(PENDING_ASKS_DIR, { withFileTypes: true });
+    } catch {
+      // Directory vanished mid-run (cleanup/AV); nothing to prune and the
+      // send path must not throw and drop the session.
+      return;
+    }
+    for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(".json")) {
         continue;
       }
