@@ -88,7 +88,7 @@ export function bundledSkillsDir(): string | null {
     ? [override]
     : [join(process.cwd(), "skills"), join(process.cwd(), "..", "skills")];
   for (const candidate of candidates) {
-    const absolute = resolve(process.cwd(), candidate);
+    const absolute = resolve(/* turbopackIgnore: true */ process.cwd(), candidate);
     try {
       if (statSync(absolute).isDirectory()) return absolute;
     } catch {

@@ -242,7 +242,7 @@ export function hostControlUrl(env = process.env, read = readFileSync) {
 export async function waitForWebUiHealth({
   port = webUiPort(),
   timeoutMs = 90_000,
-  intervalMs = 1500,
+  intervalMs = 500,
   get = fetch,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 } = {}) {
@@ -278,7 +278,7 @@ export async function handOffToServedWebUi({
   post = fetch,
   get = fetch,
   healthTimeoutMs = 90_000,
-  healthIntervalMs = 1500,
+  healthIntervalMs = 500,
 } = {}) {
   if (isIdle({ port })) return "idle";
   try {

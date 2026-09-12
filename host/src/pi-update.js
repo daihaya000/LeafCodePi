@@ -1,4 +1,4 @@
-import { spawnSync as defaultSpawnSync } from "node:child_process";
+import { spawn as defaultSpawn, spawnSync as defaultSpawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -82,4 +82,55 @@ export function autoUpdatePi({
     skipped: false,
     version: after,
   };
+}
+
+/**
+ * `npm update` のネットワーク待ちで起動を止めない非同期版。WebUI が ready に
+ * なってから呼ぶ。結果はログだけに残し、呼び出し側は待たない。
+ */
+export function autoUpdatePiInBackground({
+  webDir,
+  env = process.env,
+  platform = process.platform,
+  spawn = defaultSpawn,
+  log = () => {},
+  error = () => {},
+}) {
+  if (env.LEAFCODE_PI_AUTO_UPDATE === "0") {
+    return { attempted: false, skipped: true };
+  }
+
+  const before = installedPiVersion(webDir);
+  const npm = platform === "win32" ? "npm.cmd" : "npm";
+  let child;
+  try {
+    child = spawn(npm, ["update", PI_PACKAGE_NAME, "--no-audit", "--no-fund"], {
+      cwd: webDir,
+      shell: platform === "win32",
+      windowsHide: true,
+      stdio: "ignore",
+    });
+  } catch (err) {
+    error(`Pi auto-update failed; continuing with the installed version (${err instanceof Error ? err.message : String(err)})`);
+    return { attempted: true, skipped: false };
+  }
+  child.once("error", (err) => {
+    error(`Pi auto-update failed; continuing with the installed version (${err instanceof Error ? err.message : String(err)})`);
+  });
+  child.once("close", (code) => {
+    if (code !== 0) {
+      error(`Pi auto-update failed; continuing with the installed version (npm exited ${code ?? "unknown"})`);
+      return;
+    }
+    const after = installedPiVersion(webDir);
+    if (before && after && before !== after) {
+      log(`Pi updated from v${before} to v${after}`);
+    } else if (after) {
+      log(`Pi is up to date (v${after})`);
+    } else {
+      log("Pi auto-update completed");
+    }
+  });
+  child.unref?.();
+  return { attempted: true, skipped: false };
 }

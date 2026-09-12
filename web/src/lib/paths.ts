@@ -81,7 +81,7 @@ export function noProjectSessionDir(date = new Date()): string {
   const minuteName = noProjectSessionName(date);
   const candidates = [minuteName, noProjectSessionName(date, true)];
   for (const name of candidates) {
-    const directory = join(root, name);
+    const directory = join(/* turbopackIgnore: true */ root, name);
     try {
       mkdirSync(directory);
       return directory;
@@ -90,7 +90,7 @@ export function noProjectSessionDir(date = new Date()): string {
     }
   }
   for (let index = 1; ; index += 1) {
-    const directory = join(root, `${candidates[1]}_${index}`);
+    const directory = join(/* turbopackIgnore: true */ root, `${candidates[1]}_${index}`);
     try {
       mkdirSync(directory);
       return directory;

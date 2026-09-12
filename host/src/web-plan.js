@@ -124,13 +124,8 @@ export function isWebBuildStale(webDir, distDir, fsApi = {}) {
     }
   }
 
-  const extensionsRoot = join(webDir, "..", "extensions");
-  if (existsSync(extensionsRoot)) {
-    if (hasNewerFile(extensionsRoot, buildMtimeMs, distDir, { existsSync, statSync, readdirSync })) {
-      return true;
-    }
-  }
-
+  // extensions/ は実行時に直接読み込むだけでビルド出力に含まれない
+  // (bundledExtensionsDir)。変更で .next を無効化しない。
   return false;
 }
 
