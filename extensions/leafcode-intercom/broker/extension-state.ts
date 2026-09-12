@@ -167,9 +167,28 @@ export class ExtensionStateManager {
       }
 
       if (this.readEnvelope(statePath, namespace)) {
-        copyFileSync(statePath, backupPath);
+        try {
+          copyFileSync(statePath, backupPath);
+        } catch {
+          // Backup is best-effort; a locked backup must not fail the commit.
+        }
       }
-      renameSync(tempPath, statePath);
+      // Windows/OneDrive may hold the target while another session reads it,
+      // so renameSync can fail with transient EPERM/EACCES/EBUSY. Retry briefly.
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          renameSync(tempPath, statePath);
+          break;
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException | undefined)?.code;
+          const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
+          if (attempt >= 4 || !transient) throw error;
+          const until = Date.now() + 25 * (attempt + 1);
+          while (Date.now() < until) {
+            // Keep the sync API; cap total wait at ~250ms.
+          }
+        }
+      }
 
       try {
         const directory = openSync(dirname(statePath), "r");
