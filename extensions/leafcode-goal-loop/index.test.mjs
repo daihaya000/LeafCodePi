@@ -2224,6 +2224,123 @@ test("abort settlement keeps a late JSON result without auto-continuing", async 
   }
 });
 
+test("manual compaction does not leave an active loop paused after aborting its turn", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-manual-compact-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  const abortController = new AbortController();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "manual-compact-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    signal: abortController.signal,
+    sessionManager: {
+      getSessionId: () => "manual-compact-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sendCount === 1 && JSON.parse(readFileSync(stateFile(), "utf8")).status === "running");
+
+    // AgentSession.compact() aborts the active turn before it emits compact hooks.
+    busy = false;
+    abortController.abort();
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{ role: "assistant", stopReason: "aborted", content: [] }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    const paused = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(paused.status, "paused");
+    assert.equal(paused.pauseReason, "user");
+
+    await handlers.get("session_compact")?.({ type: "session_compact", reason: "manual" }, ctx);
+    const resumed = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(resumed.status, "queued");
+    assert.equal(resumed.pauseReason, "");
+    assert.equal(resumed.pendingTurnRecovery, false);
+    await waitFor(() => sendCount === 2);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("session replacement normalizes an abort pause to a lifecycle pause", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-replacement-pause-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "replacement-pause-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "replacement-pause-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sendCount === 1 && JSON.parse(readFileSync(stateFile(), "utf8")).status === "running");
+
+    // teardownCurrent() aborts before it emits session_shutdown.
+    busy = false;
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{ role: "assistant", stopReason: "aborted", content: [] }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).pauseReason, "user");
+
+    await handlers.get("session_shutdown")?.({ type: "session_shutdown", reason: "new" }, ctx);
+    const lifecycle = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(lifecycle.status, "paused");
+    assert.equal(lifecycle.pauseReason, "");
+    assert.equal(lifecycle.error, "セッション終了時に一時停止しました。");
+    assert.equal(lifecycle.pendingTurnRecovery, true);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("provider-limit canRetry does not wipe pausedTurnPending evidence", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-canretry-pending-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

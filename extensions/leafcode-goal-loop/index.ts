@@ -91,6 +91,7 @@ const MAX_UNREADABLE_STREAK = 2;
 const TURN_TIMEOUT_MS = 15 * 60 * 1000;
 const TERMINAL = new Set<GoalLoopStatus>(["completed", "stopped"]);
 const UNSCHEDULABLE = new Set<GoalLoopStatus>(["paused", "blocked"]);
+const ABORTED_TURN_PAUSE_ERROR = "実行が中断されたため一時停止しました。";
 
 const runtimes = new Map<string, Runtime>();
 /** Test-only override for the in-flight turn watchdog. */
@@ -145,6 +146,8 @@ type Runtime = {
   pausedTurnIndex?: number;
   timer?: ReturnType<typeof setTimeout>;
   timeoutTimer?: ReturnType<typeof setTimeout>;
+  /** An abort-paused turn may be re-armed when it was caused by manual compaction. */
+  abortedTurnPausePending: boolean;
   disposed: boolean;
 };
 
@@ -848,6 +851,15 @@ function clearPendingAgentRun(runtime: Runtime): void {
   runtime.pendingAgentAborted = false;
 }
 
+function isAbortPausedLoop(loop: GoalLoop | null): loop is GoalLoop {
+  return Boolean(
+    loop &&
+    loop.status === "paused" &&
+    loop.pauseReason === "user" &&
+    loop.error === ABORTED_TURN_PAUSE_ERROR
+  );
+}
+
 /**
  * Apply a result that arrived after the loop was paused mid-turn.
  * user/manual_send keep progress but stay paused; turn_timeout/unknown_delivery continue.
@@ -939,7 +951,8 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
   if (aborted) {
     // Keep any JSON that landed before abort (same contract as manual_send):
     // progress is preserved, but the loop stays paused for the operator.
-    pauseLoop(runtime, "user", "実行が中断されたため一時停止しました。");
+    const paused = pauseLoop(runtime, "user", ABORTED_TURN_PAUSE_ERROR);
+    if (paused) runtime.abortedTurnPausePending = true;
     if (result) applyLatePausedResult(runtime, result);
     clearPendingAgentRun(runtime);
     return;
@@ -1057,6 +1070,37 @@ function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error
   return true;
 }
 
+function requeueAfterManualCompaction(runtime: Runtime): void {
+  if (!runtime.abortedTurnPausePending) return;
+  runtime.abortedTurnPausePending = false;
+  const loop = currentLoop(runtime);
+  if (!isAbortPausedLoop(loop)) {
+    return;
+  }
+
+  const resumed: GoalLoop = {
+    ...loop,
+    status: loop.turnKind === "verification" ? "verifying_completed" : "queued",
+    pauseReason: "" as const,
+    error: "",
+    pendingTurnRecovery: false,
+    nextTurnAt: null,
+  };
+  if (!writeLoop(resumed)) {
+    runtime.ctx.ui.notify("圧縮後のGoal loop再開状態を保存できませんでした。/goal-resume で再開してください。", "error");
+    return;
+  }
+  runtime.awaitingTurn = false;
+  runtime.pausedTurnPending = false;
+  runtime.awaitingTurnIndex = undefined;
+  runtime.pausedTurnIndex = undefined;
+  clearPendingAgentRun(runtime);
+  clearTimer(runtime);
+  updateUI(runtime, resumed);
+  appendSnapshot(runtime, resumed);
+  schedule(runtime, 0);
+}
+
 function stopLoop(runtime: Runtime): boolean {
   const loop = currentLoop(runtime);
   if (!loop || TERMINAL.has(loop.status)) return false;
@@ -1074,6 +1118,7 @@ function stopLoop(runtime: Runtime): boolean {
   clearTimer(runtime);
   runtime.awaitingTurn = false;
   runtime.pausedTurnPending = false;
+  runtime.abortedTurnPausePending = false;
   runtime.awaitingTurnIndex = undefined;
   runtime.pausedTurnIndex = undefined;
   clearPendingAgentRun(runtime);
@@ -1300,6 +1345,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
   appendSnapshot(runtime, loop);
   runtime.awaitingTurn = true;
   runtime.pausedTurnPending = false;
+  runtime.abortedTurnPausePending = false;
   runtime.pendingAgentMessages = undefined;
   runtime.pendingAgentAborted = false;
   runtime.awaitingTurnIndex = undefined;
@@ -1785,17 +1831,18 @@ export default function (pi: ExtensionAPI): void {
       pausedTurnIndex: undefined,
       discardAgentSettlements: 0,
       sendTurnInFlight: false,
+      abortedTurnPausePending: false,
       disposed: false,
       pendingAgentAborted: false,
     };
     runtimes.set(key, runtime);
 
     const loop = currentLoop(runtime);
-    if (loop?.status === "running") {
-      // Only running has an in-flight prompt that needs manual recovery.
-      // verifying_completed is an unsent verification turn, like queued; account
-      // or agent routing can reopen the session before that turn is delivered.
-      loop.pendingTurnRecovery = true;
+    if (loop?.status === "running" || isAbortPausedLoop(loop)) {
+      // Only running has an in-flight prompt that needs manual recovery. An
+      // abort pause can be left on disk when the following lifecycle write
+      // fails; normalize that internal pause before exposing the new session.
+      if (loop.status === "running") loop.pendingTurnRecovery = true;
       loop.status = "paused";
       loop.pauseReason = "";
       loop.error = "セッション再開時は自動継続しません。/goal-resume で再開してください。";
@@ -1804,7 +1851,7 @@ export default function (pi: ExtensionAPI): void {
       if (!writeLoop(loop)) {
         ctx.ui.notify("セッション再開時の状態保存に失敗しました。再接続してから /goal-resume を試してください。", "error");
       } else {
-        runtime.pausedTurnPending = true;
+        runtime.pausedTurnPending = loop.pendingTurnRecovery;
       }
     }
     const fresh = currentLoop(runtime);
@@ -1879,6 +1926,16 @@ export default function (pi: ExtensionAPI): void {
     current.pendingAgentAborted = event.messages.some(isAbortedAssistant) || Boolean(ctx.signal?.aborted);
   });
 
+  pi.on("session_compact", async (event, _ctx) => {
+    const current = getRuntime();
+    if (current && event.reason === "manual") requeueAfterManualCompaction(current);
+  });
+
+  pi.on("session_compact_failed", async (event, _ctx) => {
+    const current = getRuntime();
+    if (current && event.reason === "manual") requeueAfterManualCompaction(current);
+  });
+
   pi.on("agent_settled", async (_event, _ctx) => {
     const current = getRuntime();
     if (!current) return;
@@ -1929,7 +1986,18 @@ export default function (pi: ExtensionAPI): void {
     const active = isActiveRuntime(current);
     if (active) {
       const loop = currentLoop(current);
-      if (loop && (loop.status === "running" || loop.status === "queued" || loop.status === "verifying_completed")) {
+      if (
+        loop &&
+        (
+          loop.status === "running" ||
+          loop.status === "queued" ||
+          loop.status === "verifying_completed" ||
+          (current.abortedTurnPausePending && isAbortPausedLoop(loop))
+        )
+      ) {
+        // An abort settlement can run before teardown emits session_shutdown.
+        // Normalize that internal abort pause to a lifecycle pause instead of
+        // exposing it as a user action.
         // Persist mid-turn recovery across restart. pausedTurnPending alone dies
         // with this runtime, and the next session_start only sees status=paused.
         if (loop.status === "running") loop.pendingTurnRecovery = true;
@@ -1945,6 +2013,7 @@ export default function (pi: ExtensionAPI): void {
         current.awaitingTurn = false;
       }
     }
+    current.abortedTurnPausePending = false;
     current.disposed = true;
     clearPendingAgentRun(current);
     clearTimer(current);
