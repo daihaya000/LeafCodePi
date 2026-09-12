@@ -155,7 +155,7 @@ export async function PUT(
   if (!body || typeof body !== "object" || !("value" in body)) {
     return NextResponse.json({ error: "value is required" }, { status: 400 });
   }
-  const { value } = body;
+  const value = body.value === "" ? null : body.value;
   if (value !== null && typeof value !== "string") {
     return NextResponse.json(
       { error: "value must be a string or null" },
@@ -169,10 +169,6 @@ export async function PUT(
     );
   }
   // 値はキー毎のバリデーションを通ったものだけ保存（null は削除）。
-  if (value === "") {
-    setSetting(key, null);
-    return NextResponse.json({ value: getSetting(key) });
-  }
   if (typeof value === "string") {
     if (key === "auto-optimize" && !isAutoOptimizeMode(value)) {
       return NextResponse.json(
@@ -193,6 +189,10 @@ export async function PUT(
     setSetting(key, valid);
   } else {
     setSetting(key, null);
+  }
+  if (key === COMPACTION_ACTION_SETTING_KEY || key === COMPACTION_THRESHOLD_SETTING_KEY) {
+    const { refreshCompactionSuggestions } = await import("@/lib/pi/harness");
+    refreshCompactionSuggestions();
   }
   return NextResponse.json({ value: getSetting(key) });
 }

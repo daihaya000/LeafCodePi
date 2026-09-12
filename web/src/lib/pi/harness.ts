@@ -1288,6 +1288,22 @@ function emitTaskDelta(live: LiveRuntime, eventType: string): void {
   });
 }
 
+/** Refresh idle clients after settings changes without projecting conversation history. */
+export function refreshCompactionSuggestions(): void {
+  const action = parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY));
+  const threshold = parseCompactionThreshold(getSetting(COMPACTION_THRESHOLD_SETTING_KEY));
+  for (const live of state().live.values()) {
+    if (state().events.listenerCount(live.taskId) === 0) continue;
+    emit(live.taskId, {
+      type: "delta",
+      compactionSuggested: !live.goalLoopTurnActive &&
+        !isActiveGoalLoopSession(live.session) &&
+        shouldSuggestAtThreshold(action, sessionContextUsage(live.session)?.percent, threshold),
+      eventType: "compaction_settings_changed",
+    });
+  }
+}
+
 function scheduleTaskSnapshot(
   live: LiveRuntime,
   eventType: string,
@@ -1983,6 +1999,7 @@ export async function resetTaskConversation(taskId: string): Promise<TaskSummary
     goalLoop: null,
     permissionRequest: null,
     questionRequest: null,
+    compactionSuggested: false,
     eventType: "conversation_reset",
   });
   return toSummary(reset);

@@ -6,6 +6,8 @@ const settings = vi.hoisted(() => ({
   setSetting: vi.fn(),
 }));
 const accounts = vi.hoisted(() => ({ listAccounts: vi.fn() }));
+const harness = vi.hoisted(() => ({ refreshCompactionSuggestions: vi.fn() }));
+vi.mock("@/lib/pi/harness", () => harness);
 
 vi.mock("@/lib/pi/web-settings", () => ({
   MAX_SETTING_VALUE_CHARS: 4096,
@@ -29,6 +31,34 @@ describe("/api/settings/[key]", () => {
     vi.clearAllMocks();
     accounts.listAccounts.mockReturnValue([]);
     settings.getSetting.mockReturnValue("llama-server::local-model");
+  });
+
+  it.each([
+    ["compactionAction", "suggest"],
+    ["compactionAction", "off"],
+    ["compactionAction", "auto"],
+    ["compactionThreshold", "85"],
+    ["compactionAction", null],
+    ["compactionThreshold", ""],
+  ])("refreshes suggestions after saving %s=%s", async (key, value) => {
+    const response = await PUT(request(key!, { value }), {
+      params: Promise.resolve({ key: key! }),
+    });
+    expect(response.status).toBe(200);
+    expect(harness.refreshCompactionSuggestions).toHaveBeenCalledOnce();
+    expect(settings.setSetting.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.refreshCompactionSuggestions.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("does not notify for rejected or unrelated settings", async () => {
+    await PUT(request("compactionAction", { value: "invalid" }), {
+      params: Promise.resolve({ key: "compactionAction" }),
+    });
+    await PUT(request("auto-show-model", { value: "1" }), {
+      params: Promise.resolve({ key: "auto-show-model" }),
+    });
+    expect(harness.refreshCompactionSuggestions).not.toHaveBeenCalled();
   });
 
   it("reads and writes the generation model", async () => {
