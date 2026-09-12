@@ -95,6 +95,19 @@ function plainModelValue(modelValue: string, models: ModelOption[]): string {
   return `${option.providerID}::${option.modelID}`;
 }
 
+function sameList<T>(
+  current: readonly T[] | undefined,
+  next: readonly T[] | undefined,
+): boolean {
+  if (current === next) return true;
+  const currentLength = current?.length ?? 0;
+  const nextLength = next?.length ?? 0;
+  if (currentLength !== nextLength) return false;
+  if (currentLength === 0) return true;
+  if (!current || !next) return false;
+  return current.every((value, index) => value === next[index]);
+}
+
 function sameComposerReferences(
   current: readonly ComposerReference[],
   next: readonly ComposerReference[],
@@ -102,12 +115,35 @@ function sameComposerReferences(
   if (current.length !== next.length) return false;
   return current.every((reference, index) => {
     const candidate = next[index];
-    const currentTools = reference.tools ?? [];
-    const nextTools = candidate?.tools ?? [];
     return reference.name === candidate?.name &&
       reference.description === candidate?.description &&
-      currentTools.length === nextTools.length &&
-      currentTools.every((tool, toolIndex) => tool === nextTools[toolIndex]);
+      sameList(reference.tools, candidate?.tools);
+  });
+}
+
+function sameModelOptions(
+  current: readonly ModelOption[],
+  next: readonly ModelOption[],
+): boolean {
+  if (current.length !== next.length) return false;
+  return current.every((model, index) => {
+    const candidate = next[index];
+    return model.value === candidate?.value &&
+      model.label === candidate?.label &&
+      model.providerID === candidate?.providerID &&
+      model.modelID === candidate?.modelID &&
+      model.accountId === candidate?.accountId &&
+      model.accountLabel === candidate?.accountLabel &&
+      sameList(model.input, candidate?.input) &&
+      model.reasoning === candidate?.reasoning &&
+      sameList(model.thinkingLevels, candidate?.thinkingLevels) &&
+      model.codexbarUsedPercent === candidate?.codexbarUsedPercent &&
+      model.codexbarIntegratedUsedPercent === candidate?.codexbarIntegratedUsedPercent &&
+      model.codexbarLimited === candidate?.codexbarLimited &&
+      model.codexbarMaxed === candidate?.codexbarMaxed &&
+      model.codexbarStale === candidate?.codexbarStale &&
+      model.routingMode === candidate?.routingMode &&
+      model.routingCandidateCount === candidate?.routingCandidateCount;
   });
 }
 
@@ -185,9 +221,11 @@ export const HomeView = memo(function HomeView({
         if (modelRefreshRef.current !== refreshId) return;
         const nextModels = result.models;
         const previousModels = modelsRef.current;
-        modelsRef.current = nextModels;
-        setModels(nextModels);
-        writeCachedModels(nextModels);
+        if (!sameModelOptions(previousModels, nextModels)) {
+          modelsRef.current = nextModels;
+          setModels(nextModels);
+          writeCachedModels(nextModels);
+        }
         const nextOptions = [AUTO_MODEL_OPTION, ...nextModels];
         setModel((current) => {
           const preserved = modelOptionForValue(nextOptions, current);
