@@ -125,10 +125,26 @@ export function writeWindowsHiddenLauncher(
   launcherPath: string = getWindowsHiddenLauncherPath(),
 ): string {
   ensureIntercomRuntimeDir(dirname(launcherPath));
-  writeFileSync(launcherPath, `\uFEFF${getWindowsHiddenLauncherScript(commandLine)}`, {
-    encoding: "utf16le",
-    mode: INTERCOM_RUNTIME_FILE_MODE,
-  });
+  // AV/sync clients can briefly lock the launcher on Windows. Retry so one
+  // transient lock does not fail the whole broker spawn for every session.
+  const content = `\uFEFF${getWindowsHiddenLauncherScript(commandLine)}`;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      writeFileSync(launcherPath, content, {
+        encoding: "utf16le",
+        mode: INTERCOM_RUNTIME_FILE_MODE,
+      });
+      break;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
+      if (attempt >= 4 || !transient) throw error;
+      const until = Date.now() + 25 * (attempt + 1);
+      while (Date.now() < until) {
+        // Keep the sync spawn path; cap total wait at ~250ms.
+      }
+    }
+  }
   restrictIntercomRuntimeFile(launcherPath);
   return launcherPath;
 }
