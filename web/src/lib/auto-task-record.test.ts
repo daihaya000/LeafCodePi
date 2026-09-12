@@ -43,7 +43,7 @@ const record: AutoTaskRecord = {
     },
   },
   prompt: "なぜこうなるの",
-  agent: "build",
+  agent: "builder",
   retried: true,
   dismissed: true,
 };

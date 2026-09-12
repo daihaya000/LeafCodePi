@@ -101,9 +101,9 @@ describe("snapshotMessages", () => {
       undefined,
       undefined,
       false,
-      { accountId: null, byMessageId: new Map(), agentName: "build", agentByMessageId },
+      { accountId: null, byMessageId: new Map(), agentName: "builder", agentByMessageId },
     );
-    expect(first.find((message) => message.role === "assistant")?.agent).toBe("build");
+    expect(first.find((message) => message.role === "assistant")?.agent).toBe("builder");
 
     // Composerで役職を変更しても、既存メッセージは生成時の役職を維持する。
     const second = snapshotMessages(
@@ -113,9 +113,9 @@ describe("snapshotMessages", () => {
       undefined,
       undefined,
       false,
-      { accountId: null, byMessageId: new Map(), agentName: "plan", agentByMessageId },
+      { accountId: null, byMessageId: new Map(), agentName: "planner", agentByMessageId },
     );
-    expect(second.find((message) => message.role === "assistant")?.agent).toBe("build");
+    expect(second.find((message) => message.role === "assistant")?.agent).toBe("builder");
   });
 
   it("projects agent-switch boundaries for archived transcripts", () => {
@@ -126,7 +126,7 @@ describe("snapshotMessages", () => {
         role: "custom",
         customType: "leafcode-pi.agent-switch",
         content: "[Session notice] persona switched",
-        details: { previousAgent: "build", nextAgent: "plan" },
+        details: { previousAgent: "builder", nextAgent: "planner" },
       },
       { role: "user", content: "続き" },
       { role: "assistant", content: [{ type: "text", text: "plan の回答" }] },
@@ -138,7 +138,7 @@ describe("snapshotMessages", () => {
     };
     const session = fake as unknown as Parameters<typeof snapshotMessages>[0];
     const assistants = snapshotMessages(session).filter((message) => message.role === "assistant");
-    expect(assistants.map((message) => message.agent)).toEqual(["build", "plan"]);
+    expect(assistants.map((message) => message.agent)).toEqual(["builder", "planner"]);
   });
 
   it("assigns the new account to messages added after rerouting", () => {

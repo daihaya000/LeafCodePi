@@ -61,7 +61,7 @@ describe("POST /api/tasks/[id]/prompt", () => {
     mocks.getTask.mockReturnValue({
       id: "task-1",
       status: "idle",
-      agent: "build",
+      agent: "builder",
       sessionFile: "C:\\sessions\\task-1.jsonl",
     });
     mocks.readSessionConversation.mockReturnValue([
@@ -106,7 +106,7 @@ describe("POST /api/tasks/[id]/prompt", () => {
   });
 
   it("forwards Auto model authority with the resolved agent", async () => {
-    mocks.resolveAutoAgent.mockResolvedValue("build");
+    mocks.resolveAutoAgent.mockResolvedValue("builder");
 
     const response = await POST(
       request({
@@ -125,7 +125,7 @@ describe("POST /api/tasks/[id]/prompt", () => {
       "徹底的に調査して",
       undefined,
       expect.objectContaining({
-        agent: "build",
+        agent: "builder",
         model: "openai-codex::gpt-5.6-sol",
         thinkingLevel: "medium",
         accountIdExplicit: false,
@@ -142,7 +142,7 @@ describe("POST /api/tasks/[id]/prompt", () => {
           releaseModel = resolve;
         }),
     );
-    mocks.resolveAutoAgent.mockResolvedValue("build");
+    mocks.resolveAutoAgent.mockResolvedValue("builder");
 
     const pending = POST(
       request({ prompt: "実装して", agent: AUTO_AGENT_VALUE, auto: true }),
@@ -167,7 +167,7 @@ describe("POST /api/tasks/[id]/prompt", () => {
       "task-1",
       "実装して",
       undefined,
-      expect.objectContaining({ agent: "build", model: "openai-codex::gpt-5.6-sol" }),
+      expect.objectContaining({ agent: "builder", model: "openai-codex::gpt-5.6-sol" }),
     );
   });
 
@@ -231,7 +231,7 @@ describe("POST /api/tasks/[id]/prompt", () => {
     mocks.getTask.mockReturnValue({
       id: "task-1",
       status: "working",
-      agent: "build",
+      agent: "builder",
       sessionFile: "C:\\sessions\\task-1.jsonl",
     });
 
@@ -254,7 +254,7 @@ describe("POST /api/tasks/[id]/prompt", () => {
       "続けて",
       undefined,
       expect.objectContaining({
-        agent: "build",
+        agent: "builder",
         model: undefined,
         thinkingLevel: undefined,
         streamingBehavior: "steer",

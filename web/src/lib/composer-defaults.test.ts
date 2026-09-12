@@ -30,12 +30,12 @@ describe("composer defaults", () => {
     writeComposerDefaults({
       model: "openai::gpt-5",
       autoOptimize: "intelligence",
-      agent: "build",
+      agent: "builder",
     });
     expect(readComposerDefaults()).toEqual({
       model: "openai::gpt-5",
       autoOptimize: "intelligence",
-      agent: "build",
+      agent: "builder",
     });
   });
 });

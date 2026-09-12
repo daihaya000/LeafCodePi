@@ -49,7 +49,7 @@ function fixture(options: {
   process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
 
   const project = upsertProject({ name: "demo", rootPath: root });
-  const task = insertTask({ project, title: "switch agent", agent: "build" });
+  const task = insertTask({ project, title: "switch agent", agent: "builder" });
   let unsubscribed = false;
   let disposed = false;
   const customMessages: FixtureCustomMessage[] = [];
@@ -111,7 +111,7 @@ describe("setTaskAgent", () => {
     assert.equal(notice.customType, "leafcode-pi.agent-switch");
     assert.equal(notice.display, false);
     assert.equal(typeof notice.content, "string");
-    assert.match(notice.content as string, /"build"/);
+    assert.match(notice.content as string, /"builder"/);
     assert.match(notice.content as string, /"reviewer"/);
     assert.match(notice.content as string, /after the most recent agent-switch notice/);
     assert.doesNotMatch(notice.content as string, /Everything above this line/);
@@ -655,7 +655,7 @@ describe("archiveTask", () => {
     process.env.PI_CODING_AGENT_DIR = agentDir;
     process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
     const project = upsertProject({ name: "demo", rootPath: root });
-    const task = insertTask({ project, title: "archive goal loop", agent: "build" });
+    const task = insertTask({ project, title: "archive goal loop", agent: "builder" });
     const sessionId = "archive-goal-session";
     const goalDir = join(root, "data", "goals-loop");
     mkdirSync(goalDir, { recursive: true });
@@ -728,7 +728,7 @@ describe("archiveTask", () => {
         (error as Error & { status?: number }).status === 409 &&
         error.message.includes("アーカイブ"),
     );
-    assert.equal(getTask(task.id)?.agent, "build");
+    assert.equal(getTask(task.id)?.agent, "builder");
   });
 });
 

@@ -106,7 +106,7 @@ describe("POST /api/tasks", () => {
   });
 
   it("keeps an explicit Auto route authoritative when resolving Auto agent", async () => {
-    mocks.resolveAutoAgent.mockResolvedValue("build");
+    mocks.resolveAutoAgent.mockResolvedValue("builder");
     mocks.resolveAutoModel.mockResolvedValue({
       providerID: "openai-codex",
       modelID: "gpt-5.6-sol",
@@ -157,7 +157,7 @@ describe("POST /api/tasks", () => {
     });
     expect(mocks.createTask).toHaveBeenCalledWith(
       expect.objectContaining({
-        agent: "build",
+        agent: "builder",
         model: "openai-codex::gpt-5.6-sol",
         thinkingLevel: "medium",
       }),
@@ -173,7 +173,7 @@ describe("POST /api/tasks", () => {
           releaseModel = resolve;
         }),
     );
-    mocks.resolveAutoAgent.mockResolvedValue("build");
+    mocks.resolveAutoAgent.mockResolvedValue("builder");
 
     const pending = POST(
       new NextRequest("http://localhost/api/tasks", {
@@ -202,7 +202,7 @@ describe("POST /api/tasks", () => {
     expect((await pending).status).toBe(200);
     expect(mocks.resolveAutoAgent).toHaveBeenCalledTimes(1);
     expect(mocks.createTask).toHaveBeenCalledWith(
-      expect.objectContaining({ agent: "build", model: "openai-codex::gpt-5.6-sol" }),
+      expect.objectContaining({ agent: "builder", model: "openai-codex::gpt-5.6-sol" }),
     );
   });
 

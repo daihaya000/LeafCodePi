@@ -512,7 +512,7 @@ describe("integrated session routing", () => {
     process.env.PI_CODING_AGENT_DIR = agentDir;
     __resetPiAgentDirCacheForTests();
     mkdirSync(join(agentDir, "agents"), { recursive: true });
-    for (const name of ["build", "reviewer"]) {
+    for (const name of ["builder", "reviewer"]) {
       writeFileSync(
         join(agentDir, "agents", `${name}.md`),
         `---\nname: ${name}\n---\n`,
@@ -522,13 +522,13 @@ describe("integrated session routing", () => {
     installHarness(new Map());
     autoAgentMock
       .mockResolvedValueOnce("reviewer")
-      .mockResolvedValueOnce("build");
+      .mockResolvedValueOnce("builder");
 
     const project = upsertProject({ name: "demo", rootPath: dir });
     const task = await createTask({
       projectId: project.id,
       prompt: "最初の確認",
-      agent: "build",
+      agent: "builder",
       goalLoop: { maxTurns: 2, autoAgent: true },
     });
     const sessionId = task.sessionId;
@@ -582,7 +582,7 @@ describe("integrated session routing", () => {
       ?.prepareGoalLoopTurn as PrepareTurn;
     assert.equal(await secondPrepare("turn 2"), false);
     assert.equal(fakePi.sessions.length, 3);
-    assert.equal(getTask(task.id)?.agent, "build");
+    assert.equal(getTask(task.id)?.agent, "builder");
     expect(fakePi.sessions[1]).toMatchObject({
       file: fakePi.sessions[2]?.file,
       disposed: true,
@@ -627,8 +627,8 @@ describe("integrated session routing", () => {
     __resetPiAgentDirCacheForTests();
     mkdirSync(join(agentDir, "agents"), { recursive: true });
     writeFileSync(
-      join(agentDir, "agents", "build.md"),
-      "---\nname: build\nmodel: anthropic/claude-sonnet\n---\n",
+      join(agentDir, "agents", "builder.md"),
+      "---\nname: builder\nmodel: anthropic/claude-sonnet\n---\n",
       "utf8",
     );
 
@@ -643,7 +643,7 @@ describe("integrated session routing", () => {
       prompt: "最初の確認",
       model: "anthropic::claude-sonnet",
       thinkingLevel: "off",
-      agent: "build",
+      agent: "builder",
     });
     await waitFor(() => getTask(task.id)?.status === "idle");
 
@@ -665,8 +665,8 @@ describe("integrated session routing", () => {
     __resetPiAgentDirCacheForTests();
     mkdirSync(join(agentDir, "agents"), { recursive: true });
     writeFileSync(
-      join(agentDir, "agents", "build.md"),
-      "---\nname: build\nmodel: anthropic/claude-sonnet\nthinking: max\n---\n",
+      join(agentDir, "agents", "builder.md"),
+      "---\nname: builder\nmodel: anthropic/claude-sonnet\nthinking: max\n---\n",
       "utf8",
     );
 
@@ -681,7 +681,7 @@ describe("integrated session routing", () => {
       prompt: "最初の確認",
       model: "anthropic::claude-sonnet",
       thinkingLevel: "off",
-      agent: "build",
+      agent: "builder",
     });
     await waitFor(() => getTask(task.id)?.status === "idle");
 

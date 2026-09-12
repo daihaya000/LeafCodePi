@@ -8,33 +8,33 @@ describe("AgentSelect", () => {
   afterEach(cleanup);
 
   it("does not show the placeholder as a selectable agent", () => {
-    render(<AgentSelect value="build" agents={["build", "programmer"]} onChange={() => {}} />);
+    render(<AgentSelect value="builder" agents={["builder", "programmer"]} onChange={() => {}} />);
 
     fireEvent.click(screen.getByRole("button", { name: "エージェント" }));
 
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
       "Auto",
-      "build",
+      "builder",
       "programmer",
     ]);
     expect(screen.queryByRole("option", { name: "エージェント" })).toBeNull();
   });
 
-  it("uses build instead of an empty or placeholder value", () => {
-    const view = render(<AgentSelect value="" agents={["build", "programmer"]} onChange={() => {}} />);
+  it("uses builder instead of an empty or placeholder value", () => {
+    const view = render(<AgentSelect value="" agents={["builder", "programmer"]} onChange={() => {}} />);
 
     const button = screen.getByRole("button", { name: "エージェント" });
-    expect(button.textContent).toContain("build");
+    expect(button.textContent).toContain("builder");
     fireEvent.click(button);
     expect(screen.queryByRole("option", { name: "エージェント" })).toBeNull();
 
-    view.rerender(<AgentSelect value="エージェント" agents={["build", "programmer"]} onChange={() => {}} />);
-    expect(screen.getByRole("button", { name: "エージェント" }).textContent).toContain("build");
+    view.rerender(<AgentSelect value="エージェント" agents={["builder", "programmer"]} onChange={() => {}} />);
+    expect(screen.getByRole("button", { name: "エージェント" }).textContent).toContain("builder");
   });
 
   it("reports Auto and uses role icons for real agents", () => {
     const onChange = vi.fn();
-    render(<AgentSelect value={AUTO_AGENT_VALUE} agents={["build", "programmer"]} onChange={onChange} />);
+    render(<AgentSelect value={AUTO_AGENT_VALUE} agents={["builder", "programmer"]} onChange={onChange} />);
 
     const button = screen.getByRole("button", { name: "エージェント" });
     expect(button.textContent).toContain("Auto");
@@ -45,14 +45,14 @@ describe("AgentSelect", () => {
   });
 
   it("uses role icons and falls back to Bot for custom agents", () => {
-    const view = render(<AgentSelect value="plan" agents={["plan", "custom-agent"]} onChange={() => {}} />);
+    const view = render(<AgentSelect value="planner" agents={["planner", "custom-agent"]} onChange={() => {}} />);
 
-    expect(screen.getByRole("button", { name: "エージェント" }).querySelector('[data-agent-icon="plan"]')).not.toBeNull();
+    expect(screen.getByRole("button", { name: "エージェント" }).querySelector('[data-agent-icon="planner"]')).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "エージェント" }));
-    expect(screen.getByRole("option", { name: "plan" }).querySelector('[data-agent-icon="plan"]')).not.toBeNull();
+    expect(screen.getByRole("option", { name: "planner" }).querySelector('[data-agent-icon="planner"]')).not.toBeNull();
     expect(screen.getByRole("option", { name: "custom-agent" }).querySelector('[data-agent-icon="custom-agent"]')).not.toBeNull();
 
-    view.rerender(<AgentSelect value="custom-agent" agents={["plan", "custom-agent"]} onChange={() => {}} />);
+    view.rerender(<AgentSelect value="custom-agent" agents={["planner", "custom-agent"]} onChange={() => {}} />);
     expect(screen.getByRole("button", { name: "エージェント" }).querySelector('[data-agent-icon="custom-agent"]')).not.toBeNull();
   });
 
@@ -61,8 +61,8 @@ describe("AgentSelect", () => {
     render(
       <>
         <AgentSelect
-          value="build"
-          agents={["build", "programmer", "reviewer"]}
+          value="builder"
+          agents={["builder", "programmer", "reviewer"]}
           onChange={onChange}
         />
         <button type="button">次の操作</button>
@@ -72,7 +72,7 @@ describe("AgentSelect", () => {
     const trigger = screen.getByRole("button", { name: "エージェント" });
     trigger.focus();
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
-    expect(document.activeElement).toBe(screen.getByRole("option", { name: "build" }));
+    expect(document.activeElement).toBe(screen.getByRole("option", { name: "builder" }));
 
     fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
     expect(document.activeElement).toBe(screen.getByRole("option", { name: "programmer" }));
@@ -91,15 +91,15 @@ describe("AgentSelect", () => {
   it("shows each agent's tool permissions on dropdown options", () => {
     render(
       <AgentSelect
-        value="build"
-        agents={[{ name: "build", tools: ["read", "grep"] }, { name: "custom-agent" }]}
+        value="builder"
+        agents={[{ name: "builder", tools: ["read", "grep"] }, { name: "custom-agent" }]}
         onChange={() => {}}
       />
     );
 
     fireEvent.click(screen.getByRole("button", { name: "エージェント" }));
 
-    expect(screen.getByRole("option", { name: "build" }).getAttribute("title")).toBe(
+    expect(screen.getByRole("option", { name: "builder" }).getAttribute("title")).toBe(
       "ツール権限: read, grep",
     );
     expect(screen.getByRole("option", { name: "custom-agent" }).getAttribute("title")).toBe(

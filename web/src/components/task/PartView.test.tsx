@@ -185,7 +185,7 @@ describe("PartView sender and response metadata", () => {
         message={{ id: "assistant-bot", role: "assistant", createdAt: 1, parts: [] }}
         bot={bot}
         modelLabel="GPT"
-        agent="build"
+        agent="builder"
         accountLabel="仕事用"
       />,
     );
@@ -195,7 +195,7 @@ describe("PartView sender and response metadata", () => {
     expect(metadata.className).toContain("w-full");
     expect(metadata.className).toContain("max-w-full");
     expect(metadata.parentElement?.className).toContain("max-w-bubble");
-    for (const label of ["GPT", "build", "仕事用"]) expect(metadata.textContent).toContain(label);
+    for (const label of ["GPT", "builder", "仕事用"]) expect(metadata.textContent).toContain(label);
   });
 
   it("updates the sender and bubble when Bot metadata arrives", () => {
@@ -215,15 +215,15 @@ describe("PartView sender and response metadata", () => {
       <PartView
         message={{ id: "assistant-meta", role: "assistant", createdAt: 1, parts: [] }}
         effort="max"
-        agent="build"
+        agent="builder"
         accountLabel="仕事用"
       />,
     );
 
     expect(screen.getByText("max")).toBeTruthy();
-    expect(screen.getByText("build")).toBeTruthy();
+    expect(screen.getByText("builder")).toBeTruthy();
     expect(screen.getByText("仕事用")).toBeTruthy();
-    expect(screen.getByText("build").querySelector('[data-agent-icon="build"]')).not.toBeNull();
+    expect(screen.getByText("builder").querySelector('[data-agent-icon="builder"]')).not.toBeNull();
   });
 
   it("can render activity without duplicating the message metadata row", () => {
@@ -259,7 +259,7 @@ describe("PartView sender and response metadata", () => {
           parts: [],
         }}
         effort="low"
-        agent="build"
+        agent="builder"
       />,
     );
 

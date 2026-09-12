@@ -24,7 +24,7 @@ function request(body: unknown): NextRequest {
 describe("POST /api/agents", () => {
   beforeEach(() => {
     mocks.createAgent.mockReset();
-    mocks.createAgent.mockReturnValue({ name: "build" });
+    mocks.createAgent.mockReturnValue({ name: "builder" });
     mocks.reloadLiveSessionsContext.mockClear();
   });
 

@@ -55,7 +55,7 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     task = {
       id: "task-1",
       status: "idle",
-      agent: "build",
+      agent: "builder",
       sessionFile: "C:\\sessions\\task-1.jsonl",
     };
     mocks.getTask.mockReset();
@@ -125,7 +125,7 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
   });
 
   it("applies the Auto-selected model and effort with the resolved agent", async () => {
-    mocks.resolveAutoAgent.mockResolvedValue("build");
+    mocks.resolveAutoAgent.mockResolvedValue("builder");
 
     const response = await POST(
       request({
