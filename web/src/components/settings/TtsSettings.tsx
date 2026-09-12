@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AudioLines } from "lucide-react";
+import { AudioLines, Play } from "lucide-react";
 import { Button, GhostSelect, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import {
@@ -13,6 +13,7 @@ import {
   type TtsBackendId,
 } from "@/lib/tts-backends";
 import type { TtsConfigDto } from "@/lib/tts-config";
+import { speakText, stopSpeaking } from "@/lib/tts-playback";
 import {
   MAX_PLAYBACK_RATE,
   MIN_PLAYBACK_RATE,
@@ -41,6 +42,15 @@ export function TtsSettings() {
   const [serverBusy, setServerBusy] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(readPlaybackRate);
   const [playbackVolume, setPlaybackVolume] = useState(readPlaybackVolume);
+  const [testError, setTestError] = useState<string | null>(null);
+
+  // 再生中に設定画面を閉じたら止める。
+  useEffect(() => () => stopSpeaking(), []);
+
+  const playTest = () => {
+    setTestError(null);
+    speakText("読み上げのテストです。", { onError: setTestError });
+  };
 
   const checkServer = useCallback(() => {
     void getJson<ServerStatus>("/api/settings/tts/server")
@@ -287,6 +297,19 @@ export function TtsSettings() {
             <output className="w-12 shrink-0 text-right font-mono text-sm text-text">{playbackVolume}%</output>
           </span>
         </label>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button size="sm" variant="secondary" disabled={!ready || busy} onClick={playTest}>
+            <Play className="h-3.5 w-3.5" />
+            テスト再生
+          </Button>
+          <span className="text-xs text-muted">現在のバックエンド・話速・音量で再生します</span>
+          {testError && (
+            <span className="text-xs text-danger" role="alert">
+              {testError}
+            </span>
+          )}
+        </div>
 
         {backendId === "custom" && (
           <label className="flex flex-col gap-1.5">

@@ -8,7 +8,7 @@ const { getJson, sendJson } = vi.hoisted(() => ({
   sendJson: vi.fn(),
 }));
 
-vi.mock("@/lib/client", () => ({ getJson, sendJson }));
+vi.mock("@/lib/client", () => ({ getJson, sendJson, apiUrl: (path: string) => path }));
 
 describe("TtsSettings", () => {
   beforeEach(() => {
@@ -65,6 +65,48 @@ describe("TtsSettings", () => {
         "PATCH",
       );
     });
+  });
+
+  it("plays a test utterance with the synthesize API", async () => {
+    const play = vi.fn(async () => undefined);
+    vi.stubGlobal("Audio", class {
+      onended: (() => void) | null = null;
+      playbackRate = 1;
+      volume = 1;
+      play = play;
+      pause = vi.fn();
+    });
+    const fetchMock = vi.fn(async () => new Response(Buffer.from([1, 2, 3]), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(<TtsSettings />);
+      fireEvent.click(await screen.findByRole("button", { name: "テスト再生" }));
+      await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+      const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(JSON.parse(String(init.body))).toEqual({ text: "読み上げのテストです。" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shows the synthesize error instead of playing", async () => {
+    vi.stubGlobal("Audio", class {
+      play = vi.fn(async () => undefined);
+      pause = vi.fn();
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ error: "合成エンジンが未設定です" }), { status: 400 })),
+    );
+    try {
+      render(<TtsSettings />);
+      fireEvent.click(await screen.findByRole("button", { name: "テスト再生" }));
+      await waitFor(() => {
+        expect(screen.getByRole("alert").textContent).toContain("合成エンジンが未設定です");
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("keeps controls disabled when the initial fetch fails", async () => {
