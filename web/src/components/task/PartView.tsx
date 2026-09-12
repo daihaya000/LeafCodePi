@@ -180,7 +180,7 @@ function parseSkillInvocation(text: string): SkillInvocation | null {
   };
 }
 
-function UserTextPart({
+const UserTextPart = memo(function UserTextPart({
   text,
   references,
 }: {
@@ -211,7 +211,7 @@ function UserTextPart({
       )}
     </div>
   );
-}
+});
 
 export function toolIcon(tool: string, input?: Record<string, unknown>) {
   const t = tool.toLowerCase();
