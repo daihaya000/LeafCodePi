@@ -71,7 +71,7 @@ beforeEach(() => {
 });
 
 describe("GET /api/bots/[id]/events", () => {
-  it("sends a bootstrap snapshot first, then the full detail for the same task", async () => {
+  it("sends a bootstrap snapshot first, then the latest page for the same task", async () => {
     mocks.getTaskBootstrap.mockReturnValue({ id: "bot:one", status: "idle", messages: [], isStreaming: false });
     mocks.getTaskDetail.mockResolvedValue({
       id: "bot:one",
@@ -90,11 +90,32 @@ describe("GET /api/bots/[id]/events", () => {
     expect(events).toHaveLength(2);
     expect(events[0]).toMatchObject({ event: "snapshot" });
     expect(events[0].data).toMatchObject({ eventType: "bootstrap", messages: [] });
-    // 再接続しても、切断中に積まれた会話は ready スナップショットが丸ごと運ぶ。
+    // 再接続しても、切断中に積まれた最新ページは ready スナップショットが運ぶ。
     expect(events[1]).toMatchObject({ event: "snapshot" });
     expect(events[1].data).toMatchObject({ eventType: "ready", isStreaming: false, permissionRequest: permission });
     expect((events[1].data.messages as UiMessage[]).map((item) => item.id)).toEqual(["m1", "m2"]);
     expect(mocks.lastTaskId).toBe("bot:one");
+  });
+
+  it("buffers a rewind event until the ready page is sent", async () => {
+    mocks.getTaskBootstrap.mockReturnValue({ id: "bot:one", status: "idle", messages: [], isStreaming: false });
+    let resolveDetail!: (value: unknown) => void;
+    mocks.getTaskDetail.mockReturnValue(new Promise((resolve) => {
+      resolveDetail = resolve;
+    }));
+    const response = await GET(request(), params);
+    mocks.listener?.({
+      type: "snapshot",
+      eventType: "revert",
+      messages: [message("new", "新しい履歴")],
+      historyReset: true,
+    });
+    resolveDetail({ id: "bot:one", status: "idle", messages: [message("old", "古い履歴")], isStreaming: false, isCompacting: false });
+
+    const events = await readEvents(response, 3);
+    expect(events.map((event) => event.data.eventType)).toEqual(["bootstrap", "ready", "revert"]);
+    expect(events[2]?.data.historyReset).toBe(true);
+    expect((events[2]?.data.messages as UiMessage[]).map((item) => item.id)).toEqual(["new"]);
   });
 
   it("streams task events after the snapshots and stays safe once the client disconnects", async () => {

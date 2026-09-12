@@ -194,11 +194,17 @@ export function preparePendingPayloadForReadyFlush(
 ): Record<string, unknown> | null {
   if (!shouldFlushPendingAfterReady(payload, readyRank)) return null;
   if (!isControlSnapshot(payload)) return payload;
+  const resetsHistory =
+    payload.historyReset === true ||
+    payload.eventType === "revert" ||
+    payload.eventType === "unrevert";
+  if (resetsHistory && Array.isArray(payload.messages)) return payload;
   if (isFresherMessageList(rankMessageList(payload.messages), readyRank)) {
     return payload;
   }
   const next = { ...payload };
   delete next.messages;
+  delete next.messageHistory;
   delete next.todos;
   delete next.contextUsage;
   return next;

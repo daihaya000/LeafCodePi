@@ -6,7 +6,7 @@ import {
   TASK_SESSION_CACHE_MAX_AGE_MS,
   TASK_SESSION_CACHE_STORAGE_KEY,
 } from "./task-session-cache";
-import type { TaskSummary, UiMessage } from "./types";
+import type { TaskMessageHistory, TaskSummary, UiMessage } from "./types";
 
 class MemoryLocalStorage {
   private values = new Map<string, string>();
@@ -90,6 +90,7 @@ describe("task session cache", () => {
         hangRetryCount: 2,
       } as TaskSummary,
       messages,
+      messageHistory: { hasMore: true, nextCursor: "message-1" } satisfies TaskMessageHistory,
       isStreaming: false,
       isCompacting: false,
       contextUsage: { tokens: 12, contextWindow: 100, percent: 12 },
@@ -105,7 +106,10 @@ describe("task session cache", () => {
       contextUsage: { tokens: 12, contextWindow: 100, percent: 12 },
     });
     const stored = JSON.parse(localStorage.getItem(TASK_SESSION_CACHE_STORAGE_KEY) ?? "{}");
+    expect(loaded?.messageHistory).toEqual({ hasMore: true, nextCursor: "message-1" });
+    expect(stored.entries[task.id].messageHistory).toEqual({ hasMore: true, nextCursor: "message-1" });
     expect(stored.entries[task.id].task.messages).toBeUndefined();
+    expect(stored.entries[task.id].task.messageHistory).toBeUndefined();
     expect(stored.entries[task.id].task.manualAbortedAssistantId).toBeUndefined();
     expect(stored.entries[task.id].task.hangRetryCount).toBeUndefined();
     expect(stored.entries[task.id].task.permissionRequest).toBeUndefined();

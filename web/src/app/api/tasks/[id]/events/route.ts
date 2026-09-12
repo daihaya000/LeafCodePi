@@ -14,6 +14,10 @@ import {
   preparePendingPayloadForReadyFlush,
   rankMessageList,
 } from "@/lib/sse-ready-buffer";
+import {
+  pageTaskMessages,
+  pageTaskSnapshotPayload,
+} from "@/lib/task-history";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,13 +69,14 @@ export async function GET(
           ? performance.now() - bootstrapStartedAt
           : 0;
         unsubscribe = subscribeTask(id, (payload) => {
+          const safePayload = pageTaskSnapshotPayload(payload);
           if (!ready) {
             // History snapshots still coalesce, but control events (permission,
             // hang retry, errors) must survive until the ready snapshot flushes.
-            bufferPendingSsePayload(pendingPayloads, payload);
+            bufferPendingSsePayload(pendingPayloads, safePayload);
             return;
           }
-          sse?.send(payload.type === "delta" ? "delta" : "snapshot", payload);
+          sse?.send(safePayload.type === "delta" ? "delta" : "snapshot", safePayload);
         });
         sse.send("snapshot", {
           type: "snapshot",
@@ -117,6 +122,7 @@ export async function GET(
           if (sse.closed) return;
           canReuseCachedMessages = matchesCachedRevision(detail);
         }
+        const messagePage = pageTaskMessages(detail.messages);
         const taskSummary = { ...detail };
         for (const key of [
           "messages",
@@ -138,7 +144,8 @@ export async function GET(
           task: taskSummary,
           ...(canReuseCachedMessages
             ? { messagesReused: true }
-            : { messages: detail.messages }),
+            : { messages: messagePage.messages, messageHistory: messagePage.messageHistory }),
+          ...(hasCacheCandidate && !canReuseCachedMessages ? { historyReset: true } : {}),
           ...(perfRequested ? { serverTiming: serverTimings } : {}),
           isStreaming: detail.isStreaming,
           isCompacting: detail.isCompacting,
@@ -217,10 +224,12 @@ export async function GET(
               ]) {
                 delete (taskSummary as Record<string, unknown>)[key];
               }
+              const messagePage = pageTaskMessages(detail.messages);
               writer.send("snapshot", {
                 type: "snapshot",
                 task: taskSummary,
-                messages: detail.messages,
+                messages: messagePage.messages,
+                messageHistory: messagePage.messageHistory,
                 isStreaming: detail.isStreaming,
                 isCompacting: detail.isCompacting,
                 contextUsage: detail.contextUsage,

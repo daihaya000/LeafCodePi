@@ -218,6 +218,7 @@ describe("sse-ready-buffer", () => {
         type: "snapshot",
         eventType: "permission_request",
         messages: [{ id: "history", createdAt: 1 }],
+        messageHistory: { hasMore: true, nextCursor: "history" },
         todos: [],
         contextUsage: { used: 1, limit: 2 },
         permissionRequest: { id: "req-1" },
@@ -229,6 +230,7 @@ describe("sse-ready-buffer", () => {
       permissionRequest: { id: "req-1" },
     });
     expect(prepared).not.toHaveProperty("messages");
+    expect(prepared).not.toHaveProperty("messageHistory");
     expect(prepared).not.toHaveProperty("todos");
     expect(prepared).not.toHaveProperty("contextUsage");
 
@@ -267,6 +269,27 @@ describe("sse-ready-buffer", () => {
       permissionRequest: { id: "req-2" },
     });
     expect(fresher?.messages).toHaveLength(3);
+  });
+
+  it("preserves reset history even when the reverted branch is shorter", () => {
+    const ready = rankMessageList(Array.from({ length: 60 }, (_, index) => ({
+      id: `old-${index}`,
+      createdAt: index,
+    })));
+    const reverted = Array.from({ length: 3 }, (_, index) => ({
+      id: `new-${index}`,
+      createdAt: index,
+    }));
+    const prepared = preparePendingPayloadForReadyFlush(
+      {
+        type: "snapshot",
+        eventType: "revert",
+        historyReset: true,
+        messages: reverted,
+      },
+      ready,
+    );
+    expect(prepared?.messages).toEqual(reverted);
   });
 
   it("keeps control snapshots when a later history snapshot coalesces", () => {

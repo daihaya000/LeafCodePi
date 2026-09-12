@@ -119,6 +119,12 @@ import {
 } from "@/lib/default-agent";
 import { messageNavigationTarget } from "@/lib/message-navigation";
 import {
+  EMPTY_TASK_MESSAGE_HISTORY,
+  mergeNewerTaskMessages,
+  pageTaskMessages,
+  prependOlderTaskMessages,
+} from "@/lib/task-history";
+import {
   normalizeTaskPanelState,
   toggleTaskPanel,
   type TaskPanelState,
@@ -218,6 +224,8 @@ import type {
   PermissionRequestDto,
   QuestionRequestDto,
   TaskDetail,
+  TaskMessageHistory,
+  TaskMessagePage,
   TaskStatus,
   TaskSummary,
   TodoDto,
@@ -742,6 +750,15 @@ export const TaskView = memo(function TaskView({
   const botFor = useBotFor();
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
+  const [messageHistory, setMessageHistory] = useState<TaskMessageHistory>(
+    () => cachedSession?.messageHistory ?? EMPTY_TASK_MESSAGE_HISTORY,
+  );
+  const messageHistoryRef = useRef(messageHistory);
+  const historyLoadingRef = useRef(false);
+  const historyRequestEpochRef = useRef(0);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const historyLoadedRef = useRef(false);
   const [pendingUserMessage, setPendingUserMessage] = useState<{
     message: UiMessage;
     baselineUserCount: number;
@@ -1040,6 +1057,7 @@ export const TaskView = memo(function TaskView({
     ? {
         task,
         messages,
+        messageHistory,
         isStreaming: task.isStreaming,
         isCompacting,
         ...(contextUsage ? { contextUsage } : {}),
@@ -1058,7 +1076,7 @@ export const TaskView = memo(function TaskView({
       const latest = cacheSnapshotRef.current;
       if (latest) saveTaskSessionCache(latest);
     }, TASK_SESSION_CACHE_THROTTLE_MS);
-  }, [contextUsage, isCompacting, messages, sessionHydrating, task, taskId]);
+  }, [contextUsage, isCompacting, messageHistory, messages, sessionHydrating, task, taskId]);
 
   useEffect(() => {
     const flush = () => {
@@ -1086,8 +1104,27 @@ export const TaskView = memo(function TaskView({
   }, [sessionHydrating, taskId]);
 
   const applyDetail = useCallback((detail: TaskDetail) => {
-    setTask(detail);
-    setMessages((prev) => stabilizeUiMessages(prev, detail.messages));
+    const page = detail.messageHistory
+      ? { messages: detail.messages, messageHistory: detail.messageHistory }
+      : pageTaskMessages(detail.messages);
+    const nextDetail = {
+      ...detail,
+      messages: page.messages,
+      messageHistory: page.messageHistory,
+    };
+    setTask(nextDetail);
+    setMessages((prev) =>
+      detail.messageHistory
+        ? mergeNewerTaskMessages(prev, page.messages)
+        : stabilizeUiMessages([], page.messages),
+    );
+    historyRequestEpochRef.current += 1;
+    historyLoadedRef.current = false;
+    historyLoadingRef.current = false;
+    messageHistoryRef.current = page.messageHistory;
+    setMessageHistory(page.messageHistory);
+    setHistoryLoading(false);
+    setHistoryError(null);
     setContextUsage(detail.contextUsage);
     setCompactionSuggested(Boolean((detail as TaskDetailWithCompactionSuggestion).compactionSuggested));
     setIsCompacting(Boolean(detail.isCompacting));
@@ -1197,6 +1234,8 @@ export const TaskView = memo(function TaskView({
           questionRequest?: QuestionRequestDto | null;
           eventType?: string;
           messagesReused?: boolean;
+          messageHistory?: TaskMessageHistory;
+          historyReset?: boolean;
           compactionSuggested?: boolean;
         };
         try {
@@ -1212,6 +1251,10 @@ export const TaskView = memo(function TaskView({
         const suggestedFromSnapshot =
           payload.compactionSuggested ?? snapshotTaskWithSuggestion?.compactionSuggested;
         const isBootstrap = payload.eventType === "bootstrap";
+        const resetHistory =
+          payload.historyReset === true ||
+          payload.eventType === "revert" ||
+          payload.eventType === "unrevert";
         if (TASK_PERF_ENABLED && perf) {
           const at = taskPerfNow();
           if (at !== null && isBootstrap && perf.bootstrapAt === null) {
@@ -1229,6 +1272,15 @@ export const TaskView = memo(function TaskView({
           setCompactionSuggested(false);
         }
         startTransition(() => {
+          if (resetHistory) {
+            historyRequestEpochRef.current += 1;
+            historyLoadedRef.current = false;
+            historyLoadingRef.current = false;
+            messageHistoryRef.current = EMPTY_TASK_MESSAGE_HISTORY;
+            setMessageHistory(EMPTY_TASK_MESSAGE_HISTORY);
+            setHistoryLoading(false);
+            setHistoryError(null);
+          }
           if (!isBootstrap) setSessionHydrating(false);
           if (snapshotTask) {
             const nextAgent = snapshotTask.agent?.trim() || DEFAULT_AGENT;
@@ -1256,6 +1308,7 @@ export const TaskView = memo(function TaskView({
                 messages: keepExistingMessages
                   ? base.messages
                   : payload.messages ?? base.messages ?? [],
+                messageHistory: payload.messageHistory ?? base.messageHistory,
                 isStreaming: payload.isStreaming ?? base.isStreaming,
                 isCompacting: payload.isCompacting ?? base.isCompacting,
                 contextUsage: payload.contextUsage ?? base.contextUsage,
@@ -1267,8 +1320,14 @@ export const TaskView = memo(function TaskView({
               return sameTaskDetail(current, next) ? current : next;
             });
           }
-          if (payload.messages && (!isBootstrap || payload.messages.length > 0)) {
-            setMessages((prev) => stabilizeUiMessages(prev, payload.messages!));
+          if (resetHistory) {
+            setMessages(stabilizeUiMessages([], payload.messages ?? []));
+          } else if (payload.messages && (!isBootstrap || payload.messages.length > 0)) {
+            setMessages((prev) => mergeNewerTaskMessages(prev, payload.messages!));
+          }
+          if (payload.messageHistory && (!historyLoadedRef.current || resetHistory)) {
+            messageHistoryRef.current = payload.messageHistory;
+            setMessageHistory(payload.messageHistory);
           }
           if ("contextUsage" in payload) {
             setContextUsage((current) =>
@@ -1414,7 +1473,7 @@ export const TaskView = memo(function TaskView({
       });
     };
 
-    // The SSE endpoint sends the initial full snapshot; avoid a duplicate task-detail request.
+    // The SSE endpoint sends the initial timeline page; avoid a duplicate task-detail request.
     connect();
 
     void getJson<{ models: ModelOption[] }>("/api/models").then((result) => {
@@ -1460,6 +1519,49 @@ export const TaskView = memo(function TaskView({
     };
   }, [cachedSession, taskId, applyDetail, notifySidebarIfNeeded]);
 
+  const loadOlderMessages = useCallback(async () => {
+    if (historyLoadingRef.current) return;
+    const history = messageHistoryRef.current;
+    if (!history.hasMore || !history.nextCursor) return;
+    const requestEpoch = historyRequestEpochRef.current;
+    const viewport = scrollRef.current;
+    const previousHeight = viewport?.scrollHeight ?? 0;
+    const previousTop = viewport?.scrollTop ?? 0;
+    historyLoadingRef.current = true;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const page = await getJson<TaskMessagePage>(
+        `/api/tasks/${encodeURIComponent(taskId)}/messages`,
+        { before: history.nextCursor },
+      );
+      if (requestEpoch !== historyRequestEpochRef.current) return;
+      setMessages((current) => prependOlderTaskMessages(current, page.messages));
+      historyLoadedRef.current = true;
+      messageHistoryRef.current = page.messageHistory;
+      setMessageHistory(page.messageHistory);
+      window.requestAnimationFrame(() => {
+        const currentViewport = scrollRef.current;
+        if (!currentViewport || currentViewport !== viewport) return;
+        currentViewport.scrollTop = previousTop + currentViewport.scrollHeight - previousHeight;
+        lastScrollTopRef.current = currentViewport.scrollTop;
+      });
+    } catch (error) {
+      if (requestEpoch === historyRequestEpochRef.current) {
+        setHistoryError(error instanceof Error ? error.message : "過去の履歴を読み込めませんでした");
+      }
+    } finally {
+      historyLoadingRef.current = false;
+      if (requestEpoch === historyRequestEpochRef.current) {
+        setHistoryLoading(false);
+      }
+    }
+  }, [taskId]);
+  const loadOlderRef = useRef<() => void>(() => undefined);
+  loadOlderRef.current = () => {
+    void loadOlderMessages();
+  };
+
   const scrollToBottom = useCallback((el: HTMLElement) => {
     el.scrollTo({
       top: clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight),
@@ -1480,6 +1582,9 @@ export const TaskView = memo(function TaskView({
     const prevTop = lastScrollTopRef.current;
     lastScrollTopRef.current = el.scrollTop;
     stickRef.current = nextStickState(stickRef.current, el.scrollTop, prevTop, atBottom);
+    if (el.scrollTop <= 80 && messageHistoryRef.current.hasMore) {
+      loadOlderRef.current();
+    }
   }, []);
 
   // 現在のスクロール上端から見た前後方向のジャンプ先を求める。
@@ -1532,8 +1637,16 @@ export const TaskView = memo(function TaskView({
     titleCompletionPendingRef.current = false;
     titleUpdatedTurnRef.current = null;
     const cached = loadTaskSessionCache(taskId);
+    const cachedHistory = cached?.messageHistory ?? EMPTY_TASK_MESSAGE_HISTORY;
     setTask(cached);
     setMessages(cached?.messages ?? []);
+    messageHistoryRef.current = cachedHistory;
+    setMessageHistory(cachedHistory);
+    historyLoadedRef.current = false;
+    historyLoadingRef.current = false;
+    historyRequestEpochRef.current += 1;
+    setHistoryLoading(false);
+    setHistoryError(null);
     setContextUsage(cached?.contextUsage);
     setCompactionSuggested(Boolean((cached as TaskDetailWithCompactionSuggestion | null)?.compactionSuggested));
     setIsCompacting(Boolean(cached?.isCompacting));
@@ -2968,6 +3081,22 @@ export const TaskView = memo(function TaskView({
                 }
                 tone="neutral"
               />
+            )}
+            {messageHistory.hasMore && (
+              <div className="flex flex-col items-center gap-1 py-1" role="status" aria-live="polite">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => loadOlderRef.current()}
+                  busy={historyLoading}
+                  disabled={historyLoading}
+                >
+                  {!historyLoading && <ChevronsUp aria-hidden="true" className="h-3.5 w-3.5" />}
+                  {historyLoading ? "過去の履歴を読み込み中…" : "過去の履歴を読み込む"}
+                </Button>
+                {historyError && <span className="text-xs text-danger">{historyError}</span>}
+              </div>
             )}
             {messageBlocks.map((block) => {
               const firstMessage = block.kind === "tool-group" ? block.entries[0]!.message : block.message;

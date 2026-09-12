@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, type AnchorHTMLAttributes, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, type AnchorHTMLAttributes, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -87,8 +87,15 @@ export const BotMessageMarkdown = memo(function BotMessageMarkdown({ text, menti
   return <div className="md"><Markdown remarkPlugins={[remarkGfm]} components={{ ...components, a: ({ href, children, ...props }) => <TaskLink href={href} {...props}>{children}</TaskLink> }}>{linkBareTaskPaths(text)}</Markdown></div>;
 });
 
-export function BotMessageList({ conversationId, contentKey, children }: { conversationId: string; contentKey?: unknown; children: ReactNode }) {
-  const viewport = useRef<HTMLElement>(null);
+export function BotMessageList({ conversationId, contentKey, children, viewportRef, onReachTop }: {
+  conversationId: string;
+  contentKey?: unknown;
+  children: ReactNode;
+  viewportRef?: RefObject<HTMLElement | null>;
+  onReachTop?: () => void;
+}) {
+  const localViewport = useRef<HTMLElement>(null);
+  const viewport = viewportRef ?? localViewport;
   const following = useRef(true);
   // Keep prompt/settings-only parent renders from forcing a scroll layout read.
   const scrollKey = contentKey ?? children;
@@ -97,12 +104,13 @@ export function BotMessageList({ conversationId, contentKey, children }: { conve
   useLayoutEffect(() => {
     const element = viewport.current;
     if (element && following.current) element.scrollTop = element.scrollHeight;
-  }, [conversationId, scrollKey]);
+  }, [conversationId, scrollKey, viewport]);
 
   return (
     <main ref={viewport} onScroll={(event) => {
       const element = event.currentTarget;
       following.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 48;
+      if (element.scrollTop <= 80) onReachTop?.();
     }} className={conversationViewportClass}>
       {children}
     </main>

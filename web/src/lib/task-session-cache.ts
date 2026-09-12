@@ -1,7 +1,7 @@
-import type { TaskDetail, TaskStatus, TaskSummary, ToolState, UiMessage, UiPart } from "@/lib/types";
+import type { TaskDetail, TaskMessageHistory, TaskStatus, TaskSummary, ToolState, UiMessage, UiPart } from "@/lib/types";
 
 export const TASK_SESSION_CACHE_STORAGE_KEY = "webui:task-session-cache";
-export const TASK_SESSION_CACHE_VERSION = 1;
+export const TASK_SESSION_CACHE_VERSION = 2;
 export const TASK_SESSION_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const TASK_SESSION_CACHE_MAX_ENTRIES = 20;
 
@@ -9,6 +9,7 @@ type CachedTaskSession = {
   cachedAt: number;
   task: TaskSummary;
   messages: UiMessage[];
+  messageHistory?: TaskMessageHistory;
   isStreaming: boolean;
   isCompacting: boolean;
   contextUsage?: TaskDetail["contextUsage"];
@@ -113,6 +114,14 @@ function isUiMessage(value: unknown): value is UiMessage {
   );
 }
 
+function isMessageHistory(value: unknown): value is TaskMessageHistory {
+  return (
+    isRecord(value) &&
+    typeof value.hasMore === "boolean" &&
+    (value.nextCursor === null || typeof value.nextCursor === "string")
+  );
+}
+
 function isContextUsage(value: unknown): value is NonNullable<TaskDetail["contextUsage"]> {
   return (
     isRecord(value) &&
@@ -141,6 +150,7 @@ function parseEntry(taskId: string, value: unknown): CachedTaskSession | null {
     cachedAt: value.cachedAt,
     task: value.task,
     messages: value.messages,
+    ...(isMessageHistory(value.messageHistory) ? { messageHistory: value.messageHistory } : {}),
     isStreaming: value.isStreaming,
     isCompacting: value.isCompacting,
     ...(isContextUsage(value.contextUsage) ? { contextUsage: value.contextUsage } : {}),
@@ -201,6 +211,7 @@ export function loadTaskSessionCache(taskId: string): TaskDetail | null {
   return {
     ...cached.task,
     messages: cached.messages,
+    ...(cached.messageHistory ? { messageHistory: cached.messageHistory } : {}),
     isStreaming: cached.isStreaming,
     isCompacting: cached.isCompacting,
     ...(cached.contextUsage ? { contextUsage: cached.contextUsage } : {}),
@@ -212,6 +223,7 @@ export function saveTaskSessionCache(snapshot: TaskSessionCacheSnapshot): void {
   if (!Array.isArray(snapshot.messages) || !snapshot.messages.every(isUiMessage)) return;
   const summary = { ...snapshot.task } as TaskSummary & Partial<TaskDetail>;
   delete summary.messages;
+  delete summary.messageHistory;
   delete summary.isStreaming;
   delete summary.isCompacting;
   delete summary.contextUsage;

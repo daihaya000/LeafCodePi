@@ -372,6 +372,18 @@ export type UiMessage = {
   responseDurationMs?: number;
 };
 
+export type TaskMessageHistory = {
+  /** More messages are available before the current page. */
+  hasMore: boolean;
+  /** ID to pass as `before` when loading the preceding page. */
+  nextCursor: string | null;
+};
+
+export type TaskMessagePage = {
+  messages: UiMessage[];
+  messageHistory: TaskMessageHistory;
+};
+
 export type ModelOption = {
   value: string;
   label: string;
@@ -432,6 +444,8 @@ export type ProviderAuthDto = {
 
 export type TaskDetail = TaskSummary & {
   messages: UiMessage[];
+  /** Pagination state for UI timeline messages; omitted by full-history callers. */
+  messageHistory?: TaskMessageHistory;
   isStreaming: boolean;
   /** True while manual or auto context compaction is running. */
   isCompacting?: boolean;

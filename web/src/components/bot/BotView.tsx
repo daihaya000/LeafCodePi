@@ -30,8 +30,13 @@ import { markRead } from "@/lib/bot-unread";
 import { decideNotification } from "@/lib/notify";
 import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
 import { messageRenderKey, stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
+import {
+  EMPTY_TASK_MESSAGE_HISTORY,
+  mergeNewerTaskMessages,
+  prependOlderTaskMessages,
+} from "@/lib/task-history";
 import { readTaskTtsEnabled, speakText, stopSpeaking, subscribeTaskTtsEnabled, writeTaskTtsEnabled } from "@/lib/tts-playback";
-import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
+import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type TaskMessageHistory, type TaskMessagePage, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
 
 type BotMessageDisplayData = {
   text: string;
@@ -114,6 +119,14 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [permission, setPermission] = useState<PermissionRequestDto | null>(null);
   const [question, setQuestion] = useState<QuestionRequestDto | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>([]);
+  const [messageHistory, setMessageHistory] = useState<TaskMessageHistory>(EMPTY_TASK_MESSAGE_HISTORY);
+  const messageHistoryRef = useRef(messageHistory);
+  const historyLoadedRef = useRef(false);
+  const historyLoadingRef = useRef(false);
+  const historyRequestEpochRef = useRef(0);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const viewportRef = useRef<HTMLElement | null>(null);
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [soul, setSoul] = useState("");
@@ -162,6 +175,44 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     setBot(next);
     notifyBotSidebarChanged();
   };
+
+  const loadOlderMessages = useCallback(async () => {
+    if (historyLoadingRef.current) return;
+    const history = messageHistoryRef.current;
+    if (!history.hasMore || !history.nextCursor) return;
+    const requestEpoch = historyRequestEpochRef.current;
+    const viewport = viewportRef.current;
+    const previousHeight = viewport?.scrollHeight ?? 0;
+    const previousTop = viewport?.scrollTop ?? 0;
+    historyLoadingRef.current = true;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const page = await getJson<TaskMessagePage>(
+        `/api/tasks/${encodeURIComponent(`bot:${id}`)}/messages`,
+        { before: history.nextCursor },
+      );
+      if (requestEpoch !== historyRequestEpochRef.current) return;
+      setMessages((current) => prependOlderTaskMessages(current, page.messages));
+      historyLoadedRef.current = true;
+      messageHistoryRef.current = page.messageHistory;
+      setMessageHistory(page.messageHistory);
+      window.requestAnimationFrame(() => {
+        const currentViewport = viewportRef.current;
+        if (!currentViewport || currentViewport !== viewport) return;
+        currentViewport.scrollTop = previousTop + currentViewport.scrollHeight - previousHeight;
+      });
+    } catch (error) {
+      if (requestEpoch === historyRequestEpochRef.current) {
+        setHistoryError(error instanceof Error ? error.message : "過去の履歴を読み込めませんでした");
+      }
+    } finally {
+      historyLoadingRef.current = false;
+      if (requestEpoch === historyRequestEpochRef.current) {
+        setHistoryLoading(false);
+      }
+    }
+  }, [id]);
 
   const load = useCallback((isCurrent: () => boolean) => {
     return getJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`)
@@ -212,6 +263,13 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   // Drop the previous bot's transcript/overlays immediately; SSE will refill for the new id.
   useEffect(() => {
     setMessages([]);
+    messageHistoryRef.current = EMPTY_TASK_MESSAGE_HISTORY;
+    setMessageHistory(EMPTY_TASK_MESSAGE_HISTORY);
+    historyLoadedRef.current = false;
+    historyLoadingRef.current = false;
+    historyRequestEpochRef.current += 1;
+    setHistoryLoading(false);
+    setHistoryError(null);
     setPermission(null);
     setQuestion(null);
     setSending(false);
@@ -316,12 +374,31 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         try {
           const payload = JSON.parse((event as MessageEvent).data) as {
             messages?: UiMessage[];
+            messageHistory?: TaskMessageHistory;
+            historyReset?: boolean;
             isStreaming?: boolean;
             error?: string;
             permissionRequest?: PermissionRequestDto | null;
             questionRequest?: QuestionRequestDto | null;
+            eventType?: string;
           };
-          if (payload.messages) setMessages((current) => stabilizeUiMessages(current, payload.messages!));
+          const resetHistory = payload.historyReset === true || payload.eventType === "revert" || payload.eventType === "unrevert";
+          if (resetHistory) {
+            historyRequestEpochRef.current += 1;
+            historyLoadedRef.current = false;
+            historyLoadingRef.current = false;
+            messageHistoryRef.current = EMPTY_TASK_MESSAGE_HISTORY;
+            setMessageHistory(EMPTY_TASK_MESSAGE_HISTORY);
+            setHistoryLoading(false);
+            setHistoryError(null);
+            setMessages(() => stabilizeUiMessages([], payload.messages ?? []));
+          } else if (payload.messages) {
+            setMessages((current) => mergeNewerTaskMessages(current, payload.messages!));
+          }
+          if (payload.messageHistory && (!historyLoadedRef.current || resetHistory)) {
+            messageHistoryRef.current = payload.messageHistory;
+            setMessageHistory(payload.messageHistory);
+          }
           const permission = payload.permissionRequest ?? null;
           setPermission((current) => current?.id === permission?.id ? current : permission);
           const question = payload.questionRequest ?? null;
@@ -743,8 +820,29 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       />
 
 
-      <BotMessageList conversationId={id} contentKey={chatScrollKey}>
+      <BotMessageList
+        conversationId={id}
+        contentKey={chatScrollKey}
+        viewportRef={viewportRef}
+        onReachTop={() => void loadOlderMessages()}
+      >
         <div className={conversationContentClass}>
+          {messageHistory.hasMore && (
+            <div className="flex flex-col items-center gap-1 py-1" role="status" aria-live="polite">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => void loadOlderMessages()}
+                busy={historyLoading}
+                disabled={historyLoading}
+              >
+                {!historyLoading && <span aria-hidden="true">↑</span>}
+                {historyLoading ? "過去の履歴を読み込み中…" : "過去の履歴を読み込む"}
+              </Button>
+              {historyError && <span className="text-xs text-danger">{historyError}</span>}
+            </div>
+          )}
           {messages.length === 0 && !sending && <BotEmptyState avatar={bot} title={bot.name + " \u3068\u8a71\u3059"} description={"\u4e0b\u306e\u5165\u529b\u6b04\u304b\u3089\u30e1\u30c3\u30bb\u30fc\u30b8\u3092\u9001\u3063\u3066\u4f1a\u8a71\u3092\u59cb\u3081\u307e\u3057\u3087\u3046\u3002"} />}
           {routines.some((routine) => routine.failureCount > 0) && <div role="status" className="rounded-2xl border border-danger/40 bg-danger/5 p-4 text-sm"><p className="font-medium text-danger">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u5b9f\u884c\u306b\u5931\u6557\u3057\u3066\u3044\u307e\u3059"}</p><div className="mt-2 space-y-1 text-xs text-muted">{routines.filter((routine) => routine.failureCount > 0).map((routine) => <p key={routine.id}><span className="font-medium text-text">{routine.name}</span>{"\uFF1A"}{"\u9023\u7d9a\u5931\u6557"} {routine.failureCount}{"\u56de"}{routine.enabled ? "" : "\u3002\u5b89\u5168\u306e\u305f\u3081\u81ea\u52d5\u7684\u306b\u7121\u52b9\u5316\u3057\u307e\u3057\u305f"}</p>)}</div></div>}
           {routineCardOpen && <div className="rounded-2xl border border-accent/40 bg-surface p-4 shadow-sm" role="dialog" aria-label="ルーティン作成の確認"><p className="font-medium text-accent">ルーティンを作成</p><p className="mt-1 text-xs text-muted">内容を確認してから保存します。</p><div className="mt-3 space-y-2"><input value={routineName} onChange={(event) => setRoutineName(event.target.value)} placeholder="名前（例: 朝の確認）" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><textarea value={routinePrompt} onChange={(event) => setRoutinePrompt(event.target.value)} placeholder="Bot に実行させる指示" rows={3} className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><input value={routineSchedule} onChange={(event) => setRoutineSchedule(event.target.value)} aria-label="cron スケジュール" placeholder="0 * * * *" className="w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent" /><p className="text-[11px] text-muted">形式: 分 時 日 月 曜日（最短間隔 5 分）</p></div><div className="mt-3 flex justify-end gap-2"><Button size="sm" variant="ghost" onClick={() => setRoutineCardOpen(false)}>キャンセル</Button><Button size="sm" onClick={() => void createRoutine()} busy={creatingRoutine} disabled={!routineName.trim() || !routinePrompt.trim() || !routineSchedule.trim()}>この内容で作成</Button></div></div>}
