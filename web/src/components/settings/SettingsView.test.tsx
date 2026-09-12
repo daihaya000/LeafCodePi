@@ -63,6 +63,12 @@ vi.mock("@/components/settings/HangTimeoutSettings", () => ({
 vi.mock("@/components/settings/AgentsMdSettings", () => ({
   AgentsMdSettings: () => <h3>AGENTS.md</h3>,
 }));
+vi.mock("@/components/settings/SoulMdSettings", () => ({
+  SoulMdSettings: () => <h3>SOUL.md</h3>,
+}));
+vi.mock("@/components/settings/UserMdSettings", () => ({
+  UserMdSettings: () => <h3>USER.md</h3>,
+}));
 vi.mock("@/components/settings/BotsMdSettings", () => ({
   BotsMdSettings: () => <h3>BOTS.md</h3>,
 }));
@@ -277,6 +283,8 @@ describe("SettingsView", () => {
     expect(Array.from(agentsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "エージェント",
       "AGENTS.md",
+      "SOUL.md",
+      "USER.md",
     ]);
     expect(screen.queryByRole("heading", { name: "メモリ" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "スキル" })).toBeNull();

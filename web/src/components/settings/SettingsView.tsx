@@ -9,6 +9,8 @@ import { GenerationModelSettings } from "@/components/settings/GenerationModelSe
 import { LlamaServerSettings } from "@/components/settings/LlamaServerSettings";
 import { HostRestartPanel } from "@/components/settings/HostRestartPanel";
 import { AgentsMdSettings } from "@/components/settings/AgentsMdSettings";
+import { SoulMdSettings } from "@/components/settings/SoulMdSettings";
+import { UserMdSettings } from "@/components/settings/UserMdSettings";
 import { MemorySettings } from "@/components/settings/MemorySettings";
 import { CompactionSettings } from "@/components/settings/CompactionSettings";
 import { NavigatorSettings } from "@/components/settings/NavigatorSettings";
@@ -403,9 +405,13 @@ export function SettingsView() {
               <SettingsGroup
                 id="agents-instructions-heading"
                 title="共通指示"
-                description="すべてのプロジェクトとセッションに適用する AGENTS.md を編集します。"
+                description="すべてのプロジェクトとセッションに適用する AGENTS.md・SOUL.md・USER.md を編集します。"
               >
-                <AgentsMdSettings />
+                <div className="space-y-4">
+                  <AgentsMdSettings />
+                  <SoulMdSettings />
+                  <UserMdSettings />
+                </div>
               </SettingsGroup>
             </section>
           )}

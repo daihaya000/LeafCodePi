@@ -12,6 +12,10 @@ import { basename, dirname, join, resolve } from "node:path";
 
 export const MAX_AGENTS_MD_BYTES = 2 * 1024 * 1024;
 export const AGENTS_MD_FILENAME = "AGENTS.md";
+/** Global agent personality/tone. Code sessions read it; bots use their own SOUL.md. */
+export const SOUL_MD_FILENAME = "SOUL.md";
+/** Global user profile. Code sessions read it. */
+export const USER_MD_FILENAME = "USER.md";
 /** Common instructions for bot mode. Bots never read AGENTS.md. */
 export const BOTS_MD_FILENAME = "BOTS.md";
 
@@ -44,6 +48,14 @@ export function globalAgentsMdPath(env: AgentsMdEnv = process.env): string {
 
 export function globalBotsMdPath(env: AgentsMdEnv = process.env): string {
   return join(resolvePiAgentDir(env), BOTS_MD_FILENAME);
+}
+
+export function globalSoulMdPath(env: AgentsMdEnv = process.env): string {
+  return join(resolvePiAgentDir(env), SOUL_MD_FILENAME);
+}
+
+export function globalUserMdPath(env: AgentsMdEnv = process.env): string {
+  return join(resolvePiAgentDir(env), USER_MD_FILENAME);
 }
 
 function assertUtf8Size(filePath: string, content: string): void {
@@ -102,6 +114,35 @@ export function readGlobalBotsMd(env: AgentsMdEnv = process.env): AgentsMdDto {
 
 export function writeGlobalBotsMd(content: string, env: AgentsMdEnv = process.env): AgentsMdDto {
   return writeAgentsMdFile(globalBotsMdPath(env), content);
+}
+
+export function readGlobalSoulMd(env: AgentsMdEnv = process.env): AgentsMdDto {
+  return readAgentsMdFile(globalSoulMdPath(env));
+}
+
+export function writeGlobalSoulMd(content: string, env: AgentsMdEnv = process.env): AgentsMdDto {
+  return writeAgentsMdFile(globalSoulMdPath(env), content);
+}
+
+export function readGlobalUserMd(env: AgentsMdEnv = process.env): AgentsMdDto {
+  return readAgentsMdFile(globalUserMdPath(env));
+}
+
+export function writeGlobalUserMd(content: string, env: AgentsMdEnv = process.env): AgentsMdDto {
+  return writeAgentsMdFile(globalUserMdPath(env), content);
+}
+
+/**
+ * Code session prompt sources (paths, re-read on reload).
+ * Pi loads AGENTS.md natively; SOUL.md/USER.md are appended when present.
+ */
+export function codePromptSources(agentDir: string): string[] {
+  const sources: string[] = [];
+  const soul = join(agentDir, SOUL_MD_FILENAME);
+  const user = join(agentDir, USER_MD_FILENAME);
+  if (existsSync(soul)) sources.push(soul);
+  if (existsSync(user)) sources.push(user);
+  return sources;
 }
 
 export function errorStatus(error: unknown, fallback = 500): number {

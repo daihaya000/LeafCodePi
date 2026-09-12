@@ -1,18 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  codePromptSources,
   globalAgentsMdPath,
   globalBotsMdPath,
+  globalSoulMdPath,
+  globalUserMdPath,
   MAX_AGENTS_MD_BYTES,
   readAgentsMdFile,
   readGlobalAgentsMd,
   readGlobalBotsMd,
+  readGlobalSoulMd,
+  readGlobalUserMd,
   resolvePiAgentDir,
   writeAgentsMdFile,
   writeGlobalAgentsMd,
   writeGlobalBotsMd,
+  writeGlobalSoulMd,
+  writeGlobalUserMd,
 } from "./agents-md";
 
 describe("agents-md (global)", () => {
@@ -41,6 +48,34 @@ describe("agents-md (global)", () => {
     writeGlobalAgentsMd("# Hello\n", env);
     expect(readGlobalAgentsMd(env)).toMatchObject({ exists: true, content: "# Hello\n" });
     expect(readFileSync(join(dir, "AGENTS.md"), "utf8")).toBe("# Hello\n");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("keeps SOUL.md and USER.md separate from AGENTS.md in the same agent dir", () => {
+    const dir = join(tmpdir(), `leafcode-pi-agents-${Date.now()}-soul-user`);
+    mkdirSync(dir, { recursive: true });
+    const env = { PI_CODING_AGENT_DIR: dir };
+    expect(globalSoulMdPath(env)).toMatch(/SOUL\.md$/);
+    expect(globalUserMdPath(env)).toMatch(/USER\.md$/);
+    writeGlobalAgentsMd("# Agents\n", env);
+    writeGlobalSoulMd("# Soul\n", env);
+    writeGlobalUserMd("# User\n", env);
+    expect(readGlobalSoulMd(env)).toMatchObject({ exists: true, content: "# Soul\n" });
+    expect(readGlobalUserMd(env)).toMatchObject({ exists: true, content: "# User\n" });
+    expect(readGlobalAgentsMd(env).content).toBe("# Agents\n");
+    expect(readFileSync(join(dir, "SOUL.md"), "utf8")).toBe("# Soul\n");
+    expect(readFileSync(join(dir, "USER.md"), "utf8")).toBe("# User\n");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("returns only existing SOUL.md/USER.md paths as Code prompt sources", () => {
+    const dir = join(tmpdir(), `leafcode-pi-agents-${Date.now()}-sources`);
+    mkdirSync(dir, { recursive: true });
+    expect(codePromptSources(dir)).toEqual([]);
+    writeFileSync(join(dir, "SOUL.md"), "# Soul\n", "utf8");
+    expect(codePromptSources(dir)).toEqual([join(dir, "SOUL.md")]);
+    writeFileSync(join(dir, "USER.md"), "# User\n", "utf8");
+    expect(codePromptSources(dir)).toEqual([join(dir, "SOUL.md"), join(dir, "USER.md")]);
     rmSync(dir, { recursive: true, force: true });
   });
 

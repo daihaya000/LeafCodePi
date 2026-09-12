@@ -14,6 +14,7 @@ import {
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, getBot } from "@/lib/bots";
+import { codePromptSources } from "@/lib/agents-md";
 import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
 import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
 import { ROOM_SYSTEM_PROMPT, roomBotPrompt } from "@/lib/room-conversation";
@@ -2267,12 +2268,17 @@ async function createSession(options: {
     ...(agentOptions?.systemPrompt
       ? { systemPrompt: agentOptions.systemPrompt }
       : {}),
-    ...(agentOptions?.appendSystemPrompt
-      ? { appendSystemPrompt: agentOptions.appendSystemPrompt }
-      : {}),
-    ...(options.appendSystemPrompt?.length
-      ? { appendSystemPrompt: options.appendSystemPrompt }
-      : {}),
+    ...(() => {
+      // Bot sessions carry their own prompt sources; Code appends global
+      // SOUL.md/USER.md after AGENTS.md (re-read on reload).
+      const extra = botToolAllowlist ? [] : codePromptSources(agentDir);
+      const merged = [
+        ...(agentOptions?.appendSystemPrompt ?? []),
+        ...(options.appendSystemPrompt ?? []),
+        ...extra,
+      ];
+      return merged.length ? { appendSystemPrompt: merged } : {};
+    })(),
     ...(agentOptions?.noContextFiles || options.noContextFiles ? { noContextFiles: true } : {}),
   });
   await resourceLoader.reload();
