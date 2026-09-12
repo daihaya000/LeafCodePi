@@ -414,6 +414,7 @@ describe("completeModelText", () => {
     });
     const limitRuntime = {
       getProvider: () => ({ id: "stub" }),
+      registerProvider: () => {},
       getModel: (providerID: string, modelID: string) =>
         providerID === "anthropic" && modelID === "claude-sonnet"
           ? {
