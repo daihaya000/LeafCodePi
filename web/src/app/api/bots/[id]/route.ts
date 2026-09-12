@@ -25,6 +25,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const id = await idOf(params);
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   const hasModel = body?.model !== undefined;
+  const hasTtsModel = body?.ttsModel !== undefined;
   const hasThinkingLevel = body?.thinkingLevel !== undefined;
   const hasSkills = body?.skills !== undefined;
   const hasTools = body?.tools !== undefined;
@@ -61,6 +62,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     (hasEnabled && typeof body.enabled !== "boolean") ||
     (hasResetMessages && body.resetMessages !== true) ||
     (hasModel && (typeof body.model !== "string" || !body.model.trim())) ||
+    (hasTtsModel && body.ttsModel !== null && typeof body.ttsModel !== "string") ||
     (hasThinkingLevel && !isThinkingLevel(body.thinkingLevel)) ||
     !validSkills ||
     !validTools ||
@@ -88,6 +90,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (hasTools) patch.tools = tools as Parameters<typeof patchBot>[1]["tools"];
     if (hasExtraRoots) patch.extraRoots = extraRoots ?? [];
     if (body.soul !== undefined) patch.soul = body.soul as string;
+    if (hasTtsModel) patch.ttsModel = typeof body.ttsModel === "string" ? body.ttsModel.trim() || null : null;
     if (hasModel) {
       // Use the same route validation and live-session update as Code TaskView.
       // setTaskModel updates the running bot session (or defers safely while busy).

@@ -149,8 +149,9 @@ export function stopSpeaking(): void {
  * 合成APIで音声を作りブラウザで再生する。失敗時（未設定・停止中など）は onError に日本語メッセージを返す。
  * フォールバックの機械音声は出さない。
  */
-export function speakText(text: string, callbacks?: { onError?: (message: string) => void; onPlayed?: () => void }): void {
+export function speakText(text: string, callbacks?: { botId?: string; onError?: (message: string) => void; onPlayed?: () => void }): void {
   const clean = speakable(text);
+  const botId = callbacks?.botId?.trim() || undefined;
   if (!clean || typeof window === "undefined" || typeof Audio === "undefined") return;
   // 直前の再生・取得を止めて最新を優先する。
   stopSpeaking();
@@ -162,7 +163,7 @@ export function speakText(text: string, callbacks?: { onError?: (message: string
       const res = await fetch(apiUrl("/api/tts/synthesize"), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: clean }),
+        body: JSON.stringify({ text: clean, ...(botId ? { botId } : {}) }),
         signal: controller.signal,
       });
       if (!res.ok) {

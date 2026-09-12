@@ -261,7 +261,7 @@ it("reads the new reply when idle arrives before the final message snapshot", as
   snapshot({ messages: [oldReply, newReply], isStreaming: false });
   await waitFor(() => expect(ttsFetch).toHaveBeenCalledTimes(1));
   const [, init] = ttsFetch.mock.calls[0] as unknown as [string, RequestInit];
-  expect(JSON.parse(String(init.body))).toEqual({ text: "新しい返信" });
+  expect(JSON.parse(String(init.body))).toEqual({ text: "新しい返信", botId: "one" });
   expect(play).toHaveBeenCalledTimes(1);
 });
 
@@ -602,6 +602,26 @@ it("renders SOUL.md as Markdown by default and auto-saves after entering edit mo
   expect(editor.value).toBe("# 役割\n\n**簡潔に答える**");
   fireEvent.change(editor, { target: { value: "新しい説明" } });
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { soul: "新しい説明" }, "PATCH"));
+});
+
+it("saves the Bot-specific TTS model", async () => {
+  const configuredBot = { ...testBot, ttsModel: "tts-1" };
+  mocks.getJson.mockImplementation(async (url: string) => {
+    if (url === "/api/models") return { models: [] };
+    if (url.endsWith("/routines")) return { routines: [] };
+    return { bot: configuredBot };
+  });
+  mocks.sendJson.mockImplementation(async (_url: string, body?: Record<string, unknown>) => ({
+    bot: { ...configuredBot, ...body },
+  }));
+
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+  const input = screen.getByRole("textbox", { name: "ボットのTTSモデル" }) as HTMLInputElement;
+  expect(input.value).toBe("tts-1");
+  fireEvent.change(input, { target: { value: "local-tts" } });
+  fireEvent.blur(input);
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { ttsModel: "local-tts" }, "PATCH"));
 });
 
 it("resets the Bot conversation after confirmation", async () => {

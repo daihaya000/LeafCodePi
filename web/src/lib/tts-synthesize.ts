@@ -3,6 +3,8 @@
  * エンジン判定・リクエスト形式は extensions/leafcode-tts/index.ts と合わせる（あちらがCLI側の正本）。
  */
 
+export const DEFAULT_TTS_MODEL = "tts-1";
+
 export class TtsSynthesizeError extends Error {
   status: number;
   constructor(message: string, status = 502) {
@@ -25,10 +27,10 @@ function isVoicevoxEngineUrl(url: string): boolean {
   return path === "/";
 }
 
-function buildBody(url: string, text: string, voice: string): string {
+function buildBody(url: string, text: string, voice: string, model?: string): string {
   const lower = httpPath(url).toLowerCase();
   if (lower.includes("/v1/audio/speech")) {
-    return JSON.stringify({ model: "tts-1", input: text, voice: voice || "alloy", response_format: "wav" });
+    return JSON.stringify({ model: model?.trim() || DEFAULT_TTS_MODEL, input: text, voice: voice || "alloy", response_format: "wav" });
   }
   if (lower.includes("/v1/tts")) {
     const body: Record<string, string> = { text, language: "Japanese" };
@@ -72,7 +74,7 @@ async function synthesizeVoicevox(baseUrl: string, text: string, voice: string):
   return readAudio(synthRes);
 }
 
-export async function synthesizeTts(text: string, url: string, voice: string): Promise<{ audio: Buffer; contentType: string }> {
+export async function synthesizeTts(text: string, url: string, voice: string, model?: string): Promise<{ audio: Buffer; contentType: string }> {
   const clean = text.trim();
   if (!clean) throw new TtsSynthesizeError("読み上げる文章が空です", 400);
   if (!url.trim()) throw new TtsSynthesizeError("合成エンジンが未設定です（設定→読み上げでURLを指定）", 400);
@@ -82,7 +84,7 @@ export async function synthesizeTts(text: string, url: string, voice: string): P
     res = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: buildBody(url, clean, voice.trim()),
+      body: buildBody(url, clean, voice.trim(), model),
     });
   } catch {
     throw new TtsSynthesizeError("合成エンジンに接続できません（停止中？）");

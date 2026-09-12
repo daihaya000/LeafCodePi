@@ -90,6 +90,7 @@ describe("PATCH /api/bots/[id]", () => {
     for (const body of [
       { name: "  " },
       { model: "" },
+      { ttsModel: 42 },
       { permissionMode: "turbo" },
       { tools: ["unknown-tool"] },
       { extraRoots: ["relative/path"] },
@@ -158,6 +159,18 @@ describe("PATCH /api/bots/[id]", () => {
     // スキルはシステムプロンプトを構成するため、次のメッセージで効くようセッションを作り直す。
     expect(mocks.resetTaskSession).toHaveBeenCalledWith("bot:one");
     expect(mocks.resetTaskConversation).not.toHaveBeenCalled();
+  });
+
+  it("persists a per-Bot TTS model without changing the live text model", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    mocks.patchBot.mockReturnValue({ ...bot(), ttsModel: "local-tts" });
+    const response = await PATCH(jsonRequest({ ttsModel: " local-tts " }), params("one"));
+    expect(response.status).toBe(200);
+    expect(mocks.setTaskModel).not.toHaveBeenCalled();
+    expect(mocks.patchBot).toHaveBeenCalledWith(
+      "one",
+      expect.objectContaining({ ttsModel: "local-tts" }),
+    );
   });
 
   it("applies the model through the same live-session validation", async () => {

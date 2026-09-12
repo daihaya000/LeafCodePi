@@ -96,6 +96,7 @@ function parseConfig(id: string): BotConfig | null {
       ...(isAvatarEyeColor(value.avatarEyeColor) ? { avatarEyeColor: value.avatarEyeColor } : {}),
       avatarGlasses: value.avatarGlasses === true, avatarMustache: value.avatarMustache === true,
       model: typeof value.model === "string" ? value.model : null,
+      ttsModel: typeof value.ttsModel === "string" && value.ttsModel.trim() ? value.ttsModel.trim() : null,
       thinkingLevel: value.thinkingLevel ?? null, permissionMode: value.permissionMode === "ask" || value.permissionMode === "deny" ? value.permissionMode : "allow",
       skills: normalizeBotSkills(value.skills),
       tools,
@@ -131,7 +132,7 @@ export function getBot(id: string): BotDto | undefined {
 export function createBot(input: { name?: string; model?: string | null; thinkingLevel?: ThinkingLevel | null; permissionMode?: BotConfig["permissionMode"] }): BotDto {
   const name = input.name?.trim() || "New bot";
   const id = randomUUID(); const now = new Date().toISOString();
-  const config: BotConfig = { id, name, label: "1:1 アシスタント", avatarColor: randomAvatarColor(), avatarImage: null, avatarShape: "circle", avatarGlasses: false, avatarMustache: false, createdAt: now, updatedAt: now, model: input.model ?? null, thinkingLevel: input.thinkingLevel ?? null, permissionMode: input.permissionMode ?? "allow", codeAutoApprove: true, skills: { ...DEFAULT_SKILLS }, tools: [...BOT_DEFAULT_TOOL_NAMES], extraRoots: [], enabled: true, notificationsEnabled: true, codeSessionTaskId: null };
+  const config: BotConfig = { id, name, label: "1:1 アシスタント", avatarColor: randomAvatarColor(), avatarImage: null, avatarShape: "circle", avatarGlasses: false, avatarMustache: false, createdAt: now, updatedAt: now, model: input.model ?? null, ttsModel: null, thinkingLevel: input.thinkingLevel ?? null, permissionMode: input.permissionMode ?? "allow", codeAutoApprove: true, skills: { ...DEFAULT_SKILLS }, tools: [...BOT_DEFAULT_TOOL_NAMES], extraRoots: [], enabled: true, notificationsEnabled: true, codeSessionTaskId: null };
   mkdirSync(join(botRoot(id), "workspace"), { recursive: true });
   writeFileSync(soulPath(id), SOUL_TEMPLATE, "utf8");
   ensureMemoryFile(id);
@@ -139,10 +140,11 @@ export function createBot(input: { name?: string; model?: string | null; thinkin
   insertBotTask({ id: `bot:${id}`, botId: id, name, directory: join(botRoot(id), "workspace"), model: config.model, thinkingLevel: config.thinkingLevel, permissionMode: config.permissionMode });
   return toDto(config);
 }
-export function patchBot(id: string, patch: Partial<Pick<BotConfig, "name" | "label" | "avatarColor" | "avatarImage" | "avatarShape" | "avatarGlasses" | "avatarMustache" | "model" | "thinkingLevel" | "permissionMode" | "skills" | "tools" | "extraRoots" | "enabled" | "notificationsEnabled" | "codeAutoApprove" | "codeSessionTaskId">> & { soul?: string; avatarEyeColor?: string | null }): BotDto | undefined {
+export function patchBot(id: string, patch: Partial<Pick<BotConfig, "name" | "label" | "avatarColor" | "avatarImage" | "avatarShape" | "avatarGlasses" | "avatarMustache" | "model" | "ttsModel" | "thinkingLevel" | "permissionMode" | "skills" | "tools" | "extraRoots" | "enabled" | "notificationsEnabled" | "codeAutoApprove" | "codeSessionTaskId">> & { soul?: string; avatarEyeColor?: string | null }): BotDto | undefined {
   const current = parseConfig(id); if (!current) return undefined;
   // null clears the eye color back to the automatic default.
-  const next: BotConfig = { ...current, ...patch, avatarEyeColor: patch.avatarEyeColor === undefined ? current.avatarEyeColor : (isAvatarEyeColor(patch.avatarEyeColor) ? patch.avatarEyeColor : undefined), skills: patch.skills ?? current.skills, updatedAt: new Date().toISOString() };
+  const ttsModel = patch.ttsModel === undefined ? current.ttsModel : (typeof patch.ttsModel === "string" && patch.ttsModel.trim() ? patch.ttsModel.trim() : null);
+  const next: BotConfig = { ...current, ...patch, ttsModel, avatarEyeColor: patch.avatarEyeColor === undefined ? current.avatarEyeColor : (isAvatarEyeColor(patch.avatarEyeColor) ? patch.avatarEyeColor : undefined), skills: patch.skills ?? current.skills, updatedAt: new Date().toISOString() };
   delete (next as Record<string, unknown>).soul;
   writeConfig(next);
   if (patch.soul !== undefined) writeFileSync(soulPath(id), patch.soul, "utf8");

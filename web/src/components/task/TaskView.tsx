@@ -2575,10 +2575,10 @@ export const TaskView = memo(function TaskView({
     if (!working && ttsPendingRef.current && lastAssistant && lastAssistant.id !== ttsBaselineAssistantIdRef.current) {
       ttsPendingRef.current = false;
       const text = lastAssistant.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
-      speakText(text, { onError: setTtsError, onPlayed: () => setTtsError(null) });
+      speakText(text, { botId: task?.botId, onError: setTtsError, onPlayed: () => setTtsError(null) });
     }
     prevWorkingTtsRef.current = working;
-  }, [active, taskId, working, ttsEnabled, messages]);
+  }, [active, task?.botId, taskId, working, ttsEnabled, messages]);
   // 注意音：承認 UI の立上がりエッジ。タブの可視状態に関係なく鳴らす。
   const prevAttentionSoundRef = useRef(false);
   useEffect(() => {

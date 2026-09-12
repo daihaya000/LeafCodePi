@@ -3,13 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createBot, patchBot } from "@/lib/bots";
 import { writeTtsConfig } from "@/lib/tts-config";
 import { POST } from "./route";
 
-function request(text: unknown): NextRequest {
+function request(text: unknown, botId?: string): NextRequest {
   return new NextRequest("http://localhost/api/tts/synthesize", {
     method: "POST",
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, ...(botId ? { botId } : {}) }),
   });
 }
 
@@ -50,6 +51,20 @@ describe("POST /api/tts/synthesize", () => {
     const response = await POST(request("こんにちは"));
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("audio/wav");
+  });
+
+  it("BotごとのTTSモデルをOpenAI互換エンジンへ渡す", async () => {
+    const bot = createBot({ name: "TTS bot" });
+    patchBot(bot.id, { ttsModel: "local-tts" });
+    writeTtsConfig({ enabled: true, url: "http://127.0.0.1:18080/v1/audio/speech" });
+    let sentBody = "";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      sentBody = String(init.body);
+      return new Response(Buffer.from([1, 2, 3]), { status: 200, headers: { "content-type": "audio/wav" } });
+    }));
+    const response = await POST(request("こんにちは", bot.id));
+    expect(response.status).toBe(200);
+    expect(JSON.parse(sentBody)).toMatchObject({ model: "local-tts", input: "こんにちは" });
   });
 
   it("空文は400", async () => {
