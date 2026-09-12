@@ -58,6 +58,23 @@ it.each([undefined, "bot-1"])("passes Bot identity only to the sending side (bot
   expect(props.filter((value) => value.role === "assistant").every((value) => value.bot === undefined)).toBe(true);
 });
 
+it("does not reconnect SSE when the status callback identity changes", async () => {
+  let connections = 0;
+  class TestEventSource extends EventTarget {
+    constructor() {
+      super();
+      connections += 1;
+    }
+
+    close() {}
+  }
+  vi.stubGlobal("EventSource", TestEventSource);
+  const view = render(<TaskView taskId={task.id} mdUp onStatus={vi.fn()} />);
+  await waitFor(() => expect(connections).toBe(1));
+  view.rerender(<TaskView taskId={task.id} mdUp onStatus={vi.fn()} />);
+  expect(connections).toBe(1);
+});
+
 it("shows one Goal Loop turn divider per turn boundary", () => {
   const turnMessage = (id: string, turn: number, kind: "goal" | "verification"): UiMessage => ({
     id,
