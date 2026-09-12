@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { cx } from "@/components/ui";
 import type { ProjectDto } from "@/lib/types";
 
@@ -9,7 +9,7 @@ const PROJECT_ICON_TONES = [
   "border-accent/30 bg-accent/10 text-accent",
 ] as const;
 
-export function ProjectIcon({ project, className }: { project: Pick<ProjectDto, "id" | "name" | "icon">; className?: string }) {
+export const ProjectIcon = memo(function ProjectIcon({ project, className }: { project: Pick<ProjectDto, "id" | "name" | "icon">; className?: string }) {
   const [failedIcon, setFailedIcon] = useState<string | null>(null);
   let hash = 0;
   for (const character of project.id) {
@@ -22,4 +22,4 @@ export function ProjectIcon({ project, className }: { project: Pick<ProjectDto, 
   ) : (
     <span className={cx(PROJECT_ICON_TONES[hash % PROJECT_ICON_TONES.length], className)}>{Array.from(project.name.trim().toUpperCase())[0] ?? "?"}</span>
   );
-}
+});

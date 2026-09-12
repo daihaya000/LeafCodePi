@@ -284,10 +284,17 @@ it("splits tool groups at Goal Loop turn boundaries", () => {
 });
 
 describe("TaskView draft submission", () => {
-  it("hides the manual context compaction control from the header", () => {
+  it("shows the manual context compaction control and sends the compaction request", async () => {
+    mocks.sendJson.mockResolvedValue({
+      task: { ...task, messages: [], isStreaming: false, isCompacting: false },
+    });
     render(<TaskView taskId={task.id} mdUp />);
 
-    expect(screen.queryByRole("button", { name: "コンテキスト圧縮" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "コンテキスト圧縮" }));
+
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      `/api/tasks/${task.id}/compact`, {}, "POST", { timeoutMs: 240_000 },
+    ));
   });
 
   it("shows token statistics in the lower status row when the task pane has room", () => {

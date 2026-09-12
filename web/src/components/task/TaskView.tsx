@@ -14,6 +14,7 @@ import {
   Pencil,
   Plus,
   RotateCcw,
+  Shrink,
   WandSparkles,
   Square,
   Volume2,
@@ -226,6 +227,8 @@ import type {
 } from "@/lib/types";
 import { statusFromChangedFileCount, type WorktreeStatus } from "@/lib/worktree-status";
 
+/** Manual compaction can take longer than the default client request budget. */
+const COMPACT_TIMEOUT_MS = 240_000;
 const TASK_SESSION_CACHE_THROTTLE_MS = 1_000;
 const TASK_PERF_ENABLED = process.env.NODE_ENV === "development";
 let nextTaskPerfId = 0;
@@ -754,6 +757,7 @@ export const TaskView = memo(function TaskView({
     () => cachedSession?.contextUsage,
   );
   const [isCompacting, setIsCompacting] = useState(Boolean(cachedSession?.isCompacting));
+  const [compactingLocal, setCompactingLocal] = useState(false);
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
   const [revertBusy, setRevertBusy] = useState(false);
   const revertEntryRef = useRef<{ messageId: string; message: UiMessage | undefined } | null>(null);
@@ -1503,6 +1507,7 @@ export const TaskView = memo(function TaskView({
     setMessages(cached?.messages ?? []);
     setContextUsage(cached?.contextUsage);
     setIsCompacting(Boolean(cached?.isCompacting));
+    setCompactingLocal(false);
     setWorktreeStatus(null);
     setPrompt("");
     setAttachments([]);
@@ -1610,7 +1615,7 @@ export const TaskView = memo(function TaskView({
     });
   }
 
-  const compacting = isCompacting;
+  const compacting = isCompacting || compactingLocal;
   const archived = task?.status === "archived";
   const statusWorking = task?.status === "working";
   const working = Boolean(statusWorking || task?.isStreaming);
@@ -2255,6 +2260,27 @@ export const TaskView = memo(function TaskView({
     }
   }
 
+  async function compact() {
+    if (compacting || archived) return;
+    setCompactingLocal(true);
+    setIsCompacting(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ task: TaskDetail }>(
+        `/api/tasks/${taskId}/compact`,
+        {},
+        "POST",
+        { timeoutMs: COMPACT_TIMEOUT_MS },
+      );
+      applyDetail(result.task);
+      notifyTasksChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "コンテキスト圧縮に失敗しました");
+    } finally {
+      setCompactingLocal(false);
+    }
+  }
+
   async function abortCompact() {
     try {
       const result = await sendJson<{ task: TaskDetail }>(
@@ -2818,6 +2844,18 @@ export const TaskView = memo(function TaskView({
             taskId={task?.id}
             onError={setError}
           />
+          <Button
+            variant="ghost"
+            size="icon"
+            title="コンテキスト圧縮"
+            aria-label="コンテキスト圧縮"
+            busy={compacting}
+            disabled={!task || working || compacting || archived}
+            className="h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9"
+            onClick={() => void compact()}
+          >
+            {!compacting && <Shrink className="h-4 w-4" />}
+          </Button>
           {ttsError && <span role="alert" title={ttsError} className="max-w-24 shrink-0 truncate text-[11px] text-danger @min-[48rem]/task:max-w-40">{ttsError}</span>}
           <button
             type="button"
