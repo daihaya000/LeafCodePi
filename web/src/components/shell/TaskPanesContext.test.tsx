@@ -110,6 +110,7 @@ describe("TaskPanesProvider", () => {
     const stableRenderSpy = vi.fn();
     const botStatusRenderSpy = vi.fn();
     const navigationRenderSpy = vi.fn();
+    const iconRenderSpy = vi.fn();
     const tabMetaRenderSpy = vi.fn();
     function StableServiceProbe() {
       useBotFor();
@@ -124,6 +125,11 @@ describe("TaskPanesProvider", () => {
     function NavigationProbe() {
       useTaskPanesNavigation();
       navigationRenderSpy();
+      return null;
+    }
+    function IconProbe() {
+      useIconFor();
+      iconRenderSpy();
       return null;
     }
     function TabMetaProbe() {
@@ -144,6 +150,7 @@ describe("TaskPanesProvider", () => {
         <StableServiceProbe />
         <BotStatusProbe />
         <NavigationProbe />
+        <IconProbe />
         <TabMetaProbe />
         <StatusProbe />
       </TaskPanesProvider>,
@@ -151,16 +158,19 @@ describe("TaskPanesProvider", () => {
     const initialStableRenderCount = stableRenderSpy.mock.calls.length;
     const initialBotStatusRenderCount = botStatusRenderSpy.mock.calls.length;
     const initialNavigationRenderCount = navigationRenderSpy.mock.calls.length;
+    const initialIconRenderCount = iconRenderSpy.mock.calls.length;
     const initialTabMetaRenderCount = tabMetaRenderSpy.mock.calls.length;
     fireEvent.click(screen.getByRole("button", { name: "report status" }));
     expect(stableRenderSpy.mock.calls.length).toBe(initialStableRenderCount);
     expect(botStatusRenderSpy.mock.calls.length).toBe(initialBotStatusRenderCount);
     expect(navigationRenderSpy.mock.calls.length).toBe(initialNavigationRenderCount);
+    expect(iconRenderSpy.mock.calls.length).toBe(initialIconRenderCount);
     expect(tabMetaRenderSpy.mock.calls.length).toBe(initialTabMetaRenderCount + 1);
     fireEvent.click(screen.getByRole("button", { name: "report bot status" }));
     expect(stableRenderSpy.mock.calls.length).toBe(initialStableRenderCount);
     expect(botStatusRenderSpy.mock.calls.length).toBe(initialBotStatusRenderCount + 1);
     expect(navigationRenderSpy.mock.calls.length).toBe(initialNavigationRenderCount);
+    expect(iconRenderSpy.mock.calls.length).toBe(initialIconRenderCount);
     expect(tabMetaRenderSpy.mock.calls.length).toBe(initialTabMetaRenderCount + 1);
   });
 

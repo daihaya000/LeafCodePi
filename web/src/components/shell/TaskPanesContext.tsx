@@ -494,7 +494,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       botFor(identity?.botId) ??
       bots.find((item) => `/bots/${encodeURIComponent(item.id)}` === taskId);
     if (bot || identity?.botId) {
-      return <span aria-hidden="true" className="shrink-0"><BotAvatar size={size} {...bot} active={(task?.status ?? statusFor(taskId)) === "working"} /></span>;
+      return <span aria-hidden="true" className="shrink-0"><BotAvatar size={size} {...bot} active={(task?.status ?? statusMapRef.current.get(taskId)) === "working"} /></span>;
     }
     const project = projects.find((item) => item.id === identity?.projectId);
     return project ? (
@@ -507,7 +507,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
         )} />
       </span>
     ) : null;
-  }, [botFor, bots, projects, titlesVersion, statusFor]);
+  }, [botFor, bots, projects, titlesVersion]);
 
   const value = useMemo<TaskPanesContextValue>(
     () => ({
