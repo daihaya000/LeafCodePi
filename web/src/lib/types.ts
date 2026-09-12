@@ -435,6 +435,8 @@ export type TaskDetail = TaskSummary & {
   isStreaming: boolean;
   /** True while manual or auto context compaction is running. */
   isCompacting?: boolean;
+  /** True when suggest mode reached the configured context threshold. */
+  compactionSuggested?: boolean;
   contextUsage?: {
     tokens: number | null;
     contextWindow: number;
