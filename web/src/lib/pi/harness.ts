@@ -1270,8 +1270,9 @@ function emitTaskDelta(live: LiveRuntime, eventType: string): void {
     messageContext(live),
   ).at(-1) ?? null;
   const contextUsage = sessionContextUsage(live.session);
-  const goalLoopActive = isActiveGoalLoopSession(live.session);
-  const compactionSuggested = !goalLoopActive && shouldSuggestAtThreshold(
+  // Delta snapshots are high-frequency; use the live flag instead of reading
+  // the Goal Loop state file for every token update.
+  const compactionSuggested = !live.goalLoopTurnActive && shouldSuggestAtThreshold(
     parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY)),
     contextUsage?.percent,
     parseCompactionThreshold(getSetting(COMPACTION_THRESHOLD_SETTING_KEY)),
