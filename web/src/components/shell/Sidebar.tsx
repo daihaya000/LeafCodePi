@@ -679,7 +679,7 @@ export const TaskProgressBar = memo(function TaskProgressBar({
   );
 });
 
-export function TaskActivityIcon({
+export const TaskActivityIcon = memo(function TaskActivityIcon({
   task,
   bot,
 }: {
@@ -702,7 +702,7 @@ export function TaskActivityIcon({
       )}
     />
   );
-}
+});
 
 function loadExpanded(): Set<string> {
   try {
