@@ -754,7 +754,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
 });
 
 /** タイムライン末尾の実行中インジケータ（本家の WorkingProgressPanel 相当の 1 行版）。 */
-export function WorkingRow({ messages, active = true }: { messages: UiMessage[]; active?: boolean }) {
+export const WorkingRow = memo(function WorkingRow({ messages, active = true }: { messages: UiMessage[]; active?: boolean }) {
   const running = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
@@ -790,7 +790,7 @@ export function WorkingRow({ messages, active = true }: { messages: UiMessage[];
       )}
     </div>
   );
-}
+});
 
 /** 本家 LeafCode と同じ: 思考要約の太字マーカーを落としてから翻訳に渡す。 */
 function stripReasoningMarkdown(text: string): string {
