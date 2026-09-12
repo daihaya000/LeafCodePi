@@ -199,10 +199,16 @@ describe("TaskPanesProvider", () => {
     matches = desktop;
     let projectIcon: string | null = "data:image/png;base64,project";
     let botImage = "data:image/png;base64,bot";
+    let botProgress = false;
+    const sidebarFetchSpy = vi.fn();
     const paneRenderSpy = vi.fn();
+    const iconRenderSpy = vi.fn();
     mocks.getJson.mockImplementation(async (url: string) => {
       if (url.startsWith("/api/projects")) return { projects: [{ id: "project", name: "Project", icon: projectIcon }] };
-      if (url === "/api/bots/sidebar") return { bots: [{ id: "one", name: "One", avatarImage: botImage }], rooms: [] };
+      if (url === "/api/bots/sidebar") {
+        sidebarFetchSpy();
+        return { bots: [{ id: "one", name: "One", avatarImage: botImage, codeInProgress: botProgress }], rooms: [] };
+      }
       return { tasks: [{ id: "saved-task", title: "Code", status: "idle", projectId: "project" }] };
     });
     function PaneProbe() {
@@ -212,6 +218,7 @@ describe("TaskPanesProvider", () => {
     }
     function IconProbe() {
       const iconFor = useIconFor();
+      iconRenderSpy();
       return <>
         <div data-testid="tab-icon">{iconFor("saved-task")}</div>
         <div data-testid="header-icon">{iconFor("saved-task", 32, { projectId: "project" })}</div>
@@ -240,6 +247,12 @@ describe("TaskPanesProvider", () => {
       expect(image("bot-header-icon")).toBe(botImage);
     });
     expect(paneRenderSpy.mock.calls.length).toBe(paneRenderCountAfterInitialData);
+    const iconRenderCountAfterInitialData = iconRenderSpy.mock.calls.length;
+    const sidebarFetchCountAfterInitialData = sidebarFetchSpy.mock.calls.length;
+    botProgress = true;
+    window.dispatchEvent(new Event("webui:bot-sidebar-changed"));
+    await waitFor(() => expect(sidebarFetchSpy.mock.calls.length).toBe(sidebarFetchCountAfterInitialData + 1));
+    expect(iconRenderSpy.mock.calls.length).toBe(iconRenderCountAfterInitialData);
   });
 
   it.each([null, "data:image/png;base64,bot"])("animates Bot icons only while working (%s)", async (avatarImage) => {

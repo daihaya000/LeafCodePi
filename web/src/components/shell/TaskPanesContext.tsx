@@ -42,6 +42,29 @@ import { BotAvatar } from "@/components/bot/BotAvatar";
 import { cx } from "@/components/ui";
 
 type TaskIdentity = Pick<TaskSummary, "projectId" | "botId"> & Partial<Pick<TaskSummary, "status">>;
+type BotIconData = Pick<BotDto, "id" | "name" | "avatarColor" | "avatarShape" | "avatarEyeColor" | "avatarGlasses" | "avatarMustache" | "avatarImage">;
+type ProjectIconData = Pick<ProjectDto, "id" | "name" | "icon">;
+
+function reuseBotIconData(previous: BotIconData[], bots: readonly BotDto[]): BotIconData[] {
+  if (previous.length === bots.length && previous.every((item, index) => {
+    const bot = bots[index];
+    return item.id === bot.id && item.name === bot.name && item.avatarColor === bot.avatarColor
+      && item.avatarShape === bot.avatarShape && item.avatarEyeColor === bot.avatarEyeColor
+      && item.avatarGlasses === bot.avatarGlasses && item.avatarMustache === bot.avatarMustache
+      && item.avatarImage === bot.avatarImage;
+  })) return previous;
+  return bots.map(({ id, name, avatarColor, avatarShape, avatarEyeColor, avatarGlasses, avatarMustache, avatarImage }) => ({
+    id, name, avatarColor, avatarShape, avatarEyeColor, avatarGlasses, avatarMustache, avatarImage,
+  }));
+}
+
+function reuseProjectIconData(previous: ProjectIconData[], projects: readonly ProjectDto[]): ProjectIconData[] {
+  if (previous.length === projects.length && previous.every((item, index) => {
+    const project = projects[index];
+    return item.id === project.id && item.name === project.name && item.icon === project.icon;
+  })) return previous;
+  return projects.map(({ id, name, icon }) => ({ id, name, icon }));
+}
 
 const SAVE_DEBOUNCE_MS = 500;
 const MD_QUERY = "(min-width: 768px)";
@@ -187,6 +210,8 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   const statusMapRef = useRef(new Map<string, TaskStatus>());
   const taskTitlesRef = useRef(new Map<string, string>());
   const taskIdentitiesRef = useRef(new Map<string, TaskIdentity>());
+  const iconBotsRef = useRef<BotIconData[]>([]);
+  const iconProjectsRef = useRef<ProjectIconData[]>([]);
   const tabMetaSnapshotsRef = useRef(new Map<string, TaskPanesTabMetaSnapshot>());
   const tabMetaListenersRef = useRef(new Map<string, Set<() => void>>());
   const [projects, setProjects] = useState<ProjectDto[]>([]);
@@ -196,6 +221,16 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     getBotSidebarServerSnapshot,
   );
   const { bots, rooms } = botSidebar;
+  const iconBots = useMemo(() => {
+    const next = reuseBotIconData(iconBotsRef.current, bots);
+    iconBotsRef.current = next;
+    return next;
+  }, [bots]);
+  const iconProjects = useMemo(() => {
+    const next = reuseProjectIconData(iconProjectsRef.current, projects);
+    iconProjectsRef.current = next;
+    return next;
+  }, [projects]);
   const getTabMetaSnapshot = useCallback((taskId: string): TaskPanesTabMetaSnapshot => {
     const existing = tabMetaSnapshotsRef.current.get(taskId);
     if (existing) return existing;
@@ -233,7 +268,9 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       const request = ++generation;
       try {
         const result = await getJson<{ projects: ProjectDto[] }>("/api/projects?archived=1");
-        if (!disposed && request === generation) setProjects(result.projects);
+        if (!disposed && request === generation) {
+          setProjects(Array.isArray(result.projects) ? result.projects : []);
+        }
       } catch { /* Keep existing icons on fetch failure. */ }
     };
     void refresh();
@@ -490,13 +527,12 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   const iconFor = useCallback((taskId: string, size: 16 | 32 = 16, task?: TaskIdentity) => {
     void titlesVersion;
     const identity = task ?? taskIdentitiesRef.current.get(taskId);
-    const bot =
-      botFor(identity?.botId) ??
-      bots.find((item) => `/bots/${encodeURIComponent(item.id)}` === taskId);
+    const bot = iconBots.find((item) => item.id === identity?.botId)
+      ?? iconBots.find((item) => `/bots/${encodeURIComponent(item.id)}` === taskId);
     if (bot || identity?.botId) {
       return <span aria-hidden="true" className="shrink-0"><BotAvatar size={size} {...bot} active={(task?.status ?? statusMapRef.current.get(taskId)) === "working"} /></span>;
     }
-    const project = projects.find((item) => item.id === identity?.projectId);
+    const project = iconProjects.find((item) => item.id === identity?.projectId);
     return project ? (
       <span aria-hidden="true" className="shrink-0">
         <ProjectIcon project={project} className={cx(
@@ -507,7 +543,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
         )} />
       </span>
     ) : null;
-  }, [botFor, bots, projects, titlesVersion]);
+  }, [iconBots, iconProjects, titlesVersion]);
 
   const value = useMemo<TaskPanesContextValue>(
     () => ({
