@@ -3,6 +3,7 @@ import {
   sameHealth,
   sameProjectList,
   sameTaskList,
+  stabilizeTaskList,
   reorderProjectIds,
   tasksForSidebar,
   latestWorkingTask,
@@ -59,6 +60,18 @@ describe("sameTaskList", () => {
     expect(
       sameTaskList([task("t1", "idle", "タスクA")], [task("t1", "working", "タスクA")]),
     ).toBe(false);
+  });
+
+  it("reuses unchanged task objects when one row changes", () => {
+    const current = [task("t1", "idle", "タスクA"), task("t2", "idle", "タスクB")];
+    const next = [
+      { ...current[0] },
+      { ...current[1], status: "working" as const },
+    ];
+    const stabilized = stabilizeTaskList(current, next);
+    expect(stabilized).not.toBe(current);
+    expect(stabilized[0]).toBe(current[0]);
+    expect(stabilized[1]).toBe(next[1]);
   });
 
   it("detects todo progress changes", () => {

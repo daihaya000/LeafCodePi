@@ -80,29 +80,37 @@ function resolveSidebarDrag(rawWidth: number): { collapsed: boolean; width: numb
 }
 
 /** 表示に影響するフィールドのみ比較（未変更なら参照を維持して再レンダーを防ぐ）。 */
+function sameTaskSummary(left: TaskSummary, right: TaskSummary): boolean {
+  return left.id === right.id &&
+    left.status === right.status &&
+    left.title === right.title &&
+    left.projectId === right.projectId &&
+    left.projectName === right.projectName &&
+    left.botId === right.botId &&
+    left.updatedAt === right.updatedAt &&
+    left.todoProgress?.completed === right.todoProgress?.completed &&
+    left.todoProgress?.total === right.todoProgress?.total &&
+    left.goalLoopSummary?.status === right.goalLoopSummary?.status &&
+    left.goalLoopSummary?.maxTurns === right.goalLoopSummary?.maxTurns &&
+    left.goalLoopSummary?.turnCount === right.goalLoopSummary?.turnCount;
+}
+
 export function sameTaskList(a: TaskSummary[], b: TaskSummary[]): boolean {
   if (a.length !== b.length) return false;
   for (let index = 0; index < a.length; index += 1) {
-    const left = a[index]!;
-    const right = b[index]!;
-    if (
-      left.id !== right.id ||
-      left.status !== right.status ||
-      left.title !== right.title ||
-      left.projectId !== right.projectId ||
-      left.projectName !== right.projectName ||
-      left.botId !== right.botId ||
-      left.updatedAt !== right.updatedAt ||
-      left.todoProgress?.completed !== right.todoProgress?.completed ||
-      left.todoProgress?.total !== right.todoProgress?.total ||
-      left.goalLoopSummary?.status !== right.goalLoopSummary?.status ||
-      left.goalLoopSummary?.maxTurns !== right.goalLoopSummary?.maxTurns ||
-      left.goalLoopSummary?.turnCount !== right.goalLoopSummary?.turnCount
-    ) {
-      return false;
-    }
+    if (!sameTaskSummary(a[index]!, b[index]!)) return false;
   }
   return true;
+}
+
+/** Reuse unchanged task objects so memoized row details skip updates when one task changes. */
+export function stabilizeTaskList(current: TaskSummary[], next: TaskSummary[]): TaskSummary[] {
+  if (sameTaskList(current, next)) return current;
+  const currentById = new Map(current.map((task) => [task.id, task]));
+  return next.map((task) => {
+    const previous = currentById.get(task.id);
+    return previous && sameTaskSummary(previous, task) ? previous : task;
+  });
 }
 
 export function sameProjectList(a: ProjectDto[], b: ProjectDto[]): boolean {
@@ -990,10 +998,8 @@ const SidebarView = memo(function SidebarView({
     if (taskRes.status === "fulfilled") {
       const nextTasks = taskRes.value.tasks.filter((task) => task.status !== "archived");
       const nextArchivedTasks = taskRes.value.tasks.filter((task) => task.status === "archived");
-      setTasks((current) => (sameTaskList(current, nextTasks) ? current : nextTasks));
-      setArchivedTasks((current) =>
-        sameTaskList(current, nextArchivedTasks) ? current : nextArchivedTasks,
-      );
+      setTasks((current) => stabilizeTaskList(current, nextTasks));
+      setArchivedTasks((current) => stabilizeTaskList(current, nextArchivedTasks));
     }
     if (healthRes.status === "fulfilled") {
       setHealth((current) => (sameHealth(current, healthRes.value) ? current : healthRes.value));
