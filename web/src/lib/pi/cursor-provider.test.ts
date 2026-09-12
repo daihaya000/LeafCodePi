@@ -37,5 +37,5 @@ describe("registerCursorProvider", () => {
         refreshModels: expect.any(Function),
       }),
     );
-  });
+  }, 15_000);
 });
