@@ -200,10 +200,13 @@ export default function (pi: ExtensionAPI): void {
           content: TODO_GATE_MESSAGE,
           display: false,
         },
-        { triggerTurn: true, deliverAs: "followUp" },
+        // The gate must not start another turn from agent_settled.  Keep the
+        // reminder in the session so the next explicit prompt has the context,
+        // but require the user to resume the task manually.
+        { triggerTurn: false, deliverAs: "followUp" },
       );
       gate.reminderSent = true;
-      if (ctx.hasUI) ctx.ui.notify("ToDoを起票してから作業を再開します。", "warning");
+      if (ctx.hasUI) ctx.ui.notify("ToDoを起票してから作業を再開してください。", "warning");
     } catch (error) {
       console.error("Failed to enqueue the ToDo gate reminder:", error);
     }

@@ -218,7 +218,7 @@ describe("todowrite omission gate", () => {
     expect(run.callTool("write")?.block).toBe(true);
   });
 
-  it("sends one settled reminder and UI warning", () => {
+  it("records one settled reminder without auto-starting another turn", () => {
     const run = fixture({ hasUI: true });
     expect(run.callTool("edit")?.block).toBe(true);
 
@@ -228,7 +228,7 @@ describe("todowrite omission gate", () => {
     expect(run.sendMessage).toHaveBeenCalledTimes(1);
     expect(run.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ customType: "leafcode-todowrite-gate", display: false }),
-      { triggerTurn: true, deliverAs: "followUp" },
+      { triggerTurn: false, deliverAs: "followUp" },
     );
     expect(run.notify).toHaveBeenCalledOnce();
   });

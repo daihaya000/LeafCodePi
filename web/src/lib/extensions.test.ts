@@ -60,9 +60,10 @@ describe("filterExtensionsByState", () => {
     assert.deepEqual(filtered.map((entry) => entry.path), [join("C:", "pi", "extensions", "leafcode-goal-loop", "index.ts")]);
   });
 
-  it("drops retired shared modules like settle-followup-claim", () => {
+  it("drops retired extensions like commit-guard and settle-followup-claim", () => {
     const filtered = filterExtensionsByState(
       [
+        { path: join("C:", "pi", "extensions", "leafcode-commit-guard", "index.js") },
         { path: join("C:", "pi", "extensions", "settle-followup-claim.ts") },
         { path: join("C:", "pi", "extensions", "other.js") },
       ],
