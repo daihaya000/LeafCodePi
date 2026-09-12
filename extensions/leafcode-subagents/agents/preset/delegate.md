@@ -1,6 +1,6 @@
 ---
 name: delegate
-description: Lightweight subagent that inherits the parent model with no default reads
+description: 親モデルを継承する軽量な汎用サブエージェント。既定の読み込みなし。
 systemPromptMode: append
 inheritProjectContext: true
 tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, powershell, bash, edit, write, contact_supervisor, web_search, source_check, fetch_content, get_search_content, todowrite

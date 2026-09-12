@@ -1,6 +1,6 @@
 ---
 name: worker
-description: Implementation agent for normal tasks and approved oracle handoffs
+description: 通常タスクと承認済み引き継ぎの実装担当。
 aliases: developer, coder, implementer, develop
 thinking: high
 systemPromptMode: replace

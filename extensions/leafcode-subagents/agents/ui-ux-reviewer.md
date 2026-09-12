@@ -1,6 +1,6 @@
 ---
 name: ui-ux-reviewer
-description: Reviews implemented UI after substantial UI changes or before release. Use to verify DESIGN.md compliance, usability, responsive behavior, accessibility, and UI state coverage.
+description: 大幅なUI変更後やリリース前に実装済みUIを検証する。DESIGN.md準拠・使いやすさ・レスポンシブ・アクセシビリティ・UI状態網羅を確認する。
 tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, todowrite, intercom
 model: openai-codex/gpt-5.6-luna
 thinking: max

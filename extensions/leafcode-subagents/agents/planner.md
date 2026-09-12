@@ -1,6 +1,6 @@
 ---
 name: planner
-description: Read-only codebase analysis that produces an implementation plan before changes
+description: 変更前に実装計画を作る、読み取り専用のコードベース分析。
 aliases: plan
 tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, web_search, source_check, fetch_content, get_search_content, todowrite, intercom
 thinking: high

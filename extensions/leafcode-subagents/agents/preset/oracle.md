@@ -1,7 +1,7 @@
 ---
 name: oracle
 aliases: advisor
-description: High-context decision-consistency oracle that protects inherited state and prevents drift
+description: 判断の一貫性を守る高コンテキストな助言役。継承状態を保護しドリフトを防ぐ。
 tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, todowrite
 thinking: high
 systemPromptMode: replace

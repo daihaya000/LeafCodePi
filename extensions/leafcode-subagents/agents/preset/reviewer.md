@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Versatile review specialist for code diffs, plans, proposed solutions, codebase health, and PR/issue validation
+description: コード差分・計画・提案・コードベース健全性・PR/Issue検証の汎用レビュー担当。
 tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, web_search, source_check, fetch_content, get_search_content, todowrite
 thinking: high
 systemPromptMode: replace

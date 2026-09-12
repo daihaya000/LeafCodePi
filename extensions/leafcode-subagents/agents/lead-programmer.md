@@ -1,6 +1,6 @@
 ---
 name: lead-programmer
-description: "Lead programming subagent for multi-file implementation: features, refactors, and migrations spanning ~3+ files or crossing module boundaries, deep investigations on large codebases, and long implementation sessions (up to 1M token context; the only subagent that can re-delegate). Prefer this over programmer whenever changes need coordinated edits across several files or sub-delegation. Use programmer for small well-scoped tasks touching 1-2 files."
+description: "複数ファイル（約3件以上）にまたがる実装・リファクタ・移行を統括する。再委譲できる唯一のサブエージェント。1〜2ファイルの小規模作業は programmer を使う。"
 tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, powershell, bash, edit, write, subagent, todowrite, web_search, source_check, fetch_content, get_search_content, intercom
 model: openai-codex/gpt-5.6-luna
 thinking: max

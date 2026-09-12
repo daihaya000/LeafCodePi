@@ -1,6 +1,6 @@
 ---
 name: ui-ux-designer
-description: Designs UI/UX specifications before new screens, user flows, responsive behavior, or substantial UI changes. Use before implementation to define DESIGN.md-aligned requirements and acceptance criteria.
+description: 新規画面・フロー・レスポンシブ・大幅なUI変更の前にUI/UX仕様を策定する。実装前に要件と受け入れ条件を定義する。
 tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, web_search, source_check, fetch_content, get_search_content, todowrite, intercom
 model: openai-codex/gpt-5.6-luna
 thinking: max

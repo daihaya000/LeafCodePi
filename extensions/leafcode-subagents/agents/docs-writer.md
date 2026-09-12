@@ -1,6 +1,6 @@
 ---
 name: docs-writer
-description: "Writes and updates project documentation (README, API docs, guides, changelogs). Use when the task is documentation-only work with no code changes."
+description: "プロジェクト文書（README・API文書・ガイド・変更履歴）の作成・更新専用。コードは変更しない。"
 tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, powershell, edit, write, web_search, source_check, fetch_content, get_search_content, todowrite, intercom
 model: openai-codex/gpt-5.6-luna
 thinking: max
