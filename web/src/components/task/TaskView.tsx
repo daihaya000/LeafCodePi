@@ -452,7 +452,7 @@ function isGoalLoopTurnBoundary(messages: UiMessage[], index: number): boolean {
 }
 
 function GoalLoopTurnDivider({ turn }: { turn: GoalLoopTurn }) {
-  const title = `Goalターン ${turn.turn}`;
+  const title = `ループ ${turn.turn}`;
   const verification = turn.kind === "verification";
   return (
     <div

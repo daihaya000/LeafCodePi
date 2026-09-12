@@ -121,7 +121,7 @@ export function GoalLoopPanel({
           <span className="font-medium">ループ</span>
           <span
             className={cx("rounded-full px-2 py-0.5", badgeClass(loop.status))}
-            aria-label={`ループ状態: ${labels[loop.status]}、Goalターン ${shownTurn} / ${loop.maxTurns === 0 ? "無制限" : maxTurnsLabel}`}
+            aria-label={`ループ状態: ${labels[loop.status]}、ループ ${shownTurn} / ${loop.maxTurns === 0 ? "無制限" : maxTurnsLabel}`}
           >
             {labels[loop.status]} {shownTurn}/{maxTurnsLabel}
           </span>

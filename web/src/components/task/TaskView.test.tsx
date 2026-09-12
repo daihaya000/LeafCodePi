@@ -78,9 +78,9 @@ it("shows one Goal Loop turn divider per turn boundary", () => {
   });
   render(<TaskView taskId={task.id} mdUp />);
 
-  expect(screen.getByRole("separator", { name: "Goalターン 1" })).toBeTruthy();
-  expect(screen.getByRole("separator", { name: "Goalターン 1（完了検証）" })).toBeTruthy();
-  expect(screen.getByRole("separator", { name: "Goalターン 2" })).toBeTruthy();
+  expect(screen.getByRole("separator", { name: "ループ 1" })).toBeTruthy();
+  expect(screen.getByRole("separator", { name: "ループ 1（完了検証）" })).toBeTruthy();
+  expect(screen.getByRole("separator", { name: "ループ 2" })).toBeTruthy();
   expect(screen.getByText("検証")).toBeTruthy();
 });
 
@@ -261,8 +261,8 @@ it("splits tool groups at Goal Loop turn boundaries", () => {
   expect(groups).toHaveLength(2);
   expect(groups[0]!.querySelector("summary")?.textContent).toContain("2件");
   expect(groups[1]!.querySelector("summary")?.textContent).toContain("1件");
-  expect(screen.getByRole("separator", { name: "Goalターン 1" })).toBeTruthy();
-  expect(screen.getByRole("separator", { name: "Goalターン 2" })).toBeTruthy();
+  expect(screen.getByRole("separator", { name: "ループ 1" })).toBeTruthy();
+  expect(screen.getByRole("separator", { name: "ループ 2" })).toBeTruthy();
 });
 
 describe("TaskView draft submission", () => {
