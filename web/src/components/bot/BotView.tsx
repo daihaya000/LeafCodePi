@@ -2,7 +2,7 @@
 
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { X } from "lucide-react";
+import { Volume2, VolumeX, X } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getJson, sendJson } from "@/lib/client";
@@ -29,6 +29,7 @@ import { markRead } from "@/lib/bot-unread";
 import { decideNotification } from "@/lib/notify";
 import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
 import { messageRenderKey, stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
+import { readTaskTtsEnabled, speakText, writeTaskTtsEnabled } from "@/lib/tts-playback";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
 
 type BotMessageDisplayData = {
@@ -119,6 +120,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   const [profileName, setProfileName] = useState("");
   const [profileLabel, setProfileLabel] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [ttsEnabled, setTtsEnabled] = useState(false);
   const [codeAutoApprove, setCodeAutoApprove] = useState(true);
   const [permissionMode, setPermissionMode] = useState<NonNullable<BotDto["permissionMode"]>>("allow");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -192,7 +194,13 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     settingsOpenRef.current = saved;
     setSettingsOpen(saved);
     setCodePanelOpen(false);
+    setTtsEnabled(readTaskTtsEnabled(id));
   }, [id]);
+  const toggleTts = () => {
+    const next = !ttsEnabled;
+    setTtsEnabled(next);
+    writeTaskTtsEnabled(id, next);
+  };
   // Drop the previous bot's transcript/overlays immediately; SSE will refill for the new id.
   useEffect(() => {
     setMessages([]);
@@ -232,6 +240,15 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     // One notification per Bot replaces the previous one instead of stacking.
     if (kind && notificationsEnabled) new Notification(kind === "attention" ? "承認が必要です" : "新しい返信があります", { body: bot.name, tag: `bot-${id}` });
   }, [bot, id, notificationsEnabled, permission, question, sending]);
+  // 発言が完了した（working → idle）タイミングで、直前のBotの返信をこのタブでだけ読み上げる。
+  const prevTtsSendingRef = useRef(false);
+  useEffect(() => {
+    if (prevTtsSendingRef.current && !sending && ttsEnabled) {
+      const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+      if (lastAssistant) speakText(botMessageDisplayData(lastAssistant).text);
+    }
+    prevTtsSendingRef.current = sending;
+  }, [sending, ttsEnabled, messages]);
   const loadRoutines = useCallback((isCurrent: () => boolean = () => true) => getJson<{ routines: RoutineDto[] }>(`/api/bots/${encodeURIComponent(id)}/routines`)
     .then((result) => { if (isCurrent()) setRoutines(result.routines); })
     .catch((reason) => { if (isCurrent()) setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f"); }), [id]);
@@ -677,6 +694,19 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
         settingsOpen={settingsOpen}
         active={sending}
         onSettings={toggleSettings}
+        action={
+          <button
+            type="button"
+            role="switch"
+            aria-checked={ttsEnabled}
+            aria-label="読み上げ"
+            title={ttsEnabled ? "読み上げ: ON" : "読み上げ: OFF"}
+            onClick={toggleTts}
+            className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${ttsEnabled ? "text-accent" : "text-muted"} hover:bg-surface-2 hover:text-text`}
+          >
+            {ttsEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+          </button>
+        }
       />
 
 

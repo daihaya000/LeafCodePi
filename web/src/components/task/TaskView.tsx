@@ -16,6 +16,8 @@ import {
   RotateCcw,
   WandSparkles,
   Square,
+  Volume2,
+  VolumeX,
   X,
   Zap,
 } from "lucide-react";
@@ -183,6 +185,7 @@ import {
   playAttentionRequiredSound,
   playSessionCompleteSound,
 } from "@/lib/session-complete-sound";
+import { readTaskTtsEnabled, speakText, writeTaskTtsEnabled } from "@/lib/tts-playback";
 import {
   decideNotification,
   notificationText,
@@ -706,6 +709,13 @@ export const TaskView = memo(function TaskView({
 }) {
   const [cachedSession] = useState(() => loadTaskSessionCache(taskId));
   const [task, setTask] = useState<TaskDetail | null>(cachedSession);
+  const [ttsEnabled, setTtsEnabled] = useState(() => readTaskTtsEnabled(taskId));
+  useEffect(() => setTtsEnabled(readTaskTtsEnabled(taskId)), [taskId]);
+  const toggleTts = () => {
+    const next = !ttsEnabled;
+    setTtsEnabled(next);
+    writeTaskTtsEnabled(taskId, next);
+  };
   const { botFor } = useTaskPanes();
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
@@ -2354,6 +2364,18 @@ export const TaskView = memo(function TaskView({
     if (prevWorkingSoundRef.current && !working) playSessionCompleteSound();
     prevWorkingSoundRef.current = working;
   }, [working]);
+  // 発言完了（working → idle）タイミングで、直前の assistant メッセージだけ読み上げる。
+  const prevWorkingTtsRef = useRef(working);
+  useEffect(() => {
+    if (prevWorkingTtsRef.current && !working && ttsEnabled) {
+      const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+      if (lastAssistant) {
+        const text = lastAssistant.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
+        speakText(text);
+      }
+    }
+    prevWorkingTtsRef.current = working;
+  }, [working, ttsEnabled, messages]);
   // 注意音：承認 UI の立上がりエッジ。タブの可視状態に関係なく鳴らす。
   const prevAttentionSoundRef = useRef(false);
   useEffect(() => {
@@ -2765,6 +2787,17 @@ export const TaskView = memo(function TaskView({
             taskId={task?.id}
             onError={setError}
           />
+          <button
+            type="button"
+            role="switch"
+            aria-checked={ttsEnabled}
+            aria-label="読み上げ"
+            title={ttsEnabled ? "読み上げ: ON" : "読み上げ: OFF"}
+            onClick={toggleTts}
+            className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg @min-[48rem]/task:h-9 @min-[48rem]/task:w-9 ${ttsEnabled ? "text-accent" : "text-muted"} hover:bg-surface-2 hover:text-text`}
+          >
+            {ttsEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+          </button>
           <Button
             variant="ghost"
             size="icon"
