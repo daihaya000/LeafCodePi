@@ -12,7 +12,9 @@ import {
   parseReviewOperations,
   runDirectMemoryCompletion,
 } from "../../src/handlers/review-memory-ops.js";
+import { LOCK_DATABASE_FILE } from "../../src/constants.js";
 import { DatabaseManager } from "../../src/store/db.js";
+import { AtomicLockCoordinator } from "../../src/store/atomic-lock-coordinator.js";
 import { getMemories, reconcileMarkdownMemoryScope } from "../../src/store/sqlite-memory-store.js";
 
 function mockModel(reasoning: boolean): Model<Api> {
@@ -219,6 +221,14 @@ describe("applyReviewOperations", () => {
   });
 
   afterEach(async () => {
+    for (const directory of [
+      tmpDir,
+      path.join(tmpDir, "global"),
+      path.join(tmpDir, "project"),
+      path.join(tmpDir, "db"),
+    ]) {
+      AtomicLockCoordinator.shared(path.join(directory, LOCK_DATABASE_FILE)).close();
+    }
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
