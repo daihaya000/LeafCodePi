@@ -51,6 +51,18 @@ describe("task history pagination", () => {
     expect(merged[1]?.parts[0]).toMatchObject({ text: "updated" });
   });
 
+  it("replaces a streamed row when the snapshot assigns its persisted id", () => {
+    const streamed: UiMessage = {
+      id: "msg-3",
+      role: "assistant",
+      createdAt: 2,
+      parts: [{ id: "msg-3-text", type: "text", text: "reply" }],
+    };
+    const persisted = { ...streamed, id: "entry-42" };
+
+    expect(mergeNewerTaskMessages([streamed], [persisted])).toEqual([persisted]);
+  });
+
   it("prepends an older page and deduplicates its boundary", () => {
     const current = [message("m3"), message("m4")];
     const merged = prependOlderTaskMessages(current, [message("m1"), message("m2"), message("m3")]);
