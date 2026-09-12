@@ -19,6 +19,7 @@ import {
   waitForSessionStreaming,
   cancelPendingTaskSnapshot,
   resolveSummaryStatus,
+  runtimeClockContext,
 } from "./harness";
 import type { ThroughputTiming } from "@/lib/token-throughput";
 import type { UiMessage } from "@/lib/types";
@@ -110,6 +111,18 @@ describe("applySubagentPermission", () => {
     const s = mockSession(["read", "bash"]);
     applySubagentPermission(s as never, "deny");
     assert.deepEqual(s.names(), ["read", "bash"]);
+  });
+});
+
+describe("runtimeClockContext", () => {
+  it("renders the host clock for the selected timezone and marks it authoritative", () => {
+    const context = runtimeClockContext(
+      new Date("2026-09-12T19:51:50.011Z"),
+      "Asia/Tokyo",
+    );
+    assert.match(context, /Host clock .*2026-09-13 04:51:50 \(Asia\/Tokyo\)/);
+    assert.match(context, /UTC: 2026-09-12T19:51:50\.011Z/);
+    assert.match(context, /instead of model memory or web search/);
   });
 });
 

@@ -2107,6 +2107,26 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
   };
 }
 
+/** Runtime-generated clock context shared by Bot and Code sessions. */
+export function runtimeClockContext(
+  now = new Date(),
+  timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+): string {
+  const local = new Intl.DateTimeFormat("sv-SE", {
+    dateStyle: "short",
+    timeStyle: "medium",
+    hourCycle: "h23",
+    timeZone,
+  }).format(now);
+  return [
+    "<leafcode_clock>",
+    `Host clock (authoritative for \"now\"): ${local} (${timeZone}).`,
+    `UTC: ${now.toISOString()}.`,
+    "For current or relative dates, use this runtime-generated timestamp instead of model memory or web search.",
+    "</leafcode_clock>",
+  ].join("\n");
+}
+
 export function isOneToOneBotTask(
   task: Pick<TaskSummary, "id" | "kind" | "botId"> | null | undefined,
 ): boolean {
@@ -2261,6 +2281,11 @@ async function createSession(options: {
     additionalExtensionPaths: bundled.map((entry) => entry.filePath),
     additionalSkillPaths: bundledSkills,
     extensionFactories: [
+      (api: ExtensionAPI) => {
+        api.on("before_agent_start", (event) => ({
+          systemPrompt: `${event.systemPrompt}\n\n${runtimeClockContext()}`,
+        }));
+      },
       botToolAllowlist
         ? (api: ExtensionAPI) => registerDeferredTools(api, botToolAllowlist)
         : registerDeferredTools,

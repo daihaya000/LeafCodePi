@@ -10,6 +10,8 @@ const fakePi = vi.hoisted(() => {
     type: string;
     willRetry?: boolean;
     messages?: unknown[];
+    prompt?: string;
+    systemPrompt?: string;
   };
   type FakeExtensionHandler = (event: unknown, ctx: Record<string, unknown>) => unknown;
   type FakeExtensionApi = {
@@ -25,6 +27,7 @@ const fakePi = vi.hoisted(() => {
     accountId: string | null;
     file: string;
     prompts: string[];
+    systemPrompts: string[];
     events: string[];
     reloads: number;
     disposed: boolean;
@@ -94,6 +97,7 @@ const fakePi = vi.hoisted(() => {
         accountId: string | null;
         file: string;
         prompts: string[];
+        systemPrompts: string[];
         events: string[];
         reloads: number;
         disposed: boolean;
@@ -106,6 +110,7 @@ const fakePi = vi.hoisted(() => {
         accountId: options.modelRuntime?.accountId ?? null,
         file: manager.__file,
         prompts: [] as string[],
+        systemPrompts: [] as string[],
         events: [] as string[],
         reloads: 0,
         disposed: false,
@@ -189,6 +194,21 @@ const fakePi = vi.hoisted(() => {
           session.thinkingLevel = level;
         },
         prompt: async (text: string) => {
+          let systemPrompt = "base system prompt";
+          for (const handler of extensionHandlers.get("before_agent_start") ?? []) {
+            const result = await handler(
+              { type: "before_agent_start", prompt: text, systemPrompt },
+              extensionContext,
+            );
+            if (
+              result &&
+              typeof result === "object" &&
+              typeof (result as { systemPrompt?: unknown }).systemPrompt === "string"
+            ) {
+              systemPrompt = (result as { systemPrompt: string }).systemPrompt;
+            }
+          }
+          entry.systemPrompts.push(systemPrompt);
           entry.events.push("prompt");
           streaming = true;
           emit({ type: "agent_start" });
@@ -222,7 +242,7 @@ import {
 } from "@/lib/accounts";
 import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
-import { createBot } from "@/lib/bots";
+import { botTaskId, createBot } from "@/lib/bots";
 import { patchTask, upsertProject, getTask } from "@/lib/store";
 import type { ThinkingLevel } from "@/lib/types";
 import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
@@ -350,6 +370,25 @@ describe("mergeBundledSkills", () => {
 });
 
 describe("integrated session routing", () => {
+  it("injects the runtime clock into both Code and Bot turns", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-runtime-clock-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const codeTask = await createTask({ projectId: null, prompt: "Codeの現在日時" });
+    await waitFor(() => getTask(codeTask.id)?.status === "idle");
+    const bot = createBot({ name: "時計確認Bot" });
+    await promptTask(botTaskId(bot.id), "Botの現在日時", undefined, {
+      waitForCompletion: true,
+    });
+
+    expect(fakePi.sessions[0]?.systemPrompts[0]).toContain("<leafcode_clock>");
+    expect(fakePi.sessions[1]?.systemPrompts[0]).toContain("<leafcode_clock>");
+  });
+
   it("uses persisted Auto settings when resolving the Auto task sentinel", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-auto-settings-"));
     tempDirs.push(dir);
