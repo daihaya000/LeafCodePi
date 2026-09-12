@@ -2,7 +2,7 @@
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
-const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), markRead: vi.fn(), reportStatus: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), markRead: vi.fn(), reportStatus: vi.fn(), apiUrl: (path: string) => path }));
 vi.mock("@/components/shell/TaskPanesContext", () => ({ useTaskPanes: () => ({ reportStatus: mocks.reportStatus }) }));
 vi.mock("@/lib/bot-unread", () => ({ markRead: mocks.markRead }));
 vi.mock("@/lib/client", () => mocks);
@@ -233,6 +233,33 @@ it("reports streaming activity for the Bot tab even when hidden", async () => {
   expect(mocks.reportStatus).toHaveBeenLastCalledWith("/bots/one", "working");
   snapshot({ isStreaming: false });
   expect(mocks.reportStatus).toHaveBeenLastCalledWith("/bots/one", "idle");
+});
+
+it("reads the new reply when idle arrives before the final message snapshot", async () => {
+  const ttsFetch = vi.fn(async () => new Response(Buffer.from([1, 2, 3]), { status: 200 }));
+  const play = vi.fn(async () => undefined);
+  vi.stubGlobal("fetch", ttsFetch);
+  vi.stubGlobal("Audio", class {
+    onended: (() => void) | null = null;
+    playbackRate = 1;
+    volume = 1;
+    play = play;
+    pause = vi.fn();
+  });
+  localStorage.setItem("webui:tts-enabled:one", "1");
+  const oldReply = { id: "assistant-old", role: "assistant" as const, createdAt: 1, parts: [{ type: "text" as const, text: "古い返信" }] };
+  const newReply = { id: "assistant-new", role: "assistant" as const, createdAt: 2, parts: [{ type: "text" as const, text: "新しい返信" }] };
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({ messages: [oldReply], isStreaming: false });
+  snapshot({ isStreaming: true });
+  snapshot({ isStreaming: false });
+  expect(ttsFetch).not.toHaveBeenCalled();
+  snapshot({ messages: [oldReply, newReply], isStreaming: false });
+  await waitFor(() => expect(ttsFetch).toHaveBeenCalledTimes(1));
+  const [, init] = ttsFetch.mock.calls[0] as unknown as [string, RequestInit];
+  expect(JSON.parse(String(init.body))).toEqual({ text: "新しい返信" });
+  expect(play).toHaveBeenCalledTimes(1);
 });
 
 it("renders bot empty-state copy instead of literal Unicode escapes", async () => {

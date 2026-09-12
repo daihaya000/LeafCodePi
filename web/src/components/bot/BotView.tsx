@@ -245,20 +245,36 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     if (kind && notificationsEnabled) new Notification(kind === "attention" ? "承認が必要です" : "新しい返信があります", { body: bot.name, tag: `bot-${id}` });
   }, [bot, id, notificationsEnabled, permission, question, sending]);
   // 発言が完了した（working → idle）タイミングで、直前のBotの返信をこのタブでだけ読み上げる。
-  // 非表示タブ（裏のペイン等）は喋らない。
+  // 非表示タブ（裏のペイン等）は喋らない。完了通知が履歴更新より先に届いても待つ。
   const prevTtsSendingRef = useRef(false);
+  const ttsBaselineAssistantIdRef = useRef<string | null>(null);
+  const ttsPendingRef = useRef(false);
+  const ttsBotIdRef = useRef(id);
   useEffect(() => {
-    if (prevTtsSendingRef.current && !sending && ttsEnabled && active) {
-      const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
-      if (lastAssistant) {
-        speakText(botMessageDisplayData(lastAssistant).text, {
-          onError: setTtsError,
-          onPlayed: () => setTtsError(null),
-        });
-      }
+    if (ttsBotIdRef.current !== id) {
+      ttsBotIdRef.current = id;
+      prevTtsSendingRef.current = sending;
+      ttsBaselineAssistantIdRef.current = null;
+      ttsPendingRef.current = false;
+      return;
+    }
+    const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+    if (!prevTtsSendingRef.current && sending) {
+      ttsBaselineAssistantIdRef.current = lastAssistant?.id ?? null;
+      ttsPendingRef.current = false;
+    } else if (prevTtsSendingRef.current && !sending) {
+      ttsPendingRef.current = Boolean(ttsEnabled && active);
+    }
+    if (!ttsEnabled || !active) ttsPendingRef.current = false;
+    if (!sending && ttsPendingRef.current && lastAssistant && lastAssistant.id !== ttsBaselineAssistantIdRef.current) {
+      ttsPendingRef.current = false;
+      speakText(botMessageDisplayData(lastAssistant).text, {
+        onError: setTtsError,
+        onPlayed: () => setTtsError(null),
+      });
     }
     prevTtsSendingRef.current = sending;
-  }, [active, sending, ttsEnabled, messages]);
+  }, [active, id, sending, ttsEnabled, messages]);
   const loadRoutines = useCallback((isCurrent: () => boolean = () => true) => getJson<{ routines: RoutineDto[] }>(`/api/bots/${encodeURIComponent(id)}/routines`)
     .then((result) => { if (isCurrent()) setRoutines(result.routines); })
     .catch((reason) => { if (isCurrent()) setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f"); }), [id]);

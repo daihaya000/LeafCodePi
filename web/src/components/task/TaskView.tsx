@@ -2372,18 +2372,34 @@ export const TaskView = memo(function TaskView({
     prevWorkingSoundRef.current = working;
   }, [working]);
   // 発言完了（working → idle）タイミングで、直前の assistant メッセージだけ読み上げる。
-  // 非表示ペイン（裏タブ等）は喋らない。
+  // 非表示ペイン（裏タブ等）は喋らない。完了通知が履歴更新より先に届いても待つ。
   const prevWorkingTtsRef = useRef(working);
+  const ttsBaselineAssistantIdRef = useRef<string | null>(null);
+  const ttsPendingRef = useRef(false);
+  const ttsTaskIdRef = useRef(taskId);
   useEffect(() => {
-    if (prevWorkingTtsRef.current && !working && ttsEnabled && active) {
-      const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
-      if (lastAssistant) {
-        const text = lastAssistant.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
-        speakText(text, { onError: setTtsError, onPlayed: () => setTtsError(null) });
-      }
+    if (ttsTaskIdRef.current !== taskId) {
+      ttsTaskIdRef.current = taskId;
+      prevWorkingTtsRef.current = working;
+      ttsBaselineAssistantIdRef.current = null;
+      ttsPendingRef.current = false;
+      return;
+    }
+    const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+    if (!prevWorkingTtsRef.current && working) {
+      ttsBaselineAssistantIdRef.current = lastAssistant?.id ?? null;
+      ttsPendingRef.current = false;
+    } else if (prevWorkingTtsRef.current && !working) {
+      ttsPendingRef.current = Boolean(ttsEnabled && active);
+    }
+    if (!ttsEnabled || !active) ttsPendingRef.current = false;
+    if (!working && ttsPendingRef.current && lastAssistant && lastAssistant.id !== ttsBaselineAssistantIdRef.current) {
+      ttsPendingRef.current = false;
+      const text = lastAssistant.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
+      speakText(text, { onError: setTtsError, onPlayed: () => setTtsError(null) });
     }
     prevWorkingTtsRef.current = working;
-  }, [active, working, ttsEnabled, messages]);
+  }, [active, taskId, working, ttsEnabled, messages]);
   // 注意音：承認 UI の立上がりエッジ。タブの可視状態に関係なく鳴らす。
   const prevAttentionSoundRef = useRef(false);
   useEffect(() => {
