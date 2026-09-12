@@ -314,6 +314,10 @@ function hasCompletedTitleTurn(messages: UiMessage[]): boolean {
  * 表示影響フィールドの比較で安定化する。contextUsage / goalLoop / todos は
  * サーバー側キャッシュにより不変時は同一参照になるため参照比較で済む。
  */
+type TaskDetailWithCompactionSuggestion = TaskDetail & {
+  compactionSuggested?: boolean;
+};
+
 function sameTaskDetail(a: TaskDetail | null, b: TaskDetail): boolean {
   if (!a) return false;
   return (
@@ -333,6 +337,8 @@ function sameTaskDetail(a: TaskDetail | null, b: TaskDetail): boolean {
     a.isStreaming === b.isStreaming &&
     a.isCompacting === b.isCompacting &&
     a.contextUsage === b.contextUsage &&
+    (a as TaskDetailWithCompactionSuggestion).compactionSuggested ===
+      (b as TaskDetailWithCompactionSuggestion).compactionSuggested &&
     a.goalLoop === b.goalLoop &&
     a.todos === b.todos &&
     a.permissionRequest?.id === b.permissionRequest?.id &&
@@ -756,6 +762,9 @@ export const TaskView = memo(function TaskView({
   const [contextUsage, setContextUsage] = useState<ContextUsageDto | undefined>(
     () => cachedSession?.contextUsage,
   );
+  const [compactionSuggested, setCompactionSuggested] = useState(
+    () => Boolean((cachedSession as TaskDetailWithCompactionSuggestion | null)?.compactionSuggested),
+  );
   const [isCompacting, setIsCompacting] = useState(Boolean(cachedSession?.isCompacting));
   const [compactingLocal, setCompactingLocal] = useState(false);
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
@@ -1080,6 +1089,7 @@ export const TaskView = memo(function TaskView({
     setTask(detail);
     setMessages((prev) => stabilizeUiMessages(prev, detail.messages));
     setContextUsage(detail.contextUsage);
+    setCompactionSuggested(Boolean((detail as TaskDetailWithCompactionSuggestion).compactionSuggested));
     setIsCompacting(Boolean(detail.isCompacting));
     setSessionHydrating(false);
     setPermissionRequest(detail.permissionRequest ?? null);
@@ -1187,6 +1197,7 @@ export const TaskView = memo(function TaskView({
           questionRequest?: QuestionRequestDto | null;
           eventType?: string;
           messagesReused?: boolean;
+          compactionSuggested?: boolean;
         };
         try {
           payload = JSON.parse(rawData) as typeof payload;
@@ -1195,6 +1206,11 @@ export const TaskView = memo(function TaskView({
           return;
         }
         const snapshotTask = payload.task;
+        const snapshotTaskWithSuggestion = snapshotTask as
+          | (TaskSummary & { compactionSuggested?: boolean })
+          | undefined;
+        const suggestedFromSnapshot =
+          payload.compactionSuggested ?? snapshotTaskWithSuggestion?.compactionSuggested;
         const isBootstrap = payload.eventType === "bootstrap";
         if (TASK_PERF_ENABLED && perf) {
           const at = taskPerfNow();
@@ -1208,7 +1224,10 @@ export const TaskView = memo(function TaskView({
         }
         // Bootstrap marks a new hydration epoch. Set this urgently so a
         // reconnect cannot clear its gate and auto-resume cached state first.
-        if (isBootstrap) setSessionHydrating(true);
+        if (isBootstrap) {
+          setSessionHydrating(true);
+          setCompactionSuggested(false);
+        }
         startTransition(() => {
           if (!isBootstrap) setSessionHydrating(false);
           if (snapshotTask) {
@@ -1257,6 +1276,12 @@ export const TaskView = memo(function TaskView({
             );
           }
           if ("isCompacting" in payload) setIsCompacting(Boolean(payload.isCompacting));
+          if (
+            payload.compactionSuggested !== undefined ||
+            snapshotTaskWithSuggestion?.compactionSuggested !== undefined
+          ) {
+            setCompactionSuggested(Boolean(suggestedFromSnapshot));
+          }
           if ("manualAbortedAssistantId" in payload) {
             setManualAbortedAssistantId(payload.manualAbortedAssistantId ?? null);
           }
@@ -1338,7 +1363,8 @@ export const TaskView = memo(function TaskView({
             payload.task ||
             "isStreaming" in payload ||
             "isCompacting" in payload ||
-            "contextUsage" in payload
+            "contextUsage" in payload ||
+            "compactionSuggested" in payload
           ) {
             setTask((current) => {
               const next = mergeTaskDelta(current, payload);
@@ -1355,6 +1381,9 @@ export const TaskView = memo(function TaskView({
             );
           }
           if ("isCompacting" in payload) setIsCompacting(Boolean(payload.isCompacting));
+          if ("compactionSuggested" in payload) {
+            setCompactionSuggested(Boolean(payload.compactionSuggested));
+          }
         });
         notifySidebarIfNeeded(payload.task);
         if (payload.task?.status) onStatusRef.current?.(taskId, payload.task.status);
@@ -1506,6 +1535,7 @@ export const TaskView = memo(function TaskView({
     setTask(cached);
     setMessages(cached?.messages ?? []);
     setContextUsage(cached?.contextUsage);
+    setCompactionSuggested(Boolean((cached as TaskDetailWithCompactionSuggestion | null)?.compactionSuggested));
     setIsCompacting(Boolean(cached?.isCompacting));
     setCompactingLocal(false);
     setWorktreeStatus(null);
@@ -3190,6 +3220,23 @@ export const TaskView = memo(function TaskView({
         "shrink-0 bg-bot-chat px-3 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-4",
         mobilePanelOpen && "hidden",
       )}>
+        {compactionSuggested && !working && !compacting && !archived && (
+          <div role="status" aria-live="polite" className="mx-auto mb-2 max-w-5xl">
+            <TurnNoticeBanner
+              message="コンテキスト使用率が閾値に達しました。圧縮をおすすめします。"
+              action={
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => void compact()}
+                >
+                  今すぐ圧縮
+                </Button>
+              }
+              tone="neutral"
+            />
+          </div>
+        )}
         {permissionRequest && (
           <div
             role="alertdialog"

@@ -297,6 +297,45 @@ describe("TaskView draft submission", () => {
     ));
   });
 
+  it("shows and applies a context compaction suggestion", async () => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource | null = null;
+      constructor() {
+        super();
+        TestEventSource.latest = this;
+      }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    mocks.sendJson.mockResolvedValue({
+      task: { ...task, messages: [], isStreaming: false, isCompacting: false },
+    });
+    render(<TaskView taskId={task.id} mdUp />);
+    const source = TestEventSource.latest;
+    if (!source) throw new Error("EventSource was not created");
+
+    await act(async () => {
+      source.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "ready",
+          task: { ...task, sessionId: "session-1", status: "idle" },
+          messages: [],
+          isStreaming: false,
+          isCompacting: false,
+          contextUsage: { tokens: 90, contextWindow: 100, percent: 90 },
+          compactionSuggested: true,
+        }),
+      }));
+    });
+
+    expect(await screen.findByText("コンテキスト使用率が閾値に達しました。圧縮をおすすめします。"))
+      .toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "今すぐ圧縮" }));
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      `/api/tasks/${task.id}/compact`, {}, "POST", { timeoutMs: 240_000 },
+    ));
+  });
+
   it("shows token statistics in the lower status row when the task pane has room", () => {
     saveTaskSessionCache({
       task,
