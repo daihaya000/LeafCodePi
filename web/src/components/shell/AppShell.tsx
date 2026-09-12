@@ -10,7 +10,7 @@ import { writeSkillPermission } from "@/lib/skill-permission";
 import { writeSubagentPermission } from "@/lib/subagent-permission";
 import { Sidebar } from "./Sidebar";
 import { ShellProvider, useShellMobileNav } from "./ShellContext";
-import { TaskPanesProvider, useTaskPanes } from "./TaskPanesContext";
+import { TaskPanesProvider, useTaskPanesNavigation } from "./TaskPanesContext";
 import { TaskPanesHost } from "@/components/task/TaskPanesHost";
 import { cx } from "@/components/ui";
 import { isBotTabId, isSplitHostPath } from "@/lib/task-panes";
@@ -45,7 +45,7 @@ function AppShellContent({
   closeMobileNav: () => void;
 }) {
   const pathname = usePathname();
-  const { mdUp } = useTaskPanes();
+  const { mdUp } = useTaskPanesNavigation();
   const splitHomeOwnsContent = pathname === "/" && mdUp;
   return (
     <>

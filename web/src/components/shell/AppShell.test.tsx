@@ -16,7 +16,7 @@ vi.mock("./ShellContext", () => ({
 }));
 vi.mock("./TaskPanesContext", () => ({
   TaskPanesProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
-  useTaskPanes: mocks.useTaskPanes,
+  useTaskPanesNavigation: mocks.useTaskPanes,
 }));
 vi.mock("@/components/task/TaskPanesHost", () => ({
   TaskPanesHost: () => <div data-testid="task-panes" />,
