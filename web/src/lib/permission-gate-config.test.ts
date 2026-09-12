@@ -61,8 +61,8 @@ describe("permission-gate-config", () => {
 
   it("reads and writes system safety levels independently of permission mode", () => {
     withTempDataDir(() => {
-      assert.equal(readSystemSafetyLevel(), "standard");
-      assert.equal(readSystemSafetyEnabled(), true);
+      assert.equal(readSystemSafetyLevel(), "off");
+      assert.equal(readSystemSafetyEnabled(), false);
       writePermissionGateConfig("deny");
       assert.equal(writeSystemSafetyLevel("low"), "low");
       assert.equal(readSystemSafetyLevel(), "low");

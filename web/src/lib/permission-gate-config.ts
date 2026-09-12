@@ -138,6 +138,7 @@ export function writeSystemSafetyLevel(level: SystemSafetyLevel): SystemSafetyLe
 
 /** Persist system-safety toggle without changing permission modes. */
 export function writeSystemSafetyEnabled(enabled: boolean): boolean {
-  writeSystemSafetyLevel(enabled ? DEFAULT_SYSTEM_SAFETY_LEVEL : "off");
+  // Legacy boolean `true` means the enabled baseline, not the current missing-config default.
+  writeSystemSafetyLevel(enabled ? "standard" : "off");
   return enabled;
 }
