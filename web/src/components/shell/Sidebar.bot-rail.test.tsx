@@ -59,7 +59,7 @@ beforeEach(() => {
   mocks.getJson.mockReset().mockImplementation((path: string) => {
     if (path === "/api/bots/sidebar") {
       return Promise.resolve({
-        bots: [{ id: "bot-a", name: "Bot A", enabled: true, lastMessageSummary: null, lastMessageAt: null }],
+        bots: [{ id: "bot-a", name: "Bot A", label: "デバッガー", enabled: true, lastMessageSummary: null, lastMessageAt: null }],
         rooms: [{ id: "room-a", name: "Room A", updatedAt: "", lastMessageSummary: null, lastMessageAt: null }],
       });
     }
@@ -116,6 +116,15 @@ describe("Bot mode list", () => {
     expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/bots")).toHaveLength(0);
     const botRead = mocks.getJson.mock.calls.find(([path]) => path === "/api/bots/sidebar");
     expect(botRead?.[1]).toBeUndefined();
+  });
+
+  it("shows a Bot label beside its name", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    const label = await screen.findByText("デバッガー");
+    expect(label.getAttribute("title")).toBe("デバッガー");
+    expect(label.className).toContain("rounded-md");
   });
 
   it("splits active Bot views from the working-task button", async () => {
