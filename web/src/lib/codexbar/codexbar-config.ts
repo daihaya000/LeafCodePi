@@ -7,6 +7,9 @@ import { join } from "node:path";
 import { atomicWriteText } from "@/lib/codexbar/utils";
 import { codexBarConfigDir } from "@/lib/codexbar/netscape-cookies";
 
+export const DEFAULT_CODEX_RESET_AUTO_CONSUME_WINDOW_HOURS = 24;
+export const MAX_CODEX_RESET_AUTO_CONSUME_WINDOW_HOURS = 7 * 24;
+
 export type CodexBarConfig = Record<string, unknown> & {
   /** Which native providers CodexBar should fetch/display. */
   enabledProviders?: string[];
@@ -18,7 +21,7 @@ export type CodexBarConfig = Record<string, unknown> & {
   syntheticApiKey?: string | null;
   openRouterApiKey?: string | null;
   commandCodeApiKey?: string | null;
-  /** Auto-redeem Codex reset credits before they expire (default: true). */
+  /** Auto-redeem Codex reset credits before they expire (default: false). */
   codexResetAutoConsume?: boolean;
   /** Hours before expiry that count as "about to expire" (default: 24). */
   codexResetAutoConsumeWindowHours?: number;
@@ -52,6 +55,29 @@ export function updateCodexBarConfig(
   const next: CodexBarConfig = { ...current, ...patch };
   atomicWriteText(codexBarConfigPath(), `${JSON.stringify(next, null, 2)}\n`);
   return next;
+}
+
+/**
+ * Resolve the automatic reset window. Returns null unless auto-redeem is
+ * explicitly enabled and the configured window is finite and bounded.
+ */
+export function codexResetAutoConsumeWindowMs(
+  config: CodexBarConfig,
+): number | null {
+  if (config.codexResetAutoConsume !== true) return null;
+  const rawHours = config.codexResetAutoConsumeWindowHours;
+  const hours =
+    rawHours === undefined
+      ? DEFAULT_CODEX_RESET_AUTO_CONSUME_WINDOW_HOURS
+      : typeof rawHours === "number" &&
+          Number.isFinite(rawHours) &&
+          rawHours > 0 &&
+          rawHours <= MAX_CODEX_RESET_AUTO_CONSUME_WINDOW_HOURS
+        ? rawHours
+        : null;
+  if (hours === null) return null;
+  const windowMs = hours * 60 * 60 * 1000;
+  return Number.isFinite(windowMs) ? windowMs : null;
 }
 
 export function readConfigString(

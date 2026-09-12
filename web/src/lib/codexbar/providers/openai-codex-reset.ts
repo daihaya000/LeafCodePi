@@ -142,16 +142,17 @@ export function parseCodexResetConsumeJson(
   } catch {
     root = null;
   }
+  const successStatus = httpStatus >= 200 && httpStatus < 300;
   const code =
     root && typeof root.code === "string"
       ? root.code
-      : httpStatus >= 200 && httpStatus < 300
+      : successStatus
         ? "reset"
         : `http_${httpStatus}`;
   const credit = root ? asRecord(root.credit) : null;
   const windowsReset = root ? flexibleNumber(root.windows_reset) : null;
   return {
-    ok: code === "reset" || code === "already_redeemed",
+    ok: successStatus && (code === "reset" || code === "already_redeemed"),
     code,
     status: httpStatus,
     windowsReset: windowsReset !== null ? Math.trunc(windowsReset) : null,
@@ -197,43 +198,55 @@ export type AutoConsumeExpiringResult = {
   codes: CodexResetConsumeCode[];
 };
 
+function parseAbsoluteExpiry(value: string | null): number | null {
+  // A timezone is mandatory; interpreting a server timestamp in local time can
+  // move a credit across the auto-redeem boundary.
+  if (!value || !/(?:Z|[+-]\d{2}:?\d{2})$/.test(value)) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 /**
- * Redeem available credits that would expire within `windowMs` (earliest expiry
- * first). Deterministic redeem_request_id (`auto-<creditId>`) makes retries safe
- * via `already_redeemed`. Stops at `nothing_to_reset`/`no_credit` since further
- * consumes cannot succeed.
+ * Redeem the earliest available credit that would expire within `windowMs`.
+ * Automatic redemption is deliberately capped at one credit per check. The
+ * deterministic redeem_request_id makes retries safe via `already_redeemed`.
  */
 export async function autoConsumeExpiringResetCredits(
   credentials: CodexWhamCredentials,
   options: { windowMs: number; now?: number; signal?: AbortSignal },
 ): Promise<AutoConsumeExpiringResult> {
   const now = options.now ?? Date.now();
+  if (!Number.isFinite(now) || !Number.isFinite(options.windowMs) || options.windowMs < 0) {
+    return { expiring: 0, consumed: 0, codes: [] };
+  }
+
   const list = await listCodexResetCredits(credentials, options.signal);
+  const seen = new Set<string>();
   const expiring = list.credits.filter((credit) => {
-    if (!credit.expiresAt) return false;
-    const expiresMs = Date.parse(credit.expiresAt);
+    if (credit.status !== "available" || seen.has(credit.id)) return false;
+    seen.add(credit.id);
+    const expiresMs = parseAbsoluteExpiry(credit.expiresAt);
     return (
-      Number.isFinite(expiresMs) &&
+      expiresMs !== null &&
       expiresMs >= now &&
       expiresMs - now <= options.windowMs
     );
   });
-  const codes: CodexResetConsumeCode[] = [];
-  let consumed = 0;
-  for (const credit of expiring) {
-    const result = await consumeCodexResetCredit(credentials, {
-      creditId: credit.id,
-      redeemRequestId: `auto-${credit.id}`,
-      signal: options.signal,
-    });
-    codes.push(result.code);
-    if (result.ok) {
-      consumed += 1;
-      continue;
-    }
-    break;
-  }
-  return { expiring: expiring.length, consumed, codes };
+  const credit = expiring[0];
+  if (!credit) return { expiring: 0, consumed: 0, codes: [] };
+
+  const result = await consumeCodexResetCredit(credentials, {
+    creditId: credit.id,
+    redeemRequestId: `auto-${credit.id}`,
+    signal: options.signal,
+  });
+  const redeemedRequestedCredit =
+    result.ok && (result.creditId === null || result.creditId === credit.id);
+  return {
+    expiring: expiring.length,
+    consumed: redeemedRequestedCredit ? 1 : 0,
+    codes: [result.code],
+  };
 }
 
 export function describeResetConsumeCode(code: CodexResetConsumeCode): string {

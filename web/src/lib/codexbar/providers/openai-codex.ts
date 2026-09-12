@@ -26,7 +26,7 @@ import {
   readPiOAuthTokens,
   writeBackPiOAuthTokens,
 } from "@/lib/codexbar/pi-auth";
-import { loadCodexBarConfig } from "@/lib/codexbar/codexbar-config";
+import { codexResetAutoConsumeWindowMs, loadCodexBarConfig } from "@/lib/codexbar/codexbar-config";
 import {
   autoConsumeExpiringResetCredits,
 } from "@/lib/codexbar/providers/openai-codex-reset";
@@ -35,7 +35,6 @@ const USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const TOKEN_URL = "https://auth.openai.com/oauth/token";
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTO_RESET_CHECK_INTERVAL_MS = 60 * 60 * 1000;
-const DEFAULT_AUTO_RESET_WINDOW_HOURS = 24;
 const lastAutoResetCheckAt = new Map<string, number>();
 
 type CodexAuth = {
@@ -444,18 +443,8 @@ async function maybeAutoConsumeResetCredits(
   const available = snapshot.rateLimitResetCreditsAvailable;
   if (available === null || available <= 0) return snapshot;
 
-  const config = loadCodexBarConfig();
-  if (config.codexResetAutoConsume === false) return snapshot;
-
-  const rawHours = config.codexResetAutoConsumeWindowHours;
-  const windowHours =
-    typeof rawHours === "number" &&
-    Number.isFinite(rawHours) &&
-    rawHours > 0
-      ? rawHours
-      : DEFAULT_AUTO_RESET_WINDOW_HOURS;
-  const windowMs = windowHours * 60 * 60 * 1000;
-  if (!Number.isFinite(windowMs)) return snapshot;
+  const windowMs = codexResetAutoConsumeWindowMs(loadCodexBarConfig());
+  if (windowMs === null) return snapshot;
 
   const key = autoResetInstanceId(scope);
   const now = Date.now();
