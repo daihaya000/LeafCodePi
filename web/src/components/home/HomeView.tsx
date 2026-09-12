@@ -202,7 +202,9 @@ export const HomeView = memo(function HomeView({
         return projectRes.value.projects[0]?.id ?? null;
       });
     }
-    if (healthRes.status === "fulfilled") setHealth(healthRes.value);
+    if (healthRes.status === "fulfilled") {
+      setHealth((current) => current?.engineOk === healthRes.value.engineOk ? current : healthRes.value);
+    }
     if (agentRes.status === "fulfilled") {
       const enabledAgents = agentRes.value.agents
         .filter((a) => a.enabled)
