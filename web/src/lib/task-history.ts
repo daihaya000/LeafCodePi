@@ -1,5 +1,5 @@
 import type { TaskMessageHistory, UiMessage } from "./types";
-import { messageRenderKey, stabilizeUiMessages } from "./stabilize-messages";
+import { dedupeUiMessages, stabilizeUiMessages } from "./stabilize-messages";
 
 export const TASK_MESSAGE_PAGE_SIZE = 50;
 
@@ -74,17 +74,5 @@ function mergeTaskMessages(
   leading: readonly UiMessage[],
   trailing: readonly UiMessage[] = [],
 ): UiMessage[] {
-  const merged: UiMessage[] = [];
-  const indexByRenderKey = new Map<string, number>();
-  for (const message of [...leading, ...trailing]) {
-    const key = messageRenderKey(message);
-    const existing = indexByRenderKey.get(key);
-    if (existing === undefined) {
-      indexByRenderKey.set(key, merged.length);
-      merged.push(message);
-    } else {
-      merged[existing] = message;
-    }
-  }
-  return stabilizeUiMessages(current, merged);
+  return stabilizeUiMessages(current, dedupeUiMessages([...leading, ...trailing]));
 }

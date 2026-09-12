@@ -1,4 +1,5 @@
 import type { TaskDetail, TaskMessageHistory, TaskStatus, TaskSummary, ToolState, UiMessage, UiPart } from "@/lib/types";
+import { dedupeUiMessages } from "./stabilize-messages";
 
 export const TASK_SESSION_CACHE_STORAGE_KEY = "webui:task-session-cache";
 export const TASK_SESSION_CACHE_VERSION = 2;
@@ -149,7 +150,7 @@ function parseEntry(taskId: string, value: unknown): CachedTaskSession | null {
   return {
     cachedAt: value.cachedAt,
     task: value.task,
-    messages: value.messages,
+    messages: dedupeUiMessages(value.messages),
     ...(isMessageHistory(value.messageHistory) ? { messageHistory: value.messageHistory } : {}),
     isStreaming: value.isStreaming,
     isCompacting: value.isCompacting,
@@ -236,6 +237,7 @@ export function saveTaskSessionCache(snapshot: TaskSessionCacheSnapshot): void {
   const entries = loadEntries();
   entries[summary.id] = {
     ...snapshot,
+    messages: dedupeUiMessages(snapshot.messages),
     task: summary,
     cachedAt: Date.now(),
   };

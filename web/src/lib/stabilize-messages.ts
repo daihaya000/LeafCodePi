@@ -20,6 +20,26 @@ export function messageRenderKey(message: UiMessage): string {
   return firstPartId ? `part:${firstPartId}` : `message:${message.id}`;
 }
 
+/** Remove duplicate rows left when a streamed id changes to its persisted id. */
+export function dedupeUiMessages(messages: UiMessage[]): UiMessage[] {
+  if (messages.length < 2) return messages;
+  const result: UiMessage[] = [];
+  const indexByRenderKey = new Map<string, number>();
+  let changed = false;
+  for (const message of messages) {
+    const key = messageRenderKey(message);
+    const existing = indexByRenderKey.get(key);
+    if (existing === undefined) {
+      indexByRenderKey.set(key, result.length);
+      result.push(message);
+    } else {
+      result[existing] = message;
+      changed = true;
+    }
+  }
+  return changed ? result : messages;
+}
+
 /**
  * Reuse previous list item references when content is unchanged so
  * memoized rows and scroll contentKey stay stable across SSE floods.

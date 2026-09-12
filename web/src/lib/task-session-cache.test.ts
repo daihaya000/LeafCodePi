@@ -5,6 +5,7 @@ import {
   shouldKeepCachedBootstrapMessages,
   TASK_SESSION_CACHE_MAX_AGE_MS,
   TASK_SESSION_CACHE_STORAGE_KEY,
+  TASK_SESSION_CACHE_VERSION,
 } from "./task-session-cache";
 import type { TaskMessageHistory, TaskSummary, UiMessage } from "./types";
 
@@ -113,6 +114,33 @@ describe("task session cache", () => {
     expect(stored.entries[task.id].task.manualAbortedAssistantId).toBeUndefined();
     expect(stored.entries[task.id].task.hangRetryCount).toBeUndefined();
     expect(stored.entries[task.id].task.permissionRequest).toBeUndefined();
+  });
+
+  it("removes legacy duplicate rows when loading a cached session", () => {
+    const streamed: UiMessage = {
+      id: "msg-3",
+      role: "assistant",
+      createdAt: 2,
+      parts: [{ id: "msg-3-text", type: "text", text: "reply" }],
+    };
+    const persisted = { ...streamed, id: "entry-42" };
+    localStorage.setItem(
+      TASK_SESSION_CACHE_STORAGE_KEY,
+      JSON.stringify({
+        version: TASK_SESSION_CACHE_VERSION,
+        entries: {
+          [task.id]: {
+            cachedAt: Date.now(),
+            task,
+            messages: [streamed, persisted],
+            isStreaming: false,
+            isCompacting: false,
+          },
+        },
+      }),
+    );
+
+    expect(loadTaskSessionCache(task.id)?.messages).toEqual([persisted]);
   });
 
   it("ignores malformed, expired, and structurally unsafe entries", () => {
