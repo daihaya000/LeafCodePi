@@ -67,14 +67,20 @@ afterEach(() => {
 });
 
 describe("TaskView render stability", () => {
-  it("does not rerender unchanged assistant rows when an SSE delta changes task status", async () => {
+  it("does not rerender unchanged message rows when an SSE delta changes task status", async () => {
+    const userMessage: UiMessage = {
+      id: "user-1",
+      role: "user",
+      createdAt: 0,
+      parts: [{ id: "user-1-text", type: "text", text: "指示" }],
+    };
     const message: UiMessage = {
       id: "assistant-1",
       role: "assistant",
       createdAt: 1,
       parts: [{ id: "assistant-1-text", type: "text", text: "応答" }],
     };
-    saveTaskSessionCache({ task, messages: [message], isStreaming: false, isCompacting: false });
+    saveTaskSessionCache({ task, messages: [userMessage, message], isStreaming: false, isCompacting: false });
 
     class TestEventSource extends EventTarget {
       static latest: TestEventSource | null = null;
@@ -89,7 +95,10 @@ describe("TaskView render stability", () => {
     vi.stubGlobal("EventSource", TestEventSource);
 
     render(<TaskView taskId={task.id} mdUp />);
-    await waitFor(() => expect(mocks.partView).toHaveBeenCalledWith(message.id));
+    await waitFor(() => {
+      expect(mocks.partView).toHaveBeenCalledWith(userMessage.id);
+      expect(mocks.partView).toHaveBeenCalledWith(message.id);
+    });
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
