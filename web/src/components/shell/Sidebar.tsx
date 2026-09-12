@@ -33,7 +33,7 @@ import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { getLastReadAt, hasUnread } from "@/lib/bot-unread";
-import { HOME_TAB_ID, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
+import { BOTS_TAB_ID, HOME_TAB_ID, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
 import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type TaskStatus, type TaskSummary } from "@/lib/types";
 
 type ProjectTaskMenuState = {
@@ -50,6 +50,7 @@ const COLLAPSED_KEY = "webui.sidebar.collapsed";
 const EXPANDED_KEY = "webui.sidebar.expanded";
 const PROJECT_ORDER_KEY = "webui.sidebar.project_order";
 const ARCHIVED_EXPANDED_KEY = "webui.sidebar.archived_expanded";
+const ARCHIVED_PROJECTS_EXPANDED_KEY = "webui.sidebar.archived_projects_expanded";
 const DEFAULT_WIDTH = 240;
 const COLLAPSED_WIDTH = 80;
 const MIN_WIDTH = 180;
@@ -182,13 +183,13 @@ function WorkingTasksButton({
     ? "進行中タスクの分割表示はデスクトップで利用できます"
     : hasWorking
       ? "進行中タスクを分割表示"
-      : "進行中のタスクはありません";
+      : "進行中のタスクはないためホームを表示";
   return (
     <button
       type="button"
       aria-label="進行中タスクを分割表示"
       title={title}
-      disabled={!mdUp || !hasWorking}
+      disabled={!mdUp}
       onClick={onClick}
       className={cx(
         "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40",
@@ -327,7 +328,7 @@ function BotSidebarBody({
     .filter((bot) => bot.codeInProgress === true)
     .map((bot) => `/bots/${encodeURIComponent(bot.id)}`);
   const showWorkingBots = () => {
-    if (!mdUp || workingBotIds.length === 0) return;
+    if (!mdUp) return;
     onShowWorkingBots(workingBotIds);
     onClose();
   };
@@ -907,6 +908,7 @@ const SidebarView = memo(function SidebarView({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [projectOrder, setProjectOrder] = useState<string[]>(() => loadProjectOrder());
   const [archivedExpanded, setArchivedExpanded] = useState(false);
+  const [archivedProjectsExpanded, setArchivedProjectsExpanded] = useState(false);
   const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
   const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null);
   const [keyboardDraggedProjectId, setKeyboardDraggedProjectId] = useState<string | null>(null);
@@ -999,6 +1001,7 @@ const SidebarView = memo(function SidebarView({
       setCollapsed(localStorage.getItem(COLLAPSED_KEY) === "1");
       setExpanded(loadExpanded());
       setArchivedExpanded(localStorage.getItem(ARCHIVED_EXPANDED_KEY) === "1");
+      setArchivedProjectsExpanded(localStorage.getItem(ARCHIVED_PROJECTS_EXPANDED_KEY) === "1");
     } catch {
       /* ignore */
     }
@@ -1127,10 +1130,23 @@ const SidebarView = memo(function SidebarView({
   }, [onClose, paneMdUp, retargetToUrl, router]);
 
   const showWorkingTasks = useCallback(() => {
-    if (!paneMdUp || workingTaskIds.length === 0) return;
+    if (!paneMdUp) return;
+    if (workingTaskIds.length === 0) {
+      openHome();
+      return;
+    }
     dispatch({ type: "showWorkingTasks", taskIds: workingTaskIds });
     onClose();
-  }, [dispatch, onClose, paneMdUp, workingTaskIds]);
+  }, [dispatch, onClose, openHome, paneMdUp, workingTaskIds]);
+
+  const showWorkingBotsFallback = useCallback((botIds: string[]) => {
+    if (!paneMdUp) return;
+    if (botIds.length === 0) {
+      retargetToUrl(BOTS_TAB_ID);
+    } else {
+      dispatch({ type: "showWorkingTasks", taskIds: botIds });
+    }
+  }, [dispatch, paneMdUp, retargetToUrl]);
 
   const tasksByProject = useMemo(() => {
     const map = new Map<string | null, TaskSummary[]>();
@@ -1906,7 +1922,30 @@ const SidebarView = memo(function SidebarView({
           )}
           {visibleArchivedProjects.length > 0 && (
             <div className="mt-2">
-              <p className="px-2 py-1 text-[11px] font-medium text-muted">アーカイブ済みプロジェクト</p>
+              <button
+                type="button"
+                aria-expanded={archivedProjectsExpanded}
+                aria-label={`アーカイブ済みプロジェクト${archivedProjectsExpanded ? "を折りたたむ" : "を展開"}`}
+                onClick={() => {
+                  const next = !archivedProjectsExpanded;
+                  setArchivedProjectsExpanded(next);
+                  try {
+                    localStorage.setItem(ARCHIVED_PROJECTS_EXPANDED_KEY, next ? "1" : "0");
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                className="flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-muted hover:bg-surface-2 hover:text-text"
+              >
+                <Archive className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate">アーカイブ済みプロジェクト</span>
+                <span className="tabular-nums text-[10px] text-muted">{visibleArchivedProjects.length}</span>
+                <ChevronRight
+                  className={cx("h-3 w-3 shrink-0 transition-transform", archivedProjectsExpanded && "rotate-90")}
+                  aria-hidden="true"
+                />
+              </button>
+              {archivedProjectsExpanded && (
               <ul className="ml-2 space-y-0.5 border-l border-border pl-1.5">
                 {visibleArchivedProjects.map((project) => (
                   <li key={project.id}>
@@ -1942,6 +1981,7 @@ const SidebarView = memo(function SidebarView({
                   </li>
                 ))}
               </ul>
+              )}
             </div>
           )}
         </div>
@@ -1974,7 +2014,7 @@ const SidebarView = memo(function SidebarView({
         setCollapsed(false);
         localStorage.setItem(COLLAPSED_KEY, "0");
       }}
-      onShowWorkingBots={(botIds) => dispatch({ type: "showWorkingTasks", taskIds: botIds })}
+      onShowWorkingBots={showWorkingBotsFallback}
     />
   );
 
