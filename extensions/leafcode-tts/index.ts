@@ -35,7 +35,7 @@ export interface TtsConfig {
   url?: string;
 }
 
-const DEFAULT_CONFIG: TtsConfig = { enabled: false, rate: 0 };
+const DEFAULT_CONFIG: TtsConfig = { enabled: false, rate: 10 };
 
 // ---------------------------------------------------------------------------
 // テキスト整形とストリーミング分割
@@ -353,7 +353,7 @@ export function readTtsConfig(file = join(leafcodeDataDir(), CONFIG_FILE)): TtsC
     return {
       enabled: raw.enabled === true,
       voice: typeof raw.voice === "string" && raw.voice.trim() ? raw.voice.trim() : undefined,
-      rate: typeof raw.rate === "number" && Number.isFinite(raw.rate) ? Math.max(-10, Math.min(10, raw.rate)) : 0,
+      rate: typeof raw.rate === "number" && Number.isFinite(raw.rate) ? Math.max(-10, Math.min(10, raw.rate)) : 10,
       url: typeof raw.url === "string" && raw.url.trim() ? raw.url.trim() : undefined,
     };
   } catch {
@@ -366,7 +366,7 @@ export function writeTtsConfig(config: TtsConfig, file = join(leafcodeDataDir(),
   mkdirSync(dirname(file), { recursive: true });
   const body: Record<string, unknown> = {
     enabled: config.enabled === true,
-    rate: typeof config.rate === "number" && Number.isFinite(config.rate) ? Math.max(-10, Math.min(10, config.rate)) : 0,
+    rate: typeof config.rate === "number" && Number.isFinite(config.rate) ? Math.max(-10, Math.min(10, config.rate)) : 10,
   };
   if (config.voice?.trim()) body.voice = config.voice.trim();
   if (config.url?.trim()) body.url = config.url.trim();

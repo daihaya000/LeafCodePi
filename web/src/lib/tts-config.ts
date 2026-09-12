@@ -16,7 +16,7 @@ export type TtsConfigDto = {
 const DEFAULT_CONFIG: TtsConfigDto = {
   enabled: false,
   voice: "",
-  rate: 0,
+  rate: 10,
   url: "",
 };
 
@@ -25,7 +25,7 @@ export function ttsConfigPath(): string {
 }
 
 function clampRate(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  if (typeof value !== "number" || !Number.isFinite(value)) return 10;
   return Math.max(-10, Math.min(10, Math.trunc(value)));
 }
 

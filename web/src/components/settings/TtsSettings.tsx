@@ -17,7 +17,7 @@ import type { TtsConfigDto } from "@/lib/tts-config";
 const DEFAULT_FORM: TtsConfigDto = {
   enabled: false,
   voice: "",
-  rate: 0,
+  rate: 10,
   url: "",
 };
 

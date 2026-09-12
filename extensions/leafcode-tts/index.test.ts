@@ -89,7 +89,7 @@ describe("readTtsConfig", () => {
   it("ファイルが無ければ既定は無効", () => {
     expect(readTtsConfig(join(tmpdir(), "leafcode-tts-missing.json"))).toEqual({
       enabled: false,
-      rate: 0,
+      rate: 10,
       voice: undefined,
       url: undefined,
     });

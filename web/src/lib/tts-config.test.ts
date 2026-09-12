@@ -22,7 +22,7 @@ describe("tts-config", () => {
   });
 
   it("defaults to disabled when no config exists", () => {
-    assert.deepEqual(readTtsConfig(), { enabled: false, voice: "", rate: 0, url: "" });
+    assert.deepEqual(readTtsConfig(), { enabled: false, voice: "", rate: 10, url: "" });
   });
 
   it("persists enabled/voice/rate/url and drops empty optional fields", () => {
@@ -68,6 +68,6 @@ describe("tts-config", () => {
 
   it("ignores corrupt json", () => {
     writeFileSync(join(data, TTS_CONFIG_FILE), "{not-json", "utf8");
-    assert.deepEqual(readTtsConfig(), { enabled: false, voice: "", rate: 0, url: "" });
+    assert.deepEqual(readTtsConfig(), { enabled: false, voice: "", rate: 10, url: "" });
   });
 });
