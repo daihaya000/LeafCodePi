@@ -71,6 +71,14 @@ const EMPTY: TaskPanesContextValue = {
   iconFor: () => null,
 };
 
+type TaskPanesStableContextValue = Pick<TaskPanesContextValue, "reportStatus" | "botFor">;
+
+const EMPTY_STABLE: TaskPanesStableContextValue = {
+  reportStatus: () => undefined,
+  botFor: () => undefined,
+};
+
+const TaskPanesStableContext = createContext<TaskPanesStableContextValue>(EMPTY_STABLE);
 const TaskPanesContext = createContext<TaskPanesContextValue>(EMPTY);
 
 /** RSC fetch の発生しない URL 同期（Next.js App Router の replaceState 公式サポート）。 */
@@ -415,8 +423,16 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     }),
     [state, dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp, statusFor, reportStatus, titleFor, botFor, iconFor],
   );
+  const stableValue = useMemo<TaskPanesStableContextValue>(
+    () => ({ reportStatus, botFor }),
+    [reportStatus, botFor],
+  );
 
-  return <TaskPanesContext.Provider value={value}>{children}</TaskPanesContext.Provider>;
+  return (
+    <TaskPanesStableContext.Provider value={stableValue}>
+      <TaskPanesContext.Provider value={value}>{children}</TaskPanesContext.Provider>
+    </TaskPanesStableContext.Provider>
+  );
 }
 
 /**
@@ -439,4 +455,16 @@ function retargetAction(taskId: string): TaskPanesAction {
 
 export function useTaskPanes(): TaskPanesContextValue {
   return useContext(TaskPanesContext);
+}
+
+/**
+ * Status updates are frequent while a task streams. Consumers that only need
+ * stable pane services must not subscribe to the full, status-aware context.
+ */
+export function useBotFor(): TaskPanesContextValue["botFor"] {
+  return useContext(TaskPanesStableContext).botFor;
+}
+
+export function useReportStatus(): TaskPanesContextValue["reportStatus"] {
+  return useContext(TaskPanesStableContext).reportStatus;
 }

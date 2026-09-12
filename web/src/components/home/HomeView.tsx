@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUp, FolderGit2 } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
@@ -95,7 +95,7 @@ function plainModelValue(modelValue: string, models: ModelOption[]): string {
   return `${option.providerID}::${option.modelID}`;
 }
 
-export function HomeView({
+export const HomeView = memo(function HomeView({
   initialProjectId,
   initialNoProject = false,
 }: {
@@ -630,4 +630,4 @@ export function HomeView({
       </div>
     </div>
   );
-}
+});

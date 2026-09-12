@@ -22,7 +22,7 @@ vi.mock("@/lib/task-panes", async () => {
   };
 });
 
-import { TaskPanesProvider, useTaskPanes } from "./TaskPanesContext";
+import { TaskPanesProvider, useBotFor, useTaskPanes } from "./TaskPanesContext";
 
 function Probe() {
   const { state, mdUp } = useTaskPanes();
@@ -104,6 +104,29 @@ describe("TaskPanesProvider", () => {
     cleanup();
     vi.unstubAllGlobals();
     localStorage.clear();
+  });
+
+  it("does not rerender stable service consumers for status updates", () => {
+    const stableRenderSpy = vi.fn();
+    function StableServiceProbe() {
+      useBotFor();
+      stableRenderSpy();
+      return null;
+    }
+    function StatusProbe() {
+      const { reportStatus } = useTaskPanes();
+      return <button onClick={() => reportStatus("task-1", "working")}>report status</button>;
+    }
+
+    render(
+      <TaskPanesProvider>
+        <StableServiceProbe />
+        <StatusProbe />
+      </TaskPanesProvider>,
+    );
+    const initialRenderCount = stableRenderSpy.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "report status" }));
+    expect(stableRenderSpy.mock.calls.length).toBe(initialRenderCount);
   });
 
   it("restores Bot routes, titles and closes only deleted Bot tabs", async () => {

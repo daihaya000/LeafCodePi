@@ -3,7 +3,7 @@ import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within }
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), markRead: vi.fn(), reportStatus: vi.fn(), apiUrl: (path: string) => path }));
-vi.mock("@/components/shell/TaskPanesContext", () => ({ useTaskPanes: () => ({ reportStatus: mocks.reportStatus }) }));
+vi.mock("@/components/shell/TaskPanesContext", () => ({ useReportStatus: () => mocks.reportStatus }));
 vi.mock("@/lib/bot-unread", () => ({ markRead: mocks.markRead }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));

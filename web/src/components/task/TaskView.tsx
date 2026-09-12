@@ -33,7 +33,7 @@ import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { DiffPane } from "@/components/task/DiffPane";
-import { useTaskPanes } from "@/components/shell/TaskPanesContext";
+import { useBotFor } from "@/components/shell/TaskPanesContext";
 import { NextAction } from "@/components/task/NextAction";
 import { GraphPanel } from "@/components/task/GraphPanel";
 import { ProjectExplorerButton } from "@/components/task/ProjectExplorerButton";
@@ -730,7 +730,7 @@ export const TaskView = memo(function TaskView({
     setTtsEnabled(enabled);
     if (!enabled) stopSpeaking();
   }), [ttsKey]);
-  const { botFor } = useTaskPanes();
+  const botFor = useBotFor();
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
   const [pendingUserMessage, setPendingUserMessage] = useState<{

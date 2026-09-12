@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Volume2, VolumeX, X } from "lucide-react";
 import Markdown from "react-markdown";
@@ -15,7 +15,7 @@ import { BotAvatarPicker, type AvatarPatch } from "@/components/bot/BotAvatarPic
 import { BotSkillsSettings } from "@/components/bot/BotSkillsSettings";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
-import { useTaskPanes } from "@/components/shell/TaskPanesContext";
+import { useReportStatus } from "@/components/shell/TaskPanesContext";
 import { BotComposer } from "@/components/bot/BotComposer";
 import { type ComposerAttachment } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
@@ -106,7 +106,7 @@ function saveBotSettingsOpen(id: string, open: boolean): void {
   }
 }
 
-export function BotView({ id, active = true }: { id: string; active?: boolean }) {
+export const BotView = memo(function BotView({ id, active = true }: { id: string; active?: boolean }) {
   const [bot, setBot] = useState<BotDto | null>(null);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
@@ -128,7 +128,7 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
   const [codePanelOpen, setCodePanelOpen] = useState(false);
   const settingsOpenRef = useRef(false);
   const [sending, setSending] = useState(false);
-  const { reportStatus } = useTaskPanes();
+  const reportStatus = useReportStatus();
   useEffect(() => {
     reportStatus(`/bots/${encodeURIComponent(id)}`, sending ? "working" : "idle");
   }, [id, sending, reportStatus]);
@@ -842,4 +842,4 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
       )}
     </div>
   );
-}
+});
