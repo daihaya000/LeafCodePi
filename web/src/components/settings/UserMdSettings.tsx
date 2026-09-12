@@ -10,7 +10,7 @@ export function UserMdSettings() {
       endpoint="/api/user-md"
       description={
         <>
-          全プロジェクト共通のユーザー情報です。Code は <span className="font-mono">~/.pi/agent/USER.md</span>{" "}
+          Codeとボット共通のユーザー情報です。Code とボットは <span className="font-mono">~/.pi/agent/USER.md</span>{" "}
           を読み込みます。保存すると開いているセッションにも即時反映され（進行中の応答の次のターンから）。
         </>
       }

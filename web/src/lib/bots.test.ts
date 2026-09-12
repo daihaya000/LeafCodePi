@@ -200,7 +200,7 @@ describe("bot store", () => {
     expect(patchBot(bot.id, { avatarImage: null })?.avatarImage).toBeNull();
     expect(getBot(bot.id)?.avatarImage).toBeNull();
   });
-  it("builds the bot prompt from BOTS.md and SOUL.md, ignoring the global AGENTS.md", () => {
+  it("builds the bot prompt from BOTS.md, USER.md and SOUL.md, ignoring the global AGENTS.md and SOUL.md", () => {
     const agentDir = mkdtempSync(join(tmpdir(), "leafcode-agent-"));
     fs.writeFileSync(join(agentDir, "AGENTS.md"), "# Global rule\nNever ignore this.");
     const prevAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -215,13 +215,17 @@ describe("bot store", () => {
       expect(botSoul(bot.id)).toContain("ボットの役割");
 
       fs.writeFileSync(join(agentDir, "BOTS.md"), "# Shared\nAlways answer in Japanese.");
+      fs.writeFileSync(join(agentDir, "SOUL.md"), "# Code-only soul\nMust not leak into bots.");
+      fs.writeFileSync(join(agentDir, "USER.md"), "# User\nLikes concise answers.");
       const sources = botPromptSources(bot.id);
       expect(sources).toEqual([
         join(agentDir, "BOTS.md"),
+        join(agentDir, "USER.md"),
         join(root, "bots", bot.id, "SOUL.md"),
         join(root, "bots", bot.id, "MEMORY.md"),
       ]);
       expect(sources.some((path) => path.endsWith("AGENTS.md"))).toBe(false);
+      expect(sources).not.toContain(join(agentDir, "SOUL.md"));
     } finally {
       if (prevAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = prevAgentDir;
       rmSync(agentDir, { recursive: true, force: true });

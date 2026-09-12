@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, w
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "./paths";
-import { globalBotsMdPath } from "./agents-md";
+import { globalBotsMdPath, globalUserMdPath } from "./agents-md";
 import { basenameKey, isWebUiRequiredExtension } from "./extensions";
 import { deleteTask, insertBotTask, listTasks, patchTask } from "./store";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotSkillsConfig, type BotToolName, type ThinkingLevel } from "./types";
@@ -181,13 +181,16 @@ export function botRuntimeContext(extensions: readonly { path: string }[]): stri
   ].join("\n");
 }
 
-// Bot instructions and memory come from BOTS.md/SOUL.md/MEMORY.md, never global AGENTS.md.
+// Bot instructions and memory come from BOTS.md/USER.md/SOUL.md/MEMORY.md, never global AGENTS.md.
+// Global SOUL.md is Code-only; each bot uses its own SOUL.md instead.
 // Return paths so session.reload() re-reads edits without a new session.
 export function botPromptSources(id: string): string[] {
   ensureMemoryFile(id);
   const sources: string[] = [];
   const shared = globalBotsMdPath();
   if (existsSync(shared)) sources.push(shared);
+  const user = globalUserMdPath();
+  if (existsSync(user)) sources.push(user);
   sources.push(soulPath(id));
   // MEMORY.md is re-read when a session is created, so facts learned in a
   // previous conversation become context without copying them into config.json.
