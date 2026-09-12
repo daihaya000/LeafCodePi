@@ -14,6 +14,7 @@ import { BOT_AVATAR_SHAPES } from "@/lib/bot-avatar";
 import { toolNameLabel } from "@/lib/tool-labels";
 import { BOT_DEFAULT_DISABLED_TOOL_NAMES, BOT_TOOL_NAMES } from "@/lib/types";
 import { ShellProvider } from "@/components/shell/ShellContext";
+import { writeTaskTtsEnabled } from "@/lib/tts-playback";
 let listener: (event: { data: string }) => void;
 let deltaListener: (event: { data: string }) => void;
 function snapshot(payload: object) { act(() => listener({ data: JSON.stringify(payload) })); }
@@ -260,6 +261,33 @@ it("reads the new reply when idle arrives before the final message snapshot", as
   const [, init] = ttsFetch.mock.calls[0] as unknown as [string, RequestInit];
   expect(JSON.parse(String(init.body))).toEqual({ text: "新しい返信" });
   expect(play).toHaveBeenCalledTimes(1);
+});
+
+it("stops speaking when the shared TTS toggle is turned off mid-playback", async () => {
+  const ttsFetch = vi.fn(async () => new Response(Buffer.from([1, 2, 3]), { status: 200 }));
+  const play = vi.fn(async () => undefined);
+  const pause = vi.fn();
+  vi.stubGlobal("fetch", ttsFetch);
+  vi.stubGlobal("Audio", class {
+    onended: (() => void) | null = null;
+    playbackRate = 1;
+    volume = 1;
+    play = play;
+    pause = pause;
+  });
+  localStorage.setItem("webui:tts-enabled:one", "1");
+  const oldReply = { id: "assistant-old", role: "assistant" as const, createdAt: 1, parts: [{ type: "text" as const, text: "古い返信" }] };
+  const newReply = { id: "assistant-new", role: "assistant" as const, createdAt: 2, parts: [{ type: "text" as const, text: "新しい返信" }] };
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({ messages: [oldReply], isStreaming: false });
+  snapshot({ isStreaming: true });
+  snapshot({ isStreaming: false });
+  snapshot({ messages: [oldReply, newReply], isStreaming: false });
+  await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+  // タスク側でOFFにした共有キーの通知で、再生中の音声を止める。
+  act(() => { writeTaskTtsEnabled("one", false); });
+  expect(pause).toHaveBeenCalledTimes(1);
 });
 
 it("renders bot empty-state copy instead of literal Unicode escapes", async () => {
