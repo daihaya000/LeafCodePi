@@ -414,7 +414,7 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_shutdown", () => speaker.dispose());
 
   pi.registerCommand("tts", {
-    description: "アシスタントの発言の読み上げ（on / off / test）",
+    description: "アシスタントの発言の読み上げ（on / off / test、このセッション限定・既定値は保存しない）",
     async handler(args: string, ctx: ExtensionContext) {
       const arg = args.trim().toLowerCase();
       if (arg === "test") {
@@ -422,17 +422,11 @@ export default function (pi: ExtensionAPI): void {
         ctx.ui.notify("TTS: テスト再生", "info");
         return;
       }
+      // ponytail: このセッションの enabled だけを切り替える。tts.json には書かない＝他セッションや次回起動の既定値には影響しない。
       enabled = arg === "on" ? true : arg === "off" ? false : !enabled;
-      config = { ...config, enabled };
-      try {
-        writeTtsConfig(config);
-      } catch (error) {
-        ctx.ui.notify(`TTS: 設定の保存に失敗 (${error instanceof Error ? error.message : String(error)})`, "error");
-        return;
-      }
       if (!enabled) stop();
       const backend = config.url ? `HTTP ${config.url}` : "Windows SAPI";
-      ctx.ui.notify(`TTS: ${enabled ? `ON (${backend})` : "OFF"}`, "info");
+      ctx.ui.notify(`TTS: ${enabled ? `ON (${backend})` : "OFF"} (このセッションのみ)`, "info");
     },
   });
 }
