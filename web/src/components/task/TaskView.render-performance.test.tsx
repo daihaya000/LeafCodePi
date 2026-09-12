@@ -117,5 +117,15 @@ describe("TaskView render stability", () => {
       }));
     });
     expect(mocks.partView).not.toHaveBeenCalled();
+
+    mocks.partView.mockClear();
+    await act(async () => {
+      source.dispatchEvent(new MessageEvent("delta", {
+        data: JSON.stringify({
+          contextUsage: { tokens: 100, contextWindow: 1000, percent: 10 },
+        }),
+      }));
+    });
+    expect(mocks.partView).not.toHaveBeenCalled();
   });
 });
