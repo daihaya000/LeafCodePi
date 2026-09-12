@@ -68,4 +68,24 @@ describe("ComposerDefaultsSettings model mapping", () => {
     expect(screen.getByRole("button", { name: "思考レベル" })).toBeTruthy();
     expect(screen.queryByText(/未接続/)).toBeNull();
   });
+
+  it("warns when the stored default agent is disabled", async () => {
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/models") return Promise.resolve({ models: [] });
+      if (path === "/api/agents")
+        return Promise.resolve({ agents: [{ name: "builder", enabled: true }] });
+      return Promise.resolve({});
+    });
+    writeComposerDefaults({
+      model: "auto",
+      autoOptimize: "balanced",
+      agent: "ghost-agent",
+    });
+
+    render(<ComposerDefaultsSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/「ghost-agent」は無効です/)).toBeTruthy();
+    });
+  });
 });
