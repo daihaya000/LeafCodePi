@@ -714,7 +714,11 @@ export const TaskView = memo(function TaskView({
   const ttsKey = task?.botId ?? taskId;
   const [ttsEnabled, setTtsEnabled] = useState(() => readTaskTtsEnabled(task?.botId ?? taskId));
   const [ttsError, setTtsError] = useState<string | null>(null);
-  useEffect(() => setTtsEnabled(readTaskTtsEnabled(ttsKey)), [ttsKey]);
+  useEffect(() => {
+    const enabled = readTaskTtsEnabled(ttsKey);
+    setTtsEnabled(enabled);
+    if (!enabled) stopSpeaking();
+  }, [ttsKey]);
   const toggleTts = () => {
     const next = !ttsEnabled;
     setTtsEnabled(next);
@@ -722,7 +726,10 @@ export const TaskView = memo(function TaskView({
     writeTaskTtsEnabled(ttsKey, next);
     if (!next) stopSpeaking();
   };
-  useEffect(() => subscribeTaskTtsEnabled(ttsKey, setTtsEnabled), [ttsKey]);
+  useEffect(() => subscribeTaskTtsEnabled(ttsKey, (enabled) => {
+    setTtsEnabled(enabled);
+    if (!enabled) stopSpeaking();
+  }), [ttsKey]);
   const { botFor } = useTaskPanes();
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
