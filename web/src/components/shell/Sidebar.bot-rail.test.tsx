@@ -79,6 +79,14 @@ afterEach(() => {
 });
 
 describe("Bot mode list", () => {
+  it("shares the health read with the main sidebar refresh", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    await screen.findByText("Bot A");
+    expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/health")).toHaveLength(1);
+  });
+
   it("splits active Bot views from the working-task button", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     mocks.getJson.mockImplementation((path: string) => {

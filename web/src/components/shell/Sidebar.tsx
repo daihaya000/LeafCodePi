@@ -242,11 +242,13 @@ function BotSidebarBody({
   onCollapse,
   onExpand,
   onShowWorkingBots,
+  health,
   statusFor = () => null,
 }: {
   onClose: () => void;
   onChangeMode: (mode: AppMode) => void;
   onSettings: () => void;
+  health: HealthDto | null;
   onShowWorkingBots: (botIds: string[]) => void;
   mdUp: boolean;
   collapsed: boolean;
@@ -258,7 +260,6 @@ function BotSidebarBody({
   const pathname = usePathname();
   const [bots, setBots] = useState<SidebarBot[]>([]);
   const [rooms, setRooms] = useState<SidebarRoom[]>([]);
-  const [health, setHealth] = useState<HealthDto | null>(null);
   const [query, setQuery] = useState("");
   const [listFilter, setListFilter] = useState<BotListFilter>("all");
   const [busy, setBusy] = useState(false);
@@ -284,7 +285,6 @@ function BotSidebarBody({
             : "Botとルームの読み込みに失敗しました",
         );
       });
-    void getJson<HealthDto>("/api/health").then(setHealth).catch(() => undefined);
   }, []);
   useEffect(() => {
     refresh();
@@ -2010,6 +2010,7 @@ const SidebarView = memo(function SidebarView({
       onClose={onClose}
       onChangeMode={changeMode}
       onSettings={openSettings}
+      health={health}
       mdUp={mdUp}
       collapsed={collapsed && mdUp}
       statusFor={statusFor}
