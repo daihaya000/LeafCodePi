@@ -22,7 +22,7 @@ vi.mock("@/lib/task-panes", async () => {
   };
 });
 
-import { TaskPanesProvider, useBotFor, useBotStatusFor, useIconFor, useTaskPanes, useTaskPanesNavigation } from "./TaskPanesContext";
+import { TaskPanesProvider, useBotFor, useBotStatusFor, useIconFor, useTaskPanes, useTaskPanesNavigation, useTaskPanesTabMeta } from "./TaskPanesContext";
 
 function Probe() {
   const { state, mdUp } = useTaskPanes();
@@ -110,6 +110,7 @@ describe("TaskPanesProvider", () => {
     const stableRenderSpy = vi.fn();
     const botStatusRenderSpy = vi.fn();
     const navigationRenderSpy = vi.fn();
+    const tabMetaRenderSpy = vi.fn();
     function StableServiceProbe() {
       useBotFor();
       stableRenderSpy();
@@ -125,6 +126,11 @@ describe("TaskPanesProvider", () => {
       navigationRenderSpy();
       return null;
     }
+    function TabMetaProbe() {
+      useTaskPanesTabMeta();
+      tabMetaRenderSpy();
+      return null;
+    }
     function StatusProbe() {
       const { reportStatus } = useTaskPanes();
       return <>
@@ -138,20 +144,24 @@ describe("TaskPanesProvider", () => {
         <StableServiceProbe />
         <BotStatusProbe />
         <NavigationProbe />
+        <TabMetaProbe />
         <StatusProbe />
       </TaskPanesProvider>,
     );
     const initialStableRenderCount = stableRenderSpy.mock.calls.length;
     const initialBotStatusRenderCount = botStatusRenderSpy.mock.calls.length;
     const initialNavigationRenderCount = navigationRenderSpy.mock.calls.length;
+    const initialTabMetaRenderCount = tabMetaRenderSpy.mock.calls.length;
     fireEvent.click(screen.getByRole("button", { name: "report status" }));
     expect(stableRenderSpy.mock.calls.length).toBe(initialStableRenderCount);
     expect(botStatusRenderSpy.mock.calls.length).toBe(initialBotStatusRenderCount);
     expect(navigationRenderSpy.mock.calls.length).toBe(initialNavigationRenderCount);
+    expect(tabMetaRenderSpy.mock.calls.length).toBe(initialTabMetaRenderCount + 1);
     fireEvent.click(screen.getByRole("button", { name: "report bot status" }));
     expect(stableRenderSpy.mock.calls.length).toBe(initialStableRenderCount);
     expect(botStatusRenderSpy.mock.calls.length).toBe(initialBotStatusRenderCount + 1);
     expect(navigationRenderSpy.mock.calls.length).toBe(initialNavigationRenderCount);
+    expect(tabMetaRenderSpy.mock.calls.length).toBe(initialTabMetaRenderCount + 2);
   });
 
   it("restores Bot routes, titles and closes only deleted Bot tabs", async () => {

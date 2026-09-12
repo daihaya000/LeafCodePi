@@ -10,7 +10,19 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/components/shell/TaskPanesContext", () => ({
-  useTaskPanes: mocks.useTaskPanes,
+  useTaskPanesNavigation: () => {
+    const value = mocks.useTaskPanes();
+    return {
+      state: value.state,
+      dispatch: value.dispatch,
+      retargetToUrl: value.retargetToUrl,
+      activeTaskId: value.activeTaskId,
+      mdUp: value.mdUp,
+      splitHostEnabled: value.splitHostEnabled,
+    };
+  },
+  useReportStatus: () => mocks.useTaskPanes().reportStatus,
+  useGetStatusFor: () => mocks.useTaskPanes().statusFor,
 }));
 vi.mock("next/navigation", () => ({
   usePathname: mocks.usePathname,

@@ -76,7 +76,13 @@ const EMPTY: TaskPanesContextValue = {
 
 type TaskPanesStableContextValue = {
   reportStatus: TaskPanesContextValue["reportStatus"];
+  getStatusFor: (taskId: string) => TaskStatus | null;
   botFor: (botId?: string) => BotDto | undefined;
+};
+
+type TaskPanesTabMetaContextValue = {
+  statusFor: TaskPanesContextValue["statusFor"];
+  titleFor: TaskPanesContextValue["titleFor"];
 };
 
 type TaskPanesIconContextValue = {
@@ -89,16 +95,19 @@ type TaskPanesBotStatusContextValue = {
 
 type TaskPanesNavigationContextValue = Pick<
   TaskPanesContextValue,
-  "dispatch" | "retargetToUrl" | "activeTaskId" | "splitHostEnabled" | "mdUp"
+  "state" | "dispatch" | "retargetToUrl" | "activeTaskId" | "splitHostEnabled" | "mdUp"
 >;
 
 const EMPTY_STABLE: TaskPanesStableContextValue = {
   reportStatus: () => undefined,
+  getStatusFor: () => null,
   botFor: () => undefined,
 };
+const EMPTY_TAB_META: TaskPanesTabMetaContextValue = { statusFor: () => null, titleFor: () => null };
 const EMPTY_ICON: TaskPanesIconContextValue = { iconFor: () => null };
 const EMPTY_BOT_STATUS: TaskPanesBotStatusContextValue = { statusFor: () => null };
 const EMPTY_NAVIGATION: TaskPanesNavigationContextValue = {
+  state: { panes: [], activePaneId: null },
   dispatch: () => undefined,
   retargetToUrl: () => undefined,
   activeTaskId: null,
@@ -107,6 +116,7 @@ const EMPTY_NAVIGATION: TaskPanesNavigationContextValue = {
 };
 
 const TaskPanesStableContext = createContext<TaskPanesStableContextValue>(EMPTY_STABLE);
+const TaskPanesTabMetaContext = createContext<TaskPanesTabMetaContextValue>(EMPTY_TAB_META);
 const TaskPanesIconContext = createContext<TaskPanesIconContextValue>(EMPTY_ICON);
 const TaskPanesBotStatusContext = createContext<TaskPanesBotStatusContextValue>(EMPTY_BOT_STATUS);
 const TaskPanesNavigationContext = createContext<TaskPanesNavigationContextValue>(EMPTY_NAVIGATION);
@@ -391,6 +401,11 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     rawDispatch(retargetAction(taskId));
   }, []);
 
+  const getStatusFor = useCallback(
+    (taskId: string) => statusMapRef.current.get(taskId) ?? null,
+    [],
+  );
+
   const reportStatus = useCallback((taskId: string, status: TaskStatus) => {
     if (statusMapRef.current.get(taskId) === status) return;
     statusMapRef.current.set(taskId, status);
@@ -402,16 +417,16 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   const statusFor = useCallback(
     (taskId: string) => {
       void statusVersion;
-      return statusMapRef.current.get(taskId) ?? null;
+      return getStatusFor(taskId);
     },
-    [statusVersion],
+    [getStatusFor, statusVersion],
   );
   const botStatusFor = useCallback(
     (taskId: string) => {
       void botStatusVersion;
-      return statusMapRef.current.get(taskId) ?? null;
+      return getStatusFor(taskId);
     },
-    [botStatusVersion],
+    [botStatusVersion, getStatusFor],
   );
 
   // titlesVersion を依存に持たせ、取得時に呼び出し元が再評価されるようにする
@@ -465,8 +480,12 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     [state, dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp, statusFor, reportStatus, titleFor],
   );
   const stableValue = useMemo<TaskPanesStableContextValue>(
-    () => ({ reportStatus, botFor }),
-    [reportStatus, botFor],
+    () => ({ reportStatus, getStatusFor, botFor }),
+    [reportStatus, getStatusFor, botFor],
+  );
+  const tabMetaValue = useMemo<TaskPanesTabMetaContextValue>(
+    () => ({ statusFor, titleFor }),
+    [statusFor, titleFor],
   );
   const iconValue = useMemo<TaskPanesIconContextValue>(() => ({ iconFor }), [iconFor]);
   const botStatusValue = useMemo<TaskPanesBotStatusContextValue>(
@@ -474,18 +493,20 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     [botStatusFor],
   );
   const navigationValue = useMemo<TaskPanesNavigationContextValue>(
-    () => ({ dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp }),
-    [dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp],
+    () => ({ state, dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp }),
+    [state, dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp],
   );
 
   return (
     <TaskPanesStableContext.Provider value={stableValue}>
       <TaskPanesBotStatusContext.Provider value={botStatusValue}>
-        <TaskPanesIconContext.Provider value={iconValue}>
-          <TaskPanesNavigationContext.Provider value={navigationValue}>
-            <TaskPanesContext.Provider value={value}>{children}</TaskPanesContext.Provider>
-          </TaskPanesNavigationContext.Provider>
-        </TaskPanesIconContext.Provider>
+        <TaskPanesTabMetaContext.Provider value={tabMetaValue}>
+          <TaskPanesIconContext.Provider value={iconValue}>
+            <TaskPanesNavigationContext.Provider value={navigationValue}>
+              <TaskPanesContext.Provider value={value}>{children}</TaskPanesContext.Provider>
+            </TaskPanesNavigationContext.Provider>
+          </TaskPanesIconContext.Provider>
+        </TaskPanesTabMetaContext.Provider>
       </TaskPanesBotStatusContext.Provider>
     </TaskPanesStableContext.Provider>
   );
@@ -523,6 +544,14 @@ export function useBotFor(): TaskPanesStableContextValue["botFor"] {
 
 export function useReportStatus(): TaskPanesContextValue["reportStatus"] {
   return useContext(TaskPanesStableContext).reportStatus;
+}
+
+export function useGetStatusFor(): TaskPanesStableContextValue["getStatusFor"] {
+  return useContext(TaskPanesStableContext).getStatusFor;
+}
+
+export function useTaskPanesTabMeta(): TaskPanesTabMetaContextValue {
+  return useContext(TaskPanesTabMetaContext);
 }
 
 export function useIconFor(): TaskPanesIconContextValue["iconFor"] {

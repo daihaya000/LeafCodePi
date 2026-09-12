@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Loader2, Plus, SquarePen, Trash2, X } from "lucide-react";
 import { cx } from "@/components/ui";
-import { useIconFor } from "@/components/shell/TaskPanesContext";
+import { useIconFor, useTaskPanesTabMeta } from "@/components/shell/TaskPanesContext";
 import { setTaskDragData, taskDragIdFrom, TASK_DRAG_MIME } from "@/lib/task-drag";
 import {
   HOME_TAB_ID,
@@ -36,7 +36,7 @@ export function TaskTabs({
   pane: TaskPane;
   isActivePane: boolean;
   /** taskId → 最新 status（Provider の報告 map）。 */
-  statusFor: (taskId: string) => TaskStatus | null;
+  statusFor?: (taskId: string) => TaskStatus | null;
   /** taskId → セッション名（タスク title）。未取得なら null。 */
   titleFor?: (taskId: string) => string | null;
   canAddPane: boolean;
@@ -53,6 +53,9 @@ export function TaskTabs({
 }) {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const iconFor = useIconFor();
+  const tabMeta = useTaskPanesTabMeta();
+  const resolvedStatusFor = statusFor ?? tabMeta.statusFor;
+  const resolvedTitleFor = titleFor ?? tabMeta.titleFor;
 
   const handleDrop = (event: React.DragEvent<HTMLElement>, index: number) => {
     event.preventDefault();
@@ -86,7 +89,7 @@ export function TaskTabs({
       onDrop={(event) => handleDrop(event, pane.tabs.length)}
     >
       {pane.tabs.map((taskId, index) => {
-        const status = statusFor(taskId);
+        const status = resolvedStatusFor(taskId);
         const active = pane.activeTabId === taskId;
         // セッション名（タスク title）。未取得の間は taskId をフォールバック表示。
         // 新規作成（Home）タブは固定ラベル。
@@ -95,7 +98,7 @@ export function TaskTabs({
             ? "新規作成"
             : taskId === SETTINGS_TAB_ID
               ? "設定"
-              : (titleFor?.(taskId) ?? taskId);
+              : (resolvedTitleFor(taskId) ?? taskId);
         return (
           <div
             key={taskId}

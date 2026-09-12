@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
-import { useTaskPanes } from "@/components/shell/TaskPanesContext";
+import { useGetStatusFor, useReportStatus, useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
 import { cx } from "@/components/ui";
 import type { TaskStatus } from "@/lib/types";
 import { isTaskDrag, taskDragIdFrom } from "@/lib/task-drag";
@@ -215,9 +215,7 @@ type PaneBranchProps = {
   projectId: string | null;
   noProject: boolean;
   mdUp: boolean;
-  statusFor: (taskId: string) => TaskStatus | null;
   reportStatus: (taskId: string, status: TaskStatus) => void;
-  titleFor: (taskId: string) => string | null;
   canAddPane: boolean;
   lastPaneId: string | undefined;
   splitRatios: Record<string, number>;
@@ -264,9 +262,7 @@ function PaneSection({
   projectId,
   noProject,
   mdUp,
-  statusFor,
   reportStatus,
-  titleFor,
   canAddPane,
   lastPaneId,
   onPaneDragOver,
@@ -307,8 +303,6 @@ function PaneSection({
         <TaskTabs
           pane={pane}
           isActivePane={isActivePane}
-          statusFor={statusFor}
-          titleFor={titleFor}
           canAddPane={canAddPane}
           showAddButton={pane.id === lastPaneId}
           onActivateTab={(taskId) => onActivateTab(pane.id, taskId)}
@@ -459,7 +453,9 @@ function PaneLayoutBranch({ layout, ...props }: PaneBranchProps & { layout: Pane
  * 1 ペイン × 1 タブではタブバーを表示しない（仕様 §1 の従来通り）。
  */
 export function TaskPanesHost() {
-  const { state, statusFor, reportStatus, dispatch, retargetToUrl, activeTaskId, titleFor, mdUp } = useTaskPanes();
+  const { state, dispatch, retargetToUrl, activeTaskId, mdUp } = useTaskPanesNavigation();
+  const reportStatus = useReportStatus();
+  const getStatusFor = useGetStatusFor();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const projectId = searchParams.get("projectId");
@@ -653,9 +649,7 @@ export function TaskPanesHost() {
         projectId={projectId}
         noProject={noProject}
         mdUp={mdUp}
-        statusFor={statusFor}
         reportStatus={reportStatus}
-        titleFor={titleFor}
         canAddPane={canAddPane}
         lastPaneId={lastPaneId}
         splitRatios={splitRatios}
@@ -668,7 +662,7 @@ export function TaskPanesHost() {
         onCloseTab={(paneId, taskId) => dispatch({ type: "closeTab", paneId, taskId })}
         onClearPane={(paneId) => {
           const pane = state.panes.find((candidate) => candidate.id === paneId);
-          const keepTabIds = pane?.tabs.filter((taskId) => statusFor(taskId) === "working");
+          const keepTabIds = pane?.tabs.filter((taskId) => getStatusFor(taskId) === "working");
           dispatch({ type: "clearPane", paneId, keepTabIds });
         }}
         onReorderTabs={(paneId, tabs) => dispatch({ type: "reorderTabs", paneId, tabs })}
