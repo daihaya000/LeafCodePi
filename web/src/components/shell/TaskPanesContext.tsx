@@ -298,12 +298,14 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     const changedProjectIds = changedIconIds(previousIconProjectsRef.current, iconProjects, sameProjectIconData);
     if (changedBotIds.size > 0 || changedProjectIds.size > 0) {
       const changedBotTabIds = new Set([...changedBotIds].map((botId) => `/bots/${encodeURIComponent(botId)}`));
-      for (const taskId of state.panes.flatMap((pane) => pane.tabs)) {
-        const identity = taskIdentitiesRef.current.get(taskId);
-        const botChanged = identity?.botId != null && changedBotIds.has(identity.botId)
-          || changedBotTabIds.has(taskId);
-        const projectChanged = identity?.projectId != null && changedProjectIds.has(identity.projectId);
-        if (botChanged || projectChanged) bumpTabIconVersion(taskId);
+      for (const pane of state.panes) {
+        for (const taskId of pane.tabs) {
+          const identity = taskIdentitiesRef.current.get(taskId);
+          const botChanged = identity?.botId != null && changedBotIds.has(identity.botId)
+            || changedBotTabIds.has(taskId);
+          const projectChanged = identity?.projectId != null && changedProjectIds.has(identity.projectId);
+          if (botChanged || projectChanged) bumpTabIconVersion(taskId);
+        }
       }
     }
     previousIconBotsRef.current = iconBots;
