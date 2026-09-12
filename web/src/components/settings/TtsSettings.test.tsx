@@ -61,7 +61,7 @@ describe("TtsSettings", () => {
     await waitFor(() => {
       expect(sendJson).toHaveBeenCalledWith(
         "/api/settings/tts",
-        { url: "http://127.0.0.1:10101", voice: "1455757728" },
+        { url: "http://127.0.0.1:10101", voice: "871574624" },
         "PATCH",
       );
     });
@@ -72,7 +72,7 @@ describe("TtsSettings", () => {
       if (path === "/api/settings/tts/server") return { running: false };
       return {
         enabled: false,
-        voice: "1455577728",
+        voice: "1455757728",
         rate: 0,
         url: "http://127.0.0.1:10101",
       };
@@ -81,7 +81,7 @@ describe("TtsSettings", () => {
     render(<TtsSettings />);
     const trigger = await screen.findByRole("button", { name: "TTS 音声" });
     expect(trigger.textContent).toContain("ramuchi / ノーマル");
-    expect(trigger.textContent).not.toContain("1455577728");
+    expect(trigger.textContent).not.toContain("1455757728");
 
     fireEvent.click(trigger);
     expect(screen.getByRole("option", { name: "ramuchi / ノーマル" })).toBeTruthy();

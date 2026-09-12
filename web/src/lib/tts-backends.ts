@@ -29,9 +29,10 @@ export const TTS_BACKENDS: TtsBackendPreset[] = [
     id: "aivis",
     label: "AivisSpeech",
     url: "http://127.0.0.1:10101",
-    defaultVoice: "1455757728",
+    defaultVoice: "871574624",
     voices: [
-      { id: "1455757728", label: "ramuchi / ノーマル" },
+      // AIVMX model: 54e9ae01-4f5f-4443-85c6-8f625939729a
+      { id: "871574624", label: "ramuchi / ノーマル" },
       { id: "888753760", label: "まお / ノーマル" },
       { id: "888753761", label: "まお / ふつー" },
       { id: "888753762", label: "まお / あまあま" },
