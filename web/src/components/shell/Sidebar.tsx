@@ -297,7 +297,9 @@ function BotSidebarBody({
     return () => window.removeEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
   }, [refresh, pathname]);
   useEffect(() => {
-    const timer = window.setInterval(() => refresh(), POLL_IDLE_MS);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") refresh();
+    }, POLL_IDLE_MS);
     return () => window.clearInterval(timer);
   }, [refresh]);
   async function createEntry(target: "bot" | "room") {

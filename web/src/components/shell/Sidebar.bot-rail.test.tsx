@@ -79,6 +79,26 @@ afterEach(() => {
 });
 
 describe("Bot mode list", () => {
+  it("skips Bot polling while the document is hidden", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    try {
+      render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+      await screen.findByText("Bot A");
+      mocks.getJson.mockClear();
+      const pollCallbacks = setIntervalSpy.mock.calls
+        .filter(([, delay]) => delay === 12_000)
+        .map(([callback]) => callback as () => void);
+      expect(pollCallbacks.length).toBeGreaterThan(0);
+      pollCallbacks.forEach((callback) => callback());
+      expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/bots/sidebar")).toHaveLength(0);
+    } finally {
+      setIntervalSpy.mockRestore();
+      visibility.mockRestore();
+    }
+  });
+
   it("shares health and keeps the initial Bot read coalescible", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
