@@ -17,6 +17,7 @@ import {
 import type { CodexWhamCredentials } from "@/lib/codexbar/providers/openai-codex";
 
 const BASE = "https://chatgpt.com/backend-api";
+const MAX_AUTO_CONSUME_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const LIST_URL = `${BASE}/wham/rate-limit-reset-credits`;
 const CONSUME_URL = `${BASE}/wham/rate-limit-reset-credits/consume`;
 
@@ -107,8 +108,16 @@ export function parseCodexResetCreditsJson(json: string): CodexResetCreditList {
   const availableFromList = credits.filter(
     (c) => (c.status ?? "available") === "available",
   ).length;
+  const hasReportedCount = Object.prototype.hasOwnProperty.call(
+    root,
+    "available_count",
+  );
   const availableCount =
-    reported !== null ? Math.max(0, Math.trunc(reported)) : availableFromList;
+    hasReportedCount && reported === null
+      ? 0
+      : reported !== null
+        ? Math.max(0, Math.trunc(reported))
+        : availableFromList;
   return {
     credits: sortResetCreditsByExpiry(
       credits.filter((c) => (c.status ?? "available") === "available"),
@@ -143,12 +152,10 @@ export function parseCodexResetConsumeJson(
     root = null;
   }
   const successStatus = httpStatus >= 200 && httpStatus < 300;
-  const code =
-    root && typeof root.code === "string"
-      ? root.code
-      : successStatus
-        ? "reset"
-        : `http_${httpStatus}`;
+  const responseCode = root && typeof root.code === "string" ? root.code : null;
+  const code = !successStatus
+    ? `http_${httpStatus}`
+    : responseCode ?? "invalid_response";
   const credit = root ? asRecord(root.credit) : null;
   const windowsReset = root ? flexibleNumber(root.windows_reset) : null;
   return {
@@ -184,10 +191,10 @@ export async function consumeCodexResetCredit(
   if (status === 401 || status === 403) {
     throw new ProviderError("__unauthorized__");
   }
-  if (!ok && !body.trim()) {
+  if (!ok) {
     throw new ProviderError(`リセット権の消費に失敗しました（${status}）。`);
   }
-  return parseCodexResetConsumeJson(body || "{}", status);
+  return parseCodexResetConsumeJson(body, status);
 }
 
 export type AutoConsumeExpiringResult = {
@@ -215,12 +222,22 @@ export async function autoConsumeExpiringResetCredits(
   credentials: CodexWhamCredentials,
   options: { windowMs: number; now?: number; signal?: AbortSignal },
 ): Promise<AutoConsumeExpiringResult> {
-  const now = options.now ?? Date.now();
-  if (!Number.isFinite(now) || !Number.isFinite(options.windowMs) || options.windowMs < 0) {
+  const requestedNow = options.now;
+  if (
+    (requestedNow !== undefined && !Number.isFinite(requestedNow)) ||
+    !Number.isFinite(options.windowMs) ||
+    options.windowMs < 0 ||
+    options.windowMs > MAX_AUTO_CONSUME_WINDOW_MS
+  ) {
     return { expiring: 0, consumed: 0, codes: [] };
   }
 
   const list = await listCodexResetCredits(credentials, options.signal);
+  if (!Number.isFinite(list.availableCount) || list.availableCount <= 0) {
+    return { expiring: 0, consumed: 0, codes: [] };
+  }
+  const now = requestedNow ?? Date.now();
+  if (!Number.isFinite(now)) return { expiring: 0, consumed: 0, codes: [] };
   const seen = new Set<string>();
   const expiring = list.credits.filter((credit) => {
     if (credit.status !== "available" || seen.has(credit.id)) return false;
