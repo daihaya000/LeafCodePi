@@ -37,7 +37,7 @@ it("pauses a routine and keeps test execution available only while enabled", asy
   render(<BotRoutineSettings botId="one" routines={[{ ...routine, enabled: false }]} onRefresh={refresh} onError={vi.fn()} />);
 
   expect((screen.getByRole("button", { name: "今すぐ実行" }) as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "再開" }));
+  fireEvent.click(screen.getByRole("button", { name: "有効化" }));
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
     "/api/bots/one/routines/routine-1",
     { enabled: true },

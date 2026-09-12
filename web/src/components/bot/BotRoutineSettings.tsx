@@ -28,7 +28,7 @@ export function BotRoutineSettings({ botId, routines, onRefresh, onError }: BotR
   const [draft, setDraft] = useState<RoutineDraft>(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const nextRuns = useMemo(() => new Map(routines.map((routine) => [routine.id, nextRoutineRunAt(routine.schedule)])), [routines]);
+  const nextRuns = useMemo(() => new Map(routines.map((routine) => [routine.id, routine.enabled ? nextRoutineRunAt(routine.schedule) : null])), [routines]);
 
   const closeForm = () => {
     setFormOpen(false);
@@ -129,15 +129,15 @@ export function BotRoutineSettings({ botId, routines, onRefresh, onError }: BotR
           <div key={routine.id} className="rounded-xl border border-border bg-surface p-3 text-xs">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="font-medium">{routine.name} {routine.enabled ? <span className="text-success">有効</span> : <span className="text-muted">一時停止</span>}</p>
+                <p className="font-medium">{routine.name} {routine.enabled ? <span className="text-success">有効</span> : <span className="text-muted">無効</span>}</p>
                 <p className="mt-1 font-mono text-muted">{routine.schedule}</p>
                 <p className="mt-1 break-words text-muted">{routine.prompt}</p>
                 <p className="mt-1 text-muted">最終実行: {formatDate(routine.lastRunAt)}</p>
                 <p className="text-muted">{routine.enabled ? `次回実行: ${nextRun ? formatDate(nextRun.toISOString()) : "なし"}` : "次回実行: 一時停止中"}</p>
-                {routine.failureCount > 0 && <p className="mt-1 text-danger">連続失敗: {routine.failureCount}回{!routine.enabled ? "（自動停止の可能性があります）" : ""}</p>}
+                {routine.failureCount > 0 && <p className="mt-1 text-danger"><span>連続失敗: {routine.failureCount}回</span>{!routine.enabled && <span>（自動停止の可能性があります）</span>}</p>}
               </div>
               <div className="flex shrink-0 flex-col items-stretch gap-1">
-                <Button size="sm" variant="ghost" disabled={busy} onClick={() => void toggle(routine)}>{routine.enabled ? "一時停止" : "再開"}</Button>
+                <Button size="sm" variant="ghost" disabled={busy} aria-label={routine.enabled ? "無効化" : "有効化"} onClick={() => void toggle(routine)}>{routine.enabled ? "一時停止" : "再開"}</Button>
                 <Button size="sm" variant="ghost" disabled={busy || !routine.enabled} aria-label="今すぐ実行" onClick={() => void testRun(routine)}>テスト実行</Button>
                 <Button size="sm" variant="ghost" disabled={busy} onClick={() => openEdit(routine)}>編集</Button>
                 <button type="button" disabled={busy} onClick={() => void remove(routine)} className="px-2 py-1 text-danger hover:underline disabled:opacity-50">削除</button>

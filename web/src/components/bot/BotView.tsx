@@ -13,6 +13,7 @@ import { Button } from "@/components/ui";
 import { ActivityLog, conversationContentClass, MessageHeader } from "@/components/ConversationLayout";
 import { BotAvatarPicker, type AvatarPatch } from "@/components/bot/BotAvatarPicker";
 import { BotSkillsSettings } from "@/components/bot/BotSkillsSettings";
+import { BotRoutineSettings } from "@/components/bot/BotRoutineSettings";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { useReportStatus } from "@/components/shell/TaskPanesContext";
@@ -143,13 +144,11 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [updatingTools, setUpdatingTools] = useState(false);
   const [extraRootInput, setExtraRootInput] = useState("");
   const [routines, setRoutines] = useState<RoutineDto[]>([]);
-  const [routineFormOpen, setRoutineFormOpen] = useState(false);
   const [routineCardOpen, setRoutineCardOpen] = useState(false);
   const [routineName, setRoutineName] = useState("");
   const [routinePrompt, setRoutinePrompt] = useState("");
   const [routineSchedule, setRoutineSchedule] = useState("0 * * * *");
   const [creatingRoutine, setCreatingRoutine] = useState(false);
-  const [routineBusy, setRoutineBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const composingRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -580,7 +579,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const createRoutine = async () => {
     if (!routineName.trim() || !routinePrompt.trim() || !routineSchedule.trim()) return;
     setCreatingRoutine(true); setError(null);
-    try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines`, { name: routineName, prompt: routinePrompt, schedule: routineSchedule }, "POST"); setRoutineName(""); setRoutinePrompt(""); setRoutineSchedule("0 * * * *"); setRoutineFormOpen(false); setRoutineCardOpen(false); await loadRoutines(); }
+    try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines`, { name: routineName, prompt: routinePrompt, schedule: routineSchedule }, "POST"); setRoutineName(""); setRoutinePrompt(""); setRoutineSchedule("0 * * * *"); setRoutineCardOpen(false); await loadRoutines(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u4f5c\u6210\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); } finally { setCreatingRoutine(false); }
   };
   const updateSkills = async (skills: BotDto["skills"]) => {
@@ -608,10 +607,6 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       applyBotUpdate(result.bot);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "\u8ffd\u52a0\u30eb\u30fc\u30c8\u306e\u524a\u9664\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); }
   };
-  const patchRoutine = async (routine: RoutineDto, enabled: boolean) => { setRoutineBusy(routine.id); setError(null); try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines/${encodeURIComponent(routine.id)}`, { enabled }, "PATCH"); await loadRoutines(); } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u66f4\u65b0\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); } finally { setRoutineBusy(null); } };
-  const deleteRoutine = async (routine: RoutineDto) => { if (!window.confirm(`「${routine.name}」を削除しますか？`)) return; setRoutineBusy(routine.id); setError(null); try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines/${encodeURIComponent(routine.id)}`, undefined, "DELETE"); await loadRoutines(); } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u524a\u9664\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); } finally { setRoutineBusy(null); } };
-  const runRoutine = async (routine: RoutineDto) => { setRoutineBusy(routine.id); setError(null); try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines/${encodeURIComponent(routine.id)}/run`, {}, "POST"); await loadRoutines(); } catch (reason) { setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u5b9f\u884c\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); } finally { setRoutineBusy(null); } };
-
   const resetConversation = async () => {
     if (!bot || resetting || !window.confirm(`「${bot.name}」の会話をリセットしますか？\nこの操作は取り消せません。`)) return;
     setResetting(true);
@@ -819,14 +814,9 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             <section className="space-y-2 rounded-2xl border border-border bg-bg p-4" aria-label="個別ツール設定"><span className="text-sm font-medium">使用するツール</span><ToolPermissionList<BotToolName> tools={BOT_TOOL_NAMES} selectedTools={bot.tools ?? BOT_DEFAULT_TOOL_NAMES} disabled={updatingTools} onChange={(tools) => void updateTools(tools)} /><p className="text-[11px] text-muted">チェックを外したツールはBotから利用できません。</p></section><p className="text-right text-xs text-muted" role="status" aria-live="polite">{savingProfile ? "保存中…" : "変更は自動保存されます"}</p>
             <div className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="モデル設定"><div><span className="text-sm font-medium">モデル</span><ModelSelect value={modelValue} options={models} loading={modelsLoading} disabled={updatingModel || updatingThinking} onChange={(value) => void updateModel(value)} className="mt-2 h-9 w-full" ariaLabel="ボットのモデル" /></div><div><span className="text-sm font-medium">思考レベル</span><ThinkingSelect levels={thinkingLevels} value={thinkingValue} disabled={updatingModel || updatingThinking} onChange={(value) => void updateThinking(value)} className="mt-2 h-9 w-full" /></div>{(updatingModel || updatingThinking) && <p className="text-xs text-muted">保存中…</p>}</div>
             <BotSkillsSettings skills={bot.skills} disabled={updatingSkills} onChange={updateSkills} />
+            <BotRoutineSettings botId={id} routines={routines} onRefresh={loadRoutines} onError={setError} />
             <details><summary className="cursor-pointer text-sm font-semibold text-muted">詳細設定</summary>
             <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="追加ルート設定"><div><span className="text-sm font-medium">追加ルート</span><p className="mt-1 text-xs text-muted">Bot が参照できる絶対パス（Computer 分離は後続フェーズ）</p></div><div className="flex gap-2"><input value={extraRootInput} onChange={(event) => setExtraRootInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addExtraRoot(); } }} placeholder="C:\path\to\root" className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /><Button size="sm" onClick={() => void addExtraRoot()} disabled={!extraRootInput.trim()}>追加</Button></div>{bot.extraRoots.length === 0 ? <p className="text-xs text-muted">追加ルートはありません。</p> : <ul className="space-y-1">{bot.extraRoots.map((root) => <li key={root} className="flex items-center gap-2 rounded-lg bg-surface px-2 py-1.5 text-xs"><span className="min-w-0 flex-1 break-all">{root}</span><button type="button" onClick={() => void removeExtraRoot(root)} className="shrink-0 text-danger hover:underline">削除</button></li>)}</ul>}</section>
-            <section className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="ルーティン設定">
-              <div className="flex items-center justify-between gap-2"><div><h3 className="text-sm font-medium">ルーティン</h3><p className="mt-1 text-xs text-muted">5分以上の cron で定期実行します。</p></div><Button size="sm" onClick={() => setRoutineFormOpen((open) => !open)}>ルーティンを作成</Button></div>
-              {routineFormOpen && <div className="space-y-2 rounded-xl border border-accent/40 bg-surface p-3" role="dialog" aria-label="ルーティンを作成"><p className="text-xs font-medium text-accent">ルーティンを作成（確認）</p><input value={routineName} onChange={(event) => setRoutineName(event.target.value)} placeholder="名前（例: 朝の確認）" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><textarea value={routinePrompt} onChange={(event) => setRoutinePrompt(event.target.value)} placeholder="Bot に実行させる指示" rows={3} className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><input value={routineSchedule} onChange={(event) => setRoutineSchedule(event.target.value)} aria-label="cron スケジュール" placeholder="0 * * * *" className="w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent" /><p className="text-[11px] text-muted">形式: 分 時 日 月 曜日（最短間隔 5 分）</p><div className="flex justify-end gap-2"><Button size="sm" variant="ghost" onClick={() => setRoutineFormOpen(false)}>キャンセル</Button><Button size="sm" onClick={() => void createRoutine()} busy={creatingRoutine} disabled={!routineName.trim() || !routinePrompt.trim()}>確認して保存</Button></div></div>}
-              {routines.length === 0 && <p className="text-xs text-muted">登録されたルーティンはありません。</p>}
-              {routines.map((routine) => <div key={routine.id} className="rounded-xl border border-border bg-surface p-3 text-xs"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="font-medium">{routine.name} {routine.enabled ? <span className="text-success">有効</span> : <span className="text-muted">無効</span>}</p><p className="mt-1 font-mono text-muted">{routine.schedule}</p><p className="mt-1 break-words text-muted">{routine.prompt}</p>{routine.failureCount > 0 && <p className="mt-1 text-danger">連続失敗: {routine.failureCount}回</p>}</div><div className="flex shrink-0 flex-col gap-1"><Button size="sm" variant="ghost" disabled={routineBusy === routine.id} onClick={() => void patchRoutine(routine, !routine.enabled)}>{routine.enabled ? "無効化" : "有効化"}</Button><Button size="sm" variant="ghost" disabled={routineBusy === routine.id || !routine.enabled} onClick={() => void runRoutine(routine)}>今すぐ実行</Button><button type="button" disabled={routineBusy === routine.id} onClick={() => void deleteRoutine(routine)} className="px-2 py-1 text-danger hover:underline disabled:opacity-50">削除</button></div></div></div>)}
-            </section>
             </details>
             <section className="space-y-2 rounded-2xl border border-border bg-bg p-4" aria-label="会話リセット">
               <p className="text-sm font-medium">会話リセット</p>
