@@ -230,13 +230,13 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let disposed = false;
     let generation = 0;
-    const refresh = async () => {
+    const refresh = async (refreshToken?: string) => {
       const request = ++generation;
       try {
         const { bots, rooms } = await getJson<{
           bots: BotDto[];
           rooms: { id: string; name: string }[];
-        }>("/api/bots/sidebar");
+        }>("/api/bots/sidebar", refreshToken ? { refresh: refreshToken } : undefined);
         if (disposed || request !== generation) return;
         setBots(bots);
         const titles = new Map<string, string>([
@@ -261,11 +261,15 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
         /* Keep tabs on fetch failure. */
       }
     };
+    const onBotSidebarChanged = (event: Event) => {
+      const refreshToken = (event as CustomEvent<{ refresh?: string }>).detail?.refresh;
+      void refresh(refreshToken);
+    };
     void refresh();
-    window.addEventListener("webui:bot-sidebar-changed", refresh);
+    window.addEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
     return () => {
       disposed = true;
-      window.removeEventListener("webui:bot-sidebar-changed", refresh);
+      window.removeEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
     };
   }, [mdUp]);
 

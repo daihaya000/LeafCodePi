@@ -266,11 +266,11 @@ function BotSidebarBody({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const refreshGenerationRef = useRef(0);
-  const refresh = useCallback((force = false) => {
+  const refresh = useCallback((force = false, refreshToken?: string) => {
     const generation = ++refreshGenerationRef.current;
     void getJson<{ bots: SidebarBot[]; rooms: SidebarRoom[] }>(
       "/api/bots/sidebar",
-      force ? { refresh: `${Date.now()}-${generation}` } : undefined,
+      force ? { refresh: refreshToken ?? `${Date.now()}-${generation}` } : undefined,
     )
       .then((result) => {
         if (generation !== refreshGenerationRef.current) return;
@@ -289,7 +289,10 @@ function BotSidebarBody({
   }, []);
   useEffect(() => {
     refresh();
-    const onBotSidebarChanged = () => refresh(true);
+    const onBotSidebarChanged = (event: Event) => {
+      const refreshToken = (event as CustomEvent<{ refresh?: string }>).detail?.refresh;
+      refresh(true, refreshToken);
+    };
     window.addEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
     return () => window.removeEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
   }, [refresh, pathname]);

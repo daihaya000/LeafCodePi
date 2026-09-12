@@ -53,6 +53,7 @@ describe("events", () => {
     expect(dispatchEvent.mock.calls[0][0].type).toBe(
       "webui:bot-sidebar-changed",
     );
+    expect(dispatchEvent.mock.calls[0][0].detail.refresh).toMatch(/^\d+-\d+$/);
   });
 
   it("flush ヘルパーは保留中のイベントを同期的に発火する", () => {
