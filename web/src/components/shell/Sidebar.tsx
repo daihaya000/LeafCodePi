@@ -657,7 +657,7 @@ function GoalLoopProgressBar({
   );
 }
 
-export function TaskProgressBar({
+export const TaskProgressBar = memo(function TaskProgressBar({
   task,
   className,
 }: {
@@ -669,7 +669,7 @@ export function TaskProgressBar({
   ) : (
     <TodoProgressBar task={task} className={className} />
   );
-}
+});
 
 export function TaskActivityIcon({
   task,
