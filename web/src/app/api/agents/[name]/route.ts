@@ -25,6 +25,15 @@ function isThinkingInput(value: unknown): value is AgentThinking | null {
   return value === null || value === false || isThinkingLevel(value);
 }
 
+function scheduleLiveSessionsContextReload() {
+  // Persisted settings can be returned immediately; a live session reload may wait for an active turn.
+  setImmediate(() => {
+    void reloadLiveSessionsContext().catch((error) => {
+      console.warn("[agents] live session context reload failed", error);
+    });
+  });
+}
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -96,9 +105,9 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       }
       updateAgent({ ...(record as AgentDraft), name });
     }
-    const reload = await reloadLiveSessionsContext();
+    scheduleLiveSessionsContextReload();
     const listed = listAgents();
-    return NextResponse.json({ ok: true, name, agents: listed.agents, reload });
+    return NextResponse.json({ ok: true, name, agents: listed.agents });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "エージェントの更新に失敗しました" },
@@ -117,8 +126,8 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
   }
   try {
     const listed = deleteAgent(name);
-    const reload = await reloadLiveSessionsContext();
-    return NextResponse.json({ ok: true, agents: listed.agents, reload });
+    scheduleLiveSessionsContextReload();
+    return NextResponse.json({ ok: true, agents: listed.agents });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "エージェントの削除に失敗しました" },

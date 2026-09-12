@@ -129,6 +129,7 @@ describe("POST /api/agents", () => {
     const response = await POST(
       request({ name: "blocked", systemPrompt: "No tools.", tools: [] }),
     );
+    await new Promise<void>((resolve) => setImmediate(resolve));
 
     expect(response.status).toBe(201);
     expect(mocks.createAgent).toHaveBeenCalledWith(

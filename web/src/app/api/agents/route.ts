@@ -10,6 +10,15 @@ import { isThinkingLevel } from "@/lib/thinking-levels";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function scheduleLiveSessionsContextReload() {
+  // Persisted settings can be returned immediately; a live session reload may wait for an active turn.
+  setImmediate(() => {
+    void reloadLiveSessionsContext().catch((error) => {
+      console.warn("[agents] live session context reload failed", error);
+    });
+  });
+}
+
 export async function GET() {
   try {
     return NextResponse.json(listAgents());
@@ -77,8 +86,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "fallbackModels は文字列配列が必要です" }, { status: 400 });
     }
     const result = createAgent(normalize(body as AgentDraft));
-    const reload = await reloadLiveSessionsContext();
-    return NextResponse.json({ ...result, reload }, { status: 201 });
+    scheduleLiveSessionsContextReload();
+    return NextResponse.json(result, { status: 201 });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "エージェントの作成に失敗しました" },

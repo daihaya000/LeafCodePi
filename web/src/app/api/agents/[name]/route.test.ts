@@ -31,6 +31,10 @@ function context(name = "custom") {
   return { params: Promise.resolve({ name }) };
 }
 
+function flushImmediate() {
+  return new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 describe("PATCH /api/agents/:name tool permissions", () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockClear();
@@ -47,9 +51,31 @@ describe("PATCH /api/agents/:name tool permissions", () => {
 
   it("passes an empty allowlist through to the agent store", async () => {
     const response = await PATCH(request({ tools: [] }), context());
+    await flushImmediate();
 
     expect(response.status).toBe(200);
     expect(mocks.setAgentTools).toHaveBeenCalledWith("custom", []);
+    expect(mocks.reloadLiveSessionsContext).toHaveBeenCalledOnce();
+  });
+
+  it("returns without waiting for a live session reload", async () => {
+    let releaseReload!: () => void;
+    const reload = new Promise<{ reloaded: boolean }>((resolve) => {
+      releaseReload = () => resolve({ reloaded: true });
+    });
+    mocks.reloadLiveSessionsContext.mockReturnValueOnce(reload);
+
+    const responsePromise = PATCH(request({ tools: ["read"] }), context());
+    const response = await Promise.race([
+      responsePromise,
+      new Promise<null>((resolve) => setImmediate(() => resolve(null))),
+    ]);
+    releaseReload();
+    await responsePromise;
+    await flushImmediate();
+
+    expect(response).not.toBeNull();
+    expect((response as Response).status).toBe(200);
     expect(mocks.reloadLiveSessionsContext).toHaveBeenCalledOnce();
   });
 
@@ -58,6 +84,7 @@ describe("PATCH /api/agents/:name tool permissions", () => {
       request({ model: "openai-codex/gpt-5.6", thinking: "high", tools: ["read", "grep"] }),
       context(),
     );
+    await flushImmediate();
 
     expect(response.status).toBe(200);
     expect(mocks.setAgentModel).toHaveBeenCalledWith("custom", "openai-codex/gpt-5.6");
@@ -75,6 +102,7 @@ describe("DELETE /api/agents/:name", () => {
 
   it("reloads live sessions after deleting a user agent", async () => {
     const response = await DELETE(new NextRequest("http://localhost/api/agents/custom", { method: "DELETE" }), context());
+    await flushImmediate();
 
     expect(response.status).toBe(200);
     expect(mocks.deleteAgent).toHaveBeenCalledWith("custom");
