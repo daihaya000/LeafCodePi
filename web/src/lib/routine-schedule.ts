@@ -26,7 +26,10 @@ function parseField(field: string, min: number, max: number): Set<number> {
 function parseSchedule(schedule: string): ParsedSchedule {
   const fields = schedule.trim().split(/\s+/);
   if (fields.length !== 5) throw new Error("invalid cron");
-  return fields.map((field, index) => parseField(field, ...FIELD_LIMITS[index])) as ParsedSchedule;
+  return fields.map((field, index) => {
+    const limits = FIELD_LIMITS[index];
+    return parseField(field, limits[0], limits[1]);
+  }) as ParsedSchedule;
 }
 
 function matches(schedule: ParsedSchedule, date: Date): boolean {
