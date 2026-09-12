@@ -449,6 +449,33 @@ describe("snapshotMessages", () => {
     expect(branchReads).toBe(0);
   });
 
+  it("replaces a cloned in-history stream instead of appending a duplicate", () => {
+    const branchMessage = {
+      role: "assistant",
+      timestamp: 2,
+      content: [{ type: "text", text: "一" }],
+    };
+    const streaming = {
+      ...branchMessage,
+      content: [{ type: "text", text: "二" }],
+    };
+    const branch = [{ type: "message", id: "a1", message: branchMessage }];
+    const fake = {
+      messages: [branchMessage],
+      agent: { state: { streamingMessage: streaming as unknown } },
+      sessionManager: { getLeafId: () => "a1", getBranch: () => branch },
+    };
+    const session = fake as unknown as Parameters<typeof snapshotMessages>[0];
+
+    expect(snapshotMessages(session)).toMatchObject([
+      {
+        id: "a1",
+        parts: [{ type: "text", text: "二" }],
+      },
+    ]);
+    expect(snapshotMessages(session)).toHaveLength(1);
+  });
+
   it("does not project older stored messages for an in-history delta", () => {
     const older = new Proxy<Record<string, unknown>>(
       {},

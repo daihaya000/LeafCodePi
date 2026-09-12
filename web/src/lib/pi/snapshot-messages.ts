@@ -46,6 +46,39 @@ function isPlainUserMessage(item: unknown): boolean {
   );
 }
 
+/** A streamed assistant can be a copy of the branch entry, not the same object. */
+function sameAssistantGeneration(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) {
+    return false;
+  }
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  if (left.role !== "assistant" || right.role !== "assistant") return false;
+  if (
+    typeof left.timestamp !== "number" ||
+    !Number.isFinite(left.timestamp) ||
+    left.timestamp !== right.timestamp
+  ) {
+    return false;
+  }
+  for (const key of ["api", "provider", "model"] as const) {
+    if (left[key] !== undefined && right[key] !== undefined && left[key] !== right[key]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Return the latest branch assistant if it represents the active stream. */
+function inHistoryStreamingIndex(raw: unknown[], streaming: unknown): number {
+  if (typeof streaming !== "object" || streaming === null) return -1;
+  const index = raw.findLastIndex((item) =>
+    typeof item === "object" && item !== null && (item as { role?: unknown }).role === "assistant",
+  );
+  return index >= 0 && sameAssistantGeneration(raw[index], streaming) ? index : -1;
+}
+
 /** Find the current Goal Loop marker without scanning past a manual user turn. */
 function latestGoalLoopMarkerIndex(raw: unknown[], endIndex = raw.length - 1): number {
   for (let index = Math.min(endIndex, raw.length - 1); index >= 0; index -= 1) {
@@ -212,9 +245,20 @@ export function snapshotMessages(
     }
   }
   const streaming = session.agent.state.streamingMessage;
-  const streamingInHistory = useBranchHistory
-    ? entryIdByMessage.has(streaming)
-    : stored.includes(streaming);
+  const streamingHistoryIndex = inHistoryStreamingIndex(historyRaw, streaming);
+  const streamingInHistory =
+    streamingHistoryIndex >= 0 ||
+    (useBranchHistory ? entryIdByMessage.has(streaming) : stored.includes(streaming));
+  if (streamingHistoryIndex >= 0 && historyRaw[streamingHistoryIndex] !== streaming) {
+    const branchMessage = historyRaw[streamingHistoryIndex];
+    const entryId = entryIdByMessage.get(branchMessage);
+    historyRaw = historyRaw.slice();
+    historyRaw[streamingHistoryIndex] = streaming;
+    if (entryId !== undefined) {
+      entryIdByMessage = new Map(entryIdByMessage);
+      entryIdByMessage.set(streaming, entryId);
+    }
+  }
   const streamingRole =
     streaming && typeof streaming === "object"
       ? (streaming as { role?: unknown }).role
