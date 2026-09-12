@@ -97,6 +97,22 @@ describe("tasksForSidebar", () => {
     ]);
   });
 
+  it("puts pinned tasks first while preserving the existing ordering inside each group", () => {
+    const tasks: TaskSummary[] = [
+      { ...task("unpinned-idle", "idle", "未ピン留めアイドル"), updatedAt: "2026-01-01T00:05:00.000Z" },
+      { ...task("pinned-idle", "idle", "ピン留めアイドル"), updatedAt: "2026-01-01T00:04:00.000Z" },
+      { ...task("unpinned-working", "working", "未ピン留め進行中"), updatedAt: "2026-01-01T00:03:00.000Z" },
+      { ...task("pinned-working", "working", "ピン留め進行中"), updatedAt: "2026-01-01T00:01:00.000Z" },
+    ];
+
+    expect(tasksForSidebar(tasks, new Set(["pinned-idle", "pinned-working"])).map((item) => item.title)).toEqual([
+      "ピン留め進行中",
+      "ピン留めアイドル",
+      "未ピン留め進行中",
+      "未ピン留めアイドル",
+    ]);
+  });
+
   it("returns empty list unchanged", () => {
     expect(tasksForSidebar([])).toEqual([]);
   });

@@ -16,6 +16,7 @@ import {
   Loader2,
   Menu,
   Plus,
+  Pin,
   Search,
   Settings,
   Trash2,
@@ -55,6 +56,7 @@ const WIDTH_KEY = "webui.sidebar.width";
 const COLLAPSED_KEY = "webui.sidebar.collapsed";
 const EXPANDED_KEY = "webui.sidebar.expanded";
 const PROJECT_ORDER_KEY = "webui.sidebar.project_order";
+const PINNED_TASKS_KEY = "webui.sidebar.pinned_tasks";
 const ARCHIVED_EXPANDED_KEY = "webui.sidebar.archived_expanded";
 const ARCHIVED_PROJECTS_EXPANDED_KEY = "webui.sidebar.archived_projects_expanded";
 const DEFAULT_WIDTH = 240;
@@ -541,10 +543,14 @@ function countRunningTasks(tasks: TaskSummary[]): number {
   return tasks.filter((task) => task.status === "working").length;
 }
 
-/** 進行中を優先し、各状態では最新の更新時刻順に表示する。 */
-export function tasksForSidebar(tasks: TaskSummary[]): TaskSummary[] {
+/** ピン留めを優先し、その中でも従来どおり進行中・更新日時順に表示する。 */
+export function tasksForSidebar(
+  tasks: TaskSummary[],
+  pinnedTaskIds?: ReadonlySet<string>,
+): TaskSummary[] {
   return [...tasks].sort(
     (a, b) =>
+      Number(pinnedTaskIds?.has(b.id)) - Number(pinnedTaskIds?.has(a.id)) ||
       Number(b.status === "working") - Number(a.status === "working") ||
       b.updatedAt.localeCompare(a.updatedAt),
   );
@@ -698,6 +704,27 @@ function loadExpanded(): Set<string> {
 function saveExpanded(ids: Set<string>): void {
   try {
     localStorage.setItem(EXPANDED_KEY, JSON.stringify([...ids]));
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadPinnedTaskIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(PINNED_TASKS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    return new Set(
+      Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function savePinnedTaskIds(ids: Set<string>): void {
+  try {
+    localStorage.setItem(PINNED_TASKS_KEY, JSON.stringify([...ids]));
   } catch {
     /* ignore */
   }
@@ -900,6 +927,7 @@ const SidebarView = memo(function SidebarView({
   );
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [projectOrder, setProjectOrder] = useState<string[]>(() => loadProjectOrder());
+  const [pinnedTaskIds, setPinnedTaskIds] = useState<Set<string>>(() => loadPinnedTaskIds());
   const [archivedExpanded, setArchivedExpanded] = useState(false);
   const [archivedProjectsExpanded, setArchivedProjectsExpanded] = useState(false);
   const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
@@ -981,8 +1009,8 @@ const SidebarView = memo(function SidebarView({
   }, [mode]);
 
   const workingTaskIds = useMemo(
-    () => tasksForSidebar(tasks.filter((task) => task.status === "working")).map((task) => task.id),
-    [tasks],
+    () => tasksForSidebar(tasks.filter((task) => task.status === "working"), pinnedTaskIds).map((task) => task.id),
+    [pinnedTaskIds, tasks],
   );
   const hasWorking = workingTaskIds.length > 0;
 
@@ -1158,10 +1186,10 @@ const SidebarView = memo(function SidebarView({
       map.set(task.projectId, list);
     }
     for (const [projectId, list] of map) {
-      map.set(projectId, tasksForSidebar(list));
+      map.set(projectId, tasksForSidebar(list, pinnedTaskIds));
     }
     return map;
-  }, [tasks]);
+  }, [pinnedTaskIds, tasks]);
   const noProjectTasks = tasksByProject.get(null) ?? [];
   const activeTask = activeTaskId === null ? undefined : tasks.find((task) => task.id === activeTaskId);
   const activeGroupId = activeTask
@@ -1242,6 +1270,16 @@ const SidebarView = memo(function SidebarView({
       if (next.has(id)) next.delete(id);
       else next.add(id);
       saveExpanded(next);
+      return next;
+    });
+  }
+
+  function togglePinned(taskId: string) {
+    setPinnedTaskIds((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      savePinnedTaskIds(next);
       return next;
     });
   }
@@ -1594,6 +1632,19 @@ const SidebarView = memo(function SidebarView({
                   <TaskActivityIcon task={task} bot={task.botId ? botsById.get(task.botId) : undefined} />
                   <span className="min-w-0 flex-1 truncate text-xs font-medium">{task.title}</span>
                   <span className="shrink-0 text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={pinnedTaskIds.has(task.id)}
+                  aria-label={pinnedTaskIds.has(task.id) ? `「${task.title}」のピン留めを解除` : `「${task.title}」をピン留め`}
+                  title={pinnedTaskIds.has(task.id) ? "ピン留めを解除" : "タスクをピン留め"}
+                  onClick={() => togglePinned(task.id)}
+                  className={cx(
+                    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md hover:bg-surface-2 md:h-6 md:w-6",
+                    pinnedTaskIds.has(task.id) ? "text-accent" : "text-muted hover:text-text",
+                  )}
+                >
+                  <Pin className={cx("h-3 w-3", pinnedTaskIds.has(task.id) && "fill-current")} />
                 </button>
                 {task.projectId === null && (
                   <button
