@@ -83,14 +83,20 @@ type TaskPanesIconContextValue = {
   iconFor: (taskId: string, size?: 16 | 32, task?: TaskIdentity) => React.ReactNode;
 };
 
+type TaskPanesBotStatusContextValue = {
+  statusFor: (taskId: string) => TaskStatus | null;
+};
+
 const EMPTY_STABLE: TaskPanesStableContextValue = {
   reportStatus: () => undefined,
   botFor: () => undefined,
 };
 const EMPTY_ICON: TaskPanesIconContextValue = { iconFor: () => null };
+const EMPTY_BOT_STATUS: TaskPanesBotStatusContextValue = { statusFor: () => null };
 
 const TaskPanesStableContext = createContext<TaskPanesStableContextValue>(EMPTY_STABLE);
 const TaskPanesIconContext = createContext<TaskPanesIconContextValue>(EMPTY_ICON);
+const TaskPanesBotStatusContext = createContext<TaskPanesBotStatusContextValue>(EMPTY_BOT_STATUS);
 const TaskPanesContext = createContext<TaskPanesContextValue>(EMPTY);
 
 /** RSC fetch の発生しない URL 同期（Next.js App Router の replaceState 公式サポート）。 */
@@ -139,6 +145,10 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   // 外部遷移（戻る/進む・直リンク）のみ panes 側へ反映。
   const externalUrlRef = useRef<string | null>(null);
   const [statusVersion, bumpStatusVersion] = useReducer(
+    (count: number) => count + 1,
+    0,
+  );
+  const [botStatusVersion, bumpBotStatusVersion] = useReducer(
     (count: number) => count + 1,
     0,
   );
@@ -234,6 +244,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
           // 状態にする。setState 系の version bump は replace とは別系統で発火させる。
           rawDispatch({ type: "replace", state: next });
           bumpStatusVersion();
+          if (missingIds.some(isBotTabId)) bumpBotStatusVersion();
         } catch {
           /* 取得失敗時は何もしない（閉じ誤り防止） */
         }
@@ -371,6 +382,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     if (statusMapRef.current.get(taskId) === status) return;
     statusMapRef.current.set(taskId, status);
     bumpStatusVersion();
+    if (isBotTabId(taskId)) bumpBotStatusVersion();
   }, []);
 
   // statusVersion を依存に持たせ、報告時に呼び出し元が再評価されるようにする
@@ -380,6 +392,13 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       return statusMapRef.current.get(taskId) ?? null;
     },
     [statusVersion],
+  );
+  const botStatusFor = useCallback(
+    (taskId: string) => {
+      void botStatusVersion;
+      return statusMapRef.current.get(taskId) ?? null;
+    },
+    [botStatusVersion],
   );
 
   // titlesVersion を依存に持たせ、取得時に呼び出し元が再評価されるようにする
@@ -437,12 +456,18 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     [reportStatus, botFor],
   );
   const iconValue = useMemo<TaskPanesIconContextValue>(() => ({ iconFor }), [iconFor]);
+  const botStatusValue = useMemo<TaskPanesBotStatusContextValue>(
+    () => ({ statusFor: botStatusFor }),
+    [botStatusFor],
+  );
 
   return (
     <TaskPanesStableContext.Provider value={stableValue}>
-      <TaskPanesIconContext.Provider value={iconValue}>
-        <TaskPanesContext.Provider value={value}>{children}</TaskPanesContext.Provider>
-      </TaskPanesIconContext.Provider>
+      <TaskPanesBotStatusContext.Provider value={botStatusValue}>
+        <TaskPanesIconContext.Provider value={iconValue}>
+          <TaskPanesContext.Provider value={value}>{children}</TaskPanesContext.Provider>
+        </TaskPanesIconContext.Provider>
+      </TaskPanesBotStatusContext.Provider>
     </TaskPanesStableContext.Provider>
   );
 }
@@ -483,4 +508,8 @@ export function useReportStatus(): TaskPanesContextValue["reportStatus"] {
 
 export function useIconFor(): TaskPanesIconContextValue["iconFor"] {
   return useContext(TaskPanesIconContext).iconFor;
+}
+
+export function useBotStatusFor(): TaskPanesBotStatusContextValue["statusFor"] {
+  return useContext(TaskPanesBotStatusContext).statusFor;
 }

@@ -27,7 +27,7 @@ import { AddProjectButton } from "@/components/AddProjectButton";
 import { ProjectIcon } from "@/components/ProjectIcon";
 import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
-import { useTaskPanes } from "@/components/shell/TaskPanesContext";
+import { useBotStatusFor, useTaskPanes } from "@/components/shell/TaskPanesContext";
 import { Button, cx, timeAgo, ThemeToggle } from "@/components/ui";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
@@ -41,7 +41,7 @@ import {
 } from "@/lib/bot-sidebar-store";
 import { getLastReadAt, hasUnread } from "@/lib/bot-unread";
 import { BOTS_TAB_ID, HOME_TAB_ID, isBotTabId, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
-import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type TaskStatus, type TaskSummary } from "@/lib/types";
+import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type TaskSummary } from "@/lib/types";
 
 type ProjectTaskMenuState = {
   projectId: string;
@@ -238,7 +238,7 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
   );
 }
 
-function BotSidebarBody({
+const BotSidebarBody = memo(function BotSidebarBody({
   onClose,
   onChangeMode,
   onSettings,
@@ -248,7 +248,6 @@ function BotSidebarBody({
   onExpand,
   onShowWorkingBots,
   health,
-  statusFor = () => null,
 }: {
   onClose: () => void;
   onChangeMode: (mode: AppMode) => void;
@@ -259,10 +258,10 @@ function BotSidebarBody({
   collapsed: boolean;
   onCollapse: () => void;
   onExpand: () => void;
-  statusFor: (taskId: string) => TaskStatus | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const botStatusFor = useBotStatusFor();
   const botSidebar = useSyncExternalStore(
     subscribeBotSidebar,
     getBotSidebarSnapshot,
@@ -396,7 +395,7 @@ function BotSidebarBody({
                       active && "bg-surface-2 ring-1 ring-inset ring-accent/20",
                     )}
                   >
-                    <span className="relative"><BotAvatar size={40} {...bot} active={bot.codeInProgress === true || statusFor(`/bots/${encodeURIComponent(bot.id)}`) === "working"} />{bot.codeSessionCount ? <span aria-label={`Codeセッション${bot.codeSessionCount}件`} title={`Codeセッション${bot.codeSessionCount}件`} className="absolute -bottom-1 -right-1 inline-flex min-w-4 items-center justify-center rounded-full border-2 border-surface bg-accent px-1 text-[10px] font-semibold leading-3 text-white">{bot.codeSessionCount}</span> : null}</span>
+                    <span className="relative"><BotAvatar size={40} {...bot} active={bot.codeInProgress === true || botStatusFor(`/bots/${encodeURIComponent(bot.id)}`) === "working"} />{bot.codeSessionCount ? <span aria-label={`Codeセッション${bot.codeSessionCount}件`} title={`Codeセッション${bot.codeSessionCount}件`} className="absolute -bottom-1 -right-1 inline-flex min-w-4 items-center justify-center rounded-full border-2 border-surface bg-accent px-1 text-[10px] font-semibold leading-3 text-white">{bot.codeSessionCount}</span> : null}</span>
                     {!active && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)) && (
                       <span
                         aria-label="未読"
@@ -496,12 +495,12 @@ function BotSidebarBody({
         <div className="flex items-center justify-between px-2 py-1"><span className="text-xs font-medium text-muted">ルーム</span><Link href="/bots" onClick={onClose} className="text-xs text-accent">すべて</Link></div>
         <div className="mt-1 space-y-1">{visibleRooms.map((room) => <button key={room.id} type="button" draggable={mdUp} onDragStart={(event) => setTaskDragData(event.dataTransfer, `/bots/rooms/${encodeURIComponent(room.id)}`)} onClick={() => { router.push(`/bots/rooms/${encodeURIComponent(room.id)}`); onClose(); }} aria-current={pathname === `/bots/rooms/${room.id}` ? "page" : undefined} className={`relative flex w-full min-w-0 items-center gap-2 rounded-xl px-2.5 py-1 text-left hover:bg-surface-2 ${pathname === `/bots/rooms/${room.id}` ? "bg-surface-2 ring-1 ring-inset ring-accent/20" : ""}`}><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-success-bg text-xs text-success">#</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-tight">{room.name}</span><span className="block truncate text-xs leading-tight text-muted">{room.lastMessageSummary ?? "\u30e1\u30c3\u30bb\u30fc\u30b8\u306a\u3057"}</span></span>{pathname !== `/bots/rooms/${room.id}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id)) && <span aria-label={"\u672a\u8aad"} title={"\u672a\u8aad"} className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}<span className="shrink-0 self-start pt-0.5 text-xs text-muted">{timeAgo(room.lastMessageAt ?? room.updatedAt)}</span></button>)}{visibleRooms.length === 0 && <p className="px-2 py-2 text-xs text-muted">ルームはありません</p>}</div>
         <div className="mt-2 flex items-center justify-between bg-bg px-2 py-1"><span className="text-xs font-medium text-muted">Bot</span><Link href="/bots" onClick={onClose} className="text-xs text-accent">すべて</Link></div>
-        <div className="mt-1 space-y-1">{visibleBots.map((bot) => <button key={bot.id} type="button" draggable={mdUp} onDragStart={(event) => setTaskDragData(event.dataTransfer, `/bots/${encodeURIComponent(bot.id)}`)} onClick={() => { router.push(`/bots/${encodeURIComponent(bot.id)}`); onClose(); }} aria-current={pathname === `/bots/${bot.id}` ? "page" : undefined} className={`relative flex w-full min-w-0 items-center gap-2 rounded-xl px-2.5 py-1 text-left hover:bg-surface-2 ${pathname === `/bots/${bot.id}` ? "bg-surface-2 ring-1 ring-inset ring-accent/20" : ""}`}><span className="relative"><BotAvatar size={32} {...bot} active={bot.codeInProgress === true || statusFor(`/bots/${encodeURIComponent(bot.id)}`) === "working"} />{bot.codeSessionCount ? <span aria-label={`Codeセッション${bot.codeSessionCount}件`} title={`Codeセッション${bot.codeSessionCount}件`} className="absolute -bottom-1 -right-1 inline-flex min-w-4 items-center justify-center rounded-full border-2 border-surface bg-accent px-1 text-[10px] font-semibold leading-3 text-white">{bot.codeSessionCount}</span> : null}</span><span aria-label={bot.enabled ? "\u6709\u52b9" : "\u7121\u52b9"} title={bot.enabled ? "\u6709\u52b9" : "\u7121\u52b9"} className="sr-only" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-tight">{bot.name}</span><span className="block truncate text-xs leading-tight text-muted">{bot.lastMessageSummary ?? "\u30e1\u30c3\u30bb\u30fc\u30b8\u306a\u3057"}</span></span>{pathname !== `/bots/${bot.id}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)) && <span aria-label={"\u672a\u8aad"} title={"\u672a\u8aad"} className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}<span className="shrink-0 self-start pt-0.5 text-xs text-muted">{bot.lastMessageAt ? timeAgo(bot.lastMessageAt) : ""}</span></button>)}{visibleBots.length === 0 && <p className="px-2 py-2 text-xs text-muted">Botはありません</p>}</div>
+        <div className="mt-1 space-y-1">{visibleBots.map((bot) => <button key={bot.id} type="button" draggable={mdUp} onDragStart={(event) => setTaskDragData(event.dataTransfer, `/bots/${encodeURIComponent(bot.id)}`)} onClick={() => { router.push(`/bots/${encodeURIComponent(bot.id)}`); onClose(); }} aria-current={pathname === `/bots/${bot.id}` ? "page" : undefined} className={`relative flex w-full min-w-0 items-center gap-2 rounded-xl px-2.5 py-1 text-left hover:bg-surface-2 ${pathname === `/bots/${bot.id}` ? "bg-surface-2 ring-1 ring-inset ring-accent/20" : ""}`}><span className="relative"><BotAvatar size={32} {...bot} active={bot.codeInProgress === true || botStatusFor(`/bots/${encodeURIComponent(bot.id)}`) === "working"} />{bot.codeSessionCount ? <span aria-label={`Codeセッション${bot.codeSessionCount}件`} title={`Codeセッション${bot.codeSessionCount}件`} className="absolute -bottom-1 -right-1 inline-flex min-w-4 items-center justify-center rounded-full border-2 border-surface bg-accent px-1 text-[10px] font-semibold leading-3 text-white">{bot.codeSessionCount}</span> : null}</span><span aria-label={bot.enabled ? "\u6709\u52b9" : "\u7121\u52b9"} title={bot.enabled ? "\u6709\u52b9" : "\u7121\u52b9"} className="sr-only" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-tight">{bot.name}</span><span className="block truncate text-xs leading-tight text-muted">{bot.lastMessageSummary ?? "\u30e1\u30c3\u30bb\u30fc\u30b8\u306a\u3057"}</span></span>{pathname !== `/bots/${bot.id}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)) && <span aria-label={"\u672a\u8aad"} title={"\u672a\u8aad"} className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}<span className="shrink-0 self-start pt-0.5 text-xs text-muted">{bot.lastMessageAt ? timeAgo(bot.lastMessageAt) : ""}</span></button>)}{visibleBots.length === 0 && <p className="px-2 py-2 text-xs text-muted">Botはありません</p>}</div>
       </div>
       <SidebarFooter health={health} onSettings={onSettings} />
     </div>
   );
-}
+});
 function ProjectIconPicker({
   project,
   className,
@@ -888,7 +887,6 @@ type SidebarProps = {
 type SidebarPaneProps = {
   paneActiveTaskId: string | null;
   paneMdUp: boolean;
-  statusFor: (taskId: string) => TaskStatus | null;
   splitHostEnabled: boolean;
   retargetToUrl: (taskId: string) => void;
   dispatch: (action: TaskPanesAction) => void;
@@ -901,7 +899,6 @@ const SidebarView = memo(function SidebarView({
   paneMdUp,
   splitHostEnabled,
   retargetToUrl,
-  statusFor,
   dispatch,
 }: SidebarProps & SidebarPaneProps) {
   const pathname = usePathname();
@@ -2051,6 +2048,14 @@ const SidebarView = memo(function SidebarView({
     ? (tasksByProject.get(projectTaskMenuProject.id) ?? []).slice(0, 20)
     : [];
 
+  const collapseBotSidebar = useCallback(() => {
+    setCollapsed(true);
+    localStorage.setItem(COLLAPSED_KEY, "1");
+  }, []);
+  const expandBotSidebar = useCallback(() => {
+    setCollapsed(false);
+    localStorage.setItem(COLLAPSED_KEY, "0");
+  }, []);
   const botBody = (
     <BotSidebarBody
       onClose={onClose}
@@ -2059,15 +2064,8 @@ const SidebarView = memo(function SidebarView({
       health={health}
       mdUp={mdUp}
       collapsed={collapsed && mdUp}
-      statusFor={statusFor}
-      onCollapse={() => {
-        setCollapsed(true);
-        localStorage.setItem(COLLAPSED_KEY, "1");
-      }}
-      onExpand={() => {
-        setCollapsed(false);
-        localStorage.setItem(COLLAPSED_KEY, "0");
-      }}
+      onCollapse={collapseBotSidebar}
+      onExpand={expandBotSidebar}
       onShowWorkingBots={showWorkingBotsFallback}
     />
   );
@@ -2440,7 +2438,6 @@ export function Sidebar(props: SidebarProps) {
     mdUp: paneMdUp,
     splitHostEnabled,
     retargetToUrl,
-    statusFor,
     dispatch,
   } = useTaskPanes();
   return (
@@ -2450,7 +2447,6 @@ export function Sidebar(props: SidebarProps) {
       paneMdUp={paneMdUp}
       splitHostEnabled={splitHostEnabled}
       retargetToUrl={retargetToUrl}
-      statusFor={statusFor}
       dispatch={dispatch}
     />
   );
