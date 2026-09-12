@@ -172,6 +172,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// Broker startup writes (port/pid files) can hit transient Windows locks left by
+// a dying broker instance. Retry briefly so one stale handle cannot prevent
+// the replacement broker — and every session's intercom — from starting.
+function writeRuntimeFileWithRetry(filePath: string, content: string): void {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      writeFileSync(filePath, content, { mode: INTERCOM_RUNTIME_FILE_MODE });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
+      if (attempt >= 4 || !transient) throw error;
+      const until = Date.now() + 25 * (attempt + 1);
+      while (Date.now() < until) {
+        // Keep the sync startup path; cap total wait at ~250ms.
+      }
+    }
+  }
+}
+
 function isPendingAskRecord(value: unknown): value is PendingAskRecord {
   if (!isRecord(value) || !isRecord(value.asker) || !isRecord(value.target)) {
     return false;
@@ -246,10 +266,10 @@ class IntercomBroker {
           port: address.port,
           stateId: BROKER_STATE_ID,
         };
-        writeFileSync(PORT_PATH, `${JSON.stringify(endpoint)}\n`, { mode: INTERCOM_RUNTIME_FILE_MODE });
+        writeRuntimeFileWithRetry(PORT_PATH, `${JSON.stringify(endpoint)}\n`);
         restrictIntercomRuntimeFile(PORT_PATH);
       }
-      writeFileSync(PID_PATH, String(process.pid), { mode: INTERCOM_RUNTIME_FILE_MODE });
+      writeRuntimeFileWithRetry(PID_PATH, String(process.pid));
       restrictIntercomRuntimeFile(PID_PATH);
       console.log(`Intercom broker started (pid: ${process.pid})`);
     };
