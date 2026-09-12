@@ -1194,8 +1194,27 @@ class IntercomBroker {
       expiresAt: createdAt + this.askTimeoutMs,
     };
     const filePath = scopedPendingAskRecordPath(from.scopeId, message.id);
-    writeFileSync(filePath, `${JSON.stringify(record, null, 2)}\n`, { mode: INTERCOM_RUNTIME_FILE_MODE });
-    restrictIntercomRuntimeFile(filePath);
+    const content = `${JSON.stringify(record, null, 2)}\n`;
+    // Disk record is crash-recovery only; in-memory askEdges is authoritative.
+    // A transient Windows lock (EPERM/EACCES/EBUSY) must not throw and drop the session.
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        writeFileSync(filePath, content, { mode: INTERCOM_RUNTIME_FILE_MODE });
+        restrictIntercomRuntimeFile(filePath);
+        return;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException | undefined)?.code;
+        const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
+        if (attempt >= 4 || !transient) {
+          console.error(`Intercom pending-ask persist failed (${code ?? "unknown"}); continuing in-memory: ${filePath}`);
+          return;
+        }
+        const until = Date.now() + 25 * (attempt + 1);
+        while (Date.now() < until) {
+          // Keep the sync path; cap total wait at ~250ms.
+        }
+      }
+    }
   }
 
   private removePendingAskRecord(messageId: string, scopeId?: string): void {
