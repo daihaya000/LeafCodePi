@@ -195,7 +195,9 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     settingsOpenRef.current = saved;
     setSettingsOpen(saved);
     setCodePanelOpen(false);
-    setTtsEnabled(readTaskTtsEnabled(id));
+    const enabled = readTaskTtsEnabled(id);
+    setTtsEnabled(enabled);
+    if (!enabled) stopSpeaking();
   }, [id]);
   const toggleTts = () => {
     const next = !ttsEnabled;
@@ -204,7 +206,10 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     writeTaskTtsEnabled(id, next);
     if (!next) stopSpeaking();
   };
-  useEffect(() => subscribeTaskTtsEnabled(id, setTtsEnabled), [id]);
+  useEffect(() => subscribeTaskTtsEnabled(id, (enabled) => {
+    setTtsEnabled(enabled);
+    if (!enabled) stopSpeaking();
+  }), [id]);
   // Drop the previous bot's transcript/overlays immediately; SSE will refill for the new id.
   useEffect(() => {
     setMessages([]);
