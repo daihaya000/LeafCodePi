@@ -154,7 +154,7 @@ type SidebarRoom = RoomDto & SidebarPreview;
 type BotListFilter = "all" | "bots" | "rooms";
 
 function ModeSegment({ mode, onChange }: { mode: AppMode; onChange: (mode: AppMode) => void }) {
-  return <div className="mx-1 mb-2 grid grid-cols-2 rounded-lg border border-border bg-surface-2 p-0.5">
+  return <div className="mb-2 grid grid-cols-2 rounded-lg border border-border bg-surface-2 p-0.5">
     {(["bot", "code"] as const).map((item) => <button key={item} type="button" aria-pressed={mode === item} onClick={() => onChange(item)} className={cx("flex items-center justify-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium", mode === item ? "bg-surface text-text shadow-sm" : "text-muted hover:text-text")}>
       {item === "bot" ? (
         <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-[var(--brand)]">
