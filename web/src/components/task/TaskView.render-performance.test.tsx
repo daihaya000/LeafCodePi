@@ -109,5 +109,13 @@ describe("TaskView render stability", () => {
 
     await waitFor(() => expect(mocks.workingRow).toHaveBeenCalled());
     expect(mocks.partView).not.toHaveBeenCalled();
+
+    mocks.partView.mockClear();
+    await act(async () => {
+      source.dispatchEvent(new MessageEvent("delta", {
+        data: JSON.stringify({ isCompacting: true }),
+      }));
+    });
+    expect(mocks.partView).not.toHaveBeenCalled();
   });
 });
