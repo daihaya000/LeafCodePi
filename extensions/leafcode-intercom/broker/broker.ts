@@ -1240,10 +1240,9 @@ class IntercomBroker {
   private removePendingAskRecord(messageId: string, scopeId?: string): void {
     try {
       unlinkSync(scopedPendingAskRecordPath(scopeId, messageId));
-    } catch (error) {
-      if (!isRecord(error) || error.code !== "ENOENT") {
-        throw error;
-      }
+    } catch {
+      // Best-effort: a locked or already-gone file must not throw and drop the
+      // session. Leftovers expire via prunePendingAskRecords.
     }
   }
 
@@ -1258,11 +1257,19 @@ class IntercomBroker {
       try {
         parsed = JSON.parse(readFileSync(filePath, "utf-8"));
       } catch {
-        unlinkSync(filePath);
+        try {
+          unlinkSync(filePath);
+        } catch {
+          // Locked by antivirus/sync client; retry on a later prune.
+        }
         continue;
       }
       if (!isPendingAskRecord(parsed) || now > parsed.expiresAt) {
-        unlinkSync(filePath);
+        try {
+          unlinkSync(filePath);
+        } catch {
+          // Locked by antivirus/sync client; retry on a later prune.
+        }
       }
     }
   }
