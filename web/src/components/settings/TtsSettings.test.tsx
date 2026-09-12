@@ -67,6 +67,26 @@ describe("TtsSettings", () => {
     });
   });
 
+  it("shows ramuchi when the saved voice id is no longer in the preset list", async () => {
+    getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/settings/tts/server") return { running: false };
+      return {
+        enabled: false,
+        voice: "1455577728",
+        rate: 0,
+        url: "http://127.0.0.1:10101",
+      };
+    });
+
+    render(<TtsSettings />);
+    const trigger = await screen.findByRole("button", { name: "TTS 音声" });
+    expect(trigger.textContent).toContain("ramuchi / ノーマル");
+    expect(trigger.textContent).not.toContain("1455577728");
+
+    fireEvent.click(trigger);
+    expect(screen.getByRole("option", { name: "ramuchi / ノーマル" })).toBeTruthy();
+  });
+
   it("plays a test utterance with the synthesize API", async () => {
     const play = vi.fn(async () => undefined);
     vi.stubGlobal("Audio", class {

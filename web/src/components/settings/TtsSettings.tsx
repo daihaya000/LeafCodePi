@@ -131,6 +131,8 @@ export function TtsSettings() {
   const backendId = detectTtsBackend(current.url);
   const backend = getTtsBackend(backendId);
   const voices = useMemo(() => backend?.voices ?? [], [backend]);
+  const selectedVoice =
+    voices.find((option) => option.id === current.voice)?.id ?? voices[0]?.id ?? current.voice;
 
   const applyBackend = (id: TtsBackendId) => {
     if (!ready || form === null) return;
@@ -203,11 +205,11 @@ export function TtsSettings() {
           <div className="flex flex-col gap-1.5">
             <span className="text-sm text-muted">音声 / モデル</span>
             <GhostSelect
-              value={voices.some((option) => option.id === current.voice) ? current.voice : voices[0]!.id}
+              value={selectedVoice}
               disabled={!ready || busy}
               aria-label="TTS 音声"
               icon={<AudioLines className="h-3.5 w-3.5" />}
-              valueLabel={voiceLabel(backendId, current.voice)}
+              valueLabel={voiceLabel(backendId, selectedVoice)}
               onChange={applyVoice}
               className="h-9 w-full max-w-md"
             >
