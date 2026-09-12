@@ -660,7 +660,7 @@ function CompactionNotice({ message }: { message: UiMessage }) {
 }
 
 /** 本家 LeafCode の MessageMetaHeader と同じ「アイコン · 値 · 値」1 行。 */
-export function MessageMetaHeader({
+export const MessageMetaHeader = memo(function MessageMetaHeader({
   message,
   modelLabel,
   effort,
@@ -751,7 +751,7 @@ export function MessageMetaHeader({
       })}
     </div>
   );
-}
+});
 
 /** タイムライン末尾の実行中インジケータ（本家の WorkingProgressPanel 相当の 1 行版）。 */
 export function WorkingRow({ messages, active = true }: { messages: UiMessage[]; active?: boolean }) {
