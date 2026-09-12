@@ -240,10 +240,11 @@ export const HomeView = memo(function HomeView({
       setAgent((current) => resolveAgentSelection(current || readStoredAgent(), enabledAgentNames));
     }
     if (skillRes.status === "fulfilled") {
-      setSkills(
-        skillRes.value.skills
-          .filter((skill) => skill.enabled)
-          .map(({ name, description }) => ({ name, description })),
+      const enabledSkills = skillRes.value.skills
+        .filter((skill) => skill.enabled)
+        .map(({ name, description }) => ({ name, description }));
+      setSkills((current) =>
+        sameComposerReferences(current, enabledSkills) ? current : enabledSkills,
       );
     }
     setLoaded(true);
