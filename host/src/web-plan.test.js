@@ -106,6 +106,22 @@ test("isWebBuildStale skips node_modules, dotfiles, and ignored extensions", () 
   assert.equal(isWebBuildStale(WEB_DIR, DIST_DIR, fs), false);
 });
 
+test("isWebBuildStale ignores test-only changes", () => {
+  const fs = fakeFs({
+    files: {
+      [join(DIST_DIR, "BUILD_ID")]: 1000,
+      [path("src", "a.test.ts")]: 5000,
+      [path("src", "b.spec.tsx")]: 5000,
+    },
+    dirs: {
+      [WEB_DIR]: ["src", ".next"],
+      [path("src")]: ["a.test.ts", "b.spec.tsx"],
+      [DIST_DIR]: ["BUILD_ID"],
+    },
+  });
+  assert.equal(isWebBuildStale(WEB_DIR, DIST_DIR, fs), false);
+});
+
 test("isWebBuildStale returns false without a BUILD_ID", () => {
   const fs = fakeFs({
     files: { [path("package.json")]: 5000 },

@@ -152,6 +152,8 @@ function hasNewerFile(dir, buildMtimeMs, distDir, fsApi) {
       continue;
     }
     if (!st.isFile()) continue;
+    // テストは本番バンドルに含まれないため、変更で .next を無効化しない。
+    if (/\.(test|spec)\.[^.]+$/i.test(name)) continue;
     const dot = name.lastIndexOf(".");
     if (dot < 0) continue;
     const ext = name.slice(dot).toLowerCase();
