@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveTaskSessionCache } from "@/lib/task-session-cache";
 import type { ModelOption, TaskSummary, UiMessage } from "@/lib/types";
 
-const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), partView: vi.fn(), toolCard: vi.fn(), messageMetaHeader: vi.fn(), botFor: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), apiUrl: (path: string) => path, partView: vi.fn(), toolCard: vi.fn(), messageMetaHeader: vi.fn(), botFor: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuButton: () => null }));
 vi.mock("@/components/task/PartView", () => ({ PartView: mocks.partView, ToolCard: mocks.toolCard, MessageMetaHeader: mocks.messageMetaHeader, WorkingRow: () => null }));
@@ -12,6 +12,7 @@ vi.mock("@/components/shell/TaskPanesContext", () => ({ useTaskPanes: () => ({ i
 
 import { TaskView } from "./TaskView";
 import { clearCachedModels, writeCachedModels } from "@/lib/models-cache";
+import { writeTaskTtsEnabled } from "@/lib/tts-playback";
 
 const task: TaskSummary = {
   id: "draft-task", projectId: null, projectName: "test", title: "draft test", directory: "",
@@ -956,4 +957,51 @@ describe("TaskView draft submission", () => {
     });
     await waitFor(() => expect(screen.queryByRole("region", { name: "Goal loop" })).toBeNull());
   });
+});
+
+it("stops task reading aloud when the task TTS toggle is turned off mid-playback", async () => {
+  class TestEventSource extends EventTarget {
+    static latest: TestEventSource | null = null;
+
+    constructor() {
+      super();
+      TestEventSource.latest = this;
+    }
+
+    close() {}
+  }
+  vi.stubGlobal("EventSource", TestEventSource);
+  const ttsFetch = vi.fn(async () => new Response(Buffer.from([1, 2, 3]), { status: 200 }));
+  const play = vi.fn(async () => undefined);
+  const pause = vi.fn();
+  vi.stubGlobal("fetch", ttsFetch);
+  vi.stubGlobal("Audio", class {
+    onended: (() => void) | null = null;
+    playbackRate = 1;
+    volume = 1;
+    play = play;
+    pause = pause;
+  });
+  localStorage.setItem("webui:tts-enabled:draft-task", "1");
+  localStorage.setItem("webui:notification-sound-volume", "0");
+  const oldReply: UiMessage = { id: "old", role: "assistant", createdAt: 1, parts: [{ id: "old-text", type: "text", text: "古い返信" }] };
+  const newReply: UiMessage = { id: "new", role: "assistant", createdAt: 2, parts: [{ id: "new-text", type: "text", text: "新しい返信" }] };
+  saveTaskSessionCache({ task, messages: [oldReply], isStreaming: false, isCompacting: false });
+  render(<TaskView taskId={task.id} mdUp />);
+  const source = TestEventSource.latest;
+  if (!source) throw new Error("EventSource was not created");
+  const sendSnapshot = async (payload: unknown) => {
+    await act(async () => {
+      source.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(payload) }));
+    });
+  };
+  await sendSnapshot({ task: { ...task, status: "working" }, messages: [oldReply] });
+  await sendSnapshot({ task: { ...task, status: "idle" }, messages: [oldReply, newReply] });
+  await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+  const ttsCall = ttsFetch.mock.calls.find(([url]) => String(url).includes("/api/tts/synthesize")) as unknown as [string, RequestInit] | undefined;
+  expect(ttsCall).toBeTruthy();
+  expect(JSON.parse(String(ttsCall![1].body))).toEqual({ text: "新しい返信" });
+  // タスク側でOFF → 共有キーの通知で再生中の音声を止める。
+  act(() => { writeTaskTtsEnabled(task.id, false); });
+  expect(pause).toHaveBeenCalledTimes(1);
 });
