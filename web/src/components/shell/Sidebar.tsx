@@ -33,7 +33,7 @@ import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import { getLastReadAt, hasUnread } from "@/lib/bot-unread";
-import { BOTS_TAB_ID, HOME_TAB_ID, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
+import { BOTS_TAB_ID, HOME_TAB_ID, isBotTabId, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
 import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type TaskStatus, type TaskSummary } from "@/lib/types";
 
 type ProjectTaskMenuState = {
@@ -1129,24 +1129,31 @@ const SidebarView = memo(function SidebarView({
     onClose();
   }, [onClose, paneMdUp, retargetToUrl, router]);
 
+  const resetPanesToTab = useCallback((tabId: string) => {
+    // 進行中タスクがない場合は、既存の分割ペイン・タブをすべて閉じてから入口を表示する。
+    dispatch({ type: "resetToTab", taskId: tabId });
+    onClose();
+  }, [dispatch, onClose]);
+
   const showWorkingTasks = useCallback(() => {
     if (!paneMdUp) return;
     if (workingTaskIds.length === 0) {
-      openHome();
+      resetPanesToTab(HOME_TAB_ID);
       return;
     }
     dispatch({ type: "showWorkingTasks", taskIds: workingTaskIds });
     onClose();
-  }, [dispatch, onClose, openHome, paneMdUp, workingTaskIds]);
+  }, [dispatch, onClose, paneMdUp, resetPanesToTab, workingTaskIds]);
 
   const showWorkingBotsFallback = useCallback((botIds: string[]) => {
     if (!paneMdUp) return;
     if (botIds.length === 0) {
-      retargetToUrl(BOTS_TAB_ID);
+      resetPanesToTab(isBotTabId(pathname) ? pathname : BOTS_TAB_ID);
     } else {
       dispatch({ type: "showWorkingTasks", taskIds: botIds });
+      onClose();
     }
-  }, [dispatch, paneMdUp, retargetToUrl]);
+  }, [dispatch, onClose, paneMdUp, pathname, resetPanesToTab]);
 
   const tasksByProject = useMemo(() => {
     const map = new Map<string | null, TaskSummary[]>();

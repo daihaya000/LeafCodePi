@@ -94,6 +94,8 @@ export type TaskPanesAction =
   | { type: "clearPane"; paneId: string; keepTabIds?: readonly string[] }
   /** 指定された進行中タスクだけでペインを再構成する。 */
   | { type: "showWorkingTasks"; taskIds: readonly string[] }
+  /** すべてのペイン・タブを閉じ、指定した入口タブだけを表示する。 */
+  | { type: "resetToTab"; taskId: string }
   | { type: "activateTab"; paneId: string; taskId: string }
   | { type: "reorderTabs"; paneId: string; tabs: string[] }
   | {
@@ -532,6 +534,17 @@ export function taskPanesReducer(
         activePaneId: activePane.id,
         orientation: "row",
         ...(layout ? { layout } : {}),
+      };
+    }
+
+    case "resetToTab": {
+      const firstPane = state.panes[0];
+      if (!firstPane || !action.taskId) return state;
+      return {
+        ...state,
+        panes: [{ ...firstPane, tabs: [action.taskId], activeTabId: action.taskId }],
+        activePaneId: firstPane.id,
+        layout: undefined,
       };
     }
 
