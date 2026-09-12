@@ -118,6 +118,35 @@ describe("speech output", () => {
     }
   });
 
+  it("自動再生ブロック後、ユーザー操作で同じ音声を再試行する", async () => {
+    const play = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error("blocked"), { name: "NotAllowedError" }))
+      .mockResolvedValue(undefined);
+    const pause = vi.fn();
+    vi.stubGlobal("Audio", class {
+      onended: (() => void) | null = null;
+      playbackRate = 1;
+      volume = 1;
+      play = play;
+      pause = pause;
+      constructor() {}
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(Buffer.from([1, 2, 3]), { status: 200 })));
+    try {
+      const errors: string[] = [];
+      const played = vi.fn();
+      speakText("こんにちは", { onError: (message) => errors.push(message), onPlayed: played });
+      await vi.waitFor(() => expect(errors).toHaveLength(1));
+      expect(play).toHaveBeenCalledTimes(1);
+      document.dispatchEvent(new Event("pointerdown"));
+      await vi.waitFor(() => expect(played).toHaveBeenCalledTimes(1));
+      expect(play).toHaveBeenCalledTimes(2);
+    } finally {
+      stopSpeaking();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("合成失敗は onError に日本語メッセージを返す（フォールバックなし）", async () => {
     installAudio();
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "合成エンジンが未設定です" }), { status: 400 })));

@@ -87,10 +87,54 @@ export function speakable(text: string): string {
 let currentAudio: HTMLAudioElement | null = null;
 let currentObjectUrl: string | null = null;
 let currentAbort: AbortController | null = null;
+let cancelPlaybackRetry: (() => void) | null = null;
+
+function clearPlaybackRetry(): void {
+  cancelPlaybackRetry?.();
+  cancelPlaybackRetry = null;
+}
+
+function retryPlaybackAfterUserGesture(
+  audio: HTMLAudioElement,
+  callbacks?: { onError?: (message: string) => void; onPlayed?: () => void },
+): void {
+  if (typeof document === "undefined") return;
+  clearPlaybackRetry();
+  const retry = () => {
+    if (currentAudio !== audio) {
+      clearPlaybackRetry();
+      return;
+    }
+    void audio.play()
+      .then(() => {
+        clearPlaybackRetry();
+        callbacks?.onPlayed?.();
+      })
+      .catch((error: unknown) => {
+        if (errorName(error) === "NotAllowedError") return;
+        clearPlaybackRetry();
+        callbacks?.onError?.(error instanceof Error ? error.message : "読み上げに失敗しました");
+      });
+  };
+  const options = { capture: true } as const;
+  document.addEventListener("pointerdown", retry, options);
+  document.addEventListener("keydown", retry, options);
+  cancelPlaybackRetry = () => {
+    document.removeEventListener("pointerdown", retry, options);
+    document.removeEventListener("keydown", retry, options);
+  };
+}
+
+function errorName(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("name" in error)) return undefined;
+  const name = (error as { name?: unknown }).name;
+  return typeof name === "string" ? name : undefined;
+}
 
 /** 再生中・取得中の読み上げをすべて止める。トグルOFF時は必ず呼ぶ。 */
 export function stopSpeaking(): void {
   if (typeof window === "undefined") return;
+  clearPlaybackRetry();
   currentAbort?.abort();
   currentAbort = null;
   currentAudio?.pause();
@@ -112,6 +156,7 @@ export function speakText(text: string, callbacks?: { onError?: (message: string
   stopSpeaking();
   const controller = new AbortController();
   currentAbort = controller;
+  let audio: HTMLAudioElement | null = null;
   void (async () => {
     try {
       const res = await fetch(apiUrl("/api/tts/synthesize"), {
@@ -127,7 +172,7 @@ export function speakText(text: string, callbacks?: { onError?: (message: string
       const blob = await res.blob();
       if (controller.signal.aborted) return;
       currentObjectUrl = URL.createObjectURL(blob);
-      const audio = new Audio(currentObjectUrl);
+      audio = new Audio(currentObjectUrl);
       audio.playbackRate = readPlaybackRate();
       audio.volume = readPlaybackVolume() / 100;
       currentAudio = audio;
@@ -137,9 +182,10 @@ export function speakText(text: string, callbacks?: { onError?: (message: string
       await audio.play();
       callbacks?.onPlayed?.();
     } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") return;
+      if (errorName(error) === "AbortError") return;
       if (currentAbort === controller) currentAbort = null;
-      if (error instanceof Error && error.name === "NotAllowedError") {
+      if (errorName(error) === "NotAllowedError") {
+        if (audio) retryPlaybackAfterUserGesture(audio, callbacks);
         callbacks?.onError?.("ブラウザが自動再生をブロックしました（ページをクリック後に再試行）");
       } else {
         callbacks?.onError?.(error instanceof Error ? error.message : "読み上げに失敗しました");
