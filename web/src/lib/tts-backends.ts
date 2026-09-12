@@ -33,6 +33,8 @@ export const TTS_BACKENDS: TtsBackendPreset[] = [
     voices: [
       // AIVMX model: 54e9ae01-4f5f-4443-85c6-8f625939729a
       { id: "871574624", label: "ramuchi / ノーマル" },
+      // AIVMX model: 16ad30dd-739b-434c-8077-487d089b0751
+      { id: "1257529344", label: "kanna / ノーマル" },
       { id: "888753760", label: "まお / ノーマル" },
       { id: "888753761", label: "まお / ふつー" },
       { id: "888753762", label: "まお / あまあま" },

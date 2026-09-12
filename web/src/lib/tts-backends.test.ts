@@ -22,6 +22,7 @@ describe("tts-backends", () => {
     assert.equal(TTS_BACKENDS.length, 3);
     assert.equal(getTtsBackend("aivis")?.defaultVoice, "871574624");
     assert.equal(voiceLabel("aivis", "871574624"), "ramuchi / ノーマル");
+    assert.equal(voiceLabel("aivis", "1257529344"), "kanna / ノーマル");
     assert.equal(getTtsBackend("qwen")?.url.includes("/v1/audio/speech"), true);
     assert.equal(backendLabel("sapi"), "Windows SAPI");
     assert.equal(backendLabel("custom"), "カスタム URL");
