@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isMirroredNextCliReady, resolveMirrorRoot, syncMirror } from "./web-build-mirror.mjs";
@@ -84,6 +84,29 @@ export function discardPreviousBuild(distDir, fsApi = {}) {
   const prev = previousBuildDir(distDir);
   if (!exists(prev)) return false;
   remove(prev, { recursive: true, force: true });
+  return true;
+}
+
+/**
+ * Move only the Turbopack persistent cache out of the stashed build so the
+ * rebuild starts warm. Build outputs stay stashed, so a failed rebuild still
+ * restores the last good `.next` exactly as before (minus the optional cache).
+ *
+ * @param {string} distDir
+ * @param {{
+ *   existsSync?: (path: string) => boolean,
+ *   renameSync?: (from: string, to: string) => void,
+ * }} [fsApi]
+ */
+export function replantBuildCache(distDir, fsApi = {}) {
+  const exists = fsApi.existsSync ?? existsSync;
+  const rename = fsApi.renameSync ?? renameSync;
+  const mkdir = fsApi.mkdirSync ?? mkdirSync;
+  const prevCache = join(previousBuildDir(distDir), "cache");
+  const cache = join(distDir, "cache");
+  if (!exists(prevCache) || exists(cache)) return false;
+  mkdir(distDir, { recursive: true });
+  rename(prevCache, cache);
   return true;
 }
 
@@ -349,6 +372,9 @@ export async function main(argv = process.argv.slice(2)) {
   // Stash the last good `.next` instead of deleting it: a typecheck/Turbopack
   // failure must not leave host startup without a BUILD_ID.
   stashPreviousBuild(mirror.distDir);
+  // The persistent Turbopack cache alone moves back so the rebuild starts
+  // warm; outputs stay stashed for the failure rollback below.
+  replantBuildCache(mirror.distDir);
   let status = run(process.execPath, nextArgs, buildOptions);
   if (status !== 0 && !useWebpack) {
     console.error("[build-web] Turbopack failed; clearing generated output and retrying once...");

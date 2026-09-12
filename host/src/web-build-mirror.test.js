@@ -30,6 +30,7 @@ import {
   previousBuildDir,
   productionWebUiIsIdle,
   restorePreviousBuild,
+  replantBuildCache,
   stashPreviousBuild,
   waitForWebUiHealth,
   webUiPort,
@@ -390,6 +391,34 @@ test("stash/restore are no-ops when there is nothing to move", () => {
     assert.equal(stashPreviousBuild(distDir), false);
     assert.equal(restorePreviousBuild(distDir), false);
     assert.equal(discardPreviousBuild(distDir), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("replantBuildCache warms the rebuild while keeping outputs stashed", () => {
+  const { root } = sandbox();
+  try {
+    const distDir = join(root, ".next");
+    const prevDir = join(root, ".next.prev");
+    mkdirSync(join(prevDir, "cache"), { recursive: true });
+    writeFileSync(join(prevDir, "cache", "pack"), "turbopack\n");
+    writeFileSync(join(prevDir, "BUILD_ID"), "good\n");
+
+    assert.equal(replantBuildCache(distDir), true);
+    assert.equal(readFileSync(join(distDir, "cache", "pack"), "utf8"), "turbopack\n");
+    assert.equal(readFileSync(join(prevDir, "BUILD_ID"), "utf8"), "good\n");
+    // Second call is a no-op: the cache already sits in the fresh output dir.
+    assert.equal(replantBuildCache(distDir), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("replantBuildCache is a no-op without a stashed cache", () => {
+  const { root } = sandbox();
+  try {
+    assert.equal(replantBuildCache(join(root, "absent")), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
