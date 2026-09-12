@@ -22,7 +22,7 @@ vi.mock("@/lib/task-panes", async () => {
   };
 });
 
-import { TaskPanesProvider, useBotFor, useBotStatusFor, useIconFor, useTaskPanes, useTaskPanesNavigation, useTaskPanesTabMeta } from "./TaskPanesContext";
+import { TaskPanesProvider, useBotFor, useBotStatusFor, useIconFor, useTaskPanes, useTaskPanesNavigation, useTaskPaneTabMeta } from "./TaskPanesContext";
 
 function Probe() {
   const { state, mdUp } = useTaskPanes();
@@ -127,7 +127,7 @@ describe("TaskPanesProvider", () => {
       return null;
     }
     function TabMetaProbe() {
-      useTaskPanesTabMeta();
+      useTaskPaneTabMeta("task-1");
       tabMetaRenderSpy();
       return null;
     }
@@ -161,7 +161,7 @@ describe("TaskPanesProvider", () => {
     expect(stableRenderSpy.mock.calls.length).toBe(initialStableRenderCount);
     expect(botStatusRenderSpy.mock.calls.length).toBe(initialBotStatusRenderCount + 1);
     expect(navigationRenderSpy.mock.calls.length).toBe(initialNavigationRenderCount);
-    expect(tabMetaRenderSpy.mock.calls.length).toBe(initialTabMetaRenderCount + 2);
+    expect(tabMetaRenderSpy.mock.calls.length).toBe(initialTabMetaRenderCount + 1);
   });
 
   it("restores Bot routes, titles and closes only deleted Bot tabs", async () => {

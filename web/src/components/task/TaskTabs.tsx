@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Loader2, Plus, SquarePen, Trash2, X } from "lucide-react";
 import { cx } from "@/components/ui";
-import { useIconFor, useTaskPanesTabMeta } from "@/components/shell/TaskPanesContext";
+import { useIconFor, useTaskPaneTabMeta } from "@/components/shell/TaskPanesContext";
 import { setTaskDragData, taskDragIdFrom, TASK_DRAG_MIME } from "@/lib/task-drag";
 import {
   HOME_TAB_ID,
@@ -12,6 +12,100 @@ import {
   type TaskPanesState,
 } from "@/lib/task-panes";
 import type { TaskStatus } from "@/lib/types";
+
+function TaskTabItem({
+  taskId,
+  index,
+  active,
+  isActivePane,
+  dragOverIndex,
+  setDragOverIndex,
+  statusFor,
+  titleFor,
+  onDrop,
+  onActivateTab,
+  onCloseTab,
+}: {
+  taskId: string;
+  index: number;
+  active: boolean;
+  isActivePane: boolean;
+  dragOverIndex: number | null;
+  setDragOverIndex: (value: React.SetStateAction<number | null>) => void;
+  statusFor?: (taskId: string) => TaskStatus | null;
+  titleFor?: (taskId: string) => string | null;
+  onDrop: (event: React.DragEvent<HTMLElement>, index: number) => void;
+  onActivateTab: (taskId: string) => void;
+  onCloseTab: (taskId: string) => void;
+}) {
+  const iconFor = useIconFor();
+  const meta = useTaskPaneTabMeta(taskId);
+  const status = statusFor ? statusFor(taskId) : meta.status;
+  const title = titleFor ? titleFor(taskId) : meta.title;
+  const label =
+    taskId === HOME_TAB_ID
+      ? "新規作成"
+      : taskId === SETTINGS_TAB_ID
+        ? "設定"
+        : (title ?? taskId);
+  return (
+    <div
+      role="tab"
+      aria-selected={active}
+      tabIndex={0}
+      draggable
+      onDragStart={(event) => {
+        setTaskDragData(event.dataTransfer, taskId);
+        event.dataTransfer.effectAllowed = "move";
+      }}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes(TASK_DRAG_MIME)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setDragOverIndex(index);
+      }}
+      onDrop={(event) => onDrop(event, index)}
+      onDragLeave={() => setDragOverIndex((current) => (current === index ? null : current))}
+      onDragEnd={() => setDragOverIndex(null)}
+      onClick={() => onActivateTab(taskId)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onActivateTab(taskId);
+        }
+      }}
+      title={label}
+      className={cx(
+        "group/tab flex min-w-0 max-w-40 shrink cursor-pointer select-none items-center gap-1 rounded-t-md border border-b-0 px-2 py-1 text-xs",
+        active
+          ? "border-border bg-bg font-medium text-text"
+          : "border-transparent bg-surface-2/50 text-muted hover:bg-surface-2 hover:text-text",
+        isActivePane ? "" : "opacity-70",
+        dragOverIndex === index && "ring-1 ring-accent",
+      )}
+    >
+      {iconFor(taskId)}
+      {status === "working" && (
+        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-working" aria-hidden="true" />
+      )}
+      {status === "error" && (
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" aria-label="エラー" />
+      )}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <button
+        type="button"
+        aria-label={`タブ ${label} を閉じる`}
+        className="-mr-1 hidden h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-surface-3 group-hover/tab:inline-flex focus-visible:inline-flex [@media(hover:none)]:inline-flex"
+        onClick={(event) => {
+          event.stopPropagation();
+          onCloseTab(taskId);
+        }}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
 
 /**
  * タブバー 1 本。仕様 §6: タイトル省略 + hover フルタイトル、status バッジ
@@ -52,10 +146,6 @@ export function TaskTabs({
   onOpenHome: () => void;
 }) {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-  const iconFor = useIconFor();
-  const tabMeta = useTaskPanesTabMeta();
-  const resolvedStatusFor = statusFor ?? tabMeta.statusFor;
-  const resolvedTitleFor = titleFor ?? tabMeta.titleFor;
 
   const handleDrop = (event: React.DragEvent<HTMLElement>, index: number) => {
     event.preventDefault();
@@ -88,76 +178,22 @@ export function TaskTabs({
       }}
       onDrop={(event) => handleDrop(event, pane.tabs.length)}
     >
-      {pane.tabs.map((taskId, index) => {
-        const status = resolvedStatusFor(taskId);
-        const active = pane.activeTabId === taskId;
-        // セッション名（タスク title）。未取得の間は taskId をフォールバック表示。
-        // 新規作成（Home）タブは固定ラベル。
-        const label =
-          taskId === HOME_TAB_ID
-            ? "新規作成"
-            : taskId === SETTINGS_TAB_ID
-              ? "設定"
-              : (resolvedTitleFor(taskId) ?? taskId);
-        return (
-          <div
-            key={taskId}
-            role="tab"
-            aria-selected={active}
-            tabIndex={0}
-            draggable
-            onDragStart={(event) => {
-              setTaskDragData(event.dataTransfer, taskId);
-              event.dataTransfer.effectAllowed = "move";
-            }}
-            onDragOver={(event) => {
-              if (!event.dataTransfer.types.includes(TASK_DRAG_MIME)) return;
-              event.preventDefault();
-              event.stopPropagation();
-              setDragOverIndex(index);
-            }}
-            onDrop={(event) => handleDrop(event, index)}
-            onDragLeave={() => setDragOverIndex((current) => (current === index ? null : current))}
-            onDragEnd={() => setDragOverIndex(null)}
-            onClick={() => onActivateTab(taskId)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                onActivateTab(taskId);
-              }
-            }}
-            title={label}
-            className={cx(
-              "group/tab flex min-w-0 max-w-40 shrink cursor-pointer select-none items-center gap-1 rounded-t-md border border-b-0 px-2 py-1 text-xs",
-              active
-                ? "border-border bg-bg font-medium text-text"
-                : "border-transparent bg-surface-2/50 text-muted hover:bg-surface-2 hover:text-text",
-              isActivePane ? "" : "opacity-70",
-              dragOverIndex === index && "ring-1 ring-accent",
-            )}
-          >
-            {iconFor?.(taskId)}
-            {status === "working" && (
-              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-working" aria-hidden="true" />
-            )}
-            {status === "error" && (
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" aria-label="エラー" />
-            )}
-            <span className="min-w-0 flex-1 truncate">{label}</span>
-            <button
-              type="button"
-              aria-label={`タブ ${label} を閉じる`}
-              className="-mr-1 hidden h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-surface-3 group-hover/tab:inline-flex focus-visible:inline-flex [@media(hover:none)]:inline-flex"
-              onClick={(event) => {
-                event.stopPropagation();
-                onCloseTab(taskId);
-              }}
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        );
-      })}
+      {pane.tabs.map((taskId, index) => (
+        <TaskTabItem
+          key={taskId}
+          taskId={taskId}
+          index={index}
+          active={pane.activeTabId === taskId}
+          isActivePane={isActivePane}
+          dragOverIndex={dragOverIndex}
+          setDragOverIndex={setDragOverIndex}
+          statusFor={statusFor}
+          titleFor={titleFor}
+          onDrop={handleDrop}
+          onActivateTab={onActivateTab}
+          onCloseTab={onCloseTab}
+        />
+      ))}
       <button
         type="button"
         aria-label="新規作成タブを開く"
