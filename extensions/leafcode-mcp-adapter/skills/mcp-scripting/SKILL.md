@@ -1,6 +1,6 @@
 ---
 name: mcp-scripting
-description: Write mcpScript JavaScript for discovering, inspecting, and calling MCP tools.
+description: MCPツールの探索・調査・呼び出しのためのmcpScript JavaScriptを書く。
 ---
 
 # MCP scripting

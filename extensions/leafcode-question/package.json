@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "LeafCode-style question tool: let the agent ask the user a question from the WebUI",
+  "description": "エージェントがWebUIからユーザーへ質問するための質問ツール",
   "pi": {
     "extensions": [
       "index.ts"

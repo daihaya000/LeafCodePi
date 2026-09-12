@@ -1,6 +1,6 @@
 ---
 name: powershell-japanese-encoding
-description: Use when creating, reviewing, or debugging PowerShell, batch, CSV, JSON, YAML, or text-file handling on Windows where Japanese text, UTF-8, BOM, CP932, Excel, cmd.exe, or external CLI input/output is involved.
+description: Windowsで日本語テキスト・UTF-8・BOM・CP932・Excel・cmd・外部CLIが絡むPowerShell/batch/CSV/JSON/YAML・テキストファイル処理の作成・確認・不具合調査のときに使う。
 ---
 
 # PowerShell Japanese Encoding

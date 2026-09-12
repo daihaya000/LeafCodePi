@@ -2,7 +2,7 @@
   "name": "leafcode-intercom",
   "version": "0.13.0",
   "private": true,
-  "description": "LeafCodePi bundled fork of pi-intercom for communication between parallel Pi sessions",
+  "description": "並列Piセッション間通信のためのpi-intercom同梱フォーク",
   "license": "MIT",
   "engines": {
     "node": ">=22.19"

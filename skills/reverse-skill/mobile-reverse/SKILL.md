@@ -1,7 +1,7 @@
 ---
 name: mobile-reverse
 description: >
-  Android + iOS mobile reverse engineering and dynamic instrumentation.
+  Android＋iOSモバイルのリバースエンジニアリングと動的計装。
   Trigger on mobile reverse, ios reverse, android reverse, objection,
   class-dump, mastg, frida mobile, ios jailbreak, 移动安全, SSL pinning bypass,
   root detection bypass, iOS hook, Android anti-detection.

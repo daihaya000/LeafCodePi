@@ -2,7 +2,7 @@
   "name": "leafcode-subagents",
   "version": "0.53.0",
   "private": true,
-  "description": "LeafCodePi fork of pi-subagents (v0.53.0) for in-repo customization",
+  "description": "リポジトリ内カスタマイズのためのpi-subagentsフォーク（v0.53.0）",
   "author": "Nico Bailon (original pi-subagents)",
   "license": "MIT",
   "type": "module",

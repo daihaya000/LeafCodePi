@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "LeafCode-style permission gates for Pi tools",
+  "description": "Piツール用の許可ゲート",
   "pi": {
     "extensions": ["index.ts"]
   },

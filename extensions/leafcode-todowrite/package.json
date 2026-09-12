@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "OpenCode todowrite-compatible Todo tool for Pi",
+  "description": "Pi用OpenCode todowrite互換ToDoツール",
   "pi": {
     "extensions": ["index.ts"]
   },

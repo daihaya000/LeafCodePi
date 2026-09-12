@@ -1,6 +1,6 @@
 ---
 name: trading
-description: Trading Terminal Assistant for MetaTrader 5. Use when the user wants to check trading account, view market prices, get candles, place buy/sell orders, manage positions, handle pending orders, view history, close positions, or any MT5 trading operation. Trigger on mentions of trading, forex, stocks, MT5, positions, lots, buy, sell, orders, stop loss, take profit, balance, equity, margin, candles, or symbols.
+description: MetaTrader 5用トレーディング端末アシスタント。口座確認・価格表示・足取得・売買発注・ポジション管理・未決注文・履歴・決済などMT5操作の依頼に使う。Trigger on mentions of trading, forex, stocks, MT5, positions, lots, buy, sell, orders, stop loss, take profit, balance, equity, margin, candles, or symbols.
 user-invocable: true
 ---
 

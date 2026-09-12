@@ -1,20 +1,20 @@
 ---
 name: insane-search
 description: >
-  Adaptive access for blocked websites — tries every method until one works.
-  Use when WebFetch returns 402/403/blocked, or when accessing X/Twitter, Reddit,
-  YouTube, GitHub, Mastodon, Medium, Substack, Stack Overflow, Threads, Naver,
-  Coupang, LinkedIn, or any platform with WAF/bot protection. Leverages yt-dlp
-  (1,858 media sites), Jina Reader, public APIs (HN, Bluesky, arXiv), and a
-  generic WAF-profile-driven fetch chain (curl_cffi TLS impersonation, mobile
-  URL transforms, Playwright real-Chrome) with auto dependency install.
+  ブロックされたサイトへの適応アクセス。どれかの手段が通るまで全手段を試す。
+  WebFetchの402/403/ブロック時、またはX/Twitter・Reddit・YouTube・GitHub・
+  Mastodon・Medium・Substack・Stack Overflow・Threads・Naver・Coupang・
+  LinkedInなどWAF/ボット対策付きプラットフォームの閲覧に使う。yt-dlp
+  （1,858媒体サイト）・Jina Reader・公開API（HN・Bluesky・arXiv）・汎用
+  WAF対応取得チェーン（curl_cffi TLS impersonation、mobile URL変換、Playwright
+  実Chrome）で自動依存導入付き。
   Korean triggers: 트위터/X 못 열어, 레딧 안 읽혀, 유튜브 자막 뽑아줘, 깃헙 검색,
   사이트 차단됨, 스레드 안 열려, 마스토돈, 미디엄, 서브스택, 스택오버플로우,
   네이버 블로그, 디시인사이드, 에펨코리아, 요즘IT, 긱뉴스, 클리앙, 쿠팡, 링크드인,
   당근마켓. English triggers: twitter access, reddit blocked, youtube subtitles,
   github search, arxiv papers, threads, mastodon, medium, substack, stackoverflow,
   naver blog, dcinside, fmkorea, coupang, linkedin, yozm, wishket.
-  Do NOT trigger for simple web searches that WebSearch can handle directly.
+  WebSearchで直接足りる単純なWeb検索では使わない。
 ---
 
 <!-- first-run setup: idempotent, non-blocking, self-skips after first run -->

@@ -1,9 +1,9 @@
 ---
 name: ida-reverse
 description: >
-  IDA Pro binary reverse engineering skill. Trigger on IDA, ida pro,
-  decompile binary, idalib, hex-rays, commercial decompiler, ARM/x86 RE.
-  Requires an IDA Pro license.
+  IDA Proバイナリのリバースエンジニアリング。IDA Proライセンスが必要。
+  Trigger on IDA, ida pro, decompile binary, idalib, hex-rays,
+  commercial decompiler, ARM/x86 RE.
 ---
 
 # IDA Reverse

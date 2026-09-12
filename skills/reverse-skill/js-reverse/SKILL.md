@@ -1,7 +1,7 @@
 ---
 name: js-reverse
 description: >
-  Frontend JavaScript reverse engineering and DSL VM analysis. Trigger on
+  フロントエンドJavaScriptのリバースエンジニアリングとDSL VM解析。 Trigger on
   js reverse, frontend signature, 前端逆向, js deobfuscation, 补环境,
   DSL VM, custom opcode VM, browser hook, sign locate.
 ---

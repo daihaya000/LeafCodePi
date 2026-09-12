@@ -1,8 +1,7 @@
 ---
 name: reverse-engineering
 description: >
-  General reverse engineering skill for compiled/obfuscated/packed/VM/WASM/OLLVM
-  targets. Trigger on reverse engineering, 逆向, OLLVM, deobfuscation,
+  コンパイル済み/難読化/パック/VM/WASM/OLLVM対象の汎用リバースエンジニアリング。 Trigger on reverse engineering, 逆向, OLLVM, deobfuscation,
   VM reverse, WASM, angr, symbolic execution, unpack, anti-debug bypass.
 ---
 

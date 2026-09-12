@@ -1,17 +1,15 @@
 ---
 name: reverse-skill
 description: >
-  Reverse engineering / authorized penetration testing / security research
-  skill router pack. Use when the user works with APK/binary/JS/firmware/WASM
-  analysis, decompilation (IDA/radare2/Ghidra/jadx), Frida hooking, anti-debug
-  bypass, OLLVM deobfuscation, CTF challenges, port scanning / Nmap, SQL
-  injection / SQLMap, BurpSuite, API security (REST/GraphQL/JWT), pwn / ROP /
-  heap exploitation, .NET deobfuscation, malware analysis, firmware extraction,
-  patch diffing / N-day, supply chain / SBOM, LLM security / prompt injection,
-  EDR bypass research, or any authorized security assessment. Routes to the
-  correct scenario sub-skill, bootstraps the toolchain on demand, and
-  accumulates findings into a field journal. Authorized use only — assumes
-  local sandbox / CTF / owned targets / written authorization.
+  リバースエンジニアリング・認可済み侵入テスト・セキュリティ研究のスキルルータ。
+  APK/バイナリ/JS/ファームウェア/WASM解析、デコンパイル（IDA/radare2/Ghidra/jadx）、
+  Fridaフック、anti-debug回避、OLLVM難読化解除、CTF、ポートスキャン/Nmap、SQL
+  インジェクション/SQLMap、BurpSuite、APIセキュリティ（REST/GraphQL/JWT）、pwn/ROP/
+  ヒープ攻撃、.NET難読化解除、マルウェア解析、ファームウェア抽出、パッチ差分/N-day、
+  サプライチェーン/SBOM、LLMセキュリティ/プロンプトインジェクション、EDR回避研究など
+  認可済み評価のときに使う。適切な下位スキルへ振り分け、toolchainをオンデマンドで用意し、
+  知見をfield journalに蓄積する。認可済み利用のみ。ローカルsandbox/CTF/所有対象/文書による
+  許可を前提とする。
 ---
 
 # Reverse Skill — Router Pack

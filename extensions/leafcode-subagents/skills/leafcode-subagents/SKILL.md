@@ -1,11 +1,9 @@
 ---
 name: leafcode-subagents
 description: |
-  Delegate work to builtin or custom subagents with single-agent, parallel,
-  scripted-chaining, async, forked-context, and coordinated workflows. Use
-  for advisory review, implementation handoffs, and multi-step tasks where a
-  single agent should stay in control while other agents contribute context,
-  planning, or execution.
+  単独・並列・スクリプト連鎖・非同期・分岐コンテキスト・協調ワークフローで組み込み/
+  カスタムのサブエージェントへ委譲する。助言レビュー・実装引き継ぎ・単一エージェントが
+  統括すべき多段タスクに使う。
 ---
 
 # LeafCode Subagents

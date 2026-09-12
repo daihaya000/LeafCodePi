@@ -1,6 +1,6 @@
 ---
 name: pwn-chain
-description: "Stack/heap/kernel exploit development. Triggers: pwn, ROP, heap overflow, stack overflow, exploit development, pwntools, CTF pwn, kernel pwn."
+description: "スタック/ヒープ/カーネルのエクスプロイト開発。Triggers: pwn, ROP, heap overflow, stack overflow, exploit development, pwntools, CTF pwn, kernel pwn."
 ---
 
 # pwn-chain — 脆弱点→working exploit

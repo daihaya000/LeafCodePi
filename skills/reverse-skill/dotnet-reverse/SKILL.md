@@ -1,7 +1,7 @@
 ---
 name: dotnet-reverse
 description: >
-  .NET / C# managed PE reverse engineering skill. Trigger on .net reverse,
+  .NET/C#マネージドPEリバースエンジニアリング。 Trigger on .net reverse,
   c# decompile, dotnet, dnspy, de4dot, ilspy, 脱壳, assembly patch,
   Sharp* redteam tools.
 ---

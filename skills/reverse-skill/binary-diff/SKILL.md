@@ -1,8 +1,7 @@
 ---
 name: binary-diff
 description: >
-  Cross-version binary diffing and symbol migration using automated function
-  matching and LLM batch comparison. Trigger on binary diff, symbol migration,
+  バージョン横断のバイナリ差分・シンボル移行。自動関数マッチとLLM一括比較を使う。 Trigger on binary diff, symbol migration,
   cross-version diff, function matching, llm binary diff, 符号迁移,
   patch diff, version compare.
 ---

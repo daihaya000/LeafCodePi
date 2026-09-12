@@ -1,7 +1,7 @@
 {
   "name": "leafcode-web-access",
   "version": "0.27.0",
-  "description": "LeafCodePi-maintained fork of pi-web-access for web search, URL fetching, GitHub repo cloning, PDF extraction, YouTube video understanding, and local video analysis.",
+  "description": "Web検索・URL取得・GitHubクローン・PDF抽出・YouTube理解・動画分析のためのpi-web-access保守フォーク",
   "type": "module",
   "scripts": {
     "test": "node --test",

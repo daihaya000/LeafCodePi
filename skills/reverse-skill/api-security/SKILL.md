@@ -1,6 +1,6 @@
 ---
 name: api-security
-description: "REST/GraphQL/WebSocket API security testing. Triggers: api security, REST API, GraphQL, JWT, OAuth, WebSocket, API testing, BOLA, IDOR, API pentest."
+description: "REST/GraphQL/WebSocket APIのセキュリティテスト。Triggers: api security, REST API, GraphQL, JWT, OAuth, WebSocket, API testing, BOLA, IDOR, API pentest."
 ---
 
 # api-security — REST/GraphQL/WebSocket

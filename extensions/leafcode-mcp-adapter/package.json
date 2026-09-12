@@ -1,7 +1,7 @@
 {
   "name": "leafcode-mcp-adapter",
   "version": "2.27.0",
-  "description": "LeafCodePi-maintained fork of pi-mcp-adapter for MCP server support in Pi coding agent",
+  "description": "PiでのMCPサーバー利用のためのpi-mcp-adapter保守フォーク",
   "type": "module",
   "types": "./index.ts",
   "exports": {

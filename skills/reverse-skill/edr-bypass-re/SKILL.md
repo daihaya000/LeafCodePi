@@ -1,8 +1,7 @@
 ---
 name: edr-bypass-re
 description: >
-  EDR defensive implementation reverse engineering and red-team bypass
-  research. Trigger on edr bypass, edr evasion, syswhispers, sysmon, pe-sieve,
+  EDR防御実装のリバースエンジニアリングとレッドチーム回避研究。 Trigger on edr bypass, edr evasion, syswhispers, sysmon, pe-sieve,
   hook bypass, unhook, 免杀, av bypass, edr reverse, anti-debug bypass.
 ---
 

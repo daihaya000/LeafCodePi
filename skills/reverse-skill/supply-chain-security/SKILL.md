@@ -1,8 +1,8 @@
 ---
 name: supply-chain-security
 description: >
-  Software supply chain security: SBOM generation, SCA, secret scanning,
-  artifact signing, CI/CD pipeline audit. Trigger on supply chain, sbom, sca,
+  ソフトウェアサプライチェーンセキュリティ。SBOM生成・SCA・秘密情報スキャン・
+  成果物署名・CI/CDパイプライン監査。 Trigger on supply chain, sbom, sca,
   software composition analysis, trivy, syft, gitleaks, osv, cosign,
   dependency scan, ci cd security.
 ---

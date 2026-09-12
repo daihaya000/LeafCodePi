@@ -1,7 +1,7 @@
 ---
 name: radare2
 description: >
-  radare2 CLI binary reverse engineering skill. Trigger on radare2, r2,
+  radare2 CLIバイナリのリバースエンジニアリング。 Trigger on radare2, r2,
   cli disassembly, binary patch, rabin2, radiff2, open-source RE, quick triage.
 ---
 

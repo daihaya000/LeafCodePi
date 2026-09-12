@@ -1,6 +1,6 @@
 ---
 name: council-mode
-description: Run a bounded supervisor-mediated advisor council. Use when the user asks to convene advisors, debate a decision, cross-examine recommendations, or run /council.
+description: 監督者仲介の助言者会議を有界で開く。助言者の招集・判断の議論・提案の反対尋問・/council実行の依頼に使う。
 ---
 
 # Council Mode

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "LeafCode-style Goal Loop with full-run mode for Pi",
+  "description": "Pi用Goal Loop（フルランモード付き）",
   "scripts": {
     "test": "node --test index.test.mjs"
   },

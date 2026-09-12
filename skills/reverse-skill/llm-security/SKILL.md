@@ -1,7 +1,7 @@
 ---
 name: llm-security
 description: >
-  LLM and AI agent security assessment. Trigger on llm security, prompt
+  LLM・AIエージェントのセキュリティ評価。 Trigger on llm security, prompt
   injection, owasp llm, garak, pyrit, promptfoo, ai security, agent security,
   jailbreak, model attack, agent obedience, LLM red team, prompt extraction.
 ---

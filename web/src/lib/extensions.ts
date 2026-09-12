@@ -279,6 +279,21 @@ function readPiManifestExtensions(dir: string): string[] {
   }
 }
 
+/** Display description from the extension's own package.json, when present. */
+function readExtensionDescription(dir: string): string | undefined {
+  try {
+    const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+      description?: unknown;
+    };
+    if (typeof manifest.description === "string" && manifest.description.trim()) {
+      return manifest.description.trim();
+    }
+  } catch {
+    /* missing or unparsable manifest means no description */
+  }
+  return undefined;
+}
+
 function discoverExtensionsInDir(dir: string): DiscoveredEntry[] {
   if (!existsSync(dir)) return [];
   const entries: DiscoveredEntry[] = [];
@@ -297,9 +312,14 @@ function discoverExtensionsInDir(dir: string): DiscoveredEntry[] {
     }
     // 2 & 3. Subdirectories with index or a pi.extensions manifest.
     if (isDirectory(entryPath)) {
+      const description = readExtensionDescription(entryPath);
       const index = ["index.ts", "index.js"].find((file) => existsSync(join(entryPath, file)));
       if (index) {
-        entries.push({ name: basenameKey(entryPath), filePath: join(entryPath, index) });
+        entries.push({
+          name: basenameKey(entryPath),
+          filePath: join(entryPath, index),
+          ...(description ? { description } : {}),
+        });
         continue;
       }
       const declared = readPiManifestExtensions(entryPath);
@@ -307,7 +327,11 @@ function discoverExtensionsInDir(dir: string): DiscoveredEntry[] {
         for (const rel of declared) {
           const resolved = join(entryPath, rel);
           if (existsSync(resolved)) {
-            entries.push({ name: basenameKey(entryPath), filePath: resolved });
+            entries.push({
+              name: basenameKey(entryPath),
+              filePath: resolved,
+              ...(description ? { description } : {}),
+            });
           }
         }
       }

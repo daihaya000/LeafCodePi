@@ -1,7 +1,7 @@
 ---
 name: apk-reverse
 description: >
-  Android APK reverse engineering skill. Trigger on APK逆向, decompile apk,
+  Android APKリバースエンジニアリング。 Trigger on APK逆向, decompile apk,
   android reverse, frida hook android, apk unpack, 安卓逆向, smali patch,
   rebuild apk, native .so analysis from APK.
 ---

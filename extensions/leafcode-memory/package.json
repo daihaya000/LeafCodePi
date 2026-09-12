@@ -1,7 +1,7 @@
 {
   "name": "leafcode-memory",
   "version": "0.9.6-leafcode.0",
-  "description": "LeafCode's persistent memory, session search, and procedural skills extension, forked from pi-hermes-memory.",
+  "description": "pi-hermes-memory由来の永続メモリ・セッション検索・手順スキル拡張",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
