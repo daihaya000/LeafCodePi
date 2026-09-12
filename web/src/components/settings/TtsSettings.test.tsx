@@ -61,7 +61,7 @@ describe("TtsSettings", () => {
     await waitFor(() => {
       expect(sendJson).toHaveBeenCalledWith(
         "/api/settings/tts",
-        { url: "http://127.0.0.1:10101", voice: "888753760" },
+        { url: "http://127.0.0.1:10101", voice: "1455757728" },
         "PATCH",
       );
     });

@@ -29,8 +29,9 @@ export const TTS_BACKENDS: TtsBackendPreset[] = [
     id: "aivis",
     label: "AivisSpeech",
     url: "http://127.0.0.1:10101",
-    defaultVoice: "888753760",
+    defaultVoice: "1455757728",
     voices: [
+      { id: "1455757728", label: "ramuchi / ノーマル" },
       { id: "888753760", label: "まお / ノーマル" },
       { id: "888753761", label: "まお / ふつー" },
       { id: "888753762", label: "まお / あまあま" },
@@ -48,7 +49,7 @@ export const TTS_BACKENDS: TtsBackendPreset[] = [
     label: "Qwen3-TTS (ROCm)",
     url: "http://127.0.0.1:18080/v1/audio/speech",
     defaultVoice: "ramuchi",
-    voices: [{ id: "ramuchi", label: "ramuchi（参照クローン）" }],
+    voices: [{ id: "ramuchi", label: "ramuchi（Qwen 参照クローン）" }],
   },
 ];
 

@@ -20,7 +20,8 @@ describe("tts-backends", () => {
 
   it("exposes preset defaults for each bundled backend", () => {
     assert.equal(TTS_BACKENDS.length, 3);
-    assert.equal(getTtsBackend("aivis")?.defaultVoice, "888753760");
+    assert.equal(getTtsBackend("aivis")?.defaultVoice, "1455757728");
+    assert.equal(voiceLabel("aivis", "1455757728"), "ramuchi / ノーマル");
     assert.equal(getTtsBackend("qwen")?.url.includes("/v1/audio/speech"), true);
     assert.equal(backendLabel("sapi"), "Windows SAPI");
     assert.equal(backendLabel("custom"), "カスタム URL");
