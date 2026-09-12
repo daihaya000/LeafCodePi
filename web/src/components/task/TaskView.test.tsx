@@ -998,7 +998,7 @@ it("stops task reading aloud when the task TTS toggle is turned off mid-playback
   await sendSnapshot({ task: { ...task, status: "working" }, messages: [oldReply] });
   await sendSnapshot({ task: { ...task, status: "idle" }, messages: [oldReply, newReply] });
   await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
-  const ttsCall = ttsFetch.mock.calls.find(([url]) => String(url).includes("/api/tts/synthesize")) as unknown as [string, RequestInit] | undefined;
+  const ttsCall = (ttsFetch.mock.calls as unknown as Array<[string, RequestInit]>).find(([url]) => String(url).includes("/api/tts/synthesize"));
   expect(ttsCall).toBeTruthy();
   expect(JSON.parse(String(ttsCall![1].body))).toEqual({ text: "新しい返信" });
   // タスク側でOFF → 共有キーの通知で再生中の音声を止める。
