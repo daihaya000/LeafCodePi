@@ -95,6 +95,22 @@ function plainModelValue(modelValue: string, models: ModelOption[]): string {
   return `${option.providerID}::${option.modelID}`;
 }
 
+function sameComposerReferences(
+  current: readonly ComposerReference[],
+  next: readonly ComposerReference[],
+): boolean {
+  if (current.length !== next.length) return false;
+  return current.every((reference, index) => {
+    const candidate = next[index];
+    const currentTools = reference.tools ?? [];
+    const nextTools = candidate?.tools ?? [];
+    return reference.name === candidate?.name &&
+      reference.description === candidate?.description &&
+      currentTools.length === nextTools.length &&
+      currentTools.every((tool, toolIndex) => tool === nextTools[toolIndex]);
+  });
+}
+
 export const HomeView = memo(function HomeView({
   initialProjectId,
   initialNoProject = false,
@@ -218,7 +234,9 @@ export const HomeView = memo(function HomeView({
         .filter((a) => a.enabled)
         .map(({ name, description, tools }) => ({ name, description, tools }));
       const enabledAgentNames = enabledAgents.map(({ name }) => name);
-      setAgents(enabledAgents);
+      setAgents((current) =>
+        sameComposerReferences(current, enabledAgents) ? current : enabledAgents,
+      );
       setAgent((current) => resolveAgentSelection(current || readStoredAgent(), enabledAgentNames));
     }
     if (skillRes.status === "fulfilled") {
