@@ -22,7 +22,7 @@ vi.mock("@/lib/task-panes", async () => {
   };
 });
 
-import { TaskPanesProvider, useBotFor, useTaskPanes } from "./TaskPanesContext";
+import { TaskPanesProvider, useBotFor, useIconFor, useTaskPanes } from "./TaskPanesContext";
 
 function Probe() {
   const { state, mdUp } = useTaskPanes();
@@ -154,13 +154,19 @@ describe("TaskPanesProvider", () => {
     matches = desktop;
     let projectIcon: string | null = "data:image/png;base64,project";
     let botImage = "data:image/png;base64,bot";
+    const paneRenderSpy = vi.fn();
     mocks.getJson.mockImplementation(async (url: string) => {
       if (url.startsWith("/api/projects")) return { projects: [{ id: "project", name: "Project", icon: projectIcon }] };
       if (url === "/api/bots/sidebar") return { bots: [{ id: "one", name: "One", avatarImage: botImage }], rooms: [] };
       return { tasks: [{ id: "saved-task", title: "Code", status: "idle", projectId: "project" }] };
     });
+    function PaneProbe() {
+      useTaskPanes();
+      paneRenderSpy();
+      return null;
+    }
     function IconProbe() {
-      const { iconFor } = useTaskPanes();
+      const iconFor = useIconFor();
       return <>
         <div data-testid="tab-icon">{iconFor("saved-task")}</div>
         <div data-testid="header-icon">{iconFor("saved-task", 32, { projectId: "project" })}</div>
@@ -169,7 +175,7 @@ describe("TaskPanesProvider", () => {
         <div data-testid="no-icon">{iconFor("settings")}{iconFor("unassigned", 32, { projectId: null })}</div>
       </>;
     }
-    render(<TaskPanesProvider><IconProbe /></TaskPanesProvider>);
+    render(<TaskPanesProvider><PaneProbe /><IconProbe /></TaskPanesProvider>);
     const image = (id: string) => screen.getByTestId(id).querySelector("img")?.getAttribute("src");
     await waitFor(() => {
       expect(image("header-icon")).toBe(projectIcon);
@@ -178,6 +184,7 @@ describe("TaskPanesProvider", () => {
       expect(image("bot-header-icon")).toBe(botImage);
     });
     expect(screen.getByTestId("no-icon").innerHTML).toBe("");
+    const paneRenderCountAfterInitialData = paneRenderSpy.mock.calls.length;
     projectIcon = null;
     botImage = "data:image/png;base64,updated";
     window.dispatchEvent(new Event("webui:tasks-changed"));
@@ -187,6 +194,7 @@ describe("TaskPanesProvider", () => {
       expect(image("bot-tab-icon")).toBe(botImage);
       expect(image("bot-header-icon")).toBe(botImage);
     });
+    expect(paneRenderSpy.mock.calls.length).toBe(paneRenderCountAfterInitialData);
   });
 
   it.each([null, "data:image/png;base64,bot"])("animates Bot icons only while working (%s)", async (avatarImage) => {
@@ -194,7 +202,8 @@ describe("TaskPanesProvider", () => {
       ? { projects: [] }
       : { bots: [{ id: "one", name: "One", avatarImage }], rooms: [] });
     function ActivityProbe() {
-      const { iconFor, reportStatus, statusFor } = useTaskPanes();
+      const iconFor = useIconFor();
+      const { reportStatus, statusFor } = useTaskPanes();
       return <>
         {iconFor("/bots/one")}
         {iconFor("code", 32, { projectId: null, botId: "one", status: statusFor("/bots/one") ?? "idle" })}

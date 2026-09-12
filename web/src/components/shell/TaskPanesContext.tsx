@@ -60,8 +60,6 @@ type TaskPanesContextValue = {
   reportStatus: (taskId: string, status: TaskStatus) => void;
   /** タブ表示名（セッション名 = タスク title）。未取得は null。 */
   titleFor: (taskId: string) => string | null;
-  botFor: (botId?: string) => BotDto | undefined;
-  iconFor: (taskId: string, size?: 16 | 32, task?: TaskIdentity) => React.ReactNode;
 };
 
 const EMPTY: TaskPanesContextValue = {
@@ -74,18 +72,25 @@ const EMPTY: TaskPanesContextValue = {
   statusFor: () => null,
   reportStatus: () => undefined,
   titleFor: () => null,
-  botFor: () => undefined,
-  iconFor: () => null,
 };
 
-type TaskPanesStableContextValue = Pick<TaskPanesContextValue, "reportStatus" | "botFor">;
+type TaskPanesStableContextValue = {
+  reportStatus: TaskPanesContextValue["reportStatus"];
+  botFor: (botId?: string) => BotDto | undefined;
+};
+
+type TaskPanesIconContextValue = {
+  iconFor: (taskId: string, size?: 16 | 32, task?: TaskIdentity) => React.ReactNode;
+};
 
 const EMPTY_STABLE: TaskPanesStableContextValue = {
   reportStatus: () => undefined,
   botFor: () => undefined,
 };
+const EMPTY_ICON: TaskPanesIconContextValue = { iconFor: () => null };
 
 const TaskPanesStableContext = createContext<TaskPanesStableContextValue>(EMPTY_STABLE);
+const TaskPanesIconContext = createContext<TaskPanesIconContextValue>(EMPTY_ICON);
 const TaskPanesContext = createContext<TaskPanesContextValue>(EMPTY);
 
 /** RSC fetch の発生しない URL 同期（Next.js App Router の replaceState 公式サポート）。 */
@@ -245,19 +250,24 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       ...bots.map((bot): [string, string] => [`/bots/${encodeURIComponent(bot.id)}`, bot.name]),
       ...rooms.map((room): [string, string] => [`/bots/rooms/${encodeURIComponent(room.id)}`, room.name]),
     ]);
-    for (const [id, title] of titles) taskTitlesRef.current.set(id, title);
+    let titlesDirty = false;
+    for (const [id, title] of titles) {
+      if (taskTitlesRef.current.get(id) === title) continue;
+      taskTitlesRef.current.set(id, title);
+      titlesDirty = true;
+    }
     const latest = latestStateForRetarget;
     if (latest) {
       let next = latest;
       for (const id of latest.panes.flatMap((pane) => pane.tabs)) {
         if (isBotTabId(id) && !titles.has(id)) {
           next = removeTaskEverywhere(next, id);
-          taskTitlesRef.current.delete(id);
+          if (taskTitlesRef.current.delete(id)) titlesDirty = true;
         }
       }
       if (next !== latest) rawDispatch({ type: "replace", state: next });
     }
-    bumpTitlesVersion();
+    if (titlesDirty) bumpTitlesVersion();
   }, [bots, rooms]);
 
   useEffect(() => {
@@ -419,19 +429,20 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       statusFor,
       reportStatus,
       titleFor,
-      botFor,
-      iconFor,
     }),
-    [state, dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp, statusFor, reportStatus, titleFor, botFor, iconFor],
+    [state, dispatch, retargetToUrl, activeTaskId, splitHostEnabled, mdUp, statusFor, reportStatus, titleFor],
   );
   const stableValue = useMemo<TaskPanesStableContextValue>(
     () => ({ reportStatus, botFor }),
     [reportStatus, botFor],
   );
+  const iconValue = useMemo<TaskPanesIconContextValue>(() => ({ iconFor }), [iconFor]);
 
   return (
     <TaskPanesStableContext.Provider value={stableValue}>
-      <TaskPanesContext.Provider value={value}>{children}</TaskPanesContext.Provider>
+      <TaskPanesIconContext.Provider value={iconValue}>
+        <TaskPanesContext.Provider value={value}>{children}</TaskPanesContext.Provider>
+      </TaskPanesIconContext.Provider>
     </TaskPanesStableContext.Provider>
   );
 }
@@ -462,10 +473,14 @@ export function useTaskPanes(): TaskPanesContextValue {
  * Status updates are frequent while a task streams. Consumers that only need
  * stable pane services must not subscribe to the full, status-aware context.
  */
-export function useBotFor(): TaskPanesContextValue["botFor"] {
+export function useBotFor(): TaskPanesStableContextValue["botFor"] {
   return useContext(TaskPanesStableContext).botFor;
 }
 
 export function useReportStatus(): TaskPanesContextValue["reportStatus"] {
   return useContext(TaskPanesStableContext).reportStatus;
+}
+
+export function useIconFor(): TaskPanesIconContextValue["iconFor"] {
+  return useContext(TaskPanesIconContext).iconFor;
 }
