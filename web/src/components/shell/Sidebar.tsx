@@ -261,6 +261,7 @@ const BotSidebarBody = memo(function BotSidebarBody({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const botSidebarPathRef = useRef(pathname);
   const botStatusFor = useBotStatusFor();
   const botSidebar = useSyncExternalStore(
     subscribeBotSidebar,
@@ -289,6 +290,11 @@ const BotSidebarBody = memo(function BotSidebarBody({
       window.removeEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
       window.clearInterval(timer);
     };
+  }, []);
+  useEffect(() => {
+    if (botSidebarPathRef.current === pathname) return;
+    botSidebarPathRef.current = pathname;
+    void refreshBotSidebar().catch(() => undefined);
   }, [pathname]);
   async function createEntry(target: "bot" | "room") {
     if (busy) return;
