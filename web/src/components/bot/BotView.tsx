@@ -36,6 +36,8 @@ import {
   prependOlderTaskMessages,
 } from "@/lib/task-history";
 import { readTaskTtsEnabled, speakText, stopSpeaking, subscribeTaskTtsEnabled, writeTaskTtsEnabled } from "@/lib/tts-playback";
+import { detectTtsBackend, getTtsBackend } from "@/lib/tts-backends";
+import type { TtsConfigDto } from "@/lib/tts-config";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type TaskMessageHistory, type TaskMessagePage, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
 
 type BotMessageDisplayData = {
@@ -135,7 +137,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [profileLabel, setProfileLabel] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [ttsEnabled, setTtsEnabled] = useState(false);
-  const [ttsModel, setTtsModel] = useState("");
+  const [ttsVoice, setTtsVoice] = useState("");
+  const [ttsConfig, setTtsConfig] = useState<TtsConfigDto | null>(null);
   const [ttsError, setTtsError] = useState<string | null>(null);
   const [codeAutoApprove, setCodeAutoApprove] = useState(true);
   const [permissionMode, setPermissionMode] = useState<NonNullable<BotDto["permissionMode"]>>("allow");
@@ -152,7 +155,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [savingProfile, setSavingProfile] = useState(false);
   const [updatingModel, setUpdatingModel] = useState(false);
   const [updatingThinking, setUpdatingThinking] = useState(false);
-  const [updatingTtsModel, setUpdatingTtsModel] = useState(false);
+  const [updatingTtsVoice, setUpdatingTtsVoice] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [updatingSkills, setUpdatingSkills] = useState(false);
@@ -228,7 +231,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         setProfileName(result.bot.name);
         setProfileLabel(result.bot.label);
         setNotificationsEnabled(result.bot.notificationsEnabled);
-        setTtsModel(result.bot.ttsModel ?? "");
+        setTtsVoice(result.bot.ttsVoice ?? "");
         setCodeAutoApprove(result.bot.codeAutoApprove === true);
         setPermissionMode(result.bot.permissionMode ?? "allow");
       })
@@ -252,6 +255,15 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     setTtsEnabled(enabled);
     if (!enabled) stopSpeaking();
   }, [id]);
+  useEffect(() => {
+    if (!active || !settingsOpen) return;
+    let current = true;
+    setTtsConfig(null);
+    void getJson<TtsConfigDto>("/api/settings/tts")
+      .then((result) => { if (current) setTtsConfig(typeof result?.url === "string" ? result : null); })
+      .catch(() => { if (current) setTtsConfig(null); });
+    return () => { current = false; };
+  }, [active, settingsOpen]);
   const toggleTts = () => {
     const next = !ttsEnabled;
     setTtsEnabled(next);
@@ -449,6 +461,12 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const thinkingValue: ThinkingLevel = bot?.thinkingLevel && thinkingLevels.includes(bot.thinkingLevel)
     ? bot.thinkingLevel
     : (thinkingLevels[0] ?? "off");
+  const ttsBackend = ttsConfig ? getTtsBackend(detectTtsBackend(ttsConfig.url)) : null;
+  const ttsVoiceOptions = useMemo(() => {
+    const options = ttsBackend?.id === "sapi" || !ttsBackend ? [] : [...ttsBackend.voices];
+    if (ttsVoice && !options.some((option) => option.id === ttsVoice)) options.unshift({ id: ttsVoice, label: `現在の設定 (${ttsVoice})` });
+    return options;
+  }, [ttsBackend, ttsVoice]);
   // Bot設定の保存たびに bot 参照が変わっても、表示名・見た目が同じなら同一配列を使い回す。
   // BotMessageMarkdown の memo が効き続け、履歴全体の再パースを避けられる。
   const botMentions = useMemo(() => bot ? [bot] : [],
@@ -526,21 +544,21 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     catch (reason) { setError(reason instanceof Error ? reason.message : "リクエストに失敗しました"); }
   };
 
-  const updateTtsModel = async (value: string) => {
-    if (!bot || updatingTtsModel) return;
-    const previous = ttsModel;
+  const updateTtsVoice = async (value: string) => {
+    if (!bot || updatingTtsVoice) return;
+    const previous = ttsVoice;
     const next = value.trim();
-    setTtsModel(next);
-    setUpdatingTtsModel(true);
+    setTtsVoice(next);
+    setUpdatingTtsVoice(true);
     setError(null);
     try {
-      const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { ttsModel: next || null }, "PATCH");
+      const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { ttsVoice: next || null }, "PATCH");
       applyBotUpdate(result.bot);
-      setTtsModel(result.bot.ttsModel ?? "");
+      setTtsVoice(result.bot.ttsVoice ?? "");
     } catch (reason) {
-      setTtsModel(previous);
-      setError(reason instanceof Error ? reason.message : "TTSモデルの保存に失敗しました");
-    } finally { setUpdatingTtsModel(false); }
+      setTtsVoice(previous);
+      setError(reason instanceof Error ? reason.message : "TTS音声の保存に失敗しました");
+    } finally { setUpdatingTtsVoice(false); }
   };
 
   const updateNotifications = async (value: boolean) => {
@@ -931,7 +949,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             <div className="flex items-center justify-between gap-4 rounded-2xl bg-surface-2 p-4 text-sm"><span><span className="font-medium">Codeを常に許可</span><span className="mt-1 block text-xs leading-5 text-muted">このBotのCode依頼だけ、承認ダイアログを省略します。</span></span><button type="button" role="switch" aria-label="Codeを常に許可" aria-checked={codeAutoApprove} onClick={() => void updateCodeAutoApprove(!codeAutoApprove)} className={codeAutoApprove ? "relative h-6 w-11 shrink-0 rounded-full bg-primary" : "relative h-6 w-11 shrink-0 rounded-full bg-surface-3"}><span className={codeAutoApprove ? "absolute left-6 top-1 h-4 w-4 shrink-0 rounded-full bg-primary-fg" : "absolute left-1 top-1 h-4 w-4 shrink-0 rounded-full bg-primary-fg"} /></button></div>
             <label className="block text-sm"><span className="font-medium">ツール権限</span><select aria-label="ツール権限" value={permissionMode} onChange={(event) => void updatePermissionMode(event.target.value as NonNullable<BotDto["permissionMode"]>)} className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"><option value="allow">すべて許可</option><option value="ask">実行前に確認</option><option value="deny">すべて拒否</option></select><span className="mt-1 block text-xs text-muted">Botがツールを実行するときの確認方法です。</span></label>
             <section className="space-y-2 rounded-2xl border border-border bg-bg p-4" aria-label="個別ツール設定"><span className="text-sm font-medium">使用するツール</span><ToolPermissionList<BotToolName> tools={BOT_TOOL_NAMES} selectedTools={bot.tools ?? BOT_DEFAULT_TOOL_NAMES} disabled={updatingTools} onChange={(tools) => void updateTools(tools)} /><p className="text-[11px] text-muted">チェックを外したツールはBotから利用できません。</p></section><p className="text-right text-xs text-muted" role="status" aria-live="polite">{savingProfile ? "保存中…" : "変更は自動保存されます"}</p>
-            <div className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="モデル設定"><div><span className="text-sm font-medium">モデル</span><ModelSelect value={modelValue} options={models} loading={modelsLoading} disabled={updatingModel || updatingThinking} onChange={(value) => void updateModel(value)} className="mt-2 h-9 w-full" ariaLabel="ボットのモデル" /></div><div><span className="text-sm font-medium">思考レベル</span><ThinkingSelect levels={thinkingLevels} value={thinkingValue} disabled={updatingModel || updatingThinking} onChange={(value) => void updateThinking(value)} className="mt-2 h-9 w-full" /></div><label className="block"><span className="text-sm font-medium">TTSモデル</span><input type="text" value={ttsModel} disabled={updatingTtsModel} placeholder="既定（tts-1）" aria-label="ボットのTTSモデル" onChange={(event) => setTtsModel(event.target.value)} onBlur={() => void updateTtsModel(ttsModel)} className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm outline-none focus:border-accent disabled:opacity-60" /><span className="mt-1 block text-xs text-muted">空欄なら既定モデル（tts-1）を使います。</span></label>{(updatingModel || updatingThinking || updatingTtsModel) && <p className="text-xs text-muted">保存中…</p>}</div>
+            <div className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="モデル設定"><div><span className="text-sm font-medium">モデル</span><ModelSelect value={modelValue} options={models} loading={modelsLoading} disabled={updatingModel || updatingThinking} onChange={(value) => void updateModel(value)} className="mt-2 h-9 w-full" ariaLabel="ボットのモデル" /></div><div><span className="text-sm font-medium">思考レベル</span><ThinkingSelect levels={thinkingLevels} value={thinkingValue} disabled={updatingModel || updatingThinking} onChange={(value) => void updateThinking(value)} className="mt-2 h-9 w-full" /></div><label className="block"><span className="text-sm font-medium">TTS音声</span>{ttsVoiceOptions.length > 0 ? <select aria-label="ボットのTTS音声" value={ttsVoice} disabled={updatingTtsVoice} onChange={(event) => void updateTtsVoice(event.target.value)} className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm outline-none focus:border-accent disabled:opacity-60"><option value="">グローバル設定を使用</option>{ttsVoiceOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select> : <input type="text" value={ttsVoice} disabled={updatingTtsVoice} placeholder="空欄ならグローバル設定" aria-label="ボットのTTS音声" onChange={(event) => setTtsVoice(event.target.value)} onBlur={() => void updateTtsVoice(ttsVoice)} className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm outline-none focus:border-accent disabled:opacity-60" />}<span className="mt-1 block text-xs text-muted">空欄なら全体設定の音声を使います。</span></label>{(updatingModel || updatingThinking || updatingTtsVoice) && <p className="text-xs text-muted">保存中…</p>}</div>
             <BotSkillsSettings skills={bot.skills} disabled={updatingSkills} onChange={updateSkills} />
             <BotRoutineSettings botId={id} routines={routines} onRefresh={loadRoutines} onError={setError} />
             <details><summary className="cursor-pointer text-sm font-semibold text-muted">詳細設定</summary>

@@ -53,10 +53,10 @@ describe("POST /api/tts/synthesize", () => {
     expect(response.headers.get("content-type")).toBe("audio/wav");
   });
 
-  it("BotごとのTTSモデルをOpenAI互換エンジンへ渡す", async () => {
+  it("BotごとのTTS音声をグローバル音声より優先してOpenAI互換エンジンへ渡す", async () => {
     const bot = createBot({ name: "TTS bot" });
-    patchBot(bot.id, { ttsModel: "local-tts" });
-    writeTtsConfig({ enabled: true, url: "http://127.0.0.1:18080/v1/audio/speech" });
+    patchBot(bot.id, { ttsVoice: "1257529344" });
+    writeTtsConfig({ enabled: true, url: "http://127.0.0.1:18080/v1/audio/speech", voice: "871574624" });
     let sentBody = "";
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
       sentBody = String(init.body);
@@ -64,7 +64,20 @@ describe("POST /api/tts/synthesize", () => {
     }));
     const response = await POST(request("こんにちは", bot.id));
     expect(response.status).toBe(200);
-    expect(JSON.parse(sentBody)).toMatchObject({ model: "local-tts", input: "こんにちは" });
+    expect(JSON.parse(sentBody)).toMatchObject({ model: "tts-1", voice: "1257529344", input: "こんにちは" });
+  });
+
+  it("Botに音声指定がなければグローバル音声を使う", async () => {
+    const bot = createBot({ name: "TTS bot" });
+    writeTtsConfig({ enabled: true, url: "http://127.0.0.1:18080/v1/audio/speech", voice: "871574624" });
+    let sentBody = "";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      sentBody = String(init.body);
+      return new Response(Buffer.from([1, 2, 3]), { status: 200, headers: { "content-type": "audio/wav" } });
+    }));
+    const response = await POST(request("こんにちは", bot.id));
+    expect(response.status).toBe(200);
+    expect(JSON.parse(sentBody)).toMatchObject({ voice: "871574624" });
   });
 
   it("空文は400", async () => {

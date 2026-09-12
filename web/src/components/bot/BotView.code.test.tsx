@@ -604,11 +604,12 @@ it("renders SOUL.md as Markdown by default and auto-saves after entering edit mo
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { soul: "新しい説明" }, "PATCH"));
 });
 
-it("saves the Bot-specific TTS model", async () => {
-  const configuredBot = { ...testBot, ttsModel: "tts-1" };
+it("saves the Bot-specific TTS voice", async () => {
+  const configuredBot = { ...testBot, ttsVoice: "871574624" };
   mocks.getJson.mockImplementation(async (url: string) => {
     if (url === "/api/models") return { models: [] };
     if (url.endsWith("/routines")) return { routines: [] };
+    if (url === "/api/settings/tts") return { enabled: true, voice: "871574624", rate: 10, url: "http://127.0.0.1:10101" };
     return { bot: configuredBot };
   });
   mocks.sendJson.mockImplementation(async (_url: string, body?: Record<string, unknown>) => ({
@@ -617,11 +618,10 @@ it("saves the Bot-specific TTS model", async () => {
 
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
   fireEvent.click(await screen.findByRole("button", { name: "設定" }));
-  const input = screen.getByRole("textbox", { name: "ボットのTTSモデル" }) as HTMLInputElement;
-  expect(input.value).toBe("tts-1");
-  fireEvent.change(input, { target: { value: "local-tts" } });
-  fireEvent.blur(input);
-  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { ttsModel: "local-tts" }, "PATCH"));
+  const select = await screen.findByRole("combobox", { name: "ボットのTTS音声" });
+  expect((select as HTMLSelectElement).value).toBe("871574624");
+  fireEvent.change(select, { target: { value: "1257529344" } });
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { ttsVoice: "1257529344" }, "PATCH"));
 });
 
 it("resets the Bot conversation after confirmation", async () => {

@@ -90,7 +90,7 @@ describe("PATCH /api/bots/[id]", () => {
     for (const body of [
       { name: "  " },
       { model: "" },
-      { ttsModel: 42 },
+      { ttsVoice: 42 },
       { permissionMode: "turbo" },
       { tools: ["unknown-tool"] },
       { extraRoots: ["relative/path"] },
@@ -161,15 +161,15 @@ describe("PATCH /api/bots/[id]", () => {
     expect(mocks.resetTaskConversation).not.toHaveBeenCalled();
   });
 
-  it("persists a per-Bot TTS model without changing the live text model", async () => {
+  it("persists a per-Bot TTS voice without changing the live text model", async () => {
     mocks.getBot.mockReturnValue(bot());
-    mocks.patchBot.mockReturnValue({ ...bot(), ttsModel: "local-tts" });
-    const response = await PATCH(jsonRequest({ ttsModel: " local-tts " }), params("one"));
+    mocks.patchBot.mockReturnValue({ ...bot(), ttsVoice: "1257529344" });
+    const response = await PATCH(jsonRequest({ ttsVoice: " 1257529344 " }), params("one"));
     expect(response.status).toBe(200);
     expect(mocks.setTaskModel).not.toHaveBeenCalled();
     expect(mocks.patchBot).toHaveBeenCalledWith(
       "one",
-      expect.objectContaining({ ttsModel: "local-tts" }),
+      expect.objectContaining({ ttsVoice: "1257529344" }),
     );
   });
 

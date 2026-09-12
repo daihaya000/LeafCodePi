@@ -122,8 +122,8 @@ export type BotDto = {
   createdAt: string;
   updatedAt: string;
   model: string | null;
-  /** TTSのモデル上書き。未設定なら既定のTTSモデルを使う。 */
-  ttsModel?: string | null;
+  /** TTSの音声上書き。未設定ならグローバル設定の音声を使う。 */
+  ttsVoice?: string | null;
   thinkingLevel: ThinkingLevel | null;
   permissionMode: "allow" | "ask" | "deny" | null;
   skills: BotSkillsConfig;

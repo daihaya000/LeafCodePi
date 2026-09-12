@@ -191,14 +191,14 @@ describe("bot store", () => {
     expect(reloaded.label).toBe("調査アシスタント");
     expect(JSON.parse(readFileSync(join(root, "bots", bot.id, "config.json"), "utf8")).label).toBe("調査アシスタント");
   });
-  it("persists and clears a per-Bot TTS model", () => {
+  it("persists and clears a per-Bot TTS voice", () => {
     const bot = createBot({ name: "TTS bot" });
-    expect(bot.ttsModel).toBeNull();
-    expect(patchBot(bot.id, { ttsModel: " local-tts " })?.ttsModel).toBe("local-tts");
-    expect(getBot(bot.id)?.ttsModel).toBe("local-tts");
-    expect(JSON.parse(readFileSync(join(root, "bots", bot.id, "config.json"), "utf8")).ttsModel).toBe("local-tts");
-    expect(patchBot(bot.id, { ttsModel: "  " })?.ttsModel).toBeNull();
-    expect(getBot(bot.id)?.ttsModel).toBeNull();
+    expect(bot.ttsVoice).toBeNull();
+    expect(patchBot(bot.id, { ttsVoice: " 1257529344 " })?.ttsVoice).toBe("1257529344");
+    expect(getBot(bot.id)?.ttsVoice).toBe("1257529344");
+    expect(JSON.parse(readFileSync(join(root, "bots", bot.id, "config.json"), "utf8")).ttsVoice).toBe("1257529344");
+    expect(patchBot(bot.id, { ttsVoice: "  " })?.ttsVoice).toBeNull();
+    expect(getBot(bot.id)?.ttsVoice).toBeNull();
   });
   it("starts with no avatar image and persists/clears an uploaded one", () => {
     const bot = createBot({ name: "Image bot" });

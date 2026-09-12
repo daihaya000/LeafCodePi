@@ -27,16 +27,6 @@ describe("synthesizeTts", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("/v1/audio/speech は未指定なら既定モデル tts-1 を使う", async () => {
-    let sentBody = "";
-    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
-      sentBody = String(init.body);
-      return wavResponse();
-    }));
-    await synthesizeTts("はい", "http://127.0.0.1:18080/v1/audio/speech", "ryan");
-    expect(JSON.parse(sentBody)).toMatchObject({ model: "tts-1", input: "はい", voice: "ryan" });
-  });
-
   it("/v1/audio/speech はOpenAI互換ボディで1回POSTする", async () => {
     let sentBody = "";
     const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
@@ -44,8 +34,8 @@ describe("synthesizeTts", () => {
       return wavResponse();
     });
     vi.stubGlobal("fetch", fetchMock);
-    await synthesizeTts("はい", "http://127.0.0.1:18080/v1/audio/speech", "ryan", "local-tts");
-    expect(JSON.parse(sentBody)).toMatchObject({ model: "local-tts", input: "はい", voice: "ryan" });
+    await synthesizeTts("はい", "http://127.0.0.1:18080/v1/audio/speech", "ryan");
+    expect(JSON.parse(sentBody)).toMatchObject({ model: "tts-1", input: "はい", voice: "ryan" });
   });
 
   it("エンジン停止中は接続エラー", async () => {
