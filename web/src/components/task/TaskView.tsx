@@ -1780,23 +1780,24 @@ export const TaskView = memo(function TaskView({
   }, [statusWorking]);
 
   // PartView は memo 化されており onRevert の参照比較でスキップ判定する。
-  // inline arrow のままだと毎レンダー新参照になり、stabilizeUiMessages の
-  // 参照安定化が無効化されるため useCallback で安定させる。
-  const requestRevert = useCallback(
-    (target: UiMessage) => {
-      if (archived) {
-        setError("アーカイブ済みのタスクは巻き戻せません");
-        return;
-      }
-      if (working) {
-        setError("実行中は巻き戻せません。停止してからお試しください");
-        return;
-      }
-      revertEntryRef.current = { messageId: target.id, message: target };
-      setRevertConfirmOpen(true);
-    },
-    [archived, working],
-  );
+  // 判定対象は ref から読むことで、status 遷移時も callback を再生成せず、
+  // 履歴全体の行を再レンダーしない。
+  const archivedForRevertRef = useRef(archived);
+  const workingForRevertRef = useRef(working);
+  archivedForRevertRef.current = archived;
+  workingForRevertRef.current = working;
+  const requestRevert = useCallback((target: UiMessage) => {
+    if (archivedForRevertRef.current) {
+      setError("アーカイブ済みのタスクは巻き戻せません");
+      return;
+    }
+    if (workingForRevertRef.current) {
+      setError("実行中は巻き戻せません。停止してからお試しください");
+      return;
+    }
+    revertEntryRef.current = { messageId: target.id, message: target };
+    setRevertConfirmOpen(true);
+  }, []);
   const goalLoopLive = Boolean(
     task?.goalLoop && ["queued", "running", "verifying_completed"].includes(task.goalLoop.status),
   );
