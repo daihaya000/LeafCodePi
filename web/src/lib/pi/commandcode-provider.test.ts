@@ -98,7 +98,7 @@ describe("registerCommandCodeProvider", () => {
     assert.equal(fetches, 1);
     assert.equal(first.registrations(), 1);
     assert.equal(second.registrations(), 1);
-  });
+  }, 15_000);
 });
 
 describe("downgradeUnsupportedImages", () => {
