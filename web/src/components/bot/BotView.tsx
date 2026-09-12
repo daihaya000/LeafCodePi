@@ -29,7 +29,7 @@ import { markRead } from "@/lib/bot-unread";
 import { decideNotification } from "@/lib/notify";
 import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
 import { messageRenderKey, stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
-import { readTaskTtsEnabled, speakText, writeTaskTtsEnabled } from "@/lib/tts-playback";
+import { readTaskTtsEnabled, speakText, stopSpeaking, subscribeTaskTtsEnabled, writeTaskTtsEnabled } from "@/lib/tts-playback";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
 
 type BotMessageDisplayData = {
@@ -200,7 +200,9 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     const next = !ttsEnabled;
     setTtsEnabled(next);
     writeTaskTtsEnabled(id, next);
+    if (!next) stopSpeaking();
   };
+  useEffect(() => subscribeTaskTtsEnabled(id, setTtsEnabled), [id]);
   // Drop the previous bot's transcript/overlays immediately; SSE will refill for the new id.
   useEffect(() => {
     setMessages([]);
@@ -241,14 +243,15 @@ export function BotView({ id, active = true }: { id: string; active?: boolean })
     if (kind && notificationsEnabled) new Notification(kind === "attention" ? "承認が必要です" : "新しい返信があります", { body: bot.name, tag: `bot-${id}` });
   }, [bot, id, notificationsEnabled, permission, question, sending]);
   // 発言が完了した（working → idle）タイミングで、直前のBotの返信をこのタブでだけ読み上げる。
+  // 非表示タブ（裏のペイン等）は喋らない。
   const prevTtsSendingRef = useRef(false);
   useEffect(() => {
-    if (prevTtsSendingRef.current && !sending && ttsEnabled) {
+    if (prevTtsSendingRef.current && !sending && ttsEnabled && active) {
       const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
       if (lastAssistant) speakText(botMessageDisplayData(lastAssistant).text);
     }
     prevTtsSendingRef.current = sending;
-  }, [sending, ttsEnabled, messages]);
+  }, [active, sending, ttsEnabled, messages]);
   const loadRoutines = useCallback((isCurrent: () => boolean = () => true) => getJson<{ routines: RoutineDto[] }>(`/api/bots/${encodeURIComponent(id)}/routines`)
     .then((result) => { if (isCurrent()) setRoutines(result.routines); })
     .catch((reason) => { if (isCurrent()) setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f"); }), [id]);

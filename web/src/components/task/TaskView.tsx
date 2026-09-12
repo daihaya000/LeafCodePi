@@ -185,7 +185,7 @@ import {
   playAttentionRequiredSound,
   playSessionCompleteSound,
 } from "@/lib/session-complete-sound";
-import { readTaskTtsEnabled, speakText, writeTaskTtsEnabled } from "@/lib/tts-playback";
+import { readTaskTtsEnabled, speakText, stopSpeaking, subscribeTaskTtsEnabled, writeTaskTtsEnabled } from "@/lib/tts-playback";
 import {
   decideNotification,
   notificationText,
@@ -715,7 +715,9 @@ export const TaskView = memo(function TaskView({
     const next = !ttsEnabled;
     setTtsEnabled(next);
     writeTaskTtsEnabled(taskId, next);
+    if (!next) stopSpeaking();
   };
+  useEffect(() => subscribeTaskTtsEnabled(taskId, setTtsEnabled), [taskId]);
   const { botFor } = useTaskPanes();
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
@@ -2365,9 +2367,10 @@ export const TaskView = memo(function TaskView({
     prevWorkingSoundRef.current = working;
   }, [working]);
   // 発言完了（working → idle）タイミングで、直前の assistant メッセージだけ読み上げる。
+  // 非表示ペイン（裏タブ等）は喋らない。
   const prevWorkingTtsRef = useRef(working);
   useEffect(() => {
-    if (prevWorkingTtsRef.current && !working && ttsEnabled) {
+    if (prevWorkingTtsRef.current && !working && ttsEnabled && active) {
       const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
       if (lastAssistant) {
         const text = lastAssistant.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
@@ -2375,7 +2378,7 @@ export const TaskView = memo(function TaskView({
       }
     }
     prevWorkingTtsRef.current = working;
-  }, [working, ttsEnabled, messages]);
+  }, [active, working, ttsEnabled, messages]);
   // 注意音：承認 UI の立上がりエッジ。タブの可視状態に関係なく鳴らす。
   const prevAttentionSoundRef = useRef(false);
   useEffect(() => {
