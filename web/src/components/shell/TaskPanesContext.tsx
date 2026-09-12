@@ -61,10 +61,12 @@ function changedIconIds<T extends { id: string }>(
   next: T[],
   same: (left: T, right: T) => boolean,
 ): Set<string> {
-  const ids = new Set([...previous.map((item) => item.id), ...next.map((item) => item.id)]);
+  const previousById = new Map(previous.map((item) => [item.id, item]));
+  const nextById = new Map(next.map((item) => [item.id, item]));
+  const ids = new Set([...previousById.keys(), ...nextById.keys()]);
   return new Set([...ids].filter((id) => {
-    const before = previous.find((item) => item.id === id);
-    const after = next.find((item) => item.id === id);
+    const before = previousById.get(id);
+    const after = nextById.get(id);
     return before == null || after == null || !same(before, after);
   }));
 }
@@ -295,10 +297,11 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     const changedBotIds = changedIconIds(previousIconBotsRef.current, iconBots, sameBotIconData);
     const changedProjectIds = changedIconIds(previousIconProjectsRef.current, iconProjects, sameProjectIconData);
     if (changedBotIds.size > 0 || changedProjectIds.size > 0) {
+      const changedBotTabIds = new Set([...changedBotIds].map((botId) => `/bots/${encodeURIComponent(botId)}`));
       for (const taskId of state.panes.flatMap((pane) => pane.tabs)) {
         const identity = taskIdentitiesRef.current.get(taskId);
         const botChanged = identity?.botId != null && changedBotIds.has(identity.botId)
-          || [...changedBotIds].some((botId) => `/bots/${encodeURIComponent(botId)}` === taskId);
+          || changedBotTabIds.has(taskId);
         const projectChanged = identity?.projectId != null && changedProjectIds.has(identity.projectId);
         if (botChanged || projectChanged) bumpTabIconVersion(taskId);
       }
