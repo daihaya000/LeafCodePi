@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Volume2, VolumeX, X } from "lucide-react";
 import Markdown from "react-markdown";
@@ -95,6 +95,31 @@ function BotToolActivityGroup({ messages, bot, botId, active }: { messages: UiMe
 
 const BOT_AUTO_SAVE_DELAY_MS = 600;
 const BOT_SETTINGS_OPEN_KEY_PREFIX = "webui:bot-settings-open:";
+const BOT_SETTINGS_WIDTH_KEY = "webui:bot-settings-width";
+const BOT_SETTINGS_MIN_WIDTH = 280;
+const BOT_SETTINGS_DEFAULT_WIDTH = 352;
+const BOT_SETTINGS_MAX_WIDTH = 640;
+
+function readBotSettingsWidth(): number {
+  if (typeof window === "undefined") return BOT_SETTINGS_DEFAULT_WIDTH;
+  try {
+    const stored = window.localStorage.getItem(BOT_SETTINGS_WIDTH_KEY);
+    const saved = stored === null ? Number.NaN : Number(stored);
+    return Number.isFinite(saved)
+      ? Math.min(BOT_SETTINGS_MAX_WIDTH, Math.max(BOT_SETTINGS_MIN_WIDTH, saved))
+      : BOT_SETTINGS_DEFAULT_WIDTH;
+  } catch {
+    return BOT_SETTINGS_DEFAULT_WIDTH;
+  }
+}
+
+function writeBotSettingsWidth(width: number): void {
+  try {
+    window.localStorage.setItem(BOT_SETTINGS_WIDTH_KEY, String(width));
+  } catch {
+    /* ignore */
+  }
+}
 
 function readBotSettingsOpen(id: string): boolean {
   if (typeof window === "undefined") return false;
@@ -143,6 +168,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [codeAutoApprove, setCodeAutoApprove] = useState(true);
   const [permissionMode, setPermissionMode] = useState<NonNullable<BotDto["permissionMode"]>>("allow");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsWidth, setSettingsWidth] = useState(() => readBotSettingsWidth());
   const [codePanelOpen, setCodePanelOpen] = useState(false);
   const settingsOpenRef = useRef(false);
   const [sending, setSending] = useState(false);
@@ -914,7 +940,52 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       </div>
 
       {settingsOpen && (
-        <aside id="bot-settings-panel" role="dialog" aria-labelledby="bot-settings-title" onKeyDown={(event) => { if (event.key === "Escape") updateSettingsOpen(false); }} aria-label="ボット設定" className="flex h-full w-full shrink-0 flex-col border-bot-outline bg-bot-chat lg:w-[22rem] lg:border-l xl:w-[24.5rem]">
+        <aside id="bot-settings-panel" role="dialog" aria-labelledby="bot-settings-title" onKeyDown={(event) => { if (event.key === "Escape") updateSettingsOpen(false); }} aria-label="ボット設定" className="relative flex h-full w-full shrink-0 flex-col border-bot-outline bg-bot-chat lg:w-(--bot-settings-width) lg:border-l" style={{ "--bot-settings-width": `${settingsWidth}px` } as CSSProperties}>
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="ボット設定の幅を調整"
+            aria-valuemin={BOT_SETTINGS_MIN_WIDTH}
+            aria-valuemax={BOT_SETTINGS_MAX_WIDTH}
+            aria-valuenow={settingsWidth}
+            tabIndex={0}
+            className="absolute top-0 left-0 z-10 hidden h-full w-1 cursor-col-resize lg:block"
+            onKeyDown={(event) => {
+              const delta = event.key === "ArrowLeft" ? 16 : event.key === "ArrowRight" ? -16 : 0;
+              if (!delta) return;
+              event.preventDefault();
+              const nextWidth = Math.min(BOT_SETTINGS_MAX_WIDTH, Math.max(BOT_SETTINGS_MIN_WIDTH, settingsWidth + delta));
+              setSettingsWidth(nextWidth);
+              writeBotSettingsWidth(nextWidth);
+            }}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              const startX = event.clientX;
+              const startWidth = settingsWidth;
+              let nextWidth = settingsWidth;
+              const previousUserSelect = document.body.style.userSelect;
+              document.body.style.userSelect = "none";
+              const onMove = (move: PointerEvent) => {
+                nextWidth = Math.min(
+                  BOT_SETTINGS_MAX_WIDTH,
+                  Math.max(BOT_SETTINGS_MIN_WIDTH, startWidth - (move.clientX - startX)),
+                );
+                setSettingsWidth(nextWidth);
+              };
+              const onUp = () => {
+                document.body.style.userSelect = previousUserSelect;
+                window.removeEventListener("pointermove", onMove);
+                window.removeEventListener("pointerup", onUp);
+                window.removeEventListener("pointercancel", onUp);
+                window.removeEventListener("blur", onUp);
+                writeBotSettingsWidth(nextWidth);
+              };
+              window.addEventListener("pointermove", onMove);
+              window.addEventListener("pointerup", onUp);
+              window.addEventListener("pointercancel", onUp);
+              window.addEventListener("blur", onUp);
+            }}
+          />
           <div className="flex h-[3.75rem] shrink-0 items-center justify-between px-5">
             <h2 id="bot-settings-title" className="text-sm font-medium">設定</h2>
             <button type="button" autoFocus aria-label="設定を閉じる" onClick={() => updateSettingsOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"><X className="h-4 w-4" /></button>
@@ -931,14 +1002,14 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
               </div>
               {soulEditing ? (
                 <>
-                  <textarea aria-label="ボットの説明" value={soul} onChange={(event) => { const value = event.target.value; setSoul(value); scheduleSoulSave(value); }} rows={4} className="mt-2 w-full resize-y rounded-xl border border-border bg-transparent px-3 py-2.5 text-base leading-6 text-text outline-none focus:border-accent" />
+                  <textarea aria-label="ボットの説明" value={soul} onChange={(event) => { const value = event.target.value; setSoul(value); scheduleSoulSave(value); }} rows={4} className="mt-2 h-48 w-full resize-none overflow-y-auto rounded-xl border border-border bg-transparent px-3 py-2.5 text-base leading-6 text-text outline-none focus:border-accent" />
                   <div className="mt-1 flex items-center justify-between gap-2">
                     <span className="text-xs" role="status" aria-live="polite">{savingSoul ? "保存中…" : "変更は自動保存されます"}</span>
                     <Button type="button" size="sm" variant="ghost" onClick={() => setSoulEditing(false)}>表示</Button>
                   </div>
                 </>
               ) : soul.trim() ? (
-                <div className="md mt-2 rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-base leading-6 text-text">
+                <div className="md mt-2 h-48 overflow-y-auto rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-base leading-6 text-text">
                   <Markdown remarkPlugins={[remarkGfm]}>{soul}</Markdown>
                 </div>
               ) : (

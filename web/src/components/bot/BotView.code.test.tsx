@@ -574,6 +574,21 @@ it("shows the exact Code command and does not erase a newer approval on response
   expect(mocks.sendJson).toHaveBeenCalledWith("/api/tasks/bot%3Aone/permission", { requestId: "first", approved: true });
 });
 
+it("resizes the Bot settings panel by dragging its separator", async () => {
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+  const panel = screen.getByRole("dialog", { name: "設定" });
+  const separator = within(panel).getByRole("separator", { name: "ボット設定の幅を調整" });
+  expect(panel.style.getPropertyValue("--bot-settings-width")).toBe("352px");
+
+  fireEvent.pointerDown(separator, { clientX: 100 });
+  fireEvent.pointerMove(window, { clientX: 40 });
+  fireEvent.pointerUp(window);
+
+  expect(panel.style.getPropertyValue("--bot-settings-width")).toBe("412px");
+  expect(localStorage.getItem("webui:bot-settings-width")).toBe("412");
+});
+
 it("renders SOUL.md as Markdown by default and auto-saves after entering edit mode", async () => {
   const configuredBot = { ...testBot, soul: "# 役割\n\n**簡潔に答える**" };
   mocks.getJson.mockImplementation(async (url: string) => {
@@ -596,10 +611,16 @@ it("renders SOUL.md as Markdown by default and auto-saves after entering edit mo
   fireEvent.change(screen.getByRole("textbox", { name: "ボットの名前" }), { target: { value: "New Bot" } });
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { name: "New Bot", label: "Label" }, "PATCH"));
 
+  const viewer = screen.getByRole("heading", { name: "役割" }).closest("div.md");
+  expect(viewer?.classList.contains("h-48")).toBe(true);
+  expect(viewer?.classList.contains("overflow-y-auto")).toBe(true);
+
   fireEvent.click(screen.getByRole("button", { name: "編集" }));
   expect(screen.queryByRole("heading", { name: "役割" })).toBeNull();
   const editor = screen.getByRole("textbox", { name: "ボットの説明" }) as HTMLTextAreaElement;
   expect(editor.value).toBe("# 役割\n\n**簡潔に答える**");
+  expect(editor.classList.contains("h-48")).toBe(true);
+  expect(editor.classList.contains("overflow-y-auto")).toBe(true);
   fireEvent.change(editor, { target: { value: "新しい説明" } });
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { soul: "新しい説明" }, "PATCH"));
 });
