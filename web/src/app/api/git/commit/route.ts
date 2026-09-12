@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
     commitArgs.push("--", ...validPaths);
   }
 
-  const agentName = (typeof agent === "string" ? agent.trim() : "") || "build";
+  const agentName = (typeof agent === "string" ? agent.trim() : "") || "builder";
   const gitEnv: Record<string, string> | undefined = SAFE_AGENT.test(agentName)
     ? {
         GIT_AUTHOR_NAME: agentName,

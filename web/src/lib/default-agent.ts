@@ -1,8 +1,8 @@
 /**
  * 既定エージェントの選択状態（Composer）。
- * 本家 LeafCode と同じく build を既定対話者にする。選択は localStorage に永続。
+ * 本家 LeafCode と同じく builder を既定対話者にする。選択は localStorage に永続。
  */
-export const DEFAULT_AGENT = "build";
+export const DEFAULT_AGENT = "builder";
 /** Internal Composer sentinel; never pass this to the Pi session as an agent. */
 export const AUTO_AGENT_VALUE = "__auto__";
 

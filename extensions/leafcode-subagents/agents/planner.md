@@ -1,6 +1,7 @@
 ---
-name: plan
+name: planner
 description: Read-only codebase analysis that produces an implementation plan before changes
+aliases: plan
 tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, web_search, source_check, fetch_content, get_search_content, todowrite, intercom
 thinking: high
 subagentOnlyExtensions: ../../leafcode-intercom/index.ts

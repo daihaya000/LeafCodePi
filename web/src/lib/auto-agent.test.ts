@@ -25,7 +25,7 @@ import {
 } from "./auto-agent";
 
 const candidates: AutoAgentCandidate[] = [
-  { name: "build", description: "実装を進める", canModifyFiles: true },
+  { name: "builder", description: "実装を進める", canModifyFiles: true },
   { name: "reviewer", description: "差分をレビューする", canModifyFiles: false },
 ];
 
@@ -45,7 +45,7 @@ beforeEach(() => {
       },
       { name: "disabled", description: "使わない", enabled: false },
       {
-        name: "build",
+        name: "builder",
         description: "実装を進める",
         enabled: true,
         tools: ["read", "edit", "write"],
@@ -75,7 +75,7 @@ describe("auto-agent", () => {
 
   it("accepts only a candidate name from the JSON response", () => {
     expect(parseAutoAgentResponse('{"agent":"reviewer"}', candidates)).toBe("reviewer");
-    expect(parseAutoAgentResponse("```json\n{\"agent\":\"build\"}\n```", candidates)).toBe("build");
+    expect(parseAutoAgentResponse("```json\n{\"agent\":\"builder\"}\n```", candidates)).toBe("builder");
     expect(parseAutoAgentResponse('{"agent":"missing"}', candidates)).toBeUndefined();
     expect(parseAutoAgentResponse('{"agent":"reviewer","reason":"差分"}', candidates)).toBeUndefined();
     expect(parseAutoAgentResponse("reviewer", candidates)).toBeUndefined();
@@ -90,7 +90,7 @@ describe("auto-agent", () => {
           enabled: true,
           systemPrompt: "SECRET_INTERNAL_INSTRUCTION",
         },
-        { name: "build", description: "実装を進める", enabled: true },
+        { name: "builder", description: "実装を進める", enabled: true },
       ],
       agentsDir: "",
     });
@@ -143,7 +143,7 @@ describe("auto-agent", () => {
     const model = { providerID: "p", modelID: "m" };
     mocks.buildDirectGenerationCandidates.mockReturnValue([{ model }]);
     mocks.generateDirectTextWithFallbackResult.mockResolvedValue({
-      text: '{"agent":"build"}',
+      text: '{"agent":"builder"}',
       model,
     });
 
@@ -155,7 +155,7 @@ describe("auto-agent", () => {
         ],
         prompt: "指摘事項を修正して",
       }),
-    ).resolves.toBe("build");
+    ).resolves.toBe("builder");
 
     const generated = mocks.generateDirectTextWithFallbackResult.mock.calls[0]?.[0];
     expect(generated.prompt).toContain("<conversation_history>\nUser: レビューして");
@@ -164,11 +164,11 @@ describe("auto-agent", () => {
     );
     expect(generated.prompt).toContain('"name":"reviewer"');
     expect(generated.prompt).toContain('"canModifyFiles":false');
-    expect(generated.prompt).toContain('"name":"build"');
+    expect(generated.prompt).toContain('"name":"builder"');
     expect(generated.prompt).toContain('"canModifyFiles":true');
   });
 
-  it("falls back to build when generation fails or returns an unknown name", async () => {
+  it("falls back to builder when generation fails or returns an unknown name", async () => {
     mocks.buildDirectGenerationCandidates.mockReturnValue([{ model: { providerID: "p", modelID: "m" } }]);
     mocks.generateDirectTextWithFallbackResult.mockResolvedValue({
       text: '{"agent":"missing"}',
@@ -177,24 +177,24 @@ describe("auto-agent", () => {
 
     await expect(
       resolveAutoAgent({ conversation: [], prompt: "実装して" }),
-    ).resolves.toBe("build");
+    ).resolves.toBe("builder");
 
     mocks.generateDirectTextWithFallbackResult.mockRejectedValue(new Error("offline"));
     await expect(
       resolveAutoAgent({ conversation: [], prompt: "実装して" }),
-    ).resolves.toBe("build");
+    ).resolves.toBe("builder");
   });
 
   it("uses the deterministic fallback when no generation model is available", async () => {
     await expect(
       resolveAutoAgent({ conversation: [], prompt: "実装して" }),
-    ).resolves.toBe("build");
+    ).resolves.toBe("builder");
     expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
   });
 
   it("skips the router call when only one candidate is enabled", async () => {
     mocks.listAgents.mockReturnValue({
-      agents: [{ name: "build", description: "実装", enabled: true }],
+      agents: [{ name: "builder", description: "実装", enabled: true }],
       agentsDir: "",
     });
     mocks.buildDirectGenerationCandidates.mockReturnValue([
@@ -203,7 +203,7 @@ describe("auto-agent", () => {
 
     await expect(
       resolveAutoAgent({ conversation: [], prompt: "実装して" }),
-    ).resolves.toBe("build");
+    ).resolves.toBe("builder");
     expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
   });
 
@@ -229,7 +229,7 @@ describe("auto-agent", () => {
     expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
   });
 
-  it("bounds candidates and keeps build available as the fallback", async () => {
+  it("bounds candidates and keeps builder available as the fallback", async () => {
     const model = { providerID: "p", modelID: "m" };
     mocks.listAgents.mockReturnValue({
       agents: [
@@ -238,26 +238,26 @@ describe("auto-agent", () => {
           description: "x".repeat(600),
           enabled: true,
         })),
-        { name: "build", description: "実装", enabled: true },
+        { name: "builder", description: "実装", enabled: true },
       ],
       agentsDir: "",
     });
     mocks.buildDirectGenerationCandidates.mockReturnValue([{ model }]);
     mocks.generateDirectTextWithFallbackResult.mockResolvedValue({
-      text: '{"agent":"build"}',
+      text: '{"agent":"builder"}',
       model,
     });
 
     await expect(
       resolveAutoAgent({ conversation: [], prompt: "実装して" }),
-    ).resolves.toBe("build");
+    ).resolves.toBe("builder");
 
     const generated = mocks.generateDirectTextWithFallbackResult.mock.calls[0]?.[0];
     const agentData = JSON.parse(
       generated.prompt.match(/<agents>\n([\s\S]*?)\n<\/agents>/)?.[1] ?? "[]",
     );
     expect(agentData).toHaveLength(24);
-    expect(agentData.some((agent: { name?: string }) => agent.name === "build")).toBe(true);
+    expect(agentData.some((agent: { name?: string }) => agent.name === "builder")).toBe(true);
     expect(agentData[0]?.name).toBe("agent-0");
   });
 
@@ -277,7 +277,7 @@ describe("auto-agent", () => {
 
       const result = resolveAutoAgent({ conversation: [], prompt: "実装して" });
       await vi.advanceTimersByTimeAsync(30_000);
-      await expect(result).resolves.toBe("build");
+      await expect(result).resolves.toBe("builder");
     } finally {
       vi.useRealTimers();
     }
@@ -287,7 +287,7 @@ describe("auto-agent", () => {
     const model = { providerID: "p", modelID: "m" };
     mocks.buildDirectGenerationCandidates.mockReturnValue([{ model }]);
     mocks.generateDirectTextWithFallbackResult.mockResolvedValue({
-      text: '{"agent":"build"}',
+      text: '{"agent":"builder"}',
       model,
     });
 

@@ -30,8 +30,10 @@ const AGENT_ICONS: Record<string, LucideIcon> = {
   [AUTO_AGENT_VALUE]: Bot,
   "code-reviewer": FileSearch,
   build: Blocks,
+  builder: Blocks,
   programmer: Code2,
   plan: ClipboardList,
+  planner: ClipboardList,
   researcher: Search,
   reviewer: CheckCircle2,
   debugger: Bug,
@@ -55,7 +57,7 @@ export function AgentRoleIcon({ name }: { name: string }) {
  * エージェント選択ドロップダウン。
  * agents は /api/agents の一覧（ビルトイン + ユーザー定義）から取得する。
  * 選択したエージェントはタスク全体のメイン対話者になる。Auto は送信時に
- * 会話内容から実在するエージェントへ解決する。空値や不明値は build（なければ
+ * 会話内容から実在するエージェントへ解決する。空値や不明値は builder（なければ
  * 先頭の有効なエージェント）へ正規化する。
  */
 export function AgentSelect({
