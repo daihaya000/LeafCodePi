@@ -201,6 +201,44 @@ describe("TaskPanesProvider", () => {
     expect(iconRenderSpy.mock.calls.length).toBe(initialIconRenderCount);
   });
 
+  it("updates icon metadata only for tabs using a changed Bot", async () => {
+    matches = true;
+    localStorage.setItem(TASK_PANES_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      panes: [{ id: "saved-pane", tabs: ["task-a", "task-b"], activeTabId: "task-a" }],
+      activePaneId: "saved-pane",
+    }));
+    let botImage = "data:image/png;base64,bot";
+    const sidebarFetchSpy = vi.fn();
+    mocks.getJson.mockImplementation(async (url: string) => {
+      if (url.startsWith("/api/projects")) return { projects: [] };
+      if (url === "/api/bots/sidebar") {
+        sidebarFetchSpy();
+        return { bots: [{ id: "one", name: "One", avatarImage: botImage }], rooms: [] };
+      }
+      return {
+        tasks: [
+          { id: "task-a", title: "Bot task", status: "idle", projectId: null, botId: "one" },
+          { id: "task-b", title: "Plain task", status: "idle", projectId: null, botId: null },
+        ],
+      };
+    });
+    function MetaProbe({ taskId }: { taskId: string }) {
+      const { iconVersion } = useTaskPaneTabMeta(taskId);
+      return <output data-testid={`icon-${taskId}`}>{iconVersion}</output>;
+    }
+    render(<TaskPanesProvider><MetaProbe taskId="task-a" /><MetaProbe taskId="task-b" /></TaskPanesProvider>);
+    await waitFor(() => expect(screen.getByTestId("icon-task-a").textContent).not.toBe("0"));
+    const beforeBot = screen.getByTestId("icon-task-a").textContent;
+    const beforePlain = screen.getByTestId("icon-task-b").textContent;
+    const sidebarFetchCount = sidebarFetchSpy.mock.calls.length;
+    botImage = "data:image/png;base64,updated";
+    window.dispatchEvent(new Event("webui:bot-sidebar-changed"));
+    await waitFor(() => expect(sidebarFetchSpy.mock.calls.length).toBe(sidebarFetchCount + 1));
+    await waitFor(() => expect(screen.getByTestId("icon-task-a").textContent).toBe(String(Number(beforeBot) + 1)));
+    expect(screen.getByTestId("icon-task-b").textContent).toBe(beforePlain);
+  });
+
   it("restores Bot routes, titles and closes only deleted Bot tabs", async () => {
     matches = true;
     localStorage.setItem(TASK_PANES_STORAGE_KEY, JSON.stringify({ version: 1, panes: [{ id: "first-pane", tabs: ["second", "/bots/one"], activeTabId: "second" }], activePaneId: "first-pane" }));

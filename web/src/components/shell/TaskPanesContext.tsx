@@ -45,24 +45,39 @@ type TaskIdentity = Pick<TaskSummary, "projectId" | "botId"> & Partial<Pick<Task
 type BotIconData = Pick<BotDto, "id" | "name" | "avatarColor" | "avatarShape" | "avatarEyeColor" | "avatarGlasses" | "avatarMustache" | "avatarImage">;
 type ProjectIconData = Pick<ProjectDto, "id" | "name" | "icon">;
 
+function sameBotIconData(left: BotIconData, right: BotIconData): boolean {
+  return left.id === right.id && left.name === right.name && left.avatarColor === right.avatarColor
+    && left.avatarShape === right.avatarShape && left.avatarEyeColor === right.avatarEyeColor
+    && left.avatarGlasses === right.avatarGlasses && left.avatarMustache === right.avatarMustache
+    && left.avatarImage === right.avatarImage;
+}
+
+function sameProjectIconData(left: ProjectIconData, right: ProjectIconData): boolean {
+  return left.id === right.id && left.name === right.name && left.icon === right.icon;
+}
+
+function changedIconIds<T extends { id: string }>(
+  previous: T[],
+  next: T[],
+  same: (left: T, right: T) => boolean,
+): Set<string> {
+  const ids = new Set([...previous.map((item) => item.id), ...next.map((item) => item.id)]);
+  return new Set([...ids].filter((id) => {
+    const before = previous.find((item) => item.id === id);
+    const after = next.find((item) => item.id === id);
+    return before == null || after == null || !same(before, after);
+  }));
+}
+
 function reuseBotIconData(previous: BotIconData[], bots: readonly BotDto[]): BotIconData[] {
-  if (previous.length === bots.length && previous.every((item, index) => {
-    const bot = bots[index];
-    return item.id === bot.id && item.name === bot.name && item.avatarColor === bot.avatarColor
-      && item.avatarShape === bot.avatarShape && item.avatarEyeColor === bot.avatarEyeColor
-      && item.avatarGlasses === bot.avatarGlasses && item.avatarMustache === bot.avatarMustache
-      && item.avatarImage === bot.avatarImage;
-  })) return previous;
+  if (previous.length === bots.length && previous.every((item, index) => sameBotIconData(item, bots[index]))) return previous;
   return bots.map(({ id, name, avatarColor, avatarShape, avatarEyeColor, avatarGlasses, avatarMustache, avatarImage }) => ({
     id, name, avatarColor, avatarShape, avatarEyeColor, avatarGlasses, avatarMustache, avatarImage,
   }));
 }
 
 function reuseProjectIconData(previous: ProjectIconData[], projects: readonly ProjectDto[]): ProjectIconData[] {
-  if (previous.length === projects.length && previous.every((item, index) => {
-    const project = projects[index];
-    return item.id === project.id && item.name === project.name && item.icon === project.icon;
-  })) return previous;
+  if (previous.length === projects.length && previous.every((item, index) => sameProjectIconData(item, projects[index]))) return previous;
   return projects.map(({ id, name, icon }) => ({ id, name, icon }));
 }
 
@@ -216,6 +231,8 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   const taskIdentitiesRef = useRef(new Map<string, TaskIdentity>());
   const iconBotsRef = useRef<BotIconData[]>([]);
   const iconProjectsRef = useRef<ProjectIconData[]>([]);
+  const previousIconBotsRef = useRef<BotIconData[]>([]);
+  const previousIconProjectsRef = useRef<ProjectIconData[]>([]);
   const iconForRef = useRef<TaskPanesIconContextValue["iconFor"]>(EMPTY_ICON.iconFor);
   const tabMetaSnapshotsRef = useRef(new Map<string, TaskPanesTabMetaSnapshot>());
   const tabMetaIconVersionsRef = useRef(new Map<string, number>());
@@ -273,6 +290,22 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       if (listeners.size === 0) tabMetaListenersRef.current.delete(taskId);
     };
   }, []);
+
+  useEffect(() => {
+    const changedBotIds = changedIconIds(previousIconBotsRef.current, iconBots, sameBotIconData);
+    const changedProjectIds = changedIconIds(previousIconProjectsRef.current, iconProjects, sameProjectIconData);
+    if (changedBotIds.size > 0 || changedProjectIds.size > 0) {
+      for (const taskId of state.panes.flatMap((pane) => pane.tabs)) {
+        const identity = taskIdentitiesRef.current.get(taskId);
+        const botChanged = identity?.botId != null && changedBotIds.has(identity.botId)
+          || [...changedBotIds].some((botId) => `/bots/${encodeURIComponent(botId)}` === taskId);
+        const projectChanged = identity?.projectId != null && changedProjectIds.has(identity.projectId);
+        if (botChanged || projectChanged) bumpTabIconVersion(taskId);
+      }
+    }
+    previousIconBotsRef.current = iconBots;
+    previousIconProjectsRef.current = iconProjects;
+  }, [bumpTabIconVersion, iconBots, iconProjects, state]);
 
   useEffect(() => {
     let disposed = false;
@@ -590,12 +623,8 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   );
   const iconValue = useMemo<TaskPanesIconContextValue>(() => ({ iconFor }), [iconFor]);
   const taskIconValue = useMemo<TaskPanesTaskIconContextValue>(
-    () => {
-      void iconBots;
-      void iconProjects;
-      return { iconFor: taskIconFor };
-    },
-    [iconBots, iconProjects, taskIconFor],
+    () => ({ iconFor: taskIconFor }),
+    [taskIconFor],
   );
   const botStatusValue = useMemo<TaskPanesBotStatusContextValue>(
     () => ({ statusFor: botStatusFor }),
