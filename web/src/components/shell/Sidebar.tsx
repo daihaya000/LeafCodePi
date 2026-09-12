@@ -32,6 +32,12 @@ import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
+import {
+  getBotSidebarServerSnapshot,
+  getBotSidebarSnapshot,
+  refreshBotSidebar,
+  subscribeBotSidebar,
+} from "@/lib/bot-sidebar-store";
 import { getLastReadAt, hasUnread } from "@/lib/bot-unread";
 import { BOTS_TAB_ID, HOME_TAB_ID, isBotTabId, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
 import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type TaskStatus, type TaskSummary } from "@/lib/types";
@@ -149,9 +155,6 @@ export function sameHealth(a: HealthDto | null, b: HealthDto): boolean {
 const PROJECT_ICON_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
 const MODE_KEY = "leafcodepi.mode";
 type AppMode = "code" | "bot";
-type SidebarPreview = { lastMessageSummary: string | null; lastMessageAt: string | null };
-type SidebarBot = BotDto & SidebarPreview & { codeInProgress?: boolean; codeSessionCount?: number };
-type SidebarRoom = RoomDto & SidebarPreview;
 type BotListFilter = "all" | "bots" | "rooms";
 
 function ModeSegment({ mode, onChange }: { mode: AppMode; onChange: (mode: AppMode) => void }) {
@@ -258,50 +261,34 @@ function BotSidebarBody({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [bots, setBots] = useState<SidebarBot[]>([]);
-  const [rooms, setRooms] = useState<SidebarRoom[]>([]);
+  const botSidebar = useSyncExternalStore(
+    subscribeBotSidebar,
+    getBotSidebarSnapshot,
+    getBotSidebarServerSnapshot,
+  );
+  const { bots, rooms } = botSidebar;
+  const loadError = botSidebar.error;
   const [query, setQuery] = useState("");
   const [listFilter, setListFilter] = useState<BotListFilter>("all");
   const [busy, setBusy] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
-  const refreshGenerationRef = useRef(0);
-  const refresh = useCallback((force = false, refreshToken?: string) => {
-    const generation = ++refreshGenerationRef.current;
-    void getJson<{ bots: SidebarBot[]; rooms: SidebarRoom[] }>(
-      "/api/bots/sidebar",
-      force ? { refresh: refreshToken ?? `${Date.now()}-${generation}` } : undefined,
-    )
-      .then((result) => {
-        if (generation !== refreshGenerationRef.current) return;
-        setLoadError(null);
-        setBots(result.bots);
-        setRooms(result.rooms);
-      })
-      .catch((error) => {
-        if (generation !== refreshGenerationRef.current) return;
-        setLoadError(
-          error instanceof Error && error.message
-            ? error.message
-            : "Botとルームの読み込みに失敗しました",
-        );
-      });
-  }, []);
   useEffect(() => {
-    refresh();
+    void refreshBotSidebar().catch(() => undefined);
     const onBotSidebarChanged = (event: Event) => {
       const refreshToken = (event as CustomEvent<{ refresh?: string }>).detail?.refresh;
-      refresh(true, refreshToken);
+      void refreshBotSidebar(refreshToken).catch(() => undefined);
     };
     window.addEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
-    return () => window.removeEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
-  }, [refresh, pathname]);
-  useEffect(() => {
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") refresh();
+      if (document.visibilityState === "visible") {
+        void refreshBotSidebar().catch(() => undefined);
+      }
     }, POLL_IDLE_MS);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
+    return () => {
+      window.removeEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
+      window.clearInterval(timer);
+    };
+  }, [pathname]);
   async function createEntry(target: "bot" | "room") {
     if (busy) return;
     const name = window.prompt(target === "bot" ? "新しいBotの名前" : "新しいルームの名前")?.trim();

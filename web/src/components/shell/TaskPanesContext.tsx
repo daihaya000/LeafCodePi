@@ -9,6 +9,7 @@ import {
   useReducer,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { usePathname } from "next/navigation";
 import {
@@ -29,6 +30,12 @@ import {
   type TaskPanesState,
 } from "@/lib/task-panes";
 import { getJson } from "@/lib/client";
+import {
+  getBotSidebarServerSnapshot,
+  getBotSidebarSnapshot,
+  refreshBotSidebar,
+  subscribeBotSidebar,
+} from "@/lib/bot-sidebar-store";
 import type { BotDto, ProjectDto, TaskStatus, TaskSummary } from "@/lib/types";
 import { ProjectIcon } from "@/components/ProjectIcon";
 import { BotAvatar } from "@/components/bot/BotAvatar";
@@ -134,7 +141,12 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   const taskTitlesRef = useRef(new Map<string, string>());
   const taskIdentitiesRef = useRef(new Map<string, TaskIdentity>());
   const [projects, setProjects] = useState<ProjectDto[]>([]);
-  const [bots, setBots] = useState<BotDto[]>([]);
+  const botSidebar = useSyncExternalStore(
+    subscribeBotSidebar,
+    getBotSidebarSnapshot,
+    getBotSidebarServerSnapshot,
+  );
+  const { bots, rooms } = botSidebar;
 
   useEffect(() => {
     let disposed = false;
@@ -228,49 +240,34 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   }, [mdUp]);
 
   useEffect(() => {
-    let disposed = false;
-    let generation = 0;
-    const refresh = async (refreshToken?: string) => {
-      const request = ++generation;
-      try {
-        const { bots, rooms } = await getJson<{
-          bots: BotDto[];
-          rooms: { id: string; name: string }[];
-        }>("/api/bots/sidebar", refreshToken ? { refresh: refreshToken } : undefined);
-        if (disposed || request !== generation) return;
-        setBots(bots);
-        const titles = new Map<string, string>([
-          [BOTS_TAB_ID, "Bot一覧"],
-          ...bots.map((bot): [string, string] => [`/bots/${encodeURIComponent(bot.id)}`, bot.name]),
-          ...rooms.map((room): [string, string] => [`/bots/rooms/${encodeURIComponent(room.id)}`, room.name]),
-        ]);
-        for (const [id, title] of titles) taskTitlesRef.current.set(id, title);
-        const latest = latestStateForRetarget;
-        if (latest) {
-          let next = latest;
-          for (const id of latest.panes.flatMap((pane) => pane.tabs)) {
-            if (isBotTabId(id) && !titles.has(id)) {
-              next = removeTaskEverywhere(next, id);
-              taskTitlesRef.current.delete(id);
-            }
-          }
-          if (next !== latest) rawDispatch({ type: "replace", state: next });
+    const titles = new Map<string, string>([
+      [BOTS_TAB_ID, "Bot一覧"],
+      ...bots.map((bot): [string, string] => [`/bots/${encodeURIComponent(bot.id)}`, bot.name]),
+      ...rooms.map((room): [string, string] => [`/bots/rooms/${encodeURIComponent(room.id)}`, room.name]),
+    ]);
+    for (const [id, title] of titles) taskTitlesRef.current.set(id, title);
+    const latest = latestStateForRetarget;
+    if (latest) {
+      let next = latest;
+      for (const id of latest.panes.flatMap((pane) => pane.tabs)) {
+        if (isBotTabId(id) && !titles.has(id)) {
+          next = removeTaskEverywhere(next, id);
+          taskTitlesRef.current.delete(id);
         }
-        bumpTitlesVersion();
-      } catch {
-        /* Keep tabs on fetch failure. */
       }
-    };
+      if (next !== latest) rawDispatch({ type: "replace", state: next });
+    }
+    bumpTitlesVersion();
+  }, [bots, rooms]);
+
+  useEffect(() => {
     const onBotSidebarChanged = (event: Event) => {
       const refreshToken = (event as CustomEvent<{ refresh?: string }>).detail?.refresh;
-      void refresh(refreshToken);
+      void refreshBotSidebar(refreshToken).catch(() => undefined);
     };
-    void refresh();
+    void refreshBotSidebar().catch(() => undefined);
     window.addEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
-    return () => {
-      disposed = true;
-      window.removeEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
-    };
+    return () => window.removeEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
   }, [mdUp]);
 
   const dispatch = useCallback((action: TaskPanesAction) => {
