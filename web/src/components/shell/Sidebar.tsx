@@ -939,7 +939,9 @@ const SidebarView = memo(function SidebarView({
       getJson<{ projects: ProjectDto[] }>("/api/projects?archived=1"),
       getJson<{ tasks: TaskSummary[] }>("/api/tasks?archived=1"),
       getJson<HealthDto>("/api/health"),
-      getJson<{ bots: BotDto[] }>("/api/bots"),
+      mode === "code"
+        ? getJson<{ bots: BotDto[] }>("/api/bots")
+        : Promise.resolve(null),
     ]);
     // Drop stale responses so a slow poll cannot overwrite a newer refresh.
     if (gen !== refreshGenRef.current) return;
@@ -978,7 +980,7 @@ const SidebarView = memo(function SidebarView({
     if (healthRes.status === "fulfilled") {
       setHealth((current) => (sameHealth(current, healthRes.value) ? current : healthRes.value));
     }
-    if (botRes.status === "fulfilled") {
+    if (botRes.status === "fulfilled" && botRes.value) {
       const nextBots = botRes.value.bots;
       setBots((current) => {
         const unchanged = current.length === nextBots.length && current.every((bot, index) => {
@@ -989,7 +991,7 @@ const SidebarView = memo(function SidebarView({
         return unchanged ? current : nextBots;
       });
     }
-  }, []);
+  }, [mode]);
 
   const workingTaskIds = useMemo(
     () => tasksForSidebar(tasks.filter((task) => task.status === "working")).map((task) => task.id),

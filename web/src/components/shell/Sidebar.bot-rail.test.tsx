@@ -105,6 +105,7 @@ describe("Bot mode list", () => {
 
     await screen.findByText("Bot A");
     expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/health")).toHaveLength(1);
+    expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/bots")).toHaveLength(0);
     const botRead = mocks.getJson.mock.calls.find(([path]) => path === "/api/bots/sidebar");
     expect(botRead?.[1]).toBeUndefined();
   });
