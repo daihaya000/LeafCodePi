@@ -48,7 +48,9 @@ function runRunner(root: string, env: Record<string, string>): Promise<RunnerRes
   return promise;
 }
 
-describe("tests/run-all.sh timeout guard", () => {
+describe("tests/run-all.sh timeout guard", {
+  skip: process.platform === "win32" ? "POSIX shell runner is not used on Windows" : false,
+}, () => {
   it("accepts TEST_TIMEOUT=0 and preserves the no-timeout fallback", async () => {
     const root = await createRunnerFixture();
     const bin = path.join(root, "bin");
