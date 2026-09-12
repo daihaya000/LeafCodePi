@@ -602,6 +602,11 @@ it("renders SOUL.md as Markdown by default and auto-saves after entering edit mo
 
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
   fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+  const labelInput = screen.getByRole("textbox", { name: "ボットのラベル" });
+  const modelMenu = screen.getByRole("button", { name: "ボットのモデル" });
+  const soulLabel = screen.getByText("説明（SOUL.md）");
+  expect(labelInput.compareDocumentPosition(modelMenu) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(modelMenu.compareDocumentPosition(soulLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.getByRole("heading", { name: "役割" })).toBeTruthy();
   expect(screen.queryByRole("textbox", { name: "ボットの説明" })).toBeNull();
   expect(screen.getByRole("button", { name: "ボットのモデル" }).closest("details")).toBeNull();
