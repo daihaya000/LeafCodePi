@@ -45,4 +45,12 @@ describe("mergeTaskDelta", () => {
       isStreaming: false,
     });
   });
+
+  it("propagates the compaction suggestion state", () => {
+    const current = task();
+
+    expect(mergeTaskDelta(current, { compactionSuggested: true })).toMatchObject({
+      compactionSuggested: true,
+    });
+  });
 });

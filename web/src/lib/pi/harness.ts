@@ -109,6 +109,7 @@ import {
   parseCompactionThreshold,
   reserveTokensForThreshold,
   shouldCompactAtThreshold,
+  shouldSuggestAtThreshold,
 } from "@/lib/compaction-settings";
 import {
   bundledSkillPaths,
@@ -1133,6 +1134,7 @@ function sessionSnapshotFields(
   isStreaming: boolean;
   isCompacting: boolean;
   contextUsage: ContextUsageDto | undefined;
+  compactionSuggested: boolean;
   goalLoop: GoalLoopDto | null;
   todos: TodoDto[];
 } {
@@ -1165,11 +1167,21 @@ function sessionSnapshotFields(
   const todos = todosFromPiMessages(session.messages);
   reportTaskDetailPhase(reporter, "todos", todosStartedAt);
 
+  const goalLoopActive = Boolean(
+    goalLoop && ["queued", "running", "verifying_completed"].includes(goalLoop.status),
+  );
+  const compactionSuggested = !goalLoopActive && shouldSuggestAtThreshold(
+    parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY)),
+    contextUsage?.percent,
+    parseCompactionThreshold(getSetting(COMPACTION_THRESHOLD_SETTING_KEY)),
+  );
+
   return {
     messages,
     isStreaming: session.isStreaming,
     isCompacting: session.isCompacting,
     contextUsage,
+    compactionSuggested,
     goalLoop,
     todos,
   };
@@ -1258,12 +1270,19 @@ function emitTaskDelta(live: LiveRuntime, eventType: string): void {
     messageContext(live),
   ).at(-1) ?? null;
   const contextUsage = sessionContextUsage(live.session);
+  const goalLoopActive = isActiveGoalLoopSession(live.session);
+  const compactionSuggested = !goalLoopActive && shouldSuggestAtThreshold(
+    parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY)),
+    contextUsage?.percent,
+    parseCompactionThreshold(getSetting(COMPACTION_THRESHOLD_SETTING_KEY)),
+  );
   emit(live.taskId, {
     type: "delta",
     message,
     isStreaming: live.session.isStreaming,
     isCompacting: live.session.isCompacting,
     ...(contextUsage ? { contextUsage } : {}),
+    compactionSuggested,
     eventType,
   });
 }
@@ -4947,6 +4966,7 @@ export async function getTaskDetail(
       messages: offline.messages,
       todos: offline.todos,
       isStreaming: false,
+      compactionSuggested: false,
       permissionRequest: ensurePermissionPromptService().pendingForTask(id),
       questionRequest: ensureQuestionPromptService().pendingForTask(id),
       goalLoop: null,
@@ -4969,6 +4989,7 @@ export async function getTaskDetail(
       todos: offline.todos,
       isStreaming: task.status === "working",
       isCompacting: false,
+      compactionSuggested: false,
       goalLoop: readGoalLoopState(task.directory, task.sessionId),
       permissionRequest: null,
       questionRequest: null,
@@ -4983,6 +5004,7 @@ export async function getTaskDetail(
   let isStreaming = false;
   let isCompacting = false;
   let contextUsage: ContextUsageDto | undefined;
+  let compactionSuggested = false;
   let goalLoop: GoalLoopDto | null = null;
   let todos: TodoDto[] = [];
   let hangRetryCount = 0;
@@ -5008,6 +5030,7 @@ export async function getTaskDetail(
     isStreaming = fields.isStreaming;
     isCompacting = fields.isCompacting;
     contextUsage = fields.contextUsage;
+    compactionSuggested = fields.compactionSuggested;
     goalLoop = fields.goalLoop;
     todos = fields.todos;
     manualAbortedAssistantId = live.manualAbortedAssistantId ?? manualAbortedAssistantId;
@@ -5026,6 +5049,7 @@ export async function getTaskDetail(
     isStreaming,
     isCompacting,
     contextUsage,
+    compactionSuggested,
     goalLoop,
     todos,
     permissionRequest: ensurePermissionPromptService().pendingForTask(id),

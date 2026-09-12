@@ -12,15 +12,29 @@ export function parseCompactionThreshold(value: string | null): number {
   return Number.isInteger(parsed) && parsed >= 70 && parsed <= 95 ? parsed : 80;
 }
 
+function isAtCompactionThreshold(
+  percent: number | null | undefined,
+  threshold: number,
+): boolean {
+  return typeof percent === "number" &&
+    Number.isFinite(percent) &&
+    percent >= threshold;
+}
+
 export function shouldCompactAtThreshold(
   action: CompactionAction,
   percent: number | null | undefined,
   threshold: number,
 ): boolean {
-  return action === "auto" &&
-    typeof percent === "number" &&
-    Number.isFinite(percent) &&
-    percent >= threshold;
+  return action === "auto" && isAtCompactionThreshold(percent, threshold);
+}
+
+export function shouldSuggestAtThreshold(
+  action: CompactionAction,
+  percent: number | null | undefined,
+  threshold: number,
+): boolean {
+  return action === "suggest" && isAtCompactionThreshold(percent, threshold);
 }
 
 /** Convert a percentage threshold into Pi's reserved-token boundary. */

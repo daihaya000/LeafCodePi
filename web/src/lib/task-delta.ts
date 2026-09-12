@@ -5,6 +5,7 @@ export type TaskDeltaState = {
   isStreaming?: boolean;
   isCompacting?: boolean;
   contextUsage?: TaskDetail["contextUsage"];
+  compactionSuggested?: boolean;
 };
 
 /** Merge the task state carried by a high-frequency delta without requiring a task summary. */
@@ -31,7 +32,8 @@ export function mergeTaskDelta(
     !payload.task &&
     !("isStreaming" in payload) &&
     !("isCompacting" in payload) &&
-    !("contextUsage" in payload)
+    !("contextUsage" in payload) &&
+    !("compactionSuggested" in payload)
   ) {
     return current;
   }
@@ -56,6 +58,13 @@ export function mergeTaskDelta(
       : {}),
     ...("contextUsage" in payload
       ? { contextUsage: payload.contextUsage ?? current.contextUsage }
+      : {}),
+    ...("compactionSuggested" in payload
+      ? {
+          compactionSuggested:
+            payload.compactionSuggested ??
+            (current as TaskDetail & { compactionSuggested?: boolean }).compactionSuggested,
+        }
       : {}),
   };
 }
