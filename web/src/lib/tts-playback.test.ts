@@ -1,11 +1,17 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import {
+  clampPlaybackRate,
+  clampPlaybackVolume,
+  readPlaybackRate,
+  readPlaybackVolume,
   readTaskTtsEnabled,
   speakable,
   speakText,
   stopSpeaking,
   subscribeTaskTtsEnabled,
+  writePlaybackRate,
+  writePlaybackVolume,
   writeTaskTtsEnabled,
 } from "./tts-playback";
 
@@ -47,13 +53,32 @@ describe("task tts enabled toggle", () => {
   });
 });
 
+describe("playback rate/volume", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  it("既定は1倍・100%で範囲外は丸める", () => {
+    expect(readPlaybackRate()).toBe(1);
+    expect(readPlaybackVolume()).toBe(100);
+    expect(writePlaybackRate(9)).toBe(2);
+    expect(writePlaybackRate(0)).toBe(0.5);
+    expect(writePlaybackVolume(150)).toBe(100);
+    expect(writePlaybackVolume(-5)).toBe(0);
+    expect(readPlaybackRate()).toBe(0.5);
+    expect(readPlaybackVolume()).toBe(0);
+    expect(clampPlaybackRate(Number.NaN)).toBe(1);
+    expect(clampPlaybackVolume(Number.NaN)).toBe(100);
+  });
+});
+
 describe("speech output", () => {
   const installAudio = () => {
     const play = vi.fn(async () => undefined);
     const pause = vi.fn();
-    const instances: { play: typeof play; pause: typeof pause }[] = [];
+    const instances: { playbackRate: number; volume: number }[] = [];
     vi.stubGlobal("Audio", class {
       onended: (() => void) | null = null;
+      playbackRate = 1;
+      volume = 1;
       play = play;
       pause = pause;
       constructor() {
@@ -64,14 +89,17 @@ describe("speech output", () => {
   };
 
   it("speakText は合成APIを叩いて再生する", async () => {
-    const { play } = installAudio();
+    const { play, instances } = installAudio();
     const fetchMock = vi.fn(async () => new Response(Buffer.from([1, 2, 3]), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     try {
+      writePlaybackRate(1.5);
+      writePlaybackVolume(50);
       speakText("# 見出し\n本文です");
       await vi.waitFor(() => expect(play).toHaveBeenCalledTimes(1));
       const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
       expect(JSON.parse(String(init.body))).toEqual({ text: "見出し 本文です" });
+      expect(instances[0]).toMatchObject({ playbackRate: 1.5, volume: 0.5 });
     } finally {
       stopSpeaking();
       vi.unstubAllGlobals();

@@ -13,6 +13,14 @@ import {
   type TtsBackendId,
 } from "@/lib/tts-backends";
 import type { TtsConfigDto } from "@/lib/tts-config";
+import {
+  MAX_PLAYBACK_RATE,
+  MIN_PLAYBACK_RATE,
+  readPlaybackRate,
+  readPlaybackVolume,
+  writePlaybackRate,
+  writePlaybackVolume,
+} from "@/lib/tts-playback";
 
 const DEFAULT_FORM: TtsConfigDto = {
   enabled: false,
@@ -31,6 +39,8 @@ export function TtsSettings() {
   const [saved, setSaved] = useState(false);
   const [server, setServer] = useState<ServerStatus | null>(null);
   const [serverBusy, setServerBusy] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(readPlaybackRate);
+  const [playbackVolume, setPlaybackVolume] = useState(readPlaybackVolume);
 
   const checkServer = useCallback(() => {
     void getJson<ServerStatus>("/api/settings/tts/server")
@@ -237,6 +247,44 @@ export function TtsSettings() {
               className="min-w-0 flex-1 accent-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-60"
             />
             <output className="w-8 shrink-0 text-right font-mono text-sm text-text">{current.rate}</output>
+          </span>
+        </label>
+
+        <label className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+          <span className="shrink-0 text-sm text-muted">話速（ブラウザ再生）</span>
+          <span className="flex min-w-0 flex-1 items-center gap-3">
+            <input
+              type="range"
+              min={MIN_PLAYBACK_RATE}
+              max={MAX_PLAYBACK_RATE}
+              step={0.1}
+              value={playbackRate}
+              disabled={!ready || busy}
+              aria-label="読み上げの話速"
+              aria-valuetext={`${playbackRate.toFixed(1)}倍`}
+              onChange={(event) => setPlaybackRate(writePlaybackRate(Number(event.target.value)))}
+              className="min-w-0 flex-1 accent-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-60"
+            />
+            <output className="w-12 shrink-0 text-right font-mono text-sm text-text">{playbackRate.toFixed(1)}倍</output>
+          </span>
+        </label>
+
+        <label className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+          <span className="shrink-0 text-sm text-muted">音量（ブラウザ再生）</span>
+          <span className="flex min-w-0 flex-1 items-center gap-3">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={playbackVolume}
+              disabled={!ready || busy}
+              aria-label="読み上げの音量"
+              aria-valuetext={`${playbackVolume}%`}
+              onChange={(event) => setPlaybackVolume(writePlaybackVolume(Number(event.target.value)))}
+              className="min-w-0 flex-1 accent-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-60"
+            />
+            <output className="w-12 shrink-0 text-right font-mono text-sm text-text">{playbackVolume}%</output>
           </span>
         </label>
 

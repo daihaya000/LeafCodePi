@@ -5,6 +5,68 @@
 import { apiUrl } from "./client";
 
 const STORAGE_PREFIX = "webui:tts-enabled:";
+const PLAYBACK_RATE_KEY = "webui:tts-playback-rate";
+const PLAYBACK_VOLUME_KEY = "webui:tts-playback-volume";
+
+export const DEFAULT_PLAYBACK_RATE = 1;
+export const DEFAULT_PLAYBACK_VOLUME = 100;
+/** HTMLAudio の実用範囲。話速 0.5〜2倍、音量 0〜100%。 */
+export const MIN_PLAYBACK_RATE = 0.5;
+export const MAX_PLAYBACK_RATE = 2;
+
+export function clampPlaybackRate(value: unknown): number {
+  const rate = typeof value === "number" && Number.isFinite(value) ? value : DEFAULT_PLAYBACK_RATE;
+  return Math.min(MAX_PLAYBACK_RATE, Math.max(MIN_PLAYBACK_RATE, rate));
+}
+
+export function clampPlaybackVolume(value: unknown): number {
+  const volume = typeof value === "number" && Number.isFinite(value) ? Math.round(value) : DEFAULT_PLAYBACK_VOLUME;
+  return Math.min(100, Math.max(0, volume));
+}
+
+export function readPlaybackRate(): number {
+  if (typeof window === "undefined") return DEFAULT_PLAYBACK_RATE;
+  try {
+    const raw = window.localStorage.getItem(PLAYBACK_RATE_KEY);
+    if (raw === null) return DEFAULT_PLAYBACK_RATE;
+    return clampPlaybackRate(Number(raw));
+  } catch {
+    return DEFAULT_PLAYBACK_RATE;
+  }
+}
+
+export function writePlaybackRate(rate: number): number {
+  const next = clampPlaybackRate(rate);
+  if (typeof window === "undefined") return next;
+  try {
+    window.localStorage.setItem(PLAYBACK_RATE_KEY, String(next));
+  } catch {
+    /* private mode 等では永続できないだけ */
+  }
+  return next;
+}
+
+export function readPlaybackVolume(): number {
+  if (typeof window === "undefined") return DEFAULT_PLAYBACK_VOLUME;
+  try {
+    const raw = window.localStorage.getItem(PLAYBACK_VOLUME_KEY);
+    if (raw === null) return DEFAULT_PLAYBACK_VOLUME;
+    return clampPlaybackVolume(Number(raw));
+  } catch {
+    return DEFAULT_PLAYBACK_VOLUME;
+  }
+}
+
+export function writePlaybackVolume(volume: number): number {
+  const next = clampPlaybackVolume(volume);
+  if (typeof window === "undefined") return next;
+  try {
+    window.localStorage.setItem(PLAYBACK_VOLUME_KEY, String(next));
+  } catch {
+    /* private mode 等では永続できないだけ */
+  }
+  return next;
+}
 
 /** Markdown記法を落として読み上げやすくする。空文字なら読み飛ばす。 */
 export function speakable(text: string): string {
@@ -66,6 +128,8 @@ export function speakText(text: string, callbacks?: { onError?: (message: string
       if (controller.signal.aborted) return;
       currentObjectUrl = URL.createObjectURL(blob);
       const audio = new Audio(currentObjectUrl);
+      audio.playbackRate = readPlaybackRate();
+      audio.volume = readPlaybackVolume() / 100;
       currentAudio = audio;
       audio.onended = () => {
         if (currentAudio === audio) stopSpeaking();
