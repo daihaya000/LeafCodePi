@@ -758,7 +758,7 @@ export const TaskView = memo(function TaskView({
     diff: readSidePanelWidth("webui.diffpane.width"),
   }));
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
-  const [deliveryMode, setDeliveryMode] = useState<"queue" | "steer">("queue");
+  const [deliveryMode, setDeliveryMode] = useState<"queue" | "steer">("steer");
   const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>([]);
   const [queuedAutoSend, setQueuedAutoSend] = useState(false);
   const nextQueueIdRef = useRef(1);
@@ -3355,7 +3355,7 @@ export const TaskView = memo(function TaskView({
                 : working
                   ? deliveryMode === "queue"
                     ? "実行中です。送信するとキューに追加します…"
-                    : "実行中です。送信すると現在の処理へ割り込みます…"
+                    : "実行中です。送信すると現在の処理へ差し込みます…"
                   : "続きを指示…（Ctrl+Enter）",
             className: "w-full min-h-11 resize-none bg-transparent py-2.5 text-base leading-6 outline-none placeholder:text-faint",
             disabled: compacting || archived,
@@ -3574,7 +3574,7 @@ export const TaskView = memo(function TaskView({
                 value={deliveryMode}
                 disabled={!task || compacting || archived}
                 aria-label="送信方式"
-                title={deliveryMode === "queue" ? "現在の処理後に送信" : "実行中の処理へ割り込み"}
+                title={deliveryMode === "queue" ? "現在の処理後に送信" : "実行中の処理へ差し込む"}
                 icon={
                   deliveryMode === "queue" ? (
                     <ListPlus className="h-3.5 w-3.5" />
@@ -3582,7 +3582,7 @@ export const TaskView = memo(function TaskView({
                     <Zap className="h-3.5 w-3.5" />
                   )
                 }
-                valueLabel={deliveryMode === "queue" ? "キュー" : "割り込み"}
+                valueLabel={deliveryMode === "queue" ? "キュー" : "差し込み"}
                 className="h-8 max-w-[8rem] shrink-0"
                 onChange={(value) => {
                   if (value === "queue" || value === "steer") setDeliveryMode(value);
@@ -3591,8 +3591,8 @@ export const TaskView = memo(function TaskView({
                 <option value="queue" title="現在の処理後に送信">
                   キュー
                 </option>
-                <option value="steer" title="実行中の処理へ割り込み">
-                  割り込み
+                <option value="steer" title="実行中の処理へ差し込む">
+                  差し込み
                 </option>
               </GhostSelect>
                 </>
@@ -3647,8 +3647,8 @@ export const TaskView = memo(function TaskView({
                 variant="primary"
                 size="icon"
                 type="submit"
-                aria-label={working ? (deliveryMode === "queue" ? "キューに追加" : "割り込みを送信") : "送信"}
-                title={working ? (deliveryMode === "queue" ? "現在の処理後に送信" : "実行中の処理へ割り込み") : "送信"}
+                aria-label={working ? (deliveryMode === "queue" ? "キューに追加" : "差し込みを送信") : "送信"}
+                title={working ? (deliveryMode === "queue" ? "現在の処理後に送信" : "実行中の処理へ差し込む") : "送信"}
                 className={`${COMPOSER_ACTION_BUTTON_CLASS} !bg-accent !text-white hover:!bg-accent/90`}
                 busy={submitting}
                 disabled={archived || compacting || agentChanging || ((goalLoopEnabled || goalLoopLive) && working) || (!prompt.trim() && attachments.length === 0)}

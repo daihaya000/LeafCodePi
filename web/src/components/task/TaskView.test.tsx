@@ -446,14 +446,16 @@ describe("TaskView draft submission", () => {
       });
     };
     await snapshot(true);
+    fireEvent.click(screen.getByRole("button", { name: "送信方式" }));
+    fireEvent.click(screen.getByRole("option", { name: "キュー" }));
     const input = screen.getByRole("textbox", { name: "フォローアップ" }) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "queued prompt" } });
     fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
     expect(mocks.sendJson).not.toHaveBeenCalled();
     fireEvent.change(input, { target: { value: "unfinished draft" } });
     fireEvent.click(screen.getByRole("button", { name: "送信方式" }));
-    fireEvent.click(screen.getByRole("option", { name: "割り込み" }));
-    expect(screen.getByRole("button", { name: "割り込みを送信" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("option", { name: "差し込み" }));
+    expect(screen.getByRole("button", { name: "差し込みを送信" })).toBeTruthy();
     await snapshot(false);
     await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
       `/api/tasks/${task.id}/prompt`, expect.objectContaining({ prompt: "queued prompt" }),
@@ -471,7 +473,7 @@ describe("TaskView draft submission", () => {
     mocks.sendJson.mockResolvedValue({ task });
     render(<TaskView taskId={task.id} mdUp />);
     fireEvent.click(screen.getByRole("button", { name: "送信方式" }));
-    fireEvent.click(screen.getByRole("option", { name: "割り込み" }));
+    fireEvent.click(screen.getByRole("option", { name: "差し込み" }));
     fireEvent.change(screen.getByRole("textbox", { name: "フォローアップ" }), { target: { value: "instruction" } });
     fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
     await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledTimes(1));
