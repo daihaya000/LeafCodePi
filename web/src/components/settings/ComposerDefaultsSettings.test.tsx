@@ -62,8 +62,8 @@ describe("ComposerDefaultsSettings model mapping", () => {
     });
 
     await waitFor(() => {
-      const select = screen.getByLabelText("既定のモデル") as HTMLSelectElement;
-      expect(select.value).toBe("provider::model-a");
+      const modelButton = screen.getByRole("button", { name: "既定のモデル" });
+      expect(modelButton.textContent).toContain("Model A");
     });
     expect(screen.getByRole("button", { name: "思考レベル" })).toBeTruthy();
     expect(screen.queryByText(/未接続/)).toBeNull();

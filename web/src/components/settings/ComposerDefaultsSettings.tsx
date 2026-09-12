@@ -2,12 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getJson } from "@/lib/client";
-import {
-  AUTO_MODEL_OPTION,
-  AUTO_OPTIMIZE_MODES,
-  autoOptimizeModeLabel,
-  type AutoOptimizeMode,
-} from "@/lib/auto-model";
+import { AUTO_MODEL_OPTION } from "@/lib/auto-model";
 import {
   hasStoredComposerDefaults,
   readComposerDefaults,
@@ -16,13 +11,12 @@ import {
   writeComposerDefaults,
   type ComposerDefaults,
 } from "@/lib/composer-defaults";
-import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { readStoredThinkingLevel, resolveThinkingLevel, writeStoredThinkingLevel } from "@/lib/thinking-levels";
-import { modelOptionForValue } from "@/components/ModelSelect";
+import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
+import { AgentSelect } from "@/components/AgentSelect";
+import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import type { ModelOption, ThinkingLevel } from "@/lib/types";
-
-const SELECT_CLASS = "mt-2 h-9 w-full rounded-lg border border-border bg-bg px-2 text-sm";
 
 export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: number }) {
   const [defaults, setDefaults] = useState<ComposerDefaults>(() => readComposerDefaults());
@@ -111,62 +105,52 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
         WebUI を開いたときに Composer へ適用するモデル・effort・エージェントです。セッション中の変更は保持されます。
       </p>
       <div className="mt-3 grid gap-4 sm:grid-cols-3">
-        <label className="text-sm">
+        <div className="text-sm">
           <span className="font-medium">モデル</span>
-          <select
-            aria-label="既定のモデル"
-            value={selectModelValue}
-            onChange={(event) => change({ model: event.target.value })}
-            className={SELECT_CLASS}
-          >
-            {!modelKnown && <option value={defaults.model}>{defaults.model}（未接続）</option>}
-            {modelOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </label>
-        <label className="text-sm">
-          <span className="font-medium">effort</span>
-          {selectedModel?.value === AUTO_MODEL_OPTION.value ? (
-            <select
-              aria-label="既定のeffort"
-              value={defaults.autoOptimize}
-              onChange={(event) => change({ autoOptimize: event.target.value as AutoOptimizeMode })}
-              className={SELECT_CLASS}
-            >
-              {AUTO_OPTIMIZE_MODES.map((mode) => (
-                <option key={mode} value={mode}>{autoOptimizeModeLabel(mode)}</option>
-              ))}
-            </select>
-          ) : (
-            <ThinkingSelect
-              levels={thinkingLevels}
-              value={thinkingLevel}
-              onChange={(level) => {
-                setThinkingLevel(level);
-                writeStoredThinkingLevel(level);
-              }}
-              className="mt-2 h-9 w-full [&>button]:text-sm"
+          <div className="mt-2">
+            <ModelSelect
+              value={selectModelValue}
+              options={modelOptions}
+              onChange={(value) => change({ model: value })}
+              ariaLabel="既定のモデル"
+              emptyLabel={modelKnown ? "モデルなし" : `${defaults.model}（未接続）`}
+              className="h-9 w-full"
             />
-          )}
-        </label>
-        <label className="text-sm">
-          <span className="font-medium">エージェント</span>
-          <select
-            aria-label="既定のエージェント"
-            value={defaults.agent}
-            onChange={(event) => change({ agent: event.target.value })}
-            className={SELECT_CLASS}
-          >
-            <option value={AUTO_AGENT_VALUE}>Auto</option>
-            {!agents.includes(defaults.agent) && defaults.agent !== AUTO_AGENT_VALUE && (
-              <option value={defaults.agent}>{defaults.agent}（無効）</option>
+          </div>
+        </div>
+        <div className="text-sm">
+          <span className="font-medium">effort</span>
+          <div className="mt-2">
+            {selectedModel?.value === AUTO_MODEL_OPTION.value ? (
+              <AutoOptimizeSelect
+                value={defaults.autoOptimize}
+                onChange={(value) => change({ autoOptimize: value })}
+                className="h-9 w-full"
+              />
+            ) : (
+              <ThinkingSelect
+                levels={thinkingLevels}
+                value={thinkingLevel}
+                onChange={(level) => {
+                  setThinkingLevel(level);
+                  writeStoredThinkingLevel(level);
+                }}
+                className="h-9 w-full"
+              />
             )}
-            {agents.map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </select>
-        </label>
+          </div>
+        </div>
+        <div className="text-sm">
+          <span className="font-medium">エージェント</span>
+          <div className="mt-2">
+            <AgentSelect
+              value={defaults.agent}
+              agents={agents}
+              onChange={(value) => change({ agent: value })}
+              className="h-9 w-full"
+            />
+          </div>
+        </div>
       </div>
       {error && <p className="mt-2 text-xs text-danger" role="alert">{error}</p>}
     </section>
