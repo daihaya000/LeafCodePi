@@ -195,11 +195,19 @@ export const HomeView = memo(function HomeView({
       getJson<{ skills: { name: string; description?: string; enabled: boolean }[] }>("/api/skills"),
     ]);
     if (projectRes.status === "fulfilled") {
-      setProjects(projectRes.value.projects);
+      const nextProjects = projectRes.value.projects;
+      setProjects((current) =>
+        current.length === nextProjects.length &&
+        current.every((project, index) =>
+          project.id === nextProjects[index]?.id && project.name === nextProjects[index]?.name,
+        )
+          ? current
+          : nextProjects,
+      );
       setProjectId((current) => {
         if (current === null) return null;
-        if (current && projectRes.value.projects.some((project) => project.id === current)) return current;
-        return projectRes.value.projects[0]?.id ?? null;
+        if (current && nextProjects.some((project) => project.id === current)) return current;
+        return nextProjects[0]?.id ?? null;
       });
     }
     if (healthRes.status === "fulfilled") {
