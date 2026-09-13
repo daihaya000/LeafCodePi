@@ -2916,7 +2916,7 @@ export const TaskView = memo(function TaskView({
             ) : (
               <h1
                 className={cx(
-                  "min-w-0 max-w-full flex-1 text-sm font-semibold",
+                  "flex min-h-11 min-w-0 max-w-full flex-1 items-center rounded-lg text-left text-sm font-semibold @min-[48rem]/task:min-h-8",
                   task && !archived && !titleBusy && "cursor-text",
                 )}
                 aria-label={task?.title ?? "読み込み中…"}

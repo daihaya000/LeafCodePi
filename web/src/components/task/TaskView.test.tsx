@@ -425,6 +425,8 @@ describe("TaskView draft submission", () => {
     expect(document.activeElement).toBe(input);
     fireEvent.keyDown(input, { key: "Escape" });
     expect(screen.getByRole("heading", { name: title })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("heading", { name: title }), { key: "Enter" });
+    expect(screen.getByRole("textbox", { name: "セッションタイトル" })).toBeTruthy();
     expect(mocks.sendJson).not.toHaveBeenCalled();
   });
 
