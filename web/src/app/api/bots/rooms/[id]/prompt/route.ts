@@ -4,7 +4,7 @@ import { getBot } from "@/lib/bots";
 import type { BotDto, RoomMessage } from "@/lib/types";
 import { isPromptFileList, isPromptImageList, MAX_PROMPT_ATTACHMENTS, type PromptFileInput } from "@/lib/prompt-images";
 import { jsonError } from "@/lib/pi/harness";
-import { isRoomConversationRequest, isRoomStopRequest, MAX_ROOM_CONVERSATION_PARTICIPANTS } from "@/lib/room-conversation";
+import { isRoomConversationRequest, isRoomStopRequest, matchRoomIntentBot, MAX_ROOM_CONVERSATION_PARTICIPANTS } from "@/lib/room-conversation";
 import { cancelPendingRoomHandoffs, deliverReadyRoomHandoffs, runRoomBot, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleStaleRoomTurns, steerRoomTurns, stopRoomTurns } from "@/lib/room-runtime";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,10 +69,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     // A new instruction redirects the turns already being written; those bots answer once, there.
     const steered = new Set(await steerRoomTurns(id, prompt));
-    const naturalRoomMessage = !prompt.includes("@") && body.broadcast !== true;
-    const conversation = naturalRoomMessage || isRoomConversationRequest(prompt);
+    // Everyday @-less work is single-bot (intent match). Open rotate is reserved for /discuss-like only.
+    const conversation = isRoomConversationRequest(prompt);
     let routed = botsForRoomPrompt(room, prompt, body.broadcast === true);
-    if (conversation && routed.bots.length === 0 && !prompt.includes("@")) routed = botsForRoomPrompt(room, prompt, true);
+    if (routed.bots.length === 0 && !prompt.includes("@") && body.broadcast !== true) {
+      if (conversation) {
+        routed = botsForRoomPrompt(room, prompt, true);
+      } else {
+        const members = botsForRoomPrompt(room, prompt, true).bots;
+        const matched = matchRoomIntentBot(prompt, [...members].sort((a, b) => room.members.indexOf(a.id) - room.members.indexOf(b.id)));
+        if (matched) routed = { bots: [matched], broadcast: false };
+      }
+    }
     const pending = routed.bots.filter((bot) => !steered.has(bot.id));
     if (conversation && pending.length > 1) {
       const participants = [...pending].sort((a, b) => room.members.indexOf(a.id) - room.members.indexOf(b.id)).slice(0, MAX_ROOM_CONVERSATION_PARTICIPANTS);

@@ -14,6 +14,19 @@ export function isRoomConversationRequest(prompt: string): boolean {
     || /(?:会話|対話|議論|討論)(?:して|をして)(?:みて|ください|くれ|ほしい|[\s。！!？?]|$)|話し合って(?:みて|ください|くれ|ほしい|[\s。！!？?]|$)|(?:talk|discuss|debate|converse)\b.*\b(?:each other|together|among yourselves)\b/i.test(prompt);
 }
 
+/**
+ * Narrow fixed intent keywords for room opener / @-less single-bot work.
+ * Prompt must contain a keyword; the bot must look related via name, label, or SOUL.
+ * Miss returns undefined so discuss can keep rotate and ordinary @-less stays unrouted.
+ */
+const ROOM_INTENT_PROMPT = /バグ|デバッグ|再現|受け入れ|(?<![\p{L}\p{N}_])(?:bugs?|debug(?:ging|ger)?|repro(?:duce|duction)?|accept(?:ance)?)(?![\p{L}\p{N}_])/iu;
+const ROOM_INTENT_BOT = /バグ|デバッグ|デバッガ|再現|受け入れ|(?<![\p{L}\p{N}_])(?:bugs?|debug(?:ging|ger)?|repro(?:duce|duction)?|accept(?:ance)?)(?![\p{L}\p{N}_])/iu;
+
+export function matchRoomIntentBot(prompt: string, bots: BotDto[]): BotDto | undefined {
+  if (!ROOM_INTENT_PROMPT.test(prompt)) return undefined;
+  return bots.find((bot) => bot.enabled && ROOM_INTENT_BOT.test(`${bot.name}\n${bot.label}\n${bot.soul}`));
+}
+
 export function isRoomStopRequest(prompt: string): boolean {
   return /^(?:\/stop|stop|止めて|停止|中断|ストップ)[。！!\s]*$/i.test(prompt.trim());
 }

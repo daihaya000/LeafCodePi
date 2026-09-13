@@ -6,7 +6,7 @@ import { getTaskDetail, promptTask, subscribeTask, abortTask } from "./pi/harnes
 import { withBotCodeSessionLock } from "./bot-code-session-lock";
 import { pendingRoomCodeRequestForTurn, pendingRoomCodeRequestsForTurn, roomCodeRequestsForTurn, roomCodeRequestForRoom, settledRoomCodeRequest, type CodeRequest } from "./pi/bot-code-relay";
 import { activeToolLabel } from "./tool-labels";
-import { latestRoomRequest, MAX_ROOM_CONVERSATION_TURNS, parseRoomReply, roomBotPrompt, type RoomReply, type RoomTurn } from "./room-conversation";
+import { latestRoomRequest, matchRoomIntentBot, MAX_ROOM_CONVERSATION_TURNS, parseRoomReply, roomBotPrompt, type RoomReply, type RoomTurn } from "./room-conversation";
 import type { BotDto, RoomDto, RoomHandoff, RoomMessage, RoomOutcome, UiMessage } from "./types";
 
 // Share queue ownership across Next route module instances in the same worker.
@@ -235,9 +235,10 @@ export async function runRoomConversation(room: RoomDto, bots: BotDto[], prompt:
     texts.add(message.text.trim().replace(/\s+/g, " "));
     replies.set(message.botId, texts);
   }
-  // Rotate the opener so the first member does not lead every exchange.
+  // Intent keyword match picks the opener when a related bot is present; otherwise rotate past the last speaker.
   const lastSpeaker = room.messages.findLast((message) => message.role === "assistant" && message.botId)?.botId;
-  let nextBotId = resume?.nextBotId ?? bots.find((bot) => bot.id !== lastSpeaker)?.id ?? bots[0]?.id;
+  const intentOpener = resume?.nextBotId ? undefined : matchRoomIntentBot(prompt, bots);
+  let nextBotId = resume?.nextBotId ?? intentOpener?.id ?? bots.find((bot) => bot.id !== lastSpeaker)?.id ?? bots[0]?.id;
   // A silent return reads as "finished"; record why the floor stopped moving instead.
   const stop = (kind: RoomOutcome["kind"]) => setRoomOutcome(room.id, { kind, requestId: userMessageId });
   for (let turn = resume?.startTurn ?? 1; turn <= maxTurns; turn += 1) {

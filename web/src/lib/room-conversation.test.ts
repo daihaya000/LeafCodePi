@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isRoomConversationRequest, isRoomStopRequest, latestRoomRequest, parseRoomReply, roomBotPrompt } from "./room-conversation";
+import { isRoomConversationRequest, isRoomStopRequest, latestRoomRequest, matchRoomIntentBot, parseRoomReply, roomBotPrompt } from "./room-conversation";
 import type { BotDto, RoomDto, RoomMessage } from "./types";
 
 const bots = [
@@ -20,6 +20,25 @@ describe("room conversation intent", () => {
   });
   it.each(["/discussion", "会話の実装を説明して", "会話している画像", "@A 普通の質問", "議論の結果を教えて"])("does not turn an ordinary question into a discussion: %s", (text) => {
     expect(isRoomConversationRequest(text)).toBe(false);
+  });
+});
+
+describe("room intent opener match", () => {
+  it("matches debug/accept keywords to a debugger-like bot via name, label, or SOUL", () => {
+    const designer = { id: "d", name: "Designer", label: "UI", enabled: true, soul: "デザインを担当" } as BotDto;
+    const debuggerBot = { id: "x", name: "Debugger", label: "Debugging", enabled: true, soul: "バグを見つける" } as BotDto;
+    const bySoul = { id: "s", name: "Inspector", label: "", enabled: true, soul: "受け入れと再現手順を確認する" } as BotDto;
+    expect(matchRoomIntentBot("バグを見つけて", [designer, debuggerBot])?.id).toBe("x");
+    expect(matchRoomIntentBot("debug this failure", [designer, debuggerBot])?.id).toBe("x");
+    expect(matchRoomIntentBot("再現手順を整理して", [designer, bySoul])?.id).toBe("s");
+    expect(matchRoomIntentBot("acceptance criteria を確認", [designer, bySoul])?.id).toBe("s");
+  });
+  it("misses when the prompt has no intent keyword or no related bot", () => {
+    const designer = { id: "d", name: "Designer", label: "UI", enabled: true, soul: "デザインを担当" } as BotDto;
+    const debuggerBot = { id: "x", name: "Debugger", label: "Debugging", enabled: true, soul: "バグを見つける" } as BotDto;
+    expect(matchRoomIntentBot("残作業も進めて", [designer, debuggerBot])).toBeUndefined();
+    expect(matchRoomIntentBot("バグを見つけて", [designer])).toBeUndefined();
+    expect(matchRoomIntentBot("バグを見つけて", [{ ...debuggerBot, enabled: false }])).toBeUndefined();
   });
 });
 

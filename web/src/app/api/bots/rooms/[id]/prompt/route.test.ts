@@ -101,7 +101,7 @@ describe("room mention responses", () => {
     expect(getRoom(room.id)?.messages).toHaveLength(0);
   });
 
-  it.each(["二人で会話してみて", "@here 二人で会話してみて", "@Debugger @Planner 二人で会話してみて", "/discuss 学ぶ言語を話し合って", "残作業も進めて"])("gives each participant one turn with shared identities and replies when no directive is used: %s", async (request) => {
+  it.each(["二人で会話してみて", "@here 二人で会話してみて", "@Debugger @Planner 二人で会話してみて", "/discuss 学ぶ言語を話し合って"])("gives each participant one turn with shared identities and replies when no directive is used: %s", async (request) => {
     const { room, bots, taskIds } = setup(["Debugger", "Planner"]);
     await send(room.id, request);
     for (let turn = 0; turn < 2; turn += 1) {
@@ -123,7 +123,7 @@ describe("room mention responses", () => {
 
   it("keeps a large room legible by limiting one exchange to six voices", async () => {
     const { room, bots } = setup(["A", "B", "C", "D", "E", "F", "G", "H"]);
-    const result = await (await send(room.id, "残作業も進めて")).json();
+    const result = await (await send(room.id, "/discuss 残作業も進めて")).json();
     // The response names the voices that will actually speak, not every member.
     expect(result.routedBotIds).toEqual(bots.slice(0, 6).map((member) => member.id));
     await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalled());
@@ -138,6 +138,47 @@ describe("room mention responses", () => {
     expect(state.promptTask).toHaveBeenCalledTimes(6);
   });
 
+  it("routes @-less bug work to a single debugger-like bot instead of opening rotate", async () => {
+    const { room, bots, taskIds } = setup(["Designer", "Debugger"]);
+    const result = await (await send(room.id, "バグを見つけて")).json();
+    expect(result.routedBotIds).toEqual([bots[1].id]);
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+    expect(state.promptTask.mock.calls[0][0]).toBe(taskIds[1]);
+    finish(taskIds[1], { messages: [assistant("bug-1", "再現手順を確認します")] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.some((message) => message.status === "done")).toBe(true));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(state.promptTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps discuss-style open rotate when intent does not match a member", async () => {
+    const { room, bots, taskIds } = setup(["Designer", "Planner"]);
+    rooms.appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, botName: bots[0].name, text: "前回", status: "done" });
+    await send(room.id, "/discuss 方針を話し合って");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalled());
+    // Last speaker was Designer, so rotate opens with Planner.
+    expect(state.promptTask.mock.calls[0][0]).toBe(taskIds[1]);
+    finish(taskIds[1], { messages: [assistant("rotate-1", "まず範囲を切ります\nROOM_ACTION: DONE")] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.some((message) => message.status === "done" && message.botId === bots[1].id)).toBe(true));
+  });
+
+  it("uses intent opener for discuss when a debugger-like bot is present", async () => {
+    const { room, bots, taskIds } = setup(["Designer", "Debugger"]);
+    rooms.appendRoomMessage(room.id, { role: "assistant", botId: bots[1].id, botName: bots[1].name, text: "前回デバッグ", status: "done" });
+    await send(room.id, "/discuss バグの原因を議論して");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalled());
+    // Intent beats rotate: Debugger opens even though they spoke last.
+    expect(state.promptTask.mock.calls[0][0]).toBe(taskIds[1]);
+    finish(taskIds[1], { messages: [assistant("intent-1", "再現から見ます\nROOM_ACTION: DONE")] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.some((message) => message.status === "done" && message.botId === bots[1].id)).toBe(true));
+  });
+
+  it("does not open all-member rotate for ordinary @-less work without intent", async () => {
+    const { room } = setup(["Designer", "Debugger"]);
+    const result = await (await send(room.id, "残作業も進めて")).json();
+    expect(result.routedBotIds).toEqual([]);
+    expect(state.promptTask).not.toHaveBeenCalled();
+  });
+
   it("ends immediately on DONE without dragging in a silent participant", async () => {
     const { room, bots, taskIds } = setup(["A", "B", "C"]);
     let turn = 0;
@@ -145,7 +186,7 @@ describe("room mention responses", () => {
       const text = turn === 0 ? `仕様が不明確です。\nROOM_ACTION: NEXT ${bots[1].id}` : "具体的な対象を教えてください。\nROOM_ACTION: DONE 指示をお待ちしています。";
       snapshot(id, "agent_settled", { messages: [assistant(`done-${turn++}`, text)] });
     });
-    await send(room.id, "Test");
+    await send(room.id, "/discuss Test");
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "done")).toHaveLength(2));
     await new Promise((resolve) => setImmediate(resolve));
     expect(state.promptTask.mock.calls.map(([id]) => id)).toEqual([taskIds[0], taskIds[1]]);
