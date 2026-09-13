@@ -18,7 +18,7 @@ import { RoutineSchedulePicker } from "@/components/bot/RoutineSchedulePicker";
 import { DEFAULT_ROUTINE_SCHEDULE } from "@/lib/routine-schedule";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
-import { useReportStatus } from "@/components/shell/TaskPanesContext";
+import { useBotFor, useReportStatus } from "@/components/shell/TaskPanesContext";
 import { BotComposer } from "@/components/bot/BotComposer";
 import { composerPromptAttachments, readComposerFiles, type ComposerAttachment } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
@@ -182,10 +182,12 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [codePanelOpen, setCodePanelOpen] = useState(false);
   const settingsOpenRef = useRef(false);
   const [sending, setSending] = useState(false);
+  const botFor = useBotFor();
+  const codeSessionActive = (botFor(id)?.codeSessionCount ?? 0) > 0;
   const reportStatus = useReportStatus();
   useEffect(() => {
-    reportStatus(`/bots/${encodeURIComponent(id)}`, sending ? "working" : "idle");
-  }, [id, sending, reportStatus]);
+    reportStatus(`/bots/${encodeURIComponent(id)}`, sending || codeSessionActive ? "working" : "idle");
+  }, [codeSessionActive, id, sending, reportStatus]);
   const [reverting, setReverting] = useState(false);
   const [savingSoul, setSavingSoul] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -997,7 +999,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         subtitle={bot.label}
         bot={bot}
         settingsOpen={settingsOpen}
-        active={sending}
+        active={sending || codeSessionActive}
         onSettings={toggleSettings}
         action={
           <>
