@@ -175,6 +175,7 @@ import {
   setAccountRoutingMode,
   __resetProviderRoutingQueueForTests,
 } from "@/lib/provider-routing";
+import { getTaskHangWatch } from "./hang-watchdog";
 import { AccountRuntimeManager } from "./account-runtime-manager";
 import { createTask, promptTask } from "./harness";
 
@@ -304,6 +305,7 @@ describe("provider limit fallback", () => {
     expect(fakePi.sessions[1]).toMatchObject({ accountId: second.id });
     assert.equal(getTask(task.id)?.accountId, second.id);
     await waitFor(() => fakePi.sessions[1]?.prompts.length === 1);
+    expect(getTaskHangWatch(task.id)).toBeNull();
     expect(fakePi.sessions[1]?.customMessages).toMatchObject([
       {
         message: {

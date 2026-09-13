@@ -1769,6 +1769,19 @@ async function attachSession(
       if (!goalLoopTurnActive) scheduleAutoCompaction(live);
       const pending = live.pendingProviderFallback;
       live.pendingProviderFallback = null;
+      const settledError = session.agent.state.errorMessage ?? null;
+      // Provider-limit recovery uses a hidden custom message, so the
+      // watchdog cannot identify its completed turn from the projected UI
+      // history (there is no visible user message to anchor it). Once the
+      // fallback settles successfully, its watch is terminal. Keep the watch
+      // for ordinary provider errors so the existing recovery path remains.
+      if (
+        !pending &&
+        !settledError &&
+        getTaskHangWatch(taskId)?.isProviderFallback
+      ) {
+        disarmTaskHangWatch(taskId);
+      }
       if (pending && pending.modelID) {
         void fallbackProviderAfterLimit(live, pending).catch((error) => {
           console.warn(
