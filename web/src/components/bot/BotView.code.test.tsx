@@ -646,6 +646,14 @@ it("treats an in-progress Code session as Bot activity", async () => {
   expect(document.querySelector("header svg.bot-avatar-working")).toBeTruthy();
 });
 
+it("keeps Bot idle when no Code session is in progress", async () => {
+  mocks.botFor.mockReturnValue({ codeSessionCount: 0 });
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  expect(mocks.reportStatus).toHaveBeenLastCalledWith("/bots/one", "idle");
+  await screen.findByRole("heading", { name: "Bot" });
+  expect(document.querySelector("header svg.bot-avatar-working")).toBeNull();
+});
+
 it("reports streaming activity for the Bot tab even when hidden", async () => {
   render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
   expect(mocks.reportStatus).toHaveBeenLastCalledWith("/bots/one", "idle");
