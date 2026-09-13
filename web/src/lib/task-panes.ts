@@ -817,8 +817,9 @@ export function isSplitHostPath(pathname: string | null | undefined): boolean {
 
 /**
  * アクティブタブを urlTaskId へ向けた新 state を返す（URL → panes 反映用）。
- * 新規セッションと Home は、ペイン上限までは新しいペインで開く。上限時は
- * 従来どおり panes[0] へタブ追加し、満杯なら最も古いタブを置き換える。
+ * 新規セッションと Home は、ペイン上限までは新しいペインで開く。新規セッションを
+ * HomeView から開く場合は Home タブを残す。上限時は従来どおり panes[0] へタブ追加し、
+ * 満杯なら最も古いタブを置き換える。
  * 変更不要なら同一参照を返す。
  *
  * localStorage 復元など、直リンク互換の呼び出しでは preferNewPane=false を渡す。
@@ -834,8 +835,7 @@ export function retargetActiveTab(
     !isBotTabId(urlTaskId);
   const preferNewPane = options.preferNewPane !== false && (urlTaskId === HOME_TAB_ID || sessionTab);
 
-  // 新規作成（Home）タブは入口であり、実タスクを開いたら自動クローズする。
-  // 新しいペインを優先する場合も Home は残さず、空いたペインを維持して分割する。
+  // 新規作成（Home）タブは入口。新規ペインで実タスクを開くときは Home を残す。
   if (urlTaskId !== HOME_TAB_ID) {
     const homePane = state.panes.find((pane) => pane.tabs.includes(HOME_TAB_ID));
     const existing = state.panes.find((pane) => pane.tabs.includes(urlTaskId));
@@ -855,7 +855,10 @@ export function retargetActiveTab(
         ),
       };
     }
-    state = removeTaskEverywhere(state, HOME_TAB_ID);
+    // HomeView から新規セッションを開くときは、Home タブを残して空ペイン化を防ぐ。
+    if (!(homePane && !existing && preferNewPane)) {
+      state = removeTaskEverywhere(state, HOME_TAB_ID);
+    }
   }
   const existing = state.panes.find((pane) => pane.tabs.includes(urlTaskId));
   if (existing && existing.activeTabId === urlTaskId && state.activePaneId === existing.id) {
