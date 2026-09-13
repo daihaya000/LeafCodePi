@@ -6,7 +6,80 @@ export const MAX_ROOM_CONVERSATION_TURNS = 8;
 export const MAX_ROOM_CONVERSATION_PARTICIPANTS = 6;
 const HISTORY_BUDGET = 24_000;
 export type RoomTurn = { participants: BotDto[]; turn: number; maxTurns: number; handoff?: { fromBotName: string; task: string } };
-export type RoomReply = { text: string; action?: "next" | "done"; nextBotId?: string };
+export type RoomReply = {
+  text: string;
+  action?: "next" | "done";
+  nextBotId?: string;
+  /** Set when NEXT came from a formal @mention pill, not ROOM_ACTION. */
+  implicitMention?: boolean;
+  /** A valid member @mention was present but no handoff/NEXT could be registered. */
+  mentionWithoutHandoff?: boolean;
+};
+const SPECIAL_ROOM_MENTIONS = new Set(["here", "channel", "everyone", "all"]);
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Drop fenced blocks so an example @Name inside a code sample is not a chip / handoff. */
+function proseLines(raw: string): string[] {
+  const lines = raw.split(/\r?\n/);
+  const out: string[] = [];
+  let fence: { char: string; length: number } | undefined;
+  for (const line of lines) {
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (marker) {
+      if (!fence) fence = { char: marker[1][0], length: marker[1].length };
+      else if (marker[1][0] === fence.char && marker[1].length >= fence.length && !marker[2].trim()) fence = undefined;
+      continue;
+    }
+    if (!fence) out.push(line);
+  }
+  return out;
+}
+
+/**
+ * Formal @mention pills of current enabled members (exact name or id), in appearance order.
+ * Matches the UI chip rule: @Name plus a Japanese particle is a pill; a bare name is not.
+ */
+export function formalRoomMemberMentions(raw: string, speakerId: string, members: BotDto[]): BotDto[] {
+  const roster = members.filter((bot) => bot.enabled && bot.id !== speakerId);
+  const labels = roster
+    .flatMap((bot) => [bot.id, bot.name.trim()].filter(Boolean))
+    .filter((label) => !SPECIAL_ROOM_MENTIONS.has(label.toLowerCase()))
+    .sort((left, right) => right.length - left.length);
+  if (labels.length === 0) return [];
+  const pattern = new RegExp(
+    `(?<![\\p{L}\\p{N}_])@(${labels.map(escapeRegExp).join("|")})(?=$|\\p{Script=Hiragana}|[^\\p{L}\\p{N}\\p{M}_-])`,
+    "giu",
+  );
+  const seen = new Set<string>();
+  const found: BotDto[] = [];
+  for (const line of proseLines(raw)) {
+    for (const match of line.matchAll(pattern)) {
+      const label = match[1].toLowerCase();
+      if (SPECIAL_ROOM_MENTIONS.has(label)) continue;
+      const bot = roster.find((member) => member.id.toLowerCase() === label || member.name.trim().toLowerCase() === label);
+      if (!bot || seen.has(bot.id)) continue;
+      seen.add(bot.id);
+      found.push(bot);
+    }
+  }
+  return found;
+}
+
+/** At most one implicit handoff target: the first formal @pill of another current member. */
+export function firstFormalRoomMemberMention(raw: string, speakerId: string, members: BotDto[]): BotDto | undefined {
+  return formalRoomMemberMentions(raw, speakerId, members)[0];
+}
+
+/** Promote a formal member @pill to NEXT when the speaker did not emit an explicit directive. */
+export function withImplicitRoomMention(reply: RoomReply, speakerId: string, members: BotDto[]): RoomReply {
+  if (reply.nextBotId || reply.mentionWithoutHandoff) return reply;
+  const mention = firstFormalRoomMemberMention(reply.text, speakerId, members);
+  if (!mention) return reply;
+  return { ...reply, action: "next", nextBotId: mention.id, implicitMention: true };
+}
 
 /** /discuss is the unambiguous path; natural-language matching is only a convenience. */
 export function isRoomConversationRequest(prompt: string): boolean {
@@ -50,7 +123,7 @@ export function parseRoomReply(raw: string, speakerId: string, participants: Bot
   // marker never reaches the room, even when the routing target turns out to be unusable.
   // Up to three leading spaces only: four spaces would make it an indented code block.
   const match = /^ {0,3}[*_`]*ROOM_ACTION:\s*(DONE|NEXT)\b[:\s]*(.*)$/.exec(lines.at(-1) ?? "");
-  if (!match) return { text: raw };
+  if (!match) return withImplicitRoomMention({ text: raw }, speakerId, participants);
   const rest = match[2].replace(/[*_`\s]+$/, "");
   const opener = rest.replace(/^[@*_`"'<([{]+/, "");
   const lowered = opener.toLowerCase();
@@ -68,9 +141,12 @@ export function parseRoomReply(raw: string, speakerId: string, participants: Bot
   const text = [...lines.slice(0, -1), remainder].join("\n").trim();
   // Never swallow a control-only response or route on an empty contribution.
   if (!text) return { text: "" };
+  if (next) return { text, action: "next", nextBotId: next.id };
+  const mentioned = withImplicitRoomMention({ text }, speakerId, participants);
+  if (mentioned.nextBotId) return mentioned;
   if (match[1] === "DONE") return { text, action: "done" };
   // An unusable target is not a handoff: the turn ends without routing, but the marker is still removed.
-  return next ? { text, action: "next", nextBotId: next.id } : { text };
+  return { text };
 }
 
 function transcript(room: RoomDto, requestId: string, conversation: boolean) {
@@ -122,11 +198,11 @@ export function roomBotPrompt(room: RoomDto, bot: BotDto, participants: BotDto[]
       `Room moderator: your turn ${turn.turn}/${turn.maxTurns}. Only this request's participants may receive the floor.`,
       "Write like chat: at most about three short sentences, plain prose, no headings, no numbered plans, no status reports, and no restating the roster or what was already said.",
       "Answer the latest participant's question or disagreement first, then add one concrete new point.",
-      "Address a teammate as @Name (their exact name) in your prose so the room can see who is being asked.",
+      "Address a teammate as @Name (their exact name) in your prose so the room can see who is being asked. A formal @Name of a current room member registers at most one implicit handoff this turn (same as room_handoff / NEXT). A bare name without @ does not wake anyone.",
       "Default to acting, not to confirming. If the request names something concrete to produce or change, take the next step yourself: look the details up with your tools, state one short assumption if you must, and proceed.",
       "Never ask the user something the repository, the transcript, or your own tools can answer, and do not forward such a question to a teammate either.",
       "Only when there is no discernible deliverable at all, ask one short question and finish with ROOM_ACTION: DONE.",
-      "To request follow-up work from another participant (for example, verifying after a Code run finishes), register it with the room_handoff tool: pass their exact participant id, a concrete task, and optionally the code request id the task must wait for. The server wakes the teammate automatically. A prose @mention alone registers nothing and will not wake anyone.",
+      "To request follow-up work from another participant (for example, verifying after a Code run finishes), register it with the room_handoff tool: pass their exact participant id, a concrete task, and optionally the code request id the task must wait for. Prefer the tool when you need a concrete task or to wait for a Code request. The server wakes the teammate automatically.",
       "End your own contribution with exactly one standalone line, outside quotes and code fences:",
       "ROOM_ACTION: NEXT <participant-id>  (ask that participant a concrete question in your prose; their id or exact name, nobody else)",
       "ROOM_ACTION: DONE  (the discussion is complete or needs human input; this ends the conversation immediately)",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isRoomConversationRequest, isRoomStopRequest, latestRoomRequest, matchRoomIntentBot, parseRoomReply, roomBotPrompt } from "./room-conversation";
+import { firstFormalRoomMemberMention, formalRoomMemberMentions, isRoomConversationRequest, isRoomStopRequest, latestRoomRequest, matchRoomIntentBot, parseRoomReply, roomBotPrompt } from "./room-conversation";
 import type { BotDto, RoomDto, RoomMessage } from "./types";
 
 const bots = [
@@ -115,6 +115,35 @@ describe("room reply protocol", () => {
     expect(parseRoomReply("ROOM_ACTION: DONE", "a", bots)).toEqual({ text: "" });
     expect(parseRoomReply(`ROOM_ACTION: NEXT ${bots[1].id}`, "a", bots)).toEqual({ text: "" });
   });
+  it("treats a formal @pill of a current member as implicit NEXT, and ignores a bare name", () => {
+    expect(parseRoomReply("@プランナー、確認して。", "a", bots)).toEqual({
+      text: "@プランナー、確認して。", action: "next", nextBotId: "b", implicitMention: true,
+    });
+    expect(parseRoomReply("@プランナー 確認して。\nROOM_ACTION: DONE", "a", bots)).toEqual({
+      text: "@プランナー 確認して。", action: "next", nextBotId: "b", implicitMention: true,
+    });
+    expect(parseRoomReply("プランナー、確認して。", "a", bots)).toEqual({ text: "プランナー、確認して。" });
+    expect(parseRoomReply("プランナー、確認して。\nROOM_ACTION: DONE", "a", bots)).toEqual({
+      text: "プランナー、確認して。", action: "done",
+    });
+  });
+  it("keeps an explicit NEXT and fires only the first @pill when several appear", () => {
+    const roster = [bots[0], bots[1], { id: "c", name: "レビュアー", label: "Review", enabled: true }] as BotDto[];
+    expect(parseRoomReply(`@レビュアー と @プランナー\nROOM_ACTION: NEXT ${bots[1].id}`, "a", roster)).toEqual({
+      text: "@レビュアー と @プランナー", action: "next", nextBotId: "b",
+    });
+    expect(parseRoomReply("@プランナー と @レビュアー、確認して。", "a", roster)).toEqual({
+      text: "@プランナー と @レビュアー、確認して。", action: "next", nextBotId: "b", implicitMention: true,
+    });
+    expect(formalRoomMemberMentions("@プランナー と @レビュアー", "a", roster).map((bot) => bot.id)).toEqual(["b", "c"]);
+  });
+  it("does not treat self, special aliases, unknown handles, or fenced @pills as a handoff", () => {
+    expect(parseRoomReply("@デバッガー 自分で続ける", "a", bots)).toEqual({ text: "@デバッガー 自分で続ける" });
+    expect(parseRoomReply("@here 全員へ", "a", bots)).toEqual({ text: "@here 全員へ" });
+    expect(parseRoomReply("@Unknown へ連絡", "a", bots)).toEqual({ text: "@Unknown へ連絡" });
+    expect(parseRoomReply("```\n@プランナー\n```", "a", bots)).toEqual({ text: "```\n@プランナー\n```" });
+    expect(firstFormalRoomMemberMention("確認はプランナーです。", "a", bots)).toBeUndefined();
+  });
 });
 
 describe("shared room context", () => {
@@ -167,6 +196,8 @@ describe("shared room context", () => {
     expect(prompt).toContain("Default to acting, not to confirming");
     expect(prompt).toContain("Never ask the user something the repository");
     expect(prompt).toContain("no discernible deliverable at all");
+    expect(prompt).toContain("registers at most one implicit handoff");
+    expect(prompt).toContain("A bare name without @ does not wake anyone");
     expect(roomBotPrompt(room(), bots[0], bots, "@デバッガー 確認して", user.id)).toContain("Act on it with your tools");
   });
   it("falls back to the recent tail when the request id is unknown", () => {

@@ -68,6 +68,7 @@ const OUTCOME_TEXT: Record<string, string> = {
   turns: "発言上限に達しました",
   repeat: "同じ内容が繰り返されたため停止しました",
   done: "会話は完了しました",
+  mention: "メンション先への引き継ぎが登録されませんでした",
 };
 
 function mentionContextFor(value: string, cursor: number): MentionContext | null {

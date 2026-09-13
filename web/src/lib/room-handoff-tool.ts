@@ -4,7 +4,7 @@ import { getTask } from "@/lib/store";
 import { roomForCodeOrigin } from "@/lib/pi/bot-code-relay";
 
 export const ROOM_HANDOFF_TOOL = "room_handoff";
-const ROOM_HANDOFF_TOOL_DESCRIPTION = "Register follow-up work for another participant of this Room so the server can wake them automatically. Use it whenever your message asks a teammate to do later work (for example, verify or review after a Code run finishes): pass their exact participant id, a concrete task, and optionally the code request id (from a code_session result) the task must wait for. A prose @mention alone registers nothing. Do not register work for yourself, and do not claim the teammate has started.";
+const ROOM_HANDOFF_TOOL_DESCRIPTION = "Register follow-up work for another participant of this Room so the server can wake them automatically. Use it whenever your message asks a teammate to do later work (for example, verify or review after a Code run finishes): pass their exact participant id, a concrete task, and optionally the code request id (from a code_session result) the task must wait for. A formal @Name pill of a current member already registers one implicit handoff this turn; a bare name without @ does not. Prefer this tool when you need a concrete task or to wait for a Code request. Do not register work for yourself, and do not claim the teammate has started.";
 
 /**
  * Registers follow-up work for another Room participant. The room, conversation, and speaker are

@@ -31,7 +31,7 @@ export type RoomConversationTurn = { requestId: string; participantIds: string[]
 /** Why the opener bot was chosen for this turn (Room opener v2). */
 export type RoomOpenerReasonKind = "keyword" | "llm";
 /** Why an exchange stopped, so a quiet room is not mistaken for a finished one. */
-export type RoomOutcome = { kind: "code-wait" | "members" | "turns" | "repeat" | "done"; requestId: string };
+export type RoomOutcome = { kind: "code-wait" | "members" | "turns" | "repeat" | "done" | "mention"; requestId: string };
 export type CodeRequestState = "queued" | "starting" | "running" | "ready" | "delivered" | "cancelled";
 export type RoomAttention = { botId: string; taskId: string; permission: PermissionRequestDto | null; question: QuestionRequestDto | null };
 /** Image attachment stored beside the room file; `file` is server-generated. */
@@ -93,6 +93,8 @@ export type RoomHandoff = {
   relayEnvelopeToken?: string;
   /** Server-derived hop depth for loop prevention. */
   relayDepth?: number;
+  /** True when the server inferred this handoff from a formal @mention pill, not the tool. */
+  implicit?: boolean;
   createdAt: number;
   updatedAt: number;
 };

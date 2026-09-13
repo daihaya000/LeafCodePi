@@ -6,7 +6,7 @@ import { getTaskDetail, promptTask, subscribeTask, abortTask } from "./pi/harnes
 import { withBotCodeSessionLock } from "./bot-code-session-lock";
 import { pendingRoomCodeRequestForTurn, pendingRoomCodeRequestsForTurn, roomCodeRequestsForTurn, roomCodeRequestForRoom, settledRoomCodeRequest, type CodeRequest } from "./pi/bot-code-relay";
 import { activeToolLabel } from "./tool-labels";
-import { latestRoomRequest, MAX_ROOM_CONVERSATION_TURNS, parseRoomReply, roomBotPrompt, type RoomReply, type RoomTurn } from "./room-conversation";
+import { latestRoomRequest, MAX_ROOM_CONVERSATION_TURNS, parseRoomReply, roomBotPrompt, withImplicitRoomMention, type RoomReply, type RoomTurn } from "./room-conversation";
 import { resolveRoomOpener, type RoomOpenerReason } from "./room-opener";
 import type { BotDto, RoomDto, RoomHandoff, RoomMessage, RoomOutcome, UiMessage } from "./types";
 
@@ -133,7 +133,10 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     const assistant = [...detail.messages].reverse().find((message) => message.role === "assistant" && !before.has(message.id));
     const error = detail.error || assistant?.error;
     const raw = assistant ? textOf(assistant) : "";
-    const reply = turn ? parseRoomReply(raw, bot.id, participants) : { text: raw };
+    const parsed = turn ? parseRoomReply(raw, bot.id, participants) : { text: raw };
+    const reply = bindImplicitMentionHandoff({
+      roomId: room.id, requestId, fromMessageId: responseId, fromBotId: bot.id, reply: parsed,
+    });
     const { text } = reply;
     updateRoomMessage(room.id, responseId, { text: error || (text.trim() ? text : "Bot did not return a response."), status: error || !text.trim() ? "error" : "done" });
     // The turn may have handed work to Code; show what that run is doing while the Room waits.
@@ -278,6 +281,8 @@ export async function runRoomConversation(room: RoomDto, bots: BotDto[], prompt:
     if (previous.has(normalized)) return stop("repeat");
     previous.add(normalized);
     replies.set(bot.id, previous);
+    // A valid member @pill without a registered handoff/NEXT must not look like a finished exchange.
+    if (reply.mentionWithoutHandoff) return stop("mention");
     // The speaker ends the exchange; nobody is dragged in just because they have not spoken yet.
     if (reply.action === "done") return stop("done");
     // ponytail: a model ignoring the protocol gets one round-robin pass, not retries or an LLM selector.
@@ -294,17 +299,22 @@ export function deliverRoomCodeReport(request: CodeRequest, text: string): boole
   const bot = getBot(request.botId);
   if (!room || !bot?.enabled || !room.members.includes(bot.id)) return false;
   const participants = request.room.conversation.participantIds.map(getBot).filter((member): member is BotDto => Boolean(member?.enabled && room.members.includes(member.id)));
-  const reply = parseRoomReply(text, bot.id, participants);
-  if (!reply.text.trim()) return false;
-  request.room.nextBotId = reply.nextBotId;
-  request.room.complete = reply.action === "done";
+  const parsed = parseRoomReply(text, bot.id, participants);
+  if (!parsed.text.trim()) return false;
   const report = appendRoomMessageIf(room.id, (current) => current.messages.some(
     (message) => message.role === "user" && message.id === request.room?.conversation.requestId,
   ), {
     id: `code-report:${request.id}`, role: "assistant", botId: bot.id, botName: bot.name,
-    text: reply.text, status: "done", codeRequestId: request.id, codeTaskId: request.codeTaskId, codeState: "delivered",
+    text: parsed.text, status: "done", codeRequestId: request.id, codeTaskId: request.codeTaskId, codeState: "delivered",
     conversation: request.room.conversation,
   });
+  const reply = report
+    ? bindImplicitMentionHandoff({
+      roomId: room.id, requestId: request.room.conversation.requestId, fromMessageId: report.id, fromBotId: bot.id, reply: parsed,
+    })
+    : withImplicitRoomMention(parsed, bot.id, room.members.map(getBot).filter((member): member is BotDto => Boolean(member?.enabled && room.members.includes(member.id))));
+  request.room.nextBotId = reply.nextBotId;
+  request.room.complete = reply.action === "done";
   // A Room conversation can have queued Code jobs. Keep it waiting until this
   // report is the last outstanding job for that conversation.
   const currentRoom = getRoom(room.id);
@@ -344,6 +354,41 @@ const HANDOFF_TASK_MAX = 2_000;
 /** Settled records only guard tool-call replay, so bound the room file instead of archiving them. */
 const MAX_ROOM_HANDOFFS = 50;
 
+function implicitMentionTask(text: string): string {
+  const trimmed = text.trim().replace(/\s+/g, " ");
+  return (trimmed || "Mentioned follow-up").slice(0, HANDOFF_TASK_MAX);
+}
+
+function hasActiveHandoffFrom(room: RoomDto, fromMessageId: string): boolean {
+  return (room.handoffs ?? []).some((handoff) => handoff.fromMessageId === fromMessageId
+    && (handoff.state === "waiting" || handoff.state === "ready" || handoff.state === "running"));
+}
+
+/**
+ * Formal @Name of a current room member becomes one implicit room_handoff.
+ * Explicit NEXT / an already-registered tool handoff wins; a failed register refuses silent complete.
+ */
+function bindImplicitMentionHandoff(input: {
+  roomId: string; requestId: string; fromMessageId: string; fromBotId: string; reply: RoomReply;
+}): RoomReply {
+  const room = getRoom(input.roomId);
+  if (!room) return input.reply;
+  const members = room.members.map(getBot).filter((bot): bot is BotDto => Boolean(bot?.enabled));
+  const reply = withImplicitRoomMention(input.reply, input.fromBotId, members);
+  if (!reply.implicitMention || !reply.nextBotId) return reply;
+  if (hasActiveHandoffFrom(room, input.fromMessageId)) return reply;
+  try {
+    registerRoomHandoff({
+      roomId: input.roomId, requestId: input.requestId, fromMessageId: input.fromMessageId, fromBotId: input.fromBotId,
+      toBotId: reply.nextBotId, task: implicitMentionTask(reply.text), implicit: true,
+    });
+    return reply;
+  } catch {
+    setRoomOutcome(input.roomId, { kind: "mention", requestId: input.requestId });
+    return { text: reply.text, mentionWithoutHandoff: true };
+  }
+}
+
 function handoffCodeOutcome(request: Pick<CodeRequest, "result">): string | undefined {
   try { return JSON.parse(request.result ?? "{}").outcome; } catch { return undefined; }
 }
@@ -375,16 +420,17 @@ function patchHandoff(roomId: string, handoffId: string, patch: (handoff: RoomHa
 }
 
 /**
- * Register follow-up work for another participant. Called only from the room_handoff tool:
- * the room, conversation, and speaker are server-resolved, never taken from model arguments.
+ * Register follow-up work for another participant. Called from the room_handoff tool and from
+ * a formal @mention pill (implicit). The room, conversation, and speaker are server-resolved,
+ * never taken from model arguments or client relay claims.
  */
 export function registerRoomHandoff(input: {
   roomId: string; requestId: string; fromMessageId: string; fromBotId: string;
-  toBotId: string; task: string; waitForCodeRequestId?: string; toolCallId?: string;
+  toBotId: string; task: string; waitForCodeRequestId?: string; toolCallId?: string; implicit?: boolean;
 }): { handoff: RoomHandoff; duplicate: boolean } {
   const room = getRoom(input.roomId);
   if (!room || latestRoomRequest(room)?.id !== input.requestId) throw new Error("Room request is no longer active");
-  if (!room.botRelayEnabled) throw new Error("Bot relay is disabled for this room");
+  if (!input.implicit && !room.botRelayEnabled) throw new Error("Bot relay is disabled for this room");
   const from = room.messages.find((message) => message.id === input.fromMessageId);
   if (!from || from.botId !== input.fromBotId || !(from.status === "working" || from.conversation?.requestId === input.requestId)) {
     throw new Error("This turn can no longer register handoffs");
@@ -421,6 +467,7 @@ export function registerRoomHandoff(input: {
     id: randomUUID(), requestId: input.requestId, fromMessageId: input.fromMessageId, fromBotId: input.fromBotId,
     toBotId: target.id, task, ...(input.waitForCodeRequestId ? { waitForCodeRequestId: input.waitForCodeRequestId } : {}),
     state: input.waitForCodeRequestId ? "waiting" : "ready", ...(input.toolCallId ? { toolCallId: input.toolCallId } : {}),
+    ...(input.implicit ? { implicit: true } : {}),
     relayDepth, createdAt: now, updatedAt: now,
   };
   updateRoomHandoffs(input.roomId, (handoffs) => {
@@ -526,22 +573,26 @@ export async function deliverReadyRoomHandoffs(roomId: string): Promise<void> {
       continue;
     }
     // Validate-then-claim: issue a server envelope then consume it under durable relay state.
-    if (!room.botRelayEnabled) {
+    // Implicit @mention handoffs may run when relay is off; they are server-initiated, so there is
+    // no client envelope to spoof. Explicit tool handoffs still require the opt-in + envelope.
+    if (!room.botRelayEnabled && !next.implicit) {
       patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "Botリレーが無効なため実行しません", updatedAt: Date.now() }));
       continue;
     }
-    const parentToken = (room.handoffs ?? []).find((item) => item.requestId === next.requestId && item.toBotId === next.fromBotId && item.relayEnvelopeToken && (item.state === "running" || item.state === "done") && item.id !== next.id)?.relayEnvelopeToken;
-    const token = next.relayEnvelopeToken ?? issueRoomRelayEnvelope(roomId, next.fromBotId, [next.toBotId], parentToken);
-    if (!token) {
-      patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "リレーエンベロープを発行できませんでした（ループ・深度・無効化）", updatedAt: Date.now() }));
-      continue;
+    if (room.botRelayEnabled) {
+      const parentToken = (room.handoffs ?? []).find((item) => item.requestId === next.requestId && item.toBotId === next.fromBotId && item.relayEnvelopeToken && (item.state === "running" || item.state === "done") && item.id !== next.id)?.relayEnvelopeToken;
+      const token = next.relayEnvelopeToken ?? issueRoomRelayEnvelope(roomId, next.fromBotId, [next.toBotId], parentToken);
+      if (!token) {
+        patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "リレーエンベロープを発行できませんでした（ループ・深度・無効化）", updatedAt: Date.now() }));
+        continue;
+      }
+      const envelope = consumeRoomRelayEnvelope(roomId, token);
+      if (!envelope) {
+        patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "リレーエンベロープを主張できませんでした（再送・ループ・無効化）", updatedAt: Date.now() }));
+        continue;
+      }
+      patchHandoff(roomId, next.id, (current) => current.state === "ready" ? { ...current, relayEnvelopeToken: token, relayDepth: envelope.depth, updatedAt: Date.now() } : current);
     }
-    const envelope = consumeRoomRelayEnvelope(roomId, token);
-    if (!envelope) {
-      patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "リレーエンベロープを主張できませんでした（再送・ループ・無効化）", updatedAt: Date.now() }));
-      continue;
-    }
-    patchHandoff(roomId, next.id, (current) => current.state === "ready" ? { ...current, relayEnvelopeToken: token, relayDepth: envelope.depth, updatedAt: Date.now() } : current);
     // Claim before opening the turn: a concurrent deliverer loses the race here.
     const claimed = updateRoomHandoffs(roomId, (handoffs) => handoffs.map((handoff) => handoff.id === next.id && handoff.state === "ready"
       ? { ...handoff, state: "running", updatedAt: Date.now() }
