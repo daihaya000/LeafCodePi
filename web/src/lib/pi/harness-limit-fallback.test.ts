@@ -298,7 +298,8 @@ describe("provider limit fallback", () => {
     assert.equal(getTask(task.id)?.accountId, first.id);
     assert.equal(fakePi.sessions.length, 1);
 
-    fakePi.sessions[0].nextError = "Codex error: The usage limit has been reached";
+    fakePi.sessions[0].nextError =
+      "You have hit your ChatGPT usage limit (team plan). Try again in ~286 min.";
     await promptTask(task.id, "continue working");
 
     await waitFor(() => fakePi.sessions.length === 2);

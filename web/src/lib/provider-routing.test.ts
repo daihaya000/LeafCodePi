@@ -157,6 +157,12 @@ describe("provider limit detection and marks", () => {
       true,
     );
     assert.equal(
+      isProviderLimitError(
+        "You have hit your ChatGPT usage limit (team plan). Try again in ~286 min.",
+      ),
+      true,
+    );
+    assert.equal(
       isProviderLimitError("insufficient_quota"),
       true,
     );
