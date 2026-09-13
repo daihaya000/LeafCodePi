@@ -683,15 +683,18 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const updateTtsVoice = async (value: string) => {
     if (!bot || updatingTtsVoice) return;
     const previous = ttsVoice;
+    const requestContext = botRequestContextRef.current;
     const next = value.trim();
     setTtsVoice(next);
     setUpdatingTtsVoice(true);
     setError(null);
     try {
       const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { ttsVoice: next || null }, "PATCH");
+      if (botRequestContextRef.current !== requestContext) return;
       applyBotUpdate(result.bot);
       setTtsVoice(result.bot.ttsVoice ?? "");
     } catch (reason) {
+      if (botRequestContextRef.current !== requestContext) return;
       setTtsVoice(previous);
       setError(reason instanceof Error ? reason.message : "TTS音声の保存に失敗しました");
     } finally { setUpdatingTtsVoice(false); }
