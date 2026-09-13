@@ -50,13 +50,18 @@ describe("sse-ready-buffer", () => {
     ).toBe(true);
   });
 
-  it("treats archived and restored snapshots as control events", () => {
+  it("treats archived, restored, and conversation reset snapshots as control events", () => {
     const ready = rankMessageList([{ id: "latest", createdAt: 5 }]);
-    for (const eventType of ["archived", "restored"]) {
+    for (const eventType of ["archived", "restored", "conversation_reset"]) {
       expect(
         shouldFlushPendingAfterReady({ type: "snapshot", eventType, messages: [{ id: "old", createdAt: 1 }] }, ready),
       ).toBe(true);
     }
+    const reset = preparePendingPayloadForReadyFlush(
+      { type: "snapshot", eventType: "conversation_reset", messages: [] },
+      ready,
+    );
+    expect(reset?.messages).toEqual([]);
   });
 
   it("drops snapshots older than the ready tip", () => {

@@ -90,4 +90,84 @@ describe("TaskView resume payload", () => {
       }),
     ));
   });
+
+  it("does not let a stale history request unlock a newer page load", async () => {
+    let latest: EventTarget | null = null;
+    class TestEventSource extends EventTarget {
+      constructor() {
+        super();
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        latest = this;
+      }
+
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    type HistoryPage = {
+      messages: UiMessage[];
+      messageHistory: { hasMore: boolean; nextCursor: string | null };
+    };
+    const pending: ((page: HistoryPage) => void)[] = [];
+    mocks.getJson.mockImplementation((url: string) => {
+      if (url.endsWith("/messages")) {
+        return new Promise<HistoryPage>((resolve) => pending.push(resolve));
+      }
+      if (url === "/api/models") return Promise.resolve({ models: [] });
+      if (url === "/api/agents") return Promise.resolve({ agents: [] });
+      if (url === "/api/skills") return Promise.resolve({ skills: [] });
+      return Promise.resolve({});
+    });
+    const first = {
+      id: "history-1",
+      role: "user" as const,
+      createdAt: 1,
+      parts: [{ id: "history-1-text", type: "text" as const, text: "old" }],
+    };
+    const second = { ...first, id: "history-2", parts: [{ ...first.parts[0], id: "history-2-text" }] };
+    render(<TaskView taskId={task.id} mdUp />);
+    if (!latest) throw new Error("EventSource was not created");
+
+    await act(async () => {
+      latest!.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "ready",
+          task,
+          messages: [{ ...first, id: "tail", parts: [{ ...first.parts[0], id: "tail-text", text: "tail" }] }],
+          messageHistory: { hasMore: true, nextCursor: "cursor-1" },
+        }),
+      }));
+    });
+    const loadButton = await screen.findByRole("button", { name: "過去の履歴を読み込む" });
+    fireEvent.click(loadButton);
+    expect(pending).toHaveLength(1);
+
+    await act(async () => {
+      latest!.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "conversation_reset",
+          task,
+          messages: [],
+          messageHistory: { hasMore: true, nextCursor: "cursor-2" },
+        }),
+      }));
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "過去の履歴を読み込む" }));
+    expect(pending).toHaveLength(2);
+
+    await act(async () => {
+      pending[0]?.({ messages: [first], messageHistory: { hasMore: true, nextCursor: "cursor-0" } });
+      await Promise.resolve();
+    });
+    const viewport = document.querySelector<HTMLElement>(".bg-bot-chat");
+    if (!viewport) throw new Error("Conversation viewport was not rendered");
+    Object.defineProperty(viewport, "scrollTop", { configurable: true, value: 0 });
+    fireEvent.scroll(viewport);
+    expect(pending).toHaveLength(2);
+
+    await act(async () => {
+      pending[1]?.({ messages: [second], messageHistory: { hasMore: false, nextCursor: null } });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "過去の履歴を読み込み中…" })).toBeNull());
+  });
 });

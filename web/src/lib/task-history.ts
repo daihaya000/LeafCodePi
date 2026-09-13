@@ -47,7 +47,9 @@ export function pageTaskSnapshotPayload(payload: Record<string, unknown>): Recor
     ...payload,
     messages: page.messages,
     messageHistory: page.messageHistory,
-    ...(payload.eventType === "revert" || payload.eventType === "unrevert"
+    ...(payload.eventType === "revert" ||
+      payload.eventType === "unrevert" ||
+      payload.eventType === "conversation_reset"
       ? { historyReset: true }
       : {}),
   };

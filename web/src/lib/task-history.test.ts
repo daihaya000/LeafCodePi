@@ -3,6 +3,7 @@ import {
   InvalidTaskMessageCursorError,
   mergeNewerTaskMessages,
   pageTaskMessages,
+  pageTaskSnapshotPayload,
   prependOlderTaskMessages,
 } from "./task-history";
 import type { UiMessage } from "./types";
@@ -37,6 +38,17 @@ describe("task history pagination", () => {
     expect(() => pageTaskMessages([message("m1")], "missing", 2)).toThrow(
       InvalidTaskMessageCursorError,
     );
+  });
+
+  it("marks conversation resets so the client drops loaded pages", () => {
+    expect(pageTaskSnapshotPayload({
+      type: "snapshot",
+      eventType: "conversation_reset",
+      messages: [message("m1")],
+    })).toMatchObject({
+      historyReset: true,
+      messageHistory: { hasMore: false, nextCursor: null },
+    });
   });
 
   it("merges live tail updates without dropping loaded older pages", () => {

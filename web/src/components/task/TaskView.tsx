@@ -1260,7 +1260,8 @@ export const TaskView = memo(function TaskView({
         const resetHistory =
           payload.historyReset === true ||
           payload.eventType === "revert" ||
-          payload.eventType === "unrevert";
+          payload.eventType === "unrevert" ||
+          payload.eventType === "conversation_reset";
         if (TASK_PERF_ENABLED && perf) {
           const at = taskPerfNow();
           if (at !== null && isBootstrap && perf.bootstrapAt === null) {
@@ -1557,8 +1558,8 @@ export const TaskView = memo(function TaskView({
         setHistoryError(error instanceof Error ? error.message : "過去の履歴を読み込めませんでした");
       }
     } finally {
-      historyLoadingRef.current = false;
       if (requestEpoch === historyRequestEpochRef.current) {
+        historyLoadingRef.current = false;
         setHistoryLoading(false);
       }
     }

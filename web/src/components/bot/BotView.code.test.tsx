@@ -184,6 +184,20 @@ it("ignores stale routine data after switching ids", async () => {
   expect(screen.queryByRole("status")).toBeNull();
 });
 
+it("clears loaded Bot history when the conversation is reset", async () => {
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({
+    messages: [{ id: "old", role: "assistant", createdAt: 1, parts: [{ id: "old-text", type: "text", text: "古い返信" }] }],
+    messageHistory: { hasMore: true, nextCursor: "old" },
+  });
+  expect(screen.getByText("古い返信")).toBeTruthy();
+
+  snapshot({ eventType: "conversation_reset", messages: [], isStreaming: false });
+  expect(screen.queryByText("古い返信")).toBeNull();
+  expect(screen.queryByRole("button", { name: "過去の履歴を読み込む" })).toBeNull();
+});
+
 it("ignores a stale SSE snapshot after switching ids", async () => {
   const botOne = { ...testBot, id: "one", name: "One" };
   const botTwo = { ...testBot, id: "two", name: "Two" };

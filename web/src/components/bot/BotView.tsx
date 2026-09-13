@@ -240,8 +240,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         setHistoryError(error instanceof Error ? error.message : "過去の履歴を読み込めませんでした");
       }
     } finally {
-      historyLoadingRef.current = false;
       if (requestEpoch === historyRequestEpochRef.current) {
+        historyLoadingRef.current = false;
         setHistoryLoading(false);
       }
     }
@@ -426,7 +426,11 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             questionRequest?: QuestionRequestDto | null;
             eventType?: string;
           };
-          const resetHistory = payload.historyReset === true || payload.eventType === "revert" || payload.eventType === "unrevert";
+          const resetHistory =
+            payload.historyReset === true ||
+            payload.eventType === "revert" ||
+            payload.eventType === "unrevert" ||
+            payload.eventType === "conversation_reset";
           if (resetHistory) {
             historyRequestEpochRef.current += 1;
             historyLoadedRef.current = false;

@@ -73,6 +73,7 @@ export const SSE_CONTROL_SNAPSHOT_EVENT_TYPES = new Set([
   "project_promoted",
   "archived",
   "restored",
+  "conversation_reset",
 ]);
 
 export function isControlSnapshot(payload: Record<string, unknown>): boolean {
@@ -197,7 +198,8 @@ export function preparePendingPayloadForReadyFlush(
   const resetsHistory =
     payload.historyReset === true ||
     payload.eventType === "revert" ||
-    payload.eventType === "unrevert";
+    payload.eventType === "unrevert" ||
+    payload.eventType === "conversation_reset";
   if (resetsHistory && Array.isArray(payload.messages)) return payload;
   if (isFresherMessageList(rankMessageList(payload.messages), readyRank)) {
     return payload;
