@@ -47,7 +47,8 @@ export function ActivityLog({ children, count, parts, active, kind }: {
     if (!open || !scroller || !content) return;
     const pin = () => {
       if (!stickRef.current) return;
-      scroller.scrollTop = clampScrollTop(scroller.scrollHeight, scroller.clientHeight, scroller.scrollHeight);
+      const nextTop = clampScrollTop(scroller.scrollHeight, scroller.clientHeight, scroller.scrollHeight);
+      if (scroller.scrollTop !== nextTop) scroller.scrollTop = nextTop;
       lastTopRef.current = scroller.scrollTop;
     };
     pin();

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSseWriter } from "./sse-writer";
 
 describe("createSseWriter", () => {
@@ -54,6 +54,27 @@ describe("createSseWriter", () => {
     sse.close();
     sse.cleanup();
     assert.equal(calls, 1);
+    void stream.cancel();
+  });
+
+  it("runs a cleanup subscriber registered after cleanup immediately", () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(started) {
+        controller = started;
+      },
+    });
+    const sse = createSseWriter(controller);
+    sse.cleanup();
+
+    let calls = 0;
+    sse.onCleanup(() => {
+      calls += 1;
+    });
+    expect(calls).toBe(1);
+
+    sse.close();
+    expect(calls).toBe(1);
     void stream.cancel();
   });
 

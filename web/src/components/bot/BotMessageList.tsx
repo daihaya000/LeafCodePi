@@ -34,7 +34,7 @@ let inflightProjects: Promise<Pick<ProjectDto, "id" | "name" | "icon">[] | null>
 function fetchTaskSummary(taskId: string): Promise<TaskSummary | null> {
   const inflight = inflightTaskSummaries.get(taskId);
   if (inflight) return inflight;
-  const request = fetch(`/api/tasks/${encodeURIComponent(taskId)}`)
+  const request = fetch(`/api/tasks/${encodeURIComponent(taskId)}`, { cache: "no-store" })
     .then((response) => (response.ok ? response.json() : null))
     .then((result) => (result?.task as TaskSummary | undefined) ?? null)
     .catch(() => null)
@@ -45,7 +45,7 @@ function fetchTaskSummary(taskId: string): Promise<TaskSummary | null> {
 
 function fetchProjectList(): Promise<Pick<ProjectDto, "id" | "name" | "icon">[] | null> {
   if (!inflightProjects) {
-    const request: Promise<Pick<ProjectDto, "id" | "name" | "icon">[] | null> = fetch("/api/projects")
+    const request: Promise<Pick<ProjectDto, "id" | "name" | "icon">[] | null> = fetch("/api/projects", { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
       .then((result) => (result?.projects as ProjectDto[] | undefined) ?? null)
       .catch(() => null)

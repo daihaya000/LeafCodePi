@@ -31,6 +31,13 @@ export function createSseWriter(
   let closed = false;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   const cleanupFns: Array<() => void> = [];
+  const runCleanup = (fn: () => void) => {
+    try {
+      fn();
+    } catch {
+      /* ignore subscriber errors during teardown */
+    }
+  };
 
   const cleanup = () => {
     if (closed) return;
@@ -39,13 +46,7 @@ export function createSseWriter(
       clearInterval(heartbeat);
       heartbeat = undefined;
     }
-    for (const fn of cleanupFns) {
-      try {
-        fn();
-      } catch {
-        /* ignore subscriber errors during teardown */
-      }
-    }
+    for (const fn of cleanupFns.splice(0)) runCleanup(fn);
   };
 
   const enqueue = (bytes: Uint8Array) => {
@@ -79,6 +80,10 @@ export function createSseWriter(
       }, intervalMs);
     },
     onCleanup(fn: () => void) {
+      if (closed) {
+        runCleanup(fn);
+        return;
+      }
       cleanupFns.push(fn);
     },
     cleanup,

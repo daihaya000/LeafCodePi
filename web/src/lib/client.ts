@@ -56,14 +56,20 @@ export async function sendJson<T>(
   const timeoutMs = options?.timeoutMs;
   const external = options?.signal;
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let removeExternalAbortListener: (() => void) | undefined;
   let signal = external;
 
   if (timeoutMs && timeoutMs > 0) {
     const controller = new AbortController();
     timeout = setTimeout(() => controller.abort(), timeoutMs);
     if (external) {
+      const abortFromExternal = () => controller.abort();
       if (external.aborted) controller.abort();
-      else external.addEventListener("abort", () => controller.abort(), { once: true });
+      else {
+        external.addEventListener("abort", abortFromExternal, { once: true });
+        removeExternalAbortListener = () =>
+          external.removeEventListener("abort", abortFromExternal);
+      }
     }
     signal = controller.signal;
   }
@@ -85,5 +91,6 @@ export async function sendJson<T>(
     throw error;
   } finally {
     if (timeout) clearTimeout(timeout);
+    removeExternalAbortListener?.();
   }
 }
