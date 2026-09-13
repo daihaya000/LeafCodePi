@@ -238,6 +238,36 @@ it("ignores a late prompt failure after switching ids", async () => {
   expect(screen.queryByText("old failure")).toBeNull();
 });
 
+it("ignores a stale revert result after switching ids", async () => {
+  const botOne = { ...testBot, id: "one", name: "One" };
+  const botTwo = { ...testBot, id: "two", name: "Two" };
+  type RevertResponse = { text: string; images: never[] };
+  let resolveRevert!: (result: RevertResponse) => void;
+  const revertResponse = new Promise<RevertResponse>((resolve) => { resolveRevert = resolve; });
+  mocks.getJson.mockImplementation((url: string) => {
+    if (url === "/api/bots/one") return Promise.resolve({ bot: botOne });
+    if (url === "/api/bots/two") return Promise.resolve({ bot: botTwo });
+    if (url === "/api/models") return Promise.resolve({ models: [] });
+    if (url.endsWith("/routines")) return Promise.resolve({ routines: [] });
+    return Promise.resolve({ bot: botOne });
+  });
+  mocks.sendJson.mockImplementation((url: string) => url.endsWith("/revert") ? revertResponse : Promise.resolve({ bot: botTwo }));
+  const view = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("heading", { name: "One" });
+  snapshot({ messages: [{ id: "message-1", role: "user", createdAt: 1, parts: [{ type: "text", text: "hello" }] }], isStreaming: false });
+  fireEvent.click(screen.getByRole("button", { name: /入力欄に戻す/ }));
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one/revert", { entryId: "message-1" }));
+
+  view.rerender(<ShellProvider><BotView id="two" /></ShellProvider>);
+  await screen.findByRole("heading", { name: "Two" });
+  await act(async () => {
+    resolveRevert({ text: "old prompt", images: [] });
+    await revertResponse;
+  });
+
+  expect(screen.queryByDisplayValue("old prompt")).toBeNull();
+});
+
 it("ignores stale routine data after switching ids", async () => {
   const botOne = { ...testBot, id: "one", name: "One" };
   const botTwo = { ...testBot, id: "two", name: "Two" };

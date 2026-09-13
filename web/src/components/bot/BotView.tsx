@@ -639,6 +639,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
 
   const revertMessage = async (message: UiMessage) => {
     if (reverting || sending || message.role !== "user") return;
+    const requestContext = botRequestContextRef.current;
     setReverting(true);
     setError(null);
     try {
@@ -646,13 +647,14 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         `/api/bots/${encodeURIComponent(id)}/revert`,
         { entryId: message.id },
       );
+      if (botRequestContextRef.current !== requestContext) return;
       setPrompt(result.text);
       setAttachments([...(result.images ?? []), ...(result.files ?? [])]);
       requestAnimationFrame(() => inputRef.current?.focus());
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "巻き戻しに失敗しました");
+      if (botRequestContextRef.current === requestContext) setError(reason instanceof Error ? reason.message : "巻き戻しに失敗しました");
     } finally {
-      setReverting(false);
+      if (botRequestContextRef.current === requestContext) setReverting(false);
     }
   };
 
