@@ -452,6 +452,36 @@ describe("integrated session routing", () => {
     expect(fakePi.sessions[1]?.systemPrompts[0]).toContain("<leafcode_clock>");
   });
 
+  it("refreshes the runtime clock across a UTC date boundary in one session", async () => {
+    vi.useFakeTimers();
+    try {
+      const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-runtime-clock-boundary-"));
+      tempDirs.push(dir);
+      process.env.LEAFCODE_PI_DATA_DIR = dir;
+      process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+      __resetPiAgentDirCacheForTests();
+      installHarness(new Map());
+      const bot = createBot({ name: "Boundary clock bot" });
+
+      vi.setSystemTime(new Date("2026-09-13T23:59:59.000Z"));
+      await promptTask(botTaskId(bot.id), "first clock reading", undefined, {
+        waitForCompletion: true,
+      });
+      vi.setSystemTime(new Date("2026-09-14T00:00:01.000Z"));
+      await promptTask(botTaskId(bot.id), "second clock reading", undefined, {
+        waitForCompletion: true,
+      });
+
+      expect(fakePi.sessions).toHaveLength(1);
+      expect(fakePi.sessions[0]?.systemPrompts).toEqual([
+        expect.stringContaining("UTC: 2026-09-13T23:59:59.000Z"),
+        expect.stringContaining("UTC: 2026-09-14T00:00:01.000Z"),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reopens a Bot session before the next prompt after a SOUL update", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-bot-soul-reload-"));
     tempDirs.push(dir);
