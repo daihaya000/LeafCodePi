@@ -61,6 +61,38 @@ describe("useSubagentRuns", () => {
   afterEach(() => {
     cleanup();
     getJson.mockReset();
+    vi.useRealTimers();
+  });
+
+  it("does not overlap polling requests while the current response is pending", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    let resolveRequest!: (value: { runs: SubagentRunDto[] }) => void;
+    const pendingRequest = new Promise<{ runs: SubagentRunDto[] }>((resolve) => {
+      resolveRequest = resolve;
+    });
+    getJson.mockReturnValue(pendingRequest);
+
+    renderHook(() =>
+      useSubagentRuns({
+        taskId: "task-1",
+        enabled: true,
+        live: true,
+        runIds: [],
+        agentNames: [],
+      }),
+    );
+    expect(getJson).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(getJson).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveRequest({ runs: [] });
+      await pendingRequest;
+    });
   });
 
   it("clears runs from the previous task before the next response arrives", async () => {

@@ -111,9 +111,12 @@ export function useSubagentRuns(input: {
       return;
     }
     let cancelled = false;
+    let inFlight = false;
     const query = sinceMs !== undefined ? `?since=${Math.floor(sinceMs)}` : "";
 
     const load = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
       if (!loadedRef.current) setLoading(true);
       try {
         const result = await getJson<{ runs: SubagentRunDto[] }>(
@@ -130,6 +133,7 @@ export function useSubagentRuns(input: {
         // 取得できない間は直近の内容を残す（本家と同じ sticky 挙動）。
         setError(err instanceof Error ? err.message : "サブエージェントの進捗を取得できませんでした");
       } finally {
+        inFlight = false;
         if (!cancelled) setLoading(false);
       }
     };
