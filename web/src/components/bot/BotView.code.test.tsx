@@ -257,6 +257,40 @@ it("shows a server-side SSE error instead of reconnecting forever", async () => 
   expect(screen.getByRole("alert").textContent).toContain("モデルを利用できません");
 });
 
+it("ignores a late SSE error from the previous model after switching models", async () => {
+  const nextBot = { ...testBot, model: "provider::new-model" };
+  mocks.getJson.mockImplementation(async (url: string) => {
+    if (url === "/api/models") return {
+      models: [
+        { value: "provider::old-model", label: "旧モデル", providerID: "provider", modelID: "old-model" },
+        { value: "provider::new-model", label: "新モデル", providerID: "provider", modelID: "new-model" },
+      ],
+    };
+    if (url.endsWith("/routines")) return { routines: [] };
+    return { bot: testBot };
+  });
+  mocks.sendJson.mockImplementation(async (_url: string, body: { model?: string }) => ({ bot: body.model ? nextBot : testBot }));
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  const staleError = errorListener;
+  fireEvent.click(screen.getByRole("button", { name: "設定" }));
+  fireEvent.click(screen.getByRole("button", { name: "ボットのモデル" }));
+  fireEvent.click(screen.getByRole("option", { name: "新モデル" }));
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+    "/api/bots/one",
+    { model: "provider::new-model" },
+    "PATCH",
+  ));
+  await waitFor(() => expect(screen.getByRole("button", { name: "ボットのモデル" }).textContent).toContain("新モデル"));
+  if (!staleError) throw new Error("SSE error listener was not registered");
+
+  await act(async () => {
+    staleError(new MessageEvent("error", { data: JSON.stringify({ error: "モデルを利用できません: provider::old-model" }) }));
+  });
+
+  expect(screen.queryByText("モデルを利用できません: provider::old-model")).toBeNull();
+});
+
 it("reports streaming activity for the Bot tab even when hidden", async () => {
   render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
   expect(mocks.reportStatus).toHaveBeenLastCalledWith("/bots/one", "idle");

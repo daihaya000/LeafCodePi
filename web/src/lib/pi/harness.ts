@@ -3048,7 +3048,7 @@ async function ensureLive(
       },
     );
     const model = modelRoute?.model;
-    if (task.providerID && task.modelID && !model) {
+    if (isBot && task.providerID && task.modelID && !model) {
       throw Object.assign(
         new Error(`モデルを利用できません: ${task.providerID}::${task.modelID}`),
         { status: 503 },
@@ -6947,17 +6947,38 @@ export async function setTaskModel(
   const model = modelRoute.model;
   const targetIds = modelId(model);
   const levels = thinkingLevelsForModel(model);
+  const persistColdTaskModel = (thinkingLevel: ThinkingLevel): TaskSummary | null => {
+    if (state().live.get(id)) return null;
+    // A failed cold session may still be in ensureLiveInflight. Advance its epoch
+    // before replacing the persisted route so it cannot restore the old model.
+    disposeLive(id);
+    const updatedTask = patchTask(id, {
+      providerID: targetIds.providerID ?? parsed.providerID,
+      modelID: targetIds.modelID ?? parsed.modelID,
+      thinkingLevel,
+      accountId: targetAccountId ?? undefined,
+      accountIdExplicit:
+        targetAccountId && accountIdExplicit ? true : undefined,
+    });
+    if (!updatedTask)
+      throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+    const summary = toSummary(updatedTask);
+    emit(id, { type: "snapshot", task: summary, eventType: "model_changed" });
+    return summary;
+  };
 
   // アカウント切替はセッションの再作成が必要なため、実行中は次ターンへ保留する。
   // 先に ensureLive を待って作成中セッションとの競合をなくす。
   if (targetAccountId !== (task.accountId ?? null)) {
-    const live = await ensureLive(id);
     const thinkingLevel = (() => {
       const current = isThinkingLevel(task.thinkingLevel)
         ? task.thinkingLevel
         : "off";
       return levels.includes(current) ? current : defaultThinkingLevel(levels);
     })();
+    const coldSummary = persistColdTaskModel(thinkingLevel);
+    if (coldSummary) return coldSummary;
+    const live = await ensureLive(id);
     const pendingModel = {
       route: modelRoute,
       accountIdExplicit,
@@ -6994,14 +7015,16 @@ export async function setTaskModel(
     return summary;
   }
 
+  const current = isThinkingLevel(task.thinkingLevel)
+    ? task.thinkingLevel
+    : "off";
+  const thinkingLevel = current && levels.includes(current)
+    ? current
+    : defaultThinkingLevel(levels);
+  const coldSummary = persistColdTaskModel(thinkingLevel);
+  if (coldSummary) return coldSummary;
   const live = await ensureLive(id);
   if (shouldDeferLiveSetting(live, task)) {
-    const current = isThinkingLevel(task.thinkingLevel)
-      ? task.thinkingLevel
-      : "off";
-    const thinkingLevel = current && levels.includes(current)
-      ? current
-      : defaultThinkingLevel(levels);
     const updated = deferLiveSetting(
       live,
       id,
@@ -7022,22 +7045,22 @@ export async function setTaskModel(
   await live.session.setModel(model);
   applySessionCompactionSettings(live.session);
   const ids = modelId(live.session.model ?? model);
-  const current = isThinkingLevel(live.session.thinkingLevel)
+  const appliedCurrent = isThinkingLevel(live.session.thinkingLevel)
     ? live.session.thinkingLevel
     : getTask(id)?.thinkingLevel;
   // 現レベルが新モデルでも有効なら維持、無ければ既定（medium 相当）へ。
   // clampThinkingLevel は上位レベルへ昇格するため使わない。
-  const thinkingLevel =
-    current && levels.includes(current)
-      ? current
+  const appliedThinkingLevel =
+    appliedCurrent && levels.includes(appliedCurrent)
+      ? appliedCurrent
       : defaultThinkingLevel(levels);
-  if (live.session.thinkingLevel !== thinkingLevel) {
-    live.session.setThinkingLevel(thinkingLevel);
+  if (live.session.thinkingLevel !== appliedThinkingLevel) {
+    live.session.setThinkingLevel(appliedThinkingLevel);
   }
   const updatedTask = patchTask(id, {
     providerID: ids.providerID ?? parsed.providerID,
     modelID: ids.modelID ?? parsed.modelID,
-    thinkingLevel,
+    thinkingLevel: appliedThinkingLevel,
     accountIdExplicit:
       live.accountId && accountIdExplicit ? true : undefined,
   });

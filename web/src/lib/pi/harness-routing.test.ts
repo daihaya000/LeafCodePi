@@ -244,7 +244,7 @@ import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
 import { botTaskId, createBot, patchBot } from "@/lib/bots";
 import { createRoom, ensureRoomBotTask } from "@/lib/rooms";
-import { patchTask, upsertProject, getTask } from "@/lib/store";
+import { insertTask, patchTask, upsertProject, getTask } from "@/lib/store";
 import type { ThinkingLevel } from "@/lib/types";
 import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
 import { setAccountRoutingMode, __resetProviderRoutingQueueForTests, markProviderLimited } from "@/lib/provider-routing";
@@ -259,6 +259,7 @@ import {
   promptTask,
   requestBotSoulReload,
   resolveProviderFallbackModels,
+  setTaskModel,
 } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
@@ -372,6 +373,32 @@ describe("mergeBundledSkills", () => {
 });
 
 describe("integrated session routing", () => {
+  it("switches a cold task away from an unavailable previous model", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-cold-model-switch-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+
+    const account = createAccount({ label: "テスト", providers: ["anthropic"] });
+    storeProviderAuth(account.id, process.env.PI_CODING_AGENT_DIR!);
+    installHarness(new Map([[account.id, runtime(account.id)]]));
+    await setAccountRoutingMode("anthropic", "integrated");
+
+    const task = insertTask({
+      project: null,
+      title: "cold model switch",
+      providerID: "leafcodecloud",
+      modelID: "LeafModel",
+    });
+    const updated = await setTaskModel(task.id, "anthropic::claude-sonnet");
+
+    expect(updated.providerID).toBe("anthropic");
+    expect(updated.modelID).toBe("claude-sonnet");
+    expect(getTask(task.id)).toMatchObject({ providerID: "anthropic", modelID: "claude-sonnet" });
+    expect(fakePi.sessions).toHaveLength(0);
+  });
+
   it("injects the runtime clock into both Code and Bot turns", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-runtime-clock-"));
     tempDirs.push(dir);

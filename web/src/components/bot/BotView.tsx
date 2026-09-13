@@ -185,6 +185,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [savingSoul, setSavingSoul] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [updatingModel, setUpdatingModel] = useState(false);
+  const [sseEpoch, setSseEpoch] = useState(0);
   const [updatingThinking, setUpdatingThinking] = useState(false);
   const [updatingTtsVoice, setUpdatingTtsVoice] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -500,7 +501,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       retry = cancelPendingSseReconnect(retry);
       source = closeSseSource(source);
     };
-  }, [id]);
+  }, [id, sseEpoch]);
 
   const selectedModel = useMemo(
     () => modelOptionForValue(models, bot?.model) ?? models[0],
@@ -669,6 +670,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     try {
       const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { model: value }, "PATCH");
       applyBotUpdate(result.bot);
+      setError(null);
+      setSseEpoch((current) => current + 1);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "モデルの切替に失敗しました");
     } finally { setUpdatingModel(false); }
