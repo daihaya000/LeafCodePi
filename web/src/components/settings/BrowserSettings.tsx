@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 
@@ -9,15 +9,25 @@ export function BrowserSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const reloadGenerationRef = useRef(0);
+
+  useEffect(() => () => {
+    reloadGenerationRef.current += 1;
+  }, []);
 
   const reload = useCallback(() => {
+    const generation = ++reloadGenerationRef.current;
+    const isCurrent = () => generation === reloadGenerationRef.current;
     void getJson<{ autoOpenBrowser?: boolean }>("/api/host/browser-config")
       .then((config) => {
+        if (!isCurrent()) return;
         setAutoOpen(config.autoOpenBrowser === true);
         setLoaded(true);
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : "ブラウザ設定の取得に失敗しました");
+        if (isCurrent()) {
+          setError(err instanceof Error ? err.message : "ブラウザ設定の取得に失敗しました");
+        }
       });
   }, []);
 
