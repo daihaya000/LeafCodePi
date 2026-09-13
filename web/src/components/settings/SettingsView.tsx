@@ -115,16 +115,28 @@ export function SettingsView() {
   const [providers, setProviders] = useState<ProviderAuthDto[]>([]);
   const [modelsRevision, setModelsRevision] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const reloadGenerationRef = useRef(0);
+
+  useEffect(() => () => {
+    reloadGenerationRef.current += 1;
+  }, []);
 
   const reload = useCallback(() => {
+    const generation = ++reloadGenerationRef.current;
+    const isCurrent = () => generation === reloadGenerationRef.current;
     void getJson<HealthDto>("/api/health")
       .then((result) => {
+        if (!isCurrent()) return;
         setHealth(result);
         setError(null);
       })
-      .catch(() => setError("ヘルスの取得に失敗しました"));
+      .catch(() => {
+        if (isCurrent()) setError("ヘルスの取得に失敗しました");
+      });
     void getJson<{ providers: ProviderAuthDto[] }>("/api/providers")
-      .then((result) => setProviders(result.providers))
+      .then((result) => {
+        if (isCurrent()) setProviders(result.providers);
+      })
       .catch(() => undefined);
   }, []);
 

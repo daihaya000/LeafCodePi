@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,10 +20,17 @@ vi.mock("@/components/settings/ProviderModelsPanel", () => ({
   ProviderModelsPanel: () => <h3>モデル</h3>,
 }));
 vi.mock("@/components/settings/ProviderAuthPanel", () => ({
-  ProviderAuthPanel: ({ providers }: { providers: unknown[] }) => (
+  ProviderAuthPanel: ({
+    providers,
+    onChanged,
+  }: {
+    providers: unknown[];
+    onChanged?: () => void;
+  }) => (
     <>
       <h3>プロバイダー</h3>
       <span data-testid="provider-count">{providers.length}</span>
+      <button type="button" onClick={onChanged} aria-label="プロバイダー変更を反映" />
     </>
   ),
 }));
@@ -151,6 +158,40 @@ describe("SettingsView", () => {
     await waitFor(() => {
       expect(screen.getByTestId("provider-count").textContent).toBe("1");
     });
+  });
+
+  it("新しい再読み込み後に古いヘルス結果で状態を巻き戻さない", async () => {
+    let resolveFirst!: (value: { engineOk: boolean }) => void;
+    let resolveSecond!: (value: { engineOk: boolean }) => void;
+    const firstHealth = new Promise<{ engineOk: boolean }>((resolve) => { resolveFirst = resolve; });
+    const secondHealth = new Promise<{ engineOk: boolean }>((resolve) => { resolveSecond = resolve; });
+    let healthCalls = 0;
+    getJson.mockImplementation((path: string) => {
+      if (path === "/api/health") {
+        healthCalls += 1;
+        return healthCalls === 1 ? firstHealth : secondHealth;
+      }
+      return Promise.resolve({ providers: [] });
+    });
+
+    render(<SettingsView />);
+    await waitFor(() => expect(healthCalls).toBe(1));
+    fireEvent.click(screen.getByRole("tab", { name: /^モデルタブ$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "プロバイダー変更を反映" }));
+    await waitFor(() => expect(healthCalls).toBe(2));
+
+    await act(async () => {
+      resolveSecond({ engineOk: true });
+      await Promise.resolve();
+    });
+    expect(screen.getByText("利用可")).toBeTruthy();
+
+    await act(async () => {
+      resolveFirst({ engineOk: false });
+      await Promise.resolve();
+    });
+    expect(screen.getByText("利用可")).toBeTruthy();
+    expect(screen.queryByText("未接続")).toBeNull();
   });
 
   it("ヘルス取得中は確認中と表示し、未接続と誤表示しない", async () => {
