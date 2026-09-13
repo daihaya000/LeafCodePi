@@ -40,6 +40,7 @@ const testBot = {
 };
 beforeEach(() => {
   localStorage.clear();
+  mocks.botFor.mockImplementation(() => undefined);
   mocks.getJson.mockImplementation(async (url: string) => url === "/api/models" ? { models: [] } : url.endsWith("/routines") ? { routines: [] } : { bot: testBot });
   mocks.sendJson.mockResolvedValue({ bot: testBot });
   vi.stubGlobal("EventSource", class {
@@ -635,6 +636,14 @@ it("ignores a late SSE error from the previous model after switching models", as
   });
 
   expect(screen.queryByText("モデルを利用できません: provider::old-model")).toBeNull();
+});
+
+it("treats an in-progress Code session as Bot activity", async () => {
+  mocks.botFor.mockReturnValue({ codeSessionCount: 1 });
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  expect(mocks.reportStatus).toHaveBeenLastCalledWith("/bots/one", "working");
+  await screen.findByRole("heading", { name: "Bot" });
+  expect(document.querySelector("header svg.bot-avatar-working")).toBeTruthy();
 });
 
 it("reports streaming activity for the Bot tab even when hidden", async () => {
