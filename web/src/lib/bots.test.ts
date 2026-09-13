@@ -50,6 +50,7 @@ describe("bot store", () => {
   afterEach(() => { rmSync(root, { recursive: true, force: true }); botTestState.root = ""; });
   it("creates the bot home and minimum config", () => {
     const bot = createBot({ name: "Researcher" });
+    expect(bot.label).toBe("");
     expect(bot.tools).toEqual(BOT_DEFAULT_TOOL_NAMES);
     expect(bot.tools).toContain("intercom");
     expect(bot.tools).not.toEqual(expect.arrayContaining([...BOT_DEFAULT_DISABLED_TOOL_NAMES]));
