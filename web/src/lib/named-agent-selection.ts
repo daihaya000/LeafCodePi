@@ -1,5 +1,5 @@
 /**
- * Shared JSON name-selection parse used by Auto agent routing and Room opener.
+ * Shared JSON name-selection parse used by Room opener (Auto keeps its own inline parse).
  * Keep this tiny and behavior-stable: unknown names / extra keys are rejected.
  */
 

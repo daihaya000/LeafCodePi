@@ -14,7 +14,6 @@ import {
 import { getSetting } from "@/lib/pi/web-settings";
 import { buildTranscript, type ConversationMessage } from "@/lib/direct-generation-text";
 import { AUTO_AGENT_VALUE, DEFAULT_AGENT } from "@/lib/default-agent";
-import { parseNamedAgentSelection } from "@/lib/named-agent-selection";
 
 const MAX_TRANSCRIPT_CHARS = 16_000;
 const MAX_DESCRIPTION_CHARS = 600;
@@ -206,10 +205,24 @@ function parseSelectionResponse(
   raw: string,
   candidates: readonly AutoAgentCandidate[],
 ): string | undefined {
-  return parseNamedAgentSelection(
-    raw,
-    candidates.map((candidate) => candidate.name),
-  );
+  const value = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  if (!value) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const keys = Object.keys(parsed);
+    if (keys.length !== 1 || keys[0] !== "agent") return undefined;
+    const agent = (parsed as { agent?: unknown }).agent;
+    if (typeof agent !== "string") return undefined;
+    const name = agent.trim();
+    return candidates.some((candidate) => candidate.name === name) ? name : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function formatAutoAgentPrompt(
