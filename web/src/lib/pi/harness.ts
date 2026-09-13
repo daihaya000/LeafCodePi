@@ -3048,6 +3048,12 @@ async function ensureLive(
       },
     );
     const model = modelRoute?.model;
+    if (task.providerID && task.modelID && !model) {
+      throw Object.assign(
+        new Error(`モデルを利用できません: ${task.providerID}::${task.modelID}`),
+        { status: 503 },
+      );
+    }
     const taskAccount = task.accountId ? getAccount(task.accountId) : undefined;
     if (accountIdExplicit && task.accountId && !taskAccount) {
       throw Object.assign(new Error("アカウントが見つかりません"), {

@@ -17,6 +17,7 @@ import { ShellProvider } from "@/components/shell/ShellContext";
 import { writeTaskTtsEnabled } from "@/lib/tts-playback";
 let listener: (event: { data: string }) => void;
 let deltaListener: (event: { data: string }) => void;
+let errorListener: (event: { data: string }) => void;
 function snapshot(payload: object) { act(() => listener({ data: JSON.stringify(payload) })); }
 function delta(payload: object) { act(() => deltaListener({ data: JSON.stringify(payload) })); }
 const testBot = {
@@ -44,6 +45,7 @@ beforeEach(() => {
   vi.stubGlobal("EventSource", class {
     addEventListener(name: string, callback: typeof listener) {
       if (name === "delta") deltaListener = callback;
+      else if (name === "error") errorListener = callback;
       else listener = callback;
     }
     close() {}
@@ -241,6 +243,18 @@ it("defers model loading until a hidden Bot tab is activated", async () => {
 
   view.rerender(<ShellProvider><BotView id="one" active /></ShellProvider>);
   await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/models"));
+});
+
+it("shows a server-side SSE error instead of reconnecting forever", async () => {
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await screen.findByRole("heading", { name: "Bot" });
+  if (!errorListener) throw new Error("SSE error listener was not registered");
+
+  await act(async () => {
+    errorListener(new MessageEvent("error", { data: JSON.stringify({ error: "モデルを利用できません" }) }));
+  });
+
+  expect(screen.getByRole("alert").textContent).toContain("モデルを利用できません");
 });
 
 it("reports streaming activity for the Bot tab even when hidden", async () => {

@@ -471,6 +471,21 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           if (payload.isStreaming !== undefined) setSending(payload.isStreaming);
         } catch { setError("イベントの解析に失敗しました"); }
       });
+      // The route uses a named SSE error event for server-side failures. Handle
+      // it separately from EventSource's transport error so a failed cold
+      // session is shown to the user instead of reconnecting forever.
+      source.addEventListener("error", (event) => {
+        if (closed || !(event instanceof MessageEvent) || typeof event.data !== "string") return;
+        closed = true;
+        source = closeSseSource(source);
+        retry = cancelPendingSseReconnect(retry);
+        try {
+          const payload = JSON.parse(event.data) as { error?: string };
+          setError(payload.error ?? "イベント接続に失敗しました");
+        } catch {
+          setError("イベント接続に失敗しました");
+        }
+      });
       source.onerror = () => {
         if (closed) return;
         source = closeSseSource(source);
