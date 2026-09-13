@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -605,6 +606,94 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
         ),
       ).toBe(true);
     });
+  });
+
+  it("ignores events from a previous login session", async () => {
+    class TestEventSource extends EventTarget {
+      static instances: TestEventSource[] = [];
+      closed = false;
+      constructor() {
+        super();
+        TestEventSource.instances.push(this);
+      }
+      close() {
+        this.closed = true;
+      }
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    let loginCount = 0;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.endsWith("/api/accounts") && method === "GET") {
+          return Promise.resolve(jsonResponse({ accounts: [accounts[0]] }));
+        }
+        if (url.endsWith("/api/accounts/acc-1/auth-status")) {
+          return Promise.resolve(jsonResponse({ providers: ["openai-codex"] }));
+        }
+        if (
+          url.includes("/api/providers/openai-codex/login") &&
+          method === "POST"
+        ) {
+          loginCount += 1;
+          return Promise.resolve(
+            jsonResponse({ sessionId: `session-${loginCount}` }),
+          );
+        }
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
+    render(
+      <ProviderAuthPanel providers={[providers[1]]} onChanged={() => {}} />,
+    );
+
+    const codex = await accountRegion("OpenAI Codex");
+    fireEvent.click(
+      await within(codex).findByRole("button", { name: "再ログイン" }),
+    );
+    await waitFor(() => {
+      expect(TestEventSource.instances).toHaveLength(1);
+    });
+    const first = TestEventSource.instances[0];
+    if (!first) throw new Error("Initial EventSource was not created");
+
+    fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
+    await waitFor(() => expect(first.closed).toBe(true));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "キャンセル" })).toBeNull(),
+    );
+
+    fireEvent.click(
+      await within(codex).findByRole("button", { name: "再ログイン" }),
+    );
+    await waitFor(() => {
+      expect(TestEventSource.instances).toHaveLength(2);
+    });
+    const second = TestEventSource.instances[1];
+    if (!second) throw new Error("Replacement EventSource was not created");
+
+    await act(async () => {
+      first.dispatchEvent(
+        new MessageEvent("notify", {
+          data: JSON.stringify({
+            type: "notify",
+            event: { type: "info", message: "古いログイン" },
+          }),
+        }),
+      );
+      second.dispatchEvent(
+        new MessageEvent("notify", {
+          data: JSON.stringify({
+            type: "notify",
+            event: { type: "info", message: "新しいログイン" },
+          }),
+        }),
+      );
+    });
+
+    expect(await screen.findByText("新しいログイン")).toBeTruthy();
+    expect(screen.queryByText("古いログイン")).toBeNull();
   });
 
   it("deletes only after confirmation", async () => {

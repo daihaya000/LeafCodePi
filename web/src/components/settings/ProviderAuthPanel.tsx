@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, type ReactNode, useCallback, useEffect, useState } from "react";
+import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
 import { Badge, Button, cx } from "@/components/ui";
 import { ProviderIcon } from "@/components/ProviderIcon";
@@ -213,6 +213,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   onChanged: () => void;
 }) {
   const [login, setLogin] = useState<LoginUiState | null>(null);
+  const loginGenerationRef = useRef(0);
   // アカウント（docs/plans/multi-account.md）。null = 未取得、[] = 取得済みで空。
   const [accounts, setAccounts] = useState<AccountRecord[] | null>(null);
   const [accountsError, setAccountsError] = useState<string | null>(null);
@@ -445,114 +446,120 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
 
   useEffect(() => {
     if (!login?.sessionId) return;
+    const sessionId = login.sessionId;
     const providerId = login.providerId;
+    const generation = loginGenerationRef.current;
+    let closed = false;
+    let finishTimer: number | undefined;
+    const isCurrent = () =>
+      !closed && loginGenerationRef.current === generation;
+    const updateLogin = (update: (current: LoginUiState) => LoginUiState) => {
+      if (loginGenerationRef.current !== generation) return;
+      setLogin((prev) =>
+        prev?.sessionId === sessionId ? update(prev) : prev,
+      );
+    };
     const es = new EventSource(
       apiUrl(`/api/providers/${encodeURIComponent(providerId)}/login/events`),
     );
     es.addEventListener("notify", (raw) => {
+      if (!isCurrent()) return;
       const payload = JSON.parse((raw as MessageEvent).data) as Extract<
         LoginSessionEvent,
         { type: "notify" }
       >;
       const event = payload.event;
       if (event.type === "auth_url") {
-        setLogin((prev) =>
-          prev
-            ? {
-                ...prev,
-                authUrl: event.url,
-                status: event.instructions ?? "ブラウザでログインしてください",
-              }
-            : prev,
-        );
+        updateLogin((prev) => ({
+          ...prev,
+          authUrl: event.url,
+          status: event.instructions ?? "ブラウザでログインしてください",
+        }));
         window.open(event.url, "_blank", "noopener,noreferrer");
       } else if (event.type === "device_code") {
-        setLogin((prev) =>
-          prev
-            ? {
-                ...prev,
-                deviceCode: event,
-                status: "デバイスコードでログインしてください",
-              }
-            : prev,
-        );
+        updateLogin((prev) => ({
+          ...prev,
+          deviceCode: event,
+          status: "デバイスコードでログインしてください",
+        }));
         window.open(event.verificationUri, "_blank", "noopener,noreferrer");
       } else if (event.type === "progress" || event.type === "info") {
-        setLogin((prev) => (prev ? { ...prev, status: event.message } : prev));
+        updateLogin((prev) => ({ ...prev, status: event.message }));
       }
     });
     es.addEventListener("prompt", (raw) => {
+      if (!isCurrent()) return;
       const payload = JSON.parse((raw as MessageEvent).data) as Extract<
         LoginSessionEvent,
         { type: "prompt" }
       >;
-      setLogin((prev) =>
-        prev
-          ? {
-              ...prev,
-              prompt: { id: payload.id, prompt: payload.prompt },
-              input: "",
-              busy: false,
-              status: payload.prompt.message,
-            }
-          : prev,
-      );
+      updateLogin((prev) => ({
+        ...prev,
+        prompt: { id: payload.id, prompt: payload.prompt },
+        input: "",
+        busy: false,
+        status: payload.prompt.message,
+      }));
     });
     es.addEventListener("done", (raw) => {
+      if (!isCurrent()) return;
       const payload = JSON.parse((raw as MessageEvent).data) as Extract<
         LoginSessionEvent,
         { type: "done" }
       >;
+      closed = true;
       es.close();
       if (payload.ok) {
-        setLogin((prev) =>
-          prev
-            ? {
-                ...prev,
-                busy: false,
-                prompt: null,
-                status: "ログイン完了",
-                warning:
-                  "warning" in payload ? (payload.warning ?? null) : null,
-                error: null,
-              }
-            : prev,
-        );
+        updateLogin((prev) => ({
+          ...prev,
+          busy: false,
+          prompt: null,
+          status: "ログイン完了",
+          warning: "warning" in payload ? (payload.warning ?? null) : null,
+          error: null,
+        }));
         void refreshAccounts();
         onChanged();
-        window.setTimeout(() => setLogin(null), 1500);
+        finishTimer = window.setTimeout(() => {
+          if (loginGenerationRef.current !== generation) return;
+          setLogin((prev) =>
+            prev?.sessionId === sessionId ? null : prev,
+          );
+        }, 1500);
       } else {
-        setLogin((prev) =>
-          prev
-            ? {
-                ...prev,
-                busy: false,
-                error: payload.error,
-                status: "失敗",
-              }
-            : prev,
-        );
+        updateLogin((prev) => ({
+          ...prev,
+          busy: false,
+          error: payload.error,
+          status: "失敗",
+        }));
       }
     });
-    return () => es.close();
+    return () => {
+      closed = true;
+      if (finishTimer !== undefined) window.clearTimeout(finishTimer);
+      es.close();
+    };
   }, [login?.sessionId, login?.providerId, onChanged, refreshAccounts]);
 
   async function stopLogin() {
-    if (login) {
-      try {
-        await fetch(
-          apiUrl(
-            `/api/providers/${encodeURIComponent(login.providerId)}/login/answer`,
-          ),
-          {
-            method: "DELETE",
-          },
-        );
-      } catch {
-        /* ignore */
-      }
+    const activeLogin = login;
+    if (!activeLogin) return;
+    const generation = ++loginGenerationRef.current;
+    try {
+      await fetch(
+        apiUrl(
+          `/api/providers/${encodeURIComponent(activeLogin.providerId)}/login/answer`,
+        ),
+        {
+          method: "DELETE",
+        },
+      );
+    } catch {
+      /* ignore */
+    } finally {
+      if (loginGenerationRef.current === generation) setLogin(null);
     }
-    setLogin(null);
   }
 
   async function beginLogin(
@@ -560,6 +567,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     authType: "api_key" | "oauth",
     accountId?: string | null,
   ) {
+    const generation = ++loginGenerationRef.current;
     setLogin({
       providerId: provider.id,
       providerName: provider.name,
@@ -583,7 +591,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         { type: authType },
       );
       setLogin((prev) =>
-        prev
+        loginGenerationRef.current === generation && prev
           ? {
               ...prev,
               sessionId: result.sessionId,
@@ -594,7 +602,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
       );
     } catch (error) {
       setLogin((prev) =>
-        prev
+        loginGenerationRef.current === generation && prev
           ? {
               ...prev,
               busy: false,
@@ -606,24 +614,37 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   }
 
   async function submitAnswer(value: string) {
-    if (!login?.prompt) return;
-    setLogin((prev) => (prev ? { ...prev, busy: true, error: null } : prev));
+    const activeLogin = login;
+    const prompt = activeLogin?.prompt;
+    if (!prompt) return;
+    const generation = loginGenerationRef.current;
+    setLogin((prev) =>
+      loginGenerationRef.current === generation &&
+      prev?.sessionId === activeLogin.sessionId &&
+      prev.prompt?.id === prompt.id
+        ? { ...prev, busy: true, error: null }
+        : prev,
+    );
     try {
       await sendJson(
-        `/api/providers/${encodeURIComponent(login.providerId)}/login/answer`,
+        `/api/providers/${encodeURIComponent(activeLogin.providerId)}/login/answer`,
         {
-          promptId: login.prompt.id,
+          promptId: prompt.id,
           value,
         },
       );
       setLogin((prev) =>
-        prev
+        loginGenerationRef.current === generation &&
+        prev?.sessionId === activeLogin.sessionId &&
+        prev.prompt?.id === prompt.id
           ? { ...prev, prompt: null, input: "", busy: false, status: "続行中…" }
           : prev,
       );
     } catch (error) {
       setLogin((prev) =>
-        prev
+        loginGenerationRef.current === generation &&
+        prev?.sessionId === activeLogin.sessionId &&
+        prev.prompt?.id === prompt.id
           ? {
               ...prev,
               busy: false,
