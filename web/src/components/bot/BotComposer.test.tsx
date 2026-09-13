@@ -13,6 +13,19 @@ it("forwards clipboard paste events to the input", () => {
   expect(onPaste).toHaveBeenCalledOnce();
 });
 
+it("opens the image picker and forwards selected files", () => {
+  const onFilesSelected = vi.fn();
+  const { container, getByRole } = render(<BotComposer value="" onChange={vi.fn()} onFilesSelected={onFilesSelected} onKeyDown={vi.fn()} onSend={vi.fn()} placeholder="Message" />);
+  const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+  if (!input) throw new Error("file input was not rendered");
+  const click = vi.spyOn(input, "click");
+  fireEvent.click(getByRole("button", { name: "画像を添付" }));
+  expect(click).toHaveBeenCalledOnce();
+  const file = new File(["image"], "image.png", { type: "image/png" });
+  fireEvent.change(input, { target: { files: [file] } });
+  expect(onFilesSelected).toHaveBeenCalledWith([file]);
+});
+
 it("does not consume Ctrl+Enter while a reference suggestion is open", () => {
   const onKeyDown = vi.fn();
   function ReferenceComposer() {

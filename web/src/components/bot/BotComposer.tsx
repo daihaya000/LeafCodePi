@@ -1,7 +1,7 @@
 "use client";
 
 import { type ChangeEventHandler, type ClipboardEventHandler, type CompositionEventHandler, type KeyboardEventHandler, type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Plus, Square, UsersRound, Wrench } from "lucide-react";
+import { ArrowUp, Paperclip, SlidersHorizontal, Square, UsersRound, Wrench } from "lucide-react";
 import { COMPOSER_ACTION_BUTTON_CLASS, ImageLightbox, type ComposerAttachment, type ComposerReferences } from "@/components/Composer";
 import { composerReferenceInsertion, composerReferenceToolNames, filterComposerReferences, findComposerReferenceToken, type ComposerReference } from "@/lib/composer-references";
 import { isImeComposingEvent } from "@/lib/composer-ime";
@@ -11,6 +11,8 @@ type BotComposerProps = {
   onChange: ChangeEventHandler<HTMLTextAreaElement>;
   attachments?: ComposerAttachment[];
   onRemoveAttachment?: (index: number) => void;
+  onFilesSelected?: (files: FileList) => void;
+  attachmentDisabled?: boolean;
   onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
   onCompositionStart?: CompositionEventHandler<HTMLTextAreaElement>;
@@ -32,6 +34,8 @@ export function BotComposer({
   onChange,
   attachments,
   onRemoveAttachment,
+  onFilesSelected,
+  attachmentDisabled = false,
   onPaste,
   onKeyDown,
   onCompositionStart,
@@ -55,6 +59,7 @@ export function BotComposer({
   const optionsId = useId();
   const referenceOptionsId = useId();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const composingRef = useRef(false);
   const availableReferences = useMemo(
     () => ({ skills: references?.skills ?? [], agents: references?.agents ?? [] }),
@@ -108,7 +113,22 @@ export function BotComposer({
       <div className="bot-composer-shell mx-auto w-full rounded-3xl border border-bot-outline/70 bg-bot-panel px-2 py-1 transition-[border-color,box-shadow] focus-within:border-bot-outline">
         {attachments && attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{attachments.map((attachment, index) => <span key={`${attachment.uri}-${index}`} className="relative overflow-hidden rounded-lg border border-border"><ImageLightbox src={attachment.uri} alt={attachment.name ?? "添付画像"} className="h-16 w-16 object-cover" /><button type="button" aria-label={`${index + 1}番目の画像を削除`} onClick={() => onRemoveAttachment?.(index)} className="absolute right-0 top-0 rounded-bl bg-black/60 px-1 text-xs text-white">×</button></span>)}</div>}
         <div className="flex items-end gap-2">
-          {footer && <button type="button" aria-label="会話のオプション" aria-expanded={optionsOpen} aria-controls={optionsId} onClick={() => setOptionsOpen((open) => !open)} className={`${COMPOSER_ACTION_BUTTON_CLASS} mb-1 bg-surface-2 text-muted hover:bg-surface-3 hover:text-text`}><Plus className="h-4 w-4" /></button>}
+          {onFilesSelected && <>
+            <input
+              ref={attachmentInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              disabled={attachmentDisabled || busy}
+              onChange={(event) => {
+                if (event.target.files) onFilesSelected(event.target.files);
+                event.target.value = "";
+              }}
+            />
+            <button type="button" disabled={attachmentDisabled || busy} title="画像を添付" aria-label="画像を添付" onClick={() => attachmentInputRef.current?.click()} className={`${COMPOSER_ACTION_BUTTON_CLASS} mb-1 bg-surface-2 text-muted hover:bg-surface-3 hover:text-text`}><Paperclip className="h-4 w-4" /></button>
+          </>}
+          {footer && <button type="button" aria-label="会話のオプション" aria-expanded={optionsOpen} aria-controls={optionsId} onClick={() => setOptionsOpen((open) => !open)} className={`${COMPOSER_ACTION_BUTTON_CLASS} mb-1 bg-surface-2 text-muted hover:bg-surface-3 hover:text-text`}><SlidersHorizontal className="h-4 w-4" /></button>}
           <div className="relative min-w-0 flex-1">
             <textarea
               ref={(element) => { textareaRef.current = element; if (inputRef) inputRef.current = element; }}
