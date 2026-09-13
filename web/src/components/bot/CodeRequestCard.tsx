@@ -67,7 +67,10 @@ export function CodeRequestCard({
   useEffect(() => {
     if (!taskId) return;
     let closed = false;
+    let inFlight = false;
     const load = async () => {
+      if (closed || inFlight) return;
+      inFlight = true;
       setLoading(true);
       try {
         const result = await getJson<{ task: TaskDetail | null }>(`/api/tasks/${encodeURIComponent(taskId)}`);
@@ -77,6 +80,7 @@ export function CodeRequestCard({
       } catch (reason) {
         if (!closed) setError(reason instanceof Error ? reason.message : "Codeタスクを読み込めませんでした");
       } finally {
+        inFlight = false;
         if (!closed) setLoading(false);
       }
     };
