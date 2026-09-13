@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "./paths";
@@ -160,6 +160,15 @@ export function deleteBot(id: string): boolean {
 }
 export function botWorkspace(id: string): string { return join(botRoot(id), "workspace"); }
 export function botSoul(id: string): string { return readFileSync(soulPath(id), "utf8"); }
+/** Lightweight revision used to notice SOUL edits made by another worker. */
+export function botSoulRevision(id: string): string | null {
+  try {
+    const stat = statSync(soulPath(id));
+    return `${stat.mtimeMs}:${stat.size}`;
+  } catch {
+    return null;
+  }
+}
 export function botTaskId(id: string): string { return `bot:${id}`; }
 /** Runtime facts are separate from BOTS.md/SOUL.md and never import global AGENTS.md. */
 export function botRuntimeContext(extensions: readonly { path: string }[]): string {

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   setTaskThinkingLevel: vi.fn(),
   setBotTools: vi.fn(),
   resetTaskConversation: vi.fn(),
+  requestBotSoulReload: vi.fn(),
   resetTaskSession: vi.fn(),
   destroyTask: vi.fn(),
   listTasks: vi.fn(() => []),
@@ -29,6 +30,7 @@ vi.mock("@/lib/pi/harness", () => ({
   setTaskThinkingLevel: mocks.setTaskThinkingLevel,
   setBotTools: mocks.setBotTools,
   resetTaskConversation: mocks.resetTaskConversation,
+  requestBotSoulReload: mocks.requestBotSoulReload,
   resetTaskSession: mocks.resetTaskSession,
   destroyTask: mocks.destroyTask,
 }));
@@ -89,6 +91,8 @@ describe("PATCH /api/bots/[id]", () => {
     mocks.getBot.mockReturnValue(bot());
     for (const body of [
       { name: "  " },
+      { soul: "x".repeat(128 * 1024 + 1) },
+      { soul: "bad\0soul" },
       { model: "" },
       { ttsVoice: 42 },
       { permissionMode: "turbo" },
@@ -145,7 +149,8 @@ describe("PATCH /api/bots/[id]", () => {
     mocks.patchBot.mockReturnValue(bot());
     const soul = await PATCH(jsonRequest({ soul: "Be precise" }), params("one"));
     expect(soul.status).toBe(200);
-    expect(mocks.resetTaskSession).toHaveBeenCalledWith("bot:one");
+    expect(mocks.requestBotSoulReload).toHaveBeenCalledWith("one");
+    expect(mocks.resetTaskSession).not.toHaveBeenCalled();
     expect(mocks.resetTaskConversation).not.toHaveBeenCalled();
   });
 

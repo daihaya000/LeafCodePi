@@ -13,7 +13,7 @@ import {
   samePath,
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
-import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, getBot } from "@/lib/bots";
+import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, getBot } from "@/lib/bots";
 import { codePromptSources } from "@/lib/agents-md";
 import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
 import { BOT_SOUL_TOOL, botSoulTool } from "@/lib/pi/bot-soul-tool";
@@ -375,6 +375,8 @@ type LiveRuntime = {
   restoreAutoRetry: boolean;
   /** Recreate this Bot session after update_soul so the next turn reads the new file. */
   soulReloadPending: boolean;
+  /** SOUL.md revision observed when this session was created. */
+  soulRevision: string | null;
 };
 
 function messageContext(live: LiveRuntime): MessageAccountContext {
@@ -1594,6 +1596,7 @@ async function attachSession(
   // タスクの利用アカウント。セッション生存中はマネージャ参照で蒸発対象外にする。
   const attachedAccountId = attachedTask?.accountId ?? null;
   const attachedAgentName = attachedTask?.agent?.trim() || null;
+  const attachedBotId = attachedTask?.kind === "bot" ? attachedTask.botId : undefined;
   const keepsExistingAccountRef =
     Boolean(attachedAccountId && existing?.accountId === attachedAccountId);
   if (attachedAccountId && !keepsExistingAccountRef) {
@@ -1663,6 +1666,7 @@ async function attachSession(
     restoreAutoRetry: false,
     // A newly created session has already re-read the Bot's SOUL.md.
     soulReloadPending: false,
+    soulRevision: attachedBotId ? botSoulRevision(attachedBotId) : null,
   };
 
   const unsubscribe = session.subscribe((event) => {
@@ -1972,7 +1976,17 @@ function botAttentionSource(taskId: string, kind: "permission" | "question", req
   return taskId;
 }
 
-/** Recreate a bot session so edited SOUL.md is applied on the next reply. */
+/** Mark every live session for a Bot so its next turn reloads SOUL.md. */
+export function requestBotSoulReload(botId: string): void {
+  for (const live of state().live.values()) {
+    const task = getTask(live.taskId);
+    if (task?.kind === "bot" && task.botId === botId) {
+      live.soulReloadPending = true;
+    }
+  }
+}
+
+/** Recreate a non-Bot session so edited prompt sources are applied on the next reply. */
 export function resetTaskSession(taskId: string): void {
   disposeLive(taskId);
   patchTask(taskId, { status: "idle", error: null });
@@ -2235,7 +2249,6 @@ async function createSession(options: {
   const roomHandoffTaskId = roomForCodeOrigin(sessionTask) ? options.taskId : undefined;
   const botSoulBotId =
     sessionTask?.kind === "bot" && sessionTask.botId ? sessionTask.botId : undefined;
-  const botSoulTaskId = botSoulBotId ? options.taskId : undefined;
   const pi = await loadPi();
   await ensureRuntime();
   const agentDir = pi.getAgentDir();
@@ -2299,10 +2312,7 @@ async function createSession(options: {
         }));
       },
       ...(botSoulBotId
-        ? [botSoulTool(botSoulBotId, () => {
-            const live = botSoulTaskId ? state().live.get(botSoulTaskId) : undefined;
-            if (live) live.soulReloadPending = true;
-          })]
+        ? [botSoulTool(botSoulBotId, () => requestBotSoulReload(botSoulBotId))]
         : []),
       botToolAllowlist
         ? (api: ExtensionAPI) => registerDeferredTools(api, botToolAllowlist)
@@ -5659,6 +5669,11 @@ async function replaceLiveForSoul(live: LiveRuntime): Promise<LiveRuntime> {
 
 async function reloadLiveForSoulIfNeeded(live: LiveRuntime): Promise<LiveRuntime> {
   const current = state().live.get(live.taskId) ?? live;
+  const task = getTask(current.taskId);
+  if (task?.kind === "bot" && task.botId && botSoulRevision(task.botId) !== current.soulRevision) {
+    // The write may have happened in another Next worker, so the in-memory callback is not enough.
+    current.soulReloadPending = true;
+  }
   if (!current.soulReloadPending || current.session.isStreaming || current.session.isCompacting) {
     return current;
   }

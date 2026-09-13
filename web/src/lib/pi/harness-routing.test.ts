@@ -242,7 +242,8 @@ import {
 } from "@/lib/accounts";
 import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
-import { botTaskId, createBot } from "@/lib/bots";
+import { botTaskId, createBot, patchBot } from "@/lib/bots";
+import { createRoom, ensureRoomBotTask } from "@/lib/rooms";
 import { patchTask, upsertProject, getTask } from "@/lib/store";
 import type { ThinkingLevel } from "@/lib/types";
 import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
@@ -256,6 +257,7 @@ import {
   getTaskDetail,
   mergeBundledSkills,
   promptTask,
+  requestBotSoulReload,
   resolveProviderFallbackModels,
 } from "./harness";
 
@@ -416,6 +418,49 @@ describe("integrated session routing", () => {
     expect(fakePi.sessions).toHaveLength(2);
     expect(first.disposed).toBe(true);
     expect(fakePi.sessions[1]?.prompts).toEqual(["next"]);
+  });
+
+  it("notices a SOUL edit made outside this worker before the next prompt", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-bot-soul-worker-reload-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const bot = createBot({ name: "Worker soul bot" });
+    const taskId = botTaskId(bot.id);
+    await promptTask(taskId, "initial", undefined, { waitForCompletion: true });
+    const first = fakePi.sessions[0]!;
+    patchBot(bot.id, { soul: "# Changed in another worker" });
+
+    await promptTask(taskId, "next", undefined, { waitForCompletion: true });
+
+    expect(fakePi.sessions).toHaveLength(2);
+    expect(first.disposed).toBe(true);
+  });
+
+  it("marks every live conversation for the Bot when SOUL changes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-bot-soul-all-sessions-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const bot = createBot({ name: "Shared soul bot" });
+    const room = createRoom({ name: "Soul room", members: [bot.id] });
+    const roomTaskId = ensureRoomBotTask(room, bot);
+    await promptTask(botTaskId(bot.id), "one-to-one", undefined, { waitForCompletion: true });
+    await promptTask(roomTaskId, "room", undefined, { waitForCompletion: true });
+
+    requestBotSoulReload(bot.id);
+
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, { soulReloadPending: boolean }>;
+    };
+    expect(harness.live.get(botTaskId(bot.id))?.soulReloadPending).toBe(true);
+    expect(harness.live.get(roomTaskId)?.soulReloadPending).toBe(true);
   });
 
   it("uses persisted Auto settings when resolving the Auto task sentinel", async () => {

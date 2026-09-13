@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { BOT_TOOL_NAMES, deleteBot, getBot, normalizeBotSkills, patchBot, botTaskId } from "@/lib/bots";
-import { destroyTask, resetTaskConversation, resetTaskSession, setBotTools, setTaskModel, setTaskThinkingLevel } from "@/lib/pi/harness";
+import { destroyTask, requestBotSoulReload, resetTaskConversation, resetTaskSession, setBotTools, setTaskModel, setTaskThinkingLevel } from "@/lib/pi/harness";
+import { validateBotSoulContent } from "@/lib/pi/bot-soul-tool";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape } from "@/lib/bot-avatar";
 import { isAbsolutePath } from "@/lib/paths";
@@ -37,6 +38,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const hasPermissionMode = body?.permissionMode !== undefined;
   const hasEnabled = body?.enabled !== undefined;
   const hasResetMessages = body?.resetMessages !== undefined;
+  const soulValidationError = body?.soul === undefined ? null : validateBotSoulContent(body.soul);
   const rawSkills = hasSkills ? body?.skills : undefined;
   const skills = hasSkills ? normalizeBotSkills(rawSkills) : undefined;
   const validSkills = !hasSkills || (rawSkills !== null && typeof rawSkills === "object" && !Array.isArray(rawSkills) &&
@@ -49,7 +51,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     !body ||
     (body.name !== undefined && (typeof body.name !== "string" || !body.name.trim())) ||
     (body.label !== undefined && (typeof body.label !== "string" || !body.label.trim())) ||
-    (body.soul !== undefined && typeof body.soul !== "string") ||
+    soulValidationError !== null ||
     (body.avatarColor !== undefined && !isAvatarColor(body.avatarColor)) ||
     (body.avatarShape !== undefined && !isAvatarShape(body.avatarShape)) ||
     (body.avatarEyeColor !== undefined && body.avatarEyeColor !== null && !isAvatarEyeColor(body.avatarEyeColor)) ||
@@ -106,9 +108,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!bot) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
     if (hasTools) setBotTools(id, bot.tools ?? []);
     if (hasResetMessages) await resetTaskConversation(botTaskId(id));
-    // SOUL and the per-Bot skill allowlist both shape the system prompt, so a change must rebuild the
-    // session (the file keeps the history); otherwise the live session would keep the old prompt.
-    else if (body.soul !== undefined || hasSkills) resetTaskSession(botTaskId(id));
+    // SOUL and the per-Bot skill allowlist both shape the system prompt. Do not dispose a working
+    // session: mark all local Bot conversations and rebuild them at their next safe turn boundary.
+    else if (body.soul !== undefined) requestBotSoulReload(id);
+    else if (hasSkills) resetTaskSession(botTaskId(id));
     return NextResponse.json({ bot });
   } catch (error) {
     const message = error instanceof Error ? error.message : "\u30dc\u30c3\u30c8\u8a2d\u5b9a\u304c\u4e0d\u6b63\u3067\u3059";
