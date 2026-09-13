@@ -675,13 +675,13 @@ class IntercomBroker {
 
         const targets = this.findSessions(clientMessage.to, fromSession.scopeId);
         if (targets.length === 1) {
-          if (message.replyTo && !replyEdge) {
-            this.writeDeliveryFailure(socket, message.id, "Reply target does not match a pending ask", "E_REPLY_TARGET");
-            break;
-          }
           const target = targets[0];
           const fingerprint = this.deliveryFingerprint(message, target.info.id);
           if (this.replayOrReject(socket, currentKey, message.id, fingerprint)) {
+            break;
+          }
+          if (message.replyTo && !replyEdge) {
+            this.writeDeliveryFailure(socket, message.id, "Reply target does not match a pending ask", "E_REPLY_TARGET");
             break;
           }
           if (message.supersedes) {
@@ -726,6 +726,11 @@ class IntercomBroker {
               from: fromSession.info,
               control,
             });
+            const supersededEdge = this.askEdges.get(message.supersedes);
+            if (supersededEdge?.from === currentKey && supersededEdge.to === target.key) {
+              this.askEdges.delete(message.supersedes);
+              this.removePendingAskRecord(message.supersedes, fromSession.scopeId);
+            }
             this.updateDeliveryRecord(currentKey, message.supersedes, "failed", `Superseded by ${message.id}`, "E_DELIVERY_SUPERSEDED");
           }
           writeMessage(target.socket, {
@@ -750,14 +755,14 @@ class IntercomBroker {
 
         const disconnectedTargets = this.findDisconnectedSessions(clientMessage.to, fromSession.scopeId);
         if (disconnectedTargets.length === 1) {
-          if (message.replyTo && !replyEdge) {
-            this.writeDeliveryFailure(socket, message.id, "Reply target does not match a pending ask", "E_REPLY_TARGET");
-            break;
-          }
           const disconnectedTarget = disconnectedTargets[0]!;
           const target = disconnectedTarget.info;
           const fingerprint = this.deliveryFingerprint(message, target.id);
           if (this.replayOrReject(socket, currentKey, message.id, fingerprint)) {
+            break;
+          }
+          if (message.replyTo && !replyEdge) {
+            this.writeDeliveryFailure(socket, message.id, "Reply target does not match a pending ask", "E_REPLY_TARGET");
             break;
           }
           if (message.supersedes) {

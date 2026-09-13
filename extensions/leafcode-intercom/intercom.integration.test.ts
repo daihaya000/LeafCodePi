@@ -2837,6 +2837,70 @@ test("broker removes a pending ask record after a delivered reply", { concurrenc
   }
 });
 
+for (const expectsReply of [false, true]) {
+  test(`superseding an ask clears only the old pending edge (replacement ask: ${expectsReply})`, { concurrency: false }, async () => {
+    const { planner, orchestrator, cleanup } = await setupClients();
+    const askId = "superseded-pending-ask";
+    const replacementId = "replacement-pending-ask";
+    try {
+      assert.equal((await planner.send(orchestrator.sessionId!, {
+        messageId: askId, text: "Old question", expectsReply: true,
+      })).delivered, true);
+      assert.equal((await planner.send(orchestrator.sessionId!, {
+        messageId: replacementId, text: "Replacement", supersedes: askId, expectsReply,
+      })).delivered, true);
+
+      const staleReply = await orchestrator.send(planner.sessionId!, { text: "Stale answer", replyTo: askId });
+      assert.equal(staleReply.code, "E_REPLY_TARGET");
+      assert.equal(existsSync(pendingAskRecordPath(askId)), false);
+      assert.equal(existsSync(pendingAskRecordPath(replacementId)), expectsReply);
+      if (expectsReply) {
+        const blocked = await orchestrator.send(planner.sessionId!, { text: "Reverse ask", expectsReply: true });
+        assert.equal(blocked.code, "E_MUTUAL_ASK");
+        assert.equal((await orchestrator.send(planner.sessionId!, { text: "New answer", replyTo: replacementId })).delivered, true);
+      }
+      const reverseAsk = await orchestrator.send(planner.sessionId!, { text: "Now can I ask?", expectsReply: true });
+      assert.equal(reverseAsk.delivered, true);
+    } finally {
+      await cleanup();
+    }
+  });
+}
+
+for (const disconnected of [false, true]) {
+  test(`duplicate replies replay their delivery result without redelivery (mailbox: ${disconnected})`, { concurrency: false }, async () => {
+    const { planner, orchestrator, cleanup } = await setupClients();
+    const askId = "deduplicated-reply-ask";
+    const plannerId = planner.sessionId!;
+    const received: Message[] = [];
+    planner.on("message", (_from: SessionInfo, message: Message) => received.push(message));
+    try {
+      assert.equal((await planner.send(orchestrator.sessionId!, {
+        messageId: askId, text: "Question", expectsReply: true,
+      })).delivered, true);
+      if (disconnected) await planner.disconnect();
+      const reply = { messageId: "deduplicated-reply", text: "Answer", replyTo: askId };
+      const first = await orchestrator.send(plannerId, reply);
+      assert.equal(first.delivered, true);
+      assert.equal(first.delivery, disconnected ? "queued" : "socket_delivered");
+      assert.deepEqual(await orchestrator.send(plannerId, reply), first);
+      const changed = await orchestrator.send(plannerId, { ...reply, text: "Changed answer" });
+      assert.equal(changed.code, "E_MESSAGE_ID_REUSE");
+      if (disconnected) {
+        await planner.connect({
+          name: "planner", cwd: repoDir, model: "test-model", pid: process.pid,
+          startedAt: Date.now(), lastActivity: Date.now(),
+        }, plannerId);
+      }
+      // A list response is a barrier after earlier message frames on this socket.
+      await planner.listSessions();
+      assert.deepEqual(received.map((message) => message.id), [reply.messageId]);
+    } finally {
+      await cleanup();
+    }
+  });
+}
+
 test("broker removes a pending ask record after asker cancellation", { concurrency: false }, async () => {
   const { planner, orchestrator, cleanup } = await setupClients();
   const askId = "pending-record-cancelled-ask";
