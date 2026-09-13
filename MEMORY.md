@@ -1,5 +1,29 @@
 # MEMORY
 
+## 2026-09-13: Room 正式 @mention pill → 暗黙 room_handoff
+
+### 問題
+Bot Room でアシスタントが UI の `@デバッガー` チップを出してもサーバに何も登録されず、相手が起きない。起床は `room_handoff` / `ROOM_ACTION: NEXT` のみ。Auto / Room opener は対象外。
+
+### 修正
+- `formalRoomMemberMentions` / `withImplicitRoomMention`: UI チップと同じ `@名前|id`（語境界・ひらがな接尾、フェンス除外）。地の名前は無視
+- `bindImplicitMentionHandoff`: 同一ターン1件を既存 `registerRoomHandoff` へ。明示 NEXT / 既存 tool handoff 優先
+- 暗黙は `botRelayEnabled` なしでもサーバ起点で配信。クライアント envelope spoof 検証は未変更
+- 登録失敗時は `lastOutcome.kind = mention`（サイレント完了しない）
+- 深度・ループは既存リレーと同じ
+
+### 変更ファイル
+`room-conversation.ts`, `room-runtime.ts`, `rooms.ts`, `types.ts`, `room-handoff-tool.ts`, `RoomView.tsx`, `docs/bot-room-conversations.md` + テスト
+
+### 検証
+room-conversation 55 / room-runtime 42 / rooms 12 / prompt route 51 = 160 PASS。typecheck OK。
+
+### ブランチ / PR
+`cursor/room-mention-implicit-handoff-952a` / https://github.com/daihaya000/LeafCodePi/pull/1
+実装 SHA: `28fb0973`
+
+---
+
 ## 2026-09-10: バグハント loop — Ctrl+Enter / room signature / goal-loop resume
 
 ### 修正・改善
