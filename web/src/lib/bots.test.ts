@@ -41,6 +41,7 @@ describe("bot runtime context", () => {
     expect(context).toContain("reproduce, diagnose, fix, test, and recheck until the goal is met or a concrete blocker is found");
     expect(context).toContain("Ask only when unresolved ambiguity would materially change the target, outcome, or safety");
     expect(context).toContain("Inferred context does not authorize changes during a consultation or bypass approval, permission, or workspace boundaries");
+    expect(context).toContain("Use update_soul only when the user explicitly asks you to change your own SOUL.md");
   });
 });
 

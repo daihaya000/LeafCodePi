@@ -16,6 +16,7 @@ import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspac
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, getBot } from "@/lib/bots";
 import { codePromptSources } from "@/lib/agents-md";
 import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
+import { BOT_SOUL_TOOL, botSoulTool } from "@/lib/pi/bot-soul-tool";
 import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
 import { ROOM_SYSTEM_PROMPT, roomBotPrompt } from "@/lib/room-conversation";
 import { requestWebUiPermission } from "@/lib/pi/webui-permission-bridge";
@@ -372,6 +373,8 @@ type LiveRuntime = {
   } | null;
   /** Restore the user's retry setting after suppressing a duplicate limit retry. */
   restoreAutoRetry: boolean;
+  /** Recreate this Bot session after update_soul so the next turn reads the new file. */
+  soulReloadPending: boolean;
 };
 
 function messageContext(live: LiveRuntime): MessageAccountContext {
@@ -1657,6 +1660,7 @@ async function attachSession(
     reasoningFallbackTried: false,
     pendingProviderFallback: existing?.pendingProviderFallback ?? null,
     restoreAutoRetry: false,
+    soulReloadPending: existing?.soulReloadPending ?? false,
   };
 
   const unsubscribe = session.subscribe((event) => {
@@ -1746,7 +1750,16 @@ async function attachSession(
       }
       const goalLoopTurnActive = live.goalLoopTurnActive;
       live.goalLoopTurnActive = false;
-      if (!goalLoopTurnActive) scheduleAutoCompaction(live);
+      const soulReloadPending = live.soulReloadPending;
+      live.soulReloadPending = false;
+      if (soulReloadPending) {
+        // Wait until the SDK has finished dispatching agent_settled before disposing the session.
+        setTimeout(() => {
+          if (state().live.get(taskId) === live) resetTaskSession(taskId);
+        }, 0);
+      } else if (!goalLoopTurnActive) {
+        scheduleAutoCompaction(live);
+      }
       const pending = live.pendingProviderFallback;
       live.pendingProviderFallback = null;
       if (pending && pending.modelID) {
@@ -2224,6 +2237,9 @@ async function createSession(options: {
   const sessionTask = options.taskId ? getTask(options.taskId) : undefined;
   const botCodeTaskId = isBotCodeOriginTask(sessionTask) ? options.taskId : undefined;
   const roomHandoffTaskId = roomForCodeOrigin(sessionTask) ? options.taskId : undefined;
+  const botSoulBotId =
+    sessionTask?.kind === "bot" && sessionTask.botId ? sessionTask.botId : undefined;
+  const botSoulTaskId = botSoulBotId ? options.taskId : undefined;
   const pi = await loadPi();
   await ensureRuntime();
   const agentDir = pi.getAgentDir();
@@ -2286,6 +2302,12 @@ async function createSession(options: {
           systemPrompt: `${event.systemPrompt}\n\n${runtimeClockContext()}`,
         }));
       },
+      ...(botSoulBotId
+        ? [botSoulTool(botSoulBotId, () => {
+            const live = botSoulTaskId ? state().live.get(botSoulTaskId) : undefined;
+            if (live) live.soulReloadPending = true;
+          })]
+        : []),
       botToolAllowlist
         ? (api: ExtensionAPI) => registerDeferredTools(api, botToolAllowlist)
         : registerDeferredTools,
@@ -2377,7 +2399,12 @@ async function createSession(options: {
   const registeredTools = options.botTools
     ? BOT_TOOL_NAMES.filter((tool) => tool !== "powershell" || process.platform === "win32")
     : configuredTools;
-  const tools = [...new Set([...registeredTools, ...(botCodeTaskId ? [BOT_CODE_TOOL] : []), ...(roomHandoffTaskId ? [ROOM_HANDOFF_TOOL] : [])])];
+  const tools = [...new Set([
+    ...registeredTools,
+    ...(botSoulBotId ? [BOT_SOUL_TOOL] : []),
+    ...(botCodeTaskId ? [BOT_CODE_TOOL] : []),
+    ...(roomHandoffTaskId ? [ROOM_HANDOFF_TOOL] : []),
+  ])];
   const result = await pi.createAgentSession({
     cwd: options.cwd,
     agentDir,

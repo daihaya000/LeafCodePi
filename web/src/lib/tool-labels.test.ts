@@ -27,6 +27,7 @@ describe("toolLabel", () => {
     expect(toolLabel("source_check")).toBe("出典確認");
     expect(toolLabel("fetch_content")).toBe("Web取得");
     expect(toolLabel("get_search_content")).toBe("検索結果取得");
+    expect(toolLabel("update_soul")).toBe("SOUL更新");
     expect(toolLabel("contact_supervisor")).toBe("親エージェント連絡");
     expect(toolLabel("subagent_wait")).toBe("サブエージェント待機");
     expect(toolLabel("structured_output")).toBe("構造化出力");
@@ -47,7 +48,7 @@ describe("toolLabel", () => {
   });
 
   it("marks mutating tools as write-capable and inspection tools as read-only", () => {
-    expect(["write", "edit", "bash", "powershell", "memory_add", "memory_replace", "memory_remove", "skill_manage", "subagent", "todowrite"].every(isWriteTool)).toBe(true);
+    expect(["write", "edit", "bash", "powershell", "memory_add", "memory_replace", "memory_remove", "skill_manage", "subagent", "todowrite", "update_soul"].every(isWriteTool)).toBe(true);
     expect(["read", "grep", "find", "ls", "memory_search", "web_search", "intercom"].some(isWriteTool)).toBe(false);
   });
 

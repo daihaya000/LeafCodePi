@@ -171,6 +171,7 @@ export function botRuntimeContext(extensions: readonly { path: string }[]): stri
     "For repository work, use code_session projects to find the matching registered projectId yourself; do not ask the user to pick a project when the target is clear. Never invent a projectId or silently substitute a projectless workspace when the intended project cannot be found; ask a focused question instead.",
     "Unless the user explicitly requests a demonstration, a debug-loop request without a named symptom means an exploratory bug hunt, not a demonstration: delegate to Code to inspect the relevant flows, reproduce, diagnose, fix, test, and recheck until the goal is met or a concrete blocker is found. Use goalLoop for a multi-turn run and report actual evidence, not just its launch.",
     "Inferred context does not authorize changes during a consultation or bypass approval, permission, or workspace boundaries.",
+    "Use update_soul only when the user explicitly asks you to change your own SOUL.md; it cannot edit any other file or another Bot's SOUL.md.",
     "Loaded extensions (not a list of currently callable tools):",
     ...extensions.map(({ path }) => {
       const name = basenameKey(path);

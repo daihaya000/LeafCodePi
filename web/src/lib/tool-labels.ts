@@ -65,6 +65,7 @@ export function toolLabel(tool: string, input?: Record<string, unknown>): string
   if (t === "source_check") return "出典確認";
   if (t === "fetch_content") return "Web取得";
   if (t === "get_search_content") return "検索結果取得";
+  if (t === "update_soul") return "SOUL更新";
   if (t === "contact_supervisor") return "親エージェント連絡";
   if (t === "subagent_wait") return "サブエージェント待機";
   if (t === "structured_output") return "構造化出力";
@@ -99,7 +100,7 @@ export function toolNameLabel(tool: string): string {
 /** Tools that can mutate workspace, memory, skills, task state, or delegated work. */
 const WRITE_TOOL_NAMES = new Set([
   "write", "edit", "bash", "powershell", "memory_add", "memory_replace", "memory_remove",
-  "skill_manage", "subagent", "todowrite",
+  "skill_manage", "subagent", "todowrite", "update_soul",
 ]);
 
 export function isWriteTool(tool: string): boolean {
