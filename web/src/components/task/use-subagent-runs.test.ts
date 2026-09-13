@@ -1,8 +1,15 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment happy-dom
+import { act, cleanup, renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const { getJson } = vi.hoisted(() => ({ getJson: vi.fn() }));
+vi.mock("@/lib/client", () => ({ getJson }));
+
 import {
   matchSubagentRuns,
   sameSubagentRuns,
   subagentAgentNames,
+  useSubagentRuns,
 } from "./use-subagent-runs";
 import type { SubagentRunDto } from "@/lib/types";
 
@@ -47,6 +54,51 @@ describe("matchSubagentRuns", () => {
 
   it("keeps every run in the time window when nothing matches", () => {
     expect(matchSubagentRuns(runs, [], ["other"]).map((r) => r.runId)).toEqual(["r1", "r2"]);
+  });
+});
+
+describe("useSubagentRuns", () => {
+  afterEach(() => {
+    cleanup();
+    getJson.mockReset();
+  });
+
+  it("clears runs from the previous task before the next response arrives", async () => {
+    let resolveNext!: (value: { runs: SubagentRunDto[] }) => void;
+    const nextResponse = new Promise<{ runs: SubagentRunDto[] }>((resolve) => {
+      resolveNext = resolve;
+    });
+    getJson.mockImplementation((path: string) =>
+      path.includes("task-a")
+        ? Promise.resolve({ runs: [run("r1", "programmer")] })
+        : nextResponse,
+    );
+
+    const initialProps = {
+      taskId: "task-a",
+      enabled: true,
+      live: false,
+      runIds: [] as string[],
+      agentNames: [] as string[],
+    };
+    const { result, rerender } = renderHook((props) => useSubagentRuns(props), {
+      initialProps,
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.runs.map((item) => item.runId)).toEqual(["r1"]);
+
+    await act(async () => {
+      rerender({ ...initialProps, taskId: "task-b" });
+    });
+    expect(result.current.runs).toEqual([]);
+    expect(result.current.loading).toBe(true);
+
+    await act(async () => {
+      resolveNext({ runs: [] });
+      await Promise.resolve();
+    });
   });
 });
 

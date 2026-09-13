@@ -94,12 +94,22 @@ export function useSubagentRuns(input: {
   const runIdsKey = (input.runIds ?? []).join(",");
   const agentKey = (input.agentNames ?? []).join(",");
   const { taskId, enabled, live, sinceMs } = input;
+  const stateKey = `${taskId ?? ""}\u0000${enabled ? "1" : "0"}\u0000${sinceMs ?? ""}`;
+  const stateKeyRef = useRef(stateKey);
 
   useEffect(() => {
-    if (!enabled || !taskId) return;
-    // タスク・有効化の切り替えでリセットし、初回取得まで loading を表示する
-    // （loadedRef はモジュール内 ref でタブ再利用時に前タスクの状態が残る）。
-    loadedRef.current = false;
+    const contextChanged = stateKeyRef.current !== stateKey;
+    stateKeyRef.current = stateKey;
+    if (contextChanged) {
+      // タスク切り替え前の実行を、新しいタスクの取得完了まで表示しない。
+      loadedRef.current = false;
+      setRuns([]);
+      setError(null);
+    }
+    if (!enabled || !taskId) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     const query = sinceMs !== undefined ? `?since=${Math.floor(sinceMs)}` : "";
 
@@ -142,7 +152,7 @@ export function useSubagentRuns(input: {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [taskId, enabled, live, sinceMs]);
+  }, [taskId, enabled, live, sinceMs, stateKey]);
 
   const matched = useMemo(
     () =>
