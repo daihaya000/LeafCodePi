@@ -41,7 +41,14 @@ describe("tts-backends", () => {
             { id: 2, name: "歌", type: "sing" },
           ],
         },
-        { name: "別モデル", styles: [{ id: 1, name: "重複", type: "talk" }, { id: "3", name: "静か" }] },
+        {
+          name: "別モデル",
+          styles: [
+            { id: 1, name: "重複", type: "talk" },
+            { id: "3", name: "静か", type: "talk" },
+            { id: 4, name: "種別なし" },
+          ],
+        },
       ]),
       [
         { id: "1", label: "追加モデル / ノーマル" },

@@ -112,7 +112,7 @@ export function parseAivisSpeakers(payload: unknown): TtsVoiceOption[] {
       if (!style || typeof style !== "object") continue;
       const styleRecord = style as { id?: unknown; name?: unknown; type?: unknown };
       // AivisSpeech also exposes singing styles, which are not valid for /audio_query.
-      if (styleRecord.type !== undefined && styleRecord.type !== "talk") continue;
+      if (styleRecord.type !== "talk") continue;
       const id = typeof styleRecord.id === "number" && Number.isSafeInteger(styleRecord.id)
         ? String(styleRecord.id)
         : typeof styleRecord.id === "string" ? styleRecord.id.trim() : "";
