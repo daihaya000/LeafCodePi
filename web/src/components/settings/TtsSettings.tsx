@@ -137,7 +137,7 @@ export function TtsSettings() {
   const backend = getTtsBackend(backendId);
 
   useEffect(() => {
-    if (!ready || backendId !== "aivis") {
+    if (!ready || busy || backendId !== "aivis") {
       setAivisVoices(null);
       return;
     }
@@ -153,7 +153,7 @@ export function TtsSettings() {
     return () => {
       currentRequest = false;
     };
-  }, [backendId, current.url, ready, voiceReload]);
+  }, [backendId, busy, current.url, ready, voiceReload]);
 
   const voices = useMemo(
     () => backendId === "aivis" && aivisVoices !== null ? aivisVoices : backend?.voices ?? [],

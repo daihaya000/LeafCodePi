@@ -7,9 +7,6 @@ import {
   type TtsVoicesDto,
 } from "@/lib/tts-backends";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 const FETCH_TIMEOUT_MS = 2500;
 
 /** Return the installed AivisSpeech styles without exposing the engine's raw metadata. */
