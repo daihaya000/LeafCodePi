@@ -739,6 +739,19 @@ describe("retargetActiveTab", () => {
     expect(retargetActiveTab(base, "a")).toBe(base);
   });
 
+  it.each([HOME_TAB_ID, SETTINGS_TAB_ID, "/bots/one"])("ペイン分割優先時は%sを新しいペインで開く", (target) => {
+    const base = state(pane(P1, ["existing"]));
+    const next = retargetActiveTab(base, target, { preferNewPane: true });
+    expect(next.panes.map((pane) => pane.tabs)).toEqual([["existing"], [target]]);
+  });
+
+  it("ペイン分割優先OFFでは設定を従来のタブで開く", () => {
+    const base = state(pane(P1, ["existing"]));
+    const next = retargetActiveTab(base, SETTINGS_TAB_ID, { preferNewPane: false });
+    expect(next.panes).toHaveLength(1);
+    expect(next.panes[0].tabs).toEqual(["existing", SETTINGS_TAB_ID]);
+  });
+
   it("Home タブを残して実タスクを新しいペインで開く", () => {
     const base = state(pane(P1, [HOME_TAB_ID]));
     const next = retargetActiveTab(base, "fresh");

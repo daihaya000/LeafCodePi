@@ -853,7 +853,7 @@ export function isSplitHostPath(pathname: string | null | undefined): boolean {
 
 /**
  * アクティブタブを urlTaskId へ向けた新 state を返す（URL → panes 反映用）。
- * 新規セッション・Bot画面と Home は、ペイン上限までは新しいペインで開く。新規セッションを
+ * 新規セッション・設定・Bot画面と Home は、ペイン上限までは新しいペインで開く。新規セッションを
  * HomeView から開く場合は Home タブを残す。上限時は従来どおり panes[0] へタブ追加し、
  * 満杯なら最も古いタブを置き換える。
  * 変更不要なら同一参照を返す。
@@ -865,8 +865,7 @@ export function retargetActiveTab(
   urlTaskId: string,
   options: { preferNewPane?: boolean } = {},
 ): TaskPanesState {
-  const sessionTab = urlTaskId !== HOME_TAB_ID && urlTaskId !== SETTINGS_TAB_ID;
-  const preferNewPane = options.preferNewPane !== false && (urlTaskId === HOME_TAB_ID || sessionTab);
+  const preferNewPane = options.preferNewPane !== false;
 
   // 新規作成（Home）タブは入口。新規ペインで実タスクを開くときは Home を残す。
   if (urlTaskId !== HOME_TAB_ID) {
