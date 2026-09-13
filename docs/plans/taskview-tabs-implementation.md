@@ -2,7 +2,7 @@
 
 **仕様:** [`docs/specs/taskview-tabs.md`](../specs/taskview-tabs.md)
 
-**ゴール:** `/task/*` に複数タスクをタブで開き、最大 4 ペインまで分割できるようにする。ペイン単位の split tree と各ノードの方向を localStorage に永続化し、1 ペイン × 1 タブでは現行と完全同等の見た目を維持する。
+**ゴール:** `/task/*` に複数タスクをタブで開き、最大 4 ペインまで分割できるようにする。ペイン単位の split tree と各ノードの方向を localStorage に永続化し、1 ペイン × 1 タブでもタブバーを表示する。
 
 **技術:** Next.js（App Router）、React、TypeScript、Vitest（node 環境・Testing Library なし）。DB / settings API は使わない。
 
@@ -158,7 +158,7 @@ type Action =
 - `npm --prefix web test`（全 vitest）
 - `npm test`（web + host）
 - 手動確認リスト:
-  1. 1 ペイン × 1 タブ = 現行同等（タブバー非表示）
+  1. 1 ペイン × 1 タブでもタブバーを表示し、タブ操作を利用できる
   2. 複数タブ開く → 切替・閉じる・並び替え・Composer テキスト保持
   3. 2〜4 ペイン分割・端ドロップごとの局所方向（4 ペインでも 2x2 固定なし）
   4. リロードで構成復元・直リンク (`/task/[id]`) で URL 優先

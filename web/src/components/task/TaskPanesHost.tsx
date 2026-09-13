@@ -313,23 +313,21 @@ function PaneSection({
           onClick={onShowWorkingTasks}
           className="m-1"
         />
-        {!single && (
-          <div className="min-w-0 flex-1">
-            <TaskTabs
-              pane={pane}
-              isActivePane={isActivePane}
-              canAddPane={canAddPane}
-              showAddButton={pane.id === lastPaneId}
-              onActivateTab={(taskId) => onActivateTab(pane.id, taskId)}
-              onCloseTab={(taskId) => onCloseTab(pane.id, taskId)}
-              onClearPane={() => onClearPane(pane.id)}
-              onReorderTabs={(tabs) => onReorderTabs(pane.id, tabs)}
-              onMoveTab={onMoveTab}
-              onAddPane={onAddPane}
-              onOpenHome={() => onOpenHome(pane.id)}
-            />
-          </div>
-        )}
+        <div className="min-w-0 flex-1">
+          <TaskTabs
+            pane={pane}
+            isActivePane={isActivePane}
+            canAddPane={canAddPane}
+            showAddButton={pane.id === lastPaneId}
+            onActivateTab={(taskId) => onActivateTab(pane.id, taskId)}
+            onCloseTab={(taskId) => onCloseTab(pane.id, taskId)}
+            onClearPane={() => onClearPane(pane.id)}
+            onReorderTabs={(tabs) => onReorderTabs(pane.id, tabs)}
+            onMoveTab={onMoveTab}
+            onAddPane={onAddPane}
+            onOpenHome={() => onOpenHome(pane.id)}
+          />
+        </div>
       </div>
       {isActivePane && (
         <span
@@ -398,7 +396,6 @@ function PaneSection({
               mdUp={mdUp}
               active={isActiveTab}
               onStatus={reportStatus}
-              onAddPane={single && canAddPane ? onAddPane : undefined}
             />
           </div>
         );
@@ -467,7 +464,7 @@ function PaneLayoutBranch({ layout, ...props }: PaneBranchProps & { layout: Pane
  *
  * hidden mount（仕様 §4）: 各ペイン内の全タブの TaskView を render し、
  * 非アクティブは CSS hidden。key={taskId} でインスタンスと SSE を維持する。
- * 1 ペイン × 1 タブではタブバーを表示しない（仕様 §1 の従来通り）。
+ * 1 ペイン × 1 タブでもタブバーを表示し、タブ操作を常に利用できる。
  */
 export function TaskPanesHost() {
   const { state, dispatch, retargetToUrl, activeTaskId, mdUp } = useTaskPanesNavigation();
@@ -600,7 +597,7 @@ export function TaskPanesHost() {
     state.panes.find((pane) => pane.id === state.activePaneId)?.id ?? state.panes[0]?.id ?? null;
   if (!activePaneId) return null;
 
-  // Home タブだけの単一ペインでもタブバーを出す（+ でタスクを新規作成する入口のため）。
+  // 単一タブでもタブバーを表示する。single は従来の単一Codeタスクの枠線調整に使う。
   const single =
     state.panes.length === 1 &&
     state.panes[0].tabs.length <= 1 &&

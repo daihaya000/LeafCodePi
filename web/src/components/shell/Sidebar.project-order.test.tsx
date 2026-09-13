@@ -136,6 +136,21 @@ describe("Sidebar project ordering", () => {
     expect(modeButtons[0]?.getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("switches from Code to Bot without opening the Bot home", async () => {
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Code" }).getAttribute("aria-pressed")).toBe("true");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Bot" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Bot" }).getAttribute("aria-pressed")).toBe("true");
+    });
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(localStorage.getItem("leafcodepi.mode")).toBe("bot");
+  });
+
   it("進行中タスクをワンクリックで分割表示する", async () => {
     const workingTasks = [
       {

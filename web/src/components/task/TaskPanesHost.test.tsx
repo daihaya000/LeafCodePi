@@ -38,7 +38,14 @@ vi.mock("next/dynamic", () => ({
 }));
 vi.mock("./TaskTabs", () => ({
   paneLayoutClass: () => "layout",
-  TaskTabs: () => null,
+  TaskTabs: ({ pane }: { pane: TaskPanesState["panes"][number] }) => (
+    <div
+      role="tablist"
+      aria-label="タスクと設定のタブ"
+      data-testid="task-tabs"
+      data-tabs={pane.tabs.join(",")}
+    />
+  ),
 }));
 vi.mock("@/components/ui", () => ({
   cx: (...values: unknown[]) => values.filter(Boolean).join(" "),
@@ -134,6 +141,32 @@ describe("TaskPanesHost lazy tab mounting", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("単一タブのCode・Home・設定・Bot一覧でもタブバーを表示する", () => {
+    const cases = [
+      { pathname: "/task/active", tabId: "active" },
+      { pathname: "/", tabId: "home" },
+      { pathname: "/settings", tabId: "settings" },
+      { pathname: "/bots", tabId: "/bots" },
+    ] as const;
+
+    for (const { pathname, tabId } of cases) {
+      mocks.usePathname.mockReturnValue(pathname);
+      const state: TaskPanesState = {
+        panes: [{ id: "pane-1", tabs: [tabId], activeTabId: tabId }],
+        activePaneId: "pane-1",
+      };
+      mocks.useTaskPanes.mockReturnValue({
+        ...mocks.useTaskPanes(),
+        state,
+        activeTaskId: tabId,
+      });
+
+      const view = render(<TaskPanesHost />);
+      expect(screen.getByTestId("task-tabs").getAttribute("data-tabs")).toBe(tabId);
+      view.unmount();
+    }
   });
 
   it("Bot tabs retain hidden mounts and receive visibility", async () => {

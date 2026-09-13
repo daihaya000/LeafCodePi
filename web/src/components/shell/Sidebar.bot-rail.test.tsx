@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   sendJson: vi.fn(),
   push: vi.fn(),
   botStatus: "idle" as "idle" | "working",
+  paneMdUp: true,
   dispatch: vi.fn(),
   usePathname: vi.fn(() => "/bots"),
 }));
@@ -30,7 +31,7 @@ vi.mock("@/components/shell/TaskPanesContext", () => ({
   useTaskPanesNavigation: () => ({
     activeTaskId: null,
     dispatch: mocks.dispatch,
-    mdUp: true,
+    mdUp: mocks.paneMdUp,
     splitHostEnabled: false,
     retargetToUrl: vi.fn(),
   }),
@@ -71,6 +72,7 @@ beforeEach(() => {
   mocks.push.mockReset();
   mocks.dispatch.mockReset();
   mocks.botStatus = "idle";
+  mocks.paneMdUp = true;
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query.includes("min-width"),
     media: query,
@@ -89,13 +91,29 @@ afterEach(() => {
 describe("Bot mode list", () => {
   it("switches to Code without navigating to the Code home", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
+    mocks.usePathname.mockReturnValue("/");
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Code" }));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Code" })).toHaveAttribute("aria-pressed", "true"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Code" }).getAttribute("aria-pressed")).toBe("true"));
     expect(mocks.push).not.toHaveBeenCalled();
     expect(localStorage.getItem("leafcodepi.mode")).toBe("code");
+  });
+
+  it("navigates to the Bot home when panes are unavailable", async () => {
+    localStorage.setItem("leafcodepi.mode", "code");
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    mocks.paneMdUp = false;
+    mocks.usePathname.mockReturnValue("/");
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Code" }).getAttribute("aria-pressed")).toBe("true");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Bot" }));
+
+    expect(mocks.push).toHaveBeenCalledWith("/bots");
   });
 
   it("skips Bot polling while the document is hidden", async () => {

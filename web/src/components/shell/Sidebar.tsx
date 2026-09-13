@@ -1017,7 +1017,9 @@ const SidebarView = memo(function SidebarView({
   const changeMode = useCallback((next: AppMode) => {
     setMode(next);
     try { localStorage.setItem(MODE_KEY, next); } catch { /* ignore */ }
-  }, []);
+    // デスクトップは現在のペインを維持し、モバイルだけ従来どおりモードの入口へ遷移する。
+    if (!paneMdUp) router.push(next === "bot" ? "/bots" : "/");
+  }, [paneMdUp, router]);
 
   useEffect(() => {
     const intervalMs = hasWorking ? POLL_WORKING_MS : POLL_IDLE_MS;
