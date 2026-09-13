@@ -15,10 +15,10 @@ Bot モードで「進行中タスクを分割」すると、本来 BotView（�
 - `isBotTabId` と Room opener / Auto / BOT_INTERCOM_BRIDGE は未変更
 
 ### 検証
-task-panes.bot / TaskPanesHost / Sidebar.bot-rail の分割・描画回帰
+task-panes.bot 9 / task-panes 84 / TaskPanesHost 9 / Sidebar.bot-rail 14 / Sidebar.project-order 19 / TaskPanesContext 17 = 152 PASS
 
-### ブランチ
-`cursor/bot-split-keeps-botview-8e17`
+### ブランチ / PR
+`cursor/bot-split-keeps-botview-8e17` / https://github.com/daihaya000/LeafCodePi/pull/2
 
 ---
 
