@@ -87,6 +87,17 @@ afterEach(() => {
 });
 
 describe("Bot mode list", () => {
+  it("switches to Code without navigating to the Code home", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Code" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Code" })).toHaveAttribute("aria-pressed", "true"));
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(localStorage.getItem("leafcodepi.mode")).toBe("code");
+  });
+
   it("skips Bot polling while the document is hidden", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");

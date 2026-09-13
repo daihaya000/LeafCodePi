@@ -1017,8 +1017,7 @@ const SidebarView = memo(function SidebarView({
   const changeMode = useCallback((next: AppMode) => {
     setMode(next);
     try { localStorage.setItem(MODE_KEY, next); } catch { /* ignore */ }
-    router.push(next === "bot" ? "/bots" : "/");
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     const intervalMs = hasWorking ? POLL_WORKING_MS : POLL_IDLE_MS;
