@@ -321,7 +321,7 @@ export function SettingsView() {
               <SettingsGroup
                 id="engine-display-heading"
                 title="表示と通知"
-                description="表示、通知音、メッセージ移動ボタンを設定します。"
+                description="表示、通知音、メッセージ移動ボタン、セッション開始時のペイン動作を設定します。"
               >
                 <div className="grid gap-4 xl:grid-cols-2">
                   <BrowserSettings />

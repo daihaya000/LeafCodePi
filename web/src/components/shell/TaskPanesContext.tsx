@@ -21,6 +21,7 @@ import {
   SETTINGS_TAB_ID,
   removeTaskEverywhere,
   restoreTaskPanesForUrl,
+  readPreferNewPane,
   retargetActiveTab,
   saveTaskPanes,
   tabIdFromPathname,
@@ -673,7 +674,10 @@ function trackLatestState(state: TaskPanesState): TaskPanesState {
 function retargetAction(taskId: string): TaskPanesAction {
   const base = latestStateForRetarget;
   if (!base) return { type: "replace", state: createState(taskId) };
-  return { type: "replace", state: retargetActiveTab(base, taskId) };
+  return {
+    type: "replace",
+    state: retargetActiveTab(base, taskId, { preferNewPane: readPreferNewPane() }),
+  };
 }
 
 export function useTaskPanes(): TaskPanesContextValue {

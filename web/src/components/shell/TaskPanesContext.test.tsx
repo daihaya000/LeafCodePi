@@ -67,6 +67,11 @@ function RetargetHomeProbe() {
   );
 }
 
+function RetargetTaskProbe() {
+  const { retargetToUrl } = useTaskPanes();
+  return <button onClick={() => retargetToUrl("new-task")}>open new task</button>;
+}
+
 describe("TaskPanesProvider", () => {
   let matches = false;
   let mediaListeners: Array<(event: MediaQueryListEvent) => void>;
@@ -518,6 +523,36 @@ describe("TaskPanesProvider", () => {
     });
     expect(window.location.pathname).toBe("/");
     expect(window.location.search).toBe("?projectId=project-1");
+  });
+
+  it("設定をオフにすると新規セッションを従来のタブで開く", async () => {
+    matches = true;
+    mocks.usePathname.mockReturnValue("/");
+    localStorage.setItem("webui:task-pane-prefer-new", "0");
+    localStorage.setItem(
+      TASK_PANES_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        panes: [{ id: "home-pane", tabs: ["home"], activeTabId: "home" }],
+        activePaneId: "home-pane",
+      }),
+    );
+
+    render(
+      <TaskPanesProvider>
+        <Probe />
+        <RetargetTaskProbe />
+      </TaskPanesProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("state").textContent).toBe("true:home");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "open new task" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("state").textContent).toBe("true:new-task");
+    });
+    expect(window.location.pathname).toBe("/task/new-task");
   });
 
   it("keeps an archived history tab after an unrelated tasks-changed event", async () => {

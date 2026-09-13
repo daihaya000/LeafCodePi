@@ -11,6 +11,9 @@
 export const MAX_PANES = 4;
 export const MAX_TABS_PER_PANE = 5;
 export const TASK_PANES_STORAGE_KEY = "webui:task-panes";
+export const TASK_PANE_PREFER_NEW_EVENT = "webui:task-pane-prefer-new";
+export const DEFAULT_PREFER_NEW_PANE = true;
+const TASK_PANE_PREFER_NEW_STORAGE_KEY = "webui:task-pane-prefer-new";
 /** 新規作成（HomeView）を表す特殊タブID。タスク ID 空間と衝突しない固定値。 */
 export const HOME_TAB_ID = "home";
 /** 設定画面を表す特殊タブID。タスクと同じペイン・タブで保持する。 */
@@ -789,6 +792,39 @@ export function saveTaskPanes(state: TaskPanesState): void {
   } catch {
     /* ignore */
   }
+}
+
+/** 新規セッションを新しいペインで開くかどうかのブラウザ設定。 */
+export function readPreferNewPane(): boolean {
+  if (typeof window === "undefined") return DEFAULT_PREFER_NEW_PANE;
+  try {
+    return localStorage.getItem(TASK_PANE_PREFER_NEW_STORAGE_KEY) !== "0";
+  } catch {
+    return DEFAULT_PREFER_NEW_PANE;
+  }
+}
+
+export function writePreferNewPane(preferNewPane: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(TASK_PANE_PREFER_NEW_STORAGE_KEY, preferNewPane ? "1" : "0");
+    window.dispatchEvent(new CustomEvent(TASK_PANE_PREFER_NEW_EVENT));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function subscribePreferNewPane(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === TASK_PANE_PREFER_NEW_STORAGE_KEY || event.key === null) listener();
+  };
+  window.addEventListener(TASK_PANE_PREFER_NEW_EVENT, listener);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(TASK_PANE_PREFER_NEW_EVENT, listener);
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 /** URL パスから taskId を取り出す（/task/<id> 形式のみ）。 */

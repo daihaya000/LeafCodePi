@@ -1,6 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Switch } from "@/components/ui";
+import {
+  DEFAULT_PREFER_NEW_PANE,
+  readPreferNewPane,
+  subscribePreferNewPane,
+  writePreferNewPane,
+} from "@/lib/task-panes";
 import {
   DEFAULT_SCROLL_BUTTON_OPACITY,
   MAX_SCROLL_BUTTON_OPACITY,
@@ -14,9 +21,16 @@ import {
 export function NavigatorSettings() {
   // SSRとの一致を保つため初期値は定数固定とし、mount後にlocalStorageの保存値へ切り替える。
   const [opacity, setOpacity] = useState(DEFAULT_SCROLL_BUTTON_OPACITY);
+  const [preferNewPane, setPreferNewPane] = useState(DEFAULT_PREFER_NEW_PANE);
   useEffect(() => {
     setOpacity(readScrollButtonOpacity());
-    return subscribeScrollButtonOpacity(() => setOpacity(readScrollButtonOpacity()));
+    setPreferNewPane(readPreferNewPane());
+    const unsubscribeOpacity = subscribeScrollButtonOpacity(() => setOpacity(readScrollButtonOpacity()));
+    const unsubscribePane = subscribePreferNewPane(() => setPreferNewPane(readPreferNewPane()));
+    return () => {
+      unsubscribeOpacity();
+      unsubscribePane();
+    };
   }, []);
 
   return (
@@ -50,6 +64,24 @@ export function NavigatorSettings() {
         値を下げると背後のメッセージが見えやすくなります。ホバー時は一時的に不透明になります。
         既定値は{Math.round(DEFAULT_SCROLL_BUTTON_OPACITY * 100)}%です。
       </p>
+      <div className="mt-4 border-t border-border pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm text-text">新規セッションの開き方</p>
+            <p className="mt-1 text-xs text-muted">
+              新規セッションを開くとき、新しいペインと既存タブのどちらを優先するか選びます。
+            </p>
+          </div>
+          <Switch
+            checked={preferNewPane}
+            onChange={() => writePreferNewPane(!preferNewPane)}
+            label="新規セッションを新しいペインで開く"
+          />
+        </div>
+        <p className="mt-2 text-[11px] text-muted" aria-live="polite">
+          現在: {preferNewPane ? "ペイン分割を優先" : "従来のタブ動作"}
+        </p>
+      </div>
     </div>
   );
 }
