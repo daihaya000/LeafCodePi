@@ -284,6 +284,8 @@ describe("SettingsView", () => {
     expect(localGrid?.className).toContain("xl:grid-cols-2");
     expect(localGrid?.children).toHaveLength(2);
     expect(screen.getByRole("heading", { name: "メモリ", level: 2 })).toBeTruthy();
+    const userProfile = screen.getByRole("heading", { name: "USER.md" });
+    expect(userProfile.closest('[role="tabpanel"]')?.id).toBe("settings-panel-engine");
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
     const displaySection = screen.getByRole("heading", { name: "表示と通知" }).closest("section");
     const displayGrid = displaySection?.querySelector(":scope > div.grid");
@@ -325,8 +327,8 @@ describe("SettingsView", () => {
       "エージェント",
       "AGENTS.md",
       "SOUL.md",
-      "USER.md",
     ]);
+    expect(screen.queryByRole("heading", { name: "USER.md" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "メモリ" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "スキル" })).toBeNull();
   });

@@ -345,10 +345,11 @@ export function SettingsView() {
               <SettingsGroup
                 id="extensions-memory-heading"
                 title="メモリ"
-                description="永続メモリの動作、容量、保存タイミングを設定し、保存済みデータを検索します。"
+                description="永続メモリとユーザープロフィールを管理し、容量、保存タイミング、保存済みデータを確認します。"
               >
-                <div id="extensions-memory" className="scroll-mt-24">
+                <div id="extensions-memory" className="scroll-mt-24 space-y-4">
                   <MemorySettings />
+                  <UserMdSettings />
                 </div>
               </SettingsGroup>
             </section>
@@ -417,12 +418,11 @@ export function SettingsView() {
               <SettingsGroup
                 id="agents-instructions-heading"
                 title="共通指示"
-                description="すべてのプロジェクトとセッションに適用する AGENTS.md・SOUL.md・USER.md を編集します。"
+                description="すべてのプロジェクトとセッションに適用する AGENTS.md・SOUL.md を編集します。"
               >
                 <div className="space-y-4">
                   <AgentsMdSettings />
                   <SoulMdSettings />
-                  <UserMdSettings />
                 </div>
               </SettingsGroup>
             </section>
