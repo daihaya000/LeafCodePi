@@ -67,15 +67,15 @@ export function NavigatorSettings() {
       <div className="mt-4 border-t border-border pt-4">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-sm text-text">新規セッションの開き方</p>
+            <p className="text-sm text-text">新規セッション・Botの開き方</p>
             <p className="mt-1 text-xs text-muted">
-              新規セッションを開くとき、新しいペインと既存タブのどちらを優先するか選びます。
+              新規セッションやBot画面を開くとき、新しいペインと既存タブのどちらを優先するか選びます。
             </p>
           </div>
           <Switch
             checked={preferNewPane}
             onChange={() => writePreferNewPane(!preferNewPane)}
-            label="新規セッションを新しいペインで開く"
+            label="新規セッション・Botを新しいペインで開く"
           />
         </div>
         <p className="mt-2 text-[11px] text-muted" aria-live="polite">
