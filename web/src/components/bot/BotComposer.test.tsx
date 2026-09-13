@@ -19,7 +19,7 @@ it("opens the image picker and forwards selected files", () => {
   const input = container.querySelector<HTMLInputElement>('input[type="file"]');
   if (!input) throw new Error("file input was not rendered");
   const click = vi.spyOn(input, "click");
-  fireEvent.click(getByRole("button", { name: "画像を添付" }));
+  fireEvent.click(getByRole("button", { name: "ファイルを添付" }));
   expect(click).toHaveBeenCalledOnce();
   const file = new File(["image"], "image.png", { type: "image/png" });
   fireEvent.change(input, { target: { files: [file] } });

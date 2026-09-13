@@ -551,7 +551,7 @@ export const HomeView = memo(function HomeView({
                 inputRef: fileInputRef,
                 inputDisabled: !canAttachComposerImages({ goalLoopEnabled, submitting }),
                 buttonDisabled: !canAttachComposerImages({ goalLoopEnabled, submitting }),
-                buttonTitle: "画像を添付",
+                buttonTitle: "ファイルを添付",
                 onFilesSelected: addImageFiles,
                 onTrigger: () => fileInputRef.current?.click(),
               }}

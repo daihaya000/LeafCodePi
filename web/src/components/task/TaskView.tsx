@@ -3652,7 +3652,7 @@ export const TaskView = memo(function TaskView({
             inputRef: fileInputRef,
             inputDisabled: !canAttachComposerImages({ goalLoopEnabled, compacting, archived }),
             buttonDisabled: !canAttachComposerImages({ goalLoopEnabled, compacting, archived }),
-            buttonTitle: "画像を添付",
+            buttonTitle: "ファイルを添付",
             onFilesSelected: addImageFiles,
             onTrigger: () => fileInputRef.current?.click(),
           }}

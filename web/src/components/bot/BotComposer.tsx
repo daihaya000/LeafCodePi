@@ -126,7 +126,7 @@ export function BotComposer({
                 event.target.value = "";
               }}
             />
-            <button type="button" disabled={attachmentDisabled || busy} title="画像を添付" aria-label="画像を添付" onClick={() => attachmentInputRef.current?.click()} className={`${COMPOSER_ACTION_BUTTON_CLASS} mb-1 bg-surface-2 text-muted hover:bg-surface-3 hover:text-text`}><Paperclip className="h-4 w-4" /></button>
+            <button type="button" disabled={attachmentDisabled || busy} title="ファイルを添付" aria-label="ファイルを添付" onClick={() => attachmentInputRef.current?.click()} className={`${COMPOSER_ACTION_BUTTON_CLASS} mb-1 bg-surface-2 text-muted hover:bg-surface-3 hover:text-text`}><Paperclip className="h-4 w-4" /></button>
           </>}
           {footer && <button type="button" aria-label="会話のオプション" aria-expanded={optionsOpen} aria-controls={optionsId} onClick={() => setOptionsOpen((open) => !open)} className={`${COMPOSER_ACTION_BUTTON_CLASS} mb-1 bg-surface-2 text-muted hover:bg-surface-3 hover:text-text`}><SlidersHorizontal className="h-4 w-4" /></button>}
           <div className="relative min-w-0 flex-1">
